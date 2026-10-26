@@ -1,13 +1,22 @@
 import AppKit
+import CmuxNextPages
 import WebKit
 
-/// Starts WebKit for the agent pages once the first window frame is committed
-/// (cx-z9kz0): its first-use setup and the shared pool's first web content
-/// process then run before an agent page opened after that frame loads. It
-/// used to run before NSApplication.run, where it held the main thread
+/// Starts WebKit for the agent pages after the first window frame (cx-z9kz0,
+/// p08-startup-017): its first-use setup and the shared pool's first web
+/// content process then run before a later agent page loads. The app posts it
+/// to the first afterFirstFrame slot only when a visible pane shows an agent
+/// chat that opens in WebKit (``newPagesShowInWebKit``), else at afterStartup.
+/// It used to run before NSApplication.run, where it held the main thread
 /// 80-350 ms ahead of the first frame. It does not start once an agent page
 /// was made (that page started WebKit) or the launch settled; the empty page
 /// goes once an agent page has loaded or the launch settled (`LaunchSettle`).
+///
+/// It stays one named main turn (the StartupScheduler records its duration):
+/// there is no off-main path. `WKProcessPool`, `WKWebViewConfiguration` and
+/// `WKWebView` are main-actor types in the SDK (`WK_SWIFT_UI_ACTOR`), and
+/// WebKit's UI-process objects are main-run-loop only, as Chrome's UI-thread
+/// objects are (`content/public/browser/browser_thread.h`).
 ///
 /// It no longer has the pool prewarm a second, page-less web content process
 /// (`-[WKProcessPool _warmInitialProcess]`, cx-z9kz0, #19847). On some Macs
@@ -31,6 +40,15 @@ extension AgentPaneView {
     /// processes, so a fresh store per page could not use the one started here. Storage the
     /// page keys per chat (drafts) stays per chat; the rest is app-wide choices.
     static let sharedDataStore = WKWebsiteDataStore.nonPersistent()
+
+    /// Whether a new agent page shows in WebKit: on the pane's own host, or on
+    /// the page host when its engine decision for the agent page is WebKit (the
+    /// host and options `AgentTabStore` and ``AgentPanePageHost`` pick).
+    public static var newPagesShowInWebKit: Bool {
+        guard AgentPaneTunables.pageHost.value || AgentPaneTunables.chromium.value else { return true }
+        let options = PageEngineOptions(chromiumAgentChat: AgentPaneTunables.chromium.value)
+        return PageWebView.engineDecision(for: .agent, options: options).engine == .webKit
+    }
 
     public static func startWarmup() {
         guard warmupView == nil, !warmupNoLongerNeeded else { return }

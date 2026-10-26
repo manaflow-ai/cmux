@@ -448,6 +448,9 @@ SEED_CHAT_PANE = "last"
 HANG_THRESHOLD_MS = None
 # --startup-complete: each launch also waits (within --timeout) for `startup_complete` and its reason.
 WAIT_STARTUP_COMPLETE = False
+# The marks of the --order terms (and LAUNCH_ORDER in budget mode): each launch also waits (within
+# --timeout) for them, since afterStartup posts (p08-startup-017) mark after the first content.
+ORDER_MARKS = []
 
 
 def state_directories(tag):
@@ -668,6 +671,8 @@ def one_run(tag, mode, timeout, profile=None, temperature=None, purge_cache=purg
         if reached and WAIT_STARTUP_COMPLETE:
             # Startup completes after the first content; the reason mark comes before it on the pipe.
             launch.wait_for(STARTUP_COMPLETE, max(0.0, timeout - (time.monotonic() - started)))
+        if reached and ORDER_MARKS:
+            launch.wait_for(ORDER_MARKS, max(0.0, timeout - (time.monotonic() - started)))
         if HANG_THRESHOLD_MS:
             launch.stalls = launch_stalls(tag)
     finally:
@@ -948,6 +953,8 @@ def main():
     require_gui_session("bench-startup")
     global HANG_THRESHOLD_MS, SEED_FOCUS, SEED_CHAT_PANE, WAIT_STARTUP_COMPLETE
     HANG_THRESHOLD_MS = args.hangs
+    orders = args.order + (LAUNCH_ORDER if args.budget else [])
+    ORDER_MARKS.extend(dict.fromkeys(mark for order in orders for mark in parse_order(order)))
     WAIT_STARTUP_COMPLETE = args.startup_complete
     SEED_FOCUS = args.focus
     SEED_CHAT_PANE = args.chat_pane
@@ -1000,7 +1007,6 @@ def main():
     if args.json:
         with open(args.json, "w") as out:
             json.dump(results, out, indent=1)
-    orders = args.order + (LAUNCH_ORDER if args.budget else [])
     over = check_budgets(results, args.budget) + check_orders(results, orders)
     for line in over:
         print(f"over budget: {line}", file=sys.stderr)

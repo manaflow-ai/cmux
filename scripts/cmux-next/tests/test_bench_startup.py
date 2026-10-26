@@ -286,6 +286,26 @@ class OneRunTests(unittest.TestCase):
         self.assertEqual(waited[1][0], bs.STARTUP_COMPLETE)
         self.assertLessEqual(waited[1][1], 5, "within what is left of the run's one timeout")
 
+    def test_order_marks_keep_the_launch_past_the_first_content(self):
+        # The launch-order marks come from afterStartup posts (p08-startup-017), after the first content.
+        waited = []
+
+        class OrderedLaunch(FakeLaunch):
+            def wait_for(self, mark, timeout, any_of=False):
+                waited.append((list(mark) if isinstance(mark, list) else mark, timeout))
+                return super().wait_for(mark, timeout, any_of)
+
+        bs.Launch = OrderedLaunch
+        bs.tag_pids = lambda tag: [41]
+        saved = list(bs.ORDER_MARKS)
+        try:
+            bs.ORDER_MARKS[:] = ["first_window_frame_committed", "launch.non_paint_services"]
+            bs.one_run("t", "warm", 5)
+        finally:
+            bs.ORDER_MARKS[:] = saved
+        self.assertEqual(waited[-1][0], ["first_window_frame_committed", "launch.non_paint_services"])
+        self.assertLessEqual(waited[-1][1], 5, "within what is left of the run's one timeout")
+
     def test_warm_temperature_purges_nothing(self):
         bs.tag_pids = lambda tag: [41]  # the daemon runs: no priming launch
         bs.one_run("t", "warm", 5, temperature="warm", purge_cache=self.purge)
