@@ -10,6 +10,12 @@ import Testing
 /// as under Reduce Motion, while moves, fades, the flash verb, the attention blink and edit mode's
 /// wiggle keep their normal-mode timing. Normal mode is the policy it was before the saver existed.
 @MainActor @Suite(.serialized) struct MotionEnergySaverTests {
+    /// Field-wise equality: the macOS SDK does not import `CAFrameRateRangeIsEqualToRange` as
+    /// `CAFrameRateRange.isEqual(to:)`, and the type is not Equatable.
+    private static func same(_ lhs: CAFrameRateRange, _ rhs: CAFrameRateRange) -> Bool {
+        lhs.minimum == rhs.minimum && lhs.maximum == rhs.maximum && lhs.preferred == rhs.preferred
+    }
+
     /// Runs `body` with the live switches on, Reduce Motion pinned off, the saver and frame-rate
     /// pacing (feature `frameRateClasses`) set, then puts them back.
     private func with<T>(saver: Bool, paces: Bool = false, _ body: () throws -> T) rethrows -> T {
@@ -87,7 +93,7 @@ import Testing
                         #expect(loop.duration == want.duration && loop.autoreverses == want.autoreverses, "\(category) \(name) timing")
                         #expect(loop.repeatCount == .infinity, "\(category) \(name) stops")
                         let range = paces ? want.paced.range : CAFrameRateRange.default
-                        #expect(loop.preferredFrameRateRange.isEqual(to: range),
+                        #expect(Self.same(loop.preferredFrameRateRange, range),
                                 "\(category) \(name) asks for \(loop.preferredFrameRateRange), not \(range) (pacing \(paces))")
                     }
                 }
