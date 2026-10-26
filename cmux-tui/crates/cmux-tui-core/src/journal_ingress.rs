@@ -642,6 +642,7 @@ impl JournalIngressSender {
         )
     }
 
+    #[track_caller]
     pub(crate) fn send(&self, event: JournalIngressEvent) {
         debug_assert!(event.lane() == JournalLane::Terminal);
         let Some(sender) = &self.terminal_sender else { return };
@@ -709,6 +710,7 @@ impl JournalIngressSender {
         }
     }
 
+    #[track_caller]
     pub(crate) fn send_durable(&self, event: JournalIngressEvent) -> anyhow::Result<()> {
         self.send_durable_until(event, self.durable_deadline())
     }
@@ -717,6 +719,7 @@ impl JournalIngressSender {
         Instant::now() + journal_durable_wait()
     }
 
+    #[track_caller]
     pub(crate) fn send_durable_until(
         &self,
         event: JournalIngressEvent,
@@ -757,10 +760,12 @@ impl JournalIngressSender {
         outcome
     }
 
+    #[track_caller]
     pub(crate) fn flush_terminal(&self) -> anyhow::Result<()> {
         self.send_durable(JournalIngressEvent::TerminalBarrier)
     }
 
+    #[track_caller]
     pub(crate) fn send_producer(
         &self,
         ingress: crate::JournalIngress,
@@ -910,11 +915,16 @@ impl JournalIngressSender {
         &self.state.stats
     }
 
+    /// Queue `event`, waiting for queue space when the lane is full: a
+    /// `journal_wait` on a request thread (`request_path`), noted at the
+    /// caller.
+    #[track_caller]
     fn enqueue(
         &self,
         sender: &SyncSender<QueuedJournalEvent>,
         event: QueuedJournalEvent,
     ) -> Result<(), String> {
+        let site = std::panic::Location::caller();
         let lane = event.event.lane();
         let mut pending = event;
         loop {
@@ -950,10 +960,12 @@ impl JournalIngressSender {
             }
             #[cfg(test)]
             self.state.notify_enqueue_full_for_test();
+            crate::request_path::note_at(crate::request_path::BlockingKind::JournalWait, site);
             self.state.wait_for_queue_space_change(space_epoch)?;
         }
     }
 
+    #[track_caller]
     fn enqueue_until(
         &self,
         sender: &SyncSender<QueuedJournalEvent>,
@@ -964,13 +976,16 @@ impl JournalIngressSender {
     }
 
     /// [`Self::enqueue_until`] that hands the event back when it was not
-    /// queued (deadline, admission closed, writer gone).
+    /// queued (deadline, admission closed, writer gone). A wait for queue
+    /// space is a `journal_wait` (`request_path`), noted at the caller.
+    #[track_caller]
     fn enqueue_until_or_return(
         &self,
         sender: &SyncSender<QueuedJournalEvent>,
         event: QueuedJournalEvent,
         deadline: Instant,
     ) -> Result<(), (String, Box<QueuedJournalEvent>)> {
+        let site = std::panic::Location::caller();
         let lane = event.event.lane();
         let mut pending = event;
         loop {
@@ -1023,6 +1038,7 @@ impl JournalIngressSender {
                     return Err((self.writer_error(), Box::new(event)));
                 }
             }
+            crate::request_path::note_at(crate::request_path::BlockingKind::JournalWait, site);
             if let Err(error) = self.state.wait_for_queue_space_until(space_epoch, deadline) {
                 return Err((error, Box::new(pending)));
             }
@@ -1033,6 +1049,9 @@ impl JournalIngressSender {
         self.state.admission_error().unwrap_or_else(|| "session journal writer stopped".into())
     }
 
+    /// Wait for the writer's receipt: a `journal_wait` on a request thread
+    /// (`request_path`), noted at the caller.
+    #[track_caller]
     fn wait_for_commit_result<T>(
         &self,
         result: &Receiver<Result<T, String>>,
@@ -1040,6 +1059,7 @@ impl JournalIngressSender {
         commit_fence: &AtomicU8,
         operation: &str,
     ) -> anyhow::Result<T> {
+        crate::request_path::note(crate::request_path::BlockingKind::JournalWait);
         match result.recv_timeout(deadline.saturating_duration_since(Instant::now())) {
             Ok(result) => result.map_err(anyhow::Error::msg),
             Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {

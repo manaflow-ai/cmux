@@ -147,7 +147,11 @@ pub struct Sampler {
 
 impl Sampler {
     /// Read what a request needs up front. On Linux this is one `/proc` scan.
+    /// The sampler reads the process table, so it is one `proc_scan` on a
+    /// request thread (`request_path`), noted at the caller.
+    #[track_caller]
     pub fn new() -> Self {
+        crate::request_path::note(crate::request_path::BlockingKind::ProcScan);
         Self { inner: imp::Sampler::new() }
     }
 

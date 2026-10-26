@@ -260,6 +260,11 @@ impl Mux {
         &self.connection_stats
     }
 
+    /// The stats every request scope of this daemon writes to.
+    pub(crate) fn request_path_stats(&self) -> &Arc<crate::request_path::RequestPathStats> {
+        &self.request_path_stats
+    }
+
     pub fn uptime(&self) -> Duration {
         self.started_at.elapsed()
     }

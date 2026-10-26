@@ -197,6 +197,7 @@ impl Mux {
             machine_public_id,
             connection_stats: Arc::default(),
             resource_projection_stats,
+            request_path_stats: crate::request_path::stats_from_env(),
             started_at: Instant::now(),
             state: signaled_mutex::StateMutex::new(state),
             subscribers: MuxEventBroadcaster::default(),

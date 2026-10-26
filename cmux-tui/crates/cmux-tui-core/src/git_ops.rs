@@ -92,6 +92,8 @@ pub(crate) fn dispatch(
     request: ParsedResourceRequest,
 ) -> Result<Value, ResourceError> {
     debug_assert!(handles(request.envelope.operation));
+    // Every git operation runs git to completion on this request thread.
+    crate::request_path::note(crate::request_path::BlockingKind::ChildProcess);
     if checkpoint::handles(request.envelope.operation) {
         return checkpoint::dispatch(mux, request);
     }

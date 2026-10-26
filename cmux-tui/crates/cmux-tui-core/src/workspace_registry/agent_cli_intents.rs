@@ -147,12 +147,14 @@ impl WorkspaceRegistry {
         Ok((read_rows(&db, &actor, i64::try_from(super::unix_epoch_ms()?)?)?, changed))
     }
 
+    #[track_caller]
     pub(crate) fn list_agent_cli_intents(&self, actor: &Actor) -> anyhow::Result<Vec<Value>> {
         self.list_agent_cli_intents_at(actor, i64::try_from(super::unix_epoch_ms()?)?)
     }
 
     /// A blocked family never records, so the read applies the age bound too:
     /// a row no session settled (a closed tab, a reinstalled server) stops blocking.
+    #[track_caller]
     pub(crate) fn list_agent_cli_intents_at(
         &self,
         actor: &Actor,

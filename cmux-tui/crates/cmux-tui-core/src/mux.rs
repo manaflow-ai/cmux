@@ -498,6 +498,8 @@ pub struct Mux {
     connection_stats: Arc<crate::diagnostics::ConnectionStats>,
     /// Clone of the registry's projection spans, read without its lock.
     resource_projection_stats: Arc<crate::diagnostics::ResourceProjectionStats>,
+    /// Blocking notes of request handlers (`server-stats` `request_path_io`).
+    request_path_stats: Arc<crate::request_path::RequestPathStats>,
     started_at: Instant,
     pub(crate) state: signaled_mutex::StateMutex,
     subscribers: MuxEventBroadcaster,

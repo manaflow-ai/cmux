@@ -2931,6 +2931,7 @@ impl WorkspaceRegistry {
         self.resource_effect_pepper.input_receipt_hmac(idempotency_key, operation, canonical_fields)
     }
 
+    #[track_caller]
     pub fn snapshot(&self) -> anyhow::Result<RegistrySnapshot> {
         let revision = current_revision(&self.connection.get())?;
         let resource_revision = current_resource_revision(&self.connection.get())?;
@@ -2992,6 +2993,7 @@ impl WorkspaceRegistry {
     }
 
     /// Read the resource cursor without materializing the workspace graph.
+    #[track_caller]
     pub(crate) fn resource_revision(&self) -> anyhow::Result<u64> {
         current_resource_revision(&self.connection.get())
     }
@@ -3087,12 +3089,14 @@ impl WorkspaceRegistry {
     /// The current terminal registry revision alone. Lookups that only need to
     /// stamp their answer read this instead of materializing every terminal
     /// row while holding the registry lock.
+    #[track_caller]
     pub fn terminal_revision(&self) -> anyhow::Result<u64> {
         current_terminal_revision(&self.connection.get())
     }
 
     /// Includes tombstones and is intended for reconciliation and idempotent
     /// close handling, not frontend materialization.
+    #[track_caller]
     pub fn terminal_record(&self, terminal_id: &str) -> anyhow::Result<Option<RegistryTerminal>> {
         validate_terminal_identity("terminal id", terminal_id)?;
         read_terminal(&self.connection.get(), terminal_id)
@@ -3399,6 +3403,7 @@ impl WorkspaceRegistry {
         )
     }
 
+    #[track_caller]
     pub fn events_after(&self, revision: u64) -> anyhow::Result<Vec<RegistryEvent>> {
         let db = self.connection.get();
         let mut statement = db.prepare(
@@ -3433,6 +3438,7 @@ impl WorkspaceRegistry {
         .collect()
     }
 
+    #[track_caller]
     pub fn get_frontend_projection(
         &self,
         frontend: &str,

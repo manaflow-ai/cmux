@@ -369,6 +369,9 @@ pub(super) fn run_pending_request(
     writer: &MessageWriter,
 ) -> bool {
     let PendingSurfaceRequest { request, _bytes_permit, .. } = pending;
+    // The dispatcher, a clear-history worker or a creation commit runs the
+    // request: a request path like the reader's (`crate::request_path`).
+    let _request_path = crate::request_path::RequestPathScope::enter(mux.request_path_stats());
     handle_request_with_cancellation(mux, client, request, writer, Some(&scheduler.cancelled))
 }
 
