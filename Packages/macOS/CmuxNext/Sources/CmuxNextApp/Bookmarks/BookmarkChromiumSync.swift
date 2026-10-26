@@ -26,23 +26,27 @@ final class BookmarkChromiumSync {
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "bookmarks")
     /// Store to its cmux profile, for stores whose sync waits for the tree to load.
     private var waiting: [String: String] = [:]
-    private var scheduled: [String: DemandTimer] = [:]
-    private var homeObservation: Task<Void, Never>?
+    /// Each store's settle debounce. `background`: Chromium's model serves extensions, which nobody watches redraw.
+    private var scheduled: [String: MainDeadline] = [:]
+    private let mainWork: MainWorkScheduler
+    private let deadlines: MainDeadlineScheduler
+    private var homeObservation: ServiceObservation<String>?
 
     init(service: BookmarkService) {
         self.service = service
+        mainWork = service.services.mainWork
+        deadlines = service.services.mainDeadlines
         bridge.onEvent = { [weak self] profile, store, event in
             self?.handle(event, profile: BrowserProfileRecord.wireID(for: profile), store: store)
         }
-        // task-owner: lives as long as the service; event-driven (Observation).
         // The file becomes the truth once the home daemon answered or gave
-        // up; a reconnect lets a failed read start again.
+        // up; a reconnect lets a failed read start again. A service: the
+        // stores sync whether or not a browser tab shows.
         let home = service.services.machines.local
-        homeObservation = Task { [weak self] in
-            for await _ in ObservationStream({ "\(home.store.identity != nil) \(home.startup) \(home.store.connectionState)" }) {
-                guard let self else { return }
-                retryWaiting()
-            }
+        homeObservation = ServiceObservation(.background, owner: "BookmarkChromiumSync.home", on: mainWork) {
+            "\(home.store.identity != nil) \(home.startup) \(home.store.connectionState)"
+        } apply: { [weak self] _ in
+            self?.retryWaiting()
         }
     }
 
@@ -122,16 +126,25 @@ final class BookmarkChromiumSync {
         }
     }
 
-    /// Syncs `store` once its events have settled for `settle`; a later
-    /// call starts the wait again.
+    /// Syncs `store` in the main thread's idle time once its events have
+    /// settled for `settle`; a later call starts the wait again. The sync
+    /// serializes the whole tree, which is idle work (Chrome's
+    /// `ThreadScheduler::PostIdleTask`, third_party/blink/public/platform/scheduler).
     private func schedule(_ store: String, profile: String) {
         // One debounce per store: a later schedule replaces the pending deadline.
-        let timer = scheduled[store] ?? DemandTimer(owner: "BookmarkChromiumSync.settle")
+        let timer = scheduled[store] ?? MainDeadline(owner: "BookmarkChromiumSync.settle", workClass: .background, scheduler: deadlines)
         scheduled[store] = timer
-        timer.scheduleOnMain(after: Self.settle) { [weak self] in
-            self?.sync(store, profile: profile)
+        timer.schedule(after: Self.settle) { [weak self, mainWork] in
+            mainWork.postIdle(owner: "BookmarkChromiumSync.sync", maxDelay: Self.idleMaxDelay) { [weak self] _ in
+                // An event after the settle started the wait again: that deadline's sync is the one to send.
+                guard let self, self.scheduled[store]?.isScheduled != true else { return }
+                self.sync(store, profile: profile)
+            }
         }
     }
+
+    /// The longest a settled sync waits for idle time before it runs as background work.
+    static let idleMaxDelay: Duration = .seconds(2)
 
     /// Syncs once cmux's tree of `profile` is loaded: a sync before would
     /// empty Chromium's model. Reading the tree starts its fetch, whose

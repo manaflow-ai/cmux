@@ -139,9 +139,9 @@ struct FileExplorerTests {
         let model = await Self.model(try Self.folder())
         let effects = Recorder()
         FileExplorerHandlers.bind(into: services.registry, explorer: { _ in FileExplorerRunTarget(model: model) }, effects: effects)
-        let section = FileExplorerSectionView(model: model, rootFolder: { nil }, perform: { _ in },
+        let section = FileExplorerSectionView(model: model, mainWork: services.mainWork, rootFolder: { nil }, perform: { _ in },
                                               rowMenu: { services.fileExplorers.rowMenu(hasSelection: $0) },
-                                              openWith: FileExplorerOpenWithMenu(registry: services.registry))
+                                              openWith: FileExplorerOpenWithMenu(registry: services.registry, mainWork: services.mainWork))
         let file = try #require(model.rows.first { $0.name == "b.txt" }).url
         model.selection = file
         services.registry.context.remove(.fileExplorerFocused)

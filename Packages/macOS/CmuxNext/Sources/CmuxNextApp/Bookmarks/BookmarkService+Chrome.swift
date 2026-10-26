@@ -6,6 +6,7 @@ import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextIcons
 import CmuxNextSettings
+import CmuxNextWakeups
 import Foundation
 
 /// The omnibar star and the bookmarks bar of every live browser chrome. The
@@ -183,13 +184,13 @@ final class BookmarkBarSourceAdapter: BookmarksBarSource {
 }
 
 extension BookmarkService {
-    /// Follows `browser.showBookmarksBar` in cmux.json.
+    /// Follows `browser.showBookmarksBar` in cmux.json, the current value now. `visible`: the bars of every
+    /// browser chrome show or hide; a person's change flushes before its frame.
     func follow(_ settings: SettingsController) {
-        // task-owner: lives as long as the service; event-driven (Observation)
-        barObservation = Task { [weak self] in
-            for await shown in ObservationStream({ settings.snapshot.browserShowBookmarksBar }) {
-                self?.setBarShown(shown)
-            }
+        barObservation = ServiceObservation(.visible, owner: "BookmarkService.showsBar", on: services.mainWork) {
+            settings.snapshot.browserShowBookmarksBar
+        } apply: { [weak self] shown in
+            self?.setBarShown(shown)
         }
         followFavicons()
         followFolderIcons()

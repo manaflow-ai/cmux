@@ -2,6 +2,7 @@ import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextHistory
 import CmuxNextSettings
+import CmuxNextWakeups
 import Foundation
 import Observation
 import os
@@ -17,7 +18,7 @@ final class CommandHistory {
     private unowned let services: AppServices
     private var mirrors: [String: TerminalCommandMirror] = [:]
     private var refreshing: Task<Void, Never>?
-    private var observation: Task<Void, Never>?
+    private var observation: ServiceObservation<SyncState>?
     /// What each connected daemon was last sent, by machine; a restarted
     /// daemon (new boot generation) starts with recording off and is told again.
     private var sent: [String: Sent] = [:]
@@ -34,22 +35,20 @@ final class CommandHistory {
         self.services = services
     }
 
-    // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
-    // Each handle here is Sendable and stops from any thread: a release off main cleans up too.
-    nonisolated deinit {
-        observation?.cancel()
-    }
-
-    /// Starts keeping the daemons' switch and retention in step with the settings.
+    /// Starts keeping the daemons' switch and retention in step with the settings. Releasing the
+    /// service releases the observation, which stops it. `background`: the daemons are told whether
+    /// or not anything shows; turning recording off still asks at once, a person's change.
     func start(settings: SettingsController) {
         let machines = services.machines
-        observation = Task { [weak self] in
-            for await state in ObservationStream({ Self.state(settings: settings, daemons: machines.daemons) }) {
-                self?.sync(state)
-            }
+        observation = ServiceObservation(.background, owner: "CommandHistory.state", on: services.mainWork) {
+            Self.state(settings: settings, daemons: machines.daemons)
+        } apply: { [weak self] state in
+            self?.sync(state)
         }
     }
 
+    /// What a sync depends on: the two settings and each connected daemon's
+    /// boot generation (its revision for this switch), one value per machine.
     private struct SyncState: Sendable, Equatable {
         var enabled: Bool
         var retentionDays: Int
