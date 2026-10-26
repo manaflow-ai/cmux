@@ -125,6 +125,12 @@ impl Command {
         self
     }
 
+    /// The variables this builder sets (`Some`) or removes (`None`), as
+    /// `std::process::Command::get_envs`.
+    pub fn get_envs(&self) -> impl Iterator<Item = (&OsStr, Option<&OsStr>)> {
+        self.env.iter().map(|(key, value)| (key.as_os_str(), value.as_deref()))
+    }
+
     /// The child's working directory.
     pub fn current_dir(&mut self, dir: impl AsRef<Path>) -> &mut Self {
         self.cwd = Some(dir.as_ref().to_owned());

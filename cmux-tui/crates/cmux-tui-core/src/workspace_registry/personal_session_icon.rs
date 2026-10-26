@@ -18,6 +18,7 @@ impl WorkspaceRegistry {
     /// `session`. An asset icon must name a stored blob, checked in this
     /// transaction so no blob sweep runs in between. Returns the record and
     /// whether anything changed; an unchanged icon commits nothing.
+    #[track_caller]
     pub fn set_session_icon(
         &mut self,
         session: &str,

@@ -141,7 +141,8 @@ struct TraceNamesTests {
         }
         #expect(adopted.value.load(ordering: .relaxed) == 1)
         let path = directory + "/" + TraceRingFile.fileName(role: .app, pid: 4141)
-        let image = try #require(TraceRing.Image(bytes: [UInt8](#require(FileManager.default.contents(atPath: path)))))
+        let bytes = try #require(FileManager.default.contents(atPath: path))
+        let image = try #require(TraceRing.Image(bytes: [UInt8](bytes)))
         #expect(!image.records.isEmpty)
         let wrong = image.records.filter { image.name(of: $0) != "\(texts[Int($0.arg0)])" }
         #expect(wrong.isEmpty, "\(wrong.count) of \(image.records.count) records name another text or none")
@@ -318,7 +319,8 @@ struct TraceNamesTests {
     func goldenTables() throws {
         let path = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
             .appendingPathComponent("Fixtures/ring-v1-golden.cmxtrace").path
-        let image = try #require(TraceRing.Image(bytes: [UInt8](#require(FileManager.default.contents(atPath: path)))))
+        let bytes = try #require(FileManager.default.contents(atPath: path))
+        let image = try #require(TraceRing.Image(bytes: [UInt8](bytes)))
         #expect(image.names.map(\.text) == ["key.frame", "daemon.request", "key", "cmux.io.read"])
         #expect(image.names.map(\.kindCode) == [1, 1, 3, 2])
         #expect(image.threads.map(\.name) == ["main", "cmux-io"])

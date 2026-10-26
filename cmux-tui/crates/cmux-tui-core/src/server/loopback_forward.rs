@@ -886,6 +886,7 @@ fn connect_and_start(
     let mut failure = OpenError::Refused;
     let mut connected = None;
     for address in target.candidates(port) {
+        crate::request_path::note(crate::request_path::BlockingKind::Network);
         match TcpStream::connect_timeout(&address, CONNECT_TIMEOUT) {
             Ok(socket) => {
                 // Defense in depth: the peer must be a loopback address.

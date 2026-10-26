@@ -3,10 +3,13 @@ import CmuxNextTrace
 
 /// Where the page host writes its `webui.*` trace points: the process's ``TraceRuntime`` in the app, a
 /// recorder in tests (``PageWebView`` and ``PageSchemeHandler`` take it as an injected seam).
+/// A begin returns whether it was written (its category was on), as ``TraceRuntime``'s typed points do.
 protocol PageTraceSink: AnyObject {
-    func begin(_ name: SignpostName, arg0: UInt64, arg1: UInt64)
+    @discardableResult
+    func begin(_ name: SignpostName, arg0: UInt64, arg1: UInt64) -> Bool
     func end(_ name: SignpostName, arg0: UInt64, arg1: UInt64)
-    func asyncBegin(_ name: SignpostName, id: UInt64, arg0: UInt64)
+    @discardableResult
+    func asyncBegin(_ name: SignpostName, id: UInt64, arg0: UInt64) -> Bool
     func asyncEnd(_ name: SignpostName, id: UInt64, arg0: UInt64)
 }
 
