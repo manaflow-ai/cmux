@@ -22,10 +22,16 @@ With --suite=app-perf it runs scripts/cmux-next/app-perf.py the same way (app ge
 With --suite=anim-perf it runs scripts/cmux-next/anim-perf-terminal.py (tab, workspace, sidebar, group, Home
 and palette animations at a 120 Hz frame budget).
 
+The summary is the median over rounds (scripts/perf-lab/perf_stats.py through motion_bench_report.median). With
+--story ID (stories.d split-spring) the run also writes cmux-perf-result/v1 into --out through BenchApp.record:
+`split_spring.<right|down>.frame` (every frame interval of the gesture, all rounds together), `.missed` and
+`.resizes_sent` (one value per gesture; a gesture with a refused press is left out); a --story run that writes no
+series fails.
+
 Usage: split-spring-terminal.py --tag <tag> --app PATH [--rounds 3] [--presses 5] [--interval 100]
-       [--directions right,down] [--scrollback 20000] [--stream] [--json PATH] [--out DIR] [--gate]
+       [--directions right,down] [--scrollback 20000] [--stream] [--json PATH] [--out DIR] [--gate] [--story ID]
 """
-import argparse, glob, json, os, signal, subprocess, sys, tempfile, time
+import argparse, json, os, signal, subprocess, sys, tempfile, time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from bench_launch import BenchApp, require_gui_session  # noqa: E402
@@ -318,11 +324,19 @@ parser.add_argument("--json")
 parser.add_argument("--out", default="/tmp")
 parser.add_argument("--gate", action="store_true", help="fail on the budget rows")
 parser.add_argument("--missed-budget", type=int, default=0)
+parser.add_argument("--story", help="the lab story (stories.d/<id>.json) to record result-v1 for; none: no result-v1")
 opts, _unknown = parser.parse_known_args()
+import motion_bench_report  # noqa: E402  medians (perf_stats) and the result-v1 series
+STORY = None
+if opts.story:
+    try:
+        STORY = motion_bench_report.Story.load(opts.story, "none")  # terminals only
+        STORY.check_sessions({"light"})
+    except motion_bench_report.StoryError as error:
+        parser.error(str(error))
 TAG, APP = opts.tag, os.path.abspath(opts.app.rstrip("/"))
 SOCKET = f"/tmp/cmux-debug-{TAG}.sock"
 CLI = os.path.join(APP, "Contents/Resources/bin/cmux")
-BINARY = next((p for p in sorted(glob.glob(os.path.join(APP, "Contents/MacOS/*"))) if not p.endswith(".dylib")), None)
 SCRATCH = tempfile.mkdtemp(prefix=f"split-spring-{TAG}-")
 open(os.path.join(SCRATCH, "ghostty"), "w").close()
 CONFIG = os.path.join(SCRATCH, "cmux.json")
@@ -404,7 +418,7 @@ def measure(label, verb):
             errors.append(str(reply.get("error")))
     time.sleep(1.5)  # test harness: the split spring lands (rest is under 0.5 s) and the PTY owner answers
     trace = rpc("debug.window_transition", {"action": "stop"}) or {}
-    frames = rpc("debug.frames", {"action": "stop"}) or {}
+    frames = rpc("debug.frames", {"action": "stop", "raw": True}) or {}
     motion = rpc("debug.motion", {"action": "stop"}) or {}
     hangs = rpc("debug.hangs") or {}
     work = (motion.get("work") or {}).get("clock", {}) if isinstance(motion, dict) else {}
@@ -413,6 +427,7 @@ def measure(label, verb):
     hang_list = hangs.get("hangs") if isinstance(hangs, dict) else None
     result = {
         "label": label, "errors": errors,
+        "frame_intervals_ms": motion_bench_report.frame_intervals(frames),  # result-v1's raw frame samples
         "missed": frames.get("missed"), "frames_max_ms": frames.get("max_ms"), "frames_p99_ms": frames.get("p99_ms"),
         "frames_p50_ms": frames.get("p50_ms"), "frames_p95_ms": frames.get("p95_ms"), "frames": frames.get("frames"),
         "moving_frames": moving, "refresh_ms": frames.get("refresh_ms"),
@@ -485,12 +500,17 @@ def main():
     for direction in opts.directions.split(","):
         runs = [r for r in report["runs"] if r["direction"] == direction]
 
-        def med(key):
-            values = sorted(v for v in (r.get(key) for r in runs) if v is not None)
-            return values[len(values) // 2] if values else None
-        print(f"  {direction:<5} x{opts.presses} moved {med('moving_frames')} frame p50 {med('frames_p50_ms')} p99 "
-              f"{med('frames_p99_ms')} max {med('frames_max_ms')} ms missed {med('missed')}  layout p95 {med('layout_p95_ms')} "
-              f"max {med('layout_max_ms')} ms  grids {med('grid_reports')}/{med('resizes_sent')}  hangs {med('hangs')}", flush=True)
+        def over_rounds(key):
+            return motion_bench_report.median(r.get(key) for r in runs)
+        print(f"  {direction:<5} x{opts.presses} moved {over_rounds('moving_frames')} frame p50 {over_rounds('frames_p50_ms')} "
+              f"p99 {over_rounds('frames_p99_ms')} max {over_rounds('frames_max_ms')} ms missed {over_rounds('missed')}  "
+              f"layout p95 {over_rounds('layout_p95_ms')} max {over_rounds('layout_max_ms')} ms  "
+              f"grids {over_rounds('grid_reports')}/{over_rounds('resizes_sent')}  hangs {over_rounds('hangs')}", flush=True)
+    if STORY and report["runs"]:
+        series, skipped = motion_bench_report.split_series(report["runs"], STORY)
+        report["result_v1"] = motion_bench_report.record(launcher, series, skipped)
+        written = motion_bench_report.written_count(report["result_v1"])
+        row(f"result-v1 written under story {STORY.id}", ">= 1 series", f"{written} series", written > 0)
     if opts.json:
         json.dump(report, open(opts.json, "w"), indent=1)
 
