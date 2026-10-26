@@ -194,7 +194,83 @@ class WakeupExtTests(unittest.TestCase):
         hits = self.wakeups(**{f"{CRATE}/quiet.rs": tested.replace("#[cfg(test)]\n", "")})
         self.assertRefused(hits, f"{CRATE}/quiet.rs", 5)
 
+    def test_dropping_cfg_test_from_a_mod_declaration_alone_opens_the_unchanged_module(self):
+        sleep = "pub fn wait() {\n    std::thread::sleep(std::time::Duration::from_millis(1));\n}\n"
+        self.write(f"{CRATE}/fixtures.rs", "mod deep;\n" + sleep)
+        self.write(f"{CRATE}/fixtures/deep.rs", sleep)
+        self.base = self.commit("test-only module base")
+        hits = self.wakeups(**{f"{CRATE}/lib.rs": LIB_RS.replace("#[cfg(test)]\n", "")})
+        self.assertRefused(hits, f"{CRATE}/fixtures.rs", 3)
+        self.assertRefused(hits, f"{CRATE}/fixtures/deep.rs", 2)  # a module of the module: test-only at base too
+        self.assertEqual(len(hits), 2, hits)
+
+    def test_deleting_a_test_only_mod_declaration_opens_the_module_wakeup_audit_then_reads(self):
+        sleep = "pub fn wait() {\n    std::thread::sleep(std::time::Duration::from_millis(1));\n}\n"
+        self.write(f"{CRATE}/fixtures.rs", sleep)
+        self.base = self.commit("test-only module base")
+        hits = self.wakeups(**{f"{CRATE}/lib.rs": "pub mod helpers;\n"})
+        self.assertRefused(hits, f"{CRATE}/fixtures.rs", 2)
+
+    def test_an_owner_added_to_the_idle_budget_in_the_same_push_does_not_count(self):
+        budget = BUDGET.replace("]}", ', {"owner": "PL-me", "period_s": 60, "why": "my sampler"}]}')
+        hits = self.wakeups(**{"scripts/cmux-next/idle-budget.json": budget, f"{WEB}/mine.ts":
+                               "// wakeup-allow: periodic PL-me samples\nsetInterval(sample, 60000);\n"})
+        self.assertRefused(hits, f"{WEB}/mine.ts", 2)
+        self.assertIn("periodic-unlisted", hits[0].cause)
+
+    def test_an_idle_budget_entry_below_its_limits_is_refused(self):
+        budget = BUDGET.replace("]}", ', {"owner": "PL-me", "period_s": 0.5, "why": "fast"}]}')
+        hits = self.wakeups(**{"scripts/cmux-next/idle-budget.json": budget})
+        self.assertEqual([h.path for h in hits], ["scripts/cmux-next/idle-budget.json"], hits)
+        self.assertIn("period_s below", hits[0].text)
+        broken = self.wakeups(**{"scripts/cmux-next/idle-budget.json": "{not json"})
+        self.assertEqual([h.path for h in broken], ["scripts/cmux-next/idle-budget.json"], broken)
+
+    def test_taking_an_owner_off_the_idle_budget_opens_its_unchanged_escapes(self):
+        self.write(f"{WEB}/sampler.ts", "// wakeup-allow: periodic PL-idle-sampler samples\nsetInterval(s, 60000);\n")
+        self.base = self.commit("periodic base")
+        hits = self.wakeups(**{"scripts/cmux-next/idle-budget.json": '{"allowed_periodic": []}\n'})
+        self.assertRefused(hits, f"{WEB}/sampler.ts", 2)
+
+    def test_a_removed_sleep_does_not_pay_for_a_timed_receive(self):
+        hits = self.wakeups(**{f"{CRATE}/helpers.rs": RUST_BASE.replace(
+            "std::thread::sleep(Duration::from_millis(5));", "let _ = rx.recv_timeout(Duration::from_millis(5));")})
+        self.assertRefused(hits, f"{CRATE}/helpers.rs", 4)
+        self.assertIn("recv-timeout", hits[0].cause)
+
+    def test_a_loop_around_a_one_shot_sleep_is_refused(self):
+        hits = self.wakeups(**{f"{CRATE}/helpers.rs": RUST_BASE.replace(
+            "    std::thread::sleep(Duration::from_millis(5));\n",
+            "    loop {\n        std::thread::sleep(Duration::from_millis(5));\n    }\n")})
+        self.assertRefused(hits, f"{CRATE}/helpers.rs", 5)
+        self.assertIn("loop", hits[0].cause)
+
+    def test_linking_a_package_in_the_manifest_alone_opens_its_sources(self):
+        timer = "import Foundation\nlet t = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { _ in }\n"
+        self.write("Packages/Shared/CmuxUnlinked/Sources/CmuxUnlinked/Tick.swift", timer)
+        self.base = self.commit("unlinked timer base")
+        hits = self.wakeups(**{"Packages/macOS/CmuxNext/Package.swift": MANIFEST.replace(
+            '        .package(path: "../CmuxUpdater"),\n',
+            '        .package(path: "../CmuxUpdater"),\n        .package(path: "../../Shared/CmuxUnlinked"),\n')})
+        self.assertRefused(hits, "Packages/Shared/CmuxUnlinked/Sources/CmuxUnlinked/Tick.swift", 2)
+
     # ------------------------------------------------------------------ passes
+
+    def test_putting_a_mod_declaration_under_cfg_test_passes(self):
+        sleep = "pub fn wait() {\n    std::thread::sleep(std::time::Duration::from_millis(1));\n}\n"
+        self.write(f"{CRATE}/lib.rs", LIB_RS.replace("#[cfg(test)]\n", ""))
+        self.write(f"{CRATE}/fixtures.rs", sleep)
+        self.base = self.commit("compiled module base")
+        self.assertEqual(self.wakeups(**{f"{CRATE}/lib.rs": LIB_RS}), [])
+
+    def test_a_loop_made_one_shot_by_its_event_passes(self):
+        looped = RUST_BASE.replace("    std::thread::sleep(Duration::from_millis(5));\n",
+                                   "    loop {\n        std::thread::sleep(Duration::from_millis(5));\n    }\n")
+        self.write(f"{CRATE}/helpers.rs", looped)
+        self.base = self.commit("loop base")
+        hits = self.wakeups(**{f"{CRATE}/helpers.rs": looped.replace(
+            "    loop {\n", "    loop {\n        let _ = rx.recv();\n")})
+        self.assertEqual(hits, [])
 
     def test_the_same_line_with_a_deadline_escape_passes(self):
         hits = self.wakeups(**{f"{CRATE}/helpers.rs": RUST_BASE.replace(
