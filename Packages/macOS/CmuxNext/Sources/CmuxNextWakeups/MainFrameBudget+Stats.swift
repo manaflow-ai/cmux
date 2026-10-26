@@ -45,7 +45,7 @@ extension MainFrameBudget {
     /// unbudgeted classes.
     static func index(_ workClass: MainWorkClass) -> Int? {
         switch workClass {
-        case .input, .frame: nil
+        case .input, .frame, .idle: nil
         case .visible: 0
         case .automation: 1
         case .background: 2
