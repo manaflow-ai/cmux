@@ -6639,6 +6639,57 @@
         "required": true
       }
     },
+    "request:access-request": {
+      "/kind": {
+        "ty": "string",
+        "required": true
+      },
+      "/name": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/path": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/reason": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/session": {
+        "ty": "string",
+        "nullable": true
+      }
+    },
+    "request:access-request-answer": {
+      "/outcome": {
+        "ty": "string",
+        "required": true
+      },
+      "/path": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/reason": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/request_id": {
+        "ty": "string",
+        "required": true
+      },
+      "/value": {
+        "ty": "string",
+        "nullable": true
+      }
+    },
+    "request:access-request-list": {},
+    "request:access-request-status": {
+      "/request_id": {
+        "ty": "string",
+        "required": true
+      }
+    },
     "request:ack-tab-notifications": {
       "/surface": {
         "ty": "uint64",
@@ -6853,6 +6904,134 @@
       "/idempotency_key": {
         "ty": "string",
         "required": true
+      }
+    },
+    "request:agent-transfer-abort": {
+      "/surface": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/transfer_id": {
+        "ty": "string",
+        "required": true
+      }
+    },
+    "request:agent-transfer-begin": {
+      "/ask_first": {
+        "ty": "boolean"
+      },
+      "/interrupt": {
+        "ty": "boolean"
+      },
+      "/surface": {
+        "ty": "uint64",
+        "required": true
+      }
+    },
+    "request:agent-transfer-commit": {
+      "/surface": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/to": {
+        "ty": "json",
+        "required": true,
+        "nullable": true
+      },
+      "/transfer_id": {
+        "ty": "string",
+        "required": true
+      }
+    },
+    "request:agent-transfer-finish": {
+      "/name": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/receive_id": {
+        "ty": "string",
+        "required": true
+      }
+    },
+    "request:agent-transfer-read": {
+      "/limit": {
+        "ty": "uint64",
+        "nullable": true
+      },
+      "/offset": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/path": {
+        "ty": "string",
+        "required": true
+      },
+      "/transfer_id": {
+        "ty": "string",
+        "required": true
+      }
+    },
+    "request:agent-transfer-receive": {
+      "/cwd": {
+        "ty": "string",
+        "required": true
+      },
+      "/manifest": {
+        "ty": "map",
+        "required": true
+      },
+      "/manifest/*": {
+        "ty": "json"
+      }
+    },
+    "request:agent-transfer-receive-abort": {
+      "/receive_id": {
+        "ty": "string",
+        "required": true
+      }
+    },
+    "request:agent-transfer-source": {
+      "/surface": {
+        "ty": "uint64",
+        "required": true
+      }
+    },
+    "request:agent-transfer-write": {
+      "/data": {
+        "ty": "string",
+        "required": true
+      },
+      "/offset": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/path": {
+        "ty": "string",
+        "required": true
+      },
+      "/receive_id": {
+        "ty": "string",
+        "required": true
+      }
+    },
+    "request:agent-update-apply": {
+      "/continue_threads": {
+        "ty": "boolean"
+      },
+      "/expected_machine_id": {
+        "ty": "string"
+      },
+      "/ids": {
+        "ty": "array",
+        "required": true
+      },
+      "/ids/*": {
+        "ty": "string"
+      }
+    },
+    "request:agent-update-plan": {
+      "/expected_machine_id": {
+        "ty": "string"
       }
     },
     "request:apply-layout": {
@@ -9095,6 +9274,145 @@
         "required": true
       }
     },
+    "request:fs.delete": {
+      "/paths": {
+        "ty": "array",
+        "required": true
+      },
+      "/paths/*": {
+        "ty": "string"
+      },
+      "/permanent": {
+        "ty": "boolean"
+      }
+    },
+    "request:fs.list": {
+      "/cursor": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/filter": {
+        "ty": "object"
+      },
+      "/filter/hidden": {
+        "ty": "boolean"
+      },
+      "/filter/kinds": {
+        "ty": "array",
+        "nullable": true
+      },
+      "/filter/kinds/*": {
+        "ty": "enum",
+        "values": [
+          "dir",
+          "file",
+          "other",
+          "symlink"
+        ]
+      },
+      "/filter/query": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/limit": {
+        "ty": "uint64"
+      },
+      "/listing": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/path": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/sort": {
+        "ty": "object"
+      },
+      "/sort/dir": {
+        "ty": "enum",
+        "values": [
+          "asc",
+          "desc"
+        ]
+      },
+      "/sort/dirs_first": {
+        "ty": "boolean"
+      },
+      "/sort/key": {
+        "ty": "enum",
+        "values": [
+          "kind",
+          "modified",
+          "name",
+          "size"
+        ]
+      }
+    },
+    "request:fs.mkdir": {
+      "/name": {
+        "ty": "string",
+        "required": true
+      },
+      "/path": {
+        "ty": "string",
+        "required": true
+      }
+    },
+    "request:fs.read": {
+      "/max_bytes": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/offset": {
+        "ty": "uint64"
+      },
+      "/path": {
+        "ty": "string",
+        "required": true
+      }
+    },
+    "request:fs.rename": {
+      "/name": {
+        "ty": "string",
+        "required": true
+      },
+      "/path": {
+        "ty": "string",
+        "required": true
+      }
+    },
+    "request:fs.stat": {
+      "/path": {
+        "ty": "string",
+        "required": true
+      }
+    },
+    "request:fs.write": {
+      "/bytes_base64": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/expected": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/mode": {
+        "ty": "string",
+        "required": true
+      },
+      "/path": {
+        "ty": "string",
+        "required": true
+      },
+      "/permissions": {
+        "ty": "uint32",
+        "nullable": true
+      },
+      "/text": {
+        "ty": "string",
+        "nullable": true
+      }
+    },
     "request:get-blob": {
       "/blob": {
         "ty": "string",
@@ -10997,6 +11315,45 @@
         "required": true
       }
     },
+    "request:script-repl-close": {
+      "/session": {
+        "ty": "string",
+        "required": true
+      }
+    },
+    "request:script-repl-eval": {
+      "/args": {
+        "ty": "json",
+        "nullable": true
+      },
+      "/code": {
+        "ty": "string",
+        "required": true
+      },
+      "/session": {
+        "ty": "string",
+        "required": true
+      },
+      "/timeout_ms": {
+        "ty": "uint64",
+        "nullable": true
+      }
+    },
+    "request:script-repl-open": {},
+    "request:script-run": {
+      "/args": {
+        "ty": "json",
+        "nullable": true
+      },
+      "/code": {
+        "ty": "string",
+        "required": true
+      },
+      "/timeout_ms": {
+        "ty": "uint64",
+        "nullable": true
+      }
+    },
     "request:scroll-surface": {
       "/delta": {
         "ty": "int64",
@@ -11911,6 +12268,20 @@
         "nullable": true
       }
     },
+    "request:trace-start": {
+      "/categories": {
+        "ty": "array",
+        "nullable": true
+      },
+      "/categories/*": {
+        "ty": "string"
+      },
+      "/keys": {
+        "ty": "boolean"
+      }
+    },
+    "request:trace-status": {},
+    "request:trace-stop": {},
     "request:undo-layout": {
       "/confirm_close": {
         "ty": "boolean"
@@ -12258,6 +12629,95 @@
       "/pane": {
         "ty": "uint64",
         "nullable": true
+      }
+    },
+    "response:access-request": {
+      "/data/request_id": {
+        "ty": "string",
+        "required": true
+      }
+    },
+    "response:access-request-answer": {},
+    "response:access-request-list": {
+      "/data/requests": {
+        "ty": "array",
+        "required": true
+      },
+      "/data/requests/*": {
+        "ty": "object"
+      },
+      "/data/requests/*/age_ms": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/requests/*/kind": {
+        "ty": "enum",
+        "required": true,
+        "values": [
+          "file",
+          "secret"
+        ]
+      },
+      "/data/requests/*/name": {
+        "ty": "string",
+        "required": true,
+        "nullable": true
+      },
+      "/data/requests/*/path": {
+        "ty": "string",
+        "required": true,
+        "nullable": true
+      },
+      "/data/requests/*/reason": {
+        "ty": "string",
+        "required": true,
+        "nullable": true
+      },
+      "/data/requests/*/request_id": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/requests/*/session": {
+        "ty": "string",
+        "required": true,
+        "nullable": true
+      }
+    },
+    "response:access-request-status": {
+      "/data": {
+        "ty": "tagged_union",
+        "required": true,
+        "values": [
+          "delivered",
+          "denied",
+          "pending"
+        ]
+      },
+      "/data/path": {
+        "ty": "string"
+      },
+      "/data/reason": {
+        "ty": "string",
+        "required": true,
+        "nullable": true
+      },
+      "/data/state": {
+        "ty": "literal",
+        "required": true,
+        "values": [
+          "\"delivered\"",
+          "\"denied\"",
+          "\"pending\""
+        ]
+      },
+      "/data/taken": {
+        "ty": "literal",
+        "values": [
+          "true"
+        ]
+      },
+      "/data/value": {
+        "ty": "string"
       }
     },
     "response:ack-tab-notifications": {
@@ -12830,6 +13290,169 @@
           "\"pending\"",
           "\"prepared\""
         ]
+      }
+    },
+    "response:agent-transfer-abort": {
+      "/data/aborted": {
+        "ty": "literal",
+        "required": true,
+        "values": [
+          "true"
+        ]
+      }
+    },
+    "response:agent-transfer-begin": {
+      "/data/manifest": {
+        "ty": "json",
+        "required": true
+      },
+      "/data/source_session": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/transfer_id": {
+        "ty": "string",
+        "required": true
+      }
+    },
+    "response:agent-transfer-commit": {
+      "/data/committed": {
+        "ty": "literal",
+        "required": true,
+        "values": [
+          "true"
+        ]
+      }
+    },
+    "response:agent-transfer-finish": {
+      "/data/session": {
+        "ty": "json",
+        "required": true
+      }
+    },
+    "response:agent-transfer-read": {
+      "/data/data": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/eof": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/data/next": {
+        "ty": "uint64",
+        "required": true
+      }
+    },
+    "response:agent-transfer-receive": {
+      "/data/receive_id": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/session_id": {
+        "ty": "string",
+        "required": true
+      }
+    },
+    "response:agent-transfer-receive-abort": {
+      "/data/dropped": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/data/forgotten": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/data/landed": {
+        "ty": "boolean",
+        "required": true,
+        "nullable": true
+      }
+    },
+    "response:agent-transfer-source": {
+      "/data/session": {
+        "ty": "string",
+        "required": true
+      }
+    },
+    "response:agent-transfer-write": {
+      "/data/next": {
+        "ty": "uint64",
+        "required": true
+      }
+    },
+    "response:agent-update-apply": {
+      "/data/machine": {
+        "ty": "string"
+      },
+      "/data/results": {
+        "ty": "array",
+        "required": true
+      },
+      "/data/results/*": {
+        "ty": "object"
+      },
+      "/data/results/*/error": {
+        "ty": "string"
+      },
+      "/data/results/*/id": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/results/*/ok": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/data/results/*/version": {
+        "ty": "string"
+      },
+      "/data/threads_after_turn": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/threads_error": {
+        "ty": "string"
+      },
+      "/data/threads_failed": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/threads_restarted": {
+        "ty": "uint64",
+        "required": true
+      }
+    },
+    "response:agent-update-plan": {
+      "/data/harnesses": {
+        "ty": "array",
+        "required": true
+      },
+      "/data/harnesses/*": {
+        "ty": "object"
+      },
+      "/data/harnesses/*/id": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/harnesses/*/latest": {
+        "ty": "string"
+      },
+      "/data/harnesses/*/name": {
+        "ty": "string"
+      },
+      "/data/harnesses/*/version": {
+        "ty": "string"
+      },
+      "/data/live_threads": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/machine": {
+        "ty": "string"
+      },
+      "/data/running_threads": {
+        "ty": "uint64",
+        "required": true
       }
     },
     "response:apply-layout": {
@@ -16670,6 +17293,291 @@
         "required": true
       }
     },
+    "response:fs.delete": {},
+    "response:fs.list": {
+      "/data/cursor": {
+        "ty": "string",
+        "required": true,
+        "nullable": true
+      },
+      "/data/entries": {
+        "ty": "array",
+        "required": true
+      },
+      "/data/entries/*": {
+        "ty": "object"
+      },
+      "/data/entries/*/hidden": {
+        "ty": "boolean"
+      },
+      "/data/entries/*/kind": {
+        "ty": "enum",
+        "required": true,
+        "values": [
+          "dir",
+          "file",
+          "other",
+          "symlink"
+        ]
+      },
+      "/data/entries/*/mtime": {
+        "ty": "uint64",
+        "required": true,
+        "nullable": true
+      },
+      "/data/entries/*/name": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/entries/*/revision": {
+        "ty": "string"
+      },
+      "/data/entries/*/size": {
+        "ty": "uint64",
+        "required": true,
+        "nullable": true
+      },
+      "/data/entries/*/target_kind": {
+        "ty": "enum",
+        "values": [
+          "dir",
+          "file",
+          "other",
+          "symlink"
+        ]
+      },
+      "/data/listing": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/revision": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/total": {
+        "ty": "uint64",
+        "required": true
+      }
+    },
+    "response:fs.mkdir": {
+      "/data/entry": {
+        "ty": "object",
+        "required": true
+      },
+      "/data/entry/hidden": {
+        "ty": "boolean"
+      },
+      "/data/entry/kind": {
+        "ty": "enum",
+        "required": true,
+        "values": [
+          "dir",
+          "file",
+          "other",
+          "symlink"
+        ]
+      },
+      "/data/entry/mtime": {
+        "ty": "uint64",
+        "required": true,
+        "nullable": true
+      },
+      "/data/entry/name": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/entry/revision": {
+        "ty": "string"
+      },
+      "/data/entry/size": {
+        "ty": "uint64",
+        "required": true,
+        "nullable": true
+      },
+      "/data/entry/target_kind": {
+        "ty": "enum",
+        "values": [
+          "dir",
+          "file",
+          "other",
+          "symlink"
+        ]
+      }
+    },
+    "response:fs.read": {
+      "/data": {
+        "ty": "tagged_union",
+        "required": true,
+        "values": [
+          "base64",
+          "utf-8"
+        ]
+      },
+      "/data/bytes_base64": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/encoding": {
+        "ty": "literal",
+        "required": true,
+        "values": [
+          "\"base64\"",
+          "\"utf-8\""
+        ]
+      },
+      "/data/size": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/text": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/truncated": {
+        "ty": "boolean",
+        "required": true
+      }
+    },
+    "response:fs.rename": {
+      "/data/entry": {
+        "ty": "object",
+        "required": true
+      },
+      "/data/entry/hidden": {
+        "ty": "boolean"
+      },
+      "/data/entry/kind": {
+        "ty": "enum",
+        "required": true,
+        "values": [
+          "dir",
+          "file",
+          "other",
+          "symlink"
+        ]
+      },
+      "/data/entry/mtime": {
+        "ty": "uint64",
+        "required": true,
+        "nullable": true
+      },
+      "/data/entry/name": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/entry/revision": {
+        "ty": "string"
+      },
+      "/data/entry/size": {
+        "ty": "uint64",
+        "required": true,
+        "nullable": true
+      },
+      "/data/entry/target_kind": {
+        "ty": "enum",
+        "values": [
+          "dir",
+          "file",
+          "other",
+          "symlink"
+        ]
+      }
+    },
+    "response:fs.stat": {
+      "/data/hidden": {
+        "ty": "boolean"
+      },
+      "/data/kind": {
+        "ty": "enum",
+        "required": true,
+        "values": [
+          "dir",
+          "file",
+          "other",
+          "symlink"
+        ]
+      },
+      "/data/mode_display": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/mtime": {
+        "ty": "uint64",
+        "required": true,
+        "nullable": true
+      },
+      "/data/name": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/owner_display": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/revision": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/size": {
+        "ty": "uint64",
+        "required": true,
+        "nullable": true
+      },
+      "/data/target_kind": {
+        "ty": "enum",
+        "values": [
+          "dir",
+          "file",
+          "other",
+          "symlink"
+        ]
+      }
+    },
+    "response:fs.write": {
+      "/data/entry": {
+        "ty": "object",
+        "required": true
+      },
+      "/data/entry/hidden": {
+        "ty": "boolean"
+      },
+      "/data/entry/kind": {
+        "ty": "enum",
+        "required": true,
+        "values": [
+          "dir",
+          "file",
+          "other",
+          "symlink"
+        ]
+      },
+      "/data/entry/mtime": {
+        "ty": "uint64",
+        "required": true,
+        "nullable": true
+      },
+      "/data/entry/name": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/entry/revision": {
+        "ty": "string"
+      },
+      "/data/entry/size": {
+        "ty": "uint64",
+        "required": true,
+        "nullable": true
+      },
+      "/data/entry/target_kind": {
+        "ty": "enum",
+        "values": [
+          "dir",
+          "file",
+          "other",
+          "symlink"
+        ]
+      }
+    },
     "response:get-blob": {
       "/data": {
         "ty": "json",
@@ -19626,6 +20534,38 @@
         "required": true
       }
     },
+    "response:script-repl-close": {
+      "/data/closed": {
+        "ty": "boolean",
+        "required": true
+      }
+    },
+    "response:script-repl-eval": {
+      "/data/dropped_log_lines": {
+        "ty": "uint64"
+      },
+      "/data/value": {
+        "ty": "json",
+        "required": true,
+        "nullable": true
+      }
+    },
+    "response:script-repl-open": {
+      "/data/session": {
+        "ty": "string",
+        "required": true
+      }
+    },
+    "response:script-run": {
+      "/data/dropped_log_lines": {
+        "ty": "uint64"
+      },
+      "/data/value": {
+        "ty": "json",
+        "required": true,
+        "nullable": true
+      }
+    },
     "response:scroll-surface": {},
     "response:select-screen": {},
     "response:select-tab": {},
@@ -21394,6 +22334,24 @@
       },
       "/data/terminal_id": {
         "ty": "string",
+        "required": true
+      }
+    },
+    "response:trace-start": {
+      "/data": {
+        "ty": "json",
+        "required": true
+      }
+    },
+    "response:trace-status": {
+      "/data": {
+        "ty": "json",
+        "required": true
+      }
+    },
+    "response:trace-stop": {
+      "/data": {
+        "ty": "json",
         "required": true
       }
     },

@@ -134,6 +134,12 @@ FAMILIES: dict[str, tuple[int, str, tuple[str, ...]]] = {
     )),
     "cloud": (0x10, "cmux Cloud session, host replica, conversations and inbox.", ("cloud-*",)),
     "assets": (0x11, "Content-addressed icon assets.", ("put-blob", "get-blob")),
+    # 0x12 and 0x13 are p05-ipc-013's apps and p05-ipc-018's agent-sessions.
+    "agent-machine": (0x14, "This machine's acpmux for the app: chat moves, Cloud access requests and agent CLI updates.", (
+        "agent-transfer-*", "access-request", "access-request-*", "agent-update-*",
+    )),
+    "files": (0x15, "File ops on a cmux Cloud host's roots (fs-v1).", ("fs.*",)),
+    "scripts": (0x16, "Script runs and REPL sessions in the daemon's script host.", ("script-*",)),
 }
 
 EVENT_FAMILIES: dict[str, tuple[int, str, tuple[str, ...]]] = {
@@ -183,6 +189,10 @@ COMMAND_PRIORITY: dict[str, tuple[str, ...]] = {
         "list-terminal-commands", "get-frontend-browser-history", "conversation-history",
         "cloud-conversation-history", "conversation-attachment-read", "cloud-attachment-read",
         "get-blob",
+        # File and bundle reads: up to 16 MiB per fs.read, 4 MiB per
+        # agent-transfer-read page. fs.list stays control: it keeps a listing
+        # snapshot, so it is not read_only.
+        "fs.read", "agent-transfer-read",
     ),
     "background": ("server-stats", "machine-usage", "terminal-resources"),
 }
@@ -221,6 +231,12 @@ READ_ONLY = (
     "cloud-conversation-thread", "cloud-conversation-runs", "cloud-conversation-run",
     "cloud-participant-avatar-get", "cloud-attachment-read", "feed-local-list", "trace-status",
     "agent-cli-intents-list", "agent-cli-update-job-resolve",
+    "fs.stat", "fs.read", "agent-transfer-source", "access-request-list",
+    # Pages a bundle file the begin recorded; it only refreshes the move's
+    # idle time.
+    "agent-transfer-read",
+    # Asks this machine's acpmux; a plan never starts it.
+    "agent-update-plan",
 )
 MEMORY = (
     "send", "send-key", "paste-image", "copy", "scroll-surface", "browser-key", "browser-key-press",
@@ -242,14 +258,33 @@ MEMORY = (
     "browser-host-provider",
     # Admits a snapshot on the stream's gate (collapse and 500 ms throttle).
     "snapshot-request",
+    # Keeps a listing snapshot per caller for its paging.
+    "fs.list",
+    # Kept in daemon memory or in acpmux, never in the journal: a receive's
+    # pages and abort, a move's begin, commit and abort (acpmux keeps the
+    # move), access requests (a status read takes a delivered secret), the
+    # script host's cells and sessions, and the CLI updates acpmux runs.
+    "agent-transfer-write", "agent-transfer-receive-abort", "agent-transfer-begin",
+    "agent-transfer-commit", "agent-transfer-abort",
+    "access-request", "access-request-status", "access-request-answer",
+    "script-*", "agent-update-apply",
 )
 # The agent CLI update ledger and job reply after their SQLite commit: the app
 # records an intent before it contacts an owner so a restarted app resumes the
 # same update, and a job's receipt names a durable creation record
 # (commands.md "Update intent ledger").
+# A chat move's receive and finish write their agent-transfer state file (the
+# askable receive, the landed chat) before the reply, so a pump that lost a
+# reply after a daemon restart can still resolve the move (commands.md "Agent
+# chat transfer").
 REPLY_AFTER_JOURNAL = (
     "journal-frontend-event", "agent-cli-intents-record", "agent-cli-intents-settle",
     "agent-cli-intents-attach", "agent-cli-update-job",
+    "agent-transfer-receive", "agent-transfer-finish",
+    # fs.write and fs.rename answer after their change is fsynced (the file
+    # system is their journal); fs.mkdir and fs.delete do not fsync, so they
+    # keep the default.
+    "fs.write", "fs.rename",
 )
 
 # Stream barrier (p05-ipc design 3.4) -------------------------------------------

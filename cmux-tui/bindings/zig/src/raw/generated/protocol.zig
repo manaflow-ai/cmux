@@ -7,7 +7,83 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "22abe4e8a7fb9342afb9c13a8430a0845a075c119298ddd6624a99d94d4f61bc";
+pub const ir_sha256 = "96092969f6fbce263dc06135b19cd2e08ba76ea380ee9187919638dc07351612";
+
+pub const AccessRequestKind = enum {
+    file,
+    secret,
+
+    pub fn fromWire(value: []const u8) !@This() {
+        if (std.mem.eql(u8, value, "file")) return .file;
+        if (std.mem.eql(u8, value, "secret")) return .secret;
+        return error.UnknownEnumValue;
+    }
+
+    pub fn toWire(self: @This()) []const u8 {
+        return switch (self) {
+            .file => "file",
+            .secret => "secret",
+        };
+    }
+};
+
+pub const AccessRequestPending = struct {
+    age_ms: u64,
+    kind: AccessRequestKind,
+    name: wire.Nullable([]const u8),
+    path: wire.Nullable([]const u8),
+    reason: wire.Nullable([]const u8),
+    request_id: []const u8,
+    session: wire.Nullable([]const u8),
+};
+
+pub const AccessRequestStatusDelivered = struct {
+    path: ?[]const u8 = null,
+    taken: ?bool = null,
+    value: ?[]const u8 = null,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "path",
+        "taken",
+        "value",
+    };
+};
+
+pub const AccessRequestStatusDenied = struct {
+    reason: wire.Nullable([]const u8),
+};
+
+pub const AccessRequestStatusPending = struct {};
+
+pub const AccessRequestStatus = union(enum) {
+    delivered: AccessRequestStatusDelivered,
+    denied: AccessRequestStatusDenied,
+    pending: AccessRequestStatusPending,
+
+    pub const cmux_wire_custom_union = true;
+
+    pub fn cmuxEncode(self: @This(), allocator: std.mem.Allocator) !wire.Value {
+        return switch (self) {
+            .delivered => |payload| try wire.encodeTagged(allocator, "state", "delivered", payload),
+            .denied => |payload| try wire.encodeTagged(allocator, "state", "denied", payload),
+            .pending => |payload| try wire.encodeTagged(allocator, "state", "pending", payload),
+        };
+    }
+
+    pub fn cmuxDecode(allocator: std.mem.Allocator, value: wire.Value) !@This() {
+        const tag_value = try wire.objectString(value, "state");
+        if (std.mem.eql(u8, tag_value, "delivered")) {
+            return .{ .delivered = try wire.decodeLeaky(AccessRequestStatusDelivered, allocator, value) };
+        }
+        if (std.mem.eql(u8, tag_value, "denied")) {
+            return .{ .denied = try wire.decodeLeaky(AccessRequestStatusDenied, allocator, value) };
+        }
+        if (std.mem.eql(u8, tag_value, "pending")) {
+            return .{ .pending = try wire.decodeLeaky(AccessRequestStatusPending, allocator, value) };
+        }
+        return error.UnknownUnionVariant;
+    }
+};
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -249,6 +325,31 @@ pub const AgentState = enum {
             .unknown => "unknown",
         };
     }
+};
+
+pub const AgentUpdateHarness = struct {
+    id: []const u8,
+    latest: ?[]const u8 = null,
+    name: ?[]const u8 = null,
+    version: ?[]const u8 = null,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "latest",
+        "name",
+        "version",
+    };
+};
+
+pub const AgentUpdateOutcome = struct {
+    @"error": ?[]const u8 = null,
+    id: []const u8,
+    ok: bool,
+    version: ?[]const u8 = null,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "error",
+        "version",
+    };
 };
 
 pub const AppliedPane = struct {
@@ -1013,6 +1114,176 @@ pub const FrontendProjection = struct {
 
     pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
         "replayed",
+    };
+};
+
+pub const FsEntry = struct {
+    hidden: ?bool = null,
+    kind: FsEntryKind,
+    mtime: wire.Nullable(u64),
+    name: []const u8,
+    revision: ?[]const u8 = null,
+    size: wire.Nullable(u64),
+    target_kind: ?FsEntryKind = null,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "hidden",
+        "revision",
+        "target_kind",
+    };
+};
+
+pub const FsEntryKind = enum {
+    file,
+    dir,
+    symlink,
+    other,
+
+    pub fn fromWire(value: []const u8) !@This() {
+        if (std.mem.eql(u8, value, "file")) return .file;
+        if (std.mem.eql(u8, value, "dir")) return .dir;
+        if (std.mem.eql(u8, value, "symlink")) return .symlink;
+        if (std.mem.eql(u8, value, "other")) return .other;
+        return error.UnknownEnumValue;
+    }
+
+    pub fn toWire(self: @This()) []const u8 {
+        return switch (self) {
+            .file => "file",
+            .dir => "dir",
+            .symlink => "symlink",
+            .other => "other",
+        };
+    }
+};
+
+pub const FsEntryResult = struct {
+    entry: FsEntry,
+};
+
+pub const FsFilter = struct {
+    hidden: ?bool = null,
+    kinds: wire.Field([]const FsEntryKind) = .absent,
+    query: wire.Field([]const u8) = .absent,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "hidden",
+    };
+};
+
+pub const FsPage = struct {
+    cursor: wire.Nullable([]const u8),
+    entries: []const FsEntry,
+    listing: []const u8,
+    revision: []const u8,
+    total: u64,
+};
+
+pub const FsReadResultBase64 = struct {
+    bytes_base64: Base64,
+    size: u64,
+    truncated: bool,
+};
+
+pub const FsReadResultUtf8 = struct {
+    size: u64,
+    text: []const u8,
+    truncated: bool,
+};
+
+pub const FsReadResult = union(enum) {
+    base64: FsReadResultBase64,
+    utf_8: FsReadResultUtf8,
+
+    pub const cmux_wire_custom_union = true;
+
+    pub fn cmuxEncode(self: @This(), allocator: std.mem.Allocator) !wire.Value {
+        return switch (self) {
+            .base64 => |payload| try wire.encodeTagged(allocator, "encoding", "base64", payload),
+            .utf_8 => |payload| try wire.encodeTagged(allocator, "encoding", "utf-8", payload),
+        };
+    }
+
+    pub fn cmuxDecode(allocator: std.mem.Allocator, value: wire.Value) !@This() {
+        const tag_value = try wire.objectString(value, "encoding");
+        if (std.mem.eql(u8, tag_value, "base64")) {
+            return .{ .base64 = try wire.decodeLeaky(FsReadResultBase64, allocator, value) };
+        }
+        if (std.mem.eql(u8, tag_value, "utf-8")) {
+            return .{ .utf_8 = try wire.decodeLeaky(FsReadResultUtf8, allocator, value) };
+        }
+        return error.UnknownUnionVariant;
+    }
+};
+
+pub const FsSort = struct {
+    dir: ?FsSortDirection = null,
+    dirs_first: ?bool = null,
+    key: ?FsSortKey = null,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "dir",
+        "dirs_first",
+        "key",
+    };
+};
+
+pub const FsSortDirection = enum {
+    asc,
+    desc,
+
+    pub fn fromWire(value: []const u8) !@This() {
+        if (std.mem.eql(u8, value, "asc")) return .asc;
+        if (std.mem.eql(u8, value, "desc")) return .desc;
+        return error.UnknownEnumValue;
+    }
+
+    pub fn toWire(self: @This()) []const u8 {
+        return switch (self) {
+            .asc => "asc",
+            .desc => "desc",
+        };
+    }
+};
+
+pub const FsSortKey = enum {
+    name,
+    modified,
+    size,
+    kind,
+
+    pub fn fromWire(value: []const u8) !@This() {
+        if (std.mem.eql(u8, value, "name")) return .name;
+        if (std.mem.eql(u8, value, "modified")) return .modified;
+        if (std.mem.eql(u8, value, "size")) return .size;
+        if (std.mem.eql(u8, value, "kind")) return .kind;
+        return error.UnknownEnumValue;
+    }
+
+    pub fn toWire(self: @This()) []const u8 {
+        return switch (self) {
+            .name => "name",
+            .modified => "modified",
+            .size => "size",
+            .kind => "kind",
+        };
+    }
+};
+
+pub const FsStatResult = struct {
+    hidden: ?bool = null,
+    kind: FsEntryKind,
+    mode_display: []const u8,
+    mtime: wire.Nullable(u64),
+    name: []const u8,
+    owner_display: []const u8,
+    revision: []const u8,
+    size: wire.Nullable(u64),
+    target_kind: ?FsEntryKind = null,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "hidden",
+        "target_kind",
     };
 };
 
@@ -3344,6 +3615,92 @@ pub const ZoomPaneResult = struct {
     zoomed_pane: wire.Nullable(Id),
 };
 
+pub const AccessRequestRequest = struct {
+    kind: []const u8,
+    name: wire.Field([]const u8) = .absent,
+    path: wire.Field([]const u8) = .absent,
+    reason: wire.Field([]const u8) = .absent,
+    session: wire.Field([]const u8) = .absent,
+};
+
+pub const AccessRequestResult = struct {
+    request_id: []const u8,
+};
+
+pub fn accessRequest(client: anytype, request: AccessRequestRequest) !wire.Decoded(AccessRequestResult) {
+    return client.callTyped(
+        AccessRequestResult,
+        .{
+            .name = "access-request",
+            .authority = "local-admin",
+            .since = 12,
+            .capability = "access-request-v1",
+        },
+        request,
+    );
+}
+
+pub const AccessRequestAnswerRequest = struct {
+    outcome: []const u8,
+    path: wire.Field([]const u8) = .absent,
+    reason: wire.Field([]const u8) = .absent,
+    request_id: []const u8,
+    value: wire.Field([]const u8) = .absent,
+};
+
+pub const AccessRequestAnswerResult = struct {};
+
+pub fn accessRequestAnswer(client: anytype, request: AccessRequestAnswerRequest) !wire.Decoded(AccessRequestAnswerResult) {
+    return client.callTyped(
+        AccessRequestAnswerResult,
+        .{
+            .name = "access-request-answer",
+            .authority = "local-admin",
+            .since = 12,
+            .capability = "access-request-v1",
+        },
+        request,
+    );
+}
+
+pub const AccessRequestListRequest = struct {};
+
+pub const AccessRequestListResult = struct {
+    requests: []const AccessRequestPending,
+};
+
+pub fn accessRequestList(client: anytype, request: AccessRequestListRequest) !wire.Decoded(AccessRequestListResult) {
+    return client.callTyped(
+        AccessRequestListResult,
+        .{
+            .name = "access-request-list",
+            .authority = "local-admin",
+            .since = 12,
+            .capability = "access-request-v1",
+        },
+        request,
+    );
+}
+
+pub const AccessRequestStatusRequest = struct {
+    request_id: []const u8,
+};
+
+pub const AccessRequestStatusResult = AccessRequestStatus;
+
+pub fn accessRequestStatus(client: anytype, request: AccessRequestStatusRequest) !wire.Decoded(AccessRequestStatusResult) {
+    return client.callTyped(
+        AccessRequestStatusResult,
+        .{
+            .name = "access-request-status",
+            .authority = "local-admin",
+            .since = 12,
+            .capability = "access-request-v1",
+        },
+        request,
+    );
+}
+
 pub const AckTabNotificationsRequest = struct {
     surface: Id,
 };
@@ -3539,6 +3896,296 @@ pub fn agentCliUpdateJobResolve(client: anytype, request: AgentCliUpdateJobResol
             .authority = "local-admin",
             .since = 12,
             .capability = "agent-cli-update-job-resolve-v1",
+        },
+        request,
+    );
+}
+
+pub const AgentTransferAbortRequest = struct {
+    surface: Id,
+    transfer_id: []const u8,
+};
+
+pub const AgentTransferAbortResult = struct {
+    aborted: bool,
+};
+
+pub fn agentTransferAbort(client: anytype, request: AgentTransferAbortRequest) !wire.Decoded(AgentTransferAbortResult) {
+    return client.callTyped(
+        AgentTransferAbortResult,
+        .{
+            .name = "agent-transfer-abort",
+            .authority = "local-admin",
+            .since = 12,
+            .capability = "agent-transfer-v1",
+        },
+        request,
+    );
+}
+
+pub const AgentTransferBeginRequest = struct {
+    ask_first: ?bool = null,
+    interrupt: ?bool = null,
+    surface: Id,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "ask_first",
+        "interrupt",
+    };
+};
+
+pub const AgentTransferBeginResult = struct {
+    manifest: JsonValue,
+    source_session: []const u8,
+    transfer_id: []const u8,
+};
+
+pub fn agentTransferBegin(client: anytype, request: AgentTransferBeginRequest) !wire.Decoded(AgentTransferBeginResult) {
+    return client.callTyped(
+        AgentTransferBeginResult,
+        .{
+            .name = "agent-transfer-begin",
+            .authority = "local-admin",
+            .since = 12,
+            .capability = "agent-transfer-v1",
+        },
+        request,
+    );
+}
+
+pub const AgentTransferCommitRequest = struct {
+    surface: Id,
+    to: wire.Nullable(JsonValue),
+    transfer_id: []const u8,
+};
+
+pub const AgentTransferCommitResult = struct {
+    committed: bool,
+};
+
+pub fn agentTransferCommit(client: anytype, request: AgentTransferCommitRequest) !wire.Decoded(AgentTransferCommitResult) {
+    return client.callTyped(
+        AgentTransferCommitResult,
+        .{
+            .name = "agent-transfer-commit",
+            .authority = "local-admin",
+            .since = 12,
+            .capability = "agent-transfer-v1",
+        },
+        request,
+    );
+}
+
+pub const AgentTransferFinishRequest = struct {
+    name: wire.Field([]const u8) = .absent,
+    receive_id: []const u8,
+};
+
+pub const AgentTransferFinishResult = struct {
+    session: JsonValue,
+};
+
+pub fn agentTransferFinish(client: anytype, request: AgentTransferFinishRequest) !wire.Decoded(AgentTransferFinishResult) {
+    return client.callTyped(
+        AgentTransferFinishResult,
+        .{
+            .name = "agent-transfer-finish",
+            .authority = "local-admin",
+            .since = 12,
+            .capability = "agent-transfer-v1",
+        },
+        request,
+    );
+}
+
+pub const AgentTransferReadRequest = struct {
+    limit: wire.Field(u64) = .absent,
+    offset: u64,
+    path: []const u8,
+    transfer_id: []const u8,
+};
+
+pub const AgentTransferReadResult = struct {
+    data: Base64,
+    eof: bool,
+    next: u64,
+};
+
+pub fn agentTransferRead(client: anytype, request: AgentTransferReadRequest) !wire.Decoded(AgentTransferReadResult) {
+    return client.callTyped(
+        AgentTransferReadResult,
+        .{
+            .name = "agent-transfer-read",
+            .authority = "local-admin",
+            .since = 12,
+            .capability = "agent-transfer-v1",
+        },
+        request,
+    );
+}
+
+pub const AgentTransferReceiveRequest = struct {
+    cwd: []const u8,
+    manifest: wire.Map(JsonValue),
+};
+
+pub const AgentTransferReceiveResult = struct {
+    receive_id: []const u8,
+    session_id: []const u8,
+};
+
+pub fn agentTransferReceive(client: anytype, request: AgentTransferReceiveRequest) !wire.Decoded(AgentTransferReceiveResult) {
+    return client.callTyped(
+        AgentTransferReceiveResult,
+        .{
+            .name = "agent-transfer-receive",
+            .authority = "local-admin",
+            .since = 12,
+            .capability = "agent-transfer-v1",
+        },
+        request,
+    );
+}
+
+pub const AgentTransferReceiveAbortRequest = struct {
+    receive_id: []const u8,
+};
+
+pub const AgentTransferReceiveAbortResult = struct {
+    dropped: bool,
+    forgotten: bool,
+    landed: wire.Nullable(bool),
+};
+
+pub fn agentTransferReceiveAbort(client: anytype, request: AgentTransferReceiveAbortRequest) !wire.Decoded(AgentTransferReceiveAbortResult) {
+    return client.callTyped(
+        AgentTransferReceiveAbortResult,
+        .{
+            .name = "agent-transfer-receive-abort",
+            .authority = "local-admin",
+            .since = 12,
+            .capability = "agent-transfer-v1",
+        },
+        request,
+    );
+}
+
+pub const AgentTransferSourceRequest = struct {
+    surface: Id,
+};
+
+pub const AgentTransferSourceResult = struct {
+    session: []const u8,
+};
+
+pub fn agentTransferSource(client: anytype, request: AgentTransferSourceRequest) !wire.Decoded(AgentTransferSourceResult) {
+    return client.callTyped(
+        AgentTransferSourceResult,
+        .{
+            .name = "agent-transfer-source",
+            .authority = "local-admin",
+            .since = 12,
+            .capability = "agent-transfer-v1",
+        },
+        request,
+    );
+}
+
+pub const AgentTransferWriteRequest = struct {
+    data: Base64,
+    offset: u64,
+    path: []const u8,
+    receive_id: []const u8,
+};
+
+pub const AgentTransferWriteResult = struct {
+    next: u64,
+};
+
+pub fn agentTransferWrite(client: anytype, request: AgentTransferWriteRequest) !wire.Decoded(AgentTransferWriteResult) {
+    return client.callTyped(
+        AgentTransferWriteResult,
+        .{
+            .name = "agent-transfer-write",
+            .authority = "local-admin",
+            .since = 12,
+            .capability = "agent-transfer-v1",
+        },
+        request,
+    );
+}
+
+pub const AgentUpdateApplyRequest = struct {
+    continue_threads: ?bool = null,
+    expected_machine_id: ?[]const u8 = null,
+    ids: []const []const u8,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "continue_threads",
+        "expected_machine_id",
+    };
+};
+
+pub const AgentUpdateApplyResult = struct {
+    machine: ?[]const u8 = null,
+    results: []const AgentUpdateOutcome,
+    threads_after_turn: u64,
+    threads_error: ?[]const u8 = null,
+    threads_failed: u64,
+    threads_restarted: u64,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "machine",
+        "threads_error",
+    };
+};
+
+pub fn agentUpdateApply(client: anytype, request: AgentUpdateApplyRequest) !wire.Decoded(AgentUpdateApplyResult) {
+    return client.callTyped(
+        AgentUpdateApplyResult,
+        .{
+            .name = "agent-update-apply",
+            .authority = "local-admin",
+            .since = 12,
+            .capability = "agent-update-v1",
+            .fields = &.{
+                .{ .name = "expected_machine_id", .since = null, .capability = "agent-update-owner-v1" },
+            },
+        },
+        request,
+    );
+}
+
+pub const AgentUpdatePlanRequest = struct {
+    expected_machine_id: ?[]const u8 = null,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "expected_machine_id",
+    };
+};
+
+pub const AgentUpdatePlanResult = struct {
+    harnesses: []const AgentUpdateHarness,
+    live_threads: u64,
+    machine: ?[]const u8 = null,
+    running_threads: u64,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "machine",
+    };
+};
+
+pub fn agentUpdatePlan(client: anytype, request: AgentUpdatePlanRequest) !wire.Decoded(AgentUpdatePlanResult) {
+    return client.callTyped(
+        AgentUpdatePlanResult,
+        .{
+            .name = "agent-update-plan",
+            .authority = "local-admin",
+            .since = 12,
+            .capability = "agent-update-v1",
+            .fields = &.{
+                .{ .name = "expected_machine_id", .since = null, .capability = "agent-update-owner-v1" },
+            },
         },
         request,
     );
@@ -6285,6 +6932,164 @@ pub fn forgetSession(client: anytype, request: ForgetSessionRequest) !wire.Decod
     );
 }
 
+pub const FsDeleteRequest = struct {
+    paths: []const []const u8,
+    permanent: ?bool = null,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "permanent",
+    };
+};
+
+pub const FsDeleteResult = struct {};
+
+pub fn fsDelete(client: anytype, request: FsDeleteRequest) !wire.Decoded(FsDeleteResult) {
+    return client.callTyped(
+        FsDeleteResult,
+        .{
+            .name = "fs.delete",
+            .authority = "local-admin",
+            .since = 12,
+            .capability = "fs-v1",
+        },
+        request,
+    );
+}
+
+pub const FsListRequest = struct {
+    cursor: wire.Field([]const u8) = .absent,
+    filter: ?FsFilter = null,
+    limit: ?u64 = null,
+    listing: wire.Field([]const u8) = .absent,
+    path: wire.Field([]const u8) = .absent,
+    sort: ?FsSort = null,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "filter",
+        "limit",
+        "sort",
+    };
+};
+
+pub const FsListResult = FsPage;
+
+pub fn fsList(client: anytype, request: FsListRequest) !wire.Decoded(FsListResult) {
+    return client.callTyped(
+        FsListResult,
+        .{
+            .name = "fs.list",
+            .authority = "local-admin",
+            .since = 12,
+            .capability = "fs-v1",
+        },
+        request,
+    );
+}
+
+pub const FsMkdirRequest = struct {
+    name: []const u8,
+    path: []const u8,
+};
+
+pub const FsMkdirResult = FsEntryResult;
+
+pub fn fsMkdir(client: anytype, request: FsMkdirRequest) !wire.Decoded(FsMkdirResult) {
+    return client.callTyped(
+        FsMkdirResult,
+        .{
+            .name = "fs.mkdir",
+            .authority = "local-admin",
+            .since = 12,
+            .capability = "fs-v1",
+        },
+        request,
+    );
+}
+
+pub const FsReadRequest = struct {
+    max_bytes: u64,
+    offset: ?u64 = null,
+    path: []const u8,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "offset",
+    };
+};
+
+pub fn fsRead(client: anytype, request: FsReadRequest) !wire.Decoded(FsReadResult) {
+    return client.callTyped(
+        FsReadResult,
+        .{
+            .name = "fs.read",
+            .authority = "local-admin",
+            .since = 12,
+            .capability = "fs-v1",
+        },
+        request,
+    );
+}
+
+pub const FsRenameRequest = struct {
+    name: []const u8,
+    path: []const u8,
+};
+
+pub const FsRenameResult = FsEntryResult;
+
+pub fn fsRename(client: anytype, request: FsRenameRequest) !wire.Decoded(FsRenameResult) {
+    return client.callTyped(
+        FsRenameResult,
+        .{
+            .name = "fs.rename",
+            .authority = "local-admin",
+            .since = 12,
+            .capability = "fs-v1",
+        },
+        request,
+    );
+}
+
+pub const FsStatRequest = struct {
+    path: []const u8,
+};
+
+pub fn fsStat(client: anytype, request: FsStatRequest) !wire.Decoded(FsStatResult) {
+    return client.callTyped(
+        FsStatResult,
+        .{
+            .name = "fs.stat",
+            .authority = "local-admin",
+            .since = 12,
+            .capability = "fs-v1",
+        },
+        request,
+    );
+}
+
+pub const FsWriteRequest = struct {
+    bytes_base64: wire.Field(Base64) = .absent,
+    expected: wire.Field([]const u8) = .absent,
+    mode: []const u8,
+    path: []const u8,
+    permissions: wire.Field(u32) = .absent,
+    text: wire.Field([]const u8) = .absent,
+};
+
+pub const FsWriteResult = FsEntryResult;
+
+pub fn fsWrite(client: anytype, request: FsWriteRequest) !wire.Decoded(FsWriteResult) {
+    return client.callTyped(
+        FsWriteResult,
+        .{
+            .name = "fs.write",
+            .authority = "local-admin",
+            .since = 12,
+            .capability = "fs-v1",
+        },
+        request,
+    );
+}
+
 pub const GetBlobRequest = struct {
     blob: []const u8,
 };
@@ -8605,6 +9410,103 @@ pub fn saveTabGroup(client: anytype, request: SaveTabGroupRequest) !wire.Decoded
             .authority = "control",
             .since = 12,
             .capability = "saved-tab-groups-v1",
+        },
+        request,
+    );
+}
+
+pub const ScriptReplCloseRequest = struct {
+    session: []const u8,
+};
+
+pub const ScriptReplCloseResult = struct {
+    closed: bool,
+};
+
+pub fn scriptReplClose(client: anytype, request: ScriptReplCloseRequest) !wire.Decoded(ScriptReplCloseResult) {
+    return client.callTyped(
+        ScriptReplCloseResult,
+        .{
+            .name = "script-repl-close",
+            .authority = "local-admin",
+            .since = 12,
+            .capability = null,
+        },
+        request,
+    );
+}
+
+pub const ScriptReplEvalRequest = struct {
+    args: wire.Field(JsonValue) = .absent,
+    code: []const u8,
+    session: []const u8,
+    timeout_ms: wire.Field(u64) = .absent,
+};
+
+pub const ScriptReplEvalResult = struct {
+    dropped_log_lines: ?u64 = null,
+    value: wire.Nullable(JsonValue),
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "dropped_log_lines",
+    };
+};
+
+pub fn scriptReplEval(client: anytype, request: ScriptReplEvalRequest) !wire.Decoded(ScriptReplEvalResult) {
+    return client.callTyped(
+        ScriptReplEvalResult,
+        .{
+            .name = "script-repl-eval",
+            .authority = "local-admin",
+            .since = 12,
+            .capability = null,
+        },
+        request,
+    );
+}
+
+pub const ScriptReplOpenRequest = struct {};
+
+pub const ScriptReplOpenResult = struct {
+    session: []const u8,
+};
+
+pub fn scriptReplOpen(client: anytype, request: ScriptReplOpenRequest) !wire.Decoded(ScriptReplOpenResult) {
+    return client.callTyped(
+        ScriptReplOpenResult,
+        .{
+            .name = "script-repl-open",
+            .authority = "local-admin",
+            .since = 12,
+            .capability = null,
+        },
+        request,
+    );
+}
+
+pub const ScriptRunRequest = struct {
+    args: wire.Field(JsonValue) = .absent,
+    code: []const u8,
+    timeout_ms: wire.Field(u64) = .absent,
+};
+
+pub const ScriptRunResult = struct {
+    dropped_log_lines: ?u64 = null,
+    value: wire.Nullable(JsonValue),
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "dropped_log_lines",
+    };
+};
+
+pub fn scriptRun(client: anytype, request: ScriptRunRequest) !wire.Decoded(ScriptRunResult) {
+    return client.callTyped(
+        ScriptRunResult,
+        .{
+            .name = "script-run",
+            .authority = "local-admin",
+            .since = 12,
+            .capability = null,
         },
         request,
     );
@@ -11898,8 +12800,12 @@ pub const CommandDescriptor = struct {
     stream: ?[]const u8,
 };
 
-pub const command_count: usize = 294;
+pub const command_count: usize = 320;
 pub const commands = [_]CommandDescriptor{
+    .{ .name = "access-request", .authority = "local-admin", .since = 12, .capability = "access-request-v1", .stream = null },
+    .{ .name = "access-request-answer", .authority = "local-admin", .since = 12, .capability = "access-request-v1", .stream = null },
+    .{ .name = "access-request-list", .authority = "local-admin", .since = 12, .capability = "access-request-v1", .stream = null },
+    .{ .name = "access-request-status", .authority = "local-admin", .since = 12, .capability = "access-request-v1", .stream = null },
     .{ .name = "ack-tab-notifications", .authority = "control", .since = 12, .capability = "notification-ack-v1", .stream = null },
     .{ .name = "add-screens-to-screen-group", .authority = "control", .since = 12, .capability = "screen-groups-v1", .stream = null },
     .{ .name = "add-tabs-to-tab-group", .authority = "control", .since = 12, .capability = "tab-groups-v1", .stream = null },
@@ -11909,6 +12815,17 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "agent-cli-intents-settle", .authority = "local-admin", .since = 12, .capability = "agent-cli-intents-v1", .stream = null },
     .{ .name = "agent-cli-update-job", .authority = "local-admin", .since = 12, .capability = "agent-cli-update-job-v1", .stream = null },
     .{ .name = "agent-cli-update-job-resolve", .authority = "local-admin", .since = 12, .capability = "agent-cli-update-job-resolve-v1", .stream = null },
+    .{ .name = "agent-transfer-abort", .authority = "local-admin", .since = 12, .capability = "agent-transfer-v1", .stream = null },
+    .{ .name = "agent-transfer-begin", .authority = "local-admin", .since = 12, .capability = "agent-transfer-v1", .stream = null },
+    .{ .name = "agent-transfer-commit", .authority = "local-admin", .since = 12, .capability = "agent-transfer-v1", .stream = null },
+    .{ .name = "agent-transfer-finish", .authority = "local-admin", .since = 12, .capability = "agent-transfer-v1", .stream = null },
+    .{ .name = "agent-transfer-read", .authority = "local-admin", .since = 12, .capability = "agent-transfer-v1", .stream = null },
+    .{ .name = "agent-transfer-receive", .authority = "local-admin", .since = 12, .capability = "agent-transfer-v1", .stream = null },
+    .{ .name = "agent-transfer-receive-abort", .authority = "local-admin", .since = 12, .capability = "agent-transfer-v1", .stream = null },
+    .{ .name = "agent-transfer-source", .authority = "local-admin", .since = 12, .capability = "agent-transfer-v1", .stream = null },
+    .{ .name = "agent-transfer-write", .authority = "local-admin", .since = 12, .capability = "agent-transfer-v1", .stream = null },
+    .{ .name = "agent-update-apply", .authority = "local-admin", .since = 12, .capability = "agent-update-v1", .stream = null },
+    .{ .name = "agent-update-plan", .authority = "local-admin", .since = 12, .capability = "agent-update-v1", .stream = null },
     .{ .name = "apply-layout", .authority = "control", .since = 6, .capability = null, .stream = null },
     .{ .name = "attach-surface", .authority = "frontend", .since = 5, .capability = null, .stream = "attach" },
     .{ .name = "bind-conversation-tab-session", .authority = "control", .since = 12, .capability = "agent-session-tabs-v1", .stream = null },
@@ -12020,6 +12937,13 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "focus-direction", .authority = "control", .since = 6, .capability = null, .stream = null },
     .{ .name = "focus-pane", .authority = "control", .since = 5, .capability = null, .stream = null },
     .{ .name = "forget-session", .authority = "control", .since = 12, .capability = "profiles-v1", .stream = null },
+    .{ .name = "fs.delete", .authority = "local-admin", .since = 12, .capability = "fs-v1", .stream = null },
+    .{ .name = "fs.list", .authority = "local-admin", .since = 12, .capability = "fs-v1", .stream = null },
+    .{ .name = "fs.mkdir", .authority = "local-admin", .since = 12, .capability = "fs-v1", .stream = null },
+    .{ .name = "fs.read", .authority = "local-admin", .since = 12, .capability = "fs-v1", .stream = null },
+    .{ .name = "fs.rename", .authority = "local-admin", .since = 12, .capability = "fs-v1", .stream = null },
+    .{ .name = "fs.stat", .authority = "local-admin", .since = 12, .capability = "fs-v1", .stream = null },
+    .{ .name = "fs.write", .authority = "local-admin", .since = 12, .capability = "fs-v1", .stream = null },
     .{ .name = "get-blob", .authority = "control", .since = 12, .capability = "icon-assets-v1", .stream = null },
     .{ .name = "get-browser-provider", .authority = "local-admin", .since = 10, .capability = "browser-provider-v1", .stream = null },
     .{ .name = "get-cell-pixels", .authority = "frontend", .since = 6, .capability = null, .stream = null },
@@ -12120,6 +13044,10 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "run", .authority = "control", .since = 6, .capability = null, .stream = null },
     .{ .name = "save-screen-group", .authority = "control", .since = 12, .capability = "screen-groups-v1", .stream = null },
     .{ .name = "save-tab-group", .authority = "control", .since = 12, .capability = "saved-tab-groups-v1", .stream = null },
+    .{ .name = "script-repl-close", .authority = "local-admin", .since = 12, .capability = null, .stream = null },
+    .{ .name = "script-repl-eval", .authority = "local-admin", .since = 12, .capability = null, .stream = null },
+    .{ .name = "script-repl-open", .authority = "local-admin", .since = 12, .capability = null, .stream = null },
+    .{ .name = "script-run", .authority = "local-admin", .since = 12, .capability = null, .stream = null },
     .{ .name = "scroll-surface", .authority = "control", .since = 5, .capability = null, .stream = null },
     .{ .name = "select-screen", .authority = "control", .since = 5, .capability = null, .stream = null },
     .{ .name = "select-tab", .authority = "control", .since = 5, .capability = null, .stream = null },

@@ -18,7 +18,8 @@ use std::os::unix::net::UnixStream;
 use std::sync::Arc;
 use std::time::Duration;
 
-use serde_json::Value;
+use serde::Deserialize;
+use serde_json::{Value, json};
 
 use super::remote_entry::{RemoteGate, RemotePeer};
 use super::{
@@ -97,9 +98,9 @@ pub(super) fn answer_line(
         );
     };
     let id = request.get("id").cloned().unwrap_or(Value::Null);
-    let Some(cmd) = frame_command(line) else {
+    if frame_command(line).is_none() {
         return stream::answer(&id, Err(FsError::ParamsInvalid("unknown fs op".into())));
-    };
+    }
     if !transport_allowed {
         return stream::answer(&id, Err(FsError::PermissionDenied));
     }
@@ -112,7 +113,52 @@ pub(super) fn answer_line(
             Err(FsError::ParamsInvalid("a byte stream needs a link dial of its own".into())),
         );
     }
-    stream::answer(&id, service.call(owner, cmd, Value::Object(request)))
+    let answer = serde_json::from_value::<Command>(Value::Object(request))
+        .map_err(|error| FsError::ParamsInvalid(error.to_string()))
+        .and_then(|command| command.run(service, owner));
+    stream::answer(&id, answer)
+}
+
+/// The seven `fs-v1` line ops, decoded by their `cmd` into the params of
+/// `fs_ops`. Fields an op does not read (`id`, `stream`) are ignored.
+/// spec/sdk-schema.json types each op (check-sdk-schema.py compares the
+/// fields).
+#[derive(Deserialize)]
+#[serde(tag = "cmd")]
+enum Command {
+    #[serde(rename = "fs.stat")]
+    Stat(crate::fs_ops::ops::PathParams),
+    #[serde(rename = "fs.list")]
+    List(crate::fs_ops::ops::ListParams),
+    #[serde(rename = "fs.read")]
+    Read(crate::fs_ops::ops::ReadParams),
+    #[serde(rename = "fs.write")]
+    Write(crate::fs_ops::ops::WriteParams),
+    #[serde(rename = "fs.mkdir")]
+    Mkdir(crate::fs_ops::ops::NameParams),
+    #[serde(rename = "fs.rename")]
+    Rename(crate::fs_ops::ops::NameParams),
+    #[serde(rename = "fs.delete")]
+    Delete(crate::fs_ops::ops::DeleteParams),
+}
+
+impl Command {
+    /// Runs the op; `owner` keys the caller's listing snapshots.
+    fn run(self, service: &FsService, owner: &str) -> Result<Value, FsError> {
+        match self {
+            Self::Stat(params) => crate::fs_ops::ops::to_value(&service.stat(&params.path)?),
+            Self::List(params) => service.list(owner, params),
+            Self::Read(params) => service.read(params),
+            Self::Write(params) => service.write(params),
+            Self::Mkdir(params) => {
+                Ok(json!({ "entry": service.mkdir(&params.path, &params.name)? }))
+            }
+            Self::Rename(params) => {
+                Ok(json!({ "entry": service.rename(&params.path, &params.name)? }))
+            }
+            Self::Delete(params) => service.delete(params),
+        }
+    }
 }
 
 /// How long a remote dial may take to send its whole first line.

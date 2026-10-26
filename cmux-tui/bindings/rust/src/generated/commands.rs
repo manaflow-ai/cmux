@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 22abe4e8a7fb9342afb9c13a8430a0845a075c119298ddd6624a99d94d4f61bc.
+// cmux-tui mux protocol 12, IR 96092969f6fbce263dc06135b19cd2e08ba76ea380ee9187919638dc07351612.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -7,6 +7,64 @@ use super::types as T;
 use crate::{CmuxClient, CmuxStream, Nullable, Optional, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AccessRequestRequest {
+    pub kind: String,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub name: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub path: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub reason: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub session: Optional<String>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AccessRequestResult {
+    pub request_id: String,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AccessRequestAnswerRequest {
+    pub outcome: String,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub path: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub reason: Optional<String>,
+    pub request_id: String,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub value: Optional<String>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct AccessRequestAnswerResult {
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct AccessRequestListRequest {
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AccessRequestListResult {
+    pub requests: Vec<T::AccessRequestPending>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AccessRequestStatusRequest {
+    pub request_id: String,
+}
+
+#[rustfmt::skip]
+pub type AccessRequestStatusResult = T::AccessRequestStatus;
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -124,6 +182,178 @@ pub struct AgentCliUpdateJobResolveRequest {
 
 #[rustfmt::skip]
 pub type AgentCliUpdateJobResolveResult = T::AgentCLIJobResolution;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AgentTransferAbortRequest {
+    pub surface: T::Id,
+    pub transfer_id: String,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AgentTransferAbortResult {
+    pub aborted: bool,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AgentTransferBeginRequest {
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub ask_first: Option<bool>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub interrupt: Option<bool>,
+    pub surface: T::Id,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AgentTransferBeginResult {
+    pub manifest: T::JsonValue,
+    pub source_session: String,
+    pub transfer_id: String,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AgentTransferCommitRequest {
+    pub surface: T::Id,
+    pub to: Nullable<T::JsonValue>,
+    pub transfer_id: String,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AgentTransferCommitResult {
+    pub committed: bool,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AgentTransferFinishRequest {
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub name: Optional<String>,
+    pub receive_id: String,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AgentTransferFinishResult {
+    pub session: T::JsonValue,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AgentTransferReadRequest {
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub limit: Optional<u64>,
+    pub offset: u64,
+    pub path: String,
+    pub transfer_id: String,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AgentTransferReadResult {
+    pub data: T::Base64,
+    pub eof: bool,
+    pub next: u64,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AgentTransferReceiveRequest {
+    pub cwd: String,
+    pub manifest: BTreeMap<String, T::JsonValue>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AgentTransferReceiveResult {
+    pub receive_id: String,
+    pub session_id: String,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AgentTransferReceiveAbortRequest {
+    pub receive_id: String,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AgentTransferReceiveAbortResult {
+    pub dropped: bool,
+    pub forgotten: bool,
+    pub landed: Nullable<bool>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AgentTransferSourceRequest {
+    pub surface: T::Id,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AgentTransferSourceResult {
+    pub session: String,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AgentTransferWriteRequest {
+    pub data: T::Base64,
+    pub offset: u64,
+    pub path: String,
+    pub receive_id: String,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AgentTransferWriteResult {
+    pub next: u64,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AgentUpdateApplyRequest {
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub continue_threads: Option<bool>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub expected_machine_id: Option<String>,
+    pub ids: Vec<String>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AgentUpdateApplyResult {
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub machine: Option<String>,
+    pub results: Vec<T::AgentUpdateOutcome>,
+    pub threads_after_turn: u64,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub threads_error: Option<String>,
+    pub threads_failed: u64,
+    pub threads_restarted: u64,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct AgentUpdatePlanRequest {
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub expected_machine_id: Option<String>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AgentUpdatePlanResult {
+    pub harnesses: Vec<T::AgentUpdateHarness>,
+    pub live_threads: u64,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub machine: Option<String>,
+    pub running_threads: u64,
+}
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -1865,6 +2095,92 @@ pub type ForgetSessionResult = T::JsonValue;
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct FsDeleteRequest {
+    pub paths: Vec<String>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub permanent: Option<bool>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct FsDeleteResult {
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct FsListRequest {
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub cursor: Optional<String>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub filter: Option<T::FsFilter>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub limit: Option<u64>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub listing: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub path: Optional<String>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub sort: Option<T::FsSort>,
+}
+
+#[rustfmt::skip]
+pub type FsListResult = T::FsPage;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct FsMkdirRequest {
+    pub name: String,
+    pub path: String,
+}
+
+#[rustfmt::skip]
+pub type FsMkdirResult = T::FsEntryResult;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct FsReadRequest {
+    pub max_bytes: u64,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub offset: Option<u64>,
+    pub path: String,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct FsRenameRequest {
+    pub name: String,
+    pub path: String,
+}
+
+#[rustfmt::skip]
+pub type FsRenameResult = T::FsEntryResult;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct FsStatRequest {
+    pub path: String,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct FsWriteRequest {
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub bytes_base64: Optional<T::Base64>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub expected: Optional<String>,
+    pub mode: String,
+    pub path: String,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub permissions: Optional<u32>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub text: Optional<String>,
+}
+
+#[rustfmt::skip]
+pub type FsWriteResult = T::FsEntryResult;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct GetBlobRequest {
     pub blob: String,
 }
@@ -3240,6 +3556,66 @@ pub struct SaveTabGroupResult {
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ScriptReplCloseRequest {
+    pub session: String,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ScriptReplCloseResult {
+    pub closed: bool,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ScriptReplEvalRequest {
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub args: Optional<T::JsonValue>,
+    pub code: String,
+    pub session: String,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub timeout_ms: Optional<u64>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ScriptReplEvalResult {
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub dropped_log_lines: Option<u64>,
+    pub value: Nullable<T::JsonValue>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct ScriptReplOpenRequest {
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ScriptReplOpenResult {
+    pub session: String,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ScriptRunRequest {
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub args: Optional<T::JsonValue>,
+    pub code: String,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub timeout_ms: Optional<u64>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ScriptRunResult {
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub dropped_log_lines: Option<u64>,
+    pub value: Nullable<T::JsonValue>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ScrollSurfaceRequest {
     pub delta: i64,
     pub surface: T::Id,
@@ -4226,6 +4602,22 @@ pub struct ZoomPaneRequest {
 
 #[rustfmt::skip]
 impl CmuxClient {
+    pub fn access_request(&mut self, request: AccessRequestRequest) -> Result<AccessRequestResult> {
+        self.execute(&ACCESS_REQUEST_METADATA, &request)
+    }
+
+    pub fn access_request_answer(&mut self, request: AccessRequestAnswerRequest) -> Result<AccessRequestAnswerResult> {
+        self.execute(&ACCESS_REQUEST_ANSWER_METADATA, &request)
+    }
+
+    pub fn access_request_list(&mut self, request: AccessRequestListRequest) -> Result<AccessRequestListResult> {
+        self.execute(&ACCESS_REQUEST_LIST_METADATA, &request)
+    }
+
+    pub fn access_request_status(&mut self, request: AccessRequestStatusRequest) -> Result<AccessRequestStatusResult> {
+        self.execute(&ACCESS_REQUEST_STATUS_METADATA, &request)
+    }
+
     pub fn ack_tab_notifications(&mut self, request: AckTabNotificationsRequest) -> Result<AckTabNotificationsResult> {
         self.execute(&ACK_TAB_NOTIFICATIONS_METADATA, &request)
     }
@@ -4260,6 +4652,56 @@ impl CmuxClient {
 
     pub fn agent_cli_update_job_resolve(&mut self, request: AgentCliUpdateJobResolveRequest) -> Result<AgentCliUpdateJobResolveResult> {
         self.execute(&AGENT_CLI_UPDATE_JOB_RESOLVE_METADATA, &request)
+    }
+
+    pub fn agent_transfer_abort(&mut self, request: AgentTransferAbortRequest) -> Result<AgentTransferAbortResult> {
+        self.execute(&AGENT_TRANSFER_ABORT_METADATA, &request)
+    }
+
+    pub fn agent_transfer_begin(&mut self, request: AgentTransferBeginRequest) -> Result<AgentTransferBeginResult> {
+        self.execute(&AGENT_TRANSFER_BEGIN_METADATA, &request)
+    }
+
+    pub fn agent_transfer_commit(&mut self, request: AgentTransferCommitRequest) -> Result<AgentTransferCommitResult> {
+        self.execute(&AGENT_TRANSFER_COMMIT_METADATA, &request)
+    }
+
+    pub fn agent_transfer_finish(&mut self, request: AgentTransferFinishRequest) -> Result<AgentTransferFinishResult> {
+        self.execute(&AGENT_TRANSFER_FINISH_METADATA, &request)
+    }
+
+    pub fn agent_transfer_read(&mut self, request: AgentTransferReadRequest) -> Result<AgentTransferReadResult> {
+        self.execute(&AGENT_TRANSFER_READ_METADATA, &request)
+    }
+
+    pub fn agent_transfer_receive(&mut self, request: AgentTransferReceiveRequest) -> Result<AgentTransferReceiveResult> {
+        self.execute(&AGENT_TRANSFER_RECEIVE_METADATA, &request)
+    }
+
+    pub fn agent_transfer_receive_abort(&mut self, request: AgentTransferReceiveAbortRequest) -> Result<AgentTransferReceiveAbortResult> {
+        self.execute(&AGENT_TRANSFER_RECEIVE_ABORT_METADATA, &request)
+    }
+
+    pub fn agent_transfer_source(&mut self, request: AgentTransferSourceRequest) -> Result<AgentTransferSourceResult> {
+        self.execute(&AGENT_TRANSFER_SOURCE_METADATA, &request)
+    }
+
+    pub fn agent_transfer_write(&mut self, request: AgentTransferWriteRequest) -> Result<AgentTransferWriteResult> {
+        self.execute(&AGENT_TRANSFER_WRITE_METADATA, &request)
+    }
+
+    pub fn agent_update_apply(&mut self, request: AgentUpdateApplyRequest) -> Result<AgentUpdateApplyResult> {
+        if request.expected_machine_id.is_some() {
+            self.require_capability_field("agent-update-apply", "agent-update-owner-v1")?;
+        }
+        self.execute(&AGENT_UPDATE_APPLY_METADATA, &request)
+    }
+
+    pub fn agent_update_plan(&mut self, request: AgentUpdatePlanRequest) -> Result<AgentUpdatePlanResult> {
+        if request.expected_machine_id.is_some() {
+            self.require_capability_field("agent-update-plan", "agent-update-owner-v1")?;
+        }
+        self.execute(&AGENT_UPDATE_PLAN_METADATA, &request)
     }
 
     pub fn apply_layout(&mut self, request: ApplyLayoutRequest) -> Result<T::ApplyLayoutResult> {
@@ -4813,6 +5255,34 @@ impl CmuxClient {
 
     pub fn forget_session(&mut self, request: ForgetSessionRequest) -> Result<ForgetSessionResult> {
         self.execute(&FORGET_SESSION_METADATA, &request)
+    }
+
+    pub fn fs_delete(&mut self, request: FsDeleteRequest) -> Result<FsDeleteResult> {
+        self.execute(&FS_DELETE_METADATA, &request)
+    }
+
+    pub fn fs_list(&mut self, request: FsListRequest) -> Result<FsListResult> {
+        self.execute(&FS_LIST_METADATA, &request)
+    }
+
+    pub fn fs_mkdir(&mut self, request: FsMkdirRequest) -> Result<FsMkdirResult> {
+        self.execute(&FS_MKDIR_METADATA, &request)
+    }
+
+    pub fn fs_read(&mut self, request: FsReadRequest) -> Result<T::FsReadResult> {
+        self.execute(&FS_READ_METADATA, &request)
+    }
+
+    pub fn fs_rename(&mut self, request: FsRenameRequest) -> Result<FsRenameResult> {
+        self.execute(&FS_RENAME_METADATA, &request)
+    }
+
+    pub fn fs_stat(&mut self, request: FsStatRequest) -> Result<T::FsStatResult> {
+        self.execute(&FS_STAT_METADATA, &request)
+    }
+
+    pub fn fs_write(&mut self, request: FsWriteRequest) -> Result<FsWriteResult> {
+        self.execute(&FS_WRITE_METADATA, &request)
     }
 
     pub fn get_blob(&mut self, request: GetBlobRequest) -> Result<GetBlobResult> {
@@ -5430,6 +5900,22 @@ impl CmuxClient {
 
     pub fn save_tab_group(&mut self, request: SaveTabGroupRequest) -> Result<SaveTabGroupResult> {
         self.execute(&SAVE_TAB_GROUP_METADATA, &request)
+    }
+
+    pub fn script_repl_close(&mut self, request: ScriptReplCloseRequest) -> Result<ScriptReplCloseResult> {
+        self.execute(&SCRIPT_REPL_CLOSE_METADATA, &request)
+    }
+
+    pub fn script_repl_eval(&mut self, request: ScriptReplEvalRequest) -> Result<ScriptReplEvalResult> {
+        self.execute(&SCRIPT_REPL_EVAL_METADATA, &request)
+    }
+
+    pub fn script_repl_open(&mut self, request: ScriptReplOpenRequest) -> Result<ScriptReplOpenResult> {
+        self.execute(&SCRIPT_REPL_OPEN_METADATA, &request)
+    }
+
+    pub fn script_run(&mut self, request: ScriptRunRequest) -> Result<ScriptRunResult> {
+        self.execute(&SCRIPT_RUN_METADATA, &request)
     }
 
     pub fn scroll_surface(&mut self, request: ScrollSurfaceRequest) -> Result<ScrollSurfaceResult> {

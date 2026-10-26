@@ -9981,6 +9981,10 @@ at most two hours. One apply runs at a time per daemon
 (`agent_update.busy`); `agent_update.timeout` and `agent_update.refused`
 report an acpmux that did not answer or refused.
 
+spec/sdk-schema.json types the params and results of both commands
+(`AgentUpdateHarness`, `AgentUpdateOutcome`); `expected_machine_id` may be
+absent but never null.
+
 ## Agent chat transfer
 
 `agent-transfer-v1` lets a trusted local (Unix) client move an agent chat
@@ -10009,7 +10013,8 @@ receives and 16 moves remembered for 24 h), `agent_transfer.timeout`,
 machine kind rule of `agent-session-start`, below), and
 `agent_transfer.refused` (acpmux refused; the error text carries acpmux's
 message, such as `transfer.exists` or `transfer.incomplete`). Pages carry at
-most 4 MiB of data (base64).
+most 4 MiB of data (base64). spec/sdk-schema.json types the params and
+results of all nine commands.
 
 ### agent-transfer-receive
 
@@ -10200,6 +10205,9 @@ byte, no newline removed). An agent's `request --secret` that stops waiting
 withdraws its request (denies it), so a later answer is
 `access_request.answered`.
 
+spec/sdk-schema.json types the four commands; a status answer is the
+`AccessRequestStatus` union tagged by `state`.
+
 ## File system (fs-v1)
 
 Servers advertising `fs-v1` serve file ops on their machine. In this
@@ -10262,6 +10270,10 @@ answers `{"ready":true}` after the path, mode and free space are checked,
 then reads exactly `size` raw bytes (at most 64 GiB) and answers `{entry}`.
 A write stream that closes or stays idle for 60 seconds before `size` bytes
 leaves no file at `path`.
+
+spec/sdk-schema.json types the seven line ops (`FsEntry`, `FsPage`,
+`FsStatResult`, and `FsReadResult` tagged by `encoding`); the byte streams
+are not in it.
 
 ## Guest browser opening
 

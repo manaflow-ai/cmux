@@ -10,6 +10,10 @@ import java.util.Map;
 public final class Commands {
     private Commands() {}
 
+    public static final CommandMetadata ACCESS_REQUEST = new CommandMetadata("access-request", Authority.LOCAL_ADMIN, 12, "access-request-v1", StreamKind.NONE, Map.of(), Map.of());
+    public static final CommandMetadata ACCESS_REQUEST_ANSWER = new CommandMetadata("access-request-answer", Authority.LOCAL_ADMIN, 12, "access-request-v1", StreamKind.NONE, Map.of(), Map.of());
+    public static final CommandMetadata ACCESS_REQUEST_LIST = new CommandMetadata("access-request-list", Authority.LOCAL_ADMIN, 12, "access-request-v1", StreamKind.NONE, Map.of(), Map.of());
+    public static final CommandMetadata ACCESS_REQUEST_STATUS = new CommandMetadata("access-request-status", Authority.LOCAL_ADMIN, 12, "access-request-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata ACK_TAB_NOTIFICATIONS = new CommandMetadata("ack-tab-notifications", Authority.CONTROL, 12, "notification-ack-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata ADD_SCREENS_TO_SCREEN_GROUP = new CommandMetadata("add-screens-to-screen-group", Authority.CONTROL, 12, "screen-groups-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata ADD_TABS_TO_TAB_GROUP = new CommandMetadata("add-tabs-to-tab-group", Authority.CONTROL, 12, "tab-groups-v1", StreamKind.NONE, Map.of(), Map.of());
@@ -19,6 +23,17 @@ public final class Commands {
     public static final CommandMetadata AGENT_CLI_INTENTS_SETTLE = new CommandMetadata("agent-cli-intents-settle", Authority.LOCAL_ADMIN, 12, "agent-cli-intents-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata AGENT_CLI_UPDATE_JOB = new CommandMetadata("agent-cli-update-job", Authority.LOCAL_ADMIN, 12, "agent-cli-update-job-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata AGENT_CLI_UPDATE_JOB_RESOLVE = new CommandMetadata("agent-cli-update-job-resolve", Authority.LOCAL_ADMIN, 12, "agent-cli-update-job-resolve-v1", StreamKind.NONE, Map.of(), Map.of());
+    public static final CommandMetadata AGENT_TRANSFER_ABORT = new CommandMetadata("agent-transfer-abort", Authority.LOCAL_ADMIN, 12, "agent-transfer-v1", StreamKind.NONE, Map.of(), Map.of());
+    public static final CommandMetadata AGENT_TRANSFER_BEGIN = new CommandMetadata("agent-transfer-begin", Authority.LOCAL_ADMIN, 12, "agent-transfer-v1", StreamKind.NONE, Map.of(), Map.of());
+    public static final CommandMetadata AGENT_TRANSFER_COMMIT = new CommandMetadata("agent-transfer-commit", Authority.LOCAL_ADMIN, 12, "agent-transfer-v1", StreamKind.NONE, Map.of(), Map.of());
+    public static final CommandMetadata AGENT_TRANSFER_FINISH = new CommandMetadata("agent-transfer-finish", Authority.LOCAL_ADMIN, 12, "agent-transfer-v1", StreamKind.NONE, Map.of(), Map.of());
+    public static final CommandMetadata AGENT_TRANSFER_READ = new CommandMetadata("agent-transfer-read", Authority.LOCAL_ADMIN, 12, "agent-transfer-v1", StreamKind.NONE, Map.of(), Map.of());
+    public static final CommandMetadata AGENT_TRANSFER_RECEIVE = new CommandMetadata("agent-transfer-receive", Authority.LOCAL_ADMIN, 12, "agent-transfer-v1", StreamKind.NONE, Map.of(), Map.of());
+    public static final CommandMetadata AGENT_TRANSFER_RECEIVE_ABORT = new CommandMetadata("agent-transfer-receive-abort", Authority.LOCAL_ADMIN, 12, "agent-transfer-v1", StreamKind.NONE, Map.of(), Map.of());
+    public static final CommandMetadata AGENT_TRANSFER_SOURCE = new CommandMetadata("agent-transfer-source", Authority.LOCAL_ADMIN, 12, "agent-transfer-v1", StreamKind.NONE, Map.of(), Map.of());
+    public static final CommandMetadata AGENT_TRANSFER_WRITE = new CommandMetadata("agent-transfer-write", Authority.LOCAL_ADMIN, 12, "agent-transfer-v1", StreamKind.NONE, Map.of(), Map.of());
+    public static final CommandMetadata AGENT_UPDATE_APPLY = new CommandMetadata("agent-update-apply", Authority.LOCAL_ADMIN, 12, "agent-update-v1", StreamKind.NONE, Map.of(), Map.ofEntries(Map.entry("expected_machine_id", "agent-update-owner-v1")));
+    public static final CommandMetadata AGENT_UPDATE_PLAN = new CommandMetadata("agent-update-plan", Authority.LOCAL_ADMIN, 12, "agent-update-v1", StreamKind.NONE, Map.of(), Map.ofEntries(Map.entry("expected_machine_id", "agent-update-owner-v1")));
     public static final CommandMetadata APPLY_LAYOUT = new CommandMetadata("apply-layout", Authority.CONTROL, 6, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata ATTACH_SURFACE = new CommandMetadata("attach-surface", Authority.FRONTEND, 5, null, StreamKind.ATTACH, Map.ofEntries(Map.entry("mode", 7L)), Map.ofEntries(Map.entry("cols", "attach-initial-size"), Map.entry("expected_generation", "attach-identity-v1"), Map.entry("expected_terminal_id", "attach-identity-v1"), Map.entry("rows", "attach-initial-size"), Map.entry("snapshot", "terminal-snapshot-v1"), Map.entry("snapshot_images", "terminal-snapshot-images-v1"), Map.entry("snapshot_local_history", "terminal-snapshot-local-history-v1"), Map.entry("snapshot_version", "terminal-snapshot-v1"), Map.entry("viewer_backlog_bytes", "terminal-snapshot-v1")));
     public static final CommandMetadata BIND_CONVERSATION_TAB_SESSION = new CommandMetadata("bind-conversation-tab-session", Authority.CONTROL, 12, "agent-session-tabs-v1", StreamKind.NONE, Map.of(), Map.of());
@@ -130,6 +145,13 @@ public final class Commands {
     public static final CommandMetadata FOCUS_DIRECTION = new CommandMetadata("focus-direction", Authority.CONTROL, 6, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata FOCUS_PANE = new CommandMetadata("focus-pane", Authority.CONTROL, 5, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata FORGET_SESSION = new CommandMetadata("forget-session", Authority.CONTROL, 12, "profiles-v1", StreamKind.NONE, Map.of(), Map.of());
+    public static final CommandMetadata FS_DELETE = new CommandMetadata("fs.delete", Authority.LOCAL_ADMIN, 12, "fs-v1", StreamKind.NONE, Map.of(), Map.of());
+    public static final CommandMetadata FS_LIST = new CommandMetadata("fs.list", Authority.LOCAL_ADMIN, 12, "fs-v1", StreamKind.NONE, Map.of(), Map.of());
+    public static final CommandMetadata FS_MKDIR = new CommandMetadata("fs.mkdir", Authority.LOCAL_ADMIN, 12, "fs-v1", StreamKind.NONE, Map.of(), Map.of());
+    public static final CommandMetadata FS_READ = new CommandMetadata("fs.read", Authority.LOCAL_ADMIN, 12, "fs-v1", StreamKind.NONE, Map.of(), Map.of());
+    public static final CommandMetadata FS_RENAME = new CommandMetadata("fs.rename", Authority.LOCAL_ADMIN, 12, "fs-v1", StreamKind.NONE, Map.of(), Map.of());
+    public static final CommandMetadata FS_STAT = new CommandMetadata("fs.stat", Authority.LOCAL_ADMIN, 12, "fs-v1", StreamKind.NONE, Map.of(), Map.of());
+    public static final CommandMetadata FS_WRITE = new CommandMetadata("fs.write", Authority.LOCAL_ADMIN, 12, "fs-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata GET_BLOB = new CommandMetadata("get-blob", Authority.CONTROL, 12, "icon-assets-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata GET_BROWSER_PROVIDER = new CommandMetadata("get-browser-provider", Authority.LOCAL_ADMIN, 10, "browser-provider-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata GET_CELL_PIXELS = new CommandMetadata("get-cell-pixels", Authority.FRONTEND, 6, null, StreamKind.NONE, Map.of(), Map.of());
@@ -230,6 +252,10 @@ public final class Commands {
     public static final CommandMetadata RUN = new CommandMetadata("run", Authority.CONTROL, 6, null, StreamKind.NONE, Map.ofEntries(Map.entry("key", 9L)), Map.of());
     public static final CommandMetadata SAVE_SCREEN_GROUP = new CommandMetadata("save-screen-group", Authority.CONTROL, 12, "screen-groups-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata SAVE_TAB_GROUP = new CommandMetadata("save-tab-group", Authority.CONTROL, 12, "saved-tab-groups-v1", StreamKind.NONE, Map.of(), Map.of());
+    public static final CommandMetadata SCRIPT_REPL_CLOSE = new CommandMetadata("script-repl-close", Authority.LOCAL_ADMIN, 12, null, StreamKind.NONE, Map.of(), Map.of());
+    public static final CommandMetadata SCRIPT_REPL_EVAL = new CommandMetadata("script-repl-eval", Authority.LOCAL_ADMIN, 12, null, StreamKind.NONE, Map.of(), Map.of());
+    public static final CommandMetadata SCRIPT_REPL_OPEN = new CommandMetadata("script-repl-open", Authority.LOCAL_ADMIN, 12, null, StreamKind.NONE, Map.of(), Map.of());
+    public static final CommandMetadata SCRIPT_RUN = new CommandMetadata("script-run", Authority.LOCAL_ADMIN, 12, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata SCROLL_SURFACE = new CommandMetadata("scroll-surface", Authority.CONTROL, 5, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata SELECT_SCREEN = new CommandMetadata("select-screen", Authority.CONTROL, 5, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata SELECT_TAB = new CommandMetadata("select-tab", Authority.CONTROL, 5, null, StreamKind.NONE, Map.of(), Map.of());
@@ -308,6 +334,10 @@ public final class Commands {
     public static final Map<String, CommandMetadata> ALL;
     static {
         LinkedHashMap<String, CommandMetadata> values = new LinkedHashMap<>();
+        values.put("access-request", ACCESS_REQUEST);
+        values.put("access-request-answer", ACCESS_REQUEST_ANSWER);
+        values.put("access-request-list", ACCESS_REQUEST_LIST);
+        values.put("access-request-status", ACCESS_REQUEST_STATUS);
         values.put("ack-tab-notifications", ACK_TAB_NOTIFICATIONS);
         values.put("add-screens-to-screen-group", ADD_SCREENS_TO_SCREEN_GROUP);
         values.put("add-tabs-to-tab-group", ADD_TABS_TO_TAB_GROUP);
@@ -317,6 +347,17 @@ public final class Commands {
         values.put("agent-cli-intents-settle", AGENT_CLI_INTENTS_SETTLE);
         values.put("agent-cli-update-job", AGENT_CLI_UPDATE_JOB);
         values.put("agent-cli-update-job-resolve", AGENT_CLI_UPDATE_JOB_RESOLVE);
+        values.put("agent-transfer-abort", AGENT_TRANSFER_ABORT);
+        values.put("agent-transfer-begin", AGENT_TRANSFER_BEGIN);
+        values.put("agent-transfer-commit", AGENT_TRANSFER_COMMIT);
+        values.put("agent-transfer-finish", AGENT_TRANSFER_FINISH);
+        values.put("agent-transfer-read", AGENT_TRANSFER_READ);
+        values.put("agent-transfer-receive", AGENT_TRANSFER_RECEIVE);
+        values.put("agent-transfer-receive-abort", AGENT_TRANSFER_RECEIVE_ABORT);
+        values.put("agent-transfer-source", AGENT_TRANSFER_SOURCE);
+        values.put("agent-transfer-write", AGENT_TRANSFER_WRITE);
+        values.put("agent-update-apply", AGENT_UPDATE_APPLY);
+        values.put("agent-update-plan", AGENT_UPDATE_PLAN);
         values.put("apply-layout", APPLY_LAYOUT);
         values.put("attach-surface", ATTACH_SURFACE);
         values.put("bind-conversation-tab-session", BIND_CONVERSATION_TAB_SESSION);
@@ -428,6 +469,13 @@ public final class Commands {
         values.put("focus-direction", FOCUS_DIRECTION);
         values.put("focus-pane", FOCUS_PANE);
         values.put("forget-session", FORGET_SESSION);
+        values.put("fs.delete", FS_DELETE);
+        values.put("fs.list", FS_LIST);
+        values.put("fs.mkdir", FS_MKDIR);
+        values.put("fs.read", FS_READ);
+        values.put("fs.rename", FS_RENAME);
+        values.put("fs.stat", FS_STAT);
+        values.put("fs.write", FS_WRITE);
         values.put("get-blob", GET_BLOB);
         values.put("get-browser-provider", GET_BROWSER_PROVIDER);
         values.put("get-cell-pixels", GET_CELL_PIXELS);
@@ -528,6 +576,10 @@ public final class Commands {
         values.put("run", RUN);
         values.put("save-screen-group", SAVE_SCREEN_GROUP);
         values.put("save-tab-group", SAVE_TAB_GROUP);
+        values.put("script-repl-close", SCRIPT_REPL_CLOSE);
+        values.put("script-repl-eval", SCRIPT_REPL_EVAL);
+        values.put("script-repl-open", SCRIPT_REPL_OPEN);
+        values.put("script-run", SCRIPT_RUN);
         values.put("scroll-surface", SCROLL_SURFACE);
         values.put("select-screen", SELECT_SCREEN);
         values.put("select-tab", SELECT_TAB);

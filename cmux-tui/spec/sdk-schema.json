@@ -153,6 +153,21 @@
    "id": 198,
    "description": "cmux Cloud session, conversations and inbox.",
    "next_ordinal": 12
+  },
+  "agent-machine": {
+   "id": 20,
+   "description": "This machine's acpmux for the app: chat moves, Cloud access requests and agent CLI updates.",
+   "next_ordinal": 15
+  },
+  "files": {
+   "id": 21,
+   "description": "File ops on a cmux Cloud host's roots (fs-v1).",
+   "next_ordinal": 7
+  },
+  "scripts": {
+   "id": 22,
+   "description": "Script runs and REPL sessions in the daemon's script host.",
+   "next_ordinal": 4
   }
  },
  "types": {
@@ -10327,6 +10342,658 @@
      "additional_properties": false
     }
    }
+  },
+  "FsEntryKind": {
+   "kind": "enum",
+   "values": [
+    "file",
+    "dir",
+    "symlink",
+    "other"
+   ]
+  },
+  "FsSortKey": {
+   "kind": "enum",
+   "values": [
+    "name",
+    "modified",
+    "size",
+    "kind"
+   ]
+  },
+  "FsSortDirection": {
+   "kind": "enum",
+   "values": [
+    "asc",
+    "desc"
+   ]
+  },
+  "FsSort": {
+   "kind": "object",
+   "fields": {
+    "key": {
+     "type": {
+      "kind": "ref",
+      "name": "FsSortKey"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "default": "name"
+    },
+    "dir": {
+     "type": {
+      "kind": "ref",
+      "name": "FsSortDirection"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "default": "asc"
+    },
+    "dirs_first": {
+     "type": {
+      "kind": "scalar",
+      "name": "boolean"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "default": false
+    }
+   },
+   "additional_properties": false
+  },
+  "FsFilter": {
+   "kind": "object",
+   "fields": {
+    "query": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "constraints": [
+      "Keeps entries whose name contains it, case-insensitively; empty keeps all."
+     ]
+    },
+    "hidden": {
+     "type": {
+      "kind": "scalar",
+      "name": "boolean"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "default": false,
+     "constraints": [
+      "Dotfiles are listed only when true."
+     ]
+    },
+    "kinds": {
+     "type": {
+      "kind": "array",
+      "items": {
+       "kind": "ref",
+       "name": "FsEntryKind"
+      }
+     },
+     "presence": "optional",
+     "nullable": true
+    }
+   },
+   "additional_properties": false
+  },
+  "FsEntry": {
+   "kind": "object",
+   "fields": {
+    "name": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "kind": {
+     "type": {
+      "kind": "ref",
+      "name": "FsEntryKind"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "size": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": true,
+     "constraints": [
+      "null for a folder."
+     ]
+    },
+    "mtime": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": true,
+     "constraints": [
+      "Milliseconds since the epoch; null before 1970."
+     ]
+    },
+    "hidden": {
+     "type": {
+      "kind": "scalar",
+      "name": "boolean"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "omit_nil": true
+    },
+    "target_kind": {
+     "type": {
+      "kind": "ref",
+      "name": "FsEntryKind"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "omit_nil": true,
+     "constraints": [
+      "A symlink's target kind when it resolves inside the roots."
+     ]
+    },
+    "revision": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "omit_nil": true,
+     "constraints": [
+      "s<size>-m<mtime ms>; set on the entry a write, mkdir or rename answers."
+     ]
+    }
+   },
+   "additional_properties": false
+  },
+  "FsStatResult": {
+   "kind": "object",
+   "fields": {
+    "name": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "kind": {
+     "type": {
+      "kind": "ref",
+      "name": "FsEntryKind"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "size": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": true,
+     "constraints": [
+      "null for a folder."
+     ]
+    },
+    "mtime": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": true,
+     "constraints": [
+      "Milliseconds since the epoch; null before 1970."
+     ]
+    },
+    "hidden": {
+     "type": {
+      "kind": "scalar",
+      "name": "boolean"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "omit_nil": true
+    },
+    "target_kind": {
+     "type": {
+      "kind": "ref",
+      "name": "FsEntryKind"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "omit_nil": true,
+     "constraints": [
+      "A symlink's target kind when it resolves inside the roots."
+     ]
+    },
+    "mode_display": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "owner_display": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "revision": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false,
+     "constraints": [
+      "s<size>-m<mtime ms>."
+     ]
+    }
+   },
+   "additional_properties": false
+  },
+  "FsEntryResult": {
+   "kind": "object",
+   "fields": {
+    "entry": {
+     "type": {
+      "kind": "ref",
+      "name": "FsEntry"
+     },
+     "presence": "required",
+     "nullable": false
+    }
+   },
+   "additional_properties": false
+  },
+  "FsPage": {
+   "kind": "object",
+   "fields": {
+    "entries": {
+     "type": {
+      "kind": "array",
+      "items": {
+       "kind": "ref",
+       "name": "FsEntry"
+      }
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "listing": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false,
+     "constraints": [
+      "The snapshot id (lst_...), kept 5 minutes after its last use."
+     ]
+    },
+    "cursor": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": true,
+     "constraints": [
+      "null on the last page."
+     ]
+    },
+    "total": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "revision": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    }
+   },
+   "additional_properties": false
+  },
+  "FsReadResult": {
+   "kind": "tagged_union",
+   "tag": "encoding",
+   "variants": {
+    "utf-8": {
+     "kind": "object",
+     "fields": {
+      "encoding": {
+       "type": {
+        "kind": "literal",
+        "value": "utf-8"
+       },
+       "presence": "required",
+       "nullable": false
+      },
+      "text": {
+       "type": {
+        "kind": "scalar",
+        "name": "string"
+       },
+       "presence": "required",
+       "nullable": false
+      },
+      "truncated": {
+       "type": {
+        "kind": "scalar",
+        "name": "boolean"
+       },
+       "presence": "required",
+       "nullable": false
+      },
+      "size": {
+       "type": {
+        "kind": "scalar",
+        "name": "uint64"
+       },
+       "presence": "required",
+       "nullable": false
+      }
+     },
+     "additional_properties": false
+    },
+    "base64": {
+     "kind": "object",
+     "fields": {
+      "encoding": {
+       "type": {
+        "kind": "literal",
+        "value": "base64"
+       },
+       "presence": "required",
+       "nullable": false
+      },
+      "bytes_base64": {
+       "type": {
+        "kind": "ref",
+        "name": "Base64"
+       },
+       "presence": "required",
+       "nullable": false
+      },
+      "truncated": {
+       "type": {
+        "kind": "scalar",
+        "name": "boolean"
+       },
+       "presence": "required",
+       "nullable": false
+      },
+      "size": {
+       "type": {
+        "kind": "scalar",
+        "name": "uint64"
+       },
+       "presence": "required",
+       "nullable": false
+      }
+     },
+     "additional_properties": false
+    }
+   }
+  },
+  "AccessRequestKind": {
+   "kind": "enum",
+   "values": [
+    "file",
+    "secret"
+   ]
+  },
+  "AccessRequestStatus": {
+   "kind": "tagged_union",
+   "tag": "state",
+   "variants": {
+    "pending": {
+     "kind": "object",
+     "fields": {
+      "state": {
+       "type": {
+        "kind": "literal",
+        "value": "pending"
+       },
+       "presence": "required",
+       "nullable": false
+      }
+     },
+     "additional_properties": false
+    },
+    "delivered": {
+     "kind": "object",
+     "fields": {
+      "state": {
+       "type": {
+        "kind": "literal",
+        "value": "delivered"
+       },
+       "presence": "required",
+       "nullable": false
+      },
+      "path": {
+       "type": {
+        "kind": "scalar",
+        "name": "string"
+       },
+       "presence": "optional",
+       "nullable": false,
+       "constraints": [
+        "Where the Mac put a file on this machine."
+       ]
+      },
+      "value": {
+       "type": {
+        "kind": "scalar",
+        "name": "string"
+       },
+       "presence": "optional",
+       "nullable": false,
+       "constraints": [
+        "A secret, answered to the first status read only."
+       ]
+      },
+      "taken": {
+       "type": {
+        "kind": "literal",
+        "value": true
+       },
+       "presence": "optional",
+       "nullable": false,
+       "constraints": [
+        "A secret an earlier status read took."
+       ]
+      }
+     },
+     "additional_properties": false
+    },
+    "denied": {
+     "kind": "object",
+     "fields": {
+      "state": {
+       "type": {
+        "kind": "literal",
+        "value": "denied"
+       },
+       "presence": "required",
+       "nullable": false
+      },
+      "reason": {
+       "type": {
+        "kind": "scalar",
+        "name": "string"
+       },
+       "presence": "required",
+       "nullable": true
+      }
+     },
+     "additional_properties": false
+    }
+   }
+  },
+  "AccessRequestPending": {
+   "kind": "object",
+   "fields": {
+    "request_id": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "kind": {
+     "type": {
+      "kind": "ref",
+      "name": "AccessRequestKind"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "path": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": true
+    },
+    "name": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": true
+    },
+    "session": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": true
+    },
+    "reason": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": true
+    },
+    "age_ms": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    }
+   },
+   "additional_properties": false
+  },
+  "AgentUpdateHarness": {
+   "kind": "object",
+   "fields": {
+    "id": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "name": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": false
+    },
+    "version": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": false
+    },
+    "latest": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": false
+    }
+   },
+   "additional_properties": false
+  },
+  "AgentUpdateOutcome": {
+   "kind": "object",
+   "fields": {
+    "id": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "ok": {
+     "type": {
+      "kind": "scalar",
+      "name": "boolean"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "version": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": false
+    },
+    "error": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": false
+    }
+   },
+   "additional_properties": false
   }
  },
  "commands": {
@@ -29031,6 +29698,1710 @@
    "method_id": 1292,
    "priority": "control",
    "durability": "reply_before_journal",
+   "clients": [
+    "sdk"
+   ]
+  },
+  "fs.stat": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": "fs-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "path": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "FsStatResult"
+   },
+   "stream": null,
+   "constraints": [
+    "Served on the trusted local socket and on the link's remote entry (its gate admits exactly the seven fs ops); WebSocket clients get fs.permission_denied, and a daemon that is not a cmux Cloud host answers fs.unavailable.",
+    "Paths are absolute; a . or .. component, a path outside the roots, or a symlink leaving them is fs.permission_denied.",
+    "fs.not_found when nothing is at path."
+   ],
+   "method_id": 5376,
+   "priority": "control",
+   "durability": "read_only",
+   "clients": [
+    "sdk"
+   ]
+  },
+  "fs.list": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": "fs-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "path": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "constraints": [
+       "Required unless listing pages an earlier snapshot."
+      ]
+     },
+     "sort": {
+      "type": {
+       "kind": "ref",
+       "name": "FsSort"
+      },
+      "presence": "optional",
+      "nullable": false
+     },
+     "filter": {
+      "type": {
+       "kind": "ref",
+       "name": "FsFilter"
+      },
+      "presence": "optional",
+      "nullable": false
+     },
+     "limit": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "default": 200,
+      "constraints": [
+       "1 to 1000."
+      ]
+     },
+     "cursor": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true
+     },
+     "listing": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "constraints": [
+       "Pages the snapshot this caller's earlier list made."
+      ]
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "FsPage"
+   },
+   "stream": null,
+   "constraints": [
+    "Served on the trusted local socket and on the link's remote entry (its gate admits exactly the seven fs ops); WebSocket clients get fs.permission_denied, and a daemon that is not a cmux Cloud host answers fs.unavailable.",
+    "Paths are absolute; a . or .. component, a path outside the roots, or a symlink leaving them is fs.permission_denied.",
+    "fs.not_a_directory, fs.too_large and cursor.expired."
+   ],
+   "method_id": 5377,
+   "priority": "control",
+   "durability": "memory",
+   "clients": [
+    "sdk"
+   ]
+  },
+  "fs.read": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": "fs-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "path": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "offset": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "default": 0
+     },
+     "max_bytes": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "required",
+      "nullable": false,
+      "constraints": [
+       "At most 16 MiB is answered; truncated is true when more remains."
+      ]
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "FsReadResult"
+   },
+   "stream": null,
+   "constraints": [
+    "Served on the trusted local socket and on the link's remote entry (its gate admits exactly the seven fs ops); WebSocket clients get fs.permission_denied, and a daemon that is not a cmux Cloud host answers fs.unavailable.",
+    "Paths are absolute; a . or .. component, a path outside the roots, or a symlink leaving them is fs.permission_denied.",
+    "stream:true is params.invalid on the line path: a byte stream needs a link dial of its own (commands.md, File system).",
+    "fs.not_a_file for anything but a regular file."
+   ],
+   "method_id": 5378,
+   "priority": "bulk",
+   "durability": "read_only",
+   "clients": [
+    "sdk"
+   ]
+  },
+  "fs.write": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": "fs-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "path": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "text": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "constraints": [
+       "Exactly one of text and bytes_base64."
+      ]
+     },
+     "bytes_base64": {
+      "type": {
+       "kind": "ref",
+       "name": "Base64"
+      },
+      "presence": "optional",
+      "nullable": true
+     },
+     "mode": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false,
+      "constraints": [
+       "create, overwrite, replace or append."
+      ]
+     },
+     "expected": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "constraints": [
+       "The revision replace and append require."
+      ]
+     },
+     "permissions": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint32"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "constraints": [
+       "0644, 0755, 0600 or 0700 as a decimal number; not with append."
+      ]
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "FsEntryResult"
+   },
+   "stream": null,
+   "constraints": [
+    "Served on the trusted local socket and on the link's remote entry (its gate admits exactly the seven fs ops); WebSocket clients get fs.permission_denied, and a daemon that is not a cmux Cloud host answers fs.unavailable.",
+    "Paths are absolute; a . or .. component, a path outside the roots, or a symlink leaving them is fs.permission_denied.",
+    "stream:true is params.invalid on the line path: a byte stream needs a link dial of its own (commands.md, File system).",
+    "At most 12 MiB per call; written to a temporary file, fsynced and renamed over the target.",
+    "fs.exists, fs.revision_mismatch (error_details.current), fs.too_large, fs.no_space and fs.read_only."
+   ],
+   "method_id": 5379,
+   "priority": "control",
+   "durability": "reply_after_journal",
+   "clients": [
+    "sdk"
+   ]
+  },
+  "fs.mkdir": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": "fs-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "path": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false,
+      "constraints": [
+       "The folder (mkdir) or the entry to rename."
+      ]
+     },
+     "name": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "FsEntryResult"
+   },
+   "stream": null,
+   "constraints": [
+    "Served on the trusted local socket and on the link's remote entry (its gate admits exactly the seven fs ops); WebSocket clients get fs.permission_denied, and a daemon that is not a cmux Cloud host answers fs.unavailable.",
+    "Paths are absolute; a . or .. component, a path outside the roots, or a symlink leaving them is fs.permission_denied.",
+    "fs.exists when the name is taken."
+   ],
+   "method_id": 5380,
+   "priority": "control",
+   "durability": "reply_before_journal",
+   "clients": [
+    "sdk"
+   ]
+  },
+  "fs.rename": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": "fs-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "path": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false,
+      "constraints": [
+       "The folder (mkdir) or the entry to rename."
+      ]
+     },
+     "name": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "FsEntryResult"
+   },
+   "stream": null,
+   "constraints": [
+    "Served on the trusted local socket and on the link's remote entry (its gate admits exactly the seven fs ops); WebSocket clients get fs.permission_denied, and a daemon that is not a cmux Cloud host answers fs.unavailable.",
+    "Paths are absolute; a . or .. component, a path outside the roots, or a symlink leaving them is fs.permission_denied.",
+    "Renames inside the same folder and never replaces: fs.exists or fs.not_found."
+   ],
+   "method_id": 5381,
+   "priority": "control",
+   "durability": "reply_after_journal",
+   "clients": [
+    "sdk"
+   ]
+  },
+  "fs.delete": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": "fs-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "paths": {
+      "type": {
+       "kind": "array",
+       "items": {
+        "kind": "scalar",
+        "name": "string"
+       }
+      },
+      "presence": "required",
+      "nullable": false,
+      "constraints": [
+       "1 to 1000 paths; all are checked before any is removed."
+      ]
+     },
+     "permanent": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "default": false,
+      "constraints": [
+       "Must be true."
+      ]
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "object",
+    "fields": {},
+    "additional_properties": false
+   },
+   "stream": null,
+   "constraints": [
+    "Served on the trusted local socket and on the link's remote entry (its gate admits exactly the seven fs ops); WebSocket clients get fs.permission_denied, and a daemon that is not a cmux Cloud host answers fs.unavailable.",
+    "Paths are absolute; a . or .. component, a path outside the roots, or a symlink leaving them is fs.permission_denied.",
+    "Removes folders with everything in them and never follows a symlink; fs.not_found."
+   ],
+   "method_id": 5382,
+   "priority": "control",
+   "durability": "reply_before_journal",
+   "clients": [
+    "sdk"
+   ]
+  },
+  "script-run": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": null,
+   "request": {
+    "kind": "object",
+    "fields": {
+     "code": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "args": {
+      "type": {
+       "kind": "ref",
+       "name": "JsonValue"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "constraints": [
+       "An object; anything else runs with {}."
+      ]
+     },
+     "timeout_ms": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "optional",
+      "nullable": true
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "object",
+    "fields": {
+     "value": {
+      "type": {
+       "kind": "ref",
+       "name": "JsonValue"
+      },
+      "presence": "required",
+      "nullable": true
+     },
+     "dropped_log_lines": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "omit_nil": true,
+      "constraints": [
+       "script-log lines dropped over the cell's line budget."
+      ]
+     }
+    },
+    "additional_properties": false
+   },
+   "stream": null,
+   "constraints": [
+    "Needs a local Unix connection that is not a page relay and is bound to no agent; others get script.forbidden, a daemon without a script host script.unavailable, a malformed request bad-request.",
+    "Console output arrives before the reply as script-log events on this connection; cancel-request {target} ends a running cell.",
+    "Needs a request id."
+   ],
+   "method_id": 5632,
+   "priority": "control",
+   "durability": "memory",
+   "clients": [
+    "cli",
+    "sdk"
+   ]
+  },
+  "script-repl-open": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": null,
+   "request": {
+    "kind": "object",
+    "fields": {},
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "object",
+    "fields": {
+     "session": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
+   },
+   "stream": null,
+   "constraints": [
+    "Needs a local Unix connection that is not a page relay and is bound to no agent; others get script.forbidden, a daemon without a script host script.unavailable, a malformed request bad-request.",
+    "Console output arrives before the reply as script-log events on this connection; cancel-request {target} ends a running cell.",
+    "Needs a request id; the session ends when this connection closes."
+   ],
+   "method_id": 5633,
+   "priority": "control",
+   "durability": "memory",
+   "clients": [
+    "cli",
+    "sdk"
+   ]
+  },
+  "script-repl-eval": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": null,
+   "request": {
+    "kind": "object",
+    "fields": {
+     "session": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "code": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "args": {
+      "type": {
+       "kind": "ref",
+       "name": "JsonValue"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "constraints": [
+       "An object; anything else runs with {}."
+      ]
+     },
+     "timeout_ms": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "optional",
+      "nullable": true
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "object",
+    "fields": {
+     "value": {
+      "type": {
+       "kind": "ref",
+       "name": "JsonValue"
+      },
+      "presence": "required",
+      "nullable": true
+     },
+     "dropped_log_lines": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "omit_nil": true,
+      "constraints": [
+       "script-log lines dropped over the cell's line budget."
+      ]
+     }
+    },
+    "additional_properties": false
+   },
+   "stream": null,
+   "constraints": [
+    "Needs a local Unix connection that is not a page relay and is bound to no agent; others get script.forbidden, a daemon without a script host script.unavailable, a malformed request bad-request.",
+    "Console output arrives before the reply as script-log events on this connection; cancel-request {target} ends a running cell.",
+    "Needs a request id; the session must be this connection's."
+   ],
+   "method_id": 5634,
+   "priority": "control",
+   "durability": "memory",
+   "clients": [
+    "cli",
+    "sdk"
+   ]
+  },
+  "script-repl-close": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": null,
+   "request": {
+    "kind": "object",
+    "fields": {
+     "session": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "object",
+    "fields": {
+     "closed": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
+   },
+   "stream": null,
+   "constraints": [
+    "Needs a local Unix connection that is not a page relay and is bound to no agent; others get script.forbidden, a daemon without a script host script.unavailable, a malformed request bad-request."
+   ],
+   "method_id": 5635,
+   "priority": "control",
+   "durability": "memory",
+   "clients": [
+    "cli",
+    "sdk"
+   ]
+  },
+  "agent-transfer-receive": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": "agent-transfer-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "manifest": {
+      "type": {
+       "kind": "map",
+       "values": {
+        "kind": "ref",
+        "name": "JsonValue"
+       }
+      },
+      "presence": "required",
+      "nullable": false,
+      "constraints": [
+       "The source's agent-transfer-begin manifest."
+      ]
+     },
+     "cwd": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false,
+      "constraints": [
+       "The absolute folder the chat runs in here; it must be under the daemon's guard roots (else agent_transfer.outside_roots)."
+      ]
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "object",
+    "fields": {
+     "receive_id": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "session_id": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
+   },
+   "stream": null,
+   "constraints": [
+    "Trusted local Unix connections only, as agent-session-attach; others get agent_transfer.not_trusted. A guard, roots, control, env, MCP server, session id, command-bearing or unknown param is agent_transfer.bad_request before anything reaches acpmux.",
+    "Reads this machine's kind at each call: agent_session.team_vm_blocked on a team VM, agent_session.host_unverified on a Cloud VM of unknown kind.",
+    "The daemon builds the receive guard from its own host; an acpmux that does not apply it is agent_transfer.unguarded.",
+    "Records the receive's move before the reply, so a later receive-abort can ask about it after a restart."
+   ],
+   "method_id": 5120,
+   "priority": "control",
+   "durability": "reply_after_journal",
+   "clients": [
+    "sdk"
+   ]
+  },
+  "agent-transfer-write": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": "agent-transfer-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "receive_id": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "path": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false,
+      "constraints": [
+       "A relative bundle path."
+      ]
+     },
+     "offset": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "data": {
+      "type": {
+       "kind": "ref",
+       "name": "Base64"
+      },
+      "presence": "required",
+      "nullable": false,
+      "constraints": [
+       "At most 4 MiB decoded."
+      ]
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "object",
+    "fields": {
+     "next": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
+   },
+   "stream": null,
+   "constraints": [
+    "Trusted local Unix connections only, as agent-session-attach; others get agent_transfer.not_trusted. A guard, roots, control, env, MCP server, session id, command-bearing or unknown param is agent_transfer.bad_request before anything reaches acpmux.",
+    "agent_transfer.unknown_receive for a receive this daemon does not hold."
+   ],
+   "method_id": 5121,
+   "priority": "control",
+   "durability": "memory",
+   "clients": [
+    "sdk"
+   ]
+  },
+  "agent-transfer-finish": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": "agent-transfer-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "receive_id": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "name": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "object",
+    "fields": {
+     "session": {
+      "type": {
+       "kind": "ref",
+       "name": "JsonValue"
+      },
+      "presence": "required",
+      "nullable": false,
+      "constraints": [
+       "acpmux's session summary of the landed chat."
+      ]
+     }
+    },
+    "additional_properties": false
+   },
+   "stream": null,
+   "constraints": [
+    "Trusted local Unix connections only, as agent-session-attach; others get agent_transfer.not_trusted. A guard, roots, control, env, MCP server, session id, command-bearing or unknown param is agent_transfer.bad_request before anything reaches acpmux.",
+    "Reads this machine's kind at each call: agent_session.team_vm_blocked on a team VM, agent_session.host_unverified on a Cloud VM of unknown kind.",
+    "Imports the chat in the receive's own folder and records it as landed here before the reply."
+   ],
+   "method_id": 5122,
+   "priority": "control",
+   "durability": "reply_after_journal",
+   "clients": [
+    "sdk"
+   ]
+  },
+  "agent-transfer-receive-abort": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": "agent-transfer-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "receive_id": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "object",
+    "fields": {
+     "dropped": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "forgotten": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "landed": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "required",
+      "nullable": true,
+      "constraints": [
+       "null when whether the chat landed is not known yet; ask again."
+      ]
+     }
+    },
+    "additional_properties": false
+   },
+   "stream": null,
+   "constraints": [
+    "Trusted local Unix connections only, as agent-session-attach; others get agent_transfer.not_trusted. A guard, roots, control, env, MCP server, session id, command-bearing or unknown param is agent_transfer.bad_request before anything reaches acpmux.",
+    "Sends acpmux's forget with the ids of the receive's own manifest; a receive the daemon recorded stays askable after a restart."
+   ],
+   "method_id": 5123,
+   "priority": "control",
+   "durability": "memory",
+   "clients": [
+    "sdk"
+   ]
+  },
+  "agent-transfer-begin": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": "agent-transfer-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "surface": {
+      "type": {
+       "kind": "ref",
+       "name": "Id"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "interrupt": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "default": false
+     },
+     "ask_first": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "default": false,
+      "constraints": [
+       "Narrows the chat's policy, rules and mode to asking ones first."
+      ]
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "object",
+    "fields": {
+     "transfer_id": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "source_session": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "manifest": {
+      "type": {
+       "kind": "ref",
+       "name": "JsonValue"
+      },
+      "presence": "required",
+      "nullable": false,
+      "constraints": [
+       "The bundle manifest without the source's absolute paths and launch settings."
+      ]
+     }
+    },
+    "additional_properties": false
+   },
+   "stream": null,
+   "constraints": [
+    "Trusted local Unix connections only, as agent-session-attach; others get agent_transfer.not_trusted. A guard, roots, control, env, MCP server, session id, command-bearing or unknown param is agent_transfer.bad_request before anything reaches acpmux.",
+    "surface must be an agent tab of this store with a session (else agent_transfer.unknown_tab).",
+    "A chat already in a move is agent_transfer.refused with error_details.transfer_id."
+   ],
+   "method_id": 5124,
+   "priority": "control",
+   "durability": "memory",
+   "stream_scoped": true,
+   "clients": [
+    "sdk"
+   ]
+  },
+  "agent-transfer-source": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": "agent-transfer-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "surface": {
+      "type": {
+       "kind": "ref",
+       "name": "Id"
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "object",
+    "fields": {
+     "session": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
+   },
+   "stream": null,
+   "constraints": [
+    "Trusted local Unix connections only, as agent-session-attach; others get agent_transfer.not_trusted. A guard, roots, control, env, MCP server, session id, command-bearing or unknown param is agent_transfer.bad_request before anything reaches acpmux.",
+    "surface must be an agent tab of this store with a session (else agent_transfer.unknown_tab).",
+    "Reads the tab's store record without reaching acpmux."
+   ],
+   "method_id": 5125,
+   "priority": "control",
+   "durability": "read_only",
+   "stream_scoped": true,
+   "clients": [
+    "sdk"
+   ]
+  },
+  "agent-transfer-read": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": "agent-transfer-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "transfer_id": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "path": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false,
+      "constraints": [
+       "Exactly a path the begin manifest lists."
+      ]
+     },
+     "offset": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "limit": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "constraints": [
+       "1 B to 4 MiB; default 1 MiB."
+      ]
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "object",
+    "fields": {
+     "data": {
+      "type": {
+       "kind": "ref",
+       "name": "Base64"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "next": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "eof": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
+   },
+   "stream": null,
+   "constraints": [
+    "Trusted local Unix connections only, as agent-session-attach; others get agent_transfer.not_trusted. A guard, roots, control, env, MCP server, session id, command-bearing or unknown param is agent_transfer.bad_request before anything reaches acpmux.",
+    "agent_transfer.unknown_transfer for a move not begun through this daemon."
+   ],
+   "method_id": 5126,
+   "priority": "bulk",
+   "durability": "read_only",
+   "clients": [
+    "sdk"
+   ]
+  },
+  "agent-transfer-commit": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": "agent-transfer-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "surface": {
+      "type": {
+       "kind": "ref",
+       "name": "Id"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "transfer_id": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "to": {
+      "type": {
+       "kind": "ref",
+       "name": "JsonValue"
+      },
+      "presence": "required",
+      "nullable": true,
+      "constraints": [
+       "Any JSON up to 4 KiB, recorded in the chat's log."
+      ]
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "object",
+    "fields": {
+     "committed": {
+      "type": {
+       "kind": "literal",
+       "value": true
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
+   },
+   "stream": null,
+   "constraints": [
+    "Trusted local Unix connections only, as agent-session-attach; others get agent_transfer.not_trusted. A guard, roots, control, env, MCP server, session id, command-bearing or unknown param is agent_transfer.bad_request before anything reaches acpmux.",
+    "surface must be an agent tab of this store with a session (else agent_transfer.unknown_tab).",
+    "The chat closes here once the target has it."
+   ],
+   "method_id": 5127,
+   "priority": "control",
+   "durability": "memory",
+   "stream_scoped": true,
+   "clients": [
+    "sdk"
+   ]
+  },
+  "agent-transfer-abort": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": "agent-transfer-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "surface": {
+      "type": {
+       "kind": "ref",
+       "name": "Id"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "transfer_id": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "object",
+    "fields": {
+     "aborted": {
+      "type": {
+       "kind": "literal",
+       "value": true
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
+   },
+   "stream": null,
+   "constraints": [
+    "Trusted local Unix connections only, as agent-session-attach; others get agent_transfer.not_trusted. A guard, roots, control, env, MCP server, session id, command-bearing or unknown param is agent_transfer.bad_request before anything reaches acpmux.",
+    "surface must be an agent tab of this store with a session (else agent_transfer.unknown_tab).",
+    "The daemon forgets the move even when acpmux refuses the abort."
+   ],
+   "method_id": 5128,
+   "priority": "control",
+   "durability": "memory",
+   "stream_scoped": true,
+   "clients": [
+    "sdk"
+   ]
+  },
+  "access-request": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": "access-request-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "kind": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false,
+      "constraints": [
+       "file (with path) or secret (with name)."
+      ]
+     },
+     "path": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "constraints": [
+       "An absolute path on the Mac, at most 4096 bytes."
+      ]
+     },
+     "name": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "constraints": [
+       "A secret's name: A-Za-z0-9._-, at most 128 bytes."
+      ]
+     },
+     "session": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "constraints": [
+       "The asking chat's agent session, at most 200 plain characters."
+      ]
+     },
+     "reason": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "constraints": [
+       "At most 1000 bytes."
+      ]
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "object",
+    "fields": {
+     "request_id": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false,
+      "constraints": [
+       "32 hex digits."
+      ]
+     }
+    },
+    "additional_properties": false
+   },
+   "stream": null,
+   "constraints": [
+    "Trusted local Unix connections that are not remote clients (else access_request.not_trusted), on a cmux Cloud host only (else access_request.unavailable). A command-bearing, unknown or non-string param is access_request.bad_request.",
+    "64 requests are kept, pending or answered (access_request.limit); each is forgotten 15 minutes after it was made or answered."
+   ],
+   "method_id": 5129,
+   "priority": "control",
+   "durability": "memory",
+   "clients": [
+    "sdk"
+   ]
+  },
+  "access-request-status": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": "access-request-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "request_id": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "AccessRequestStatus"
+   },
+   "stream": null,
+   "constraints": [
+    "Trusted local Unix connections that are not remote clients (else access_request.not_trusted), on a cmux Cloud host only (else access_request.unavailable). A command-bearing, unknown or non-string param is access_request.bad_request.",
+    "access_request.unknown_request; the first read of a delivered secret takes its value."
+   ],
+   "method_id": 5130,
+   "priority": "control",
+   "durability": "memory",
+   "clients": [
+    "sdk"
+   ]
+  },
+  "access-request-list": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": "access-request-v1",
+   "request": {
+    "kind": "object",
+    "fields": {},
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "object",
+    "fields": {
+     "requests": {
+      "type": {
+       "kind": "array",
+       "items": {
+        "kind": "ref",
+        "name": "AccessRequestPending"
+       }
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
+   },
+   "stream": null,
+   "constraints": [
+    "Trusted local Unix connections that are not remote clients (else access_request.not_trusted), on a cmux Cloud host only (else access_request.unavailable). A command-bearing, unknown or non-string param is access_request.bad_request.",
+    "The pending requests, oldest first."
+   ],
+   "method_id": 5131,
+   "priority": "control",
+   "durability": "read_only",
+   "clients": [
+    "sdk"
+   ]
+  },
+  "access-request-answer": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": "access-request-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "request_id": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "outcome": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false,
+      "constraints": [
+       "delivered (path for a file, value for a secret) or denied (reason?)."
+      ]
+     },
+     "path": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true
+     },
+     "value": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "constraints": [
+       "A secret value, 1 B to 64 KiB, kept in memory only."
+      ]
+     },
+     "reason": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "constraints": [
+       "At most 1000 bytes."
+      ]
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "object",
+    "fields": {},
+    "additional_properties": false
+   },
+   "stream": null,
+   "constraints": [
+    "Trusted local Unix connections that are not remote clients (else access_request.not_trusted), on a cmux Cloud host only (else access_request.unavailable). A command-bearing, unknown or non-string param is access_request.bad_request.",
+    "A pending request only: access_request.unknown_request or access_request.answered."
+   ],
+   "method_id": 5132,
+   "priority": "control",
+   "durability": "memory",
+   "clients": [
+    "sdk"
+   ]
+  },
+  "agent-update-plan": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": "agent-update-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "expected_machine_id": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "capability": "agent-update-owner-v1",
+      "constraints": [
+       "This daemon's canonical machine id: a condition, never a selector. Another id is agent_update.owner_mismatch, null or a malformed one agent_update.bad_request; checked before acpmux is consulted.",
+       "When present the reply adds machine."
+      ]
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "object",
+    "fields": {
+     "harnesses": {
+      "type": {
+       "kind": "array",
+       "items": {
+        "kind": "ref",
+        "name": "AgentUpdateHarness"
+       }
+      },
+      "presence": "required",
+      "nullable": false,
+      "constraints": [
+       "Outdated harnesses whose update needs no elevated rights."
+      ]
+     },
+     "live_threads": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "running_threads": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "machine": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "capability": "agent-update-owner-v1",
+      "constraints": [
+       "The daemon's canonical machine id, only when the request named expected_machine_id."
+      ]
+     }
+    },
+    "additional_properties": false
+   },
+   "stream": null,
+   "constraints": [
+    "Trusted local Unix connections only, as agent-session-attach; others get agent_update.not_trusted. An unknown param is agent_update.bad_request.",
+    "Never starts acpmux: with nothing on its socket the answer has no harness and no thread."
+   ],
+   "method_id": 5133,
+   "priority": "control",
+   "durability": "read_only",
+   "clients": [
+    "sdk"
+   ]
+  },
+  "agent-update-apply": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": "agent-update-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "expected_machine_id": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "capability": "agent-update-owner-v1",
+      "constraints": [
+       "This daemon's canonical machine id: a condition, never a selector. Another id is agent_update.owner_mismatch, null or a malformed one agent_update.bad_request; checked before acpmux is consulted.",
+       "When present the reply adds machine."
+      ]
+     },
+     "ids": {
+      "type": {
+       "kind": "array",
+       "items": {
+        "kind": "scalar",
+        "name": "string"
+       }
+      },
+      "presence": "required",
+      "nullable": false,
+      "constraints": [
+       "At most 64 ids of 1-128 bytes without control characters."
+      ]
+     },
+     "continue_threads": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "default": false
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "object",
+    "fields": {
+     "results": {
+      "type": {
+       "kind": "array",
+       "items": {
+        "kind": "ref",
+        "name": "AgentUpdateOutcome"
+       }
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "threads_restarted": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "threads_after_turn": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "threads_failed": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "threads_error": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": false
+     },
+     "machine": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "capability": "agent-update-owner-v1",
+      "constraints": [
+       "The daemon's canonical machine id, only when the request named expected_machine_id."
+      ]
+     }
+    },
+    "additional_properties": false
+   },
+   "stream": null,
+   "constraints": [
+    "Trusted local Unix connections only, as agent-session-attach; others get agent_update.not_trusted. An unknown param is agent_update.bad_request.",
+    "One apply at a time per daemon (agent_update.busy); each update may take 15 minutes, the call at most two hours.",
+    "Starts acpmux when nothing listens on its socket (agent_update.acpmux_unavailable when it cannot)."
+   ],
+   "method_id": 5134,
+   "priority": "control",
+   "durability": "memory",
    "clients": [
     "sdk"
    ]
