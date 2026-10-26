@@ -1640,7 +1640,8 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             // CmuxNextCompat: the tests import it directly (Mutex); undeclared, an incremental build kept a
             // test object compiled against its older interface (an undefined Mutex.withLock symbol at link).
             // CmuxNextWakeups: StoreWaitersTests drive the store's deadline queue on a timer of their own.
-            dependencies: ["CmuxNextCompat", "CmuxNextDaemon", "CmuxNextTrace", "CmuxNextMetrics", "CmuxNextWakeups"],
+            dependencies: ["CmuxNextCompat", "CmuxNextDaemon", "CmuxNextTrace", "CmuxNextMetrics", "CmuxNextWakeups",
+                           .product(name: "CmuxFuzzSupport", package: "CmuxFuzzSupport")],
             swiftSettings: daemonSwiftSettings
         ),
         // Links libghostty (GhosttyNextKit, whose macOS archive has the lib
@@ -1856,7 +1857,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         ),
         .testTarget(
             name: "CmuxNextControlTests",
-            dependencies: ["CmuxNextWakeups", "CmuxNextWakeupsTestSupport", "CmuxNextCompat", "CmuxNextControl", "CmuxNextActions", "CmuxNextSettings", "CmuxNextDaemon", "CmuxNextTrace", "CmuxNextMetrics", "CmuxNextInputCore", "CmuxNextInputCoreTestSupport", "CmuxNextOracle"],
+            dependencies: ["CmuxNextWakeups", "CmuxNextWakeupsTestSupport", "CmuxNextCompat", "CmuxNextControl", "CmuxNextActions", "CmuxNextSettings", "CmuxNextDaemon", "CmuxNextTrace", "CmuxNextMetrics", "CmuxNextInputCore", "CmuxNextInputCoreTestSupport", "CmuxNextOracle", .product(name: "CmuxFuzzSupport", package: "CmuxFuzzSupport")],
             swiftSettings: daemonSwiftSettings
         ),
         // Settings and palette agent CLI updates (moved out of CmuxNextApp/AgentHarnesses):
@@ -2041,6 +2042,8 @@ let package = Package(
         // The Mac Home transcript: MessagesLabAppKitNative, vendored (home-mac.md).
         .package(path: "../../Shared/CmuxMessagesLab"),
         .package(path: "../../Shared/CmuxIrxTransport"),
+        // Seeded property tests (test targets only): p10-stability-016.
+        .package(path: "../../Shared/CmuxFuzzSupport"),
         // RFB (VNC) client for compatibility hosts in the remote view pane (remote-desktop.md 12).
         .package(path: "../../Shared/CmuxVNC"),
         .package(path: "../../Shared/CmuxScreenKit"),
