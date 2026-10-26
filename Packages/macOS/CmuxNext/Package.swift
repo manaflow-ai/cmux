@@ -428,7 +428,8 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         ),
         .testTarget(
             name: "CmuxNextAgentPaneTests",
-            dependencies: ["CmuxNextAgentPane", "CmuxNextDaemon", "CmuxNextActions", "CmuxNextCompat", "CmuxNextDesign", "CmuxNextDictation", "CmuxNextInput", "CmuxNextPages", "CmuxNextPagesTestSupport", "CmuxNextRemoteFetch", "CmuxNextSettings", "CmuxNextWakeups", "CmuxNextTrace", "CmuxNextMetrics"],
+            dependencies: ["CmuxNextAgentPane", "CmuxNextDaemon", "CmuxNextActions", "CmuxNextCompat", "CmuxNextDesign", "CmuxNextDictation", "CmuxNextInput", "CmuxNextPages", "CmuxNextPagesTestSupport", "CmuxNextRemoteFetch", "CmuxNextSettings", "CmuxNextWakeups", "CmuxNextTrace", "CmuxNextMetrics",
+                           .product(name: "CmuxFuzzSupport", package: "CmuxFuzzSupport")],
             swiftSettings: uiSwiftSettings
         ),
         // Dictation (the composer's mic): the on-device speech engines and
@@ -816,7 +817,8 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         ),
         .testTarget(
             name: "CmuxNextFilesTests",
-            dependencies: ["CmuxNextFiles"],
+            // CmuxFuzzSupport: FilePathFuzzTests (p10-stability-030).
+            dependencies: ["CmuxNextFiles", .product(name: "CmuxFuzzSupport", package: "CmuxFuzzSupport")],
             swiftSettings: daemonSwiftSettings
         ),
         // The Files pane's AppKit views over CmuxNextFiles: list (NSTableView), icons
@@ -1714,9 +1716,10 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         .testTarget(
             name: "CmuxNextTerminalTests",
             // Compat for Mutex and GhosttyKit for ghostty_surface_t (TerminalOutputLaneHangScopeTests); Wakeups for
-            // the typing probe a lane marks (TerminalOutputLaneKeyFlowTests).
+            // the typing probe a lane marks (TerminalOutputLaneKeyFlowTests); CmuxFuzzSupport for the link and
+            // Ghostty action fuzz suites (p10-stability-030).
             dependencies: ["CmuxNextCompat", "CmuxNextTerminal", "CmuxNextTrace", "CmuxNextMetrics", "CmuxNextInputCore", "CmuxNextWakeups", "CmuxNextInput",
-                           .product(name: "CmuxGhosttyKit", package: "CmuxGhosttyKit")],
+                           .product(name: "CmuxGhosttyKit", package: "CmuxGhosttyKit"), .product(name: "CmuxFuzzSupport", package: "CmuxFuzzSupport")],
             swiftSettings: uiSwiftSettings,
             linkerSettings: [.linkedLibrary("c++")]
         ),
@@ -1992,6 +1995,8 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextWakeupsTestSupport",
                 "CmuxNextWorkspaceNaming",
                 .product(name: "CmuxAgentQuestion", package: "CmuxAgentQuestion"),
+                // DiffTurnPatchFuzzTests (p10-stability-030).
+                .product(name: "CmuxFuzzSupport", package: "CmuxFuzzSupport"),
                 // GhosttyGlassMinimumContrastTests builds a Ghostty config.
                 .product(name: "CmuxGhosttyKit", package: "CmuxGhosttyKit"),
                 .product(name: "CmuxHomeCore", package: "CmuxHomeCore"),
