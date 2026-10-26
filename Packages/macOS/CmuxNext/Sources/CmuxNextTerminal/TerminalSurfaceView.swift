@@ -187,10 +187,10 @@ public final class TerminalSurfaceView: NSView {
         GhosttyRuntime.shared.registerColorScheme(of: self)
         let echoStage = echoStages.makeStage()
         lane = TerminalOutputLane(surface: surface, label: "com.cmuxterm.next.terminal.output", echoStage: echoStage,
-                                  hangs: hangWatch)
+                                  keyFlows: bridge.takeUnretainedValue().typingSurface, hangs: hangWatch)
         if let layer {
             echoStage?.attach(to: layer)
-            TypingFrameProbe.install(on: layer, gate: echoStages.contentsGate)
+            TypingFrameProbe.install(on: layer, gate: echoStages.contentsGate, keyFlows: bridge.takeUnretainedValue().typingSurface)
         }
         registerForDraggedTypes([.fileURL, .URL, .string])
         updateContentScale()
