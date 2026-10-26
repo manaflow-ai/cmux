@@ -147,6 +147,11 @@ final class WindowShortcutHints {
 
     #if DEBUG || CMUX_BENCH_HOOKS
     var shownHints: [ShortcutHintOverlayView.Hint] { overlay.hints }
+    /// Shows the chips of a hold without the 0.3 s intentional-hold wait or key-window checks.
+    func debugShow(_ flags: NSEvent.ModifierFlags) {
+        held = flags
+        refresh()
+    }
     func debugHold(_ flags: NSEvent.ModifierFlags) async -> Bool {
         guard let monitor, let window = controller?.window else { return false }
         return await monitor.debugHold(flags, window: window)
