@@ -337,6 +337,35 @@ fn launchd_plist(exe: &Path, dir: &Path, log: &Path) -> String {
     )
 }
 
+/// Sets the `ProcessType` of the agent plist at `path` (one an older cmux
+/// wrote) to the process-roles table value before launchd reads it, so a
+/// restart after an update runs `serve` at the new role. Returns whether it
+/// rewrote the file.
+#[cfg(any(target_os = "macos", all(unix, test)))]
+fn upgrade_launchd_role(path: &Path) -> anyhow::Result<bool> {
+    crate::launchd_role::upgrade_process_type(path, LaunchdJob::RemoteHost)
+        .with_context(|| format!("cannot update {}", path.display()))
+}
+
+/// `serve` start: brings the installed agent's role up to the table, so the
+/// next bootstrap (login, `enable`, a restart) runs `serve` at it. Returns a
+/// note when it rewrote the plist.
+pub(crate) fn upgrade_installed_role() -> Option<String> {
+    #[cfg(target_os = "macos")]
+    match imp::upgrade_role() {
+        Ok(true) => {
+            return Some(format!(
+                "updated the {LAUNCHD_LABEL} agent to ProcessType {}; it applies at the next \
+                 restart or login",
+                LaunchdJob::RemoteHost.process_type()
+            ));
+        }
+        Ok(false) => {}
+        Err(error) => return Some(format!("{error:#}")),
+    }
+    None
+}
+
 #[cfg(target_os = "macos")]
 mod imp {
     use super::*;
@@ -366,8 +395,16 @@ mod imp {
     }
 
     pub(super) fn start() -> anyhow::Result<bool> {
-        run_quiet("launchctl", &["bootstrap", &domain(), &plist_path()?.display().to_string()])?;
+        let path = plist_path()?;
+        upgrade_launchd_role(&path)?;
+        run_quiet("launchctl", &["bootstrap", &domain(), &path.display().to_string()])?;
         Ok(true)
+    }
+
+    /// Brings the installed agent's role up to the table; the running job
+    /// gets it at its next bootstrap (a restart or the next login).
+    pub(super) fn upgrade_role() -> anyhow::Result<bool> {
+        upgrade_launchd_role(&plist_path()?)
     }
 
     pub(super) fn remove() -> anyhow::Result<()> {
@@ -538,6 +575,33 @@ mod tests {
         assert!(plist.contains(&process_type), "{plist}");
         assert!(plist.contains("<key>ProcessType</key><string>Interactive</string>"), "{plist}");
         assert!(plist.contains("<string>host</string><string>serve</string>"), "{plist}");
+    }
+
+    /// An agent `cmux host enable` installed before p02-threads-234 (written
+    /// `Background`) runs at the table value from the next bootstrap a
+    /// restart makes: `imp::start` upgrades it first. The upgraded plist is
+    /// the one `enable` writes now.
+    #[cfg(unix)]
+    #[test]
+    fn a_background_agent_from_an_older_cmux_is_upgraded_before_its_bootstrap() {
+        let exe = Path::new("/Applications/cmux.app/Contents/Resources/bin/cmux");
+        let state = Path::new("/Users/ana/.cmux/host");
+        let log = Path::new("/Users/ana/.cmux/host/serve.log");
+        let current = launchd_plist(exe, state, log);
+        let old = current.replace(
+            &format!("<string>{}</string>", LaunchdJob::RemoteHost.process_type()),
+            "<string>Background</string>",
+        );
+        assert_ne!(old, current);
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join(format!("{LAUNCHD_LABEL}.plist"));
+        std::fs::write(&path, old).unwrap();
+
+        assert!(upgrade_launchd_role(&path).unwrap());
+        let upgraded = plist::Value::from_file(&path).unwrap();
+        let wanted = plist::Value::from_reader_xml(current.as_bytes()).unwrap();
+        assert_eq!(upgraded, wanted);
+        assert!(!upgrade_launchd_role(&path).unwrap(), "a second start leaves it as it is");
     }
 
     #[test]

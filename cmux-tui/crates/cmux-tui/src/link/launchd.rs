@@ -46,6 +46,23 @@ pub(super) fn install(program: &Path, arguments: &[String]) -> io::Result<PathBu
     Ok(path)
 }
 
+/// `serve` start: brings an installed agent's `ProcessType` (an older cmux
+/// wrote `Background`) up to the process-roles table, so its next bootstrap
+/// (login, `install-agent`) runs the link at it. Returns a note when it
+/// rewrote the plist or could not read it.
+pub(super) fn upgrade_installed_role() -> Option<String> {
+    let path = plist_path().ok()?;
+    match crate::launchd_role::upgrade_process_type(&path, LaunchdJob::Link) {
+        Ok(true) => Some(format!(
+            "updated the {LABEL} agent to ProcessType {}; it applies at the next login or \
+             `cmux link install-agent`",
+            LaunchdJob::Link.process_type()
+        )),
+        Ok(false) => None,
+        Err(error) => Some(format!("cannot update {}: {error}", path.display())),
+    }
+}
+
 /// Unload the agent and remove its plist.
 pub(super) fn uninstall() -> io::Result<()> {
     let _ = launchctl(&["bootout", &format!("{}/{LABEL}", gui_domain())]);

@@ -365,6 +365,10 @@ async fn reload(socket: &Path) -> bool {
 
 fn run_serve(flags: &Flags) -> anyhow::Result<()> {
     let state = state(flags)?;
+    #[cfg(target_os = "macos")]
+    if let Some(note) = launchd::upgrade_installed_role() {
+        eprintln!("cmux link: {note}");
+    }
     let session_socket = flags.get("--session-socket").map(PathBuf::from);
     // `server.json` is read once: the owner session is parsed from, and
     // `link.status` hashes, the same bytes.

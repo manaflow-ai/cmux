@@ -31,6 +31,11 @@ pub const APP_BUNDLE_PROGRAM: &str = "Contents/Resources/bin/cmux";
 /// `Process::SetPriority`, from
 /// content/browser/renderer_host/render_process_host_impl.cc
 /// `UpdateProcessPriority`).
+///
+/// launchd reads a plist only at bootstrap, so a plist an older cmux wrote
+/// keeps its old `ProcessType` until it is rewritten: each installer
+/// rewrites its plist on update or restart (the link and remote-host
+/// agents through cmux-tui `launchd_role::upgrade_process_type`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum LaunchdJob {
     /// `cmux host run`: `com.cmux.server` (agent and daemon) and the app's
@@ -42,15 +47,26 @@ pub enum LaunchdJob {
     /// `cmux host serve` (`com.cmuxterm.host-remote`): serves this
     /// machine's sessions to a remote client's keys.
     RemoteHost,
+    /// `acpmux daemon run` (`com.acpmux.daemon`, installed by `acpmux
+    /// hosts`): carries the agent sessions a person prompts and watches.
+    AcpmuxDaemon,
+    /// `cmux-relay` (`com.chatmux.relay`, `--autostart`): bridges a paired
+    /// chat client's terminal keys to this machine's PTYs.
+    ChatmuxRelay,
 }
 
 impl LaunchdJob {
-    pub const ALL: [Self; 3] = [Self::Server, Self::Link, Self::RemoteHost];
+    pub const ALL: [Self; 5] =
+        [Self::Server, Self::Link, Self::RemoteHost, Self::AcpmuxDaemon, Self::ChatmuxRelay];
 
     /// The plist `ProcessType` value.
     pub const fn process_type(self) -> &'static str {
         match self {
-            Self::Server | Self::Link | Self::RemoteHost => "Interactive",
+            Self::Server
+            | Self::Link
+            | Self::RemoteHost
+            | Self::AcpmuxDaemon
+            | Self::ChatmuxRelay => "Interactive",
         }
     }
 }
