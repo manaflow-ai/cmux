@@ -134,7 +134,7 @@ final class AppControl {
         // The local daemon's wire traffic, decodes, output copies and connections by role.
         if let wireStats = services.wireStats { service.router.register([DaemonWireControl(stats: wireStats).method]) }
         service.router.register([DebugInput(sources: [InputTapDebugSource(tap: services.inputTap)]).method])
-        service.router.register(DebugWindowsControl.methods(services) + [services.daemon.debugControlMethod { [weak services] in services?.windows.controllers.map { (id: $0.state.id, shows: $0.recoveryShows) } ?? [] }])
+        service.router.register(DebugWindowsControl.methods(services) + [services.daemon.debugControlMethod { [weak services] in services?.windows.controllers.map { (id: $0.state.id, shows: $0.recoveryShows) } ?? [] }, services.daemon.debugDrainCostMethod])
         service.router.register([
             .mainActor("debug.frames") { [probe = frameProbe] call in probe.handle(call.params) }.withDeadline(.fixed(RenderFrameLog.armDeadline)),
             // Render damage per owner over a window (render-idle-damage.py: the MQ-damage-owners queue).

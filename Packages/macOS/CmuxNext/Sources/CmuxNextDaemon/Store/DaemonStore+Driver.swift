@@ -206,9 +206,10 @@ extension DaemonStore {
     /// and the echo of a person's action with no intent (close other tabs, close a workspace from
     /// the palette or the CLI) shows in the frame after it arrives, whatever else is queued. The
     /// batch's cost is what changed since the last frame: whole-value events coalesce in the inbox,
-    /// a snapshot applies only what differs (DaemonStore+SnapshotDiff.swift), and the unread sum,
-    /// the workspace-list check and the sidebar cost the workspaces a change names. Each batch is one
-    /// sample of ``drainCost``.
+    /// a snapshot applies only what differs (DaemonStore+SnapshotDiff.swift), the unread sum and the
+    /// workspace-list check cost the workspaces that joined, left or changed their own count, and
+    /// the sidebar is flattened only by a batch that changed the order, the membership or a group.
+    /// Each batch is one sample of ``drainCost``.
     func drain() {
         guard let driver, !isResyncing else { return }
         let batch = driver.inbox.take()
@@ -223,6 +224,11 @@ extension DaemonStore {
         } else if followup == .personal {
             refetchPersonal()
         }
+    }
+
+    /// Clears ``drainCost`` (`debug.drain_cost` with `reset`).
+    public func resetDrainCost() {
+        drainCost = DrainCost()
     }
 
     /// Fetches `list-personal` alone and applies it (`personal-changed`: a group's fold, a room

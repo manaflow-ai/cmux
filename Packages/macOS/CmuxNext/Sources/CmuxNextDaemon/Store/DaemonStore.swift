@@ -388,9 +388,10 @@ public final class DaemonStore: StateResourceQueries {
 
     // MARK: Derived state
 
-    /// Indexes the whole tree again, primes every record and flattens the
-    /// sidebar: a snapshot only. Events change the index per record
-    /// (`indexed(_:)`), and the sidebar once per batch (`sidebarNeedsRecompute`).
+    /// Indexes the whole tree again, primes every record and flags the sidebar
+    /// for its flattening once the overlay is back (`withOverlayLifted`): a
+    /// snapshot only. Events change the index per record (`indexed(_:)`), and
+    /// the sidebar once per batch (`sidebarNeedsRecompute`).
     func rebuildIndex() {
         index.rebuild(workspaces)
         for workspace in workspaces {
@@ -398,7 +399,7 @@ public final class DaemonStore: StateResourceQueries {
                 for pane in screen.panes { prime(pane) }
             }
         }
-        recomputeSidebar()
+        sidebarNeedsRecompute = true
         session.overlay(workspaces)
     }
 
@@ -473,37 +474,5 @@ public final class DaemonStore: StateResourceQueries {
         workspaceSetRevision &+= 1
         drainCost.listChanges &+= 1
         onWorkspaceListChanged?()
-    }
-
-    /// The ledger's sum changed: assigned only when it differs, so the badge's observers wake
-    /// only for a new count.
-    func publish(unread totals: UnreadTotals) {
-        if totals != unreadTotals { unreadTotals = totals }
-    }
-
-    /// Flattens the sidebar in one pass over the workspaces and one over the groups. Only an
-    /// apply that changed the order, the membership or a group runs it (`sidebarNeedsRecompute`).
-    func recomputeSidebar() {
-        drainCost.sidebarFlattens &+= 1
-        var members: [WorkspaceGroupID: [WorkspaceModel]] = [:]
-        members.reserveCapacity(groups.count)
-        for group in groups { members[group.id] = [] }
-        var ungrouped: [WorkspaceModel] = []
-        for workspace in workspaces {
-            if let id = workspace.group, members[id] != nil {
-                members[id, default: []].append(workspace)
-            } else {
-                ungrouped.append(workspace)
-            }
-        }
-        var sections = [SidebarSection(group: nil, workspaces: ungrouped)]
-        for group in groups.sorted(by: { $0.index < $1.index }) {
-            sections.append(SidebarSection(group: group, workspaces: members[group.id] ?? []))
-        }
-        let unchanged = sections.count == sidebarSections.count && zip(sections, sidebarSections).allSatisfy { new, old in
-            new.group === old.group && new.workspaces.count == old.workspaces.count
-                && zip(new.workspaces, old.workspaces).allSatisfy { $0 === $1 }
-        }
-        if !unchanged { sidebarSections = sections }
     }
 }

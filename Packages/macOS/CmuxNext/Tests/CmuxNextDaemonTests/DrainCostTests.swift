@@ -1,43 +1,61 @@
 @testable import CmuxNextDaemon
 import CmuxNextCompat
+import CmuxNextWakeups
 import Testing
 
-/// A drain of the event inbox costs what changed (p06-scheduler-033): the sidebar flattening, the
-/// workspace-list check and the unread sum run for the workspaces a batch names, never for the
-/// list. A storm of title events in hidden workspaces flattens no sidebar and walks no workspace;
-/// a batch of moves sums the moved workspaces only. ``DrainCost`` counts each drain in a histogram
-/// (owner `DaemonStore.drain`), which script-storm-bench `--hidden` reads for its p99.
+/// A drain of the event inbox costs what changed (p06-scheduler-033): the workspace-list check and
+/// the unread sum cost the workspaces that joined, left or changed their own count, and the sidebar
+/// is flattened (O(workspaces), once) only by a batch that changed the order, the membership or a
+/// group. A storm of title events in hidden workspaces flattens no sidebar, with or without a
+/// pending intent; a batch of moves joins the moved workspaces only. ``DrainCost`` counts each
+/// drain in a histogram, which `debug.drain_cost` reports.
 @MainActor @Suite struct DrainCostTests {
     private static let workspaces = 50
     private static let tabsPerWorkspace = 20
+    private static let group = WorkspaceGroupID(rawValue: "group-a")
 
     private static func surface(_ workspace: Int, _ tab: Int) -> SurfaceID { SurfaceID(rawValue: UInt64(workspace * 100 + 10 + tab)) }
     private static func pane(_ workspace: Int) -> PaneID { PaneID(rawValue: UInt64(workspace * 100 + 1)) }
     private static func screen(_ workspace: Int) -> ScreenID { ScreenID(rawValue: UInt64(workspace * 100 + 2)) }
     private static func handle(_ workspace: Int) -> WorkspaceHandle { WorkspaceHandle(rawValue: UInt64(workspace * 100 + 3)) }
 
-    /// Workspace `index`; its first tab has an unread notification when `unread`.
-    private static func workspace(_ index: Int, unread: Bool = false) -> WorkspaceSnapshot {
-        let tabs = (0..<tabsPerWorkspace).map { tab in
+    /// Workspace `index` of `tabs` tabs; its first tab has an unread notification when `unread`.
+    private static func workspace(_ index: Int, unread: Bool = false, group: WorkspaceGroupID? = nil,
+                                  tabs: Int = tabsPerWorkspace) -> WorkspaceSnapshot {
+        let tabs = (0..<tabs).map { tab in
             TabSnapshot(surface: surface(index, tab), title: "old",
                         notification: unread && tab == 0
                             ? TabNotification(notification: NotificationID(rawValue: UInt64(index + 1)), unread: true) : nil)
         }
         let pane = PaneSnapshot(id: pane(index), tabs: tabs)
         let screen = ScreenSnapshot(id: screen(index), layout: .leaf(pane.id), panes: [pane])
-        return WorkspaceSnapshot(id: handle(index), key: WorkspaceKey(rawValue: "ws-\(index)"), name: "w\(index)", screens: [screen])
+        return WorkspaceSnapshot(id: handle(index), key: WorkspaceKey(rawValue: "ws-\(index)"), name: "w\(index)", screens: [screen],
+                                 group: group)
     }
 
-    /// 50 workspaces of 20 tabs (1000 tabs); every fifth workspace has one unread tab. Driven by an
-    /// unstarted connection (no socket is touched) and a clock that moves 300 us per read.
-    private static func drivenStore(registryID: String? = nil) -> DaemonStore {
+    /// 50 workspaces of 20 tabs (1000 tabs) and one group; every fifth workspace has one unread
+    /// tab. Driven by an unstarted connection (no socket is touched) and a clock that moves 300 us
+    /// per read.
+    private static func drivenStore() -> DaemonStore {
         let store = DaemonStore()
         store.drainClock = SteppingClock(step: .microseconds(300))
-        store.apply(snapshot: DaemonTree(registryID: registryID, workspaceRevision: 1,
-                                         workspaces: (0..<workspaces).map { workspace($0, unread: $0 % 5 == 0) }))
+        store.apply(snapshot: DaemonTree(workspaceRevision: 1, workspaces: (0..<workspaces).map { workspace($0, unread: $0 % 5 == 0) },
+                                         groups: [WorkspaceGroupSnapshot(id: group, name: "A")]))
         let connection = DaemonConnection(endpoint: DaemonEndpoint(socketPath: "/nonexistent/cmux-drain-cost-test.sock"))
         store.driver = StoreDriver(connection: connection, inbox: EventInbox(), scheduler: NextTurnFrameScheduler())
         return store
+    }
+
+    /// Queues one title event for every tab of every workspace (1000 events).
+    private static func queueTitleStorm(_ driver: StoreDriver) {
+        var sequence: UInt64 = 1
+        for workspace in 0..<workspaces {
+            for tab in 0..<tabsPerWorkspace {
+                sequence += 1
+                _ = driver.inbox.append(DaemonEventEnvelope(sequence: sequence, event: .titleChanged(
+                    surface: surface(workspace, tab), title: "new \(workspace).\(tab)")))
+            }
+        }
     }
 
     private func expectUnreadConsistent(_ store: DaemonStore, _ comment: Comment, sourceLocation: SourceLocation = #_sourceLocation) {
@@ -45,7 +63,7 @@ import Testing
     }
 
     /// The acceptance: 1000 title events across 50 workspaces in one batch flatten the sidebar 0
-    /// times, run no membership pass and sum no workspace's unread count again.
+    /// times, run no membership pass and join no workspace to the unread sum again.
     @Test func aThousandTitleEventsAcrossFiftyWorkspacesFlattenNoSidebar() throws {
         let store = Self.drivenStore()
         let driver = try #require(store.driver)
@@ -53,14 +71,7 @@ import Testing
         store.onWorkspaceListChanged = { listRuns += 1 }
         let before = store.drainCost
         let joins = store.index.unread.joins
-        var sequence: UInt64 = 1
-        for workspace in 0..<Self.workspaces {
-            for tab in 0..<Self.tabsPerWorkspace {
-                sequence += 1
-                _ = driver.inbox.append(DaemonEventEnvelope(sequence: sequence, event: .titleChanged(
-                    surface: Self.surface(workspace, tab), title: "new \(workspace).\(tab)")))
-            }
-        }
+        Self.queueTitleStorm(driver)
         store.drain()
         let cost = store.drainCost
         #expect(cost.sidebarFlattens - before.sidebarFlattens == 0, "title events flattened the sidebar")
@@ -72,6 +83,61 @@ import Testing
         #expect(store.tab(surface: Self.surface(49, 19))?.title == "new 49.19")
         #expect(store.tab(surface: Self.surface(0, 0))?.title == "new 0.0")
         expectUnreadConsistent(store, "after the title storm")
+    }
+
+    /// With Cmd-N's workspace still pending, every batch lifts and restores its overlay: the same
+    /// overlay back flattens nothing, and the sidebar still shows the pending workspace.
+    @Test func aTitleStormWithAPendingNewWorkspaceFlattensNoSidebar() throws {
+        let store = Self.drivenStore()
+        let driver = try #require(store.driver)
+        let key = WorkspaceKey.generate()
+        store.intend(.createWorkspace(provisional: ProvisionalWorkspace(key: key, name: "new", tab: Self.page()), index: nil),
+                     transaction: .generate())
+        let pending = try #require(store.workspace(id: key.rawValue))
+        #expect(store.sidebarSections.contains { $0.workspaces.contains { $0 === pending } })
+        let before = store.drainCost.sidebarFlattens
+        Self.queueTitleStorm(driver)
+        store.drain()
+        #expect(store.drainCost.sidebarFlattens == before, "the lift and restore of the same overlay flattened the sidebar")
+        #expect(store.pendingIntents.count == 1)
+        #expect(store.workspaces.last === pending)
+        #expect(store.sidebarSections.contains { $0.workspaces.contains { $0 === pending } })
+        #expect(store.tab(surface: Self.surface(3, 4))?.title == "new 3.4")
+        #expect(store.mirrorViolations.isEmpty)
+    }
+
+    /// A full snapshot under a pending new workspace re-indexes everything with the overlay lifted:
+    /// the sidebar is flattened once the overlay is back, so it still shows the pending workspace.
+    @Test func aFullSnapshotUnderAPendingNewWorkspaceKeepsItInTheSidebar() throws {
+        let store = Self.drivenStore()
+        let key = WorkspaceKey.generate()
+        store.intend(.createWorkspace(provisional: ProvisionalWorkspace(key: key, name: "new", tab: Self.page()), index: nil),
+                     transaction: .generate())
+        let pending = try #require(store.workspace(id: key.rawValue))
+        // Another registry: the memo cannot vouch, so the whole tree applies and the index is rebuilt.
+        store.apply(snapshot: DaemonTree(registryID: "registry-2", workspaceRevision: 5,
+                                         workspaces: (0..<Self.workspaces).map { Self.workspace($0, unread: $0 % 5 == 0) },
+                                         groups: [WorkspaceGroupSnapshot(id: Self.group, name: "A")]))
+        #expect(store.workspace(id: key.rawValue) === pending)
+        #expect(store.sidebarSections.contains { $0.workspaces.contains { $0 === pending } },
+                "the sidebar was flattened with the overlay lifted")
+        #expect(store.sidebarSections.map(\.workspaces.count).reduce(0, +) == store.workspaces.count)
+    }
+
+    /// A replayed `workspaceAdded` of a workspace already listed flattens nothing; the same replay
+    /// that names another group flattens once and shows it in that group.
+    @Test func aReplayedAddFlattensOnlyForAGroupChange() throws {
+        let store = Self.drivenStore()
+        let before = store.drainCost.sidebarFlattens
+        store.apply(.workspaceAdded(WorkspaceDelta(workspace: Self.handle(7), index: 7, entity: Self.workspace(7),
+                                                   workspaceRevision: 2)))
+        #expect(store.drainCost.sidebarFlattens == before, "a replayed add of a listed workspace flattened the sidebar")
+        store.apply(.workspaceAdded(WorkspaceDelta(workspace: Self.handle(7), index: 7, entity: Self.workspace(7, group: Self.group),
+                                                   workspaceRevision: 3)))
+        #expect(store.drainCost.sidebarFlattens == before + 1)
+        let model = try #require(store.workspace(handle: Self.handle(7)))
+        #expect(store.sidebarSections.first { $0.group?.id == Self.group }?.workspaces.contains { $0 === model } == true)
+        #expect(store.workspaces.count == Self.workspaces)
     }
 
     /// A batch of 100 moves re-indexes the moved workspaces only (100 joins of the unread sum,
@@ -95,6 +161,28 @@ import Testing
         #expect(store.drainCost.sidebarFlattens - before.sidebarFlattens == 1, "one flattening per batch")
         #expect(listRuns == 0, "moves ran the membership pass")
         #expect(store.unreadBadge() == Self.workspaces / 5)
+        expectUnreadConsistent(store, "after the moves")
+    }
+
+    /// The unread sum's work is the moves', whatever the list holds: 10 moves in a store of 1000
+    /// workspaces join 10 workspaces (the per-move re-sum of every workspace is gone).
+    @Test func tenMovesInAThousandWorkspacesJoinTenWorkspaces() {
+        let count = 1000
+        let store = DaemonStore()
+        store.apply(snapshot: DaemonTree(workspaceRevision: 1,
+                                         workspaces: (0..<count).map { Self.workspace($0, unread: $0 % 10 == 0, tabs: 1) }))
+        let joins = store.index.unread.joins
+        let flattens = store.drainCost.sidebarFlattens
+        store.apply(batch: (0..<10).map { move in
+            let workspace = move * 97
+            return DaemonEventEnvelope(sequence: UInt64(move + 1), event: .workspaceMoved(WorkspaceDelta(
+                workspace: Self.handle(workspace), index: 0, entity: Self.workspace(workspace, unread: workspace % 10 == 0, tabs: 1),
+                workspaceRevision: UInt64(move + 2))))
+        })
+        #expect(store.workspaces.first?.handle == Self.handle(9 * 97))
+        #expect(store.index.unread.joins - joins == 10, "10 moves joined \(store.index.unread.joins - joins) workspaces")
+        #expect(store.drainCost.sidebarFlattens - flattens == 1)
+        #expect(store.unreadBadge() == count / 10)
         expectUnreadConsistent(store, "after the moves")
     }
 
@@ -142,8 +230,8 @@ import Testing
         expectUnreadConsistent(store, "after a full snapshot")
     }
 
-    /// The histogram: one sample per drain at the clock's time, four buckets per power of two, and
-    /// a p99 that names the bucket's upper edge.
+    /// Each drain is one sample of the histogram at the clock's time; an empty inbox is none, and
+    /// a reset clears the samples and the counters.
     @Test func eachDrainIsOneSampleOfTheHistogram() throws {
         let store = Self.drivenStore()
         let driver = try #require(store.driver)
@@ -152,32 +240,19 @@ import Testing
                 surface: Self.surface(round, 0), title: "round \(round)")))
             store.drain()
         }
-        // An empty inbox is no drain.
         store.drain()
-        let cost = store.drainCost
-        #expect(cost.batches == 3)
-        #expect(cost.buckets[DrainCost.bucket(micros: 300)] == 3)
-        #expect(cost.maxMicros == 300)
-        #expect(cost.percentileMicros(0.99) == 300)
-        #expect(cost.percentileMicros(0.99) <= 1_000, "script-storm-bench --hidden budget")
+        let histogram = store.drainCost.histogram
+        #expect(store.drainCost.batches == 3)
+        #expect(store.drainCost.events == 3)
+        #expect(histogram.counts[MainOwnerLedger.Histogram.bucket(of: 300_000)] == 3)
+        #expect(histogram.maxNanos == 300_000)
+        #expect(histogram.percentile(0.99) == 300_000)
+        store.resetDrainCost()
+        #expect(store.drainCost == DrainCost())
     }
 
-    @Test func bucketsAreFourPerPowerOfTwo() {
-        #expect(DrainCost.bucket(micros: 0) == 0)
-        #expect(DrainCost.bucket(micros: 1) == 1)
-        #expect(DrainCost.bucket(micros: 256) == 1 + 4 * 8)
-        #expect(DrainCost.bucket(micros: 319) == 1 + 4 * 8)
-        #expect(DrainCost.bucket(micros: 320) == 2 + 4 * 8)
-        #expect(DrainCost.bucket(micros: 511) == 4 + 4 * 8)
-        #expect(DrainCost.bucket(micros: 512) == 1 + 4 * 9)
-        #expect(DrainCost.bucket(micros: DrainCost.maximumMicros) == DrainCost.bucketCount - 1)
-        #expect(DrainCost.upperEdgeMicros(DrainCost.bucket(micros: 256)) == 320)
-        #expect(DrainCost.upperEdgeMicros(DrainCost.bucket(micros: 511)) == 512)
-        for micros: Int64 in [1, 3, 7, 100, 999, 1_000, 65_537, 900_000] {
-            let bucket = DrainCost.bucket(micros: micros)
-            #expect(micros < DrainCost.upperEdgeMicros(bucket), "\(micros) us is under its bucket's upper edge")
-            #expect(bucket == 0 || micros >= DrainCost.upperEdgeMicros(bucket - 1), "\(micros) us is at or over the bucket below")
-        }
+    private static func page() -> TabSnapshot {
+        ProvisionalTab().conversation(ConversationTabRef(agentSession: AgentSessionRef(host: "install:test", hostName: nil)))
     }
 }
 

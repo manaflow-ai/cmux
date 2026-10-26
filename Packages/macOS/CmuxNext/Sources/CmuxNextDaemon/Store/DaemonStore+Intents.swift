@@ -114,7 +114,12 @@ extension DaemonStore {
         guard !overlayLifted else { return body() }
         verifyMirrorUnchanged(before: writer)
         overlayLifted = true
+        // A lift and a restore of the same overlay leave the sidebar as it was: only the confirmed
+        // apply's own changes, or an overlay that comes back different, flatten it.
+        let flagged = sidebarNeedsRecompute
+        let lifted = intentLog.entries.map(\.undo)
         liftOverlay()
+        sidebarNeedsRecompute = flagged
         let result = body()
         for intent in intentLog.removeDue(appliedSequence: appliedSequence, snapshot: snapshot, awaiting: { ProvisionalSplit.awaitsRecords($0, in: self) }) {
             intentSettlements.append((intent.transaction, .applied))
@@ -122,7 +127,9 @@ extension DaemonStore {
         releaseSettledProvisionalPanes()
         releaseSettledProvisionalWorkspaces()
         let confirmedTabs = debugTabCensus()
+        let confirmedChanged = sidebarNeedsRecompute
         restoreOverlay()
+        sidebarNeedsRecompute = confirmedChanged || intentLog.entries.map(\.undo) != lifted
         overlayLifted = false
         recomputeSidebarIfNeeded()
         publishTabListChange()

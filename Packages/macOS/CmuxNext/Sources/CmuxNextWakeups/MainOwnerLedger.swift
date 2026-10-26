@@ -328,24 +328,27 @@ public final class MainOwnerLedger: Sendable {
 
 extension MainOwnerLedger {
     /// Fixed-bucket nanosecond histogram: bucket 0 holds values under 1 µs (2^10 ns), then four
-    /// buckets per power of two up to 2^37 ns (about 137 s), then one overflow bucket.
-    struct Histogram: Sendable, Equatable {
+    /// buckets per power of two up to 2^37 ns (about 137 s), then one overflow bucket. The owner
+    /// ledger and the daemon store's drain cost (`DrainCost`) count in it.
+    public struct Histogram: Sendable, Equatable {
         static let minExponent = 10
         static let maxExponent = 36
-        static let bucketCount = 1 + (maxExponent - minExponent + 1) * 4 + 1
+        public static let bucketCount = 1 + (maxExponent - minExponent + 1) * 4 + 1
 
-        private(set) var counts = [Int](repeating: 0, count: Histogram.bucketCount)
-        private(set) var count = 0
-        private(set) var maxNanos: UInt64 = 0
+        public private(set) var counts = [Int](repeating: 0, count: Histogram.bucketCount)
+        public private(set) var count = 0
+        public private(set) var maxNanos: UInt64 = 0
 
-        mutating func add(_ nanos: UInt64) {
+        public init() {}
+
+        public mutating func add(_ nanos: UInt64) {
             counts[Self.bucket(of: nanos)] += 1
             count += 1
             maxNanos = max(maxNanos, nanos)
         }
 
         /// The bucket `nanos` lands in.
-        static func bucket(of nanos: UInt64) -> Int {
+        public static func bucket(of nanos: UInt64) -> Int {
             guard nanos >= 1 << minExponent else { return 0 }
             let exponent = 63 - nanos.leadingZeroBitCount
             guard exponent <= maxExponent else { return bucketCount - 1 }
@@ -354,7 +357,7 @@ extension MainOwnerLedger {
         }
 
         /// The smallest value of `bucket`.
-        static func lowerBound(of bucket: Int) -> UInt64 {
+        public static func lowerBound(of bucket: Int) -> UInt64 {
             guard bucket > 0 else { return 0 }
             guard bucket < bucketCount - 1 else { return 1 << UInt64(maxExponent + 1) }
             let exponent = minExponent + (bucket - 1) / 4
@@ -362,14 +365,14 @@ extension MainOwnerLedger {
         }
 
         /// The first value past `bucket` (`UInt64.max` for the overflow bucket).
-        static func upperBound(of bucket: Int) -> UInt64 {
+        public static func upperBound(of bucket: Int) -> UInt64 {
             guard bucket < bucketCount - 1 else { return .max }
             return lowerBound(of: bucket + 1)
         }
 
         /// The value at or below which `fraction` of the samples lie: its bucket's upper bound,
         /// capped at the largest sample (0 with no samples).
-        func percentile(_ fraction: Double) -> UInt64 {
+        public func percentile(_ fraction: Double) -> UInt64 {
             guard count > 0 else { return 0 }
             // The epsilon keeps 0.99 x 100 at rank 99 (its double product can round past 99).
             let rank = max(1, Int((fraction * Double(count) - 1e-9).rounded(.up)))
@@ -381,7 +384,7 @@ extension MainOwnerLedger {
             return maxNanos
         }
 
-        var distribution: MainOwnerLedger.Distribution {
+        public var distribution: MainOwnerLedger.Distribution {
             MainOwnerLedger.Distribution(count: count, p50Nanos: percentile(0.5), p95Nanos: percentile(0.95), p99Nanos: percentile(0.99),
                                          maxNanos: maxNanos)
         }

@@ -9,6 +9,12 @@ extension DaemonStore {
         unreadTotals.badge(homeUnread: homeUnread)
     }
 
+    /// The ledger's sum changed (``UnreadLedger``): assigned only when it differs, so the badge's
+    /// observers wake only for a new count.
+    func publish(unread totals: UnreadTotals) {
+        if totals != unreadTotals { unreadTotals = totals }
+    }
+
     /// Debug builds' check, from the mirror check (at most once a second): the stored counts equal a
     /// count from every tab, so a write path that skips the counts is reported, never a silent drift.
     func verifyUnreadTotals() {
