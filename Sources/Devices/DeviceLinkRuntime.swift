@@ -50,15 +50,29 @@ struct DeviceLinkRuntime: MobileSyncRuntime {
         self.now = now
     }
 
+    static func makeTransportFactory(
+        routeSelector: DeviceRouteSelector,
+        automaticFactory: any CmxByteTransportFactory,
+        fallbackFactory: any CmxByteTransportFactory
+    ) throws -> CmxRouteTransportFactory {
+        _ = routeSelector
+        _ = fallbackFactory
+        return try CmxRouteTransportFactory([
+            CmxRouteTransportFactoryRegistration(kind: .iroh, factory: automaticFactory),
+        ])
+    }
+
     func forPeer(_ instance: SurfaceDeviceInstanceID) throws -> DeviceLinkRuntime {
         guard let automaticClient else { return self }
         let automatic = CmxConnectivityDeferredTransportFactory(
             provider: DeviceIrxPeerTransportProvider(client: automaticClient, instance: instance)
         )
         var result = self
-        result.transportFactory = try CmxRouteTransportFactory([
-            CmxRouteTransportFactoryRegistration(kind: .iroh, factory: automatic)
-        ])
+        result.transportFactory = try Self.makeTransportFactory(
+            routeSelector: routeSelector,
+            automaticFactory: automatic,
+            fallbackFactory: transportFactory
+        )
         result.independentEventByteStreamProvider = { request in
             try await automaticClient.events(for: request, instance: instance)
         }

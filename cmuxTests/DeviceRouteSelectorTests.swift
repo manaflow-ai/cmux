@@ -10,6 +10,27 @@ import Testing
 @testable import cmux
 #endif
 
+private struct TaggedByteTransport: CmxByteTransport {
+    let tag: String
+
+    func connect() async throws {}
+    func receive() async throws -> Data? { nil }
+    func send(_ data: Data) async throws {}
+    func close() async {}
+}
+
+private struct TaggedByteTransportFactory: CmxByteTransportFactory {
+    let tag: String
+
+    func makeTransport(for route: CmxAttachRoute) throws -> any CmxByteTransport {
+        TaggedByteTransport(tag: tag)
+    }
+
+    func makeTransport(for request: CmxByteTransportRequest) throws -> any CmxByteTransport {
+        TaggedByteTransport(tag: tag)
+    }
+}
+
 /// The two halves of the bearer-token rule for device links. Route selection:
 /// the token leaves this Mac over a Tailscale peer address only with the
 /// pairing store's device-bound grant for that exact peer (or over DEBUG
@@ -80,6 +101,26 @@ struct DeviceRouteSelectorTests {
         #expect(throws: DeviceRouteSelector.SelectionError.noDialableRoute(kinds: ["tailscale"])) {
             try selector.select(from: [tailscale], instance: studio) { self.grant(for: $0) }
         }
+    }
+
+    @Test("Automatic runtime keeps the Tailscale fallback transport registered")
+    func automaticRuntimeKeepsFallbackTransport() throws {
+        let selector = DeviceRouteSelector(allowsIroh: true)
+        let factory = try DeviceLinkRuntime.makeTransportFactory(
+            routeSelector: selector,
+            automaticFactory: TaggedByteTransportFactory(tag: "iroh"),
+            fallbackFactory: TaggedByteTransportFactory(tag: "tailscale")
+        )
+        let iroh = try CmxAttachRoute(
+            id: "iroh", kind: .iroh,
+            endpoint: .peer(identity: CmxIrohPeerIdentity(endpointID: String(repeating: "a", count: 64)), pathHints: []),
+            priority: 0
+        )
+        let tailscale = try route("ts", kind: .tailscale, host: "100.64.0.1", priority: 10)
+
+        #expect(factory.supportedKinds == [.iroh, .tailscale])
+        #expect((try factory.makeTransport(for: iroh) as? TaggedByteTransport)?.tag == "iroh")
+        #expect((try factory.makeTransport(for: tailscale) as? TaggedByteTransport)?.tag == "tailscale")
     }
 
     @Test("A Tailscale route dials only with a device-bound grant for its exact peer")
