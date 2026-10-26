@@ -41,6 +41,7 @@ GATE = "vars.CI_QUOTA_HOLD != '1'"
 # Optional workflows that spend GITHUB_TOKEN calls on every pull request
 # completion and that the nightly must not compete with during the hold.
 HOLD_GATED = (
+    "ci-failure-attribution.yml",
     "dogfood-artifact-publish.yml",
     "pr-media.yml",
 )
