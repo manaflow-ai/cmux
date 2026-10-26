@@ -166,5 +166,12 @@ mod tests {
         let (mut workspaces, order) = listed("a");
         sort_workspaces(&mut workspaces, "id", &order, NewWorkspacePlacement::AfterCurrent);
         assert_eq!(ids(&workspaces), ["a", "new", "z"]);
+        // Before an archived active workspace: above the tail, not inside it.
+        let (mut workspaces, order) = listed("z");
+        sort_workspaces(&mut workspaces, "id", &order, NewWorkspacePlacement::BeforeCurrent);
+        assert_eq!(ids(&workspaces), ["a", "new", "z"]);
+        let (mut workspaces, order) = listed("a");
+        sort_workspaces(&mut workspaces, "id", &order, NewWorkspacePlacement::BeforeCurrent);
+        assert_eq!(ids(&workspaces), ["new", "a", "z"]);
     }
 }
