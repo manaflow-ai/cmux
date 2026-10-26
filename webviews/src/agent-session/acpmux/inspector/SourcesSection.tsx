@@ -26,12 +26,21 @@ const sourceIcon = (kind: SummarySourceKind | undefined) => {
 export function SourcesSection({
   sources,
   onOpenBeside,
+  expanded,
+  onExpandedChange,
 }: {
   sources: readonly SummarySource[];
   onOpenBeside?: (url: string) => void;
+  expanded?: boolean;
+  onExpandedChange?: (expanded: boolean) => void;
 }) {
   const t = useT();
-  const [all, setAll] = useState(false);
+  const [localAll, setLocalAll] = useState(false);
+  const all = expanded ?? localAll;
+  const setAll = (next: boolean) => {
+    onExpandedChange?.(next);
+    if (!onExpandedChange) setLocalAll(next);
+  };
   const folds = sources.length > SOURCES_SHOWN;
   const shown = folds && !all ? sources.slice(0, SOURCES_SHOWN) : sources;
   return (

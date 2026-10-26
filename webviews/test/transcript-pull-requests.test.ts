@@ -8,6 +8,9 @@
 import { expect, test } from "bun:test";
 import { sessionPullRequests, sessionSummary } from "../src/agent-session/acpmux/summary/sessionSummary";
 import {
+  markPullRequestActivityVersion,
+  markPullRequestCommandVersion,
+  markTranscriptSourceVersion,
   transcriptPullRequestKey,
   transcriptPullRequests,
 } from "../src/agent-session/acpmux/summary/transcriptPullRequests";
@@ -234,4 +237,57 @@ test("the transcript PR cache key ignores prose but follows findings and row cha
   expect(transcriptPullRequestKey([create])).not.toBe(
     transcriptPullRequestKey([create, activity([shell("gh pr merge 41")], 2)]),
   );
+});
+
+test("the dock key uses the producer revision without visiting streamed rows", () => {
+  let visits = 0;
+  const rows = Array.from({ length: 2000 }, (_, index) => {
+    const row = { id: `reply-${index}`, version: 1, at: index, kind: "assistant", text: "steady" };
+    Object.defineProperty(row, "kind", { get: () => (visits++, "assistant") });
+    return row;
+  });
+  const revision = Symbol();
+  markPullRequestActivityVersion(rows as Rows, revision);
+  markPullRequestCommandVersion(rows as Rows, revision);
+  expect(transcriptPullRequestKey(rows as Rows, false)).toBe(revision);
+  expect(visits).toBe(0);
+});
+
+test("update-branch is a Change and JSON titles preserve apostrophes", () => {
+  const rows = [
+    activity(
+      [
+        shell("gh pr update-branch 41 -R acme/uploader"),
+        shell("gh pr view 42 -R acme/uploader --json title", '{"title":"Leo\'s retry"}'),
+      ],
+      1,
+    ),
+  ];
+  expect(transcriptPullRequests(rows).map((pr) => [pr.number, pr.changed, pr.title])).toEqual([
+    [41, true, undefined],
+    [42, undefined, "Leo's retry"],
+  ]);
+});
+
+test("settled assistant URLs become Sources while streaming prose is ignored", () => {
+  const settled = assistant("Read https://example.com/guide", 2);
+  const streaming = { ...assistant("Read https://example.com/live", 3), streaming: true };
+  expect(sessionSummary([settled]).sources).toEqual([
+    { url: "https://example.com/guide", label: "example.com/guide", kind: "url" },
+  ]);
+  expect(sessionSummary([streaming]).sources).toEqual([]);
+});
+
+test("cached Sources do not reread settled replies for each snapshot", () => {
+  let textReads = 0;
+  const rows = Array.from({ length: 2000 }, (_, index) => {
+    const row = { id: `reply-${index}`, version: 1, at: index, kind: "assistant" } as Record<string, unknown>;
+    Object.defineProperty(row, "text", { get: () => (textReads++, "steady") });
+    return row;
+  });
+  markTranscriptSourceVersion(rows as unknown as Rows, Symbol());
+  sessionSummary(rows as unknown as Rows);
+  textReads = 0;
+  sessionSummary(rows as unknown as Rows);
+  expect(textReads).toBe(0);
 });

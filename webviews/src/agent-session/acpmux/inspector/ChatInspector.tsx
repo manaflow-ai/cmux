@@ -77,6 +77,7 @@ import {
   INSPECTOR_WIDTH,
   setInspectorOpen,
   setInspectorSection,
+  setInspectorSourcesAll,
   setInspectorWidth,
   useInspectorOpen,
   useInspectorState,
@@ -883,7 +884,8 @@ export function ChatInspector({
 }) {
   const t = useT();
   const language = usePaneLanguage();
-  const stored = useInspectorState().sections;
+  const inspectorState = useInspectorState();
+  const stored = inspectorState.sections;
   const state = sections ?? stored;
   const fold = (id: InspectorSectionId) => (next: boolean) => (onSection ?? setInspectorSection)(id, next);
   const [gallery, setGallery] = useState(false);
@@ -1027,7 +1029,12 @@ export function ChatInspector({
       onOpenChange={fold("sources")}
       meta={value(String(sources.length))}
     >
-      <SourcesSection sources={sources} onOpenBeside={onOpenUrl} />
+      <SourcesSection
+        sources={sources}
+        onOpenBeside={onOpenUrl}
+        expanded={inspectorState.sourcesAll}
+        onExpandedChange={setInspectorSourcesAll}
+      />
     </InspectorSection>
   );
   const outputsShown = outputs.length + links.length + artifacts + (onOpenDocument ? documents.length : 0) > 0;

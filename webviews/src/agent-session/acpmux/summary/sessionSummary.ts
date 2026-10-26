@@ -6,7 +6,7 @@ import type { AcpmuxActivity, AcpmuxRow } from "../model";
 import { isSubagentGroup } from "../subagents/subagentRows";
 import { mcpCall, mcpPlainName } from "../conversation/mcpCalls";
 import { editedPaths } from "../toolPaths";
-import { transcriptPullRequests, type SummaryPullRequest } from "./transcriptPullRequests";
+import { transcriptPullRequests, transcriptSourceVersion, type SummaryPullRequest } from "./transcriptPullRequests";
 
 export type { PullRequestState, SummaryPullRequest } from "./transcriptPullRequests";
 
@@ -89,6 +89,9 @@ function scheduled(all: readonly Tool[]): SummaryWakeup[] {
 const GITHUB_PR_URL = /^https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/pull\/\d+(?:\/[^\s]*)?$/;
 const GITHUB_ISSUE_URL = /^https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/issues\/\d+(?:\/[^\s]*)?$/;
 const sourceKey = (source: SummarySource) => `${source.kind ?? "url"}:${source.url ?? source.label}`;
+let sourceCache: { revision: symbol; pullRequests: string; sources: SummarySource[] } | undefined;
+const pullRequestSourceKey = (pullRequests: readonly SummaryPullRequest[]) =>
+  pullRequests.map((pr) => `${pr.url}:${pr.opened ? 1 : 0}:${pr.changed ? 1 : 0}:${pr.mentioned ? 1 : 0}`).join("|");
 
 /// Pages, files, MCP calls and read-only PR/issue references, in the order first encountered.
 function sources(
@@ -96,6 +99,11 @@ function sources(
   all: readonly Tool[],
   pullRequests: readonly SummaryPullRequest[],
 ): SummarySource[] {
+  const revision = transcriptSourceVersion(rows);
+  const pullRequestKey = pullRequestSourceKey(pullRequests);
+  if (revision) {
+    if (sourceCache?.revision === revision && sourceCache.pullRequests === pullRequestKey) return sourceCache.sources;
+  }
   const seen = new Map<string, SummarySource>();
   const add = (source: SummarySource) => {
     const key = sourceKey(source);
@@ -104,8 +112,7 @@ function sources(
   for (const pr of pullRequests)
     if (!pr.changed && !pr.opened)
       add({ url: pr.url, label: pr.title ?? `${pr.repo} #${pr.number}`, kind: pr.mentioned ? "issue" : "pullRequest" });
-  for (const tool of all) {
-    const text = `${tool.title} ${tool.inputSummary ?? ""} ${tool.output ?? ""}`;
+  const addUrls = (text: string) => {
     for (const match of text.matchAll(/https?:\/\/[^\s"'<>)]+/g)) {
       const url = match[0]!.replace(/[.,;:!?]+$/, "");
       if (GITHUB_PR_URL.test(url)) continue;
@@ -115,16 +122,20 @@ function sources(
         kind: GITHUB_ISSUE_URL.test(url) ? "issue" : "url",
       });
     }
+  };
+  for (const tool of all) {
+    const text = `${tool.title} ${tool.inputSummary ?? ""} ${tool.output ?? ""}`;
+    addUrls(text);
     if (tool.kind === "read") for (const path of editedPaths(tool)) add({ label: path, kind: "file" });
     const call = mcpCall(tool);
     if (call) add({ label: mcpPlainName(call), kind: "mcp" });
   }
-  for (const row of rows)
-    if (row.kind === "activity")
-      for (const tool of (row.items ?? []).flatMap((item) => (item.tool ? [item.tool] : [])))
-        if (tool.kind === "read")
-          for (const location of tool.locations ?? []) add({ label: location.path, kind: "file" });
-  return [...seen.values()];
+  // Assistant URLs become Sources only once the reply settles; streaming tokens never enter this
+  // loop because transcriptSourceVersion remains unchanged until that row is closed.
+  for (const row of rows) if (row.kind === "assistant" && !row.streaming) addUrls(row.text ?? "");
+  const result = [...seen.values()];
+  if (revision) sourceCache = { revision, pullRequests: pullRequestKey, sources: result };
+  return result;
 }
 
 /// The pull requests the chat opened (the composer's PR bars, PullRequestDock.tsx).

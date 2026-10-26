@@ -97,7 +97,20 @@ const SWITCHES = new Set([
 ]);
 const SETTLES: Record<string, PullRequestState> = { merge: "merged", close: "closed", reopen: "open" };
 /// Read-only `gh pr` calls are references. Mutating calls belong in Changes.
-const MUTATING = new Set(["merge", "close", "edit", "comment", "review", "ready", "reopen", "lock", "unlock"]);
+const MUTATING = new Set([
+  "merge",
+  "close",
+  "edit",
+  "comment",
+  "review",
+  "ready",
+  "reopen",
+  "lock",
+  "unlock",
+  "update-branch",
+  "push",
+  "revert",
+]);
 
 const succeeded = (tool: Tool) => tool.status === "completed" && (tool.exitCode ?? 0) === 0;
 const urlOf = (repo: string, number: number) => `https://github.com/${repo}/pull/${number}`;
@@ -110,8 +123,14 @@ const bare = (command: string) => command.replace(HEREDOC, "$3\n").replace(QUOTE
 function outputTitle(tool: Tool): string | undefined {
   const output = tool.output?.trim();
   if (!output) return undefined;
-  const json = /["']title["']\s*:\s*["']((?:\\.|[^"'])*)["']/.exec(output)?.[1];
-  if (json) return json.replace(/\\(.)/g, "$1").trim() || undefined;
+  try {
+    const value: unknown = JSON.parse(output);
+    if (value && typeof value === "object" && typeof (value as { title?: unknown }).title === "string") {
+      return (value as { title: string }).title.trim() || undefined;
+    }
+  } catch {
+    // `gh pr view --jq .title` emits a plain line rather than JSON.
+  }
   if (/\b(?:gh\s+pr\s+view|gh\s+pr\s+edit)\b/.test(tool.command ?? "") && !output.includes("\n")) return output;
   return undefined;
 }
@@ -234,9 +253,44 @@ function rowFindings(row: AcpmuxRow, replies: boolean): Finding[] {
 // Live snapshots carry a producer-maintained PR activity revision. Reading it is O(1):
 // deriving a fingerprint by walking the transcript in render would cost O(rows) per token.
 const activityVersions = new WeakMap<readonly AcpmuxRow[], symbol>();
+const commandVersions = new WeakMap<readonly AcpmuxRow[], symbol>();
 export const markPullRequestActivityVersion = (rows: readonly AcpmuxRow[], version: symbol): void => {
   activityVersions.set(rows, version);
 };
+export const markPullRequestCommandVersion = (rows: readonly AcpmuxRow[], version: symbol): void => {
+  commandVersions.set(rows, version);
+};
+const sourceVersions = new WeakMap<readonly AcpmuxRow[], symbol>();
+export const markTranscriptSourceVersion = (rows: readonly AcpmuxRow[], version: symbol): void => {
+  sourceVersions.set(rows, version);
+};
+export const transcriptSourceVersion = (rows: readonly AcpmuxRow[]): symbol | undefined => sourceVersions.get(rows);
+/// Only settled assistant text and tool payloads can add Sources. Streaming prose deliberately has
+/// an empty key, so a token never advances the source revision.
+export function transcriptSourceRowKey(row: AcpmuxRow | undefined): string {
+  if (!row) return "";
+  if (row.kind === "assistant") return row.streaming ? "" : `assistant:${row.text ?? ""}`;
+  if (row.kind !== "activity") return "";
+  return JSON.stringify(
+    (row.items ?? []).flatMap(({ tool }) =>
+      tool
+        ? [
+            [
+              tool.id,
+              tool.kind,
+              tool.status,
+              tool.exitCode,
+              tool.title,
+              tool.command,
+              tool.inputSummary,
+              tool.output,
+              tool.locations,
+            ],
+          ]
+        : [],
+    ),
+  );
+}
 const fingerprints = new WeakMap<AcpmuxRow, string>();
 
 // The producer asks only about the row it changed. A reply chunk with the same PR references
@@ -254,7 +308,11 @@ export function pullRequestRowKey(row: AcpmuxRow | undefined, replies = true): s
 }
 
 export function transcriptPullRequestKey(rows: readonly AcpmuxRow[], replies = false): string | symbol {
-  const version = replies ? activityVersions.get(rows) : undefined;
+  // OrderedRows marks this revision only when a tool finding changes (or a settled reply adds a
+  // PR finding). Both the dock and Inspector can therefore reuse it; the false path must never
+  // fall back to walking every row on each streamed render.
+  void replies;
+  const version = (replies ? activityVersions : commandVersions).get(rows);
   if (version !== undefined) return version;
   // Static/gallery rows have no producer. Their fallback keeps the same parsing semantics.
   return rows

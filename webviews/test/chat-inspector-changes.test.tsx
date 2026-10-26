@@ -18,6 +18,7 @@ import {
   type InspectorPullRequestStatus,
 } from "../src/agent-session/acpmux/inspector/ChangesSection";
 import type { SummaryPullRequest } from "../src/agent-session/acpmux/summary/sessionSummary";
+import { transcriptPullRequests } from "../src/agent-session/acpmux/summary/transcriptPullRequests";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -235,7 +236,27 @@ test("open ones come first, the most recently touched first, then the merged and
 
 test("visible Changes excludes read-only PR references", () => {
   const created = { ...pr("a/x", 1), changed: true };
-  const inspected = { ...pr("a/x", 2), opened: false, changed: undefined, mentioned: true };
+  const inspected = transcriptPullRequests([
+    {
+      id: "read-only",
+      version: 1,
+      at: 1,
+      kind: "activity",
+      items: [
+        {
+          tool: {
+            id: "view",
+            kind: "execute",
+            status: "completed",
+            exitCode: 0,
+            title: "gh pr view",
+            command: "gh pr view 2 -R a/x",
+            output: "",
+          },
+        },
+      ],
+    },
+  ] as never)[0]!;
   const edited = { ...pr("a/x", 3), opened: false, changed: true };
   expect(visibleChanges([created, inspected, edited], {})).toEqual([created, edited]);
 });
