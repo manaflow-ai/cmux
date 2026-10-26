@@ -16,8 +16,23 @@ import Foundation
 /// `ActionCatalog.all` is a lazy global (`swift_once`): if the main thread
 /// reaches it while this thread still builds it, the main thread waits for
 /// the rest of that one build, never longer than building it itself.
-enum LaunchWarmup {
-    static func start() {
+///
+/// The icon decode and the launch-mark sink are injected so a test can see that `start()` begins
+/// the decode and marks `icons_decoded` when it ends.
+struct LaunchWarmup {
+    /// Starts the icon pack and catalog decode off main; calls its argument, on any thread, when done.
+    private let decodeIcons: (_ decoded: @escaping @Sendable () -> Void) -> Void
+    private let markLaunch: @Sendable (String) -> Void
+
+    init(
+        decodeIcons: @escaping (_ decoded: @escaping @Sendable () -> Void) -> Void = { IconPack.decodeBundledInBackground(then: $0) },
+        markLaunch: @escaping @Sendable (String) -> Void = { DebugTimings.markLaunch($0) }
+    ) {
+        self.decodeIcons = decodeIcons
+        self.markLaunch = markLaunch
+    }
+
+    func start() {
         let thread = Thread {
             _ = ActionCatalog.all
             // The SF Symbols catalog loads on first lookup (20 ms on the
@@ -34,7 +49,8 @@ enum LaunchWarmup {
         // Its own thread: the connecting screen's strings can be read before the work above ends.
         Bundle.warmResourceBundlesInBackground()
         // The restored window's tab strip and sidebar read the icon pack and catalog before the first frame.
-        IconPack.decodeBundledInBackground { DebugTimings.markLaunch("icons_decoded") }
+        let markLaunch = markLaunch
+        decodeIcons { markLaunch("icons_decoded") }
     }
 }
 

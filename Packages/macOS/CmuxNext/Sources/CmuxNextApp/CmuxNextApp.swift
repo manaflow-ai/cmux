@@ -45,7 +45,7 @@ public struct CmuxNextApp {
         Self.prepareLaunchEnvironment()
         DebugTimings.markLaunch("main.environment_frozen")
         // Pure launch work (action catalog, symbols, displays) overlaps AppKit's start.
-        LaunchWarmup.start()
+        LaunchWarmup().start()
         DebugTimings.markLaunch("main.warmup_started")
         // One hang watch for the process: the lanes, the daemon readers and the terminal output lanes.
         let hangWatch = TraceRuntime.shared.hangWatch
