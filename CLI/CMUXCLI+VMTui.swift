@@ -1795,6 +1795,10 @@ extension CMUXCLI {
                 "focus": focus ?? Self.defaultFocusForUserOpen(),
             ]
             if let workspaceOpt {
+                let workspace = workspaceOpt.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !workspace.isEmpty, !workspace.hasPrefix("-") else {
+                    throw missingOptionValueError("--workspace", commandName: "surface new-display")
+                }
                 params["workspace_id"] = try normalizeWorkspaceHandle(workspaceOpt, client: client)
             }
             let response = try client.sendV2(method: "surface.new_display", params: params, responseTimeout: 250)
