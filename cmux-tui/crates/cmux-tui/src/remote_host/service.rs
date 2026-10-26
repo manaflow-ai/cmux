@@ -423,15 +423,25 @@ mod imp {
             );
         }
         let path = unit_path()?;
+        // Never gives up (as acpmux.service): no start limit, 3 s backing
+        // off to 60 s (systemd 254+; an older one ignores the two keys).
         let unit = format!(
-            "[Unit]\nDescription=cmux remote hosting (cmux host serve)\nAfter=network-online.target\n\n[Service]\nExecStart={} host serve --dir {}\nRestart=on-failure\nRestartSec=10\n\n[Install]\nWantedBy=default.target\n",
+            "[Unit]\nDescription=cmux remote hosting (cmux host serve)\nAfter=network-online.target\nStartLimitIntervalSec=0\n\n[Service]\nExecStart={} host serve --dir {}\nRestart=on-failure\nRestartSec=3\nRestartSteps=5\nRestartMaxDelaySec=60\n\n[Install]\nWantedBy=default.target\n",
             quoted(exe)?,
             quoted(dir)?,
         );
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)?;
         }
-        std::fs::write(&path, unit)?;
+        // Written beside its place and renamed in: a full disk never leaves
+        // a cut unit for daemon-reload to load.
+        let staged = path.with_extension("service.new");
+        if let Err(error) =
+            std::fs::write(&staged, unit).and_then(|()| std::fs::rename(&staged, &path))
+        {
+            let _ = std::fs::remove_file(&staged);
+            return Err(error.into());
+        }
         // No user manager (a headless login without linger, `su`, a
         // container): leave no unit behind, so `installed()` stays false
         // and the caller starts `serve` detached instead.
