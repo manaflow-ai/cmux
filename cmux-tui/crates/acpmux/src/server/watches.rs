@@ -86,6 +86,7 @@ pub(super) async fn handle(
                 active: true,
                 cursors,
                 offline: Default::default(),
+                retry_count: 0,
             })
         }
     }

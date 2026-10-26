@@ -175,7 +175,10 @@ async fn reconcile(hub: &Arc<Hub>) -> Result<(), RpcError> {
         let old = json!(w);
         let mut lines = Vec::new();
         let mut resolved = false;
-        for key in w.sessions.clone() {
+        let mut keys = w.sessions.clone();
+        // Local journals are cheap and must wake promptly even when a peer is slow.
+        keys.sort_by_key(|key| key.contains('/'));
+        for key in keys {
             let s = summary(hub, &key);
             if s["stale"] == true || s["status"] == "unreachable" {
                 let peer = key.split('/').next().unwrap_or(&key);
@@ -191,7 +194,17 @@ async fn reconcile(hub: &Arc<Hub>) -> Result<(), RpcError> {
                 w.offline.remove(peer);
             }
             let checkpoint = w.cursors.get(&key).cloned();
-            match watch_events::collect(hub, &mut w, &key).await {
+            let collected = if key.contains('/') {
+                tokio::time::timeout(
+                    std::time::Duration::from_secs(2),
+                    watch_events::collect(hub, &mut w, &key),
+                )
+                .await
+                .map_err(|_| RpcError::internal("peer watch read timed out"))?
+            } else {
+                watch_events::collect(hub, &mut w, &key).await
+            };
+            match collected {
                 Ok(rows) => {
                     resolved |= !rows.is_empty();
                     lines.extend(rows);
