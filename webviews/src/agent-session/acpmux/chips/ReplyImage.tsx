@@ -6,9 +6,9 @@
 // click-free (raw.githubusercontent.com: PR screenshots) loads at once too (`loadsWithoutClick`);
 // if the host refuses that load, its Load image shows. Every web load uses the host's network
 // rules, and the host checks the site again.
-// A local image the host will not show (outside the folders, missing, or a failed load) draws as
-// a compact card: its alt text, its file name and Open, the path chip's open with the same
-// outside-folders confirmation. A deny-listed path is its alt text only.
+// A local image the host will not show (outside the local image roots, missing, or a failed load)
+// draws as a compact card: its alt text, its file name and Open, the path chip's open with the
+// same outside-root confirmation. A deny-listed path is its alt text only.
 // A reply's own images (`thumb`) draw in a glass thumbnail of a fixed shape whatever their state
 // (waiting, Load image, unavailable, shown), so an image that loads never moves the reply; a click
 // opens it whole in the image viewer.

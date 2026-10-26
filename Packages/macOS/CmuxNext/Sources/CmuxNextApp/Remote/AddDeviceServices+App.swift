@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextAgentPane
 import CmuxNextDaemon
 import CmuxNextDaemonService
 import CmuxNextRemote
@@ -31,6 +32,14 @@ extension DeviceDirectory {
     static func app(_ services: AppServices) -> DeviceDirectory {
         let cli = (try? DaemonLauncher.resolveBinary(bundle: .main, environment: ProcessInfo.processInfo.environment)).map { HostCLI(binary: $0, environment: SSHService.environment) }
         return DeviceDirectory(run: { await cli?.json($0, label: "device") },
-                               removePhone: { [weak services] in await services?.iphone.removePhone(id: $0) })
+                               removePhone: { [weak services] in await services?.iphone.removePhone(id: $0) },
+                               setFullAccess: { [weak services] id, on in
+                                   guard let services, let environment = QuitAgents.environment(services),
+                                         let line = await AcpmuxPersonLine.open(environment) else { return false }
+                                   defer { line.close() }
+                                   // acpmux refuses an on from a connection that is not the person.
+                                   if on, !line.isPerson { return false }
+                                   return await line.call("_acpmux/pair_set", ["id": id, "fullAccess": on]) != nil
+                               })
     }
 }

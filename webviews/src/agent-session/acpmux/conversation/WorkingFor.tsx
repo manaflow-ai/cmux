@@ -12,8 +12,8 @@
 // counts. The counts follow on the same fixed-height line, so one that comes or goes moves neither
 // the label nor the rows below. With the running tray on (the default, subagents/runningTray.ts)
 // the tray above the composer is the count, and App.tsx counts nothing here. Before them, as Claude
-// desktop's line does, it says the turn's tokens so far
-// ("5m 54s · 2.1M tokens") when the harness reports them (direct.ts `turnTokens`). When the turn
+// desktop's line does, it says the turn's generated output so far
+// ("5m 54s · 2.1M out") when the harness reports it (direct.ts `turnTokens`). When the turn
 // ends, the "Worked for" disclosure takes its place. While the turn waits on the person (an ask
 // above the composer, waitingOn.ts), the line says so in place of the time and the call: the clock
 // would read as the agent still working.
@@ -28,6 +28,7 @@ import { TerminalSquare } from "./icons";
 import { BackgroundHint } from "./BackgroundHint";
 import { useTranscriptDisclosure } from "./transcriptDisclosure";
 import { formatDuration } from "./turns";
+import { useSubsessionInfo } from "../subagents/subsessions";
 import { WAITING_LABEL, WaitingOnContext } from "./waitingOn";
 
 export const workingLabel = (t: Translate, at: number, now: number) =>
@@ -42,7 +43,7 @@ export type WorkingCounts = {
   openAgents: () => void;
   openCommands: () => void;
   openSessions: () => void;
-  /// The turn's tokens so far (snapshot `turnTokens`), when the harness reports them.
+  /// The turn's generated output tokens so far (snapshot `turnTokens`), when the harness reports them.
   tokens?: number;
 };
 
@@ -66,9 +67,10 @@ export function workingParts(t: Translate, counts: WorkingCounts): { key: string
   return parts.filter((part) => part !== false);
 }
 
-/// "2.1M tokens": the running turn's tokens, compact in the pane's language.
+/// "2.1M out": the running turn's generated output, compact in the pane's language. Prompt and
+/// cache tokens belong to the context card and are never folded into this turn count.
 export const workingTokens = (t: Translate, language: PaneLanguage, tokens: number) =>
-  t("turn.working.tokens", {
+  t("turn.working.outputTokens", {
     n: tokens,
     tokens: new Intl.NumberFormat(language, { notation: "compact", maximumFractionDigits: 1 }).format(tokens),
   });
@@ -98,13 +100,17 @@ export function WorkingFor({ row, now = Date.now }: { row: AcpmuxRow; now?: () =
   const until = held ? row.at + row.durationMs! : time;
   // While the call's group is open, its own row under the line names it (turns.ts `ownRow`).
   const [groupOpen] = useTranscriptDisclosure(row.doingGroup ?? "", row.doingGroupOpen === true);
-  const doing = row.doingGroup && groupOpen ? undefined : row.doing;
+  const shown = row.doingGroup && groupOpen ? undefined : row.doing;
+  // A send in flight names who it goes to, not its command (acpmuxSends.ts, turns.ts `sendingTo`).
+  const sendName = useSubsessionInfo(row.doingSendSession)?.name ?? row.doingSendTo;
+  const sending = shown !== undefined && sendName !== undefined;
+  const doing = sending ? t("send.sending", { target: sendName }) : shown;
   const parts = counts ? workingParts(t, counts) : [];
   return (
     // Find counts and visits transcript rows only (chatFind.ts findMatches skips this row), so the
     // line is not painted either: the call it names is matched on its own tool row.
     <div className={row.below ? "cv-worked is-below" : "cv-worked has-divider"} data-find-skip>
-      {!waiting && doing && row.doingCommand && (
+      {!waiting && doing && row.doingCommand && !sending && (
         <span className="cv-worked__glyph" aria-hidden="true">
           <TerminalSquare />
         </span>

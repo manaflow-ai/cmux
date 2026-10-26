@@ -91,7 +91,7 @@ pub fn agent_hook_live_reply(source: &str, native_event: &str, native: &Value) -
 }
 
 /// The texts a hook sends beside its journal event, memory only (`session.journal.append`
-/// `live_prompt`, `live_reply`). Read them before the event redacts its payload.
+/// `live_prompt`, `live_reply`, `live_question`). Read them before the event redacts its payload.
 pub fn agent_hook_live_fields(
     source: &str,
     native_event: &str,
@@ -103,6 +103,11 @@ pub fn agent_hook_live_fields(
     }
     if let Some(reply) = agent_hook_live_reply(source, native_event, native) {
         fields.insert("live_reply".into(), Value::String(reply));
+    }
+    if let Some(question) =
+        crate::agent_hook_question::agent_hook_live_question(native_event, native)
+    {
+        fields.insert("live_question".into(), Value::String(question));
     }
     fields
 }

@@ -19,20 +19,22 @@ import { cardVersion } from "./UpdateSurfaces";
 import { BuildNumbers, ChangesFold, Groups, Hero, Maintenance, ReelPlayer, type PartsContext } from "./ReleaseParts";
 import { SpanNews } from "./SpanNews";
 import type { ChangelogSnapshot, ChangelogStore } from "./store";
-import type { IndexEntry, ReleaseNotes } from "./types";
+import type { IndexEntry, NewsLayout, ReleaseNotes } from "./types";
 
 export function JournalPage({
   store,
   strings,
   s,
   ledger = false,
+  news,
 }: {
   store: ChangelogStore;
   strings: Strings;
   s: ChangelogSnapshot;
   ledger?: boolean;
+  news?: NewsLayout;
 }) {
-  const ctx: PartsContext = { strings, onTry: (id) => void store.tryIt(id), rowMedia: ledger };
+  const ctx: PartsContext = { strings, onTry: (id) => void store.tryIt(id), rowMedia: ledger, news };
   const span = new Set(s.inSpan);
   const fresh = s.builds.filter((b) => span.has(b.build));
   const earlier = s.span ? s.builds.filter((b) => !span.has(b.build)) : s.builds;

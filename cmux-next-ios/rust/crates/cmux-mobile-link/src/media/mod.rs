@@ -533,15 +533,20 @@ pub(crate) struct InInner {
 pub(crate) struct Gate {
     /// The current source (None before the first frame).
     current: Option<u64>,
-    /// The RTP timestamp (the host's capture time) of the newest frame that
-    /// passed: a keyframe older than it never moves the gate back (a late
-    /// keyframe of the route the Mac just left).
-    newest_ts: Option<u32>,
+    /// Per tab ([`tag`]), the RTP timestamp (that tab's host capture time) of
+    /// its newest frame that passed: a keyframe older than it never moves the
+    /// gate back (a late keyframe of the route the Mac just left). Each tab's
+    /// browser host has its own clock, so timestamps of different tabs never
+    /// compare: a tab opened minutes later is minutes behind.
+    newest_ts: Vec<(Option<u32>, u32)>,
     /// When a frame last passed, and when the gate last asked for a keyframe
     /// because only another source's frames were coming.
     last_pass: Option<std::time::Instant>,
     last_ask: Option<std::time::Instant>,
 }
+
+/// Tabs whose newest timestamp the gate keeps.
+const GATE_TABS: usize = 16;
 
 /// A source whose frames are the only ones coming waits this long for a
 /// keyframe of its own before the gate asks for one.
@@ -557,18 +562,41 @@ pub(crate) enum Admit {
 }
 
 impl Gate {
-    pub(crate) fn admit(&mut self, id: u64, keyframe: bool, ts: u32, now: std::time::Instant) -> Admit {
-        let newer = self.newest_ts.is_none_or(|newest| (ts.wrapping_sub(newest) as i32) > 0);
-        let pass = self.current.is_none() || (self.current == Some(id)) || (keyframe && newer);
+    /// `tag`: the tab the frame belongs to ([`tag`]; `None` from a Mac that
+    /// tags nothing).
+    pub(crate) fn admit(
+        &mut self,
+        id: u64,
+        keyframe: bool,
+        tag: Option<u32>,
+        ts: u32,
+        now: std::time::Instant,
+    ) -> Admit {
+        let newest = self.newest_ts.iter().position(|(t, _)| *t == tag);
+        let behind =
+            newest.and_then(|at| self.newest_ts.get(at)).map(|(_, newest)| ts.wrapping_sub(*newest) as i32);
+        let newer = behind.is_none_or(|d| d > 0);
+        let stuck = self.last_pass.is_none_or(|at| now.duration_since(at) >= GATE_STUCK);
+        // A still page's keyframes are re-encodes of one picture, with one
+        // capture time: on the route the Mac moved to, a keyframe as new as
+        // the newest passes once the route it left went quiet. (Right after
+        // a switch an equal one is a late copy on the left route.)
+        let as_new = behind == Some(0) && stuck;
+        let pass = self.current.is_none() || (self.current == Some(id)) || (keyframe && (newer || as_new));
         if pass {
             self.current = Some(id);
             if newer {
-                self.newest_ts = Some(ts);
+                // The tab that passed last goes to the end; the oldest tab is forgotten first.
+                if let Some(at) = newest {
+                    self.newest_ts.remove(at);
+                } else if self.newest_ts.len() >= GATE_TABS {
+                    self.newest_ts.remove(0);
+                }
+                self.newest_ts.push((tag, ts));
             }
             self.last_pass = Some(now);
             return Admit::Pass;
         }
-        let stuck = self.last_pass.is_none_or(|at| now.duration_since(at) >= GATE_STUCK);
         let due = self.last_ask.is_none_or(|at| now.duration_since(at) >= GATE_STUCK);
         if stuck && due {
             self.last_ask = Some(now);
@@ -604,12 +632,40 @@ impl InInner {
     /// a newer keyframe from another source makes that one current. A source
     /// stuck behind the gate (the current one went quiet) asks for a keyframe.
     pub(crate) fn admit(&self, id: u64, frame: &ReceivedFrame) -> bool {
-        let verdict = self.gate.lock().unwrap_or_else(std::sync::PoisonError::into_inner).admit(
-            id,
-            frame.keyframe,
-            frame.rtp_timestamp,
-            std::time::Instant::now(),
-        );
+        let tag = tag::peek(&frame.access_unit);
+        let mut gate = self.gate.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let verdict = gate.admit(id, frame.keyframe, tag, frame.rtp_timestamp, std::time::Instant::now());
+        if verdict != Admit::Pass {
+            // Rejections are normal for a moment after a route switch; one
+            // that asks means nothing passed for 250 ms (at most 4 a second).
+            let newest = gate.newest_ts.iter().find(|(t, _)| *t == tag).map(|(_, ts)| *ts);
+            let level_ask = verdict == Admit::RejectAndAsk;
+            let current = gate.current;
+            drop(gate);
+            if level_ask {
+                tracing::info!(
+                    source = id,
+                    ?current,
+                    keyframe = frame.keyframe,
+                    tag = ?tag.map(|t| format!("{t:08x}")),
+                    ts = frame.rtp_timestamp,
+                    ?newest,
+                    carrier = ?frame.carrier.map(CarrierKind::name),
+                    "media gate: nothing passed for 250 ms; asking for a keyframe"
+                );
+            } else {
+                tracing::debug!(
+                    source = id,
+                    ?current,
+                    keyframe = frame.keyframe,
+                    ts = frame.rtp_timestamp,
+                    ?newest,
+                    "media gate: rejected a frame"
+                );
+            }
+        } else {
+            drop(gate);
+        }
         if verdict == Admit::RejectAndAsk {
             self.request_keyframe();
         }
@@ -843,18 +899,65 @@ mod tests {
         let ms = |n| t0 + std::time::Duration::from_millis(n);
         let (tunnel, session) = (1, 2);
         let mut gate = Gate::default();
-        assert_eq!(gate.admit(tunnel, true, 1000, ms(0)), Admit::Pass);
-        assert_eq!(gate.admit(tunnel, false, 2500, ms(16)), Admit::Pass);
+        assert_eq!(gate.admit(tunnel, true, None, 1000, ms(0)), Admit::Pass);
+        assert_eq!(gate.admit(tunnel, false, None, 2500, ms(16)), Admit::Pass);
         // The Mac switches at keyframe K (ts 4000) on the session...
-        assert_eq!(gate.admit(session, true, 4000, ms(30)), Admit::Pass);
+        assert_eq!(gate.admit(session, true, None, 4000, ms(30)), Admit::Pass);
         // ...and an older keyframe K' (ts 3000) it sent on the tunnel just
         // before arrives late over TURN over TLS: it does not pass.
-        assert_eq!(gate.admit(tunnel, true, 3000, ms(40)), Admit::Reject);
-        assert_eq!(gate.admit(tunnel, false, 3500, ms(45)), Admit::Reject);
-        assert_eq!(gate.admit(session, false, 5500, ms(46)), Admit::Pass);
+        assert_eq!(gate.admit(tunnel, true, None, 3000, ms(40)), Admit::Reject);
+        assert_eq!(gate.admit(tunnel, false, None, 3500, ms(45)), Admit::Reject);
+        assert_eq!(gate.admit(session, false, None, 5500, ms(46)), Admit::Pass);
         // Falling back: a newer keyframe from the tunnel takes it.
-        assert_eq!(gate.admit(tunnel, true, 9000, ms(300)), Admit::Pass);
-        assert_eq!(gate.admit(session, false, 8000, ms(301)), Admit::Reject);
+        assert_eq!(gate.admit(tunnel, true, None, 9000, ms(300)), Admit::Pass);
+        assert_eq!(gate.admit(session, false, None, 8000, ms(301)), Admit::Reject);
+    }
+
+    /// Each tab's browser host has its own capture clock (its process start),
+    /// so a tab opened later has RTP timestamps minutes behind the tab before.
+    /// After it takes the lane, a route switch at its keyframe must pass: it
+    /// is not a late keyframe of the route the Mac left (2026-10-24 freeze:
+    /// the phone rejected every keyframe and asked again 4 times a second).
+    #[test]
+    fn a_later_tabs_keyframe_on_the_next_route_passes_although_its_clock_is_behind() {
+        let t0 = std::time::Instant::now();
+        let ms = |n| t0 + std::time::Duration::from_millis(n);
+        let (tunnel, session) = (1, 2);
+        let (old_tab, new_tab) = (Some(0xa), Some(0xb));
+        let minutes = 3 * 60 * 90_000u32;
+        let mut gate = Gate::default();
+        assert_eq!(gate.admit(session, true, old_tab, minutes, ms(0)), Admit::Pass);
+        assert_eq!(gate.admit(session, false, old_tab, minutes + 1500, ms(16)), Admit::Pass);
+        // The new tab takes the lane on the same route.
+        assert_eq!(gate.admit(session, true, new_tab, 1000, ms(30)), Admit::Pass);
+        assert_eq!(gate.admit(session, false, new_tab, 2500, ms(46)), Admit::Pass);
+        // The media session fails: the Mac moves to the tunnel at a keyframe.
+        assert_eq!(gate.admit(tunnel, true, new_tab, 4000, ms(300)), Admit::Pass);
+        assert_eq!(gate.admit(tunnel, false, new_tab, 5500, ms(316)), Admit::Pass);
+        // A late keyframe of the same tab on the route it left still does not pass.
+        assert_eq!(gate.admit(session, true, new_tab, 3000, ms(320)), Admit::Reject);
+    }
+
+    /// The single-tab freeze (verify/browser-freeze/results-2.md): on a still
+    /// page the host paints nothing new, so every keyframe a request gets is
+    /// a re-encode with the same capture time. The first went out on the
+    /// route the Mac left; the copies on the new route have the same
+    /// timestamp, and the gate rejected them all and asked again forever.
+    #[test]
+    fn a_still_pages_keyframe_with_the_same_timestamp_on_the_next_route_passes() {
+        let t0 = std::time::Instant::now();
+        let ms = |n| t0 + std::time::Duration::from_millis(n);
+        let (tunnel, track) = (1, 2);
+        let tab = Some(0x7a3d_70b3);
+        let mut gate = Gate::default();
+        assert_eq!(gate.admit(tunnel, true, tab, 58_241_389, ms(0)), Admit::Pass);
+        // The Mac switches at a keyframe of the same still picture.
+        assert_eq!(gate.admit(track, true, tab, 58_241_389, ms(10)), Admit::Reject);
+        // Asked again: another copy, same timestamp, once the tunnel went quiet.
+        assert_eq!(gate.admit(track, true, tab, 58_241_389, ms(270)), Admit::Pass);
+        assert_eq!(gate.admit(track, false, tab, 58_241_400, ms(290)), Admit::Pass);
+        // A late copy on the route it left, right after, does not take it back.
+        assert_eq!(gate.admit(tunnel, true, tab, 58_241_400, ms(300)), Admit::Reject);
     }
 
     #[test]
@@ -862,13 +965,13 @@ mod tests {
         let t0 = std::time::Instant::now();
         let ms = |n| t0 + std::time::Duration::from_millis(n);
         let mut gate = Gate::default();
-        assert_eq!(gate.admit(2, true, 1000, ms(0)), Admit::Pass);
+        assert_eq!(gate.admit(2, true, None, 1000, ms(0)), Admit::Pass);
         // The session went quiet; only the tunnel's P frames come.
-        assert_eq!(gate.admit(1, false, 2000, ms(100)), Admit::Reject);
-        assert_eq!(gate.admit(1, false, 3000, ms(260)), Admit::RejectAndAsk);
-        assert_eq!(gate.admit(1, false, 3500, ms(300)), Admit::Reject, "asked at most every 250 ms");
-        assert_eq!(gate.admit(1, false, 4000, ms(520)), Admit::RejectAndAsk);
-        assert_eq!(gate.admit(1, true, 4500, ms(540)), Admit::Pass);
+        assert_eq!(gate.admit(1, false, None, 2000, ms(100)), Admit::Reject);
+        assert_eq!(gate.admit(1, false, None, 3000, ms(260)), Admit::RejectAndAsk);
+        assert_eq!(gate.admit(1, false, None, 3500, ms(300)), Admit::Reject, "asked at most every 250 ms");
+        assert_eq!(gate.admit(1, false, None, 4000, ms(520)), Admit::RejectAndAsk);
+        assert_eq!(gate.admit(1, true, None, 4500, ms(540)), Admit::Pass);
     }
 
     #[test]
