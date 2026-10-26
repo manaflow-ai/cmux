@@ -97,6 +97,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
         view = PaneContentView(stripModel: stripModel, reveal: services.launchReveal, input: services.inputTap)
         stripModel.intentHandler = { [weak self] intent in self?.handle(intent) }
         view.stripView.previewProvider = services.previews
+        view.stripView.hoverFrameInput = services.hoverFrameInput  // hover once per frame (`pointerFrameHover`)
         view.stripView.resourceSource = services.resources
         view.stripView.contextMenuProvider = { [weak self] target in self?.contextMenu(for: target) }
         view.stripView.attachHoverCards(services.hoverCards, memory: services.memoryCoordinator) // p07-memory-005
