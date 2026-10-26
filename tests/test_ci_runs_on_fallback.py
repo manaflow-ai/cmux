@@ -67,6 +67,49 @@ PINNED_REF = re.compile(r"github\.(?:ref|ref_name)\s*==\s*'[^']+'")
 EXPRESSION = re.compile(r"\$\{\{(.*?)\}\}", re.DOTALL)
 
 
+def unwrap(text: str) -> str:
+    """`text` without whitespace and enclosing parentheses, `((a))` -> `a`."""
+    text = text.strip()
+    while wrapped(text):
+        text = text[1:-1].strip()
+    return text
+
+
+def unconditional(alternative: str) -> bool:
+    """Whether an `||` alternative always yields a runner label: a non-empty label literal, or a group one of
+    whose own alternatives does. A variable may be unset, and a conjunction may be false."""
+    alternative = unwrap(alternative)
+    alternatives = split_top(alternative, "||")
+    if len(alternatives) > 1:
+        return any(unconditional(part) for part in alternatives)
+    return re.fullmatch(r"'[^'\s]+'", alternative) is not None
+
+
+def reserved_unsafe(expression: str, falls_through: bool = False) -> list[str]:
+    """The reserved-slot reads in `expression` that are not a guarded preference with a fallback.
+
+    An alternative that reads a reserved output must be `... && OUT != '' && OUT`: it yields the slot only when
+    one is set, and nothing else. Some later alternative, at its own level or an enclosing one
+    (`falls_through`), must always yield a label, so an empty slot never leaves the job without a runner.
+    """
+    found = []
+    alternatives = split_top(unwrap(expression), "||")
+    for index, alternative in enumerate(alternatives):
+        if not RESERVED_OUTPUT.search(alternative):
+            continue
+        tail = falls_through or any(unconditional(later) for later in alternatives[index + 1:])
+        inner = unwrap(alternative)
+        if len(split_top(inner, "||")) > 1:
+            found += reserved_unsafe(inner, tail)
+            continue
+        terms = [unwrap(term) for term in split_top(inner, "&&")]
+        for name in dict.fromkeys(match.group(0) for match in RESERVED_OUTPUT.finditer(inner)):
+            guarded = any(re.fullmatch(re.escape(name) + r"\s*!=\s*''", term) for term in terms[:-1])
+            if not (guarded and terms[-1] == name and tail):
+                found.append(name)
+    return found
+
+
 def split_top(text: str, operator: str) -> list[str]:
     """`text` split on `operator` outside parentheses and quotes."""
     parts, depth, quoted, start, index = [], 0, False, 0, 0
@@ -221,16 +264,28 @@ class RunsOnFallbackTests(unittest.TestCase):
         for path in workflows():
             for job_id, job in (load(path).get("jobs") or {}).items():
                 text = runs_on_text(job)
-                for alternative in split_top(text.strip().removeprefix("${{").removesuffix("}}"), "||"):
-                    for match in RESERVED_OUTPUT.finditer(alternative):
-                        seen += 1
-                        guarded = re.search(re.escape(match.group(0)) + r"\s*!=\s*''", alternative)
-                        rest = text[text.index(alternative) + len(alternative):]
-                        if not guarded or not POOL_FALLBACK.search(rest):
-                            failures.append(f"{path.name} {job_id}: {match.group(0)} without a set check "
-                                            "and a later pool fallback")
+                seen += len(RESERVED_OUTPUT.findall(text))
+                for expression in EXPRESSION.findall(text):
+                    for name in reserved_unsafe(expression):
+                        failures.append(f"{path.name} {job_id}: {name} without a set check "
+                                        "and a later fallback that always names a runner")
         self.assertEqual(failures, [], "a reserved slot is a preference with a fallback, never the only route")
         self.assertGreater(seen, 0, "cmux-next's feed compiles read the freshness slot")
+
+    def test_the_reserved_slot_rule_reads_expression_branches(self) -> None:
+        r = "needs.macos-placement.outputs.fresh_runner"
+        # Review of #25769: an empty slot and an unset variable yield `false`, not a runner.
+        self.assertEqual(reserved_unsafe(f"{r} != '' && {r} || vars.CI_PR_POOL_OWNED == '1' && 'macos-26'"), [r])
+        self.assertEqual(reserved_unsafe(f"{r} != '' && {r} || vars.MACOS_RUNNER_26"), [r])
+        # A parenthesized preference with its own literal fallback is safe, at any depth.
+        self.assertEqual(reserved_unsafe(f"({r} != '' && {r} || 'macos-26')"), [])
+        self.assertEqual(reserved_unsafe(f"(a && {r} != '' && {r} || b && 'x') || (c || 'y')"), [])
+        self.assertEqual(reserved_unsafe(f"a && {r} != '' && {r} || (b && 'x' || vars.V || 'y')"), [])
+        # No set check, or a slot that is not the alternative's value.
+        self.assertEqual(reserved_unsafe(f"a && {r} || 'x'"), [r])
+        self.assertEqual(reserved_unsafe(f"{r} != '' && 'other' || 'x'"), [r])
+        self.assertEqual(reserved_unsafe(f"{r} != '' && {r}"), [r])
+        self.assertEqual(reserved_unsafe(f"({r} != '' && {r} || b && 'x')"), [r])
 
     def test_the_freshness_slot_is_a_pool_label(self) -> None:
         place = next(step for step in load(WORKFLOWS / "cmux-next.yml")["jobs"]["macos-placement"]["steps"]
