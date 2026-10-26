@@ -1,4 +1,4 @@
-import Foundation
+import AppKit
 
 /// Where a Chromium focus request comes from (`cef_focus_source_t`).
 nonisolated enum CEFFocusSource: Int32, Sendable {
@@ -57,5 +57,44 @@ extension CEFTab {
         isGrantingFocus = true
         defer { isGrantingFocus = false }
         runtime.shim?.setFocus(browser, 1)
+    }
+}
+
+extension CEFTab {
+    /// Gives (`focused`) or takes the page's focus on cmux's behalf, the backend's way.
+    ///
+    /// In process: CEF's `SetFocus`, which makes the page window key. In host mode the page window
+    /// is the Chromium Host's and must never be key (that activates the host, which has cmux's
+    /// bundle id): focus is the pane's page view as cmux's own first responder plus the fork's
+    /// embedder-active state (API 30), a post on the control channel, in order with the page's
+    /// other ops. Chrome splits a page's focus the same way: the app shim's view reports its first
+    /// responder change (`RenderWidgetHostViewCocoa -becomeFirstResponder` to
+    /// `OnFirstResponderChanged`, content/app_shim_remote_cocoa/render_widget_host_view_cocoa.mm)
+    /// and the browser focuses the widget with no window of its own becoming key.
+    func applyFocus(_ focused: Bool, browser: Int32) {
+        guard host.isHostMode else {
+            if focused { grantFocus(browser) } else { runtime.shim?.setFocus(browser, 0) }
+            return
+        }
+        if focused, let page = host.hostedPageView, page.acceptsFirstResponder, let window = page.window,
+           window.firstResponder !== page {
+            window.makeFirstResponder(page)
+        }
+        setEmbedderActive(focused, browser: browser)
+    }
+
+    /// Host mode: the pane's page view became (`true`) or stopped being its window's first
+    /// responder while this tab shows in it (``ChromiumHostPageView/onFocusChange``).
+    func hostedPageFocusChanged(_ focused: Bool) {
+        guard host.isHostMode, let browserID else { return }
+        setEmbedderActive(focused, browser: browserID)
+    }
+
+    /// Posts the page's embedder-active state when it differs from the one last posted for `browser`.
+    private func setEmbedderActive(_ active: Bool, browser: Int32) {
+        if let embedderActive, embedderActive.browser == browser, embedderActive.active == active { return }
+        embedderActive = (browser, active)
+        host.lifecycleTrace.record(id, "embedder-active(\(active))")
+        _ = runtime.shim?.browserSetEmbedderActive(browser, active ? 1 : 0)
     }
 }

@@ -86,6 +86,13 @@ void cmux_shim_set_focus(int browser_id, int) {
   shim.calls.push_back("focus " + std::to_string(browser_id));
   shim.focus_answer = shim.focus ? shim.focus(shim.host, browser_id, 1) : -1;
 }
+// The fork's embedder-active focuses the page's views: CEF asks the focus
+// handler inside the call (task 046).
+int cmux_shim_browser_set_embedder_active(int browser_id, int active) {
+  shim.calls.push_back("embedder_active " + std::to_string(browser_id) + " " + std::to_string(active));
+  shim.focus_answer = shim.focus ? shim.focus(shim.host, browser_id, 1) : -1;
+  return 1;
+}
 int cmux_shim_devtools_call(int browser_id, const char* method, const char*) {
   shim.calls.push_back("devtools " + std::to_string(browser_id) + " " + method);
   return shim.devtools_result;
@@ -501,6 +508,13 @@ void FocusOnlyFromCmux() {
   focus.I32(1);
   f.host.OnMessages({Op(kOpSetFocus, 50, focus)});
   Check(shim.focus_answer == 1, "the request inside cmux's set_focus is granted");
+  shim.focus_answer = -1;
+  Writer active;
+  active.I32(3);
+  active.I32(1);
+  f.host.OnMessages({Op(kOpBrowserSetEmbedderActive, 51, active)});
+  Check(shim.focus_answer == 1, "the request inside cmux's embedder-active is granted (task 046)");
+  Check(shim.focus(&f.host, 3, 0) == 0, "after it, Chromium's own focus request is refused again");
   Check(shim.window && shim.window(&f.host, 2, 0, 3, 0, 0, 0, 0, 0, 1, "https://p/", "") == 3,
         "a popup opens as a tab in the opener's window");
   Check(shim.window(&f.host, 3, 0, 3, 0, 0, 0, 0, 0, 1, "https://p/", "") == 0, "an incognito window opens nothing");

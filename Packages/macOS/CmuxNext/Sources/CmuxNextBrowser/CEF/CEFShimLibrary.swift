@@ -52,6 +52,9 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
     let browserSetLayerHosting: @convention(c) (Int32, Int32) -> UInt32
     /// Fork API 27: `cmux_shim_browser_set_resize_sync` (deadline in ms, 0 never holds the commit).
     let browserSetResizeSync: @convention(c) (Int32, Int32) -> Int32
+    /// Fork API 30: `cmux_shim_browser_set_embedder_active`, a detached page's key state: its focus
+    /// with no key window (0 when the fork lacks it or the page is not detached).
+    let browserSetEmbedderActive: @convention(c) (Int32, Int32) -> Int32
     let initialize: @convention(c) (
         UnsafePointer<CChar>?, UnsafePointer<CChar>?, UnsafePointer<CChar>?, UnsafePointer<CChar>?,
         UnsafePointer<CChar>?, Int32, UnsafePointer<CChar>?, UnsafePointer<CChar>?,
@@ -357,6 +360,7 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
         fileDialogAnswer = try r("cmux_shim_file_dialog_answer")
         browserSetLayerHosting = try r("cmux_shim_browser_set_layer_hosting")
         browserSetResizeSync = try r("cmux_shim_browser_set_resize_sync")
+        browserSetEmbedderActive = try r("cmux_shim_browser_set_embedder_active")
         initialize = try r("cmux_shim_initialize")
         doWork = try r("cmux_shim_do_work")
         setScheduleDelayed = try r("cmux_shim_set_schedule_delayed")

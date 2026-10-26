@@ -88,6 +88,9 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     @ObservationIgnored var pendingFocus = false
     /// True while cmux's own `SetFocus(true)` runs (`chromiumRequestsFocus`).
     @ObservationIgnored var isGrantingFocus = false
+    /// Host mode: the embedder-active state last posted, and for which browser (a restarted host's
+    /// browser has a new id and hears it again).
+    @ObservationIgnored var embedderActive: (browser: Int32, active: Bool)?
     /// Navigation state to restore once the browser exists (created with
     /// an empty URL so its history starts empty).
     @ObservationIgnored var pendingRestore: String?
@@ -265,7 +268,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
         // it back on screen over the pane's current tab.
         let shown = host.visibleTab === self && !isOccluded
         host.lifecycleTrace.record(id, "attach pendingFocus=\(pendingFocus) shown=\(shown)")
-        if pendingFocus, shown { grantFocus(browser) }
+        if pendingFocus, shown { applyFocus(true, browser: browser) }
         if let action = pendingExtensionAction {
             pendingExtensionAction = nil
             runExtensionAction(action.id, anchor: action.anchor)
@@ -447,7 +450,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
         pendingFocus = focused
         // Never activate a hidden page's window (see `attach`).
         guard !focused || shown, let browserID else { return }
-        if focused { grantFocus(browserID) } else { runtime.shim?.setFocus(browserID, 0) }
+        applyFocus(focused, browser: browserID)
     }
 
     /// Shows the page window (and a docked DevTools) at once, or hides it by
