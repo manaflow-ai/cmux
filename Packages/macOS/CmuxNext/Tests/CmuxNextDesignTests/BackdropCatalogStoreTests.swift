@@ -1,5 +1,6 @@
 import CmuxNextCompat
 @testable import CmuxNextDesign
+import CmuxNextWakeups
 import Foundation
 import Testing
 
@@ -26,7 +27,8 @@ import Testing
         defer { try? FileManager.default.removeItem(at: root) }
         FileManager.default.createFile(atPath: pictures.appendingPathComponent("Dunes.heic").path, contents: Data([0]))
         let store = BackdropCatalogStore(systemDirectory: pictures, userImages: BackdropUserImages(folder: images),
-                                         aerials: root.appendingPathComponent("aerials"), assetFolders: [])
+                                         aerials: root.appendingPathComponent("aerials"), assetFolders: [],
+                                         mainWork: MainWorkScheduler(budget: MainFrameBudget()))
         store.start()
         defer { store.stop() }
         await waitForBuilds(store, atLeast: 1)
@@ -40,5 +42,21 @@ import Testing
         FileManager.default.createFile(atPath: images.appendingPathComponent("mine.png").path, contents: Data([0]))
         await waitForBuilds(store, atLeast: 2)
         #expect(store.catalog.choices.contains { $0.id.contains("mine.png") })
+    }
+
+    /// Rule 9 (p06-scheduler.md): a build lands as one `visible` task on the app's scheduler, never as an
+    /// unattributed main-actor resume; the scheduler's board names its owner.
+    @Test func eachBuildLandsAsOneVisibleTaskOnTheScheduler() async throws {
+        let (pictures, images, root) = try folders()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let mainWork = MainWorkScheduler(budget: MainFrameBudget())
+        let store = BackdropCatalogStore(systemDirectory: pictures, userImages: BackdropUserImages(folder: images),
+                                         aerials: root.appendingPathComponent("aerials"), assetFolders: [], mainWork: mainWork)
+        #expect(store.builds == 0, "the store built on the main thread before start()")
+        store.start()
+        defer { store.stop() }
+        await waitForBuilds(store, atLeast: 1)
+        #expect(store.builds == 1)
+        #expect(mainWork.postedCount(.visible) == 0, "the build's reply is still queued after it landed")
     }
 }

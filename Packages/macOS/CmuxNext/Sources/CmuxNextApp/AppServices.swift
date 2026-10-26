@@ -517,7 +517,8 @@ final class AppServices {
     /// The Settings window (Settings…, Cmd-,).
     private(set) lazy var settingsWindow = SettingsWindowService(services: self)
     /// The wallpaper choices, built off main and kept current by folder events (BackdropCatalogStore).
-    private(set) lazy var backdropCatalog = BackdropCatalogStore(systemDirectory: AppleWallpapers.system.desktopPictures, userImages: SettingsWindowService.userImages)
+    private(set) lazy var backdropCatalog = BackdropCatalogStore(systemDirectory: AppleWallpapers.system.desktopPictures, userImages: SettingsWindowService.userImages,
+                                                                 mainWork: mainWork)
     let chiefPetHomes = ChiefPetHomes()  // the Chief Settings popovers the Chief pet's Chief Pet Settings… opens
     /// Each Chief's own pet character (the default Chief's is `home.chiefPetMascot`).
     let chiefMascotPicks = ChiefMascotPicks(defaults: .standard, defaultChief: HomeChiefAvatars.defaultChief)
@@ -880,6 +881,8 @@ final class AppServices {
     func startEnergy(keepAwake: KeepAwakeService = .shared, videos: BackdropVideoPlayers = .shared, design: DesignSettings = .shared) {
         energy.start(inputs: energyMonitor, suspend: features.isEnabled(.sleepWakeKeepalives) ? SuspendWatch(events: workspaceEvents, path: .system(on: mainWork)) : nil)
         energyMotion = MotionEnergyLink(mainWork.energy, design: design)
+        // The video wallpaper's release and coverage deadlines, and the session notices every video holds for.
+        videos.follow(deadlines: mainDeadlines, session: workspaceEvents)
         daemon.follow(mainWork.energy, on: mainWork)
         energyLink = energyMonitor.follow { [weak self] inputs in
             keepAwake.setOnBattery(inputs.onBattery)

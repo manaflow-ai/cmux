@@ -206,27 +206,32 @@ import CmuxNextWakeupsTestSupport
         #expect(h.video.isPlaying)
     }
 
+    /// The release is a `background` MainDeadline on the app's deadline scheduler (p06-scheduler-324): its wake is
+    /// one entry of the main thread's wake-up queue, and its action runs as a posted background task.
     @Test func theDecoderGoesOnlyAMinuteAfterTheLastWindowWentOutOfSight() async throws {
         let clip = try await Self.clip()
-        let clock = ManualClock()
-        let players = BackdropVideoPlayers(clock: clock)
+        let rig = MainDeadlineRig()
+        let players = BackdropVideoPlayers(deadlines: rig.deadlines)
         let h = make(.file(path: clip.path), players: players)
         defer { h.close() }
         let url = try #require(h.video.url)
         h.video.visibleOverride = false
-        try await clock.waitForSleeper()
-        clock.advance(by: .seconds(40))
+        #expect(rig.hasArmedWake, "no release deadline was armed when the last window went out of sight")
+        rig.advance(by: .seconds(40))
         // Updates while hidden do not push the deadline back.
         h.video.lowPowerOverride = true
         h.video.lowPowerOverride = false
-        clock.advance(by: .seconds(15))
+        rig.advance(by: .seconds(15))
+        rig.fireAtNow()
         #expect(!players.isReleased(url), "the decoder went before the minute was up")
-        clock.advance(by: .seconds(6))
-        #expect(try await eventually(2) { players.isReleased(url) }, "the deadline moved with the updates, or never came")
+        rig.advance(by: .seconds(6))
+        rig.fireAtNow()
+        #expect(players.isReleased(url), "the deadline moved with the updates, or never came")
         // Seen again before a new minute: nothing is released.
         h.video.visibleOverride = true
         #expect(!players.isReleased(url))
-        clock.advance(by: .seconds(120))
+        rig.advance(by: .seconds(120))
+        rig.fireAtNow()
         #expect(!players.isReleased(url), "a video someone can see was released")
     }
 
