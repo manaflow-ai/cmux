@@ -1415,6 +1415,8 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 .product(name: "CMUXMobileCore", package: "CMUXMobileCore"),
                 "CmuxNextTrace",
                 "CmuxNextMetrics",
+                // SwitchFrameTimerTests: the switch.* trace names.
+                "CmuxNextSignposts",
             ],
             swiftSettings: uiSwiftSettings
         ),
