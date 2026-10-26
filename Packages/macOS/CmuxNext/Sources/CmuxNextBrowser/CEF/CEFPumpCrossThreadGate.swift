@@ -12,8 +12,8 @@ import CmuxNextWakeups
 /// armed fire later (a request posted before the drop but run after it) cannot strand it.
 ///
 /// - An immediate request (0 ms) always goes through.
-/// - With no armed deadline published (none armed, an immediate pass pending, a pass running, a
-///   or a re-arm in progress), it goes through.
+/// - With no armed deadline published (none armed, an immediate pass pending, a pass running, or a
+///   re-arm in progress), it goes through.
 /// - With an armed deadline already due, it goes through (the timer may be firing now).
 /// - A delayed request is kept, with no wake, only while the armed deadline is in the future and
 ///   not later than the request's own.

@@ -63,9 +63,11 @@ import Testing
     @Test func aReenteredFireRunsAfterThePass() throws {
         var schedule = CEFPumpSchedule()
         schedule.request(milliseconds: 0, now: 0)
-        #expect(schedule.beginWork(now: 0))
+        let began = schedule.beginWork(now: 0)
+        #expect(began)
         #expect(schedule.nextWake == nil, "no wake while a pass runs")
-        #expect(!schedule.beginWork(now: 0.001))
+        let nested = schedule.beginWork(now: 0.001)
+        #expect(!nested)
         schedule.endWork()
         let wake = try #require(schedule.nextWake)
         #expect(wake.deadline == -.infinity)
@@ -78,7 +80,8 @@ import Testing
         schedule.request(milliseconds: 50, now: 0)
         let wake = try #require(schedule.nextWake)
         #expect(abs(wake.deadline - 0.05) < 1e-9, "the later request replaces the earlier one")
-        #expect(schedule.beginWork(now: 0.05))
+        let served = schedule.beginWork(now: 0.05)
+        #expect(served)
         schedule.endWork()
         #expect(schedule.nextWake == nil)
     }

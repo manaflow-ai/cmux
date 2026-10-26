@@ -966,8 +966,7 @@ def cef_validity(reply, web_dev_config=None):
     """Measurement validity (perf-lead brief) from a `debug.cef` reply: valid when Chromium's start state is
     `ready`, `unavailable` and `fallback` are null and no dev-server config routes the pages
     (`cef_problems` of perf-stress-session.py, the check STRESS itself uses). The reply always carries the keys
-    `unavailable` and `fallback` (null when healthy) and the pump's `fallback_ms`, so their names alone say
-    nothing."""
+    `unavailable` and `fallback` (null when healthy), so their names alone say nothing."""
     problems = stress_lib.cef_problems(reply, web_dev_config)
     return {"valid": not problems, "problems": problems,
             "state": reply.get("state") if isinstance(reply, dict) else None,
@@ -4612,9 +4611,8 @@ def check_xctrace_clock():
 
 
 def check_cef_validity():
-    """Review 1: debug.cef always carries `unavailable: null`, `fallback: null` and the pump's `fallback_ms`, so
-    a healthy reply is valid; a fallback, an unavailable reason or a state other than ready is not."""
-    healthy = {"state": "ready", "unavailable": None, "fallback": None, "pump": {"fallback_ms": 16.7},
+    """Review 1: debug.cef always carries `unavailable: null` and `fallback: null`, so a healthy reply is valid; a fallback, an unavailable reason or a state other than ready is not."""
+    healthy = {"state": "ready", "unavailable": None, "fallback": None, "pump": {"long_work_runs": 0},
                "default_engine": "chromium"}
     assert cef_validity(healthy) == {"valid": True, "problems": [], "state": "ready",
                                      "excerpt": json.dumps(healthy)[:400]}, cef_validity(healthy)
