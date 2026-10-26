@@ -82,13 +82,14 @@ import Testing
         var batches: [[InputLatencySlot]] = []
         private(set) var tracker: InputLatencyTracker!
 
-        init(ringCapacity: Int = 256, batches wantsBatches: Bool = false) {
+        init(ringCapacity: Int = 256, batches wantsBatches: Bool = false,
+             frameIntervals: (any InputFrameIntervals)? = nil) {
             let clock = clock
             tracker = InputLatencyTracker(
                 table: InputLatencySlotTable(), ring: InputLatencyRing(capacity: ringCapacity), presentation: presentation,
                 boundary: boundary, emit: { [weak self] slot in self?.emitted.append(slot) },
                 batchSink: wantsBatches ? { [weak self] batch in self?.batches.append(batch) } as InputLatencyTracker.BatchSink : nil,
-                now: { clock.load(ordering: .relaxed) })
+                frameIntervals: frameIntervals, now: { clock.load(ordering: .relaxed) })
         }
 
         var now: UInt64 { clock.load(ordering: .relaxed) }
@@ -102,6 +103,14 @@ import Testing
         /// Ends the main run-loop turn: the boundary the tracker armed fires.
         func commit(_ outcome: CommitBoundary.Outcome = .committed) {
             boundary.fire(outcome)
+        }
+
+        /// Ends the turn, then lets every slot that waits for its target's frame (a terminal's, a page's, an agent
+        /// pane's) pass its deadline and close at the next turn, with no presented time.
+        func settle() {
+            commit()
+            advance(InputLatencyTracker.contentDeadlineNanos + 1)
+            commit()
         }
     }
 
