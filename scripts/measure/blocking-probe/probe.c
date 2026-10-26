@@ -32,10 +32,19 @@
 // temporary file and renames it. The header says which ("#final 1" only at exit), the watched threads
 // ("#threads") and the program ("#process").
 //
-// Behavior is never changed, except that a CMUX_BLOCKING_PROBE_CHILD spawn gets the probe's variables: every
+// Launch window: CMUX_BLOCKING_PROBE_UNTIL_MARK=<name> (main thread watched) copies the main thread's entries
+// the first time the app sends the launch mark <name>, its `<name> <ms>\n` line written to the descriptor in
+// CMUX_NEXT_LAUNCH_MARKS_FD (CmuxNextLaunch/LaunchMarkSink.swift), and the dump thread writes that copy once to
+// <out>.window ("#window" header): the main thread's calls before the mark, as Chrome's startup metrics cut the
+// launch at a named milestone (components/startup_metric_utils/browser/startup_metric_utils.cc). Without a
+// launcher's descriptor the probe opens /dev/null as one and names it in CMUX_NEXT_LAUNCH_MARKS_FD.
+//
+// Behavior is never changed, except that a CMUX_BLOCKING_PROBE_CHILD spawn gets the probe's variables (and a
+// launch window adds a CMUX_NEXT_LAUNCH_MARKS_FD to /dev/null when the launcher gave none): every
 // interposer calls the real function on every path with the same arguments, returns its result and keeps its
 // errno. The recording path allocates nothing (a fixed table claimed and updated with atomics, `backtrace`
-// into a fixed array) and takes no lock. No signal disposition is touched. A recording process removes
+// into a fixed array) and takes no lock (only the launch mark's one copy takes the dump thread's lock, to wake
+// it). No signal disposition is touched. A recording process removes
 // DYLD_INSERT_LIBRARIES and the probe's variables from its environment, so its child processes (shells, the
 // daemon's terminal hosts, helpers) never load the probe; a fork without exec keeps a copy of the parent's
 // table, and its dumps go to its own pid's file.
@@ -117,6 +126,10 @@ typedef struct {
     uint64_t count, total_ns, max_ns;
     int depth;
     void *stack[DEPTH];  // the longest call's stack
+    // The launch window's copy (CMUX_BLOCKING_PROBE_UNTIL_MARK), made once when the mark arrives; 0 calls after.
+    uint64_t window_count, window_total_ns, window_max_ns;
+    int window_depth;
+    void *window_stack[DEPTH];
 } Entry;
 
 // A slot being filled: other threads skip it (a second entry for the same key is fine, the report adds them).
@@ -138,6 +151,14 @@ static char pattern_store[512];
 static const char *patterns[MAX_PATTERNS];
 static int pattern_count;
 static const char main_thread[] = "main", probe_thread[] = "probe";
+// The launch window: the mark's name and the descriptor its line is written to (-1: no window).
+static char window_mark[128];
+static size_t window_mark_length;
+static int window_fd = -1;
+enum { WINDOW_OPEN = 0, WINDOW_COPYING = 1, WINDOW_CLOSED = 2 };
+static int window_state = WINDOW_OPEN;
+static uint64_t window_ms;  // the probe's uptime when the mark arrived
+static int window_written;  // the dump thread (or the exit path) wrote <out>.window
 static char out_pattern[1024];       // CMUX_BLOCKING_PROBE_OUT, copied at load
 static uint64_t loaded_ns;
 static const void *probe_base;       // the probe's own image, left out of the reported stacks
@@ -289,8 +310,15 @@ static ssize_t p_read_nc(int fd, void *b, size_t n) {
 }
 static ssize_t p_pread(int fd, void *b, size_t n, off_t o) { TIMED("file-io:pread", 0, pread(fd, b, n, o)); }
 static ssize_t p_pread_nc(int fd, void *b, size_t n, off_t o) { TIMED("file-io:pread", 0, pread_nocancel(fd, b, n, o)); }
-static ssize_t p_write(int fd, const void *b, size_t n) { TIMED("io:write", 0, write(fd, b, n)); }
-static ssize_t p_write_nc(int fd, const void *b, size_t n) { TIMED("io:write", 0, write_nocancel(fd, b, n)); }
+static void window_check(int fd, const void *b, size_t n);
+static ssize_t p_write(int fd, const void *b, size_t n) {
+    window_check(fd, b, n);
+    TIMED("io:write", 0, write(fd, b, n));
+}
+static ssize_t p_write_nc(int fd, const void *b, size_t n) {
+    window_check(fd, b, n);
+    TIMED("io:write", 0, write_nocancel(fd, b, n));
+}
 static ssize_t p_pwrite(int fd, const void *b, size_t n, off_t o) { TIMED("file-io:pwrite", 0, pwrite(fd, b, n, o)); }
 static int p_stat(const char *p, struct stat *s) { TIMED("file-io:stat", 0, stat(p, s)); }
 static int p_lstat(const char *p, struct stat *s) { TIMED("file-io:lstat", 0, lstat(p, s)); }
@@ -498,58 +526,79 @@ DYLD_INTERPOSE(p_usleep, usleep)
 DYLD_INTERPOSE(p_nanosleep, nanosleep)
 
 
+// One frame per stack address, image|offset|symbol, the probe's own frames left out; then the line's end.
+static void write_frames(FILE *out, void *const *stack, int depth) {
+    for (int f = 0; f < depth; f++) {
+        Dl_info info;
+        if (dladdr(stack[f], &info) && info.dli_fname) {
+            if (info.dli_fbase == probe_base) continue;
+            const char *image = strrchr(info.dli_fname, '/');
+            fprintf(out, "%s|0x%lx|%s;", image ? image + 1 : info.dli_fname,
+                    (unsigned long)((uintptr_t)stack[f] - (uintptr_t)info.dli_fbase),
+                    info.dli_sname ? info.dli_sname : "?");
+        } else {
+            fprintf(out, "?|%p|?;", stack[f]);
+        }
+    }
+    fputc('\n', out);
+}
+
 // Writes the table: a header, then one line per entry: kind thread count total_ns max_ns frames, each frame
-// image|offset|symbol (the probe's own frames left out). Written to a temporary file, then renamed, so a reader
-// never sees half a dump. The writing thread is marked busy, so the interposers never record its I/O.
-static void dump(int final) {
+// image|offset|symbol (the probe's own frames left out). `window` writes the launch window's copy instead, to
+// <path>.window. Written to a temporary file, then renamed, so a reader never sees half a dump. The writing
+// thread is marked busy, so the interposers never record its I/O.
+static void dump_table(int final, int window) {
     if (out_pattern[0] == 0) return;
     char path[1100], partial[1200];
+    const char *suffix = window ? ".window" : "";
     const char *pid = strstr(out_pattern, "%p");
     if (pid) {
-        snprintf(path, sizeof path, "%.*s%d%s", (int)(pid - out_pattern), out_pattern, getpid(), pid + 2);
+        snprintf(path, sizeof path, "%.*s%d%s%s", (int)(pid - out_pattern), out_pattern, getpid(), pid + 2, suffix);
     } else {
-        snprintf(path, sizeof path, "%s", out_pattern);
+        snprintf(path, sizeof path, "%s%s", out_pattern, suffix);
     }
-    snprintf(partial, sizeof partial, "%s.%s.partial", path, final ? "final" : "periodic");
+    snprintf(partial, sizeof partial, "%s.%s.partial", path, window ? "window" : final ? "final" : "periodic");
     uintptr_t state = thread_state();
     set_thread_state(STATE_BUSY);
     FILE *out = fopen(partial, "w");
     if (out != NULL) {
         const char *program = getprogname();
-        fprintf(out, "#final\t%d\n#threads\t%s\n#process\t%s\n#uptime_ms\t%llu\n#dropped\t%llu\n#calls\t%llu\n#record_ns\t%llu\n",
-                final, thread_list, program != NULL ? program : "?",
-                (unsigned long long)((now_ns() - loaded_ns) / 1000000),
-                (unsigned long long)__atomic_load_n(&dropped, __ATOMIC_RELAXED),
-                (unsigned long long)__atomic_load_n(&calls, __ATOMIC_RELAXED),
-                (unsigned long long)__atomic_load_n(&record_ns, __ATOMIC_RELAXED));
+        if (window) {
+            fprintf(out, "#window\t%s\n#window_ms\t%llu\n#threads\tmain\n#process\t%s\n", window_mark,
+                    (unsigned long long)window_ms, program != NULL ? program : "?");
+        } else {
+            fprintf(out, "#final\t%d\n#threads\t%s\n#process\t%s\n#uptime_ms\t%llu\n#dropped\t%llu\n#calls\t%llu\n#record_ns\t%llu\n",
+                    final, thread_list, program != NULL ? program : "?",
+                    (unsigned long long)((now_ns() - loaded_ns) / 1000000),
+                    (unsigned long long)__atomic_load_n(&dropped, __ATOMIC_RELAXED),
+                    (unsigned long long)__atomic_load_n(&calls, __ATOMIC_RELAXED),
+                    (unsigned long long)__atomic_load_n(&record_ns, __ATOMIC_RELAXED));
+        }
         for (size_t i = 0; i < SLOTS; i++) {
             Entry *e = &table[i];
             const char *kind = __atomic_load_n(&e->kind, __ATOMIC_ACQUIRE);
             if (kind == NULL || kind == claiming) continue;
+            if (window) {
+                if (e->window_count == 0) continue;
+                fprintf(out, "%s\t%s\t%llu\t%llu\t%llu\t", kind, e->thread, (unsigned long long)e->window_count,
+                        (unsigned long long)e->window_total_ns, (unsigned long long)e->window_max_ns);
+                write_frames(out, e->window_stack, e->window_depth);
+                continue;
+            }
             int depth = __atomic_load_n(&e->depth, __ATOMIC_RELAXED);
             if (depth > DEPTH) depth = DEPTH;
             fprintf(out, "%s\t%s\t%llu\t%llu\t%llu\t", kind, e->thread,
                     (unsigned long long)__atomic_load_n(&e->count, __ATOMIC_RELAXED),
                     (unsigned long long)__atomic_load_n(&e->total_ns, __ATOMIC_RELAXED),
                     (unsigned long long)__atomic_load_n(&e->max_ns, __ATOMIC_RELAXED));
-            for (int f = 0; f < depth; f++) {
-                Dl_info info;
-                if (dladdr(e->stack[f], &info) && info.dli_fname) {
-                    if (info.dli_fbase == probe_base) continue;
-                    const char *image = strrchr(info.dli_fname, '/');
-                    fprintf(out, "%s|0x%lx|%s;", image ? image + 1 : info.dli_fname,
-                            (unsigned long)((uintptr_t)e->stack[f] - (uintptr_t)info.dli_fbase),
-                            info.dli_sname ? info.dli_sname : "?");
-                } else {
-                    fprintf(out, "?|%p|?;", e->stack[f]);
-                }
-            }
-            fputc('\n', out);
+            write_frames(out, e->stack, depth);
         }
         if (fclose(out) == 0) rename(partial, path);
     }
     set_thread_state(state);
 }
+
+static void dump(int final) { dump_table(final, 0); }
 
 // Proves the probe works in this process: on a watched thread, file system calls made from other images (libc,
 // CoreFoundation, so dyld's interposing applies) must be recorded as kind "selftest", and the dump written right
@@ -580,6 +629,52 @@ static int dump_stop;
 static pthread_t dump_thread;
 static pid_t dump_thread_pid;  // a fork does not inherit the thread: only its creator joins it
 
+// The launch window's copy is made and not yet written. Only the dump thread, or the exit path after joining
+// it, writes the copy, so one writer at a time.
+static int window_due(void) {
+    return __atomic_load_n(&window_state, __ATOMIC_ACQUIRE) == WINDOW_CLOSED && !window_written;
+}
+static void dump_window(void) {
+    dump_table(0, 1);
+    window_written = 1;
+}
+
+// A write's bytes, on any thread: the launch mark's line on the mark descriptor copies the main thread's entries
+// once (one pass over the table: no allocation, no I/O), then wakes the dump thread. A main-thread call that
+// races a mark sent from another thread may or may not be in the copy.
+static void window_check(int fd, const void *bytes, size_t n) {
+    if (window_fd < 0 || fd != window_fd || __atomic_load_n(&window_state, __ATOMIC_ACQUIRE) != WINDOW_OPEN) return;
+    if (bytes == NULL || n <= window_mark_length || memcmp(bytes, window_mark, window_mark_length) != 0
+        || ((const char *)bytes)[window_mark_length] != ' ') {
+        return;
+    }
+    int expected = WINDOW_OPEN;
+    if (!__atomic_compare_exchange_n(&window_state, &expected, WINDOW_COPYING, 0, __ATOMIC_ACQ_REL,
+                                     __ATOMIC_ACQUIRE)) {
+        return;
+    }
+    uintptr_t state = thread_state();
+    set_thread_state(STATE_BUSY);
+    window_ms = (now_ns() - loaded_ns) / 1000000;
+    for (size_t i = 0; i < SLOTS; i++) {
+        Entry *e = &table[i];
+        const char *kind = __atomic_load_n(&e->kind, __ATOMIC_ACQUIRE);
+        if (kind == NULL || kind == claiming || e->thread != main_thread) continue;
+        int depth = __atomic_load_n(&e->depth, __ATOMIC_RELAXED);
+        if (depth > DEPTH) depth = DEPTH;
+        e->window_total_ns = __atomic_load_n(&e->total_ns, __ATOMIC_RELAXED);
+        e->window_max_ns = __atomic_load_n(&e->max_ns, __ATOMIC_RELAXED);
+        e->window_depth = depth;
+        memcpy(e->window_stack, e->stack, sizeof(void *) * (size_t)depth);
+        e->window_count = __atomic_load_n(&e->count, __ATOMIC_RELAXED);
+    }
+    __atomic_store_n(&window_state, WINDOW_CLOSED, __ATOMIC_RELEASE);
+    pthread_mutex_lock(&dump_lock);
+    pthread_cond_signal(&dump_wake);
+    pthread_mutex_unlock(&dump_lock);
+    set_thread_state(state);
+}
+
 // `selftest_here` is non-NULL when the main thread is not watched: the self-test then runs on this thread.
 static void *dump_loop(void *selftest_here) {
     pthread_setname_np("cmux blocking-probe dump");
@@ -590,10 +685,14 @@ static void *dump_loop(void *selftest_here) {
         struct timespec until;
         clock_gettime(CLOCK_REALTIME, &until);
         until.tv_sec += DUMP_SECONDS;
-        while (!dump_stop && pthread_cond_timedwait(&dump_wake, &dump_lock, &until) != ETIMEDOUT) {}
+        while (!dump_stop && !window_due() && pthread_cond_timedwait(&dump_wake, &dump_lock, &until) != ETIMEDOUT) {}
         if (dump_stop) break;
         pthread_mutex_unlock(&dump_lock);
-        dump(0);
+        if (window_due()) {
+            dump_window();
+        } else {
+            dump(0);
+        }
         pthread_mutex_lock(&dump_lock);
     }
     pthread_mutex_unlock(&dump_lock);
@@ -613,6 +712,7 @@ static void dump_at_exit(void) {
         dump_thread_pid = 0;
     }
     set_thread_state(state);
+    if (window_due()) dump_window();
     dump(1);
 }
 
@@ -649,6 +749,33 @@ static void parse_child(const char *spec, const char *dylib) {
     snprintf(carried_env[3], sizeof carried_env[3], "%s%.*s", carried_names[3], (int)(second - first - 1), first + 1);
 }
 
+// CMUX_BLOCKING_PROBE_UNTIL_MARK=<name>: watch the launcher's mark descriptor, or open /dev/null as one (close on
+// exec, above 2 as LaunchMarkSink requires) and name it, so the app sends its marks where the probe sees them.
+static void open_window(const char *mark) {
+    if (strlen(mark) >= sizeof window_mark) {
+        fprintf(stderr, "blocking-probe: CMUX_BLOCKING_PROBE_UNTIL_MARK is too long: %s\n", mark);
+        return;
+    }
+    const char *given = getenv("CMUX_NEXT_LAUNCH_MARKS_FD");
+    char *end = NULL;
+    long fd = given != NULL ? strtol(given, &end, 10) : -1;
+    if (given == NULL || end == given || *end != 0 || fd <= 2 || fd > INT_MAX || fcntl((int)fd, F_GETFD) == -1) {
+        int null = open("/dev/null", O_WRONLY | O_CLOEXEC);
+        fd = null >= 0 ? fcntl(null, F_DUPFD_CLOEXEC, 3) : -1;
+        if (null >= 0) close(null);
+        if (fd < 0) {
+            fprintf(stderr, "blocking-probe: no descriptor for the launch marks, so no launch window\n");
+            return;
+        }
+        char text[24];
+        snprintf(text, sizeof text, "%ld", fd);
+        setenv("CMUX_NEXT_LAUNCH_MARKS_FD", text, 1);
+    }
+    snprintf(window_mark, sizeof window_mark, "%s", mark);
+    window_mark_length = strlen(window_mark);
+    window_fd = (int)fd;
+}
+
 // dyld calls an image's initializers with the process's argc and argv.
 __attribute__((constructor)) static void start(int argc, const char **argv) {
     mach_timebase_info(&timebase);
@@ -666,6 +793,9 @@ __attribute__((constructor)) static void start(int argc, const char **argv) {
     if (threads != NULL && threads[0] != 0) parse_threads(threads);
     const char *child = getenv("CMUX_BLOCKING_PROBE_CHILD");
     if (child != NULL && child[0] != 0 && self.dli_fname != NULL) parse_child(child, self.dli_fname);
+    const char *mark = getenv("CMUX_BLOCKING_PROBE_UNTIL_MARK");
+    if (mark != NULL && mark[0] != 0 && watch_main && out_pattern[0] != 0) open_window(mark);
+    unsetenv("CMUX_BLOCKING_PROBE_UNTIL_MARK");
     unsetenv("CMUX_BLOCKING_PROBE_OUT");
     unsetenv("CMUX_PROBE_THREADS");
     unsetenv("CMUX_BLOCKING_PROBE_ARG");
