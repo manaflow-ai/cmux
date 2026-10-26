@@ -43,19 +43,20 @@ nonisolated enum ChromiumHostOp: UInt16, CaseIterable, Sendable {
     case passwordCoreAvailable = 146, passwordList = 147, passwordRemove = 148, passwordExceptionRemove = 149
     case passwordSetUsername = 150, passwordReveal = 151, passwordExport = 152, sslStatus = 153
     case clearCertificateExceptions = 154, certificateProceed = 155, freeOwned = 156, rendererClientIDs = 157
-    case rendererPid = 158, setContextProxy = 159, setContextProxyServer = 160, contextProxyState = 161
-    case releaseContext = 162, setNavigationGuard = 163, setAuthCallback = 164, prefGet = 165, prefSetBool = 166
-    case prefWatch = 167, bookmarksSync = 168, pageSchemeAdd = 169, pageSchemeAddFirstParty = 170
-    case pageSchemeAddFirstPartyDynamic = 171, pageResourceRespond = 172, memoryPressureVote = 173
-    case setCursorEvents = 174, addDocumentScript = 175, addPageChannel = 176, tabEvaluate = 177, tabSetFrozen = 178
-    case tabSendClick = 179, tabSetColorScheme = 180, pageSchemeSetGroup = 181, tabDiscard = 182
-    case widgetSetGeometry = 183, widgetDismiss = 184, widgetSendInput = 185, browserImeSetComposition = 186
-    case browserImeCommitText = 187, browserImeFinishComposing = 188, browserImeCancelComposition = 189
+    case rendererFrames = 158, rendererPid = 159, setContextProxy = 160, setContextProxyServer = 161
+    case contextProxyState = 162, releaseContext = 163, setNavigationGuard = 164, setAuthCallback = 165
+    case prefGet = 166, prefSetBool = 167, prefWatch = 168, bookmarksSync = 169, pageSchemeAdd = 170
+    case pageSchemeAddFirstParty = 171, pageSchemeAddFirstPartyDynamic = 172, pageResourceRespond = 173
+    case memoryPressureVote = 174, setCursorEvents = 175, addDocumentScript = 176, addPageChannel = 177
+    case tabEvaluate = 178, tabSetFrozen = 179, tabSendClick = 180, tabSetColorScheme = 181
+    case pageSchemeSetGroup = 182, tabDiscard = 183, widgetSetGeometry = 184, widgetDismiss = 185
+    case widgetSendInput = 186, browserImeSetComposition = 187, browserImeCommitText = 188
+    case browserImeFinishComposing = 189, browserImeCancelComposition = 190
 
     /// The SHA-256 of the cmux_cef_shim.h this table was generated from (`CEFShimABI`).
-    static let abiIdentity = "998937dbf7dec599ac63cd2ef431cbb60edf7eca6687ca82f8623c41574547ec"
+    static let abiIdentity = "fd2880fd853619b378183b36b603c45f6d47fa5f5873e2d90caa9a8900ef7c3c"
     /// This generation's op ids, classes and wire types; both HELLOs carry it.
-    static let wireIdentity = "a5697aa9b0cfbd6dfe43b66aec1451f903b95544f45b40f16f5a73df27a4faac"
+    static let wireIdentity = "191a398b9696a54a39b9e64220bbf8a0246c9f430ca5a90a55f108ae3d946697"
     /// Ops of fork API symbols the header does not declare yet (`r.optional` in CEFShimLibrary).
     static let optionalOps: Set<ChromiumHostOp> = [
         .addDocumentScript, .addPageChannel, .tabEvaluate, .tabSetFrozen, .tabSendClick, .tabSetColorScheme,
@@ -352,6 +353,7 @@ nonisolated enum ChromiumHostOp: UInt16, CaseIterable, Sendable {
         Row(.post, [.int32, .string, .int32, .int32], [.int32]),
         Row(.local, [], []),
         Row(.async, [.int32, .int32], [.int32, .int32Array]),
+        Row(.local, [], []),
         Row(.local, [], []),
         Row(.post, [.string, .int32], [.int32]),
         Row(.async, [.string, .string, .string], [.int32]),
