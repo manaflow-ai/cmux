@@ -31,6 +31,64 @@ import Testing
         #expect(RemoteSpy.detachCalls == 0)
     }
 
+    /// The attach points the remote shim's REPLY frames at the runtime's one reply table: the token
+    /// read right after an async call resolves the call that awaits it, whether the REPLY comes
+    /// before or after the await (task 018).
+    @Test func aReplyFromTheHostResolvesTheTokenItsCallAwaits() async throws {
+        RemoteSpy.reset()
+        let wire = try Wire()
+        defer { wire.close() }
+        let runtime = Self.runtime(supervisor: FakeSupervisor(controlFD: wire.fd))
+        try await runtime.start(layout: nil, environment: [:], trigger: "test")
+        let host = try #require(runtime.hostStart)
+        let sink = try #require(RemoteSpy.replySink)
+        let reply = try #require(sink.reply)
+        #expect(host.expectReply() == nil, "a call that sent nothing has no token")
+
+        RemoteSpy.lastToken = 41
+        let early = try #require(host.expectReply())
+        CEFReplyWaitersTests.int32(7).withUnsafeBytes { reply(sink.context, early, $0.baseAddress, $0.count) }
+        #expect(try await host.replies.reply(to: early, as: Int32.self, label: "content setting", timeout: .seconds(30)) == 7)
+
+        RemoteSpy.lastToken = 42
+        let late = try #require(host.expectReply())
+        let wait = CEFReplyWaitersTests.waiting(host.replies, late)
+        await CEFReplyWaitersTests.afterQueuedWork()
+        #expect(host.replies.awaiting == 1)
+        CEFReplyWaitersTests.int32(9).withUnsafeBytes { reply(sink.context, late, $0.baseAddress, $0.count) }
+        #expect(try await wait.value == 9)
+        #expect(host.replies.count == 0)
+    }
+
+    /// The runtime's reply route is the attach's one table: a REPLY through the remote shim's reply
+    /// callback answers both an async caller (`answer`) and a synchronous one (`whenAnswered`).
+    @Test func theRuntimesRouteAnswersFromTheShimsReplyCallback() async throws {
+        RemoteSpy.reset()
+        let wire = try Wire()
+        defer { wire.close() }
+        let runtime = Self.runtime(supervisor: FakeSupervisor(controlFD: wire.fd))
+        try await runtime.start(layout: nil, environment: [:], trigger: "test")
+        let host = try #require(runtime.hostStart)
+        let route = try #require(runtime.hostReplies)
+        #expect(route.replies === host.replies, "the route awaits a table the shim never resolves")
+        let sink = try #require(RemoteSpy.replySink)
+        let reply = try #require(sink.reply)
+
+        RemoteSpy.lastToken = 51
+        var seen: [CEFContentSetting?] = []
+        runtime.contentSetting(1, url: nil, kind: .camera) { seen.append($0) }
+        #expect(seen.isEmpty)
+        CEFReplyWaitersTests.int32(CEFContentSetting.block.rawValue).withUnsafeBytes { reply(sink.context, 51, $0.baseAddress, $0.count) }
+        #expect(seen == [.block])
+
+        RemoteSpy.lastToken = 52
+        let asked = Task { await runtime.contentSetting(1, url: nil, kind: .camera) }
+        for _ in 0..<1_000 where host.replies.count == 0 { await Task.yield() }
+        CEFReplyWaitersTests.int32(CEFContentSetting.allow.rawValue).withUnsafeBytes { reply(sink.context, 52, $0.baseAddress, $0.count) }
+        #expect(await asked.value == .allow)
+        #expect(host.replies.count == 0)
+    }
+
     /// A host that takes the wire and hangs before its hello fails the start at the deadline, and
     /// the shim gives the wire back; a hello after that changes nothing.
     @Test func aHostThatNeverSaysHelloFailsAtTheDeadlineAndDetaches() async throws {
@@ -283,6 +341,10 @@ private nonisolated enum RemoteSpy {
     nonisolated(unsafe) static var initializeResult: Int32 = 1
     nonisolated(unsafe) static var detachCalls = 0
     nonisolated(unsafe) private static var pendingHello: (context: UnsafeMutableRawPointer?, hello: CEFRemoteShim.HelloFn)?
+    /// What `cmux_remote_shim_set_reply` was last given (the attach's reply table, or nil after detach).
+    nonisolated(unsafe) static var replySink: (context: UnsafeMutableRawPointer?, reply: CEFRemoteShim.ReplyFn?)?
+    /// What `cmux_remote_shim_last_reply_token` returns.
+    nonisolated(unsafe) static var lastToken: UInt32 = 0
     nonisolated(unsafe) private static let abiCString = strdup(abi)
 
     static var hasPendingHello: Bool { pendingHello != nil }
@@ -296,6 +358,8 @@ private nonisolated enum RemoteSpy {
         initializeResult = 1
         detachCalls = 0
         pendingHello = nil
+        replySink = nil
+        lastToken = 0
     }
 
     static func symbol(_ name: String) -> UnsafeMutableRawPointer? {
@@ -315,6 +379,8 @@ private nonisolated enum RemoteSpy {
             RemoteSpy.pendingHello = nil
             pending.hello(pending.context, 0, nil)
         }
+        let setReply: CEFRemoteShim.SetReplyFn = { context, reply in RemoteSpy.replySink = (context, reply) }
+        let lastReplyToken: CEFRemoteShim.LastReplyTokenFn = { RemoteSpy.lastToken }
         let forkAPIVersion: @convention(c) () -> Int32 = { RemoteSpy.forkAPI }
         let prepareApplication: @convention(c) () -> Int32 = {
             RemoteSpy.prepareApplicationCalls += 1
@@ -334,6 +400,8 @@ private nonisolated enum RemoteSpy {
         case "cmux_shim_abi_id": unsafeBitCast(abiID, to: UnsafeMutableRawPointer.self)
         case "cmux_remote_shim_attach": unsafeBitCast(attach, to: UnsafeMutableRawPointer.self)
         case "cmux_remote_shim_detach": unsafeBitCast(detach, to: UnsafeMutableRawPointer.self)
+        case "cmux_remote_shim_set_reply": unsafeBitCast(setReply, to: UnsafeMutableRawPointer.self)
+        case "cmux_remote_shim_last_reply_token": unsafeBitCast(lastReplyToken, to: UnsafeMutableRawPointer.self)
         case "cmux_shim_fork_api_version": unsafeBitCast(forkAPIVersion, to: UnsafeMutableRawPointer.self)
         case "cmux_shim_prepare_application": unsafeBitCast(prepareApplication, to: UnsafeMutableRawPointer.self)
         case "cmux_shim_initialize": unsafeBitCast(initialize, to: UnsafeMutableRawPointer.self)

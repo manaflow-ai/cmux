@@ -95,8 +95,9 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     /// Pushes every color change of this view's scope to the page, shown or hidden, so a page
     /// shown after a change paints its first frame in the new colors (cx-8w027.12).
     private lazy var themeFollower = ThemeFollower(self) { [weak self] in self?.applyTheme() }
-    /// The wallpaper still the page's glass lenses (`cmuxTheme.backdrop`), pushed after each theme.
-    private lazy var glassFeed = GlassBackdropFeed(host: self, zoom: { [weak self] in self?.pageZoom ?? 1 }) { [weak self] in self?.evaluateInPage($0) }
+    /// The wallpaper still the page's glass lenses (`cmuxTheme.backdrop`), pushed after each theme and when
+    /// the page's place settles (PageWebView+GlassMotion.swift).
+    lazy var glassFeed = GlassBackdropFeed(host: self, zoom: { [weak self] in self?.pageZoom ?? 1 }) { [weak self] in self?.evaluateInPage($0) }
     private var uiScaleObservation: Task<Void, Never>?
     /// The static status look (`WebTheme.statusIndicators`): the setting and Reduce Motion.
     private var statusLookObservation: Task<Void, Never>?
@@ -481,6 +482,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     public override func layout() {
         super.layout()
         webView.frame = bounds
+        glassFeed.hostDidLayout()
         if !nativeRects.isEmpty { applyNativeRects() } // the unflipped Chromium view's rects move with the height
         // Not while the claim is pending: a refused document reloads, and its paint would end the
         // pane's hold before the reloaded one drew (finishClaim runs the probe on acknowledgement).

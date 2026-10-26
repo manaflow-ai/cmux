@@ -1,5 +1,4 @@
 import Foundation
-@preconcurrency import Sparkle
 
 /// Builds the copyable technical detail block shown in the update error popover.
 public struct UpdateErrorDetailsFormatter: Sendable {
@@ -22,7 +21,7 @@ public struct UpdateErrorDetailsFormatter: Sendable {
         var lines: [String] = []
         lines.append("\(messageLabel): \(nsError.localizedDescription)")
         lines.append("\(domainLabel): \(nsError.domain)")
-        if nsError.domain == SUSparkleErrorDomain,
+        if nsError.domain == UpdateStateModel.sparkleErrorDomain,
            let sparkleName = sparkleErrorCodeName(for: nsError.code) {
             lines.append("\(codeLabel): \(sparkleName) (\(nsError.code))")
         } else {

@@ -147,49 +147,22 @@ extension SessionTransferService {
     }
 
     /// Runs `executable` and returns its exit status and output, or nil when it is still running
-    /// after `limit` or the caller is cancelled; it is never ended early. Output goes to files
-    /// (a daemon it starts cannot hold an end-of-file wait open), which go once it exits.
-    /// Throws when it could not start.
-    private nonisolated static func runToEnd(_ executable: URL, _ arguments: [String], environment: [String: String],
-                                             limit: Duration) async throws -> (status: Int32, stdout: Data, stderr: Data)? {
-        let files = FileManager.default
-        let directory = files.temporaryDirectory.appendingPathComponent("cmux-transfer-\(UUID().uuidString)")
-        let stdoutURL = directory.appendingPathComponent("stdout"), stderrURL = directory.appendingPathComponent("stderr")
-        let process = Process()
+    /// after `limit` or the caller is cancelled; it is never ended early (ended midway, the source
+    /// chat would stay frozen). The spawn runs off the caller's actor; the output drains while it
+    /// runs, and a daemon it starts cannot hold the result open. The person waits for the move, so
+    /// it runs at userBlocking. Throws when it could not start.
+    nonisolated static func runToEnd(_ executable: URL, _ arguments: [String], environment: [String: String], limit: Duration,
+                                     processes: any ProcessRunning = AsyncProcess(),
+                                     clock: any Clock<Duration> = ContinuousClock()) async throws -> (status: Int32, stdout: Data, stderr: Data)? {
+        try Task.checkCancellation()
+        let request = ProcessRequest(executable, arguments, environment: environment, errorOutput: .separate,
+                                     onCancel: .finish, priority: .userBlocking)
         do {
-            try files.createDirectory(at: directory, withIntermediateDirectories: true)
-            files.createFile(atPath: stdoutURL.path, contents: nil)
-            files.createFile(atPath: stderrURL.path, contents: nil)
-            let stdout = try FileHandle(forWritingTo: stdoutURL), stderr = try FileHandle(forWritingTo: stderrURL)
-            defer { try? stdout.close(); try? stderr.close() }
-            process.executableURL = executable
-            process.arguments = arguments
-            process.environment = environment
-            process.standardInput = FileHandle.nullDevice
-            process.standardOutput = stdout
-            process.standardError = stderr
-            try Task.checkCancellation()
-            // The first of exit, `limit` and cancellation resumes the caller once (a continuation race,
-            // as ControlDeadline does): nothing waits on a loser.
-            let outcome = FirstOutcome<(status: Int32, stdout: Data, stderr: Data)?>()
-            // Also after the wait gave up: the output is read and its files go.
-            process.terminationHandler = { process in
-                let out = (try? Data(contentsOf: stdoutURL)) ?? Data(), err = (try? Data(contentsOf: stderrURL)) ?? Data()
-                try? FileManager.default.removeItem(at: directory)
-                outcome.resolve((process.terminationStatus, out, err))
-            }
-            try process.run()
-            let bound = DemandTimer(owner: "SessionTransfer.runToEnd")
-            bound.schedule(after: limit) { outcome.resolve(nil) }
-            defer { bound.cancel() }
-            return await withTaskCancellationHandler {
-                await outcome.value()
-            } onCancel: {
-                outcome.resolve(nil)
-            }
+            guard let outcome = try await processes.outcome(of: request, waitingAtMost: limit, owner: "SessionTransfer.runToEnd",
+                                                            clock: clock) else { return nil }
+            return (outcome.status, outcome.output, outcome.errorOutput)
         } catch {
-            try? files.removeItem(at: directory)
-            throw error is CancellationError ? error : Failure.chatNotMoved(String(describing: error))
+            throw Failure.chatNotMoved(String(describing: error))
         }
     }
 }

@@ -30,8 +30,9 @@ nonisolated enum DiffSidecarError: Error, Equatable, Sendable {
 ///    of at most `maximumReply` bytes is the answer.
 ///
 /// A missed deadline or a cancelled caller stops the whole group: SIGTERM (the
-/// sidecar removes its temporary patch), then SIGKILL after `grace`. Every
-/// read runs on Foundation's pipe threads; nothing here blocks or polls.
+/// sidecar removes its temporary patch), then SIGKILL after `grace`. The spawn
+/// runs on the launcher's queue at its priority, never on the caller's actor;
+/// every read runs on Foundation's pipe threads; nothing here blocks or polls.
 nonisolated enum DiffSidecarProcess {
     static let readyMarker = Data("cmux-diff-sidecar-process-group-ready\n".utf8)
     static let maximumReply = 32 * 1024 * 1024
@@ -44,13 +45,14 @@ nonisolated enum DiffSidecarProcess {
         var grace: Duration = .milliseconds(250)
     }
 
-    static func run(executable: URL, arguments: [String], request: Data, limits: Limits = Limits(),
+    static func run(executable: URL, arguments: [String], request: Data, launcher: ProcessLauncher, limits: Limits = Limits(),
                     clock: any Clock<Duration> = ContinuousClock()) async throws -> Data {
         let invocation = Invocation(request: request, grace: limits.grace, clock: clock)
         do {
             return try await withTaskCancellationHandler {
                 try await withCheckedThrowingContinuation { continuation in
-                    invocation.start(executable: executable, arguments: arguments, limits: limits, continuation: continuation)
+                    invocation.start(executable: executable, arguments: arguments, launcher: launcher, limits: limits,
+                                     continuation: continuation)
                 }
             } onCancel: {
                 invocation.fail(.cancelled)
@@ -101,7 +103,7 @@ private nonisolated final class Invocation: Sendable {
         reply = DemandTimer(owner: "DiffSidecar.reply", clock: clock)
     }
 
-    func start(executable: URL, arguments: [String], limits: DiffSidecarProcess.Limits,
+    func start(executable: URL, arguments: [String], launcher: ProcessLauncher, limits: DiffSidecarProcess.Limits,
                continuation: CheckedContinuation<Data, any Error>) {
         let process = Process()
         process.executableURL = executable
@@ -133,26 +135,33 @@ private nonisolated final class Invocation: Sendable {
             resumeIfFinished(continuation)
             return
         }
-        do {
-            try process.run()
-        } catch {
-            // No child holds a write end, so no EOF comes: release the readers here.
-            output.fileHandleForReading.readabilityHandler = nil
-            errors.fileHandleForReading.readabilityHandler = nil
-            state.withLock { state in
+        let startupLimit = limits.startup
+        launcher.launch(process, started: { [self] in launched(within: startupLimit) }, failed: { [self] _ in launchFailed() })
+    }
+
+    /// The child runs: its startup deadline starts, unless a cancel came during the launch.
+    private func launched(within startupLimit: Duration) {
+        // A cancel that landed while the child launched found no pid to stop.
+        let (cancelled, process) = state.withLock { state -> (Bool, Process?) in (state.outcome != nil, state.process) }
+        guard !cancelled else {
+            if let process { stop(process, group: false) }
+            return
+        }
+        arm(startup, after: startupLimit) { $0.ready ? nil : .startFailed }
+    }
+
+    /// No child holds a write end, so no EOF comes: release the readers here.
+    private func launchFailed() {
+        let readers = state.withLock { state -> [FileHandle] in
+            defer {
                 state.replyReader = nil
                 state.stderrReader = nil
                 state.process = nil
             }
-            fail(.startFailed)
-            return
+            return [state.replyReader, state.stderrReader].compactMap { $0 }
         }
-        // A cancel that landed while the child launched found no pid to stop.
-        if state.withLock({ $0.outcome != nil }) {
-            stop(process, group: false)
-            return
-        }
-        arm(startup, after: limits.startup) { $0.ready ? nil : .startFailed }
+        for reader in readers { reader.readabilityHandler = nil }
+        fail(.startFailed)
     }
 
     /// Fails with `error` (unless already finished) and stops the child.

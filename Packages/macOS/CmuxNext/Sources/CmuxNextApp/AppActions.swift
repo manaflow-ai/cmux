@@ -4,6 +4,7 @@ import CmuxNextAgentLanes
 import CmuxNextBridge
 import CmuxNextDaemon
 import CmuxNextDesign
+import CmuxNextEnergy
 import CmuxNextSidebarActions
 import os
 
@@ -119,6 +120,7 @@ enum AppActions {
         RemoteBrowserPages.bind(into: registry, context: context)
         ResourceHandlers.bind(into: registry, context: context)
         LinkHandlers.bind(into: registry, context: context)
+        services.energy.driver.bindActions(into: registry)
         IconMenuVisibility.install(registry, context: context)
         TabSelectionTitles(context: context).install(in: registry)
         TopPages.installTabTargetReasons(services)

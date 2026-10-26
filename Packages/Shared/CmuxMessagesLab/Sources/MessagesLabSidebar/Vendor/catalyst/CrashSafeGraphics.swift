@@ -7,11 +7,14 @@ import os
 // resolves, so the fallbacks do not run in practice.
 
 /// The named color spaces MessagesLab draws in.
+/// cmux: made once and shared by every render thread (SidebarShared, Swift 6; no lookup per read).
 enum LabColorSpace {
+    private static let sRGBSpace = SidebarShared(CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB())
+    private static let displayP3Space = SidebarShared(CGColorSpace(name: CGColorSpace.displayP3) ?? CGColorSpaceCreateDeviceRGB())
     /// sRGB (device RGB if the name does not resolve).
-    static let sRGB: CGColorSpace = CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB()
+    static var sRGB: CGColorSpace { sRGBSpace.value }
     /// Display P3 (device RGB if the name does not resolve).
-    static let displayP3: CGColorSpace = CGColorSpace(name: CGColorSpace.displayP3) ?? CGColorSpaceCreateDeviceRGB()
+    static var displayP3: CGColorSpace { displayP3Space.value }
 }
 
 /// The system UI font of a kind and size; the system font by name if Core Text

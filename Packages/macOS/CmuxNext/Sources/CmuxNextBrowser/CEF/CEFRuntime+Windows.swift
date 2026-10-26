@@ -123,6 +123,9 @@ public struct CEFWindowReport: Sendable {
     /// Tabs Chromium created that wait for a pane window.
     public var unplacedTabs: Int
     public var forkAPIVersion: Int
+    /// Chromium started with `cmux-process-reuse-per-renderer-devtools` (fork API 29 and the shim's
+    /// renderer paths): a DevTools agent stops main-frame sharing only for its own renderer.
+    public var processReusePerRendererDevTools = false
     /// The latest popup window events (fork API 13).
     public var popupWindows: [String] = []
 }
@@ -143,6 +146,7 @@ extension CEFRuntime {
             chromiumWindows: started ? windowGuard.offendingWindows().map { "\(NSStringFromClass(type(of: $0))) \"\($0.title)\"" } : [],
             unplacedTabs: orphans.unplaced.count,
             forkAPIVersion: Int(forkAPIVersion),
+            processReusePerRendererDevTools: processReusePerRendererDevTools,
             popupWindows: windowRequests.log.popupWindows
         )
     }

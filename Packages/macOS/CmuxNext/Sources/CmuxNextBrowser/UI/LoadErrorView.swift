@@ -47,7 +47,7 @@ final class LoadErrorView: NSView {
             detailsLabel.preferredMaxLayoutWidth = BrowserMetrics.promptMaxWidth
             stack.spacing = BrowserMetrics.overlayPadding
         }
-        density.start()
+        density.start(in: self)
         updateColors()
     }
 

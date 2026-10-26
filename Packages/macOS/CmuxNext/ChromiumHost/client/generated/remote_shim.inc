@@ -33,147 +33,165 @@ enum Op : uint16_t {
   kOpSetDragSourceHandler = 21,
   kOpBrowserDragSourceEnded = 22,
   kOpBrowserDragTargetEnterSource = 23,
-  kOpSetNewTabPageUrl = 24,
-  kOpAddNativeMessagingDir = 25,
-  kOpPrepareApplication = 26,
-  kOpInitialize = 27,
-  kOpDoWork = 28,
-  kOpCreateWindow = 29,
-  kOpCreatePlaceholderWindow = 30,
-  kOpPlaceholderSupported = 31,
-  kOpTabAdd = 32,
-  kOpTabDuplicate = 33,
-  kOpTabActivate = 34,
-  kOpTabNavigationEntries = 35,
-  kOpTabGoToEntry = 36,
-  kOpTabWindowId = 37,
-  kOpLoadUrl = 38,
-  kOpGoBack = 39,
-  kOpGoForward = 40,
-  kOpReload = 41,
-  kOpStop = 42,
-  kOpSetFocus = 43,
-  kOpSetFocusRequestHandler = 44,
-  kOpSetUnhandledKeyHandler = 45,
-  kOpSetZoomLevel = 46,
-  kOpSetAccessibility = 47,
-  kOpPrint = 48,
-  kOpFind = 49,
-  kOpStopFinding = 50,
-  kOpClose = 51,
-  kOpTryClose = 52,
-  kOpBeforeUnloadReply = 53,
-  kOpDevtoolsCall = 54,
-  kOpDevtoolsWatchEvents = 55,
-  kOpDevtoolsSend = 56,
-  kOpDevtoolsSetKeyHandler = 57,
-  kOpDevtoolsSetPlacement = 58,
-  kOpDevtoolsCommand = 59,
-  kOpDevtoolsBrowser = 60,
-  kOpDevtoolsSetFocus = 61,
-  kOpDevtoolsShowPanel = 62,
-  kOpExtActions = 63,
-  kOpExtActionRun = 64,
-  kOpExtActionHidePopup = 65,
-  kOpExtActionContextMenu = 66,
-  kOpFree = 67,
-  kOpTabNavigationState = 68,
-  kOpTabRestoreNavigation = 69,
-  kOpNavigationRestoreSupported = 70,
-  kOpExtList = 71,
-  kOpExtSetEnabled = 72,
-  kOpExtUninstall = 73,
-  kOpExtReload = 74,
-  kOpExtMovePinned = 75,
-  kOpExtSetPinned = 76,
-  kOpExtOpenOptions = 77,
-  kOpExtLoadUnpacked = 78,
-  kOpExtCommands = 79,
-  kOpExtCommandRun = 80,
-  kOpTabMoveToWindow = 81,
-  kOpUnresponsiveReply = 82,
-  kOpContextMenuDone = 83,
-  kOpSetPopupWindowsEnabled = 84,
-  kOpPopupWindowBounds = 85,
-  kOpDevtoolsInspectedBounds = 86,
-  kOpPopupWindowAttach = 87,
-  kOpSidePanelState = 88,
-  kOpSidePanelPress = 89,
-  kOpInstallPromptReply = 90,
-  kOpOmniboxKeywords = 91,
-  kOpOmniboxInput = 92,
-  kOpSetWindowRequestHandler = 93,
-  kOpForeignBrowserCount = 94,
-  kOpDownloadUrl = 95,
-  kOpDownloadContinue = 96,
-  kOpDownloadControl = 97,
-  kOpPermissionContinue = 98,
-  kOpCloseAll = 99,
-  kOpLiveBrowserCount = 100,
-  kOpWindowCount = 101,
-  kOpShutdown = 102,
-  kOpContentSetting = 103,
-  kOpSetContentSetting = 104,
-  kOpVisitCookies = 105,
-  kOpDeleteCookies = 106,
-  kOpDownloadFavicon = 107,
-  kOpImportCookies = 108,
-  kOpClearCookies = 109,
-  kOpImportPasswords = 110,
-  kOpPasswordEntrySize = 111,
-  kOpPasswordImportAvailable = 112,
-  kOpPasswordPromptAnswer = 113,
-  kOpSetPasswordGenerationEnabled = 114,
-  kOpPasswordReplaceAvailable = 115,
-  kOpReplacePasswords = 116,
-  kOpSetPasswordFill = 117,
-  kOpPasskeysAvailable = 118,
-  kOpPasskeysList = 119,
-  kOpPasskeyDelete = 120,
-  kOpPasswordCoreAvailable = 121,
-  kOpPasswordList = 122,
-  kOpPasswordRemove = 123,
-  kOpPasswordExceptionRemove = 124,
-  kOpPasswordSetUsername = 125,
-  kOpPasswordReveal = 126,
-  kOpPasswordExport = 127,
-  kOpSslStatus = 128,
-  kOpClearCertificateExceptions = 129,
-  kOpCertificateProceed = 130,
-  kOpFreeOwned = 131,
-  kOpRendererClientIds = 132,
-  kOpSetContextProxy = 133,
-  kOpSetContextProxyServer = 134,
-  kOpContextProxyState = 135,
-  kOpReleaseContext = 136,
-  kOpSetNavigationGuard = 137,
-  kOpSetAuthCallback = 138,
-  kOpPrefGet = 139,
-  kOpPrefSetBool = 140,
-  kOpPrefWatch = 141,
-  kOpBookmarksSync = 142,
-  kOpPageSchemeAdd = 143,
-  kOpPageSchemeAddFirstParty = 144,
-  kOpPageSchemeAddFirstPartyDynamic = 145,
-  kOpPageResourceRespond = 146,
-  kOpAddDocumentScript = 147,  // optional
-  kOpAddPageChannel = 148,  // optional
-  kOpTabEvaluate = 149,  // optional
-  kOpTabSetFrozen = 150,  // optional
-  kOpTabSendClick = 151,  // optional
-  kOpTabSetColorScheme = 152,  // optional
-  kOpPageSchemeSetGroup = 153,  // optional
-  kOpTabDiscard = 154,  // optional
+  kOpSetColorChooserHandler = 24,
+  kOpColorChooserChoose = 25,
+  kOpColorChooserEnd = 26,
+  kOpSetDeviceChooserHandler = 27,
+  kOpDeviceChooserAnswer = 28,
+  kOpSetDesktopMediaHandler = 29,
+  kOpDesktopMediaAnswer = 30,
+  kOpSetLockHandler = 31,
+  kOpBrowserPointerLockAnswer = 32,
+  kOpBrowserKeyboardLockAnswer = 33,
+  kOpBrowserExitPointerLock = 34,
+  kOpBrowserExitKeyboardLock = 35,
+  kOpBrowserSendLockedMouseMove = 36,
+  kOpBrowserSetPageDisplay = 37,
+  kOpTabEntryPageState = 38,
+  kOpTabPageStateWatch = 39,
+  kOpTabRestoreEntries = 40,
+  kOpSetNewTabPageUrl = 41,
+  kOpAddNativeMessagingDir = 42,
+  kOpPrepareApplication = 43,
+  kOpInitialize = 44,
+  kOpDoWork = 45,
+  kOpSetScheduleDelayed = 46,
+  kOpCreateWindow = 47,
+  kOpCreatePlaceholderWindow = 48,
+  kOpPlaceholderSupported = 49,
+  kOpTabAdd = 50,
+  kOpTabDuplicate = 51,
+  kOpTabActivate = 52,
+  kOpTabNavigationEntries = 53,
+  kOpTabGoToEntry = 54,
+  kOpTabWindowId = 55,
+  kOpLoadUrl = 56,
+  kOpGoBack = 57,
+  kOpGoForward = 58,
+  kOpReload = 59,
+  kOpStop = 60,
+  kOpSetFocus = 61,
+  kOpSetFocusRequestHandler = 62,
+  kOpSetUnhandledKeyHandler = 63,
+  kOpSetZoomLevel = 64,
+  kOpSetAccessibility = 65,
+  kOpPrint = 66,
+  kOpFind = 67,
+  kOpStopFinding = 68,
+  kOpClose = 69,
+  kOpTryClose = 70,
+  kOpBeforeUnloadReply = 71,
+  kOpDevtoolsCall = 72,
+  kOpDevtoolsWatchEvents = 73,
+  kOpDevtoolsSend = 74,
+  kOpDevtoolsSetKeyHandler = 75,
+  kOpDevtoolsSetPlacement = 76,
+  kOpDevtoolsCommand = 77,
+  kOpDevtoolsBrowser = 78,
+  kOpDevtoolsSetFocus = 79,
+  kOpDevtoolsShowPanel = 80,
+  kOpExtActions = 81,
+  kOpExtActionRun = 82,
+  kOpExtActionHidePopup = 83,
+  kOpExtActionContextMenu = 84,
+  kOpFree = 85,
+  kOpTabNavigationState = 86,
+  kOpTabRestoreNavigation = 87,
+  kOpNavigationRestoreSupported = 88,
+  kOpExtList = 89,
+  kOpExtSetEnabled = 90,
+  kOpExtUninstall = 91,
+  kOpExtReload = 92,
+  kOpExtMovePinned = 93,
+  kOpExtSetPinned = 94,
+  kOpExtOpenOptions = 95,
+  kOpExtLoadUnpacked = 96,
+  kOpExtCommands = 97,
+  kOpExtCommandRun = 98,
+  kOpTabMoveToWindow = 99,
+  kOpUnresponsiveReply = 100,
+  kOpContextMenuDone = 101,
+  kOpSetPopupWindowsEnabled = 102,
+  kOpPopupWindowBounds = 103,
+  kOpDevtoolsInspectedBounds = 104,
+  kOpPopupWindowAttach = 105,
+  kOpSidePanelState = 106,
+  kOpSidePanelPress = 107,
+  kOpInstallPromptReply = 108,
+  kOpOmniboxKeywords = 109,
+  kOpOmniboxInput = 110,
+  kOpSetWindowRequestHandler = 111,
+  kOpForeignBrowserCount = 112,
+  kOpDownloadUrl = 113,
+  kOpDownloadContinue = 114,
+  kOpDownloadControl = 115,
+  kOpPermissionContinue = 116,
+  kOpCloseAll = 117,
+  kOpLiveBrowserCount = 118,
+  kOpWindowCount = 119,
+  kOpShutdown = 120,
+  kOpContentSetting = 121,
+  kOpSetContentSetting = 122,
+  kOpVisitCookies = 123,
+  kOpDeleteCookies = 124,
+  kOpDownloadFavicon = 125,
+  kOpImportCookies = 126,
+  kOpClearCookies = 127,
+  kOpImportPasswords = 128,
+  kOpPasswordEntrySize = 129,
+  kOpPasswordImportAvailable = 130,
+  kOpPasswordPromptAnswer = 131,
+  kOpSetPasswordGenerationEnabled = 132,
+  kOpPasswordReplaceAvailable = 133,
+  kOpReplacePasswords = 134,
+  kOpSetPasswordFill = 135,
+  kOpPasskeysAvailable = 136,
+  kOpPasskeysList = 137,
+  kOpPasskeyDelete = 138,
+  kOpPasswordCoreAvailable = 139,
+  kOpPasswordList = 140,
+  kOpPasswordRemove = 141,
+  kOpPasswordExceptionRemove = 142,
+  kOpPasswordSetUsername = 143,
+  kOpPasswordReveal = 144,
+  kOpPasswordExport = 145,
+  kOpSslStatus = 146,
+  kOpClearCertificateExceptions = 147,
+  kOpCertificateProceed = 148,
+  kOpFreeOwned = 149,
+  kOpRendererClientIds = 150,
+  kOpSetContextProxy = 151,
+  kOpSetContextProxyServer = 152,
+  kOpContextProxyState = 153,
+  kOpReleaseContext = 154,
+  kOpSetNavigationGuard = 155,
+  kOpSetAuthCallback = 156,
+  kOpPrefGet = 157,
+  kOpPrefSetBool = 158,
+  kOpPrefWatch = 159,
+  kOpBookmarksSync = 160,
+  kOpPageSchemeAdd = 161,
+  kOpPageSchemeAddFirstParty = 162,
+  kOpPageSchemeAddFirstPartyDynamic = 163,
+  kOpPageResourceRespond = 164,
+  kOpAddDocumentScript = 165,  // optional
+  kOpAddPageChannel = 166,  // optional
+  kOpTabEvaluate = 167,  // optional
+  kOpTabSetFrozen = 168,  // optional
+  kOpTabSendClick = 169,  // optional
+  kOpTabSetColorScheme = 170,  // optional
+  kOpPageSchemeSetGroup = 171,  // optional
+  kOpTabDiscard = 172,  // optional
 };
-inline constexpr uint16_t kOpCount = 154;
+inline constexpr uint16_t kOpCount = 172;
 inline constexpr uint16_t kOpEvent = 0x8001;  // host -> cmux: one shim event
 inline constexpr uint16_t kOpReply = 0x8002;  // host -> cmux: an async op's result
 inline constexpr uint16_t kOpMirror = 0x8003;  // host -> cmux: a mirror value
 inline constexpr uint16_t kOpAck = 0x8004;  // host -> cmux: a token's op ran
-inline constexpr int kEventKindCount = 50;
-inline constexpr char kShimAbiID[] = "f22dd3ee8df39363195ba2c50ef4e737ba462320c20c4c2e079cce6e49d44e24";
+inline constexpr int kEventKindCount = 51;
+inline constexpr char kShimAbiID[] = "192f414ca60f253863c9ac73f6cf59e8466c8d62209b6a1a91094252bec43b91";
 // Both sides' HELLO carries it: the op ids, classes and wire types of this generation.
-inline constexpr char kWireID[] = "919fcc2857aa8acf15e47698c5e217cda71fa28ff7acc4f12f59e81aa81ecc01";
+inline constexpr char kWireID[] = "1c3508b244e4edb58899bbeb6d062e7fc804cdcd76868d1bb8cdd3b6682e6d52";
 // Exports the header does not declare yet (fork API symbols): the client sends one only to
 // a host whose HELLO lists its symbol.
 struct OptionalExport {
@@ -266,8 +284,9 @@ CMUX_SHIM_EXPORT unsigned int cmux_shim_browser_set_layer_hosting(int arg_browse
   TlvWriter op_w;
   op_w.I32(arg_browser_id);
   op_w.I32(arg_enabled);
-  (void)Post(kOpBrowserSetLayerHosting, 0, op_w);
-  return 1u;
+  const uint32_t op_token = NextToken();
+  const bool op_sent = PostForReply(kOpBrowserSetLayerHosting, op_token, op_w);
+  return op_sent ? 1u : 0u;
 }
 
 CMUX_SHIM_EXPORT int cmux_shim_browser_set_resize_sync(int arg_browser_id, int arg_timeout_ms) {
@@ -342,6 +361,128 @@ CMUX_SHIM_EXPORT int cmux_shim_browser_drag_target_enter_source(int arg_browser_
   op_w.I32(arg_allowed_operations);
   op_w.I32(arg_modifiers);
   (void)Post(kOpBrowserDragTargetEnterSource, 0, op_w);
+  return 1;
+}
+
+CMUX_SHIM_EXPORT int cmux_shim_color_chooser_choose(int64_t arg_token, unsigned int arg_color) {
+  TlvWriter op_w;
+  op_w.I64(arg_token);
+  op_w.U32(arg_color);
+  (void)Post(kOpColorChooserChoose, 0, op_w);
+  return 1;
+}
+
+CMUX_SHIM_EXPORT int cmux_shim_color_chooser_end(int64_t arg_token) {
+  TlvWriter op_w;
+  op_w.I64(arg_token);
+  (void)Post(kOpColorChooserEnd, 0, op_w);
+  return 1;
+}
+
+CMUX_SHIM_EXPORT int cmux_shim_device_chooser_answer(int64_t arg_token, int arg_action, const cmux_shim_device_choice* arg_choices, int arg_choice_count) {
+  TlvWriter op_w;
+  op_w.I64(arg_token);
+  op_w.I32(arg_action);
+  const int arg_choices_n = arg_choices != nullptr && arg_choice_count > 0 ? arg_choice_count : 0;
+  op_w.I32(arg_choices_n);
+  for (int i = 0; i < arg_choices_n; ++i) {
+    op_w.I64(arg_choices[i].index);
+  }
+  (void)Post(kOpDeviceChooserAnswer, 0, op_w);
+  return 1;
+}
+
+CMUX_SHIM_EXPORT int cmux_shim_desktop_media_answer(int64_t arg_token, int arg_source_type, int64_t arg_native_id, int arg_tab_browser_id, int arg_audio) {
+  TlvWriter op_w;
+  op_w.I64(arg_token);
+  op_w.I32(arg_source_type);
+  op_w.I64(arg_native_id);
+  op_w.I32(arg_tab_browser_id);
+  op_w.I32(arg_audio);
+  (void)Post(kOpDesktopMediaAnswer, 0, op_w);
+  return 1;
+}
+
+CMUX_SHIM_EXPORT int cmux_shim_browser_pointer_lock_answer(int arg_browser_id, int arg_allowed) {
+  TlvWriter op_w;
+  op_w.I32(arg_browser_id);
+  op_w.I32(arg_allowed);
+  (void)Post(kOpBrowserPointerLockAnswer, 0, op_w);
+  return 1;
+}
+
+CMUX_SHIM_EXPORT int cmux_shim_browser_keyboard_lock_answer(int arg_browser_id, int arg_allowed) {
+  TlvWriter op_w;
+  op_w.I32(arg_browser_id);
+  op_w.I32(arg_allowed);
+  (void)Post(kOpBrowserKeyboardLockAnswer, 0, op_w);
+  return 1;
+}
+
+CMUX_SHIM_EXPORT int cmux_shim_browser_exit_pointer_lock(int arg_browser_id, int arg_by_user) {
+  TlvWriter op_w;
+  op_w.I32(arg_browser_id);
+  op_w.I32(arg_by_user);
+  (void)Post(kOpBrowserExitPointerLock, 0, op_w);
+  return 1;
+}
+
+CMUX_SHIM_EXPORT int cmux_shim_browser_exit_keyboard_lock(int arg_browser_id) {
+  TlvWriter op_w;
+  op_w.I32(arg_browser_id);
+  (void)Post(kOpBrowserExitKeyboardLock, 0, op_w);
+  return 1;
+}
+
+CMUX_SHIM_EXPORT int cmux_shim_browser_send_locked_mouse_move(int arg_browser_id, double arg_dx, double arg_dy, int arg_modifiers) {
+  TlvWriter op_w;
+  op_w.I32(arg_browser_id);
+  op_w.F64(arg_dx);
+  op_w.F64(arg_dy);
+  op_w.I32(arg_modifiers);
+  (void)PostInput(kOpBrowserSendLockedMouseMove, 0, op_w);
+  return 1;
+}
+
+CMUX_SHIM_EXPORT int cmux_shim_browser_set_page_display(int arg_browser_id, unsigned int arg_display_id, double arg_screen_x, double arg_screen_y) {
+  TlvWriter op_w;
+  op_w.I32(arg_browser_id);
+  op_w.U32(arg_display_id);
+  op_w.F64(arg_screen_x);
+  op_w.F64(arg_screen_y);
+  (void)Post(kOpBrowserSetPageDisplay, 0, op_w);
+  return 1;
+}
+
+CMUX_SHIM_EXPORT char* cmux_shim_tab_entry_page_state(int arg_browser_id, int arg_index) {
+  TlvWriter op_w;
+  op_w.I32(arg_browser_id);
+  op_w.I32(arg_index);
+  const uint32_t op_token = NextToken();
+  const bool op_sent = PostForReply(kOpTabEntryPageState, op_token, op_w);
+  (void)op_sent;
+  return nullptr;
+}
+
+CMUX_SHIM_EXPORT int cmux_shim_tab_restore_entries(int arg_browser_id, const cmux_shim_restore_entry* arg_entries, int arg_count, int arg_current) {
+  TlvWriter op_w;
+  op_w.I32(arg_browser_id);
+  const int arg_entries_n = arg_entries != nullptr && arg_count > 0 ? arg_count : 0;
+  op_w.I32(arg_entries_n);
+  for (int i = 0; i < arg_entries_n; ++i) {
+    op_w.Bytes(arg_entries[i].url, arg_entries[i].url_length);
+    op_w.Bytes(arg_entries[i].title, arg_entries[i].title_length);
+    op_w.Bytes(arg_entries[i].page_state, arg_entries[i].page_state_length);
+  }
+  op_w.I32(arg_current);
+  const uint32_t op_token = NextToken();
+  TlvWriter pending_tab_navigation_entries;
+  pending_tab_navigation_entries.I32(arg_browser_id);
+  MarkPending(kOpTabNavigationEntries, op_token, pending_tab_navigation_entries, 0x0u);  // tab.navigation_entries[browser_id]
+  TlvWriter pending_tab_navigation_state;
+  pending_tab_navigation_state.I32(arg_browser_id);
+  MarkPending(kOpTabNavigationState, op_token, pending_tab_navigation_state, 0x0u);  // tab.navigation_state[browser_id]
+  (void)Post(kOpTabRestoreEntries, op_token, op_w);
   return 1;
 }
 

@@ -227,12 +227,17 @@ public final class BackgroundWork: Sendable {
     ///     ``ShutdownBehavior/blockShutdown``.
     ///   - fileID: the caller's `#fileID`, which names a slow block-shutdown item (leave the default).
     ///   - line: the caller's `#line`.
+    ///   - abandoned: runs instead of `body` when shutdown drops the item before it started, or refuses it
+    ///     (a block-shutdown item posted after ``shutdown()`` returned); on the dropping thread.
     ///   - body: the blocking work. It runs on a lane thread, never on the cooperative pool.
     public func post(_ priority: WorkPriority, mayBlock lane: BlockingLane,
                      shutdown: ShutdownBehavior = .skipOnShutdown,
-                     fileID: StaticString = #fileID, line: UInt = #line, _ body: @escaping @Sendable () -> Void) {
+                     fileID: StaticString = #fileID, line: UInt = #line,
+                     abandoned: @escaping @Sendable () -> Void = {}, _ body: @escaping @Sendable () -> Void) {
         guard let job = makeJob(id: nextID(), lane: lane, priority: priority, shutdown: shutdown,
-                                site: CallSite(fileID: fileID, line: line), work: body, abandoned: {}) else { return }
+                                site: CallSite(fileID: fileID, line: line), work: body, abandoned: abandoned) else {
+            return abandoned()
+        }
         submitted(lanes[lane.rawValue].submit(job, at: priority, posted: true, unless: { false }), job, on: lane)
     }
 

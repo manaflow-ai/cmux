@@ -1,6 +1,7 @@
 public import AppKit
 public import CmuxNextDesign
 import CmuxNextIcons
+public import CmuxNextWakeups
 
 /// A browser pane: toolbar (back, forward, reload, omnibox, extension slot),
 /// a progress line, and the tab's content with find bar, prompt bar, and
@@ -92,9 +93,10 @@ public final class BrowserChromeView: NSView {
         guard let self else { return 0 }
         return isToolbarHidden ? 0 : currentToolbarHeight
     }
+    /// The app's scheduler, and the tab's node (nil: node-free, as in a debug window or a test).
+    let mainWork: MainWorkScheduler, node: VisibilityNode?
     private var observation: ObservationLoop?
-    /// Prompts have their own loop: a state change (a title, progress) does not re-render the prompt
-    /// bar, and a new prompt does not re-run the rest of the chrome.
+    /// Prompts have their own loop: a title or progress does not re-render the prompt bar, nor a prompt the chrome.
     private var promptObservation: ObservationLoop?
     /// The address a page woken from hibernation slept on, shown until the
     /// woken page reports a real one (`holdAddress(whileWaking:)`).
@@ -113,7 +115,7 @@ public final class BrowserChromeView: NSView {
     public internal(set) var isOmnibarHidden = false
     private let density = DensityBinding()
     lazy var extensionToolbar: ExtensionActionToolbar = {
-        let toolbar = ExtensionActionToolbar(slot: extensionSlot)
+        let toolbar = ExtensionActionToolbar(slot: extensionSlot, mainWork: mainWork, node: node)
         toolbar.onPinnedCountChange = { [weak self] in self?.applyToolbarLayout() }
         // An extension popup opened while the Extensions button is not placed anchors at More.
         toolbar.menuAnchor = { [weak self] in self?.toolbarButtons.anchor(for: .overflow) }
@@ -153,12 +155,13 @@ public final class BrowserChromeView: NSView {
     public var onPageFinished: ((URL) -> Void)?
     var finishedURL: URL?
 
-    public init(tab: any BrowserTab, suggestionEngine: OmniboxSuggestionEngine = OmniboxSuggestionEngine()) {
-        self.tab = tab
+    /// `mainWork` is the app's one main-thread scheduler; `node` the tab's (`TabContentCache.node(for:)`).
+    public init(tab: any BrowserTab, suggestionEngine: OmniboxSuggestionEngine = OmniboxSuggestionEngine(), mainWork: MainWorkScheduler, node: VisibilityNode?) {
+        (self.tab, self.mainWork, self.node) = (tab, mainWork, node)
         let find = BrowserFindModel()
         self.find = find
         findBar = FindBarView(model: find)
-        addressBar = AddressBarView(suggestionEngine: suggestionEngine)
+        addressBar = AddressBarView(suggestionEngine: suggestionEngine, mainWork: mainWork)
         // Chromium toolbar glyphs: plain arrows, not chevrons.
         backButton = ChromeIconButton(icon: .browserToolbarBack, label: Strings.back, action: nil, target: nil, toolbar: true, toolTip: false)
         forwardButton = ChromeIconButton(icon: .browserToolbarForward, label: Strings.forward, action: nil, target: nil, toolbar: true, toolTip: false)
@@ -203,8 +206,7 @@ public final class BrowserChromeView: NSView {
     }
 
     public override func performKeyEquivalent(with event: NSEvent) -> Bool {
-        guard handlesDefaultShortcuts, containsFirstResponder,
-              let command = BrowserChromeCommand.matching(event) else {
+        guard handlesDefaultShortcuts, containsFirstResponder, let command = BrowserChromeCommand.matching(event) else {
             return super.performKeyEquivalent(with: event)
         }
         perform(command)
@@ -217,9 +219,7 @@ public final class BrowserChromeView: NSView {
         for view in [toolbar, separator, accessoryBar, contentContainer, progressLine, findBar, promptBar] as [NSView] {
             view.translatesAutoresizingMaskIntoConstraints = false
         }
-        toolbar.wantsLayer = true
-        separator.wantsLayer = true
-        contentContainer.wantsLayer = true
+        for view in [toolbar, separator, contentContainer] { view.wantsLayer = true }
         contentContainer.layer?.masksToBounds = true
 
         extensionSlot.orientation = .horizontal
@@ -328,7 +328,7 @@ public final class BrowserChromeView: NSView {
         findBar.isHidden = true
         findBar.onClose = { [weak self] in self?.hideFindBar() }
         promptBar.isHidden = true
-        density.start()
+        density.start(in: self)
         updateColors()
     }
 
@@ -366,10 +366,8 @@ public final class BrowserChromeView: NSView {
         promptObservation?.cancel()
         // Another page in this toolbar: the held address was the old page's.
         if let old, old !== tab { wakingAddress = nil }
-        siteZoom.follow(tab)
-        if let old, old !== tab {
-            old.contentView.removeFromSuperview()
-        }
+        siteZoom.follow(tab, on: mainWork)
+        if let old, old !== tab { old.contentView.removeFromSuperview() }
         pageInfo.tabDidChange()
         let content = tab.contentView
         content.translatesAutoresizingMaskIntoConstraints = false
@@ -383,14 +381,16 @@ public final class BrowserChromeView: NSView {
         findBar.tab = tab
         addressBar.allowsChromiumSchemes = tab.engineKind == .cef
         extensionToolbar.bind(tab)
-        toolbarButtons.bind(tab)
+        toolbarButtons.bind(tab, on: mainWork, node: node)
         addressBar.bindKeywords(of: tab)
         if !findBar.isHidden {
             old?.clearFind()
             findBar.isHidden = true
         }
-        observation = ObservationLoop { [weak self] in self?.render() }
-        promptObservation = ObservationLoop { [weak self] in
+        // node-free: the render records history, the finished load and the https fallback of background tabs too
+        observation = ObservationLoop(owner: "browser.chrome", delivery: .visible(nil), on: mainWork) { [weak self] in self?.render() }
+        // node-free: an agent's off-screen render window shows a hidden tab's page with its prompt bar
+        promptObservation = ObservationLoop(owner: "browser.chrome.prompts", delivery: .visible(nil), on: mainWork) { [weak self] in
             self?.renderPrompt()
             self?.updateOcclusion()
         }

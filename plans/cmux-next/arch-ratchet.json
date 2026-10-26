@@ -645,6 +645,24 @@
       "row": "blocking_allow_escapes",
       "allow": 1,
       "why": "p02-threads-035 (fixer): TerminalOutputLane.close, the fence before ghostty_surface_free that the terminal view's deinit runs on the main thread, was a raw queue.sync with // concurrency-allow:; as blockingSync it is now seen by the detector, under the new reviewed BlockingAllowance.surfaceTeardown (threading-model.md row). The free stays on the main thread because the surface points at the view being deallocated; queued work is skipped once the lane is closing, so the wait is at most the one chunk being parsed, on a user-interactive lane (the main thread's own QoS). Chrome allows bounded teardown waits the same way (ScopedAllowBaseSyncPrimitivesOutsideBlockingScope, base/threading/thread_restrictions.h)."
+    },
+    {
+      "date": "2026-10-26",
+      "row": "blocking_allow_escapes",
+      "allow": 1,
+      "why": "p09-observability-034 LaunchClock.swift: one proc_pidinfo(getpid(), PROC_PIDTBSDINFO) per process, on main at main_start, for the kernel's process start that every launch.* slice and launch mark is measured from (the task's spec; Chrome reads the same start, base::Process::CreationTime). It copies this process's in-memory proc fields: no disk, lock or process wait. It replaces DebugTimings' kinfo_proc sysctl read of the same field at the same moment, so the main thread does no new kernel call. blockingCall would record a false main-thread violation at every Debug launch."
+    },
+    {
+      "date": "2026-10-26",
+      "row": "global_mutable_statics",
+      "allow": 1,
+      "why": "p10-stability-040: Fixture.state, one lock for the vendored MessagesLab palette snapshot and render fallbacks. It replaces five unsynchronized Fixture static vars (theme, lightAppearance, paletteGeneration, elevated, fallbackRenderScale) and Metrics.current; MessagesLabHome global_mutable_statics -29 net. It goes when MessagesWindowView owns its palette and passes it to the renderers."
+    },
+    {
+      "date": "2026-10-26",
+      "row": "assume_isolated_outside_adapters",
+      "allow": 1,
+      "why": "p10-stability-042: MessagesLabHome's MainQueueObservation is CmuxNextCompat.MainActorObservation's seam (the same queue .main observer with its one main-proof, removed when released), which a Shared package cannot import. It replaces the hand-written block observers of the vendored MessagesLab views (FieldTextView's key and text-storage observers, ComposeTextView's bounds observer, FieldChrome's key-fix observers, TranscriptScrollView's three, SequenceScroller's style observer: eleven registrations) whose handlers called main-actor view methods from a nonisolated Sendable block. Inline delivery is kept: the transcript's clip-to-model sync must run in the poster's turn, which the async notification sequence would not. It goes when CmuxMessagesLab can import the CmuxSafeConcurrency seams (p10-stability-172). The pane's three window observers (screen change, the parity key state, the window update; p10-stability-044) use the same adapter, so it stays one site."
     }
   ],
   "observer_wrappers": [

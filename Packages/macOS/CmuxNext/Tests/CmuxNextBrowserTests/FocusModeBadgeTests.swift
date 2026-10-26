@@ -3,6 +3,7 @@ import AppKit
 import CmuxNextDesign
 import Foundation
 import Testing
+import CmuxNextWakeups
 
 /// Classic cmux shows browser focus mode as a toolbar chip ("Focus Mode", then "Esc again to
 /// exit" after the first Escape) that leaves focus mode on click. cmux-next showed only a 2 pt
@@ -11,7 +12,7 @@ import Testing
     private func chrome() -> (BrowserChromeView, NSWindow) {
         let engine = MockBrowserEngine()
         let tab = engine.makeMockTab(BrowserTabConfiguration(initialURL: URL(string: "https://example.com/")))
-        let chrome = BrowserChromeView(tab: tab)
+        let chrome = BrowserChromeView(tab: tab, mainWork: MainWorkScheduler(budget: MainFrameBudget()), node: nil)
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: 600), styleMask: [.titled], backing: .buffered, defer: false)
         // The test owns the window; closing must not also release it (an over-release crashed the suite).
         window.isReleasedWhenClosed = false

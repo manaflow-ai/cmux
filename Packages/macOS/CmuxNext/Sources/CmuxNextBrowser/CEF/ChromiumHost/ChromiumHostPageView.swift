@@ -26,7 +26,10 @@ import QuartzCore
 ///
 /// Input (``InputTarget``): with ``InputTarget/view`` this view is the page's
 /// input target and first responder (host mode: mouse, scroll, keys and Edit
-/// menu actions become wire frames for ``sink``). With
+/// menu actions become wire frames for ``sink``, one per event, in the
+/// event's own turn: no display-tick alignment here, the renderer aligns
+/// input to its frames, as Chrome's browser process forwards input at once;
+/// ``ChromiumHostConnection`` coalesces only under socket back-pressure). With
 /// ``InputTarget/pageWindow`` the fork's transparent page window above takes
 /// every event (in-process layer hosting), and this view takes none.
 public final class ChromiumHostPageView: NSView {
@@ -39,12 +42,17 @@ public final class ChromiumHostPageView: NSView {
     }
 
     let inputTarget: InputTarget
+    /// Names this view on the Chromium Host wire for a parent NSView* argument (host mode); 0 in process.
+    var wireToken: UInt64 = 0
     /// The view's size or screen place changed (only when the rect differs from the last one reported).
     var onGeometry: ((ChromiumHostGeometry) -> Void)? {
         didSet { observeWindow() }
     }
     /// The view left its window (its pane closed, or it moved out of every window).
     var onLeftWindow: (() -> Void)?
+    /// The view entered a window (true) or left its window (false): a hosted page is live only
+    /// while its view is in one.
+    var onWindowChange: ((Bool) -> Void)?
     /// The shown context, 0 while none.
     var contextID: UInt32 { surface.contextID }
     /// The page's background, shown wherever the page's own pixels are not
@@ -58,11 +66,14 @@ public final class ChromiumHostPageView: NSView {
     }
     /// The view over the page that fills it (the crash page, p01-process-082); nil shows the page.
     private(set) var crashOverlay: NSView?
+    /// The page's last picture while no host shows it; only ``showStandIn(_:)`` and ``removeStandIn()`` set it.
+    var standIn: NSView?
     /// The layer-hosting view that shows the context, under every other subview.
     let surface: Surface
 
     #if DEBUG || CMUX_BENCH_HOOKS
-    /// Where frames for the host go (``InputTarget/view`` only).
+    /// Where frames for the host go (``InputTarget/view`` only), synchronously
+    /// from the event handler: a sink must write or queue, never wait.
     var sink: ((ChromiumHostFrame) -> Void)?
     private var tracking: NSTrackingArea?
     #endif
@@ -124,7 +135,7 @@ public final class ChromiumHostPageView: NSView {
         guard let overlay else { return true }
         overlay.frame = bounds
         overlay.autoresizingMask = [.width, .height]
-        addSubview(overlay, positioned: .above, relativeTo: surface)
+        addSubview(overlay, positioned: .above, relativeTo: standIn ?? surface)
         return true
     }
 
@@ -160,6 +171,7 @@ public final class ChromiumHostPageView: NSView {
     public override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         observeWindow()
+        onWindowChange?(window != nil)
         if window == nil {
             lastGeometry = nil
             onLeftWindow?()

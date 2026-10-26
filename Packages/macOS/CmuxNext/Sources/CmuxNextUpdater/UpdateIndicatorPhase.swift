@@ -1,6 +1,5 @@
 public import CmuxUpdater
 import Foundation
-@preconcurrency import Sparkle
 
 /// What the rail's update circle shows. cmux-next never opens an update
 /// sheet: updates download in the background, a downloaded one waits as

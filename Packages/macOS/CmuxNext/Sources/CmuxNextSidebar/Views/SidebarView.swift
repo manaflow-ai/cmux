@@ -88,6 +88,8 @@ public final class SidebarView: NSView {
     }
     var observation: Task<Void, Never>?
     private var clipObservers: [any NSObjectProtocol] = []
+    /// The clip size the list was last fitted to from the clip's own resize push (`scrollGeometryDidChange`).
+    var fittedClipSize: NSSize = .zero
     var lastState: RenderState?
     /// The sections the list showed at the last render (for the space slide and the provisional check).
     var lastSections: [SidebarSection] = []
@@ -261,13 +263,12 @@ public final class SidebarView: NSView {
         // overlay that never narrows the list.
         SystemScrollers.followThin(scrollView)
         scrollView.automaticallyAdjustsContentInsets = false
+        // The clip the edge fade and scroll fit share, in place before anything below holds the clip view;
+        // it pushes its scrolls and resizes here too (`scrollGeometryDidChange`).
+        ScrollGeometryClipView.install(in: scrollView).addClient(self)
         scrollView.contentView.drawsBackground = false
         scrollView.documentView = list
-        scrollView.contentView.postsBoundsChangedNotifications = true
-        scrollView.contentView.postsFrameChangedNotifications = true
         clipObservers = [ // queue: .main: inline for a post on main; a selector into this view trapped off main
-            NotificationCenter.default.addObserver(forName: NSView.boundsDidChangeNotification, object: scrollView.contentView, queue: .main) { [weak self] _ in MainActor.assumeIsolated { self?.clipBoundsChanged() } }, // main-proof: observer on queue: .main
-            NotificationCenter.default.addObserver(forName: NSView.frameDidChangeNotification, object: scrollView.contentView, queue: .main) { [weak self] _ in MainActor.assumeIsolated { self?.syncListSize() } }, // main-proof: observer on queue: .main
             NotificationCenter.default.addObserver(forName: NSScroller.preferredScrollerStyleDidChangeNotification, object: nil, queue: .main) { [weak self] _ in MainActor.assumeIsolated { self?.scrollerStyleChanged() } }, // main-proof: observer on queue: .main
         ]
         spacePaging.attach(list: scrollView, dots: profileBar)
@@ -288,20 +289,13 @@ public final class SidebarView: NSView {
         buildPriority()
     }
 
-    private func clipBoundsChanged() {
-        list.realizeVisibleRows()
-        // The list updates row hover as rows move. A window-wide refresh here
-        // rescans every chrome target on every scroll tick and adds no state
-        // change for the sidebar's fixed chrome.
-    }
-
     private func scrollerStyleChanged() {
         scrollView.scrollerStyle = SystemScrollers.nativeStyle
         syncListSize()
     }
 
     /// The list follows the visible clip (`SidebarListView.fitToClip`).
-    private func syncListSize() { list.fitToClip() }
+    func syncListSize() { list.fitToClip() }
 
     override public func layout() {
         super.layout()
