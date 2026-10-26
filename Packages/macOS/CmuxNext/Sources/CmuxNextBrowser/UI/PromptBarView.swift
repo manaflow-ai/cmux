@@ -120,6 +120,7 @@ final class PromptBarView: ChromeFrameView {
         needsLayout = true // invalidate: as above
     }
 
+    // visibility-walk-allow: three field layer colors, a text color and the glass tint in the theme scope, no layout or text measure; cheaper than a deferral
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         applyColors()
