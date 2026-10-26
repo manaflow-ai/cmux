@@ -160,7 +160,7 @@ unsafe fn child(
 }
 
 /// macOS: start the shell at QOS_CLASS_DEFAULT, the class of a user child
-/// (`cmux_threads::process::USER_CHILD`), not the holder thread's class,
+/// (`cmux_threads::process`), not the holder thread's class,
 /// which a forked child keeps across `execve` (p02-threads task 223). One
 /// system call on the calling thread, with no lock: safe after `fork`.
 /// Linux children keep the holder's nice value, as before.

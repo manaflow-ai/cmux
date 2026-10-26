@@ -305,7 +305,7 @@ pub(super) fn machine_listening_tcp_json() -> anyhow::Result<Value> {
         for &(program, arguments) in candidates {
             let output = match cmux_process::Command::new(program)
                 .args(arguments)
-                .qos(cmux_threads::HELPER_CHILD)
+                .qos_ceiling(cmux_threads::HELPER_CHILD)
                 .output()
             {
                 Ok(output) => output,

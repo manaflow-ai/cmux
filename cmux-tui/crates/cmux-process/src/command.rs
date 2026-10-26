@@ -58,9 +58,8 @@ pub struct Command {
     /// [`Command::creation_flags`].
     #[cfg(windows)]
     pub(crate) creation_flags: u32,
-    /// macOS: [`Command::qos`].
-    #[cfg(target_vendor = "apple")]
-    pub(crate) qos: Option<ThreadQos>,
+    /// [`Command::qos_ceiling`].
+    pub(crate) qos_ceiling: Option<ThreadQos>,
 }
 
 impl Command {
@@ -94,8 +93,7 @@ impl Command {
             open_file_limit: None,
             #[cfg(windows)]
             creation_flags: 0,
-            #[cfg(target_vendor = "apple")]
-            qos: None,
+            qos_ceiling: None,
         }
     }
 
@@ -316,24 +314,16 @@ impl Command {
         self
     }
 
-    /// The QoS class the child runs at instead of the spawning thread's,
-    /// which a macOS child otherwise keeps across its exec: a shell spawned
-    /// from a UserInteractive echo thread would run at UserInteractive for
-    /// its life. Callers name `cmux_threads::USER_CHILD` or
-    /// `cmux_threads::HELPER_CHILD`. macOS: Utility and Background are a
-    /// ceiling for every thread of the child
-    /// (`posix_spawnattr_set_qos_class_np`, which takes only those), and the
-    /// spawning thread is untouched; a higher class is the first thread's
-    /// starting class, which the spawning thread holds for the one
-    /// `posix_spawn` call (`cmux_threads::with_qos`). Linux and Windows: no
-    /// effect; the child keeps its creator's nice value.
-    pub fn qos(&mut self, qos: ThreadQos) -> &mut Self {
-        #[cfg(target_vendor = "apple")]
-        {
-            self.qos = Some(qos);
-        }
-        #[cfg(not(target_vendor = "apple"))]
-        let _ = qos;
+    /// The highest QoS class any thread of the child may run at, Utility or
+    /// Background ([`ThreadQos`] order): a helper (git, ss/netstat, hooks)
+    /// names `cmux_threads::HELPER_CHILD`, so it never competes with the
+    /// echo or request thread that started it. macOS:
+    /// `posix_spawnattr_set_qos_class_np`, which takes only those classes;
+    /// the spawning thread's class is not touched. Linux and Windows: no
+    /// effect; the child keeps its creator's nice value. A higher class
+    /// makes the spawn fail with `InvalidInput`.
+    pub fn qos_ceiling(&mut self, qos: ThreadQos) -> &mut Self {
+        self.qos_ceiling = Some(qos);
         self
     }
 
@@ -373,6 +363,12 @@ impl Command {
     /// this call's error). The streams and descriptors given are used up, as
     /// std does with a `Stdio` it owns.
     pub fn spawn(&mut self) -> io::Result<Child> {
+        if self.qos_ceiling.is_some_and(|qos| qos > ThreadQos::Utility) {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "qos_ceiling: a spawn ceiling is Utility or Background",
+            ));
+        }
         #[cfg(target_vendor = "apple")]
         {
             crate::spawn_apple::spawn(self)

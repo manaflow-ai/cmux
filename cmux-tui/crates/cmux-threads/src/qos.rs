@@ -35,9 +35,8 @@ pub enum ThreadQos {
     Background = 0,
     /// Automation, watchers, best-effort lanes (Chromium kUtility).
     Utility = 1,
-    /// The class a user shell or agent child process starts at, set on its
-    /// spawn ([`crate::process::USER_CHILD`]). Not a class for daemon
-    /// threads.
+    /// The class a user shell or agent child process starts at (see
+    /// [`crate::process`]). Not a class for daemon threads.
     Default = 2,
     /// Request dispatch the person waits on (Chromium kDefault).
     UserInitiated = 3,

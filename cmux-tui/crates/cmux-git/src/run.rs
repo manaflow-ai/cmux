@@ -161,7 +161,7 @@ fn read_command(directory: &Path, overrides: &[Override], arguments: &[&str]) ->
         .env("GIT_LITERAL_PATHSPECS", "1")
         .env("LC_ALL", "C")
         .process_group(0)
-        .qos(cmux_threads::HELPER_CHILD);
+        .qos_ceiling(cmux_threads::HELPER_CHILD);
     command
 }
 
@@ -381,7 +381,7 @@ mod qos_tests {
             let mut command = Command::new("/bin/sleep");
             command.arg("30").process_group(0);
             if helper {
-                command.qos(HELPER_CHILD);
+                command.qos_ceiling(HELPER_CHILD);
             }
             command
         };

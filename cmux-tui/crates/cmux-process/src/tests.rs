@@ -148,23 +148,22 @@ fn wait_timeout_without_pidfd_open_waits_for_the_exit() {
 }
 
 /// macOS, from a UserInteractive thread (p02-threads 223): a child spawned
-/// with `qos(HELPER_CHILD)` runs below one with `qos(USER_CHILD)`, which runs
-/// below one without `qos` (that one inherits UserInteractive: the bug), each
-/// read by its first thread's priority. The spawning thread is
-/// UserInteractive after each spawn. cmux-pty's
-/// `a_pty_child_of_a_user_interactive_thread_runs_at_default` pins the user
-/// child to Default's priority.
+/// with a `qos_ceiling(HELPER_CHILD)` runs below one spawned without it, and
+/// that one starts at Default, not at the thread's class; each is read by its
+/// first thread's priority. The spawning thread is UserInteractive after
+/// each spawn: the ceiling is a spawn attribute.
 #[cfg(target_vendor = "apple")]
 #[test]
 fn qos_sets_the_childs_class_and_leaves_the_spawning_thread_alone() {
     use cmux_threads::process::probe;
-    use cmux_threads::{HELPER_CHILD, LiveQos, QosChange, ThreadQos, USER_CHILD, current};
+    use cmux_threads::{HELPER_CHILD, LiveQos, QosChange, ThreadQos, current};
 
-    let priority_of_child = |qos: Option<ThreadQos>| {
+    let default = probe::base_priority_at(ThreadQos::Default).unwrap();
+    let priority_of_child = |ceiling: Option<ThreadQos>| {
         let mut command = Command::new("/bin/sleep");
         command.arg("30");
-        if let Some(qos) = qos {
-            command.qos(qos);
+        if let Some(qos) = ceiling {
+            command.qos_ceiling(qos);
         }
         let mut child = command.spawn().unwrap();
         assert_eq!(current(), LiveQos::Class(ThreadQos::UserInteractive));
@@ -173,11 +172,26 @@ fn qos_sets_the_childs_class_and_leaves_the_spawning_thread_alone() {
         let _ = child.wait();
         priority.unwrap()
     };
-    let [helper, user, unset] = std::thread::spawn(move || {
+    let [helper, user] = std::thread::spawn(move || {
         assert_eq!(cmux_threads::set_current(ThreadQos::UserInteractive), QosChange::Applied);
-        [Some(HELPER_CHILD), Some(USER_CHILD), None].map(priority_of_child)
+        [Some(HELPER_CHILD), None].map(priority_of_child)
     })
     .join()
     .unwrap();
-    assert!(helper < user && user < unset, "helper {helper}, user {user}, unset {unset}");
+    assert_eq!(user, default, "a child of a UserInteractive thread: {user}, default {default}");
+    assert!(helper < user, "helper {helper}, user child {user}");
+}
+
+/// A ceiling above Utility is refused before anything is spawned, on every
+/// platform.
+#[test]
+fn a_qos_ceiling_above_utility_is_invalid_input() {
+    for qos in [cmux_threads::ThreadQos::Default, cmux_threads::ThreadQos::UserInteractive] {
+        let error = Command::new("/bin/sh")
+            .args(["-c", "exit 0"])
+            .qos_ceiling(qos)
+            .spawn()
+            .expect_err("a ceiling above Utility");
+        assert_eq!(error.kind(), std::io::ErrorKind::InvalidInput, "{qos}");
+    }
 }

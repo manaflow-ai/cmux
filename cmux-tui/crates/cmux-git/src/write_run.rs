@@ -139,7 +139,7 @@ impl WriteGit<'_> {
         if let Some(index) = index {
             command.env("GIT_INDEX_FILE", index);
         }
-        command.process_group(0).qos(cmux_threads::HELPER_CHILD);
+        command.process_group(0).qos_ceiling(cmux_threads::HELPER_CHILD);
         command
     }
 }

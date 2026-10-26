@@ -8,18 +8,20 @@
 //! launches from a thread that is not display-critical; cmux starts children
 //! from request and echo threads, so every spawn states the class:
 //!
-//! | Child                                     | Class   |
-//! | ----------------------------------------- | ------- |
-//! | A user shell or agent ([`USER_CHILD`])    | Default |
-//! | git, ss/netstat, hooks ([`HELPER_CHILD`]) | Utility |
+//! | Child                                     | Class              |
+//! | ----------------------------------------- | ------------------ |
+//! | A user shell or agent                     | Default            |
+//! | git, ss/netstat, hooks ([`HELPER_CHILD`]) | Utility at most    |
 //!
-//! A `posix_spawn` states the class through `cmux_process::Command::qos`: a
-//! helper's Utility is a ceiling in the spawn attributes
-//! (`posix_spawnattr_set_qos_class_np`, which takes Utility and Background
-//! only), so the spawning thread is untouched; a user child's Default is the
-//! class the spawning thread holds for the one `posix_spawn` call. A
-//! single-threaded process that forks (cmux-holder) sets the class in the
-//! child before `execve` with `pthread_set_qos_class_self_np`.
+//! A `posix_spawn` child starts at Default whatever the spawning thread's
+//! class: the fleet read 31 (Default) for a child spawned from a
+//! UserInteractive thread (cmux-process
+//! `qos_sets_the_childs_class_and_leaves_the_spawning_thread_alone`). A
+//! helper gets a Utility ceiling in its spawn attributes
+//! (`cmux_process::Command::qos_ceiling`, `posix_spawnattr_set_qos_class_np`),
+//! which leaves the spawning thread alone. A forked child copies the forking
+//! thread, so the single-threaded holder sets Default in the child before
+//! `execve` (`pthread_set_qos_class_self_np`).
 //!
 //! Linux does not apply these classes: a child keeps its creator's nice
 //! value, so a helper started from a nice-0 request thread runs at nice 0,
@@ -27,10 +29,7 @@
 
 use crate::qos::ThreadQos;
 
-/// The class a user shell or agent child starts at.
-pub const USER_CHILD: ThreadQos = ThreadQos::Default;
-
-/// The class a helper command (git, ss/netstat, hooks) starts at.
+/// The highest class a helper command (git, ss/netstat, hooks) runs at.
 pub const HELPER_CHILD: ThreadQos = ThreadQos::Utility;
 
 /// Reads the QoS a process's thread runs at (macOS), for tests of spawn

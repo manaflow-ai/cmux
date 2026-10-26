@@ -211,9 +211,9 @@ pub(crate) fn spawn(
     if let Some(soft) = crate::open_files::original_open_file_limit() {
         process.open_file_limit(soft);
     }
-    // A PTY child is a user shell or agent: it starts at Default, not at the
-    // calling thread's class (an echo or request thread; p02-threads 223).
-    process.qos(cmux_threads::USER_CHILD);
+    // A posix_spawn child starts at Default whatever the class of the echo
+    // or request thread that spawns it (tests: a_pty_child_of_a_user_
+    // interactive_thread_runs_at_default).
     let child = process.spawn().context("failed to spawn PTY command")?;
     Ok(Box::new(NativePtyChild(child)))
 }
