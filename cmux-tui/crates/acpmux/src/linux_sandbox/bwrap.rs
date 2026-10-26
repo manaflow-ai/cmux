@@ -29,7 +29,7 @@ pub(crate) const LINUX_READ_DENIES: &[&str] = &[
 ];
 
 mod home;
-use home::{denied_paths, home_view};
+use home::{denied_paths, denied_paths_pinned, home_view, home_view_pinned};
 
 /// Canonical absolute UTF-8 paths, validated and created by the caller.
 /// `claude_project/memory` must already exist, too.
@@ -253,14 +253,16 @@ pub(crate) fn plan(
             return Err(format!("noncanonical sandbox path: {}", path.display()));
         }
     }
-    let (denied, outside) = denied_paths(&paths.home, read_denies)?;
+    let snapshot = denied_paths_pinned(&paths.home, read_denies)?;
+    let denied = &snapshot.inside;
+    let outside = &snapshot.outside;
     for root in writable {
         if denied.iter().chain(outside.iter()).any(|d| root.starts_with(d) || d.starts_with(root)) {
             return Err(format!("writable root overlaps read denial: {}", root.display()));
         }
     }
-    let mut home = home_view(&paths.home, &denied)?;
-    let outside = outside_view(&outside, &paths.home)?;
+    let mut home = home_view_pinned(&paths.home, denied, Some(&snapshot))?;
+    let outside = outside_view(outside, &paths.home)?;
     home.0.splice(0..0, outside);
     bwrap_args(paths, home, cmd_prefix)
 }
@@ -820,13 +822,26 @@ mod tests {
         fs::create_dir(&codex).unwrap();
         fs::write(codex.join("auth.json"), "credential").unwrap();
         let denied_path = codex.join("auth.json");
-        let (denied, outside) = denied_paths(&p.home, std::slice::from_ref(&denied_path)).unwrap();
-        assert!(outside.is_empty());
+        let snapshot = denied_paths_pinned(&p.home, std::slice::from_ref(&denied_path)).unwrap();
+        assert!(snapshot.outside.is_empty());
         fs::rename(&codex, &saved).unwrap();
         symlink(".codex.saved", &codex).unwrap();
-        let (view, _fds) = home_view(&p.home, &denied).unwrap();
-        let leaked = saved.join("auth.json").to_str().unwrap().to_owned();
-        assert!(!view.iter().any(|arg| arg == &leaked), "view={view:?} denied={denied:?}");
+        let error = home_view_pinned(&p.home, &snapshot.inside, Some(&snapshot)).unwrap_err();
+        assert!(
+            error.contains("denied path resolution changed")
+                || error.contains("HOME ancestor changed"),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn real_home_planner_uses_the_runner_home() {
+        let f = Fixture::new();
+        let mut p = f.create_paths();
+        p.home = PathBuf::from(std::env::var_os("HOME").expect("HOME is set on the runner"));
+        let (args, _fds) = plan(&p, &profile_read_denies(&p), &strings(&["true"]))
+            .expect("HOME planner accepts the runner filesystem");
+        assert!(args.iter().any(|arg| arg == "--tmpfs"));
     }
 
     /// The child is killed on the 20-second deadline. Shell loops exhaust

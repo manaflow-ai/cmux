@@ -1,7 +1,7 @@
 //! HOME snapshots for the staged bubblewrap plan. Collection loops exhaust
 //! supplied paths or directory entries; descriptor collection refuses over 512.
 use super::*;
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::ffi::{OsStr, OsString};
 use std::os::unix::ffi::{OsStrExt, OsStringExt};
 
@@ -51,18 +51,31 @@ pub(super) fn resolve_missing(path: &Path) -> Result<PathBuf, String> {
 
 /// Both lexical and canonical HOME names stay denied. Existing paths outside
 /// HOME use A's full ancestor validation before being returned for masking.
-pub(super) fn denied_paths(
+#[derive(Debug, Clone)]
+pub(super) struct DeniedSnapshot {
+    pub(super) inside: BTreeSet<PathBuf>,
+    pub(super) outside: Vec<PathBuf>,
+    resolutions: BTreeMap<PathBuf, PathBuf>,
+    ancestors: BTreeMap<PathBuf, (u64, u64)>,
+}
+
+/// Collect denied names and the resolution snapshot used by reconstruction.
+pub(super) fn denied_paths_pinned(
     home: &Path,
     read_denies: &[PathBuf],
-) -> Result<(BTreeSet<PathBuf>, Vec<PathBuf>), String> {
-    let mut inside = BTreeSet::new();
-    let mut outside = BTreeSet::new();
+) -> Result<DeniedSnapshot, String> {
+    let mut snapshot = DeniedSnapshot {
+        inside: BTreeSet::new(),
+        outside: Vec::new(),
+        resolutions: BTreeMap::new(),
+        ancestors: BTreeMap::new(),
+    };
     for path in read_denies.iter().cloned().chain(LINUX_READ_DENIES.iter().map(|p| home.join(p))) {
         path_arg(&path)?;
         if !path.starts_with(home) {
             // Outside HOME, reject lexical symlinks before any resolution.
             validate_outside(&path, outside_stat)?;
-            outside.insert(path);
+            snapshot.outside.push(path);
             continue;
         }
         let resolved = resolve_missing(&path)?;
@@ -76,16 +89,43 @@ pub(super) fn denied_paths(
                 resolved.display()
             ));
         }
-        inside.insert(path);
+        snapshot.resolutions.insert(path.clone(), resolved.clone());
+        for ancestor in path.ancestors().filter(|p| p.starts_with(home)) {
+            if let Ok(meta) = fs::symlink_metadata(ancestor) {
+                snapshot.ancestors.insert(ancestor.to_owned(), (meta.dev(), meta.ino()));
+            }
+        }
+        snapshot.inside.insert(path);
         if resolved != home {
-            inside.insert(resolved);
+            snapshot.inside.insert(resolved);
         }
     }
-    Ok((inside, outside.into_iter().collect()))
+    Ok(snapshot)
+}
+
+/// Compatibility view for callers that only need the two deny lists.
+pub(super) fn denied_paths(
+    home: &Path,
+    read_denies: &[PathBuf],
+) -> Result<(BTreeSet<PathBuf>, Vec<PathBuf>), String> {
+    let snapshot = denied_paths_pinned(home, read_denies)?;
+    Ok((snapshot.inside, snapshot.outside))
 }
 
 /// Rebuild denied ancestors; new host entries remain invisible (stricter than Seatbelt).
 pub(super) fn home_view(home: &Path, denied: &BTreeSet<PathBuf>) -> Result<BwrapPlan, String> {
+    home_view_pinned(home, denied, None)
+}
+
+/// Rebuild HOME after checking the denial-resolution snapshot from collection.
+pub(super) fn home_view_pinned(
+    home: &Path,
+    denied: &BTreeSet<PathBuf>,
+    snapshot: Option<&DeniedSnapshot>,
+) -> Result<BwrapPlan, String> {
+    if let Some(snapshot) = snapshot {
+        verify_snapshot(snapshot)?;
+    }
     // Keep the built-in Linux deny set local to this rebuild as a second
     // boundary: callers cannot accidentally omit Claude's credential.
     let mut denied_owned = denied.clone();
@@ -161,5 +201,32 @@ pub(super) fn home_view(home: &Path, denied: &BTreeSet<PathBuf>) -> Result<Bwrap
     for dir in dirs.iter().rev() {
         out.extend(["--remount-ro".into(), path_arg(dir)?]);
     }
+    if let Some(snapshot) = snapshot {
+        verify_snapshot(snapshot)?;
+    }
     Ok((out, fds))
+}
+
+/// Check that denied paths and their existing HOME ancestors still identify
+/// the objects captured during collection. The finite maps are the stop condition.
+fn verify_snapshot(snapshot: &DeniedSnapshot) -> Result<(), String> {
+    for (path, expected) in &snapshot.resolutions {
+        let actual = resolve_missing(path)?;
+        if &actual != expected {
+            return Err(format!(
+                "denied path resolution changed: {} was {}, now {}",
+                path.display(),
+                expected.display(),
+                actual.display()
+            ));
+        }
+    }
+    for (path, (dev, ino)) in &snapshot.ancestors {
+        let meta = fs::symlink_metadata(path)
+            .map_err(|e| format!("HOME ancestor changed: {}: {e}", path.display()))?;
+        if meta.dev() != *dev || meta.ino() != *ino {
+            return Err(format!("HOME ancestor changed: {}", path.display()));
+        }
+    }
+    Ok(())
 }
