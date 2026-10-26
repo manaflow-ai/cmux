@@ -492,7 +492,10 @@ export default componentEntry<HeaderToolsProps>({
         menu: () => {
           const rows = menuRows();
           const archive = rows.findIndex((row) => row !== "separator" && row.key === "archive");
-          const avatar = avatarRows({ sessionId: "session-1", hasAvatar: true }, { set: () => undefined, remove: () => undefined });
+          const avatar = avatarRows(
+            { sessionId: "session-1", hasAvatar: true },
+            { set: () => undefined, remove: () => undefined },
+          );
           return [...rows.slice(0, archive), ...avatar, "separator", ...rows.slice(archive)];
         },
       },
