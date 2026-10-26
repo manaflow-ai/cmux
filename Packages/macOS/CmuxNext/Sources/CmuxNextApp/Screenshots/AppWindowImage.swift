@@ -33,7 +33,7 @@ struct AppWindowImage {
             // The app's own React pages on Chromium (the agent page, Settings) go back over their page windows' masks.
             for (page, rect) in PageRegistry.shownChromiumPages(in: window) where ScreenshotPrivacyMask.isAppOwned(page) {
                 guard let image = await page.chromiumImage() else { continue }
-                layers.append(.page(image, rect))
+                layers.append(.page(image, rect, holes: page.chromiumWindowHoles)) // a chat leaves its pane's tabs uncovered
             }
             if layers.isEmpty { return base }
             // A mask that cannot be painted never lets the unmasked image out.
@@ -52,7 +52,7 @@ struct AppWindowImage {
         // React pages on the Chromium engine (the agent page, Settings) draw the same way.
         for (page, rect) in PageRegistry.shownChromiumPages(in: window) {
             guard let image = await page.chromiumImage() else { continue }
-            layers.append(.page(image, rect))
+            layers.append(.page(image, rect, holes: page.chromiumWindowHoles)) // a chat leaves its pane's tabs uncovered
         }
         // The panel and floating-window captures run off the main actor too; main reads only their window numbers.
         if let panels = await window.childWindowsImage(includeChild: { !WindowOverlayHost.isPageWindow($0) }) {
