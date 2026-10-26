@@ -541,9 +541,10 @@ impl Hub {
             };
             let denied = policy == PermissionPolicy::DenyAll
                 || rule == Some(super::rules::RuleDecision::Deny);
-            // The chat allowance never answers in a Web turn.
+            // The chat allowance never answers in a Web turn, nor what an `ask` rule sends to the person.
             let chat_option = if state.chat_allowed
                 && !denied
+                && rule != Some(super::rules::RuleDecision::Ask)
                 && session.turn().is_some_and(|t| t.control != Control::Web)
                 && super::permission_groups::eligible(&request)
             {

@@ -375,3 +375,30 @@ async fn an_answer_after_a_group_answer_is_told_the_group_won() {
     assert!(data["outcome"]["outcome"].is_string(), "{data}");
     assert!(c.response(rid).await.0.is_ok());
 }
+
+/// An `ask` rule always reaches a person: the chat allowance never answers a
+/// request the session's rules send to the person (a `git push` rule, here
+/// the fixture's `Write`).
+#[tokio::test]
+async fn the_chat_allowance_never_answers_an_ask_rule() {
+    let (hub, mut c) = setup(PermissionPolicy::Ask).await;
+    let id = new_session(&mut c, "chat-ask").await;
+    let mut r = connect(&hub).await;
+    // Rules first: changing them withdraws a chat allowance.
+    r.request(method::MUX_SET_RULES, json!({"sessionId": id, "rules": {"ask": ["Write"]}}))
+        .await
+        .unwrap();
+    let rid = c.send(method::SESSION_PROMPT, prompt(&id, "permission-batch: single", None)).await;
+    let g = ready(&mut c).await;
+    r.request(RESPOND, decision(&id, &g, "grant", "allow_chat")).await.unwrap();
+    assert!(c.response(rid).await.0.is_ok());
+    let state = r.request(GROUPS, json!({"sessionId": id})).await.unwrap();
+    assert_eq!(state["chatAllowance"]["active"], true, "{state}");
+    let autos = |hub: &Arc<Hub>| find(&hub.events(&id, 0, 5000).unwrap(), "permission_auto").len();
+    let before = autos(&hub);
+    let rid = c.send(method::SESSION_PROMPT, prompt(&id, "permission-batch: single", None)).await;
+    let g = ready(&mut c).await;
+    assert_eq!(autos(&hub), before, "the ask rule prompted despite the chat allowance");
+    r.request(RESPOND, decision(&id, &g, "asked", "allow_once")).await.unwrap();
+    assert!(c.response(rid).await.0.is_ok());
+}
