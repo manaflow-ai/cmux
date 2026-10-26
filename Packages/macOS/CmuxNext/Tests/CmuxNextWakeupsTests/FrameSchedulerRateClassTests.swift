@@ -212,6 +212,31 @@ import Testing
         work.energy.update(.normal)
         #expect(work.frames.ambientCap == nil)
     }
+
+    /// ``FrameScheduler/install(displays:energy:)`` puts ``FrameScheduler/app`` under the app's policy,
+    /// and every window scheduler made after it follows the same policy, so view-hosted ambient
+    /// clients (`FrameClient(view:)`, ``FrameScheduler/forView(_:)``) are capped under the saver too.
+    /// It installs the clock `app` already has, so `app` is not replaced under parallel tests.
+    @Test func theAppAndWindowSchedulersFollowTheInstalledPolicy() {
+        let energy = EnergyPolicySource()
+        defer { energy.update(.normal) }
+        FrameScheduler.install(displays: FrameScheduler.appDisplays, energy: energy)
+        #expect(FrameScheduler.app.energy === energy)
+
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 100, height: 100), styleMask: [.borderless],
+                              backing: .buffered, defer: true)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        let scheduler = FrameScheduler.forWindow(window)
+        #expect(scheduler.energy === energy)
+        #expect(scheduler.ambientCap == nil)
+
+        energy.update(Self.saver)
+        #expect(FrameScheduler.app.ambientCap == EnergyPolicy.saverFrameRate)
+        #expect(scheduler.ambientCap == EnergyPolicy.saverFrameRate)
+        energy.update(.normal)
+        #expect(scheduler.ambientCap == nil)
+    }
 }
 
 extension DisplayClock {
