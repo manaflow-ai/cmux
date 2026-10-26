@@ -4,8 +4,8 @@
 package nonisolated enum CanDiscardResult: Int, Hashable, Sendable, Comparable {
     /// Nothing keeps it.
     case eligible
-    /// Kept from proactive and urgent discards: Chrome's `DiscardAPage` passes
-    /// `discard_protected_tabs=false`, so pressure never takes protected content.
+    /// Kept from the discards cmux makes on its own (the rule names which): Chrome's `DiscardAPage`
+    /// passes `discard_protected_tabs=false`, so pressure never takes protected content.
     case protected
     /// Kept from every discard, even one the person asked for.
     case disallowed
