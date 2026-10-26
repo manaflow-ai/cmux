@@ -498,7 +498,7 @@ final class CloudService {
         for _ in 0..<inProgressRetries {
             do {
                 return try await send()
-            } catch let CloudAPIError.http(status, code, _)
+            } catch let CloudAPIError.http(status, code, _, _, _)
                         where (status == 503 && code == "vm_operation_in_progress") || (status == 409 && code == "vm_create_in_progress") {
                 // wakeup-allow: bounded same-key retry of a create the server reports still in progress
                 try await ContinuousClock().sleep(for: inProgressDelay)
