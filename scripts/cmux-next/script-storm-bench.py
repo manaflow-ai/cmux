@@ -66,6 +66,12 @@ and the column load checks the PTYs in use before each create.
 The STRESS session is built by perf-stress-session.py, which checks its shape: a session of another shape reports
 "STRESS shape missed" and no numbers. The app launches through bench_launch.py.
 
+Percentiles are scripts/perf-lab/perf_stats.py's pct (linear interpolation). Each valid phase is also written as
+cmux-perf-result/v1 through BenchApp.record into OUT/<session> (storm_bench_results.script_storm_series: the closed keys'
+key_to_contents, the raw debug.frames intervals and main-thread busy times, missed frames, stalls), in story
+script-storm (light, engine none) or script-storm-stress (stress, engine chromium); the run's entry lists them under
+`results`. An invalid phase records nothing. --session (the lab story runner) measures one session.
+
 Fleet (an owned mini with a console; the step builds the app):
   cmux-ci run --class exclusive --measurement --label measure --script scripts/measure/split-spring.sh --ref SHA \\
     --artifact artifacts/split-spring/report.json --arg=--suite=script-storm [--arg=--vdisplay=120] [--arg=--sessions=light]
@@ -77,6 +83,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 
 from bench_cli_storm import MAX_PTY_LIMIT, daemon_socket, ptys_in_use  # noqa: E402
+import storm_bench_results as results_v1  # noqa: E402
 
 # Validity of a phase. A storm that applied less than 90% of an asked rate (over the person's window, or in any one
 # second of it), or had more than 1% of its ops refused, is not the asked load.
@@ -109,13 +116,14 @@ def uptime():
     return time.clock_gettime(time.CLOCK_UPTIME_RAW)
 
 
-def pct(values):
+def distribution(values):
+    """{n, p50, p95, p99, max, mean} of `values`, 2 decimals; percentiles are perf_stats.pct (linear interpolation).
+    None for no values."""
     if not values:
         return None
-    s = sorted(values)
-    pick = lambda p: s[min(len(s) - 1, int(round((len(s) - 1) * p)))]
-    return {"n": len(s), "p50": round(pick(0.5), 2), "p95": round(pick(0.95), 2), "p99": round(pick(0.99), 2),
-            "max": round(s[-1], 2), "mean": round(statistics.fmean(s), 2)}
+    pct = results_v1.perf_stats.pct
+    return {"n": len(values), "p50": round(pct(values, 0.5), 2), "p95": round(pct(values, 0.95), 2),
+            "p99": round(pct(values, 0.99), 2), "max": round(max(values), 2), "mean": round(statistics.fmean(values), 2)}
 
 
 def drain_report(reply):
@@ -269,7 +277,7 @@ class Connection:
                     "window": applied_in(self.ok_times, window),
                     "skipped_inflight_full": self.skipped, "send_failed": self.send_failed,
                     "unanswered": len(self.pending), "refused": refused, "refusals": dict(self.refusals),
-                    "reply_ms": pct(self.latencies)}
+                    "reply_ms": distribution(self.latencies)}
 
     def close(self):
         with self.cond:
@@ -576,6 +584,8 @@ parser.add_argument("--tag")  # split-spring.sh passes it; the tag comes from th
 parser.add_argument("--out", required=True)
 parser.add_argument("--json")
 parser.add_argument("--sessions", default="light,stress")
+parser.add_argument("--session", choices=sorted(results_v1.SCRIPT_STORM_STORIES),
+                    help="measure only this session (the lab story runner names it; overrides --sessions)")
 parser.add_argument("--phases", default="idle,script")
 parser.add_argument("--seconds", type=float, default=15.0, help="length of each phase's script load")
 parser.add_argument("--samples", type=int, default=120)
@@ -593,6 +603,11 @@ parser.add_argument("--hidden", action="store_true",
                     help=f"also report per phase the store's drain cost (debug.drain_cost): the drain time's p99 against "
                          f"{DRAIN_P99_BUDGET_MS:g} ms, sidebar flattenings and workspace-list changes")
 opts = parser.parse_args()
+if opts.session:
+    opts.sessions = opts.session
+unknown_sessions = sorted(set(opts.sessions.split(",")) - set(results_v1.SCRIPT_STORM_STORIES))
+if unknown_sessions:
+    parser.error(f"--sessions: unknown sessions {unknown_sessions} (known: {sorted(results_v1.SCRIPT_STORM_STORIES)})")
 OUT = os.path.abspath(opts.out)
 os.makedirs(OUT, exist_ok=True)
 PROBE = os.path.join(OUT, "typing.csv")
@@ -727,7 +742,7 @@ class Session:
 
     def __init__(self, name):
         self.name = name
-        self.app = BenchApp(opts.app, out=os.path.join(OUT, name),
+        self.app = BenchApp(opts.app, out=os.path.join(OUT, name), perf_session=name,
                             env={"CMUX_NEXT_TYPING_PROBE": PROBE, "CMUX_NEXT_HANG_THRESHOLD_MS": "8"},
                             config={"browser": {"defaultEngine": "chromium"}, "appearance": {"backgroundOpacity": 1}},
                             window=(80, 40, 1600, 1000))
@@ -1124,7 +1139,8 @@ class Session:
                 if rest > 0:
                     time.sleep(rest)  # bench script: the storm runs its full length
             elapsed = time.perf_counter() - started
-            frames = self.rpc("debug.frames", {"action": "stop"}, timeout=20)
+            frames, frames_raw = results_v1.split_raw_frames(self.rpc("debug.frames", {"action": "stop", "raw": True},
+                                                                      timeout=20))
             hangs = self.rpc("debug.hangs", {"limit": 12}, timeout=20)
             queue = self.rpc("debug.queue", timeout=20)
             drain = self.rpc("debug.drain_cost", timeout=20) if opts.hidden else None
@@ -1149,11 +1165,11 @@ class Session:
         frame_evidence = {k: f.get(k) for k in ("refresh_ms", "frames", "missed", "main_p95_ms", "main_max_ms", "main_over_8_3_ms")}
         entry = {"session": self.name, "shape": SESSION_SHAPE.get(self.name, self.name), "phase": phase,
                  "seconds": round(elapsed, 1), "invalid": invalid,
-                 "key_to_contents_ms": None if invalid else pct(closed), "key_column": KEY_COLUMN,
+                 "key_to_contents_ms": None if invalid else distribution(closed), "key_column": KEY_COLUMN,
                  "key_to_contents_is_committed_frame": False, "frame_evidence": frame_evidence,
                  "keys": opts.samples, "keys_closed": len(closed), "keys_censored": len(censored),
                  "censored_lower_bounds_ms": censored,
-                 "key_to_contents_with_censored_lower_bounds_ms": pct(closed + censored) if censored else None,
+                 "key_to_contents_with_censored_lower_bounds_ms": distribution(closed + censored) if censored else None,
                  "split_input_to_commit": None if split_problems else split_rows, "split_presses": presses,
                  "split_input_to_commit_invalid": split_invalid,
                  "signposts": {k: (signpost_report or {}).get(k) for k in ("lost", "unpaired", "status", "error")},
@@ -1177,9 +1193,21 @@ class Session:
              + (f"; split input-to-commit INVALID ({'; '.join(split_invalid)})" if split_invalid else "")
              + (f"; drain {json.dumps(entry['drain'])}" if opts.hidden else "")
              + (f"; script applied in window/slowest second/asked/refused per kind {json.dumps(applied)}" if script else ""))
+        entry["results"] = self.record(phase, entry, closed, frames_raw)
         results["runs"].append(entry)
         if opts.json:
             json.dump(results, open(opts.json, "w"), indent=1)
+
+    def record(self, phase, entry, closed, frames_raw):
+        """The phase as cmux-perf-result/v1 (storm_bench_results.script_storm_series) in this session's story;
+        {metric: path or "not recorded: why"}. An invalid phase is not the asked load: it records nothing."""
+        if entry["invalid"]:
+            return {}
+        hangs = entry["hangs"] if isinstance(entry["hangs"], dict) else {}
+        series = results_v1.script_storm_series(phase, closed, frames_raw, entry["frame_evidence"].get("missed"),
+                                                hangs.get("count"))
+        return results_v1.record_all(self.app, results_v1.SCRIPT_STORM_STORIES[self.name],
+                                     results_v1.SESSION_ENGINES[self.name], series, log=note)
 
     def run(self):
         try:

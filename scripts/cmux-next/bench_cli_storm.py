@@ -24,6 +24,12 @@ the count is not back to the baseline. It refuses to start when the PTYs in
 use plus the storm's terminals would reach --pty-limit (300). Then (`next`, unless --keep-daemon) it ends every terminal of
 the tag's daemon with `shutdown-daemon end_terminals` (daemon_teardown.py)
 and fails if any of its terminal hosts outlives that.
+
+Statistics: percentiles are scripts/perf-lab/perf_stats.py's pct (linear interpolation). The report's `samples`
+holds every request's latency per category and, for `next`, the measured window's raw frame intervals and main-thread
+busy times (debug.frames stop with `raw`; `frames` keeps the app's summary). This driver attaches to a running app
+and writes no result-v1 itself: cli-storm-session.py launches the app through bench_launch.BenchApp and records
+these samples (storm_bench_results.py, stories cli-storm and cli-storm-stress).
 """
 import argparse
 import json
@@ -39,6 +45,7 @@ import zlib
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from daemon_teardown import daemon_env, end_terminals, recorded_hosts  # noqa: E402
+from storm_bench_results import latency_row, split_raw_frames  # noqa: E402
 
 DEADLINE_S = 2.0
 CLIENT_TIMEOUT_S = DEADLINE_S + 3.0
@@ -124,13 +131,6 @@ def app_bundle(pid):
 def pid_for_tag(tag):
     out = run(["pgrep", "-f", f"cmux DEV {tag}.app/Contents/MacOS/cmux DEV"]).split()
     return int(out[0]) if out else None
-
-
-def percentile(values, p):
-    if not values:
-        return 0.0
-    ordered = sorted(values)
-    return ordered[min(len(ordered) - 1, int(round((len(ordered) - 1) * p)))]
 
 
 class NextProfile:
@@ -280,8 +280,9 @@ class NextProfile:
         result(control.call("debug.frames", {"action": "start"}))
 
     def end_measure(self, control):
-        frames = result(control.call("debug.frames", {"action": "stop"}))
-        return frames, result(control.call("debug.hangs")), result(control.call("debug.queue"))
+        """(frames summary, raw frame arrays, hangs, queue) of the measured window."""
+        frames, raw = split_raw_frames(result(control.call("debug.frames", {"action": "stop", "raw": True})))
+        return frames, raw, result(control.call("debug.hangs")), result(control.call("debug.queue"))
 
     def hangs(self, control):
         return result(control.call("debug.hangs"))
@@ -371,7 +372,7 @@ class LegacyProfile:
         pass
 
     def end_measure(self, control):
-        return None, None, None
+        return None, split_raw_frames(None)[1], None, None
 
     def hangs(self, control):
         return None
@@ -502,20 +503,24 @@ def ptys_in_use():
     return len([name for name in os.listdir("/dev") if name.startswith("ttys") and name[4:].isdigit()])
 
 
-def summarize(samples):
+def latencies_by_category(samples):
+    """{category: [latency ms, in request order]} of the storm's samples."""
     by_category = {}
-    for category, _, latency, outcome in samples:
-        entry = by_category.setdefault(category, {"latencies": [], "outcomes": {}})
-        entry["latencies"].append(latency * 1000)
-        entry["outcomes"][outcome] = entry["outcomes"].get(outcome, 0) + 1
-    report = {}
-    for category, entry in sorted(by_category.items()):
-        values = entry["latencies"]
-        report[category] = {"count": len(values), "p50_ms": percentile(values, 0.5), "p95_ms": percentile(values, 0.95),
-                            "p99_ms": percentile(values, 0.99), "max_ms": max(values), "outcomes": entry["outcomes"]}
-    values = [latency * 1000 for _, _, latency, _ in samples]
-    report["all"] = {"count": len(values), "p50_ms": percentile(values, 0.5), "p95_ms": percentile(values, 0.95),
-                     "p99_ms": percentile(values, 0.99), "max_ms": max(values) if values else 0}
+    for category, _, latency, _ in samples:
+        by_category.setdefault(category, []).append(latency * 1000)
+    return dict(sorted(by_category.items()))
+
+
+def summarize(samples):
+    """Per category and over all requests: count, p50/p95/p99/max ms (perf_stats.pct, linear interpolation) and,
+    per category, the outcomes."""
+    outcomes = {}
+    for category, _, _, outcome in samples:
+        counts = outcomes.setdefault(category, {})
+        counts[outcome] = counts.get(outcome, 0) + 1
+    report = {category: {**latency_row(values), "outcomes": outcomes[category]}
+              for category, values in latencies_by_category(samples).items()}
+    report["all"] = latency_row([latency * 1000 for _, _, latency, _ in samples])
     return report
 
 
@@ -596,6 +601,8 @@ def main():
     args = parser.parse_args()
     if not 0 < args.pty_limit <= MAX_PTY_LIMIT:
         parser.error(f"--pty-limit must be between 1 and {MAX_PTY_LIMIT}")
+    if args.requests < 1:
+        parser.error("--requests must be at least 1")
 
     # Every agent on this Mac shares kern.tty.ptmx_max (511): never let a
     # storm push the PTYs in use to --pty-limit. Checked before each storm,
@@ -665,7 +672,7 @@ def main():
     while time.monotonic() - started < args.measure_seconds:
         time.sleep(0.25)
     measured_seconds = time.monotonic() - started
-    frames, hangs, queue = profile.end_measure(control)
+    frames, frames_raw, hangs, queue = profile.end_measure(control)
     peak_rss = rss_kb(pid)
     peak_footprint = footprint_mb(pid)
     load_end = os.getloadavg()
@@ -752,6 +759,9 @@ def main():
         "latency": report, "error_examples": storm.error_examples, "frames": frames, "hangs": hangs,
         "hangs_after_cleanup": after_hangs, "queue": queue, "leftover_tabs": leftover, "closed_by_daemon": closed_by_daemon,
         "warmup": warmup,
+        # Raw samples for result-v1 (cli-storm-session.py records them through BenchApp.record).
+        "samples": {"latency_ms": latencies_by_category(storm.samples), "frame_interval_ms": frames_raw["intervals_ms"],
+                    "main_busy_ms": frames_raw["main_ms"]},
         "rss_kb": {"launch": launch_rss, "baseline": baseline_rss, "peak": peak_rss, "after": after_rss},
         "footprint_mb": {"launch": launch_footprint, "baseline": baseline_footprint, "peak": peak_footprint,
                          "after": after_footprint},
