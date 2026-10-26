@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextActions
 import typealias CmuxNextBridge.StripTabID
 import typealias CmuxNextDaemon.SurfaceID
+import CmuxNextHibernation
 import CmuxNextIcons
 import CmuxNextPages
 
@@ -88,6 +89,18 @@ final class FileTreePageService: InternalPageProvider {
 
     func tabClosed(_ key: String) {
         tabs.removeValue(forKey: key)?.page?.close()
+    }
+
+    // MARK: Discard (`memoryDiscardInternalPages`, p07-memory-026)
+
+    /// Ten minutes hidden, as Chrome's proactive discards (proactive_discarding_policy.cc). The tree
+    /// is a read-only listing: the next page lists the folder again and loses nothing.
+    func discardPolicy(for key: String) -> ContentDiscardPolicy { .standard }
+
+    /// Tab `key`'s page goes; the tab keeps its folder and git link.
+    func viewDiscarded(_ key: String) {
+        tabs[key]?.page?.close()
+        tabs[key]?.page = nil
     }
 
     /// Opens `file` from tab `key`'s tree in the file pages (FilePageOpener), in the tree's pane. Nil,

@@ -3,6 +3,8 @@ import CmuxNextActions
 import CmuxNextBridge
 import CmuxNextBrowser
 import CmuxNextDesign
+import CmuxNextHibernation
+import CmuxNextHomeEngine
 import CmuxNextIcons
 import CmuxNextPages
 import CmuxNextSettings
@@ -37,6 +39,9 @@ final class FilePageService: InternalPageProvider {
         var stopFlush: (() -> Void)?
         /// The Markdown omnibar above the page (markdown tabs only).
         var bar: MarkdownOmnibarBar?
+        /// What the page last said it shows (`cmux.<page>.viewState`: cursor, scroll, folds), saved
+        /// right before a discard and given to the next page in its first config.
+        var viewState: JSONValue?
     }
 
     let kind: FilePageKind
@@ -63,6 +68,8 @@ final class FilePageService: InternalPageProvider {
     static let engineOptions = PageEngineOptions(fullFrameRate: true)
     /// How long a closed editor tab's page may take to save its pending edits.
     static let flushTimeout: Duration = .seconds(3)
+    /// How long a page may take to say what it shows before its discard goes on without it.
+    static let viewStateTimeout: Duration = .seconds(1)
 
     init(services: AppServices, kind: FilePageKind, clock: any Clock<Duration> = ContinuousClock(),
          images: any RemoteImageFetching = GuardedRemoteImages(), documents: FileQuitDocuments? = nil,
@@ -355,7 +362,10 @@ final class FilePageService: InternalPageProvider {
                                         comments: comments)
         provider.recoveredText = tab.recoveredText
         provider.reveal = tab.reveal
+        provider.viewState = tab.viewState
+        tab.recoveredText = nil
         tab.reveal = nil
+        tab.viewState = nil
         let native = AppPageNativeProvider(services: services, page: kind.descriptor)
         let routes = [PageRoute(prefix: kind.namespace + ".", provider: provider), PageRoute(prefix: "cmux.app.", provider: native)]
         guard let page = services.webUI.open(PageOpenRequest(descriptor: kind.descriptor, routes: routes, options: Self.engineOptions,
@@ -466,6 +476,59 @@ final class FilePageService: InternalPageProvider {
             await flush.value
             self?.flushing.removeAll { $0 == flush }
         }
+    }
+
+    // MARK: Discard (`memoryDiscardInternalPages`, p07-memory-026)
+
+    func discardPolicy(for key: String) -> ContentDiscardPolicy { kind.discardPolicy }
+
+    /// A tab whose file has edits that are not saved keeps its page at any pressure (Chrome's
+    /// `kUserEdits`, cannot_discard_reason.h; cmux's lead rule). The document is shared by every
+    /// tab of the file, so each of them keeps its page.
+    func keepReasons(for key: String) -> [CannotDiscardReason] {
+        guard let file = file(key), documents.existing(file)?.hasUnsavedChanges == true else { return [] }
+        return [.unsavedEdits]
+    }
+
+    /// Asks the page what it shows (`cmux.<page>.viewState`). The page reports an edit it has not
+    /// reported yet before it answers, so the discarder's second look at ``keepReasons(for:)``
+    /// sees it. A page that does not answer in time loses its cursor and scroll, never its text.
+    func saveViewState(for key: String, content: NSView) async -> ContentViewState {
+        guard let page = tabs[key]?.page else { return ContentViewState() }
+        let op = kind.op("viewState")
+        let answer = await PageAnswerDeadline(Self.viewStateTimeout).answer { try await page.router.callPage(op, params: .object([:])) }
+        guard let answer, answer != .null, tabs[key]?.page === page else { return ContentViewState() }
+        tabs[key]?.viewState = answer
+        return ContentViewState(values: ["page": answer.compactText])
+    }
+
+    /// The page gets its state in its first config (``makeView(for:in:)``), not from its view.
+    func restoreViewState(_ state: ContentViewState, for key: String, content: NSView) {}
+
+    /// Tab `key`'s page went; the tab keeps its file, grant and view state. Edits that are still
+    /// unsaved (only the person's own discard gets past ``keepReasons(for:)``) stay in the quit
+    /// hook and come back in the next page as a recovered draft.
+    func viewDiscarded(_ key: String) {
+        guard var tab = tabs[key] else { return }
+        let file = tab.provider?.file ?? tab.file
+        tab.stopFlush?()
+        tab.stopFlush = nil
+        if let file {
+            if let document = documents.existing(file), document.hasUnsavedChanges {
+                tab.recoveredText = document.latestText
+            } else {
+                documents.release(file, holder: holder(key))
+            }
+        }
+        tab.reveal = tab.provider?.reveal ?? tab.reveal
+        tab.page?.close()
+        tab.provider?.close()
+        tab.file = file
+        tab.page = nil
+        tab.provider = nil
+        tab.host = nil
+        tab.bar = nil
+        tabs[key] = tab
     }
 
     /// App quit: closes every tab now.

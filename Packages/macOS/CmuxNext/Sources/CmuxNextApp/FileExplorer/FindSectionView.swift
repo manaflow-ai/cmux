@@ -18,6 +18,8 @@ final class FindSectionView: NSView, RightSidebarRefreshing, NSTableViewDataSour
     private let scroll = NSScrollView()
     private var results: [RipgrepMatch] = []
     private var observation: Task<Void, Never>?
+    /// The result to select when the next search finishes (``restore(query:cursor:)``).
+    private var pendingCursor: String?
 
     /// - Parameters:
     ///   - model: The search (one per section or pane).
@@ -110,9 +112,27 @@ final class FindSectionView: NSView, RightSidebarRefreshing, NSTableViewDataSour
         Task { await model.search(text) }
     }
 
+    /// The selected result as ``cursor(of:)``: what a discarded Find tab keeps.
+    var cursor: String? {
+        guard let row = table.selectedRowIfValid, row < results.count else { return nil }
+        return Self.cursor(of: results[row])
+    }
+
+    /// A result's place: `path:line:column`.
+    static func cursor(of match: RipgrepMatch) -> String { "\(match.path):\(match.line):\(match.column)" }
+
+    /// Searches for `query` again and selects the result at `cursor` once the results show: a
+    /// discarded Find tab shown again (FindPaneService).
+    func restore(query: String, cursor: String?) {
+        field.stringValue = query
+        pendingCursor = cursor
+        submit()
+    }
+
     private func render() {
         results = model.results
         table.reloadData()
+        selectPendingCursor()
         let root = model.root.map { ($0.path as NSString).abbreviatingWithTildeInPath } ?? FileExplorerStrings.noFolder
         switch model.state {
         case .idle: status.stringValue = root
@@ -121,6 +141,18 @@ final class FindSectionView: NSView, RightSidebarRefreshing, NSTableViewDataSour
             status.stringValue = limited ? FindInDirectoryStrings.limited(RipgrepSearch.limit) : FileExplorerStrings.matchCount(results.count)
         case .failed(let reason): status.stringValue = reason
         }
+    }
+
+    /// Selects and scrolls to the result ``restore(query:cursor:)`` asked for, once its search ends.
+    private func selectPendingCursor() {
+        guard let cursor = pendingCursor else { return }
+        switch model.state {
+        case .idle, .searching: return
+        case .done, .failed: pendingCursor = nil
+        }
+        guard let row = results.firstIndex(where: { Self.cursor(of: $0) == cursor }) else { return }
+        table.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
+        table.scrollRowToVisible(row)
     }
 
     private var selected: RipgrepMatch? {

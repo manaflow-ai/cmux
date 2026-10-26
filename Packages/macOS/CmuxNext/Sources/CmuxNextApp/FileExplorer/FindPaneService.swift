@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextFilesUI
+import CmuxNextHibernation
 
 extension InternalPageID {
     /// Open Find as Pane: the right sidebar's Find section in a tab.
@@ -59,5 +60,27 @@ final class FindPaneService: InternalPageProvider {
     func tabClosed(_ key: String) {
         views.removeValue(forKey: key)
         roots.removeValue(forKey: key)
+    }
+
+    // MARK: Discard (`memoryDiscardInternalPages`, p07-memory-026)
+
+    /// Ten minutes hidden, as Chrome's proactive discards (proactive_discarding_policy.cc). The view
+    /// and its results go; the query and the selected result are saved, and the next view searches
+    /// the tab's folder again (Chrome reloads a discarded tab) and selects that result.
+    func discardPolicy(for key: String) -> ContentDiscardPolicy { .standard }
+
+    func saveViewState(for key: String, content: NSView) async -> ContentViewState {
+        guard let view = content as? FindSectionView else { return ContentViewState() }
+        return ContentViewState(search: view.field.stringValue, selection: view.cursor)
+    }
+
+    func restoreViewState(_ state: ContentViewState, for key: String, content: NSView) {
+        guard let view = content as? FindSectionView, let query = state.search, !query.isEmpty else { return }
+        view.restore(query: query, cursor: state.selection)
+    }
+
+    /// The tab keeps its folder (``route(for:)``) for the next view.
+    func viewDiscarded(_ key: String) {
+        views.removeValue(forKey: key)
     }
 }

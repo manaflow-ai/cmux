@@ -26,6 +26,9 @@ public final class DiffPageProvider: PageProvider {
     static let recentsOp = "cmux.diff.recents"
     static let chooseFolderOp = "cmux.diff.chooseFolder"
     static let openOp = "cmux.diff.open"
+    /// Page to host: `{unsaved}`, whether the page holds input a new page would lose (a comment
+    /// draft, the commit form); sent when it changes.
+    static let inputOp = "cmux.diff.input"
     static let notARepository = "cmux.diff.not_a_repo"
     /// The id the page closes before its first open has answered.
     static let pendingSessionID = "00000000-0000-0000-0000-000000000000"
@@ -52,6 +55,12 @@ public final class DiffPageProvider: PageProvider {
     private(set) var isClosed = false
     /// The gesture (`systemUptime`) the last `cmux.diff.openFile` spent (DiffPageProvider+Open.swift).
     var spentOpenGesture: TimeInterval?
+    /// What the tab's previous page showed before it was discarded (its `cmux.diff.viewState`
+    /// answer: the file at the top, how far into it, the files it unfolded): the next config of the
+    /// tab's repository carries it once as `payload.viewState`.
+    public var viewState: JSONValue?
+    /// The page holds input a new page would lose (`cmux.diff.input`): its tab keeps the page.
+    public private(set) var holdsUnsavedInput = false
 
     public init(ready: Task<DiffTabReady, any Error>?, sidecar: (any DiffSidecarRunning)?, languages: DiffLanguageFeed?,
          host: (any DiffTabHosting)? = nil, stores: DiffPageStores? = nil, git: (any DiffGitRunning)? = nil) {
@@ -81,6 +90,9 @@ public final class DiffPageProvider: PageProvider {
             guard let host else { throw PageError.unknownOp(op) }
             let start = params["start"]?.stringValue.map { URL(fileURLWithPath: $0, isDirectory: true) }
             return await host.chooseFolder(start: start).map { ["path": .string($0.path)] } ?? .null
+        case Self.inputOp:
+            holdsUnsavedInput = params["unsaved"]?.boolValue == true
+            return .null
         case Self.openOp:
             guard let path = params["path"]?.stringValue, path.hasPrefix("/") else { throw PageError.invalidParams("path is required") }
             return try await open(folder: URL(fileURLWithPath: path, isDirectory: true), source: DiffOpenSource(page: params["source"]))
@@ -123,10 +135,17 @@ public final class DiffPageProvider: PageProvider {
             // A turn the tab got after its grant (the header's Changes) is offered as Last turn too.
             let config = tab.turn == nil && host?.turn(for: tab.grant.repository) != nil
                 ? DiffPageConfig.offeringTurn(tab.config) : tab.config
-            return withOpenFile(withGit(await withStores(config)))
+            return withViewState(withOpenFile(withGit(await withStores(config))))
         } catch let failure as DiffTabFailure {
             return DiffPageConfig.failure(title: failure.title, message: failure.message)
         }
+    }
+
+    /// `config` with the saved ``viewState``, once.
+    private func withViewState(_ config: JSONValue) -> JSONValue {
+        guard let state = viewState else { return config }
+        viewState = nil
+        return DiffPageConfig.restoring(state, in: config)
     }
 
     /// Shows the repository `folder` is in, from `source` (`cmux.diff.open`, a

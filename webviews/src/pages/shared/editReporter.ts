@@ -9,6 +9,8 @@ export type EditSchedule = (run: () => void, delayMs: number) => () => void;
 export interface EditReporter {
   /** An edit happened; `send` runs now or at the end of the current window. */
   edited(): void;
+  /** A coalesced edit is sent now (the host asks before it discards the page); none sends nothing. */
+  flush(): void;
   dispose(): void;
 }
 
@@ -32,6 +34,11 @@ export function createEditReporter(send: () => void, schedule: EditSchedule): Ed
       }
       send();
       open();
+    },
+    flush() {
+      if (!pending) return;
+      pending = false;
+      send();
     },
     dispose() {
       cancel?.();

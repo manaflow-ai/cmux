@@ -3,6 +3,7 @@ import CmuxNextActions
 import CmuxNextCompat
 import CmuxNextFiles
 import CmuxNextFilesUI
+import CmuxNextHibernation
 import CmuxNextIcons
 import UniformTypeIdentifiers
 
@@ -22,6 +23,8 @@ final class FilesPaneService: InternalPageProvider {
         var model: FileBrowserModel
         var view: FilesPaneView?
         var history: FilesPaneHistory
+        /// The view was discarded and its folder watch stopped; the next view lists the folder again.
+        var discarded = false
     }
 
     private weak var services: AppServices?
@@ -108,6 +111,13 @@ final class FilesPaneService: InternalPageProvider {
     func makeView(for key: String, in window: WindowController?) -> NSView {
         var tab = tabs[key] ?? makeTab(pendingFolder ?? FileManager.default.homeDirectoryForCurrentUser)
         pendingFolder = nil
+        if tab.discarded {
+            // The discard stopped the folder watch: list the folder again (selection kept), which watches it again.
+            tab.discarded = false
+            let model = tab.model
+            // task-owner: one listing of the tab's folder; the model's generation drops it when a newer one starts
+            Task { await model.reload() }
+        }
         if let selection = pendingSelection {
             pendingSelection = nil
             let model = tab.model
@@ -133,6 +143,27 @@ final class FilesPaneService: InternalPageProvider {
     func tabClosed(_ key: String) {
         titleWatch.removeValue(forKey: key)?.cancel()
         tabs.removeValue(forKey: key)?.view?.stop()
+    }
+
+    // MARK: Discard (`memoryDiscardInternalPages`, p07-memory-026)
+
+    /// Ten minutes hidden, as Chrome's proactive discards (proactive_discarding_policy.cc). The
+    /// view, its icons and its folder watch go; the model stays (folder, selection, sort, filter,
+    /// layout and Back/Forward), so the next view shows the same place.
+    func discardPolicy(for key: String) -> ContentDiscardPolicy { .standard }
+
+    /// The model keeps what the view showed; the list and icon layouts scroll its selection into
+    /// view when they show it. Nothing in the view is unsaved: an inline rename ends when the view
+    /// leaves its window, so no keep reason applies.
+    func saveViewState(for key: String, content: NSView) async -> ContentViewState { ContentViewState() }
+
+    func restoreViewState(_ state: ContentViewState, for key: String, content: NSView) {}
+
+    func viewDiscarded(_ key: String) {
+        titleWatch.removeValue(forKey: key)?.cancel()
+        tabs[key]?.view?.stop()
+        tabs[key]?.view = nil
+        tabs[key]?.discarded = true
     }
 
     /// A double-clicked file opens in cmux when cmux shows its kind (``FileOpenKind``: Markdown,

@@ -92,6 +92,9 @@ final class FilePageProvider: PageProvider, PageDynamicResourceSource {
     /// Where the editor puts the cursor on the tab's file (a Find result's line and column): the
     /// next config of that file carries it once as `reveal`. The markdown page ignores it.
     var reveal: FilePosition?
+    /// What the tab's previous page showed before it was discarded (its `cmux.<page>.viewState`
+    /// answer): the next config of the tab's file carries it once as `viewState`.
+    var viewState: JSONValue?
     /// Whether the tab's file may be saved (the last config's answer).
     private var writable = false
     var isWritable: Bool { writable }
@@ -333,6 +336,10 @@ final class FilePageProvider: PageProvider, PageDynamicResourceSource {
         if kind == .editor, let reveal, file.url == self.file {
             self.reveal = nil
             config["reveal"] = reveal.jsonValue
+        }
+        if let viewState, file.url == self.file {
+            self.viewState = nil
+            config["viewState"] = viewState
         }
         if let reason = file.readOnlyReason {
             config["readOnly"] = true

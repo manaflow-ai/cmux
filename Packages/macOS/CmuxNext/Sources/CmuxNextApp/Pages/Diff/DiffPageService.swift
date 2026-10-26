@@ -6,6 +6,8 @@ import CmuxNextCompat
 import CmuxNextDesign
 import typealias CmuxNextDaemon.SurfaceID
 import CmuxNextDiff
+import CmuxNextHibernation
+import CmuxNextHomeEngine
 import CmuxNextIcons
 import CmuxNextPages
 import CmuxNextSettings
@@ -43,6 +45,9 @@ final class DiffPageService: InternalPageProvider {
         var host: DiffTabHost?
         /// The reopen on a card's turn in flight (``retarget(_:to:source:)``), one at a time.
         var reopen: Task<Void, Never>?
+        /// What the page last said it shows (`cmux.diff.viewState`), saved right before a discard
+        /// and given to the next page in its first config.
+        var viewState: JSONValue?
     }
 
     // crash-allow: AppServices owns this service for the app's whole life (ViewerService's lazy page services), so it outlives it.
@@ -56,6 +61,8 @@ final class DiffPageService: InternalPageProvider {
     /// The diff page draws at the display's full rate (120 Hz), as the agent pane does, not
     /// WebKit's default nearest 60 fps.
     static let engineOptions = PageEngineOptions(fullFrameRate: true)
+    /// How long a page may take to say what it shows before its discard goes on without it.
+    static let viewStateTimeout: Duration = .seconds(1)
     /// Every tab's Stage, Commit and Push (cx-ueuc8), through this Mac's agent git link.
     private lazy var diffGit: any DiffGitRunning = DiffAgentGit(link: services.agentGit.local)
     /// The folder picker of `cmux.diff.chooseFolder`.
@@ -275,6 +282,8 @@ final class DiffPageService: InternalPageProvider {
         let ready = tab.repository.map { runtime.prepare(repository: $0, source: tab.source, turn: tab.turn) }
         let provider = DiffPageProvider(ready: ready, sidecar: runtime.sidecar, languages: runtime.languages, host: host,
                                         stores: stores, git: diffGit)
+        provider.viewState = tab.viewState
+        tab.viewState = nil
         let native = AppPageNativeProvider(services: services, page: .diff)
         let routes = [PageRoute(prefix: "cmux.diff.", provider: provider), PageRoute(prefix: "cmux.app.", provider: native)]
         let patches = DiffPatchSource { [weak provider] in provider?.ready }
@@ -321,6 +330,11 @@ final class DiffPageService: InternalPageProvider {
 
     func tabClosed(_ key: String) {
         guard let tab = tabs.removeValue(forKey: key) else { return }
+        release(tab)
+    }
+
+    /// Closes `tab`'s page, its reopen and its provider's sessions and grant.
+    private func release(_ tab: Tab) {
         tab.reopen?.cancel()
         tab.page?.close()
         guard let provider = tab.provider else { return }
@@ -331,6 +345,47 @@ final class DiffPageService: InternalPageProvider {
             await teardown.value
             self?.closing.removeAll { $0 == teardown }
         }
+    }
+
+    // MARK: Discard (`memoryDiscardInternalPages`, p07-memory-026)
+
+    /// Ten minutes hidden, as Chrome's proactive discards (proactive_discarding_policy.cc). The diff
+    /// is read again from git when the tab shows; viewed marks, collapsed files and comments live in
+    /// the host's stores and survive the discard.
+    func discardPolicy(for key: String) -> ContentDiscardPolicy { .standard }
+
+    /// A comment draft or the open commit form keeps the page (Chrome's `kUserEdits`): the page
+    /// says so when it changes (`cmux.diff.input`).
+    func keepReasons(for key: String) -> [CannotDiscardReason] {
+        tabs[key]?.provider?.holdsUnsavedInput == true ? [.unsavedEdits] : []
+    }
+
+    /// Asks the page what it shows (`cmux.diff.viewState`: the file at the top and how far into
+    /// it, the files the reader unfolded, the options that last for the tab). A page that does not
+    /// answer in time comes back at its top.
+    func saveViewState(for key: String, content: NSView) async -> ContentViewState {
+        guard let page = tabs[key]?.page else { return ContentViewState() }
+        let answer = await PageAnswerDeadline(Self.viewStateTimeout).answer {
+            try await page.router.callPage("cmux.diff.viewState", params: .object([:]))
+        }
+        guard let answer, answer != .null, tabs[key]?.page === page else { return ContentViewState() }
+        tabs[key]?.viewState = answer
+        return ContentViewState(values: ["page": answer.compactText])
+    }
+
+    /// The page gets its state in its first config (``makeView(for:in:)``), not from its view.
+    func restoreViewState(_ state: ContentViewState, for key: String, content: NSView) {}
+
+    /// Tab `key`'s page, provider, sessions and grant go; the tab keeps its repository, scope, turn
+    /// and view state, and its next show prepares a new grant.
+    func viewDiscarded(_ key: String) {
+        guard var tab = tabs[key] else { return }
+        release(tab)
+        tab.reopen = nil
+        tab.page = nil
+        tab.provider = nil
+        tab.host = nil
+        tabs[key] = tab
     }
 
     /// App quit: removes every tab's grant now (patches included). Sessions are

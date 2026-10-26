@@ -79,6 +79,10 @@ export interface CodeView {
   format?(): Promise<void>;
   /** Moves the cursor to `position` and centers its line (a Find result). */
   reveal?(position: RevealPosition): void;
+  /** Cursor, selections, scroll and folds, as plain data the view takes back (`restoreViewState`). */
+  saveViewState?(): unknown;
+  /** Puts back what `saveViewState` gave, on the same document; an unreadable value does nothing. */
+  restoreViewState?(state: unknown): void;
   /** VS Code's save options (`editor.trimTrailingWhitespace`, `editor.insertFinalNewline`). */
   prepareSave?(options: { trimTrailingWhitespace: boolean; insertFinalNewline: boolean }): Promise<void>;
 }
@@ -156,6 +160,8 @@ export class EditorStore {
   private recovered: string | null = null;
   /** Where the cursor goes once the file is in the view (the config's `reveal`, an early command). */
   private pendingReveal: RevealPosition | null = null;
+  /** What a discarded page of this tab showed (the config's `viewState`), until the file is in the view. */
+  private pendingViewState: unknown = null;
   private readonly reporter;
 
   constructor(
@@ -245,6 +251,7 @@ export class EditorStore {
         ? config.recoveredText
         : null;
     this.pendingReveal = revealOf(config.reveal) ?? this.pendingReveal;
+    this.pendingViewState = config.viewState ?? null;
     const size = typeof config.size === "number" ? config.size : config.text.length;
     this.set({
       phase: "ready",
@@ -296,7 +303,19 @@ export class EditorStore {
       this.view.replaceText(recovered);
       this.edited();
     }
+    const viewState = this.pendingViewState;
+    this.pendingViewState = null;
+    if (viewState != null) this.view.restoreViewState?.(viewState);
     this.applyReveal();
+  }
+
+  /**
+   * `cmux.editor.viewState`: what the view shows, for the page the host makes after it discards this
+   * one. An edit not reported yet goes to the host first, so a tab with unsaved edits is kept.
+   */
+  viewState(): unknown {
+    this.reporter.flush();
+    return this.view?.saveViewState?.() ?? null;
   }
 
   /**
