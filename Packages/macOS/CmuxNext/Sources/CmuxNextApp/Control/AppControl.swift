@@ -94,7 +94,7 @@ final class AppControl {
     /// (below), registered before the service serves (p08-startup-019).
     func start(registry: ActionRegistry, settings: SettingsController, launch: LaunchIdentity, services: AppServices) throws {
         let service = try ControlService.prepare(registry: registry, settings: settings, launch: launch,
-                                                 frameSource: frames, watchdog: watchdog)
+                                                 frameSource: frames, watchdog: watchdog, mainWork: mainWork)
         self.service = service
         actionBudget = ActionBudgetReporter(monitor: services.actionBudget, naming: ActionReportNaming(catalog: Set(registry.descriptors.map(\.id.rawValue))),
                                             overBudget: watchdog.overBudget, sampling: recordsTaskBudgets,
@@ -257,7 +257,7 @@ extension AppControl {
     /// Socket focus policy: `open` makes the page first responder only with focus: true.
     private static func registerChromiumHostDebug(_ services: AppServices, on router: ControlRouter) {
         let chromiumHost = ChromiumHostPrototype(makeConfiguration: { ChromiumHostPrototype.bundledConfiguration() },
-                                                 tunables: TunableStore.shared)
+                                                 tunables: TunableStore.shared, mainWork: services.mainWork)
         router.register([
             .mainActor("debug.chromium_host") { [weak services] call in
                 let controller = services?.windows.controllers.first

@@ -2,6 +2,7 @@ import CmuxNextCloud
 import CryptoKit
 public import Foundation
 import os
+import CmuxNextWakeups
 
 /// Per-installation SSH link state: the cmux-tui client identity and
 /// known-daemon records (owner-only), the download cache, and short link
@@ -144,8 +145,9 @@ public actor SSHMachineLink {
             child.terminateProcessOnly()
             // task-owner: one bounded fallback; terminate() is a no-op once the child exited
             Task.detached {
-                // wakeup-allow: one-shot deadline for a stopped link client
-                try? await Task.sleep(for: Self.closeDeadline)
+                // wakeup-allow: deadline for a stopped link client to close its session; not a DemandTimer: a detached
+                // escalation that outlives the link, which nothing replaces or cancels
+                try? await Task.sleep(for: Self.closeDeadline, tolerance: WakeLeeway.window(delay: Self.closeDeadline).tolerance)
                 child.terminate()
             }
         }
@@ -217,7 +219,12 @@ public actor SSHMachineLink {
         let child = ChildProcess(executable: binary,
                                  arguments: commandLine.link(host, clientStateDir: paths.clientState.path, localSocket: path),
                                  environment: env)
-        try child.start()
+        try await child.start()
+        // A stop during the launch found no child to end.
+        guard machine.mayAttempt else {
+            child.terminate()
+            throw SSHLinkError.stopped
+        }
         self.child = child
         do {
             let socket = try await child.firstLine(within: .seconds(60), label: "cmux-tui remote connect \(host.destination)") { line in

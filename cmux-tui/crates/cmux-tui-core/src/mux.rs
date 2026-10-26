@@ -552,6 +552,10 @@ pub struct Mux {
     /// The refactor switch arms `oracle-state` reports, frozen at first read.
     #[cfg(any(debug_assertions, feature = "oracle"))]
     oracle_switches: OnceLock<crate::oracle_state::SwitchArms>,
+    /// Holders of this session that ended since this owner started
+    /// (`oracle-state` `childExits.holder`, invariant I17).
+    #[cfg(any(debug_assertions, feature = "oracle"))]
+    oracle_holder_exits: AtomicU64,
     #[cfg(test)]
     client_resize_before_apply: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
     #[cfg(test)]

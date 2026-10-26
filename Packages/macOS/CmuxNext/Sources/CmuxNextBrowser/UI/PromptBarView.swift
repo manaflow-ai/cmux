@@ -84,7 +84,7 @@ final class PromptBarView: NSView {
             stack.edgeInsets = NSEdgeInsets(top: padding, left: padding, bottom: padding, right: padding)
             glass.cornerRadius = BrowserMetrics.overlayCornerRadius
         }
-        density.start()
+        density.start(in: self)
     }
 
     /// The message wraps at the width the bar may take: `promptMaxWidth`,

@@ -280,7 +280,7 @@ extension PageWebView {
         chromiumDragFile = nil
         guard now().timeIntervalSince(pending.at) < Self.chromiumDropWindow, let fileDrop else { return }
         noteTouch()
-        fileDrop.open(pending.url)
+        fileDrop.take(pending.url, keep: keepReasons)
     }
 
     /// Opens a link that leaves the page as WebKit's policy does (``onOpenExternal`` or the shared rule).

@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextDesign
 import CmuxNextIcons
+import CmuxNextWakeups
 
 /// Fills `BrowserChromeView.extensionSlot` with the pinned extension
 /// actions of the bound tab in Chromium's order (icon plus native
@@ -36,7 +37,7 @@ final class ExtensionActionToolbar {
     }()
     /// The Extensions bubble (Chrome's `ExtensionsMenuView`).
     private(set) lazy var menuController: ExtensionsMenuController = {
-        let controller = ExtensionsMenuController()
+        let controller = ExtensionsMenuController(mainWork: mainWork)
         controller.onShownChange = { view, shown in (view as? ChromeIconButton)?.isMenuOpen = shown }
         controller.toggleView = { [weak self] in
             guard let self else { return nil }
@@ -69,8 +70,11 @@ final class ExtensionActionToolbar {
     weak var menuHandler: (any ExtensionMenuHandling)?
     private var directHandler: ExtensionsMenu.DirectHandler?
 
-    init(slot: NSStackView) {
-        self.slot = slot
+    /// The app's scheduler and the tab's node (nil: node-free): the toolbar renders at its frames while the tab shows.
+    private let mainWork: MainWorkScheduler, node: VisibilityNode?
+
+    init(slot: NSStackView, mainWork: MainWorkScheduler, node: VisibilityNode?) {
+        (self.slot, self.mainWork, self.node) = (slot, mainWork, node)
         trampoline.action = { [weak self] in self?.showMenu() }
     }
 
@@ -94,7 +98,7 @@ final class ExtensionActionToolbar {
             return
         }
         host.extensionActionAnchor = { [weak self] id in self?.anchorRect(for: id) }
-        observation = ObservationLoop { [weak self] in
+        observation = ObservationLoop(owner: "browser.extensions.toolbar", delivery: .visible(node), on: mainWork) { [weak self] in
             guard let self, let host = self.host else { return }
             let actions = host.extensionActions
             self.render(actions, showsPuzzle: Self.showsPuzzle(host: host))

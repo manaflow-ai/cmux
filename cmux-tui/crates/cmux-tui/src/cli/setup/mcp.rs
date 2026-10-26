@@ -482,6 +482,7 @@ fn run_cli(client: Client, args: &[String]) -> Result<(), String> {
             text
         })
     });
+    // wakeup-allow: cli-only `cmux setup mcp`'s one bound on the agent CLI; its exit ends the wait first
     let status = match child.wait_timeout(CLI_TIMEOUT) {
         Ok(Some(status)) => status,
         Ok(None) => {

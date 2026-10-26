@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextInput
 import Foundation
 import os
+import CmuxNextWakeups
 
 /// Faults from shim callbacks that arrive off the CEF UI (main) thread.
 private let callbackLogger = Logger(subsystem: "com.cmuxterm.app.next", category: "cef")
@@ -94,9 +95,9 @@ extension CEFRuntime {
         case .afterCreated(let browser, let request, let window, let created):
             browserCreated(browser, request: request, window: window, created: created)
         case .popup:
-            // AFTER_CREATED of the popup's tab carries its URL, disposition
-            // and gesture (the shim's pending popups).
+            // AFTER_CREATED of the popup's tab carries its URL, disposition and gesture (the shim's pending popups).
             break
+        case .createFailed(let browser, let request): CEFCreateFailure(browser: browser, request: request).apply(to: self)
         case .chromeCommand(let browser, let command):
             chromeWindowCommandBlocked(command, browser: browser)
         case .beforeClose(let browser):
@@ -391,14 +392,12 @@ extension CEFRuntime {
         if shutdownSequence?.phase != .readyToShutdown {
             await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
                 shutdownWaiter = continuation
-                shutdownTimeout = Task { @MainActor [weak self] in
-                    // wakeup-allow: one-shot shutdown deadline, cancelled when Chromium reports closed
-                    do { try await Task.sleep(for: timeout) } catch { return }
+                shutdownTimeout = waitDeadlines.schedule(owner: "CEFRuntime.shutdown", after: timeout) { [weak self] in
                     self?.resumeShutdownWaiter()
                 }
             }
         }
-        shutdownTimeout?.cancel()
+        if let shutdownTimeout { _ = waitDeadlines.cancel(shutdownTimeout) }
         shutdownTimeout = nil
         // A create the host never answered before the wait ran out gets no reply now.
         spareWindow.createTrace.endUnanswered()
@@ -440,7 +439,7 @@ extension CEFShimEvent {
         case .address(let b, _), .title(let b, _), .favicon(let b, _), .loadingState(let b, _, _, _),
              .loadStart(let b, _, _), .loadEnd(let b, _), .loadError(let b, _, _, _, _), .progress(let b, _),
              .fullscreen(let b, _), .findResult(let b, _, _, _), .closeRequested(let b), .popup(let b, _, _, _),
-             .afterCreated(let b, _, _, _), .beforeClose(let b), .chromeCommand(let b, _), .devToolsResult(let b, _, _, _), .tab(_, let b, _, _),
+             .afterCreated(let b, _, _, _), .beforeClose(let b), .createFailed(let b, _), .chromeCommand(let b, _), .devToolsResult(let b, _, _, _), .tab(_, let b, _, _),
              .reply(let b, _, _, _), .contextMenu(let b, _, _, _, _, _),
              .devToolsWillOpen(let b), .devToolsOpened(let b, _, _), .devToolsClosed(let b, _),
              .renderTerminated(let b, _, _, _), .renderUnresponsive(let b), .renderResponsive(let b),

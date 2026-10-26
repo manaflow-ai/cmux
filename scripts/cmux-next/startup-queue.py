@@ -96,8 +96,10 @@ CENSUS_FIELDS = {"mainjobs": ("main_jobs", "main_turns"), "globaljobs": ("global
 GLOBAL_PRIORITIES = {"utility": "utility", "low": "utility", 17: "utility", "background": "background",
                      9: "background", "unspecified": "unspecified", None: "unspecified", 0: "unspecified",
                      21: "default", "default": "default", "medium": "default"}
-# Numeric run keys that are values, not times (tasks 006, 007): never ordered or paired as a gap.
-VALUE_MARKS = frozenset({"launch.temperature", "launch.pageins_first_frame", "launch.main_cpu_ms", "launch.interrupted"})
+# Numeric run keys that are values, not times (tasks 006, 007; p09-observability-034's run-loop page-ins): never
+# ordered or paired as a gap. bench-startup.py's VALUE_MARKS.
+VALUE_MARKS = frozenset({"launch.temperature", "launch.pageins_run_loop_start", "launch.pageins_first_frame",
+                         "launch.main_cpu_ms", "launch.interrupted"})
 INTERRUPTED = "launch.interrupted"
 # A live launch takes its window as a person's launch does; a noActivate launch is interrupted (task 108).
 LIVE_ENV = {"CMUX_NEXT_NO_ACTIVATE": "0"}

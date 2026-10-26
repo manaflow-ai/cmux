@@ -211,6 +211,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         services.postNonPaintServices(on: order.startup)
         // Before the first window opens (restoreWhenLoaded opens one at once).
         services.windows.onPresent = { [weak services] controller in
+            DebugTimings.markLaunch("first_window_presented")  // launch.first_window ends here (once per process)
             services?.crashRecovery.showRestartNotice(on: controller.window)
         }
         DebugTimings.markLaunch("dfl.daemon_cloud_updater")
@@ -233,7 +234,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // panel and command page, so the first open costs what later opens cost (a launcher panel opens in
         // one frame); then the icon picker (its panel, page and symbol catalog), so the first Set Icon opens
         // warm; then the system file picker made ahead, so the first click is not cold.
-        LaunchFirstOpenWarmups(paletteSteps: PaletteController.prepareStepNames,
+        LaunchFirstOpenWarmups(paletteSteps: PaletteController.prepareStepNames, prewarmPaletteStrings: { PaletteController.prewarmStrings() },
                                preparePalette: { [weak services] in _ = services?.palette.prepare(step: $0) },
                                prepareIconPicker: { [weak services] in services?.iconPicker.prepare() },
                                warmOpenPanel: { [weak services] in services?.openPanel.warmWhenIdle() }).post(on: order.startup)
@@ -270,7 +271,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // The engines' incognito profiles and the Chromium engine's sign-in tabs (AppServices).
         let webAuthWindows = WebAuthSessionWindows(host: services, logger: services.daemon.logger,
                                                    profiles: services.browserStores.offTheRecord, signInCallbacks: services.signInCallbacks,
-                                                   contextMenus: services.contextMenus)
+                                                   contextMenus: services.contextMenus, mainWork: services.mainWork)
         let webAuthHandler = WebAuthSessionHandler(broker: WebAuthSessionBroker(opener: webAuthWindows))
         self.webAuthHandler = webAuthHandler
         WebAuthSessionHandler.install(webAuthHandler)

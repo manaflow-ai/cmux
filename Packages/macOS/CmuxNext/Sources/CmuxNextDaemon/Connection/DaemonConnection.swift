@@ -61,6 +61,12 @@ public actor DaemonConnection {
 
     /// Identity of the current (or last) daemon.
     public private(set) var identity: DaemonIdentity?
+    #if DEBUG || CMUX_BENCH_HOOKS
+    /// Ready connections the daemon dropped without `daemon-shutdown` (it crashed or was killed), since this
+    /// connection was made: the oracle's `crashes.daemon` (p15-oracle-188). A requested stop says
+    /// `daemon-shutdown` first and a close by the app is not a drop, so neither counts.
+    public private(set) var droppedWithoutShutdown = 0
+    #endif
     /// The ready connection's `client-hello` `user_origin_allowed` (`HandshakeLines.Replies`); false when not ready.
     public var userOriginAllowed: Bool { if case .ready(let ready) = phase { ready.userOriginAllowed } else { false } }
     public private(set) var endpoint: DaemonEndpoint?
@@ -222,9 +228,9 @@ public actor DaemonConnection {
         do {
             let endpoint = try await endpointProvider()
             DaemonLaunchTimings.shared.mark("daemon.endpoint_resolved")
-            let transport = try LineTransport(path: endpoint.socketPath, bridge: endpoint.bridge,
-                                              role: configuration.role == .pageRelay ? .pageRelay : .control,
-                                              stats: endpoint.wireStats, hangs: configuration.hangWatch)
+            let transport = try await LineTransport.open(path: endpoint.socketPath, bridge: endpoint.bridge,
+                                                         role: configuration.role == .pageRelay ? .pageRelay : .control,
+                                                         stats: endpoint.wireStats, hangs: configuration.hangWatch)
             DaemonLaunchTimings.shared.mark("daemon.socket_connected")
             let gate = EventGate()
             let continuation = continuation
@@ -285,6 +291,9 @@ public actor DaemonConnection {
         guard serial == self.serial else { return }
         if case .closed = phase { return }
         if case .ready = phase {} else if case .connecting = phase {} else { return }
+        #if DEBUG || CMUX_BENCH_HOOKS
+        if case .ready = phase, case .lost = reason { droppedWithoutShutdown += 1 }
+        #endif
         phase = .waiting
         healthy.cancel()
         let detail: String = switch reason {

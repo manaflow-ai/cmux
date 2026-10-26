@@ -183,6 +183,8 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     @ObservationIgnored var deviceEmulationNeedsReset = false
     @ObservationIgnored var faviconTask: Task<Void, Never>?
     @ObservationIgnored private(set) var isClosed = false
+    /// The current document's first content frame (`CEFFirstPaintBridge`, or its load end with nothing painted).
+    @ObservationIgnored let firstContentFrame = BrowserFirstContentFrame()
     @ObservationIgnored private var isOccluded = false
     /// The pane window this tab belongs to. A popup starts in its opener's
     /// Chromium window but belongs to its own popup host from adoption on;
@@ -283,7 +285,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     // `CEFTab+LoadingBackground`.
 
     func creationFailed() {
-        isCreationPending = false
+        (browserID, isCreationPending) = (nil, false)
         agentRelay.resumeWaiters(false)
         let error = BrowserLoadError(domain: "CEF", code: -1, message: Strings.cefUnavailable, failingURL: pendingURL)
         let id = makeNavigationID()
@@ -336,6 +338,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
         // `state.processExit` is laid out shows a white page area for a frame
         // in a dark theme.
         documentDidSettle()
+        firstContentFrame.contentShown() // the sad tab is what a new tab shows
         reloadWhenShown = host.visibleTab !== self
         findRequests.cancel()
         runtime.recordRendererExit(exit, tab: self)
@@ -484,6 +487,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
         guard !isClosed else { return }
         isClosed = true
         agentRelay.resumeWaiters(false)
+        firstContentFrame.closed()
         titleTimer.cancel()
         faviconTask?.cancel()
         dismissPrompts()

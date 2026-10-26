@@ -1,5 +1,6 @@
 import Darwin
 import Foundation
+import CmuxNextWakeups
 
 /// `libcmux_cef_shim_remote.dylib` (task 014 of plans/cmux-next/chrome-parity/p01-process.md): the
 /// in-process shim's C ABI, each export a non-blocking op to the Chromium Host, plus its wire entry
@@ -15,6 +16,11 @@ import Foundation
 /// - `void cmux_remote_shim_detach(void)`: releases the wire it holds (the host is gone, or never
 ///   said hello in time); a later attach serves the next host. A hello still pending runs with
 ///   `attached` 0 before detach returns, on the main thread, and never after. A second detach does nothing.
+/// - `void cmux_remote_shim_set_reply(void* ctx, cmux_remote_reply_fn reply)`: where the host's REPLY
+///   frames go, `reply(ctx, token, fields, length)` on the main thread; attach points it at the
+///   runtime's ``CEFHostReplies`` and detach clears it.
+/// - `uint32_t cmux_remote_shim_last_reply_token(void)`: the REPLY token of the async call this turn
+///   just made; 0 when it sent nothing (task 018).
 ///
 /// Immutable C function pointers and a `dlsym` lookup over a handle that is never closed.
 // crash-allow: every stored property is a let (C function pointers, a dlsym closure over a dlopen handle never closed; dlsym is thread-safe); nothing mutates after make, as in CEFShimLibrary.
@@ -22,11 +28,16 @@ nonisolated struct CEFRemoteShim: @unchecked Sendable {
     typealias HelloFn = @convention(c) (UnsafeMutableRawPointer?, Int32, UnsafePointer<CChar>?) -> Void
     typealias AttachFn = @convention(c) (Int32, Int32, Int32, UnsafeMutableRawPointer?, HelloFn?) -> Int32
     typealias DetachFn = @convention(c) () -> Void
+    typealias ReplyFn = @convention(c) (UnsafeMutableRawPointer?, UInt32, UnsafeRawPointer?, Int) -> Void
+    typealias SetReplyFn = @convention(c) (UnsafeMutableRawPointer?, ReplyFn?) -> Void
+    typealias LastReplyTokenFn = @convention(c) () -> UInt32
 
     /// Resolves the remote dylib's symbols by name (the shim's C ABI, after the host's hello).
     let symbol: (String) -> UnsafeMutableRawPointer?
     private let attachFn: AttachFn
     private let detachFn: DetachFn
+    private let setReplyFn: SetReplyFn
+    private let lastReplyTokenFn: LastReplyTokenFn
 
     /// Checks the dylib's ABI identity against `expected`, as ``CEFShimLibrary/open(_:expected:)``
     /// checks the in-process shim, and that it exports the wire entry points and every required
@@ -40,7 +51,8 @@ nonisolated struct CEFRemoteShim: @unchecked Sendable {
         try CEFShimLibrary.checkABI(expected: expected, found: abiID().map { String(cString: $0) })
         _ = try CEFShimLibrary.resolving(symbol, hostExports: [])
         return CEFRemoteShim(symbol: symbol, attachFn: try resolve("cmux_remote_shim_attach"),
-                             detachFn: try resolve("cmux_remote_shim_detach"))
+                             detachFn: try resolve("cmux_remote_shim_detach"), setReplyFn: try resolve("cmux_remote_shim_set_reply"),
+                             lastReplyTokenFn: try resolve("cmux_remote_shim_last_reply_token"))
     }
 
     /// Opens the remote dylib the attachment names (off the main thread: `dlopen` holds dyld's lock).
@@ -56,9 +68,17 @@ nonisolated struct CEFRemoteShim: @unchecked Sendable {
         }
     }
 
-    /// Releases the host's wire that ``attach(_:helloDeadline:clock:)`` gave the shim.
+    /// Releases the host's wire that ``attach(_:replies:helloDeadline:clock:)`` gave the shim, and
+    /// its reply sink.
     func detach() {
         detachFn()
+        setReplyFn(nil, nil)
+    }
+
+    /// The REPLY token of the async shim call this turn just made (0: it sent nothing).
+    @MainActor
+    func lastReplyToken() -> UInt32 {
+        lastReplyTokenFn()
     }
 
     /// Hands the host's wire to the remote shim and returns, once the host's hello is in, the
@@ -66,19 +86,24 @@ nonisolated struct CEFRemoteShim: @unchecked Sendable {
     /// are closed here), the host ended first (the shim closed them), or no hello came within
     /// `helloDeadline` on `clock` (the shim is detached), as Chrome gives up on a GPU channel the
     /// GPU process never establishes (content/browser/gpu/browser_gpu_channel_host_factory.cc).
+    /// The host's REPLY frames go to `replies` from here until ``detach()``; whoever holds this
+    /// attach keeps `replies` alive that long (``CEFHostStart`` owns both).
     @MainActor
-    func attach(_ attachment: ChromiumHostAttachment, helloDeadline: Duration,
+    func attach(_ attachment: ChromiumHostAttachment, replies: CEFHostReplies, helloDeadline: Duration,
                 clock: any Clock<Duration>) async -> Result<Set<String>, CEFRuntime.BootError> {
         let hello = CEFRemoteHello()
         let context = Unmanaged.passRetained(hello).toOpaque()
+        setReplyFn(Unmanaged.passUnretained(replies).toOpaque(), CEFRemoteReplySink.callback)
         guard attachFn(attachment.controlFD, attachment.inputRingFD, attachment.outputRingFD, context, CEFRemoteHello.callback) == 1 else {
+            setReplyFn(nil, nil)
             Unmanaged<CEFRemoteHello>.fromOpaque(context).release()
             attachment.closeDescriptors()
             return .failure(.host("the remote shim refused the host's wire"))
         }
         let deadline = Task { [self] in
-            // wakeup-allow: one-shot hello deadline on the injected clock, cancelled when the hello arrives
-            do { try await clock.sleep(for: helloDeadline) } catch { return }
+            // wakeup-allow: deadline of the host's hello, raced against the hello in attach(), which awaits the outcome
+            // and cancels it; not a DemandTimer; injected clock
+            do { try await clock.sleep(for: helloDeadline, tolerance: WakeLeeway.window(delay: helloDeadline).tolerance) } catch { return }
             // Detach runs the pending hello with 0, which releases its context; none comes after.
             if hello.finish(.timedOut) { detach() }
         }
@@ -93,7 +118,7 @@ nonisolated struct CEFRemoteShim: @unchecked Sendable {
 }
 
 /// One attach's hello: the first outcome wins (the host's hello, its end, or the deadline);
-/// ``CEFRemoteShim/attach(_:helloDeadline:clock:)`` awaits it.
+/// ``CEFRemoteShim/attach(_:replies:helloDeadline:clock:)`` awaits it.
 private final class CEFRemoteHello {
     nonisolated enum Outcome: Equatable, Sendable {
         case attached(Set<String>)
@@ -128,6 +153,19 @@ private final class CEFRemoteHello {
         let outcome: Outcome = attached == 1 ? .attached(Set(names.split(separator: "\n").map(String.init))) : .ended
         MainActor.assumeIsolated { // main-proof: cmux_remote_shim_attach's contract runs hello on the main thread
             _ = hello.finish(outcome)
+        }
+    }
+}
+
+/// The host's REPLY frames into a ``CEFHostReplies`` (``CEFRemoteShim/attach(_:replies:helloDeadline:clock:)``).
+private struct CEFRemoteReplySink {
+    /// C entry: runs on the main thread (remote_shim_runtime.h `cmux_remote_reply_fn`) with the
+    /// table as its context, and only copies the fields, which are valid during the call alone.
+    static let callback: CEFRemoteShim.ReplyFn = { context, token, fields, length in
+        guard let context else { return }
+        let body = fields.map { Array(UnsafeRawBufferPointer(start: $0, count: max(length, 0))) } ?? []
+        MainActor.assumeIsolated { // main-proof: cmux_remote_reply_fn runs on the main thread (remote_shim_runtime.h)
+            _ = Unmanaged<CEFHostReplies>.fromOpaque(context).takeUnretainedValue().resolve(token, fields: body)
         }
     }
 }
