@@ -1445,7 +1445,7 @@ async fn dispatch_request(
             let filter = crate::hub::EventFilter::parse(params.get("kinds"))?;
             let event_stream = params.get("eventStream").and_then(Value::as_bool).unwrap_or(false);
             let hidden = params.get("visible") == Some(&Value::Bool(false));
-            view::attach(hub, conn, &s, SubOpts { event_stream, filter: filter.clone(), hidden });
+            view::attach(hub, conn, &s, SubOpts { event_stream, filter: filter.clone(), hidden, remote: false });
             let after = params.get("afterSeq").and_then(Value::as_u64);
             let before = params.get("beforeSeq").and_then(Value::as_u64);
             let limit = params.get("limit").and_then(Value::as_u64).unwrap_or(2000) as usize;

@@ -77,7 +77,7 @@ pub(super) fn typing(hub: &Hub, conn: &Conn, params: &Value) -> Result<Value, Rp
         return Err(crate::hub::presence::peer_unsupported());
     }
     let subs = conn.subs.lock().unwrap_or_else(|e| e.into_inner());
-    if !subs.contains_key(&s.id) || !open(conn) {
+    if subs.get(&s.id).is_none_or(|opts| opts.remote) || !open(conn) {
         return Err(RpcError::invalid_params("attach to the session before _acpmux/typing"));
     }
     hub.presence.typing(&s.id, &conn.id, &Who::of(author.as_ref()), on)?;
