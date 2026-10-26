@@ -253,6 +253,7 @@ fn snapshot(hub: &Hub) -> Vec<Watch> {
 async fn page(hub: &Hub, id: &str, key: &str) -> Result<bool, RpcError> {
     #[cfg(test)]
     let read_hook = READ_HOOK.get_or_init(Mutex::default).lock().unwrap().clone();
+    #[cfg(test)]
     if let Some(read) = read_hook {
         return read(key.to_owned()).await;
     }
@@ -413,7 +414,7 @@ mod tests {
         *READ_HOOK.get_or_init(Mutex::default).lock().unwrap()=Some(hook); let workers:Vec<_>=(0..REMOTE_WORKERS).map(|_|tokio::spawn(remote_worker(hub.clone()))).collect();
         tokio::time::timeout(Duration::from_secs(5),started.notified()).await.unwrap(); hub.watches.jobs.lock().unwrap().enqueue("peer/session-0".into());
         for _ in 0..5000{if hub.watches.jobs.lock().unwrap().pending.is_empty()&&active.load(Ordering::SeqCst)==0{break;}sleep(Duration::from_millis(1)).await;} for worker in workers{worker.abort();}
-        let reads=reads.lock().unwrap(); let mut expected=keys;expected.push("peer/session-0".into());let mut actual=reads.clone();actual.sort();expected.sort(); assert_eq!(actual,expected); assert!(maximum.load(Ordering::SeqCst)<=REMOTE_WORKERS);
+        let mut expected=keys;expected.push("peer/session-0".into());let mut actual=reads.lock().unwrap().clone();actual.sort();expected.sort(); assert_eq!(actual,expected); assert!(maximum.load(Ordering::SeqCst)<=REMOTE_WORKERS);
         *READ_HOOK.get_or_init(Mutex::default).lock().unwrap()=None; hub.shutdown_all().await;
     }
 }
