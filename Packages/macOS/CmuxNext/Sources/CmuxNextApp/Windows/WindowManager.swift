@@ -85,9 +85,7 @@ final class WindowManager {
     /// A restored window is entering full screen (one at a time).
     var fullScreenRestoreRunning = false
     var onFirstWindow: ((WindowController) -> Void)?
-    /// Runs once, when the launch's session restore finished (the saved windows are back, the
-    /// launch window adopted or closed): the startup phase's restore reference.
-    var onRestored: (() -> Void)?
+    private var restoreWaiters: [() -> Void]? = []
     /// A window installed workspace content (links opened at launch wait for it).
     var onContentDidAppear: ((WindowController) -> Void)?
     /// One-shot work for a workspace a reveal is still mounting, by window
@@ -192,6 +190,9 @@ final class WindowManager {
         }
     }
 
+    /// Runs `work` once the launch's session restore finished (the saved windows back, the launch window adopted or closed).
+    func whenRestored(_ work: @escaping () -> Void) { if restoreWaiters == nil { work() } else { restoreWaiters?.append(work) } }
+
     private func restore() async {
         guard !restored else { return }
         restored = true
@@ -253,11 +254,10 @@ final class WindowManager {
         fullScreenRestoreReady = true
         enterRestoredFullScreens()
         FirstWorkspaceLaunch(manager: self).land(firstWorkspace) // its New Tab page, not Home
-        let restoredHook = onRestored
-        onRestored = nil
-        restoredHook?()
-        // Classic cmux's session comes over once, after restore so the restored
-        // registry never overwrites where its workspaces land.
+        let waiting = restoreWaiters ?? []
+        restoreWaiters = nil
+        for work in waiting { work() }
+        // Classic cmux's session comes over once, after restore so the restored registry never overwrites where its workspaces land.
         let onboarding = AppOnboardingServices(owner: services.onboarding)
         Task { await onboarding.migrateClassicAtLaunch(firstWorkspace: firstWorkspace) }
     }

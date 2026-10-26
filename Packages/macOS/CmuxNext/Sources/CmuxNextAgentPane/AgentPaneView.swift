@@ -59,6 +59,7 @@ public final class AgentPaneView: NSView {
     private let openPanel: MadeAheadOpenPanel?
     /// The page's file chooser over ``openPanel`` (the web view holds its UI delegate weakly).
     private let fileChooser: PageOpenPanel?
+    let warmup: AgentPageWarmup? // the app's agent page WebKit warm-up (init's `warmup`)
     /// On the shared page host (`cmux-page://cmux.agent/`, the `agent.pageHost` tunable): the page
     /// view and the provider that answers its calls and carries the host's pushes. Nil on the old
     /// host (`cmux-agent://pane`, deleted with P5 of the agent pane move).
@@ -134,15 +135,14 @@ public final class AgentPaneView: NSView {
     ///     dev-server page stays.
     ///   - openPanel: The app's made-ahead open panel (`AppServices.openPanel`) for Add Files, Attach and a page's
     ///     file input, warmed when the pane reaches a window; nil (tests) shows no file picker and warms none.
+    ///   - warmup: The app's agent page WebKit warm-up (`AppServices.agentPageWarmup`), which this page replaces.
     public init?(model: AgentPaneModel, source: AgentPaneSource? = nil, renderRate: AgentPaneRenderRate = .capped,
-                 pageHost: WebUIHost? = nil, openPanel: MadeAheadOpenPanel? = nil) {
+                 pageHost: WebUIHost? = nil, openPanel: MadeAheadOpenPanel? = nil, warmup: AgentPageWarmup? = nil) {
         guard let source = source ?? Self.bundledPage.map({ AgentPaneSource.bundled($0) }) else { return nil }
         self.openPanel = openPanel
         fileChooser = openPanel.map { PageOpenPanel(openPanel: $0) }
-        self.model = model
-        self.source = source
-        self.renderRate = renderRate
-        Self.warmupNoLongerNeeded = true
+        (self.model, self.source, self.renderRate, self.warmup) = (model, source, renderRate, warmup)
+        warmup?.agentPageMade()
         let webView: WKWebView
         if let pageHost, case .bundled(let index) = source {
             let provider = AgentPageProvider { [weak model] _ in model }

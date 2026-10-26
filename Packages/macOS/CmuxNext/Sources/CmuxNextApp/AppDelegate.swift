@@ -161,7 +161,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         references.watchUnavailable { [daemon = services.daemon] in daemon.startup.isUnavailable }
         services.cache.presentationChanges.subscribe("startup-references") { [weak references] in references?.noteContentChange() }
         let windows = services.windows
-        windows.onRestored = { [weak references, weak windows] in
+        windows.whenRestored { [weak references, weak windows] in
             references?.restored { [weak windows] in windows?.visiblePageLoad() ?? .idle }
         }
         // Hangs, lag spikes and opt-in hang reports (WatchdogReporting); the controller lives with the process.
@@ -192,7 +192,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         DebugTimings.markLaunch("dfl.menu")
         logger.info("unbound catalog actions: \(services.registry.unboundActionIDs().count)")
         WindowActivation.activateApp()
-        launchSettle.install(daemon: services.daemon)
+        launchSettle.install(daemon: services.daemon, warmup: services.agentPageWarmup)
         daemonPrompts = DaemonPrompts.start(services)
         services.daemon.start(launch: environment.launch, terminalEnvironment: environment.terminalEnvironment,
                               terminalEnvironmentProvider: environment.terminalEnvironmentProvider(),
