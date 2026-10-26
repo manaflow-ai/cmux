@@ -810,6 +810,25 @@ mod tests {
         eprintln!("passed: HOME bind keeps its pinned source after a symlink swap");
     }
 
+    #[test]
+    fn regression_denied_resolution_stays_pinned_across_ancestor_swap() {
+        use std::os::unix::fs::symlink;
+        let f = Fixture::new();
+        let p = f.create_paths();
+        let codex = p.home.join(".codex");
+        let saved = p.home.join(".codex.saved");
+        fs::create_dir(&codex).unwrap();
+        fs::write(codex.join("auth.json"), "credential").unwrap();
+        let denied_path = codex.join("auth.json");
+        let (denied, outside) = denied_paths(&p.home, std::slice::from_ref(&denied_path)).unwrap();
+        assert!(outside.is_empty());
+        fs::rename(&codex, &saved).unwrap();
+        symlink(".codex.saved", &codex).unwrap();
+        let (view, _fds) = home_view(&p.home, &denied).unwrap();
+        let leaked = saved.join("auth.json").to_str().unwrap().to_owned();
+        assert!(!view.iter().any(|arg| arg == &leaked), "view={view:?} denied={denied:?}");
+    }
+
     /// The child is killed on the 20-second deadline. Shell loops exhaust
     /// finite /proc snapshots and network tables; no background jobs are made.
     #[tokio::test]
