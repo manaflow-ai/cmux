@@ -142,9 +142,7 @@ final class CmuxApplication: NSApplication, CEFAppProtocol {
         if let inputQueueing, let dispatchedNanos, Self.measuresQueueing(event.type, synthetic: currentEventIsSynthetic) {
             inputQueueing.noteInputDispatch(eventTimestamp: event.timestamp, dispatchedNanos: dispatchedNanos)
         }
-        if let inputTap { BenchSpans.measure("app.inputTap.observe") { inputTap.deliverObserve(event) } }
-        // Pending moves and scrolls run before a key or click is handled (Chromium's ShouldFlushQueue).
-        frameInput.willDispatch(event.type)
+        Self.deliverObserveStage(event, tap: inputTap, frameInput: frameInput)
         let previous = handlingSendEvent
         handlingSendEvent = true
         defer { handlingSendEvent = previous }
@@ -152,6 +150,13 @@ final class CmuxApplication: NSApplication, CEFAppProtocol {
         if event.type == .keyDown, let crossWindowKeyGuard, crossWindowKeyGuard(event, keyWindow) { return }
         guard let dispatchScope, Self.scopesDispatch(event.type) else { return dispatch(event) }
         dispatchScope(event) { dispatch(event) }
+    }
+
+    /// The observe stage of one event: pending moves and scrolls run before a key, click or gesture,
+    /// and before any tap observer sees it (Chromium's ShouldFlushQueue), then the tap's observers.
+    static func deliverObserveStage(_ event: NSEvent, tap: InputEventTap?, frameInput: FrameInputCoalescers) {
+        frameInput.willDispatch(event.type)
+        if let tap { BenchSpans.measure("app.inputTap.observe") { tap.deliverObserve(event) } }
     }
 
     /// The input events whose queueing is measured: the user's own keys, clicks and wheel (Chromium's

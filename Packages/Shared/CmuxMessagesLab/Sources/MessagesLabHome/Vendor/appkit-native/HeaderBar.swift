@@ -253,7 +253,7 @@ final class HeaderBar: NSObject, NSToolbarDelegate {
             ctx.translateBy(x: -294, y: -8)
             // drawOverlay draws the whole header overlay; the clip keeps the
             // avatar's 40 x 40 pt.
-            HeaderView.drawOverlay(ctx, CGRect(x: 0, y: 0, width: Fixture.windowWidth, height: Fixture.headerHeight))
+            HeaderView.drawOverlay(ctx, CGRect(x: 0, y: 0, width: Fixture.windowWidth, height: Fixture.headerHeight), title: name)
             ctx.restoreGState()
             return true
         }
@@ -290,7 +290,8 @@ private final class AvatarHolder: NSView {
         shadowView.setAccessibilityElement(false)
     }
     required init?(coder: NSCoder) { fatalError() }
-    deinit { imageView.removeFromSuperview(); shadowView.removeFromSuperview(); lane.removeFromSuperview() }
+    // cmux: no deinit (it ran main-actor view calls off the actor): leaving the window takes the disc, its
+    // shadow and its lane out of the titlebar (viewDidMoveToWindow -> place()).
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         place()

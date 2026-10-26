@@ -2,6 +2,7 @@
 //! daemon's `trace-start`, `trace-stop` and `trace-status` reach every live
 //! terminal host through its surface's admin connection.
 
+use std::sync::PoisonError;
 use std::time::Instant;
 
 use cmux_trace::ControlOp;
@@ -39,7 +40,7 @@ impl Surface {
         admit: &mut dyn FnMut() -> bool,
     ) -> Option<HostTraceCall> {
         let pty = self.as_pty()?;
-        let runtime = pty.runtime.lock().unwrap();
+        let runtime = pty.runtime.lock().unwrap_or_else(PoisonError::into_inner);
         let PtyRuntime::Hosted(host) = &*runtime else {
             return None;
         };

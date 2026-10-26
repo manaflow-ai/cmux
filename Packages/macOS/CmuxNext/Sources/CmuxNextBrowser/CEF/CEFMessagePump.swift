@@ -1,11 +1,12 @@
 import CmuxNextInputCore
+import CmuxNextSignposts
 import CmuxNextWakeups
 import CoreFoundation
 import Foundation
-import os
 
 /// Drives `CefDoMessageLoopWork` on the main thread when CEF asks for it
-/// (`OnScheduleMessagePumpWork`), in common modes, so it keeps running during
+/// (`OnScheduleMessagePumpWork`, and the fork's absolute `cmux_on_schedule_delayed`
+/// where it has one), in common modes, so it keeps running during
 /// menu tracking, live resize and modal panels. `CEFPumpSchedule` decides each
 /// fire date: the pump wakes only when CEF (or cmux) asks.
 ///
@@ -32,6 +33,12 @@ import os
 /// fired (``LedgerReason``), as Chrome's `MessagePumpCFRunLoopBase` tells its wakes apart by what woke
 /// it (`RunDelayedWorkTimer` or `RunWorkSource`, base/message_loop/message_pump_apple.mm). The deadline
 /// queue records no `deadline` for the pump's entries (``MainWakeUpQueue/LedgerReason/recordedByAction``).
+///
+/// Each pass is one `cef.pump` slice (``Signposter/beginCEFPump(reasonCode:)``): the reason it runs, whether it
+/// used CEF's whole time slice and its time, like Chrome's `ThreadControllerWithMessagePumpImpl::DoWork` trace
+/// event (base/task/sequence_manager/thread_controller_with_message_pump_impl.cc). The ring takes it only during a
+/// recording (``SignpostName/cefPump``), never in the black box. Only the in-process pump
+/// emits it: with the Chromium host on there is no pump in the app, and the host emits its own (p09 task 104).
 final class CEFMessagePump {
     /// The wakeup ledger owner of every pump wake.
     nonisolated static let ledgerOwner = "CEFMessagePump"
@@ -46,12 +53,26 @@ final class CEFMessagePump {
         case kept
         /// A fire while a pass was running (a nested run loop); the outer pass runs the pump again.
         case reentered
+
+        /// The reason's number in a `cef.pump` begin record (`arg0`): fixed and nonzero, so 0 is a pass no timer
+        /// armed (the quit path's drain). A reentered fire runs no pass; 4 marks the pass that runs it after the
+        /// outer pass returns.
+        var traceCode: UInt64 {
+            switch self {
+            case .now: 1
+            case .delayed: 2
+            case .kept: 3
+            case .reentered: 4
+            }
+        }
     }
 
     private let work: () -> Void
     private let timer: any CEFPumpTimer
     private let clock: () -> TimeInterval
     private let ledger: WakeupLedger
+    /// Takes each pass's `cef.pump` interval.
+    private let signposter: Signposter
     private var schedule: CEFPumpSchedule
     private var isRunning = false
     private var counters = CEFPumpStats()
@@ -68,7 +89,7 @@ final class CEFMessagePump {
     /// An input to a Chromium page was dispatched with a pass due: the next fire runs it whatever input
     /// is pending, at once.
     private var chromiumInputPass = false
-    private var earlyPassWatch = CEFPumpStats.EarlyPassWatch()
+    private var earlyPassWatch: CEFPumpStats.EarlyPassWatch
     /// What Chromium threads ask whether a delayed request must wake the main thread.
     let gate: CEFPumpCrossThreadGate
 
@@ -81,16 +102,23 @@ final class CEFMessagePump {
     /// `timer`: a `CEFWakeUpQueuePumpTimer` on the app's deadline queue (tests
     /// fire a fake by hand). `clock` is monotonic seconds (tests inject one).
     /// `starvation`: the app's rendering starvation guard; `CEFRuntime` passes
-    /// none until the pump is on the main-thread board (p06-scheduler task 048).
+    /// none until the pump is on the main-thread board (p06-scheduler task 048). `signposter`: the `cef`
+    /// category's (tests pass one on their own trace runtime). `absoluteRunTimes`: CEF sends delayed work
+    /// as the fork's absolute run times (``request(runTimeNanos:leewayNanos:precise:fromChromiumThread:)``),
+    /// which decides how ``CEFPumpStats/earlyPasses`` tells an early pass.
     init(
         work: @escaping () -> Void,
         timer: any CEFPumpTimer,
         clock: @escaping () -> TimeInterval = CEFMessagePump.uptime,
         ledger: WakeupLedger = .shared,
         gate: CEFPumpCrossThreadGate = CEFPumpCrossThreadGate(),
-        starvation: RenderStarvationGuard? = nil
+        starvation: RenderStarvationGuard? = nil,
+        signposter: Signposter = .cef,
+        absoluteRunTimes: Bool = false
     ) {
+        earlyPassWatch = CEFPumpStats.EarlyPassWatch(absoluteRunTimes: absoluteRunTimes)
         self.work = work
+        self.signposter = signposter
         self.starvation = starvation
         self.timer = timer
         self.clock = clock
@@ -147,6 +175,19 @@ final class CEFMessagePump {
         enqueue(milliseconds: milliseconds)
     }
 
+    /// Main thread: a fork `cmux_on_schedule_delayed` request (``CEFPumpSchedule/request(runTimeNanos:leewayNanos:precise:)``):
+    /// CEF's next delayed work at an absolute uptime with Chromium's leeway. It is always a delayed
+    /// request, never "now". `fromChromiumThread` as for ``request(milliseconds:fromChromiumThread:)``.
+    func request(runTimeNanos: Int64, leewayNanos: Int64, precise: Bool, fromChromiumThread: Bool = false) {
+        guard isRunning else { return }
+        if let runTime = CEFPumpSchedule.runTime(nanos: runTimeNanos) {
+            if !fromChromiumThread { earlyPassWatch.request(runTime: runTime) }
+            counters.delayedRequests += 1
+        }
+        schedule.request(runTimeNanos: runTimeNanos, leewayNanos: leewayNanos, precise: precise)
+        rearm()
+    }
+
     /// Main thread: cmux changed CEF state outside a CEF callback and wants
     /// the result processed on the next run loop pass. It is no CEF re-ask (``CEFPumpStats/earlyPasses``).
     func scheduleNow() {
@@ -156,7 +197,6 @@ final class CEFMessagePump {
 
     private func enqueue(milliseconds: Int64) {
         if milliseconds <= 0 { counters.immediateRequests += 1 } else { counters.delayedRequests += 1 }
-        pumpMark("pump-req-\(min(milliseconds, 9_999))")
         schedule.request(milliseconds: milliseconds, now: clock())
         rearm()
     }
@@ -242,10 +282,13 @@ final class CEFMessagePump {
     /// `reason`: the timer fire that runs this pass; nil for the quit path's drain.
     private func fire(for reason: LedgerReason? = nil) {
         guard isRunning else { return }
+        // The fire date this pass serves, read before kept requests merge (none of them armed it).
+        let served = reason == .delayed || reason == .kept ? schedule.nextWake.map(\.deadline).flatMap { $0.isFinite ? $0 : nil } : nil
         // Before any work: no request is kept against a fire that is already running, and those
         // kept until now join the schedule (rearm() publishes again after the pass).
         mergeKeptRequests()
         let started = clock()
+        let traceReason: LedgerReason? = schedule.servesDeferredFire ? .reentered : reason
         guard schedule.beginWork(now: started) else {
             // CefDoMessageLoopWork re-entered through a nested run loop (menu,
             // modal panel). The outer pass runs the pump again when it returns.
@@ -257,17 +300,14 @@ final class CEFMessagePump {
         inputHoldDeadline = nil
         chromiumInputPass = false
         input?.holdEnded()
-        earlyPassWatch.passBegan(servesFireDate: reason == .delayed || reason == .kept)
+        earlyPassWatch.passBegan(serving: served, at: started)
         rearm()
-        pumpMark("pump-start")
+        let interval = signposter.beginCEFPump(reasonCode: traceReason?.traceCode ?? 0)
         work()
-        pumpMark("pump-end")
-        let finished = clock()
-        let elapsed = finished - started
-        counters.workRuns += 1
-        counters.workSeconds += elapsed
-        if elapsed >= CEFPumpSchedule.timeSlice { counters.longWorkRuns += 1 }
-        if earlyPassWatch.passEnded(usedWholeSlice: elapsed >= CEFPumpSchedule.timeSlice) { counters.earlyPasses += 1 }
+        let elapsed = clock() - started
+        let longRun = counters.recordWorkRun(elapsed: elapsed)
+        signposter.endCEFPump(interval, longRun: longRun, elapsedMicros: UInt64(max(0, elapsed) * 1e6))
+        if earlyPassWatch.passEnded(usedWholeSlice: longRun) { counters.earlyPasses += 1 }
         if input != nil { counters.passTimes.record(nanos: UInt64(max(0, elapsed) * 1e9)) }
         schedule.endWork()
         rearm()
@@ -303,38 +343,6 @@ final class CEFMessagePump {
     /// schedule: no later than the earliest of them.
     private func mergeKeptRequests() {
         guard let earliest = gate.take() else { return }
-        schedule.requestNoLater(than: TimeInterval(earliest) / 1e9)
+        schedule.requestNoLater(than: TimeInterval(earliest) / 1e9, now: clock())
     }
-}
-
-/// C entry for `OnScheduleMessagePumpWork`. `ctx` is the unretained
-/// `CEFRuntime`, which lives for the rest of the process once started.
-let cefScheduleCallback: CEFShimLibrary.ScheduleFn = { context, delayMilliseconds in
-    guard let context else { return }
-    let address = UInt(bitPattern: context)
-    let fromChromiumThread = !Thread.isMainThread
-    if fromChromiumThread,
-       let gate = CEFRuntime.pumpGate(at: address),
-       !gate.admit(delayMilliseconds: delayMilliseconds, nowNanos: clock_gettime_nsec_np(CLOCK_UPTIME_RAW)) {
-        return // kept for the main thread's next pass or re-arm, with no wake (CEFPumpCrossThreadGate)
-    }
-    let deliver: @Sendable () -> Void = {
-        MainActor.assumeIsolated { // main-proof: deliver runs only in the Thread.isMainThread branch or as a CFRunLoopGetMain() block (below)
-            CEFRuntime.from(address)?.pump?.request(milliseconds: delayMilliseconds, fromChromiumThread: fromChromiumThread)
-        }
-    }
-    if Thread.isMainThread {
-        deliver()
-    } else {
-        CFRunLoopPerformBlock(CFRunLoopGetMain(), CFRunLoopMode.commonModes.rawValue, deliver)
-        CFRunLoopWakeUp(CFRunLoopGetMain())
-    }
-}
-
-/// Tab switch timeline marks (cx-asb1): each pump pass and CEF request with
-/// wall-clock ms. Debug level: nothing is formatted or written unless a
-/// `log stream --level debug` reads category "tab-switch".
-private let pumpLog = Logger(subsystem: "com.cmuxterm.app.next", category: "tab-switch")
-private func pumpMark(_ name: @escaping @autoclosure () -> String) {
-    pumpLog.debug("tab-switch \(name(), privacy: .public) \(Date().timeIntervalSince1970 * 1_000, format: .fixed(precision: 3), privacy: .public)")
 }

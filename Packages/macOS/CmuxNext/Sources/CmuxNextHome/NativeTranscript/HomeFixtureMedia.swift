@@ -1,5 +1,7 @@
 #if DEBUG || CMUX_BENCH_HOOKS
 import AVFoundation
+import CmuxNextCompat
+import CmuxNextWakeups
 import CoreGraphics
 import Foundation
 import ImageIO
@@ -9,16 +11,19 @@ import UniformTypeIdentifiers
 /// spot: a photo, a two-second video and a one-page PDF. The fixture's
 /// `HomeStore` prepares and sends them through the mock owner.
 nonisolated enum HomeFixtureMedia {
-    /// A generated photo, a two-second video and a one-page PDF in a fresh temporary folder.
-    static func make() async throws -> [URL] {
+    /// A generated photo, a two-second video and a one-page PDF in a fresh temporary folder. The folder,
+    /// the photo and the PDF are written on `work`'s files lane; the video's writer runs on its own queue.
+    static func make(on work: BackgroundWork) async throws -> [URL] {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent("cmux-home-fixture-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         let photo = dir.appendingPathComponent("Harbor at dusk.png")
-        try writePNG(width: 1200, height: 900, to: photo, hue: 0.08)
         let video = dir.appendingPathComponent("Build replay.mp4")
-        try await writeVideo(to: video, width: 640, height: 360, frames: 60)
         let pdf = dir.appendingPathComponent("Quarterly review.pdf")
-        try writePDF(to: pdf)
+        try await work.run(.userVisible, mayBlock: .files) {
+            try FileManager.checked.createDirectory(at: dir, withIntermediateDirectories: true)
+            try Self.writePNG(width: 1200, height: 900, to: photo, hue: 0.08)
+            try Self.writePDF(to: pdf)
+        }
+        try await writeVideo(to: video, width: 640, height: 360, frames: 60)
         return [photo, video, pdf]
     }
 

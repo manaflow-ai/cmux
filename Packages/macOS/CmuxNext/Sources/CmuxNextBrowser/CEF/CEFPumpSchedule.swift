@@ -1,3 +1,4 @@
+import CmuxNextWakeups
 import Foundation
 
 /// When the external message pump must call `CefDoMessageLoopWork` next.
@@ -12,20 +13,34 @@ import Foundation
 /// wakeups. Fork API 7 (cef-154.0.28-cmux.7) made `MessagePumpExternal`
 /// ask for "now" when its slice ends with work left and report its next
 /// delayed task; an older fork still runs, demand-only (`CEFRuntime` logs it).
+///
+/// A fork with `cmux_set_on_schedule_delayed` (p14-energy-046) sends delayed work as an absolute
+/// run time with Chromium's leeway and policy instead (``request(runTimeNanos:leewayNanos:precise:)``),
+/// as `MessagePumpCFRunLoopBase::ScheduleDelayedWork` arms its timer at `delayed_run_time` with
+/// tolerance `next_work_info.leeway` under `kTimerSlackMac`. The whole-millisecond request truncated
+/// the delay against a stale `recent_now`: a 7.9 ms task fired at 7 ms, found nothing due, and the
+/// re-ask truncated to 0, "now" (``CEFPumpStats/earlyPasses``). An older fork keeps that path.
 nonisolated struct CEFPumpSchedule: Equatable, Sendable {
     /// CEF's `max_time_slice` for one `CefDoMessageLoopWork` call.
     static let timeSlice: TimeInterval = 0.010
     /// The first fork API whose `MessagePumpExternal` is demand-driven.
     static let demandDrivenForkAPI: Int32 = 7
-    /// Leeway of a delayed request: Chromium's own default for delayed tasks
-    /// (base's `kDefaultLeeway`, 8 ms), so the system can coalesce the wake
-    /// with others (an idle browser asks about 1.7 times a second). Never more
-    /// than a tenth of the delay; a request for "now" stays exact.
+    /// Leeway of a whole-millisecond delayed request: Chromium's own default for delayed tasks
+    /// (base's `kDefaultLeeway`, 8 ms), so the system can coalesce the wake with others (an idle
+    /// browser asks about 1.7 times a second). Never more than a tenth of the delay; a request for
+    /// "now" stays exact.
     static let delayedLeeway: TimeInterval = 0.008
+    /// A whole-millisecond request shorter than this is exact: it carries no policy, so it is treated
+    /// as a precise task (`DelayPolicy.maxPreciseDelay`, Chrome's `kDefaultMaxPreciseDelay`).
+    static let exactBelow: TimeInterval = {
+        let (seconds, attoseconds) = DelayPolicy.maxPreciseDelay.components
+        return TimeInterval(seconds) + TimeInterval(attoseconds) / 1e18
+    }()
 
     /// The next timer fire, in the clock's seconds.
     struct Wake: Equatable, Sendable {
         var deadline: TimeInterval
+        /// How late after `deadline` the fire may come; 0 is exact. The timer uses it as is.
         var tolerance: TimeInterval
     }
 
@@ -33,14 +48,19 @@ nonisolated struct CEFPumpSchedule: Equatable, Sendable {
     /// Work that must run on the next run loop pass.
     private var immediate = false
     private var requestedDeadline: TimeInterval?
-    /// Leeway of `requestedDeadline` (`delayedLeeway`, capped by its delay).
+    /// Leeway of `requestedDeadline`: Chromium's on the absolute path, ``tolerance(ofDelay:)`` on the
+    /// whole-millisecond one.
     private var requestedTolerance: TimeInterval = 0
     /// The earliest Chromium-thread request the gate kept (``CEFPumpCrossThreadGate``). It stays
     /// until a pass at or after it: a later CEF request does not replace it, since that request may
     /// be a stale one posted before the keep.
     private(set) var keptDeadline: TimeInterval?
+    /// Leeway of `keptDeadline`: the gate keeps no policy, so ``tolerance(ofDelay:)`` of its delay.
+    private var keptTolerance: TimeInterval = 0
     /// A timer fire arrived while a pass was running (a nested run loop).
     private var reentered = false
+    /// The next pass runs a fire a nested run loop deferred (set when its pass ended, cleared when the next begins).
+    private(set) var servesDeferredFire = false
 
     /// The next wake, or nil when nothing needs the pump. Always nil while a
     /// pass runs: a nested run loop must not spin on the timer, and the pass
@@ -49,7 +69,7 @@ nonisolated struct CEFPumpSchedule: Equatable, Sendable {
         guard !isWorking else { return nil }
         if immediate { return Wake(deadline: -.infinity, tolerance: 0) }
         guard let deadline = [requestedDeadline, keptDeadline].compactMap({ $0 }).min() else { return nil }
-        return Wake(deadline: deadline, tolerance: deadline == requestedDeadline ? requestedTolerance : Self.delayedLeeway)
+        return Wake(deadline: deadline, tolerance: deadline == requestedDeadline ? requestedTolerance : keptTolerance)
     }
 
     /// An `OnScheduleMessagePumpWork(delay_ms)` request (or cmux's own "pump
@@ -62,13 +82,30 @@ nonisolated struct CEFPumpSchedule: Equatable, Sendable {
         }
         let delay = TimeInterval(milliseconds) / 1_000
         requestedDeadline = now + delay
-        requestedTolerance = min(Self.delayedLeeway, delay / 10)
+        requestedTolerance = Self.tolerance(ofDelay: delay)
+    }
+
+    /// A fork `cmux_on_schedule_delayed` request: CEF's earliest delayed work may run from
+    /// `runTimeNanos` (`CLOCK_UPTIME_RAW` ns, Chromium's `TimeTicks`: this clock's seconds times 1e9;
+    /// `Int64.max` for none) until `leewayNanos` after it. It replaces the earlier delayed request, as a
+    /// whole-millisecond one does, and is never "now": a run time that has passed is due at once.
+    /// Chromium's leeway is the tolerance as is, zero when `precise`: the request carries its policy.
+    mutating func request(runTimeNanos: Int64, leewayNanos: Int64, precise: Bool) {
+        guard let deadline = Self.runTime(nanos: runTimeNanos) else {
+            requestedDeadline = nil
+            requestedTolerance = 0
+            return
+        }
+        requestedDeadline = deadline
+        requestedTolerance = precise ? 0 : TimeInterval(max(0, leewayNanos)) / 1e9
     }
 
     /// A Chromium thread's delayed request that the gate kept (``CEFPumpCrossThreadGate``): a pass
     /// runs no later than `deadline`, whatever CEF requests until then.
-    mutating func requestNoLater(than deadline: TimeInterval) {
-        keptDeadline = min(keptDeadline ?? .infinity, deadline)
+    mutating func requestNoLater(than deadline: TimeInterval, now: TimeInterval) {
+        guard deadline < (keptDeadline ?? .infinity) else { return }
+        keptDeadline = deadline
+        keptTolerance = Self.tolerance(ofDelay: deadline - now)
     }
 
     /// Call before `CefDoMessageLoopWork`. Returns false when a pass is
@@ -82,6 +119,7 @@ nonisolated struct CEFPumpSchedule: Equatable, Sendable {
         isWorking = true
         reentered = false
         immediate = false
+        servesDeferredFire = false
         // The timer and this clock differ by microseconds: a request due
         // within a millisecond is served by this pass.
         if let requested = requestedDeadline, requested <= now + 0.001 { requestedDeadline = nil }
@@ -94,6 +132,24 @@ nonisolated struct CEFPumpSchedule: Equatable, Sendable {
     mutating func endWork() {
         isWorking = false
         if reentered { immediate = true }
+        servesDeferredFire = reentered
         reentered = false
+    }
+
+    /// The tolerance of a delayed request that carries no policy (a whole-millisecond one, or one the
+    /// gate kept): exact below ``exactBelow``, otherwise ``delayedLeeway`` and at most a tenth of `delay`.
+    static func tolerance(ofDelay delay: TimeInterval) -> TimeInterval {
+        delay < exactBelow ? 0 : min(delayedLeeway, delay / 10)
+    }
+
+    /// A fork run time in this clock's seconds; nil for `Int64.max`, no delayed work. A negative one
+    /// (never sent) is due at once.
+    static func runTime(nanos: Int64) -> TimeInterval? {
+        nanos == .max ? nil : TimeInterval(max(0, nanos)) / 1e9
+    }
+
+    /// A fork run time as the gate's uptime nanoseconds; nil for `Int64.max`, no delayed work.
+    static func runTimeNanos(_ nanos: Int64) -> UInt64? {
+        nanos == .max ? nil : UInt64(max(0, nanos))
     }
 }

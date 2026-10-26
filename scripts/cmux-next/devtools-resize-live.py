@@ -2,38 +2,69 @@
 """Live check: dragging the divider of docked Chrome DevTools resizes it, and the size stays
 with the tab (cx-d0d.45, R118).
 
-  scripts/cmux-next/devtools-resize-live.py --tag <tag> [--out DIR] [--app PATH]
+  scripts/cmux-next/devtools-resize-live.py --app APP|--tag <tag> [--out DIR] [--background]
+    [--story devtools-resize-live]
 
-Launches the tagged app, opens a Chromium tab on a local page and its DevTools (docked)
-and drags the divider. By default the app is active and the drag is a real mouse:
-cua-driver's, through the window server, where the Chromium page and DevTools windows
-must leave the divider to cmux (after a click in DevTools, as when using it). With
---background the app is never activated, so its window is not key (a drag on a window
-behind another app's), and the drag is delivered in the app (`debug.mouse`). Checks:
+Launches the tagged app through bench_launch.BenchApp (the bench env, an empty cmux.json, a fresh
+saved session, the tag's daemons ended after), opens a Chromium tab on a local page and its DevTools
+(docked) and drags the divider. By default the app may activate (still an isolated launch:
+CMUX_NEXT_ISOLATED_LAUNCH) and the drag is a real mouse: cua-driver's, through the window server,
+where the Chromium page and DevTools windows must leave the divider to cmux (after a click in
+DevTools, as when using it). With --background the app is never
+activated (CMUX_NEXT_NO_ACTIVATE), so its window is not key (a drag on a window behind another app's),
+and the drag is delivered in the app (`debug.mouse`). Checks:
 
   1. the drag resizes DevTools by about the drag;
   2. a second tab's DevTools takes its own size and the first tab keeps its own;
   3. closing and reopening DevTools keeps the tab's size.
 
-GUI host only (a capture mini). The app is quit and the tag's daemons stopped at the
-end. Exits 1 when a check fails.
+GUI host only (a capture mini). Exits 1 when a check fails. With --story (which needs --background, the
+method its story measures) it also writes, as cmux-perf-result/v1 (resize_bench_report.py), how far each
+drag's new size is from the drag and the failed checks.
 """
-import argparse, base64, functools, glob, http.server, json, os, plistlib, socket, struct, subprocess, sys, tempfile, threading, time
+import argparse, base64, functools, http.server, json, os, struct, subprocess, sys, tempfile, threading, time
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from tag_teardown import TagTeardown  # noqa: E402
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))  # its siblings, also under `python3 -I`
+from bench_launch import ISOLATED_LAUNCH_KEY, BenchApp, bundle_id  # noqa: E402
+import resize_bench_report as results  # noqa: E402
 
-parser = argparse.ArgumentParser()
-parser.add_argument("--tag", required=True)
-parser.add_argument("--out", default=os.environ.get("NX_ARTIFACTS") or tempfile.mkdtemp(prefix="devtools-resize-"))
-parser.add_argument("--app", help="tagged .app (default: found in DerivedData)")
-parser.add_argument("--background", action="store_true", help="never activate the app; drag in the app")
-opts = parser.parse_args()
-os.makedirs(opts.out, exist_ok=True)
-SOCKET = f"/tmp/cmux-debug-{opts.tag}.sock"
 CUA = os.path.expanduser("~/.local/bin/cua-driver")
 DRAG = 120  # points
+WINDOW = (40, 40, 1200, 800)
 failures = []
+drag_errors = []  # per drag: |new size - old size - drag| in points, for result-v1
+# Set by main(): the options and the launched app (BenchApp).
+opts = bench = None
+
+
+def parse(argv=None):
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--app", default=os.environ.get("NX_APP"), help="the tagged app bundle (default $NX_APP)")
+    parser.add_argument("--tag", help="find the app of this tag in DerivedData when --app is not given")
+    parser.add_argument("--out", default=os.environ.get("NX_ARTIFACTS") or tempfile.mkdtemp(prefix="devtools-resize-"))
+    parser.add_argument("--background", action="store_true", help="never activate the app; drag in the app")
+    parser.add_argument("--story", help=f"write result-v1 under this story ({results.DEVTOOLS_STORY})")
+    parser.add_argument("--build-config", choices=["bench", "bench-checks", "release", "debug"],
+                        help="result-v1 build config of a bench-hooks bundle that does not stamp it (BenchApp.record)")
+    parsed = parser.parse_args(argv)
+    parsed.app = results.tagged_app(parsed.app, parsed.tag)
+    if not parsed.app:
+        parser.error("name the tagged app with --app (or $NX_APP), or a --tag a tagged reload built")
+    problem = parsed.story and results.story_problem(parsed.story, "chromium", "light")
+    if problem:
+        parser.error(problem)
+    if parsed.story and not parsed.background:
+        parser.error(f"--story {parsed.story} measures the --background drag (debug.mouse); pass --background")
+    if not parsed.background and not os.path.exists(CUA):
+        parser.error(f"no {CUA}: run on a capture mini, or pass --background")
+    return parsed
+
+
+def launch_env(background):
+    """BenchApp's `env`: --background keeps the bench env's CMUX_NEXT_NO_ACTIVATE=1; a real drag needs an app that
+    may activate, still an isolated launch (bench_launch.shipping_env's pair): the test window frame and screen,
+    no `cmux` shim pointer, no global hot keys, no relaunch at login, no browser import offer."""
+    return None if background else {"CMUX_NEXT_NO_ACTIVATE": None, ISOLATED_LAUNCH_KEY: "1"}
 
 
 def check(ok, what):
@@ -43,22 +74,7 @@ def check(ok, what):
 
 
 def rpc(method, params=None, timeout=30):
-    try:
-        conn = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-        conn.settimeout(timeout)
-        conn.connect(SOCKET)
-        conn.sendall((json.dumps({"id": 1, "method": method, "params": params or {}}) + "\n").encode())
-        buf = b""
-        while not buf.endswith(b"\n"):
-            chunk = conn.recv(1 << 20)
-            if not chunk:
-                break
-            buf += chunk
-        conn.close()
-        reply = json.loads(buf)
-    except (OSError, ValueError) as error:
-        return {"error": str(error)}
-    return reply.get("result") if reply.get("ok") else {"error": reply.get("error")}
+    return bench.rpc(method, params, timeout)
 
 
 def quiet_wait(predicate, seconds):
@@ -128,20 +144,20 @@ def target(now, grow):
 
 def real_drag(now, grow):
     """cua-driver's drag (window-local screenshot pixels)."""
-    found = [w for w in (cua("list_windows", {"pid": app.pid}).get("windows") or []) if w.get("title") == "cmux"]
+    found = [w for w in (cua("list_windows", {"pid": bench.process.pid}).get("windows") or []) if w.get("title") == "cmux"]
     if not found:
         return print("cua-driver lists no cmux window", flush=True)
     window_id = found[0]["window_id"]
-    state = cua("get_window_state", {"pid": app.pid, "window_id": window_id, "include_accessibility_tree": False})
+    state = cua("get_window_state", {"pid": bench.process.pid, "window_id": window_id, "include_accessibility_tree": False})
     width = png_width(state.get("screenshot_png_b64") or "")
     scale = (width / now["window_frame"][2]) if width else 1.0
     titlebar = now["window_frame"][3] - now["content_height"]
     (sx, sy), (ex, ey) = target(now, grow)
-    params = {"pid": app.pid, "window_id": window_id, "from_x": round(sx * scale), "from_y": round((sy + titlebar) * scale),
+    params = {"pid": bench.process.pid, "window_id": window_id, "from_x": round(sx * scale), "from_y": round((sy + titlebar) * scale),
               "to_x": round(ex * scale), "to_y": round((ey + titlebar) * scale), "delivery_mode": "foreground"}
     # A click in DevTools first, as when using it: its window takes key from cmux's.
     tools = now["devtools_frame"]
-    click = {"pid": app.pid, "window_id": window_id, "x": round((tools[0] + tools[2] / 2) * scale),
+    click = {"pid": bench.process.pid, "window_id": window_id, "x": round((tools[0] + tools[2] / 2) * scale),
              "y": round((tools[1] + tools[3] / 2 + titlebar) * scale), "delivery_mode": "foreground"}
     cua("click", click)
     time.sleep(1)
@@ -167,32 +183,9 @@ def serve():
     return f"http://127.0.0.1:{server.server_address[1]}/index.html"
 
 
-APP = opts.app or next(iter(sorted(glob.glob(os.path.expanduser(
-    f"~/Library/Developer/Xcode/DerivedData/*/Build/Products/Debug/cmux DEV {opts.tag}.app")))), None)
-if not APP:
-    sys.exit(f"no tagged app for {opts.tag}")
-with open(os.path.join(APP, "Contents/Info.plist"), "rb") as f:
-    INFO = plistlib.load(f)
-BINARY = os.path.join(APP, "Contents/MacOS", INFO["CFBundleExecutable"])
-# DevTools starts from the last size used (user defaults): start from the default.
-subprocess.run(["defaults", "delete", INFO["CFBundleIdentifier"], "CmuxNextBrowser.devToolsLayout"], capture_output=True)
-SCRATCH = tempfile.mkdtemp(prefix=f"devtools-resize-{opts.tag}-")
-CONFIG = os.path.join(SCRATCH, "cmux.json")
-with open(CONFIG, "w") as f:
-    f.write("{}\n")
-teardown = TagTeardown(APP)
-teardown.install()
-if os.path.exists(SOCKET):
-    os.unlink(SOCKET)
-app = subprocess.Popen([BINARY], env={
-    "HOME": os.environ["HOME"], "USER": os.environ.get("USER", ""), "TMPDIR": os.environ.get("TMPDIR", "/tmp"),
-    "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "CMUX_NEXT_SOCKET_MODE": "automation",
-    "CMUX_NEXT_TEST_WINDOW_SCREEN": "last", "CMUX_NEXT_CONFIG_FILE": CONFIG,
-    "CMUX_NEXT_TEST_WINDOW_FRAME": "40,40,1200,800", **({"CMUX_NEXT_NO_ACTIVATE": "1"} if opts.background else {})},
-    stdout=open(os.path.join(opts.out, "app.log"), "w"), stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL)
-print(f"app pid {app.pid}, out {opts.out}", flush=True)
-try:
-    wait_for(lambda: os.path.exists(SOCKET) and "error" not in (rpc("debug.focus") or {"error": 1}), "app socket", 180)
+def measure():
+    """The three checks on the launched app (`check` records each failure)."""
+    wait_for(lambda: "error" not in (rpc("debug.focus") or {"error": 1}), "app socket", 180)
     if not windows():
         rpc("action.run", {"action": "newWindow", "origin": "script"})
     window = (wait_for(lambda: windows(), "a window", 60) or [{}])[0].get("id")
@@ -200,8 +193,6 @@ try:
         rpc("action.run", {"action": "newTab", "origin": "script", "focus": True})
     wait_for(lambda: focused_pane(window), "a focused pane", 60)
     url = serve()
-    if not opts.background and not os.path.exists(CUA):
-        sys.exit(f"no {CUA}: run on a capture mini, or pass --background")
 
     def open_tab():
         """A new Chromium tab with DevTools docked; its id and layout, or None."""
@@ -212,9 +203,8 @@ try:
         rpc("action.run", {"action": "toggleBrowserDeveloperTools", "origin": "script"})
         if not wait_for(docked, "DevTools opens docked", 30):
             return None, None
-        time.sleep(2)
+        time.sleep(2)  # live check: DevTools settles at its docked size
         return tab, layout()
-
 
     def drag(before, grow, what):
         """Drags the shown tab's divider; the layout after, or None when DevTools did not resize."""
@@ -225,13 +215,12 @@ try:
             real_drag(before, grow)
         after = quiet_wait(lambda: (lambda now: now if now.get("grab") and abs(extent(now) - extent(before)) >= abs(grow) / 2 else None)(layout()), 5)
         size = extent(after or layout())
+        drag_errors.append(round(abs(size - extent(before) - grow), 1))
         check(abs(size - extent(before) - grow) <= 24, f"{what} resizes DevTools by about {grow} pt ({extent(before)} -> {size})")
         return after
 
-
     def fraction(now):
         return now["right_fraction" if now.get("dock") in ("left", "right") else "bottom_fraction"]
-
 
     # 1. A drag on the divider.
     first, before = open_tab()
@@ -252,16 +241,33 @@ try:
         wait_for(lambda: not layout().get("open"), "DevTools closes", 20)
         rpc("action.run", {"action": "toggleBrowserDeveloperTools", "origin": "script"})
         if wait_for(docked, "DevTools reopens docked", 30):
-            time.sleep(1)
+            time.sleep(1)  # live check: the reopened DevTools lays out
             check(abs(extent(layout()) - extent(moved)) <= 2, f"reopened DevTools keeps its size ({extent(moved)} -> {extent(layout())})")
-finally:
-    rpc("action.run", {"action": "quitEndSessions"})
-    try:
-        app.wait(timeout=20)
-    except subprocess.TimeoutExpired:
-        app.kill()  # the exact PID this script started
-        app.wait()
-    teardown.end()
 
-print(f"{len(failures)} failure(s); artifacts in {opts.out}")
-sys.exit(1 if failures else 0)
+
+def main(argv=None):
+    global opts, bench
+    opts = parse(argv)
+    os.makedirs(opts.out, exist_ok=True)
+    # DevTools starts from the last size used (user defaults): start from the default.
+    ident = bundle_id(opts.app)
+    if ident:
+        subprocess.run(["defaults", "delete", ident, "CmuxNextBrowser.devToolsLayout"], capture_output=True)
+    bench = BenchApp(opts.app, out=opts.out, config={}, window=WINDOW, screen="last", log_name="app.log",
+                     env=launch_env(opts.background), build_config=opts.build_config)
+    try:
+        bench.launch(timeout=180)  # ready once debug.windows lists a window
+        print(f"app pid {bench.process.pid}, out {opts.out}", flush=True)
+        measure()
+    finally:
+        bench.stop()
+    print(f"{len(failures)} failure(s); artifacts in {opts.out}")
+    problems = results.record(bench, results.devtools_resize_series(
+        opts.story, "synthesized" if opts.background else "real", drag_errors, failures)) if opts.story else []
+    for problem in problems:
+        print(f"RESULT-V1 FAIL {problem}", flush=True)
+    return 1 if failures or problems else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

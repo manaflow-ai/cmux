@@ -347,7 +347,7 @@ final class FilePageService: InternalPageProvider {
             back: { [weak page] in page?.send(command: "back") },
             forward: { [weak page] in page?.send(command: "forward") },
             reload: { [weak page] in page?.send(command: MarkdownPageCommand.reload) })
-        let bar = MarkdownOmnibarBar(suggestionEngine: services.cache.suggestionEngine, actions: actions)
+        let bar = MarkdownOmnibarBar(suggestionEngine: services.cache.suggestionEngine, actions: actions, mainWork: services.mainWork)
         bar.toolbar.cardClip = page
         bar.show(tab.provider?.file ?? tab.file)
         tabs[key]?.bar = bar
@@ -380,11 +380,9 @@ final class FilePageService: InternalPageProvider {
         PageFileDrop(accepts: { url in url.isFileURL && !url.hasDirectoryPath }, open: { [weak self, weak provider, weak page] url in
             guard let self, let provider else { return }
             guard provider.isPicking, provider.kind.accepts(url) else { return self.openFile(url, from: key) }
-            // task-owner: one open of the dropped file; ends when the tab shows it or refuses it
-            Task {
-                guard (try? await provider.open(url)) != nil else { return NSSound.beep() }
-                page?.reload()
-            }
+            // The page keeps its `fileDrop` reason until the open returns (PageFileDrop.take).
+            guard (try? await provider.open(url)) != nil else { return NSSound.beep() }
+            page?.reload()
         })
     }
 
@@ -421,7 +419,8 @@ final class FilePageService: InternalPageProvider {
         }
         let flush = Task { @MainActor in
             let deadline = Task { @MainActor in
-                do { try await clock.sleep(for: Self.flushTimeout) } catch { return } // wakeup-allow: bounded flush on tab close
+                // wakeup-allow: bounded one flush wait on tab close, cancelled when the page answers
+                do { try await clock.sleep(for: Self.flushTimeout, tolerance: WakeLeeway.window(delay: Self.flushTimeout).tolerance) } catch { return }
                 page.close()
             }
             _ = try? await page.router.callPage(op, params: .object([:]))

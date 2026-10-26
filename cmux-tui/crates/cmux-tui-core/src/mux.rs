@@ -189,6 +189,8 @@ use deadline_fanout::{
     CELL_PIXEL_FANOUT_MAX_WORKERS, DeadlineFanoutPool, DeadlineMapResult, DeadlinePending,
     bounded_deadline_map,
 };
+mod cold_scrollback;
+pub(crate) use cold_scrollback::ColdScrollbackWake;
 mod column_move;
 mod dock_columns;
 #[cfg(test)]
@@ -287,10 +289,9 @@ pub(crate) mod tab_groups;
 pub(crate) mod tab_strip;
 mod tab_workspace_name;
 mod time;
-pub(crate) use time::now_ms;
-
 pub(crate) use crate::state::{PersonalChange, ScreenChange, WorkspaceStatusChange};
 pub(crate) use tab_strip::StripRequest;
+pub(crate) use time::now_ms;
 pub(crate) mod creating_input;
 mod loss_causes;
 mod orphan_hosts;
@@ -325,12 +326,11 @@ mod workspace_create;
 mod workspace_identity;
 mod workspace_move;
 mod workspace_rename;
-use workspace_rename::workspace_resource_upsert;
-
 use agent_hook_errors::{
     AGENT_HOOK_RETRY_ERROR, AgentHookTerminalGone, AgentHookTerminalUnavailable,
     agent_hook_retry_class, agent_hook_terminal_gone,
 };
+use workspace_rename::workspace_resource_upsert;
 
 pub use agent_chat_columns::AGENT_CHAT_COLUMN_CODE;
 pub(crate) use agent_chat_columns::{
@@ -552,6 +552,10 @@ pub struct Mux {
     /// The refactor switch arms `oracle-state` reports, frozen at first read.
     #[cfg(any(debug_assertions, feature = "oracle"))]
     oracle_switches: OnceLock<crate::oracle_state::SwitchArms>,
+    /// Holders of this session that ended since this owner started
+    /// (`oracle-state` `childExits.holder`, invariant I17).
+    #[cfg(any(debug_assertions, feature = "oracle"))]
+    oracle_holder_exits: AtomicU64,
     #[cfg(test)]
     client_resize_before_apply: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
     #[cfg(test)]
@@ -766,6 +770,7 @@ pub struct Mux {
     idle_close: Mutex<idle_close::IdleCloseTracker>,
     /// Wakes the idle-close reaper when a policy changes.
     idle_close_waker: Mutex<Option<std::sync::mpsc::Sender<idle_close::ReaperMessage>>>,
+    cold_scrollback_wake: OnceLock<ColdScrollbackWake>,
     /// Hosts of closed terminals that were asked to exit.
     terminal_host_closes: Arc<host_close::TerminalHostCloses>,
     /// Reap grace period for unplaced terminals, in milliseconds.
@@ -782,6 +787,9 @@ pub struct Mux {
     keybindings: keybindings::KeybindingsSlot,
     /// Parallel terminal host launches and reaps (`terminal_work`).
     terminal_work: terminal_work::TerminalWorkPool,
+    /// This owner's memory registry: consumers register, sources vote.
+    #[cfg_attr(not(test), expect(dead_code, reason = "read by p07-memory-044 and 109"))]
+    pub(crate) memory: Arc<crate::memory::DaemonMemory>,
     /// Hosts launched ahead of their creation, by reserved terminal id.
     #[cfg(any(unix, windows))]
     prelaunched_terminals: Mutex<HashMap<String, terminal_work::PrelaunchedTerminal>>,

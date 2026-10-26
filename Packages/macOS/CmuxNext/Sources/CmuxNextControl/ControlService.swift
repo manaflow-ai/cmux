@@ -1,6 +1,7 @@
 public import CmuxNextActions
 import CmuxNextDaemon
 public import CmuxNextSettings
+public import CmuxNextWakeups
 public import Foundation
 
 /// The App's one-call entry point for the control socket.
@@ -43,10 +44,11 @@ public final class ControlService {
         bundle: Bundle = .main,
         accessMode explicitMode: ControlAccessMode? = nil,
         frameSource: any ControlFrameSource = MainQueueFrameSource(),
-        watchdog: MainThreadWatchdog? = nil
+        watchdog: MainThreadWatchdog? = nil,
+        mainWork: MainWorkScheduler = MainWorkScheduler(budget: MainFrameBudget())
     ) throws -> ControlService {
         let service = try prepare(registry: registry, settings: settings, launch: launch, environment: environment, bundle: bundle,
-                                  accessMode: explicitMode, frameSource: frameSource, watchdog: watchdog)
+                                  accessMode: explicitMode, frameSource: frameSource, watchdog: watchdog, mainWork: mainWork)
         try service.server.start()
         return service
     }
@@ -62,7 +64,8 @@ public final class ControlService {
         bundle: Bundle = .main,
         accessMode explicitMode: ControlAccessMode? = nil,
         frameSource: any ControlFrameSource = MainQueueFrameSource(),
-        watchdog: MainThreadWatchdog? = nil
+        watchdog: MainThreadWatchdog? = nil,
+        mainWork: MainWorkScheduler = MainWorkScheduler(budget: MainFrameBudget())
     ) throws -> ControlService {
         let configuredMode = settings?.snapshot.root.value(at: ["automation", "socketControlMode"])?.stringValue
         let mode = resolveAccessMode(explicit: explicitMode, environment: environment, configured: configuredMode)
@@ -86,7 +89,8 @@ public final class ControlService {
                                                              compatibilityLink: launch.compatibilityLink),
             identity: identity,
             frameSource: frameSource,
-            watchdog: watchdog
+            watchdog: watchdog,
+            mainWork: mainWork
         )
     }
 
@@ -98,15 +102,17 @@ public final class ControlService {
         configuration: ControlSocketServer.Configuration,
         identity: ControlIdentity,
         frameSource: any ControlFrameSource = MainQueueFrameSource(),
-        watchdog: MainThreadWatchdog? = nil
+        watchdog: MainThreadWatchdog? = nil,
+        mainWork: MainWorkScheduler = MainWorkScheduler(budget: MainFrameBudget())
     ) throws -> ControlService {
         let service = try prepare(registry: registry, settingsStore: settingsStore, settingsWriter: settingsWriter,
-                                  configuration: configuration, identity: identity, frameSource: frameSource, watchdog: watchdog)
+                                  configuration: configuration, identity: identity, frameSource: frameSource, watchdog: watchdog,
+                                  mainWork: mainWork)
         try service.server.start()
         return service
     }
 
-    /// ``prepare(registry:settings:launch:environment:bundle:accessMode:frameSource:watchdog:)`` with an
+    /// ``prepare(registry:settings:launch:environment:bundle:accessMode:frameSource:watchdog:mainWork:)`` with an
     /// explicit configuration (tests, demos).
     public static func prepare(
         registry: ActionRegistry,
@@ -115,10 +121,11 @@ public final class ControlService {
         configuration: ControlSocketServer.Configuration,
         identity: ControlIdentity,
         frameSource: any ControlFrameSource = MainQueueFrameSource(),
-        watchdog: MainThreadWatchdog? = nil
+        watchdog: MainThreadWatchdog? = nil,
+        mainWork: MainWorkScheduler = MainWorkScheduler(budget: MainFrameBudget())
     ) throws -> ControlService {
         guard configuration.accessMode != .off else { throw ControlSocketServer.StartError.disabled }
-        let bridge = RegistryControlBridge(registry: registry)
+        let bridge = RegistryControlBridge(registry: registry, work: mainWork)
         let router = ControlRouter(identity: identity, executor: bridge, settings: settingsStore, settingsWriter: settingsWriter,
                                    frameSource: frameSource)
         router.attach(watchdog: watchdog)

@@ -52,8 +52,9 @@ protocol InternalPageProvider: AnyObject {
     var symbol: String { get }
     /// The tab's cmux icon. Default: nil.
     var icon: IconName? { get }
-    /// A new view for the tab `key` (called on first show, and again after a discard).
-    /// `window` is the main window the tab opens in, for its theme scope.
+    /// A new view for the tab `key` (called on the tab's first show, not at its open, and again
+    /// after a discard). What the open asked for (a route, a folder) is kept under `key` until then
+    /// (``PageOpenRequests``). `window` is the main window the tab is in, for its theme scope.
     func makeView(for key: String, in window: WindowController?) -> NSView
     /// The tab `key` closed: its view is gone.
     func tabClosed(_ key: String)

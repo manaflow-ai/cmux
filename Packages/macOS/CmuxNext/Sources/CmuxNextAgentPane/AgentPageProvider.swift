@@ -85,6 +85,8 @@ public final class AgentPageProvider: PageProvider {
     public static let hostEventsFrozenDelivery: PageFrozenDelivery = .ordered
 
     private let prepare: Prepare
+    /// Where each chat rested and its unsent chips (the App's, by init); ``AgentPaneChatStores/keepsNothing`` keeps neither.
+    private let chatStores: AgentPaneChatStores
     private var listeners: [UInt64: @MainActor (JSONValue) -> Void] = [:]
     private var bufferedEvents: [AgentPageEvent] = []
     private var transportConnection: Int?
@@ -138,7 +140,11 @@ public final class AgentPageProvider: PageProvider {
     /// Where the handshake's launch marks go (the App's `debug.timings`; tests read their own).
     var launchTimings = AgentPaneLaunchTimings.shared
 
-    public init(prepare: @escaping Prepare) {
+    /// - Parameters:
+    ///   - chatStores: The App's chat stores (``AgentPaneChatStores``); the default keeps nothing (tests, the gallery).
+    ///   - prepare: The model for a request; nil when the pane is closed.
+    public init(chatStores: AgentPaneChatStores = .keepsNothing, prepare: @escaping Prepare) {
+        self.chatStores = chatStores
         self.prepare = prepare
     }
 
@@ -366,7 +372,9 @@ public final class AgentPageProvider: PageProvider {
         if method == "pane.edit" { return try edit(params, op: op, context: context) }
         // Named, not a prefix: `scrollAnchor` treats anything but `.get` as a write, so a later
         // `chat.scrollAnchor.forget` would have erased a chat's place instead of being refused.
-        if AgentPaneScrollAnchors.handles(method: method) { return try Self.scrollAnchor(method, params: params, op: op) }
+        if AgentPaneScrollAnchors.handles(method: method) {
+            return try Self.scrollAnchor(method, params: params, op: op, anchors: chatStores.scrollAnchors)
+        }
         if AgentPaneTailCache.handles(method: method) { return try Self.tail(method, params: params, op: op) }
         // Needs you's read of a chat's open requests: the host's, never the relay's (AgentPanePendingAsks).
         if method == "chat.asks.pending" { return try await pendingAsks.reply(params, op: op, socket: pendingAsksSocket()) }
@@ -374,7 +382,9 @@ public final class AgentPageProvider: PageProvider {
             onUiPointerReport(params)
             return .object(["ok": .bool(true)])
         }
-        if method.hasPrefix("chat.draftAttachments") { return try await Self.draftAttachments(method, params: params, op: op) }
+        if method.hasPrefix("chat.draftAttachments") {
+            return try await Self.draftAttachments(method, params: params, op: op, store: chatStores.draftAttachments)
+        }
         let request = AgentPaneRequest(body: ["method": method, "params": params.foundationObject])
         if case .unsupported = request { throw PageError.invalidParams(op) }
         guard let model = prepare(request) else { throw PageError.closed }

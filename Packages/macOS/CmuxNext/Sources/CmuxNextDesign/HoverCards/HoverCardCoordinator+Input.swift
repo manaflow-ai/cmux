@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextInput
+import CmuxNextWakeups
 
 // The input tap subscriptions of `HoverCardCoordinator` (p04-input-013): what ends a card and the
 // pointer moves over a shown card, held only while a card is pending or shown.
@@ -54,16 +55,24 @@ extension HoverCardCoordinator {
 
     /// While a card shows, pointer moves on it or just off it reach the machine: leaving the
     /// card hides it on that move (Lawrence 2026-10-19), not at the next deadline.
+    ///
+    /// With the parent's frames (``HoverFrameInputHosting``, feature `pointerFrameHover`) the moves
+    /// reach it on the parent's frame: the first of a frame interval in its own turn, the rest once at
+    /// the frame, at the latest point, as Chromium delivers rAF-aligned moves
+    /// (`third_party/blink/renderer/platform/widget/input/main_thread_event_queue.cc`). A key press or a
+    /// click flushes them before it dismisses the card (``FrameInputCoalescers/willDispatch(_:)``).
     private func updateCardMoves() {
         let parent = machine.shownTarget == nil ? nil : panel?.parent
         if movesParent?.window !== parent {
             if let old = movesParent { old.window.acceptsMouseMovedEvents = old.accepted }
             movesParent = parent.map { ($0, $0.acceptsMouseMovedEvents) }
             parent?.acceptsMouseMovedEvents = true
+            cardMoveFrames?.cancel()
+            cardMoveFrames = parent.flatMap { cardMoveConsumer(on: $0) }
         }
         if parent != nil, cardMoves == nil, let tap = requiredInputTap(inputTap, owner: "HoverCardCoordinator.cardMoves") {
             cardMoves = tap.subscribe(class: .pointerMove, while: { [weak self] in self?.machine.shownTarget != nil }) { [weak self] event in
-                self?.cardPointerMoved(event.window.map { $0.convertPoint(toScreen: event.locationInWindow) })
+                self?.cardMoveEvent(event)
             }
         } else if parent == nil, cardMoves != nil {
             cardMoves = nil
@@ -71,9 +80,25 @@ extension HoverCardCoordinator {
         }
     }
 
+    /// The card moves' consumer on `parent`'s coalescer; nil while the parent carries no frames.
+    private func cardMoveConsumer(on parent: NSWindow) -> PointerFrameConsumer? {
+        guard let frames = (parent as? HoverFrameInputHosting)?.hoverFrameInput else { return nil }
+        return frames.coalescer(for: parent).consumer(owner: "HoverCardCoordinator.cardMoves") { [weak self] input in
+            guard let self, machine.shownTarget != nil else { return }
+            cardPointerMoved(CGPoint(x: input.latest.screenLocation.x, y: input.latest.screenLocation.y))
+        }
+    }
+
+    /// A move seen by `cardMoves`: it waits for the parent's frame, or reaches the card now.
+    func cardMoveEvent(_ event: NSEvent) {
+        if let cardMoveFrames, cardMoveFrames.post(event) { return }
+        cardPointerMoved(event.window.map { $0.convertPoint(toScreen: event.locationInWindow) })
+    }
+
     /// A pointer move seen by `cardMoves`: only one on the card, or the first off it, is news
     /// (a source reports moves over its own targets itself).
     func cardPointerMoved(_ eventPoint: CGPoint?) {
+        cardMoveChecks += 1
         let point = eventPoint ?? pointerLocation()
         guard pointerWasOnCard || shownCardFrame?.contains(point) == true else { return }
         pointerMoved(to: point)

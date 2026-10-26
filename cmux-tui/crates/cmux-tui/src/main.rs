@@ -33,6 +33,8 @@ mod coderouter_usage;
 mod codex_wrapper;
 mod config;
 mod daemon_build;
+#[cfg(feature = "fuzzing")]
+pub mod fuzzing;
 mod headless;
 #[cfg(unix)]
 mod host_orphan_policy;
@@ -42,8 +44,6 @@ mod private_mode;
 #[cfg(unix)]
 mod signal_sender;
 mod websocket_credential;
-#[cfg(feature = "fuzzing")]
-pub mod fuzzing;
 // The agent hook helper, also built as the standalone `cmux-tui-hook`.
 mod feature_flags;
 #[path = "bin/cmux-tui-hook.rs"]
@@ -2451,6 +2451,11 @@ fn run_server(
     // interactive client attaches. Install the non-terminal sink as soon as
     // the owner mux exists, before serving or adopting clients.
     app::install_mux_diagnostic_logger(&mux);
+    // After restore and adoption: a terminal that joins the catalog later
+    // wakes the worker itself.
+    if let Err(error) = mux.start_cold_scrollback(&feature_flags::daemon_features()) {
+        eprintln!("cmux-tui: cold scrollback worker did not start: {error}");
+    }
     #[cfg(debug_assertions)]
     owner_start::hang_for_test(args.headless);
     local_owner::install_key_from_launcher(&mux, args.owner_install_key_fd);

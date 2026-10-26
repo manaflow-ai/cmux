@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextBrowser
 import CmuxNextCompat
 import CmuxNextDesign
+import CmuxNextWakeups
 import os
 
 /// One sign-in's window and page. Every end (the callback, the close
@@ -19,6 +20,7 @@ final class WebAuthSessionWindow: NSObject, WebAuthSessionSurface, BrowserTabDel
     private let profiles: OffTheRecordProfiles
     private let signInCallbacks: CEFSignInCallbacks
     private let contextMenus: BrowserContextMenuBuilder
+    private let mainWork: MainWorkScheduler
     /// Orders the panel in (`WindowActivation.show` in the app).
     private let present: @MainActor (NSWindow, WindowActivation.Intent) -> Void
     private let onEnd: (UUID) -> Void
@@ -35,9 +37,11 @@ final class WebAuthSessionWindow: NSObject, WebAuthSessionSurface, BrowserTabDel
         profiles: OffTheRecordProfiles,
         signInCallbacks: CEFSignInCallbacks,
         contextMenus: BrowserContextMenuBuilder,
+        mainWork: MainWorkScheduler,
         present: @escaping @MainActor (NSWindow, WindowActivation.Intent) -> Void,
         onEnd: @escaping (UUID) -> Void
     ) {
+        self.mainWork = mainWork
         id = request.id
         url = request.url
         callback = request.callback
@@ -77,7 +81,7 @@ final class WebAuthSessionWindow: NSObject, WebAuthSessionSurface, BrowserTabDel
         if let cef = page as? CEFTab {
             signInCallbacks.set(Self.shimCallback(callback), on: cef) { [weak self] url in self?.shimStopped(url) }
         }
-        let panel = BrowserPopupWindow(page: page, frame: Self.frame(), readOnlyAddress: true)
+        let panel = BrowserPopupWindow(page: page, frame: Self.frame(), readOnlyAddress: true, mainWork: mainWork)
         panel.onEscape = { [weak self] in self?.close() }
         panel.onClose = { [weak self] in self?.end() }
         self.panel = panel

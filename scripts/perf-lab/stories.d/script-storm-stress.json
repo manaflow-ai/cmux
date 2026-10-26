@@ -1,0 +1,20 @@
+{
+  "id": "script-storm-stress",
+  "tier": "T2",
+  "description": "The person's keys and frames while a script storms background workspaces, STRESS session with its busy terminals in never-shown workspaces (script-storm-bench.py --sessions stress, shape STRESS-busy-elsewhere): the light story's series per phase.",
+  "command": ["scripts/cmux-next/script-storm-bench.py", "--sessions", "stress"],
+  "session": "stress",
+  "engine": "chromium",
+  "config": "bench",
+  "metrics": [
+    {"name": "script_storm\\.(idle|script)\\.(key_to_contents|frame_interval|main_busy)", "unit": "ms", "better": "lower"},
+    {"name": "script_storm\\.(idle|script)\\.(missed_frames|stalls)", "unit": "count", "better": "lower"}
+  ],
+  "repeats": 1,
+  "seconds": 900,
+  "needs": ["debug:debug.key", "debug:debug.frames", "debug:debug.hangs", "debug:debug.queue",
+            "debug:debug.window_frame", "debug:debug.layers", "debug:debug.cef", "env:CMUX_NEXT_TYPING_PROBE",
+            "file:scripts/cmux-next/perf-stress-session.py"],
+  "owner": "Performance Lead",
+  "component": "Automation>Storm"
+}

@@ -6,7 +6,7 @@ import AppKit
 /// Carried by the part row (`PartRow.cmuxAvatar`) and drawn into the row's
 /// bitmap with the bubble (`RowDraw.drawStatic`), so it costs nothing per
 /// frame or keystroke.
-enum SenderAvatar: Hashable {
+enum SenderAvatar: Hashable, Sendable {
     /// One or two letters on a grey disc.
     case monogram(String)
     /// A picture by asset reference (`Images.load`).

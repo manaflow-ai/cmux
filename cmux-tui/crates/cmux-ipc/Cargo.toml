@@ -14,6 +14,12 @@ memchr.workspace = true
 # Name -> id lookup (methods.rs): a perfect-hash map that build.rs writes, so a
 # lookup hashes once and never allocates.
 phf = { version = "0.11", default-features = false }
+# The generated client request types (src/client.rs) build JSON lines; only
+# crates that send them turn the feature on, so cmux-holder stays std+libc.
+serde_json = { workspace = true, optional = true }
+
+[features]
+client = ["dep:serde_json"]
 
 # build.rs reads both schema files; it writes only to OUT_DIR.
 [build-dependencies]

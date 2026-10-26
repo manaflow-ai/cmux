@@ -24,6 +24,7 @@ extension TabContentCache {
         let io = DaemonTerminalIO(target: target, resizes: resizes, visible: render, policyBlocked: daemon.policyBlock.check,
                                   hangWatch: daemon.hangWatch, endpoint: { try await daemon.endpoint() })
         let session = TerminalSession(io: io, ownsGeometry: true, hangWatch: daemon.hangWatch, modifiers: terminalModifiers,
+                                      pointerFrames: terminalPointerFrames,
                                       mainWork: mainWork, node: node(for: key))
         // It lays out after a Ghostty config change only while its tab is visible (p06-scheduler-044).
         session.view.followConfig(node(for: key), on: mainWork)

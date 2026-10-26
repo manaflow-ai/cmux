@@ -581,7 +581,18 @@ reads atomics and never touches SQLite or the journal, so it is safe to poll.
 
 Params: `{include?: array<string>|null}`. `include` names optional result
 sections: `resource_projection`, `write_path`, `request_path_io`,
-`slow_requests`, `requests` and `ipc`; unknown names are ignored.
+`slow_requests`, `requests`, `ipc` and `lock_classes`; unknown names are
+ignored.
+
+`lock_classes` reports wait and hold by class on the three locks that admit by
+class: the workspace registry, the registry connection (first acquisitions) and
+the mux state lock. `frontend` is the verified app's own requests, `automation`
+is agents, scripts, the CLI and pages, and `program` is work no request started
+(terminal output, hooks, the journal writer). An automation caller that holds
+no ranked lock waits while a frontend caller waits, and one is let through at
+least every 4 ms; `automation_yields` counts the automation acquisitions that
+waited so, `automation_due_admissions` those let through while frontends still
+waited.
 An optional section is absent unless requested, because SDK decoders refuse
 unknown result fields.
 
@@ -644,10 +655,20 @@ object{
     parses:object{lines:parse_count,frames:parse_count},
     writes:object{messages:uint64,syscalls:uint64,syscalls_per_message:float64,stalls:uint64},
     bad_message:uint64
+  },
+  lock_classes?:object{
+    registry:lock_class_set, registry_connection:lock_class_set,
+    state:lock_class_set
   }
 }
 kind_count = object{kind:string,messages:uint64,bytes:uint64}
 parse_count = object{requests:uint64,json_parses:uint64,json_parses_per_request:float64}
+
+lock_class_set = object{
+  frontend:lock_class, program:lock_class, automation:lock_class,
+  automation_yields:uint64, automation_due_admissions:uint64
+}
+lock_class = object{wait_us:histogram, wait_p95_us:uint64, hold_us:histogram}
 histogram = object{count:uint64,mean:uint64,max:uint64,p50:uint64,p90:uint64,p99:uint64}
 ```
 
@@ -838,7 +859,8 @@ object{
   switches:map<string,string>,
   terminalAttach:object{attached:uint64,detached:uint64,dead:uint64},
   liveObjects:map<string,uint64>,
-  panicLog:object{path:string|null,bytes:uint64}
+  panicLog:object{path:string|null,bytes:uint64},
+  childExits:object{holder:uint64}
 }
 ```
 
@@ -855,11 +877,19 @@ the same locked state as `session`; `subscriptions` is read just after it.
 `terminalAttach` counts the terminal catalog: `dead`
 terminals have no process, `attached` ones are shown in at least one pane
 tab, `detached` ones are live with no placement. `liveObjects` counts runtime
-objects: `browsers`, `panes`, `screens`, `subscriptions` (live event
-subscriptions), `terminals` (the terminal catalog), `views` (pane tab
-placements) and `workspaces`. `panicLog` is the owner's panic log
-(`owner-panics-<session>.jsonl` at the state root) and its length in bytes;
-`path` is null when there is no state root. Every map has sorted keys.
+objects: `browsers`, `holders` (live terminals hosted out of process),
+`panes`, `screens`, `subscriptions` (live event subscriptions), `terminals`
+(the terminal catalog), `views` (pane tab placements) and `workspaces`.
+`panicLog` is the owner's panic log (`owner-panics-<session>.jsonl` at the
+state root) and its length in bytes; `path` is null when there is no state
+root. `childExits` counts the child exits this owner saw since it started
+(p15-oracle task 188, invariant I17): `holder` is each terminal host of this
+session that was lost or replaced on its running shell, counted where the
+owner logs it to `terminal-losses.jsonl`, so the log's rotation and other
+sessions' lines in the same state root never change it. It starts at 0 with
+each owner. The owner's own end is not here: a crashed owner cannot count
+it, so the app counts drops without `daemon-shutdown`. Every map has sorted
+keys.
 
 Errors: `oracle state requires a trusted local connection`, `bad request: ...`.
 

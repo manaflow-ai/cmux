@@ -1170,8 +1170,9 @@ dependencies = [
 name = "cmux-git"
 version = "0.1.0"
 dependencies = [
+ "cmux-process",
+ "cmux-threads",
  "libc",
- "wait-timeout",
 ]
 
 [[package]]
@@ -1194,7 +1195,9 @@ version = "0.1.0"
 dependencies = [
  "cmux-flow-trace",
  "cmux-ipc",
+ "cmux-memory",
  "cmux-process",
+ "cmux-threads",
  "cmux-trace",
  "libc",
 ]
@@ -1284,6 +1287,14 @@ name = "cmux-lock-rank"
 version = "0.1.0"
 
 [[package]]
+name = "cmux-memory"
+version = "0.1.0"
+dependencies = [
+ "cmux-threads",
+ "libc",
+]
+
+[[package]]
 name = "cmux-mobile-core"
 version = "0.1.0"
 dependencies = [
@@ -1366,6 +1377,7 @@ dependencies = [
 name = "cmux-process"
 version = "0.1.0"
 dependencies = [
+ "cmux-threads",
  "libc",
  "wait-timeout",
 ]
@@ -1376,6 +1388,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "cmux-process",
+ "cmux-threads",
  "libc",
  "portable-pty",
  "windows-sys 0.61.2",
@@ -1669,8 +1682,10 @@ dependencies = [
  "cmux-blocking",
  "cmux-build-identity",
  "cmux-config",
+ "cmux-features",
  "cmux-holder",
  "cmux-host",
+ "cmux-ipc",
  "cmux-link",
  "cmux-lock-rank",
  "cmux-panic-log",
@@ -1773,6 +1788,7 @@ dependencies = [
  "cmux-link",
  "cmux-local-auth",
  "cmux-lock-rank",
+ "cmux-memory",
  "cmux-panic-log",
  "cmux-process",
  "cmux-pty",
@@ -2989,6 +3005,8 @@ name = "ghostty-vt"
 version = "0.1.0"
 dependencies = [
  "base64",
+ "cmux-memory",
+ "flate2",
  "ghostty-vt-sys",
  "png",
 ]
