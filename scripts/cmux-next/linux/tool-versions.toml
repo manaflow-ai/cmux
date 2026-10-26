@@ -1,0 +1,22 @@
+# Tool versions that scripts/cmux-next/linux/setup-tools.sh installs on the
+# Linux VM and that no other repo file pins. Versions that have an owner are
+# read from that owner, not copied here:
+#   stable Rust      cmux-tui/rust-toolchain.toml
+#   cargo-nextest    scripts/ci/cmux-tui-rust-check.sh (nextest_version, sha256)
+#   zig              ghostty-next/build.zig.zon at the recorded gitlink
+#   Java minimum     plans/cmux-next/formal/tlc.sh ("Needs Java N or later")
+# Fuzz, sanitizer and Miri scripts read the nightly channel from this file.
+
+[nightly]
+channel = "nightly-2026-10-20"
+profile = "minimal"
+components = ["rust-src", "miri", "llvm-tools-preview"]
+
+# cargo install --locked NAME@VERSION, built with the stable toolchain above.
+[cargo-install]
+cargo-mutants = "27.1.0"
+cargo-fuzz = "0.13.2"
+
+# The OpenJDK major version (the cmux-mobile-ffi workflow also uses 17).
+[java]
+openjdk = 17
