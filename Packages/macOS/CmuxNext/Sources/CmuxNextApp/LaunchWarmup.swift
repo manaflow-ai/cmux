@@ -16,21 +16,11 @@ import Foundation
 /// `ActionCatalog.all` is a lazy global (`swift_once`): if the main thread
 /// reaches it while this thread still builds it, the main thread waits for
 /// the rest of that one build, never longer than building it itself.
-///
-/// The icon decode and the launch-mark sink are injected so a test can see that `start()` begins
-/// the decode and marks `icons_decoded` when it ends.
+/// The icon decode and launch-mark sink are injected for `LaunchIconWarmupTests`.
 struct LaunchWarmup {
     /// Starts the icon pack and catalog decode off main; calls its argument, on any thread, when done.
-    private let decodeIcons: (_ decoded: @escaping @Sendable () -> Void) -> Void
-    private let markLaunch: @Sendable (String) -> Void
-
-    init(
-        decodeIcons: @escaping (_ decoded: @escaping @Sendable () -> Void) -> Void = { IconPack.decodeBundledInBackground(then: $0) },
-        markLaunch: @escaping @Sendable (String) -> Void = { DebugTimings.markLaunch($0) }
-    ) {
-        self.decodeIcons = decodeIcons
-        self.markLaunch = markLaunch
-    }
+    var decodeIcons: (_ decoded: @escaping @Sendable () -> Void) -> Void = { IconPack.decodeBundledInBackground(then: $0) }
+    var markLaunch: @Sendable (String) -> Void = { DebugTimings.markLaunch($0) }
 
     func start() {
         let thread = Thread {
