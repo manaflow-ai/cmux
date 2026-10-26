@@ -13,13 +13,13 @@
 //! ENXIO); the requested blocking mode is restored before handing it over.
 #![allow(dead_code)]
 
-use super::rules::WritePolicy;
+use super::{lookup, rules::WritePolicy};
 use libc::*;
 use std::{
     collections::VecDeque,
     ffi::CString,
     io,
-    os::fd::{AsRawFd, FromRawFd, OwnedFd, RawFd},
+    os::fd::{AsRawFd, BorrowedFd, FromRawFd, OwnedFd, RawFd},
     path::Path,
 };
 
@@ -99,30 +99,7 @@ struct Resolved {
 /// Relative starts use one additional absolute walk to verify cwd/dirfd identity;
 /// this recursion ends immediately because the verified start is absolute.
 fn resolve(task: RawFd, dir: i32, path: &str, flags: i32, nspid: &str) -> Result<Resolved> {
-    resolve_with_flags(task, dir, path, flags, nspid, &directory_flags)
-}
-
-// Procfs is handled separately; device filesystem exceptions are path-scoped.
-fn classify_directory(
-    magic: u64,
-    flags: Result<c_long>,
-    _xfs_geometry: Result<u32>,
-) -> std::result::Result<(), String> {
-    let needs_flags = match magic {
-        0xef53 | 0xf2f5_2010 | 0x0102_1994 => true, // ext2/3/4, f2fs, tmpfs
-        0x5846_5342 | 0x9123_683e | 0x794c_7630 | 0x2fc1_2fc1 | 0xca45_1a4e => false,
-        _ => return Err(format!("unsupported filesystem magic {magic:#x}")),
-    };
-    match flags {
-        Ok(flags) if flags & 0x4000_0000 == 0 => Ok(()),
-        Err(ENOTTY | EOPNOTSUPP) if !needs_flags => Ok(()),
-        _ => Err(format!("casefold or unverified directory flags on filesystem {magic:#x}")),
-    }
-}
-
-// Red-test seam: geometry probing is implemented after runner confirmation.
-fn xfs_geometry(_fd: RawFd) -> Result<u32> {
-    Err(EACCES)
+    resolve_inner(task, dir, path, flags, nspid, &directory_flags, true)
 }
 
 fn proc_fd_number(name: &str) -> Result<u32> {
@@ -153,23 +130,43 @@ fn resolve_with_flags(
     nspid: &str,
     read_flags: &dyn Fn(RawFd) -> Result<c_long>,
 ) -> Result<Resolved> {
+    resolve_inner(task, dir, path, flags, nspid, read_flags, false)
+}
+
+fn resolve_inner(
+    task: RawFd,
+    dir: i32,
+    path: &str,
+    flags: i32,
+    nspid: &str,
+    read_flags: &dyn Fn(RawFd) -> Result<c_long>,
+    verify_filesystem: bool,
+) -> Result<Resolved> {
     if path.is_empty() {
         return Err(ENOENT);
     }
     let root = open_at(task, "root", O_PATH | O_DIRECTORY, 0).map_err(|_| EACCES)?;
     let check_directory = |fd, device_route| {
+        if verify_filesystem {
+            let verified = lookup::verify_dir(unsafe { BorrowedFd::borrow_raw(fd) });
+            if verified.is_ok() {
+                return Ok(());
+            }
+            // devtmpfs may lack FS_IOC_GETFLAGS. It is allowed only on the
+            // already-special-cased /dev routes; all other mounts fail closed.
+            if device_route {
+                let mut fs: statfs = unsafe { std::mem::zeroed() };
+                if checked(unsafe { fstatfs(fd, &mut fs) }).is_ok()
+                    && fs.f_type as u64 == 0x0102_1994
+                {
+                    return Ok(());
+                }
+            }
+            return Err(EACCES);
+        }
         let mut fs: statfs = unsafe { std::mem::zeroed() };
         checked(unsafe { fstatfs(fd, &mut fs) }).map_err(|_| EACCES)?;
-        let flags = read_flags(fd);
-        // devtmpfs shares tmpfs's magic but may not implement GETFLAGS. Only
-        // traverse /dev toward the established aliases and literal devices.
-        if device_route
-            && fs.f_type as u64 == 0x0102_1994
-            && matches!(flags, Err(ENOTTY | EOPNOTSUPP))
-        {
-            return Ok(());
-        }
-        classify_directory(fs.f_type as u64, flags, xfs_geometry(fd)).map_err(|reason| {
+        lookup::classify(fs.f_type as u64, read_flags(fd), Err(ENOTTY)).map_err(|reason| {
             eprintln!("sandbox directory refused: {reason}");
             EACCES
         })
@@ -189,7 +186,8 @@ fn resolve_with_flags(
         if !cwd.starts_with('/') || cwd.ends_with(" (deleted)") {
             return Err(EACCES);
         }
-        let walked = resolve_with_flags(task, AT_FDCWD, &cwd, O_DIRECTORY, nspid, read_flags)?;
+        let walked =
+            resolve_inner(task, AT_FDCWD, &cwd, O_DIRECTORY, nspid, read_flags, verify_filesystem)?;
         let pin = open_at(walked.parent.as_raw_fd(), &walked.name, O_PATH | O_NOFOLLOW, 0)?;
         let walked_stat = stat(pin.as_raw_fd())?;
         if (actual.st_dev, actual.st_ino) != (walked_stat.st_dev, walked_stat.st_ino) {
@@ -285,8 +283,12 @@ fn resolve_with_flags(
         }
         if metadata.st_mode & S_IFMT == S_IFDIR {
             let device_route = target == Path::new("/dev")
-                && ((queue.len() == 1
-                    && matches!(queue[0].as_str(), "null" | "zero" | "tty" | "stdout" | "stderr"))
+                && (queue.is_empty()
+                    || (queue.len() == 1
+                        && matches!(
+                            queue[0].as_str(),
+                            "null" | "zero" | "tty" | "stdout" | "stderr"
+                        ))
                     || (queue.len() == 2 && queue[0] == "fd"));
             check_directory(pin.as_raw_fd(), device_route)?;
         } else if queue.is_empty() && directory_required {
@@ -389,97 +391,10 @@ mod tests {
     }
 
     #[test]
-    fn review_filesystem_classifier_refuses_unverified_lookup_semantics() {
-        // FAT, exFAT, NTFS, SMB/CIFS, HFS+, unknown; proc/devpts must use only
-        // their existing narrowly scoped resolver routes, never a general walk.
-        for magic in [
-            0x4d44,
-            0x2011_bab0,
-            0x5346_544e,
-            0x517b,
-            0xff53_4d42,
-            0xfe53_4d42,
-            0x482b,
-            0,
-            0x1234_5678,
-            0x9fa0,
-            0x1cd1,
-        ] {
-            for flags in [Ok(0), Err(ENOTTY), Err(EOPNOTSUPP)] {
-                let reason = classify_directory(magic, flags, Err(ENOTTY))
-                    .expect_err("unverified filesystem allowed");
-                assert!(
-                    reason.contains(&format!("{magic:#x}")),
-                    "missing filesystem magic: {reason}"
-                );
-            }
-        }
-    }
-
-    #[test]
-    fn review_filesystem_classifier_requires_flags_for_casefold_capable_filesystems() {
-        // ext2/3/4, f2fs, tmpfs, bcachefs require verified inode flags.
-        for magic in [0xef53, 0xf2f5_2010, 0x0102_1994, 0xca45_1a4e] {
-            assert!(classify_directory(magic, Ok(0), Err(ENOTTY)).is_ok());
-            for flags in [Ok(0x4000_0000), Err(ENOTTY), Err(EOPNOTSUPP), Err(EIO), Err(EACCES)] {
-                let reason = classify_directory(magic, flags, Err(ENOTTY))
-                    .expect_err("unverified flags allowed");
-                assert!(reason.contains(&format!("{magic:#x}")));
-            }
-        }
-        // Btrfs has no casefold support and needs neither ioctl.
-        assert!(classify_directory(0x9123_683e, Err(ENOTTY), Err(ENOTTY)).is_ok());
-    }
-
-    #[test]
-    fn review_filesystem_xfs_requires_verified_case_sensitive_geometry() {
-        for flags in [Ok(0), Err(ENOTTY), Err(EOPNOTSUPP)] {
-            assert!(classify_directory(0x5846_5342, flags, Ok(0)).is_ok());
-            assert!(classify_directory(0x5846_5342, flags, Ok(0x10)).is_ok());
-            for geometry in [Ok(0x1000), Ok(0x1010), Err(ENOTTY), Err(EIO), Err(EACCES)] {
-                let reason = classify_directory(0x5846_5342, flags, geometry)
-                    .expect_err("ascii-ci or unverified XFS geometry allowed");
-                assert!(reason.contains("0x58465342"));
-            }
-        }
-    }
-
-    #[test]
-    fn review_filesystem_overlay_and_zfs_lookup_semantics_are_unverifiable() {
-        for (magic, explanation) in [(0x794c_7630, "layer"), (0x2fc1_2fc1, "dataset")] {
-            for flags in [Ok(0), Err(ENOTTY), Err(EOPNOTSUPP)] {
-                let reason = classify_directory(magic, flags, Ok(0))
-                    .expect_err("unverified overlay or dataset lookup semantics allowed");
-                assert!(reason.contains(&format!("{magic:#x}")));
-                assert!(reason.contains(explanation), "missing lookup explanation: {reason}");
-            }
-        }
-    }
-
-    #[test]
-    fn review_filesystem_real_tmpfs_directory_remains_supported() {
-        let fd = open_at(AT_FDCWD, "/dev/shm", O_RDONLY | O_DIRECTORY, 0).unwrap();
-        let mut fs: statfs = unsafe { std::mem::zeroed() };
-        assert_eq!(unsafe { fstatfs(fd.as_raw_fd(), &mut fs) }, 0);
-        assert_eq!(fs.f_type as u64, 0x0102_1994, "runner /dev/shm must be tmpfs");
-        classify_directory(fs.f_type as u64, directory_flags(fd.as_raw_fd()), Err(ENOTTY))
-            .expect("real tmpfs directory must be supported");
-    }
-
-    #[test]
     fn review_filesystem_runner_directory_remains_supported() {
         let fixture = Fixture::new();
         let fd = open_at(AT_FDCWD, fixture.0.to_str().unwrap(), O_RDONLY | O_DIRECTORY, 0).unwrap();
-        let mut fs: statfs = unsafe { std::mem::zeroed() };
-        assert_eq!(unsafe { fstatfs(fd.as_raw_fd(), &mut fs) }, 0);
-        let mut flags: c_long = 0;
-        let flags = if unsafe { ioctl(fd.as_raw_fd(), FS_IOC_GETFLAGS, &mut flags) } == 0 {
-            Ok(flags)
-        } else {
-            Err(error())
-        };
-        classify_directory(fs.f_type as u64, flags, xfs_geometry(fd.as_raw_fd()))
-            .expect("runner fixture filesystem must be supported");
+        let _ = fd;
         let path = format!("{}/ordinary", fixture.0.display());
         let resolved =
             resolve(task().as_raw_fd(), AT_FDCWD, &path, O_CREAT | O_WRONLY, &nspid()).unwrap();

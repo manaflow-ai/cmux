@@ -1,4 +1,5 @@
 pub(crate) mod init;
+pub(crate) mod lookup;
 pub(crate) mod proxy;
 pub(crate) mod rules;
 pub(crate) mod seccomp;
