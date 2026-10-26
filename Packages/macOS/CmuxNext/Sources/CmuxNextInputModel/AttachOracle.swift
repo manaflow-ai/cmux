@@ -1,28 +1,27 @@
-import CmuxNextBridge
-import Foundation
+package import Foundation
 
 /// Checks one terminal attach machine's reductions against the attach
 /// invariants A1-A4 (plans/cmux-next/input-spec.md section 2.3). Feed it
 /// every event with the machine before and after and the effects returned;
 /// it keeps the accepted input and the sends, so "lost, duplicated or
 /// reordered" is decided exactly, not by sampling.
-nonisolated struct AttachOracle<Link: Hashable & Sendable>: Sendable {
-    typealias Machine = TerminalAttachMachine<Link>
+package nonisolated struct AttachOracle<Link: Hashable & Sendable>: Sendable {
+    package typealias Machine = TerminalAttachMachine<Link>
 
     /// Input the machine accepted (sent or queued), oldest first, not yet sent.
-    private(set) var unsent: [Data] = []
-    private(set) var sentChunks = 0
-    private(set) var droppedChunks = 0
+    package private(set) var unsent: [Data] = []
+    package private(set) var sentChunks = 0
+    package private(set) var droppedChunks = 0
     /// Links the machine was told about (`opened`), and their detach counts.
-    private(set) var detaches: [Link: Int] = [:]
+    package private(set) var detaches: [Link: Int] = [:]
     /// `open` effects not yet answered by `opened` or `openFailed`.
-    private(set) var openAttempts: Set<Int> = []
+    package private(set) var openAttempts: Set<Int> = []
 
-    init() {}
+    package init() {}
 
     /// Checks one reduction. Returns the broken invariants.
-    mutating func observe(_ event: Machine.Event, before: Machine, after: Machine, effects: [Machine.Effect],
-                          window: String? = nil, surface: String = "") -> [InputViolation] {
+    package mutating func observe(_ event: Machine.Event, before: Machine, after: Machine, effects: [Machine.Effect],
+                                  window: String? = nil, surface: String = "") -> [InputViolation] {
         var out: [InputViolation] = []
         func fail(_ invariant: InputInvariant, _ detail: String) {
             out.append(InputViolation(invariant: invariant, window: window, detail: "\(surface) \(detail) after \(Self.name(event))"))
@@ -90,7 +89,7 @@ nonisolated struct AttachOracle<Link: Hashable & Sendable>: Sendable {
         return out
     }
 
-    static func name(_ event: Machine.Event) -> String {
+    package static func name(_ event: Machine.Event) -> String {
         switch event {
         case .start: "start"
         case .opened(_, let attempt): "opened(\(attempt))"

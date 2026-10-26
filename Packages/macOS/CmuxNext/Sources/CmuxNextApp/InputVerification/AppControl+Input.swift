@@ -1,4 +1,5 @@
 import CmuxNextControl
+import CmuxNextInputModel
 import CmuxNextSettings
 import Foundation
 
@@ -23,7 +24,7 @@ extension AppControl {
                 } else {
                     entries = InputJournal.shared.entries()
                 }
-                return .value(Self.encode(InputReplay.replay(entries)))
+                return .value(Self.encode(InputReplay(entries).run()))
             },
         ])
         #if DEBUG || CMUX_BENCH_HOOKS
