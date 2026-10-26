@@ -4,9 +4,9 @@ public import Foundation
 /// pulls out the parameter sets (VPS/SPS/PPS) for the format description,
 /// and rewrites the remaining NAL units with 4-byte big-endian lengths
 /// (the form VideoToolbox decodes).
-public struct RemoteAnnexB {
+public nonisolated struct RemoteAnnexB {
     public nonisolated init() {}
-    public struct Parsed: Sendable, Equatable {
+    public nonisolated struct Parsed: Sendable, Equatable {
         /// H.264: [SPS, PPS]. HEVC: [VPS, SPS, PPS]. Empty when the access
         /// unit carries none (every non-key frame).
         public var parameterSets: [[UInt8]] = []

@@ -9,14 +9,16 @@ import Testing
 /// ``AnnexBParser`` and ``AndroidFrameAssembler`` do. Seeded property tests on
 /// CmuxFuzzSupport (p10-stability-024; long mode: CMUX_FUZZ_SECONDS):
 ///
-/// - the parser never traps and cuts the units of ``UnitModel``, which reads the
-///   whole stream at once (every `00 00 01` starts a unit, ITU-T H.264 B.1.1), for
-///   any chunking: one push, random chunks, one byte at a time;
+/// - the parser never traps and cuts the units and drops of ``UnitModel``, which
+///   reads the whole stream at once (every `00 00 01` starts a unit, ITU-T H.264
+///   B.1.1), for any chunking: one push, random chunks, one byte at a time;
 /// - its allocation is bounded per unit: a unit longer than `maxUnitBytes` is
 ///   dropped, bytes before the first start code are not kept, and between calls it
 ///   holds at most `2 * (maxUnitBytes + 2)` bytes;
-/// - the assembler never traps, and its samples are the frame units (types 1 and
-///   5) it cut, in order, each one 4-byte length plus the unit.
+/// - the assembler never traps, and its samples are exactly ``SampleModel``'s:
+///   each frame unit (types 1 and 5) that has a format, except slices after a
+///   dropped unit until the next keyframe sample, in order, each one the 4-byte
+///   big-endian length plus the unit.
 @Suite struct AndroidStreamFuzzTests {
     /// Baseline profile, level 3.0, 320 x 240 (bits written by hand from H.264 7.3.2.1.1).
     static let sps: [UInt8] = [0x67, 0x42, 0xC0, 0x1E, 0xDA, 0x05, 0x07, 0xE4]
@@ -44,7 +46,7 @@ import Testing
         #expect(cases > 0)
     }
 
-    @Test func assemblerSamplesAreTheFrameUnitsItCut() throws {
+    @Test func assemblerSamplesAreTheModelsFrames() throws {
         try FuzzRun("AndroidStream.assembler", seed: 0xA11D_5C7E_A000_0025, iterations: 3_000).forEach { rng in
             let stream = StreamCase(&rng)
             try stream.checkAssembler(&rng)
@@ -86,34 +88,110 @@ import Testing
         for frame in frames { stream += [0, 0, 1] + frame }
         stream += [0, 0, 0, 1]
         let samples = assembler.samples(from: Data(stream))
-        #expect(samples.map { CMSampleBufferGetTotalSampleSize($0.buffer) } == frames.map { $0.count + 4 })
+        #expect(samples.map { Self.avcc($0.buffer) } == frames.map(Self.lengthPrefixed))
+    }
+
+    /// An oversized IDR is dropped; the slices that reference it make no sample until the next IDR.
+    @Test func slicesAfterADroppedUnitWaitForTheNextKeyframe() {
+        let assembler = AndroidFrameAssembler(maxUnitBytes: 16)
+        let bigIDR: [UInt8] = [0x65] + [UInt8](repeating: 0x88, count: 64)
+        let units: [[UInt8]] = [Self.sps, Self.pps, Self.idr, Self.slice, bigIDR, Self.slice, Self.slice, Self.idr, Self.slice]
+        var samples: [[UInt8]] = []
+        for unit in units {
+            samples += assembler.samples(from: Data([0, 0, 0, 1] + unit)).map { Self.avcc($0.buffer) }
+        }
+        samples += assembler.samples(from: Data([0, 0, 0, 1])).map { Self.avcc($0.buffer) }
+        #expect(samples == [Self.idr, Self.slice, Self.idr, Self.slice].map(Self.lengthPrefixed))
+    }
+
+    @Test func theHandWrittenParameterSetsMakeAFormat() {
+        #expect(AndroidFrameAssembler.format(sps: Data(Self.sps), pps: Data(Self.pps)) != nil)
+    }
+
+    /// The bytes of a one-sample buffer.
+    static func avcc(_ buffer: CMSampleBuffer) -> [UInt8] {
+        guard let block = CMSampleBufferGetDataBuffer(buffer) else { return [] }
+        var bytes = [UInt8](repeating: 0, count: CMBlockBufferGetDataLength(block))
+        let status = bytes.withUnsafeMutableBytes { out -> OSStatus in
+            guard let base = out.baseAddress else { return noErr }
+            return CMBlockBufferCopyDataBytes(block, atOffset: 0, dataLength: out.count, destination: base)
+        }
+        return status == noErr ? bytes : []
+    }
+
+    /// A unit behind its 4-byte big-endian length (AVCC).
+    static func lengthPrefixed(_ unit: [UInt8]) -> [UInt8] {
+        let count = UInt32(unit.count)
+        return [UInt8(count >> 24), UInt8((count >> 16) & 0xFF), UInt8((count >> 8) & 0xFF), UInt8(count & 0xFF)] + unit
     }
 }
 
 extension AndroidStreamFuzzTests {
     /// What the parser must return for a whole stream, read at once: every `00 00 01` starts a unit,
     /// a unit ends where the next start code starts, its trailing zero bytes belong to no unit, an
-    /// empty unit or one longer than `maxUnit` (before its zeros are trimmed) is dropped. `last` is
-    /// the unit still open at the end, which only `flush()` returns.
+    /// empty unit is skipped and one longer than `maxUnit` (before its zeros are trimmed) is
+    /// `.dropped`. `last` is the unit still open at the end, which only `flush()` returns.
     struct UnitModel: Equatable {
-        var complete: [[UInt8]] = []
+        var cuts: [AnnexBParser.Cut] = []
         var last: [UInt8]?
+
+        /// The units cut, without the drops.
+        var complete: [[UInt8]] { cuts.compactMap { $0.unit.map { Array($0) } } }
 
         init(_ stream: [UInt8], maxUnit: Int) {
             var codes: [Int] = []
             for index in stream.indices.dropLast(2) where stream[index...].starts(with: [0, 0, 1]) {
                 codes.append(index)
             }
-            func unit(_ range: Range<Int>) -> [UInt8]? {
-                guard range.count <= maxUnit else { return nil }
+            func cut(_ range: Range<Int>) -> AnnexBParser.Cut? {
+                guard range.count <= maxUnit else { return .dropped }
                 var end = range.upperBound
                 while end > range.lowerBound, stream[end - 1] == 0 { end -= 1 }
-                return end > range.lowerBound ? Array(stream[range.lowerBound..<end]) : nil
+                return end > range.lowerBound ? .unit(Data(stream[range.lowerBound..<end])) : nil
             }
             for (index, code) in codes.enumerated() where index + 1 < codes.count {
-                if let found = unit((code + 3)..<codes[index + 1]) { complete.append(found) }
+                if let found = cut((code + 3)..<codes[index + 1]) { cuts.append(found) }
             }
-            last = codes.last.flatMap { unit(($0 + 3)..<stream.count) }
+            last = codes.last.flatMap { cut(($0 + 3)..<stream.count)?.unit.map { Array($0) } }
+        }
+    }
+
+    /// The samples the assembler must make from a stream's cuts, walked in order: parameter sets make
+    /// the format (a changed one is made again; Core Media decides whether it is valid), a frame unit
+    /// with a format is one AVCC sample, and after a `.dropped` slices make none until a keyframe does.
+    struct SampleModel {
+        var samples: [[UInt8]] = []
+
+        init(_ cuts: [AnnexBParser.Cut]) {
+            var sps: Data?
+            var pps: Data?
+            var hasFormat = false
+            var awaitingKeyframe = false
+            for cut in cuts {
+                guard let unit = cut.unit, let header = unit.first else {
+                    awaitingKeyframe = true
+                    continue
+                }
+                let type = header & 0x1F
+                switch type {
+                case 7:
+                    if sps != unit { hasFormat = false }
+                    sps = unit
+                case 8:
+                    if pps != unit { hasFormat = false }
+                    pps = unit
+                case 1, 5:
+                    if type == 1, awaitingKeyframe { continue }
+                    if !hasFormat, let sps, let pps {
+                        hasFormat = AndroidFrameAssembler.format(sps: sps, pps: pps) != nil
+                    }
+                    guard hasFormat else { continue }
+                    samples.append(AndroidStreamFuzzTests.lengthPrefixed(Array(unit)))
+                    if type == 5 { awaitingKeyframe = false }
+                default:
+                    continue
+                }
+            }
         }
     }
 
@@ -165,14 +243,15 @@ extension AndroidStreamFuzzTests {
                 while at < bytes.count {
                     let rest = bytes.count - at
                     let count = feed == 0 ? rest : (rng.oneIn(4) ? 1 : 1 + rng.below(min(rest, 2_048)))
-                    let units = parser.append(Data(bytes[at..<(at + count)]))
+                    let cuts = parser.cut(Data(bytes[at..<(at + count)]))
                     at += count
+                    let units = cuts.compactMap(\.unit)
                     try FuzzRun.check(units.allSatisfy { !$0.isEmpty && $0.count <= maxUnit }, "a unit is empty or past the limit")
                     try FuzzRun.check(
                         parser.bufferedByteCount <= 2 * (maxUnit + 2),
                         "the parser holds \(parser.bufferedByteCount) bytes with a \(maxUnit)-byte limit"
                     )
-                    got.complete += units.map { Array($0) }
+                    got.cuts += cuts
                 }
                 got.last = parser.flush().map { Array($0) }
                 try FuzzRun.check(got == expected, "feed \(feed): \(Self.describe(got)) but the model \(Self.describe(expected)); \(describe())")
@@ -180,31 +259,22 @@ extension AndroidStreamFuzzTests {
             }
         }
 
-        /// Random chunks through the assembler: its samples are its frame units, in order.
+        /// Random chunks through the assembler: its samples are ``SampleModel``'s, byte for byte.
         func checkAssembler(_ rng: inout FuzzRNG) throws {
-            let frames = UnitModel(bytes, maxUnit: AnnexBParser.defaultMaxUnitBytes).complete
-                .filter { [1, 5].contains($0[0] & 0x1F) }
-                .map { $0.count + 4 }
-            let assembler = AndroidFrameAssembler()
-            var sizes: [Int] = []
+            let expected = SampleModel(UnitModel(bytes, maxUnit: maxUnit).cuts).samples
+            let assembler = AndroidFrameAssembler(maxUnitBytes: maxUnit)
+            var got: [[UInt8]] = []
             var at = 0
             while at < bytes.count {
                 let count = 1 + rng.below(min(bytes.count - at, 4_096))
                 for sample in assembler.samples(from: Data(bytes[at..<(at + count)])) {
                     let buffer = sample.buffer
                     try FuzzRun.check(CMSampleBufferGetNumSamples(buffer) == 1, "a sample buffer holds \(CMSampleBufferGetNumSamples(buffer)) samples")
-                    sizes.append(CMSampleBufferGetTotalSampleSize(buffer))
+                    got.append(AndroidStreamFuzzTests.avcc(buffer))
                 }
                 at += count
             }
-            // A frame unit before any parameter sets has no format and makes no sample.
-            var remaining = frames[...]
-            let inOrder = sizes.allSatisfy { size in
-                guard let index = remaining.firstIndex(of: size) else { return false }
-                remaining = remaining[(index + 1)...]
-                return true
-            }
-            try FuzzRun.check(inOrder, "sample sizes \(sizes) are not the frame units \(frames) in order; \(describe())")
+            try FuzzRun.check(got == expected, "samples \(got.map(\.count)) but the model \(expected.map(\.count)); \(describe())")
         }
 
         static func describe(_ model: UnitModel) -> String {

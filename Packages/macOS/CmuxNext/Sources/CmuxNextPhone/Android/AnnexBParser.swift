@@ -6,14 +6,28 @@ import Foundation
 ///
 /// The memory it holds is bounded whatever adb writes: bytes before the
 /// first start code are dropped, and a unit whose payload grows past
-/// `maxUnitBytes` before its next start code is dropped whole (its decoder
-/// waits for the next keyframe), so the buffer never holds more than
+/// `maxUnitBytes` before its next start code is dropped whole and reported
+/// as ``Cut/dropped`` where it ended, so ``AndroidFrameAssembler`` waits for
+/// the next keyframe, and the buffer never holds more than
 /// `2 * (maxUnitBytes + 2)` bytes between calls. Consumed bytes stay at the
 /// front until they are at least half the buffer, as Chromium's
 /// `media/base/byte_queue.cc` keeps an offset instead of moving the queue on
 /// every pop, so a unit that arrives in many small chunks is copied a bounded
 /// number of times.
 struct AnnexBParser {
+    /// One thing the stream gave, in stream order.
+    enum Cut: Equatable {
+        /// A unit, without its start code or trailing zero bytes.
+        case unit(Data)
+        /// A unit longer than `maxUnitBytes` was skipped here.
+        case dropped
+
+        var unit: Data? {
+            guard case let .unit(data) = self else { return nil }
+            return data
+        }
+    }
+
     /// 8 MiB: a 4K IDR at screenrecord's bit rate is a few hundred KiB.
     static let defaultMaxUnitBytes = 8 << 20
 
@@ -39,15 +53,20 @@ struct AnnexBParser {
 
     /// Appends `chunk` and returns the units it completed, in order.
     mutating func append(_ chunk: Data) -> [Data] {
+        cut(chunk).compactMap(\.unit)
+    }
+
+    /// Appends `chunk` and returns the units it completed and the over-limit units it skipped, in order.
+    mutating func cut(_ chunk: Data) -> [Cut] {
         buffer.append(contentsOf: chunk)
-        var units: [Data] = []
+        var cuts: [Cut] = []
         var i = scanned
         while i + 2 < buffer.count {
             guard buffer[i] == 0, buffer[i + 1] == 0, buffer[i + 2] == 1 else {
                 i += 1
                 continue
             }
-            if inUnit, let unit = finishedUnit(head..<i) { units.append(unit) }
+            if inUnit, let cut = finishedCut(head..<i) { cuts.append(cut) }
             inUnit = true
             discarding = false
             head = i + 3
@@ -61,7 +80,7 @@ struct AnnexBParser {
             head = max(head, buffer.count - 2)
         }
         compact()
-        return units
+        return cuts
     }
 
     /// The unit in progress (at the end of the stream).
@@ -74,16 +93,16 @@ struct AnnexBParser {
             discarding = false
         }
         guard inUnit else { return nil }
-        return finishedUnit(head..<buffer.count)
+        return finishedCut(head..<buffer.count)?.unit
     }
 
-    /// The unit in `range` (between two start codes): nil when it is over the limit or empty.
-    private func finishedUnit(_ range: Range<Int>) -> Data? {
-        guard !discarding, range.count <= maxUnitBytes else { return nil }
+    /// The unit in `range` (between two start codes): `.dropped` when it is over the limit, nil when empty.
+    private func finishedCut(_ range: Range<Int>) -> Cut? {
+        guard !discarding, range.count <= maxUnitBytes else { return .dropped }
         var end = range.upperBound
         // A 4-byte start code's leading zero (and trailing_zero_8bits) belong to no unit.
         while end > range.lowerBound, buffer[end - 1] == 0 { end -= 1 }
-        return end > range.lowerBound ? Data(buffer[range.lowerBound..<end]) : nil
+        return end > range.lowerBound ? .unit(Data(buffer[range.lowerBound..<end])) : nil
     }
 
     /// Drops the consumed bytes once they are at least half the buffer.

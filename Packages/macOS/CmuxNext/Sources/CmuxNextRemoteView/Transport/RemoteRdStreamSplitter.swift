@@ -9,7 +9,7 @@ import Foundation
 /// frame boundaries; the core validates the frames.
 nonisolated struct RemoteRdStreamSplitter {
     /// One piece of the received bytes, in order.
-    struct Segment: Equatable {
+    nonisolated struct Segment: Equatable {
         var bytes: Data
         /// The piece ends with the last byte of a control frame.
         var endsControlFrame: Bool
