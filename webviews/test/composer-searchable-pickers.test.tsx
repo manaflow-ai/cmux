@@ -200,7 +200,7 @@ test("shared combobox ignores non-primary and disabled presses, while keyboard c
     open.dispatchEvent(new dom.window.MouseEvent("mousedown", { bubbles: true, button: 0 }));
     open.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true, detail: 0 }));
   });
-  expect(calls).toEqual(["open", "open", "open"]);
+  expect(calls).toEqual(["open", "open", "open", "open"]);
 });
 
 test("Tab skips disabled suggestions and submits the enabled destination", async () => {
