@@ -3,13 +3,13 @@
 .acpmux-chat-inspector-subagents__avatars {
   display: inline-flex;
   align-items: center;
-  gap: 2px;
+  gap: var(--ds-space-1);
   flex: none;
 }
 
 .acpmux-chat-inspector-subagents__avatars .cv-subagent-avatar {
-  width: 18px;
-  height: 18px;
+  width: var(--ds-control-icon);
+  height: var(--ds-control-icon);
   background: none;
   box-shadow: none;
   color: var(--agent-tone-ink);

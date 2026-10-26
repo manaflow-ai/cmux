@@ -9,7 +9,7 @@
 // running lines' icons share one shimmer that sweeps down them (ui/wave.ts); the ended ones stay
 // still. The live counts sit in the section's head ("3 running · 40 done", `subagentCounts`). Leo
 // 2026-10-21: the row of identical avatars it replaces opened nothing anyone could tell apart.
-import { useState } from "react";
+import { memo, useState } from "react";
 import { formatDuration } from "../conversation/turns";
 import { useT, type Translate } from "../i18n";
 import { waveIndices } from "../../../ui/wave";
@@ -85,6 +85,43 @@ type Line = {
 const live = (status: SubagentStatus) => status === "running" || status === "waiting";
 /// The ended list's order: a failed one first, then a stopped one, then the done ones.
 const ENDED_RANK: Record<SubagentStatus, number> = { failed: 0, stopped: 1, done: 2, running: 3, waiting: 3 };
+
+// Streaming rows/views recreate the folded agents. Compare only the bounded preview's visual
+// inputs so those snapshots do not render its Avatars or hash their tones again. Avatar's harness
+// context and AgentMark's theme subscription still update independently through this memo boundary.
+const EndedAvatars = memo(
+  function EndedAvatars({ items }: { items: readonly Line[]; count: number }) {
+    return (
+      <span className="acpmux-chat-inspector-subagents__avatars" aria-hidden="true">
+        {items.map((item) => (
+          <span key={item.key} data-agent-tone={agentTone(item.identity)}>
+            {item.agent ? (
+              <Avatar agent={item.agent} />
+            ) : (
+              <span className="cv-subagent-avatar" data-state={item.status}>
+                <Icon name={item.icon} size={14} />
+              </span>
+            )}
+          </span>
+        ))}
+      </span>
+    );
+  },
+  (before, after) =>
+    before.count === after.count &&
+    before.items.length === after.items.length &&
+    before.items.every((item, index) => {
+      const next = after.items[index]!;
+      return (
+        item.key === next.key &&
+        item.identity === next.identity &&
+        item.status === next.status &&
+        item.icon === next.icon &&
+        item.agent?.state === next.agent?.state &&
+        item.agent?.harness === next.agent?.harness
+      );
+    }),
+);
 
 export function SubagentsSection({
   agents,
@@ -209,19 +246,7 @@ export function SubagentsSection({
             aria-expanded={endedOpen}
             onClick={() => setEndedOpen(!endedOpen)}
           >
-            <span className="acpmux-chat-inspector-subagents__avatars" aria-hidden="true">
-              {endedLines.slice(0, 4).map((item) => (
-                <span key={item.key} data-agent-tone={agentTone(item.identity)}>
-                  {item.agent ? (
-                    <Avatar agent={item.agent} />
-                  ) : (
-                    <span className="cv-subagent-avatar" data-state={item.status}>
-                      <Icon name={item.icon} size={14} />
-                    </span>
-                  )}
-                </span>
-              ))}
-            </span>
+            <EndedAvatars items={endedLines.slice(0, 4)} count={endedLines.length} />
             <span className="acpmux-summary-text">{endedCounts(t, endedLines)}</span>
             <Icon name={endedOpen ? "disclosure.expanded" : "disclosure.collapsed"} size={10} />
           </button>

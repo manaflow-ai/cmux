@@ -11,7 +11,7 @@
 // requests under Changes and five running subagents, each then Show more (Claude Code desktop's).
 import { readFileSync } from "node:fs";
 
-import { afterEach, beforeEach, expect, setSystemTime, test } from "bun:test";
+import { afterEach, beforeEach, expect, setSystemTime, spyOn, test } from "bun:test";
 import { act, useState, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
@@ -40,6 +40,8 @@ import {
   type StartedSession,
 } from "../src/agent-session/acpmux/started/startedSessions";
 import type { Subagent } from "../src/agent-session/acpmux/subagents/subagentFold";
+import * as subagentGroup from "../src/agent-session/acpmux/subagents/SubagentGroup";
+import * as tones from "../src/agent-session/acpmux/subagents/agentTones";
 import { sessionSummary } from "../src/agent-session/acpmux/summary/sessionSummary";
 import { activity, chat, tool } from "../src/gallery/fixtures/acpmux";
 
@@ -678,6 +680,47 @@ test("Subagents names each running one on its line, and folds the ended ones int
   expect(shown).toEqual(["agent-1", "agent-8"]);
   await click(ended);
   expect(subagents.querySelector(".acpmux-chat-inspector-subagents__list")).toBeNull();
+});
+
+test("200 streamed tokens do not render the completed avatar preview again", async () => {
+  const container = installDom(true);
+  const avatarRenders = spyOn(subagentGroup, "Avatar");
+  const toneHashes = spyOn(tones, "agentTone");
+  const completed = Array.from({ length: 31 }, (_, index) => subagent(index, "completed"));
+  const paint = async (tokens: number, agents = completed) => {
+    await act(async () => {
+      root ??= createRoot(container);
+      root.render(
+        <>
+          <p>{"token ".repeat(tokens)}</p>
+          {/* Streaming rows/views rebuild the folded agents: new array and objects each update. */}
+          <ChatInspector agents={agents.map((agent) => ({ ...agent, tokens }))} />
+        </>,
+      );
+    });
+  };
+  try {
+    await paint(0);
+    expect(avatarRenders).toHaveBeenCalledTimes(4);
+    const initialHashes = toneHashes.mock.calls.length;
+    for (let token = 1; token <= 200; token++) await paint(token);
+    expect(container.querySelector("p")?.textContent?.trim().split(" ")).toHaveLength(200);
+    expect(avatarRenders).toHaveBeenCalledTimes(4);
+    expect(toneHashes).toHaveBeenCalledTimes(initialHashes);
+    expect(endedRow(container)?.textContent).toBe("31 done");
+
+    // A new ended agent changes the preview; real changes must not be frozen by memoization.
+    await paint(201, [...completed, subagent(31, "completed")]);
+    expect(avatarRenders).toHaveBeenCalledTimes(8);
+    expect(endedRow(container)?.textContent).toBe("32 done");
+    // The same identity can receive corrected state/harness metadata after its first snapshot.
+    await paint(202, [...completed, { ...subagent(31, "failed"), harness: "codex" }]);
+    expect(avatarRenders).toHaveBeenCalledTimes(12);
+    expect(endedRow(container)?.querySelector(".cv-subagent-avatar")?.getAttribute("data-state")).toBe("failed");
+  } finally {
+    avatarRenders.mockRestore();
+    toneHashes.mockRestore();
+  }
 });
 
 test("a nested subagent waiting on the person stays under the one that spawned it", async () => {
