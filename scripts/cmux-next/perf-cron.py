@@ -2465,7 +2465,6 @@ def cmd_run_part(o):
     if not is_sha(o.sha):
         raise SystemExit(f"perf-cron: --sha must be a full commit sha, not {o.sha!r}")
     os.makedirs(o.out, exist_ok=True)
-    args = json.loads(o.args)
     try:
         labels = step_labels(http_json(controller_url() + "/v1/status"), o.worker)
         why = None if labels else f"{o.worker} is not a controller worker now"
@@ -2476,16 +2475,11 @@ def cmd_run_part(o):
             json.dump({"reason": why, "worker": o.worker}, f)
         print(f"perf-cron part: not started: {why}")
         return
-    # Paired before/after runs keep a strict host pin so warm-state and host
-    # noise stay comparable. A standalone measurement opts into the controller
-    # reconciler: after five minutes on a paused target it may spill to another
-    # capable worker instead of recreating the GUI starvation queue.
-    reroute_target = not any(str(arg).startswith("against=") for arg in args)
     argv = [o.client, "run", "--class", "exclusive", "--background", "--measurement",
             *[x for label in labels for x in ("--label", label)],
-            "--target-worker", o.worker, *(["--reroute-target"] if reroute_target else []), "--no-supersede", "--script", "scripts/measure/split-spring.sh", "--ref", o.sha, "--key", o.key,
+            "--target-worker", o.worker, "--no-supersede", "--script", "scripts/measure/split-spring.sh", "--ref", o.sha, "--key", o.key,
             "--artifact", o.artifact, "--timeout", str(o.run_seconds), "--queue-timeout", str(PART_QUEUE_SECONDS),
-            *[f"--arg={a}" for a in args]]
+            *[f"--arg={a}" for a in json.loads(o.args)]]
     print("perf-cron: " + " ".join(argv), flush=True)
     log_path = os.path.join(o.out, "step.log")
     started = time.monotonic()
