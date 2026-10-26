@@ -12,6 +12,7 @@
 #pragma once
 
 #include <algorithm>
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
@@ -52,7 +53,9 @@ enum Kind : uint32_t {
                    // cmux sends the geometry again when the window moves or changes screen or scale)
   kMouse = 3,      // v0 x, v1 y (points, top left), v2 phase (0 move, 1 down, 2 up, 3 exit), v3 button
                    // (0 left, 1 middle, 2 right), v4 click count, flags = NSEventModifierFlags, t0 event time
-  kWheel = 4,      // v0 x, v1 y, v2 dx, v3 dy (pixels), flags, t0
+  kWheel = 4,      // v0 x, v1 y (points, top left), v2 v3 scrollingDeltaX/Y x kWheelDeltaScale, v4 phase, v5
+                   // momentum phase (NSEventPhase bits), flags = NSEventModifierFlags | kWheelPrecise, t0
+                   // (Wheel below, p04-input-063)
   kKey = 5,        // v0 phase (0 down, 1 up, 2 flags changed), v1 key code, v2 repeat, flags, ch, unmod, t0;
                    // the host sends it with cmux_shim::SendHostKeyEvent and the frame's input seq, which
                    // KEY_UNHANDLED carries back for a chord the page leaves unhandled (p01-process-030).
@@ -107,6 +110,71 @@ struct Header {
   uint32_t seq = 0;
 };
 
+// A wheel frame (kWheel, task p04-input-063). Chrome builds its wheel event
+// from the NSEvent with the trackpad's scroll phase, its momentum phase and
+// whether the deltas are precise (WebMouseWheelEventBuilder::Build in
+// content/browser/renderer_host/input/web_input_event_builders_mac.mm), and its
+// renderer host latches a gesture and hands the fling to the page from them
+// (components/input/mouse_wheel_phase_handler.cc), so the frame carries them:
+// v2 v3 NSEvent scrollingDeltaX/Y times kWheelDeltaScale, rounded (pixels when
+// precise, lines when not); v4 NSEvent.phase and v5 NSEvent.momentumPhase as
+// NSEventPhase bits; kWheelPrecise in flags for hasPreciseScrollingDeltas.
+inline constexpr int32_t kWheelDeltaScale = 100;
+inline constexpr uint64_t kWheelPrecise = uint64_t{1} << 63;
+// NSEventPhase.
+inline constexpr int32_t kNSPhaseBegan = 1 << 0;
+inline constexpr int32_t kNSPhaseStationary = 1 << 1;
+inline constexpr int32_t kNSPhaseChanged = 1 << 2;
+inline constexpr int32_t kNSPhaseEnded = 1 << 3;
+inline constexpr int32_t kNSPhaseCancelled = 1 << 4;
+inline constexpr int32_t kNSPhaseMayBegin = 1 << 5;
+// NSEventModifierFlags.
+inline constexpr uint64_t kNSFlagCapsLock = uint64_t{1} << 16;
+inline constexpr uint64_t kNSFlagShift = uint64_t{1} << 17;
+inline constexpr uint64_t kNSFlagControl = uint64_t{1} << 18;
+inline constexpr uint64_t kNSFlagOption = uint64_t{1} << 19;
+inline constexpr uint64_t kNSFlagCommand = uint64_t{1} << 20;
+// cef_event_flags_t (include/internal/cef_types.h; browser_host_main.mm checks
+// them against CEF's).
+inline constexpr int kCefCapsLockOn = 1 << 0;
+inline constexpr int kCefShiftDown = 1 << 1;
+inline constexpr int kCefControlDown = 1 << 2;
+inline constexpr int kCefAltDown = 1 << 3;
+inline constexpr int kCefCommandDown = 1 << 7;
+inline constexpr int kCefPrecisionScrollingDelta = 1 << 14;
+// A line of a wheel with no precise deltas, in pixels: Chrome's
+// kScrollbarPixelsPerCocoaTick, which WebMouseWheelEventBuilder multiplies
+// [NSEvent deltaX/Y] by.
+inline constexpr double kPixelsPerCocoaTick = 40;
+
+// The phases of cmux_shim_browser_send_wheel (the fork's wheel call).
+enum WheelPhase : int {
+  kWheelPhaseNone = 0,
+  kWheelPhaseMayBegin = 1,
+  kWheelPhaseBegan = 2,
+  kWheelPhaseChanged = 3,
+  kWheelPhaseEnded = 4,
+  kWheelPhaseCancelled = 5,
+};
+
+// A wheel frame's fields as the fork's wheel call takes them.
+struct Wheel {
+  double x = 0;   // page view points, top left
+  double y = 0;
+  double dx = 0;  // scrollingDeltaX/Y: pixels when precise, lines when not
+  double dy = 0;
+  bool precise = false;
+  int phase = kWheelPhaseNone;
+  int momentum_phase = kWheelPhaseNone;
+  int modifiers = 0;  // cef_event_flags_t
+};
+
+// SendMouseWheelEvent's integer pixel deltas.
+struct WheelPixels {
+  int dx = 0;
+  int dy = 0;
+};
+
 namespace detail {
 template <typename T>
 inline void Put(uint8_t* out, size_t offset, T value) {
@@ -146,6 +214,54 @@ inline bool Decode(const uint8_t in[kHeaderSize], Header* h) {
   h->unmod = Get<uint16_t>(in, 58);
   h->seq = Get<uint32_t>(in, 60);
   return h->payload <= kMaxPayload;
+}
+
+// One NSEventPhase as the fork's phase. A stationary gesture (fingers down,
+// not moving) is a change with no delta, as Blink's kPhaseStationary only
+// keeps the gesture latched.
+inline int WheelPhaseOf(int32_t ns_phase) {
+  if (ns_phase & kNSPhaseCancelled) return kWheelPhaseCancelled;
+  if (ns_phase & kNSPhaseEnded) return kWheelPhaseEnded;
+  if (ns_phase & kNSPhaseBegan) return kWheelPhaseBegan;
+  if (ns_phase & (kNSPhaseChanged | kNSPhaseStationary)) return kWheelPhaseChanged;
+  if (ns_phase & kNSPhaseMayBegin) return kWheelPhaseMayBegin;
+  return kWheelPhaseNone;
+}
+
+// NSEventModifierFlags as cef_event_flags_t.
+inline int CefModifiersOf(uint64_t ns_flags) {
+  int flags = 0;
+  if (ns_flags & kNSFlagCapsLock) flags |= kCefCapsLockOn;
+  if (ns_flags & kNSFlagShift) flags |= kCefShiftDown;
+  if (ns_flags & kNSFlagControl) flags |= kCefControlDown;
+  if (ns_flags & kNSFlagOption) flags |= kCefAltDown;
+  if (ns_flags & kNSFlagCommand) flags |= kCefCommandDown;
+  return flags;
+}
+
+// A kWheel frame's fields.
+inline Wheel WheelOf(const Header& h) {
+  Wheel wheel;
+  wheel.x = h.v[0];
+  wheel.y = h.v[1];
+  wheel.dx = static_cast<double>(h.v[2]) / kWheelDeltaScale;
+  wheel.dy = static_cast<double>(h.v[3]) / kWheelDeltaScale;
+  wheel.precise = (h.flags & kWheelPrecise) != 0;
+  wheel.phase = WheelPhaseOf(h.v[4]);
+  wheel.momentum_phase = WheelPhaseOf(h.v[5]);
+  wheel.modifiers = CefModifiersOf(h.flags);
+  return wheel;
+}
+
+// The deltas for CefBrowserHost::SendMouseWheelEvent, on a fork with no wheel
+// call: as WebMouseWheelEventBuilder, precise deltas are pixels and a line is
+// kPixelsPerCocoaTick pixels.
+inline WheelPixels PixelsOf(const Wheel& wheel) {
+  const double scale = wheel.precise ? 1 : kPixelsPerCocoaTick;
+  auto pixels = [scale](double delta) {
+    return static_cast<int>(std::clamp<double>(std::round(delta * scale), INT32_MIN, INT32_MAX));
+  };
+  return WheelPixels{pixels(wheel.dx), pixels(wheel.dy)};
 }
 
 // One ordered input stream (task p01-process-092). Chrome sends input and the
@@ -216,7 +332,7 @@ inline bool IsPointerMove(const Header& h) {
 
 // The frames the reader thread has read and the UI thread has not run yet.
 // Bounded: a newer pointer move replaces a waiting move, wheel deltas add up
-// into the waiting wheel frame and a newer geometry replaces a waiting one,
+// into the waiting wheel frame of the same phases and a newer geometry replaces a waiting one,
 // each only at the tail, so the order of moves, clicks, keys and geometry
 // stays the order cmux sent. Keys, clicks and every other frame are never
 // dropped. More than `limit` waiting frames (a UI thread that has stopped)
@@ -294,7 +410,12 @@ class FrameQueue {
       *waiting = next;  // the newest position, buttons and event time
       return true;
     }
-    if (waiting->kind == kWheel && next.kind == kWheel && waiting->flags == next.flags) {
+    // Wheels fold only within one phase and momentum phase, as Blink's
+    // WebMouseWheelEvent::CanCoalesce (third_party/blink/common/input/
+    // web_mouse_wheel_event.cc): a gesture's begin and end, and the switch to
+    // momentum, each reach Chromium.
+    if (waiting->kind == kWheel && next.kind == kWheel && waiting->flags == next.flags &&
+        waiting->v[4] == next.v[4] && waiting->v[5] == next.v[5]) {
       const int32_t dx = waiting->v[2], dy = waiting->v[3];
       *waiting = next;  // the newest position and event time, the summed deltas
       waiting->v[2] = SaturatingAdd(dx, next.v[2]);

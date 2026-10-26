@@ -1,6 +1,7 @@
 // Checks cmux_host::Encode/Decode (ChromiumHost/src/chromium_host_wire.h)
 // against the golden frame that ChromiumHostFrameTests.swift checks too
 // (scripts/cmux-next/tests/chromium-host-wire.test.sh).
+#include <cmath>
 #include <cstdio>
 #include <cstring>
 #include <string>
@@ -11,6 +12,16 @@ static const char kGolden[] =
     "05000000030000000a000000feffffffffffff7f0300000004000000ffffffff"
     "00001000000000000807060504030201010000000000000061004100efbeadde";
 
+// Two wheel frames of one trackpad scroll (task p04-input-063), the same bytes
+// as ChromiumHostFrameTests.wheelGolden: a gesture change (precise, shift held)
+// and the momentum's start after the fingers lift.
+static const char kWheelGolden[2][129] = {
+    "0400000000000000780000002d0000006affffffd20400000400000000000000"
+    "000002000000008055443322110000000700000000000000000000002a000000",
+    "0400000000000000780000002d000000000000000af6ffff0000000001000000"
+    "000000000000008056443322110000000700000000000000000000002b000000",
+};
+
 static int failures = 0;
 
 static void Check(bool ok, const char* what) {
@@ -20,13 +31,140 @@ static void Check(bool ok, const char* what) {
   }
 }
 
-int main() {
-  uint8_t golden[cmux_host::kHeaderSize];
+static void FromHex(const char* hex, uint8_t out[cmux_host::kHeaderSize]) {
   for (size_t i = 0; i < cmux_host::kHeaderSize; ++i) {
     unsigned value = 0;
-    std::sscanf(kGolden + 2 * i, "%2x", &value);
-    golden[i] = static_cast<uint8_t>(value);
+    std::sscanf(hex + 2 * i, "%2x", &value);
+    out[i] = static_cast<uint8_t>(value);
   }
+}
+
+static bool Near(double a, double b) {
+  return std::fabs(a - b) < 1e-9;
+}
+
+// The wheel frame's phases, momentum phases and precise flag (task
+// p04-input-063): before it the host got only whole-pixel deltas, so Chromium
+// could not latch a gesture or hand the page a fling.
+static void TestWheel() {
+  using namespace cmux_host;
+  Header changed;
+  changed.kind = kWheel;
+  changed.v[0] = 120;
+  changed.v[1] = 45;
+  changed.v[2] = -150;  // scrollingDeltaX -1.5
+  changed.v[3] = 1234;  // scrollingDeltaY 12.34
+  changed.v[4] = kNSPhaseChanged;
+  changed.flags = kWheelPrecise | kNSFlagShift;
+  changed.t0 = 0x1122334455ULL;
+  changed.t1 = 7;
+  changed.seq = 42;
+  Header momentum;
+  momentum.kind = kWheel;
+  momentum.v[0] = 120;
+  momentum.v[1] = 45;
+  momentum.v[3] = -2550;
+  momentum.v[5] = kNSPhaseBegan;
+  momentum.flags = kWheelPrecise;
+  momentum.t0 = 0x1122334456ULL;
+  momentum.t1 = 7;
+  momentum.seq = 43;
+  const Header frames[2] = {changed, momentum};
+  for (int i = 0; i < 2; ++i) {
+    uint8_t golden[kHeaderSize], encoded[kHeaderSize];
+    FromHex(kWheelGolden[i], golden);
+    Encode(frames[i], encoded);
+    Check(std::memcmp(encoded, golden, sizeof golden) == 0, "a wheel frame encodes as its golden bytes");
+    Header d;
+    Check(Decode(golden, &d) && d.v[4] == frames[i].v[4] && d.v[5] == frames[i].v[5] && d.flags == frames[i].flags,
+          "a golden wheel frame decodes its phases and precise flag");
+  }
+
+  uint8_t golden[kHeaderSize];
+  Header d;
+  FromHex(kWheelGolden[0], golden);
+  Decode(golden, &d);
+  Wheel w = WheelOf(d);
+  Check(w.x == 120 && w.y == 45 && Near(w.dx, -1.5) && Near(w.dy, 12.34), "position and fractional deltas");
+  Check(w.precise && w.phase == kWheelPhaseChanged && w.momentum_phase == kWheelPhaseNone,
+        "a gesture change is precise, changed, no momentum");
+  Check(w.modifiers == kCefShiftDown, "shift becomes EVENTFLAG_SHIFT_DOWN");
+  FromHex(kWheelGolden[1], golden);
+  Decode(golden, &d);
+  w = WheelOf(d);
+  Check(w.phase == kWheelPhaseNone && w.momentum_phase == kWheelPhaseBegan && Near(w.dy, -25.5) && w.modifiers == 0,
+        "the momentum's start has no gesture phase and a began momentum phase");
+
+  // A whole trackpad scroll, encoded and decoded: every phase arrives as sent.
+  const int32_t sent[][2] = {
+      {kNSPhaseMayBegin, 0}, {kNSPhaseBegan, 0},    {kNSPhaseChanged, 0}, {kNSPhaseStationary, 0},
+      {kNSPhaseEnded, 0},    {0, kNSPhaseBegan},    {0, kNSPhaseChanged}, {0, kNSPhaseEnded},
+      {kNSPhaseCancelled, 0}, {0, 0},
+  };
+  const int expected[][2] = {
+      {kWheelPhaseMayBegin, kWheelPhaseNone},  {kWheelPhaseBegan, kWheelPhaseNone},
+      {kWheelPhaseChanged, kWheelPhaseNone},   {kWheelPhaseChanged, kWheelPhaseNone},
+      {kWheelPhaseEnded, kWheelPhaseNone},     {kWheelPhaseNone, kWheelPhaseBegan},
+      {kWheelPhaseNone, kWheelPhaseChanged},   {kWheelPhaseNone, kWheelPhaseEnded},
+      {kWheelPhaseCancelled, kWheelPhaseNone}, {kWheelPhaseNone, kWheelPhaseNone},
+  };
+  static_assert(sizeof sent / sizeof sent[0] == sizeof expected / sizeof expected[0], "one expectation per frame");
+  for (size_t i = 0; i < sizeof sent / sizeof sent[0]; ++i) {
+    Header h;
+    h.kind = kWheel;
+    h.v[4] = sent[i][0];
+    h.v[5] = sent[i][1];
+    uint8_t bytes[kHeaderSize];
+    Encode(h, bytes);
+    Header back;
+    Decode(bytes, &back);
+    const Wheel got = WheelOf(back);
+    Check(got.phase == expected[i][0] && got.momentum_phase == expected[i][1], "a scroll's phases round-trip");
+  }
+
+  // The fallback's pixels (SendMouseWheelEvent): precise deltas are pixels, a line is 40.
+  Wheel line;
+  line.dy = -1;
+  line.dx = 0.5;
+  WheelPixels px = PixelsOf(line);
+  Check(px.dy == -40 && px.dx == 20, "a line of a mouse wheel is 40 pixels");
+  Wheel fine;
+  fine.precise = true;
+  fine.dx = -1.5;
+  fine.dy = 12.34;
+  px = PixelsOf(fine);
+  Check(px.dx == -2 && px.dy == 12, "precise deltas round to whole pixels");
+  Check(CefModifiersOf(kNSFlagCapsLock | kNSFlagControl | kNSFlagOption | kNSFlagCommand | kWheelPrecise) ==
+            (kCefCapsLockOn | kCefControlDown | kCefAltDown | kCefCommandDown),
+        "modifier flags map to CEF's; the precise bit is not a modifier");
+
+  // The host's queue folds a wheel only into one of the same phases.
+  FrameQueue q(8);
+  q.MarkReady();
+  Header began = changed;
+  began.v[4] = kNSPhaseBegan;
+  q.Add(began, {});
+  q.Add(changed, {});
+  q.Add(changed, {});
+  Header ended = changed;
+  ended.v[4] = kNSPhaseEnded;
+  ended.v[3] = 0;
+  q.Add(ended, {});
+  q.Add(momentum, {});
+  q.Add(momentum, {});
+  Header still = momentum;
+  still.v[5] = kNSPhaseChanged;
+  q.Add(still, {});
+  auto taken = q.Take();
+  Check(taken.size() == 5, "began, changed, ended, momentum began, momentum changed stay apart");
+  Check(taken.size() == 5 && taken[1].header.v[3] == 2468 && taken[3].header.v[3] == -5100 &&
+            taken[2].header.v[4] == kNSPhaseEnded && taken[4].header.v[5] == kNSPhaseChanged,
+        "deltas add up only within one phase");
+}
+
+int main() {
+  uint8_t golden[cmux_host::kHeaderSize];
+  FromHex(kGolden, golden);
   cmux_host::Header h;
   h.kind = cmux_host::kKey;
   h.payload = 3;
@@ -145,6 +283,8 @@ int main() {
     q.AddEnd();
     Check(q.MarkReady(), "an EOF before the UI thread exists runs once it does");
   }
+
+  TestWheel();
 
   if (failures) return 1;
   std::printf("chromium_host_wire_test: ok\n");
