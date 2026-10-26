@@ -17,8 +17,13 @@ import Foundation
 /// one BrowserContext's default StoragePartition, and a spare asked for
 /// another context replaces it, because a spare of one store cannot serve
 /// another (`content/browser/renderer_host/spare_render_process_host_manager_impl.h`).
-/// Each spare holds an about:blank placeholder, in no pane (its window
-/// starts at the hidden-tab viewport). The first host a spare's store needs
+/// Each spare holds a placeholder tab, in no pane (its window starts at the
+/// hidden-tab viewport). With the `rendererlessSpareWindow` feature, where the
+/// fork can, the placeholder has no renderer
+/// and never navigates (`cmux_shim_create_placeholder_window`, p13-webui-019),
+/// so a spare costs a window and no renderer process; on an older fork it is
+/// an about:blank page frozen through DevTools (`CEFTab.freezeNeverShownPage`).
+/// The first host a spare's store needs
 /// takes it (`take`): it is re-keyed, the tab joins its window, and on the
 /// next main-actor turn the placeholder closes (`CEFPaneHost.closeSparePlaceholder`).
 /// When that tab closes before the window shows it, the host becomes the
@@ -60,6 +65,10 @@ final class CEFSpareWindow {
     /// Whether the warmup keeps a `pages` spare (cmux pages use Chromium and the
     /// `pagesSpareWindow` feature is on). Turning it off closes an untaken one.
     private(set) var wantsPages = false
+    /// Whether a spare's placeholder is made with no renderer where the fork can (the
+    /// `rendererlessSpareWindow` feature, `CEFEngine.setRendererlessSpareWindows`); off, every spare
+    /// holds the frozen about:blank page. Read when a spare's window is built.
+    var rendererlessPlaceholders = false
     /// No spare of a wanted kind is ready (a pane took it, or a window came up first): the next
     /// idle moment may make one (`ChromiumWarmup`).
     var onNeeded: (@MainActor () -> Void)?
@@ -128,7 +137,7 @@ final class CEFSpareWindow {
         let spare = runtime.host(for: key)
         let blank = CEFTab(id: .random(), profile: key.profile, host: spare, runtime: runtime)
         spare.placeholder = blank
-        spare.freezesPlaceholder = true
+        spare.quietsPlaceholder = true
         spare.add(blank)
         spare.ensureCreated(blank)
         guard spare.isLive || spare.isCreatingWindow else {

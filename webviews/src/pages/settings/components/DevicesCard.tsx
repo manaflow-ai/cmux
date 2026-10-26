@@ -8,6 +8,7 @@ import { useCallback, useId, useState, type ReactNode } from "react";
 import { useSettingsState, useStore } from "../context";
 import { Select } from "../editors/Select";
 import { Switch } from "../editors/ToggleEditor";
+import { useUnsavedForm } from "../unsavedForm";
 import type {
   DevicesDevice,
   DevicesLabels,
@@ -547,7 +548,8 @@ function RelayEditor({
   const [error, run] = useRun();
   const [name, setName] = useState(relay?.name ?? "");
   const [urls, setUrls] = useState(relay?.urls.join("\n") ?? "");
-  const [mode, setMode] = useState<DevicesRelayMode>(relay?.mode ?? labels.modeOptions[0]?.value ?? "shared_secret");
+  const initialMode: DevicesRelayMode = relay?.mode ?? labels.modeOptions[0]?.value ?? "shared_secret";
+  const [mode, setMode] = useState<DevicesRelayMode>(initialMode);
   const [secret, setSecret] = useState("");
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
@@ -559,6 +561,17 @@ function RelayEditor({
   const urlsHelpId = useId();
   const priorityHelpId = useId();
   const editing = relay !== null;
+  useUnsavedForm(
+    `relay:${relay?.id ?? "new"}`,
+    name !== (relay?.name ?? "") ||
+      urls !== (relay?.urls.join("\n") ?? "") ||
+      mode !== initialMode ||
+      enabled !== (relay?.enabled ?? true) ||
+      priority !== String(relay?.priority ?? 0) ||
+      secret !== "" ||
+      username !== "" ||
+      password !== "",
+  );
   const draft = (): DevicesRelayDraft => {
     const out: DevicesRelayDraft = {
       name: name.trim(),

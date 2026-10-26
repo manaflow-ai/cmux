@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextActions
 import CmuxNextDaemon
 import CmuxNextDesign
+import CmuxNextHibernation
 import CmuxNextIcons
 import CmuxNextPages
 import CmuxNextServer
@@ -30,8 +31,17 @@ final class SettingsWindowService: InternalPageProvider {
         services.pages.window(showing: .settings, windows: services.windows.controllers)?.window
     }
 
-    /// The kept React page (a reopen shows it again with no reload); nil before the first show.
-    private var webPage: PageWebView?
+    /// One Settings page and the forms it reports unsaved.
+    private struct Page {
+        let view: PageWebView
+        let edits: SettingsPageProvider.Edits
+    }
+
+    /// The kept React page (a reopen shows it again with no reload); nil before the first show and
+    /// after its tab's view was discarded.
+    private var webPage: Page?
+    /// The page each tab shows (the kept page or a second window's own), by tab key.
+    private var tabPages: [String: Page] = [:]
     /// The route the next page view opens on.
     private var pendingRoute: String?
     /// A show that waits for a main window with a workspace.
@@ -161,18 +171,54 @@ final class SettingsWindowService: InternalPageProvider {
     func makeView(for key: String, in window: WindowController?) -> NSView {
         let route = pendingRoute
         pendingRoute = nil
-        if let webPage, webPage.superview == nil {
-            if let route, webPage.route != route { webPage.open(route: route) }
-            return webPage
+        if let webPage, webPage.view.superview == nil {
+            // Not compared with `route`, the last place asked for: the page may have moved on.
+            if let route { webPage.view.open(route: route) }
+            tabPages[key] = webPage
+            return webPage.view
         }
-        guard let page = PageFactory(services: services).settingsPage(route: route) else { return NSView() }
+        let edits = SettingsPageProvider.Edits()
+        guard let view = PageFactory(services: services).settingsPage(route: route, edits: edits) else { return NSView() }
+        let page = Page(view: view, edits: edits)
         if webPage == nil { webPage = page }
-        return page
+        tabPages[key] = page
+        return view
     }
 
     func tabClosed(_ key: String) {
+        tabPages.removeValue(forKey: key)
         // A live preview left by a closed page (mid-drag) must not stay applied.
         services.settings?.endPreview()
+    }
+
+    // MARK: Discard (`memoryDiscardInternalPages`)
+
+    /// Ten minutes hidden: each change is written as it is made, so what a rebuilt page loses is
+    /// only what ``keepReasons(for:)`` keeps it for.
+    func discardPolicy(for key: String) -> ContentDiscardPolicy { .standard }
+
+    /// Kept while its page has a form with typed values not saved yet (a custom density, a relay's
+    /// fields) or a live preview runs (a value shown and not written: a slider mid-drag, a palette
+    /// row): Chrome's kUserEdits.
+    func keepReasons(for key: String) -> [CannotDiscardReason] {
+        let unsavedForm = tabPages[key]?.edits.hasUnsaved == true
+        return unsavedForm || services.settings?.previewingKey != nil ? [.unsavedEdits] : []
+    }
+
+    /// The section the page shows now (the person may have picked another in the page).
+    func saveViewState(for key: String, content: NSView) async -> ContentViewState {
+        await (content as? PageWebView)?.discardViewState() ?? ContentViewState()
+    }
+
+    func restoreViewState(_ state: ContentViewState, for key: String, content: NSView) {
+        (content as? PageWebView)?.restoreDiscardViewState(state)
+    }
+
+    /// The tab's page went (the tab store closed it): a later show builds a new one.
+    func viewDiscarded(_ key: String) {
+        guard let page = tabPages.removeValue(forKey: key) else { return }
+        if page.view === webPage?.view { webPage = nil }
+        services.webUI.close(page.view)
     }
 
     // MARK: Host facts (the page's host lists)

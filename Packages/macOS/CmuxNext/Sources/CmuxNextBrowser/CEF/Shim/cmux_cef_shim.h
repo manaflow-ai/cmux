@@ -393,6 +393,20 @@ CMUX_SHIM_EXPORT int cmux_shim_create_window(int request,
                             int height,
                             const char* url,
                             const char* profile_cache_path);
+// The same window whose first tab is a renderer-less placeholder (fork
+// CMUX_EXTRA_INFO_NO_RENDERER, p13-webui-017): no renderer process and no
+// navigation, as Chrome makes restored tabs (browser_tabrestore.cc). Tabs
+// added with cmux_shim_tab_add get a renderer when they load. AFTER_CREATED
+// with `request` follows. Returns 1 if creation started, 0 when
+// cmux_shim_placeholder_supported() is 0.
+CMUX_SHIM_EXPORT int cmux_shim_create_placeholder_window(int request,
+                            void* parent_view,
+                            int width,
+                            int height,
+                            const char* profile_cache_path);
+// 1 when the fork makes renderer-less placeholders (it exports
+// cmux_tab_renderer_state; the fork train numbers it, p13-webui-086).
+CMUX_SHIM_EXPORT int cmux_shim_placeholder_supported(void);
 // Fork tab API; 0 on failure.
 CMUX_SHIM_EXPORT int cmux_shim_tab_add(int window_browser_id, const char* url, int index, int activate);
 // A user-owned copy of `browser_id`, added in the background to the window

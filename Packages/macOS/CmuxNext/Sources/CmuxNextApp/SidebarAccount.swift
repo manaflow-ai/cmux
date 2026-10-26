@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextCloud
+import CmuxNextCompat
 import CmuxNextSidebar
 import CmuxNextWakeups
 import Foundation
@@ -108,6 +109,6 @@ final class AccountAvatarImages {
     }
 
     private nonisolated static func isPicture(_ bytes: Data) -> Bool {
-        bytes.count <= maxBytes && NSImage(data: bytes) != nil
+        bytes.count <= maxBytes && blockingNSImage(bytes) != nil
     }
 }

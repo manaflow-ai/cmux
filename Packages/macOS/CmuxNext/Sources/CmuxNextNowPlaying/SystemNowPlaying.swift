@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextCompat
 import CoreGraphics
 import ImageIO
 import UniformTypeIdentifiers
@@ -136,8 +137,7 @@ public final class SystemNowPlaying: NowPlayingSource {
     /// The image drawn into a `side`-pixel square, as PNG. ImageIO and Core Graphics, so it runs
     /// on any thread.
     nonisolated static func png(_ data: Data, side: Int) -> Data? {
-        guard let source = CGImageSourceCreateWithData(data as CFData, nil),
-              let image = CGImageSourceCreateImageAtIndex(source, 0, nil),
+        guard let image = blockingImageDecode(data),
               let context = CGContext(data: nil, width: side, height: side, bitsPerComponent: 8, bytesPerRow: 0,
                                       space: CGColorSpaceCreateDeviceRGB(),
                                       bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }

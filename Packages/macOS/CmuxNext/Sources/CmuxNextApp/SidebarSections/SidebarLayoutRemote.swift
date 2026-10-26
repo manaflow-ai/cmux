@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextSidebar
 import Foundation
@@ -88,7 +89,7 @@ final class DaemonSidebarLayoutRemote: SidebarLayoutRemote {
 
     func update(_ op: SidebarLayoutOp, key: String) async throws -> SidebarLayoutDocument {
         guard let connection = daemon.connection else { throw DaemonError.notConnected }
-        let wire = try JSONDecoder().decode(JSONValue.self, from: JSONEncoder().encode(op))
+        let wire = try JSONDecoder().blockingDecode(JSONValue.self, from: JSONEncoder().encode(op))
         return try Self.document(try await SidebarLayoutStateClient(connection: connection).update(op: wire, idempotencyKey: key).layout)
     }
 
@@ -98,7 +99,7 @@ final class DaemonSidebarLayoutRemote: SidebarLayoutRemote {
             var revision: String
             var sections: [LayoutSection]
         }
-        let snapshot = try JSONDecoder().decode(Snapshot.self, from: JSONEncoder().encode(value))
+        let snapshot = try JSONDecoder().blockingDecode(Snapshot.self, from: JSONEncoder().encode(value))
         return SidebarLayoutDocument(revision: UInt64(snapshot.revision) ?? 0, sections: snapshot.sections)
     }
 }

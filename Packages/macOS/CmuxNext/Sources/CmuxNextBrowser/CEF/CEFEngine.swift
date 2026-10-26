@@ -181,6 +181,13 @@ public final class CEFEngine: BrowserEngine {
         return spares.prepareNext(runtime: .shared)
     }
 
+    /// Whether spare windows hold a renderer-less placeholder where the fork makes one (the
+    /// `rendererlessSpareWindow` feature, p13-webui-019); off, a spare holds a frozen about:blank
+    /// page. Set before the first ``prepareSpareWindow(pages:)``; a spare already built keeps its kind.
+    public func setRendererlessSpareWindows(_ on: Bool) {
+        CEFRuntime.shared.spareWindow.rendererlessPlaceholders = on
+    }
+
     /// Stops keeping a spare window of the cmux pages profile and closes an untaken one: cmux
     /// pages no longer use Chromium (`browser.defaultEngine` left Chromium). The next
     /// `prepareSpareWindow(pages: true)` keeps one again. Call only while Chromium runs.

@@ -1,3 +1,4 @@
+import CmuxNextCompat
 public import CmuxNextMobile
 public import Foundation
 
@@ -54,7 +55,7 @@ public nonisolated struct IPhonePairingSeed: Sendable, Equatable {
 
     /// Whether the seed trusts `request` now (an unreadable file trusts nothing).
     public func trusts(_ request: MobileHostPairRequest) -> Bool {
-        guard let data = try? Data(contentsOf: file), let seed = try? JSONDecoder().decode(File.self, from: data) else {
+        guard let data = try? Data(contentsOf: file), let seed = try? JSONDecoder().blockingDecode(File.self, from: data) else {
             return false
         }
         return seed.devices.contains { $0.matches(request) }
