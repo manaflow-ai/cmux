@@ -172,7 +172,15 @@ impl ConnectionSurfaceScheduler {
             (_, true) => "pane-create",
             _ => "create",
         };
-        let trace = crate::debug_spans::Trace::start(label, Instant::now());
+        // From the line's arrival, as a resource create's trace
+        // (connection_frame.rs): the time it waited in this connection's
+        // queue counts, and `dequeued` marks where that wait ended.
+        let trace =
+            crate::debug_spans::Trace::start(label, pending.arrival.arrived).and_then(|trace| {
+                crate::debug_spans::install(Some(trace));
+                crate::debug_spans::mark("dequeued");
+                crate::debug_spans::take()
+            });
         // The pool job is the request's: its launch, and the commits it
         // runs (each under its own request's cause), keep the cause the
         // dispatcher captured.

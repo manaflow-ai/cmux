@@ -35,7 +35,7 @@ extension ScreenContentView {
     /// parent): its frame cut by its own mask and the strip container's clip. Null when none shows.
     func shownFrame(_ host: PaneHostView) -> CGRect {
         let shown = host.stripShownRect
-        return shown.isEmpty ? .null : shown.offsetBy(dx: host.frame.minX, dy: host.frame.minY)
+        return shown.isEmpty ? .null : shown.offsetBy(dx: host.frame.minX + panTranslation(of: host), dy: host.frame.minY)
     }
 
     /// For each shown pane host, the parts of shown panes stacked above it
@@ -49,7 +49,7 @@ extension ScreenContentView {
         var covers: [ObjectIdentifier: [CGRect]] = [:]
         var front: [CGRect] = []
         for case let host as PaneHostView in stackedSubviews.reversed() {
-            let frame = host.frame
+            let frame = placedFrame(of: host)
             let overlapping = front.filter { $0.intersection(frame).width > 0.5 && $0.intersection(frame).height > 0.5 }
             if !overlapping.isEmpty { covers[ObjectIdentifier(host)] = overlapping.reversed() }
             guard !host.isHidden && host.alphaValue > 0.99 else { continue }
@@ -63,7 +63,7 @@ extension ScreenContentView {
     /// back to front: what a Chromium page in `host` drawing in its own window leaves out
     /// (`PaneHostView.pageCovers`, which keeps the answer until `coverVersion` changes).
     func panes(inFrontOf host: PaneHostView) -> [CGRect] {
-        let frame = host.frame
+        let frame = placedFrame(of: host)
         var result: [CGRect] = []
         var inFront = false
         func visit(_ view: NSView) {
@@ -259,6 +259,13 @@ extension ScreenContentView {
             guard let host = context.hosts[pane], holds(host) else { continue }
             let parent = hostParent(for: pane)
             if host.superview !== parent { move(host, to: parent) }
+        }
+        // With `motion.renderServer` on, the strip's dividers move with its hosts (`ScreenContentView+StripPan`).
+        let dividersInContainer = dividersInStripContainer
+        stripDividersInContainer = dividersInContainer
+        for (kind, view) in dividerViews {
+            let parent = dividerParent(for: kind, inContainer: dividersInContainer)
+            if view.superview !== parent { parent.addSubview(view) }
         }
         sortByRank(self)
         sortByRank(stripContainer)
