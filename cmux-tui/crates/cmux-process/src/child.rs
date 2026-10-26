@@ -17,6 +17,11 @@ pub struct Child {
     /// The parent end of a piped stderr.
     pub stderr: Option<ChildStderr>,
     inner: Inner,
+    /// Linux without `pidfd_open`: the read end of a pipe whose write end
+    /// closes when the child ends ([`spawn_exit_waiter`]), made by the first
+    /// bounded wait.
+    #[cfg(target_os = "linux")]
+    exit_waiter: Option<std::os::fd::OwnedFd>,
 }
 
 #[derive(Debug)]
@@ -47,6 +52,8 @@ impl Child {
             stdout: child.stdout.take(),
             stderr: child.stderr.take(),
             inner: Inner::Std(child),
+            #[cfg(target_os = "linux")]
+            exit_waiter: None,
         }
     }
 
@@ -141,7 +148,9 @@ impl Child {
 
     /// Wait at most `limit` for the child to end: its status, or `None` when
     /// it still runs. The wait is an event (macOS: kqueue `EVFILT_PROC`
-    /// `NOTE_EXIT`; Linux: a pidfd), not a poll; `limit` only bounds it.
+    /// `NOTE_EXIT`; Linux: a pidfd, or where `pidfd_open` is missing or
+    /// denied a thread blocked in `waitid`), not a poll; `limit` only bounds
+    /// it.
     pub fn wait_timeout(&mut self, limit: Duration) -> io::Result<Option<ExitStatus>> {
         drop(self.stdin.take());
         if let Some(status) = self.try_wait()? {
@@ -153,9 +162,24 @@ impl Child {
                 exit_event_within(*pid, limit)?;
             }
             #[cfg(target_os = "linux")]
-            Inner::Std(child) => {
-                exit_event_within(child.id(), limit)?;
-            }
+            Inner::Std(child) => match exit_event_within(child.id(), limit) {
+                Ok(()) => {}
+                // Before Linux 5.3, or a seccomp profile that denies it.
+                Err(error)
+                    if matches!(
+                        error.raw_os_error(),
+                        Some(libc::ENOSYS) | Some(libc::EPERM) | Some(libc::EACCES)
+                    ) =>
+                {
+                    let waiter = match self.exit_waiter.take() {
+                        Some(waiter) => waiter,
+                        None => spawn_exit_waiter(child.id())?,
+                    };
+                    readable_within(&waiter, limit)?;
+                    self.exit_waiter = Some(waiter);
+                }
+                Err(error) => return Err(error),
+            },
             #[cfg(windows)]
             Inner::Std(child) => {
                 return wait_timeout::ChildExt::wait_timeout(child, limit);
@@ -244,27 +268,59 @@ pub(crate) fn exit_event_within(pid: libc::pid_t, limit: Duration) -> io::Result
     }
 }
 
-/// Block until `pid` exits or `limit` passes (a pidfd, `poll`). Kernels
-/// before 5.3 (ENOSYS) and seccomp profiles that refuse `pidfd_open` (EPERM)
-/// wait with `waitid` on a helper thread instead.
+/// A thread that blocks in `waitid(WEXITED | WNOWAIT)` until `pid` ends
+/// (without reaping it), then closes the write end of a pipe: the returned
+/// read end turns readable (end of file) when the child has ended. The
+/// bounded wait where no pidfd can be opened. The thread ends with the
+/// child, also when the [`Child`] is dropped first.
+#[cfg(target_os = "linux")]
+fn spawn_exit_waiter(pid: u32) -> io::Result<std::os::fd::OwnedFd> {
+    let (reader, writer) = io::pipe()?;
+    std::thread::Builder::new().name("cmux-process-exit".into()).spawn(move || {
+        loop {
+            // SAFETY: zeroed siginfo_t is valid output storage.
+            let mut info: libc::siginfo_t = unsafe { std::mem::zeroed() };
+            // SAFETY: waitid writes one siginfo_t; WNOWAIT leaves the child
+            // to the caller's own wait.
+            let result = unsafe {
+                libc::waitid(
+                    libc::P_PID,
+                    pid as libc::id_t,
+                    &mut info,
+                    libc::WEXITED | libc::WNOWAIT,
+                )
+            };
+            if result == 0 || io::Error::last_os_error().kind() != io::ErrorKind::Interrupted {
+                break;
+            }
+        }
+        drop(writer);
+    })?;
+    Ok(reader.into())
+}
+
+/// Block until `pid` exits or `limit` passes (a pidfd, `poll`).
 #[cfg(target_os = "linux")]
 fn exit_event_within(pid: u32, limit: Duration) -> io::Result<()> {
-    use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
+    use std::os::fd::{FromRawFd, OwnedFd};
     // SAFETY: pidfd_open returns a new descriptor or -1.
     let raw = unsafe { libc::syscall(libc::SYS_pidfd_open, pid as libc::pid_t, 0) };
     if raw < 0 {
-        let error = io::Error::last_os_error();
-        return match error.raw_os_error() {
-            Some(libc::ENOSYS | libc::EPERM) => exit_event_on_a_thread_within(pid, limit),
-            _ => Err(error),
-        };
+        return Err(io::Error::last_os_error());
     }
     // SAFETY: a new descriptor this function owns.
     let pidfd = unsafe { OwnedFd::from_raw_fd(raw as libc::c_int) };
+    readable_within(&pidfd, limit)
+}
+
+/// Block until `fd` is readable (or hung up) or `limit` passes (`poll`).
+#[cfg(target_os = "linux")]
+fn readable_within(fd: &std::os::fd::OwnedFd, limit: Duration) -> io::Result<()> {
+    use std::os::fd::AsRawFd;
     let deadline = std::time::Instant::now() + limit;
     loop {
         let left = deadline.saturating_duration_since(std::time::Instant::now());
-        let mut poll = libc::pollfd { fd: pidfd.as_raw_fd(), events: libc::POLLIN, revents: 0 };
+        let mut poll = libc::pollfd { fd: fd.as_raw_fd(), events: libc::POLLIN, revents: 0 };
         let millis = left.as_millis().min(libc::c_int::MAX as u128) as libc::c_int
             + libc::c_int::from(!left.subsec_nanos().is_multiple_of(1_000_000));
         // SAFETY: one live pollfd.
@@ -279,49 +335,6 @@ fn exit_event_within(pid: u32, limit: Duration) -> io::Result<()> {
     }
 }
 
-/// [`exit_event_within`] without a pidfd: a helper thread blocks in
-/// `waitid(WEXITED | WNOWAIT)` (an event, and it reaps nothing; the caller's
-/// `try_wait` does) and the caller waits for its message at most `limit`. On
-/// a timeout the thread stays blocked until the child ends, which the caller
-/// that kills or waits for it makes happen.
-#[cfg(target_os = "linux")]
-fn exit_event_on_a_thread_within(pid: u32, limit: Duration) -> io::Result<()> {
-    let (exited, event) = std::sync::mpsc::sync_channel(1);
-    std::thread::Builder::new().name("cmux-process-exit-wait".into()).spawn(move || {
-        let _ = exited.send(waitid_exit(pid));
-    })?;
-    match event.recv_timeout(limit) {
-        Ok(result) => result,
-        Err(std::sync::mpsc::RecvTimeoutError::Timeout) => Ok(()),
-        Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
-            Err(io::Error::other("the exit-wait thread ended without an answer"))
-        }
-    }
-}
-
-/// Block until `pid` exits, without reaping it. A child already reaped
-/// (ECHILD) has exited too.
-#[cfg(target_os = "linux")]
-fn waitid_exit(pid: u32) -> io::Result<()> {
-    loop {
-        // SAFETY: zeroed siginfo is valid output storage for waitid.
-        let mut info: libc::siginfo_t = unsafe { std::mem::zeroed() };
-        // SAFETY: waitid writes one siginfo for this process's child.
-        let code = unsafe {
-            libc::waitid(libc::P_PID, pid as libc::id_t, &mut info, libc::WEXITED | libc::WNOWAIT)
-        };
-        if code == 0 {
-            return Ok(());
-        }
-        let error = io::Error::last_os_error();
-        match error.raw_os_error() {
-            Some(libc::EINTR) => {}
-            Some(libc::ECHILD) => return Ok(()),
-            _ => return Err(error),
-        }
-    }
-}
-
 #[cfg(all(test, target_os = "linux"))]
 mod exit_wait_fallback {
     use std::time::{Duration, Instant};
@@ -330,17 +343,18 @@ mod exit_wait_fallback {
 
     /// The path a kernel without `pidfd_open` takes: a running child is
     /// waited on until the limit and not reaped, and its exit (here a kill)
-    /// ends the next wait at once.
+    /// ends the next wait on the same waiter at once.
     #[test]
     fn the_waitid_thread_waits_for_the_limit_then_sees_the_exit() {
         let mut child = Command::new("/bin/sleep").arg("30").spawn().unwrap();
+        let waiter = super::spawn_exit_waiter(child.id()).unwrap();
         let started = Instant::now();
-        super::exit_event_on_a_thread_within(child.id(), Duration::from_millis(200)).unwrap();
+        super::readable_within(&waiter, Duration::from_millis(200)).unwrap();
         assert!(started.elapsed() >= Duration::from_millis(200), "returned before the limit");
         assert!(child.try_wait().unwrap().is_none(), "the child still runs");
         child.kill().unwrap();
         let started = Instant::now();
-        super::exit_event_on_a_thread_within(child.id(), Duration::from_secs(30)).unwrap();
+        super::readable_within(&waiter, Duration::from_secs(30)).unwrap();
         assert!(started.elapsed() < Duration::from_secs(5), "missed the exit");
         assert!(child.try_wait().unwrap().is_some(), "reaped after the event");
     }
@@ -349,8 +363,9 @@ mod exit_wait_fallback {
     #[test]
     fn the_waitid_thread_sees_a_child_that_already_exited() {
         let mut child = Command::new("/bin/true").spawn().unwrap();
+        let waiter = super::spawn_exit_waiter(child.id()).unwrap();
         let started = Instant::now();
-        super::exit_event_on_a_thread_within(child.id(), Duration::from_secs(30)).unwrap();
+        super::readable_within(&waiter, Duration::from_secs(30)).unwrap();
         assert!(started.elapsed() < Duration::from_secs(5), "waited for an exited child");
         assert!(child.try_wait().unwrap().expect("exited").success());
     }

@@ -280,6 +280,8 @@ impl HostShared {
 
 #[cfg(test)]
 mod tests {
+    use cmux_process::Command;
+
     use super::*;
 
     /// A shell that died a moment before its host must not get a
@@ -287,15 +289,8 @@ mod tests {
     /// platform, never a live session leader (L1.3).
     #[test]
     fn an_exited_unreaped_process_is_a_zombie_and_no_longer_leads_its_session() {
-        let mut leader = Command::new("/bin/sh");
-        leader.args(["-c", "exit 0"]);
-        // SAFETY: setsid is async-signal-safe in the forked child.
-        unsafe {
-            leader.pre_exec(|| {
-                if libc::setsid() < 0 { Err(std_io::Error::last_os_error()) } else { Ok(()) }
-            });
-        }
-        let mut child = leader.spawn().unwrap();
+        let mut child =
+            Command::new("/bin/sh").args(["-c", "exit 0"]).new_session().spawn().unwrap();
         let pid = libc::pid_t::try_from(child.id()).unwrap();
         // Wait for the exit without reaping, so the PID stays a zombie.
         let mut info = std::mem::MaybeUninit::<libc::siginfo_t>::zeroed();
@@ -337,23 +332,16 @@ mod tests {
     fn adopted_child_sees_a_non_child_session_end_and_never_signals_on_drop() {
         // A session leader this test spawned stands in for an adopted one:
         // it is waited on only through the adoption path.
-        let mut leader = Command::new("/bin/sh");
-        leader.args(["-c", "exec sleep 30"]);
         // The leader must not depend on this test process's signal state:
         // other tests in the process may change dispositions or a thread's
-        // mask, and ignored signals and the mask survive exec.
-        // SAFETY: signal, sigprocmask and setsid are async-signal-safe in
-        // the forked child.
-        unsafe {
-            leader.pre_exec(|| {
-                libc::signal(libc::SIGHUP, libc::SIG_DFL);
-                let mut empty = std::mem::MaybeUninit::<libc::sigset_t>::uninit();
-                libc::sigemptyset(empty.as_mut_ptr());
-                libc::sigprocmask(libc::SIG_SETMASK, empty.as_ptr(), std::ptr::null_mut());
-                if libc::setsid() < 0 { Err(std_io::Error::last_os_error()) } else { Ok(()) }
-            });
-        }
-        let mut leader = leader.spawn().unwrap();
+        // mask, and ignored signals and the mask survive exec (`isolate`
+        // resets both; macOS always does).
+        let mut leader = Command::new("/bin/sh")
+            .args(["-c", "exec sleep 30"])
+            .new_session()
+            .isolate()
+            .spawn()
+            .unwrap();
         let pid = leader.id();
         wait_until_exec(pid, "sleep");
         assert!(AdoptedChild::adopt(pid, pid + 1).is_err(), "a non-leader was adopted");
