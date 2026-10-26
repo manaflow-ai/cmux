@@ -94,7 +94,7 @@ class CleanupRevalidationTests(unittest.TestCase):
 class InventoryBudgetTests(unittest.TestCase):
     environment = {"GH_TOKEN": "test-token", "GH_REPO": "test/repo"}
 
-    def test_pull_requests_are_read_only_for_old_pull_request_runs_once_per_commit(self):
+    def test_pull_requests_are_read_only_for_old_pull_request_runs(self):
         old = dict(ClassifyRunTests.run_data, created_at="2026-01-01T00:00:00Z")
         runs = [
             dict(old, id=1, head_sha="a"),
@@ -112,7 +112,7 @@ class InventoryBudgetTests(unittest.TestCase):
                 mock.patch.object(MODULE, "GitHub", return_value=api), \
                 mock.patch("builtins.print") as printed:
             self.assertEqual(MODULE.main(), 0)
-        self.assertEqual(api.pull_requests_for_commit.call_args_list, [mock.call("a"), mock.call("e")])
+        self.assertEqual(api.pull_requests_for_commit.call_args_list, [mock.call("a"), mock.call("e"), mock.call("a")])
         lines = [" ".join(str(arg) for arg in call.args) for call in printed.call_args_list]
         self.assertIn("stale-run-janitor: DRY-RUN; eligible=2; limit=25", lines)
         self.assertIn("would process run 1 (queued, merged PR)", lines)

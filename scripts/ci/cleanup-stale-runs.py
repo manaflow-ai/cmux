@@ -129,16 +129,13 @@ def main() -> int:
     janitor = GitHub(token, repo)
     now = dt.datetime.now(dt.timezone.utc)
     eligible: list[tuple[dict[str, Any], str]] = []
-    pulls_by_sha: dict[str, list[dict[str, Any]]] = {}
     try:
         for status in ("queued", "in_progress"):
             for run in janitor.runs(status):
                 if not may_be_eligible(run, now=now, min_age_seconds=min_age_minutes * 60):
                     continue
-                sha = run.get("head_sha", "")
-                if sha not in pulls_by_sha:
-                    pulls_by_sha[sha] = janitor.pull_requests_for_commit(sha)
-                prs = pulls_by_sha[sha]
+                # Read per run, not per commit: a pull request can close between two runs of one commit.
+                prs = janitor.pull_requests_for_commit(run.get("head_sha", ""))
                 reason = classify_run(run, prs, now=now, min_age_seconds=min_age_minutes * 60)
                 if reason:
                     eligible.append((run, reason))
