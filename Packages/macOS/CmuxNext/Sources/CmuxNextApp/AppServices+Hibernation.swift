@@ -1,5 +1,6 @@
 import CmuxNextBridge
 import CmuxNextCompat
+import CmuxNextMemory
 import CmuxNextSettings
 
 // Browser hibernation and the memory-budgeted warm sets

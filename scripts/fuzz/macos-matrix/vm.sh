@@ -3,11 +3,17 @@
 # the seeded UI fuzz, or the replay of a saved repro. Run it ON a Tart host, never on a laptop.
 # Agents start it on the fleet with os-matrix.sh (a cmux-ci step of class vm).
 #
-# Usage: vm.sh [--majors 14,15,26,27] [--suite smoke|fuzz|repro|exec] [--seed N] [--steps N] [--minutes N]
-#              [--repro NAME | --replay STEPS.jsonl | --probe NAME] [--work DIR] [--results FILE] [--keep-vm] BUILD
+# Usage: vm.sh [--majors 14,15,26,27] [--suite smoke|fuzz|repro|exec|chaos] [--seed N] [--steps N] [--minutes N]
+#              [--repro NAME | --replay STEPS.jsonl | --probe NAME | --faults A,B] [--work DIR] [--results FILE]
+#              [--keep-vm] BUILD
 #   BUILD      a cmux-next .app, a .zip with one, or a .dmg (a shipped nightly).
 #   --suite    smoke: smoke.py (launch, window, terminal echo, split, Chromium and WebKit tabs,
-#              Settings, quit; needs a DEV build). fuzz (default): fuzz.py, a feature tour and
+#              Settings, quit; needs a DEV build). chaos: chaos.py (needs a DEV build), one fault
+#              at a time during a typing and split tour (SIGKILL of the daemon, acpmux, a terminal
+#              host, the holder, Chromium's renderer, GPU and utility processes and WebContent;
+#              critical memory pressure; the network off; relaunches under `ulimit -n 256` and with
+#              a full home volume), each with its own expected outcome: one result.json row per
+#              fault, ok/FAIL/skip; --faults runs a subset. fuzz (default): fuzz.py, a feature tour and
 #              --steps seeded random steps. repro: fuzz.py --replay repros/NAME.jsonl.
 #              exec: compile probes/NAME.swift (beside this script) on the host with the host's
 #              Xcode (arm64, macOS 14 target, ad hoc signed), copy only the binary into each guest
@@ -37,7 +43,7 @@
 set -euo pipefail
 HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 IMAGES="$HERE/images.json"
-MAJORS=14,15,26; SEED=1; STEPS=""; KEEP_VM=0; REPLAY=""; SUITE=fuzz; REPRO=""; RESULTS=""; MINUTES=0; PROBE=""
+MAJORS=14,15,26; SEED=1; STEPS=""; KEEP_VM=0; REPLAY=""; SUITE=fuzz; REPRO=""; RESULTS=""; MINUTES=0; PROBE=""; FAULTS=""
 WORK=${FUZZ_WORK:-/Volumes/ephemeral0/cmux-agent-work/mfloor}
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -50,17 +56,20 @@ while [[ $# -gt 0 ]]; do
     --suite) SUITE=$2; shift 2 ;;
     --repro) REPRO=$2; shift 2 ;;
     --probe) PROBE=$2; shift 2 ;;
+    --faults) FAULTS=$2; shift 2 ;;
     --results) RESULTS=$2; shift 2 ;;
     --keep-vm) KEEP_VM=1; shift ;;
-    -h|--help) sed -n '2,36p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,42p' "$0"; exit 0 ;;
     -*) echo "unknown option $1" >&2; exit 2 ;;
     *) BUILD=$1; shift ;;
   esac
 done
-[[ -n "${BUILD:-}" && -e "$BUILD" ]] || { echo "usage: vm.sh [--majors 14,15,26] [--suite smoke|fuzz|repro] BUILD" >&2; exit 2; }
+[[ -n "${BUILD:-}" && -e "$BUILD" ]] || { echo "usage: vm.sh [--majors 14,15,26] [--suite smoke|fuzz|repro|exec|chaos] BUILD" >&2; exit 2; }
 [[ -z "$PROBE" || "$SUITE" == exec ]] || { echo "--probe needs --suite exec" >&2; exit 2; }
+[[ -z "$FAULTS" || "$SUITE" == chaos && "$FAULTS" =~ ^[a-z-]+(,[a-z-]+)*$ ]] || {
+  echo "--faults needs --suite chaos and names like daemon,holder (see chaos.py)" >&2; exit 2; }
 case "$SUITE" in
-  smoke|fuzz) [[ -z "$REPRO" ]] || { echo "--repro needs --suite repro" >&2; exit 2; } ;;
+  smoke|fuzz|chaos) [[ -z "$REPRO" ]] || { echo "--repro needs --suite repro" >&2; exit 2; } ;;
   exec)
     # NAME is a plain name (no separator, no ..), probes/ is a real folder of this runner and
     # probes/NAME.swift a regular file in it, not a link: the source is the reviewed one.
@@ -71,7 +80,7 @@ case "$SUITE" in
     [[ "$REPRO" =~ ^[a-z0-9][a-z0-9-]{0,63}$ && -f "$HERE/repros/$REPRO.jsonl" ]] || {
       echo "--suite repro needs --repro NAME of a file in $HERE/repros (without .jsonl)" >&2; exit 2; }
     REPLAY="$HERE/repros/$REPRO.jsonl" ;;
-  *) echo "--suite must be smoke, fuzz, repro or exec" >&2; exit 2 ;;
+  *) echo "--suite must be smoke, fuzz, repro, exec or chaos" >&2; exit 2 ;;
 esac
 # The results file is created new at the end (O_EXCL): refuse an existing one before the run.
 [[ -z "$RESULTS" || ! -e "$RESULTS" && ! -L "$RESULTS" ]] || { echo "--results $RESULTS exists" >&2; exit 2; }
@@ -147,6 +156,12 @@ print(next((i.get("host_os_min", "") for i in json.load(open(sys.argv[1]))["imag
   if [[ "$SUITE" == smoke ]]; then
     python3 -I "$HERE/smoke.py" "${common[@]}" >"$out/smoke.log" 2>&1 || echo "smoke exit $?" >"$out/failure"
     grep -E '^(SMOKE|[a-z_]+ +(ok|FAIL)) ' "$out/smoke.log" | cut -c1-400 >&2 || true
+    return 0
+  fi
+  if [[ "$SUITE" == chaos ]]; then
+    local fargs=(); if [[ -n "$FAULTS" ]]; then fargs=(--faults "$FAULTS"); fi
+    python3 -I "$HERE/chaos.py" "${common[@]}" ${fargs[@]+"${fargs[@]}"} >"$out/chaos.log" 2>&1 || echo "chaos exit $?" >"$out/failure"
+    grep -E '^(CHAOS|[a-z-]+ +(ok|FAIL|skip)) ' "$out/chaos.log" | cut -c1-400 >&2 || true
     return 0
   fi
   local rargs=(); if [[ -n "$REPLAY" ]]; then rargs=(--replay "$REPLAY"); fi
@@ -291,6 +306,18 @@ for m in majors:
         line = "%-4s %-8s smoke %-10s failed=%s crashes=%s hang_reports=%s faults=%s %s" % (
             m, s.get("os", "?"), verdict, ",".join(s.get("failed_steps", [])) or "-",
             s.get("crashes", "-"), s.get("hang_reports", "-"), s.get("faults", "-"), fail)
+    elif suite == "chaos":
+        # One row per fault (ok, FAIL or skip). A skipped fault (the guest could not inject it) is no
+        # verdict, never a PASS.
+        s = load("result.json")
+        failed, skipped = s.get("failed_steps", []), s.get("skipped", [])
+        verdict = ("NO-VERDICT" if not s else "FAIL" if fail or failed or s.get("crashes") else
+                   "NO-VERDICT" if skipped or not s.get("faults") else "PASS")
+        line = "%-4s %-8s chaos %-10s faults=%s failed=%s skipped=%s crashes=%s %s" % (
+            m, s.get("os", "?"), verdict, len(s.get("faults", [])), ",".join(failed) or "-",
+            ",".join(skipped) or "-", s.get("crashes", "-"), fail)
+        for f in s.get("faults", []):
+            line += "\n       %-18s %-4s expected: %s" % (f.get("fault"), f.get("outcome"), f.get("expected", ""))
     else:
         s = load("summary.json")
         bad = fail or s.get("crashes", 0) or s.get("hangs", 0) or s.get("relaunches", 0) or s.get("guest_lost_at") is not None

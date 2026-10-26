@@ -131,6 +131,7 @@ pub mod category {
     pub const CONTROL: u64 = 1 << 17;
     pub const GHOSTTY: u64 = 1 << 18;
     pub const RESIZE: u64 = 1 << 19;
+    pub const WEBUI: u64 = 1 << 20;
 
     /// What the black box records while no recording runs.
     pub const BLACKBOX: u64 = ACTION | KEY | SWITCH | CREATE | CEF | LAUNCH | DAEMON | HANG | CRASH;
@@ -145,7 +146,8 @@ pub mod category {
         | REMOTE
         | CONTROL
         | GHOSTTY
-        | RESIZE;
+        | RESIZE
+        | WEBUI;
     pub const ALL: u64 = BLACKBOX | RECORDING;
 }
 

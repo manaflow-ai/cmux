@@ -42,11 +42,14 @@ import PackageDescription
 //   CmuxNextInputCore -> Compat, swift-atomics (input latency: event kinds, stages, open-slot table, closed-slot
 //     ring, buckets; no AppKit; plans/cmux-next/chrome-parity/p04-input.md section 3; Compat's Atomic for
 //     the counters, swift-atomics for the table's packed UnsafeAtomic storage, which Compat's Atomic cannot lay out)
+//   CmuxNextInput -> InputCore (the one input tap: typed subscriptions by class, phase and window; globalObserve;
+//     p04-input.md section 3 (A))
 //   CmuxNextIcons -> system frameworks only (the cmux icon pack, catalog, renderer and Icon view)
 //   CmuxNextChiefMemory -> Design (the built-in Memory Inspector: model and view; the App supplies its daemon-backed source)
 //   CmuxNextSettings -> Design, Actions (cmux.json load/watch/apply, SettingsSchema)
 //   CmuxNextSettingsWindow -> Settings, Design, Icons, Actions, Wakeups (Debug Settings, SwiftUI; Settings deep links and the string catalog the React Settings page reads)
-//   CmuxNextControl -> Actions, Settings, Daemon (app control socket; no UI; Compat/ forwards cmux CLI verbs to cmux-tui)
+//   CmuxNextControl -> Actions, Settings, Daemon, InputCore (app control socket; no UI; Compat/ forwards cmux CLI verbs to cmux-tui;
+//     InputBudget/ folds input latency batches off main)
 //   CmuxNextCloud -> CMUXAuthCore, CmuxAuthRuntime (Stack auth, /api/vm REST,
 //     WireGuard hub and cmux-tui remote links; no UI, no daemon)
 //   CmuxNextRemote -> CmuxNextCloud (SSH machines: ssh argv, probe, install, relay policy; no UI, no daemon)
@@ -260,6 +263,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextAgentUpdates",
                 "CmuxNextFocus",
                 "CmuxNextFocusUI",
+                "CmuxNextInput",
                 "CmuxNextComputerUse",
                 "CmuxNextAgentQuestion",
                 "CmuxNextAgentPermissions",
@@ -707,7 +711,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         ),
         .testTarget(
             name: "CmuxNextPagesTests",
-            dependencies: ["CmuxNextCompat", "CmuxNextPages", "CmuxNextPagesTestSupport", "CmuxNextSettings", "CmuxNextDesign", "CmuxNextTrace", "CmuxNextMetrics"],
+            dependencies: ["CmuxNextCompat", "CmuxNextPages", "CmuxNextPagesTestSupport", "CmuxNextSettings", "CmuxNextDesign", "CmuxNextTrace", "CmuxNextMetrics", "CmuxNextSignposts"],
             swiftSettings: uiSwiftSettings
         ),
         // Settings > Agents > Agent integrations: the coding-agent hooks the bundled CLI
@@ -1010,7 +1014,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         ),
         .testTarget(
             name: "CmuxNextChiefViewsTests",
-            dependencies: ["CmuxNextAgentActivity", "CmuxNextChiefViews", "CmuxNextPages", "CmuxNextSettings"],
+            dependencies: ["CmuxNextAgentActivity", "CmuxNextChiefViews", "CmuxNextCompat", "CmuxNextPages", "CmuxNextSettings"],
             swiftSettings: uiSwiftSettings
         ),
         // The acpmux watch feed (turn states and lanes), the sidebar's top items (Lanes, cx-v9k2f), its Chief item
@@ -1287,7 +1291,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         ),
         .testTarget(
             name: "CmuxNextSignpostsTests",
-            dependencies: ["CmuxNextSignposts", "CmuxNextTrace", "CmuxNextMetrics"],
+            dependencies: ["CmuxNextSignposts", "CmuxNextTrace", "CmuxNextMetrics", "CmuxNextCompat"],
             swiftSettings: uiSwiftSettings
         ),
         // Launch-only types (plans/cmux-next/chrome-parity/p08-startup.md, task 073): CmuxNextApp's size
@@ -1312,7 +1316,10 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         ),
         .testTarget(
             name: "CmuxNextTraceTests",
-            dependencies: ["CmuxNextTrace"],
+            // Compat: the black-box tests read the main-thread blocking detector's table.
+            dependencies: ["CmuxNextCompat", "CmuxNextTrace"],
+            // The ring v1 golden file, shared with cmux-trace's Rust tests; read by path, not bundled.
+            exclude: ["Fixtures"],
             swiftSettings: daemonSwiftSettings
         ),
         // Field histograms (UMA): the HistogramID catalog and Metrics.record. Core: Compat and Trace only.
@@ -1341,7 +1348,8 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         ),
         .testTarget(
             name: "CmuxNextWakeupsTests",
-            dependencies: ["CmuxNextCompat", "CmuxNextWakeups", "CmuxNextWakeupsTestSupport"],
+            // Trace: the black-box file steps' tests read the ring.
+            dependencies: ["CmuxNextCompat", "CmuxNextTrace", "CmuxNextWakeups", "CmuxNextWakeupsTestSupport"],
             swiftSettings: daemonSwiftSettings
         ),
         // Install cmux CLI in PATH: the /usr/local/bin link to the bundled CLI
@@ -1442,6 +1450,20 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             name: "CmuxNextInputCoreTests",
             dependencies: ["CmuxNextCompat", "CmuxNextInputCore"],
             swiftSettings: daemonSwiftSettings
+        ),
+        // The app's one input tap (p04-input.md section 3 (A)): typed subscriptions by event class,
+        // phase and window that replace AppKit event monitors and the application object's closures.
+        // The only target besides the App that sees NSEvent for input routing; core and service
+        // packages take its InputObserving face from CmuxNextInputCore.
+        .target(
+            name: "CmuxNextInput",
+            dependencies: ["CmuxNextInputCore"],
+            swiftSettings: uiSwiftSettings
+        ),
+        .testTarget(
+            name: "CmuxNextInputTests",
+            dependencies: ["CmuxNextCompat", "CmuxNextInput", "CmuxNextInputCore"],
+            swiftSettings: uiSwiftSettings
         ),
         .target(
             name: "CmuxNextDesign",
@@ -1728,7 +1750,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         ),
         .target(
             name: "CmuxNextControl",
-            dependencies: ["CmuxNextCompat", "CmuxNextWakeups", "CmuxNextProcessEnvironment", "CmuxNextActions", "CmuxNextSettings", "CmuxNextDaemon", "CmuxNextTrace", "CmuxNextMetrics", "CmuxNextSignposts"],
+            dependencies: ["CmuxNextCompat", "CmuxNextWakeups", "CmuxNextProcessEnvironment", "CmuxNextActions", "CmuxNextSettings", "CmuxNextDaemon", "CmuxNextTrace", "CmuxNextMetrics", "CmuxNextSignposts", "CmuxNextInputCore"],
             resources: [
                 .process("Localizable.xcstrings"),
             ],
@@ -1736,7 +1758,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         ),
         .testTarget(
             name: "CmuxNextControlTests",
-            dependencies: ["CmuxNextWakeups", "CmuxNextWakeupsTestSupport", "CmuxNextCompat", "CmuxNextControl", "CmuxNextActions", "CmuxNextSettings", "CmuxNextDaemon", "CmuxNextTrace", "CmuxNextMetrics"],
+            dependencies: ["CmuxNextWakeups", "CmuxNextWakeupsTestSupport", "CmuxNextCompat", "CmuxNextControl", "CmuxNextActions", "CmuxNextSettings", "CmuxNextDaemon", "CmuxNextTrace", "CmuxNextMetrics", "CmuxNextInputCore"],
             swiftSettings: daemonSwiftSettings
         ),
         // Settings and palette agent CLI updates (moved out of CmuxNextApp/AgentHarnesses):
@@ -1790,8 +1812,10 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextHostedChief",
                 "CmuxNextImportCards",
                 "CmuxNextImportSuggestions",
+                "CmuxNextInput",
                 "CmuxNextLayout",
                 "CmuxNextMacScreen",
+                "CmuxNextMemory",
                 "CmuxNextMetrics",
                 "CmuxNextNowPlaying",
                 "CmuxNextPalette",
