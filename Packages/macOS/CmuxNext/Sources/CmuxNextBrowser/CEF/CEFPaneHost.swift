@@ -20,6 +20,9 @@ final class CEFPaneHost {
         /// Host mode: the first tab waits for the host's verdict on its profile's proxy before the window
         /// is asked for (`awaitProfileProxy`); later tabs join the wait as they join `creating`.
         case awaitingProfileProxy
+        /// The profile's first tab waits for its built-in extensions before the window is asked for
+        /// (`CEFPaneHost+BuiltInExtensions`); later tabs join the wait as they join `creating`.
+        case awaitingExtensions
         case creating(request: Int32)
         case live(window: Int32)
     }
@@ -93,7 +96,7 @@ final class CEFPaneHost {
 
     var isCreatingWindow: Bool {
         switch window {
-        case .creating, .awaitingProfileProxy: true
+        case .creating, .awaitingProfileProxy, .awaitingExtensions: true
         case .none, .live: false
         }
     }
@@ -276,6 +279,8 @@ final class CEFPaneHost {
                     return false
                 }
             }
+            // After the proxy gates: the extensions' first requests use the profile's proxy.
+            guard builtInExtensionsReady(for: tab) else { return false }
             tab.isCreationPending = true
             windowTab = tab
             window = .creating(request: request)
@@ -296,8 +301,6 @@ final class CEFPaneHost {
             let hostMode = runtime.hostStart != nil
             let createTrace = runtime.spareWindow.createTrace
             let view = pageParent()
-            // After the proxy gates: the extensions' first requests use the profile's proxy.
-            runtime.loadBuiltInExtensions(before: tab, in: self)
             let create = {
                 CEFStartSteps.shared.createWindow {
                     let width = max(size.width, 1).clampedInt32, height = max(size.height, 1).clampedInt32
@@ -321,8 +324,8 @@ final class CEFPaneHost {
                 runtime.spareWindow.noteWindowBuilt(for: key)
             }
             return false
-        case .awaitingProfileProxy, .creating:
-            // Joins the window once it exists (windowCreated), or the proxy wait (awaitProfileProxy).
+        case .awaitingProfileProxy, .awaitingExtensions, .creating:
+            // Joins the window once it exists (windowCreated), or the proxy or extensions wait.
             tab.isCreationPending = true
             return false
         case .live:
@@ -338,8 +341,9 @@ final class CEFPaneHost {
             window = .none
             return false
         }
+        // `tab_add` navigates in the call: the profile's built-in extensions are in first.
+        guard builtInExtensionsReady(for: tab) else { return false }
         tab.isCreationPending = true
-        runtime.loadBuiltInExtensions(before: tab, in: self)
         runtime.tabBeingAdded = tab
         let activates = visibleTab === tab
         let add = { shim.tabAdd(anchor, tab.takeInitialURLString(), -1, activates ? 1 : 0) }

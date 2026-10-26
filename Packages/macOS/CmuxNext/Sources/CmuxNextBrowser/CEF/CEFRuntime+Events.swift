@@ -130,7 +130,7 @@ extension CEFRuntime {
             }
         case .reply(_, let id, let value, let json):
             let reply = CEFSiteReply(value: value, json: json)
-            if !siteReplies.resolve(id, with: .success(reply)), siteReplyBrowsers[id] != nil {
+            if !builtInLoader.answer(reply: id, value: value), !siteReplies.resolve(id, with: .success(reply)), siteReplyBrowsers[id] != nil {
                 earlySiteReplies[id] = reply
             }
         case .tab(let kind, let browser, let window, let value):

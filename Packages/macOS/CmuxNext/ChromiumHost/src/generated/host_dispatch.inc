@@ -198,9 +198,9 @@ inline constexpr uint16_t kOpReply = 0x8002;  // host -> cmux: an async op's res
 inline constexpr uint16_t kOpMirror = 0x8003;  // host -> cmux: a mirror value
 inline constexpr uint16_t kOpAck = 0x8004;  // host -> cmux: a token's op ran
 inline constexpr int kEventKindCount = 54;
-inline constexpr char kShimAbiID[] = "61745ef998d4ba338eade6b88ec71c09a375069b4cfb7e026622f6eb31a884c7";
+inline constexpr char kShimAbiID[] = "6ed57344352703b3f151f052f318ab2413a0357c10544dbc5f26daa916a8c926";
 // Both sides' HELLO carries it: the op ids, classes and wire types of this generation.
-inline constexpr char kWireID[] = "2d326db1fbdea50e2e88ba0631cc70014614ed3943332ddd027f5084c13a8613";
+inline constexpr char kWireID[] = "6f8f1be4a405b903d1bb5b1fe5ff698b85a21c5c549addb9d5915c105e16a8b5";
 inline constexpr int32_t kMaxRecords = 65536;
 inline constexpr int32_t kMaxOutCapacity = 65536;
 
@@ -1609,11 +1609,13 @@ inline bool DispatchOp(HostContext& ctx, uint16_t op, uint32_t wire_token, TlvRe
     }
     case kOpExtLoadCommandLine: {
       const std::optional<std::string> arg_profile_cache_path = r.Str();
+      const auto arg_reply = r.I32();
       const std::optional<std::string> arg_path = r.Str();
       if (!r.ok() || !r.AtEnd()) return false;
-      const auto call_result = cmux_shim_ext_load_command_line(arg_profile_cache_path ? arg_profile_cache_path->c_str() : nullptr, arg_path ? arg_path->c_str() : nullptr);
-      (void)call_result;
-      ctx.Ack(wire_token);
+      const auto call_result = cmux_shim_ext_load_command_line(arg_profile_cache_path ? arg_profile_cache_path->c_str() : nullptr, arg_reply, arg_path ? arg_path->c_str() : nullptr);
+      TlvWriter reply_w;
+      reply_w.I32(call_result);
+      ctx.Reply(wire_token, reply_w);
       return true;
     }
     case kOpAddDocumentScript: {

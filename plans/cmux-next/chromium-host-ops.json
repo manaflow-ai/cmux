@@ -4154,11 +4154,15 @@
     },
     {
       "name": "cmux_shim_ext_load_command_line",
-      "class": "post",
+      "class": "async",
       "args": [
         {
           "name": "profile_cache_path",
           "type": "const char*"
+        },
+        {
+          "name": "reply",
+          "type": "int"
         },
         {
           "name": "path",
@@ -4166,12 +4170,14 @@
         }
       ],
       "returns": "int",
-      "result_used_by": [],
+      "result_used_by": [
+        "CmuxNextBrowser/CEF/CEFBuiltInExtensionLoads.swift"
+      ],
       "mirror_key": null,
       "refresh_events": [],
       "pending_keys": [],
-      "reply_event": null,
-      "reason": "Sent in call order before the profile's first create_window or tab_add (p13-webui-055), so the host queues the load on the profile's init callbacks ahead of the browser's create. No caller reads the answer: the extension list refreshes when the window comes up."
+      "reply_event": "CMUX_SHIM_REPLY",
+      "reason": "Answered by CMUX_SHIM_REPLY with the caller's reply id once the fork installed the extension and its background page finished its first load (p13-webui-055); the profile's first browser tab waits for it. The host's wire:REPLY under the op's token carries the start result: a start other than 1 ends that load at once instead of at its deadline (CEFBuiltInExtensionLoader awaits it, as profileWrite does, task 021)."
     }
   ],
   "events": [

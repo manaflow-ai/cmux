@@ -138,8 +138,9 @@ nonisolated extension CEFShimLibrary {
         let cExtLoadUnpacked: @convention(c) (Int32, UnsafePointer<CChar>?) -> Int32 = try unsafe r("cmux_shim_ext_load_unpacked")
         extLoadUnpacked = { a0, a1 in unsafe Self.withCString(a1) { s1 in unsafe cExtLoadUnpacked(a0, s1) } }
         extLoadLaterSupported = try r("cmux_shim_ext_load_later_supported")
-        let cExtLoadCommandLine: @convention(c) (UnsafePointer<CChar>?, UnsafePointer<CChar>?) -> Int32 = try unsafe r("cmux_shim_ext_load_command_line")
-        extLoadCommandLine = { a0, a1 in unsafe Self.withCString(a0) { s0 in unsafe Self.withCString(a1) { s1 in unsafe cExtLoadCommandLine(s0, s1) } } }
+        let cExtLoadCommandLine: @convention(c) (UnsafePointer<CChar>?, Int32, UnsafePointer<CChar>?) -> Int32 =
+            try unsafe r("cmux_shim_ext_load_command_line")
+        extLoadCommandLine = { a0, a1, a2 in unsafe Self.withCString(a0) { s0 in unsafe Self.withCString(a2) { s2 in unsafe cExtLoadCommandLine(s0, a1, s2) } } }
         let cExtCommands: @convention(c) (Int32) -> UnsafeMutablePointer<CChar>? = try unsafe r("cmux_shim_ext_commands")
         extCommands = { a0 in unsafe Self.take(cExtCommands(a0), cFree) }
         let cExtCommandRun: @convention(c) (Int32, UnsafePointer<CChar>?, UnsafePointer<CChar>?) -> Int32 = try unsafe r("cmux_shim_ext_command_run")

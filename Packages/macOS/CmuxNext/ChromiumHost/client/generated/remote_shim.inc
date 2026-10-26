@@ -200,9 +200,9 @@ inline constexpr uint16_t kOpReply = 0x8002;  // host -> cmux: an async op's res
 inline constexpr uint16_t kOpMirror = 0x8003;  // host -> cmux: a mirror value
 inline constexpr uint16_t kOpAck = 0x8004;  // host -> cmux: a token's op ran
 inline constexpr int kEventKindCount = 54;
-inline constexpr char kShimAbiID[] = "61745ef998d4ba338eade6b88ec71c09a375069b4cfb7e026622f6eb31a884c7";
+inline constexpr char kShimAbiID[] = "6ed57344352703b3f151f052f318ab2413a0357c10544dbc5f26daa916a8c926";
 // Both sides' HELLO carries it: the op ids, classes and wire types of this generation.
-inline constexpr char kWireID[] = "2d326db1fbdea50e2e88ba0631cc70014614ed3943332ddd027f5084c13a8613";
+inline constexpr char kWireID[] = "6f8f1be4a405b903d1bb5b1fe5ff698b85a21c5c549addb9d5915c105e16a8b5";
 // Exports the header does not declare yet (fork API symbols): the client sends one only to
 // a host whose HELLO lists its symbol.
 struct OptionalExport {
@@ -1658,12 +1658,14 @@ CMUX_SHIM_EXPORT int cmux_shim_ext_load_later_supported(void) {
   return mirror_result;
 }
 
-CMUX_SHIM_EXPORT int cmux_shim_ext_load_command_line(const char* arg_profile_cache_path, const char* arg_path) {
+CMUX_SHIM_EXPORT int cmux_shim_ext_load_command_line(const char* arg_profile_cache_path, int arg_reply, const char* arg_path) {
   TlvWriter op_w;
   op_w.Str(arg_profile_cache_path);
+  op_w.I32(arg_reply);
   op_w.Str(arg_path);
-  (void)Post(kOpExtLoadCommandLine, 0, op_w);
-  return 1;
+  const uint32_t op_token = NextToken();
+  const bool op_sent = PostForReply(kOpExtLoadCommandLine, op_token, op_w);
+  return op_sent ? 1 : 0;
 }
 
 CMUX_SHIM_EXPORT int cmux_shim_add_document_script(const char* arg_world, const char* arg_source, int arg_all_frames, int arg_run_now) {

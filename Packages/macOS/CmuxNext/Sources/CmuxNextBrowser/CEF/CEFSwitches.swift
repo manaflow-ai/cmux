@@ -21,7 +21,7 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
     /// Extensions the app bundle ships (`CEFBuiltInExtensions`); they do not
     /// turn on the extensions developer mode.
     var builtInExtensions: [String] = []
-    /// The default-off feature `chromiumAdBlockerAtFirstTab` on a fork with `cmux_ext_load_command_line`:
+    /// The default-off feature `chromiumAdBlockerAtFirstTab` on a fork with `cmux_ext_load_command_line_async`:
     /// ``builtInExtensions`` stay off `--load-extension` and load into each persistent profile right
     /// before its first browser tab (``CEFBuiltInExtensionLoads``), so Home with no browser tab runs no
     /// extension background page.

@@ -54,7 +54,7 @@ struct ForkApi {
   int (*ext_set_pinned)(int, const char*, int) = nullptr;
   int (*ext_open_options)(int, const char*) = nullptr;
   int (*ext_load_unpacked)(int, const char*) = nullptr;
-  int (*ext_load_command_line)(const char*, const char*) = nullptr;  // p13-webui-055
+  int (*ext_load_command_line_async)(const char*, const char*, void (*)(void*, int), void*) = nullptr;  // p13-webui-055
   char* (*ext_commands)(int) = nullptr;
   int (*ext_command_run)(int, const char*, const char*) = nullptr;
   int (*tab_move_to_window)(int, int, int) = nullptr;
