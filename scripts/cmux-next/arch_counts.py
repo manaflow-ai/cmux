@@ -2651,11 +2651,14 @@ class TypeTable:
                 if known:
                     return True
                 continue  # a finished search found nothing stateful from here
-            if name in SYS_STATEFUL:
+            # A type the referencing file declares shadows the system type of its name (Swift resolves the
+            # innermost declaration: `Feature.Process` inside `Feature`, never Foundation's `Process`).
+            shadowing = [d for d in self._decls_for(name) if where and d.path == where] if name in SYS_STATEFUL else []
+            if name in SYS_STATEFUL and not shadowing:
                 return True
-            if not lookup_name(name):
+            if not shadowing and not lookup_name(name):
                 continue
-            for decl in self.resolve(name, where):
+            for decl in shadowing or self.resolve(name, where):
                 if decl.own_state:
                     return True
                 stack.extend((link, decl.path or None) for link in decl.links())
@@ -4037,7 +4040,7 @@ class TypeLookup:
         followed here: TypeTable asks decls() for each name its search reaches, and a search stops at the
         first declaration with state of its own, so only the files a search really needs are read.
         """
-        todo = {n for n in names if lookup_name(n)} - self.searched
+        todo = {n for n in names if lookup_name(n) or n in SYS_STATEFUL} - self.searched
         if not todo:
             return
         self.searched |= todo
@@ -4048,7 +4051,8 @@ class TypeLookup:
                     self.shared[d.name].append(d)
 
     def decls(self, rev: str, name: str) -> list[Decl]:
-        if lookup_name(name) and name not in self.searched:
+        # A system type's name too: a repo declaration of it shadows it in its file (TypeTable._search).
+        if (lookup_name(name) or name in SYS_STATEFUL) and name not in self.searched:
             self.ensure({name})
         return self.shared.get(name, []) + self.overlay_index[rev].get(name, [])
 

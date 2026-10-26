@@ -37,6 +37,9 @@ import Darwin
 /// pending input, at the first frame without an open input response (``InputResponse``), in place
 /// of the every-other-frame rule, which visible keeps.
 ///
+/// A late shown frame comes first (``RenderStarvationGuard``, Chrome's `kRenderingStarved`): every
+/// budgeted class waits for that link's next tick, whatever the rules above say.
+///
 /// This is batching to the display cadence, not a throttle: work over budget runs on the next
 /// frame, never later. The app builds one at its composition root and hands it to the one
 /// ``MainWorkScheduler``, whose single display link opens the budget's window once per frame.
@@ -59,6 +62,8 @@ public final class MainFrameBudget {
     private let input: any InputPendingSource
     private let uptimeNanos: () -> UInt64
     private let signposts: Bool
+    /// The rendering starvation guard (nil: never starved).
+    public let starvation: RenderStarvationGuard?
     // Frame window.
     private var windowStart: UInt64 = 0
     private var windowLength: UInt64 = 16_666_667
@@ -103,13 +108,16 @@ public final class MainFrameBudget {
     ///   - board: Where the running task is published for the watchdog.
     ///   - signposts: Whether each task opens a `stall.main_task` interval and a long turn emits
     ///     `stall.main_turn` (the app: true).
+    ///   - starvation: Holds budgeted work while a shown frame is late (nil: never).
     ///   - uptimeNanos: The clock (`CLOCK_UPTIME_RAW` nanoseconds); tests inject one they move.
     ///   - turns: The run-loop turn meter (default: one on this clock).
     public init(budgets: Budgets = Budgets(), input: any InputPendingSource = NoInputPending(), board: MainTaskBoard = MainTaskBoard(),
-                signposts: Bool = false, uptimeNanos: @escaping () -> UInt64 = { clock_gettime_nsec_np(CLOCK_UPTIME_RAW) },
+                signposts: Bool = false, starvation: RenderStarvationGuard? = nil,
+                uptimeNanos: @escaping () -> UInt64 = { clock_gettime_nsec_np(CLOCK_UPTIME_RAW) },
                 turns: MainTurnMeter? = nil) {
         self.budgets = budgets
         self.turns = turns ?? MainTurnMeter(signposts: signposts, uptimeNanos: uptimeNanos)
+        self.starvation = starvation
         totalNanos = Self.nanos(budgets.total)
         passTargetNanos = Self.nanos(budgets.passTarget)
         self.input = input
@@ -209,7 +217,8 @@ public final class MainFrameBudget {
         return min(totalNanos, left)
     }
 
-    /// Whether a task of `workClass` may start now. Unbudgeted classes always may. Automation and
+    /// Whether a task of `workClass` may start now. Unbudgeted classes always may; no budgeted one
+    /// may while a shown frame is late (``isRenderStarved``). Automation and
     /// background may not while an input response is open; in a typing burst they follow its rate
     /// (``InputResponse/Burst``), and a due task runs under pending input. Otherwise a budgeted
     /// class may not while input is pending (unless it yielded last frame). Past that, its first
@@ -219,6 +228,7 @@ public final class MainFrameBudget {
     /// render pass). A refusal is counted: the caller keeps the task for the next frame.
     public func mayRun(_ workClass: MainWorkClass) -> Bool {
         guard let index = Self.index(workClass), let budget = budgets.budget(workClass) else { return true }
+        if heldForLateFrame(index) { return false }
         let now = uptimeNanos()
         // A task outside any tick while no budgeted link runs (a request on an idle app): a window
         // older than one frame is over. Never while the link runs (its ticks own the window) and
@@ -382,6 +392,7 @@ public final class MainFrameBudget {
     public func resetStats() {
         stats = Stats()
         turns.reset()
+        starvation?.resetStats()
     }
 
     private func inputPending(_ now: UInt64) -> Bool {
@@ -395,14 +406,5 @@ public final class MainFrameBudget {
         if open.isEmpty { checkSpent &+= took }
         inputAnswer = (now, pending)
         return pending
-    }
-
-    private static func index(_ workClass: MainWorkClass) -> Int? {
-        switch workClass {
-        case .input, .frame: nil
-        case .visible: 0
-        case .automation: 1
-        case .background: 2
-        }
     }
 }

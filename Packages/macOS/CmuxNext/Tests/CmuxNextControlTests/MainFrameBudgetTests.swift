@@ -525,12 +525,14 @@ import Testing
 
 /// A clock the test moves (`CLOCK_UPTIME_RAW` nanoseconds).
 @MainActor
-private final class BudgetClock {
+final class BudgetClock {
     private var now: UInt64 = 1_000_000_000
     // Strong: a scheduler's stall timer can fire after its test returned and read the clock through
     // the budget (fleet 2026-10-25, step 37d7e7e1: an unowned read of a freed clock aborted the suite
     // process, signal 6). The clock holds nothing back, so this makes no cycle.
     var read: () -> UInt64 { { [self] in self.now } }
+    /// The same clock in `CACurrentMediaTime` seconds (the frame schedulers' timebase).
+    var media: @MainActor () -> CFTimeInterval { { [self] in Double(self.now) / 1_000_000_000 } }
     func advance(ms: Double) { now += UInt64(ms * 1_000_000) }
 }
 
@@ -556,7 +558,7 @@ private final class CostlyInputPending: InputPendingSource {
 }
 
 @MainActor
-private final class FakeFrameLink: FrameLink {
+final class FakeFrameLink: FrameLink {
     var isPaused = false
     func invalidate() {}
 }
