@@ -149,6 +149,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var windowBackground = WindowBackgroundOverride()
     /// `appearance.inactiveWindowDim`: 0 unless set.
     public var inactiveWindowDim = 0.0
+    /// `appearance.wallpaperTint`: on unless set to false.
+    public var wallpaperTint = WallpaperTintSetting.fallback
     /// `appearance.surfaces.<surface>.color|opacity` (R55); no override
     /// (every surface shows the window's backdrop) when unset or invalid.
     public var surfaceBackgrounds = SurfaceBackgrounds.none
@@ -347,6 +349,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         snapshot.attention = PaneRingConfigParser.attention(root, diagnostics: &snapshot.diagnostics)
         snapshot.windowBackground = WindowBackgroundSetting.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.inactiveWindowDim = WindowBackgroundSetting.parseInactiveDim(root, diagnostics: &snapshot.diagnostics)
+        snapshot.wallpaperTint = WallpaperTintSetting().parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.surfaceBackgrounds = SurfaceBackgroundSetting.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.backdropSelection = BackdropSelectionSetting().parse(root, diagnostics: &snapshot.diagnostics)
         if case .art(let art) = snapshot.backdropSelection { snapshot.backdropArt = art } else { snapshot.backdropArt = nil }
