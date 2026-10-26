@@ -11,7 +11,7 @@ public import SwiftUI
 public struct ChiefMemoryInspectorView: View {
     @Bindable var model: ChiefMemoryInspectorModel
 
-    /// The view of `model`; it reads the memory when it appears.
+    /// The view of `model`; it reads the memory when it first appears (``ChiefMemoryInspectorModel/readFirst()``).
     public init(model: ChiefMemoryInspectorModel) {
         self.model = model
     }
@@ -30,7 +30,9 @@ public struct ChiefMemoryInspectorView: View {
                 detailColumn.frame(minWidth: 320)
             }
         }
-        .task { await model.reload() }
+        // A gated page tab appears again on each show (`VisibilityGatedHostingView`): the memory is read
+        // once, and again on the Refresh button.
+        .task { await model.readFirst() }
     }
 
     /// The id of the delete dialog's Delete button.
