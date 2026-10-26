@@ -29,6 +29,10 @@ public final class FrameClient {
     private let resolve: @MainActor () -> FrameScheduler
     private weak var scheduler: FrameScheduler?
     public private(set) var isActive = false
+    /// Pauses this client while the device's power state does not let its class run (nil: never paused).
+    private var powerGate: FramePowerGate?
+    /// Active for its owner, but paused by its power gate: it gets no frame and holds no display link.
+    public private(set) var isPowerPaused = false
 
     /// `onFrame` returns true to keep ticking. The client ticks on the
     /// scheduler `resolve` returns when it activates.
@@ -79,26 +83,44 @@ public final class FrameClient {
         self.init(owner: owner, isAnimation: isAnimation, scheduler: { [weak scheduler] in scheduler ?? .app }, onFrame: onFrame)
     }
 
-    /// Starts ticking (no effect while active).
+    /// A client of `rate` on a fixed scheduler, paused by `gate` while the device's power state does
+    /// not let `rate` run (``FramePowerGate``): an ambient loop pauses in Low Power Mode and in a
+    /// serious thermal state, and starts again when the cap lifts.
+    public convenience init(owner: String, isAnimation: Bool = true, rate: FrameRateClass, on scheduler: FrameScheduler,
+                            power gate: FramePowerGate, onFrame: @escaping @MainActor (FrameTick) -> Bool) {
+        self.init(owner: owner, isAnimation: isAnimation, rate: rate, on: scheduler, onFrame: onFrame)
+        powerGate = gate
+    }
+
+    /// A client of `rate` in `view`'s window, paused by `gate` as
+    /// ``init(owner:isAnimation:rate:on:power:onFrame:)`` is.
+    public convenience init(owner: String, view: NSView, rate: FrameRateClass, power gate: FramePowerGate,
+                            onFrame: @escaping @MainActor (FrameTick) -> Bool) {
+        self.init(owner: owner, view: view, rate: rate, onFrame: onFrame)
+        powerGate = gate
+    }
+
+    /// Starts ticking (no effect while active). Behind a power gate that pauses its class, it is
+    /// active but paused, and ticks once the gate lets it.
     public func activate() {
         guard !isActive else { return }
         isActive = true
-        let target = resolve()
-        scheduler = target
-        target.activate(self)
+        guard let powerGate else { return start() }
+        powerGate.register(self)
+        if powerGate.admits(self) { start() } else { isPowerPaused = true }
     }
 
     /// Stops ticking.
     public func deactivate() {
         guard isActive else { return }
-        isActive = false
+        becomeIdle()
         scheduler?.deactivate(self)
         scheduler = nil
     }
 
     /// The scheduler went away: idle without calling back.
     func detach() {
-        isActive = false
+        becomeIdle()
         scheduler = nil
     }
 
@@ -106,9 +128,35 @@ public final class FrameClient {
     func fire(_ tick: FrameTick) -> Bool {
         guard isActive else { return false }
         if onFrame(tick) && isActive { return true }
-        isActive = false
+        becomeIdle()
         scheduler = nil
         return false
+    }
+
+    /// The power gate's state changed: an active client leaves its scheduler when its class is
+    /// paused and joins one again when it is not.
+    func powerDidChange(admitted: Bool) {
+        guard isActive, admitted == isPowerPaused else { return }
+        if admitted {
+            isPowerPaused = false
+            start()
+        } else {
+            isPowerPaused = true
+            scheduler?.deactivate(self)
+            scheduler = nil
+        }
+    }
+
+    private func start() {
+        let target = resolve()
+        scheduler = target
+        target.activate(self)
+    }
+
+    private func becomeIdle() {
+        isActive = false
+        isPowerPaused = false
+        powerGate?.unregister(self)
     }
 
     // No deinit. An active client is held by its scheduler, so a client is only released once it

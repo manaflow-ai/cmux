@@ -2,6 +2,25 @@
 // edit the feature's JSON file and rerun the script.
 
 nonisolated extension Feature {
+    /// Pause ambient frame loops such as spinners in Low Power Mode and in a serious thermal state; motion keeps its rate.
+    public static let frameRatePowerCaps = Feature(
+        index: 0,
+        name: "frameRatePowerCaps",
+        owner: "Performance Lead",
+        description: "Pause ambient frame loops such as spinners in Low Power Mode and in a serious thermal state; motion keeps its rate.",
+        kind: .perfPath,
+        process: .app,
+        chromiumFeature: nil,
+        defaults: FeatureDefaults(dev: false, nightly: false, release: false),
+        expires: "2026-12-20",
+        params: [],
+        stories: ["agent-swarm"],
+        sticky: false,
+        runtimeMutable: false
+    )
+
     /// Every feature, by index: `registered[feature.index] == feature`.
-    public static let registered: [Feature] = []
+    public static let registered: [Feature] = [
+        .frameRatePowerCaps,
+    ]
 }

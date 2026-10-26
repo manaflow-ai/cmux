@@ -1,0 +1,13 @@
+{
+  "name": "frameRatePowerCaps",
+  "owner": "Performance Lead",
+  "description": "Pause ambient frame loops such as spinners in Low Power Mode and in a serious thermal state; motion keeps its rate.",
+  "defaults": { "dev": false, "nightly": false, "release": false },
+  "kind": "perfPath",
+  "expires": "2026-12-20",
+  "process": "app",
+  "params": [],
+  "stories": ["agent-swarm"],
+  "sticky": false,
+  "runtimeMutable": false
+}
