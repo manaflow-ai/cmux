@@ -1888,7 +1888,7 @@
             "method": "debug.oracle.snapshot",
             "path": "/focus",
             "v0": "debug.focus",
-            "provider": "OracleFocusFacet",
+            "provider": "InputObservationBuilder.oracleFocusFacet",
             "task": "p15-oracle-034",
             "from": "InputObservationBuilder.observe"
           },
