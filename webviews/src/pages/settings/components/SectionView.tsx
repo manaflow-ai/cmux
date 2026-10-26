@@ -10,6 +10,7 @@ import { ChannelsCard } from "./ChannelsCard";
 import { ChiefsCard } from "./ChiefsCard";
 import { ComputerUseCard } from "./ComputerUseCard";
 import { DevicesCard } from "./DevicesCard";
+import { FeatureFlagsCard } from "./FeatureFlagsCard";
 import { GhosttyDiagnostics } from "./GhosttyDiagnostics";
 import { GroupList } from "./GroupList";
 import { HarnessesCard } from "./HarnessesCard";
@@ -57,6 +58,7 @@ const CARDS: Record<CategoryCard, (focus: string | null, workspace: string | nul
   webUpdates: () => <WebUpdatesCard />,
   voiceInput: () => <VoiceInputCard />,
   server: () => <ServerCard />,
+  featureFlags: () => <FeatureFlagsCard />,
 };
 
 /** One category: its title, the cards before its groups, the groups, the cards after, actions. */
