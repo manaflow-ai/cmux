@@ -42,6 +42,9 @@ public final class LayoutRootView: NSView {
     /// The scroll, magnify and button intercept (``InputEventTap/InterceptOrder/layout``), held while
     /// the root is live (`setLive`).
     private var inputIntercept: InputSubscription?
+    /// The pointer-move intercept held while a strip shows away from its laid-out place
+    /// (``updatePointerLanding()``).
+    private var pointerLanding: InputSubscription?
     /// Key-window observers of the current window (`observeKeyWindow()`).
     var keyWindowObservers: [any NSObjectProtocol] = []
     private var lastSnapshot: Snapshot?
@@ -174,7 +177,7 @@ public final class LayoutRootView: NSView {
         layer?.masksToBounds = true
         context.requestFrames = { [weak self] in self?.driver.start() }
         driver.onFrame = { [weak self] dt in self?.advanceFrame(dt) ?? false }
-        context.overlayNeedsSync = { [weak self] in self?.setNeedsOverlaySync() }
+        context.wireOverlaySync(to: self)
         context.userMotionStepped = { [weak self] in self?.setLayoutInMotion(true) }
         context.userMotionEnded = { [weak self] in
             guard let self, !self.screenViews.values.contains(where: \.hasMotion), !self.driver.isRunning else { return }
@@ -184,11 +187,18 @@ public final class LayoutRootView: NSView {
         }
         context.renderMotionBegan = { [weak self] in self?.motionTrace.beginRun() }
         context.gridHoldDidChange = { [weak self] held in self?.onTerminalGridHold?(held) }
+        // The window adopts the plane exactly while it shows content child windows (`OverlayPlaneHosting`).
+        context.childWindowContentShows = { [weak self] in self.map { !$0.overlayPlane.isHome } ?? false }
+        context.stripMovedDidChange = { [weak self] in self?.updatePointerLanding() }
+        overlayPlane.onHomeChange = { [weak self] in self?.overlayPlaneHomeDidChange() }
         context.stripClipsDidChange = { [weak self] in
             guard let self else { return }
             planeHost?.paneShapesDidChange(overlayPlane)
         }
-        highlight.needsFrame = { [weak self] in self?.driver.start() }
+        highlight.needsFrame = { [weak self] in
+            guard let self, self.highlightStepsOnFrames else { return }
+            self.driver.start()
+        }
         overlayPlane.addSubview(highlight)
         addSubview(overlayPlane)
         registerForDraggedTypes([LayoutTabDrag.pasteboardType, .URL])
@@ -210,6 +220,7 @@ public final class LayoutRootView: NSView {
         MainActor.assumeIsolated {
             observationTask?.cancel()
             inputIntercept?.cancel()
+            pointerLanding?.cancel()
             for token in keyWindowObservers { NotificationCenter.default.removeObserver(token) }
             driver.detach()
             motionTrace.endRun()
@@ -542,7 +553,7 @@ public final class LayoutRootView: NSView {
             if screenFrames[id]?.advance(dt, parameters: screenSpring) == true { moving = true }
         }
         applyScreenFrames()
-        if highlight.step(dt) { moving = true }
+        if highlightStepsOnFrames, highlight.step(dt) { moving = true }
         updateVisibility()
         // A pan with the finger down is layout motion (`userMotionActive`): a frame tick during it
         // is not its landing, so what waits for the landing (page windows, catcher panels) waits on.
@@ -551,8 +562,8 @@ public final class LayoutRootView: NSView {
         if moving || gesturing { setLayoutInMotion(true) }
         flushOverlaySync()
         if !moving && !gesturing { setLayoutInMotion(false) }
-        // A strip pan keeps the ticks a little after each event (`ScreenContentView.panTickTail`);
-        // a gesture with a still pointer needs none after that.
+        // A strip pan that moves the frames keeps the ticks until its finger lifts
+        // (`ScreenContentView.displayFrameBegan`); a pan on the motion container keeps none.
         return moving || panning
     }
 
@@ -575,6 +586,8 @@ public final class LayoutRootView: NSView {
         if isLive, let active = model.activeScreenID, let view = screenViews[active] {
             visible = view.visiblePanes()
             keepAlive = view.keepAlivePanes().union(visible)
+            // A strip pan event inside this span reports nothing: it skips the pass (`LayoutRootView+Scroll`).
+            view.recordVisibilitySpan()
         }
         guard visible != reportedVisible || keepAlive != reportedKeepAlive else { return }
         var changes: [(PaneID, PanePresence)] = []
@@ -665,6 +678,8 @@ public final class LayoutRootView: NSView {
         isLive = live
         inputIntercept?.cancel()
         inputIntercept = nil
+        pointerLanding?.cancel()
+        pointerLanding = nil
         driver.detach()
         if !live {
             for view in screenViews.values { view.settleMotion() }
@@ -684,6 +699,7 @@ public final class LayoutRootView: NSView {
             driver.attach(to: self)
             if screenViews.values.contains(where: \.hasMotion) || screenFrames.values.contains(where: { $0.rect != $0.targetRect || $0.alpha.value != $0.alpha.target }) { driver.start() }
             inputIntercept = subscribeInput()
+            updatePointerLanding()
         }
         updateVisibility()
         // The layout changes it saw while parked: one overlay sync now.
@@ -693,3 +709,40 @@ public final class LayoutRootView: NSView {
 }
 
 extension LayoutRootView: ParkingObserver {}
+
+// MARK: Pointer input lands a moved strip
+
+extension LayoutRootView {
+    /// Lays every strip that shows away from its laid-out place out where it shows
+    /// (`ScreenContentView.landStripWhereItShows()`), before a press, a pointer move, a new scroll
+    /// gesture or a wheel notch reaches a view. O(screens); nothing when no strip shows moved.
+    func landStripsWhereTheyShow() {
+        for view in screenViews.values where view.stripContainer.showsMoved { view.landStripWhereItShows() }
+    }
+
+    /// Holds a pointer-move intercept exactly while a strip shows moved: a move then lands it before
+    /// AppKit reads its tracking areas and cursor rects at the views' frames. The press and the scroll
+    /// routes land it in the root's own intercept (``handleMonitored(_:)``). Called when a strip starts
+    /// or stops showing moved and when the root goes live, so a strip at rest costs pointer moves nothing.
+    func updatePointerLanding() {
+        let moved = isLive && screenViews.values.contains { $0.stripContainer.showsMoved }
+        if moved, pointerLanding == nil {
+            pointerLanding = inputTap?.subscribe(class: .pointerMove, phase: .intercept(order: .layout)) { [weak self] event in
+                if let self, event.window === self.window { self.landStripsWhereTheyShow() }
+                return .pass
+            }
+        } else if !moved, let subscription = pointerLanding {
+            subscription.cancel()
+            pointerLanding = nil
+        }
+    }
+
+    /// The overlay plane moved between this view and the window's overlay panel: content child
+    /// windows came or went. While they show, a strip pans its frames (`ScreenContentView.pansOnContainer`),
+    /// so one that shows moved lands where it shows now and a page window placed from its host's frame
+    /// matches it.
+    func overlayPlaneHomeDidChange() {
+        guard !overlayPlane.isHome else { return }
+        landStripsWhereTheyShow()
+    }
+}

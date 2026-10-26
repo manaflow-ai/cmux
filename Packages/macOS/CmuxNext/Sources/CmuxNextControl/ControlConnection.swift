@@ -2,7 +2,8 @@ import CmuxNextSettings
 import Darwin
 import Foundation
 
-/// One accepted client. All socket IO runs on a private serial queue:
+/// One accepted client. All socket IO runs on a private serial queue at
+/// utility QoS (automation; the main hop keeps the method's `MainWorkClass`):
 /// nonblocking reads split lines for a single consumer task, and responses
 /// go through a nonblocking, capped write buffer, so a slow or stuck client
 /// can only stall its own connection.
@@ -50,8 +51,11 @@ final class ControlConnection: @unchecked Sendable {
         self.id = id
         self.descriptor = descriptor
         self.limits = limits
-        self.queue = DispatchQueue(label: "com.cmuxterm.next.control.\(id)")
+        self.queue = DispatchQueue(label: "com.cmuxterm.next.control.\(id)", qos: .utility)
     }
+
+    /// The connection queue's QoS (tests).
+    var queueQoS: DispatchQoS.QoSClass { queue.qos.qosClass }
 
     func start(consume: @escaping @Sendable (AsyncStream<String>) async -> Void) {
         // The stream never exceeds `maxQueuedLines`: reading pauses first.

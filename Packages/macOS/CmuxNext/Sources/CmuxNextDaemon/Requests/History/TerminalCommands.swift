@@ -44,7 +44,7 @@ public struct ListTerminalCommandsRequest: DaemonRequest {
         }
     }
 
-    public static let command = "list-terminal-commands"
+    public static let commandName: DaemonCommandName = "list-terminal-commands"
     public var afterID: String?
     public var limit: Int?
 
@@ -68,7 +68,7 @@ public struct DeleteTerminalCommandsRequest: DaemonRequest {
         public var deleted: UInt64
     }
 
-    public static let command = "delete-terminal-commands"
+    public static let commandName: DaemonCommandName = "delete-terminal-commands"
     public var selection: Selection
 
     public init(_ selection: Selection) {

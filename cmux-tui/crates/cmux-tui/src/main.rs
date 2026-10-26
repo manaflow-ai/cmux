@@ -51,6 +51,9 @@ mod hook_helper;
 mod host_colors;
 mod keys;
 mod layout_undo;
+// Tests build it everywhere so the upgrade checks run on Linux CI too.
+#[cfg(any(target_os = "macos", all(unix, test)))]
+mod launchd_role;
 #[cfg(unix)]
 mod link;
 mod local_owner;

@@ -114,7 +114,7 @@ extension FrontendBrowserHistory.Entry {
 /// Stores (or with nil, clears) a frontend browser tab's session history.
 public struct SetFrontendBrowserHistoryRequest: DaemonRequest {
     public typealias Response = EmptyResponse
-    public static let command = "set-frontend-browser-history"
+    public static let commandName: DaemonCommandName = "set-frontend-browser-history"
     public static let requiredCapability: String? = DaemonCapability.frontendBrowserHistory.rawValue
     public var surface: SurfaceID
     public var history: FrontendBrowserHistory?
@@ -138,7 +138,7 @@ public struct GetFrontendBrowserHistoryRequest: DaemonRequest {
     public struct Response: Decodable, Sendable, Equatable {
         public var history: FrontendBrowserHistory?
     }
-    public static let command = "get-frontend-browser-history"
+    public static let commandName: DaemonCommandName = "get-frontend-browser-history"
     public static let requiredCapability: String? = DaemonCapability.frontendBrowserHistory.rawValue
     public var surface: SurfaceID
 

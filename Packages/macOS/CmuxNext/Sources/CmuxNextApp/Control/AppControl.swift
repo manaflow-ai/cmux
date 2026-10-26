@@ -132,7 +132,7 @@ final class AppControl {
     }
 
     func startSnapshotPublisher(_ services: AppServices, on router: ControlRouter) {
-        let publisher = ControlSnapshotPublisher(router: router, services: services, frames: frames)
+        let publisher = ControlSnapshotPublisher(router: router, services: services)
         self.publisher = publisher
         publisher.start()
     }

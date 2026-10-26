@@ -20,7 +20,11 @@ How it is enforced:
   wait is always recorded only: it is measured on the wall clock). Bench builds (`reload.sh --config bench`,
   `-DCMUX_BLOCKING_CHECKS`): recorded for `debug.blocking`, never a trap. Nightly: to come with the
   `nightly.yml` flag and PL-telemetry's hang-report sink (kind + image UUID + offset frames only, no paths or
-  names); it will never trap and has no log or menu. Release: compiled out.
+  names); it will never trap and has no log or menu. Release: compiled out. Debug records on the main thread and
+  the pool until the every-action sweep (p02-threads-300, RUN-1) shows 0 main and 0 pool sites; then task 021 makes
+  both trap by default. Daemon (`cmux-threads::blocking`): a disallowed thread's blocking call records its site in
+  every build and, in Debug, panics at the caller's location (Chrome's `DCHECK`); `CMUX_DAEMON_BLOCKING=record`
+  turns the panic off. Release never panics.
   The same seam call on a shared pool thread (the Swift cooperative pool, `Task.detached`, an actor, a GCD root
   queue such as `DispatchQueue.global`) is a violation too, recorded at its own `pool` site (`debug.blocking`
   `context`, `contexts.pool`; not in the Debug menu); launch a Debug build with `CMUX_BLOCKING_TRAP_POOL=1` to
@@ -69,7 +73,7 @@ makes it "main-like"; a `cmux_threads::work` worker may block; other registered 
 
 | Build | App (Swift) | Daemon (Rust) |
 |---|---|---|
-| Debug | record: one unified-log line per site, the Debug menu count, `debug.blocking`. `CMUX_BLOCKING_TRAP=1` traps main sites, `CMUX_BLOCKING_TRAP_POOL=1` pool sites. Task 021 makes trap the default after RUN-1 passes (`CMUX_BLOCKING_TRAP=0` turns it off) | record (`server.blocking`). `CMUX_DAEMON_BLOCKING=panic` panics at the site. Task 021 makes panic the default after MQ-13 is empty |
+| Debug | record: one unified-log line per site, the Debug menu count, `debug.blocking`. `CMUX_BLOCKING_TRAP=1` traps main sites, `CMUX_BLOCKING_TRAP_POOL=1` pool sites. Task 021 makes trap the default after RUN-1 passes (`CMUX_BLOCKING_TRAP=0` turns it off) | record (`server.blocking`) and panic at the caller's location (Chrome's `DCHECK`); `CMUX_DAEMON_BLOCKING=record` turns the panic off |
 | Bench (`-DCMUX_BLOCKING_CHECKS`) | record, never a trap | as Release |
 | Nightly | target: compiled in with `-DCMUX_BLOCKING_CHECKS`, record, one report per new site to the opt-in hang-report sink (at most 5 per launch, 1 per site per 24 h); `CMUX_BLOCKING_TRAP=1` opts in to a trap | as Release |
 | Release | the check is compiled out; only the trace hook (one relaxed atomic load) and lane latency stats stay | per-site counters (256 sites, then `overflow`), never a panic |
@@ -116,7 +120,7 @@ are in [Daemon threads](#daemon-threads-cmux-tui).
 | **Ghostty renderer and IO threads** (per surface, inside GhosttyKit) | Rendering; termio | Renderer mailbox (64, latest-value-wins, never waits); termio queue 64 | Renderer: focused user-interactive, visible user-initiated, hidden utility (ghostty-next `src/renderer/Thread.zig` `setQosClass`). IO: not set | declared by library: as today; IO removed for manual-IO surfaces by p03-rendering-086 ([Renderer QoS](#renderer-qos-rendering-design-r5)) | cmux runs surfaces in manual IO mode: no Ghostty read thread |
 | **BackgroundWork lanes** (`CmuxNextWakeups`, one per app; slot queues `com.cmuxterm.next.work.<lane>.<slot>`) | Work that may block, off main and off the pool | files: disk. system: system calls (DNS, Security, Launch Services, AX, window server). cpu: nothing (a seam there is `wrong-lane`) | the item's (`WorkPriority.qos` through `.enforceQoS`; the slot queue states none) | the item's: user-initiated, default, utility or background; never user-interactive | [Lanes](#lanes); a slot has a GCD thread only while it has work |
 | **Swift cooperative pool and actors** (`actor`s that own I/O: daemon, cloud, remote, stores; `Task.detached` at `.utility`/`.userInitiated`) | Async I/O and domain state off main | Nothing (never a blocking call on the pool; blocking work belongs on a lane or a dedicated thread or queue). An `await` is not a wait: the thread runs other tasks | the task's priority | the task's priority | Each actor's own stream bounds (`AsyncStream` with a buffering policy, never `.unbounded`) |
-| **DispatchSource handlers** (control socket `com.cmuxterm.next.control.accept`, `com.cmuxterm.next.control.<id>`; file watchers; process and signal sources) | Event delivery only | Non-blocking reads | as the queue; the control socket queues: default | as the queue; the control socket queues: utility (task 031) | Coalesced by the source; main-queue sources only hop |
+| **DispatchSource handlers** (control socket `com.cmuxterm.next.control.accept`, `com.cmuxterm.next.control.<id>`; file watchers; process and signal sources) | Event delivery only | Non-blocking reads | as the queue; control socket: utility (automation, p02-threads-031, ControlSocketQoSTests). Its main hop keeps the method's `MainWorkClass` (automation; `debug.key` and `debug.view_key` input), and an injected key runs ahead of queued automation once it reaches the main-thread queue. A `debug.key` with the client's `timestamp` (bench-typing.py) keeps that send time on its event, so the wait on this utility lane and the main-thread queue counts in the bench's `key_to_*` latency; the reply's `injected_at` (main thread, at injection) gives that wait apart, as bench-typing's `key_to_injection_ms` | as today | Coalesced by the source; main-queue sources only hop |
 | **Process queues** `com.cmuxterm.next.process.<name>` (`ProcessRun`) and the `ProcessLauncher` queues `com.cmuxterm.next.sleepy-lock`, `com.cmuxterm.next.relaunch` (userBlocking: user-initiated), `com.cmuxterm.next.now-playing`, `com.cmuxterm.next.android-screen` (userVisible: default) | One child's spawn and its exit source | `posix_spawn` (the kernel); never a wait for the child: the exit source reports it | the run's `WorkPriority.qos` | the run's; the child gets `WorkPriority.processQoS`, never user-interactive | One queue per run or launcher |
 | **Hang watch** (p09-observability, owner PL-telemetry). App: the `HangWatch` slots in CmuxNextTrace (`TraceRuntime.shared.hangWatch`), read by `HangMonitor` on the existing `cmux-next main-thread watchdog` thread's kqueue (no new thread; p02-threads-016, attached by `AppControl.startWatchdog`). Rust: one `mux-hang-watch` thread per process (daemon, holder, terminal host, acpmux; not started yet, task 205) | Watched threads' and lanes' deadlines; the hang record and stack sample of an overdue slot; app reports go to `debug.hangs` `thread_hangs` (`MainThreadWatchdog.threadHangs`, apart from main-thread stalls) | Its kqueue (app) or a `Condvar` (Rust). Sampling: between `thread_suspend` and `thread_resume` it only reads registers and stack memory into a preallocated buffer, no lock and no allocation | user-interactive (app, the watchdog's); Rust not started yet | user-interactive (app, closed list); utility (Rust `mux-hang-watch`, task 205) | Opening a scope is a clock read, one store (a lane: two) and one load of the plan; closing one store; no lock and no system call. App: while scopes open and close, one scan per minimum deadline (100 ms); after a scan with no slot changed it sleeps to the earliest open deadline (a 30 s job alone: no periodic wake); with nothing open it parks with no timer (0 idle wakes). A scope whose deadline the plan would see over one minimum deadline late (parked, or sleeping to a later deadline) posts one `EVFILT_USER`. Detection within deadline + minimum deadline. Rust: one one-shot timer per minimum deadline while scopes open (at most 1 wake/s at 1 s), parked after one quiet minimum-deadline period, the first open after that posts one wake. A watcher that wakes over 100 ms late blames nobody. One hang record per overdue scope, kept when a nested scope closes |
 | **Trace ring adoption** (p09-observability, owner PL-telemetry). App: a `BackgroundWork` `.files` job at launch and at `trace.start` (no new thread). Rust: one `cmux-trace-open` one-shot thread per process at start | Moving the heap ring into its file: rename the spare file or create one, `mmap` `MAP_SHARED`, copy the heap records, swap the ring pointer; delete dead-pid rings older than 3 days | Disk (open, `ftruncate`, `mmap`, rename, unlink) | utility (app lane item); Rust not set | utility (Rust by task 229) | Once per process start and once per recording start; the writers keep writing the heap ring until the swap, never wait for it; an `mmap` failure keeps the heap ring and is counted; a recording mapping is never unmapped while the process lives; the directory is capped at 16 MiB |
@@ -209,7 +213,7 @@ part of the name.
 |---|---|---|---|---|---|---|
 | `mux-server`, `mux-ws-server` (accept; `ACCEPT_THREAD_QOS`, server/listen.rs, websocket_listener.rs) | Accepting local and WebSocket connections | `accept` | user-initiated | as today: every connection, the person's too, waits on accept (p02-threads-211) | yes | Max 64 connections; over: `server.busy` |
 | `mux-conn`, `mux-remote-conn` (one reader per connection) | Line read and request dispatch inline; blocking disallowed | Its socket (`read`, the client's QoS); request work that may block goes to `work` | default (`CONNECTION_READER_QOS`) | user-interactive for the app's UI connection, utility for automation (CLI, MCP, hook, agent, remote), user-initiated until the hello (task 224) | yes | Per connection 256 requests / 16 MiB (over: error, not run) |
-| `mux-control-dispatch` (one per connection), `mux-surface-control` (clear-history workers), `mux-ws-conn` (one per WebSocket connection: reads frames and runs their requests); `spawn_request_thread`, server/connection_scheduler.rs | Requests the connection's scheduler moves off the reader | Store locks (`LockHolder`, timed; owner boost by task 226), `work` replies. Blocking disallowed (`cmux_threads::disallow_blocking`): a checked blocking call is a recorded site (`CMUX_DAEMON_BLOCKING=panic` panics in Debug) | user-initiated (`REQUEST_THREAD_QOS`, p02-threads-211) | as today; automation clients utility (task 224); `mux-surface-control` becomes a `work` item (task 230) | yes | Rules D1-D8 in perf-lead.md |
+| `mux-control-dispatch` (one per connection), `mux-surface-control` (clear-history workers), `mux-ws-conn` (one per WebSocket connection: reads frames and runs their requests); `spawn_request_thread`, server/connection_scheduler.rs | Requests the connection's scheduler moves off the reader | Store locks (`LockHolder`, timed; owner boost by task 226), `work` replies. Blocking disallowed (`cmux_threads::disallow_blocking`): a checked blocking call is a recorded site and, in Debug, a panic (`CMUX_DAEMON_BLOCKING=record` turns it off) | user-initiated (`REQUEST_THREAD_QOS`, p02-threads-211) | as today; automation clients utility (task 224); `mux-surface-control` becomes a `work` item (task 230) | yes | Rules D1-D8 in perf-lead.md |
 | `mux-surface-operation` (cmux-tui `pty_input.rs`) | One surface operation off the PTY input scheduler | Store locks (`LockHolder`) | not set | a `work` item at the priority of the request it serves (task 230) | no | One thread per operation today |
 | `mux-line-out`, `mux-attach-out`, `mux-render-attach-out` | Writing queued bytes to one connection | Its socket (`write`); the producer queue (`Condvar`, producers user-interactive) | user-interactive | user-interactive (closed list) | yes | Outbound 256 per stream, 4096 per connection (over: the largest stream ends); write timeout 2 s |
 | `mux-pty-input` | Writing keys to PTYs | The PTY (`write`); the shell runs at default | user-interactive | user-interactive (closed list) | yes | One bounded scheduler; per-surface order, byte writes batched, motion coalesced |
@@ -275,29 +279,29 @@ per-terminal one-shots (`terminal-adopt-<id>`, `template-complete-<id>`, `termin
 `work` items, so a daemon-PTY terminal costs 1 thread. A change that adds a thread per terminal, per tab or per
 request needs a row here and a measured reason; a one-shot is a `work` item, not a thread.
 
-## Process roles
+## Process task roles and spawn QoS
 
-Each cmux process states its launchd `ProcessType` (when launchd starts it), its Mach task role and the QoS
-its parent spawns it at. Chrome's model: `base::Process::SetPriority` (`base/process/process_mac.cc`) sets the
-task role and `DARWIN_BG`; a child never inherits a display-critical thread's QoS. Task 234 changes the plist
-values and their tests, task 235 the task roles, tasks 207 and 223 the spawn QoS.
+Each cmux process states its Mach task role and the QoS its parent spawns it at; its launchd `ProcessType` is in
+[Process roles](#process-roles-p02-threads-234). Chrome's model: `base::Process::SetPriority`
+(`base/process/process_mac.cc`) sets the task role and `DARWIN_BG`; a child never inherits a display-critical
+thread's QoS. Task 235 changes the task roles, tasks 207 and 223 the spawn QoS.
 
-| Process | Started by | launchd ProcessType today | Target | Task role today | Target | Spawn QoS today | Target |
-|---|---|---|---|---|---|---|---|
-| App (cmux-next) | LaunchServices | none (an app) | none | foreground app (AppKit) | same | n/a | n/a |
-| Daemon (`cmux server`, owner session) | the app (`cmux server ensure`, detached), or launchd | `com.cmux.server` and `<bundle id>.server`: Standard | Standard | not set | `TASK_FOREGROUND_APPLICATION` (`set_default_role`, task 235) | the app's caller thread (`ProcessRunner`) | user-initiated (task 207) |
-| Holder (`cmux-holder`) | the daemon | none | none | not set | `TASK_FOREGROUND_APPLICATION` (task 235) | the daemon's thread | user-initiated; its own main user-interactive after task 223 (task 207) |
-| Terminal host (one per terminal) | the daemon (`cmux_process`) | none | none | not set | foreground; background-suppressed (`PRIO_DARWIN_BG`) while its workspace is hidden (tasks 235, 236) | the daemon's thread | user-initiated |
-| acpmux | the app (`AcpmuxDaemonLauncher`, `posix_spawn`) | none | none | not set | foreground | the caller's | user-initiated |
-| Chromium host prototype | the app (`ChromiumHostLauncher`) | none | none | not set | foreground; background while every page is hidden (Chrome `RenderProcessHostImpl::UpdateProcessPriority`) | the caller's | user-initiated (task 235 Swift twin) |
-| CEF helpers (renderer, GPU, utility) | Chromium | none | none | set by Chromium | set by Chromium | Chromium's | Chromium's |
-| Daemon bridge (`cmux link dial`) | the app (`DaemonBridge`, `posix_spawn`) | none | none | not set | foreground | the caller's | user-initiated (task 207) |
-| Link agent `com.cmuxterm.link` (`cmux link serve`) | launchd | Background | Adaptive: a person's input passes through it (task 234) | not set | same as ProcessType | launchd | launchd |
-| Remote host (`cmux host serve`) | launchd | Background | Adaptive (task 234) | not set | same as ProcessType | launchd | launchd |
-| Server helper `com.cmux.server.helper` | launchd (`SMAppService.daemon`) | not set (launchd default: Standard) | Standard | not set | same | launchd | launchd |
-| Computer Use helper v2 | the app (`ComputerUseHelperV2Spawner`, responsibility disclaimed) | none | none | not set | foreground | the caller's | user-initiated |
-| User shells and agents | the daemon, the holder or a terminal host | none | none | inherited | inherited | the spawning thread's (an echo thread: user-interactive) | default, never an echo thread's (task 223) |
-| Helper commands (git, `ss`/`netstat`, hooks, plugins) | the daemon or the app | none | none | inherited | inherited | the spawning thread's | utility (`cmux_threads::process::spawn_qos`, task 223); app: `WorkPriority.processQoS` |
+| Process | Started by | Task role today | Target task role | Spawn QoS today | Target spawn QoS |
+|---|---|---|---|---|---|
+| App (cmux-next) | LaunchServices | foreground app (AppKit) | same | n/a | n/a |
+| Daemon (`cmux server`, owner session) | the app (`cmux server ensure`, detached), or launchd | not set | `TASK_FOREGROUND_APPLICATION` (`set_default_role`, task 235) | the app's caller thread (`ProcessRunner`) | user-initiated (task 207) |
+| Holder (`cmux-holder`) | the daemon | not set | `TASK_FOREGROUND_APPLICATION` (task 235) | the daemon's thread | user-initiated; its own main user-interactive after task 223 (task 207) |
+| Terminal host (one per terminal) | the daemon (`cmux_process`) | not set | foreground; background-suppressed (`PRIO_DARWIN_BG`) while its workspace is hidden (tasks 235, 236) | the daemon's thread | user-initiated |
+| acpmux | the app (`AcpmuxDaemonLauncher`, `posix_spawn`) | not set | foreground | the caller's | user-initiated |
+| Chromium host prototype | the app (`ChromiumHostLauncher`) | not set | foreground; background while every page is hidden (Chrome `RenderProcessHostImpl::UpdateProcessPriority`) | the caller's | user-initiated (task 235 Swift twin) |
+| CEF helpers (renderer, GPU, utility) | Chromium | set by Chromium | set by Chromium | Chromium's | Chromium's |
+| Daemon bridge (`cmux link dial`) | the app (`DaemonBridge`, `posix_spawn`) | not set | foreground | the caller's | user-initiated (task 207) |
+| Link agent `com.cmuxterm.link` (`cmux link serve`) | launchd | not set | foreground (its launchd job is `Interactive`; task 235) | launchd | launchd |
+| Remote host (`cmux host serve`) | launchd | not set | foreground (its launchd job is `Interactive`; task 235) | launchd | launchd |
+| Server helper `com.cmux.server.helper` | launchd (`SMAppService.daemon`) | not set | as today (launchd's default) | launchd | launchd |
+| Computer Use helper v2 | the app (`ComputerUseHelperV2Spawner`, responsibility disclaimed) | not set | foreground | the caller's | user-initiated |
+| User shells and agents | the daemon, the holder or a terminal host | inherited | inherited | the spawning thread's (an echo thread: user-interactive) | default, never an echo thread's (task 223) |
+| Helper commands (git, `ss`/`netstat`, hooks, plugins) | the daemon or the app | inherited | inherited | the spawning thread's | utility (`cmux_threads::process::spawn_qos`, task 223); app: `WorkPriority.processQoS` |
 
 ## QoS and task priority (PL-qos, 2026-10-24)
 One priority model. Main thread: MainWorkClass (PL-main). Off main: WorkPriority, derived from it (CmuxNextWakeups).
@@ -360,6 +364,45 @@ no frame of that session reaches the presenter" hold, as Chrome's `RenderWidgetH
 (content/browser/renderer_host/render_widget_host_impl.cc) stops a hidden widget's frames before it returns;
 an atomic flag alone would let a frame that passed the check before the close be presented after it.
 
+## Process roles (p02-threads-234)
+
+Every cmux process, its launchd `ProcessType` and whether a person's input passes through it. Rule: no
+process on the input path runs as `Background`. launchd.plist(5): `Background` puts the job under darwinbg
+(low CPU priority, throttled I/O and network); `Standard` keeps launchd's daemon limits; `Interactive` gets an
+app's limits (none); `Adaptive` is `Background` except while an XPC message is in flight. cmux processes talk
+over Unix sockets and QUIC, not XPC, so `Adaptive` would leave them at `Background`: a launchd job on the
+input path is `Interactive`. This is Chrome's model: a process the person uses is never lowered, only a hidden
+renderer drops below the browser (base/process/process_mac.cc `Process::SetPriority`, from
+content/browser/renderer_host/render_process_host_impl.cc `UpdateProcessPriority`). The Rust table is
+`cmux_server_core::units::LaunchdJob`; each plist generator reads it and has a test that asserts its value.
+launchd reads a plist only at bootstrap, so each installer also upgrades a plist an older cmux wrote: the
+remote host's `service::restart` sets the role before its bootstrap, and `cmux host serve` and `cmux link
+serve` set it at start (it applies from the next bootstrap: a restart, `install-agent` or login); acpmux's
+`host update` sets it with `plutil` before its bootstrap; the server agents are rewritten by their install
+(`write_if_changed`, then bootout and bootstrap) and the app's bundled agent ships in the bundle. A chatmux
+relay plist an older relay wrote gets the role at its next `cmux-relay --autostart`.
+
+| Process | Started by | launchd ProcessType | Input path |
+|---|---|---|---|
+| App (`cmux.app`, CmuxNext) | Launch Services | none (an app; the system's app policy) | yes: every key and click |
+| Daemon `cmux host run`: `com.cmux.server` agent and daemon (cmux-server-core `launch_agent_plist`, `launch_daemon_plist`), the app's `<bundle id>.server` (`app_service_agent_plist`, stamped by scripts/cmux-next/bundle-server-helper.sh, registered by ServerLaunchAgent.swift) | launchd | `Interactive` (was `Standard`) | yes: every terminal key and frame |
+| Link `cmux link serve` (`com.cmuxterm.link`, cmux-tui link/launchd.rs) | launchd | `Interactive` (was `Background`) | yes: a paired peer's session streams |
+| Remote host `cmux host serve` (`com.cmuxterm.host-remote`, cmux-tui remote_host/service.rs) | launchd | `Interactive` (was `Background`) | yes: a remote client's keys |
+| Holder (`cmux-holder`) | the daemon | none: runs in the daemon's launchd job | yes: PTY bytes |
+| acpmux daemon `acpmux daemon run` on a host set up by `acpmux hosts` (`com.acpmux.daemon`, acpmux cli/hosts.rs `launchd_plist`) | launchd | `Interactive` (was none, launchd's default limits) | yes: agent sessions a person prompts and watches |
+| acpmux started on demand (`cmux acp`, `acpmux daemon start`) | the app, the daemon or an agent CLI | none: runs in its parent's job | agent sessions a person watches |
+| acpmux session harness (Claude, Codex) | the acpmux daemon | none: runs in the acpmux daemon's job | the agent's output a person watches |
+| chatmux relay `cmux-relay` (`com.chatmux.relay`, chatmux-relay autostart.rs `launchd_plist`) | launchd (`--autostart`) | `Interactive` (was none, launchd's default limits) | yes: a paired chat client's terminal keys |
+| Chromium helpers and the out-of-process browser host | the app | none: run in the app's job | yes: page input |
+| Other helpers (`cmux-server-helper`, CLI calls) | the app or a shell | none: run in the parent's job | short-lived |
+
+A process with no launchd job of its own runs in its parent's. Mach task roles (`TASK_CATEGORY_POLICY`,
+foreground or background per process) are task 235. On Linux the server, link and remote-host systemd units set
+no CPU or I/O class, so those processes run at the default priority. acpmux puts each session harness in its
+own `systemd-run --user --scope` with a lower `CPUWeight` (default 50, systemd's own is 100;
+`ACPMUX_SESSION_CPU_WEIGHT`, 0 turns it off) and a `MemoryMax` (acpmux session_scope.rs), so a busy agent
+session yields the CPU to the rest of the machine.
+
 ## Renderer QoS (rendering-DESIGN R5)
 
 Threads that produce frames, by state. Chrome sets the QoS of a thread from its thread type
@@ -393,7 +436,7 @@ its QoS and its target.
   `com.cmuxterm.next.android-screen` (default), `com.cmuxterm.next.relaunch` (user-initiated)
 - Daemon: `cmux-tui reader <path>`, `com.cmuxterm.next.daemon.write`, `com.cmuxterm.next.daemon.path.<machine>`,
   `com.cmuxterm.next.daemon.exit.<pid>`, `com.cmuxterm.next.retry-wake`, `com.cmuxterm.next.process-progress`
-- Control: `com.cmuxterm.next.control.accept`, `com.cmuxterm.next.control.<id>`
+- Control: `com.cmuxterm.next.control.accept`, `com.cmuxterm.next.control.<id>` (utility)
 - Terminal: `com.cmuxterm.next.terminal.output`, `com.cmuxterm.next.localpty.read`, `com.cmuxterm.next.localpty.write`
 - Settings and files: `com.cmuxterm.next.settings.watcher`, `cmux.files.fsevents`, `cmux.files.tree-fsevents`,
   `com.cmuxterm.home.cache` (the `HomeCache` actor's executor, user-initiated: its file writes block this queue,

@@ -56,6 +56,8 @@ public final class TraceRuntime: Sendable {
     /// once by ``attach(_:)`` and never released: a ring lives as long as its process), 0 until its owner
     /// attaches it.
     let ringAddress = Atomic<UInt64>(0)
+    /// The last scope ``nextAsyncScope()`` handed out.
+    let asyncScopes = Atomic<UInt64>(0)
 
     /// A runtime for a process of kind `role`, with every category off and no ring yet.
     ///
@@ -203,6 +205,16 @@ public final class TraceRuntime: Sendable {
 
     /// The current recording's state.
     public var recordingStatus: RecordingStatus { .idle }
+
+    // MARK: async ids
+
+    /// A number no earlier call on this runtime returned, from 1: the scope an owner of async ids that restart at
+    /// 1 (a daemon connection's request ids) puts in their high bits, so two owners' slices never pair, even when
+    /// one owner's last slice ends after the next one opens. Chrome mints process-unique ids from one sequence
+    /// the same way (base/atomic_sequence_num.h).
+    public func nextAsyncScope() -> UInt64 {
+        asyncScopes.add(1, ordering: .relaxed).newValue
+    }
 
     // MARK: crash keys
 
