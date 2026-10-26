@@ -72,7 +72,8 @@ public final class ChromiumHostPageView: NSView {
     }
     /// The view over the page that fills it (the crash page, p01-process-082); nil shows the page.
     private(set) var crashOverlay: NSView?
-    /// The page's last picture while no host shows it; only ``showStandIn(_:)`` and ``removeStandIn()`` set it.
+    /// The page's last picture while no host shows it; only ``showStandIn(_:)``, ``coverWithSnapshot(_:)``
+    /// (a hosted page past its hidden grace) and ``removeStandIn()`` set it.
     var standIn: NSView?
     /// The layer-hosting view that shows the context, under every other subview.
     let surface: Surface
@@ -90,12 +91,28 @@ public final class ChromiumHostPageView: NSView {
     var redispatchTarget: @MainActor (NSEvent) -> Bool = { NSApp.mainMenu?.performKeyEquivalent(with: $0) ?? false }
     /// True while ``redispatch(_:)`` runs: the page view does not take the key back.
     var isRedispatching = false
+    /// The page's cursor (host mode), shown over the page; nil shows none (in process the page window does).
+    var pageCursor: CEFPageCursor? {
+        didSet { if pageCursor != oldValue { shownCursor = pageCursor?.makeCursor(); showPageCursor() } }
+    }
+    /// ``pageCursor`` as AppKit shows it, made once per change.
+    private(set) var shownCursor: NSCursor?
+    /// Where cmux's views lie over the page (its ``CEFHostView``'s occlusion rects): no page cursor there.
+    var cursorHoles: [CGRect] = [] {
+        didSet { if cursorHoles != oldValue, shownCursor != nil { window?.invalidateCursorRects(for: self) } }
+    }
 
     #if DEBUG || CMUX_BENCH_HOOKS
     /// Where frames for the host go (``InputTarget/view`` only), synchronously
     /// from the event handler: a sink must write or queue, never wait. Returns where the
     /// input writer put the frame (its browser and input seq), or nil when it stamped none.
     var sink: ((ChromiumHostFrame) -> ChromiumHostInputReceipt?)?
+    /// Where composition, commit and edit-command ops go (``InputTarget/view``
+    /// only): the same ordered stream as ``sink``, after the key frames sent before them
+    /// (ChromiumHostPageView+TextInput.swift).
+    var textInputSink: ((ChromiumHostTextInputOp) -> Void)?
+    /// The page's text input: the state the host pushed and the input method's marked text.
+    var textInput = ChromiumHostTextInput()
     private var tracking: NSTrackingArea?
     #endif
 
@@ -156,6 +173,7 @@ public final class ChromiumHostPageView: NSView {
         onFocusChange?(focused)
         #if DEBUG || CMUX_BENCH_HOOKS
         _ = sink?(ChromiumHostFrame(.focus, v: [focused ? 1 : 0]))
+        if !focused { textInputDidResign() }
         #endif
     }
 
@@ -175,6 +193,7 @@ public final class ChromiumHostPageView: NSView {
         guard overlay == nil || inputTarget == .view else { return false }
         crashOverlay?.removeFromSuperview()
         crashOverlay = overlay
+        if shownCursor != nil { window?.invalidateCursorRects(for: self) }
         guard let overlay else { return true }
         overlay.frame = bounds
         overlay.autoresizingMask = [.width, .height]
@@ -370,7 +389,9 @@ extension ChromiumHostPageView {
                                     t0: Self.nanoseconds(event.timestamp)))
     }
 
+    /// A down ends an open composition first, keeping its text (``textInputMouseDown()``).
     private func mouse(_ event: NSEvent, phase: Int32, button: Int32) {
+        if phase == 1 { textInputMouseDown() }
         let point = pagePoint(event)
         // Pressed buttons as bits: 1 left, 2 right, 4 middle (NSEvent's order, the wire's too).
         let buttons = Int32(truncatingIfNeeded: NSEvent.pressedMouseButtons & 0x7)

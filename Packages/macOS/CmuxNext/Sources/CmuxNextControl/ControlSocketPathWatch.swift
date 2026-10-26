@@ -1,4 +1,5 @@
 import CmuxNextCompat
+import CmuxNextDaemon
 import CmuxNextWakeups
 import Darwin
 import Foundation
@@ -86,7 +87,9 @@ final class ControlSocketPathWatch: Sendable {
             self.watch()
             // Gone before the watch existed: no event will say so.
             var info = stat()
-            if lstat(self.path, &info) != 0, errno == ENOENT, self.checkPath() { self.watch() }
+            // SAFETY: lstat reads the NUL-terminated copy of the path made for the call and writes one struct stat into
+            // `info`, a local.
+            if unsafe lstat(self.path, &info) != 0, errno == ENOENT, self.checkPath() { self.watch() }
         }
     }
 
@@ -113,7 +116,8 @@ final class ControlSocketPathWatch: Sendable {
         dispatchPrecondition(condition: .onQueue(queue))
         // O_NONBLOCK: whatever is at the path is opened, and a FIFO there would block open(2) on this
         // queue until some process opened it for writing (the accept queue: no request answered).
-        let entry = open(path, O_EVTONLY | O_SYMLINK | O_NONBLOCK)
+        // SAFETY: open reads the NUL-terminated copy of the path made for the call.
+        let entry = unsafe open(path, O_EVTONLY | O_SYMLINK | O_NONBLOCK)
         let followsEntry = entry >= 0
         if entryOnly, !followsEntry { return }
         let descriptor: Int32
@@ -129,10 +133,11 @@ final class ControlSocketPathWatch: Sendable {
                 noteOnce("socket path watch off for \(self.path): another entry holds the path in \(parent); the link is not made this run")
                 return
             }
-            descriptor = open(parent.isEmpty ? "." : parent, O_EVTONLY)
+            // SAFETY: open reads the NUL-terminated copy of the path made for the call.
+            descriptor = unsafe open(parent.isEmpty ? "." : parent, O_EVTONLY)
             guard descriptor >= 0 else {
                 // Without the watch a deleted socket stays gone until relaunch; say so once.
-                let error = String(cString: strerror(errno))
+                let error = POSIXErrorText(errno).description
                 pathWatchLog.error("socket path watch off: cannot open \(parent, privacy: .public): \(error, privacy: .public)")
                 return
             }
@@ -179,13 +184,17 @@ final class ControlSocketPathWatch: Sendable {
     /// Something (a file, a socket, a link) is at `path`.
     private static func exists(_ path: String) -> Bool {
         var info = stat()
-        return lstat(path, &info) == 0
+        // SAFETY: lstat reads the NUL-terminated copy of the path made for the call and writes one struct stat into
+        // `info`, a local.
+        return unsafe lstat(path, &info) == 0
     }
 
     /// A sticky, world-writable directory (/tmp): every process on the Mac writes there.
     private static func isShared(_ directory: String) -> Bool {
         var info = stat()
-        return stat(directory, &info) == 0 && info.st_mode & S_ISVTX != 0 && info.st_mode & S_IWOTH != 0
+        // SAFETY: stat reads the NUL-terminated copy of the path made for the call and writes one struct stat into
+        // `info`, a local.
+        return unsafe stat(directory, &info) == 0 && info.st_mode & S_ISVTX != 0 && info.st_mode & S_IWOTH != 0
     }
 
     /// Logs `message` once per watch, so idle measurements can see it.
@@ -203,7 +212,9 @@ final class ControlSocketPathWatch: Sendable {
         #endif
         if !retrying, failures.withLock({ $0.waiting }) { return false }  // backing off
         var info = stat()
-        guard lstat(path, &info) != 0, errno == ENOENT, !stopped.load(ordering: .sequentiallyConsistent) else {
+        // SAFETY: lstat reads the NUL-terminated copy of the path made for the call and writes one struct stat into
+        // `info`, a local.
+        guard unsafe lstat(path, &info) != 0, errno == ENOENT, !stopped.load(ordering: .sequentiallyConsistent) else {
             failures.withLock { $0 = Failures() }
             return false
         }

@@ -171244,6 +171244,661 @@
           }
         }
       }
+    },
+    "settings.group.terminalTyping": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Typing"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "الكتابة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kucanje"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Indtastning"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tippen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Escritura"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Saisie"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Digitazione"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "入力"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ការវាយអក្សរ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "입력"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Skriving"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pisanie"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Digitação"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ввод"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "การพิมพ์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Yazma"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Введення"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gõ phím"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "输入"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "輸入"
+          }
+        }
+      }
+    },
+    "settings.terminal.predictiveEcho": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Predictive Echo"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "الصدى التنبؤي"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prediktivni eho"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Forudsigende ekko"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vorausschauendes Echo"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Eco predictivo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Écho prédictif"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Eco predittivo"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "予測エコー"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "អេកូព្យាករណ៍"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "예측 에코"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prediktivt ekko"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Przewidywane echo"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Eco preditivo"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Предиктивное эхо"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เสียงสะท้อนเชิงคาดการณ์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tahmini yankı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Передбачуване відлуння"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Phản hồi dự đoán"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "预测回显"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "預測回顯"
+          }
+        }
+      }
+    },
+    "settings.terminal.predictiveEcho.summary": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show typing before a slow echo"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "إظهار الكتابة قبل وصول الصدى البطيء"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prikaži kucanje prije sporog eha"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vis indtastning før et langsomt ekko"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Getipptes vor einem langsamen Echo zeigen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mostrar lo escrito antes de un eco lento"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Afficher la saisie avant un écho lent"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mostra la digitazione prima di un'eco lenta"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "遅いエコーの前に入力を表示"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បង្ហាញការវាយមុនអេកូយឺត"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "느린 에코 전에 입력 표시"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vis skriving før et tregt ekko"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pokazuj pisanie przed wolnym echem"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mostrar a digitação antes de um eco lento"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Показывать ввод до медленного эха"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แสดงสิ่งที่พิมพ์ก่อนเสียงสะท้อนที่ช้า"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Yavaş yankıdan önce yazılanı göster"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Показувати введення до повільного відлуння"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hiện nội dung gõ trước phản hồi chậm"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在回显较慢时先显示输入"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在回顯較慢時先顯示輸入"
+          }
+        }
+      }
+    },
+    "settings.choice.predictiveEchoRemote": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remote and Slow Terminals"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "الطرفيات البعيدة والبطيئة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Udaljeni i spori terminali"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Eksterne og langsomme terminaler"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Entfernte und langsame Terminals"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Terminales remotos y lentos"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Terminaux distants et lents"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Terminali remoti e lenti"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "リモートと遅いターミナル"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ទែមីណាល់ពីចម្ងាយ និងយឺត"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "원격 및 느린 터미널"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Eksterne og trege terminaler"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Terminale zdalne i wolne"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Terminais remotos e lentos"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Удалённые и медленные терминалы"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เทอร์มินัลระยะไกลและที่ช้า"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Uzak ve yavaş terminaller"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Віддалені та повільні термінали"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Terminal từ xa và chậm"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "远程和较慢的终端"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "遠端和較慢的終端機"
+          }
+        }
+      }
+    },
+    "settings.terminal.predictiveEcho.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shows the characters you type before the host echoes them, dimmed and underlined, as mosh does. A guess the echo does not confirm disappears. Remote and Slow Terminals: for terminals on another machine and when the echo is slow. Always: in every terminal. Never while an input method composes text or secure input is on."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "يعرض الأحرف التي تكتبها قبل أن يعيدها المضيف، باهتة ومسطّرة، كما يفعل mosh. يختفي التخمين الذي لا يؤكده الصدى. الطرفيات البعيدة والبطيئة: للطرفيات على جهاز آخر وعندما يكون الصدى بطيئًا. دائمًا: في كل طرفية. لا يعمل أبدًا أثناء تركيب طريقة الإدخال للنص أو عند تشغيل الإدخال الآمن."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prikazuje znakove koje kucate prije nego što ih host vrati kao eho, zatamnjene i podvučene, kao mosh. Pretpostavka koju eho ne potvrdi nestaje. Udaljeni i spori terminali: za terminale na drugom računaru i kada je eho spor. Uvijek: u svakom terminalu. Nikad dok metoda unosa sastavlja tekst ili je sigurni unos uključen."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Viser de tegn, du skriver, før værten sender dem tilbage som ekko, nedtonet og understreget, som mosh gør. Et gæt, som ekkoet ikke bekræfter, forsvinder. Eksterne og langsomme terminaler: for terminaler på en anden maskine og når ekkoet er langsomt. Altid: i alle terminaler. Aldrig mens en inputmetode sammensætter tekst, eller sikker indtastning er slået til."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zeigt die getippten Zeichen gedimmt und unterstrichen an, bevor der Host sie als Echo zurückgibt, wie mosh. Eine Vermutung, die das Echo nicht bestätigt, verschwindet. Entfernte und langsame Terminals: für Terminals auf einem anderen Rechner und bei langsamem Echo. Immer: in jedem Terminal. Nie, während eine Eingabemethode Text zusammensetzt oder die sichere Eingabe aktiv ist."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Muestra los caracteres que escribes antes de que el host los devuelva como eco, atenuados y subrayados, como hace mosh. Una suposición que el eco no confirma desaparece. Terminales remotos y lentos: para terminales en otra máquina y cuando el eco es lento. Siempre: en todos los terminales. Nunca mientras un método de entrada compone texto o la entrada segura está activada."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Affiche les caractères que vous tapez avant que l'hôte ne les renvoie en écho, estompés et soulignés, comme mosh. Une supposition que l'écho ne confirme pas disparaît. Terminaux distants et lents : pour les terminaux sur une autre machine et quand l'écho est lent. Toujours : dans chaque terminal. Jamais pendant qu'une méthode de saisie compose du texte ou que la saisie sécurisée est activée."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mostra i caratteri digitati prima che l'host li restituisca come eco, attenuati e sottolineati, come fa mosh. Un'ipotesi che l'eco non conferma scompare. Terminali remoti e lenti: per i terminali su un'altra macchina e quando l'eco è lenta. Sempre: in ogni terminale. Mai mentre un metodo di input compone testo o l'input sicuro è attivo."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ホストがエコーを返す前に、入力した文字を mosh と同じように薄い色と下線で表示します。エコーで確認されなかった予測は消えます。リモートと遅いターミナル: 別のマシンのターミナルと、エコーが遅いとき。常に: すべてのターミナル。入力メソッドで文字を変換中のときやセキュア入力がオンのときは表示しません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បង្ហាញតួអក្សរដែលអ្នកវាយ មុនពេលម៉ាស៊ីនបម្រើបញ្ជូនអេកូមកវិញ ដោយព្រាលៗ និងមានបន្ទាត់ពីក្រោម ដូច mosh ។ ការទស្សន៍ទាយដែលអេកូមិនបញ្ជាក់ នឹងបាត់ទៅ។ ទែមីណាល់ពីចម្ងាយ និងយឺត៖ សម្រាប់ទែមីណាល់នៅលើម៉ាស៊ីនផ្សេង និងពេលអេកូយឺត។ ជានិច្ច៖ នៅក្នុងទែមីណាល់ទាំងអស់។ មិនដែលបង្ហាញ ពេលវិធីបញ្ចូលកំពុងផ្សំអត្ថបទ ឬពេលបើកការបញ្ចូលសុវត្ថិភាព។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "호스트가 에코를 보내기 전에 입력한 문자를 mosh처럼 흐리게 밑줄을 그어 표시합니다. 에코로 확인되지 않은 추측은 사라집니다. 원격 및 느린 터미널: 다른 컴퓨터의 터미널과 에코가 느릴 때. 항상: 모든 터미널에서. 입력기가 글자를 조합하는 중이거나 보안 입력이 켜져 있을 때는 표시하지 않습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Viser tegnene du skriver før verten sender dem tilbake som ekko, nedtonet og understreket, slik mosh gjør. En gjetning som ekkoet ikke bekrefter, forsvinner. Eksterne og trege terminaler: for terminaler på en annen maskin og når ekkoet er tregt. Alltid: i alle terminaler. Aldri mens en inndatametode setter sammen tekst eller sikker inndata er på."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pokazuje wpisywane znaki, przyciemnione i podkreślone, zanim host odeśle je jako echo, tak jak mosh. Przypuszczenie, którego echo nie potwierdzi, znika. Terminale zdalne i wolne: dla terminali na innym komputerze i gdy echo jest wolne. Zawsze: w każdym terminalu. Nigdy, gdy metoda wprowadzania składa tekst lub włączone jest bezpieczne wprowadzanie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mostra os caracteres que você digita antes que o host os devolva como eco, esmaecidos e sublinhados, como o mosh faz. Um palpite que o eco não confirma desaparece. Terminais remotos e lentos: para terminais em outra máquina e quando o eco é lento. Sempre: em todos os terminais. Nunca enquanto um método de entrada compõe texto ou a entrada segura está ativada."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Показывает набранные символы до того, как хост вернёт их эхом, приглушёнными и подчёркнутыми, как это делает mosh. Догадка, которую эхо не подтвердило, исчезает. Удалённые и медленные терминалы: для терминалов на другом компьютере и при медленном эхе. Всегда: в любом терминале. Никогда, пока метод ввода составляет текст или включён безопасный ввод."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แสดงอักขระที่คุณพิมพ์ก่อนที่โฮสต์จะส่งเสียงสะท้อนกลับมา โดยแสดงแบบจางและขีดเส้นใต้ เหมือนที่ mosh ทำ การคาดเดาที่เสียงสะท้อนไม่ยืนยันจะหายไป เทอร์มินัลระยะไกลและที่ช้า: สำหรับเทอร์มินัลบนเครื่องอื่นและเมื่อเสียงสะท้อนช้า เสมอ: ในทุกเทอร์มินัล ไม่แสดงเลยขณะที่วิธีป้อนข้อมูลกำลังประกอบข้อความหรือเปิดการป้อนข้อมูลแบบปลอดภัยอยู่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Yazdığınız karakterleri, ana makine yankı olarak geri göndermeden önce mosh gibi soluk ve altı çizili gösterir. Yankının doğrulamadığı bir tahmin kaybolur. Uzak ve yavaş terminaller: başka bir makinedeki terminaller için ve yankı yavaş olduğunda. Her zaman: her terminalde. Bir giriş yöntemi metin oluştururken veya güvenli giriş açıkken asla."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Показує введені символи до того, як хост поверне їх відлунням, приглушеними та підкресленими, як це робить mosh. Здогад, який відлуння не підтвердило, зникає. Віддалені та повільні термінали: для терміналів на іншому комп'ютері та коли відлуння повільне. Завжди: у кожному терміналі. Ніколи, поки метод введення складає текст або ввімкнено безпечне введення."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hiện các ký tự bạn gõ trước khi máy chủ gửi phản hồi về, mờ và gạch chân, như mosh. Một dự đoán mà phản hồi không xác nhận sẽ biến mất. Terminal từ xa và chậm: cho terminal trên máy khác và khi phản hồi chậm. Luôn luôn: trong mọi terminal. Không bao giờ khi bộ gõ đang soạn văn bản hoặc khi bật nhập liệu an toàn."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在主机回显之前，像 mosh 一样以暗淡并带下划线的方式显示你输入的字符。回显未确认的猜测会消失。远程和较慢的终端：用于另一台机器上的终端以及回显较慢时。始终：在所有终端中。输入法正在组字或安全输入开启时从不显示。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在主機回顯之前，像 mosh 一樣以暗淡並帶底線的方式顯示你輸入的字元。回顯未確認的猜測會消失。遠端和較慢的終端機：用於另一台機器上的終端機以及回顯較慢時。永遠：在所有終端機中。輸入法正在組字或安全輸入開啟時從不顯示。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

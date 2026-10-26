@@ -248,6 +248,7 @@ final class CaptureSceneRegistry {
         frames.start()
         let settled = await frames.settled(
             until: {
+                // visibility-walk-allow: the capture waits for what AppKit shows before it snapshots the window; a node would mirror it a turn late
                 guard page.window != nil, !page.isHiddenOrHasHiddenAncestor, let model = taskManager.model else { return false }
                 return model.memorySaved && model.snapshot.discarded == TaskManagerFixtureSource.captureDiscarded
             },

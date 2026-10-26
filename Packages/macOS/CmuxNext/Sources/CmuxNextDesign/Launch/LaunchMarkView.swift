@@ -22,6 +22,7 @@ public final class LaunchMarkView: NSView {
     public override init(frame: NSRect) {
         super.init(frame: frame)
         wantsLayer = true
+        layerContentsRedrawPolicy = .onSetNeedsDisplay
         layer?.masksToBounds = false
         mark.opacity = 0
         mark.shadowOffset = .zero

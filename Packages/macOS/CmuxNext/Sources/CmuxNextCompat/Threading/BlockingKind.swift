@@ -22,7 +22,7 @@ public enum BlockingKind: String, Sendable, CaseIterable {
     /// address space and waits for the kernel, which took 807 ms on the main thread (screen.close,
     /// 2026-10-24).
     case processSpawn = "process-spawn"
-    /// A ``Mutex`` wait on the main thread that took longer than
+    /// A ``Mutex`` wait on the main thread or in a `BackgroundWork` lane item that took longer than
     /// ``BlockingKind/lockWaitLimitNanos`` (a contended lock: the priority-inversion case).
     case lockWait = "lock-wait"
     /// A synchronous system framework call that waits for a daemon, another app, the window server or
@@ -65,7 +65,24 @@ public enum BlockingKind: String, Sendable, CaseIterable {
         self == .lockWait || self == .priorityInversion
     }
 
-    /// The longest contended ``Mutex`` wait the main thread may do before the detector records
+    /// Whether the kind waits for another thread or process to act: a semaphore, a group, a condition or a
+    /// `DispatchQueue.sync` (``syncWait``), a contended ``Mutex`` past ``lockWaitLimitNanos`` (``lockWait``) or a
+    /// synchronous reply (``ipcReply``). These are Chrome's base sync primitives (`WaitableEvent`,
+    /// `ConditionVariable`, a sync Mojo call): a `BackgroundWork` lane may wait on the disk or a socket, but one
+    /// of these in a lane item records a ``BlockingContext/laneSync`` site, as Chrome runs a `MayBlock()` task
+    /// without `WithBaseSyncPrimitives()` under `ScopedDisallowBaseSyncPrimitives`
+    /// (base/task/thread_pool/task_tracker.cc). A dedicated thread or queue may wait on them.
+    public var isSyncPrimitive: Bool {
+        switch self {
+        case .syncWait, .lockWait, .ipcReply:
+            true
+        case .fileIO, .socketRead, .socketWrite, .processWait, .processSpawn, .systemCall, .sleep, .wrongLane,
+             .cpuIntensive, .fsMetadata, .sqlite, .processReap, .systemQuery, .priorityInversion:
+            false
+        }
+    }
+
+    /// The longest contended ``Mutex`` wait the main thread or a lane item may do before the detector records
     /// it (2 ms, lead decision 2026-10-24: a short critical section is allowed, as Chrome allows
     /// `base::Lock`; a wait this long means a lower-priority thread holds the lock).
     public static let lockWaitLimitNanos: UInt64 = 2_000_000

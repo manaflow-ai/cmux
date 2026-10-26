@@ -127,7 +127,8 @@ for _path in (str(HERE), str(SDK)):
 
 import check_snapshot_schema  # noqa: E402 - sibling of this file (capture rules of the daemon facet)
 import hermetic_env  # noqa: E402 - sibling of this file (p15-oracle-200), the only place env is built
-from case_values import MISSING, decode_pointer, predicate_holds, resolve_pointer  # noqa: E402,F401 - shared with driver_app_v0.py
+from invariants import first_difference  # noqa: E402 - JSON-typed equality, a bool never equals a number
+from case_values import MISSING, decode_pointer, predicate_holds, resolve_pointer, without_pointers  # noqa: E402,F401 - shared with driver_app_v0.py
 import normalize  # noqa: E402 - sibling of this file (p15-oracle-013)
 from cmux._protocol import ProtocolConnection  # noqa: E402
 from cmux.errors import (  # noqa: E402
@@ -1126,7 +1127,31 @@ class CaseRun:
         self.state.replies[step_id] = reply
         if before is not None:
             self.check_read_only(index, step_id, before)
+        if step.get("ends") and outcome[0] == "ok":
+            self.await_planned_exit(step_id, step["ends"])
         return outcome
+
+    def await_planned_exit(self, step_id: str, process: str) -> None:
+        """A call that ends the daemon on purpose (case-v1 step `ends`): its exit belongs to this step, so I17
+        checks it against allow_crashes here, and a later restart starts the daemon without stopping it. Only a
+        normal termination passes (base/process/kill.h TERMINATION_STATUS_NORMAL_TERMINATION)."""
+        if process != "daemon":
+            raise CaseError("Crash", f"the daemon driver ends only the daemon, not a {process} process", step_id)
+        self.remember()
+        self.daemon.close_clients()
+        if not self.daemon.reap(STOP_S * self.scale):
+            raise CaseError("Timeout", f"the daemon did not exit {STOP_S * self.scale:.0f} s after the step that "
+                                       f"ends it", step_id)
+        how = self.daemon.exit_text()
+        self.state.exits.append(DaemonExit(step_id, "daemon", f"ended by step {step_id} ({how})",
+                                           self.daemon.exit_code()))
+        self.state.killed_by = step_id
+        refusal = crash_allowed(self.case.get("allow_crashes") or (), self.state.exits)
+        if refusal:
+            raise CaseError("Crash", f"I17: {refusal}", step_id)
+        if self.daemon.exit_code() != 0:
+            raise CaseError("Failure", f"the step ends the daemon, which exited abnormally ({how}): "
+                                       f"{log_tail(self.paths.log)}", step_id)
 
     def check_read_only(self, index: int, step_id: str, before: Any) -> None:
         after = self.daemon_facet(step_id)
@@ -1224,8 +1249,16 @@ class CaseRun:
                 raise CaseError("Failure", "expected an identify receipt", step_id)
         elif receipt is not None:
             raise CaseError("Crash", f"receipt kind {receipt} has no daemon reply", step_id)
-        if "result" in expect and detail != expect["result"]:
-            raise CaseError("Failure", f"result differs: {json.dumps(detail, sort_keys=True)[:300]}", step_id)
+        if "result" in expect:
+            want = resolve_refs(expect["result"], self.state.replies)
+            got = detail
+            if expect.get("resultExcept"):
+                want, got = (without_pointers(value, expect["resultExcept"]) for value in (want, got))
+            difference = first_difference(want, got)
+            if difference is not None:
+                at, wanted, found = difference
+                raise CaseError("Failure", f"result differs at {at or '/'}: {json.dumps(found, sort_keys=True)[:200]}, "
+                                           f"not {json.dumps(wanted, sort_keys=True)[:200]}", step_id)
 
     # -- snapshots
 

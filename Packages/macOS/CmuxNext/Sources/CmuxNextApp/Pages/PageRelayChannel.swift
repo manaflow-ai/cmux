@@ -1,4 +1,5 @@
 import CmuxNextDaemon
+import CmuxNextIPC
 import CmuxNextPages
 import Foundation
 import os
@@ -197,14 +198,9 @@ final class PageRelayChannel {
     private func confirmationToken(main: DaemonConnection, relay: DaemonConnection, operation: String,
                                    params: [String: CmuxNextDaemon.JSONValue]) async throws -> String {
         guard let relayID = identity.connectionID else { throw DaemonError.notConnected }
-        let issued = try await ResourceRelayClient(connection: main).send(
-            operation: "origin.confirmation.issue",
-            params: ["operation": .string(operation), "params_sha256": .string(try ResourceRelayClient.paramsDigest(params, operation: operation)),
-                     "relay_connection_id": .string(relayID)],
-            idempotencyKey: nil)
-        guard case .object(let members) = issued, case .string(let token)? = members["token"] else {
-            throw DaemonError.malformedResponse("origin.confirmation.issue")
-        }
-        return token
+        let request = V2OriginConfirmationIssueRequest(
+            operation: operation, paramsSha256: try ResourceRelayClient.paramsDigest(params, operation: operation),
+            relayConnectionID: relayID)
+        return try await ResourceOperationClient(connection: main).read(request, as: V2OriginConfirmation.self).token
     }
 }

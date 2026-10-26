@@ -339,6 +339,27 @@
       "reason": "The app gives a hosted page its visibility as a one-way op in call order (p03-rendering-058), as Chrome's browser window tells its WebContents; the host's page windows never order in, so the app's value is the only one."
     },
     {
+      "name": "cmux_shim_browser_attach_view",
+      "class": "local",
+      "args": [
+        {
+          "name": "browser_id",
+          "type": "int"
+        },
+        {
+          "name": "parent_view",
+          "type": "void*"
+        }
+      ],
+      "returns": "int",
+      "result_used_by": [],
+      "mirror_key": null,
+      "refresh_events": [],
+      "pending_keys": [],
+      "reply_event": null,
+      "reason": "Chromium's views become subviews of an NSView of the calling process, which the host's views cannot be: the client returns 0 (a fork without the call) and sends nothing. Host mode shows the page as a hosted context in ChromiumHostPageView; the cross-process attach is remote_cocoa's Application form (F2)."
+    },
+    {
       "name": "cmux_shim_browser_set_detached_hosting",
       "class": "view",
       "args": [
@@ -4080,6 +4101,40 @@
       "pending_keys": [],
       "reply_event": null,
       "reason": "Answers a PAGE_RESOURCE token; bodies over 64 KiB go in a sealed shm fd (task 020). Any thread."
+    },
+    {
+      "name": "cmux_shim_memory_pressure_vote",
+      "class": "post",
+      "args": [
+        {
+          "name": "level",
+          "type": "int"
+        }
+      ],
+      "returns": "int",
+      "result_used_by": [],
+      "mirror_key": null,
+      "refresh_events": [],
+      "pending_keys": [],
+      "reply_event": null,
+      "reason": "cmux's memory pressure vote (p07-memory-051): the host's shim votes it into its own Chromium's aggregator, in call order; CEFMemoryPressureVote discards the result."
+    },
+    {
+      "name": "cmux_shim_set_cursor_events",
+      "class": "local",
+      "args": [
+        {
+          "name": "enabled",
+          "type": "int"
+        }
+      ],
+      "returns": "void",
+      "result_used_by": [],
+      "mirror_key": null,
+      "refresh_events": [],
+      "pending_keys": [],
+      "reply_event": null,
+      "reason": "The Chromium Host turns cursor events on itself before initialize (its page windows never show; CURSOR events reach ChromiumHostPageView, task 045), so the remote export does nothing."
     }
   ],
   "events": [
@@ -4376,6 +4431,11 @@
     {
       "kind": "CMUX_SHIM_FILE_DIALOG",
       "value": 48,
+      "refreshes": []
+    },
+    {
+      "kind": "CMUX_SHIM_CURSOR",
+      "value": 54,
       "refreshes": []
     }
   ],
@@ -4933,7 +4993,7 @@
       "task": "p01-process-023"
     },
     {
-      "site": "CmuxNextBrowser/CEF/CEFLayerHosting.swift: Fork.init(shim:apiVersion:)",
+      "site": "CmuxNextBrowser/CEF/CEFLayerHosting+Fork.swift: Fork.init(shim:apiVersion:policy:)",
       "exports": [
         "cmux_shim_browser_set_layer_hosting",
         "cmux_shim_browser_set_resize_sync"

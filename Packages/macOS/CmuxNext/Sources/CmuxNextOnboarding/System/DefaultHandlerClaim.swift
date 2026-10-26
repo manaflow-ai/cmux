@@ -41,9 +41,9 @@ public nonisolated enum DefaultHandlerClaim: String, CaseIterable, Sendable, Ide
 /// default browser.
 @MainActor
 public protocol DefaultAppRegistering: AnyObject {
-    /// The app that opens `scheme` URLs now.
-    func handler(forScheme scheme: String) -> URL?
-    func handler(forContentType type: UTType) -> URL?
+    /// The app that opens `scheme` URLs now (the system's registry asks Launch Services off the main thread).
+    func handler(forScheme scheme: String) async -> URL?
+    func handler(forContentType type: UTType) async -> URL?
     /// Makes cmux the handler. For `http`/`https` macOS first asks the user
     /// to confirm; a refusal throws.
     func setDefault(forScheme scheme: String) async throws
@@ -54,8 +54,10 @@ public protocol DefaultAppRegistering: AnyObject {
 
 extension DefaultAppRegistering {
     /// Whether every scheme and type of `claim` opens in this app.
-    public func isClaimed(_ claim: DefaultHandlerClaim) -> Bool {
-        let handlers = claim.schemes.map { handler(forScheme: $0) } + claim.contentTypes.map { handler(forContentType: $0) }
+    public func isClaimed(_ claim: DefaultHandlerClaim) async -> Bool {
+        var handlers: [URL?] = []
+        for scheme in claim.schemes { handlers.append(await handler(forScheme: scheme)) }
+        for type in claim.contentTypes { handlers.append(await handler(forContentType: type)) }
         return !handlers.isEmpty && handlers.allSatisfy { $0.map(isThisApp) ?? false }
     }
 

@@ -49,6 +49,7 @@ public final class OverflowButton: NSButton {
         setAccessibilityLabel(label)
         themedToolTip = label
         wantsLayer = true
+        layerContentsRedrawPolicy = .onSetNeedsDisplay
         target = self
         action = #selector(pressed)
         refusesFirstResponder = true

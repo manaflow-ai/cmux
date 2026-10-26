@@ -52,25 +52,24 @@ final class Framebuffer {
 
     func fill(x: Int, y: Int, width w: Int, height h: Int, color: UInt32) {
         guard let rect = clip(x: x, y: y, width: w, height: h) else { return }
-        pixels.withUnsafeMutableBufferPointer { buffer in
-            guard let base = buffer.baseAddress else { return }
+        write { pixels, stride in
             for row in rect.y ..< rect.y + rect.h {
-                let start = row * width + rect.x
-                base.advanced(by: start).update(repeating: color, count: rect.w)
+                let start = row * stride + rect.x
+                for index in start ..< start + rect.w { pixels[index] = color }
             }
         }
         markDirty(x: rect.x, y: rect.y, width: rect.w, height: rect.h)
     }
 
     /// Writes `w * h` little-endian BGRX pixels (4 bytes each), forcing alpha.
-    func blitBGRX(x: Int, y: Int, width w: Int, height h: Int, bytes: UnsafeBufferPointer<UInt8>) {
+    func blitBGRX(x: Int, y: Int, width w: Int, height h: Int, bytes: ArraySlice<UInt8>) {
         guard bytes.count >= w * h * 4, let rect = clip(x: x, y: y, width: w, height: h) else { return }
-        pixels.withUnsafeMutableBufferPointer { buffer in
+        write { pixels, stride in
             for row in rect.y ..< rect.y + rect.h {
-                var source = ((row - y) * w + (rect.x - x)) * 4
-                var target = row * width + rect.x
+                var source = bytes.startIndex + ((row - y) * w + (rect.x - x)) * 4
+                var target = row * stride + rect.x
                 for _ in 0 ..< rect.w {
-                    buffer[target] = UInt32(bytes[source]) | UInt32(bytes[source + 1]) << 8
+                    pixels[target] = UInt32(bytes[source]) | UInt32(bytes[source + 1]) << 8
                         | UInt32(bytes[source + 2]) << 16 | 0xFF00_0000
                     source += 4
                     target += 1
@@ -81,14 +80,12 @@ final class Framebuffer {
     }
 
     /// Writes `w * h` already-opaque pixels.
-    func blit(x: Int, y: Int, width w: Int, height h: Int, pixels source: UnsafeBufferPointer<UInt32>) {
+    func blit(x: Int, y: Int, width w: Int, height h: Int, pixels source: ArraySlice<UInt32>) {
         guard source.count >= w * h, let rect = clip(x: x, y: y, width: w, height: h) else { return }
-        pixels.withUnsafeMutableBufferPointer { buffer in
-            guard let base = buffer.baseAddress, let sourceBase = source.baseAddress else { return }
+        write { pixels, stride in
             for row in rect.y ..< rect.y + rect.h {
-                let from = (row - y) * w + (rect.x - x)
-                base.advanced(by: row * width + rect.x)
-                    .update(from: sourceBase.advanced(by: from), count: rect.w)
+                let from = source.startIndex + (row - y) * w + (rect.x - x), to = row * stride + rect.x
+                for column in 0 ..< rect.w { pixels[to + column] = source[from + column] }
             }
         }
         markDirty(x: rect.x, y: rect.y, width: rect.w, height: rect.h)
@@ -100,13 +97,25 @@ final class Framebuffer {
               source.w == w, source.h == h,
               let target = clip(x: toX, y: toY, width: w, height: h), target.w == w, target.h == h else { return }
         let rows: [Int] = toY > fromY ? Array((0 ..< h).reversed()) : Array(0 ..< h)
-        pixels.withUnsafeMutableBufferPointer { buffer in
-            guard let base = buffer.baseAddress else { return }
+        write { pixels, stride in
             for row in rows {
-                // update(from:) is memmove-safe for overlapping ranges within a row.
-                base.advanced(by: (toY + row) * width + toX).update(from: base.advanced(by: (fromY + row) * width + fromX), count: w)
+                let from = (fromY + row) * stride + fromX, to = (toY + row) * stride + toX
+                // Within one row the ranges overlap only when moving sideways: copy from the far end
+                // when moving right, as memmove does, so no word is read after it was overwritten.
+                if to > from {
+                    for column in (0 ..< w).reversed() { pixels[to + column] = pixels[from + column] }
+                } else {
+                    for column in 0 ..< w { pixels[to + column] = pixels[from + column] }
+                }
             }
         }
         markDirty(x: toX, y: toY, width: w, height: h)
+    }
+
+    /// One exclusive access to the pixel words for a whole write, with the row stride: checked
+    /// indexing on a local array instead of pointer arithmetic, and no per-word access of the
+    /// stored property.
+    private func write(_ body: (inout [UInt32], _ stride: Int) -> Void) {
+        body(&pixels, width)
     }
 }

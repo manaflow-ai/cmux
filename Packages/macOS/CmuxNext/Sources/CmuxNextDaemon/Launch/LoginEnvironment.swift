@@ -95,8 +95,11 @@ public struct LoginEnvironment: Sendable {
     }
 
     private func userShell() -> String? {
-        guard let entry = getpwuid(getuid()), let shell = entry.pointee.pw_shell else { return nil }
-        let path = String(cString: shell)
+        // SAFETY: getpwuid returns nil or this process's static passwd entry, whose pw_shell is nil or a
+        // NUL-terminated string; both are read here, before any other getpw* call can reuse the entry, and
+        // String(cString:) copies the shell out.
+        guard let entry = unsafe getpwuid(getuid()), let shell = unsafe entry.pointee.pw_shell else { return nil }
+        let path = unsafe String(cString: shell)
         return path.isEmpty ? nil : path
     }
 }

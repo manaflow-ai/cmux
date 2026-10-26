@@ -50,13 +50,6 @@ enum BrowserDownloadsMenu {
         return file
     }
 
-    /// The row's icon: the system icon of its file type.
-    static func icon(for download: BrowserDownload, size: CGFloat) -> NSImage {
-        let icon = NSWorkspace.shared.icon(for: UTType(filenameExtension: (download.filename as NSString).pathExtension) ?? .data)
-        icon.size = NSSize(width: size, height: size)
-        return icon
-    }
-
     /// The row's second line: progress and size while running, else how
     /// it ended.
     static func status(_ download: BrowserDownload) -> String {

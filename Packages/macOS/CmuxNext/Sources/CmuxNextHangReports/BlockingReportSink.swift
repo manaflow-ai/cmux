@@ -54,6 +54,7 @@ public final class BlockingReportSink: BlockingViolationSink {
             case .lane: ("lane", "Lane")
             case .dedicated: ("dedicated-thread", "DedicatedThread")
             case .cpuLane: ("cpu-lane", "CpuLane")
+            case .laneSync: ("lane-sync", "LaneSync")
             }
         }
     }
