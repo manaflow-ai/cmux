@@ -73,7 +73,8 @@ public final class MainFrameBudget {
     /// The app's one pending-input source, which the budget's yields read: other main-thread work that
     /// yields to the person's input (the in-process CEF pump) reads the same one.
     public var pendingInput: any InputPendingSource { input }
-    /// The budget's clock; ``ObservationCauses`` times the input-response pass's cap on it.
+    /// The budget's clock; ``ObservationCauses`` times the input-response pass's cap on it, and the
+    /// ``IdleScheduler`` reads the same one.
     let uptimeNanos: () -> UInt64
     /// The budget's clock where any thread may read it (`CLOCK_UPTIME_RAW` in the app, or an
     /// injected ``init(budgets:input:board:signposts:starvation:clock:turns:)`` clock): an off-main post reads its
@@ -344,7 +345,15 @@ public final class MainFrameBudget {
     /// the frame's scheduled work reached its limit (``Budgets/total``, lowered by an expensive last
     /// render pass) or its deadline passed. A refusal is counted: the caller keeps the task for the
     /// next frame.
+    ///
+    /// ``MainWorkClass/idle`` may run while no shown frame is late, no input response is open and no
+    /// input is pending: the ``IdleScheduler`` asks before each idle task and ends its idle period on
+    /// a refusal. Its deadline, not a frame share, bounds it.
     public func mayRun(_ workClass: MainWorkClass) -> Bool {
+        if workClass == .idle {
+            let now = uptimeNanos()
+            return !isRenderStarved && !response.isOpen(at: now) && !inputPending(now)
+        }
         guard let index = Self.index(workClass), let budget = budgets.budget(workClass) else { return true }
         if heldForLateFrame(index) { return false }
         let now = uptimeNanos()

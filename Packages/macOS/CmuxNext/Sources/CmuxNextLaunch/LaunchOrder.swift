@@ -88,6 +88,8 @@ public struct LaunchOrder {
         let pending = SessionInputPending(events: WindowServerInputEvents(input: input))
         let mainWork = MainWorkScheduler(budget: MainFrameBudget(input: pending, signposts: true, starvation: starvation),
                                          displays: displays, startup: phase)
+        // The quiet before a long idle period starts again at each key, click, scroll or drag.
+        pending.onInputDispatched = { [weak idle = mainWork.idle] in idle?.noteInput() }
         starvation.watch(mainWork.frames, FrameScheduler.app)
         self.init(fence: fence, mainWork: mainWork,
                   startup: StartupScheduler(mainWork: mainWork, background: fence.background, clock: ContinuousClock()), mark: mark)
