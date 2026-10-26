@@ -110,6 +110,32 @@ struct SidebarUniformRowSpacingTests {
         #expect(abs(after.y - before.y - open.gapShift) < 0.01, "the rows below moved \(after.y - before.y) pt, the gap's shift is \(open.gapShift) pt")
     }
 
+    /// A drag that empties the Pinned block shows its drop zone under the block; the next row follows the zone (or
+    /// the drop's gap in its place) by the row spacing, not a section gap on top of it.
+    @Test(arguments: [false, true]) func theRowUnderThePinnedDropZoneKeepsTheRowSpacing(_ gapInZone: Bool) throws {
+        let m = SidebarLayoutMetrics.standard
+        let pinnedID = SidebarLayoutDocument.pinnedSectionID.rawValue
+        var options = SidebarLayoutOptions()
+        options.blockHeights = [pinnedID: 24]
+        options.showEmptyPinned = true
+        options.emptyDocSections = [pinnedID]
+        if gapInZone {
+            options.gap = DropPosition(section: .custom(pinnedID), group: nil, index: 0)
+            options.gapHeight = m.rowHeight
+        }
+        let layout = SidebarLayout.make(sections: [Self.pinnedBlock(), Self.machine()], metrics: m, options: options)
+        let block = try #require(layout.row(for: Self.pinnedKey))
+        let zoneEnd: CGFloat
+        if gapInZone {
+            zoneEnd = try #require(layout.gapY) + m.rowHeight
+        } else {
+            zoneEnd = try #require(layout.row(for: .emptySection(.custom(pinnedID)))).maxY
+        }
+        #expect(zoneEnd - m.rowSpacing >= block.maxY)
+        let header = try #require(layout.row(for: .group(Self.group)))
+        #expect(abs(header.y - zoneEnd - m.rowSpacing) < 0.01, "the drop zone's end adds \(header.y - zoneEnd - m.rowSpacing) pt")
+    }
+
     @Test func theFirstWorkspaceRowFollowsTheLastPinnedChat() throws {
         let m = SidebarLayoutMetrics.standard
         var options = SidebarLayoutOptions()
@@ -171,15 +197,10 @@ struct SidebarUniformRowSpacingTests {
         func inList(_ view: NSView) -> CGRect { list.convert(view.bounds, from: view) }
     }
 
-    init() { Motion.reduceMotionOverride = true }
-
     @Test(arguments: SidebarDensity.allCases) func everyDrawnRowKeepsTheOneGap(_ density: SidebarDensity) throws {
-        let saved = DesignSettings.shared.sidebarSections.density
-        DesignSettings.shared.sidebarSections.density = density
-        defer {
-            DesignSettings.shared.sidebarSections.density = saved
-            Motion.reduceMotionOverride = nil
-        }
+        let (saved, savedMotion) = (DesignSettings.shared.sidebarSections.density, Motion.reduceMotionOverride)
+        (DesignSettings.shared.sidebarSections.density, Motion.reduceMotionOverride) = (density, true)
+        defer { (DesignSettings.shared.sidebarSections.density, Motion.reduceMotionOverride) = (saved, savedMotion) }
         let h = Harness()
         defer { h.window.orderOut(nil) }
         let spacing = h.list.displayed.rowSpacing
@@ -194,12 +215,9 @@ struct SidebarUniformRowSpacingTests {
     }
 
     @Test(arguments: SidebarDensity.allCases) func thePinStartsAndCentersAsAnUnpinnedRowsContent(_ density: SidebarDensity) throws {
-        let saved = DesignSettings.shared.sidebarSections.density
-        DesignSettings.shared.sidebarSections.density = density
-        defer {
-            DesignSettings.shared.sidebarSections.density = saved
-            Motion.reduceMotionOverride = nil
-        }
+        let (saved, savedMotion) = (DesignSettings.shared.sidebarSections.density, Motion.reduceMotionOverride)
+        (DesignSettings.shared.sidebarSections.density, Motion.reduceMotionOverride) = (density, true)
+        defer { (DesignSettings.shared.sidebarSections.density, Motion.reduceMotionOverride) = (saved, savedMotion) }
         let h = Harness()
         defer { h.window.orderOut(nil) }
         let pinned = try h.pinnedRow(Self.pins[0])
