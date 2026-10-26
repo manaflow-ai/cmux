@@ -123,8 +123,7 @@ export function paintMinimap(
   ctx.clearRect(0, 0, width, height);
   if (scale <= 0) return 0;
   const count = Math.min(rows.length, layout.tops.length);
-  const kinds: (MinimapKind | undefined)[] = new Array(count);
-  for (let index = 0; index < count; index += 1) kinds[index] = minimapKind(rows[index]!);
+  const kinds = Array.from({ length: count }, (_, index) => minimapKind(rows[index]!));
   const pixel = 1 / dpr;
   let drawn = 0;
   for (const kind of KINDS) {
