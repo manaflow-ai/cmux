@@ -161,6 +161,8 @@ final class CEFRuntime {
     /// What the pump's input policy reads, from the engine made last (feature `cefPumpInputPolicy`,
     /// ``CEFPumpInputPolicy``); read at start with ``input``. Nil: the pump never holds for input.
     var pumpInput: CEFPumpInputSeams?
+    /// The feature `chromiumSpareAfterFirstTab`, asked at start (the App supplies it).
+    var spareAfterFirstTabFeature: @MainActor () -> Bool = { false }
     /// True when this Chromium started with the built-in uBlock Origin.
     private(set) var builtInAdBlockerLoaded = false
     /// True when this Chromium started with `cmux-process-reuse-per-renderer-devtools` (`debug.cef` `windows`).
@@ -472,6 +474,7 @@ final class CEFRuntime {
         let switchSet = CEFSwitches.current(
             forkAPIVersion: shim.forkAPIVersion(), rendererPaths: CEFForkFeatures(shim).rendererPaths,
             chromiumFeatures: chromiumFeatures,
+            spareAfterFirstTab: spareAfterFirstTabFeature(),
             bundleIdentifier: Bundle.main.bundleIdentifier,
             environment: environment,
             builtInExtensions: builtInPlan.folders, keepsUnpackedEnabled: builtInPlan.keepsUnpackedEnabled

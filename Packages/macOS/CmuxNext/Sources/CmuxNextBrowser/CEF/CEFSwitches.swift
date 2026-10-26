@@ -10,6 +10,9 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
     /// Chromium `base::Feature`s the app's features turn on (process `chromium` in
     /// schemas/features/features.d, for example `cefTimerSlack`'s `TimerSlackMac`).
     var chromiumFeatures: [String] = []
+    /// The default-off feature `chromiumSpareAfterFirstTab`: pass the fork's spare renderer policy
+    /// (`spareRendererAfterFirstTab`).
+    var spareAfterFirstTab = false
     /// Development builds share one ad hoc identity per tag; the real
     /// keychain would prompt for "Chromium Safe Storage" on every rebuild.
     var useMockKeychain: Bool
@@ -52,6 +55,16 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
     /// content/browser/renderer_host/render_frame_host_manager.cc asks
     /// `DevToolsAgentHost::WasEverAttachedToAnyFrame` for the whole browser instead.
     static let processReusePerRendererDevTools = "cmux-process-reuse-per-renderer-devtools"
+    /// Chrome keeps one spare renderer (live, no site lock, no document) for the profile that
+    /// last took a new process (`content/browser/renderer_host/spare_render_process_host_manager_impl.cc`
+    /// PrepareForFutureRequests). On desktop it has no destroy timer (StartDestroyTimer gets a
+    /// timeout only with Android's kAndroidWarmUpSpareRendererWithTimeout), and
+    /// kKillSpareRenderOnMemoryPressure is disabled by default: memory pressure only refuses a
+    /// new spare. With this fork switch (manaflow-ai/cef `cp/p13-webui-020`) a profile gets a
+    /// spare only after one of its browser tabs starts an http(s) navigation, so the cmux pages
+    /// profile, extension background pages and the spare windows should never make one. The
+    /// spare keeps Chrome desktop's lifetime. Older forks ignore the switch.
+    static let spareRendererAfterFirstTab = "cmux-spare-renderer-after-first-tab"
 
     var arguments: [String] {
         var result: [String] = []
@@ -108,6 +121,7 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
         if rendererPaths, forkAPIVersion >= Self.pageSiteSharingForkAPI, let cap = agentPageMainFrameCap {
             result.append(Self.pageSchemeProcessPerSiteArgument([PageSiteCap(site: Self.agentPageSite, mainFrames: cap)]))
         }
+        if spareAfterFirstTab { result.append(Self.spareRendererAfterFirstTab) }
         // Never pass a feature-list switch expecting it to replace CEF's own
         // list: the shim merges disable-features/enable-features into it
         // (CEFShim/src/command_line_switches.h). Chromium's code-sign clone
@@ -217,6 +231,7 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
         forkAPIVersion: Int32,
         rendererPaths: Bool = false,
         chromiumFeatures: [String] = [],
+        spareAfterFirstTab: Bool = false,
         bundleIdentifier: String?,
         environment: [String: String],
         builtInExtensions: [String] = [],
@@ -244,6 +259,7 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
             forkAPIVersion: forkAPIVersion,
             rendererPaths: rendererPaths,
             chromiumFeatures: chromiumFeatures,
+            spareAfterFirstTab: spareAfterFirstTab,
             useMockKeychain: dev,
             loadExtensions: extensions,
             builtInExtensions: builtInExtensions,
