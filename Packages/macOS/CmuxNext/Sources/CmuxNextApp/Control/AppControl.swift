@@ -585,7 +585,7 @@ final class AppControl {
         ])
         #endif
         #endif
-        let publisher = ControlSnapshotPublisher(router: service.router, services: services, frames: frames)
+        let publisher = ControlSnapshotPublisher(router: service.router, services: services)
         self.publisher = publisher
         publisher.start()
     }

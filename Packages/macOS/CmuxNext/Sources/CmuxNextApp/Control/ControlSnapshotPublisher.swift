@@ -2,57 +2,68 @@ import AppKit
 import CmuxNextControl
 import CmuxNextCompat
 import CmuxNextDaemon
-import CmuxNextSettings
 import CmuxNextWakeups
+import Observation
 import os
 
 /// Publishes the control snapshot (architecture.md 5a) after the model
-/// settles: at most once per dirty period, in the automation class, after
-/// something the snapshot reads changed. A publish maps only the workspaces
-/// whose entries went stale (``ControlWorkspaceInfoCache``), so there is no
-/// interval between publishes to hide its cost.
+/// settles: one build per dirty period, in the automation class. A publish
+/// maps only the workspaces whose entries went stale
+/// (``ControlWorkspaceInfoCache``), so there is no interval between
+/// publishes to hide its cost.
 ///
-/// The build is a ``FrameObservation`` with `.automation` delivery: any daemon
-/// record, window state, focus, or settings property it read schedules one
-/// rebuild and publish, which needs no display link, so a CLI or an agent
-/// reads current state while no window is on screen. Key-window changes (not
-/// observable) and every main-actor work queue frame invalidate explicitly.
-/// Readers never touch main-actor state: they get the last published value.
+/// The build's Observation tracking is only a dirty bit: the first change to
+/// anything it read (a daemon record, window state, focus, settings) sets
+/// `topologyDirty` inside the mutation and posts one publish in the
+/// automation class, which needs no display link, so a CLI or an agent reads
+/// current state while no window is on screen. A cached workspace entry's
+/// change (``ControlWorkspaceInfoCache/onStale``) and a key-window change (not
+/// observable) set the same bit, and every build clears it and re-arms the
+/// tracking, so the paths coalesce into one build. Blink does the same: a
+/// change only marks the frame for an update (`PageAnimator::ScheduleVisualUpdate`,
+/// third_party/blink/renderer/core/page/page_animator.cc) and one lifecycle
+/// update runs for any number of them. Readers never touch main-actor state:
+/// they get the last published value.
 ///
-/// The daemon sequences (read-your-writes barriers) are a second `.automation` observation, apart
-/// from the build: a daemon batch that changes nothing the topology shows (busy terminals'
-/// activity, a status tick elsewhere) only moves the published sequences, in O(sessions), instead of
-/// mapping the topology again (every batch rebuilt it: perf-lead.md issue 5, the main thread under load).
+/// The daemon sequences (read-your-writes barriers) are a `.automation` ``FrameObservation``
+/// apart from the build (an O(sessions) read): a daemon batch that changes nothing the topology
+/// shows (busy terminals' activity, a status tick elsewhere) only moves the published sequences
+/// instead of mapping the topology again (perf-lead.md issue 5, the main thread under load).
 @MainActor
 final class ControlSnapshotPublisher {
     private let router: ControlRouter
     private unowned let services: AppServices
-    private let frames: any ControlFrameSource
-    private var isScheduled = false
     private var isStopped = false
     private var observers: [MainActorObservation] = []
     /// Per-workspace control values kept between publishes (cx-9c8m).
     private let workspaceInfos = ControlWorkspaceInfoCache()
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "control.snapshot")
-    /// The topology build, observed: a change to what it read rebuilds and publishes it.
-    private var topologyWatch: FrameObservation<Build>?
+    /// A change the last build read, or an invalidate, came after that build. Set inside the mutation, on its
+    /// thread (an atomic), so a sequence change later in the same batch sees it; its false-to-true edge posts the
+    /// dirty period's one publish, and only a build clears it.
+    nonisolated private let topologyDirty = Atomic<Bool>(false)
+    /// The armed tracking's generation: a build replaces the tracking, and the replaced one's callback is stale.
+    nonisolated private let trackingGeneration = Atomic<UInt64>(0)
+    /// Read under the build's tracking; writing it fires, and so drops, the tracking a build replaces.
+    private let trackingCancel = ControlSnapshotTrackingCancel()
+    nonisolated private let work: MainWorkScheduler
+    /// The publish task's owner, interned once.
+    nonisolated private let publishOwner: MainTaskOwner
     /// The daemon sequences, observed apart from the build.
     private var sequenceWatch: FrameObservation<ControlTopology>?
-    /// The topology watch's dirty periods as of the last build. The watch counts one in the will-set of
-    /// the change itself, so a sequence change later in the same batch sees the topology as dirty.
-    private var builtThroughChange = 0
     /// Topology builds and sequence-only publishes since start (tests, debug).
     private(set) var builds = 0
     private(set) var sequencePublishes = 0
 
-    init(router: ControlRouter, services: AppServices, frames: any ControlFrameSource) {
+    init(router: ControlRouter, services: AppServices) {
         self.router = router
         self.services = services
-        self.frames = frames
+        work = services.mainWork
+        publishOwner = services.mainWork.board.owner("control.snapshot")
     }
 
     func start() {
-        workspaceInfos.onStale = { [weak self] in self?.modelChanged() }
+        workspaceInfos.onStale = { [weak self] in self?.cachedEntryChanged() }
         // Read-your-writes for local state: a CLI mutation's effect on focus or selection is in the snapshot before
         // the next request is read. A work-queue frame only marks the snapshot stale; the next read builds it
         // (`ControlSnapshotStore.fresh`), once for any number of frames, and a read waiting on its barrier now.
@@ -65,14 +76,7 @@ final class ControlSnapshotPublisher {
                 self?.invalidate()
             })
         }
-        let work = services.mainWork
-        let topology = FrameObservation(owner: "control.snapshot", delivery: .automation, on: work) { [weak self] in
-            self?.build() ?? Build()
-        } onChange: { [weak self] build in
-            self?.publish(build)
-        }
-        topologyWatch = topology
-        publish(topology.value)
+        publishNow()
         sequenceWatch = FrameObservation(owner: "control.snapshot.sequences", delivery: .automation, on: work) { [weak self] in
             self.map { Self.sequences($0.services) } ?? ControlTopology()
         } onChange: { [weak self] sequences in
@@ -82,22 +86,19 @@ final class ControlSnapshotPublisher {
 
     func stop() {
         isStopped = true
-        topologyWatch?.cancel()
         sequenceWatch?.cancel()
+        trackingGeneration.wrappingAdd(1, ordering: .acquiringAndReleasing)
+        trackingCancel.epoch &+= 1
         router.workQueue.setAfterFrame(nil)
         router.snapshots.setRefresher(nil)
         observers.removeAll()
     }
 
-    /// Schedules one publish on the next frame (coalesced: every change before it lands in that publish).
+    /// Marks the topology dirty and posts its publish, unless a publish is already pending: a change the build's
+    /// tracking cannot see (the key window, a cached entry).
     func invalidate() {
-        guard !isScheduled, !isStopped else { return }
-        isScheduled = true
-        frames.scheduleFrame { [weak self] in
-            guard let self else { return }
-            self.isScheduled = false
-            self.publishNow()
-        }
+        guard !isStopped, !topologyDirty.exchange(true, ordering: .acquiringAndReleasing) else { return }
+        work.post(.automation, owner: publishOwner) { [weak self] in self?.publishIfDirty() }
     }
 
     /// A control work-queue frame ran (a CLI call changed main-actor state): mark the snapshot stale; build it now
@@ -112,73 +113,81 @@ final class ControlSnapshotPublisher {
         if router.snapshots.isStale { publishNow() }
     }
 
-    /// A compat read waiting on the write barrier publishes on this turn
-    /// (a cache entry just went stale); otherwise the next frame does.
-    private func modelChanged() {
+    /// A cached workspace entry's tracking fired (one hop after the change). A build since then rebuilt the entry and
+    /// left nothing to do. A compat read waiting on the write barrier publishes on this turn; otherwise the pending
+    /// publish does.
+    private func cachedEntryChanged() {
+        guard workspaceInfos.hasStaleEntries else { return }
         if router.snapshots.hasWaiters { publishNow() } else { invalidate() }
     }
 
-    /// Publishes now. Compat intents call this so a CLI read that follows a
-    /// CLI write sees it (the scheduled publish lands a frame later).
+    /// The posted publish: it finds nothing when a build since ended the dirty period.
+    private func publishIfDirty() {
+        if topologyDirty.load(ordering: .acquiring) { publishNow() }
+    }
+
+    /// Builds and publishes now and ends the dirty period. Compat intents call this so a CLI read that follows a
+    /// CLI write sees it; the posted publish then finds nothing to do.
     func publishNow() {
         guard !isStopped else { return }
-        publish(build())
-    }
-
-    /// What one topology build read, published together, and the build's time.
-    private struct Build {
-        var topology = ControlTopology()
-        var settings: CmuxNextSettings.JSONValue?
-        var tabSearch = ControlTabSearchFacts()
-        var elapsed: Duration = .zero
-    }
-
-    /// Maps the topology, the settings and the tab search facts: the topology watch's read, and an
-    /// explicit publish's. It reads only what a change should rebuild for.
-    private func build() -> Build {
         let started = ContinuousClock.now
         builds += 1
-        let topology = Self.topology(services, cache: workspaceInfos, sequences: false)
-        let settings = services.settings?.snapshot.root
-        let tabSearch = TabSearchFactsBuilder.facts(services, cache: workspaceInfos)
-        return Build(topology: topology, settings: settings, tabSearch: tabSearch, elapsed: ContinuousClock.now - started)
-    }
-
-    private func publish(_ build: Build) {
-        guard !isStopped else { return }
-        builtThroughChange = topologyWatch?.deliveriesScheduled ?? 0
-        // Read here, not in the build: a sequence alone never rebuilds (the sequence watch).
-        var topology = build.topology
+        topologyDirty.store(false, ordering: .releasing)
+        let generation = trackingGeneration.wrappingAdd(1, ordering: .acquiringAndReleasing).newValue
+        trackingCancel.epoch &+= 1
+        let cancel = trackingCancel
+        // view-observation-allow: a dirty bit over the whole build; a FrameObservation reads its track again in each will-set, here a full topology build per change
+        let (built, settings, tabSearch) = withObservationTracking {
+            _ = cancel.epoch
+            return (Self.topology(services, cache: workspaceInfos, sequences: false), services.settings?.snapshot.root,
+                    TabSearchFactsBuilder.facts(services, cache: workspaceInfos))
+        } onChange: { [weak self] in
+            self?.trackingFired(generation)
+        }
+        // Outside the tracking: a sequence alone never rebuilds (the sequence watch).
+        var topology = built
         Self.applySequences(to: &topology, services)
         router.snapshots.publish(rebuilt: true) { snapshot in
             snapshot.topology = topology
-            snapshot.settings = build.settings
-            snapshot.tabSearch = build.tabSearch
+            snapshot.settings = settings
+            snapshot.tabSearch = tabSearch
         }
+        let elapsed = ContinuousClock.now - started
         // The cache keeps the tab count as entries change: no walk of every tab per publish.
-        DebugTimings.controlPublished(tabs: workspaceInfos.tabCount, build.elapsed)
-        if build.elapsed > .milliseconds(2) {
-            logger.debug("control snapshot took \(build.elapsed.components.attoseconds / 1_000_000_000_000_000) ms for \(self.workspaceInfos.tabCount) tabs")
+        DebugTimings.controlPublished(tabs: workspaceInfos.tabCount, elapsed)
+        if elapsed > .milliseconds(2) {
+            logger.debug("control snapshot took \(elapsed.components.attoseconds / 1_000_000_000_000_000) ms for \(self.workspaceInfos.tabCount) tabs")
         }
     }
 
-    /// Something the last build read changed and no build has run since.
-    private var topologyDirty: Bool {
-        (topologyWatch?.deliveriesScheduled ?? 0) != builtThroughChange
+    /// The build's tracking fired, inside the mutation and on its thread: the first change of the dirty period posts
+    /// its one publish. It reads nothing: the new value is not set yet.
+    private nonisolated func trackingFired(_ generation: UInt64) {
+        guard trackingGeneration.load(ordering: .acquiring) == generation,
+              !topologyDirty.exchange(true, ordering: .acquiringAndReleasing) else { return }
+        work.postFromAnyThread(.automation, owner: publishOwner) { [weak self] in self?.publishIfDirty() }
     }
 
     /// The sequence watch's apply: each applied batch either rides on the pending topology publish or
     /// moves only the published sequences.
     private func sequencesChanged(_ sequences: ControlTopology) {
         guard !isStopped else { return }
-        // A pending topology change (observed, or a work-queue frame's) is not covered by a sequence-only publish:
-        // it would show the new sequences beside the old topology.
-        if topologyDirty || router.snapshots.isStale {
-            // A topology change is pending: its publish reads the sequences as they are then. A read
-            // waiting on its write barrier gets it now.
+        // A sequence-only publish beside a pending topology change would show the new sequences with the old
+        // topology. The pending publish (or, for a work-queue frame's change, the next read) reads them as they are
+        // then; a read waiting on its write barrier gets it now.
+        if topologyDirty.load(ordering: .acquiring) || router.snapshots.isStale {
             if router.snapshots.hasWaiters { publishNow() }
             return
         }
+        // A cached entry changed in this batch (marked inside its mutation); its `onStale` hop may not have run yet.
+        if workspaceInfos.hasStaleEntries {
+            if router.snapshots.hasWaiters { publishNow() } else { invalidate() }
+            return
+        }
+        let published = router.snapshots.current.topology
+        // A build since the change already published them.
+        guard published.daemonSequence != sequences.daemonSequence || published.sessionSequences != sequences.sessionSequences
+        else { return }
         // Nothing the topology shows changed since the last build: only the sequences move.
         sequencePublishes += 1
         router.snapshots.publish { snapshot in
@@ -270,4 +279,11 @@ final class ControlSnapshotPublisher {
         }
         return topology
     }
+}
+
+/// Read under the publisher's build tracking; writing it fires, and so drops, that tracking (the registrar keeps an
+/// armed tracking until it fires).
+@MainActor @Observable
+private final class ControlSnapshotTrackingCancel {
+    var epoch: UInt64 = 0
 }

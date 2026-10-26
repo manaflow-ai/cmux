@@ -46,7 +46,7 @@ struct ControlSnapshotLazyPublishTests {
         let frames = BudgetedSoonFrames(budget: budget)
         let router = ControlRouter(identity: ControlIdentity(version: "test", build: "1", bundleID: nil, tag: nil, processID: 0),
                                    executor: Executor(), configuration: .init(requestDeadline: .seconds(30)), frameSource: frames)
-        let publisher = ControlSnapshotPublisher(router: router, services: services, frames: SoonFrames())
+        let publisher = ControlSnapshotPublisher(router: router, services: services)
         publisher.start()
         defer { publisher.stop() }
         for _ in 0..<8 { await Task.yield() }
@@ -67,7 +67,7 @@ struct ControlSnapshotLazyPublishTests {
         let services = AppServices(environment: AppEnvironment.current([:]))
         let router = ControlRouter(identity: ControlIdentity(version: "test", build: "1", bundleID: nil, tag: nil, processID: 0),
                                    executor: Executor(), configuration: .init(requestDeadline: .seconds(30)), frameSource: SoonFrames())
-        let publisher = ControlSnapshotPublisher(router: router, services: services, frames: SoonFrames())
+        let publisher = ControlSnapshotPublisher(router: router, services: services)
         publisher.start()
         defer { publisher.stop() }
         for _ in 0..<8 { await Task.yield() }

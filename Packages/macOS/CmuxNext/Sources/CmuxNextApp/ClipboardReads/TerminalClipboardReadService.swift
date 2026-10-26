@@ -57,7 +57,12 @@ final class TerminalClipboardReadService {
                 guard let connection = daemon?.connection else { throw DaemonError.notConnected }
                 _ = try await connection.request(TerminalClipboardReplyRequest(requestID: requestID, text: text))
             }))
-        sideEvents = daemon.store.sideEvents.subscribe { [weak self] event in self?.broker?.handle(event) }
+        // The store watch's same-turn reader: a disconnect or a terminal-set change earlier in this turn reaches the
+        // broker before the event does.
+        sideEvents = daemon.store.sideEvents.subscribe { [weak self] event in
+            self?.storeWatch?.flushIfDirty()
+            self?.broker?.handle(event)
+        }
         observe()
     }
 
@@ -77,7 +82,7 @@ final class TerminalClipboardReadService {
         let store = services.daemon.store
         let watch = FrameObservation(
             owner: "clipboard-reads.terminals",
-            delivery: .sameTurn("a dropped connection's open questions close before the next daemon event reaches the broker"),
+            delivery: .sameTurn("the side-event handler flushes it, so a read in the turn of a disconnect or a terminal-set change sees them"),
             on: services.mainWork
         ) { [weak store] in
             guard let store else { return Watched(connected: false, terminals: []) }

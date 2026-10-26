@@ -37,6 +37,8 @@ final class AppBrowserHost {
     private var inputSubscription: InputSubscription?
     /// The local daemon's connection state (``watchDaemonConnection()``).
     private var connectionWatch: FrameObservation<Void>?
+    /// Fresh credentials asked of the provider for connection changes (tests count the deliveries).
+    private(set) var credentialRequests = 0
 
     /// The WebKit tabs' cookie backups (undo of an agent's `cookies.clear`):
     /// encrypted with the Keychain key (decision D4, issue 13742). DEBUG
@@ -171,7 +173,9 @@ final class AppBrowserHost {
                                                  on: services.mainWork) { [weak store] in
             _ = store?.connectionState
         } onChange: { [weak self] _ in
-            self?.provider.credentialsChanged()
+            guard let self else { return }
+            credentialRequests += 1
+            provider.credentialsChanged()
         }
     }
 
