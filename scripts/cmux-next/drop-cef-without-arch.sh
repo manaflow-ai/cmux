@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Removes the embedded Chromium engine (embed-cef.sh) from an app bundle when
+# Removes the embedded Chromium engine (embed-cef.sh), with its Chromium host,
+# from an app bundle when
 # its framework has no slice for <arch>. The pinned CEF artifact is arm64
 # only, so a thin x86_64 variant cut from the universal build would otherwise
 # fail scripts/thin-app-bundle.sh and could never load the engine anyway. The
@@ -22,5 +23,11 @@ echo "::warning title=No Chromium engine for $arch::the CEF artifact has no $arc
 rm -rf "$framework" "$frameworks/libcmux_cef_shim.dylib"
 for helper in "$frameworks"/*" Helper.app" "$frameworks"/*" Helper ("*").app"; do
   [[ -d "$helper" ]] && rm -rf "$helper"
+done
+# The Chromium host (embed-cef.sh) is built for the engine's architectures, so
+# it has no $arch slice either and would fail thinning; it cannot run without
+# the framework anyway.
+for host in "$app/Contents/MacOS/"*" Chromium Host"; do
+  if [[ -f "$host" ]]; then rm -f "$host"; fi
 done
 exit 0

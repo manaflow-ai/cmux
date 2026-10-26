@@ -42,14 +42,18 @@
 #      signed the same way (scripts/sign-cmux-tui-ssh-payloads.sh).
 #   2. The nested cmux Computer Use app with the Developer ID identity.
 #   3. Each nested plugin under Contents/PlugIns/* with --deep.
-#   4. The embedded Chromium engine (CEF framework, its libraries, the shim
-#      and the five helper apps with their own entitlements) through
+#   4. The embedded Chromium engine (CEF framework, its libraries, the shim,
+#      the five helper apps with their own entitlements, then the Chromium
+#      host Contents/MacOS/<product> Chromium Host: hardened runtime, no
+#      entitlements, identifier <bundle id>.chromium-host) through
 #      scripts/cmux-next/sign-cef.sh, the remote browser host under
 #      Contents/Helpers (rbh_sign), then every other nested framework under
 #      Contents/Frameworks/* with --deep (covers Sparkle's XPCServices and
 #      Updater.app, and Iroh).
 #   5. The main app bundle with the effective app-level entitlements,
-#      WITHOUT --deep. --deep here would overwrite helper/plugin
+#      WITHOUT --deep. The app's notarization covers the Chromium host
+#      (nested code); `sign-cef.sh --verify-host` checks it after this step.
+#      --deep here would overwrite helper/plugin
 #      signatures and re-introduce the app-id mismatch that amfi on
 #      notarized macOS 26 Tahoe rejects with errno 163.
 #
@@ -201,6 +205,9 @@ echo "==> signing main bundle ($SIGN_MODE)"
 
 echo "==> verifying"
 /usr/bin/codesign --verify --deep --strict --verbose=2 "$APP_PATH"
+# The Chromium host is a bare Mach-O beside the app's executable: the deep
+# check covers its seal, not its hardened runtime, team or entitlements.
+"$SCRIPT_DIR/cmux-next/sign-cef.sh" --verify-host "$APP_PATH"
 # The cmux CLI is one Mach-O: bin/cmux-tui and bin/acpmux must stay links to it.
 for alias in cmux-tui acpmux; do
   alias_path="$APP_PATH/Contents/Resources/bin/$alias"

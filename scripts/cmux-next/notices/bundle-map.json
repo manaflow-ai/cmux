@@ -42,6 +42,11 @@
       "notices": ["first-party", "file:Contents/Frameworks/Chromium Embedded Framework.framework/Resources/CREDITS.html", "file:Contents/Frameworks/Chromium Embedded Framework.framework/Resources/LICENSE.txt"]
     },
     {
+      "path": "Contents/MacOS/* Chromium Host",
+      "what": "first-party Chromium host: Chromium's browser process as a second executable of the app (Packages/macOS/CmuxNext/ChromiumHost, build-chromium-host.sh); links CEF's libcef_dll wrapper and loads the CEF framework",
+      "notices": ["first-party", "file:Contents/Frameworks/Chromium Embedded Framework.framework/Resources/CREDITS.html", "file:Contents/Frameworks/Chromium Embedded Framework.framework/Resources/LICENSE.txt"]
+    },
+    {
       "path": "Contents/Frameworks/cmux Helper*.app/Contents/MacOS/*",
       "what": "first-party CEF helper processes (link CEF)",
       "notices": ["first-party", "file:Contents/Frameworks/Chromium Embedded Framework.framework/Resources/CREDITS.html", "file:Contents/Frameworks/Chromium Embedded Framework.framework/Resources/LICENSE.txt"]

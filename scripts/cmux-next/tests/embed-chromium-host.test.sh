@@ -1,15 +1,14 @@
 #!/usr/bin/env bash
-# embed-cef.sh puts the Chromium host (prototype) into Debug builds only:
-# a Debug embed builds it with build-chromium-host.sh (not with the shim)
-# against the shim build and its artifact, and puts it at
-# Contents/MacOS/<Product> Chromium Host (the app is Chromium's main bundle, so
-# the helpers' sandbox reaches the framework); it removes the earlier
-# Frameworks/<Product> Chromium Host.app. A Release embed never builds it and
-# removes one left by an earlier Debug build, so Release, RC and NIGHTLY
-# bundles carry no host. A host that does not build leaves a Debug
-# build without the host app (a warning), unless
-# CMUX_NEXT_REQUIRE_CHROMIUM_HOST=1. Every build step is a stand-in (no
-# network, no compiler, no signing).
+# embed-cef.sh puts the Chromium host into every configuration: it builds it
+# with build-chromium-host.sh (not with the shim) against the shim build and
+# its artifact, and puts it at Contents/MacOS/<Product> Chromium Host (the app
+# is Chromium's main bundle, so the helpers' sandbox reaches the framework);
+# it removes the earlier Frameworks/<Product> Chromium Host.app. Release, RC
+# and NIGHTLY bundles carry it signed and notarized while
+# browserHost.helperPrototype keeps it off. A host that does not build leaves
+# a dev build without the host (a warning), but fails a release build
+# (CMUX_NEXT_REQUIRE_CEF=1) and CMUX_NEXT_REQUIRE_CHROMIUM_HOST=1. Every build
+# step is a stand-in (no network, no compiler, no signing).
 #
 # Not in CI (lead, 2026-10-23: no new CI tests); run it when you change the
 # host's embed or build.
@@ -31,9 +30,11 @@ if ! command -v ditto >/dev/null; then
   printf '#!/usr/bin/env bash\nmkdir -p "$(dirname "$2")"; cp -R "$1" "$2"\n' > "$TMP/bin/ditto"
   chmod +x "$TMP/bin/ditto"
 fi
-for stub in install-cef-credits.sh install-cef-license.sh sign-cef.sh; do
+for stub in install-cef-credits.sh install-cef-license.sh; do
   printf '#!/usr/bin/env bash\nexit 0\n' > "$scripts/$stub"
 done
+# sign-cef.sh logs the bundle id it gets and its arguments.
+printf '#!/usr/bin/env bash\necho "${CMUX_CEF_BUNDLE_ID:-} $*" >> "%s"\n' "$TMP/sign-calls" > "$scripts/sign-cef.sh"
 printf '#!/usr/bin/env bash\necho "%s"\n' "$dist" > "$scripts/ensure-cef.sh"
 printf '#!/usr/bin/env bash\necho "%s"\n' "$TMP/cache" > "$scripts/cef-cache-root.sh"
 # The shim build carries no host binary.
@@ -66,43 +67,49 @@ embed() { # <configuration> [VAR=value...]
 host_app="$TMP/build/app.app/Contents/MacOS/app Chromium Host"
 old_host_app="$TMP/build/app.app/Contents/Frameworks/app Chromium Host.app"
 
-# 1. Debug: the host, built from the arm64 shim build, in Contents/MacOS; the earlier host app is removed.
+# 1. Debug: the host, built from the arm64 shim build, in Contents/MacOS; the
+# earlier host app is removed; sign-cef.sh gets the bundle id for its identifier.
 mkdir -p "$old_host_app/Contents/MacOS"
 embed Debug
 [[ -f "$host_app" ]] || fail "a Debug embed has no Chromium host"
 [[ ! -e "$old_host_app" ]] || fail "a Debug embed keeps the earlier Frameworks/... Chromium Host.app"
 [[ "$(cat "$TMP/host-builds")" == "arm64 $dist $TMP/shim" ]] || fail "the host was not built once against the arm64 artifact and shim build: $(cat "$TMP/host-builds")"
 [[ "$(cat "$host_app")" == "host binary" ]] || fail "the host is not the host build"
+[[ "$(tail -n 1 "$TMP/sign-calls")" == "test.app $TMP/build/app.app -" ]] || fail "sign-cef.sh was not given the bundle id: $(tail -n 1 "$TMP/sign-calls")"
 
-# 2. Release on the same bundle: no host build, and the Debug host app is gone.
+# 2. Release on the same bundle: the host is built and embedded there too, so
+# Release, RC and NIGHTLY ship it signed while browserHost.helperPrototype is off.
 rm -f "$TMP/host-builds"
 embed Release
-[[ ! -e "$host_app" ]] || fail "a Release embed keeps a Chromium host app"
-[[ ! -e "$TMP/host-builds" ]] || fail "a Release embed built the Chromium host"
+[[ -f "$host_app" ]] || fail "a Release embed has no Chromium host"
+[[ "$(cat "$TMP/host-builds" 2>/dev/null)" == "arm64 $dist $TMP/shim" ]] || fail "a Release embed did not build the host once: $(cat "$TMP/host-builds" 2>/dev/null)"
 [[ -d "$TMP/build/app.app/Contents/Frameworks/app Helper.app" ]] || fail "a Release embed lost the base helper"
 
-# 3. Debug with a host that does not build: the build still succeeds, says so,
-# and carries no host app (none left from step 1 either).
-embed Debug
-[[ -f "$host_app" ]] || fail "a Debug embed has no Chromium host before the failing host"
+# 3. A host that does not build: a dev build still succeeds, says so, and
+# carries no host (none left from step 2 either).
 : > "$TMP/host-fails"
 embed Debug
-[[ ! -e "$host_app" ]] || fail "a Debug embed whose host did not build keeps a host app"
-grep -q "warning: the Chromium host app did not build" "$TMP/embed-Debug.log" || fail "no warning for a host that did not build"
+[[ ! -e "$host_app" ]] || fail "a Debug embed whose host did not build keeps a host"
+grep -q "warning: the Chromium host did not build" "$TMP/embed-Debug.log" || fail "no warning for a host that did not build"
 [[ -d "$TMP/build/app.app/Contents/Frameworks/app Helper.app" ]] || fail "a Debug embed whose host did not build lost the base helper"
 
-# 4. CMUX_NEXT_SKIP_CEF=1 removes the whole CEF payload, the host with it.
-rm -f "$TMP/host-fails"
-embed Debug
-[[ -f "$host_app" ]] || fail "a Debug embed has no Chromium host before the skip"
-embed Debug CMUX_NEXT_SKIP_CEF=1
-[[ ! -e "$host_app" ]] || fail "a CMUX_NEXT_SKIP_CEF=1 embed keeps the Chromium host"
-: > "$TMP/host-fails"
-
-# 5. The same failing host with CMUX_NEXT_REQUIRE_CHROMIUM_HOST=1: the build fails.
+# 4. The same failing host in a release build (CMUX_NEXT_REQUIRE_CEF=1) or with
+# CMUX_NEXT_REQUIRE_CHROMIUM_HOST=1: the build fails, so no release ships
+# without its host.
+if run_embed Release CMUX_NEXT_REQUIRE_CEF=1; then
+  fail "CMUX_NEXT_REQUIRE_CEF=1 let a Release embed pass without the host"
+fi
+grep -q "error: the Chromium host did not build" "$TMP/embed-Release.log" || fail "no error for a release host that did not build"
 if run_embed Debug CMUX_NEXT_REQUIRE_CHROMIUM_HOST=1; then
   fail "CMUX_NEXT_REQUIRE_CHROMIUM_HOST=1 let a Debug embed pass without the host"
 fi
-grep -q "error: the Chromium host app did not build" "$TMP/embed-Debug.log" || fail "no error for a required host that did not build"
+grep -q "error: the Chromium host did not build" "$TMP/embed-Debug.log" || fail "no error for a required host that did not build"
+
+# 5. CMUX_NEXT_SKIP_CEF=1 removes the whole CEF payload, the host with it.
+rm -f "$TMP/host-fails"
+embed Release
+[[ -f "$host_app" ]] || fail "a Release embed has no Chromium host before the skip"
+embed Release CMUX_NEXT_SKIP_CEF=1
+[[ ! -e "$host_app" ]] || fail "a CMUX_NEXT_SKIP_CEF=1 embed keeps the Chromium host"
 
 echo "embed-chromium-host tests: ok"

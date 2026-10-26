@@ -5,7 +5,7 @@
 #   Contents/Frameworks/Chromium Embedded Framework.framework   (artifact)
 #   Contents/Frameworks/libcmux_cef_shim.dylib                  (CEFShim)
 #   Contents/Frameworks/<PRODUCT_NAME> Helper.app               (+ GPU, Renderer, Plugin, Alerts)
-#   Contents/MacOS/<PRODUCT_NAME> Chromium Host                  (Debug builds only, prototype;
+#   Contents/MacOS/<PRODUCT_NAME> Chromium Host                  (every configuration;
 #                                                                build-chromium-host.sh)
 #
 # then signs them inside out with the build's identity (ad hoc for dev
@@ -148,15 +148,16 @@ else
   arch_dists=("$cef_dir")
 fi
 
-# 1b. The Chromium host's executable (Debug builds only; see 3b), cached by
+# 1b. The Chromium host's executable (every configuration; see 3b), cached by
 # build-chromium-host.sh apart from the shim, so a host edit changes neither
 # the shim's key nor the runtime pack's.
 #
-# The host is a prototype that is off by default (browserHost.helperPrototype).
-# A host that does not build costs this Debug build the host app only: a
-# warning, and the app then reports that it has none. It never fails the
-# build, the way a missing CEF artifact does not. CMUX_NEXT_REQUIRE_CHROMIUM_HOST=1
-# makes it a build failure (the prototype's own verification builds).
+# Off by default at run time (browserHost.helperPrototype), so every channel
+# ships it signed and notarized before any channel turns it on. A host that
+# does not build costs a dev build the host only: a warning, and the app then
+# reports that it has none. A release build (CMUX_NEXT_REQUIRE_CEF=1) and
+# CMUX_NEXT_REQUIRE_CHROMIUM_HOST=1 fail instead, as a release without its
+# CREDITS.html does.
 host_out=""
 host_key=""
 # Sets host_out and host_key; non-zero when a host build fails. Called as an
@@ -187,14 +188,14 @@ build_chromium_host() {
   host_out="$dir"
   host_key="$key"
 }
-if [[ "${CONFIGURATION:-}" == "Debug" ]] && ! build_chromium_host; then
+if ! build_chromium_host; then
   host_out=""
   host_key=""
-  if [[ "${CMUX_NEXT_REQUIRE_CHROMIUM_HOST:-0}" == "1" ]]; then
-    echo "error: the Chromium host app did not build (build-chromium-host.sh)" >&2
+  if [[ "${CMUX_NEXT_REQUIRE_CHROMIUM_HOST:-0}" == "1" || "${CMUX_NEXT_REQUIRE_CEF:-0}" == "1" ]]; then
+    echo "error: the Chromium host did not build (build-chromium-host.sh)" >&2
     exit 1
   fi
-  echo "warning: the Chromium host app did not build (build-chromium-host.sh); this Debug build has none"
+  echo "warning: the Chromium host did not build (build-chromium-host.sh); this build has none"
 fi
 
 # 2. Framework and shim.
@@ -332,8 +333,7 @@ done
 # which CEF's main_bundle_path does not change), and only the outer app holds
 # the framework and the helpers. From its own Frameworks/<Product> Chromium
 # Host.app every helper failed to load the framework and the host aborted
-# (2026-10-24). Debug builds only, so Release, RC and NIGHTLY bundles do not
-# change.
+# (2026-10-24). sign-cef.sh signs it as nested code of the app.
 rm -rf "$frameworks/$product Chromium Host.app"  # the earlier layout
 host_binary="$app/Contents/MacOS/$product Chromium Host"
 if [[ -n "$host_out" ]]; then
@@ -351,15 +351,20 @@ fi
 
 printf '%s' "$shim_key $product" > "$binary_stamp"
 
-# 4. Sign inside out, unless nothing changed since the last signature.
+# 4. Sign inside out, unless nothing changed since the last signature. The
+# stamp names sign-cef.sh's own hash, so a change to the signing rules signs
+# again.
 stamp="$stamp_dir/signed"
-stamp_value="$(basename "$cef_dir") $LAYOUT $shim_key ${host_key:-no-host} $product $identity"
+sign_rules="$(shasum -a 256 "$SCRIPT_DIR/sign-cef.sh" | awk '{print substr($1, 1, 16)}')"
+stamp_value="$(basename "$cef_dir") $LAYOUT $shim_key ${host_key:-no-host} $product $bundle_id $identity $sign_rules"
+host_signed() { [[ ! -f "$host_binary" ]] || codesign --verify "$host_binary" >/dev/null 2>&1; }
 if [[ -f "$stamp" && "$(cat "$stamp")" == "$stamp_value" ]] &&
   codesign --verify "$frameworks/$FW_NAME" >/dev/null 2>&1 &&
-  codesign --verify "$frameworks/$product Helper.app" >/dev/null 2>&1; then
+  codesign --verify "$frameworks/$product Helper.app" >/dev/null 2>&1 &&
+  host_signed; then
   exit 0
 fi
 
-"$SCRIPT_DIR/sign-cef.sh" "$app" "$identity"
+CMUX_CEF_BUNDLE_ID="$bundle_id" "$SCRIPT_DIR/sign-cef.sh" "$app" "$identity"
 printf '%s' "$stamp_value" > "$stamp"
 echo "==> embedded CEF $(basename "$cef_dir") into $app"
