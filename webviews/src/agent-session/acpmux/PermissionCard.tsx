@@ -226,15 +226,18 @@ export function PermissionCard({
   };
   /// Whether `sent` is still its ask's answer: no newer attempt for that ask has replaced it.
   const owns = (sent: Sent) => answers.current.get(sent.permissionId)?.attempt === sent.attempt;
-  /// acpmux took the answer: it stays taken, among the newest KEPT_ANSWERS taken ones.
+  /// acpmux took the answer: it stays taken, among the KEPT_ANSWERS last taken; the ask shown is
+  /// never forgotten.
   const taken = (sent: Sent) => {
     if (!owns(sent)) return;
+    // Moved to the end: the map's order is the order answers were taken in.
+    answers.current.delete(sent.permissionId);
     answers.current.set(sent.permissionId, { attempt: sent.attempt, out: false });
     let settled = 0;
     for (const answer of answers.current.values()) if (!answer.out) settled += 1;
     for (const [id, answer] of answers.current) {
       if (settled <= KEPT_ANSWERS) break;
-      if (answer.out) continue;
+      if (answer.out || id === shown.current) continue;
       answers.current.delete(id);
       settled -= 1;
     }
