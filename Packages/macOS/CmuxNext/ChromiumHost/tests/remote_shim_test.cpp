@@ -344,6 +344,44 @@ int main() {
     CHECK(seen.replies == std::vector<uint32_t>({scheme_token}));
   }
 
+  // An async op returns at once; the token read right after it names its REPLY (task 018).
+  {
+    CHECK(cmux_shim_content_setting(cmux_remote::kFirstMintedBrowserID, "https://a.test/", "cookies") == 1);
+    const uint32_t token = cmux_remote_shim_last_reply_token();
+    CHECK(token != 0 && token != scheme_token);
+    cmux_shim_reload(cmux_remote::kFirstMintedBrowserID);  // a post asks no answer: the token stays
+    CHECK(cmux_remote_shim_last_reply_token() == token);
+    const std::vector<Message> got = host.Read(2);
+    CHECK(got.size() == 2 && got[0].op == cmux_remote::kOpContentSetting && got[0].token == token);
+    cmux_host::control::TlvWriter setting;
+    setting.I32(1);
+    Message reply;
+    reply.op = cmux_remote::kOpReply;
+    reply.token = token;
+    reply.fields = setting.Take();
+    host.Send(reply);
+    CHECK(PumpUntil([] { return seen.replies.size() == 2; }));
+    CHECK(seen.replies == std::vector<uint32_t>({scheme_token, token}));
+
+    // cmux_remote_shim_set_reply moves the replies to another sink and its ctx (CEFRemoteShim's).
+    static std::vector<std::pair<void*, uint32_t>> sunk;
+    int sink_ctx = 0;
+    cmux_remote_shim_set_reply(&sink_ctx, [](void* ctx, uint32_t answered, const void*, size_t) {
+      sunk.emplace_back(ctx, answered);
+    });
+    CHECK(cmux_shim_content_setting(cmux_remote::kFirstMintedBrowserID, "https://b.test/", "cookies") == 1);
+    const uint32_t moved = cmux_remote_shim_last_reply_token();
+    CHECK(moved != 0 && moved != token);
+    const std::vector<Message> sent = host.Read(1);
+    CHECK(sent.size() == 1 && sent[0].token == moved);
+    reply.token = moved;
+    host.Send(reply);
+    CHECK(PumpUntil([] { return !sunk.empty(); }));
+    CHECK(sunk.size() == 1 && sunk[0].first == &sink_ctx && sunk[0].second == moved);
+    CHECK(seen.replies.size() == 2);
+    cmux_remote_shim_set_reply(nullptr, &OnReply);
+  }
+
   // A mirror value pushed before its EVENT is what the event's callback reads.
   const int browser = cmux_remote::kFirstMintedBrowserID;
   host.Send(Mirror(cmux_remote::kOpTabNavigationState, browser, "{\"index\":1}"));

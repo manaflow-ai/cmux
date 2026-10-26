@@ -188,6 +188,14 @@ class Runtime {
   void Configure(const cmux_remote_shim_callbacks& callbacks) {
     CMUX_REMOTE_ASSERT_MAIN();
     callbacks_ = callbacks;
+    reply_ = callbacks.reply;
+    reply_ctx_ = callbacks.ctx;
+  }
+
+  void SetReply(void* ctx, cmux_remote_reply_fn reply) {
+    CMUX_REMOTE_ASSERT_MAIN();
+    reply_ = reply;
+    reply_ctx_ = ctx;
   }
 
   int Attach(int fd, void* in_ring, void* out_ring) {
@@ -227,6 +235,11 @@ class Runtime {
 
   bool attached() const { return link_ == Link::kAttached; }
 
+  uint32_t last_reply_token() const {
+    CMUX_REMOTE_ASSERT_MAIN();
+    return last_reply_token_;
+  }
+
   bool HostHasExport(const char* name) const {
     CMUX_REMOTE_ASSERT_MAIN();
     return name != nullptr && host_exports_.count(name) > 0;
@@ -253,13 +266,21 @@ class Runtime {
   bool PostForReply(uint16_t op, uint32_t token, const TlvWriter& args) {
     CMUX_REMOTE_ASSERT_MAIN();
     awaiting_.insert(token);  // an op that is not sent drops it again (Dropped, Refused)
-    return Post(op, token, args);
+    const bool sent = Post(op, token, args);
+    last_reply_token_ = sent ? token : 0;
+    return sent;
   }
 
   int32_t PostPreinit(uint16_t op, uint32_t token, const TlvWriter& args) {
     CMUX_REMOTE_ASSERT_MAIN();
-    if (!PreinitAccepted(op, args)) return 0;
-    if (token != 0) awaiting_.insert(token);
+    if (!PreinitAccepted(op, args)) {
+      if (token != 0) last_reply_token_ = 0;
+      return 0;
+    }
+    if (token != 0) {
+      awaiting_.insert(token);
+      last_reply_token_ = token;
+    }
     Replay& entry = Record(MakeMessage(op, token, args.fields()));
     if (link_ != Link::kAttached) return 1;  // the next attach sends it
     Message message = entry.message;
@@ -547,8 +568,8 @@ class Runtime {
         std::string fields;
         if (awaiting_.erase(message.token) == 0) return false;  // a reply to no request
         if (!cmux_host::control::EncodeFields(message.fields, &fields)) return false;
-        if (callbacks_.reply) {
-          callbacks_.reply(callbacks_.ctx, message.token, fields.data(), fields.size());
+        if (reply_) {
+          reply_(reply_ctx_, message.token, fields.data(), fields.size());
         } else {
           ++stats_.replies_unhandled;
         }
@@ -570,6 +591,9 @@ class Runtime {
   }
 
   cmux_remote_shim_callbacks callbacks_ = {};
+  // Where REPLY frames go: the configured callback, or cmux_remote_shim_set_reply's.
+  cmux_remote_reply_fn reply_ = nullptr;
+  void* reply_ctx_ = nullptr;
   Link link_ = Link::kNotYet;
   std::unique_ptr<Channel> channel_;
   // Closed channels whose reader has not reported its end yet, by generation.
@@ -599,6 +623,8 @@ class Runtime {
 #endif
   uint64_t next_view_token_ = 1;
   uint32_t token_ = 0;
+  // The token of the latest PostForReply or answered PostPreinit (0: that call sent nothing).
+  uint32_t last_reply_token_ = 0;
   int32_t next_browser_id_ = kFirstMintedBrowserID;
   int32_t next_devtools_id_ = kFirstMintedDevToolsID;
   cmux_remote_shim_stats stats_ = {};
@@ -688,6 +714,14 @@ int cmux_remote_shim_host_has_export(const char* name) {
 
 void cmux_remote_shim_get_stats(cmux_remote_shim_stats* out) {
   if (out != nullptr) R().GetStats(out);
+}
+
+uint32_t cmux_remote_shim_last_reply_token(void) {
+  return R().last_reply_token();
+}
+
+void cmux_remote_shim_set_reply(void* ctx, cmux_remote_reply_fn reply) {
+  R().SetReply(ctx, reply);
 }
 
 // --- local exports (chromium-host-ops.json class local) --------------------------------------

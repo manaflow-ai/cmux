@@ -17,6 +17,9 @@ final class CEFPaneHost {
 
     enum WindowState: Equatable {
         case none
+        /// Host mode: the first tab waits for the host's verdict on its profile's proxy before the window
+        /// is asked for (`awaitProfileProxy`); later tabs join the wait as they join `creating`.
+        case awaitingProfileProxy
         case creating(request: Int32)
         case live(window: Int32)
     }
@@ -87,8 +90,10 @@ final class CEFPaneHost {
     }
 
     var isCreatingWindow: Bool {
-        if case .creating = window { return true }
-        return false
+        switch window {
+        case .creating, .awaitingProfileProxy: true
+        case .none, .live: false
+        }
     }
 
     var isLive: Bool {
@@ -212,6 +217,19 @@ final class CEFPaneHost {
         guard tab.browserID == nil, tab.isCreationPending == false, runtime.acceptsNewBrowsers, let shim = runtime.shim else { return false }
         switch window {
         case .none:
+            // A browser profile's own proxy (#24432), before the first request:
+            // a page the shim cannot proxy never opens (fail closed).
+            if tab.machineStore == nil, !key.offTheRecord, key.machineKey == nil {
+                switch runtime.applyProfileProxy(key.profile) {
+                case .open: break
+                case .refused:
+                    tab.creationFailed()
+                    return false
+                case .waiting:
+                    awaitProfileProxy(first: tab)
+                    return false
+                }
+            }
             let request = runtime.makeRequestToken()
             let size = Self.creationSize(for: hostView.bounds.size)
             // A host no pane has laid out (a background tab an agent drives, a
@@ -232,12 +250,6 @@ final class CEFPaneHost {
             if let store = tab.machineStore,
                shim.setContextProxy(contextKey, Int32(store.proxyPort)) != 1
                 || shim.contextProxyState(contextKey) < 0 {
-                tab.creationFailed()
-                return false
-            }
-            // A browser profile's own proxy (#24432), also before the first
-            // request: a page the shim cannot proxy never opens (fail closed).
-            if tab.machineStore == nil, !key.offTheRecord, key.machineKey == nil, !runtime.applyProfileProxy(key.profile) {
                 tab.creationFailed()
                 return false
             }
@@ -278,8 +290,8 @@ final class CEFPaneHost {
                 runtime.spareWindow.noteWindowBuilt(for: key)
             }
             return false
-        case .creating:
-            // Joins the window once it exists (windowCreated).
+        case .awaitingProfileProxy, .creating:
+            // Joins the window once it exists (windowCreated), or the proxy wait (awaitProfileProxy).
             tab.isCreationPending = true
             return false
         case .live:
@@ -371,7 +383,8 @@ final class CEFPaneHost {
         endOfTurn { [weak self] in self?.recreateWindow(for: waiting) }
     }
 
-    private func recreateWindow(for waiting: [CEFTab]) {
+    /// Asks for a window for `waiting`, the shown tab first (after a late window or a proxy verdict).
+    func recreateWindow(for waiting: [CEFTab]) {
         let open = waiting.filter { tab in !tab.isClosed && tabs.contains(where: { $0 === tab }) }
         // The first creates the window; the rest join it when it comes up (`windowCreated`). A
         // window that came up since (a tab shown meanwhile) takes them now, as `createDeferred` does.
