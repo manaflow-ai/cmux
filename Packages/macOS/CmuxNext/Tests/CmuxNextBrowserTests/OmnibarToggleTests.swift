@@ -22,17 +22,17 @@ import CmuxNextWakeups
     @Test func toggleOmnibarHidesAndShowsTheToolbarRow() {
         let chrome = Self.chrome()
         #expect(!chrome.isOmnibarHidden)
-        #expect(chrome.toolbarHeight.constant > 0)
+        #expect(chrome.toolbarRowHeight > 0)
 
         chrome.toggleOmnibar()
         #expect(chrome.isOmnibarHidden)
         #expect(chrome.isToolbarHidden)
-        #expect(chrome.toolbarHeight.constant == 0, "the toolbar row still takes space")
+        #expect(chrome.toolbarRowHeight == 0, "the toolbar row still takes space")
 
         chrome.toggleOmnibar()
         #expect(!chrome.isOmnibarHidden)
         #expect(!chrome.isToolbarHidden)
-        #expect(chrome.toolbarHeight.constant > 0)
+        #expect(chrome.toolbarRowHeight > 0)
     }
 
     @Test func aHiddenOmnibarStaysHiddenWhenThePageRendersAgain() async {

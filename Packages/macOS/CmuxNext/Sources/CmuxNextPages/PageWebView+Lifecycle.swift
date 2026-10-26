@@ -1,5 +1,11 @@
 import CmuxNextDesign
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 public import WebKit
+
+/// One caller of ``PageWebView/waitUntilLoaded()``: ``PageWebView/resumeLoadWaiters()`` resumes it once.
+typealias PageLoadWaiter = OnceContinuation<Void, OnceContinuationError>
 
 /// What the page lifecycle froze a page in (``PageWebView/freezePage()``).
 enum PageFrozenEngine {
@@ -54,7 +60,8 @@ extension PageWebView {
     /// thaws first too). Chromium: the page thaws, and is shown only after. WebKit: the view is
     /// shown in its window again with the hidden-page throttling it had before the freeze, so a page
     /// the lifecycle keeps running while hidden is throttled no more than WebKit's own default.
-    /// Then the providers hear the thaw (``PageRouter/pageDidThaw()``). Does nothing on a running page.
+    /// Then the pushes held while it was frozen run (``PageNativePushes/thawed()``) and the providers
+    /// hear the thaw (``PageRouter/pageDidThaw()``). Does nothing on a running page.
     func thawPage() {
         guard let engine = frozenEngine else { return }
         frozenEngine = nil
@@ -63,12 +70,12 @@ extension PageWebView {
         defer { router.pageDidThaw() }
         switch engine {
         case .chromium(let identity):
-            guard let page = chromiumSession?.page, ObjectIdentifier(page) == identity else { return }
-            page.setFrozen(false)
+            if let page = chromiumSession?.page, ObjectIdentifier(page) == identity { page.setFrozen(false) }
         case .webKit(let restoring):
             if let restoring { webView.configuration.preferences.setHiddenPageThrottling(restoring) }
             if chromiumSession == nil { webView.isHidden = false }
         }
+        pushes.thawed()
     }
 
     /// The frozen Chromium page ended and the page reopens in WebKit (``fallBackToWebKit(_:detail:)``):
@@ -81,24 +88,40 @@ extension PageWebView {
         if !freezePage() { router.pageDidThaw() }
     }
 
-    /// The tab closed: cancels subscriptions and stops the bridge.
+    /// The tab closed: cancels subscriptions, stops the bridge and ends the engine page.
     public func close() {
+        closeRoutes()
+        closeEngine()
+    }
+
+    /// The first half of ``close()``, which ``WebUIHost/close(_:)`` runs in the close's turn: the routes,
+    /// subscriptions, pending calls and bridge end, so nothing serves a page no tab shows. It asks the
+    /// engine page nothing.
+    func closeRoutes() {
         _ = claimState.end()
         firstShowStart = nil // a page closed before it showed never starts
         firstShowWatch = nil
-        router.close()
+        router.end()
         webKitPieces?.bridge.uninstall()
-        endChromium()
-        chromiumRecovery = nil
         userContent.removeScriptMessageHandler(forName: PagePaintProbe.handlerName, contentWorld: .page)
         resumeLoadWaiters()
         traceOpenEnd(.closedBeforePaint)
     }
 
+    /// The second half of ``close()``: the Chromium page ends (a WebKit page has no engine page to end; its
+    /// view goes with its last owner). ``WebUIHost/close(_:)`` runs it at its retirer's deadline.
+    func closeEngine() {
+        endChromium()
+        chromiumRecovery = nil
+        #if DEBUG || CMUX_BENCH_HOOKS
+        censusState.engineClosed?()
+        #endif
+    }
+
     /// Waits for the current document to finish loading or fail, and for a pending claim to be acknowledged (or its fallback reload to finish).
     public func waitUntilLoaded() async {
         guard !loaded || claimState.pending else { return }
-        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+        try? await withOnceContinuation { (continuation: PageLoadWaiter) in
             loadWaiters.append(continuation)
         }
     }
@@ -106,7 +129,7 @@ extension PageWebView {
     func resumeLoadWaiters() {
         let waiters = loadWaiters
         loadWaiters.removeAll()
-        for waiter in waiters { waiter.resume() }
+        for waiter in waiters { waiter.resume(returning: ()) }
     }
 
     // crash-allow: WebKit delegate signature uses nullable navigation handles.
@@ -126,8 +149,10 @@ extension PageWebView {
     }
 
     /// The page's web content process ended (either engine): ``PageCrashRecovery`` reloads it now,
-    /// when it shows, or not at all once it keeps crashing.
+    /// when it shows, or not at all once it keeps crashing. A closed page waiting for its engine close
+    /// (``WebUIHost/close(_:)``) never reloads.
     func contentProcessTerminated() {
+        guard !router.isEnded else { return }
         crash.crashed(self)
     }
 

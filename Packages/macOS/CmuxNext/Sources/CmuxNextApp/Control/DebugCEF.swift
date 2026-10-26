@@ -14,8 +14,9 @@ import Darwin
 /// fallbacks so far, where Chromium's browser process runs (`backend`:
 /// `inProcess` or `host`), what the fork's page tracker read from host views
 /// (`tracker`; in host mode only `tracker.hosted_pages`) and, in process only,
-/// the external pump's counters (`pump`) and the page windows over each
-/// DevTools tab (`devtools[].child_windows`).
+/// the external pump's counters (`pump`), the page windows over each
+/// DevTools tab (`devtools[].child_windows`) and what swipe gestures asked
+/// of their pages (`swipe`: page probes, wheel acks).
 /// Helper processes are separate; measure them with `ps`.
 @MainActor
 enum DebugCEF {
@@ -59,6 +60,13 @@ enum DebugCEF {
         // Host mode with feature chromiumHostWidgets (p01-process-066): null without a widget host.
         object["host_widgets"] = services.cache.cef.hostWidgets.map { .array($0.map(hostWidget)) } ?? .null
         object["host_resize"] = services.cache.cef.hostResizeCounters.map { counters in .object(counters.mapValues { value in .number(value) }) } ?? .null
+        // Swipes over Chromium pages (p01-process-234): a hosted page on a host that acks wheels probes nothing.
+        let swipe = services.cache.cef.swipeStats
+        object["swipe"] = .object([
+            "gestures": .number(Double(swipe.gestures)), "probes": .number(Double(swipe.probes)),
+            "acks": .number(Double(swipe.acks)), "swipes": .number(Double(swipe.swipes)),
+            "host_acks_wheels": .bool(swipe.hostAcksWheels),
+        ])
         if let duration = report.loadDuration { object["load_ms"] = .number(milliseconds(duration)) }
         if let duration = report.initializeDuration { object["initialize_ms"] = .number(milliseconds(duration)) }
         if let seconds = report.readyAfterLaunch { object["ready_after_launch_s"] = .number(seconds) }

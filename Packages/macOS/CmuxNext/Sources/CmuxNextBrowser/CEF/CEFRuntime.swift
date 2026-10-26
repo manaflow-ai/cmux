@@ -5,6 +5,8 @@ import CmuxNextInput
 import CmuxNextWakeups
 import Foundation
 import os
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
 
 /// The process-wide embedded Chromium. `CefInitialize` may run only once per
 /// process and cannot run again after `CefShutdown`, so this is one of the
@@ -27,9 +29,9 @@ final class CEFRuntime {
     /// The app's crash keys, which name Chromium's state (``attachCrashKeys(_:)``); nil names nothing.
     var crashKeys: CrashKeySlots?
     var shim: CEFShimLibrary?
-    /// `CMUX_CEF_DEFER_EVENTS=1` in process (``CEFDeferredEvents``), from the environment `start` is
-    /// given; nil runs each event in the shim's call.
+    /// `CMUX_CEF_DEFER_EVENTS=1` in process (``CEFDeferredEvents``, from `start`'s environment); nil runs each event in the shim's call.
     private(set) var deferredEvents: CEFDeferredEvents?
+    let mergedEvents = CEFMergedEvents<CEFTab>.tabs() // tabs' high-rate events merged per frame (feature `cefMergedEvents`)
     private(set) var layout: CEFRuntimeLayout?
     private(set) var storage = CEFProfileStorage.forApplication(bundleIdentifier: Bundle.main.bundleIdentifier)
     /// The in-process backend's external message pump, made by the in-process initialize only. Nil before
@@ -137,7 +139,7 @@ final class CEFRuntime {
     /// Host mode: each profile proxy's verdict from the host (``applyProfileProxy(_:)``).
     var profileProxyChecks: [BrowserProfileID: CEFProfileProxyCheck] = [:]
     var shutdownSequence: CEFShutdownSequence?
-    var shutdownWaiter: CheckedContinuation<Void, Never>?
+    var shutdownWaiter: OnceContinuation<Void, OnceContinuationError>?
     var shutdownTimeout: AlignedWakeups.Ticket?  // quit's bound on the wait for Chromium's windows, on `wakeUps`
     let crashLog = BrowserCrashLog()  // recent renderer and helper process failures (`debug.crashes`)
     var helperExits = CEFHelperExitMetric()  // where `cef.helper_exit` samples go (a test sets its own store)

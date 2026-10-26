@@ -192,7 +192,7 @@ import Testing
 
 /// Hands out the spy's wire on each request and reports host ends through ``onHostEnded``, which the
 /// runtime sets.
-@MainActor private final class ReportingHost: ChromiumHostExitReporting {
+@MainActor private final class ReportingHost: @MainActor ChromiumHostExitReporting {
     var onHostEnded: (@MainActor (BrowserProcessExit) -> Void)?
     private(set) var asked = 0
     private let controlFD: Int32

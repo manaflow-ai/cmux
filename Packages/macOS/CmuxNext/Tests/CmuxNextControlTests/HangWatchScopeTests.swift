@@ -104,8 +104,8 @@ import Testing
         defer { watchdog.stop() }
         try await Task.sleep(for: .milliseconds(200)) // the attach's own wake
         let before = watchdog.watchdogWakes.load(ordering: .relaxed)
-        // Five idle seconds are the scenario under test.
-        try await Task.sleep(for: .seconds(5))
+        // Ten idle seconds are the scenario under test (p09-observability-067: 0 wakes over 10 s idle).
+        try await Task.sleep(for: .seconds(10))
         #expect(watchdog.watchdogWakes.load(ordering: .relaxed) == before)
     }
 

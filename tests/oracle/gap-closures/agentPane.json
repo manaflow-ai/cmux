@@ -1,0 +1,13 @@
+{
+ "_doc": "Gap closures of the agentPane fixture family (scripts/cmux-next/oracle/action_fixtures/agent_pane.py, p15-oracle-085). `closed`: ids that leave every-action-gaps.json `gaps` (p15-oracle-087 applies this file), each with why. action_fixtures.load_families refuses a `closed` that is not the family's CLOSES. The chat is focused only by the sweep's show('chat') (tab.focus); Sweep.described reads action.describe until the facts are published and records the wait as the row's context_wait_ms, so a chat tab.focus never focuses stays an `unavailable here` gap and a late publish is listed in every-action.md.",
+ "family": "agentPane",
+ "task": "p15-oracle-085",
+ "closed": {
+  "agentPane.archiveChat": "show('chat') focuses the mock chat; Sweep.described waits for agentPaneFocused (context_wait_ms); the handler archives the focused mock chat",
+  "agentPane.createCheckpoint": "show('chat') focuses the mock chat; the checkpointCaptureAvailable fixture waits for the page's checkpoint support, which the mock daemon reports (checkpoints/mock.ts serves git.capabilities and git.checkpoint.*); the handler opens the checkpoint review",
+  "agentPane.git.commit": "show('chat') focuses the mock chat; Sweep.described waits for agentPaneFocused (context_wait_ms); the handler opens the changes view's commit form on the mock chat's repository (mockGit.ts)",
+  "agentPane.permission.allowChat": "show('chat') focuses the mock chat; Sweep.described waits for agentPaneFocused (context_wait_ms); the handler sends the page's permission command",
+  "agentPane.permission.refresh": "show('chat') focuses the mock chat; Sweep.described waits for agentPaneFocused (context_wait_ms); the handler sends the page's permission command",
+  "agentPane.previousTurn": "show('chat') focuses the mock chat; Sweep.described waits for agentPaneFocused (context_wait_ms); the handler steps the mock chat's transcript"
+ }
+}

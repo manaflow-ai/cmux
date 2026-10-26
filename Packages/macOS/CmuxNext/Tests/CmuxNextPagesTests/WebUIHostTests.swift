@@ -50,9 +50,12 @@ struct WebUIHostTests {
         await view.chromiumStart?.value
         let page = try #require(hosting.made.first)
         host.close(view)
-        #expect(page.closed)
+        // The lists drop it in the close's turn; the engine page ends at the retirer's deadline.
+        #expect(!page.closed)
         #expect(host.openPages.isEmpty)
         #expect(host.registry.pages().isEmpty)
+        host.retirer.closeRetired()
+        #expect(page.closed)
         // A second close (a provider and the tab store both closing) changes nothing.
         host.close(view)
         #expect(host.openPages.isEmpty)

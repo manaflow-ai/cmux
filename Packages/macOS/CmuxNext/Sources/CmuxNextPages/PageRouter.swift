@@ -1,5 +1,7 @@
 package import CmuxNextHibernation
 public import CmuxNextSettings
+import class CmuxSafeConcurrency.OnceContinuation
+import func CmuxSafeConcurrency.withOnceThrowingContinuation
 public import Foundation
 
 /// The host half of a page's bridge, engine neutral: it reads pane-protocol envelopes
@@ -30,7 +32,7 @@ public final class PageRouter {
     var sequences: [UInt64: UInt64] = [:]
     private var nextSubscription: UInt64 = 1
     private var nextCall: UInt64 = 1
-    private var pendingCalls: [UInt64: CheckedContinuation<JSONValue, any Error>] = [:]
+    private var pendingCalls: [UInt64: OnceContinuation<JSONValue, any Error>] = [:]
     /// Page calls still running, by page call id: cancelled by the page's `cancel` envelope, by
     /// navigation (`reset`) and by tab close (`close`) (app-op-routing.md "Op cancel").
     private var inFlight: [UInt64: PageCallInFlight] = [:]
@@ -200,7 +202,7 @@ public final class PageRouter {
         let call = PageCallInFlight(op: op)
         inFlight[id] = call
         defer { if inFlight[id] === call { inFlight[id] = nil } }
-        return try await withCheckedThrowingContinuation { continuation in
+        return try await withOnceThrowingContinuation { (continuation: OnceContinuation<JSONValue, any Error>) in
             call.start(continuation, work)
         }
     }
@@ -346,7 +348,7 @@ public final class PageRouter {
         let id = nextCall
         nextCall += 1
         lifecycle?.thawForDelivery()
-        return try await withCheckedThrowingContinuation { continuation in
+        return try await withOnceThrowingContinuation { (continuation: OnceContinuation<JSONValue, any Error>) in
             pendingCalls[id] = continuation
             started(id)
             send(["t": "call", "id": .number(Double(id)), "op": .string(op), "params": params])
@@ -385,13 +387,23 @@ public final class PageRouter {
     }
 
     /// Reopens for a new document of the same page (a reload, a crash reload, a commit): it starts
-    /// with no subscriptions. The providers' freeze state stays: it follows the engine's
-    /// (``PageWebView/freezePage()``), not the document's, so the streams of a frozen page's new
-    /// document start paused and resync on the thaw. The hold stays too: a hidden page that reloads
-    /// is still hidden.
+    /// with no subscriptions; an ended router (``end()``) stays closed. The providers' freeze state
+    /// stays: it follows the engine's (``PageWebView/freezePage()``), not the document's, so the
+    /// streams of a frozen page's new document start paused and resync on the thaw. The hold stays
+    /// too: a hidden page that reloads is still hidden.
     public func reset() {
         endDocument()
-        closed = false
+        closed = isEnded
+    }
+
+    /// ``end()`` ran: the page closed for good.
+    public private(set) var isEnded = false
+
+    /// The page closed for good (its tab closed): as ``close()``, and no later ``reset()`` reopens it, so a
+    /// commit, crash or browser end its engine page reports before that page ends serves nothing.
+    public func end() {
+        isEnded = true
+        close()
     }
 
     /// Ends the current document: its subscriptions, held events and calls.

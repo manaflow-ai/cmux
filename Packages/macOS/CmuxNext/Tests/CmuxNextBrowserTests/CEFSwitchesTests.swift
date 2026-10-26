@@ -64,7 +64,7 @@ import Testing
 /// names them. `TimerSlackMac` stays the default-off feature `cefTimerSlack`.
 @Suite struct CEFSwitchesWakeUpAlignmentTests {
     /// Every fork API from stock CEF past the newest the app knows today.
-    static let forkAPIs = Array(Int32(0)...40)
+    nonisolated static let forkAPIs = Array(Int32(0)...40)
 
     static func arguments(forkAPIVersion: Int32, chromiumFeatures: [String] = [],
                           bundle: String = "com.cmuxterm.app.next") -> [String] {

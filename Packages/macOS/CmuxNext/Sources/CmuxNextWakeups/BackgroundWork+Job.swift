@@ -2,6 +2,8 @@
 // conformance publicly (as CmuxNextTrace's TraceRuntime).
 public import Atomics
 public import CmuxNextCompat
+import class CmuxSafeConcurrency.OnceContinuation
+import func CmuxSafeConcurrency.withOnceThrowingContinuation
 
 /// What one run of a yieldable job's body did (``BackgroundWork/job(_:shutdown:state:fileID:line:_:)``).
 public enum JobStep<T: Sendable>: Sendable {
@@ -100,7 +102,7 @@ extension BackgroundWork {
         let delegate = JobDelegate()
         let scheduler = lanes[BlockingLane.cpu.rawValue]
         return try await withTaskCancellationHandler {
-            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<T, any Error>) in
+            try await withOnceThrowingContinuation { (continuation: OnceContinuation<T, any Error>) in
                 let job = YieldableJob(id: id, priority: max(priority, WorkPriority(Task.currentPriority)), shutdown: shutdown,
                                        site: CallSite(fileID: fileID, line: line), delegate: delegate, body: body,
                                        continuation: continuation)
@@ -121,7 +123,7 @@ extension BackgroundWork {
         let site: CallSite
         let delegate: JobDelegate
         let body: @Sendable (inout State, JobDelegate) throws -> JobStep<T>
-        let continuation: CheckedContinuation<T, any Error>
+        let continuation: OnceContinuation<T, any Error>
     }
 
     /// Queues the next run of `job` from `state`: the first at submit, a later one from the lane thread of the run
@@ -131,7 +133,8 @@ extension BackgroundWork {
         guard let item = makeJob(id: job.id, lane: .cpu, shutdown: job.shutdown, site: job.site,
                                  work: { [self] in runOnce(job, from: state) },
                                  abandoned: { job.continuation.resume(throwing: CancellationError()) }) else {
-            return job.continuation.resume(throwing: CancellationError())
+            job.continuation.resume(throwing: CancellationError())
+            return
         }
         let delegate = job.delegate
         let result = first

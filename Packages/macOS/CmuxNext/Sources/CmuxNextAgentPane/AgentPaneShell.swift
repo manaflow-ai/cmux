@@ -1,5 +1,8 @@
 import CmuxNextCompat
 import CmuxNextWakeups
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 import Darwin
 public import Foundation
 
@@ -59,7 +62,7 @@ public final class AgentPaneShell {
         var exit: Exit?
         var outputClosed = false
         var stopping = false
-        var waiters: [UUID: CheckedContinuation<Void, Never>] = [:]
+        var waiters: [UUID: OnceContinuation<Void, OnceContinuationError>] = [:]
         let escalation = DemandTimer(owner: "agent-pane.shell.stop")
         let drain = DemandTimer(owner: "agent-pane.shell.drain")
         var stopReading: (() -> Void)?
@@ -73,7 +76,7 @@ public final class AgentPaneShell {
         func wake() {
             let waiting = waiters.values
             waiters.removeAll()
-            for waiter in waiting { waiter.resume() }
+            for waiter in waiting { waiter.resume(returning: ()) }
         }
     }
 
@@ -190,10 +193,11 @@ public final class AgentPaneShell {
         if !run.hasNews(after: after) {
             let token = UUID()
             let deadline = DemandTimer(owner: "agent-pane.shell.read")
-            await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            // Abandoned (the run dropped its waiters) ends the wait as the deadline does: the chunk says what came.
+            try? await withOnceContinuation { (continuation: OnceContinuation<Void, OnceContinuationError>) in
                 run.waiters[token] = continuation
                 deadline.scheduleOnMain(after: Self.readWait) { [weak run] in
-                    run?.waiters.removeValue(forKey: token)?.resume()
+                    run?.waiters.removeValue(forKey: token)?.resume(returning: ())
                 }
             }
             deadline.cancel()

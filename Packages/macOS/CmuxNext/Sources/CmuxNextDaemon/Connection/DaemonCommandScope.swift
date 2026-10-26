@@ -2,6 +2,9 @@ import CryptoKit
 public import Foundation
 import CmuxNextCompat
 public import CmuxNextWakeups
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 
 /// Everything one app action sent to its daemons (plans/cmux-next/state-ownership.md 4).
 ///
@@ -62,7 +65,7 @@ public final class DaemonCommandScope: Sendable {
         var created: [DaemonCreatedObject] = []
         var barriers: [String: UInt64] = [:]
         var closed = false
-        var idleWaiters: [CheckedContinuation<Void, Never>] = []
+        var idleWaiters: [OnceContinuation<Void, OnceContinuationError>] = []
         /// What the run did and when (`stageLog`): the first 16 entries and
         /// the last 32 (`appendKeepingHead`).
         var stages: [String] = []
@@ -191,7 +194,7 @@ public final class DaemonCommandScope: Sendable {
     public func end(_ ticket: Ticket?, failure: Failure? = nil, label: String? = nil) {
         guard let ticket else { return }
         let entry = stamped("close#\(ticket.id)" + (label.map { " " + $0 } ?? ""))
-        let waiters = state.withLock { state -> [CheckedContinuation<Void, Never>] in
+        let waiters = state.withLock { state -> [OnceContinuation<Void, OnceContinuationError>] in
             guard state.open.remove(ticket.id) != nil else { return [] }
             state.stages.appendKeepingHead(entry)
             if let failure { state.failures.append(failure) }
@@ -199,7 +202,7 @@ public final class DaemonCommandScope: Sendable {
             defer { state.idleWaiters.removeAll() }
             return state.idleWaiters
         }
-        for waiter in waiters { waiter.resume() }
+        for waiter in waiters { waiter.resume(returning: ()) }
     }
 
     /// Records that `machine`'s events up to `sequence` cover a command's echo.
@@ -226,15 +229,15 @@ public final class DaemonCommandScope: Sendable {
     /// Returns once no ticket is open (at once when none is). A caller that
     /// must know no command follows re-checks ``isIdle`` on the actor the
     /// commands start from, because a task may open its next ticket right
-    /// after closing one.
+    /// after closing one. A waiter dropped unresumed returns too: the caller re-checks either way.
     public func waitUntilIdle() async {
-        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+        _ = try? await withOnceContinuation { (continuation: OnceContinuation<Void, OnceContinuationError>) in
             let idle = state.withLock { state -> Bool in
                 if state.open.isEmpty { return true }
                 state.idleWaiters.append(continuation)
                 return false
             }
-            if idle { continuation.resume() }
+            if idle { continuation.resume(returning: ()) }
         }
     }
 

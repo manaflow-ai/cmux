@@ -2,6 +2,9 @@ import Darwin
 import CmuxNextCompat
 import Foundation
 import CmuxNextWakeups
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 
 /// `libcmux_cef_shim_remote.dylib` (task 014 of plans/cmux-next/chrome-parity/p01-process.md): the
 /// in-process shim's C ABI, each export a non-blocking op to the Chromium Host, plus its wire entry
@@ -150,7 +153,7 @@ private final class CEFRemoteHello {
     }
 
     private var result: Outcome?
-    private var waiter: CheckedContinuation<Outcome, Never>?
+    private var waiter: OnceContinuation<Outcome, OnceContinuationError>?
 
     /// Records `outcome` unless one is already in; false when one was (a hello after the deadline).
     @discardableResult
@@ -164,7 +167,11 @@ private final class CEFRemoteHello {
 
     func outcome() async -> Outcome {
         if let result { return result }
-        return await withCheckedContinuation { waiter = $0 }
+        // A waiter dropped unresumed (abandoned) ends the attach.
+        let outcome = try? await withOnceContinuation { (continuation: OnceContinuation<Outcome, OnceContinuationError>) in
+            waiter = continuation
+        }
+        return outcome ?? .ended
     }
 
     /// C entry for the host's hello: runs once per accepted attach, on the main thread, and

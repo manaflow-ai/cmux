@@ -154,6 +154,7 @@ void PostToMain(std::function<void()> task) {
 struct ForkInputCalls {
   cmux_host::PostTaskFn post_user_input_task = nullptr;  // API 30
   cmux_host::SetEventTimeFn set_input_event_time = nullptr;  // a fork item after API 31
+  cmux_host::SetWheelAckHandlerFn set_wheel_ack_handler = nullptr;  // a fork item after API 31 (host_wheel_ack.h)
 };
 
 // After cmux_shim_load. The CEF wrapper opened the framework RTLD_LOCAL, so
@@ -167,6 +168,8 @@ ForkInputCalls ResolveForkInputCalls(const std::string& framework_binary) {
       reinterpret_cast<cmux_host::PostTaskFn>(dlsym(image, "cmux_post_user_input_task"));
   calls.set_input_event_time =
       reinterpret_cast<cmux_host::SetEventTimeFn>(dlsym(image, "cmux_set_input_event_time"));
+  calls.set_wheel_ack_handler =
+      reinterpret_cast<cmux_host::SetWheelAckHandlerFn>(dlsym(image, "cmux_set_wheel_ack_handler"));
   return calls;
 }
 
@@ -222,6 +225,8 @@ void SendWheel(cmux_host::HostContext& host, cmux_host::WheelPixelCarry& carry, 
   const cmux_host::Wheel wheel = cmux_host::WheelOf(frame);
   if (cmux_shim_browser_send_wheel(browser_id, wheel.x, wheel.y, wheel.dx, wheel.dy, wheel.precise ? 1 : 0,
                                    wheel.phase, wheel.momentum_phase, wheel.modifiers)) {
+    // The fork's ack of this wheel goes back as WHEEL_ACK with its seq (task p01-process-234).
+    host.WheelSent(browser_id, frame.seq, wheel.momentum_phase != cmux_host::kWheelPhaseNone);
     return;
   }
   CefRefPtr<CefBrowser> browser = cmux_shim::BrowserById(browser_id);
@@ -495,6 +500,8 @@ int main(int argc, char* argv[]) {
         check(ordered.AddControl(std::move(messages)));
       },
       [&host_main](cmux_host::control::End) { host_main.Quit(); });
+  // Chromium's ack of each wheel goes to cmux's swipe navigation (WHEEL_ACK, task p01-process-234).
+  host.SetWheelAckHandler(fork_input.set_wheel_ack_handler);
   host.Attach();
 
   // Preinit ops apply as they arrive; INITIALIZE (or the channel's end) stops

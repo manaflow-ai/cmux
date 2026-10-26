@@ -1,5 +1,6 @@
 import CmuxNextCompat
 import CmuxNextDaemon
+import CmuxNextTrace
 import CmuxNextWakeups
 import Darwin
 import Foundation
@@ -69,9 +70,15 @@ final class ControlSocketPathWatch: Sendable {
         var backoff = Backoff(initial: .seconds(1), maximum: .seconds(60))
     }
 
-    init(path: String, queue: DispatchQueue, yieldsToHeldPath: Bool = false, onMissing: @escaping @Sendable () -> Bool) {
+    /// The hang-watched lane of `queue` (the server's `control.accept`): each job this watch runs there, a check
+    /// or a restore, is one scope of it. Nil watches nothing.
+    private let lane: HangWatchedLane?
+
+    init(path: String, queue: DispatchQueue, lane: HangWatchedLane? = nil, yieldsToHeldPath: Bool = false,
+         onMissing: @escaping @Sendable () -> Bool) {
         self.path = path
         self.queue = queue
+        self.lane = lane
         self.yieldsToHeldPath = yieldsToHeldPath
         self.onMissing = onMissing
     }
@@ -84,13 +91,21 @@ final class ControlSocketPathWatch: Sendable {
         stopped.store(false, ordering: .sequentiallyConsistent)
         queue.async { [weak self] in
             guard let self else { return }
-            self.watch()
-            // Gone before the watch existed: no event will say so.
-            var info = stat()
-            // SAFETY: lstat reads the NUL-terminated copy of the path made for the call and writes one struct stat into
-            // `info`, a local.
-            if unsafe lstat(self.path, &info) != 0, errno == ENOENT, self.checkPath() { self.watch() }
+            self.job {
+                self.watch()
+                // Gone before the watch existed: no event will say so.
+                var info = stat()
+                // SAFETY: lstat reads the NUL-terminated copy of the path made for the call and writes one struct stat into
+                // `info`, a local.
+                if unsafe lstat(self.path, &info) != 0, errno == ENOENT, self.checkPath() { self.watch() }
+            }
         }
+    }
+
+    /// One job on `queue`, in one scope of ``lane`` when there is one.
+    private func job(_ body: () -> Void) {
+        guard let lane else { return body() }
+        lane.run(body)
     }
 
     func stop() {
@@ -146,7 +161,10 @@ final class ControlSocketPathWatch: Sendable {
         let mask: DispatchSource.FileSystemEvent = followsEntry ? [.delete, .rename, .revoke] : [.write, .rename, .delete]
         let watch = DispatchSource.makeFileSystemObjectSource(fileDescriptor: descriptor, eventMask: mask, queue: queue)
         // wakeup-allow: kqueue event on the entry (or its directory), no timer; one lstat per event
-        watch.setEventHandler { [weak self] in self?.changed(followingEntry: followsEntry) }
+        watch.setEventHandler { [weak self] in
+            guard let self else { return }
+            self.job { self.changed(followingEntry: followsEntry) }
+        }
         watch.setCancelHandler { close(descriptor) }
         // Resumed before it is published (an inactive source must never be cancelled or
         // released); its events run on `queue`, after this install.
@@ -232,7 +250,7 @@ final class ControlSocketPathWatch: Sendable {
         let queue = self.queue
         retry.schedule(after: delay) { [weak self] in
             guard let self else { return }
-            queue.async { if self.checkPath(retrying: true) { self.watch() } }
+            queue.async { self.job { if self.checkPath(retrying: true) { self.watch() } } }
         }
         return false
     }

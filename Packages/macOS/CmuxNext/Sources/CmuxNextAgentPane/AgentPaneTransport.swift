@@ -1,6 +1,9 @@
 public import Foundation
 import os
 import CmuxNextCompat
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 
 /// The host side of the pane's acpmux connection (design B, localapp-isolation-spike.md): the
 /// host owns the WebSocket, puts the LocalApp token in the first frame, checks every page frame
@@ -262,11 +265,16 @@ import CmuxNextCompat
     }
 
     /// Sends the page's frames in order, after every earlier send. A refused frame is not sent; a
-    /// refused request is answered with a JSON-RPC error frame. Returns the first error, if any.
+    /// refused request is answered with a JSON-RPC error frame. Returns the first error, if any;
+    /// `closed` when the send line was dropped before it answered (the transport went away).
     @discardableResult
     public func send(connection id: Int, frames: [String]) async -> AgentPaneTransportError? {
-        await withCheckedContinuation { continuation in
-            submit(connection: id, frames: frames) { continuation.resume(returning: $0) }
+        do {
+            return try await withOnceContinuation { (continuation: OnceContinuation<AgentPaneTransportError?, OnceContinuationError>) in
+                submit(connection: id, frames: frames) { continuation.resume(returning: $0) }
+            }
+        } catch {
+            return .closed
         }
     }
 

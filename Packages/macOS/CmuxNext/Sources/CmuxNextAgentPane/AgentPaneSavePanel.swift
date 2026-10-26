@@ -1,4 +1,7 @@
 import AppKit
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 
 /// Owns the native save panel for one agent pane: the inspector's log and side panel documents.
 @MainActor
@@ -19,14 +22,15 @@ final class AgentPaneSavePanel {
         panel.canCreateDirectories = true
         panel.isExtensionHidden = false
         // A sheet on the pane's window, else a free panel: never a nested modal loop (p02-threads-132).
-        let response: NSApplication.ModalResponse = await withCheckedContinuation { continuation in
+        // A panel dropped without its handler (abandoned) chose nothing.
+        let chosen = (try? await withOnceContinuation { (continuation: OnceContinuation<Bool, OnceContinuationError>) in
             if let window {
-                panel.beginSheetModal(for: window) { continuation.resume(returning: $0) }
+                panel.beginSheetModal(for: window) { continuation.resume(returning: $0 == .OK) }
             } else {
-                panel.begin { continuation.resume(returning: $0) }
+                panel.begin { continuation.resume(returning: $0 == .OK) }
             }
-        }
-        guard response == .OK, let url = panel.url else { return false }
+        }) ?? false
+        guard chosen, let url = panel.url else { return false }
         try Data(save.text.utf8).write(to: url, options: .atomic)
         return true
     }

@@ -42,9 +42,9 @@ extension PageWebView {
     }
 
     /// Runs `script` in the page's main frame, in whichever engine shows it, after the scripts sent
-    /// before it. No result.
-    public func evaluate(_ script: String) {
-        evaluateInPage(script)
+    /// before it. No result. A frozen page thaws first, or holds the latest push of a kind (``PageFrozenPush``).
+    public func evaluate(_ script: String, whileFrozen push: PageFrozenPush = .thawsFirst) {
+        pushes.run(script, whileFrozen: push)
     }
 
     /// A picture of the page as it draws now, at the view's size in points; nil when there is none.

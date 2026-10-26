@@ -127,6 +127,50 @@ import Testing
         #expect(session.pausedNonvolatileIOSurfaceBytes == 0)
     }
 
+    /// A parked workspace's container (``ParkingContainer``): off screen while it stays in its window.
+    final class ParkingHost: NSView, ParkingContainer {
+        var isParkedOffScreen = false
+    }
+
+    /// p07-memory-078: a GPU-released terminal in a parked workspace gets no scale or display call from a
+    /// backing change (each wakes its parked renderer thread); shown again, it applies its display once.
+    @Test func aParkedReleasedTerminalSendsNoDisplayCallOnABackingChange() throws {
+        let drew = WindowDrawPolicy.drawsWhenOccluded
+        WindowDrawPolicy.drawsWhenOccluded = true
+        defer { WindowDrawPolicy.drawsWhenOccluded = drew }
+        _ = NSApplication.shared
+        GhosttyRuntime.startedForTests()
+        let residency = RecordingResidency()
+        let io = ScriptedTerminalIO()
+        let session = TerminalSession(io: io, mainWork: MainWorkScheduler(budget: MainFrameBudget()), gpuResidency: residency)
+        try #require(session.surfaceView.surface != nil, "libghostty created no surface")
+        session.releasesGPUWhilePaused = true
+        let parking = ParkingHost(frame: NSRect(x: 0, y: 0, width: 480, height: 240))
+        parking.isParkedOffScreen = true
+        session.view.frame = parking.bounds
+        parking.addSubview(session.view)
+        let window = NSWindow(contentRect: parking.frame, styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer {
+            io.finish()
+            window.close()
+        }
+        window.contentView = parking
+        let screen = try #require(window.screen?.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber,
+                                  "the window is on no screen")
+
+        session.surfaceView.viewDidChangeBackingProperties()
+        #expect(session.surfaceView.appliedDisplayID == nil, "a parked terminal got a display call")
+        #expect(residency.calls == [.init(resident: false, drawing: false)], "parked and away: \(residency.calls)")
+
+        // Shown: resident before it draws, and its display applied once.
+        session.releasesGPUWhilePaused = false
+        parking.isParkedOffScreen = false
+        parking.notifyParkingChange()
+        #expect(session.surfaceView.appliedDisplayID == screen.uint32Value, "the shown terminal has no display")
+        #expect(residency.calls.last == .init(resident: true, drawing: false), "shown: \(residency.calls)")
+    }
+
     /// Sends `replays` and waits (5 s at most) until the session swapped in a new surface.
     private func swap(_ session: TerminalSession, _ io: ScriptedTerminalIO, replays: [String]) async throws {
         let before = session.surfaceView
