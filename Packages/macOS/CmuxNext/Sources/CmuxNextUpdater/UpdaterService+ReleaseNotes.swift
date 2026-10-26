@@ -16,7 +16,31 @@ extension UpdaterService {
         return ReleaseNotesStore(feedURL: testFeedURL ?? identity.feed().url, cache: cache)
     }
 
-    /// The notes the changelog page lists: ``releaseNotes``, except that a DEV
+    /// Fetches the signed feature document beside ``releaseNotes`` (`notes/flags.json`)
+    /// and hands a verified copy to `receiver`, off the main actor; it applies at the
+    /// next launch (p12-perf-process-093). The App calls it once a launch, next to
+    /// ``start()``'s release-notes fetch. Kill switches must arrive with automatic
+    /// update checks off, so neither `updates.checkAutomatically` nor Sparkle gates
+    /// it; only ``FlagsFetchPolicy/key`` does. Nil without notes (no https feed).
+    @discardableResult
+    public func fetchFlagsDocument(into receiver: any FlagsDocumentReceiving,
+                                   policy: FlagsFetchPolicy? = nil,
+                                   fetcher: any ConditionalFetching = URLSessionConditionalFetcher()) -> Task<FlagsDocumentFetch.Outcome, Never>? {
+        guard let fetch = releaseNotes?.flagsDocument(fetcher: fetcher) else { return nil }
+        return Self.runFlagsFetch(fetch, into: receiver, policy: policy ?? .live(bundleIdentifier: identity.bundleIdentifier), log: log)
+    }
+
+    /// The fetch's task, started off the main actor: nothing in it touches the updater.
+    nonisolated static func runFlagsFetch(_ fetch: FlagsDocumentFetch, into receiver: any FlagsDocumentReceiving,
+                                          policy: FlagsFetchPolicy, log: UpdateLogBuffer) -> Task<FlagsDocumentFetch.Outcome, Never> {
+        Task {
+            let outcome = await fetch.run(into: receiver, policy: policy)
+            log.append("flags document: \(outcome.logText)")
+            return outcome
+        }
+    }
+
+    /// The notes the changelog page lists:``releaseNotes``, except that a DEV
     /// build (its bundle names the stable feed, or none, and the stable feed
     /// publishes no notes) lists the cmux-next nightly notes, built
     /// from the same branch: its page shows the newest real notes, not "No
