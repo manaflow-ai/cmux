@@ -84,6 +84,8 @@ public final class SidebarDocStore {
     @ObservationIgnored var requestedIconURLs: [String: String] = [:]
     /// The last projection (`projection(live:)`), with what it was built over.
     @ObservationIgnored var projectionCache: SidebarDocProjectionCache?
+    /// `projectionCache` as a memory consumer of the app's coordinator (`registerMemoryConsumer(with:)`).
+    @ObservationIgnored var projectionMemory: SidebarDocProjectionMemory?
     /// Changes whose outcome no reply told (all asks unanswered, or answered only after an ask went unanswered: the
     /// echo may have gone to a closed connection). They stay pending until the next document load, which says where
     /// the rows really are: the load drops them (cx-ml98q).
