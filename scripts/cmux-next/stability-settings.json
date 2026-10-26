@@ -21,6 +21,13 @@
       "target": "*",
       "setting": ".strictMemorySafety()",
       "reason": "Strict memory safety on for every Swift target of the closure, as a warning (Chromium docs/unsafe_buffers.md order: the check on everywhere, old sites marked; scripts/cmux-next/apply-unsafe-fixits.py applies the compiler's unsafe fix-its with a SAFETY-TODO(p10) mark, the Q04 queue). The error flip is p10-stability-079. Not covered by this row: Packages/Shared/CmuxAgentCursor (CmuxAgentCursor, CmuxAgentCursorTests), vendored verbatim from manaflow-ai/cmux-cua, so the lander skips it; p10-stability-078, which owns its unsafe sites, turns the setting on in cmux-cua's manifest and moves CMUX_CUA_PINNED_SHA (scripts/cmux_agent_cursor_vendor.py sync), and 079 waits on it."
+    },
+    {
+      "task": "p10-stability-079",
+      "package": "*",
+      "target": "*",
+      "setting": ".treatWarning(\"StrictMemorySafety\", as: .error)",
+      "reason": "The final flip (p10-stability.md C.2): StrictMemorySafety diagnostics become errors in every Swift target of the closure once the module tasks 063-078 have refactored every site or marked it unsafe with a SAFETY argument (Chromium docs/unsafe_buffers.md order: the check on everywhere as a warning, sites fixed or marked, then -Werror=unsafe-buffer-usage). Land the lander commit only at a tip where swift-diagnostics.sh --summary --group StrictMemorySafety shows 0, so a branch that compiled before the flip cannot land unmarked sites after it. Not covered: Packages/Shared/CmuxAgentCursor (vendored verbatim; p10-stability-078 sets both settings in cmux-cua and moves CMUX_CUA_PINNED_SHA)."
     }
   ]
 }
