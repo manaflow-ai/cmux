@@ -10,6 +10,8 @@ mod events;
 #[path = "requests/mailbox.rs"]
 mod mailbox;
 mod presets;
+#[path = "watches.rs"]
+mod watches;
 
 /// `_meta.acpmux.disallowedTools`: Claude Code built-in tools the new chat
 /// never gets (`acpmux new --worktree` sends `["AskUserQuestion"]`). Each is
@@ -794,6 +796,7 @@ async fn dispatch_request(
                 route,
                 subsession: None,
                 disallowed_tools,
+                checked_cwd: None,
             };
             let s = hub.new_session(req).await?;
             if let Some(tags) = meta.and_then(|m| m.get("tags")).and_then(Value::as_object)
@@ -982,6 +985,7 @@ async fn dispatch_request(
                 trust_gate: super::trust_gate::gated(conn.origin, &params),
                 steer_only: flag("steerOnly") == Some(true),
                 interrupt: steer && flag("interrupt") == Some(true),
+                steer_now: steer && flag("steerNow") == Some(true),
                 interrupt_turn: None,
                 provenance,
                 agent,
@@ -1007,6 +1011,7 @@ async fn dispatch_request(
                     })
                 },
                 full_access_device: super::remote_guard::full_access_device(hub, conn, &params),
+                no_queue: false,
             };
             let agent_message = opts.provenance.is_some() && !person_message;
             super::agent_messages::person_prompt(hub, conn, &s, agent_message).await;
@@ -1370,6 +1375,9 @@ async fn dispatch_request(
             Ok(super::session_files::describe(hub, &s))
         }
         method::MUX_WAIT => wait::wait(hub, &params).await,
+        method::MUX_WATCH_ADD | method::MUX_WATCH_LS | method::MUX_WATCH_RM => {
+            watches::handle(hub, conn, m, &params).await
+        }
         method::MUX_SCHEMA => {
             Ok(serde_json::from_str(crate::schema::SCHEMA).unwrap_or(Value::Null))
         }
@@ -1589,6 +1597,7 @@ async fn dispatch_request(
                 .ok_or_else(|| RpcError::invalid_params("permissionId is required"))?;
             let option = str_param(&params, "optionId").map(str::to_owned);
             let answers = params.get("answers").cloned();
+            let annotations = params.get("annotations").filter(|v| !v.is_null()).cloned();
             let answered_by = crate::hub::person::answered_by(&params)?;
             let control = super::remote_guard::control_of(conn.origin, conn.auth, &params);
             // Who answers, for the person rule under the prompt's lock
@@ -1598,8 +1607,17 @@ async fn dispatch_request(
             // Who answered, when a person other than the owner did (`author.rs`): a label only.
             let author = crate::author::author(&params)?;
             answerer.author = author.as_ref();
-            hub.respond_permission(&s, pid, option, answers, answered_by, answerer, control)
-                .await?;
+            hub.respond_permission_annotated(
+                &s,
+                pid,
+                option,
+                answers,
+                annotations,
+                answered_by,
+                answerer,
+                control,
+            )
+            .await?;
             Ok(json!({}))
         }
         method::MUX_SET_POLICY => {

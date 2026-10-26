@@ -12,6 +12,7 @@ mod aside;
 pub(crate) mod auto_resume;
 mod btw;
 mod exit_reason;
+pub(crate) mod subagent_retry;
 mod turn_errors;
 pub(crate) use btw::SIDE_TAG;
 pub(crate) use policy_mode::SetRequest;
@@ -85,7 +86,9 @@ mod stalled_turn;
 pub(crate) mod tasks;
 pub use session::{Session, live_tags};
 pub(super) use session::{newest_first, prompt_text, short_text};
+mod shell_readonly;
 mod shutdown;
+pub use shutdown::SHUTTING_DOWN;
 mod spawn;
 mod start_defaults;
 pub(crate) mod start_mode;
@@ -148,6 +151,8 @@ mod turn_usage;
 mod turns;
 pub(crate) mod views;
 mod warm;
+mod watch_events;
+pub(crate) mod watches;
 mod web_control;
 mod web_token;
 pub(crate) mod worktree_care;
@@ -278,6 +283,12 @@ pub struct PromptOptions {
     /// A steer (`_meta.acpmux.interrupt`) that an agent which cannot steer takes as "stop the
     /// running turn and run this next" instead of waiting behind the queue.
     pub interrupt: bool,
+    /// A steer read now (`_meta.acpmux.steerNow`): steered into the running turn, it stops the
+    /// agent's current step at once, as Send now does for a waiting steer (`queue_edit.rs`
+    /// `step_now`); the turn runs on. The Chief's tell (Lawrence, 2026-10-26: "interrupt by
+    /// default"). A running subagent or background shell is never stopped for it
+    /// (claude_stdio `steer_now_tests.rs`).
+    pub steer_now: bool,
     /// With `interrupt`, the turn it was aimed at: only that turn stops. A send-now whose turn
     /// ended before the agent took it still goes next, but a turn that began meanwhile (another
     /// agent's message) runs on (Leo, 2026-10-21: "that might have accidentally swallowed up a
@@ -301,6 +312,9 @@ pub struct PromptOptions {
     /// (`server/remote_guard.rs` `full_access_device`), read again at dispatch
     /// (`Hub::full_access_hold`).
     pub full_access_device: Option<String>,
+    /// A person's subagent retry (`subagent_retry_manual.rs`): refused with `retry.busy` where it
+    /// would wait (behind a turn, the queue, the turn lock or a run slot), never queued.
+    pub no_queue: bool,
 }
 
 /// The outcome of one client prompt id, shared with a resend of it.
@@ -446,6 +460,8 @@ pub struct Hub {
     pub(crate) open_waits: std::sync::atomic::AtomicUsize,
     /// Automatic continuations waiting to fire, by chat (`auto_resume.rs`).
     pub(super) auto_resumes: auto_resume::Pending,
+    /// Failed subagents waiting to be resumed, by chat (`subagent_retry.rs`).
+    pub(super) subagent_retries: subagent_retry::Retries,
     /// Fired by `set_transfer_lease`: each move's watch reads the new lease now.
     pub(super) transfer_lease_changed: Notify,
     /// Secrets agents asked the person for, and their one-use refs (`secrets.rs`).
@@ -455,6 +471,7 @@ pub struct Hub {
     /// Messages `send --no-wait` handed over, and forwarded prompts waiting for a peer's
     /// acceptance (`outbox.rs`).
     pub(crate) outbox: outbox::Outbox,
+    pub(crate) watches: watches::Watches,
     pub(crate) peer_accepts: outbox::PeerAccepts,
     /// Agent message pairs and their runaway guard (`agent_pairs.rs`).
     pub(super) agent_pairs: agent_pairs::AgentPairs,
@@ -550,10 +567,12 @@ impl Hub {
             subsession_runs: Default::default(),
             open_waits: Default::default(),
             auto_resumes: Default::default(),
+            subagent_retries: Default::default(),
             transfer_lease_changed: Notify::new(),
             secrets: Default::default(),
             trust_waits: Default::default(),
             outbox: Default::default(),
+            watches: Default::default(),
             peer_accepts: Default::default(),
             agent_pairs: Default::default(),
             pairing: Default::default(),
@@ -562,6 +581,7 @@ impl Hub {
         if let Ok(c) = hub.config.try_read() {
             hub.refresh_web_modes(&c);
         }
+        hub.recover_staged_replacements();
         hub.load_from_store(deferred);
         if !deferred {
             hub.load_logs();
@@ -680,8 +700,12 @@ impl Hub {
         // A turn whose agent host still runs is not lost: the host is adopted.
         let hosted = Self::live_host_sessions();
         self.mark_lost_waits(&waiting, &hosted);
-        self.mark_unknown_outcomes(&hosted);
+        let continued = self.mark_unknown_outcomes(&hosted);
         self.restore_queues();
+        // A cut turn goes on before what waited behind it (`restart_resume.rs`).
+        for (session, prompt_id) in continued {
+            let _ = self.move_queued(&session, &prompt_id, 0, None);
+        }
         // A watched chat goes on following its transcript where it stopped (`watch.rs`).
         if tokio::runtime::Handle::try_current().is_ok() {
             sessions.iter().for_each(|s| self.start_watch(s));
@@ -789,6 +813,7 @@ impl Hub {
             forum_retold: std::sync::Mutex::default(),
             forum_telling: std::sync::Mutex::default(),
             launched_with_tools: std::sync::atomic::AtomicU8::new(0),
+            launch_env: StdMutex::new(None),
             route_switch: AtomicBool::new(false),
             inbound_tx,
             inbound_rx: Mutex::new(Some(inbound_rx)),
@@ -801,6 +826,7 @@ impl Hub {
             purged: AtomicBool::new(false),
             replaced: AtomicBool::new(false),
             closing: AtomicBool::new(false),
+            stops: AtomicU64::new(0),
             state_seq: AtomicU64::new(0),
             attached: std::sync::atomic::AtomicUsize::new(0),
             hidden: std::sync::atomic::AtomicUsize::new(0),
@@ -820,6 +846,7 @@ impl Hub {
             web_control_ended: AtomicBool::new(false),
             floor: Default::default(),
             subagents: StdMutex::new(Default::default()),
+            harness_turn: AtomicBool::new(false),
             processes: StdMutex::new(Default::default()),
             pr_creates: StdMutex::new(Default::default()),
             composers: StdMutex::new(Default::default()),
@@ -1139,8 +1166,13 @@ impl Hub {
 
     /// After a restart: a turn that started but never settled gets a
     /// `turn_result failed outcome_unknown`, so nobody replays a prompt that
-    /// may have run to completion.
-    pub(super) fn mark_unknown_outcomes(&self, hosted: &std::collections::HashSet<String>) {
+    /// may have run to completion; its continuation is queued instead
+    /// (`restart_resume.rs`). Returns the chats and their continuations' prompt ids.
+    pub(super) fn mark_unknown_outcomes(
+        &self,
+        hosted: &std::collections::HashSet<String>,
+    ) -> Vec<(Arc<Session>, String)> {
+        let mut continued = Vec::new();
         for session in self.sessions() {
             // A watched chat's open turn is the other app's, and goes on (`watch.rs`).
             if hosted.contains(&session.id) || session.meta().watching.is_some() {
@@ -1167,11 +1199,17 @@ impl Hub {
                 continue;
             }
             if let Some((seq, turn_id)) = open {
+                if let Some(id) =
+                    turn_id.as_str().and_then(|t| self.log_restart_continuation(&session, t))
+                {
+                    continued.push((session.clone(), id));
+                }
                 let error = "the daemon restarted before this turn settled";
                 self.append_unknown_outcome(&session, json!({"status": "failed", "detail": "outcome_unknown", "turnSeq": seq, "turnId": turn_id, "error": error, "errorText": error}));
                 self.save_meta(&session);
             }
         }
+        continued
     }
 
     /// Saves the session's record; never a purged session's. A late save (a generated title after
@@ -1224,10 +1262,39 @@ impl Hub {
         std::thread::spawn(move || crate::agent::session_tmp::remove_all(&stale));
     }
 
+    /// Sets `session`'s status. A stopped (closed) session stays closed: only a close writes
+    /// Closed, and only [`Self::reopen`] leaves it. `acpmux session stop` cancels the turn and its
+    /// asks and closes the session while that turn's task, its asks and an agent start are still
+    /// ending; each of them read the session as open before it waited, and its write came after
+    /// the close: a stopped session listed as ready again (ergo-walk2, 2026-10-25: "session stop
+    /// says closed but acpmux ls still shows it ready"). The check and the write are one lock.
     pub(super) fn set_status(&self, session: &Session, status: SessionStatus) {
+        self.write_status(session, status, None);
+    }
+
+    /// A stopped session starts again, for a request that came after its last stop: `stops` is
+    /// [`Session::stops`] when the request came. Its status leaves Closed for Idle, logged
+    /// `reopened`. False when it was not closed, or was stopped again since: it stays closed.
+    pub(super) fn reopen(&self, session: &Session, stops: u64) -> bool {
+        let reopened = self.write_status(session, SessionStatus::Idle, Some(stops));
+        if reopened {
+            self.append(session, "mux", "reopened", json!({}));
+        }
+        reopened
+    }
+
+    /// `reopen` is the stop count a reopen is for ([`Self::reopen`]), checked under the meta lock,
+    /// which `kill`'s close takes after it counts the stop.
+    fn write_status(&self, session: &Session, status: SessionStatus, reopen: Option<u64>) -> bool {
         let (was, link) = {
             let mut m = session.meta.lock().unwrap();
             let was = m.status;
+            let reopens = reopen.is_some_and(|stops| session.stops.load(Ordering::SeqCst) == stops);
+            if (was == SessionStatus::Closed && status != SessionStatus::Closed && !reopens)
+                || (reopen.is_some() && was != SessionStatus::Closed)
+            {
+                return false;
+            }
             m.status = status;
             m.updated_at = now_ms();
             // The parent's slot follows the status under the same lock, so
@@ -1251,6 +1318,7 @@ impl Hub {
             self.save_meta(session);
             self.care_status(status);
         }
+        true
     }
 
     pub fn events(&self, id: &str, after: u64, limit: usize) -> Result<Vec<EventRecord>> {

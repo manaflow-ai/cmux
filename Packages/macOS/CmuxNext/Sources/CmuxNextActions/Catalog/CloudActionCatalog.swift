@@ -15,6 +15,10 @@ nonisolated enum CloudActionCatalog: ActionCatalogGroup {
                 title: String(localized: "action.newCloudMachine", defaultValue: "New Cloud Machine…", bundle: .module),
                 keywords: ["vm", "remote", "create"],
                 category: .cloud, symbol: "server.rack", surfaces: [.palette, .keyboard, .menu, .contextMenu],
+                // All optional: `cmux cloud new-machine --persistent --size medium --name lane-vm-1
+                // --bootstrap lane --bootstrap-script FILE` makes a lane host in one call.
+                arguments: [CatalogArgument.nameString.optional, CatalogArgument.newMachineSizeString, CatalogArgument.persistentBool,
+                            CatalogArgument.bootstrapString, CatalogArgument.bootstrapScriptString],
                 cliName: "cloud new-machine", mainMenu: .file
             ),
             ActionDescriptor(
@@ -177,9 +181,11 @@ nonisolated enum CloudActionCatalog: ActionCatalogGroup {
             ),
             ActionDescriptor(
                 id: "cloudNewTerminal",
-                title: String(localized: "action.cloudNewTerminal", defaultValue: "New Terminal on Machine", bundle: .module),
+                // It makes a workspace (with a terminal), so its title says so; `--workspace <id>` adds
+                // a terminal tab to that workspace of the machine instead. The CLI name stays for scripts.
+                title: String(localized: "action.cloudNewTerminal", defaultValue: "New Terminal Workspace on Machine", bundle: .module),
                 keywords: ["vm", "cloud tree"], category: .cloud, symbol: "apple.terminal", surfaces: [.contextMenu],
-                targets: [.machine], cliName: "cloud new-terminal-on-machine"
+                arguments: [CatalogArgument.cloudWorkspaceString], targets: [.machine], cliName: "cloud new-terminal-on-machine"
             ),
             ActionDescriptor(
                 id: "cloudOpenMachine",
@@ -295,6 +301,8 @@ nonisolated enum CloudActionCatalog: ActionCatalogGroup {
             // output, the new machine's or workspace's id (CloudHandlers+Results.swift).
             "palette.cloud.status", "palette.cloud.ports", "palette.cloud.tools", "palette.cloud.handoff",
             "palette.cloud.snapshot", "palette.cloud.promoteTemplate", "cloudExec", "newCloudMachine", "cloudNewTerminal",
+            // The new terminal tab's ids (`surface_id`), so a script can type into it next.
+            "cloudSSH",
             "cloudSetupGitHub",
             // Each answers its machine's id (and the workspace's) once the server is done, so a CLI
             // caller hears a failure instead of OK, and can name the result in the next command.

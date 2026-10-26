@@ -107,6 +107,8 @@ pub(super) struct Slot<'a> {
     pub(super) full_access_device: Option<&'a str>,
     /// Set to the prompts it replaced when it queues (`enqueue`), for its acceptance.
     pub(super) replaced: &'a std::sync::OnceLock<Vec<String>>,
+    /// `PromptOptions::no_queue`.
+    pub(super) no_queue: bool,
 }
 
 /// What a prompt's `session/prompt` answers.
@@ -131,6 +133,13 @@ pub(super) fn withdrawn_reply(prompt_id: &str, turn_id: &str) -> Value {
         "stopReason": "cancelled",
         "_meta": {"acpmux": {"promptId": prompt_id, "turnId": turn_id, "withdrawn": true}},
     })
+}
+
+/// Whether a prompt waits in the chat's queue that a failed turn does not hold, read under the
+/// queue's lock.
+fn queue_waits(session: &Session) -> bool {
+    let queue = session.queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    queue.iter().any(|q| !q.held)
 }
 
 impl Hub {
@@ -180,6 +189,11 @@ impl Hub {
                 // Prompts a failed turn holds (`pause_queue`) do not hold up a new one.
                 let held = session.queue().iter().filter(|q| q.held).count() as u64;
                 let waiting = session.turn().is_some() || session.queued() > held;
+                // It never queues: busy when the queue's own test says it would wait. The turn
+                // lock is tried below, and the queue read again under it.
+                if p.no_queue && waiting {
+                    return Err(Err(super::auto_resume::retry_turn::busy()));
+                }
                 let position = session.queued.fetch_add(1, Ordering::SeqCst) + 1;
                 let withdraw = waiting.then(|| {
                     let waits = self.enqueue(session, &p, position, &turn_id);
@@ -196,7 +210,22 @@ impl Hub {
         let (withdraw, _slot_wait): (_, Option<WaitMark>) = match withdraw {
             Some(withdraw) => (withdraw, None),
             None => {
-                let guard = session.turn_lock.lock().await;
+                let guard = if p.no_queue {
+                    // A prompt about to start holds the lock with no turn shown yet. Held, a
+                    // turn or a prompt waiting in the queue (read under its lock: the count may
+                    // not show one yet) still makes it busy; a prompt that comes later waits
+                    // behind it.
+                    let guard = session.turn_lock.try_lock().ok();
+                    match guard.filter(|_| session.turn().is_none() && !queue_waits(session)) {
+                        Some(guard) => guard,
+                        None => {
+                            session.queued.fetch_sub(1, Ordering::SeqCst);
+                            return Err(Err(super::auto_resume::retry_turn::busy()));
+                        }
+                    }
+                } else {
+                    session.turn_lock.lock().await
+                };
                 session.queued.fetch_sub(1, Ordering::SeqCst);
                 // A move began while it waited for the lock (`transfer_out.rs`): it runs nowhere.
                 if session.moving().is_some() {
@@ -219,6 +248,9 @@ impl Hub {
                     // The parent's run slots are all taken: it waits in the queue for one.
                     Err(parent) => {
                         drop(guard);
+                        if p.no_queue {
+                            return Err(Err(super::auto_resume::retry_turn::busy()));
+                        }
                         let mark = self.mark_waiting_for_slot(&parent, session);
                         let position = session.queued.fetch_add(1, Ordering::SeqCst) + 1;
                         let waits = self.enqueue(session, &p, position, &turn_id);
@@ -706,6 +738,8 @@ impl Hub {
 
     /// The record kinds `restore_queue` reads; the store parses no other line.
     const QUEUE_KINDS: &[&str] = &[
+        // Restore the branch baseline in this same pass, never by rereading at attach.
+        "git",
         "queued",
         "transfer_out",
         "transfer_aborted",
@@ -745,6 +779,7 @@ impl Hub {
         let mut pair_records: Vec<EventRecord> = Vec::new();
         let mut recorded: std::collections::HashSet<String> = Default::default();
         let mut unstarted = lost_start::Unstarted::default();
+        let mut branch = session.meta().git_branch;
         let scanned =
             self.store.scan_kinds(&session.id, Self::QUEUE_KINDS, &mut |e: EventRecord| {
                 for (prompt_id, turn_id) in unstarted.read(&e, &waiting, &mut order) {
@@ -765,7 +800,21 @@ impl Hub {
                     recorded.insert(id.to_owned());
                 }
                 match e.kind.as_str() {
-                    "queued" => waiting.push(e),
+                    "git" if e.dir == "mux" => {
+                        branch = e.msg.get("gitBranch").and_then(Value::as_str).map(str::to_owned);
+                    }
+                    "queued" => {
+                        // A restart's continuation of a cut turn goes ahead of what waited behind
+                        // that turn, also when the daemon stopped before its `queue_order`
+                        // (`restart_resume.rs`); a later reorder still holds.
+                        if e.msg.pointer("/_meta/provenance/reason").and_then(Value::as_str)
+                            == Some("daemon_restart")
+                            && let Some(id) = e.msg.get("promptId")
+                        {
+                            order.prioritize_restart(id);
+                        }
+                        waiting.push(e);
+                    }
                     "agent_pair_held"
                     | "agent_pair_released"
                     | "agent_pair_dropped"
@@ -846,6 +895,9 @@ impl Hub {
                 }
                 true
             });
+        if scanned.is_ok() {
+            self.restore_git_branch(session, branch);
+        }
         self.restore_agent_pairs(&session.id, pair_records, &recorded);
         session.moving.lock().unwrap_or_else(|e| e.into_inner()).clone_from(&moving);
         let mut waiting = waiting.into_records();
