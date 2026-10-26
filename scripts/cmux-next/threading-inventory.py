@@ -43,6 +43,7 @@ Each hit carries its call-graph context, read lexically from the source:
   threading-inventory.py --rule cpu-intensive --group module --max-hits 25   # MQ-18
   threading-inventory.py --rule raw-blocking --paths Packages/macOS/CmuxNext/Sources/CmuxNextFiles/
   threading-inventory.py --rule raw-blocking-ext --group module --max-hits 25   # MQ-16
+  threading-inventory.py --rule sync-inversion --jsonl                          # MQ-8
 
 Reads git objects only (ls-tree, cat-file): no network, no file in the repo or beside the scripts, not even bytecode
 caches. git_batch hands git its request through an unnamed temporary file in TMPDIR (a pipe hangs on some hosts),
@@ -142,6 +143,155 @@ def cpu_intensive(changes: list, moved: collections.Counter) -> list:
     return g.changed_debt(in_main_actor, judge)
 
 
+# sync-inversion (p02-threads-035): a thread waits for a serial queue (`queue.sync {`, `queue.blockingSync {`,
+# `asyncAndWait`) that runs below the waiter's QoS, so the waiter's frame or reply sits behind everything queued there
+# at a lower class. Main-thread waits must be donating ones only (p02-threads.md D): a Mutex, or `blockingSync` onto a
+# serial queue of greater or equal QoS; Chrome's UI thread never waits on a lower-priority sequence
+# (base/threading/thread_restrictions.h, `ScopedAllowBaseSyncPrimitives` is the reviewed exception). A queue's QoS is
+# its `DispatchQueue(label:qos:)` (none states `.default`; a `target:` or a computed qos is unknown and not judged),
+# found in the file or another file of the same type (`extension T`), or `DispatchQueue.global(qos:)`. The waiter's QoS
+# is user-interactive on the main thread, the queue's own inside a `queue.async {` / `queue.sync {` closure, and
+# otherwise its function's callers' (one level, through the same call sites caller_count counts): a call site on main
+# or in a queue closure above the queue. `allowBlocking(.reason) {` (a reviewed terminate wait) and
+# `// blocking-allow:` escape a line.
+QOS_RANK = {"background": 0, "utility": 1, "default": 2, "unspecified": 2, "userInitiated": 3, "userInteractive": 4}
+MAIN_RANK = QOS_RANK["userInteractive"]
+QUEUE_DECLARATION = re.compile(
+    r"(?:\b(?:let|var)\s+|\bself\.)`?(\w+)`?\s*(?::\s*DispatchQueue[?!]?\s*)?=\s*DispatchQueue\s*\(")
+QOS_ARGUMENT = re.compile(r"\bqos:\s*\.(\w+)\s*[,)]")
+SYNC_WAIT = re.compile(r"(?<![\w$.])(?:self\s*\.\s*)?`?(\w+)`?\s*\.\s*(?:sync|blockingSync|asyncAndWait)\s*[({]")
+GLOBAL_SYNC_WAIT = re.compile(
+    r"\bDispatchQueue\.global\(\s*qos:\s*\.(\w+)\s*\)\s*\.\s*(?:sync|blockingSync|asyncAndWait)\s*[({]")
+QUEUE_CLOSURE = re.compile(
+    r"(?<![\w$.])(?:self\s*\.\s*)?`?(\w+)`?\s*\.\s*(?:async|asyncAfter|sync|blockingSync|asyncAndWait)\b[^{]*\{$")
+ALLOW_BLOCKING = re.compile(r"\ballowBlocking\s*\(")
+SYNC_KEYS = (".sync", "blockingSync", "asyncAndWait")
+
+
+class QueueTable:
+    """The declared QoS rank of each named queue, by (module, innermost type, name); None for one that targets another
+    queue or states a computed qos. Read once from every source file of the tree."""
+
+    def __init__(self, sources: dict[str, str]):
+        self.ranks: dict[tuple[str, str | None, str], int | None] = {}
+        for path, text in sources.items():
+            if "DispatchQueue" not in text:
+                continue
+            lines = text.split("\n")
+            types: list | None = None
+            for index, line in enumerate(lines):
+                code = g.code_of(line)
+                for match in QUEUE_DECLARATION.finditer(code):
+                    if types is None:
+                        types = type_by_line(lines)
+                    arguments = self.arguments(lines, index, code, match.end() - 1)
+                    self.ranks[(g.module_of(path), types[index], match.group(1))] = self.rank(arguments)
+
+    @staticmethod
+    def arguments(lines: list[str], index: int, code: str, start: int) -> str | None:
+        text, k = code[start:], index
+        while (end := closing(text, 0)) < 0:
+            k += 1
+            if k >= len(lines) or k - index > CALL_LINES:
+                return None
+            text += " " + g.code_of(lines[k])
+        return text[1:end]
+
+    @staticmethod
+    def rank(arguments: str | None) -> int | None:
+        if arguments is None or "target:" in arguments:
+            return None
+        if "qos:" not in arguments:
+            return QOS_RANK["default"]
+        found = QOS_ARGUMENT.search(arguments + ")")
+        return QOS_RANK.get(found.group(1)) if found else None
+
+    def of(self, path: str, owner: str | None, name: str) -> int | None:
+        return self.ranks.get((g.module_of(path), owner, name))
+
+
+def waiter_rank(lines: list[str], index: int, prefix: str, path: str, queues: QueueTable, types: list) -> int | str | None:
+    """The QoS rank of the thread that runs LINES[INDEX] (PREFIX: the code before the wait): MAIN_RANK on the main
+    thread, a queue's rank inside its closure, "callers" when only its function's callers can tell, None when unknown
+    (an escaping closure, the pool, an actor). "allowed" inside an `allowBlocking(` scope."""
+    for opener, number in g.enclosing_openers(lines, index, NEVER, prefix):
+        header, _ = declaration_header(lines, number, opener) if number - 1 != index else (opener, "")
+        if g.DECLARATION_OPENER.search(header):
+            break
+        statement = own_statement(opener)
+        if ALLOW_BLOCKING.search(statement):
+            return "allowed"
+        queue = QUEUE_CLOSURE.search(statement)
+        if queue and queue.group(1) != "main":
+            return queues.of(path, types[number - 1], queue.group(1))
+        isolation = closure_isolation(lines, number, opener, header)
+        if isolation == "main":
+            return MAIN_RANK
+        if isolation is not None:
+            return None
+    ctx = context_of(lines, index, prefix, g.module_of(path) in g.ui_targets())
+    if ctx.isolation == "main":
+        return MAIN_RANK
+    if ctx.isolation in ("nonisolated", "unknown") and ctx.func_name and ctx.is_async is False:
+        return "callers"
+    return None
+
+
+def sync_inversion(changes: list, moved: collections.Counter, tree: "Tree") -> list:
+    """Sync waits onto a serial queue below the waiter's QoS (the comment above QOS_RANK)."""
+    queues = QueueTable(tree.sources)
+    targets = g.ui_targets()
+    caller_ranks: dict[Callee, int | None] = {}
+    site_files: dict[str, tuple[list[str], list]] = {}
+
+    def site_file(path: str) -> tuple[list[str], list]:
+        if path not in site_files:
+            lines = tree.sources[path].split("\n")
+            site_files[path] = (lines, type_by_line(lines))
+        return site_files[path]
+
+    def highest_caller(lines: list[str], index: int, prefix: str, path: str) -> int | None:
+        ctx = context_of(lines, index, prefix, g.module_of(path) in targets)
+        callee = callee_of(ctx, path)
+        if callee is None:
+            return None
+        if callee not in caller_ranks:
+            ranks = []
+            for site_path, site_index, before in call_sites(tree, [callee]).get(callee, []):
+                site_lines, site_types = site_file(site_path)
+                rank = waiter_rank(site_lines, site_index, before, site_path, queues, site_types)
+                ranks.append(rank if isinstance(rank, int) else None)
+            caller_ranks[callee] = max((r for r in ranks if r is not None), default=None)
+        return caller_ranks[callee]
+
+    def judge(version, index: int, code: str) -> bool:
+        if not any(key in code for key in SYNC_KEYS) or index >= len(version.lines):
+            return False
+        lines, path = version.lines, version.path
+        if "types_by_line" not in version.memo:
+            version.memo["types_by_line"] = type_by_line(lines)
+        types = version.memo["types_by_line"]
+        for match in SYNC_WAIT.finditer(code):
+            if match.group(1) == "main":
+                continue  # DispatchQueue.main.sync: main-blocking's
+            target = queues.of(path, types[index], match.group(1))
+            if target is not None and inverted(lines, index, code[:match.start()], path, target, types):
+                return True
+        for match in GLOBAL_SYNC_WAIT.finditer(code):
+            target = QOS_RANK.get(match.group(1))
+            if target is not None and inverted(lines, index, code[:match.start()], path, target, types):
+                return True
+        return False
+
+    def inverted(lines: list[str], index: int, prefix: str, path: str, target: int, types: list) -> bool:
+        waiter = waiter_rank(lines, index, prefix, path, queues, types)
+        if waiter == "callers":
+            waiter = highest_caller(lines, index, prefix, path)
+        return isinstance(waiter, int) and waiter > target
+
+    return g.changed_debt(g.outside_seams(changes), judge)
+
+
 # The inventory's rules, in report order. Later p02-threads tasks add theirs here.
 RULES: dict[str, Callable[[list, collections.Counter], list]] = {
     "main-blocking": guardrails_rule("main-blocking"),
@@ -152,7 +302,10 @@ RULES: dict[str, Callable[[list, collections.Counter], list]] = {
     "task-priority": guardrails_rule("task-priority"),
     "thread-doc": guardrails_rule("thread-doc"),
     "cpu-intensive": cpu_intensive,
+    "sync-inversion": sync_inversion,
 }
+# Rules that read the whole tree beside the judged files (sync-inversion: queue declarations and call sites).
+TREE_RULES = {"sync-inversion"}
 
 # Where on the hit line the judged call starts: braces before it enclose the call, braces after it are its own.
 LOCATORS = {
@@ -160,6 +313,7 @@ LOCATORS = {
     "thread-doc": g.THREAD_SCAN.pattern,
     "raw-blocking-ext": re.compile(g.RAW_BLOCKING_EXT.pattern + r"|(?<![\w$])\w+[?!]?\.(" + g.FILE_OPS + r")\("),
     "cpu-intensive": CPU_INTENSIVE,
+    "sync-inversion": re.compile(SYNC_WAIT.pattern + "|" + GLOBAL_SYNC_WAIT.pattern),
 }
 DEFAULT_LOCATOR = g.MAIN_SCAN.pattern
 ALWAYS = g.ALWAYS_BLOCKING
@@ -571,7 +725,8 @@ def judge(tree: Tree, rules: Iterable[str], paths: Callable[[str], bool]) -> lis
         rule = RULE_BY_ID.get(rule_id)
         scope = rule.scope if rule is not None else (g.SOURCES,)
         scoped = [c for c in changes if c.path.startswith(scope)]
-        found += [(rule_id, hit) for hit in RULES[rule_id](scoped, collections.Counter())]
+        extra = (tree,) if rule_id in TREE_RULES else ()
+        found += [(rule_id, hit) for hit in RULES[rule_id](scoped, collections.Counter(), *extra)]
     return found
 
 
@@ -750,16 +905,22 @@ def type_by_line(lines: list[str]) -> list[str | None]:
 
 
 def caller_counts(tree: Tree, callees: Iterable[Callee]) -> dict[Callee, int]:
-    """{callee: its call sites in its scope}. A call site is `name(` or `name {` in code (comments and string
-    contents dropped), not `func name(` or an enum case pattern, whose labels and receiver fit the callee."""
-    counts: dict[Callee, int] = collections.Counter()
+    """{callee: how many call sites it has in its scope} (call_sites)."""
+    return collections.Counter({callee: len(sites) for callee, sites in call_sites(tree, callees).items()})
+
+
+def call_sites(tree: Tree, callees: Iterable[Callee]) -> dict[Callee, list[tuple[str, int, str]]]:
+    """{callee: its call sites in its scope, as (path, 0-based line, the code before the call's name)}. A call site
+    is `name(` or `name {` in code (comments and string contents dropped), not `func name(` or an enum case pattern,
+    whose labels and receiver fit the callee."""
+    sites: dict[Callee, list[tuple[str, int, str]]] = collections.defaultdict(list)
     by_name: dict[str, list[Callee]] = collections.defaultdict(list)
     for callee in set(callees):
         by_name[callee.name].append(callee)
         if callee.kind == "init":
             by_name["init"].append(callee)
     if not by_name:
-        return counts
+        return sites
     for path, text in tree.sources.items():
         here = {("file", path), ("module", g.module_of(path)), ("tree", "")}
         lines = text.split("\n")
@@ -793,8 +954,18 @@ def caller_counts(tree: Tree, callees: Iterable[Callee]) -> dict[Callee, int]:
                 for callee in candidates:
                     if fits(callee.params, labels, trailing) and receiver_fits(callee, match.group(1), receiver,
                                                                                caller_type):
-                        counts[callee] += 1
-    return counts
+                        sites[callee].append((path, index, before))
+    return sites
+
+
+def callee_of(ctx: Context, path: str) -> Callee | None:
+    """What a call site of CTX's function must match (Callee), or None outside a named function."""
+    if not ctx.func_name:
+        return None
+    owner = ctx.types[0] if ctx.types else None
+    return Callee(ctx.func_name, ctx.func_kind, owner, ctx.func_static and ctx.func_kind == "func",
+                  parameters(*ctx.func_header) if ctx.func_header else None, scope_key(call_scope(ctx), path),
+                  bool(ctx.func_header) and returns_own_type(ctx.func_header[0], owner))
 
 
 def inventory(tree: Tree, rules: Iterable[str] = tuple(RULES), paths: Callable[[str], bool] = lambda p: True
@@ -815,12 +986,7 @@ def inventory(tree: Tree, rules: Iterable[str] = tuple(RULES), paths: Callable[[
         module = g.module_of(hit.path)
         ctx = context_of(lines, index, prefix, module in targets)
         owner = ctx.types[0] if ctx.types else None
-        callee = None
-        if ctx.func_name:
-            callee = Callee(ctx.func_name, ctx.func_kind, owner, ctx.func_static and ctx.func_kind == "func",
-                            parameters(*ctx.func_header) if ctx.func_header else None,
-                            scope_key(call_scope(ctx), hit.path),
-                            bool(ctx.func_header) and returns_own_type(ctx.func_header[0], owner))
+        callee = callee_of(ctx, hit.path)
         hits.append(Hit(rule_id, hit.path, hit.number, module, module in targets, lines[index].strip(),
                         ctx.enclosing_func, ctx.is_async, ctx.isolation, None, owner,
                         func_name=ctx.func_name, func_line=ctx.func_line, callee=callee))
