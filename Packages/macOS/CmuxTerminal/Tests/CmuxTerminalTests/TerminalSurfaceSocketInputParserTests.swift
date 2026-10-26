@@ -46,6 +46,21 @@ import CmuxTerminalCore
         #expect(rawBytes(in: events) == Data(sequence.utf8))
     }
 
+    /// X10 and UTF-8 mouse reports are `ESC [ M` plus three coordinate
+    /// characters, not a CSI. Column 95 encodes as 0x7F, which the parser
+    /// otherwise turns into a Backspace key.
+    @Test(arguments: [
+        "\u{1B}[MCVL",                 // X10 motion report
+        "\u{1B}[M`+!\u{1B}[Ma+!",      // two X10 wheel notches
+        "\u{1B}[M#\u{7F}!",            // X10 release at column 95
+        "\u{1B}[M#\u{100}\u{80}",      // UTF-8 format, column and row past 95
+    ])
+    func legacyMouseReportsReachThePTYIntact(sequence: String) {
+        let events = TerminalSurface.parsedSocketInputEvents(for: sequence)
+        #expect(!containsKeyOrTerminalBytes(events), "\(events)")
+        #expect(rawBytes(in: events) == Data(sequence.utf8))
+    }
+
     @Test func bareEscapeStaysTheEscapeKey() {
         let events = TerminalSurface.parsedSocketInputEvents(for: "\u{1B}")
         #expect(containsKeyOrTerminalBytes(events))
