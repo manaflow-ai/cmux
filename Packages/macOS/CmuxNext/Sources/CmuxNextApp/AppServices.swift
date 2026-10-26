@@ -168,7 +168,13 @@ final class AppServices {
     /// Sparkle updates (release builds) or read-only feed probes (DEV).
     let updater: UpdaterService
     /// The app's one file picker made ahead of the click (agent panes, page inputs, Home's "+") and agent page WebKit warm-up.
-    let openPanel = MadeAheadOpenPanel(), agentPageWarmup = AgentPageWarmup(chromiumChat: { AgentPaneTunables.chromium.value })
+    let openPanel = MadeAheadOpenPanel()
+    private(set) lazy var agentPageWarmup = AgentPageWarmup(chromiumChat: agentChromiumChat)
+    /// Whether a new agent page may show in Chromium: feature `agentChromium`, its Debug tunable `agent.chromium` (the
+    /// tunable's only reader) as the local override, read at each page; the warm-up and every agent pane share it.
+    private(set) lazy var agentChromiumChat: @MainActor () -> Bool = { [features = self.features] in
+        features.isEnabled(.agentChromium, localOverride: AgentPaneTunables.chromium.override)
+    }
     /// "Restart cmux-tui to use new features" (plans/cmux-next/server-updates-DESIGN.md).
     private(set) lazy var serverUpdates = ServerUpdatePresenter(daemon: daemon, defaults: .standard,
                                                                  activeWindow: { [weak self] in self?.windows.active?.window })

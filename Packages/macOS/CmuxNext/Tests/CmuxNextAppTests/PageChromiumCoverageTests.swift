@@ -1,6 +1,7 @@
 import CmuxNextAgentPane
 @testable import CmuxNextApp
 import CmuxNextBrowser
+import CmuxNextFeatures
 import CmuxNextPages
 import Foundation
 import Testing
@@ -14,7 +15,7 @@ import Testing
 @Suite struct PageChromiumCoverageTests {
     /// Every page the app ships, with the engine options its service makes it with.
     private static let surfaces: [(page: PageDescriptor, options: PageEngineOptions)] = [
-        (.agent, PageEngineOptions(chromiumAgentChat: AgentPaneTunables.chromium.value)), (.history, .standard), (.cloud, .standard), (.apps, .standard), (.settings, PageFactory.settingsEngineOptions),
+        (.agent, PageEngineOptions(chromiumAgentChat: Feature.agentChromium.defaults.value(for: .release))), (.history, .standard), (.cloud, .standard), (.apps, .standard), (.settings, PageFactory.settingsEngineOptions),
         (.keybindings, .standard), (.diff, DiffPageService.engineOptions), (.markdown, FilePageService.engineOptions),
         (.editor, FilePageService.engineOptions), (.iconPicker, IconPickerService.engineOptions), (.passwords, .standard),
         (.chiefInspector, .standard), (.debugSettings, .standard), (.homeChannels, PageFactory.homeChannelsEngineOptions),
