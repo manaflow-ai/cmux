@@ -2228,3 +2228,66 @@ async fn a_subagents_mode_does_not_hide_its_sessions_full_access_across_a_restar
         "a subagent's asking mode hid the session's bypassPermissions under the managed off"
     );
 }
+
+/// Review 44 of #23322: the argv a start runs is on disk before its agent starts. A chat whose
+/// agent ended starts again, for a model pick, on a profile a config reload pinned to `--yolo`;
+/// the daemon dies while that agent initializes. Under MDM's off the next daemon ends that host
+/// instead of adopting it on the argv the chat was created with. A cold start's folder check
+/// (`revive_folder`) saves the chat too, but only when its git read answers within 2 s.
+#[tokio::test]
+async fn a_host_a_daemon_left_while_it_started_ends_under_mdm_off_by_the_argv_it_ran() {
+    let mut daemon = Daemon::new("mdmspawn", "ask");
+    let session = new_session(&daemon).await;
+    let first = daemon.host_record(&session);
+    let mut rpc = daemon.rpc().await;
+    // The profile is pinned to full access now; its agent takes 4 s to initialize.
+    let pinned =
+        json!({"argv": ["python3", FAKE, "--yolo"], "env": {"FAKE_INIT_DELAY_MS": "4000"}});
+    let config =
+        json!({"harnesses": {"fake": pinned}, "defaultHarness": "fake", "permissionPolicy": "ask"});
+    std::fs::write(daemon.home.join("config.json"), config.to_string()).unwrap();
+    rpc.call("_acpmux/reload_config", json!({})).await;
+    // The first agent ends on its own, under a live daemon.
+    for pid in [first["harness_pid"].as_i64(), first["host_pid"].as_i64()].into_iter().flatten() {
+        // SAFETY: process groups this test's daemon created (its host record).
+        unsafe { libc::killpg(pid as i32, libc::SIGKILL) };
+        assert!(gone_within(pid, Duration::from_secs(10)), "the first agent did not end");
+    }
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    // A start no prompt asks for (a model pick), so no turn bookkeeping saves the chat first.
+    rpc.send("session/set_model", json!({"sessionId": session, "modelId": "m2"})).await;
+    // The new host runs; the daemon dies before the agent answers initialize.
+    let record = daemon.home.join("hosts").join(format!("{session}.json"));
+    let deadline = Instant::now() + Duration::from_secs(3);
+    let started = loop {
+        let host: Option<Value> =
+            std::fs::read(&record).ok().and_then(|b| serde_json::from_slice(&b).ok());
+        // The second agent's record: the first one's may still be on disk.
+        if let Some(host) =
+            host.filter(|h| h["harness_pid"].is_i64() && h["harness_pid"] != first["harness_pid"])
+        {
+            break host;
+        }
+        assert!(Instant::now() < deadline, "the second agent never started");
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    };
+    let harness_pid = started["harness_pid"].as_i64().unwrap();
+    daemon.sigkill();
+    drop(rpc);
+    assert!(alive(harness_pid), "the daemon's death ended the agent");
+    // What the next daemon reads: the argv that agent runs.
+    let saved = daemon.home.join("sessions").join(&session).join("session.json");
+    let meta: Value = serde_json::from_slice(&std::fs::read(&saved).unwrap()).unwrap();
+    assert!(
+        meta["spawnArgv"].as_array().is_some_and(|a| a.iter().any(|v| v == "--yolo")),
+        "the argv the agent runs was not saved before it started: {}",
+        meta["spawnArgv"]
+    );
+
+    record_mdm_off(&daemon);
+    daemon.start();
+    assert!(
+        gone_within(harness_pid, Duration::from_secs(10)),
+        "the next daemon adopted the --yolo agent on the argv its chat was created with"
+    );
+}
