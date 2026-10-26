@@ -159,7 +159,7 @@ test("the line opens with no fade-in, its height alone moving; closing fades out
   }
 });
 
-test("in Minimal Mode a closed message estimates as its line; one opened in this chat as its whole card", async () => {
+test("a received message estimates as one line in either mode; opening reserves its full card", async () => {
   const { layoutConversation } = await import("../src/agent-session/acpmux/model");
   const { setMessageOpened } = await import("../src/agent-session/acpmux/conversation/incomingOpened");
   const long = Array.from({ length: 14 }, (_, index) => `Line ${index + 1} of the landing report.`).join("\n");
@@ -177,11 +177,10 @@ test("in Minimal Mode a closed message estimates as its line; one opened in this
   setChatDisplay({ [MINIMAL_MODE_KEY]: true });
   try {
     const closed = height("chat-a");
-    expect(closed).toBeLessThan(normal);
+    expect(closed).toBe(normal);
     setMessageOpened("chat-a", "estimate-1", true);
-    // Opened: the whole card, longer than normal mode's eight-line cut; another chat's row of the
-    // same id stays closed.
-    expect(height("chat-a")).toBeGreaterThan(normal);
+    // Opened: the whole card; another chat's row of the same id stays compact.
+    expect(height("chat-a")).toBeGreaterThan(closed);
     expect(height("chat-b")).toBe(closed);
   } finally {
     setMessageOpened("chat-a", "estimate-1", false);
