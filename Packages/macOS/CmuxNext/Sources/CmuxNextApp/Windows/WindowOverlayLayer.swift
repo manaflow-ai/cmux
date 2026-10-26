@@ -57,6 +57,8 @@ final class WindowOverlayLayer {
     let catchers: DividerMouseCatchers
     /// Takes a `cef.geometry` slice per parent geometry change and catcher sync (tests pass their own).
     private let signposter: Signposter
+    /// A `cef.geometry` slice is open: work inside it takes no slice of its own (``inGeometrySlice(_:_:)``).
+    private var geometrySliceOpen = false
     private var observers: [any NSObjectProtocol] = []
     private var isEvaluating = false
     /// Set by `teardown` (the window is closing): nothing is placed again.
@@ -339,24 +341,31 @@ final class WindowOverlayLayer {
             geometryAfterLayout = true
             return
         }
-        let interval = signposter.beginCEFGeometry(.parentGeometry)
-        let movesBefore = catchers.panelUpdates
-        defer { endGeometry(interval, movesSince: movesBefore) }
-        if placement == .overlayWindow, let panel = WindowOverlayHost.existingHost(for: window)?.panel,
-           panel.parent === window, panel.frame != window.frame {
-            panel.setFrame(window.frame, display: false)
+        inGeometrySlice(.parentGeometry) {
+            if placement == .overlayWindow, let panel = WindowOverlayHost.existingHost(for: window)?.panel,
+               panel.parent === window, panel.frame != window.frame {
+                panel.setFrame(window.frame, display: false)
+            }
+            for plane in planes { plane.syncFrame() }
+            updateInteractiveRects()
+            syncCatchers()
+            requestPageUpdate()
+            pageUpdateAfterLayout = true
         }
-        for plane in planes { plane.syncFrame() }
-        updateInteractiveRects()
-        applyCatchers()
-        requestPageUpdate()
-        pageUpdateAfterLayout = true
     }
 
-    /// Ends a `cef.geometry` slice with the catcher panels shown and the panel moves made since its begin.
-    private func endGeometry(_ interval: SignpostInterval, movesSince movesBefore: Int) {
-        signposter.endCEFGeometry(interval, catchers: catchers.windowNumbers.count,
-                                  panelMoves: catchers.panelUpdates - movesBefore)
+    /// Runs `body` in one `cef.geometry` slice, or in the slice already open (slices never nest). The end holds the
+    /// catcher panels shown and the panels made or re-framed since the begin.
+    private func inGeometrySlice(_ source: Signposter.CEFGeometrySource, _ body: () -> Void) {
+        guard !geometrySliceOpen else { return body() }
+        let interval = signposter.beginCEFGeometry(source)
+        let movesBefore = catchers.panelUpdates
+        geometrySliceOpen = true
+        defer {
+            geometrySliceOpen = false
+            signposter.endCEFGeometry(interval, catchers: catchers.shownCount, panelMoves: catchers.panelUpdates - movesBefore)
+        }
+        body()
     }
 
     /// Something other than the fork moved or resized a page window (an
@@ -373,13 +382,9 @@ final class WindowOverlayLayer {
 
     /// Click-catching panels over divider hit areas while pages show, in one `cef.geometry` slice.
     private func syncCatchers() { // perf-hot: 1ms cef-geometry (one window move per divider catcher panel)
-        let interval = signposter.beginCEFGeometry(.catcherSync)
-        let movesBefore = catchers.panelUpdates
-        defer { endGeometry(interval, movesSince: movesBefore) }
-        applyCatchers()
+        inGeometrySlice(.catcherSync) { applyCatchers() }
     }
 
-    /// ``syncCatchers()``'s work, for a caller already inside a `cef.geometry` slice.
     private func applyCatchers() {
         if catchers.onHover == nil {
             catchers.onHover = { [weak self] id, hovered in

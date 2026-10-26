@@ -166,11 +166,11 @@ public nonisolated enum SignpostName: UInt16, Sendable, Hashable, CaseIterable, 
     /// Reserved (task 033, PL-cef-tab). `CefBrowserHost::CreateBrowser` on the main thread, or the Chromium
     /// host's create to its reply. Ring: AB/AE; begin arg0 bit 0 1 for a spare, bits 8-39 the profile index.
     case cefCreateBrowser = 15
-    /// Reserved (task 038, PL-motion-cef; perf-hot `cef-geometry`). A page's parent geometry change and its
-    /// catcher sync. Ring: B/E, plus an instant per geometry post; end arg0 the catcher count.
+    /// A parent geometry change or catcher sync, an I per page post (``Signposter/beginCEFGeometry(_:)``). Ring: B/E/I
+    /// only with `motion` on too (never the black box); begin arg0 the source, end arg0/arg1 catchers shown/moved.
     case cefGeometry = 34
-    /// Reserved (task 038, PL-motion-cef; perf-hot `cef-host-input`). One input event sent to a Chromium page
-    /// or to the Chromium host. Ring: instant; arg0 the event kind.
+    /// One input frame (mouse, wheel, key, edit) written to the Chromium host (``Signposter/cefHostInput(_:)``). Ring:
+    /// I only with `input` on too (never the black box); arg0 the wire kind; key and edit obey the keystroke gate.
     case cefHostInput = 35
 
     // MARK: launch (reserved: task 034, Performance Lead)

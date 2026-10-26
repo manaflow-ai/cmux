@@ -5,9 +5,9 @@ import Testing
 
 /// The `cef.geometry` slice and instants and the `cef.host_input` instant (p09-observability-038, perf-hot
 /// `cef-geometry` and `cef-host-input`): a geometry slice is one B/E pair with its source in the B and the catcher
-/// panels shown and moved in the E, a page view's post is one instant inside it, and a frame sent to the Chromium
-/// host is one instant with its wire kind, which the keystroke-timing gate drops for a key frame. Each test records
-/// into its own runtime.
+/// panels shown and moved in the E, a page view's post is one instant inside it, and an input frame sent to the
+/// Chromium host is one instant with its wire kind, which the keystroke-timing gate drops for key and edit frames.
+/// Both are recording only: the black box alone records none of them. Each test records into its own runtime.
 @Suite struct CEFGeometrySignpostTests {
     private nonisolated final class RecordLog: Sendable {
         private let state = Mutex<[TraceRuntime.StubRecord]>([])
@@ -26,7 +26,8 @@ import Testing
         let runtime: TraceRuntime
         let cef: Signposter
 
-        init(categories: TraceCategories = [.cef]) {
+        /// A recording: the black box plus every recording category.
+        init(categories: TraceCategories = .all) {
             runtime = log.runtime()
             runtime.setCategories(categories)
             cef = Signposter(category: .cef, mirror: SignpostMetricKitMirror(), trace: runtime)
@@ -62,32 +63,56 @@ import Testing
     }
 
     @Test func nothingIsRecordedWithTheCEFCategoryOff() {
-        let rig = Rig(categories: [])
+        let rig = Rig(categories: TraceCategories.all.subtracting(.cef))
         let interval = rig.cef.beginCEFGeometry(.parentGeometry)
         rig.cef.cefGeometryPost()
-        rig.cef.cefHostInput(kind: 3, isKey: false)
+        rig.cef.cefHostInput(.mouse)
         rig.cef.endCEFGeometry(interval, catchers: 1, panelMoves: 1)
 
         #expect(!interval.isTraced)
         #expect(rig.log.records.isEmpty)
     }
 
-    @Test func aHostInputIsOneInstantWithItsKind() {
-        let rig = Rig()
-        rig.cef.cefHostInput(kind: 3, isKey: false)
-        rig.cef.cefHostInput(kind: 5, isKey: true)
+    /// The black box fires at most once per person action: a live resize or a mouse sweep must not push the
+    /// action, key and switch records out of it.
+    @Test func theBlackBoxAloneRecordsNoGeometryAndNoHostInput() {
+        let rig = Rig(categories: .blackBox)
+        let interval = rig.cef.beginCEFGeometry(.parentGeometry)
+        rig.cef.cefGeometryPost()
+        rig.cef.endCEFGeometry(interval, catchers: 1, panelMoves: 1)
+        for kind in Signposter.CEFHostInputKind.allCases { rig.cef.cefHostInput(kind) }
 
-        let records = rig.records(.cefHostInput)
-        #expect(records.map(\.phase) == [.instant, .instant])
-        #expect(records.map(\.arg0) == [3, 5])
+        #expect(!interval.isTraced)
+        #expect(rig.records(.cefGeometry).isEmpty)
+        #expect(rig.records(.cefHostInput).isEmpty)
     }
 
-    @Test func theKeystrokeTimingGateDropsOnlyKeyFrames() {
+    @Test func aGeometryBeginRecordedBeforeTheRecordingStopsStillEnds() {
+        let rig = Rig()
+        let interval = rig.cef.beginCEFGeometry(.parentGeometry)
+        rig.runtime.setCategories(.blackBox)
+        rig.cef.endCEFGeometry(interval, catchers: 0, panelMoves: 0)
+
+        #expect(rig.records(.cefGeometry).map(\.phase) == [.begin, .end])
+    }
+
+    @Test func aHostInputIsOneInstantWithItsWireKind() {
+        let rig = Rig()
+        rig.cef.cefHostInput(.mouse)
+        rig.cef.cefHostInput(.key)
+        rig.cef.cefHostInput(.edit)
+
+        let records = rig.records(.cefHostInput)
+        #expect(records.map(\.phase) == [.instant, .instant, .instant])
+        #expect(records.map(\.arg0) == [3, 5, 10])
+    }
+
+    @Test func theKeystrokeTimingGateDropsKeyAndEditFrames() {
         let rig = Rig()
         rig.runtime.setKeyTimingSuppressed(true, by: .terminalSecureInput)
-        rig.cef.cefHostInput(kind: 5, isKey: true)
-        rig.cef.cefHostInput(kind: 3, isKey: false)
+        for kind in Signposter.CEFHostInputKind.allCases { rig.cef.cefHostInput(kind) }
 
-        #expect(rig.records(.cefHostInput).map(\.arg0) == [3])
+        #expect(rig.records(.cefHostInput).map(\.arg0) == [3, 4])
+        #expect(Signposter.CEFHostInputKind.allCases.filter(\.carriesKeyTiming) == [.key, .edit])
     }
 }
