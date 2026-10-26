@@ -25,10 +25,10 @@ extension PageHostPool {
     /// The notices are read in AppKit's turn and the move runs later as background work on
     /// `mainWork`: re-parking a spare nobody sees never shares the turn of the click or the key that
     /// changed windows (Chrome's best-effort UI-thread queue, kBestEffort in
-    /// content/browser/scheduler/browser_task_queues.h).
+    /// content/browser/scheduler/browser_task_queues.h). `center` is where the windows post (tests pass their own).
     public func start(isMainWindow: @escaping @MainActor (NSWindow) -> Bool,
                       fallback: @escaping @MainActor (NSWindow) -> NSWindow?,
-                      mainWork: MainWorkScheduler) {
+                      mainWork: MainWorkScheduler, center: NotificationCenter = .default) {
         guard windowObservers.isEmpty else { return }
         let app = NSApplication.shared
         if let shown = app.keyWindow.flatMap({ isMainWindow($0) ? $0 : nil })
@@ -36,7 +36,7 @@ extension PageHostPool {
             follow(shown)
         }
         let noteWindow: @MainActor (Notification) -> NSWindow? = { $0.object as? NSWindow }
-        windowObservers.append(MainActorObservation(NSWindow.didBecomeKeyNotification, read: noteWindow) { [weak self] window in
+        windowObservers.append(MainActorObservation(NSWindow.didBecomeKeyNotification, center: center, read: noteWindow) { [weak self] window in
             guard let window, self != nil else { return }
             // node-free: the pool serves every window; its spare is never shown.
             mainWork.post(.background, owner: "PageHostPool.followKey") { [weak self] in
@@ -44,7 +44,7 @@ extension PageHostPool {
                 self.follow(window)
             }
         })
-        windowObservers.append(MainActorObservation(NSWindow.willCloseNotification, read: noteWindow) { [weak self] window in
+        windowObservers.append(MainActorObservation(NSWindow.willCloseNotification, center: center, read: noteWindow) { [weak self] window in
             guard let window, self != nil else { return }
             // node-free: the pool serves every window; its spare is never shown.
             mainWork.post(.background, owner: "PageHostPool.windowClosed") { [weak self] in

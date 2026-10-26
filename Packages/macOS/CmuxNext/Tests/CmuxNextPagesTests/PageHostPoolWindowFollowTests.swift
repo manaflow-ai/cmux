@@ -13,7 +13,7 @@ import Testing
     @Test func aKeyWindowTakesTheSpareOnALaterTurn() {
         let rig = FollowRig()
         defer { rig.close() }
-        NotificationCenter.default.post(name: NSWindow.didBecomeKeyNotification, object: rig.second)
+        rig.center.post(name: NSWindow.didBecomeKeyNotification, object: rig.second)
         #expect(rig.pool.target === rig.first, "the key notice's own turn moved the spare")
         #expect(rig.work.postedCount(.background) == 1, "the follow is not queued as background work")
         rig.runTurns()
@@ -24,7 +24,7 @@ import Testing
         let rig = FollowRig()
         defer { rig.close() }
         rig.input.pending = true
-        NotificationCenter.default.post(name: NSWindow.didBecomeKeyNotification, object: rig.second)
+        rig.center.post(name: NSWindow.didBecomeKeyNotification, object: rig.second)
         rig.runTurns()
         #expect(rig.pool.target === rig.first, "the follow ran while a person's input was pending")
         #expect(rig.work.postedCount(.background) == 1, "the held follow left its queue")
@@ -33,7 +33,7 @@ import Testing
     @Test func aClosedTargetFallsBackOnALaterTurn() {
         let rig = FollowRig(fallsBackToSecond: true)
         defer { rig.close() }
-        NotificationCenter.default.post(name: NSWindow.willCloseNotification, object: rig.first)
+        rig.center.post(name: NSWindow.willCloseNotification, object: rig.first)
         #expect(rig.pool.target === rig.first, "the close notice's own turn moved the spare")
         rig.runTurns()
         #expect(rig.pool.target === rig.second)
@@ -44,6 +44,7 @@ import Testing
 /// spare's target on `first`.
 @MainActor private final class FollowRig {
     let input: FollowPendingInput
+    let center: NotificationCenter
     let memory: PageTestMemory
     let work: MainWorkScheduler
     let pool: PageHostPool
@@ -52,15 +53,16 @@ import Testing
     private let turns: FollowTurns
 
     init(fallsBackToSecond: Bool = false) {
-        let input = FollowPendingInput(), memory = PageTestMemory(), turns = FollowTurns()
+        let input = FollowPendingInput(), memory = PageTestMemory(), turns = FollowTurns(), center = NotificationCenter()
         let work = MainWorkScheduler.testing(budget: MainFrameBudget(input: input),
                                              performTurn: { turn in turns.queued.append(turn) }) { _ -> (any FrameLink)? in nil }
         let pool = PageHostPool(memory: memory.coordinator, activity: { 0 }, isTrackingMenu: { false })
         let first = FollowRig.mainWindow(), second = FollowRig.mainWindow()
         pool.start(isMainWindow: { $0.identifier == PageHostPoolWindowFollowTests.mainID },
-                   fallback: { [weak second] _ in fallsBackToSecond ? second : nil }, mainWork: work)
+                   fallback: { [weak second] _ in fallsBackToSecond ? second : nil }, mainWork: work, center: center)
         pool.windowDidAppear(first)
         self.input = input
+        self.center = center
         self.memory = memory
         self.work = work
         self.pool = pool
