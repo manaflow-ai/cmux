@@ -47,13 +47,19 @@
 
 use super::*;
 
+#[cfg(target_os = "linux")]
+use std::sync::atomic::{AtomicBool, Ordering};
+
+#[cfg(target_os = "linux")]
+static LINUX_REMOTE_SANDBOX: AtomicBool = AtomicBool::new(false);
+
 /// The checked-in Seatbelt profile.
 pub(crate) const PROFILE: &str = include_str!("../../sandbox/remote-chain.sb");
 
 /// The identity of what a remote chain runs under: the profile and the env
 /// policy (bump `ENV_POLICY` when the child env rules change).
 pub(super) fn profile_id() -> String {
-    const ENV_POLICY: &str = "env-v5: explicit cleared host projection, fixed remote allowlist, nested-parent credential and endpoint excluded, credential by explicit profile/login env, CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=1, endpoint pinned by --settings env, user settings skipped for a profile's own endpoint";
+    const ENV_POLICY: &str = "env-v5: explicit cleared host projection, fixed remote allowlist, nested-parent credential and endpoint excluded, credential by explicit profile/login env, CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=1, endpoint pinned by --settings env, user settings skipped for a profile's own endpoint; linux-keeper-v1; bwrap namespace argv v1";
     crate::sha256::sha256_hex(format!("{PROFILE}\n{ENV_POLICY}").as_bytes())
 }
 
@@ -489,6 +495,21 @@ impl Bound {
     }
 }
 
+#[cfg(target_os = "linux")]
+fn linux_wrap(
+    _bound: &Bound,
+    _profile: &HarnessProfile,
+    _program: String,
+    _args: Vec<String>,
+) -> Result<(String, Vec<String>), String> {
+    Err("linux keeper wiring is not implemented".into())
+}
+
+#[cfg(target_os = "linux")]
+fn linux_credential_file(_home: &Path) -> Result<Option<String>, String> {
+    Ok(None)
+}
+
 /// The remote chain's Claude command line: its own settings and no MCP
 /// servers, then the whole command inside `exec` with the profile and this
 /// spawn's `TMPDIR`. Refuses a profile argv or env that already shapes them.
@@ -627,6 +648,15 @@ impl Hub {
     #[doc(hidden)]
     pub fn set_remote_sandbox_exec(&self, path: PathBuf) {
         *self.remote_sandbox_exec.lock().unwrap_or_else(|e| e.into_inner()) = path;
+    }
+
+    /// Test-only switch for the Linux implementation; production leaves the
+    /// platform refusal in place until G2 enables and canary-checks it.
+    #[doc(hidden)]
+    pub fn set_linux_remote_sandbox_for_tests(&self, enabled: bool) {
+        #[cfg(target_os = "linux")]
+        LINUX_REMOTE_SANDBOX.store(enabled, Ordering::SeqCst);
+        let _ = enabled;
     }
 
     /// `plan` for this spawn: a remote chain's (remote-origin) Claude Code
@@ -972,5 +1002,32 @@ mod endpoint_tests {
         assert!(subrouter_plan(&sr, args.clone(), None, Some("http://r:1".into())).is_err());
         let extra = profile(&["/u/sr", "claude", "proxy", "--account"], &[]);
         assert!(subrouter_plan(&extra, args, Some("c".into()), Some("http://r:1".into())).is_err());
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn linux_wrap_uses_keeper_and_fixed_proxy_shape() {
+        let bound = bound(Some(Endpoint { url: "http://127.0.0.1:41234".into(), own: true }));
+        let (_, args) =
+            linux_wrap(&bound, &profile(&["claude"], &[]), "/bin/claude".into(), vec![]).unwrap();
+        let text = args.join(" ");
+        assert!(text.contains("__remote-sandbox-keeper"));
+        assert!(text.contains("--proxy-port 8118"));
+        assert!(text.contains("--api-port 41234 --api-loopback-v4"));
+        assert!(text.contains("-- /usr/bin/env -u CLAUDE_CONFIG_DIR"));
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn linux_credentials_are_bounded_and_parsed_from_home() {
+        let home = std::env::temp_dir().join(format!("acpmux-linux-cred-{}", std::process::id()));
+        std::fs::create_dir_all(home.join(".claude")).unwrap();
+        std::fs::write(
+            home.join(".claude/.credentials.json"),
+            r#"{"claudeAiOauth":{"accessToken":"linux-token","expiresAt":4102444800000}}"#,
+        )
+        .unwrap();
+        assert_eq!(linux_credential_file(&home).unwrap().as_deref(), Some("linux-token"));
+        let _ = std::fs::remove_dir_all(home);
     }
 }
