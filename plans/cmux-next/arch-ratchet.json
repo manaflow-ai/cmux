@@ -585,6 +585,12 @@
       "row": "observer_sites",
       "allow": 2,
       "why": "PL-cef-helper: ChromiumHostPageView (Debug-only, #if DEBUG, behind browserHost.helperPrototype) watches its own window's didMove/didChangeScreen so the out-of-process host's window follows the page on screen; window moves do not change the view's frame, so no view callback reports them. Two names (didMove, didChangeScreen) at one site, counted once each; one observation per name per host page, scoped to object: window and released with the view. No shared per-window geometry adapter exists in a package CmuxNextBrowser can use (WindowOverlayHost keeps its observers private and is PL-motion-cef's); the page view moves onto that adapter when one lands."
+    },
+    {
+      "date": "2026-10-26",
+      "row": "blocking_allow_escapes",
+      "allow": 2,
+      "why": "p05-ipc-027 CmuxNextWireGen: the SwiftPM build-tool executable that reads cmux-tui/spec and writes one file into the plugin work directory. It runs on the build host as its own short process, never inside the app, so the app's main-thread detector does not apply; routing it through the CmuxNextCompat seams would compile Compat and swift-atomics for the host and rerun the generator on every Compat edit. One read and one write."
     }
   ],
   "observer_wrappers": [
