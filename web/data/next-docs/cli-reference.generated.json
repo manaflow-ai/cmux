@@ -1,8 +1,8 @@
 {
   "version": 1,
   "counts": {
-    "verbs": 685,
-    "mcp": 603
+    "verbs": 689,
+    "mcp": 607
   },
   "nouns": [
     {
@@ -1698,6 +1698,17 @@
       ]
     },
     {
+      "noun": "open-remote",
+      "verbs": [
+        {
+          "command": "cmux open-remote",
+          "title": "Open Remote Terminal",
+          "id": "remote.openRemote",
+          "mcp": true
+        }
+      ]
+    },
+    {
       "noun": "palette",
       "verbs": [
         {
@@ -3018,6 +3029,12 @@
           "mcp": true
         },
         {
+          "command": "cmux sidebar toggle-item-archive",
+          "title": "Archive/Unarchive Item",
+          "id": "sidebar.item.toggleArchive",
+          "mcp": true
+        },
+        {
           "command": "cmux sidebar toggle-item-label",
           "title": "Show/Hide Label",
           "id": "sidebar.item.toggleLabel",
@@ -3736,6 +3753,12 @@
           "mcp": true
         },
         {
+          "command": "cmux workspace archive-unarchive",
+          "title": "Archive/Unarchive Workspace",
+          "id": "workspace.toggleArchive",
+          "mcp": true
+        },
+        {
           "command": "cmux workspace clear-description",
           "title": "Clear Workspace Description",
           "id": "palette.clearWorkspaceDescription",
@@ -4314,6 +4337,12 @@
           "command": "cmux workspace-group stash",
           "title": "Save and Close Group",
           "id": "workspaceGroup.stash",
+          "mcp": true
+        },
+        {
+          "command": "cmux workspace-group toggle-archive",
+          "title": "Archive/Unarchive Group",
+          "id": "workspaceGroup.toggleArchive",
           "mcp": true
         },
         {
