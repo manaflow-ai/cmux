@@ -132,9 +132,16 @@ struct SidebarSelectionBatchCloseTests {
             controller.sidebar.groupFlow.newGroup(of: ids.prefix(2).map { CmuxNextSidebar.WorkspaceID($0) }, name: "Emptied", byUser: false)
             try await PinnedPageTests.until({ group()?.workspaces.count == 2 }, within: .seconds(30), report: { "group rows \(group()?.workspaces.count ?? -1)" })
 
+            print("SidebarSelectionBatchClose trace before: group \(group().map(\.id.rawValue) ?? "none")")
             sidebar.selection = Set(ids.map { CmuxNextSidebar.WorkspaceID($0) })
             sidebar.send(.close(sidebar.orderedSelection))
             try? await PinnedPageTests.until({ Self.listed(ids, services).isEmpty && group() == nil }, within: .seconds(60))
+            @MainActor func trace(_ step: String) {
+                let personal = services.machines.local.store.personal.groups.map { "\($0.id.rawValue)=\($0.name)" }
+                let closed = DaemonClosedHistory.entries([.workspace], in: services).prefix(6).map { "\($0.item.id) group=\($0.item.group?.id ?? "-") members=\($0.item.memberNames)" }
+                print("SidebarSelectionBatchClose trace \(step): sidebar group \(group().map { "\($0.id.rawValue) rows \($0.workspaces.count)" } ?? "none"), personal \(personal), closed \(closed), pinServed \(services.machines.local.supports(DaemonCapability.workspaceGroupPin.rawValue)) personalOrg \(controller.sidebar.usesPersonalOrganization) doc \(SidebarDocWiring.isActive)")
+            }
+            trace("after close")
             print("SidebarSelectionBatchClose: emptied group listed after the close: \(group() != nil), rows left \(Self.listed(ids, services).count)")
             #expect(Self.listed(ids, services).isEmpty)
             #expect(group() == nil, "the emptied group stayed: \(String(describing: group()))")
@@ -144,6 +151,7 @@ struct SidebarSelectionBatchCloseTests {
             let names = Set((1...3).map { String(format: "emptied-%02d", $0) })
             @MainActor func reopened() -> Set<String> { Set(services.daemon.store.workspaces.map { $0.name }).intersection(names) }
             try? await PinnedPageTests.until({ reopened() == names && group()?.workspaces.count == 2 }, within: .seconds(30))
+            trace("after undo")
             print("SidebarSelectionBatchClose: undo reopened \(reopened().count) of 3, group rows \(group()?.workspaces.count ?? -1)")
             #expect(reopened() == names)
             #expect(group()?.workspaces.count == 2, "the group did not come back with its rows")
