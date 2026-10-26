@@ -63,7 +63,10 @@ final class HomeDockTab: InternalPageProvider {
     /// switch). A dock on Channels shows no conversation, so it has none here.
     var messagesViews: [(key: String, view: TopHomePageView)] {
         _ = installs.revision
-        return views.compactMap { key, view in view.mode == .messages ? view.messages.map { (key, $0) } : nil }
+        return views.compactMap { key, view in
+            guard view.mode == .messages, let messages = view.messages else { return nil }
+            return (key, messages)
+        }
     }
 
     /// The docked Home's view in the live tree, once its tab has shown.
