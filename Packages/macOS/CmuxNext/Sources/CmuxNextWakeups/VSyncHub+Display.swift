@@ -332,7 +332,7 @@ extension VSyncHub {
             // A stop sets the flag before it posts CFRunLoopStop, so a stop that came before the run
             // loop ran ends it here, and one that comes later stops the run below.
             while !state.withLock({ $0.stopped }) {
-                _ = CFRunLoopRunInMode(.defaultMode, 1.0e10, false)
+                CFRunLoopRun()
             }
             CFRunLoopSourceInvalidate(keepAlive)
             state.withLock { $0.runLoop = nil }
