@@ -150,6 +150,28 @@ import Testing
         #expect(UpdateTrack.development.downloadsAutomaticallyByDefault)
     }
 
+    /// `updates.status` (and `cmux version`) report whether this app downloads by itself, from its
+    /// own `updates.downloadAutomatically`, not Sparkle's `SUAutomaticallyUpdate`: cmux NEXT turns
+    /// that key off at every launch and the legacy NIGHTLY app shares it, so it read "false" on a
+    /// NIGHTLY that downloads every build by itself (claude-sr2 2026-10-26 took Leo's Mac for opted out).
+    @Test func statusReportsTheAppsOwnDownloadSetting() {
+        let identity = UpdateBuildIdentity(bundleIdentifier: "com.cmuxterm.app.nightly", shortVersion: "1.0.0-nightly.100",
+                                           build: "100", minimumSystemVersion: nil,
+                                           infoFeedURL: "https://files-next.cmux.com/nightly-next/appcast-arm64.xml", hasPublicKey: true)
+        let defaults = UserDefaults(suiteName: "SilentBackgroundUpdateTests.\(UUID().uuidString)")!
+        let updater = UpdaterService(identity: identity, policy: ManagedUpdatePolicy { false }, defaults: defaults,
+                                     enableSparkle: false, recordsUpdates: false)
+        #expect(updater.disabledReason == nil)
+        defaults.set(false, forKey: "SUAutomaticallyUpdate")
+        updater.configure(checkAutomatically: true, checkInterval: 3600, downloadAutomatically: true, metered: .download)
+        updater.applyDownloadPolicy() // the driver's configure runs it; this updater has no driver
+        #expect(updater.status.automaticDownloads, "a NIGHTLY that downloads by itself reported automatic downloads off")
+        defaults.set(true, forKey: "SUAutomaticallyUpdate")
+        updater.configure(checkAutomatically: true, checkInterval: 3600, downloadAutomatically: false, metered: .download)
+        updater.applyDownloadPolicy()
+        #expect(!updater.status.automaticDownloads, "an app whose downloads wait for a click reported automatic downloads on")
+    }
+
     /// A forced `DisableAutoUpdate` keeps a waiting update waiting, whatever turns downloads on.
     @Test func aManagedDisableNeverDownloadsTheFoundUpdate() {
         let identity = UpdateBuildIdentity(bundleIdentifier: "com.cmuxterm.app.debug.silent-background-update", shortVersion: "1.0.0",
