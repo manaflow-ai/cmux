@@ -36,9 +36,11 @@ final class FocusEffectApplier: FocusEffectApplying {
             self?.ownedWindowDidBecomeKey(window)
             self?.childWindowDidBecomeKey(window)
             // This window took the keys back from a page it focused, with no click (ChildPageFocus.keysReturned):
-            // the model re-applies its target, which grants the page the keys again.
+            // the model re-applies its target, which grants the page the keys again. Sent, not reported
+            // as a responder change: that is dropped while effects apply, and the page would stay
+            // blurred; a send during an apply is reduced once the batch ends.
             if let self, window === self.controller.window, self.pageFocus.keysReturned(to: window) {
-                self.controller.focus.responderDidChange(.windowOrNone, source: .programmatic)
+                self.controller.focus.send(.responder(.windowOrNone, source: .programmatic))
             }
         })
         for (name, active) in [(NSApplication.didBecomeActiveNotification, true), (NSApplication.didResignActiveNotification, false)] {
