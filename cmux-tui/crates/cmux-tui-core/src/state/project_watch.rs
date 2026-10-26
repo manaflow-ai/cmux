@@ -5,6 +5,8 @@
 //! source whose list changed since the last import is committed, so an
 //! editor writing its state file without a new recent folder costs one read.
 
+use cmux_threads::checked::fs as files;
+use cmux_threads::checked::sync as waits;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{Receiver, channel};
@@ -90,7 +92,7 @@ fn fingerprint(dirs: &[PathBuf]) -> Vec<(PathBuf, Option<(u64, SystemTime)>)> {
                 .flat_map(move |name| [dir.join(name), dir.join(format!("{name}-wal"))])
         })
         .map(|path| {
-            let stamp = std::fs::metadata(&path)
+            let stamp = files::metadata(&path)
                 .ok()
                 .and_then(|meta| Some((meta.len(), meta.modified().ok()?)));
             (path, stamp)
@@ -102,7 +104,7 @@ fn fingerprint(dirs: &[PathBuf]) -> Vec<(PathBuf, Option<(u64, SystemTime)>)> {
 /// it. False when the watch ended.
 fn next_relevant(events: &Receiver<notify::Result<notify::Event>>) -> bool {
     loop {
-        let Ok(event) = events.recv() else { return false };
+        let Ok(event) = waits::recv(events) else { return false };
         if relevant(&event) {
             while events.try_recv().is_ok() {}
             return true;

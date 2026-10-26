@@ -6,11 +6,9 @@ import Foundation
 /// for each CEF request instead of creating timers, so a new request always
 /// replaces the previous fire date.
 protocol CEFPumpTimer: AnyObject {
-    /// Called on the main thread when the timer fires.
+    /// Called on the main thread when the timer fires. The pump records each fire's wake itself: the
+    /// timer records none.
     var onFire: (() -> Void)? { get set }
-    /// True while ``onFire`` runs for a fire of a delayed arm that the main deadline queue already
-    /// counted in the wakeup ledger (the pump then counts it no second time).
-    var fireIsCountedByQueue: Bool { get }
     /// Fires once, `delay` seconds from now (0 = on the next run loop pass).
     /// `tolerance` lets the system coalesce the wakeup with others.
     func arm(after delay: TimeInterval, tolerance: TimeInterval)
@@ -18,10 +16,6 @@ protocol CEFPumpTimer: AnyObject {
     func disarm()
     /// Stops for good: no fire after this.
     func invalidate()
-}
-
-extension CEFPumpTimer {
-    var fireIsCountedByQueue: Bool { false }
 }
 
 /// The pump's fire dates on the main thread's one deadline queue (`MainWorkScheduler.wakeUps`), so a
@@ -41,10 +35,10 @@ extension CEFPumpTimer {
 /// `CefDoMessageLoopWork` runs after every cmux entry of the same fire, and a nested run loop inside a
 /// CEF pass (a menu, a modal panel) holds no cmux deadline. An arm for now queues that block at once
 /// and never waits for the queue's timer. A new arm, ``disarm()`` and ``invalidate()`` drop what the
-/// last arm queued.
+/// last arm queued. The entry adds no `deadline` record: the pump records the wake with its reason.
 final class CEFWakeUpQueuePumpTimer: CEFPumpTimer {
-    /// The ledger owner of the pump's queue entries (reason `deadline`): the pump's own owner.
-    static let ledgerOwner = "CEFMessagePump"
+    /// The owner of the pump's queue entries: the pump's own.
+    static let ledgerOwner = CEFMessagePump.ledgerOwner
     /// A delayed arm this close to the pending one keeps it: the pump re-arms for the same CEF request
     /// several times a pass, and its clock and the queue's are read microseconds apart.
     static let sameDeadline: UInt64 = 100_000
@@ -52,14 +46,13 @@ final class CEFWakeUpQueuePumpTimer: CEFPumpTimer {
     static let longestDelay: TimeInterval = 1.0e6
 
     var onFire: (() -> Void)?
-    private(set) var fireIsCountedByQueue = false
 
     private enum Pending {
         case none
         /// A queue entry for the delayed arm, due at `deadline` (uptime ns).
         case deadline(MainWakeUpQueue.Token, deadline: UInt64)
-        /// A run-loop block is queued; `countedByQueue` when a queue fire queued it.
-        case block(countedByQueue: Bool)
+        /// A run-loop block is queued.
+        case block
     }
 
     private let queue: MainWakeUpQueue
@@ -89,7 +82,7 @@ final class CEFWakeUpQueuePumpTimer: CEFPumpTimer {
         guard delay > 0 else {
             if case .block = pending { return } // a queued block is already the next run loop pass
             drop()
-            queueBlock(countedByQueue: false)
+            queueBlock()
             return
         }
         let delayNanos = UInt64(min(delay, Self.longestDelay) * 1e9)
@@ -98,9 +91,10 @@ final class CEFWakeUpQueuePumpTimer: CEFPumpTimer {
         drop()
         let generation = generation
         let token = queue.insert(owner: Self.ledgerOwner, at: deadline,
-                                 window: Self.window(delay: .nanoseconds(Int64(delayNanos)), tolerance: tolerance)) { [weak self] in
+                                 window: Self.window(delay: .nanoseconds(Int64(delayNanos)), tolerance: tolerance),
+                                 ledgerReason: .recordedByAction) { [weak self] in
             guard let self, self.generation == generation else { return }
-            self.queueBlock(countedByQueue: true)
+            self.queueBlock()
         }
         pending = .deadline(token, deadline: deadline)
     }
@@ -122,16 +116,14 @@ final class CEFWakeUpQueuePumpTimer: CEFPumpTimer {
         generation &+= 1
     }
 
-    private func queueBlock(countedByQueue: Bool) {
-        pending = .block(countedByQueue: countedByQueue)
+    private func queueBlock() {
+        pending = .block
         let generation = generation
         post { [weak self] in
-            guard let self, self.generation == generation, case .block(countedByQueue: let counted) = self.pending else { return }
+            guard let self, self.generation == generation, case .block = self.pending else { return }
             self.pending = .none
             self.generation &+= 1
-            self.fireIsCountedByQueue = counted
             self.onFire?()
-            self.fireIsCountedByQueue = false
         }
     }
 

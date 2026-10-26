@@ -7,7 +7,7 @@ public import Foundation
 /// path after an earlier probe. All state lives on one serial queue; callbacks run there and
 /// callers hop to their own actor.
 public nonisolated final class AcpmuxCheckedLine: @unchecked Sendable { // crash-allow: every mutable field is read and written only on `queue` (one serial queue)
-    private let queue = DispatchQueue(label: "cmux.acpmux.checked-line")
+    private let queue = DispatchQueue(label: "cmux.acpmux.checked-line", qos: .userInitiated)
     private let environment: AcpmuxEnvironment
     private var descriptor: Int32 = -1
     private var source: (any DispatchSourceRead)?

@@ -2,6 +2,7 @@ import AppKit
 @testable import CmuxNextApp
 @testable import CmuxNextBrowser
 import CmuxNextCompat
+import CmuxNextHistory
 @testable import CmuxNextRemoteBrowser
 @testable import CmuxNextRemoteView
 @testable import CmuxNextRemoteViewSessions

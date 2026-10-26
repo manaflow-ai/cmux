@@ -6,7 +6,7 @@
           "index": 0,
           "seconds": {
             "T1": 12000,
-            "T2": 960
+            "T2": 18960
           },
           "stories": {
             "T1": [
@@ -29,6 +29,22 @@
               "tab-switch"
             ],
             "T2": [
+              "action-sweep-light-1",
+              "action-sweep-light-2",
+              "action-sweep-light-3",
+              "action-sweep-light-4",
+              "action-sweep-light-5",
+              "action-sweep-light-6",
+              "action-sweep-light-7",
+              "action-sweep-light-8",
+              "action-sweep-stress-1",
+              "action-sweep-stress-2",
+              "action-sweep-stress-3",
+              "action-sweep-stress-4",
+              "action-sweep-stress-5",
+              "action-sweep-stress-6",
+              "action-sweep-stress-7",
+              "action-sweep-stress-8",
               "launch-after-reboot",
               "new-surfaces-stress"
             ]
@@ -45,10 +61,26 @@
         {
           "index": 0,
           "seconds": {
-            "T2": 960
+            "T2": 18960
           },
           "stories": {
             "T2": [
+              "action-sweep-light-1",
+              "action-sweep-light-2",
+              "action-sweep-light-3",
+              "action-sweep-light-4",
+              "action-sweep-light-5",
+              "action-sweep-light-6",
+              "action-sweep-light-7",
+              "action-sweep-light-8",
+              "action-sweep-stress-1",
+              "action-sweep-stress-2",
+              "action-sweep-stress-3",
+              "action-sweep-stress-4",
+              "action-sweep-stress-5",
+              "action-sweep-stress-6",
+              "action-sweep-stress-7",
+              "action-sweep-stress-8",
               "launch-after-reboot",
               "new-surfaces-stress"
             ]

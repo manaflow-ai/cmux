@@ -3,7 +3,8 @@
 
 Launches the tagged app as idle-budget.py's `light` session does (fresh session, Home's pages in Chromium),
 with a DevTools port, lets it settle, then with no input:
-  1. debug.cef (the pump counters) at the window's two ends: pump requests and work runs per second;
+  1. debug.cef (the pump counters) at the window's two ends: pump requests and work runs per second, and the
+     early passes (a delayed pass CEF re-asked for under 2 ms);
   2. every DevTools target (type, url, attached) and, for each page and iframe target: visibilityState,
      document.hasFocus(), running animations (document.getAnimations(): count, names, play state),
      and the rAF callbacks one second gets (0 when Chromium has the page hidden);
@@ -121,6 +122,9 @@ def main():
         report["pump_per_s"] = {k: round((after.get(k, 0) - before.get(k, 0)) / seconds, 2)
                                 for k in after if isinstance(after.get(k), (int, float))}
         print("CEF-IDLE-PUMP " + json.dumps(report["pump_per_s"]), flush=True)
+        # Delayed passes CEF re-asked for under 2 ms (CEFPumpStats.earlyPasses, p14-energy-018): 0 after 046.
+        report["early_passes"] = after.get("early_passes", 0) - before.get("early_passes", 0)
+        print("CEF-IDLE-EARLY-PASSES " + json.dumps({"count": report["early_passes"], "seconds": round(seconds, 2)}), flush=True)
         report["chromium"] = chromium_summary(os.path.join(opts.out, "chromium-trace.json"), seconds)
         for row in report["chromium"]["tasks"][:25]:
             print("CEF-IDLE-TASK " + json.dumps(row), flush=True)

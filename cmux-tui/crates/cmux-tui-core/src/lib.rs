@@ -76,11 +76,14 @@ mod pty_input_room;
 mod pty_write;
 mod terminal_title;
 use cmux_tui_remote_access::remote_relay_state;
+mod line_parses;
 mod login_shell;
 pub mod release;
 mod request_origin;
 /// Blocking notes on request threads (`server-stats` `request_path_io`).
 mod request_path;
+/// A request's cause and QoS class together (p06-scheduler-035).
+mod request_qos;
 pub mod resource;
 mod resource_api;
 mod resource_mutation;
@@ -112,6 +115,7 @@ mod terminal_loss_cause;
 mod terminal_loss_log;
 mod terminal_metadata;
 pub use cmux_tui_util::terminal_respawn_text;
+mod work_reply;
 mod workspace_registry;
 
 /// The executable terminal hosts run from (the cmux-tui-platform crate).

@@ -9,7 +9,8 @@ public protocol OracleFacetProvider: Sendable {
     /// field; every other facet's is ``capture``.
     func capturing(paths: OraclePaths) -> OracleFacetCapture
     /// The facet's change signal for `debug.oracle.wait_for`. A main-actor facet needs none (the wait reads it
-    /// under Observation tracking); a background facet without one cannot be waited on (`unavailable`).
+    /// under Observation tracking); a background or split facet without one cannot be waited on (`unavailable`):
+    /// what its off-main part reads is not observed.
     var changes: OracleFacetChanges? { get }
 }
 
@@ -32,8 +33,16 @@ public enum OracleFacetCapture: Sendable {
     case mainActor(@MainActor @Sendable () throws(OracleFacetError) -> OracleValue)
     /// State owned off the main actor (daemon vt-state, a store actor). Runs after the main-actor
     /// turn, concurrently with the other background facets of the snapshot.
-    case background(@Sendable () async throws(OracleFacetError) -> OracleValue)
+    case background(OracleFacetRead)
+    /// Main-actor model values plus state owned off the main actor: the main-actor part runs in the snapshot's
+    /// main-actor turn with the `mainActor` facets (so the snapshot describes one state of the model), reads
+    /// values only (the same rule), and returns the slow part, which runs off the main actor as a background
+    /// facet does. The `terminals` facet lists the mirror's terminals in the turn and reads their screens later.
+    case split(@MainActor @Sendable () throws(OracleFacetError) -> OracleFacetRead)
 }
+
+/// A facet read that runs off the main actor.
+public typealias OracleFacetRead = @Sendable () async throws(OracleFacetError) -> OracleValue
 
 /// A provider given as its facet and capture, for a facet whose read fits in one closure.
 public struct OracleFacetSource: OracleFacetProvider {

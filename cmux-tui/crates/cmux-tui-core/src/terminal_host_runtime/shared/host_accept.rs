@@ -9,7 +9,6 @@
 //! aborted connection (`ECONNABORTED`) is retried at once, like `EINTR`.
 
 use std::sync::Arc;
-use std::thread;
 use std::time::{Duration, Instant};
 
 use super::super::sys::HostStream;
@@ -61,7 +60,7 @@ impl AcceptBackoff {
                 Err(error) if error.kind() != std::io::ErrorKind::Interrupted => {
                     // `poll` itself failed: wait out the backoff without the waker,
                     // so a lasting failure cannot spin.
-                    thread::sleep(remaining);
+                    crate::request_path::sleep(remaining);
                     break;
                 }
                 Err(_) => {}

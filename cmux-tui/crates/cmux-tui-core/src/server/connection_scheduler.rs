@@ -26,7 +26,6 @@ use super::terminal_create;
 use crate::Mux;
 use crate::SurfaceId;
 use crate::event_cause::EventCause;
-use crate::event_cause::EventCauseScope;
 use crate::stream_interrupt::InterruptSet;
 use crate::stream_interrupt::StreamInterrupt;
 use cmux_threads::ThreadQos;
@@ -425,7 +424,8 @@ pub(super) fn run_pending_request(
     writer: &MessageWriter,
 ) -> bool {
     let PendingSurfaceRequest { request, arrival, cause, _bytes_permit, .. } = pending;
-    let _cause = EventCauseScope::enter(cause);
+    // The request runs at its cause's class (crate::request_qos).
+    let _cause = mux.request_qos().enter(cause);
     // The dispatcher, a clear-history worker or a creation commit runs the
     // request: a request path like the reader's (`crate::request_path`).
     let _request_path = crate::request_path::RequestPathScope::enter(mux.request_path_stats());

@@ -6,6 +6,7 @@
 //! it: locked sections return [`Out`] lists that [`Supervisor::emit`] runs
 //! after the lock is released, in order.
 
+use cmux_threads::checked::fs as files;
 use std::collections::{BTreeSet, HashMap, VecDeque};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -563,14 +564,14 @@ impl Supervisor {
         use std::io::Write as _;
         let Some(dir) = &self.config.state_dir else { return Ok(()) };
         // A fresh daemon may not have created its state directory yet.
-        std::fs::create_dir_all(dir)?;
+        files::create_dir_all(dir)?;
         let temp = dir.join("apps.json.tmp");
         let body = serde_json::to_vec_pretty(&json!({ "version": 1, "mirror": mirror }))
             .map_err(std::io::Error::other)?;
-        let mut file = std::fs::File::create(&temp)?;
+        let mut file = files::create(&temp)?;
         file.write_all(&body)?;
-        file.sync_all()?;
-        std::fs::rename(&temp, dir.join("apps.json"))
+        files::sync_all(&file)?;
+        files::rename(&temp, dir.join("apps.json"))
     }
 
     /// The grant a host of `key` runs with.
@@ -613,7 +614,7 @@ impl Drop for Supervisor {
 fn load_mirror(state_dir: Option<&std::path::Path>) -> Mirror {
     let Some(dir) = state_dir else { return Mirror::default() };
     let path = dir.join("apps.json");
-    let Ok(raw) = std::fs::read(&path) else { return Mirror::default() };
+    let Ok(raw) = files::read(&path) else { return Mirror::default() };
     match serde_json::from_slice::<Value>(&raw)
         .ok()
         .and_then(|v| serde_json::from_value::<Mirror>(v["mirror"].clone()).ok())
@@ -621,7 +622,7 @@ fn load_mirror(state_dir: Option<&std::path::Path>) -> Mirror {
         Some(mirror) => mirror,
         None => {
             // Keep the unreadable file for diagnosis; start from an empty mirror.
-            let _ = std::fs::rename(&path, dir.join("apps.json.corrupt"));
+            let _ = files::rename(&path, dir.join("apps.json.corrupt"));
             Mirror::default()
         }
     }

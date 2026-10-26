@@ -83,14 +83,20 @@ pub fn multi_thread_with(hooks: ThreadHooks) -> Builder {
             set_role(Role::Worker);
             run(unpark.as_ref());
         });
+    // Lab builds also watch every task poll ([`crate::poll_watch`]).
+    #[cfg(all(tokio_unstable, feature = "cmux-stability"))]
+    crate::poll_watch::PollWatch::lab().instrument(&mut builder);
     builder
 }
 
 /// `Builder::new_current_thread().enable_all()`. Its tasks run on the thread
-/// that calls [`block_on`].
+/// that calls [`block_on`]. Lab builds also watch every task poll
+/// ([`crate::poll_watch`]).
 pub fn current_thread() -> Builder {
     let mut builder = Builder::new_current_thread();
     builder.enable_all();
+    #[cfg(all(tokio_unstable, feature = "cmux-stability"))]
+    crate::poll_watch::PollWatch::lab().instrument(&mut builder);
     builder
 }
 

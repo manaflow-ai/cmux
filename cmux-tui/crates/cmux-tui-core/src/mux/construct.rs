@@ -213,6 +213,7 @@ impl Mux {
             request_stats: Arc::default(),
             resource_projection_stats,
             request_path_stats: crate::request_path::stats_from_env(),
+            request_qos: crate::request_qos::RequestQosGate::from_env(),
             started_at: Instant::now(),
             state: signaled_mutex::StateMutex::new(state),
             subscribers: MuxEventBroadcaster::default(),
@@ -424,6 +425,7 @@ impl Mux {
             ),
             request_watchdog: crate::server::RequestWatchdog::default(),
             work,
+            git_sequences: crate::git_ops::Sequences::default(),
             pairing: PairingBroker::new(),
             #[cfg(test)]
             test_surface_runtime,

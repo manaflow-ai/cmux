@@ -128,7 +128,9 @@ impl Mux {
         self.browser_providers.wake_waiters();
         // Block items (a Chief engine file save) and started skip items (a
         // browser-runtime status read) finish; queued skip items and every
-        // continue item (an acpmux ask) are not waited for (work.rs).
+        // continue item (an acpmux ask, a git item or a listening-port
+        // read, git_ops/sequence.rs) are not waited for (work.rs); a dropped
+        // queued item answers that the daemon is shutting down.
         let work = self.work.shutdown_until(Instant::now() + WORK_SHUTDOWN_WAIT);
         if work.unfinished > 0 {
             eprintln!("cmux-tui: {} work items did not finish before shutdown", work.unfinished);

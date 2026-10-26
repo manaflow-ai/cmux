@@ -178,7 +178,7 @@ final class AppServices {
     private(set) lazy var dragSession: TabDragSession = TabDragSession(services: self)  // built by the first drag
     /// The command palette on demand (p08-startup-023): launch builds none; it is built after the first frame
     /// (`postBuild`) or by the first palette key, in that key's turn. Handlers add pages to `palettes.sources`.
-    private(set) lazy var palettes = PaletteOnDemand(registry: registry, sources: { [weak self] in self.map(PaletteSourcesBridge.make(services:)) ?? PaletteSources() }) { [registry, weak self] sources in
+    private(set) lazy var palettes = PaletteOnDemand(registry: registry, sources: { [weak self] in self.map { PaletteSourcesBridge.make(services: $0) } ?? PaletteSources() }) { [registry, weak self] sources in
         PaletteController(registry: registry, sources: sources, usage: self.map { DaemonPaletteUsageStore(services: $0) })
     }
     var palette: PaletteController { palettes.controller }
@@ -479,6 +479,14 @@ final class AppServices {
     let hoverCards: HoverCardCoordinator
     /// What is above a window's content changed: overlays, the hover card, focus overlays (the overlays facet's wait).
     let overlayChanges = OverlayChangeFeed()
+    #if DEBUG || CMUX_BENCH_HOOKS
+    /// A terminal view's daemon screen or link changed (the terminals facet's wait): each step a view's attach driver
+    /// maps signals it. The overlays' broadcaster type, so no second lock site: it only says "read again".
+    let terminalScreenChanges = OverlayChangeFeed()
+    var terminalScreenChanged: (@Sendable () -> Void)? { { [terminalScreenChanges] in terminalScreenChanges.signal() } }
+    #else
+    var terminalScreenChanged: (@Sendable () -> Void)? { nil }
+    #endif
     /// Refusal messages for keyboard and menu runs.
     let refusalHUD = RefusalHUD()
     /// The app's one set of blocking-work lanes: file I/O, sync system calls and long CPU work run there,
@@ -497,6 +505,8 @@ final class AppServices {
     let crashKeys: CrashKeySlots?
     /// The burst bench's record of refusals, designed no-op Cmd-W presses and terminal grids (`debug.burst`).
     let burstTrace = BurstTrace()
+    /// Every tab switch's `switch.tab` trace pair, in every build (`DebugTabSwitch`); tests replace it.
+    var tabSwitch = TabSwitchSignpost()
     /// The inline VS Code server (`serve-web`) behind VS Code (Inline); starts on first use.
     let vscodeServeWeb = VSCodeServeWebService(
         planner: VSCodeServeWebLaunchPlanner(homeDirectory: FileManager.default.homeDirectoryForCurrentUser,

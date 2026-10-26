@@ -164,6 +164,30 @@ fn event_cause_of_a_v2_request_is_narrowed_by_its_claim() {
     mux.shutdown();
 }
 
+/// With request classes on (crate::request_qos), the reader runs the
+/// verified app's line at USER_INITIATED and the same line with an `agent`
+/// claim at UTILITY, the class of the narrowed cause the dispatcher would
+/// also use.
+#[test]
+fn request_qos_of_a_claimed_line_follows_the_narrowed_cause() {
+    use cmux_threads::ThreadQos::{UserInitiated, Utility};
+    let mux = mux("claim-qos");
+    mux.set_request_qos_for_test(true);
+    let app = Conn::app(&mux);
+    let _ = crate::request_qos::tests::take_entered();
+    app.frame(&mux, &workspace_create("qos-as-user", None));
+    assert_eq!(app.next_line()["ok"], true);
+    let entered = crate::request_qos::tests::take_entered();
+    assert_eq!(entered.first(), Some(&UserInitiated), "{entered:?}");
+    assert!(!entered.contains(&Utility), "the app's own line: {entered:?}");
+
+    app.frame(&mux, &workspace_create("qos-as-agent", Some("agent")));
+    assert_eq!(app.next_line()["ok"], true);
+    let entered = crate::request_qos::tests::take_entered();
+    assert_eq!(entered.get(..2), Some(&[UserInitiated, Utility][..]), "claimed: {entered:?}");
+    mux.shutdown();
+}
+
 /// A script's op runs on a thread of the script host (`DaemonRouter::call`),
 /// outside every connection frame: what it sets off is automation, also on
 /// a thread whose own cause is frontend.
