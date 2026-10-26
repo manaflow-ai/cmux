@@ -120,15 +120,21 @@ class Host:
             d = os.open(f"/proc/{pid}", os.O_RDONLY | os.O_DIRECTORY)
         except OSError:
             return False
+        def read(name):
+            fd = os.open(name, os.O_RDONLY, dir_fd=d)
+            try:
+                return os.read(fd, 65536).decode(errors="replace")
+            finally:
+                os.close(fd)
+
         try:
-            with open("cgroup", dir_fd=d) as f:
-                cgroup = f.read()
-            with open("comm", dir_fd=d) as f:
-                comm = f.read().strip()
-            if f"/{unit}/" not in cgroup or comm != "systemd":
+            if f"/{unit}/" not in read("cgroup") or read("comm").strip() != "systemd":
                 return False
-            with open("oom_score_adj", "w", dir_fd=d) as f:
-                f.write(f"{score}\n")
+            fd = os.open("oom_score_adj", os.O_WRONLY, dir_fd=d)
+            try:
+                os.write(fd, f"{score}\n".encode())
+            finally:
+                os.close(fd)
             return True
         except OSError:
             return False
