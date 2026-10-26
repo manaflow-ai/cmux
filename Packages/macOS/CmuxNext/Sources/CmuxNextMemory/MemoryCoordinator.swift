@@ -43,6 +43,8 @@ public import CmuxNextWakeups
 ///   ``MemoryLimit/scale(_:inUse:)``. A release that kept some says when the first ages out
 ///   (``MemoryReleaseProgress/keptWorkingSet(agesOutIn:)``), and one ``MainDeadline`` one-shot then
 ///   asks those consumers for one more release at the same limit.
+/// - A ``MemorySaverModeConsumer`` (a planner whose proactive discards wait by the mode) gets the
+///   mode: at registration and after the limits of each mode change.
 ///
 /// The level is the debug override when set (`debug.hibernation.pressure`), else the kernel's level
 /// from ``MemoryPressureEvents`` (read at init, then each change). Nothing here waits or reads on a
@@ -87,14 +89,17 @@ public final class MemoryCoordinator: MemoryConsumerRegistry, MemoryPressureVote
     /// ``level`` is told to the vote's observers after the new limits and the level consumers.
     public var pressureVote: MemoryPressureLevel { level }
 
-    /// The `memory.saver` mode. Changing it changes only the limits of consumers that take a mode
-    /// share at the current level.
+    /// The `memory.saver` mode. Changing it changes the limits of consumers that take a mode share at
+    /// the current level, then hands the mode to every ``MemorySaverModeConsumer``.
     public var mode: MemorySaverMode {
         get { policy.mode }
         set {
             guard newValue != policy.mode else { return }
             policy.mode = newValue
             applyLimits()
+            for entry in consumers.liveEntries() {
+                (entry.liveConsumer as? any MemorySaverModeConsumer)?.memorySaverModeDidChange(newValue)
+            }
         }
     }
 
@@ -216,6 +221,7 @@ public final class MemoryCoordinator: MemoryConsumerRegistry, MemoryPressureVote
         consumers.add(record)
         entry.liveConsumer?.updateMemoryLimit(current)
         (entry.liveConsumer as? any MemoryLevelConsumer)?.memoryLevelDidChange(level)
+        (entry.liveConsumer as? any MemorySaverModeConsumer)?.memorySaverModeDidChange(mode)
         if record.needsRelease { scheduleSlice() }
     }
 
