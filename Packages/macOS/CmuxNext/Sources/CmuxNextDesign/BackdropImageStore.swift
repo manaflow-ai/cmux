@@ -36,6 +36,10 @@ public final class BackdropImageStore {
     private var warming: [Task<Void, Never>] = []
     /// The desktop's ``DesktopWallpaperWatch/generation`` the cached Desktop Wallpaper shows.
     private var desktopGeneration = 0
+    /// Ends when every Desktop Wallpaper decode the desktop moved on from has ended. A decode
+    /// can't be stopped once it runs, so a new one waits for this: one desktop decode at a time,
+    /// however fast the desktop changes and however many windows ask.
+    private var retiredDesktopLoads: Task<Void, Never>?
 
     private struct Key: Hashable {
         let id: String
@@ -109,8 +113,15 @@ public final class BackdropImageStore {
         guard generation > desktopGeneration else { return }
         desktopGeneration = generation
         images = images.filter { $0.key.id != BackdropSelection.desktopID }
-        for (key, load) in loads where key.id == BackdropSelection.desktopID { load.cancel() }
+        let retired = loads.filter { $0.key.id == BackdropSelection.desktopID }.map(\.value)
         loads = loads.filter { $0.key.id != BackdropSelection.desktopID }
+        guard !retired.isEmpty else { return }
+        let earlier = retiredDesktopLoads
+        // task-owner: the chain of retired desktop decodes; it ends when they do (never cancelled)
+        retiredDesktopLoads = Task.detached(priority: .utility) {
+            await earlier?.value
+            for load in retired { _ = await load.value }
+        }
     }
 
     /// Starts loading `selection` so the first window that shows it finds it decoded.
@@ -135,6 +146,13 @@ public final class BackdropImageStore {
         if case .art(let art) = selection, art.imageURL == nil {
             // Not bundled and not downloaded yet: fetch it once, then decode as usual.
             guard await downloads.file(for: art) != nil else { return nil }
+            if let image = images[key] { return image }
+        }
+        if key.id == BackdropSelection.desktopID, loads[key] == nil, let retired = retiredDesktopLoads {
+            // Every caller waits on the same chain; the first to resume starts the decode, the
+            // rest join it (loads[key] below).
+            await retired.value
+            guard !Task.isCancelled else { return nil }
             if let image = images[key] { return image }
         }
         let load: Task<Decoded?, Never>
