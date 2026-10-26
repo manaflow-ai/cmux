@@ -389,7 +389,9 @@ fn kitty(params: &str, payload: &str) -> Vec<u8> {
 const PIXEL: &str = "/wAAfw==";
 
 /// Kitty state the replay stream carries, then more commands that depend on
-/// the restored image numbers and implicit ID cursor.
+/// the restored image numbers and implicit ID cursors of both screens. The
+/// alternate screen exists but holds no image (an image there, inactive,
+/// is refused: cold_pages_refuse_images_on_the_inactive_alternate_screen).
 #[test]
 fn cold_pages_round_trip_kitty_placements_numbers_and_both_screens() {
     let setup = [
@@ -397,16 +399,15 @@ fn cold_pages_round_trip_kitty_placements_numbers_and_both_screens() {
         kitty("a=T,t=d,f=32,i=21,p=2,s=1,v=1,c=2,r=2,z=4,q=2", PIXEL),
         kitty("a=T,t=d,f=32,I=7,s=1,v=1,X=1,Y=2,c=3,r=1,z=-2,q=2", PIXEL),
         kitty("a=T,t=d,f=32,s=1,v=1,c=1,r=1,q=2", PIXEL),
-        b"\x1b[?1049halt".to_vec(),
-        kitty("a=T,t=d,f=32,i=40,s=1,v=1,c=1,r=1,q=2", PIXEL),
-        b"\x1b[?1049l".to_vec(),
+        b"\x1b[?1049halt\x1b[?1049l".to_vec(),
     ]
     .concat();
     let further = [
         kitty("a=p,I=7,c=2,r=2,q=2", ""),
         kitty("a=T,t=d,f=32,s=1,v=1,c=1,r=1,q=2", PIXEL),
         b"\x1b[?1049h".to_vec(),
-        kitty("a=p,i=40,p=3,q=2", ""),
+        kitty("a=T,t=d,f=32,i=40,p=3,s=1,v=1,c=1,r=1,q=2", PIXEL),
+        kitty("a=T,t=d,f=32,s=1,v=1,c=1,r=1,q=2", PIXEL),
     ]
     .concat();
     let mut cold = Probe::new(20, 8, SCROLLBACK_BYTES);
@@ -449,6 +450,75 @@ fn cold_pages_refuse_a_placement_only_in_scrollback() {
     assert_refused(&mut probe, ColdPagesError::KittyNotReplayable);
 }
 
+/// The review's reproduction: placement p=1 only in the primary scrollback,
+/// p=2 of the same image showing (so the image keeps its pixels in the
+/// replay), then the alternate screen active. The replay drops p=1 and only
+/// the active screen's placements can be compared, so the codec refuses.
+#[test]
+fn cold_pages_refuse_a_scrollback_placement_under_the_alternate_screen() {
+    let setup = |probe: &mut Probe| {
+        probe.term.vt_write(&kitty("a=T,t=d,f=32,i=5,p=1,s=1,v=1,c=1,r=1,q=2", PIXEL));
+        for line in 0..30 {
+            probe.term.vt_write(format!("\r\nline {line}").as_bytes());
+        }
+        probe.term.vt_write(&kitty("a=p,i=5,p=2,q=2", ""));
+    };
+    let mut primary_active = Probe::new(20, 8, SCROLLBACK_BYTES);
+    setup(&mut primary_active);
+    assert_refused(&mut primary_active, ColdPagesError::KittyNotReplayable);
+
+    let mut probe = Probe::new(20, 8, SCROLLBACK_BYTES);
+    setup(&mut probe);
+    probe.term.vt_write(b"\x1b[?1049h");
+    assert_refused(&mut probe, ColdPagesError::KittyNotReplayable);
+    probe.term.vt_write(b"\x1b[?1049l");
+    let placements = probe.term.kitty_graphics_snapshot().unwrap().placements;
+    assert_eq!(placements.len(), 2, "the refused terminal keeps p=1 and p=2: {placements:?}");
+}
+
+/// Images on the inactive alternate screen cannot be compared either.
+#[test]
+fn cold_pages_refuse_images_on_the_inactive_alternate_screen() {
+    let mut probe = Probe::new(20, 8, SCROLLBACK_BYTES);
+    probe.term.vt_write(b"\x1b[?1049h");
+    probe.term.vt_write(&kitty("a=T,t=d,f=32,i=40,s=1,v=1,c=1,r=1,q=2", PIXEL));
+    probe.term.vt_write(b"\x1b[?1049l");
+    assert_refused(&mut probe, ColdPagesError::KittyNotReplayable);
+}
+
+/// Kitty state on the active screen only round-trips with the alternate
+/// screen active, and the primary screen it returns to is intact.
+#[test]
+fn cold_pages_round_trip_kitty_on_the_active_alternate_screen() {
+    let setup = [
+        b"shell\r\n\x1b[?1049h".to_vec(),
+        kitty("a=T,t=d,f=32,i=40,p=3,s=1,v=1,c=2,r=1,q=2", PIXEL),
+        kitty("a=T,t=d,f=32,I=9,s=1,v=1,c=1,r=1,q=2", PIXEL),
+    ]
+    .concat();
+    let further = [
+        kitty("a=p,I=9,c=2,r=2,q=2", ""),
+        b"\x1b[?1049l".to_vec(),
+        kitty("a=T,t=d,f=32,s=1,v=1,c=1,r=1,q=2", PIXEL),
+    ]
+    .concat();
+    let mut cold = Probe::new(20, 8, SCROLLBACK_BYTES);
+    let mut control = Probe::new(20, 8, SCROLLBACK_BYTES);
+    cold.term.vt_write(&setup);
+    control.term.vt_write(&setup);
+    let before = observe(&mut cold.term);
+    assert_eq!(before.kitty.images.len(), 2, "{:?}", before.kitty);
+    cold.cold_round_trip();
+    assert_same("alternate kitty: thawed", &observe(&mut cold.term), &before);
+
+    cold.term.vt_write(&further);
+    control.term.vt_write(&further);
+    let (mut thawed, kept) = (observe(&mut cold.term), observe(&mut control.term));
+    thawed.marker_epoch = kept.marker_epoch;
+    thawed.history_epoch = kept.history_epoch;
+    assert_same_content("alternate kitty: after more input", &thawed, &kept);
+}
+
 #[test]
 fn cold_pages_refuse_an_unplaced_image() {
     let mut probe = Probe::new(20, 8, SCROLLBACK_BYTES);
@@ -471,4 +541,123 @@ fn cold_pages_refuse_deferred_clipboard_reads() {
     assert_refused(&mut probe, ColdPagesError::ClipboardReadsDeferred);
     probe.term.set_clipboard_reads_deferred(false);
     probe.cold_round_trip();
+}
+
+/// Deterministic log lines that do not repeat: timestamps, ids, durations
+/// and paths from a linear congruential generator, some of them styled.
+fn varied_log(bytes: usize) -> Vec<u8> {
+    const LEVELS: [&str; 4] = ["\x1b[32mINFO\x1b[0m", "\x1b[33mWARN\x1b[0m", "DEBUG", "TRACE"];
+    const WORDS: [&str; 8] =
+        ["request", "compile", "fetch", "render", "socket", "worker", "cache", "write"];
+    let mut state = 0x2545_f491_4f6c_dd1du64;
+    let mut next = move || {
+        state =
+            state.wrapping_mul(6_364_136_223_846_793_005).wrapping_add(1_442_695_040_888_963_407);
+        state >> 33
+    };
+    let mut out = Vec::with_capacity(bytes + 256);
+    let mut second = 0u64;
+    while out.len() < bytes {
+        second += next() % 3;
+        let line = format!(
+            "2026-10-26T{:02}:{:02}:{:02}.{:03}Z {} [{}-{}] {} id={:016x} took {}ms /api/v{}/{}/{:x}\r\n",
+            (second / 3600) % 24,
+            (second / 60) % 60,
+            second % 60,
+            next() % 1000,
+            LEVELS[(next() % 4) as usize],
+            WORDS[(next() % 8) as usize],
+            next() % 64,
+            WORDS[(next() % 8) as usize],
+            next() << 20 | next(),
+            next() % 5000,
+            1 + next() % 3,
+            WORDS[(next() % 8) as usize],
+            next(),
+        );
+        out.extend_from_slice(line.as_bytes());
+    }
+    out
+}
+
+/// The 112/040 comparison with libghostty-vt's own page compression
+/// (`ghostty_terminal_compress`): the same filled 10 MB scrollback, resident
+/// bytes after each, and what the next read costs. Numbers go to stderr and
+/// into p07-memory.md; the asserts check that both keep the content and that
+/// the codec holds at most half of what native compression leaves resident
+/// (the 2x bar for keeping a codec of our own).
+#[test]
+fn cold_pages_compare_with_native_page_compression() {
+    let corpus_text: Vec<u8> = corpus()
+        .into_iter()
+        .filter(|(name, ..)| !matches!(name.as_str(), "kitty-graphics" | "alt-screen-editor"))
+        .flat_map(|(.., bytes)| bytes)
+        .collect();
+    for (name, text) in [("corpus", corpus_text), ("varied log", varied_log(4_000_000))] {
+        compare_with_native(name, &text);
+    }
+}
+
+fn compare_with_native(name: &str, text: &[u8]) {
+    let fill = |probe: &mut Probe| {
+        let mut written = 0;
+        while probe.term.history_marker(0) == 0 {
+            assert!(written < 256_000_000, "no row was evicted after {written} B");
+            for chunk in text.chunks(16 * 1024) {
+                probe.term.vt_write(chunk);
+            }
+            written += text.len();
+        }
+    };
+    let mut native = Probe::new(120, 40, SCROLLBACK_BYTES);
+    let mut cold = Probe::new(120, 40, SCROLLBACK_BYTES);
+    fill(&mut native);
+    fill(&mut cold);
+    let expected = native.term.plain_text().unwrap();
+    let live = native.term.page_memory().unwrap();
+
+    let started = std::time::Instant::now();
+    let outcome = native.term.compress_scrollback(true).unwrap();
+    let native_compress = started.elapsed();
+    let compressed = native.term.page_memory().unwrap();
+    let started = std::time::Instant::now();
+    let viewport = native.term.viewport_text().unwrap();
+    let native_viewport_read = started.elapsed();
+    let started = std::time::Instant::now();
+    let native_text = native.term.plain_text().unwrap();
+    let native_full_read = started.elapsed();
+    assert_eq!(native_text, expected, "native compression keeps the content");
+
+    let placeholder = Terminal::new(1, 1, 0, Callbacks::default()).unwrap();
+    let term = std::mem::replace(&mut cold.term, placeholder);
+    let started = std::time::Instant::now();
+    let frozen = term.into_cold().unwrap();
+    let codec_freeze = started.elapsed();
+    let held = frozen.held_bytes() as u64;
+    let started = std::time::Instant::now();
+    cold.term = frozen.thaw().unwrap();
+    let codec_thaw = started.elapsed();
+    assert_eq!(cold.term.viewport_text().unwrap(), viewport);
+    assert_eq!(cold.term.plain_text().unwrap(), expected, "the codec keeps the content");
+
+    report(&format!(
+        "cold_pages vs native ({name}): live resident {} B in {} pages; native {outcome:?}: resident {} B \
+         ({} of {} pages, {} B compressed), {:.1}x, compress {:?}, viewport read {:?}, full read {:?}; \
+         codec: held {held} B, {:.1}x, freeze {:?}, thaw {:?}; codec over native {:.2}x",
+        live.resident_bytes,
+        live.pages,
+        compressed.resident_bytes,
+        compressed.compressed_pages,
+        compressed.pages,
+        compressed.compressed_bytes,
+        live.resident_bytes as f64 / compressed.resident_bytes as f64,
+        native_compress,
+        native_viewport_read,
+        native_full_read,
+        live.resident_bytes as f64 / held as f64,
+        codec_freeze,
+        codec_thaw,
+        compressed.resident_bytes as f64 / held as f64,
+    ));
+    assert!(held * 2 <= compressed.resident_bytes, "{name}: the codec is not 2x over native");
 }
