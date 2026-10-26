@@ -2,6 +2,7 @@ import AppKit
 @testable import CmuxNextApp
 @testable import CmuxNextBrowser
 import CmuxNextCompat
+import CmuxNextHibernation
 import CmuxNextInput
 import CmuxNextInputCore
 import CmuxNextWakeups
@@ -30,7 +31,9 @@ import Testing
         var kinds = IntentPrewarmKinds()
         let cover = try #require(Self.picture())
         kinds.target("a", size: CGSize(width: 640, height: 420))
-        kinds.decoded("a", cover)
+        let ticket = kinds.beginDecode("a")
+        #expect(kinds.decoded("a", cover, ticket: ticket))
+        #expect(kinds.decodes.isEmpty)
         let taken = kinds.takeForRestore("a")
         #expect(taken.cover === cover)
         #expect(taken.size == CGSize(width: 640, height: 420))
@@ -38,14 +41,18 @@ import Testing
         #expect(again.cover == nil && again.size == nil)
     }
 
-    @Test func aCancelDropsTheCoverAndTheSizeAndStopsTheDecode() throws {
+    @Test func aCancelDropsTheCoverAndTheSizeAndMakesTheDecodeStale() throws {
         var kinds = IntentPrewarmKinds()
-        let decode = Task<Void, Never> { try? await Task.sleep(for: .seconds(60)) }
+        let cover = try #require(Self.picture())
         kinds.target("a", size: CGSize(width: 640, height: 420))
-        kinds.decoding("a", decode)
+        let stale = kinds.beginDecode("a")
         kinds.cancel("a")
-        #expect(decode.isCancelled)
         #expect(kinds.decodes.isEmpty && kinds.covers.isEmpty && kinds.sizes.isEmpty)
+        #expect(!kinds.decoded("a", cover, ticket: stale), "a cancelled decode's reply was kept")
+        #expect(kinds.covers.isEmpty)
+        let current = kinds.beginDecode("a")
+        #expect(!kinds.decoded("a", cover, ticket: stale), "an older decode's reply was kept")
+        #expect(kinds.decoded("a", cover, ticket: current))
     }
 
     @Test func aSleepRecordsTheViewsSizeUntilTheRestoreOrTheClose() {
@@ -175,6 +182,10 @@ import Testing
     /// normal so its wake is not hibernated again while the test reads it.
     private static func hibernated(_ rig: HiddenPageHibernationTests.Rig, _ name: String, size: CGSize) async throws -> String {
         rig.hibernation.standInClock = ManualClock()
+        // The composition root's decoder: the `.cpu` lane, a background-class reply.
+        rig.hibernation.prewarmKinds.decodeCover = { [weak services = rig.services] picture, landed in
+            services?.decodePrewarmCover(picture, landed: landed)
+        }
         let picture = try #require(Self.picture())
         rig.hibernation.capture = { _ in picture }
         let page = try await rig.page(name, body: Self.slowPaint)

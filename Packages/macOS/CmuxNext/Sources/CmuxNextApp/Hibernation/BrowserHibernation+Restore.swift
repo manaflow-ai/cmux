@@ -2,6 +2,7 @@ import CmuxNextBridge
 import CmuxNextBrowser
 import CmuxNextCompat
 import CmuxNextControl
+import CmuxNextHibernation
 import CmuxNextInput
 import CoreGraphics
 import Foundation
@@ -198,13 +199,9 @@ extension BrowserHibernation: IntentPrewarmWarming {
         prewarmKinds.target(key, size: size)
         // A decode already running restores the page when it lands.
         guard prewarmKinds.decodes[key] == nil else { return }
-        guard let picture = snapshotImage(key) else { return warm(key) }
-        let decode = Task { [weak self] in
-            let cover = await BrowserPictureView.decode(picture)
-            guard !Task.isCancelled else { return }
-            self?.coverDecoded(key, cover)
-        }
-        prewarmKinds.decoding(key, decode)
+        guard let decodeCover = prewarmKinds.decodeCover, let picture = snapshotImage(key) else { return warm(key) }
+        let ticket = prewarmKinds.beginDecode(key)
+        decodeCover(picture) { [weak self] cover in self?.coverDecoded(key, cover, ticket: ticket) }
     }
 
     func cancelPrewarm(_ key: String) {
@@ -213,9 +210,9 @@ extension BrowserHibernation: IntentPrewarmWarming {
     }
 
     /// A prewarm's cover is decoded: the hidden restore starts with it, unless the page woke another way meanwhile.
-    private func coverDecoded(_ key: String, _ cover: CGImage) {
+    private func coverDecoded(_ key: String, _ cover: CGImage, ticket: UInt64) {
+        guard prewarmKinds.decoded(key, cover, ticket: ticket) else { return } // cancelled meanwhile
         guard cache?.lifecycle.phase(key) == .hibernated else { return prewarmKinds.cancel(key) }
-        prewarmKinds.decoded(key, cover)
         warm(key)
     }
 

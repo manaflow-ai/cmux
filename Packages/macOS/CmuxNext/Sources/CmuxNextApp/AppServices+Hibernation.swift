@@ -9,6 +9,7 @@ import CmuxNextMemory
 import CmuxNextResources
 import CmuxNextSettings
 import CmuxNextWakeups
+import CoreGraphics
 
 // Browser hibernation and the memory-budgeted warm sets
 // (plans/cmux-next/tab-lifecycle.md).
@@ -64,6 +65,15 @@ extension AppServices {
             service?.power = IntentPrewarmPower(lowPowerMode: inputs.lowPowerMode, onBattery: inputs.onBattery)
         }
         hibernation.intentPrewarm = (service, power)
+        hibernation.prewarmKinds.decodeCover = { [weak self] picture, landed in self?.decodePrewarmCover(picture, landed: landed) }
+    }
+
+    /// The intent prewarm's cover decode: `picture` drawn into a bitmap on the `.cpu` lane, never on the main
+    /// thread, and handed to `landed` in a background-class main task (Chrome decodes images off its UI thread,
+    /// services/data_decoder/public/cpp/decode_image.h).
+    func decodePrewarmCover(_ picture: CGImage, landed: @escaping @MainActor @Sendable (CGImage) -> Void) {
+        work.run(.userVisible, mayBlock: .cpu) { BrowserPictureView.decoded(picture) }
+            .reply(on: mainWork, class: .background, owner: "IntentPrewarm.cover", landed)
     }
 
     /// The hibernation's measurements, after startup (p08-startup-029): the hourly footprint samples and,
