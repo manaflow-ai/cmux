@@ -15,7 +15,12 @@ public final class WebKitTab: NSObject, BrowserTab {
 
     public var state: BrowserTabState { machine.state }
     public private(set) var favicon: NSImage?
-    public private(set) var pendingPrompts: [BrowserPrompt] = []
+    public private(set) var pendingPrompts: [BrowserPrompt] = [] {
+        didSet { if pendingPrompts.count > oldValue.count { pageWaiters.notePromptsAdded(pendingPrompts) } }
+    }
+    /// Keyed waits on this page's phase and prompts (``BrowserPageWaiting``), resumed by the setters of
+    /// `machine` and `pendingPrompts`.
+    @ObservationIgnored let pageWaiters: PageWaiters
 
     @ObservationIgnored public weak var delegate: (any BrowserTabDelegate)?
     @ObservationIgnored public weak var keyRouter: (any BrowserKeyRouting)?
@@ -34,7 +39,9 @@ public final class WebKitTab: NSObject, BrowserTab {
     /// Web Inspector's visibility, for the toolbar's DevTools button.
     @ObservationIgnored public let inspectorWatch = WebKitInspectorWatch()
 
-    private var machine = BrowserTabStateMachine()
+    private var machine = BrowserTabStateMachine() {
+        didSet { if machine.state.phase != oldValue.state.phase { pageWaiters.notePhase(machine.state.phase) } }
+    }
     /// The page plays unmuted media (`BrowserAudibleReporting`): `state.media?.isAudible`, kept
     /// apart so its observers wake on the flip only, not on each load tick or title.
     public private(set) var isAudible = false
@@ -85,6 +92,7 @@ public final class WebKitTab: NSObject, BrowserTab {
         self.id = configuration.id
         self.profileID = configuration.profile
         self.engine = engine
+        pageWaiters = PageWaiters(deadlines: engine.waitDeadlines)
         let webView = WebKitWebView(frame: .zero, configuration: webViewConfiguration)
         self.webView = webView
         container = WebKitPageContainer(page: webView)
@@ -282,6 +290,7 @@ public final class WebKitTab: NSObject, BrowserTab {
         pageBaseHold.cancel()
         for prompt in pendingPrompts { prompt.respond(prompt.dismissalResponse) }
         pendingPrompts.removeAll()
+        pageWaiters.pageEnded()
         observations.removeAll()
         webView.stopLoading()
         webView.configuration.userContentController.removeAllScriptMessageHandlers()
