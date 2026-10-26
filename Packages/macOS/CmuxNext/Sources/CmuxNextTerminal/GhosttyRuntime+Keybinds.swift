@@ -23,7 +23,7 @@ extension GhosttyRuntime {
     ]
 
     /// Loads the defaults into `config`; call before the user's files.
-    static func loadKeybindDefaults(into config: ghostty_config_t) {
+    nonisolated static func loadKeybindDefaults(into config: ghostty_config_t) {
         for line in cmuxDefaultKeybindLines {
             line.withCString { ghostty_config_load_string(config, $0, UInt(line.utf8.count), "cmux-next") }
         }
