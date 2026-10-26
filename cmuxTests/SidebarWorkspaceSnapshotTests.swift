@@ -69,11 +69,12 @@ import Testing
     }
 
     static func snapshot(
+        workspaceId: UUID,
         presentationKey: SidebarWorkspaceSnapshotBuilder.PresentationKey? = nil,
         title: String = "workspace"
     ) -> SidebarWorkspaceSnapshotBuilder.Snapshot {
         SidebarWorkspaceSnapshotBuilder.Snapshot(
-            presentationKey: presentationKey ?? Self.presentationKey(),
+            presentationKey: presentationKey ?? Self.presentationKey(workspaceId: workspaceId),
             title: title,
             customDescription: nil,
             isPinned: false,
@@ -113,6 +114,7 @@ import Testing
     }
 
     static func presentationKey(
+        workspaceId: UUID,
         showsWorkspaceDescription: Bool = true,
         usesVerticalBranchLayout: Bool = true,
         showsGitBranch: Bool = true,
@@ -129,6 +131,7 @@ import Testing
         customColorHex: String? = nil
     ) -> SidebarWorkspaceSnapshotBuilder.PresentationKey {
         SidebarWorkspaceSnapshotBuilder.PresentationKey(
+            workspaceId: workspaceId,
             showsWorkspaceDescription: showsWorkspaceDescription,
             usesVerticalBranchLayout: usesVerticalBranchLayout,
             showsGitBranch: showsGitBranch,
@@ -144,11 +147,12 @@ import Testing
     /// origin-colors flag or a mirror host resolving after the row first appears.
     /// Without this, the row re-evaluates but renders the stale cached color.
     @Test func presentationKeyDistinguishesEffectiveColor() {
-        let uncolored = Self.presentationKey(customColorHex: nil)
-        let tinted = Self.presentationKey(customColorHex: "#1565C0")
+        let workspaceId = UUID()
+        let uncolored = Self.presentationKey(workspaceId: workspaceId, customColorHex: nil)
+        let tinted = Self.presentationKey(workspaceId: workspaceId, customColorHex: "#1565C0")
         #expect(uncolored != tinted)
-        #expect(tinted == Self.presentationKey(customColorHex: "#1565C0"))
-        #expect(Self.presentationKey(customColorHex: "#922B21") != tinted)
+        #expect(tinted == Self.presentationKey(workspaceId: workspaceId, customColorHex: "#1565C0"))
+        #expect(Self.presentationKey(workspaceId: workspaceId, customColorHex: "#922B21") != tinted)
     }
 }
 
