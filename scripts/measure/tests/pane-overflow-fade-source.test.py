@@ -8,6 +8,11 @@ import tempfile
 ROOT = Path(__file__).resolve().parents[3]
 SCRIPT = ROOT / "scripts/measure/pane-overflow-fade.sh"
 source = SCRIPT.read_text()
+# Measure workers use detached checkouts without a configured origin. The
+# preflight must continue with the published objects instead of requiring a
+# network fetch that cannot work on that checkout.
+assert "git remote get-url origin" in source
+assert "NATIVE_FADE_FETCH_SKIPPED no-origin" in source
 # Execute the actual identity fence, before the native probe/build portion.
 fence = source[source.index('\nFIXED_BLOB=') + 1:source.index('WORK="$(mktemp')]
 PRODUCT = "product.swift"
