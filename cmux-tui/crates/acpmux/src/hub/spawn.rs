@@ -140,13 +140,15 @@ impl Hub {
         // transferable directory and therefore leaves the bridge disabled.
         if p.family.as_deref() == Some("cmux-harness") {
             p.env.remove("CMUX_HARNESS_SESSION_STORE_DIR");
-            if let Some(dir) = self.store.session_dir(&meta.id)
-                .and_then(|dir| dir.parent().map(Path::to_path_buf))
+            if let Some(dir) =
+                self.store.session_dir(&meta.id).and_then(|dir| dir.parent().map(Path::to_path_buf))
             {
-                p.env.insert(
-                    "CMUX_HARNESS_SESSION_STORE_DIR".to_owned(),
-                    dir.to_string_lossy().into_owned(),
-                );
+                let root = dir.to_string_lossy().into_owned();
+                // Keep Pi's ACP JSONL and cmux-harness's durable journal in the
+                // same transferable root. The harness session id is learned from
+                // ACP and is independent of cmux's outer session id.
+                p.env.insert("CMUX_HARNESS_SESSION_DIR".to_owned(), root.clone());
+                p.env.insert("CMUX_HARNESS_SESSION_STORE_DIR".to_owned(), root);
             }
         }
         // The workspace picks the computer use display (agent_displays.rs);

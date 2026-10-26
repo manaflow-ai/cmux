@@ -214,42 +214,98 @@ impl Hub {
     /// file order. Returns the highest sequence copied. Under a guard's `control`, the
     /// records of prompts still to run carry it (`transfer_guard.rs` `guarded_record`).
     fn export_harness_state(&self, meta: &SessionMeta, dir: &Path) -> Result<Value> {
-        if meta.harness != "cmux-harness" { return Ok(Value::Null); }
-        let Some(store_dir) = self.store.session_dir(&meta.id) else {
-            return Err(anyhow::anyhow!("cmux-harness durable state requires a local session store"));
-        };
-        let source = store_dir.join("journal.ndjson");
-        let source_meta = std::fs::symlink_metadata(&source)?;
-        if !source_meta.file_type().is_file() {
-            return Err(anyhow::anyhow!("durable journal is not a regular file"));
+        if meta.harness != "cmux-harness" {
+            return Ok(Value::Null);
         }
-        let bytes = std::fs::read(&source).map_err(|e| anyhow::anyhow!("read durable journal: {e}"))?;
-        let target = dir.join("harness").join("journal.ndjson");
-        std::fs::create_dir_all(target.parent().unwrap())?;
-        std::fs::write(&target, &bytes)?;
-        Ok(json!({"path": "harness/journal.ndjson", "size": bytes.len(), "sha256": crate::sha256::sha256_hex(&bytes)}))
+        let agent_id = meta.agent_session_id.as_deref().ok_or_else(|| {
+            anyhow::anyhow!("cmux-harness durable state requires an ACP session id")
+        })?;
+        let Some(session_dir) = self.store.session_dir(&meta.id) else {
+            return Err(anyhow::anyhow!(
+                "cmux-harness durable state requires a local session store"
+            ));
+        };
+        let root =
+            session_dir.parent().ok_or_else(|| anyhow::anyhow!("invalid session store root"))?;
+        let journal = root.join(agent_id).join("journal.ndjson");
+        let pi_session = root.join(format!("{agent_id}.jsonl"));
+        let read_private = |path: &Path, label: &str| -> Result<Vec<u8>> {
+            let meta = std::fs::symlink_metadata(path)?;
+            if !meta.file_type().is_file() {
+                return Err(anyhow::anyhow!("{label} is not a regular file"));
+            }
+            Ok(std::fs::read(path).map_err(|e| anyhow::anyhow!("read {label}: {e}"))?)
+        };
+        let journal_bytes = read_private(&journal, "durable journal")?;
+        let session_bytes = read_private(&pi_session, "Pi session")?;
+        let target = dir.join("harness");
+        std::fs::create_dir_all(&target)?;
+        std::fs::write(target.join("journal.ndjson"), &journal_bytes)?;
+        std::fs::write(target.join("session.jsonl"), &session_bytes)?;
+        Ok(json!({
+            "sessionId": agent_id,
+            "journal": {"path": "harness/journal.ndjson", "size": journal_bytes.len(), "sha256": crate::sha256::sha256_hex(&journal_bytes)},
+            "session": {"path": "harness/session.jsonl", "size": session_bytes.len(), "sha256": crate::sha256::sha256_hex(&session_bytes)},
+        }))
     }
 
     fn restore_harness_state(&self, bundle: &Path, meta: &SessionMeta) -> Result<()> {
-        if meta.harness != "cmux-harness" { return Ok(()); }
-        let manifest: Value = serde_json::from_str(&std::fs::read_to_string(bundle.join("manifest.json"))?)?;
-        let spec = manifest.get("harness").filter(|v| !v.is_null()).ok_or_else(|| anyhow::anyhow!("missing cmux-harness durable manifest"))?;
-        if spec.get("path").and_then(Value::as_str) != Some("harness/journal.ndjson") {
-            return Err(anyhow::anyhow!("invalid cmux-harness durable path"));
+        if meta.harness != "cmux-harness" {
+            return Ok(());
         }
-        let source = bundle.join("harness").join("journal.ndjson");
-        let bytes = std::fs::read(&source)?;
-        let hash = crate::sha256::sha256_hex(&bytes);
-        if spec.get("size").and_then(Value::as_u64) != Some(bytes.len() as u64)
-            || spec.get("sha256").and_then(Value::as_str) != Some(hash.as_str()) {
-            return Err(anyhow::anyhow!("cmux-harness durable journal digest mismatch"));
+        let agent_id = meta.agent_session_id.as_deref().ok_or_else(|| {
+            anyhow::anyhow!("cmux-harness durable transfer requires an ACP session id")
+        })?;
+        let manifest: Value =
+            serde_json::from_str(&std::fs::read_to_string(bundle.join("manifest.json"))?)?;
+        let spec = manifest
+            .get("harness")
+            .filter(|v| !v.is_null())
+            .ok_or_else(|| anyhow::anyhow!("missing cmux-harness durable manifest"))?;
+        if spec.get("sessionId").and_then(Value::as_str) != Some(agent_id) {
+            return Err(anyhow::anyhow!("cmux-harness ACP session id mismatch"));
         }
-        let store_dir = self.store.session_dir(&meta.id).ok_or_else(|| anyhow::anyhow!("target has no local session store"))?;
-        if !store_dir.is_dir() { return Err(anyhow::anyhow!("target session store was not created")); }
-        let target = store_dir.join("journal.ndjson");
-        let tmp = store_dir.join("journal.ndjson.importing");
-        std::fs::write(&tmp, bytes)?;
-        std::fs::rename(tmp, target)?;
+        let checked = |key: &str, path: &str| -> Result<Vec<u8>> {
+            let item = spec
+                .get(key)
+                .ok_or_else(|| anyhow::anyhow!("missing cmux-harness {key} manifest"))?;
+            if item.get("path").and_then(Value::as_str) != Some(path) {
+                return Err(anyhow::anyhow!("invalid cmux-harness durable path"));
+            }
+            let bytes = std::fs::read(bundle.join(path))?;
+            if item.get("size").and_then(Value::as_u64) != Some(bytes.len() as u64)
+                || item.get("sha256").and_then(Value::as_str)
+                    != Some(crate::sha256::sha256_hex(&bytes).as_str())
+            {
+                return Err(anyhow::anyhow!("cmux-harness durable digest mismatch"));
+            }
+            Ok(bytes)
+        };
+        let journal_bytes = checked("journal", "harness/journal.ndjson")?;
+        let session_bytes = checked("session", "harness/session.jsonl")?;
+        let session_dir = self
+            .store
+            .session_dir(&meta.id)
+            .ok_or_else(|| anyhow::anyhow!("target has no local session store"))?;
+        let root = session_dir
+            .parent()
+            .ok_or_else(|| anyhow::anyhow!("invalid target session store root"))?;
+        let journal_dir = root.join(agent_id);
+        std::fs::create_dir_all(&journal_dir)?;
+        let journal_tmp = journal_dir.join("journal.ndjson.importing");
+        let session_tmp = root.join(format!("{agent_id}.jsonl.importing"));
+        {
+            use std::io::Write;
+            let mut file = std::fs::File::create(&journal_tmp)?;
+            file.write_all(&journal_bytes)?;
+            file.sync_all()?;
+            let mut file = std::fs::File::create(&session_tmp)?;
+            file.write_all(&session_bytes)?;
+            file.sync_all()?;
+        }
+        std::fs::rename(journal_tmp, journal_dir.join("journal.ndjson"))?;
+        std::fs::rename(session_tmp, root.join(format!("{agent_id}.jsonl")))?;
+        std::fs::File::open(root)?.sync_all()?;
         Ok(())
     }
 

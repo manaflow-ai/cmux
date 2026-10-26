@@ -18,7 +18,8 @@
 
 use super::transfer_guard::{Guard, bundle_path_kind};
 use super::transfer_out::{
-    MAX_BUNDLE, MAX_FILES, MAX_PAGE, TRANSFER_SCHEMA, inside, transfers_dir,
+    DURABLE_TRANSFER_SCHEMA, MAX_BUNDLE, MAX_FILES, MAX_PAGE, TRANSFER_SCHEMA, inside,
+    transfers_dir,
 };
 use super::*;
 use base64::Engine;
@@ -85,8 +86,12 @@ impl Hub {
             Some(g) => Some(Guard::parse(g).await?),
             None => None,
         };
-        if manifest["schema"] != TRANSFER_SCHEMA {
-            return Err(transfer_error("schema", format!("this daemon takes {TRANSFER_SCHEMA}")));
+        let schema = manifest["schema"].as_str().unwrap_or("");
+        if schema != TRANSFER_SCHEMA && schema != DURABLE_TRANSFER_SCHEMA {
+            return Err(transfer_error(
+                "schema",
+                format!("this daemon takes {TRANSFER_SCHEMA} or {DURABLE_TRANSFER_SCHEMA}"),
+            ));
         }
         let id = manifest["sessionId"].as_str().unwrap_or("");
         if !super::transfer::is_plain_id(id) {
@@ -98,6 +103,12 @@ impl Hub {
             return Err(transfer_error("exists", format!("chat {id} is here already")));
         }
         let harness = manifest["session"]["harness"].as_str().unwrap_or("");
+        if harness == "cmux-harness" && schema != DURABLE_TRANSFER_SCHEMA {
+            return Err(transfer_error(
+                "schema",
+                "cmux-harness durable transfers require acpmux.transfer.v2",
+            ));
+        }
         if !self.config.read().await.harnesses.contains_key(harness) {
             let e = transfer_error("harness", format!("agent {harness:?} is not configured here"));
             return Err(e.with_data(json!({"harness": harness})));
