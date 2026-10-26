@@ -53,25 +53,28 @@ public final class NIOChannelByteStream: TunnelByteStream, Sendable {
     public func read() async throws -> Data? {
         try await withCheckedThrowingContinuation { continuation in
             onLoop { stream in
-                stream.state.withValue { state in
+                let requestRead = stream.state.withValue { state -> Bool in
                     if !state.buffered.isEmpty {
                         continuation.resume(returning: state.buffered.removeFirst())
-                        return
+                        return false
                     }
                     if let failure = state.failure {
                         continuation.resume(throwing: failure)
-                        return
+                        return false
                     }
                     if state.ended {
                         continuation.resume(returning: nil)
-                        return
+                        return false
                     }
                     state.waiter = continuation
-                    if !state.readRequested {
-                        state.readRequested = true
-                        stream.channel.read()
-                    }
+                    guard !state.readRequested else { return false }
+                    state.readRequested = true
+                    return true
                 }
+                // Outside the state access: a channel holding input back (an
+                // SSH child channel's pending reads) delivers it inside
+                // `read()`, which re-enters `deliver`, `finish` and `readComplete`.
+                if requestRead { stream.channel.read() }
             }
         }
     }
@@ -128,14 +131,15 @@ public final class NIOChannelByteStream: TunnelByteStream, Sendable {
     }
 
     fileprivate func readComplete() {
-        state.withValue { state in
+        let readAgain = state.withValue { state -> Bool in
             state.readRequested = false
             // Woken with nothing (a read can complete empty): ask again.
-            if state.waiter != nil, !state.ended, state.failure == nil {
-                state.readRequested = true
-                channel.read()
-            }
+            guard state.waiter != nil, !state.ended, state.failure == nil else { return false }
+            state.readRequested = true
+            return true
         }
+        // Outside the state access, as in `read()`: the read can deliver inline.
+        if readAgain { channel.read() }
     }
 
     /// End of input (`error` nil) or failure. Wakes a pending read; with no
