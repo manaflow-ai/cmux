@@ -41,4 +41,27 @@ import Testing
         await waitForBuilds(store, atLeast: 2)
         #expect(store.catalog.choices.contains { $0.id.contains("mine.png") })
     }
+
+    @Test func downloadingAnAerialRefreshesItsPendingState() async throws {
+        let (pictures, _, root) = try folders()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let aerials = root.appendingPathComponent("aerials", isDirectory: true)
+        let movies = aerials.appendingPathComponent("4KSDR240FPS", isDirectory: true)
+        try FileManager.default.createDirectory(at: movies, withIntermediateDirectories: true)
+        try Data(#"{"assets":[{"id":"B2","accessibilityLabel":"Iceland Dusk"}]}"#.utf8)
+            .write(to: aerials.appendingPathComponent("entries.json"))
+        let downloaded = movies.resolvingSymlinksInPath().appendingPathComponent("B2.mov")
+        let store = BackdropCatalogStore(systemDirectory: pictures, userImages: nil, aerials: aerials, assetFolders: [])
+        store.start()
+        defer { store.stop() }
+        await waitForBuilds(store, atLeast: 1)
+        #expect(store.catalog.pendingVideoPaths.contains(downloaded.path))
+
+        // Only the movie subfolder changes; its parent and entries.json stay untouched.
+        try Data().write(to: downloaded)
+        // wakeup-allow: await the catalog update caused by this download, never poll.
+        for await paths in ObservationStream({ store.catalog.pendingVideoPaths }) where !paths.contains(downloaded.path) { break }
+        #expect(store.catalog.choices.contains(.system(path: downloaded.path)))
+        #expect(!store.catalog.pendingVideoPaths.contains(downloaded.path))
+    }
 }
