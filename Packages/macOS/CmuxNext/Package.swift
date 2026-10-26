@@ -1364,6 +1364,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 .process("HistoryActions.xcstrings"),
                 .process("HangReportsActions.xcstrings"),
                 .process("ImportActions.xcstrings"),
+                .process("CloudSessionActions.xcstrings"),
                 .process("MusicActions.xcstrings"),
                 .process("LayoutActions.xcstrings"),
                 .process("NewTabActions.xcstrings"),

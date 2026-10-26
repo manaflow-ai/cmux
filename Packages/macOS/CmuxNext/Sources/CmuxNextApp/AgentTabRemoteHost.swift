@@ -86,6 +86,13 @@ nonisolated struct AgentTabRemoteHost: AgentPaneHostProviding {
         return handshake
     }
 
+    /// Starts the new chat now, as the page's first send would (`cmux cloud start-session`): the
+    /// same keyed start, in `cwd` (nil: the tab's seed folder, then its workspace's) with `harness`.
+    func startNow(cwd: String?, harness: String) async throws -> AgentTabRemoteStart.Started {
+        guard let start else { throw AgentRemoteStartRefusal.startUnsupported(machine: machine) }
+        return try await Self.keyedStart(cwd, harness, approvals: approvals, servesKeyedReason: servesKeyedReason, start: start)
+    }
+
     /// The chat's Allow needs this app's key on that machine's agent daemon (cx-oa6ah): an idle
     /// daemon gets it before the start; a busy one waits for the person's restart click on the
     /// Allow notice. That machine's cmux-tui decides whether a restart loses nothing (cx-0w0jj):

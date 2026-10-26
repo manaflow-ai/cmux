@@ -1,0 +1,73 @@
+import Foundation
+
+/// What `cmux cloud start-session` says (``CloudStartSession``). Each failure names the machine
+/// and the agent and gives the command to run next. Keys live in Resources/CloudSessions.xcstrings
+/// with every app locale. `%1$@` is the machine's name, `%2$@` its id, `%3$@` the agent.
+enum CloudStartSessionStrings {
+    /// A non-person run that names no machine.
+    static func needsMachine(agent: String) -> String {
+        String(format: String(localized: "cloud.startSession.needsMachine", defaultValue: "Say which Cloud machine to start %1$@ on: `cmux cloud start-session --target machine:<id> --agent %1$@`, or `--name <name>` to take that machine or create it. `cmux cloud list-machines` lists your machines.", table: "CloudSessions", bundle: .module), agent)
+    }
+
+    static func noSuchMachine(id: String, agent: String) -> String {
+        String(format: String(localized: "cloud.startSession.noSuchMachine", defaultValue: "No Cloud machine `%1$@` is listed on this Mac. `cmux cloud list-machines` lists them, and `cmux cloud start-session --name <name> --agent %2$@` creates one.", table: "CloudSessions", bundle: .module), id, agent)
+    }
+
+    static var agentInvalid: String {
+        String(localized: "cloud.startSession.agentInvalid", defaultValue: "Pass the agent to start with --agent, for example `cmux cloud start-session --name dev --agent claude`.", table: "CloudSessions", bundle: .module)
+    }
+
+    static var cwdInvalid: String {
+        String(localized: "cloud.startSession.cwdInvalid", defaultValue: "Pass --cwd as an absolute folder on the machine, for example --cwd /home/cmux/work.", table: "CloudSessions", bundle: .module)
+    }
+
+    static func notConnected(_ name: String, id: String, agent: String) -> String {
+        String(format: String(localized: "cloud.startSession.notConnected", defaultValue: "Machine `%1$@` didn't connect, so no agent started there. Check it with `cmux cloud machine-status --target machine:%2$@`, then run `cmux cloud start-session --target machine:%2$@ --agent %3$@` again.", table: "CloudSessions", bundle: .module), name, id, agent)
+    }
+
+    /// The machine is up and the start was refused; `reason` is the refusal in plain words.
+    static func agentFailed(_ name: String, id: String, agent: String, reason: String) -> String {
+        String(format: String(localized: "cloud.startSession.agentFailed", defaultValue: "Machine `%1$@` started but its agent didn't (%4$@). Run `cmux cloud start-session --target machine:%2$@ --agent %3$@` again.", table: "CloudSessions", bundle: .module), name, id, agent, reason)
+    }
+
+    /// The start found no folder it may use (none in the workspace, or the home folder).
+    static func needsFolder(_ name: String, id: String, agent: String) -> String {
+        String(format: String(localized: "cloud.startSession.needsFolder", defaultValue: "Machine `%1$@` started but its agent didn't: it needs a folder on that machine to start in. Run `cmux cloud start-session --target machine:%2$@ --agent %3$@ --cwd /home/cmux/work` again with a folder there.", table: "CloudSessions", bundle: .module), name, id, agent)
+    }
+
+    // MARK: An agent's ask in its chat
+
+    static func ask(agent: String, machine: String) -> String {
+        String(format: String(localized: "cloud.startSession.ask", defaultValue: "The agent asks to start a %1$@ session on Cloud machine %2$@.", table: "CloudSessions", bundle: .module), agent, machine)
+    }
+
+    static func askNew(agent: String, machine: String) -> String {
+        String(format: String(localized: "cloud.startSession.askNew", defaultValue: "The agent asks to create Cloud machine %2$@ and start a %1$@ session there.", table: "CloudSessions", bundle: .module), agent, machine)
+    }
+
+    static func starting(agent: String, machine: String) -> String {
+        String(format: String(localized: "cloud.startSession.starting", defaultValue: "Starting %1$@ on %2$@…", table: "CloudSessions", bundle: .module), agent, machine)
+    }
+
+    static var start: String { String(localized: "cloud.startSession.start", defaultValue: "Start", table: "CloudSessions", bundle: .module) }
+
+    static var notInChat: String {
+        String(localized: "cloud.startSession.notInChat", defaultValue: "Couldn't find the chat this agent runs in, so there is nowhere to ask the person. Run `cmux cloud start-session` from an agent's shell in a cmux chat, or ask the person to run it.", table: "CloudSessions", bundle: .module)
+    }
+
+    static var noPage: String {
+        String(localized: "cloud.startSession.noPage", defaultValue: "Couldn't show the question in the chat, so nothing started. Run `cmux cloud start-session` again once the chat is open.", table: "CloudSessions", bundle: .module)
+    }
+
+    static var askOpen: String {
+        String(localized: "cloud.startSession.askOpen", defaultValue: "This chat already shows a question to start a Cloud session. Wait for the person's answer before you run `cmux cloud start-session` again.", table: "CloudSessions", bundle: .module)
+    }
+
+    static var declined: String {
+        String(localized: "cloud.startSession.declined", defaultValue: "The person chose Not now, so nothing started. Ask them in the chat before you run `cmux cloud start-session` again.", table: "CloudSessions", bundle: .module)
+    }
+
+    static var expired: String {
+        String(localized: "cloud.startSession.expired", defaultValue: "Nobody answered the question in the chat within 2 minutes, so nothing started. Run `cmux cloud start-session` again when the person is there.", table: "CloudSessions", bundle: .module)
+    }
+}

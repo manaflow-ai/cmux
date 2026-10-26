@@ -76,6 +76,8 @@ final class CloudService {
     /// Agents' asks to move their chats, and the cards they raise in chats.
     @ObservationIgnored let moveAsks = CloudMoveAsks()
     @ObservationIgnored let toolCards = AgentToolCards()
+    /// Agents' asks to start a session on a Cloud machine (``CloudStartSessionAsks``).
+    @ObservationIgnored let startSessionAsks = CloudStartSessionAsks()
     /// Moved chats' file requests for this Mac, asked in their chats.
     @ObservationIgnored let accessAsks = CloudAccessAsks()
     /// Files the person drops or pastes into a moved chat, sent to its machine (``CloudUploads``).

@@ -20,6 +20,7 @@ enum CloudHandlers {
         bindNetworkActions(into: registry, context: context, reason: signedInReason)
         bindDomainActions(into: registry, context: context, reason: signedInReason)
         bindListActions(into: registry, context: context)
+        CloudStartSession.bind(into: registry, context: context, reason: signedInReason)
         bindCreation(into: registry, context: context, reason: signedInReason)
         bindAccount(into: registry, context: context, reason: reason)
         bindMove(into: registry, context: context)

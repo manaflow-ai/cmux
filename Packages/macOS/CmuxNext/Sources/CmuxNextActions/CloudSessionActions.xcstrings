@@ -1,0 +1,66 @@
+{
+  "sourceLanguage": "en",
+  "strings": {
+    "action.cloudStartSession": {
+      "comment": "Command title: starts an agent session (Claude, Codex, ...) on a Cloud machine.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Start Agent Session on Cloud Machine…"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "Cloud マシンでエージェントセッションを開始…"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Agent-Sitzung auf Cloud-Maschine starten…"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Démarrer une session d'agent sur une machine Cloud…"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Iniciar sesión de agente en una máquina de Cloud…"}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "بدء جلسة وكيل على جهاز Cloud…"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "Cloud 머신에서 에이전트 세션 시작…"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "在 Cloud 机器上启动代理会话…"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "在 Cloud 機器上啟動代理工作階段…"}}
+      }
+    },
+    "argument.cloudStartSession.agent": {
+      "comment": "Argument title: the agent (harness) to start, such as claude or codex.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Agent"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "エージェント"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Agent"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Agent"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Agente"}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "الوكيل"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "에이전트"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "代理"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "代理"}}
+      }
+    },
+    "argument.cloudStartSession.name": {
+      "comment": "Argument title: the Cloud machine's name; a machine with that name is created when none exists.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Machine Name"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "マシン名"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Maschinenname"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Nom de la machine"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Nombre de la máquina"}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "اسم الجهاز"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "머신 이름"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "机器名称"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "機器名稱"}}
+      }
+    },
+    "argument.cloudStartSession.cwd": {
+      "comment": "Argument title: the folder on the Cloud machine the agent session starts in.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Folder on the Machine"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "マシン上のフォルダ"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Ordner auf der Maschine"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Dossier sur la machine"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Carpeta en la máquina"}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "المجلد على الجهاز"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "머신의 폴더"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "机器上的文件夹"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "機器上的資料夾"}}
+      }
+    }
+  },
+  "version": "1.0"
+}

@@ -135,6 +135,7 @@ public nonisolated enum ActionCatalog {
         CloudActionCatalog.self,
         AccountActionCatalog.self,
         RemoteActionCatalog.self,
+        CloudSessionActionCatalog.self,
         MachineIconActionCatalog.self,
         SettingsActionCatalog.self,
         DensityActionCatalog.self,
