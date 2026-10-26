@@ -6679,6 +6679,182 @@
         "nullable": true
       }
     },
+    "request:agent-cli-intents-attach": {
+      "/expected_machine_id": {
+        "ty": "string",
+        "required": true
+      },
+      "/expected_session_id": {
+        "ty": "string",
+        "required": true
+      },
+      "/key": {
+        "ty": "string",
+        "required": true
+      },
+      "/receipt": {
+        "ty": "object",
+        "required": true
+      },
+      "/receipt/cli": {
+        "ty": "string",
+        "required": true
+      },
+      "/receipt/machine": {
+        "ty": "string",
+        "required": true
+      },
+      "/receipt/path": {
+        "ty": "object",
+        "required": true
+      },
+      "/receipt/path/kind": {
+        "ty": "literal",
+        "required": true,
+        "values": [
+          "\"terminal\""
+        ]
+      },
+      "/receipt/path/pane_id": {
+        "ty": "string",
+        "required": true
+      },
+      "/receipt/path/screen_id": {
+        "ty": "string",
+        "required": true
+      },
+      "/receipt/path/tab_id": {
+        "ty": "string",
+        "required": true
+      },
+      "/receipt/path/terminal_id": {
+        "ty": "string",
+        "required": true
+      },
+      "/receipt/path/workspace_id": {
+        "ty": "string",
+        "required": true
+      },
+      "/receipt/replayed": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/receipt/revision": {
+        "ty": "string",
+        "required": true
+      },
+      "/receipt/session": {
+        "ty": "string",
+        "required": true
+      }
+    },
+    "request:agent-cli-intents-list": {
+      "/expected_machine_id": {
+        "ty": "string",
+        "required": true
+      },
+      "/expected_session_id": {
+        "ty": "string",
+        "required": true
+      }
+    },
+    "request:agent-cli-intents-record": {
+      "/expected_machine_id": {
+        "ty": "string",
+        "required": true
+      },
+      "/expected_session_id": {
+        "ty": "string",
+        "required": true
+      },
+      "/intents": {
+        "ty": "array",
+        "required": true
+      },
+      "/intents/*": {
+        "ty": "object"
+      },
+      "/intents/*/cli": {
+        "ty": "string",
+        "required": true
+      },
+      "/intents/*/key": {
+        "ty": "string",
+        "required": true
+      },
+      "/intents/*/machine": {
+        "ty": "string",
+        "required": true
+      },
+      "/intents/*/profiles": {
+        "ty": "array",
+        "required": true
+      },
+      "/intents/*/profiles/*": {
+        "ty": "string"
+      },
+      "/intents/*/root_key": {
+        "ty": "string",
+        "required": true
+      },
+      "/intents/*/session": {
+        "ty": "string",
+        "required": true
+      }
+    },
+    "request:agent-cli-intents-settle": {
+      "/expected_machine_id": {
+        "ty": "string",
+        "required": true
+      },
+      "/expected_session_id": {
+        "ty": "string",
+        "required": true
+      },
+      "/keys": {
+        "ty": "array",
+        "required": true
+      },
+      "/keys/*": {
+        "ty": "string"
+      }
+    },
+    "request:agent-cli-update-job": {
+      "/cli": {
+        "ty": "string",
+        "required": true
+      },
+      "/expected_machine_id": {
+        "ty": "string",
+        "required": true
+      },
+      "/expected_session_id": {
+        "ty": "string",
+        "required": true
+      },
+      "/idempotency_key": {
+        "ty": "string",
+        "required": true
+      }
+    },
+    "request:agent-cli-update-job-resolve": {
+      "/cli": {
+        "ty": "string",
+        "required": true
+      },
+      "/expected_machine_id": {
+        "ty": "string",
+        "required": true
+      },
+      "/expected_session_id": {
+        "ty": "string",
+        "required": true
+      },
+      "/idempotency_key": {
+        "ty": "string",
+        "required": true
+      }
+    },
     "request:apply-layout": {
       "/cols": {
         "ty": "uint16",
@@ -12441,6 +12617,521 @@
         "ty": "uint64",
         "required": true,
         "nullable": true
+      }
+    },
+    "response:agent-cli-intents-attach": {
+      "/data/changed": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/data/intent": {
+        "ty": "object",
+        "required": true
+      },
+      "/data/intent/cli": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/intent/key": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/intent/machine": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/intent/profiles": {
+        "ty": "array",
+        "required": true
+      },
+      "/data/intent/profiles/*": {
+        "ty": "string"
+      },
+      "/data/intent/receipt": {
+        "ty": "object",
+        "required": true,
+        "nullable": true
+      },
+      "/data/intent/receipt/cli": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/intent/receipt/machine": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/intent/receipt/path": {
+        "ty": "object",
+        "required": true
+      },
+      "/data/intent/receipt/path/kind": {
+        "ty": "literal",
+        "required": true,
+        "values": [
+          "\"terminal\""
+        ]
+      },
+      "/data/intent/receipt/path/pane_id": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/intent/receipt/path/screen_id": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/intent/receipt/path/tab_id": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/intent/receipt/path/terminal_id": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/intent/receipt/path/workspace_id": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/intent/receipt/replayed": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/data/intent/receipt/revision": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/intent/receipt/session": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/intent/root_key": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/intent/session": {
+        "ty": "string",
+        "required": true
+      }
+    },
+    "response:agent-cli-intents-list": {
+      "/data/intents": {
+        "ty": "array",
+        "required": true
+      },
+      "/data/intents/*": {
+        "ty": "object"
+      },
+      "/data/intents/*/cli": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/intents/*/key": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/intents/*/machine": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/intents/*/profiles": {
+        "ty": "array",
+        "required": true
+      },
+      "/data/intents/*/profiles/*": {
+        "ty": "string"
+      },
+      "/data/intents/*/receipt": {
+        "ty": "object",
+        "required": true,
+        "nullable": true
+      },
+      "/data/intents/*/receipt/cli": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/intents/*/receipt/machine": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/intents/*/receipt/path": {
+        "ty": "object",
+        "required": true
+      },
+      "/data/intents/*/receipt/path/kind": {
+        "ty": "literal",
+        "required": true,
+        "values": [
+          "\"terminal\""
+        ]
+      },
+      "/data/intents/*/receipt/path/pane_id": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/intents/*/receipt/path/screen_id": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/intents/*/receipt/path/tab_id": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/intents/*/receipt/path/terminal_id": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/intents/*/receipt/path/workspace_id": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/intents/*/receipt/replayed": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/data/intents/*/receipt/revision": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/intents/*/receipt/session": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/intents/*/root_key": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/intents/*/session": {
+        "ty": "string",
+        "required": true
+      }
+    },
+    "response:agent-cli-intents-record": {
+      "/data/changed": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/data/intents": {
+        "ty": "array",
+        "required": true
+      },
+      "/data/intents/*": {
+        "ty": "object"
+      },
+      "/data/intents/*/cli": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/intents/*/key": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/intents/*/machine": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/intents/*/profiles": {
+        "ty": "array",
+        "required": true
+      },
+      "/data/intents/*/profiles/*": {
+        "ty": "string"
+      },
+      "/data/intents/*/receipt": {
+        "ty": "object",
+        "required": true,
+        "nullable": true
+      },
+      "/data/intents/*/receipt/cli": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/intents/*/receipt/machine": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/intents/*/receipt/path": {
+        "ty": "object",
+        "required": true
+      },
+      "/data/intents/*/receipt/path/kind": {
+        "ty": "literal",
+        "required": true,
+        "values": [
+          "\"terminal\""
+        ]
+      },
+      "/data/intents/*/receipt/path/pane_id": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/intents/*/receipt/path/screen_id": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/intents/*/receipt/path/tab_id": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/intents/*/receipt/path/terminal_id": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/intents/*/receipt/path/workspace_id": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/intents/*/receipt/replayed": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/data/intents/*/receipt/revision": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/intents/*/receipt/session": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/intents/*/root_key": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/intents/*/session": {
+        "ty": "string",
+        "required": true
+      }
+    },
+    "response:agent-cli-intents-settle": {
+      "/data/changed": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/data/intents": {
+        "ty": "array",
+        "required": true
+      },
+      "/data/intents/*": {
+        "ty": "object"
+      },
+      "/data/intents/*/cli": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/intents/*/key": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/intents/*/machine": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/intents/*/profiles": {
+        "ty": "array",
+        "required": true
+      },
+      "/data/intents/*/profiles/*": {
+        "ty": "string"
+      },
+      "/data/intents/*/receipt": {
+        "ty": "object",
+        "required": true,
+        "nullable": true
+      },
+      "/data/intents/*/receipt/cli": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/intents/*/receipt/machine": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/intents/*/receipt/path": {
+        "ty": "object",
+        "required": true
+      },
+      "/data/intents/*/receipt/path/kind": {
+        "ty": "literal",
+        "required": true,
+        "values": [
+          "\"terminal\""
+        ]
+      },
+      "/data/intents/*/receipt/path/pane_id": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/intents/*/receipt/path/screen_id": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/intents/*/receipt/path/tab_id": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/intents/*/receipt/path/terminal_id": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/intents/*/receipt/path/workspace_id": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/intents/*/receipt/replayed": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/data/intents/*/receipt/revision": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/intents/*/receipt/session": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/intents/*/root_key": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/intents/*/session": {
+        "ty": "string",
+        "required": true
+      }
+    },
+    "response:agent-cli-update-job": {
+      "/data/cli": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/machine": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/path": {
+        "ty": "object",
+        "required": true
+      },
+      "/data/path/kind": {
+        "ty": "literal",
+        "required": true,
+        "values": [
+          "\"terminal\""
+        ]
+      },
+      "/data/path/pane_id": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/path/screen_id": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/path/tab_id": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/path/terminal_id": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/path/workspace_id": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/replayed": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/data/revision": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/session": {
+        "ty": "string",
+        "required": true
+      }
+    },
+    "response:agent-cli-update-job-resolve": {
+      "/data": {
+        "ty": "tagged_union",
+        "required": true,
+        "values": [
+          "created",
+          "failed",
+          "indeterminate",
+          "not_found",
+          "pending",
+          "prepared"
+        ]
+      },
+      "/data/code": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/receipt": {
+        "ty": "object",
+        "required": true
+      },
+      "/data/receipt/cli": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/receipt/machine": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/receipt/path": {
+        "ty": "object",
+        "required": true
+      },
+      "/data/receipt/path/kind": {
+        "ty": "literal",
+        "required": true,
+        "values": [
+          "\"terminal\""
+        ]
+      },
+      "/data/receipt/path/pane_id": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/receipt/path/screen_id": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/receipt/path/tab_id": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/receipt/path/terminal_id": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/receipt/path/workspace_id": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/receipt/replayed": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/data/receipt/revision": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/receipt/session": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/state": {
+        "ty": "literal",
+        "required": true,
+        "values": [
+          "\"created\"",
+          "\"failed\"",
+          "\"indeterminate\"",
+          "\"not_found\"",
+          "\"pending\"",
+          "\"prepared\""
+        ]
       }
     },
     "response:apply-layout": {

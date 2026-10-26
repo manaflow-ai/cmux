@@ -132,6 +132,35 @@ fn try_handle(mux: &Mux, client: u64, cmd: &str) -> Option<bool> {
                 CHECKER.module_command_profiles()
             self.assertIn("cancel_request does not refuse non-Unix connections", errors.getvalue())
 
+    def test_sniffed_command_names_come_from_handler_modules_only(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            tui = Path(temporary) / "cmux-tui"
+            server = tui / "crates/cmux-tui-core/src/server"
+            server.mkdir(parents=True)
+            tagged = (
+                '#[derive(Deserialize)]\n#[serde(tag = "cmd")]\nenum Command {{\n'
+                '    #[serde(rename = "{0}")]\n    Served,\n}}\n'
+            )
+            (server / "handler.rs").write_text(
+                tagged.format("served-cmd")
+                + "pub(super) fn try_handle() {\n"
+                '    let _ = "literal-cmd";\n'
+                "}\n"
+                "#[cfg(test)]\nmod tests {\n" + tagged.format("test-cmd") + "}\n"
+            )
+            (server / "helper.rs").write_text(tagged.format("helper-cmd"))
+            (server / "handler_tests.rs").write_text(
+                tagged.format("tests-file-cmd") + "fn try_handle() {}\n"
+            )
+
+            with patch.object(CHECKER, "TUI", tui):
+                self.assertEqual(
+                    CHECKER.sniffed_command_names(
+                        {"served-cmd", "literal-cmd", "test-cmd", "helper-cmd", "tests-file-cmd"}
+                    ),
+                    {"served-cmd"},
+                )
+
     def test_rust_function_body_ignores_braces_in_string_literals(self) -> None:
         source = r'''
 fn metadata(&self) -> ActionMetadata {

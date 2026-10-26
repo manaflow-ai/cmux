@@ -29,6 +29,36 @@ public abstract class GeneratedCmuxClient {
         return TabGroupOutcome.fromWire(result);
     }
 
+    public final AgentCliIntentsAttachResult agentCliIntentsAttach(AgentCliIntentsAttachRequest request) throws CmuxException {
+        Object result = execute(Commands.AGENT_CLI_INTENTS_ATTACH, request.toWire());
+        return AgentCliIntentsAttachResult.fromWire(result);
+    }
+
+    public final AgentCliIntentsListResult agentCliIntentsList(AgentCliIntentsListRequest request) throws CmuxException {
+        Object result = execute(Commands.AGENT_CLI_INTENTS_LIST, request.toWire());
+        return AgentCliIntentsListResult.fromWire(result);
+    }
+
+    public final AgentCliIntentsRecordResult agentCliIntentsRecord(AgentCliIntentsRecordRequest request) throws CmuxException {
+        Object result = execute(Commands.AGENT_CLI_INTENTS_RECORD, request.toWire());
+        return AgentCliIntentsRecordResult.fromWire(result);
+    }
+
+    public final AgentCliIntentsSettleResult agentCliIntentsSettle(AgentCliIntentsSettleRequest request) throws CmuxException {
+        Object result = execute(Commands.AGENT_CLI_INTENTS_SETTLE, request.toWire());
+        return AgentCliIntentsSettleResult.fromWire(result);
+    }
+
+    public final AgentCLIJobReceipt agentCliUpdateJob(AgentCliUpdateJobRequest request) throws CmuxException {
+        Object result = execute(Commands.AGENT_CLI_UPDATE_JOB, request.toWire());
+        return AgentCLIJobReceipt.fromWire(result);
+    }
+
+    public final AgentCLIJobResolution agentCliUpdateJobResolve(AgentCliUpdateJobResolveRequest request) throws CmuxException {
+        Object result = execute(Commands.AGENT_CLI_UPDATE_JOB_RESOLVE, request.toWire());
+        return AgentCLIJobResolution.fromWire(result);
+    }
+
     public final ApplyLayoutResult applyLayout(ApplyLayoutRequest request) throws CmuxException {
         Object result = execute(Commands.APPLY_LAYOUT, request.toWire());
         return ApplyLayoutResult.fromWire(result);

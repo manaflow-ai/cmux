@@ -101,8 +101,8 @@
   },
   "agents": {
    "id": 14,
-   "description": "Agents in terminals and the local feed.",
-   "next_ordinal": 7
+   "description": "Agents in terminals, the local feed and agent CLI updates.",
+   "next_ordinal": 13
   },
   "conversations": {
    "id": 15,
@@ -9996,6 +9996,342 @@
     "offset is the frame address minus the image load address (the address itself when image is null), for offline symbolication.",
     "symbol is the nearest exported symbol, mangled, or null for a local function."
    ]
+  },
+  "AgentCLIIntent": {
+   "kind": "object",
+   "fields": {
+    "key": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "root_key": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "machine": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "session": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "cli": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "profiles": {
+     "type": {
+      "kind": "array",
+      "items": {
+       "kind": "scalar",
+       "name": "string"
+      }
+     },
+     "presence": "required",
+     "nullable": false
+    }
+   },
+   "additional_properties": false
+  },
+  "AgentCLIJobPath": {
+   "kind": "object",
+   "fields": {
+    "kind": {
+     "type": {
+      "kind": "literal",
+      "value": "terminal"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "workspace_id": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "screen_id": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "pane_id": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "tab_id": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "terminal_id": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    }
+   },
+   "additional_properties": false
+  },
+  "AgentCLIJobReceipt": {
+   "kind": "object",
+   "fields": {
+    "machine": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "session": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "cli": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "path": {
+     "type": {
+      "kind": "ref",
+      "name": "AgentCLIJobPath"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "revision": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "replayed": {
+     "type": {
+      "kind": "scalar",
+      "name": "boolean"
+     },
+     "presence": "required",
+     "nullable": false
+    }
+   },
+   "additional_properties": false
+  },
+  "AgentCLIStoredIntent": {
+   "kind": "object",
+   "fields": {
+    "key": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "root_key": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "machine": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "session": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "cli": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "profiles": {
+     "type": {
+      "kind": "array",
+      "items": {
+       "kind": "scalar",
+       "name": "string"
+      }
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "receipt": {
+     "type": {
+      "kind": "ref",
+      "name": "AgentCLIJobReceipt"
+     },
+     "presence": "required",
+     "nullable": true
+    }
+   },
+   "additional_properties": false
+  },
+  "AgentCLIJobResolution": {
+   "kind": "tagged_union",
+   "tag": "state",
+   "variants": {
+    "not_found": {
+     "kind": "object",
+     "fields": {
+      "state": {
+       "type": {
+        "kind": "literal",
+        "value": "not_found"
+       },
+       "presence": "required",
+       "nullable": false
+      }
+     },
+     "additional_properties": false
+    },
+    "prepared": {
+     "kind": "object",
+     "fields": {
+      "state": {
+       "type": {
+        "kind": "literal",
+        "value": "prepared"
+       },
+       "presence": "required",
+       "nullable": false
+      }
+     },
+     "additional_properties": false
+    },
+    "pending": {
+     "kind": "object",
+     "fields": {
+      "state": {
+       "type": {
+        "kind": "literal",
+        "value": "pending"
+       },
+       "presence": "required",
+       "nullable": false
+      }
+     },
+     "additional_properties": false
+    },
+    "indeterminate": {
+     "kind": "object",
+     "fields": {
+      "state": {
+       "type": {
+        "kind": "literal",
+        "value": "indeterminate"
+       },
+       "presence": "required",
+       "nullable": false
+      }
+     },
+     "additional_properties": false
+    },
+    "failed": {
+     "kind": "object",
+     "fields": {
+      "state": {
+       "type": {
+        "kind": "literal",
+        "value": "failed"
+       },
+       "presence": "required",
+       "nullable": false
+      },
+      "code": {
+       "type": {
+        "kind": "scalar",
+        "name": "string"
+       },
+       "presence": "required",
+       "nullable": false
+      }
+     },
+     "additional_properties": false
+    },
+    "created": {
+     "kind": "object",
+     "fields": {
+      "state": {
+       "type": {
+        "kind": "literal",
+        "value": "created"
+       },
+       "presence": "required",
+       "nullable": false
+      },
+      "receipt": {
+       "type": {
+        "kind": "ref",
+        "name": "AgentCLIJobReceipt"
+       },
+       "presence": "required",
+       "nullable": false
+      }
+     },
+     "additional_properties": false
+    }
+   }
   },
   "AppOrigin": {
    "kind": "enum",
@@ -28550,6 +28886,421 @@
    "method_id": 3590,
    "priority": "control",
    "durability": "reply_before_journal",
+   "clients": [
+    "macos",
+    "sdk"
+   ]
+  },
+  "agent-cli-intents-record": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": "agent-cli-intents-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "expected_machine_id": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "expected_session_id": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "intents": {
+      "type": {
+       "kind": "array",
+       "items": {
+        "kind": "ref",
+        "name": "AgentCLIIntent"
+       }
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "object",
+    "fields": {
+     "intents": {
+      "type": {
+       "kind": "array",
+       "items": {
+        "kind": "ref",
+        "name": "AgentCLIStoredIntent"
+       }
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "changed": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
+   },
+   "stream": null,
+   "constraints": [
+    "Needs the verified cmux app on a local Unix connection with no terminal or agent binding; any other connection is refused with agent_cli_intents.not_trusted.",
+    "expected_machine_id and expected_session_id must name this daemon's machine and session; a parse failure is agent_cli_intents.bad_request and another owner is agent_cli_intents.owner_mismatch.",
+    "A stored intent is non-secret identity, never an execution grant: it holds no argv or credentials.",
+    "Records 1-64 intents before any update starts; cli is one of claude, codex, opencode, pi, chief, gemini, amp, copilot, cursor and profiles holds at most 128 labels.",
+    "Recording the same intent again is a no-op and a different intent under a stored key is refused with agent_cli_intents.refused; rows older than seven days and rows past 256 per actor are pruned. The reply lists every stored intent of the actor."
+   ],
+   "method_id": 3591,
+   "priority": "control",
+   "durability": "reply_after_journal",
+   "clients": [
+    "macos",
+    "sdk"
+   ]
+  },
+  "agent-cli-intents-list": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": "agent-cli-intents-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "expected_machine_id": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "expected_session_id": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "object",
+    "fields": {
+     "intents": {
+      "type": {
+       "kind": "array",
+       "items": {
+        "kind": "ref",
+        "name": "AgentCLIStoredIntent"
+       }
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
+   },
+   "stream": null,
+   "constraints": [
+    "Needs the verified cmux app on a local Unix connection with no terminal or agent binding; any other connection is refused with agent_cli_intents.not_trusted.",
+    "expected_machine_id and expected_session_id must name this daemon's machine and session; a parse failure is agent_cli_intents.bad_request and another owner is agent_cli_intents.owner_mismatch.",
+    "A stored intent is non-secret identity, never an execution grant: it holds no argv or credentials.",
+    "Lists the actor's intents recorded in the last seven days."
+   ],
+   "method_id": 3592,
+   "priority": "control",
+   "durability": "read_only",
+   "clients": [
+    "macos",
+    "sdk"
+   ]
+  },
+  "agent-cli-intents-settle": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": "agent-cli-intents-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "expected_machine_id": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "expected_session_id": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "keys": {
+      "type": {
+       "kind": "array",
+       "items": {
+        "kind": "scalar",
+        "name": "string"
+       }
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "object",
+    "fields": {
+     "intents": {
+      "type": {
+       "kind": "array",
+       "items": {
+        "kind": "ref",
+        "name": "AgentCLIStoredIntent"
+       }
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "changed": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
+   },
+   "stream": null,
+   "constraints": [
+    "Needs the verified cmux app on a local Unix connection with no terminal or agent binding; any other connection is refused with agent_cli_intents.not_trusted.",
+    "expected_machine_id and expected_session_id must name this daemon's machine and session; a parse failure is agent_cli_intents.bad_request and another owner is agent_cli_intents.owner_mismatch.",
+    "Deletes 1-64 settled intents so they stop blocking another update; a key already gone is not an error."
+   ],
+   "method_id": 3593,
+   "priority": "control",
+   "durability": "reply_after_journal",
+   "clients": [
+    "macos",
+    "sdk"
+   ]
+  },
+  "agent-cli-intents-attach": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": "agent-cli-intents-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "expected_machine_id": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "expected_session_id": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "key": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "receipt": {
+      "type": {
+       "kind": "ref",
+       "name": "AgentCLIJobReceipt"
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "object",
+    "fields": {
+     "intent": {
+      "type": {
+       "kind": "ref",
+       "name": "AgentCLIStoredIntent"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "changed": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
+   },
+   "stream": null,
+   "constraints": [
+    "Needs the verified cmux app on a local Unix connection with no terminal or agent binding; any other connection is refused with agent_cli_intents.not_trusted.",
+    "expected_machine_id and expected_session_id must name this daemon's machine and session; a parse failure is agent_cli_intents.bad_request and another owner is agent_cli_intents.owner_mismatch.",
+    "Attaches the terminal receipt of agent-cli-update-job to a stored intent; its machine, session and cli must equal the intent's. The stored receipt has replayed true.",
+    "A second attach with the same receipt is a no-op; a different receipt is refused with agent_cli_intents.refused."
+   ],
+   "method_id": 3594,
+   "priority": "control",
+   "durability": "reply_after_journal",
+   "clients": [
+    "macos",
+    "sdk"
+   ]
+  },
+  "agent-cli-update-job": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": "agent-cli-update-job-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "expected_machine_id": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "expected_session_id": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "cli": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "idempotency_key": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "AgentCLIJobReceipt"
+   },
+   "stream": null,
+   "constraints": [
+    "Needs the verified cmux app on a local Unix connection with no terminal or agent binding; any other connection is refused with agent_cli_job.not_trusted.",
+    "expected_machine_id must name this daemon's machine (else agent_cli_job.owner_mismatch) and expected_session_id its session (else agent_cli_job.session_mismatch).",
+    "cli is 1-128 ASCII letters, digits, '_', '.' or '-'; idempotency_key is the original intent key and is reused after a lost reply.",
+    "Creates a workspace whose terminal runs the owner's fixed update plan for cli, prepared by acpmux; the caller never chooses argv. The receipt names that terminal, not a finished update.",
+    "The same idempotency_key replays the original receipt without preparing again. One job prepares at a time: another is refused with agent_cli_job.busy."
+   ],
+   "method_id": 3595,
+   "priority": "control",
+   "durability": "reply_after_journal",
+   "spawns_terminal": true,
+   "clients": [
+    "macos",
+    "sdk"
+   ]
+  },
+  "agent-cli-update-job-resolve": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": "agent-cli-update-job-resolve-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "expected_machine_id": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "expected_session_id": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "cli": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "idempotency_key": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "AgentCLIJobResolution"
+   },
+   "stream": null,
+   "constraints": [
+    "Needs the verified cmux app on a local Unix connection with no terminal or agent binding; any other connection is refused with agent_cli_job.not_trusted.",
+    "expected_machine_id must name this daemon's machine (else agent_cli_job.owner_mismatch) and expected_session_id its session (else agent_cli_job.session_mismatch).",
+    "cli is 1-128 ASCII letters, digits, '_', '.' or '-'; idempotency_key is the original intent key and is reused after a lost reply.",
+    "Reads the creation journal of the original idempotency_key without preparing, reconciling or starting anything; no state authorizes execution."
+   ],
+   "method_id": 3596,
+   "priority": "control",
+   "durability": "read_only",
    "clients": [
     "macos",
     "sdk"

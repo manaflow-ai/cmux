@@ -8,6 +8,10 @@ import re
 import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+from handler_commands import HandlerCommandError, handler_commands  # noqa: E402
+
 
 ROOT = Path(__file__).resolve().parents[2]
 TUI = ROOT / "cmux-tui"
@@ -239,6 +243,23 @@ def command_names() -> set[str]:
     return names | set(modules)
 
 
+def sniffed_command_names(candidates: set[str]) -> set[str]:
+    """The candidates a handler module decodes before the Command enum
+    (handler_commands.py, the rule check-sdk-schema.py also uses)."""
+    try:
+        decoded = handler_commands(TUI)
+    except (HandlerCommandError, OSError, UnicodeError) as error:
+        fail(f"cannot read the handler modules: {error}")
+    return candidates & set(decoded)
+
+
+def served_command_names(sdk_commands: set[str]) -> set[str]:
+    """Every command the daemon serves: the Command enum plus the SDK
+    commands a handler module serves before it."""
+    enum_commands = command_names()
+    return enum_commands | sniffed_command_names(sdk_commands - enum_commands)
+
+
 def rust_function_body(source: str, name: str) -> str:
     match = re.search(
         rf"\bfn\s+{re.escape(name)}(?:\s*<[^>]*>)?\s*\([^)]*\)[^{{]*\{{",
@@ -335,10 +356,10 @@ def guarded_command_profiles(source: str) -> dict[str, str]:
 def command_profiles() -> dict[str, set[str]]:
     # The Command router lives in server/command_dispatch.rs (cx-6so.3).
     source = (TUI / "crates/cmux-tui-core/src/server/command_dispatch.rs").read_text()
-    runtime_commands = command_names()
     sdk_commands = load_sdk_catalog().get("commands")
     if not isinstance(sdk_commands, dict):
         fail("raw SDK catalog commands must be an object")
+    runtime_commands = served_command_names(set(sdk_commands))
     stale_sdk_commands = sorted(set(sdk_commands) - runtime_commands)
     if stale_sdk_commands:
         fail(
@@ -1305,7 +1326,7 @@ def validate_commands(inventory: dict) -> set[str]:
     compare_mapping(actual_profiles, runtime_profiles, "command profile")
     commands = [name for group in command_groups.values() for name in group]
     inventory_commands = unique(commands, "command")
-    runtime_commands = command_names()
+    runtime_commands = served_command_names(set(load_sdk_catalog().get("commands", {})))
     profile_commands = set().union(*runtime_profiles.values())
     compare(runtime_commands, profile_commands, "command profile metadata")
     compare(runtime_commands, inventory_commands, "command")

@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 818eaaf6dd4a902f628551b3ce5b1e546ece33935afc97110ae9e7abb1d0155a. */
+/* cmux-tui mux protocol 12, IR cb66b76b27d6af323d88e6c50c65226de2a2ef09009dcab5c68a8205bfd94675. */
 
 
 import type * as T from "./types.js";
@@ -47,6 +47,73 @@ export interface AddTabsToTabGroupRequest extends CmuxRequestBase {
   "transaction"?: (string) | null;
 }
 export type AddTabsToTabGroupResult = T.TabGroupOutcome;
+
+/** Protocol v12; authority: local-admin. */
+export interface AgentCliIntentsAttachRequest extends CmuxRequestBase {
+  cmd: "agent-cli-intents-attach";
+  "expected_machine_id": string;
+  "expected_session_id": string;
+  "key": string;
+  "receipt": T.AgentCLIJobReceipt;
+}
+export type AgentCliIntentsAttachResult = {
+  "changed": boolean;
+  "intent": T.AgentCLIStoredIntent;
+};
+
+/** Protocol v12; authority: local-admin. */
+export interface AgentCliIntentsListRequest extends CmuxRequestBase {
+  cmd: "agent-cli-intents-list";
+  "expected_machine_id": string;
+  "expected_session_id": string;
+}
+export type AgentCliIntentsListResult = {
+  "intents": Array<T.AgentCLIStoredIntent>;
+};
+
+/** Protocol v12; authority: local-admin. */
+export interface AgentCliIntentsRecordRequest extends CmuxRequestBase {
+  cmd: "agent-cli-intents-record";
+  "expected_machine_id": string;
+  "expected_session_id": string;
+  "intents": Array<T.AgentCLIIntent>;
+}
+export type AgentCliIntentsRecordResult = {
+  "changed": boolean;
+  "intents": Array<T.AgentCLIStoredIntent>;
+};
+
+/** Protocol v12; authority: local-admin. */
+export interface AgentCliIntentsSettleRequest extends CmuxRequestBase {
+  cmd: "agent-cli-intents-settle";
+  "expected_machine_id": string;
+  "expected_session_id": string;
+  "keys": Array<string>;
+}
+export type AgentCliIntentsSettleResult = {
+  "changed": boolean;
+  "intents": Array<T.AgentCLIStoredIntent>;
+};
+
+/** Protocol v12; authority: local-admin. */
+export interface AgentCliUpdateJobRequest extends CmuxRequestBase {
+  cmd: "agent-cli-update-job";
+  "cli": string;
+  "expected_machine_id": string;
+  "expected_session_id": string;
+  "idempotency_key": string;
+}
+export type AgentCliUpdateJobResult = T.AgentCLIJobReceipt;
+
+/** Protocol v12; authority: local-admin. */
+export interface AgentCliUpdateJobResolveRequest extends CmuxRequestBase {
+  cmd: "agent-cli-update-job-resolve";
+  "cli": string;
+  "expected_machine_id": string;
+  "expected_session_id": string;
+  "idempotency_key": string;
+}
+export type AgentCliUpdateJobResolveResult = T.AgentCLIJobResolution;
 
 /** Protocol v6; authority: control. */
 export interface ApplyLayoutRequest extends CmuxRequestBase {
@@ -3025,6 +3092,12 @@ export type CmuxRequest =
   | AckTabNotificationsRequest
   | AddScreensToScreenGroupRequest
   | AddTabsToTabGroupRequest
+  | AgentCliIntentsAttachRequest
+  | AgentCliIntentsListRequest
+  | AgentCliIntentsRecordRequest
+  | AgentCliIntentsSettleRequest
+  | AgentCliUpdateJobRequest
+  | AgentCliUpdateJobResolveRequest
   | ApplyLayoutRequest
   | AppsAgentInventoryChangedRequest
   | AppsDispatchRequest
@@ -3349,6 +3422,54 @@ export interface CmuxCommandDefinitionMap {
     authority: "control";
     since: 12;
     capability: "tab-groups-v1";
+    stream: null;
+  };
+  "agent-cli-intents-attach": {
+    request: AgentCliIntentsAttachRequest;
+    result: AgentCliIntentsAttachResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "agent-cli-intents-v1";
+    stream: null;
+  };
+  "agent-cli-intents-list": {
+    request: AgentCliIntentsListRequest;
+    result: AgentCliIntentsListResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "agent-cli-intents-v1";
+    stream: null;
+  };
+  "agent-cli-intents-record": {
+    request: AgentCliIntentsRecordRequest;
+    result: AgentCliIntentsRecordResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "agent-cli-intents-v1";
+    stream: null;
+  };
+  "agent-cli-intents-settle": {
+    request: AgentCliIntentsSettleRequest;
+    result: AgentCliIntentsSettleResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "agent-cli-intents-v1";
+    stream: null;
+  };
+  "agent-cli-update-job": {
+    request: AgentCliUpdateJobRequest;
+    result: AgentCliUpdateJobResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "agent-cli-update-job-v1";
+    stream: null;
+  };
+  "agent-cli-update-job-resolve": {
+    request: AgentCliUpdateJobResolveRequest;
+    result: AgentCliUpdateJobResolveResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "agent-cli-update-job-resolve-v1";
     stream: null;
   };
   "apply-layout": {
