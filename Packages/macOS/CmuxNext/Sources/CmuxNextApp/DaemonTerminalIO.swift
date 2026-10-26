@@ -190,11 +190,9 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
         driver.requestResync()
     }
 
-    func resize(cols: Int, rows: Int, pixelWidth: Int, pixelHeight: Int) async {
-        guard cols > 0, rows > 0 else { return }
-        let size = CellSize(cols: cols, rows: rows)
-        await MainActor.run { resizes.submit(self, size: size) }
-    }
+    /// Never sent: ``resizeOnMain(cols:rows:final:window:)`` takes every grid in the caller's turn (it always
+    /// returns true), so the session sends no grid through its ordered stream (`TerminalSession.surfaceDidReport`).
+    func resize(cols: Int, rows: Int, pixelWidth: Int, pixelHeight: Int) async {}
 
     // MARK: App control
 
@@ -299,7 +297,7 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
     /// This Mac in the terminal's shared sizing: views name it, and their attach joins
     /// `shared-sizing-v1` (size states for "Sized for", and the Mac's name on other devices).
     /// Read once, off the main actor (MacName).
-    static let sizingDevice = Task { TerminalSizingDevice(kind: "mac", name: await MacName().computerName()) }
+    static let sizingDevice = Task { @concurrent in TerminalSizingDevice(kind: "mac", name: await MacName().computerName()) }
 
     static func sizedFor(_ notice: TerminalSizeNotice) -> TerminalSizedFor {
         TerminalSizedFor(deviceName: notice.ownerName, deviceKind: notice.ownerKind, sameDevice: notice.sameDevice,

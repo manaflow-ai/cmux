@@ -124,7 +124,8 @@ struct AppMemoryConsumers {
     }
 
     /// `memoryAppCaches` (default off): the registry the app's caches register with, nil while the feature
-    /// is off. Caches made per page (Browse more art in Settings) take it at their init.
+    /// is off. Caches made per page take it at their init: Browse more art in Settings (p07-memory-056),
+    /// the Apps page's glyph masks and the Settings page's backdrop thumbnails (p07-memory-057).
     var appCacheRegistry: (any MemoryConsumerRegistry)? {
         services.features.isEnabled(.memoryAppCaches) ? services.memoryCoordinator : nil
     }
@@ -241,7 +242,8 @@ struct AppMemoryConsumers {
     }
 
     /// `pageLifecycle` (default off): page tabs' reveal and conceal drive the page lifecycle
-    /// (p13-webui-022), on the app's one deadline scheduler. Agent chats join in p13-webui-038.
+    /// (p13-webui-022), on the app's one deadline scheduler. Agent chats and New Tab pages join it when
+    /// the browser hibernation makes their `AgentPageHibernation` (p13-webui-038).
     private func registerPageLifecycle() {
         guard services.features.isEnabled(.pageLifecycle) else { return }
         installPageLifecycle(PageLifecycle(deadlines: services.mainDeadlines))
