@@ -38,6 +38,10 @@ import Dispatch
 ///
 /// With a hang-watched lane, each item's run on its slot is one hang scope (Chrome's `WatchHangsInScope`
 /// in `TaskTracker::RunTask`, base/task/thread_pool/task_tracker.cc); the wait for a slot is not.
+///
+/// Every item's queue wait (submit to start on its slot thread) and run time count in the lane's ``LaneStats`` at
+/// the level it ran, in every build: three reads of the lane's clock (submit, start, end) and four relaxed atomic
+/// adds per item, no lock (Chrome's `TaskTracker::RecordLatencyHistogram` counts post to start the same way).
 final class LaneScheduler: Sendable {
     /// How many ``WorkPriority/bestEffort`` and ``WorkPriority/idle`` items a `shared` lane runs at once
     /// (Chrome's `kMaxBestEffortTasks`).
@@ -79,6 +83,8 @@ final class LaneScheduler: Sendable {
         var posted: Bool
         /// The capped class it belongs to, if any.
         var cap: LaneCap?
+        /// When it was submitted, on the lane's stats clock.
+        var queuedAt: UInt64
     }
 
     /// What one busy slot runs: its level, capped class and start (on the lane's ``MayBlockCompensation`` clock).
@@ -183,6 +189,7 @@ final class LaneScheduler: Sendable {
         var job: LaneJob
         var slot: Int
         var priority: WorkPriority
+        var queuedAt: UInt64
     }
 
     let policy: Policy
@@ -195,6 +202,10 @@ final class LaneScheduler: Sendable {
     private let compensation: MayBlockCompensation?
     /// Rechecks the caps when a held low item may start because a running one passed the threshold.
     private let recheck: DemandTimer?
+    /// Each item's queue wait and run time, per priority.
+    let stats: LaneStats
+    /// The clock of ``stats`` (`CLOCK_UPTIME_RAW` nanoseconds); tests pass their own.
+    private let clock: @Sendable () -> UInt64
     // concurrency-allow: a short non-blocking critical section over the pending lists, taken from lane threads, cancel handlers and submitters that must not await (lock carve-out).
     private let state: Mutex<State>
 
@@ -202,9 +213,13 @@ final class LaneScheduler: Sendable {
     ///   - caps: how many items of each ``LaneCap`` class run at once; a class without an entry is not capped.
     ///   - compensation: on a `shared` lane whose items may block, when a low item stops counting against the
     ///     best-effort caps; nil counts it for its whole run.
+    ///   - clock: stamps each item's submit, start and end for ``stats``, in nanoseconds.
     init(label: String, policy: Policy, mayBlock: Bool, caps: [LaneCap: Int] = [:],
-         compensation: MayBlockCompensation? = nil, hangWatched: HangWatchedLane? = nil) {
+         compensation: MayBlockCompensation? = nil, hangWatched: HangWatchedLane? = nil,
+         clock: @escaping @Sendable () -> UInt64 = { LaneStats.uptimeNanos() }) {
         self.policy = policy
+        self.clock = clock
+        stats = LaneStats()
         self.mayBlock = mayBlock
         self.hangWatched = hangWatched
         self.compensation = compensation
@@ -245,10 +260,11 @@ final class LaneScheduler: Sendable {
     /// while a fence is up. An item of the `cap` class waits while the class runs its cap.
     func submit(_ job: LaneJob, at priority: WorkPriority, posted: Bool, cap: LaneCap? = nil,
                 unless cancelled: () -> Bool) -> Submitted {
+        let queuedAt = clock()
         let taken: (starts: [Start], level: WorkPriority)? = state.withLock { state in
             if cancelled() || (state.closed && job.shutdown != .blockShutdown) { return nil }
             let level = priority
-            state.pending[level.rawValue].append(Entry(job: job, posted: posted, cap: cap))
+            state.pending[level.rawValue].append(Entry(job: job, posted: posted, cap: cap, queuedAt: queuedAt))
             return (pump(&state), level)
         }
         guard let taken else { return .refused }
@@ -331,7 +347,7 @@ final class LaneScheduler: Sendable {
     private func claim(_ level: WorkPriority, _ index: Int, slot: Int, in state: inout State) -> Start {
         let entry = state.pending[level.rawValue].remove(at: index)
         state.running[slot] = Running(priority: level, cap: entry.cap, started: state.now)
-        return Start(job: entry.job, slot: slot, priority: level)
+        return Start(job: entry.job, slot: slot, priority: level, queuedAt: entry.queuedAt)
     }
 
     /// Sets the recheck timer to the next threshold crossing when that is earlier than the one it is set to.
@@ -356,6 +372,7 @@ final class LaneScheduler: Sendable {
     private func launch(_ starts: [Start]) {
         for start in starts {
             slots[start.slot].async(qos: start.priority.qos, flags: .enforceQoS) { [self] in
+                let started = clock()
                 // Chrome's task_tracker.cc runs a MayBlock() task with blocking allowed and any other task
                 // under ScopedDisallowBlocking: a files or system item may block, a cpu item may not.
                 if mayBlock {
@@ -363,6 +380,9 @@ final class LaneScheduler: Sendable {
                 } else {
                     BlockingContext.runAsCPULane { run(start.job) }
                 }
+                let ended = clock()
+                stats.record(start.priority, waitNanos: started > start.queuedAt ? started - start.queuedAt : 0,
+                             runNanos: ended > started ? ended - started : 0)
                 finish(start.job.id, slot: start.slot)
             }
         }

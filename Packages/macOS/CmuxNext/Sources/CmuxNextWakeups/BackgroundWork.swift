@@ -104,8 +104,8 @@ public final class BackgroundWork: Sendable {
     ///     and end in `uptimeNanos` nanoseconds; default none, and then no item reads the clock for it. The
     ///     startup trace (CmuxNextLaunch's StartupTrace) records lane jobs with it until it closes
     ///     (``stopReportingRuns()``).
-    ///   - uptimeNanos: the clock a block-shutdown item's run time is measured with, in nanoseconds; nil is
-    ///     `CLOCK_UPTIME_RAW`. Tests pass their own.
+    ///   - uptimeNanos: the clock a block-shutdown item's run time and every item's queue wait and run time
+    ///     (``laneTimes()``) are measured with, in nanoseconds; nil is `CLOCK_UPTIME_RAW`. Tests pass their own.
     public convenience init(cpuWidth: Int = BackgroundWork.defaultCPUWidth, label: String = "com.cmuxterm.next.work",
                             hangs: (any HangWatchScoping)? = nil,
                             onQueued: @escaping @Sendable (BlockingLane, WorkPriority) -> Void = { _, _ in },
@@ -127,7 +127,8 @@ public final class BackgroundWork: Sendable {
         self.label = label
         self.onQueued = onQueued
         self.onRan = onRan
-        self.uptimeNanos = uptimeNanos ?? { clock_gettime_nsec_np(CLOCK_UPTIME_RAW) }
+        let clock: @Sendable () -> UInt64 = uptimeNanos ?? { LaneStats.uptimeNanos() }
+        self.uptimeNanos = clock
         lanes = BlockingLane.allCases.map { lane in
             let traits: (policy: LaneScheduler.Policy, mayBlock: Bool, caps: [LaneCap: Int]) = switch lane {
             case .files: (.perPriority, true, [:])
@@ -140,8 +141,25 @@ public final class BackgroundWork: Sendable {
             let compensation = lane == .system
                 ? LaneScheduler.MayBlockCompensation(threshold: Self.mayBlockThreshold, clock: mayBlockClock) : nil
             return LaneScheduler(label: "\(label).\(lane)", policy: traits.policy, mayBlock: traits.mayBlock, caps: traits.caps,
-                                 compensation: compensation, hangWatched: watched)
+                                 compensation: compensation, hangWatched: watched, clock: clock)
         }
+    }
+
+    /// Every lane's queue wait and run time per priority since launch or the last ``resetLaneTimes()``, lane by
+    /// lane and highest priority first (`debug.work`). Present in every build.
+    public func laneTimes() -> [LaneTimes] {
+        BlockingLane.allCases.flatMap { lanes[$0.rawValue].stats.snapshot(lane: $0) }
+    }
+
+    /// The longest queue-wait p99 of ``WorkPriority/userBlocking`` items over the lanes, in nanoseconds: how long the
+    /// work a person waits for sat behind other work (RUN-13 wants at most 2 ms). 0 before any such item ran.
+    public var userBlockingQueueWaitP99Nanos: UInt64 {
+        laneTimes().filter { $0.priority == .userBlocking }.map { $0.wait.percentileNanos(0.99) }.max() ?? 0
+    }
+
+    /// Zeroes every lane's ``laneTimes()``.
+    public func resetLaneTimes() {
+        for lane in lanes { lane.stats.reset() }
     }
 
     /// How long one item of `lane` may run before the hang watcher reports it: a file operation 5 s,
