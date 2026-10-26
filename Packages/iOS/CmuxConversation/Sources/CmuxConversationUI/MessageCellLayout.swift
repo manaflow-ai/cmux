@@ -1,6 +1,7 @@
 #if canImport(UIKit)
 import CmuxConversationCore
 import CmuxConversationGeometry
+import os
 import UIKit
 
 /// Precomputed frames for one message row, in cell coordinates. Computing
@@ -269,10 +270,20 @@ extension MessageCellLayout {
     ) -> NSAttributedString {
         let key = BubbleTextCache.Key(text: text, outgoing: outgoing, mentions: mentions, meID: meID, runs: runs, links: links, font: ConversationTheme.bubbleFont)
         if let cached = BubbleTextCache.shared.text(for: key) { return cached }
+        // A build on the main thread is a bubble the off-main pre-build or
+        // measure-ahead missed (`main=1` in Instruments' os_signpost track).
+        let signpost = bubbleTextSignposter.beginInterval(
+            "BubbleTextBuild", id: bubbleTextSignposter.makeSignpostID(),
+            "main=\(Thread.isMainThread ? 1 : 0) length=\(text.utf16.count) links=\(links.count)"
+        )
         let result = buildAttributedBody(text, outgoing: outgoing, mentions: mentions, meID: meID, runs: runs, links: links)
+        bubbleTextSignposter.endInterval("BubbleTextBuild", signpost)
         BubbleTextCache.shared.store(result, for: key)
         return result
     }
+
+    /// Bubble text builds (cache misses), for Instruments and `log stream --signpost`.
+    private static let bubbleTextSignposter = OSSignposter(subsystem: "com.cmux.conversation", category: "BubbleText")
 
     /// A detected item's underline: the text color, lightened as
     /// DataDetectorsUI does (see `ConversationDataDetection.underlineAlpha`).
