@@ -24,7 +24,8 @@ static void cmux_next_test_exit_trace(void) {
 }
 
 /// A run that lists or dumps its tests (`--list-tests`, `--dump-tests-json`) instead of running them.
-static int lists_tests(void) {
+/// Shared with the run-loop guard beside this file, so both read one answer.
+int cmux_next_test_lists_tests(void) {
     int count = *_NSGetArgc();
     char **arguments = *_NSGetArgv();
     for (int index = 1; index < count; index++) {
@@ -34,7 +35,7 @@ static int lists_tests(void) {
 }
 
 __attribute__((constructor)) static void cmux_next_test_exit_trace_install(void) {
-    installed = lists_tests() || atexit(cmux_next_test_exit_trace) == 0;
+    installed = cmux_next_test_lists_tests() || atexit(cmux_next_test_exit_trace) == 0;
 }
 
 int cmux_next_test_exit_trace_installed(void) {

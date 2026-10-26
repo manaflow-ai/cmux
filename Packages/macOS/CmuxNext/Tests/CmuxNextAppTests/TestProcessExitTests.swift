@@ -22,4 +22,25 @@ struct TestProcessExitTests {
     @Test func anExitOfTheTestProcessPrintsItsStack() {
         #expect(cmux_next_test_exit_trace_installed() == 1)
     }
+
+    /// The other way a test run ends in the middle with status 0: something stops the main run
+    /// loop while its outermost run is the current one. `swift_task_asyncMainDrainQueue` calls
+    /// `exit(0)` the moment that run returns, so the tests in flight never report and there is no
+    /// summary line (run 40317841968: 2793 tests started and never finished). This test takes that
+    /// stop for real, from a timer on the main run loop, and the assertions below run at all only
+    /// because the process is still alive. With `CMUX_NEXT_TEST_RUNLOOP_GUARD=0` the same binary
+    /// ends here instead.
+    @Test func aStopOfTheOutermostRunLoopDoesNotEndTheTestRun() async throws {
+        try #require(cmux_next_test_runloop_guard_installed() == 1)
+        let before = cmux_next_test_runloop_guard_reentries()
+        cmux_next_test_runloop_guard_stop_outermost()
+        let deadline = Date().addingTimeInterval(30)
+        while Date() < deadline,
+              cmux_next_test_runloop_guard_stopped_outermost() == 0
+                  || cmux_next_test_runloop_guard_reentries() <= before {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        #expect(cmux_next_test_runloop_guard_stopped_outermost() == 1)
+        #expect(cmux_next_test_runloop_guard_reentries() > before)
+    }
 }
