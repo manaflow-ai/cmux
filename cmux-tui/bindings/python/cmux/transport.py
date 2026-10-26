@@ -87,12 +87,14 @@ class JsonLineConnection:
             or timeout <= 0
         ):
             raise ValueError("send timeout must be finite and greater than zero")
-        encoded = self._encode(value)
         deadline = None if timeout is None else time.monotonic() + timeout
-        if timeout is None:
+        encoded = self._encode(value)
+        if deadline is None:
             self._send_lock.acquire()
-        elif not self._send_lock.acquire(timeout=timeout):
-            raise TimeoutError("session socket write lock timed out")
+        else:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0 or not self._send_lock.acquire(timeout=remaining):
+                raise TimeoutError("session socket write lock timed out")
         try:
             if self._write_poisoned:
                 raise CmuxConnectionError(
