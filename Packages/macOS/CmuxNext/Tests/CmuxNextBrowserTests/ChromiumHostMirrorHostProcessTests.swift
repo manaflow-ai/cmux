@@ -19,11 +19,15 @@ import Testing
 /// `CMUX_NEXT_CHROMIUM_HOST_APP=<the .app> swift test --filter ChromiumHostMirror`. Without it the
 /// test does nothing. The portable half of the same check, the dispatcher against the remote shim
 /// on a socket pair, is scripts/cmux-next/tests/chromium-host-dispatch.test.sh.
+/// The Debug app under test, outside the suite: a `@Suite` trait that names a member of its own
+/// type is a circular macro reference.
+private nonisolated let chromiumHostApp = ProcessInfo.processInfo.environment["CMUX_NEXT_CHROMIUM_HOST_APP"]
+    .map { URL(filePath: $0, directoryHint: .isDirectory) }
+
 @MainActor
-@Suite(.serialized, .enabled(if: ChromiumHostMirrorHostProcessTests.app != nil, "needs CMUX_NEXT_CHROMIUM_HOST_APP"))
+@Suite(.serialized, .enabled(if: chromiumHostApp != nil, "needs CMUX_NEXT_CHROMIUM_HOST_APP"))
 struct ChromiumHostMirrorHostProcessTests {
-    nonisolated static let app = ProcessInfo.processInfo.environment["CMUX_NEXT_CHROMIUM_HOST_APP"]
-        .map { URL(filePath: $0, directoryHint: .isDirectory) }
+    nonisolated static var app: URL? { chromiumHostApp }
 
     // cmux_cef_shim.h event kinds.
     static let afterCreated: Int32 = 2

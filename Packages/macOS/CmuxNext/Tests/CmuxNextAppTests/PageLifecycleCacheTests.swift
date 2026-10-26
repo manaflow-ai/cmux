@@ -159,13 +159,13 @@ struct PageLifecycleCacheTests {
 }
 
 /// A timer the queue arms and parks; nothing fires it.
-private final class RigWakeUpTimer: MainWakeUpTimer {
+private nonisolated final class RigWakeUpTimer: MainWakeUpTimer {
     func arm(at date: UInt64, tolerance: UInt64, now: UInt64) {}
     func park() {}
 }
 
 /// The rig's uptime in ns: the queue reads it from any thread, only the test's main actor moves it.
-private final class RigUptime: Sendable {
+private nonisolated final class RigUptime: Sendable {
     private let value = Atomic<UInt64>(0)
 
     var now: UInt64 {
