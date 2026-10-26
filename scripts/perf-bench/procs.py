@@ -533,15 +533,18 @@ def load_average() -> float:
 
 # `pmset -g assertions`, "Listed by owning process": one header line per assertion, then indented detail lines
 # (`Created for PID: N.` when a daemon such as powerd or runningboardd holds it on a process's behalf).
-_ASSERTION_RE = re.compile(r"^\s*pid (\d+)\((.*?)\): \[0x[0-9a-fA-F]+\] (\S+) (\S+)(?: named: \"(.*)\")?")
+# A header is `pid N(process): [assertion ID] age type named: "name"`; the age (HH:MM:SS held so far) changes
+# between reads, the ID does not.
+_ASSERTION_RE = re.compile(r"^\s*pid (\d+)\((.*?)\): \[(0x[0-9a-fA-F]+)\] (\S+) (\S+)(?: named: \"(.*)\")?")
 _CREATED_FOR_RE = re.compile(r"Created for PID: (\d+)")
 
 
 def power_assertions(pids, text: str | None = None) -> list[dict]:
-    """The power assertions held by or created for a pid of `pids`: [{pid, process, type, name, held, line}].
+    """The power assertions held by or created for a pid of `pids`: [{pid, process, id, type, name, age, line}].
 
-    `text` is `pmset -g assertions` output (read now when None). An assertion created for one of the pids by
-    another process counts for that pid."""
+    `id` is the assertion's ID (`0x...`, the same at every read while it is held) and `age` how long it has been
+    held at this read. `text` is `pmset -g assertions` output (read now when None). An assertion created for one
+    of the pids by another process counts for that pid."""
     if text is None:
         text = subprocess.run(["pmset", "-g", "assertions"], capture_output=True, text=True).stdout
     wanted = set(pids)
@@ -549,9 +552,9 @@ def power_assertions(pids, text: str | None = None) -> list[dict]:
     for line in text.splitlines():
         header = _ASSERTION_RE.match(line)
         if header:
-            pid, process, held, kind, name = header.groups()
-            current = {"pid": int(pid), "process": process, "type": kind, "name": name or "",
-                       "held": held, "line": line.strip()[:240]}
+            pid, process, assertion_id, age, kind, name = header.groups()
+            current = {"pid": int(pid), "process": process, "id": assertion_id.lower(), "type": kind,
+                       "name": name or "", "age": age, "line": line.strip()[:240]}
             found.append(current)
             continue
         if current is not None and line[:1] in ("\t", " ") and line.strip():

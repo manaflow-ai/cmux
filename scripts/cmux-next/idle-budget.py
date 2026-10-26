@@ -21,7 +21,8 @@ it cannot be read.
 
 The script reads the app's counters only at the window's two ends (proc_pid_rusage of another process
 does not wake it; the two socket reads sit outside the process counters' window), so the bench adds no
-wakeup to what it measures.
+wakeup to what it measures. Each end's state reads (debug.energy, pmset, the animated page) sit outside
+every counter bracket: the start reads, a quiet gap, then the counters; the counters, then the end reads.
 
 Sessions (--sessions):
   light         the launch window with its terminal (Home's pages run in Chromium by default)
@@ -36,13 +37,16 @@ Sessions (--sessions):
                 every page tab_pages' static page; the settle lasts past `browser.freezeHiddenTabs`
   minimized     the light session with its window minimized (action minimizeWindow)
   energy-saver  tabs-static with `energy.saver: always`, the shown tab an animated page (/anim, rAF every
-                frame, no input) whose rAF rate is read over DevTools at the window's two ends
+                frame, no input) whose rAF count the page server reads at the window's two ends: the page keeps
+                one fetch the server holds (no wake while held); the bench answers it and the page POSTs
+                its count, page clock and visibilityState (any build, Release + CMUX_BENCH_HOOKS included)
 
 Per window the report also has, per session: `energy_mw` (CPU and billed energy, summed per kind and over the
 tree), `assertions` (`pmset -g assertions` held by or created for a pid of the set), `saver` (asked by the
 session, observed through debug.energy at both ends) and `thermal` (ProcessInfo.thermalState at both ends).
---gate refuses a session whose observed saver state is not the one it asked for; a session whose thermal state
-reached serious or critical has `thermal_marked` on its rows.
+--gate refuses a session whose observed saver state is not the one it asked for, and energy-saver when its page's
+rAF rate could not be read; a session whose thermal state reached serious or critical has `thermal_marked` on its
+rows.
 
 A session that fails (STRESS refuses a window under the Dock, a launch fails) is recorded with its exit
 code (`session_exits` in the report) and the others still run; the script exits 0 unless --gate.
@@ -56,14 +60,12 @@ Use (fleet only, a host with a GUI console session; never on a laptop in use):
       [--sessions light,stress|all] [--settle 60] [--measure 60] [--json DIR/idle-budget.json] [--gate]
   On the fleet through the allowlisted entry (STRESS needs the 1920 x 1080 virtual display):
     scripts/measure/split-spring.sh --suite=idle-budget --vdisplay=120 -- --sessions tabs-static,energy-saver
-  energy-saver reads its page over DevTools (CMUX_NEXT_CEF_EXTRA_SWITCHES remote-debugging-port, which only
-  development bundles honor); without it the session's `anim` block holds the error.
 
 Output: one `IDLE-BUDGET-MACHINE {json}` line, one `IDLE-BUDGET-ROW {json}` line per session and process
-kind, IDLE-BUDGET-ENERGY / -STATE / -ASSERTION / -ANIM lines, IDLE-BUDGET-REFUSED for a saver mismatch and
+kind, IDLE-BUDGET-ENERGY / -STATE / -ASSERTION / -ANIM lines, IDLE-BUDGET-REFUSED for a saver mismatch or an unread rAF rate and
 IDLE-BUDGET-THERMAL for a marked session, a Markdown table, and --json with every sample.
 """
-import argparse, ctypes, json, os, platform, re, shutil, subprocess, sys, time
+import argparse, ctypes, json, os, platform, re, shutil, subprocess, sys, threading, time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
@@ -151,20 +153,24 @@ def process_set(instance):
 # One window
 
 
+# Seconds between the start's state reads and the first counter read.
+QUIET_GAP_S = 1.0
+
+
 def read_rpc(app, method, params=None):
     reply = app.rpc(method, params or {}, timeout=30)
     return reply if isinstance(reply, dict) and not reply.get("error") else {}
 
 
-def window_end(app, pids, anim_port):
+def window_end(app, pids, read_anim=None):
     """What one end of the window records outside the process counters: the app's energy policy (debug.energy:
-    the saver state), the Mac's thermal state, the power assertions of the pid set and, with a DevTools port, the
-    animated page's rAF count."""
+    the saver state), the Mac's thermal state, the power assertions of the pid set and, with `read_anim`
+    (IdlePages.read_anim), the animated page's rAF count."""
     saver, reason = saver_state(read_rpc(app, "debug.energy"))
     end = {"saver": saver, "saver_reason": reason, "thermal": procs.thermal_state(),
            "assertions": procs.power_assertions(pids)}
-    if anim_port is not None:
-        end["anim"] = read_anim(anim_port)
+    if read_anim is not None:
+        end["anim"] = read_anim()
     return end
 
 
@@ -179,13 +185,15 @@ def saver_state(reply):
     return saver, policy.get("reason") or inputs.get("reason")
 
 
-def measure(app, instance, seconds, anim_port=None):
-    """Counters of every process of the app over `seconds` with no input."""
+def measure(app, instance, seconds, read_anim=None):
+    """Counters of every process of the app over `seconds` with no input. The window's end reads (window_end) sit
+    outside every counter bracket, the app's own counters included, so the bench's reads are never counted."""
+    pids = process_set(instance)
+    start = window_end(app, pids, read_anim)
+    time.sleep(QUIET_GAP_S)  # bench: the start reads' aftermath (the page's POST, the RPC's reply) ends before the counters
     hangs0 = read_rpc(app, "debug.hangs", {"limit": 0})
     ledger0 = read_rpc(app, "debug.wakeups")
     counters0 = app_counters(app)
-    pids = process_set(instance)
-    start = window_end(app, pids, anim_port)
     first = {pid: (procs.usage(pid), procs.overhead(pid), threads(pid)) for pid in pids}
     gpu0 = procs.gpu_ns_by_pid()
     coalition0 = procs.coalition_of(instance.pid)
@@ -196,10 +204,10 @@ def measure(app, instance, seconds, anim_port=None):
     gpu1 = procs.gpu_ns_by_pid()
     last_pids = process_set(instance)
     last = {pid: (procs.usage(pid), procs.overhead(pid), threads(pid)) for pid in last_pids}
-    end = window_end(app, last_pids, anim_port)
     hangs1 = read_rpc(app, "debug.hangs", {"limit": 0})
     ledger1 = read_rpc(app, "debug.wakeups", {"run_loop": True})
     counters1 = app_counters(app)
+    end = window_end(app, last_pids, read_anim)
     rows = []
     for pid, cmd in sorted(last_pids.items()):
         (c1, o1, t1) = last[pid]
@@ -399,6 +407,15 @@ def thermal_marked(state):
     return state in ("serious", "critical")
 
 
+def window_assertions(start, end):
+    """The power assertions of the window's two reads, one entry per assertion (owning pid and assertion ID; its
+    age differs between the reads) in first-seen order, each the latest read of it."""
+    by_id = {}
+    for item in (start or []) + (end or []):
+        by_id[(item["pid"], item["id"])] = item
+    return list(by_id.values())
+
+
 def summarize(session, result, budget):
     """The report entry of one measured window: kinds, overs, energy_mw, assertions, saver, thermal (and the
     animated page's rAF rate when the session has one)."""
@@ -412,13 +429,9 @@ def summarize(session, result, budget):
         for entry in kinds.values():
             entry["thermal_marked"] = True
     observed = [start.get("saver"), end.get("saver")]
-    seen, assertions = set(), []
-    for item in (start.get("assertions") or []) + (end.get("assertions") or []):
-        if item["line"] not in seen:
-            seen.add(item["line"])
-            assertions.append(item)
     entry = {"result": result, "kinds": kinds, "over": [list(o) for o in over_budget(session, kinds, budget)],
-             "energy_mw": energy_summary(kinds), "assertions": assertions,
+             "energy_mw": energy_summary(kinds),
+             "assertions": window_assertions(start.get("assertions"), end.get("assertions")),
              "saver": {"asked": spec.get("saver", False), "observed": observed,
                        "reason": end.get("saver_reason") or start.get("saver_reason"),
                        "mismatch": saver_mismatch(spec.get("saver", False), observed)},
@@ -428,8 +441,19 @@ def summarize(session, result, budget):
     return entry
 
 
+def refusals(entry):
+    """[(what, why)] that refuse a session's window under --gate: its saver state is not the one it asked for, or
+    its animated page's rAF rate (D7's number) could not be read."""
+    out = []
+    if entry["saver"]["mismatch"]:
+        out.append(("saver", entry["saver"]["mismatch"]))
+    if "error" in (entry.get("anim") or {}):
+        out.append(("anim", f"no page rAF rate: {entry['anim']['error']}"))
+    return out
+
+
 def exit_code(gate, overs, refused):
-    """1 under --gate when a value is over its budget or a session was refused (saver mismatch), else 0."""
+    """1 under --gate when a value is over its budget or a session was refused (`refusals`), else 0."""
     return 1 if gate and (overs or refused) else 0
 
 
@@ -493,22 +517,80 @@ def load_stress():
     return module
 
 
-# The animated page of energy-saver: one box turned on every rAF, the count in window.__rafCount (read over
-# DevTools); it reports /loaded/anim as the shared static page reports /loaded/<n>.
+# The animated page of energy-saver: one box turned on every rAF, the count in window.__rafCount. It reports
+# /loaded/anim as the shared static page reports /loaded/<n>, then keeps one GET of ANIM_READ_PATH open: the
+# server holds it until the bench reads (IdlePages.read_anim), and the page then POSTs
+# ANIM_COUNT_PATH/<count>/<performance.now()>/<visibilityState> and asks again. A held request runs no timer in the
+# page, so the read path costs no wake inside the window and needs no DevTools port (Release builds have none).
+ANIM_PATH = "/anim"
+ANIM_READ_PATH = "/anim-read"
+ANIM_COUNT_PATH = "/anim-count"
 ANIM_PAGE = ("<!doctype html><meta charset='utf-8'><title>idle anim</title>"
              "<style>body{margin:0;background:#f4f4f6}#b{width:64px;height:64px;margin:40px;border-radius:12px;"
              "background:#20304a}</style><div id='b'></div><script>window.__rafCount=0;"
              "const b=document.getElementById('b');requestAnimationFrame(function f(){window.__rafCount++;"
              "b.style.transform='rotate('+(window.__rafCount*3%360)+'deg)';requestAnimationFrame(f)});"
-             "fetch('/loaded/anim',{method:'POST'})</script>")
-ANIM_PATH = "/anim"
+             f"function ask(){{fetch('{ANIM_READ_PATH}',{{cache:'no-store'}}).then(function(){{"
+             f"return fetch('{ANIM_COUNT_PATH}/'+window.__rafCount+'/'+performance.now()+'/'+document.visibilityState,"
+             "{method:'POST'})}).then(ask,function(){setTimeout(ask,1000)})}"
+             "fetch('/loaded/anim',{method:'POST'}).then(ask)</script>")
+
+
+def parse_anim_count(path):
+    """{count, t_ms, visibility} from the page's ANIM_COUNT_PATH POST, or {"error": ...}."""
+    parts = path.split("?", 1)[0].removeprefix(ANIM_COUNT_PATH + "/").split("/")
+    try:
+        return {"count": int(parts[0]), "t_ms": float(parts[1]), "visibility": parts[2]}
+    except (IndexError, ValueError):
+        return {"error": f"unreadable rAF count post {path[:80]}"}
 
 
 class IdlePages(tab_pages.TabPages):
-    """The shared tab-page server plus energy-saver's animated page at ANIM_PATH."""
+    """The shared tab-page server plus energy-saver's animated page at ANIM_PATH and its read path."""
+
+    def __init__(self, *args, **kwargs):
+        self._anim = threading.Condition()
+        self._anim_asked = 0  # reads the bench asked for (read_anim)
+        self._anim_answered = 0  # reads a held ANIM_READ_PATH GET answered; a GET is held while this equals asked
+        self._anim_reads = []  # the page's parsed ANIM_COUNT_PATH posts, in order
+        super().__init__(*args, **kwargs)
 
     def body(self, path):
-        return ANIM_PAGE.encode() if path.split("?", 1)[0] == ANIM_PATH else super().body(path)
+        path = path.split("?", 1)[0]
+        if path == ANIM_PATH:
+            return ANIM_PAGE.encode()
+        if path == ANIM_READ_PATH:
+            with self._anim:
+                self._anim.wait_for(lambda: self._anim_asked > self._anim_answered or self.closing.is_set())
+                self._anim_answered = self._anim_asked
+            return b""
+        return super().body(path)
+
+    def report(self, path):
+        if path.startswith(ANIM_COUNT_PATH + "/"):
+            with self._anim:
+                self._anim_reads.append(parse_anim_count(path))
+                self._anim.notify_all()
+            return
+        super().report(path)
+
+    def read_anim(self, seconds=10):
+        """The animated page's {count, t_ms, visibility} now: answers the page's held read and waits for the count
+        it posts (a read asked before the page's next GET arrives is answered by that GET); {"error": ...} when none
+        comes in `seconds`."""
+        with self._anim:
+            posted = len(self._anim_reads)
+            self._anim_asked += 1
+            self._anim.notify_all()
+            if not self._anim.wait_for(lambda: len(self._anim_reads) > posted, seconds):
+                return {"error": f"the page posted no rAF count in {seconds:g} s (no held {ANIM_READ_PATH})"}
+            return self._anim_reads[posted]
+
+    def close(self):
+        """Ends the held reads with the other held loads."""
+        super().close()
+        with self._anim:
+            self._anim.notify_all()
 
     def wait_loaded(self, key, seconds):
         """True once the page `key` reported /loaded/<key>, False after `seconds`."""
@@ -559,27 +641,9 @@ def build_tabs(app, pages, tabs):
     return opened
 
 
-def read_anim(port):
-    """The animated page's {count, t_ms, visibility} over DevTools, or {"error": ...}."""
-    from ext_e2e import cdp
-    try:
-        target = next((t for t in cdp.targets(port) if t.get("type") == "page"
-                       and (t.get("url") or "").split("?", 1)[0].endswith(ANIM_PATH)), None)
-        if target is None:
-            return {"error": "no DevTools page target for " + ANIM_PATH}
-        session = cdp.page_session(port, target["id"])
-        try:
-            return session.evaluate("({count: window.__rafCount, t_ms: performance.now(),"
-                                    " visibility: document.visibilityState})", timeout=10)
-        finally:
-            session.close()
-    except Exception as error:  # noqa: BLE001 - the report keeps why the page could not be read
-        return {"error": f"{type(error).__name__}: {error}"[:200]}
-
-
 def anim_rate(start, end):
-    """{raf_per_s, visibility} of the animated page between two read_anim results (the page's own clock), or the
-    first error."""
+    """{raf_per_s, visibility} of the animated page between two IdlePages.read_anim results (the page's own clock),
+    or the first error."""
     for read in (start, end):
         if not isinstance(read, dict) or "error" in read or not isinstance(read.get("count"), (int, float)):
             return {"error": (read or {}).get("error", "no rAF count") if isinstance(read, dict) else "not read"}
@@ -588,13 +652,6 @@ def anim_rate(start, end):
         return {"error": "the page clock did not advance"}
     return {"raf_per_s": round((end["count"] - start["count"]) / seconds, 2), "seconds": round(seconds, 1),
             "visibility": [start.get("visibility"), end.get("visibility")]}
-
-
-def free_port():
-    import socket
-    with socket.socket() as s:
-        s.bind(("127.0.0.1", 0))
-        return s.getsockname()[1]
 
 
 def build_stress(app, static=False):
@@ -621,7 +678,7 @@ TABS_CONFIG = {**BASE_CONFIG, "browser": {"freezeHiddenTabs": FREEZE_HIDDEN_TABS
 TABS_STATIC = {"webkit_hidden": 5, "chromium_hidden": 10, "shown": "static"}
 # The sessions (the docstring describes each). Keys: config (the app's cmux.json), hide, minimize, stress, static
 # (STRESS without its rAF spinner), tabs (build_tabs's plan), settle_min (seconds), saver (the energy saver state the
-# session asks for; --gate refuses a window that shows another), anim (read the animated page over DevTools).
+# session asks for; --gate refuses a window that shows another), anim (read the animated page's rAF count at both ends).
 SESSIONS = {
     "light": {},
     "light-webkit": {"config": {**BASE_CONFIG, "browser": {"defaultEngine": "webkit"}}},
@@ -744,9 +801,7 @@ def main():
     markdown = []
     for session in sessions:
         spec = SESSIONS[session]
-        anim_port = free_port() if spec.get("anim") else None
-        env = {"CMUX_NEXT_CEF_EXTRA_SWITCHES": f"remote-debugging-port={anim_port}:remote-allow-origins=*"} if anim_port else None
-        app = BenchApp(opts.app, out=os.path.join(out, session), config=spec.get("config"), env=env)
+        app = BenchApp(opts.app, out=os.path.join(out, session), config=spec.get("config"))
         pages = IdlePages() if spec.get("tabs") else None
         try:
             entry = {"fresh_session": fresh_session(app)}
@@ -766,7 +821,7 @@ def main():
             time.sleep(settle)  # bench: the session settles (page loads, Chromium's post-load work, the hidden-tab freeze)
             instance = procs.Instance(app.app, app.process.pid)
             window_before = window_state(app)
-            result = measure(app, instance, opts.measure, anim_port)
+            result = measure(app, instance, opts.measure, pages.read_anim if spec.get("anim") else None)
             result["window_state"] = {"start": window_before, "end": window_state(app)}
             print(f"IDLE-BUDGET-WINDOW {session} " + json.dumps(result["window_state"]), flush=True)
             if opts.sample:
@@ -798,9 +853,11 @@ def main():
                     print(f"IDLE-BUDGET-SAMPLE {session} {name}: {top}", flush=True)
             for name, field, value, limit in overs:
                 print(f"IDLE-BUDGET-OVER {session} {name} {field} {value} > {limit}", flush=True)
-            if entry["saver"]["mismatch"]:
+            reasons = refusals(entry)
+            if reasons:
                 refused.append(session)
-                print(f"IDLE-BUDGET-REFUSED {session} saver: {entry['saver']['mismatch']}", flush=True)
+            for what, why in reasons:
+                print(f"IDLE-BUDGET-REFUSED {session} {what}: {why}", flush=True)
             if entry["thermal"]["marked"]:
                 print(f"IDLE-BUDGET-THERMAL {session} rows taken at {entry['thermal']['worst']}: not comparable", flush=True)
             all_overs += [(session, *o) for o in overs]
