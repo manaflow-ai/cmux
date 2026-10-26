@@ -29,8 +29,9 @@ public final class TraceRuntime: Sendable {
     public let role: Role
     /// The hang-watch slots of this process's watched threads and lanes.
     public let hangWatch: HangWatch
-    /// One bit per category (`SignpostCategory.traceBit`); a trace point records only while its bit is set.
-    private let categoryFlags = Atomic<UInt64>(0)
+    /// One bit per category (`SignpostCategory.traceBit`), and the keystroke-timing gate; a trace point
+    /// records only while its bit is set.
+    public let categories = TraceCategories()
     /// Stub until task 003 adds the ring: the records the `write` methods let through their category
     /// gate, so tests can see the gate.
     let stubRecordCount = Atomic<UInt64>(0)
@@ -44,17 +45,18 @@ public final class TraceRuntime: Sendable {
     // MARK: categories
 
     /// The category flags: bit `n` on means category bit `n` records.
-    public var categoryMask: UInt64 { categoryFlags.load(ordering: .relaxed) }
+    public var categoryMask: UInt64 { categories.mask }
 
-    /// Replaces the category flags (launch defaults, `trace.start`, `trace.stop`, the secure-input gate).
+    /// Replaces the requested category flags (launch defaults, `trace.start`, `trace.stop`). The key
+    /// category stays off while secure input is on (``TraceCategories/setKeyTimingSuppressed(_:)``).
     public func setCategoryMask(_ mask: UInt64) {
-        categoryFlags.store(mask, ordering: .relaxed)
+        categories.setMask(mask)
     }
 
     /// Whether category bit `bit` records: one relaxed load and one branch, the cost of a trace point
     /// that is off (Chrome's `category_group_enabled` read).
     public func isEnabled(categoryBit bit: UInt8) -> Bool {
-        categoryFlags.load(ordering: .relaxed) & (1 << UInt64(bit & 63)) != 0
+        categories.isEnabled(bit: bit)
     }
 
     // MARK: records
@@ -195,7 +197,8 @@ extension TraceRuntime {
         public var categoryMask: UInt64
         /// The recording ring's size in records (capped by role).
         public var recordCapacity: Int
-        /// Whether per-key records and key flows are on (off by default; never while secure input is on).
+        /// Whether per-key records and key flows are on (off by default; never while secure input is on:
+        /// ``TraceCategories/isKeyTimingSuppressed``).
         public var keys: Bool
 
         /// A request.

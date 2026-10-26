@@ -1,9 +1,11 @@
 import AppKit
 import Carbon.HIToolbox
+import CmuxNextTrace
 import GhosttyNextKit
 
 /// Secure keyboard entry requested by Ghostty (`GHOSTTY_ACTION_SECURE_INPUT`,
-/// for example a password prompt with `macos-auto-secure-input`).
+/// for example a password prompt with `macos-auto-secure-input`). While it is on, the trace
+/// runtime writes no key-category record, in the black box or a recording (p09-observability-128).
 enum TerminalSecureInput {
     private static var enabledViews: Set<ObjectIdentifier> = []
 
@@ -18,11 +20,18 @@ enum TerminalSecureInput {
         }
         let isEnabled = !enabledViews.isEmpty
         guard isEnabled != wasEnabled else { return }
-        if isEnabled { EnableSecureEventInput() } else { DisableSecureEventInput() }
+        if isEnabled {
+            TraceRuntime.shared.categories.setKeyTimingSuppressed(true)
+            EnableSecureEventInput()
+        } else {
+            DisableSecureEventInput()
+            TraceRuntime.shared.categories.setKeyTimingSuppressed(false)
+        }
     }
 
     static func release(_ view: TerminalSurfaceView) {
         guard enabledViews.remove(ObjectIdentifier(view)) != nil, enabledViews.isEmpty else { return }
         DisableSecureEventInput()
+        TraceRuntime.shared.categories.setKeyTimingSuppressed(false)
     }
 }
