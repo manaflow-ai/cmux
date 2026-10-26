@@ -370,7 +370,7 @@ struct ChatDockLinkSplitMotionTests {
         let frame = link.frame
         #expect(frame.minX > 100, "the pane is not right of the dock: \(frame)")
         #expect(link.superview === view.stripContainer, "the strip pane is not in the strip container")
-        #expect(chat.superview === view, "the docked pane is in the strip container")
+        #expect(chat.superview === view, "the docked pane is not in the screen above the strip container")
         #expect(link.layer?.mask == nil, "the strip pane carries a mask: \(Self.shown(link))")
         #expect(view.stripContainer.layer?.masksToBounds == true, "the strip container does not clip")
         let g = view.geometry

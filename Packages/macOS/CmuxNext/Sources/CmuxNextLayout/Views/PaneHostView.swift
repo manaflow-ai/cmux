@@ -120,10 +120,28 @@ final class PaneHostView: NSView, RestingPlacement {
     override func viewDidMoveToSuperview() {
         super.viewDidMoveToSuperview()
         if superview == nil { isOnLayoutSpring = false }
-        // Another screen (or none) places it now: its clip and overlay are computed afresh.
+        // Another screen (or none) places it now: its clip, overlay and covers are computed afresh.
         stripClipInput = nil
         overlaySyncKey = nil
+        pageCoverMemo = nil
+        if superview == nil { backsZoom = false }
     }
+
+    /// While its pane zooms or unzooms, an opaque window-background fill under its whole bounds: the
+    /// pane is above the others (`ScreenContentView.rank`), and they must not show through its padding,
+    /// its corners or its see-through header (as an overlay dock's backdrop fills under its panes).
+    /// One layer property set at the zoom's start and at its landing; the fill follows the bounds.
+    var backsZoom = false {
+        didSet { if backsZoom != oldValue { applyZoomBacking() } }
+    }
+
+    private func applyZoomBacking() {
+        layer?.backgroundColor = backsZoom ? performWithTheme { Palette.windowBackground.withAlphaComponent(1).cgColor } : nil
+    }
+
+    /// The panes in front last read for a page in this host (`pageCovers`), with the screen's
+    /// `coverVersion` they were read at.
+    private var pageCoverMemo: (screen: ObjectIdentifier, version: Int, covers: [CGRect])?
 
     /// What the host's strip clip was last computed from (`ScreenContentView.clipToStrip`).
     var stripClipInput: StripClipInput?
@@ -141,6 +159,7 @@ final class PaneHostView: NSView, RestingPlacement {
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         applyDockFill()
+        if backsZoom { applyZoomBacking() }
     }
 
     private func applyDockFill() {
@@ -165,8 +184,8 @@ final class PaneHostView: NSView, RestingPlacement {
     }
 
     /// The part of this host the layout shows (own coordinates): its bounds cut by its own mask (a
-    /// scroll area's window, `setStripClip`) and by the strip container it sits in beside docked
-    /// columns (`StripClipContainerView`); `.zero` when none of it shows.
+    /// scroll area's window or a held strip range, `setStripClip`) and by the strip container it sits
+    /// in (`StripClipContainerView`); `.zero` when none of it shows.
     var stripShownRect: CGRect {
         var shown = bounds
         if let mask = layer?.mask { shown = shown.intersection(mask.frame) }
@@ -288,9 +307,10 @@ final class PaneHostView: NSView, RestingPlacement {
     }
 
     /// Clips the host to `rect` (its own coordinates): the part of it inside its scroll area's
-    /// window; nil removes the clip. The strip's clip beside docked columns is not a mask: the
-    /// strip container clips its hosts (`StripClipContainerView`), and panes in front are above
-    /// this one in the layer tree.
+    /// window, and the strip's range it keeps while a zoom lifts the strip container; nil removes the
+    /// clip. The strip's clip beside docked columns is otherwise not a mask: the strip container
+    /// clips its hosts (`StripClipContainerView`), and panes in front are above this one in the
+    /// layer tree.
     /// Returns true when the clip changed: a Chromium page in this pane then
     /// re-reads its clip shape, which carries this mask (`CEFClipShape`).
     @discardableResult
@@ -336,13 +356,17 @@ final class PaneHostView: NSView, RestingPlacement {
 }
 
 /// A Chromium page in this pane that draws in its own window leaves out what the panes in front
-/// cover (`ChildWindowPageFallback`): asked at the page's clip read, never on a motion frame.
+/// cover (`ChildWindowPageFallback`): asked at the page's clip read, never on a motion frame. The
+/// answer is kept until the screen's `coverVersion` moves on, so a read at rest walks nothing.
 extension PaneHostView: PageCoverSource {
     func pageCovers() -> [CGRect] {
         var ancestor = superview
         while let current = ancestor, !(current is ScreenContentView) { ancestor = current.superview }
         guard let screen = ancestor as? ScreenContentView else { return [] }
-        return screen.panes(inFrontOf: self).map { convert($0, from: screen) }
+        if let memo = pageCoverMemo, memo.screen == ObjectIdentifier(screen), memo.version == screen.coverVersion { return memo.covers }
+        let covers = screen.panes(inFrontOf: self).map { convert($0, from: screen) }
+        pageCoverMemo = (ObjectIdentifier(screen), screen.coverVersion, covers)
+        return covers
     }
 }
 

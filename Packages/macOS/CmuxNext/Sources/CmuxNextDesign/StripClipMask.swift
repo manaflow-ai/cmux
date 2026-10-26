@@ -2,8 +2,9 @@ public import AppKit
 
 public extension CALayer {
     /// The name of the layer mask the layout puts on a pane partly scrolled out
-    /// of its scroll area's window (`PaneHostView.setStripClip`; the strip's
-    /// clip beside docked columns is its container's bounds, not a mask).
+    /// of its scroll area's window, or held to the strip's range while a zoom
+    /// lifts the strip's container (`PaneHostView.setStripClip`; at rest the
+    /// strip's clip beside docked columns is its container's bounds, not a mask).
     /// A Chromium page is a child window that
     /// no layer mask reaches, so its clip shape reads this one by name
     /// (`CEFClipShape.clips(around:)`), not any other mask on an ancestor.
@@ -16,7 +17,8 @@ public extension CALayer {
 @MainActor
 public protocol PageCoverSource: NSView {
     /// The rects (this view's coordinates) the views stacked in front of it cover. Asked only when a
-    /// child-window page reads its clip, never on a motion frame.
+    /// child-window page reads its clip, never on a motion frame; a read with nothing changed since
+    /// the last one should cost no walk.
     func pageCovers() -> [CGRect]
 }
 

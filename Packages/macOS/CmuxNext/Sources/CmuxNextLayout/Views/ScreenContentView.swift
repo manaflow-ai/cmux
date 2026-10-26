@@ -96,11 +96,12 @@ final class ScreenContentView: NSView {
     var panPresentationPending = false
     /// Frame ticks the pan still keeps after its last event (``displayFrameBegan()``).
     var panTicksLeft = 0
-    /// Pane clips computed, cumulative (PaneMotionWorkTests, StripClipLayerStructureTests): only a
-    /// pane in a scroll area has one, so a spring or a pan beside docked columns computes none.
+    /// Pane clips computed, cumulative (PaneMotionWorkTests): a spring or a pan beside docks computes none.
     var stripClipsComputed = 0
-    /// Beside docked columns, the strip's panes sit in this view, which clips them to the strip's
-    /// range by its bounds (`StripClipContainerView`); the docks stack above it.
+    /// Moves on with any change to the hosts' frames, alphas, clips or order (`PaneHostView.pageCovers`).
+    var coverVersion = 0
+    /// The strip's panes sit in this view, which clips them to the strip's range by its bounds
+    /// (`StripClipContainerView`); the docks stack above it.
     let stripContainer = StripClipContainerView(frame: .zero)
     init(screenID: ScreenID, layout: ScreenLayout, context: LayoutViewContext,
          paneMotionVariant: @escaping () -> PaneMotionVariant = { LayoutTunables.paneMotionVariant.value }) {
@@ -401,6 +402,7 @@ final class ScreenContentView: NSView {
     func releaseCovered(all: Bool = false) {
         for pane in zoomMotion.settled(all: all) where paneFrames[pane] == nil && !context.livePanes.contains(pane) {
             context.release(pane)
+            coverVersion &+= 1
         }
     }
 

@@ -9,18 +9,21 @@ import CmuxNextDesign
 /// (`content/app_shim_remote_cocoa/render_widget_host_view_cocoa.mm`), and needs none of it.
 ///
 /// The layout computes nothing for this per frame: the covers are asked for here, when a child-window
-/// page reads its clip. Task 053 moves the rest of the child-window path (occlusion rects, the page
+/// page reads its clip, and the pane keeps its answer until its screen's stacking or frames change
+/// (`PageCoverSource`). Task 053 moves the rest of the child-window path (occlusion rects, the page
 /// update notification) into this file.
 nonisolated enum ChildWindowPageFallback {
     /// The parts of `view` (its coordinates) the panes stacked in front of its pane cover; none for a
-    /// page hosted in the layer tree, or outside a pane.
+    /// page hosted in the layer tree (`isHosted`, a seam for tests), or outside a pane.
     @MainActor
-    static func cutouts(around view: NSView) -> [CGRect] {
-        if let host = view as? CEFHostView, host.layerHosting.page != nil { return [] }
+    static func cutouts(around view: NSView,
+                        isHosted: @MainActor (CEFHostView) -> Bool = { $0.layerHosting.page != nil }) -> [CGRect] {
+        if let host = view as? CEFHostView, isHosted(host) { return [] }
         var ancestor = view.superview
         while let current = ancestor {
             if let source = current as? any PageCoverSource {
-                return source.pageCovers().map { view.convert($0, from: current) }
+                let covers = source.pageCovers()
+                return covers.isEmpty ? [] : covers.map { view.convert($0, from: current) }
             }
             ancestor = current.superview
         }

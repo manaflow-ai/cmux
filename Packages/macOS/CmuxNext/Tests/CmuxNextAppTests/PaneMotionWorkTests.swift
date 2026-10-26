@@ -38,7 +38,7 @@ struct PaneMotionWorkTests {
             // The lower bound: whatever the sync skipped, every displayed pane's ring sits on its host.
             for host in hosts where host.chrome.superview != nil && !host.isHidden {
                 let ring = harness.root.convert(host.bounds, from: host)
-                if host.chrome.frame != ring || (host.stripClipInput.map { $0.areaWindow != nil && $0.size != host.frame.size } ?? false) { stale += 1 }
+                if host.chrome.frame != ring || (host.stripClipInput.map { $0.clipsHost && $0.size != host.frame.size } ?? false) { stale += 1 }
             }
             worstOverlay = max(worstOverlay, harness.root.overlayHostsPlaced - overlay - moved)
             worstClips = max(worstClips, screen.stripClipsComputed - clips - moved)
