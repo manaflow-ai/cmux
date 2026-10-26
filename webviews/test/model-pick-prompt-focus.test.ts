@@ -225,6 +225,10 @@ await requireBrowserLane("model-pick-prompt-focus.test.ts", async () => {
         // Hold the page's animation frames, so the pick's deferred focus has not run when the
         // picker opens again (Cmd-Ctrl-M) and Escape closes it. Both are window and document
         // key listeners, so they need no frame; the held frames run once Escape has closed it.
+        // Every wait below is a DOM state the picker reaches without a frame: it mounts and
+        // unmounts with `open`, and its anchor shows it from a layout effect (ui/anchor.ts).
+        // Playwright retries a locator wait from its own side, not on the page's frames.
+        type Held = { releaseFrames: () => void; heldFrames: () => number };
         await page.evaluate(() => {
           const held = new Map<number, FrameRequestCallback>();
           const real = { request: window.requestAnimationFrame, cancel: window.cancelAnimationFrame };
@@ -236,22 +240,28 @@ await requireBrowserLane("model-pick-prompt-focus.test.ts", async () => {
           window.cancelAnimationFrame = (id) => {
             if (!held.delete(id)) real.cancel.call(window, id);
           };
-          (window as unknown as { releaseFrames: () => void }).releaseFrames = () => {
-            window.requestAnimationFrame = real.request;
-            window.cancelAnimationFrame = real.cancel;
-            for (const callback of held.values()) real.request.call(window, callback);
-            held.clear();
-          };
+          Object.assign(window, {
+            heldFrames: () => held.size,
+            releaseFrames: () => {
+              window.requestAnimationFrame = real.request;
+              window.cancelAnimationFrame = real.cancel;
+              for (const callback of held.values()) real.request.call(window, callback);
+              held.clear();
+            },
+          });
         });
         await page.keyboard.press("ArrowDown");
         await page.keyboard.press("Enter");
-        await page.waitForTimeout(100);
-        await page.keyboard.press("Meta+Control+KeyM");
-        await page.waitForTimeout(100);
-        await page.keyboard.press("Escape");
-        await page.waitForTimeout(100);
-        await page.evaluate(() => (window as unknown as { releaseFrames: () => void }).releaseFrames());
+        // The pick has closed the picker, and its deferred focus waits in a held frame.
         await page.locator(FULL).first().waitFor({ state: "detached" });
+        expect(await page.evaluate(() => (window as unknown as Held).heldFrames())).toBeGreaterThan(0);
+        await page.keyboard.press("Meta+Control+KeyM");
+        // Open again, with its keys live: the search field takes focus in a layout effect once the
+        // picker shows, after the open's effects (its Escape listener) have run.
+        await page.locator(`${FULL} input:focus`).first().waitFor({ state: "attached" });
+        await page.keyboard.press("Escape");
+        await page.locator(FULL).first().waitFor({ state: "detached" });
+        await page.evaluate(() => (window as unknown as Held).releaseFrames());
         await settled(page);
         expect(
           await page.evaluate((selector) => document.activeElement === document.querySelector(selector), MODEL),
