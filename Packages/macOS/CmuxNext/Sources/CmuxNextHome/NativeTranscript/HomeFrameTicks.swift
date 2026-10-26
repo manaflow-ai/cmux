@@ -29,6 +29,9 @@ final class HomeFrameTicks: FrameTickSource {
 }
 
 /// One FrameTick's client: started for the next frame, idle again after the frame that finds no work.
+/// The client resolves its window's scheduler when it activates, so a restart (the view moved to another
+/// window) leaves the old scheduler and joins the new one; a client its closed window's scheduler
+/// dropped (``FrameScheduler/invalidate()``) is idle, and joins the new one too.
 @MainActor
 final class HomeFrameTickStream: FrameTickStream {
     let client: FrameClient
@@ -36,4 +39,9 @@ final class HomeFrameTickStream: FrameTickStream {
     init(client: FrameClient) { self.client = client }
 
     func start() { client.activate() }
+
+    func restart() {
+        client.deactivate()
+        client.activate()
+    }
 }

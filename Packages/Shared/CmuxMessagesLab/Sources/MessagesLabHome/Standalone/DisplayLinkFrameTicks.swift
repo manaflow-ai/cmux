@@ -31,6 +31,9 @@ private final class DisplayLinkFrameTickStream: NSObject, FrameTickStream {
 
     func start() { link?.isPaused = false }
 
+    /// The view's link follows the view to its new window's screen by itself.
+    func restart() { start() }
+
     @objc private func fire(_ link: CADisplayLink) {
         link.isPaused = !onFrame()
     }

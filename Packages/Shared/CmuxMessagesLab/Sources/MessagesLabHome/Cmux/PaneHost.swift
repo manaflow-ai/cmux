@@ -577,6 +577,7 @@ final class ChatController: NSObject, NSTextViewDelegate {
     /// display scale follow it (the controller does not own the window).
     func windowChanged() {
         ScaleKeeper.shared.setNeedsApply()
+        frameTick.viewDidMoveToWindow()  // cmux: waiting frame work follows the pane to its new window
         observers = []
         // The flight recorder follows the pane's window (before the window view exists, too).
         FlightRecorder.shared.attach(self)

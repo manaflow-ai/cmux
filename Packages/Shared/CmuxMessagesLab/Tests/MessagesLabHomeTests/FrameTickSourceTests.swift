@@ -17,11 +17,19 @@ import Testing
             let onFrame: @MainActor () -> Bool
             private(set) var running = false
             private(set) var starts = 0
+            private(set) var restarts = 0
             init(onFrame: @escaping @MainActor () -> Bool) { self.onFrame = onFrame }
             func start() {
                 starts += 1
                 running = true
             }
+            func restart() {
+                restarts += 1
+                running = true
+            }
+            /// The source dropped the stream without a frame (CmuxNext: its window's scheduler was
+            /// invalidated when the window closed).
+            func drop() { running = false }
             /// One display frame: a running stream calls back and stops when told to.
             func frame() {
                 guard running else { return }
@@ -84,6 +92,54 @@ import Testing
         frames.frame()
         #expect(ran.last == "third")
         #expect(tick.fires == 3)
+    }
+
+    @Test func waitingWorkRestartsTheStreamWhenTheViewMovesAfterItsSourceDroppedIt() throws {
+        let frames = ManualFrames()
+        let view = NSView()
+        let tick = FrameTick(view: view, source: frames)
+        var ran = false
+
+        tick.next { ran = true }
+        let stream = try #require(frames.streams.first?.stream)
+        stream.drop()
+        frames.frame()
+        #expect(!ran, "a dropped stream gets no frames, and nothing asked for one again")
+
+        tick.viewDidMoveToWindow()
+        #expect(stream.restarts == 1 && stream.running, "the waiting work restarts the stream on the new window")
+        frames.frame()
+        #expect(ran)
+        #expect(!stream.running)
+
+        tick.viewDidMoveToWindow()
+        #expect(stream.restarts == 1, "with nothing waiting a move starts no frames")
+    }
+
+    @Test func aControllerMovedToAnotherWindowRunsItsWaitingWorkThere() throws {
+        let frames = ManualFrames()
+        let controller = ChatController(host: HostView(frame: NSRect(x: 0, y: 0, width: 400, height: 300)), wake: NoWake(),
+                                        frames: frames)
+        func makeWindow() -> NSWindow {
+            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: [.titled],
+                                  backing: .buffered, defer: true)
+            window.isReleasedWhenClosed = false
+            return window
+        }
+        let first = makeWindow()
+        let second = makeWindow()
+        first.contentView = controller.host
+        var ran = false
+
+        controller.nextFrame { ran = true }
+        let stream = try #require(frames.streams.first?.stream)
+        stream.drop()  // the first window closed: its scheduler dropped the stream without a frame
+        second.contentView = controller.host
+        #expect(stream.restarts >= 1, "moving to the second window restarts the waiting stream")
+
+        frames.frame()
+        #expect(ran, "the held work runs on the second window's next frame")
+        second.contentView = nil
     }
 
     @Test func aControllerInAWindowTakesItsFramesFromTheInjectedSource() {

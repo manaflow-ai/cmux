@@ -15,6 +15,12 @@ import Testing
         weak var resolvedFor: NSView?
     }
 
+    /// The window the pane is in: its scheduler is what the source resolves for the view.
+    @MainActor private final class Window {
+        var scheduler: FrameScheduler
+        init(scheduler: FrameScheduler) { self.scheduler = scheduler }
+    }
+
     @Test func aStartedStreamTicksOnTheWindowSchedulerUntilItsFrameFindsNoWork() throws {
         let scheduler = FrameScheduler.testing(clock: ManualClock(), ledger: WakeupLedger(), mediaTime: { 1000 }) { _ in
             HomeFrameTicksTestLink()
@@ -52,6 +58,61 @@ import Testing
         scheduler.frameDidFire(timestamp: 1000 + 4.0 / 120, refreshInterval: 1.0 / 120)
         #expect(frames.count == 3, "a later request starts the same client again")
         scheduler.invalidate()
+    }
+
+    @Test func aRestartedStreamLeavesTheOldWindowsSchedulerForTheNewOne() {
+        let old = Self.scheduler()
+        let new = Self.scheduler()
+        let frames = Frames()
+        let window = Window(scheduler: old)
+        let view = NSView()  // held: the client resolves a weak view
+        let stream = HomeFrameTicks { _ in window.scheduler }.frames(for: view) {
+            frames.count += 1
+            return true
+        }
+
+        stream.start()
+        #expect(old.activeClients == [HomeFrameTicks.owner])
+        window.scheduler = new  // the pane moved to another window while work still waits
+        stream.restart()
+        #expect(old.activeClients.isEmpty, "the old window's scheduler no longer ticks the pane")
+        #expect(new.activeClients == [HomeFrameTicks.owner])
+        old.frameDidFire(timestamp: 1000 + 1.0 / 120, refreshInterval: 1.0 / 120)
+        #expect(frames.count == 0)
+        new.frameDidFire(timestamp: 1000 + 1.0 / 120, refreshInterval: 1.0 / 120)
+        #expect(frames.count == 1, "the waiting work runs on the new window's next frame")
+        withExtendedLifetime(view) {}
+        old.invalidate()
+        new.invalidate()
+    }
+
+    @Test func aStreamItsClosedWindowDroppedRestartsOnTheNewWindow() {
+        let old = Self.scheduler()
+        let new = Self.scheduler()
+        let frames = Frames()
+        let window = Window(scheduler: old)
+        let view = NSView()  // held: the client resolves a weak view
+        let stream = HomeFrameTicks { _ in window.scheduler }.frames(for: view) {
+            frames.count += 1
+            return true
+        }
+
+        stream.start()
+        old.invalidate()  // the window closed (its willClose observer): the client is dropped with no call back
+        #expect(old.activeClients.isEmpty)
+        window.scheduler = new
+        stream.restart()
+        #expect(new.activeClients == [HomeFrameTicks.owner])
+        new.frameDidFire(timestamp: 1000 + 1.0 / 120, refreshInterval: 1.0 / 120)
+        #expect(frames.count == 1, "the work that waited when the window closed runs on the new window's next frame")
+        withExtendedLifetime(view) {}
+        new.invalidate()
+    }
+
+    private static func scheduler() -> FrameScheduler {
+        FrameScheduler.testing(clock: ManualClock(), ledger: WakeupLedger(), mediaTime: { 1000 }) { _ in
+            HomeFrameTicksTestLink()
+        }
     }
 }
 

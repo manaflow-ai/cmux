@@ -20,6 +20,10 @@ public protocol FrameTickSource: AnyObject {
 public protocol FrameTickStream: AnyObject {
     /// Starts frames; no effect while they run.
     func start()
+    /// Starts frames from the display of the view's window now, even while they run: the view moved
+    /// to another window, or to none, and the old window's frames may have stopped without a call
+    /// back (its scheduler went with it).
+    func restart()
 }
 
 /// Runs work at the start of the next display frame of a view's screen: a frame stream that
@@ -50,6 +54,14 @@ final class FrameTick {
         let frames = source.frames(for: view) { [weak self] in self?.fire() ?? false }
         stream = frames
         frames.start()
+    }
+
+    /// The view moved to another window (or out of one): work that waits follows it to the new
+    /// window's frames. The old window's stream may have stopped without a frame (the window closed),
+    /// and the flags of the callers that wait for this work keep them from asking again.
+    func viewDidMoveToWindow() {
+        guard !work.isEmpty, let stream else { return }
+        stream.restart()
     }
 
     /// One display frame: runs the work that waited for it; true while work posted meanwhile waits
