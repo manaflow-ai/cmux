@@ -1,6 +1,6 @@
 // The Chromium Host's dispatcher (host_dispatch.h): one generated case per
 // shim export (generated/host_dispatch.inc), the id maps, the watched mirror
-// keys and the host's focus and window-request policies. No AppKit: the page
+// keys and the host's window-request policy. No AppKit: the page
 // views are behind PageViews (host_page_views.mm).
 
 #include <unistd.h>
@@ -327,13 +327,11 @@ void HostContext::Dispatch(const control::Message& message) {
     if (!peek.ok()) placed_browser = 0;
   }
   dispatching_ = true;
-  dispatching_op_ = message.op;
   dispatching_view_ = 0;
   dispatching_profile_ = std::move(profile);
   TlvReader r(message.fields);
   const bool ok = DispatchOp(*this, message.op, message.token, r);
   dispatching_ = false;
-  dispatching_op_ = 0;
   dispatching_view_ = 0;
   dispatching_profile_.reset();
   if (ok && placed_browser) PlaceDevTools(Browser(placed_browser), placed_view);
@@ -605,12 +603,6 @@ void HostContext::Bad(const std::string& what) {
   delegate_.BadMessage(what);
 }
 
-// Chromium never focuses a page on its own: as in process (CEFTab+Focus.swift),
-// a request is granted only inside cmux's cmux_shim_set_focus.
-int HostContext::OnFocusRequest(void* ctx, int, int) {
-  return static_cast<HostContext*>(ctx)->dispatching_op_ == kOpSetFocus ? 1 : 0;
-}
-
 // Chromium never opens a window of its own in the host (it would be a
 // visible host window): a tab, window or popup request becomes a tab in the
 // window of the tab that asked, which cmux adopts from AFTER_CREATED, until
@@ -621,14 +613,18 @@ int HostContext::OnWindowRequest(void*, int kind, int, int source_browser_id, in
   return kind <= 2 ? source_browser_id : 0;
 }
 
+// No focus handler: the shim grants a focus request only for a page cmux
+// marked embedder-active (task p01-process-032, CEFShim/src/
+// embedder_focus_policy.h), so the focused pane's page keeps Chromium's
+// focus after its own loads and a background pane's load takes none.
 void HostContext::InstallHostPolicies() {
-  cmux_shim_set_focus_request_handler(&HostContext::OnFocusRequest);
+  cmux_shim_set_focus_request_handler(nullptr);
   cmux_shim_set_window_request_handler(&HostContext::OnWindowRequest);
 }
 
-// The host's own handlers stay in place whatever cmux installs: the host
-// decides focus and windows itself (above); keys go on to Chromium until
-// cmux routes them first (tasks 030 and 033).
+// The host's own policies stay in place whatever cmux installs: the shim's
+// embedder-active rule decides focus and the host decides windows (above);
+// keys go on to Chromium until cmux routes them first (tasks 030 and 033).
 void InstallPolicySetFocusRequestHandler(HostContext& ctx, bool) {
   ctx.InstallHostPolicies();
 }
