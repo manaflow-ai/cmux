@@ -26,8 +26,10 @@ enum RemoteLocalhostHandlers {
 }
 
 extension RemoteLocalhostService {
-    /// The app's remote localhost (`AppServices.remoteLocalhost`), made on first use (a browser tab's
-    /// route or store, a loopback page's chip, a machine browser), never in init (p08-startup-021).
+    /// The app's remote localhost (`AppServices.remoteLocalhost`), made on first use (a remote
+    /// machine's browser tab: its route, store or loopback chip; a machine browser; a remote
+    /// machine's connection), never in init (p08-startup-021). It takes the current settings in
+    /// the turn it is made, so its first route follows them.
     static func made(for services: AppServices) -> RemoteLocalhostService {
         let made = services.machines.makeRemoteLocalhost(following: services.settings)
         services.madeRemoteLocalhost = made
@@ -44,9 +46,12 @@ extension MachineRegistry: RemoteLocalhostMachines {
         return service
     }
 
-    /// Whether a tab at `url` can have a machine chip (only a loopback page): asked before the remote
-    /// localhost is made, so a tab strip of other pages makes none.
-    func mayHaveLocalhostBadge(_ url: URL?) -> Bool { url.flatMap(LoopbackHost.init(url:))?.isLoopback == true }
+    /// Whether a tab of `daemon` at `url` can have a machine chip (a loopback page whose route may
+    /// not be this Mac): asked before the remote localhost is made, so a tab strip of other pages,
+    /// or of this Mac's, makes none.
+    func mayHaveLocalhostBadge(_ url: URL?, daemon: DaemonService) -> Bool {
+        url.flatMap(LoopbackHost.init(url:))?.isLoopback == true && !RemoteLocalhostService.routesToThisMac(daemon)
+    }
 
     func personalAddress(ofWorkspace id: String) -> (session: String, key: String)? {
         WindowProfiles.qualified(id, machines: self).map { ($0.session, $0.key) }

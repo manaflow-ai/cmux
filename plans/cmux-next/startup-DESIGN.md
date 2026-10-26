@@ -275,7 +275,7 @@ Starts inside the initializer, outside Q1 and Q1b. 031: init holds no `start()` 
 | S2 | `SidebarSnapshotStore(file:)` (sync read) | main() read | `.lane(.files, .userBlocking)` | 075 | The sidebar's first frame reads it; becomes a LaunchRead. |
 | S3 | `CrashRecoveryService(...)` (`AppRunMarker` read and write) | main() read, write afterFirstFrame | `.lane(.files, .userBlocking)` | 075 | Crash recovery decides the restore; the read is a LaunchRead. |
 | S4 | `AppCrashReporting(environment:)` (Sentry, crash forwarders) | root (handlers), integrations afterStartup | `.lane(.files, .bestEffort)` | 032, 078 | Crash and signal handlers at launch; forwarders and session I/O after startup. |
-| S5 | `remoteTerminals.start()` | afterFirstFrame if a remote-terminal tab shows at restore (`RemoteTerminals.start`), else at the first remote-terminal tab | main | 021 | Restored remote workspace reconnects. Done (021): `AppServices.remoteTerminals` starts it when made; no afterStartup post, as nothing follows a session no tab shows. |
+| S5 | `remoteTerminals.start()` | onDemand: the first mount of a remote-terminal tab (a restored window's selected one in its first frame), open, close or move | main | 021 | Restored remote workspace reconnects. Done (021): `AppServices.remoteTerminals` starts it when made. No post: the first frame that shows such a tab needs the service to mount it, and nothing follows a session no tab shows. Its tab chip (`RemoteTerminalService.badge(for:machines:)`) reads only the machines and makes none. |
 | S6 | `surfaceInvariant.observeWindowOcclusion()` | afterFirstFrame | main | 031 | Occlusion observer. |
 | S7 | `updater.attach(sheet:services:simulating:)`, `serverUpdates.start(registry:)` | afterStartup | main | 031 | Update sheet and server updates. |
 | S8 | `input.start(services:)` | afterFirstFrame | main | 031 | Input verification observers. |
@@ -297,7 +297,7 @@ Target <= 3 (cache, windows, keyRouter).
 | Q1-5 | `_ = cache` | keep | - | `TabContentCache`: every pane reads it. 024 makes its CEF engine a factory. |
 | Q1-6 | `_ = themes` | onDemand (built by the `Themes.start` post) | 022 (assigned here) | The spec's 020-024 lists leave it out; its first reader is critical anyway. |
 | Q1-7 | `_ = terminalColors` | onDemand (built by its first reader, the config-change hook or `TerminalTheme.follow`) | 022 (assigned here) | Same: no task named it. |
-| Q1-8 | `_ = remoteLocalhost` | onDemand | 021 | Its follow runs after startup (Q2 74). Done (021): made by a loopback page's route or badge, a machine browser, or a remote machine's connection; it follows the settings when made. |
+| Q1-8 | `_ = remoteLocalhost` | onDemand | 021 | Its follow runs after startup (Q2 74). Done (021): made by a remote machine's browser tab (its route, store or loopback chip), a machine browser, or a remote machine's connection; this Mac's pages ask `RemoteLocalhostService.routesToThisMac` and make none. It takes the current settings in the turn it is made, then follows them. |
 | Q1-9 | `_ = emptyWorkspaces` | onDemand | 022 | Repair runs when a workspace empties. |
 | Q1-10 | `_ = keyRouter` | keep | - | Keys work from the first frame. |
 | Q1-11 | `_ = resources` | onDemand | 022 | Built by its first reader. |

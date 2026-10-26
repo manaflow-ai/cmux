@@ -559,7 +559,7 @@ final class AppServices {
         }
         cache.configureBrowser = { [weak self] tab, url, base in  // a Cloud proxied tab's store first (ProxiedBrowserTabs)
             let base = self?.cache.pageRequests.closedHistories.restoring(base, url: url, local: self?.machines.daemon(forTab: tab).isLocal == true, tab: tab.id) ?? base  // cx-d0d.59
-            return await self?.cache.pageRequests.proxiedTabs.configuration(for: tab.id, url: url, base: base) { await self?.remoteLocalhost.configuration(for: tab, url: url, base: base) ?? base } ?? base
+            return await self?.cache.pageRequests.proxiedTabs.configuration(for: tab.id, url: url, base: base) { await self?.localhostConfiguration(for: tab, url: url, base: base) ?? base } ?? base
         }
         cache.findTab = { [weak self] key in self?.machines.daemons.lazy.compactMap { $0.store.tab(id: key) }.first }  // any machine's tab
         cache.onRelease = { [weak self] key in

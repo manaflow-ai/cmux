@@ -2,9 +2,7 @@ import AppKit
 import CmuxNextCloud
 import CmuxNextCompat
 import CmuxNextDaemon
-import CmuxNextLaunch
 import CmuxNextTerminal
-import CmuxNextWakeups
 import Observation
 
 /// Remote-terminal tabs (plans/cmux-next/data-model.md 1.2b, 1.4, 1.5): a
@@ -39,26 +37,15 @@ final class RemoteTerminalService {
         self.services = services
     }
 
-    /// The app's service (`AppServices.remoteTerminals`), made on first use (a remote-terminal tab shown,
-    /// closed or moved) or by ``postRestored(_:on:)``, never in init (p08-startup-021); it follows every
-    /// session's connection from then on.
+    /// The app's service (`AppServices.remoteTerminals`), made on first use, never in init
+    /// (p08-startup-021): a remote-terminal tab mounted (a restored window's selected one in its
+    /// first frame), opened, closed, moved or resolved. From then on it follows every session's
+    /// connection, so a mounted tab reconnects when its machine does.
     static func made(for services: AppServices) -> RemoteTerminalService {
         let made = RemoteTerminalService(services: services)
         services.madeRemoteTerminals = made
         made.start()
         return made
-    }
-
-    /// Makes the app's service after the first frame when the launch's restore shows a remote-terminal
-    /// tab, so its terminal reconnects (`LaunchServicePosts.restoredRemoteTerminals`).
-    static func postRestored(_ services: AppServices, on startup: StartupScheduler) {
-        services.windows.whenRestored { [weak services] in
-            guard let services else { return }
-            let shown = services.windows.controllers.contains { controller in
-                controller.content?.panes.values.contains { pane in pane.selectedTab?.kind == .remoteTerminal } == true
-            }
-            LaunchServicePosts.restoredRemoteTerminals(shown: shown) { [weak services] in _ = services?.remoteTerminals }.post(on: startup)
-        }
     }
 
     static func key(_ ref: RemoteTerminalRef) -> String { "\(ref.sessionID)#\(ref.terminalID.rawValue)" }
@@ -137,16 +124,17 @@ final class RemoteTerminalService {
 
     /// The machine name on a remote-terminal tab (the subtle machine badge), and the name its
     /// color comes from (`MachineRegistry.tabColorName`: the machine's sidebar name).
-    func badge(for tab: TabModel) -> (text: String?, colorName: String?) {
+    /// Reads only `machines`, so a tab strip of unselected remote-terminal tabs makes no service.
+    static func badge(for tab: TabModel, machines: MachineRegistry) -> (text: String?, colorName: String?) {
         guard let ref = tab.remote else { return (nil, nil) }
-        let text = machineName(ref)
-        return (text, services.machines.tabColorName(services.machines.daemon(session: ref.sessionID)?.machineID, badge: text))
+        let text = machineName(ref, machines: machines)
+        return (text, machines.tabColorName(machines.daemon(session: ref.sessionID)?.machineID, badge: text))
     }
 
-    func machineName(_ ref: RemoteTerminalRef) -> String {
-        if let daemon = services.machines.daemon(session: ref.sessionID) {
+    static func machineName(_ ref: RemoteTerminalRef, machines: MachineRegistry) -> String {
+        if let daemon = machines.daemon(session: ref.sessionID) {
             if daemon.isLocal { return daemon.identity?.machineName ?? MacName().hostName() }
-            return services.machines.machineBadge(daemon.machineID) ?? daemon.identity?.machineName ?? ref.sessionName
+            return machines.machineBadge(daemon.machineID) ?? daemon.identity?.machineName ?? ref.sessionName
         }
         return ref.sessionName
     }
@@ -191,7 +179,7 @@ final class RemoteTerminalService {
             placeholders[tab.id] = view
             loadSnapshot(into: view, surface: tab.surface, home: home)
         }
-        let name = ref.map(machineName) ?? tab.displayTitle
+        let name = ref.map { Self.machineName($0, machines: services.machines) } ?? tab.displayTitle
         let daemon = ref.flatMap { services.machines.daemon(session: $0.sessionID) }
         view.onConnect = daemon.flatMap { connector(for: $0) }
         let state: RemoteTerminalPlaceholderView.State = switch daemon?.store.connectionState {
