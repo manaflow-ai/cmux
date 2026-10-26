@@ -115,11 +115,13 @@ public final class BackgroundWork: Sendable {
                   uptimeNanos: uptimeNanos, taskHooks: .none)
     }
 
-    /// The designated init; tests pass ``TaskHooks`` to stop a task between its steps.
+    /// The designated init; tests pass ``TaskHooks`` to stop a task between its steps, and the clock of the
+    /// system lane's ``mayBlockThreshold``.
     init(cpuWidth: Int, label: String, hangs: (any HangWatchScoping)? = nil,
          onQueued: @escaping @Sendable (BlockingLane, WorkPriority) -> Void,
          onRan: (@Sendable (BlockingLane, WorkPriority, UInt64, UInt64) -> Void)? = nil,
-         uptimeNanos: (@Sendable () -> UInt64)?, taskHooks: TaskHooks) {
+         uptimeNanos: (@Sendable () -> UInt64)?, taskHooks: TaskHooks,
+         mayBlockClock: any Clock<Duration> = ContinuousClock()) {
         self.taskHooks = taskHooks
         self.cpuWidth = max(1, cpuWidth)
         self.label = label
@@ -134,8 +136,11 @@ public final class BackgroundWork: Sendable {
             case .cpu: (.shared(width: max(1, cpuWidth)), false, [:])
             }
             let watched = hangs.map { HangWatchedLane(Self.hangScopeName(lane), deadline: Self.hangDeadline(lane), on: $0) }
+            // Only the system lane is shared and may block; the files lane's one slot per level stays inside the caps.
+            let compensation = lane == .system
+                ? LaneScheduler.MayBlockCompensation(threshold: Self.mayBlockThreshold, clock: mayBlockClock) : nil
             return LaneScheduler(label: "\(label).\(lane)", policy: traits.policy, mayBlock: traits.mayBlock, caps: traits.caps,
-                                 hangWatched: watched)
+                                 compensation: compensation, hangWatched: watched)
         }
     }
 

@@ -19,6 +19,19 @@ import Dispatch
 /// ``LaneCap`` class also runs only while fewer than the class's cap run, so one hung kind leaves the lane's
 /// other slots to the rest.
 ///
+/// A `shared` lane runs at most ``bestEffortCap`` ``WorkPriority/bestEffort`` and ``WorkPriority/idle`` items at
+/// once, at most ``idleCap`` of them idle, however many slots are free, so a burst of low work never fills the
+/// lane in front of later user-visible work: Chrome's `kMaxBestEffortTasks` (base/task/thread_pool/thread_pool_impl.cc,
+/// enforced by `ThreadGroup::max_best_effort_tasks_`). The idle limit is cmux's, as Chrome has no level below
+/// best effort. An item boosted by its waiter runs at the waiter's level and is not capped. A `perPriority`
+/// lane runs one item per level, inside both limits. On a lane with ``MayBlockCompensation`` (system), a low item
+/// that has run longer than its threshold stops counting against both limits, so hung calls never hold every later
+/// low item: Chrome's `ThreadGroup::BlockingStarted`, which raises `max_best_effort_tasks_` for a best-effort task
+/// blocked past the may-block threshold (base/task/thread_pool/thread_group.cc). The lane rechecks only while a
+/// low item waits for the cap, on one one-shot ``DemandTimer`` set to the next item's threshold. After ``close()``
+/// neither limit holds, so block-shutdown items quit waits for are never capped (Chrome's
+/// `ThreadGroup::OnShutdownStarted` sets `max_best_effort_tasks_` to `max_tasks_`).
+///
 /// While a best-effort fence is up (``fence()``), a posted ``WorkPriority/idle`` or
 /// ``WorkPriority/bestEffort`` item stays queued in post order; an item someone awaits still runs at its
 /// own QoS. Chrome's `CanRunPolicy::kForegroundOnly` (base/task/thread_pool/thread_pool_impl.cc).
@@ -26,6 +39,33 @@ import Dispatch
 /// With a hang-watched lane, each item's run on its slot is one hang scope (Chrome's `WatchHangsInScope`
 /// in `TaskTracker::RunTask`, base/task/thread_pool/task_tracker.cc); the wait for a slot is not.
 final class LaneScheduler: Sendable {
+    /// How many ``WorkPriority/bestEffort`` and ``WorkPriority/idle`` items a `shared` lane runs at once
+    /// (Chrome's `kMaxBestEffortTasks`).
+    static let bestEffortCap = 2
+    /// How many of the ``bestEffortCap`` items may be ``WorkPriority/idle``.
+    static let idleCap = 1
+
+    /// How a lane whose items may block stops counting a low item that blocks (Chrome's may-block threshold).
+    struct MayBlockCompensation: Sendable {
+        /// How long a low item runs before it stops counting against the caps.
+        let threshold: Duration
+        /// The time since the lane was made, on the lane's clock.
+        let elapsed: @Sendable () -> Duration
+        /// The clock the recheck timer sleeps on.
+        let clock: any Clock<Duration>
+
+        init(threshold: Duration, clock: any Clock<Duration>) {
+            self.threshold = threshold
+            self.clock = clock
+            elapsed = Self.elapsedReader(clock)
+        }
+
+        private static func elapsedReader<C: Clock<Duration>>(_ clock: C) -> @Sendable () -> Duration {
+            let start = clock.now
+            return { start.duration(to: clock.now) }
+        }
+    }
+
     enum Policy: Sendable {
         case perPriority
         /// `width` slots for every priority, `reserved` of them (at most `width - 1`) for user-blocking items of no
@@ -41,10 +81,11 @@ final class LaneScheduler: Sendable {
         var cap: LaneCap?
     }
 
-    /// What one busy slot runs: its level and capped class.
+    /// What one busy slot runs: its level, capped class and start (on the lane's ``MayBlockCompensation`` clock).
     private struct Running {
         var priority: WorkPriority
         var cap: LaneCap?
+        var started: Duration
     }
 
     private struct State {
@@ -57,6 +98,12 @@ final class LaneScheduler: Sendable {
         let caps: [LaneCap: Int]
         var closed = false
         var fences = 0
+        /// How long a low item runs before it stops counting against the caps; nil counts it for its whole run.
+        let mayBlockThreshold: Duration?
+        /// The lane's clock at the current pump.
+        var now: Duration = .zero
+        /// When the recheck timer fires, while it is set.
+        var recheckAt: Duration?
 
         /// Shutdown lifts the fence so block-shutdown items finish (Chrome: `ThreadPoolImpl::Shutdown`
         /// sets `CanRunPolicy::kAll` once shutdown has started).
@@ -76,6 +123,37 @@ final class LaneScheduler: Sendable {
             running.lazy.compactMap { $0 }.count < running.count - reserved
         }
 
+        /// The running low items that count against the caps: every one, or on a may-block lane those not yet
+        /// past the threshold.
+        var countedLow: [Running] {
+            running.compactMap { busy in
+                guard let busy, busy.priority <= .bestEffort else { return nil }
+                if let mayBlockThreshold, now - busy.started >= mayBlockThreshold { return nil }
+                return busy
+            }
+        }
+
+        /// Whether one more item at `level` stays inside ``LaneScheduler/bestEffortCap`` and
+        /// ``LaneScheduler/idleCap``; a level above best effort, and any level after ``LaneScheduler/close()``, always does.
+        func underBestEffortCap(_ level: WorkPriority) -> Bool {
+            guard level <= .bestEffort, !closed else { return true }
+            let low = countedLow
+            let idle = low.filter { $0.priority == .idle }.count
+            return low.count < LaneScheduler.bestEffortCap && (level > .idle || idle < LaneScheduler.idleCap)
+        }
+
+        /// When a counted low item passes the may-block threshold while a low item waits only for the caps; nil
+        /// when nothing waits for them or the lane counts every item for its whole run.
+        func nextRecount() -> Duration? {
+            guard let mayBlockThreshold, unreservedFree else { return nil }
+            let full = fullCaps
+            let held = [WorkPriority.bestEffort, .idle].contains { level in
+                !underBestEffortCap(level) && next(at: level, full: full) != nil
+            }
+            guard held else { return nil }
+            return countedLow.map { $0.started + mayBlockThreshold }.min()
+        }
+
         /// The index of the first item at `level` that may start now, skipping the `full` capped classes, and
         /// every capped item when `uncappedOnly`.
         func next(at level: WorkPriority, full: Set<LaneCap>, uncappedOnly: Bool = false) -> Int? {
@@ -88,12 +166,13 @@ final class LaneScheduler: Sendable {
         }
 
         /// The highest level with an item that may start now, and that item's index. With only the reserve
-        /// free, that is a user-blocking item of no capped class.
+        /// free, that is a user-blocking item of no capped class; a level at the best-effort cap is skipped.
         func highest() -> (level: WorkPriority, index: Int)? {
             let full = fullCaps
             let open = unreservedFree
             for level in WorkPriority.allCases.reversed() {
                 if level < .userBlocking && !open { return nil }
+                guard underBestEffortCap(level) else { continue }
                 if let index = next(at: level, full: full, uncappedOnly: !open) { return (level, index) }
             }
             return nil
@@ -112,15 +191,24 @@ final class LaneScheduler: Sendable {
     /// The lane's hang-watch slot; each item runs in one scope of it. nil watches nothing.
     private let hangWatched: HangWatchedLane?
     private let slots: [DispatchQueue]
+    /// The lane's clock for the may-block threshold; nil counts a low item for its whole run.
+    private let compensation: MayBlockCompensation?
+    /// Rechecks the caps when a held low item may start because a running one passed the threshold.
+    private let recheck: DemandTimer?
     // concurrency-allow: a short non-blocking critical section over the pending lists, taken from lane threads, cancel handlers and submitters that must not await (lock carve-out).
     private let state: Mutex<State>
 
     /// - Parameters:
     ///   - caps: how many items of each ``LaneCap`` class run at once; a class without an entry is not capped.
-    init(label: String, policy: Policy, mayBlock: Bool, caps: [LaneCap: Int] = [:], hangWatched: HangWatchedLane? = nil) {
+    ///   - compensation: on a `shared` lane whose items may block, when a low item stops counting against the
+    ///     best-effort caps; nil counts it for its whole run.
+    init(label: String, policy: Policy, mayBlock: Bool, caps: [LaneCap: Int] = [:],
+         compensation: MayBlockCompensation? = nil, hangWatched: HangWatchedLane? = nil) {
         self.policy = policy
         self.mayBlock = mayBlock
         self.hangWatched = hangWatched
+        self.compensation = compensation
+        recheck = compensation.map { DemandTimer(owner: "\(label).may-block", clock: $0.clock) }
         let names: [String], reserved: Int
         switch policy {
         case .perPriority:
@@ -133,7 +221,7 @@ final class LaneScheduler: Sendable {
         // The item's QoS (`.enforceQoS`) sets the thread's QoS; the queue itself has none.
         slots = names.map { DispatchQueue(label: $0, qos: .unspecified, autoreleaseFrequency: .workItem) }
         state = Mutex(State(running: Array(repeating: nil, count: names.count), reserved: reserved,
-                            caps: caps.mapValues { max(1, $0) }))
+                            caps: caps.mapValues { max(1, $0) }, mayBlockThreshold: compensation?.threshold))
     }
 
     deinit {
@@ -217,8 +305,11 @@ final class LaneScheduler: Sendable {
         launch(starts)
     }
 
-    /// The items to start now: for each free slot, the next item it may run.
+    /// The items to start now: for each free slot, the next item it may run. On a lane with a may-block threshold,
+    /// sets the recheck timer when the caps hold a low item.
     private func pump(_ state: inout State) -> [Start] {
+        if let compensation { state.now = compensation.elapsed() }
+        defer { armRecheck(&state) }
         var starts: [Start] = []
         switch policy {
         case .perPriority:
@@ -239,8 +330,27 @@ final class LaneScheduler: Sendable {
     /// Takes the pending item `index` at `level` and marks `slot` busy with it.
     private func claim(_ level: WorkPriority, _ index: Int, slot: Int, in state: inout State) -> Start {
         let entry = state.pending[level.rawValue].remove(at: index)
-        state.running[slot] = Running(priority: level, cap: entry.cap)
+        state.running[slot] = Running(priority: level, cap: entry.cap, started: state.now)
         return Start(job: entry.job, slot: slot, priority: level)
+    }
+
+    /// Sets the recheck timer to the next threshold crossing when that is earlier than the one it is set to.
+    /// Under the lane's lock, so the timer always holds the earliest crossing (the timer's own lock is taken
+    /// inside this one and never the other way round: its fire runs ``recount()`` with its lock released).
+    private func armRecheck(_ state: inout State) {
+        guard let recheck, let at = state.nextRecount() else { return }
+        if let armed = state.recheckAt, armed <= at { return }
+        state.recheckAt = at
+        recheck.schedule(after: at - state.now) { [weak self] in self?.recount() }
+    }
+
+    /// The recheck timer's fire: a running low item passed the threshold, so a held one may start.
+    private func recount() {
+        let starts = state.withLock { state -> [Start] in
+            state.recheckAt = nil
+            return pump(&state)
+        }
+        launch(starts)
     }
 
     private func launch(_ starts: [Start]) {
