@@ -28,6 +28,10 @@ public final class WebUIHost {
     /// The shared web content processes of the WebKit pages that ask for them
     /// (``PageEngineOptions/sharesWebKitProcess``, the agent pages).
     public let processGroups: WebProcessGroups
+    /// Every page's Active, Hidden, Frozen and Discarded states (p13-webui.md 3.C), fed by the tab
+    /// content lifecycle; a page it holds leaves it on ``close(_:)``. Nil while `pageLifecycle` is off:
+    /// the composition root sets it.
+    package var lifecycle: PageLifecycle?
     /// The clock of each opened page's Chromium deadline (tests pass one that never fires).
     private let clock: any Clock<Duration>
     /// Every page this host opened and has not closed. Weak, so a view a provider drops without
@@ -76,6 +80,7 @@ public final class WebUIHost {
         view.close()
         opened.remove(view)
         registry.remove(view)
+        lifecycle?.forget(view)
     }
 
     /// A configuration in the process pool and data store of the grouped WebKit pages
