@@ -28,6 +28,7 @@ import CmuxNextSettings
 import CmuxNextSidebar
 import CmuxNextSignposts
 import CmuxNextTerminal
+import CmuxNextTrace
 import CmuxNextUpdater
 import CmuxNextVSCodeServer
 import CmuxNextWakeups
@@ -414,6 +415,9 @@ final class AppServices {
     /// The app's one set of blocking-work lanes: file I/O, sync system calls and long CPU work run there,
     /// never on the cooperative pool (PATTERNS P14). Built once here and passed to each consumer's init.
     let work: BackgroundWork
+    /// The app process's black box: its heap ring from init, its file steps on `.files` (task p09-observability-005).
+    /// Only the real app process has one (``AppEnvironment/marksRun``); tests that build `AppServices` do not.
+    let traceBlackBox: TraceBlackBoxFileSteps?
     /// The last quit's agent pages and chat composers, read off the main thread since the launch began.
     let launchImages: AgentPaneLaunchImages, relaunchWake: AgentPaneRelaunchWake
     /// The burst bench's record of refusals, designed no-op Cmd-W presses and terminal grids (`debug.burst`).
@@ -440,6 +444,13 @@ final class AppServices {
          work: BackgroundWork = BackgroundWork(), mainWork: MainWorkScheduler = MainWorkScheduler(budget: MainFrameBudget()),
          launchImages: AgentPaneLaunchImages = AgentPaneLaunchImages(directory: nil), relaunchWake: AgentPaneRelaunchWake = AgentPaneRelaunchWake(file: nil)) {
         self.work = work
+        // First: trace points record from here on; the ring file opens on `.files`, never on main.
+        let traceBlackBox = environment.marksRun ? TraceBlackBoxFileSteps(
+            blackBox: TraceBlackBox(role: .app, directory: TraceBlackBoxFileSteps.appDirectory(bundleID: environment.launch.bundleID).path,
+                                    runtime: .shared, buildVersion: TraceBlackBoxFileSteps.buildVersion(of: .main)),
+            work: work) : nil
+        self.traceBlackBox = traceBlackBox
+        traceBlackBox?.start()
         (self.launchImages, self.relaunchWake) = (launchImages, relaunchWake)
         actionBudget = ActionBudgetMonitor(board: mainWork.budget.board)
         updater = UpdaterService(work: work)

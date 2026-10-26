@@ -1,4 +1,5 @@
-import CmuxNextCompat
+// Public: the inlined category check reads the Compat `Atomic` from other modules.
+public import CmuxNextCompat
 
 /// The process's one trace runtime: the category flags every trace point reads, and (as the later
 /// p09-observability tasks land) the black-box and recording rings, the name and thread tables, the
@@ -14,7 +15,8 @@ import CmuxNextCompat
 /// Code that can take an injected runtime does (``init(role:)``; tests make their own).
 ///
 /// Stub (task 000): the API is frozen here; the methods record nothing until tasks 003 (ring), 004
-/// (names and threads), 005 (category defaults), 020 (recording) and 078 (crash keys) fill them.
+/// (names and threads), 020 (recording) and 078 (crash keys) fill them. The category defaults are
+/// ``TraceCategories`` (task 005); ``TraceBlackBox`` turns them on at launch.
 ///
 /// ```swift
 /// TraceRuntime.shared.write(name: 46, categoryBit: 10, phase: .instant)
@@ -29,8 +31,9 @@ public final class TraceRuntime: Sendable {
     public let role: Role
     /// The hang-watch slots of this process's watched threads and lanes.
     public let hangWatch: HangWatch
-    /// One bit per category (`SignpostCategory.traceBit`); a trace point records only while its bit is set.
-    private let categoryFlags = Atomic<UInt64>(0)
+    /// One bit per category (`SignpostCategory.traceBit`, ``TraceCategories``); a trace point records only
+    /// while its bit is set. Usable from inline code so a trace point in another module inlines the check.
+    @usableFromInline let categoryFlags = Atomic<UInt64>(0)
     /// Stub until task 003 adds the ring: the records the `write` methods let through their category
     /// gate, so tests can see the gate.
     let stubRecordCount = Atomic<UInt64>(0)
@@ -44,6 +47,7 @@ public final class TraceRuntime: Sendable {
     // MARK: categories
 
     /// The category flags: bit `n` on means category bit `n` records.
+    @inlinable
     public var categoryMask: UInt64 { categoryFlags.load(ordering: .relaxed) }
 
     /// Replaces the category flags (launch defaults, `trace.start`, `trace.stop`, the secure-input gate).
@@ -53,6 +57,7 @@ public final class TraceRuntime: Sendable {
 
     /// Whether category bit `bit` records: one relaxed load and one branch, the cost of a trace point
     /// that is off (Chrome's `category_group_enabled` read).
+    @inlinable @inline(__always)
     public func isEnabled(categoryBit bit: UInt8) -> Bool {
         categoryFlags.load(ordering: .relaxed) & (1 << UInt64(bit & 63)) != 0
     }

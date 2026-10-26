@@ -244,6 +244,8 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextCrashReporting",
                 "CmuxNextHangReports",
                 "CmuxNextSignposts",
+                // The app process's black box (TraceBlackBox, built in AppServices).
+                "CmuxNextTrace",
                 "CmuxNextErrorJournal",
                 "CmuxNextDiff",
                 "CmuxNextHome",
@@ -1294,7 +1296,8 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         ),
         .testTarget(
             name: "CmuxNextTraceTests",
-            dependencies: ["CmuxNextTrace"],
+            // Compat: the black-box tests read the main-thread blocking detector's table.
+            dependencies: ["CmuxNextCompat", "CmuxNextTrace"],
             swiftSettings: daemonSwiftSettings
         ),
         // Field histograms (UMA): the HistogramID catalog and Metrics.record. Core: Compat and Trace only.
