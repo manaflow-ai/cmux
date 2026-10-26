@@ -4,7 +4,7 @@ import Foundation
 import Testing
 
 @MainActor @Suite(.timeLimit(.minutes(1))) struct PhoneAdmissionTests {
-    static let phone = MobileHostPairRequest(phoneDeviceID: String(repeating: "a", count: 64), name: "Phone",
+    nonisolated static let phone = MobileHostPairRequest(phoneDeviceID: String(repeating: "a", count: 64), name: "Phone",
                                              identityKey: String(repeating: "a", count: 64), approvalKey: "", transport: .iroh)
 
     static func store(at directory: URL) async -> MobileHostPairedStore {
