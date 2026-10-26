@@ -253,9 +253,9 @@ final class IconAssetImages {
     }
 
     private nonisolated static func draw(pixels: Int, size: CGSize, _ body: (CGRect) -> Void) -> CGImage? {
-        guard let context = CGContext(data: nil, width: pixels, height: pixels, bitsPerComponent: 8, bytesPerRow: 0,
-                                      space: CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB(),
-                                      bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
+        guard let context = CGContext.bitmapOwningPixels(width: pixels, height: pixels,
+                                                         space: CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB(),
+                                                         bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
         let fit = min(CGFloat(pixels) / size.width, CGFloat(pixels) / size.height)
         let drawn = CGSize(width: size.width * fit, height: size.height * fit)
         let rect = CGRect(x: (CGFloat(pixels) - drawn.width) / 2, y: (CGFloat(pixels) - drawn.height) / 2,

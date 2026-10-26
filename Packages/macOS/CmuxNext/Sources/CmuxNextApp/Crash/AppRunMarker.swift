@@ -36,12 +36,15 @@ private let fatalSignalHandler: @convention(c) (Int32, UnsafeMutablePointer<__si
         // Only the first signal is recorded (abort() may follow a raise).
         fatalSignalDescriptor = -1
         // concurrency-allow: signal handler context (the process is ending), one 3-byte write to a local file.
-        _ = withUnsafeBytes(of: &bytes) { Darwin.write(descriptor, $0.baseAddress, 3) }
+        // SAFETY: the view covers the 3-byte local tuple for the closure, and write(2) reads exactly those 3 bytes.
+        _ = unsafe withUnsafeBytes(of: &bytes) { unsafe Darwin.write(descriptor, $0.baseAddress, 3) }
     }
     // After run.signal: a fault in here re-runs under SIG_DFL and still leaves the signal recorded.
     CrashReporter.recordCrashKeys()
     _ = Darwin.signal(signal, SIG_DFL)
-    let sentBySoftware = info.map { $0.pointee.si_code == SI_USER || $0.pointee.si_code == SI_QUEUE } ?? true
+    // SAFETY: with SA_SIGINFO the kernel passes a siginfo_t (or none) and the thread's ucontext_t, both live on
+    // the signal stack for the handler's run; they are only read here.
+    let sentBySoftware = unsafe info.map { unsafe $0.pointee.si_code == SI_USER || $0.pointee.si_code == SI_QUEUE } ?? true
         || arrivedOnASystemCall(context)
     let fault = signal == SIGSEGV || signal == SIGBUS || signal == SIGILL || signal == SIGFPE || signal == SIGTRAP || signal == SIGSYS
     if sentBySoftware || !fault { _ = raise(signal) }
@@ -52,12 +55,18 @@ private let fatalSignalHandler: @convention(c) (Int32, UnsafeMutablePointer<__si
 /// word is read with `vm_read_overwrite` and a failed read is a fault. No context re-raises.
 nonisolated func arrivedOnASystemCall(_ context: UnsafeMutableRawPointer?) -> Bool {
     #if arch(arm64)
-    guard let state = context?.assumingMemoryBound(to: ucontext_t.self).pointee.uc_mcontext else { return true }
-    guard state.pointee.__es.__esr >> 26 == 0x15 else { return false }
-    let pc = UInt(state.pointee.__ss.__pc)
+    // SAFETY: `context` is the ucontext_t the kernel passed the SA_SIGINFO handler, live for its run, and
+    // its uc_mcontext points at the thread's saved state in the same frame; both are only read.
+    guard let state = unsafe context?.assumingMemoryBound(to: ucontext_t.self).pointee.uc_mcontext else { return true }
+    guard unsafe state.pointee.__es.__esr >> 26 == 0x15 else { return false }
+    let pc = unsafe UInt(state.pointee.__ss.__pc)
     guard pc >= 4 else { return false }
     var word: UInt32 = 0, read: vm_size_t = 0
-    let result = withUnsafeMutablePointer(to: &word) { vm_read_overwrite(mach_task_self_, vm_address_t(pc - 4), 4, vm_address_t(UInt(bitPattern: $0)), &read) }
+    // SAFETY: vm_read_overwrite copies at most the 4 bytes asked for into `word`, a local of 4 bytes live for the
+    // call, and writes the count into `read`; an unmapped pc fails the read instead of faulting.
+    let result = unsafe withUnsafeMutablePointer(to: &word) {
+        unsafe vm_read_overwrite(mach_task_self_, vm_address_t(pc - 4), 4, vm_address_t(UInt(bitPattern: $0)), &read)
+    }
     return result == KERN_SUCCESS && read == 4 && word == 0xD400_1001
     #else
     return false
@@ -145,10 +154,12 @@ final class AppRunMarker {
         }
         writeMarker()
         // The previous run's exception was read in init; this run records its own.
-        unlink(exceptionFile.path)
+        // SAFETY: unlink reads the NUL-terminated copy of the path Swift makes for the call.
+        unsafe unlink(exceptionFile.path)
         UncaughtExceptionRecorder.install(writingTo: exceptionFile)
         // concurrency-allow: once at launch; truncates a file of at most 3 bytes, no fsync.
-        let descriptor = open(signalFile.path, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0o600)
+        // SAFETY: open reads the NUL-terminated copy of the path Swift makes for the call.
+        let descriptor = unsafe open(signalFile.path, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0o600)
         guard descriptor >= 0 else { return }
         fatalSignalDescriptor = descriptor
         // The crash path writes this run's crash keys here (CrashKeys); the previous run's move aside, to be read
@@ -156,10 +167,11 @@ final class AppRunMarker {
         // concurrency-allow: once at launch, as run.signal's open above; a rename in one folder, no fsync.
         // blocking-allow: the crash path needs this run's file open before the handlers are installed, at launch
         // on main like run.signal's open above; no seam runs earlier.
-        if rename(crashKeysFile.path, previousCrashKeysFile.path) != 0 { unlink(previousCrashKeysFile.path) }
+        // SAFETY: rename, unlink and open read the NUL-terminated copies of the paths Swift makes for each call.
+        if unsafe rename(crashKeysFile.path, previousCrashKeysFile.path) != 0 { unsafe unlink(previousCrashKeysFile.path) }
         // concurrency-allow: once at launch, as run.signal's open above; creates an empty file, no fsync.
         // blocking-allow: as the rename above (the descriptor the crash path writes to, before its handlers).
-        let keysDescriptor = open(crashKeysFile.path, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0o600)
+        let keysDescriptor = unsafe open(crashKeysFile.path, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0o600)
         if keysDescriptor >= 0 { CrashReporter.prepareCrashKeysRecord(descriptor: keysDescriptor) }
         CrashReporter.installCrashDeadline()
         CrashReporter.installCrashWatcher(sampleFile: directory.appending(path: "crash-watcher-sample.txt").path)
@@ -188,10 +200,13 @@ final class AppRunMarker {
         let signals = QuitSignal.isInstalled ? fatal : fatal + LaunchRecovery.requestedQuitSignals.sorted()
         for signal in signals {
             var action = sigaction()
-            action.__sigaction_u.__sa_sigaction = fatalSignalHandler
+            // SAFETY: the handler is a C function of the SA_SIGINFO signature, set in the union member that
+            // SA_SIGINFO selects; sigemptyset and sigaction read and write `action`, a local live for the calls,
+            // and the kernel copies it (no old action asked for).
+            unsafe action.__sigaction_u.__sa_sigaction = fatalSignalHandler
             action.sa_flags = SA_RESETHAND | SA_SIGINFO | SA_ONSTACK
-            sigemptyset(&action.sa_mask)
-            sigaction(signal, &action, nil)
+            unsafe sigemptyset(&action.sa_mask)
+            unsafe sigaction(signal, &action, nil)
         }
         QuitSignal.reclaim()
     }
@@ -230,7 +245,8 @@ final class AppRunMarker {
         fatalSignalDescriptor = -1
         if descriptor >= 0 { close(descriptor) }
         UncaughtExceptionRecorder.uninstall()
-        unlink(exceptionFile.path)
+        // SAFETY: unlink reads the NUL-terminated copy of the path Swift makes for the call.
+        unsafe unlink(exceptionFile.path)
         file.close()
     }
 
