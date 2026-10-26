@@ -4,6 +4,7 @@ import CmuxNextBrowser
 import CmuxNextCompat
 import CmuxNextControl
 import CmuxNextDesign
+import CmuxNextEnergy
 import CmuxNextHibernation
 import CmuxNextSettings
 import CmuxNextWakeups
@@ -94,6 +95,10 @@ final class BrowserHibernation {
     private(set) var exemptions: [String: HibernationPlanner.Exemption] = [:]
     private var settingsObservation: Task<Void, Never>?
     private(set) var hibernatedCount = 0
+    /// A page was hibernated (the App counts it in the memory histograms).
+    var onHibernate: () -> Void = {}
+    /// A hibernated page is back, this long after its wake started (the App records it in the memory histograms).
+    var onWakeMounted: (Duration) -> Void = { _ in }
     /// Hidden agent chat pages, on the same setting and pressure.
     var agentPages: AgentPageHibernation? {
         didSet { agentPages?.update(setting: setting, pressure: pressure) }
@@ -148,7 +153,8 @@ final class BrowserHibernation {
     private var probeKeptAt: [String: ContinuousClock.Instant] = [:]
     static let keptBackoff: Double = 60
 
-    init(cache: TabContentCache, memory: any MemoryConsumerRegistry, lowPower: LowPowerMode = .system) {
+    /// - Parameter lowPower: The app's Low Power Mode (its energy monitor's); the default, fixed off, is for tests.
+    init(cache: TabContentCache, memory: any MemoryConsumerRegistry, lowPower: LowPowerMode = LowPowerMode(enabled: false)) {
         self.cache = cache
         self.lowPower = lowPower
         self.memory = memory
@@ -643,6 +649,7 @@ final class BrowserHibernation {
         // A probe that kept the page before no longer applies (`debug.surfaces`).
         exemptions[key] = nil
         hibernatedCount += 1
+        onHibernate()
         logger.info("hibernated \(key, privacy: .public) \(token.description, privacy: .public)")
     }
 
