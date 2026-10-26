@@ -345,6 +345,14 @@ the tables of "Release trace ring v1"; the Swift `TraceRuntime.Role` and `TraceR
   takes it only while `input` is on too, never in the black box. While the keystroke-timing gate is
   closed, a key or edit frame's instant is not recorded (the frame is still sent), in the log system
   either. The black box upload drops every `cef.host_input`.
+- `key.omnibar_suggest` (perf-hot `omnibar-key`) and `key.palette_search` (perf-hot `palette-key`),
+  category `key`, closed by p09-observability-040, are one thread slice (B/E) per synchronous pass
+  of a typed key's search, as Chrome traces `AutocompleteController::Start` and `UpdateResult`
+  apart: begin arg0 the pass (1 the query: `OmnibarStep.refreshSuggestions`, `PaletteModel.search`;
+  2 the rows that landed; 3 the omnibar's later rows of the same query), end arg0 the rows the
+  popup or the palette page holds when the pass ends. The ranking off the main thread between the
+  two passes is not a slice. Neither is written, in the log or the ring, while the keystroke-timing
+  gate is closed.
 - The holder and the terminal hosts have `task` trace points (recording only, never the black
   box), but a `cmux trace` capture does not show them yet. They record only after the process
   opens its ring (p09-observability-095) and a recording is forwarded to it
