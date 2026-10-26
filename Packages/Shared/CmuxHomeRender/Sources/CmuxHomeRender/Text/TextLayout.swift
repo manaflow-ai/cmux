@@ -26,8 +26,8 @@ struct TextLayout: Hashable, Sendable {
         var lines: [Line] = []
         var start = 0
         while start < length {
-            var n = CTTypesetterSuggestLineBreak(typesetter, start, Double(maxWidth))
-            if n <= 0 { n = 1 }
+            // At least one unit so the loop advances, never past the text (a NaN or zero width).
+            let n = min(max(CTTypesetterSuggestLineBreak(typesetter, start, Double(maxWidth)), 1), length - start)
             var range = NSRange(location: start, length: n)
             // A hard newline ends the line but is neither drawn nor measured.
             let hard = ns.character(at: start + n - 1) == 10
@@ -56,24 +56,47 @@ struct TextLayout: Hashable, Sendable {
     func attributed(font: CTFont, color: CGColor, kern: CGFloat = Style.bodyKern) -> NSAttributedString {
         let a = NSMutableAttributedString(string: text, attributes: TextDraw.attributes(font, color, kern: kern))
         let boldFont = Fonts.withTraits(font, .traitBold)
-        for range in bold where NSMaxRange(range) <= a.length {
-            a.addAttribute(TextDraw.fontKey, value: boldFont, range: range)
+        for range in bold {
+            guard let inText = Self.boldRange(range, in: a.length) else { continue }
+            a.addAttribute(TextDraw.fontKey, value: boldFont, range: inText)
         }
         return a
     }
 
-    /// Offset of line `i`'s baseline from the first: `hard` after a hard
-    /// newline, the line height after a wrap.
-    func lineOffset(_ i: Int, hard: CGFloat = Style.lineHeight) -> CGFloat {
-        var y: CGFloat = 0
-        let ns = text as NSString
-        for line in lines.prefix(max(1, i + 1)).dropFirst() {
-            let loc = line.range.location
-            let afterNewline = loc > 0 && loc <= ns.length && ns.character(at: loc - 1) == 10
-            y += afterNewline ? hard : Style.lineHeight
-        }
-        return y
+    /// A mention range from the wire (any `Int`s) when it lies inside a text of `count` UTF-16 units,
+    /// else nil: a run that does not fit is skipped, the Mac renderer's rule for the same data
+    /// (MessagesLabHome's `TextLayout.range(_:_:in:)`). No `NSMaxRange`: `location + length` overflows.
+    static func boldRange(_ range: NSRange, in count: Int) -> NSRange? {
+        guard range.location >= 0, range.length >= 0, range.location <= count, range.length <= count - range.location else { return nil }
+        return range
     }
 
-    func textHeight(hard: CGFloat) -> CGFloat { lineOffset(lines.count - 1, hard: hard) + Style.lineHeight }
+    /// Offset of every line's baseline from the first: `hard` after a hard newline, the line height
+    /// after a wrap. One pass (a walk from the first line for each line cost O(lines²) to draw).
+    func lineOffsets(hard: CGFloat = Style.lineHeight) -> [CGFloat] {
+        var out: [CGFloat] = []
+        out.reserveCapacity(lines.count)
+        forEachLineOffset(hard: hard) { out.append($0) }
+        return out
+    }
+
+    func textHeight(hard: CGFloat) -> CGFloat {
+        var last: CGFloat = 0
+        forEachLineOffset(hard: hard) { last = $0 }
+        return last + Style.lineHeight
+    }
+
+    /// The one baseline rule of ``lineOffsets(hard:)`` and ``textHeight(hard:)``, line by line.
+    private func forEachLineOffset(hard: CGFloat, _ body: (CGFloat) -> Void) {
+        let ns = text as NSString
+        var y: CGFloat = 0
+        for (i, line) in lines.enumerated() {
+            if i > 0 {
+                let loc = line.range.location
+                let afterNewline = loc > 0 && loc <= ns.length && ns.character(at: loc - 1) == 10
+                y += afterNewline ? hard : Style.lineHeight
+            }
+            body(y)
+        }
+    }
 }

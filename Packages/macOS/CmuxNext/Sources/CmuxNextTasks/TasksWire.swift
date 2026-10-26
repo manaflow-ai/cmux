@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import Foundation
 
 /// Decoding of owner lines shared by every source.
@@ -56,7 +57,7 @@ nonisolated enum TasksWire {
     }
 
     static func decode(_ data: Data) -> Line {
-        guard let line = try? JSONDecoder().decode(ReplyLine.self, from: data) else { return .ignored }
+        guard let line = try? JSONDecoder().blockingDecode(ReplyLine.self, from: data) else { return .ignored }
         if let snapshot = line.snapshot { return .snapshot(snapshot) }
         if let event = line.event {
             let change: TasksChange

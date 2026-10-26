@@ -18,7 +18,7 @@ import Testing
         let file = try #require(AgentPageAppTestRoot.page)
         let pane = PaneContentView.testing(stripModel: TabStripModel(tabs: [TabItem(id: TabID("chat"), title: "Chat")]),
                                            reveal: LaunchReveal(deadline: .zero))
-        let page = try #require(AgentPaneView(model: AgentPaneModel(host: NoHost()), source: .bundled(file), webUI: .agentTabsTestHost()))
+        let page = try #require(AgentPaneView(model: AgentPaneModel(host: NoHost()), source: .bundled(file), webUI: .agentTabsTestHost(), gestures: .testing()))
         defer { page.close() }
         pane.hidesStrip = true
         pane.show(page)

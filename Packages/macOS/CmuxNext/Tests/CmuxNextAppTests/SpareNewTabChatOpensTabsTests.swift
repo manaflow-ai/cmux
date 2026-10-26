@@ -1,6 +1,7 @@
 @testable import CmuxNextAgentPane
 import CmuxNextActions
 import CmuxNextDaemon
+import CmuxNextInput
 import CmuxNextTabs
 import Foundation
 import Testing
@@ -16,7 +17,7 @@ struct SpareNewTabChatOpensTabsTests {
     /// The tabs' page: the shared test page (a Debug root override), so views are made without the bundle.
     private static func agentTabs() -> AgentTabStore {
         let environment = AgentPageAppTestRoot.environment
-        let tabs = AgentTabStore(build: nil, registry: ActionRegistry.standard(), webUI: .agentTabsTestHost(), environment: environment, showcase: true)
+        let tabs = AgentTabStore(build: nil, registry: ActionRegistry.standard(), webUI: .agentTabsTestHost(), input: InputEventTap(), environment: environment, showcase: true)
         tabs.localHost = host
         return tabs
     }

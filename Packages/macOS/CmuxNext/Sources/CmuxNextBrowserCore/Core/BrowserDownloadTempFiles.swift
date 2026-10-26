@@ -1,3 +1,4 @@
+import CmuxNextCompat
 public import Foundation
 
 /// The record of the temporary `.cmuxdownload` files cmux itself writes
@@ -97,7 +98,7 @@ public final class BrowserDownloadTempFiles {
         private func read() -> Set<String> {
             // concurrency-allow: runs on this actor's executor, never the main actor.
             guard let data = try? Data(contentsOf: recordURL),
-                  let document = try? JSONDecoder().decode(Document.self, from: data) else { return [] }
+                  let document = try? JSONDecoder().blockingDecode(Document.self, from: data) else { return [] }
             return Set(document.paths)
         }
 

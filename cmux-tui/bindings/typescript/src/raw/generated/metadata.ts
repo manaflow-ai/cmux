@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 5819519176d5752a978a367bdd398e2ab4431f89841efa45c8da605ce35ec617. */
+/* cmux-tui mux protocol 12, IR cb66b76b27d6af323d88e6c50c65226de2a2ef09009dcab5c68a8205bfd94675. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "5819519176d5752a978a367bdd398e2ab4431f89841efa45c8da605ce35ec617" as const;
+export const SDK_IR_SHA256 = "cb66b76b27d6af323d88e6c50c65226de2a2ef09009dcab5c68a8205bfd94675" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -68,6 +68,85 @@ export const COMMAND_METADATA = {
       "See spec/commands.md for the result object."
     ]
   },
+  "agent-cli-intents-attach": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "agent-cli-intents-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Needs the verified cmux app on a local Unix connection with no terminal or agent binding; any other connection is refused with agent_cli_intents.not_trusted.",
+      "expected_machine_id and expected_session_id must name this daemon's machine and session; a parse failure is agent_cli_intents.bad_request and another owner is agent_cli_intents.owner_mismatch.",
+      "Attaches the terminal receipt of agent-cli-update-job to a stored intent; its machine, session and cli must equal the intent's. The stored receipt has replayed true.",
+      "A second attach with the same receipt is a no-op; a different receipt is refused with agent_cli_intents.refused."
+    ]
+  },
+  "agent-cli-intents-list": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "agent-cli-intents-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Needs the verified cmux app on a local Unix connection with no terminal or agent binding; any other connection is refused with agent_cli_intents.not_trusted.",
+      "expected_machine_id and expected_session_id must name this daemon's machine and session; a parse failure is agent_cli_intents.bad_request and another owner is agent_cli_intents.owner_mismatch.",
+      "A stored intent is non-secret identity, never an execution grant: it holds no argv or credentials.",
+      "Lists the actor's intents recorded in the last seven days."
+    ]
+  },
+  "agent-cli-intents-record": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "agent-cli-intents-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Needs the verified cmux app on a local Unix connection with no terminal or agent binding; any other connection is refused with agent_cli_intents.not_trusted.",
+      "expected_machine_id and expected_session_id must name this daemon's machine and session; a parse failure is agent_cli_intents.bad_request and another owner is agent_cli_intents.owner_mismatch.",
+      "A stored intent is non-secret identity, never an execution grant: it holds no argv or credentials.",
+      "Records 1-64 intents before any update starts; cli is one of claude, codex, opencode, pi, chief, gemini, amp, copilot, cursor and profiles holds at most 128 labels.",
+      "Recording the same intent again is a no-op and a different intent under a stored key is refused with agent_cli_intents.refused; rows older than seven days and rows past 256 per actor are pruned. The reply lists every stored intent of the actor."
+    ]
+  },
+  "agent-cli-intents-settle": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "agent-cli-intents-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Needs the verified cmux app on a local Unix connection with no terminal or agent binding; any other connection is refused with agent_cli_intents.not_trusted.",
+      "expected_machine_id and expected_session_id must name this daemon's machine and session; a parse failure is agent_cli_intents.bad_request and another owner is agent_cli_intents.owner_mismatch.",
+      "Deletes 1-64 settled intents so they stop blocking another update; a key already gone is not an error."
+    ]
+  },
+  "agent-cli-update-job": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "agent-cli-update-job-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Needs the verified cmux app on a local Unix connection with no terminal or agent binding; any other connection is refused with agent_cli_job.not_trusted.",
+      "expected_machine_id must name this daemon's machine (else agent_cli_job.owner_mismatch) and expected_session_id its session (else agent_cli_job.session_mismatch).",
+      "cli is 1-128 ASCII letters, digits, '_', '.' or '-'; idempotency_key is the original intent key and is reused after a lost reply.",
+      "Creates a workspace whose terminal runs the owner's fixed update plan for cli, prepared by acpmux; the caller never chooses argv. The receipt names that terminal, not a finished update.",
+      "The same idempotency_key replays the original receipt without preparing again. One job prepares at a time: another is refused with agent_cli_job.busy."
+    ]
+  },
+  "agent-cli-update-job-resolve": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "agent-cli-update-job-resolve-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Needs the verified cmux app on a local Unix connection with no terminal or agent binding; any other connection is refused with agent_cli_job.not_trusted.",
+      "expected_machine_id must name this daemon's machine (else agent_cli_job.owner_mismatch) and expected_session_id its session (else agent_cli_job.session_mismatch).",
+      "cli is 1-128 ASCII letters, digits, '_', '.' or '-'; idempotency_key is the original intent key and is reused after a lost reply.",
+      "Reads the creation journal of the original idempotency_key without preparing, reconciling or starting anything; no state authorizes execution."
+    ]
+  },
   "apply-layout": {
     "authority": "control",
     "since": 6,
@@ -75,6 +154,164 @@ export const COMMAND_METADATA = {
     "fields": {},
     "stream": null,
     "constraints": []
+  },
+  "apps-agent-inventory-changed": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "agent-cli-app-invalidation-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "A fixed invalidation from the current verified agent_cli provider; no member other than demand_sequence is accepted.",
+      "apps.provider.stale_demand when demand_sequence is not the current demand.",
+      "Local (Unix) connections only (apps.local otherwise). Needs an app host (apps.unavailable otherwise)."
+    ]
+  },
+  "apps-dispatch": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "apps-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Sends a UI event to a mount. A gesture member of payload is dropped; origin user gets a fresh gesture token.",
+      "Local (Unix) connections only (apps.local otherwise). Needs an app host (apps.unavailable otherwise)."
+    ]
+  },
+  "apps-link-changed": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "apps-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "The cmux link registration changed; the daemon tells every app server that reads the link.",
+      "Only the verified cmux app connection that is not bound to an agent.",
+      "Local (Unix) connections only (apps.local otherwise). Needs an app host (apps.unavailable otherwise)."
+    ]
+  },
+  "apps-list": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "apps-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Every catalog app and every installed app, with the install mirror revision.",
+      "Local (Unix) connections only (apps.local otherwise). Needs an app host (apps.unavailable otherwise).",
+      "Any apps-* request subscribes the connection to apps-changed and apps-host events."
+    ]
+  },
+  "apps-logs": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "apps-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "The app's log ring; follow streams apps-log events to this connection.",
+      "Local (Unix) connections only (apps.local otherwise). Needs an app host (apps.unavailable otherwise)."
+    ]
+  },
+  "apps-mount": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "apps-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Mounts an app interface; mount events go to this connection only.",
+      "Local (Unix) connections only (apps.local otherwise). Needs an app host (apps.unavailable otherwise)."
+    ]
+  },
+  "apps-provider-register": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "apps-v1",
+    "fields": {
+      "inventory_watch": {
+        "since": null,
+        "capability": "agent-cli-app-invalidation-v1"
+      }
+    },
+    "stream": null,
+    "constraints": [
+      "The Mac app serves ops the daemon does not own (plans/cmux-next/app-op-routing.md).",
+      "Only the verified cmux app connection that is not bound to an agent (apps.provider.forbidden).",
+      "A family another live connection provides is apps.provider.taken.",
+      "Local (Unix) connections only (apps.local otherwise). Needs an app host (apps.unavailable otherwise)."
+    ]
+  },
+  "apps-provider-result": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "apps-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Answers a provider call; only the connection the call went to may answer (apps.provider.unknown).",
+      "Local (Unix) connections only (apps.local otherwise). Needs an app host (apps.unavailable otherwise)."
+    ]
+  },
+  "apps-run": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "apps-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Runs one catalog op of an app on its host or server.",
+      "cancel-request with this request's id cancels it (cmux.op.cancelled).",
+      "Local (Unix) connections only (apps.local otherwise). Needs an app host (apps.unavailable otherwise)."
+    ]
+  },
+  "apps-set": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "apps-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "One validated commit of the install mirror; the reply is the app's record with the commit's revision.",
+      "Every change needs the verified cmux app connection, whatever origin says (origin.forbidden otherwise).",
+      "apps.json is written before the change applies; a failed write rejects with apps.persist.",
+      "The caller receives request-settled for every request, rejects and no-ops included.",
+      "Local (Unix) connections only (apps.local otherwise). Needs an app host (apps.unavailable otherwise)."
+    ]
+  },
+  "apps-store": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "apps-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Runs one App Store op; the result is the op's own result.",
+      "Mutating ops need the verified cmux app connection.",
+      "Local (Unix) connections only (apps.local otherwise). Needs an app host (apps.unavailable otherwise)."
+    ]
+  },
+  "apps-terminal-links": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "apps-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Every open terminal connector link and its local socket; apps never get a socket path.",
+      "Local (Unix) connections only (apps.local otherwise). Needs an app host (apps.unavailable otherwise)."
+    ]
+  },
+  "apps-unmount": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "apps-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "apps.mount.unknown when this connection has no such mount.",
+      "Local (Unix) connections only (apps.local otherwise). Needs an app host (apps.unavailable otherwise)."
+    ]
   },
   "attach-surface": {
     "authority": "frontend",
@@ -331,6 +568,18 @@ export const COMMAND_METADATA = {
       "Browser surfaces only; values are CSS pixels.",
       "The frame sequence must be the exact presented token for this connection.",
       "Requires browser-pointer-frame-guard-v1."
+    ]
+  },
+  "cancel-request": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "cancel-request-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Cancels the caller's own running apps-run request or script cell; unknown, answered or another connection's requests change nothing.",
+      "Advertised with apps-v1.",
+      "Local (Unix) connections only (apps.local otherwise)."
     ]
   },
   "chief-inspect": {
@@ -4413,6 +4662,342 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
     },
     "kind": "object"
   },
+  "AgentCLIIntent": {
+    "additional_properties": false,
+    "fields": {
+      "cli": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "key": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "machine": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "profiles": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "items": {
+            "kind": "scalar",
+            "name": "string"
+          },
+          "kind": "array"
+        }
+      },
+      "root_key": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "session": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "AgentCLIJobPath": {
+    "additional_properties": false,
+    "fields": {
+      "kind": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "literal",
+          "value": "terminal"
+        }
+      },
+      "pane_id": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "screen_id": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "tab_id": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "terminal_id": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "workspace_id": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "AgentCLIJobReceipt": {
+    "additional_properties": false,
+    "fields": {
+      "cli": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "machine": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "path": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "AgentCLIJobPath"
+        }
+      },
+      "replayed": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "boolean"
+        }
+      },
+      "revision": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "session": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "AgentCLIJobResolution": {
+    "kind": "tagged_union",
+    "tag": "state",
+    "variants": {
+      "created": {
+        "additional_properties": false,
+        "fields": {
+          "receipt": {
+            "nullable": false,
+            "presence": "required",
+            "type": {
+              "kind": "ref",
+              "name": "AgentCLIJobReceipt"
+            }
+          },
+          "state": {
+            "nullable": false,
+            "presence": "required",
+            "type": {
+              "kind": "literal",
+              "value": "created"
+            }
+          }
+        },
+        "kind": "object"
+      },
+      "failed": {
+        "additional_properties": false,
+        "fields": {
+          "code": {
+            "nullable": false,
+            "presence": "required",
+            "type": {
+              "kind": "scalar",
+              "name": "string"
+            }
+          },
+          "state": {
+            "nullable": false,
+            "presence": "required",
+            "type": {
+              "kind": "literal",
+              "value": "failed"
+            }
+          }
+        },
+        "kind": "object"
+      },
+      "indeterminate": {
+        "additional_properties": false,
+        "fields": {
+          "state": {
+            "nullable": false,
+            "presence": "required",
+            "type": {
+              "kind": "literal",
+              "value": "indeterminate"
+            }
+          }
+        },
+        "kind": "object"
+      },
+      "not_found": {
+        "additional_properties": false,
+        "fields": {
+          "state": {
+            "nullable": false,
+            "presence": "required",
+            "type": {
+              "kind": "literal",
+              "value": "not_found"
+            }
+          }
+        },
+        "kind": "object"
+      },
+      "pending": {
+        "additional_properties": false,
+        "fields": {
+          "state": {
+            "nullable": false,
+            "presence": "required",
+            "type": {
+              "kind": "literal",
+              "value": "pending"
+            }
+          }
+        },
+        "kind": "object"
+      },
+      "prepared": {
+        "additional_properties": false,
+        "fields": {
+          "state": {
+            "nullable": false,
+            "presence": "required",
+            "type": {
+              "kind": "literal",
+              "value": "prepared"
+            }
+          }
+        },
+        "kind": "object"
+      }
+    }
+  },
+  "AgentCLIStoredIntent": {
+    "additional_properties": false,
+    "fields": {
+      "cli": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "key": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "machine": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "profiles": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "items": {
+            "kind": "scalar",
+            "name": "string"
+          },
+          "kind": "array"
+        }
+      },
+      "receipt": {
+        "nullable": true,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "AgentCLIJobReceipt"
+        }
+      },
+      "root_key": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "session": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      }
+    },
+    "kind": "object"
+  },
   "AgentPresenceActivity": {
     "kind": "enum",
     "values": [
@@ -4582,6 +5167,380 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
       "unknown"
     ]
   },
+  "AppGrant": {
+    "additional_properties": false,
+    "fields": {
+      "granted": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "boolean"
+        }
+      },
+      "scope": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "AppHiddenAccess": {
+    "additional_properties": false,
+    "constraints": [
+      "Which callers still reach a hidden app: the CLI, MCP and automations."
+    ],
+    "fields": {
+      "automations": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "boolean"
+        }
+      },
+      "cli": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "boolean"
+        }
+      },
+      "mcp": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "boolean"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "AppLogLine": {
+    "additional_properties": false,
+    "fields": {
+      "level": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "message": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "ts_ms": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "AppOrigin": {
+    "kind": "enum",
+    "values": [
+      "user",
+      "cli",
+      "mcp",
+      "script",
+      "remote"
+    ]
+  },
+  "AppPaletteCommand": {
+    "additional_properties": false,
+    "fields": {
+      "op": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "title": {
+        "constraints": [
+          "The manifest's palette title, or op when the manifest has none."
+        ],
+        "nullable": true,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "JsonValue"
+        }
+      },
+      "when": {
+        "default": null,
+        "nullable": true,
+        "presence": "optional",
+        "type": {
+          "kind": "ref",
+          "name": "JsonValue"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "AppRecord": {
+    "additional_properties": false,
+    "fields": {
+      "available": {
+        "constraints": [
+          "The package is in the catalog."
+        ],
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "boolean"
+        }
+      },
+      "bundle_dir": {
+        "constraints": [
+          "The package directory; local connections only."
+        ],
+        "nullable": true,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "commands": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "items": {
+            "kind": "ref",
+            "name": "AppPaletteCommand"
+          },
+          "kind": "array"
+        }
+      },
+      "enabled": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "boolean"
+        }
+      },
+      "grants": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "items": {
+            "kind": "scalar",
+            "name": "string"
+          },
+          "kind": "array"
+        }
+      },
+      "hidden": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "boolean"
+        }
+      },
+      "hidden_access": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "AppHiddenAccess"
+        }
+      },
+      "hide_only": {
+        "constraints": [
+          "First-party apps offer hide and show only, never remove."
+        ],
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "boolean"
+        }
+      },
+      "id": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "installed": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "boolean"
+        }
+      },
+      "manifest": {
+        "nullable": true,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "JsonValue"
+        }
+      },
+      "revision": {
+        "constraints": [
+          "Only in the apps-set reply: the install mirror revision after the commit."
+        ],
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "sandboxed": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "boolean"
+        }
+      },
+      "scope_classes": {
+        "constraints": [
+          "The class of every scope the manifest asks for."
+        ],
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "map",
+          "values": {
+            "kind": "ref",
+            "name": "AppScopeClass"
+          }
+        }
+      },
+      "source": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "AppSource"
+        }
+      },
+      "tier": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "AppTier"
+        }
+      },
+      "version": {
+        "constraints": [
+          "Empty when the package is not in the catalog."
+        ],
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "AppScopeClass": {
+    "kind": "enum",
+    "values": [
+      "standard",
+      "sensitive",
+      "restricted",
+      "elevated",
+      "unknown"
+    ]
+  },
+  "AppSource": {
+    "kind": "enum",
+    "values": [
+      "default",
+      "user",
+      "bundled",
+      "local"
+    ]
+  },
+  "AppTerminalLink": {
+    "additional_properties": false,
+    "fields": {
+      "app": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "channel": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "id": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "socket": {
+        "constraints": [
+          "The link's local relay socket; null when it has none."
+        ],
+        "nullable": true,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "target": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "AppTier": {
+    "kind": "enum",
+    "values": [
+      "first-party",
+      "verified",
+      "unverified"
+    ]
+  },
   "AppliedPane": {
     "additional_properties": false,
     "fields": {
@@ -4624,6 +5583,150 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "ref",
           "name": "Id"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "AppsInventoryDemand": {
+    "additional_properties": false,
+    "fields": {
+      "enabled": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "boolean"
+        }
+      },
+      "sequence": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "AppsLinkChangedResult": {
+    "additional_properties": false,
+    "fields": {
+      "servers": {
+        "constraints": [
+          "App servers told about the change."
+        ],
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "AppsListResult": {
+    "additional_properties": false,
+    "fields": {
+      "apps": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "items": {
+            "kind": "ref",
+            "name": "AppRecord"
+          },
+          "kind": "array"
+        }
+      },
+      "revision": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "AppsLogsResult": {
+    "additional_properties": false,
+    "fields": {
+      "lines": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "items": {
+            "kind": "ref",
+            "name": "AppLogLine"
+          },
+          "kind": "array"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "AppsProviderRegisterResult": {
+    "additional_properties": false,
+    "fields": {
+      "families": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "items": {
+            "kind": "scalar",
+            "name": "string"
+          },
+          "kind": "array"
+        }
+      },
+      "inventory_demand": {
+        "capability": "agent-cli-app-invalidation-v1",
+        "constraints": [
+          "Only when the request set inventory_watch."
+        ],
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "ref",
+          "name": "AppsInventoryDemand"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "AppsRunResult": {
+    "additional_properties": false,
+    "fields": {
+      "value": {
+        "constraints": [
+          "The op's result; null when it returned none."
+        ],
+        "nullable": true,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "JsonValue"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "AppsTerminalLinksResult": {
+    "additional_properties": false,
+    "fields": {
+      "links": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "items": {
+            "kind": "ref",
+            "name": "AppTerminalLink"
+          },
+          "kind": "array"
         }
       }
     },
@@ -14295,6 +15398,317 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
       "name": "TabGroupOutcome"
     }
   },
+  "agent-cli-intents-attach": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "expected_machine_id": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "expected_session_id": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "key": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "receipt": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "ref",
+            "name": "AgentCLIJobReceipt"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "additional_properties": false,
+      "fields": {
+        "changed": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          }
+        },
+        "intent": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "ref",
+            "name": "AgentCLIStoredIntent"
+          }
+        }
+      },
+      "kind": "object"
+    }
+  },
+  "agent-cli-intents-list": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "expected_machine_id": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "expected_session_id": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "additional_properties": false,
+      "fields": {
+        "intents": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "items": {
+              "kind": "ref",
+              "name": "AgentCLIStoredIntent"
+            },
+            "kind": "array"
+          }
+        }
+      },
+      "kind": "object"
+    }
+  },
+  "agent-cli-intents-record": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "expected_machine_id": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "expected_session_id": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "intents": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "items": {
+              "kind": "ref",
+              "name": "AgentCLIIntent"
+            },
+            "kind": "array"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "additional_properties": false,
+      "fields": {
+        "changed": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          }
+        },
+        "intents": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "items": {
+              "kind": "ref",
+              "name": "AgentCLIStoredIntent"
+            },
+            "kind": "array"
+          }
+        }
+      },
+      "kind": "object"
+    }
+  },
+  "agent-cli-intents-settle": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "expected_machine_id": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "expected_session_id": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "keys": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "items": {
+              "kind": "scalar",
+              "name": "string"
+            },
+            "kind": "array"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "additional_properties": false,
+      "fields": {
+        "changed": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          }
+        },
+        "intents": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "items": {
+              "kind": "ref",
+              "name": "AgentCLIStoredIntent"
+            },
+            "kind": "array"
+          }
+        }
+      },
+      "kind": "object"
+    }
+  },
+  "agent-cli-update-job": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "cli": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "expected_machine_id": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "expected_session_id": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "idempotency_key": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "AgentCLIJobReceipt"
+    }
+  },
+  "agent-cli-update-job-resolve": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "cli": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "expected_machine_id": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "expected_session_id": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "idempotency_key": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "AgentCLIJobResolution"
+    }
+  },
   "apply-layout": {
     "request": {
       "additional_properties": false,
@@ -14353,6 +15767,600 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
     "result": {
       "kind": "ref",
       "name": "ApplyLayoutResult"
+    }
+  },
+  "apps-agent-inventory-changed": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "demand_sequence": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "EmptyResult"
+    }
+  },
+  "apps-dispatch": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "event": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "mount_id": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "node": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "origin": {
+          "constraints": [
+            "Who asked; absent means cli. user needs the verified cmux app connection that is not bound to an agent."
+          ],
+          "default": "cli",
+          "nullable": false,
+          "presence": "optional",
+          "type": {
+            "kind": "ref",
+            "name": "AppOrigin"
+          }
+        },
+        "payload": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "ref",
+            "name": "JsonValue"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "EmptyResult"
+    }
+  },
+  "apps-link-changed": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "origin": {
+          "constraints": [
+            "Who asked; absent means cli. user needs the verified cmux app connection that is not bound to an agent."
+          ],
+          "default": "cli",
+          "nullable": false,
+          "presence": "optional",
+          "type": {
+            "kind": "ref",
+            "name": "AppOrigin"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "AppsLinkChangedResult"
+    }
+  },
+  "apps-list": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "origin": {
+          "constraints": [
+            "Who asked; absent means cli. user needs the verified cmux app connection that is not bound to an agent."
+          ],
+          "default": "cli",
+          "nullable": false,
+          "presence": "optional",
+          "type": {
+            "kind": "ref",
+            "name": "AppOrigin"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "AppsListResult"
+    }
+  },
+  "apps-logs": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "app": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "follow": {
+          "default": false,
+          "nullable": false,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          }
+        },
+        "origin": {
+          "constraints": [
+            "Who asked; absent means cli. user needs the verified cmux app connection that is not bound to an agent."
+          ],
+          "default": "cli",
+          "nullable": false,
+          "presence": "optional",
+          "type": {
+            "kind": "ref",
+            "name": "AppOrigin"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "AppsLogsResult"
+    }
+  },
+  "apps-mount": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "app": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "context": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "ref",
+            "name": "JsonValue"
+          }
+        },
+        "interface": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "mount_id": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "origin": {
+          "constraints": [
+            "Who asked; absent means cli. user needs the verified cmux app connection that is not bound to an agent."
+          ],
+          "default": "cli",
+          "nullable": false,
+          "presence": "optional",
+          "type": {
+            "kind": "ref",
+            "name": "AppOrigin"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "EmptyResult"
+    }
+  },
+  "apps-provider-register": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "families": {
+          "constraints": [
+            "Non-empty; each a provider family the daemon routes to the app.",
+            "The agent_cli family needs agent-cli-app-provider-v1."
+          ],
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "items": {
+              "kind": "scalar",
+              "name": "string"
+            },
+            "kind": "array"
+          }
+        },
+        "inventory_watch": {
+          "capability": "agent-cli-app-invalidation-v1",
+          "constraints": [
+            "Opts into the inventory demand snapshot; needs the agent_cli family."
+          ],
+          "default": false,
+          "nullable": false,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          }
+        },
+        "origin": {
+          "constraints": [
+            "Who asked; absent means cli. user needs the verified cmux app connection that is not bound to an agent."
+          ],
+          "default": "cli",
+          "nullable": false,
+          "presence": "optional",
+          "type": {
+            "kind": "ref",
+            "name": "AppOrigin"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "AppsProviderRegisterResult"
+    }
+  },
+  "apps-provider-result": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "body": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "ref",
+            "name": "JsonValue"
+          }
+        },
+        "ok": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          }
+        },
+        "origin": {
+          "constraints": [
+            "Who asked; absent means cli. user needs the verified cmux app connection that is not bound to an agent."
+          ],
+          "default": "cli",
+          "nullable": false,
+          "presence": "optional",
+          "type": {
+            "kind": "ref",
+            "name": "AppOrigin"
+          }
+        },
+        "request_id": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "EmptyResult"
+    }
+  },
+  "apps-run": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "app": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "args": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "ref",
+            "name": "JsonValue"
+          }
+        },
+        "gesture": {
+          "constraints": [
+            "A palette or keybinding invocation's token (origin user only)."
+          ],
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "idempotency_key": {
+          "constraints": [
+            "A keyed run runs once; a retry with the same key gets the stored answer."
+          ],
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "op": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "origin": {
+          "constraints": [
+            "Who asked; absent means cli. user needs the verified cmux app connection that is not bound to an agent."
+          ],
+          "default": "cli",
+          "nullable": false,
+          "presence": "optional",
+          "type": {
+            "kind": "ref",
+            "name": "AppOrigin"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "AppsRunResult"
+    }
+  },
+  "apps-set": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "app": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "enabled": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          }
+        },
+        "grant": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "ref",
+            "name": "AppGrant"
+          }
+        },
+        "hidden": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          }
+        },
+        "hidden_access": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "ref",
+            "name": "AppHiddenAccess"
+          }
+        },
+        "idempotency_key": {
+          "constraints": [
+            "A replay with the same key changes nothing and answers the same record."
+          ],
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "installed": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          }
+        },
+        "origin": {
+          "constraints": [
+            "Who asked; absent means cli. user needs the verified cmux app connection that is not bound to an agent."
+          ],
+          "default": "cli",
+          "nullable": false,
+          "presence": "optional",
+          "type": {
+            "kind": "ref",
+            "name": "AppOrigin"
+          }
+        },
+        "sandboxed": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "AppRecord"
+    }
+  },
+  "apps-store": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "args": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "ref",
+            "name": "JsonValue"
+          }
+        },
+        "op": {
+          "constraints": [
+            "An App Store op (cmux.apps.*); spec/page-router.md lists them."
+          ],
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "origin": {
+          "constraints": [
+            "Who asked; absent means cli. user needs the verified cmux app connection that is not bound to an agent."
+          ],
+          "default": "cli",
+          "nullable": false,
+          "presence": "optional",
+          "type": {
+            "kind": "ref",
+            "name": "AppOrigin"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "JsonValue"
+    }
+  },
+  "apps-terminal-links": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "origin": {
+          "constraints": [
+            "Who asked; absent means cli. user needs the verified cmux app connection that is not bound to an agent."
+          ],
+          "default": "cli",
+          "nullable": false,
+          "presence": "optional",
+          "type": {
+            "kind": "ref",
+            "name": "AppOrigin"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "AppsTerminalLinksResult"
+    }
+  },
+  "apps-unmount": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "mount_id": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "origin": {
+          "constraints": [
+            "Who asked; absent means cli. user needs the verified cmux app connection that is not bound to an agent."
+          ],
+          "default": "cli",
+          "nullable": false,
+          "presence": "optional",
+          "type": {
+            "kind": "ref",
+            "name": "AppOrigin"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "EmptyResult"
     }
   },
   "attach-surface": {
@@ -15109,6 +17117,29 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
           "type": {
             "kind": "scalar",
             "name": "float64"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "EmptyResult"
+    }
+  },
+  "cancel-request": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "target": {
+          "constraints": [
+            "The id of an apps-run or script request this connection sent."
+          ],
+          "nullable": true,
+          "presence": "required",
+          "type": {
+            "kind": "ref",
+            "name": "JsonValue"
           }
         }
       },

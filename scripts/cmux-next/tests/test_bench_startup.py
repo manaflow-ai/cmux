@@ -310,6 +310,29 @@ class OneRunTests(unittest.TestCase):
         self.assertEqual(waited[1][0], bs.STARTUP_COMPLETE)
         self.assertLessEqual(waited[1][1], 5, "within what is left of the run's one timeout")
 
+    def test_order_marks_keep_the_launch_past_the_first_content(self):
+        # The launch-order marks come from afterStartup posts (p08-startup-017), after the first content.
+        waited = []
+
+        class OrderedLaunch(FakeLaunch):
+            def wait_for(self, mark, timeout, any_of=False):
+                waited.append((list(mark) if isinstance(mark, list) else mark, timeout, any_of))
+                return super().wait_for(mark, timeout, any_of)
+
+        bs.Launch = OrderedLaunch
+        bs.tag_pids = lambda tag: [41]
+        saved = list(bs.ORDER_MARKS)
+        try:
+            bs.ORDER_MARKS[:] = ["launch.non_paint_services", "launch.agent_page_warmup|launch.agent_page_warmup_not_needed"]
+            bs.one_run("t", "warm", 5)
+        finally:
+            bs.ORDER_MARKS[:] = saved
+        self.assertEqual([(marks, any_of) for marks, _, any_of in waited[-2:]],
+                         [(["launch.non_paint_services"], True),
+                          (["launch.agent_page_warmup", "launch.agent_page_warmup_not_needed"], True)],
+                         "one wait per term, for any one of its marks")
+        self.assertLessEqual(waited[-1][1], 5, "within what is left of the run's one timeout")
+
     def test_purge_never_runs_before_a_warm_launch(self):
         bs.tag_pids = lambda tag: [41]  # the daemon runs: no priming launch
         bs.one_run("t", "warm", 5, purge_cold=True, purge_cache=self.purge)
@@ -466,8 +489,25 @@ class OrderTests(unittest.TestCase):
         self.assertEqual(len(out), 3, out)
         self.assertIn("t warm run 3: first_window_frame_committed at 150 ms, before launch_picture_shown at 160 ms", out)
 
+    def test_a_term_with_alternatives_takes_the_mark_that_arrived(self):
+        # p08-startup-017: the agent page warm-up marks whether it made its page or was not needed.
+        order = "first_window_frame_committed<launch.agent_page_warmup|launch.agent_page_warmup_not_needed"
+        results = {"t": {"warm": [
+            {"first_window_frame_committed": 150, "launch.agent_page_warmup": 400},
+            {"first_window_frame_committed": 150, "launch.agent_page_warmup_not_needed": 400},
+            {"first_window_frame_committed": 150, "launch.agent_page_warmup_not_needed": 120},
+            {"first_window_frame_committed": 150},
+        ]}}
+        self.assertEqual(bs.check_orders(results, [order]), [
+            "t warm run 3: launch.agent_page_warmup|launch.agent_page_warmup_not_needed at 120 ms, "
+            "before first_window_frame_committed at 150 ms",
+            "t warm run 4: launch.agent_page_warmup|launch.agent_page_warmup_not_needed missing",
+        ])
+        self.assertIn(order, bs.LAUNCH_ORDER, "the budget-mode check accepts either mark")
+
     def test_bad_orders_are_usage_errors(self):
-        for order in ("first_window_frame_committed", "a<", "<b", "main_start<launch.temperature"):
+        for order in ("first_window_frame_committed", "a<", "<b", "main_start<launch.temperature",
+                      "a<b|", "a<b|launch.temperature"):
             code, _, err = quiet(bs.parse_args, BASE + ["--order", order])
             self.assertEqual(code, 2, order)
             self.assertIn("--order", err)

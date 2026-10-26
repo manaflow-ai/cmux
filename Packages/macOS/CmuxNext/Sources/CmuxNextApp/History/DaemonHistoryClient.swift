@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextHistory
 import Foundation
@@ -99,6 +100,6 @@ struct DaemonHistoryClient: Sendable {
     /// Decodes a relay reply on the global executor: a history page or a profile's visit summaries
     /// can hold thousands of rows, so the decode never runs on the main actor.
     @concurrent static func decode<T: Decodable & Sendable>(_ type: T.Type, from value: JSONValue) async throws -> T {
-        try JSONDecoder().decode(T.self, from: JSONEncoder().encode(value))
+        try JSONDecoder().blockingDecode(T.self, from: JSONEncoder().encode(value))
     }
 }

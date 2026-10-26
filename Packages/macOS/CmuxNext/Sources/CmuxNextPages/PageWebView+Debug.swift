@@ -301,8 +301,8 @@ extension PageWebView {
         let image: NSImage? = await withCheckedContinuation { continuation in
             webView.takeSnapshot(with: nil) { image, _ in continuation.resume(returning: image) }
         }
-        guard let image, let tiff = image.tiffRepresentation, let bitmap = NSBitmapImageRep(data: tiff),
-              let png = bitmap.representation(using: .png, properties: [:]) else { return false }
+        guard let image = image?.cgImage(forProposedRect: nil, context: nil, hints: nil),
+              let png = NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:]) else { return false }
         return (try? png.write(to: url)) != nil
     }
 

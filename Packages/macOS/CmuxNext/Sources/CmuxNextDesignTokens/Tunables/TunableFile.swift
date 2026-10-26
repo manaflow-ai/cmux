@@ -1,3 +1,4 @@
+import CmuxNextCompat
 public import Foundation
 
 /// The override file and the "Copy changed values as JSON" export share one
@@ -78,7 +79,7 @@ public nonisolated enum TunableFile {
     /// Raw values of a file's `values` object, by key (empty when the file
     /// is missing or unreadable). The store reads them against descriptors.
     public static func decode(_ data: Data) -> [String: Any] {
-        guard let root = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+        guard let root = (try? JSONSerialization.blockingJSONObject(with: data)) as? [String: Any],
               let values = root["values"] as? [String: Any] else { return [:] }
         return values
     }

@@ -1,3 +1,4 @@
+import CmuxNextCompat
 public import Foundation
 
 extension BrowserExtensionMenuSource {
@@ -11,7 +12,7 @@ extension BrowserExtensionMenuSource {
     public init(id: String, name: String, folder: URL, fileManager: FileManager = .default) {
         let manifestURL = folder.appendingPathComponent("manifest.json")
         guard let data = fileManager.contents(atPath: manifestURL.path),
-              let manifest = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+              let manifest = try? JSONSerialization.blockingJSONObject(with: data) as? [String: Any] else {
             self.init(id: id, name: name)
             return
         }
@@ -43,7 +44,7 @@ private func localizedManifestString(_ value: String, manifest: [String: Any], f
     let key = String(value.dropFirst(6).dropLast(2)).lowercased()
     guard let locale = manifest["default_locale"] as? String,
           let data = fileManager.contents(atPath: folder.appendingPathComponent("_locales/\(locale)/messages.json").path),
-          let messages = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return nil }
+          let messages = try? JSONSerialization.blockingJSONObject(with: data) as? [String: Any] else { return nil }
     let entry = messages.first { $0.key.lowercased() == key }?.value as? [String: Any]
     return (entry?["message"] as? String).flatMap { $0.isEmpty ? nil : $0 }
 }

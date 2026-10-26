@@ -49,7 +49,7 @@ public nonisolated struct AcpmuxQuitProof {
             let fallback = file.deletingPathExtension().lastPathComponent
             // concurrency-allow: nonisolated; the app calls it only from @concurrent AcpmuxQuit paths, off the main actor
             guard let data = try? Data(contentsOf: file),
-                  let record = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let record = try? JSONSerialization.blockingJSONObject(with: data) as? [String: Any],
                   let session = record["session_id"] as? String,
                   let nonce = record["start_nonce"] as? String, isPathComponent(session), isPathComponent(nonce) else {
                 unknown.append(fallback)
