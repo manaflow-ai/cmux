@@ -304,7 +304,7 @@ test("an acpmux_send call draws as the same collapsed message line, never an MCP
           title: "mcp__cmux__acpmux_send",
           kind: "other",
           status: "completed",
-          inputSummary: JSON.stringify({ to: "huge-blue/lane-a", text: "Rebase on main.\nThen push." }),
+          inputSummary: JSON.stringify({ to: "build-box/lane-a", text: "Rebase on main.\nThen push." }),
           output: "Sent to lane-a: steered into its running turn (promptId 0199).",
         },
       },
@@ -313,7 +313,7 @@ test("an acpmux_send call draws as the same collapsed message line, never an MCP
   await render(row);
   const message = host.querySelector(".cv-agentmsg")!;
   expect(message.getAttribute("data-direction")).toBe("sent");
-  expect(message.querySelector(".cv-agentmsg__name")?.textContent).toBe("huge-blue/lane-a");
+  expect(message.querySelector(".cv-agentmsg__name")?.textContent).toBe("build-box/lane-a");
   expect(message.querySelector(".cv-agentmsg__preview")?.textContent).toBe("Rebase on main.");
   expect(toggle().getAttribute("aria-expanded")).toBe("false");
 });

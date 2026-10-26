@@ -134,7 +134,7 @@ const sends = () =>
 // acpmux_send (acpmux_mcp.rs) as Claude Code and Codex name it: to a lane, and to a session on a peer.
 const lanes = () =>
   chat([
-    user("Ask lane-a to rebase, then tell the reviewer on huge-blue.", 3),
+    user("Ask lane-a to rebase, then tell the reviewer on build-box.", 3),
     activity(
       [
         tool("mcp__cmux__acpmux_send", "other", "completed", {
@@ -153,10 +153,10 @@ const lanes = () =>
           inputSummary: JSON.stringify({
             server: "cmux",
             tool: "acpmux_send",
-            arguments: { to: "huge-blue/reviewer", text: "#23377 is ready for review at dce64b66.", steer: false },
+            arguments: { to: "build-box/reviewer", text: "#23377 is ready for review at dce64b66.", steer: false },
           }),
           output:
-            "Sent to huge-blue/reviewer: queued behind its running turn: it reads it when that turn ends (promptId 81ab07).",
+            "Sent to build-box/reviewer: queued behind its running turn: it reads it when that turn ends (promptId 81ab07).",
         }),
       ],
       2.8,

@@ -127,6 +127,7 @@ async fn ls_last_and_info_read_the_sessions() {
             on_permission: crate::cli::output::OnPermission::Fail,
             stall_secs: 30,
             retries: 0,
+            steer: false,
         },
         &prompt,
     )

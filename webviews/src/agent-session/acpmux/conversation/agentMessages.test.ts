@@ -35,9 +35,9 @@ test("send_to_session, as Claude Code and other harnesses name MCP tools", () =>
 
 test("acpmux_send, as harnesses name it behind the cmux server or on its own", () => {
   for (const title of ["mcp__cmux__acpmux_send", "mcp__acpmux__send", "acpmux_send", "cmux.acpmux_send"])
-    expect(agentMessage(call(title, { to: "huge-blue/lane-a", text: "Rebase on main." }))).toEqual({
+    expect(agentMessage(call(title, { to: "build-box/lane-a", text: "Rebase on main." }))).toEqual({
       channel: "agent",
-      to: "huge-blue/lane-a",
+      to: "build-box/lane-a",
       text: "Rebase on main.",
     });
   // Codex nests an MCP call's arguments under {server, tool, arguments}.
