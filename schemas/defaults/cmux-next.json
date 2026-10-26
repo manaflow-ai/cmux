@@ -228,6 +228,7 @@
     "key.triggerFlash": ["shift+cmd+h"],
     "key.useSelectionForFind": ["cmd+e"],
     "key.workspace.selectLastUsed": ["ctrl+cmd+`"],
+    "setting.agentPane.attachmentView": "inline",
     "setting.agentPane.display.code.family": null,
     "setting.agentPane.display.code.scale": null,
     "setting.agentPane.display.environment.placement": "left",
