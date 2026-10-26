@@ -52,7 +52,7 @@ let package = Package(
                 .process("Resources/SidebarLocalizable.xcstrings"),
             ],
             swiftSettings: [
-                .swiftLanguageMode(.v5),
+                .swiftLanguageMode(.v6),
                 .define("APPKIT_NATIVE"),
             ]
         ),
@@ -75,7 +75,7 @@ let package = Package(
             name: "MessagesLabSidebarTests",
             dependencies: ["MessagesLabSidebar"],
             swiftSettings: [
-                .swiftLanguageMode(.v5),
+                .swiftLanguageMode(.v6),
                 .define("APPKIT_NATIVE"),
             ]
         ),
