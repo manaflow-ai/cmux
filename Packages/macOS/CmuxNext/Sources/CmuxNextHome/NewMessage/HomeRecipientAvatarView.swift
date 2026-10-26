@@ -59,8 +59,9 @@ final class HomeRecipientAvatarView: NSView {
 
     nonisolated override var isFlipped: Bool { true }
 
-    /// Shows `avatar`, else the initials of `name`.
+    /// Shows `avatar`, else the initials of `name`; redraws only when the disc changed.
     func show(_ avatar: HomeChiefAvatar?, name: String) {
+        let drawn = (text: text, picture: picture)
         picture = nil
         loading = nil
         switch avatar {
@@ -72,7 +73,7 @@ final class HomeRecipientAvatarView: NSView {
         case nil:
             text = Self.initials(name)
         }
-        needsDisplay = true
+        if text != drawn.text || picture !== drawn.picture { needsDisplay = true }
     }
 
     /// The picture file is read and downsampled off the main thread, then drawn.
@@ -96,9 +97,9 @@ final class HomeRecipientAvatarView: NSView {
             guard let cgImage else { return }
             let image = NSImage(cgImage: cgImage, size: NSSize(width: cgImage.width, height: cgImage.height))
             pictures.keep(image, for: url)
-            guard let self, loading == url else { return }
-            picture = image
+            guard let self, loading == url, picture !== image else { return }
             needsDisplay = true
+            picture = image
         }
     }
 
@@ -125,7 +126,7 @@ final class HomeRecipientAvatarView: NSView {
 
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
-        needsDisplay = true
+        needsDisplay = true // invalidate: the theme's fill and text colours changed
     }
 
     /// One or two letters of `name` (two words: their first letters).

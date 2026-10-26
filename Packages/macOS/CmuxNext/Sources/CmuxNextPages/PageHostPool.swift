@@ -60,6 +60,9 @@ public final class PageHostPool {
     /// The windows' frame-aligned pointer input (feature `pointerFrameHover`): a claimed host gets it
     /// for its popup's rows, as a page ``WebUIHost`` opens does. Nil: each move hovers at once.
     let hoverFrameInput: FrameInputCoalescers?
+    /// The frame a claimed host delivers its router envelopes on, as a page ``WebUIHost`` opens does
+    /// (``WebUIHost/scriptFrames``, `pageScriptFrames`). Nil: each envelope is its own script.
+    package var scriptFrames: PageScriptFrame?
 
     final class WeakHost {
         weak var view: PageWebView?
@@ -124,6 +127,7 @@ public final class PageHostPool {
         host.countsTouches = true
         host.shouldFocusOnAttach = focus
         host.popupHoverFrameInput = hoverFrameInput
+        if let scriptFrames, !host.deliversOnFrames { host.deliverOnFrames(scriptFrames) }
         host.engineDecision = decision
         _ = host.retarget(descriptor: descriptor, routes: routes, route: route,
                           documentAttributes: documentAttributes, surface: surface,
