@@ -178,10 +178,6 @@ pub(crate) enum Begun {
 }
 
 /// A link failure as an op error.
-pub(crate) fn link_failure(failure: LinkFailure) -> CloudError {
-    link_failure_for("unknown", failure)
-}
-
 pub(crate) fn link_failure_for(machine: &str, failure: LinkFailure) -> CloudError {
     let retry = format!("run `cmux cloud ssh --target machine:{machine}` again");
     match failure {
@@ -451,4 +447,25 @@ fn rescue_open<C: ControlPlane>(
         "kind": RESCUE_KIND,
         "focus": origin == Origin::User || focus,
     }))
+}
+
+#[cfg(test)]
+mod hint_tests {
+    use super::*;
+
+    #[test]
+    fn dial_failures_name_the_machine_and_an_offered_command() {
+        for (code, hint) in [
+            (DialCode::HostPaused, "cmux cloud resume-machine --target machine:vm-example"),
+            (DialCode::UnknownHost, "cmux cloud list-machines"),
+            (DialCode::NotAuthorized, "cmux cloud diagnostics"),
+            (DialCode::Unreachable, "cmux cloud diagnostics"),
+            (DialCode::BadRequest, "cmux cloud diagnostics"),
+            (DialCode::Unavailable("offline".into()), "cmux cloud diagnostics"),
+        ] {
+            let error = dial_error("vm-example", &code);
+            assert!(error.message.contains("vm-example"));
+            assert!(error.message.contains(hint), "{}", error.message);
+        }
+    }
 }

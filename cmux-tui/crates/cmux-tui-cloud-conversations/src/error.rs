@@ -70,14 +70,17 @@ impl CloudError {
 impl fmt::Display for CloudError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Rejected { code, message, .. } if message.is_empty() || message == code => write!(
-                formatter,
-                "cmux Cloud conversation request failed ({code}); retry the command",
-            ),
-            Self::Rejected { code, message, .. } => write!(
-                formatter,
-                "cmux Cloud conversation request failed: {message} ({code}); retry the command",
-            ),
+            Self::Rejected { code, message, retryable } => {
+                write!(formatter, "cmux Cloud conversation request failed ({code})")?;
+                if !message.is_empty() && message != code {
+                    write!(formatter, ": {message}")?;
+                }
+                if *retryable {
+                    formatter.write_str("; retry with the same idempotency key, or run `cmux cloud diagnostics`")
+                } else {
+                    formatter.write_str("; run `cmux cloud diagnostics`")
+                }
+            }
             Self::SignedOut => formatter.write_str(
                 "cmux Cloud conversation request failed: not signed in; run `cmux cloud sign-in`",
             ),
@@ -89,14 +92,43 @@ impl fmt::Display for CloudError {
             ),
             Self::Unavailable(detail) => write!(
                 formatter,
-                "cmux Cloud conversation request failed: {detail}; retry the command or run `cmux cloud diagnostics`",
+                "cmux Cloud conversation request failed: {detail}; the operation may have succeeded; retry with the same idempotency key or run `cmux cloud diagnostics`",
             ),
             Self::BadRequest(detail) => write!(
                 formatter,
-                "cmux Cloud conversation request had invalid arguments: {detail}; retry with valid arguments",
+                "cmux Cloud conversation request had invalid arguments: {detail}; check the arguments with `cmux --help`",
             ),
         }
     }
 }
 
 impl std::error::Error for CloudError {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn display_names_the_next_step_without_retrying_permanent_rejections() {
+        for error in
+            [CloudError::SignedOut, CloudError::SessionExpired, CloudError::Unauthenticated]
+        {
+            assert!(error.to_string().contains("cmux cloud sign-in"));
+        }
+        for retryable in [false, true] {
+            let error = CloudError::Rejected {
+                code: "denied".into(),
+                message: "scope is missing".into(),
+                retryable,
+            };
+            let message = error.to_string();
+            assert!(message.contains("scope is missing"));
+            assert!(message.contains("cmux cloud diagnostics"));
+            assert_eq!(message.contains("retry with the same idempotency key"), retryable);
+        }
+        assert!(
+            CloudError::Unavailable("timeout".into()).to_string().contains("same idempotency key")
+        );
+        assert!(CloudError::BadRequest("missing id".into()).to_string().contains("cmux --help"));
+    }
+}

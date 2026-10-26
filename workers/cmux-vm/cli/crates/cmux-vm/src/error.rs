@@ -93,25 +93,14 @@ impl CliError {
     /// HTTP error body does not contain the CLI's original path, so callers
     /// add this at the VM operation boundary.
     pub fn for_vm(mut self, vm_id: &str, verb: &str) -> Self {
-        let next = match verb {
-            "exec" => format!("cmux-vm exec {vm_id} -- <command>"),
-            "pause" => format!("cmux-vm pause {vm_id}"),
-            "resume" => format!("cmux-vm resume {vm_id}"),
-            "start" => format!("cmux-vm start {vm_id}"),
-            "stop" => format!("cmux-vm stop {vm_id}"),
-            "delete" => format!("cmux-vm delete {vm_id} --yes"),
-            "fork" => format!("cmux-vm fork {vm_id}"),
-            "snapshot" => format!("cmux-vm snapshot create {vm_id}"),
-            _ => format!("cmux-vm get {vm_id}"),
+        self.message = format!("VM {vm_id} {verb} failed: {}", self.message);
+        let next = if self.status == Some(404) {
+            "cmux-vm list".to_owned()
+        } else {
+            format!("cmux-vm get {vm_id}")
         };
-        if self.status == Some(404) && self.message == "not found" {
-            self.message = format!("VM {vm_id} was not found; run `cmux-vm ls` to list VMs");
-        } else if !self.message.contains(vm_id) {
-            self.message = format!("VM {vm_id}: {}", self.message);
-        }
-        if !self.message.contains(&next) {
-            self.message.push_str(&format!("; next: `{next}`"));
-        }
+        self.message
+            .push_str(&format!("; inspect with `{next}` before retrying"));
         self
     }
 
@@ -134,7 +123,7 @@ impl CliError {
                 Self::from_status(status, &body)
             }
             Error::CommunicationError(e) | Error::ResponseBodyError(e) => Self::network(format!(
-                "could not reach the cmux VM API: {e}; check your network and retry with `cmux-vm --help`"
+                "could not reach the cmux VM API: {e}; check your network; run `cmux-vm list` to check connectivity"
             )),
             Error::InvalidRequest(message) => Self::usage(message),
             Error::InvalidResponsePayload(_, e) => Self::local(
@@ -264,4 +253,42 @@ async fn read_stream(stream: ByteStream) -> Vec<u8> {
 fn append_capped(body: &mut Vec<u8>, chunk: &[u8]) {
     let room = MAX_ERROR_BODY.saturating_sub(body.len());
     body.extend_from_slice(&chunk[..chunk.len().min(room)]);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn vm_errors_preserve_server_details_and_status() {
+        for (status, body, fragments) in [
+            (403, json!({"scope":"vm:exec"}), vec!["vm:exec"]),
+            (
+                400,
+                json!({"field":"linuxUser", "message":"invalid user", "action":"choose root"}),
+                vec!["linuxUser", "invalid user", "choose root"],
+            ),
+            (409, json!({"state":"paused"}), vec!["paused"]),
+            (404, json!({}), vec!["cmux-vm list"]),
+        ] {
+            let error = CliError::from_status(status, &serde_json::to_vec(&body).unwrap())
+                .for_vm("vm_example", "exec");
+            assert_eq!(error.exit_code(), exit::for_status(status));
+            assert!(error.message.contains("VM vm_example exec failed"));
+            for fragment in fragments {
+                assert!(error.message.contains(fragment), "{}", error.message);
+            }
+            assert!(!error.message.contains("cmux-vm ls"));
+        }
+    }
+
+    #[test]
+    fn fork_recovery_preserves_the_original_idempotency_key() {
+        let error = CliError::network("connection closed")
+            .with_idempotency_hint("original-key")
+            .for_vm("vm_example", "fork");
+        assert!(error.message.contains("--idempotency-key original-key"));
+        assert!(error.message.contains("cmux-vm get vm_example"));
+        assert!(!error.message.contains("cmux-vm fork"));
+    }
 }

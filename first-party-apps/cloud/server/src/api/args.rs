@@ -148,3 +148,19 @@ pub(crate) fn params(map: &Map<String, Value>, fields: &[&str]) -> Value {
     }
     Value::Object(out)
 }
+
+#[cfg(test)]
+mod hint_tests {
+    use super::*;
+
+    #[test]
+    fn argument_errors_name_the_field_and_valid_choices() {
+        let error = object(&serde_json::json!({"extra":1}), &["machine"]).unwrap_err();
+        assert!(error.message.contains("extra"));
+        assert!(error.message.contains("valid arguments: machine"));
+        assert!(id(&Map::new(), "machine").unwrap_err().message.contains("machine is required"));
+        assert!(
+            check_id("machine", "!").unwrap_err().message.contains("machine is not a valid id")
+        );
+    }
+}
