@@ -375,3 +375,33 @@ test("an ask whose feedback deny is out cannot open a second one", async () => {
   expect(denies).toEqual(["not that", "use the cache"]);
   await card.unmount();
 });
+
+test("an answer still out past the card's memory of taken answers keeps its ask, and its reply", async () => {
+  const replies: Array<(ok: boolean) => void> = [];
+  const card = await mount(ask("p0"), {
+    onDenyWithFeedback: () => new Promise<boolean>((resolve) => replies.push(resolve)),
+  });
+  await card.key("3");
+  await card.type("not that");
+  await card.click(translate("permission.feedbackSend"));
+  await card.key("1");
+  // Far more asks than the card remembers come and are answered and taken while p0's deny is out.
+  for (let i = 1; i <= 40; i++) {
+    await card.render(ask(`p${i}`));
+    await card.key("1");
+    await card.settle(i - 1, true);
+  }
+  await card.render(ask("p0"));
+  await card.key("1");
+  await card.click(translate("permission.allowOnce"));
+  expect(card.sent.filter((s) => s.permissionId === "p0")).toHaveLength(0);
+  // Refused: p0's field takes text again, and it can be sent.
+  await act(async () => replies[0]!(false));
+  await card.flush();
+  const field = card.host.querySelector("textarea");
+  expect(field?.readOnly).toBe(false);
+  expect(field?.value).toBe("not that");
+  await card.click(translate("permission.feedbackSend"));
+  expect(replies).toHaveLength(2);
+  await card.unmount();
+});
