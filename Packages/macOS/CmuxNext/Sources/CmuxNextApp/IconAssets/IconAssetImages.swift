@@ -9,23 +9,6 @@ import ImageIO
 import Observation
 import CmuxNextIcons
 
-/// Where an asset's bytes are read from: its owner daemon's `get-blob` (tests read from their own).
-struct IconAssetSource {
-    /// The stored bytes of an asset icon value and their media type.
-    let read: @Sendable (_ icon: String) async throws -> (data: Data, mediaType: String)
-
-    /// `owner`'s icon asset store; nil when there is no owner, or it does not store icon assets or is not connected.
-    init?(owner: DaemonService?) {
-        guard let owner, owner.supports(DaemonCapability.iconAssets.rawValue), let connection = owner.connection else { return nil }
-        let client = IconAssetClient(connection)
-        read = { icon in try await client.get(icon) }
-    }
-
-    init(read: @escaping @Sendable (_ icon: String) async throws -> (data: Data, mediaType: String)) {
-        self.read = read
-    }
-}
-
 /// Stored icon assets (`image:` / `svg:sha256-<hex>`) as images to draw. Each asset is read from
 /// its owner once (`get-blob`), decoded off the main actor and kept; a reader observing
 /// ``image(_:owner:)`` redraws when that asset arrives. Each asset is observed on its own, so a
@@ -51,6 +34,23 @@ final class IconAssetImages {
     nonisolated static let keep = 1024
     /// How long after its last read (or its arrival) a decode is in use, which a release keeps.
     nonisolated static let inUse: Duration = .seconds(1)
+
+    /// Where an asset's bytes are read from: its owner daemon's `get-blob` (tests read from their own).
+    struct Source {
+        /// The stored bytes of an asset icon value and their media type.
+        let read: @Sendable (_ icon: String) async throws -> (data: Data, mediaType: String)
+
+        /// `owner`'s icon asset store; nil when there is no owner, or it does not store icon assets or is not connected.
+        init?(owner: DaemonService?) {
+            guard let owner, owner.supports(DaemonCapability.iconAssets.rawValue), let connection = owner.connection else { return nil }
+            let client = IconAssetClient(connection)
+            read = { icon in try await client.get(icon) }
+        }
+
+        init(read: @escaping @Sendable (_ icon: String) async throws -> (data: Data, mediaType: String)) {
+            self.read = read
+        }
+    }
 
     /// One asset, observed on its own. Forgetting it removes the slot without writing `image`, so no
     /// reader is told; a later read makes a new slot.
@@ -95,11 +95,11 @@ final class IconAssetImages {
 
     /// The image of asset icon `icon` (nil for an emoji or symbol, or until it is read).
     func image(_ icon: String, owner: DaemonService?) -> SidebarFavicon? {
-        image(icon, from: IconAssetSource(owner: owner))
+        image(icon, from: Source(owner: owner))
     }
 
     /// The image of asset icon `icon`, read from `source` the first time and again after a release forgot it.
-    func image(_ icon: String, from source: @autoclosure () -> IconAssetSource?) -> SidebarFavicon? {
+    func image(_ icon: String, from source: @autoclosure () -> Source?) -> SidebarFavicon? {
         guard let value = IconValue(wire: icon), Self.isAsset(value) else { return nil }
         let slot = slot(icon)
         if let image = slot.image {

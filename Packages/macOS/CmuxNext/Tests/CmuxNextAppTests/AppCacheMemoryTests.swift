@@ -186,9 +186,9 @@ import Testing
     }
 
     /// A source that serves ``svg`` for every asset and logs each read.
-    private static func source(_ log: BlobLog) -> IconAssetSource {
+    private static func source(_ log: BlobLog) -> IconAssetImages.Source {
         let svg = svg
-        return IconAssetSource { _ in
+        return IconAssetImages.Source { _ in
             await log.record()
             return (svg, "image/svg+xml")
         }
@@ -196,7 +196,7 @@ import Testing
 
     /// Reads `icon` (not decoded yet) as an observing mapping does, then what that reader reads again once
     /// it is told the icon arrived.
-    private static func arrived(_ icon: String, in images: IconAssetImages, from source: IconAssetSource) async -> SidebarFavicon? {
+    private static func arrived(_ icon: String, in images: IconAssetImages, from source: IconAssetImages.Source) async -> SidebarFavicon? {
         await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
             withObservationTracking {
                 _ = images.image(icon, from: source)
