@@ -4,8 +4,9 @@ import Testing
 
 /// The pickers fold a repository's worktrees under one row (`project.list` `repos`): the host reads
 /// each folder's repository from Git's own small files, never by running `git`, and never reads a
-/// Git folder inside a macOS privacy-protected folder (LAUNCH-NO-TCC-PROMPTS). A project with no
-/// icon file draws its manifest's framework or language mark, else its GitHub owner's avatar (`project.icon`).
+/// Git folder inside a macOS privacy-protected folder (LAUNCH-NO-TCC-PROMPTS). A project in a
+/// GitHub project draws its owner's avatar, else its icon file, else its manifest's framework or
+/// language mark (`project.icon`).
 @Suite(.serialized)
 struct AgentPaneProjectRepoTests {
     nonisolated private static let png = Data([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0, 0, 0, 0x0D])

@@ -72,6 +72,19 @@ test("a local project with a favicon shows it in its badge", async () => {
   expect(badge.textContent).toBe("");
 });
 
+// The avatar comes first, so an avatar WebKit cannot draw is how a GitHub project shows its mark.
+test("an icon that fails to draw falls back to the framework's mark", async () => {
+  setProjectIconHost(async () => ({ src: ICON, glyph: "rust" }));
+  const badge = await render({ cwd: "/Users/me/code/engine", label: "engine" });
+  expect(badge.dataset.projectGlyph).toBeUndefined();
+  await act(async () => {
+    badge.querySelector("img")!.dispatchEvent(new dom!.window.Event("error"));
+  });
+  expect(badge.querySelector("img")).toBeNull();
+  expect(badge.dataset.projectGlyph).toBe("rust");
+  expect(badge.querySelector("svg path")?.getAttribute("d")).toBe(GLYPHS.rust.path);
+});
+
 // Leo 2026-10-21 on the New Tab project picker: two-letter tiles (PR, CM, CG, LW) with a grey dot.
 test("a project with no icon and no language draws a folder, never its letters", async () => {
   setProjectIconHost(async () => ({}));
