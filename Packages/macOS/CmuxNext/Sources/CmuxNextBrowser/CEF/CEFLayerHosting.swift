@@ -12,8 +12,11 @@ import IOSurface
 /// Track A calls (``Fork/trackA``, nil while the feature is off), hosts a
 /// pane's page only where the app makes every one of them (``TrackA``);
 /// DevTools and popup windows keep drawing in their own window (``Widget``)
-/// until task p03-rendering-056 hosts them. The developer's Debug override is
-/// the feature's local override (the App's bridge), never read here.
+/// until task p03-rendering-056 hosts them. The Debug tunable
+/// `browserResize.layerHosting` is only that feature's local override,
+/// resolved at launch, never read here. The benches' arm, feature
+/// `cefLayerHostingEveryPage` (DEBUG and bench builds, ``Fork/hostsEveryPage``),
+/// hosts every page window, DevTools and popups too.
 ///
 /// The context belongs to the page window, not to a tab: every tab of a pane
 /// shares it, so a tab switch inside a hosted pane makes no fork call. A new
@@ -137,7 +140,7 @@ final class CEFLayerHosting {
     typealias Scheduler = (_ block: @escaping @MainActor @Sendable () -> Void) -> Void
 
     /// - Parameters:
-    ///   - isEnabled: hosts every page window whatever the feature (``hosting(override:fork:widget:)``):
+    ///   - isEnabled: hosts every page window whatever the features (``hosting(override:fork:widget:)``):
     ///     tests force hosting with it; the app never does.
     ///   - schedule: runs a block at the end of this run-loop turn; tests run it when they choose.
     ///   - makePage: the hosted view for a frame; tests pass one whose layer host fails.
