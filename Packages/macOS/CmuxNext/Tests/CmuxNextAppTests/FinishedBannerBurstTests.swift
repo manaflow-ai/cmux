@@ -5,6 +5,7 @@ import CmuxNextBridge
 import CmuxNextSettings
 import Foundation
 import Testing
+import CmuxNextWakeupsTestSupport
 
 /// Agent-finished banners that land in one burst collapse per workspace (cx-kz6m0.1, parity with the
 /// old app's coalescing queue; RFC #20891 proposal 3). Within the window, a second agent finishing in

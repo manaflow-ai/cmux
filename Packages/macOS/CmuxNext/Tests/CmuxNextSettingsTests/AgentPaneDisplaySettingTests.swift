@@ -18,6 +18,8 @@ struct AgentPaneDisplaySettingTests {
         Row(key: "agentPane.display.width", fallback: .number(800), accepted: [.number(480), .number(1200), .number(4000)],
             refused: [.number(100), .number(5000), .string("wide")]),
         Row(key: "agentPane.display.fullWidth", fallback: .bool(false), accepted: [.bool(true)], refused: [.string("yes")]),
+        // The VS Code-style chat minimap: off unless turned on.
+        Row(key: "agentPane.display.vscodeMinimap", fallback: .bool(false), accepted: [.bool(true)], refused: [.string("on")]),
         Row(key: "agentPane.display.font.preset", fallback: .string("markdown"),
             accepted: [.string("system"), .string("serif"), .string("mono")], refused: [.string("comic")]),
         Row(key: "agentPane.display.font.size", fallback: .number(14), accepted: [.number(10), .number(28)],
@@ -29,7 +31,9 @@ struct AgentPaneDisplaySettingTests {
             refused: [.number(0.2), .number(3)]),
         Row(key: "agentPane.display.inspector.placement", fallback: .string("overlay"), accepted: [.string("push")],
             refused: [.string("left"), .bool(true)]),
-        Row(key: "agentPane.display.minimap", fallback: .string("off"), accepted: [.string("compact"), .string("full")],
+        Row(key: "agentPane.display.environment.placement", fallback: .string("left"),
+            accepted: [.string("right"), .string("off")], refused: [.string("overlay"), .bool(true)]),
+        Row(key: "agentPane.display.minimap", fallback: .string("compact"), accepted: [.string("off"), .string("full")],
             refused: [.bool(true), .string("left")]),
         Row(key: "markdown.code.family", fallback: nil, accepted: [.string("Menlo")], refused: [.bool(true)]),
     ]
@@ -49,6 +53,7 @@ struct AgentPaneDisplaySettingTests {
             "agentPane": .object(["display": .object([
                 "font": .object(["size": .number(16), "lineHeight": .number(9)]),
                 "width": .number(1200),
+                "environment": .object(["placement": .string("right")]),
             ])]),
             "markdown": .object([
                 "font": .object(["preset": .string("serif"), "size": .number(20)]),
@@ -59,6 +64,7 @@ struct AgentPaneDisplaySettingTests {
         let display = AgentPaneDisplaySetting(fileRoot: root)
         #expect(display.values == [
             "agentPane.display.font.size": .number(16),
+            "agentPane.display.environment.placement": .string("right"),
             "agentPane.display.width": .number(1200),
             "markdown.font.preset": .string("serif"),
             "markdown.code.family": .string("JetBrains Mono"),
@@ -84,15 +90,23 @@ struct AgentPaneDisplaySettingTests {
         #expect(page(.string("yes")) == nil)
     }
 
+    @Test func thePageFollowsMinimalMode() {
+        let on: JSONValue = .object(["sidebar": .object(["minimal": .bool(true), "density": .string("compact")])])
+        #expect(AgentPaneDisplaySetting(fileRoot: on).values == ["sidebar.minimal": .bool(true)])
+        let bad: JSONValue = .object(["sidebar": .object(["minimal": .string("yes")])])
+        #expect(AgentPaneDisplaySetting(fileRoot: bad) == .fallback)
+    }
+
     @Test(arguments: [
         "agentPane.display.width", "agentPane.display.code.family", "agentPane.display.font.size",
-        "agentPane.display.inspector.placement", "agentPane.display.minimap",
+        "agentPane.display.inspector.placement", "agentPane.display.environment.placement",
+        "agentPane.display.minimap",
     ])
     func thePageMayWriteTheChatKeys(_ key: String) {
         #expect(AgentPaneDisplaySetting.writablePath(key) == key.split(separator: ".").map(String.init))
     }
 
-    @Test(arguments: ["markdown.font.size", "terminal.fontFamily", "agentPane.showDictation", "agentPane.display", ""])
+    @Test(arguments: ["markdown.font.size", "terminal.fontFamily", "agentPane.showDictation", "agentPane.display", "sidebar.minimal", ""])
     func thePageMayWriteNoOtherKey(_ key: String) {
         #expect(AgentPaneDisplaySetting.writablePath(key) == nil)
     }

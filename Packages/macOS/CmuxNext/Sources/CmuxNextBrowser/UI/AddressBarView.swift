@@ -250,12 +250,18 @@ public final class AddressBarView: NSView {
     /// The machine whose localhost this tab sees, as a subtle chip; nil
     /// hides it (plans/cmux-next/remote-localhost.md section 6).
     public func setMachineBadge(_ text: String?, help: String?) {
+        // Called on every render of the chrome; the same badge shows nothing new and moves no layout.
+        if let shown = shownMachineBadge, shown.text == text, shown.help == help { return }
+        shownMachineBadge = (text, help)
         if let text {
             machineBadgeView.show(text: text, help: help ?? text)
         }
         machineBadgeView.isHidden = text == nil
         updateBadgeSpace()
     }
+
+    /// The machine badge last applied (`setMachineBadge`), so an unchanged one returns at once.
+    private var shownMachineBadge: (text: String?, help: String?)?
 
     /// The tab's browser profile as a small avatar; nil hides it (one
     /// profile, or an incognito tab).

@@ -80,6 +80,7 @@ struct HomeGroupInfoView: View {
                         memberRow(member)
                     }
                 }
+                .thinScrollers()
             }
             .frame(maxHeight: 200)
             .fixedSize(horizontal: false, vertical: fits)
@@ -136,6 +137,7 @@ struct HomeGroupInfoView: View {
                                 contactRow(contact, isChosen: chosen.contains(contact.id))
                             }
                         }
+                        .thinScrollers()
                     }
                     .frame(maxHeight: 160)
                 }

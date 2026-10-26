@@ -1,5 +1,5 @@
 public import CmuxUpdater
-import CmuxNextWakeups
+public import CmuxNextWakeups
 import Network
 public import Foundation
 import Observation
@@ -19,6 +19,9 @@ import Observation
 @Observable
 public final class UpdaterService {
     public let identity: UpdateBuildIdentity
+    /// The blocking-work lanes the kept-versions listing runs on (the app's one, AppServices; tests and
+    /// previews get lanes of their own).
+    let work: BackgroundWork
     public let log: UpdateLogBuffer
     /// The Sparkle driver; nil when Sparkle cannot run in this build.
     public let controller: UpdateController?
@@ -41,6 +44,10 @@ public final class UpdaterService {
     }
     /// The R114 install gate over ``indicatorPhase``.
     public internal(set) var flow = UpdateFlow()
+    /// How many times the gate's phase moved (``syncFlowPhase()``): a caller that follows one
+    /// request (the CLI's install) tells a phase its request reached from one already shown,
+    /// even when observation coalesces the moves in between.
+    public internal(set) var flowMoves = 0
     /// UPDATE-CARD-CLOSE: the update version whose card the person closed and the end of a
     /// "Remind Me Later" (``UpdateSnooze``, kept in `defaults`).
     public internal(set) var updateSnooze = UpdateSnooze()
@@ -52,7 +59,19 @@ public final class UpdaterService {
     /// injected clock (no `asyncAfter`).
     @ObservationIgnored var expiringCard: UpdateCard?
     @ObservationIgnored let cardTimer: DemandTimer
+    /// When the install phase began (``installStatus``), nil outside it.
+    @ObservationIgnored var installStartedAt: Date?
+    /// Bumped by ``installTimer`` so the installing card's seconds move.
+    var installTick = 0
+    /// The person closed the card of an install that never relaunched.
+    var installCardDismissed = false
+    /// The install already gave up (``UpdateInstallStatus/Stage/stalled``) once.
+    @ObservationIgnored var installGaveUp = false
+    /// The installing card's one-second tick, only while an install runs.
+    @ObservationIgnored let installTimer: DemandTimer
     @ObservationIgnored let stagedRefresh: StagedUpdateRefresh
+    /// The tip app's 5-minute feed read while nothing waits (``TipUpdateCheck``).
+    @ObservationIgnored let tipCheck: TipUpdateCheck
     /// Opens the changelog page (set by the App; the What's New page's link).
     @ObservationIgnored public var openChangelog: (() -> Bool)?
     /// Opens the changelog page for the releases after `from` up to `to`
@@ -130,17 +149,26 @@ public final class UpdaterService {
     public var preferences = UpdatePreferences.defaults
     /// Sparkle's staged install and its cancel (replaced by tests).
     @ObservationIgnored var installStaged: () -> Void = {}
+    /// The install click replaced a stale staged build (``StagedUpdateRefresh/beforeInstall(updater:install:)``):
+    /// the click carries over to the newer build's check and download (``carryInstallClick(_:)``).
+    @ObservationIgnored var installAfterSwap = false
+    /// Replaces the install click's disk preflight (``installPreflightFailure()``) in tests.
+    @ObservationIgnored var preflightOverride: (() -> UpdateInstallPreflight.Failure?)?
     /// The cancel returns whether an installer was held and is now cancelled.
     @ObservationIgnored var cancelStaged: () -> Bool = { false }
     @ObservationIgnored var acceptAvailable: () -> Void = {}
     @ObservationIgnored var phaseObservation: Task<Void, Never>?
     @ObservationIgnored var pathMonitor: NWPathMonitor?
     @ObservationIgnored var network: (constrained: Bool, expensive: Bool) = (false, false)
-    @ObservationIgnored var downloadSetting: (enabled: Bool, metered: UpdateMeteredMode) = (true, .deferLowData)
+    /// `updates.downloadAutomatically` and `meteredNetwork` as last configured; nothing downloads
+    /// by itself until the settings load (``configure``).
+    @ObservationIgnored var downloadSetting: (enabled: Bool, metered: UpdateMeteredMode) = (false, .deferLowData)
+    /// Whether found updates download by themselves now (``applyDownloadPolicy()``).
+    @ObservationIgnored var downloadsFoundUpdates = false
     /// The App's observation of the `updates.*` settings.
     @ObservationIgnored public var settingsObservation: Task<Void, Never>?
     @ObservationIgnored let now: () -> Date
-    #if DEBUG
+    #if DEBUG || CMUX_BENCH_HOOKS
     /// The card kind last written to the update harness's timeline.
     @ObservationIgnored var markedCardKind: String?
     #endif
@@ -161,7 +189,7 @@ public final class UpdaterService {
     /// Whether the update sheet is on screen (set by the App): a note's
     /// timeout then leaves the state alone so the sheet keeps its details.
     @ObservationIgnored public var isSheetPresented: () -> Bool = { false }
-    @ObservationIgnored private let policy: ManagedUpdatePolicy
+    @ObservationIgnored let policy: ManagedUpdatePolicy
     @ObservationIgnored let prober: UpdateProber
     @ObservationIgnored let defaults: UserDefaults
     @ObservationIgnored private let switcher: AppChannelSwitcher
@@ -185,11 +213,16 @@ public final class UpdaterService {
                 enableSparkle: Bool = true,
                 recordsUpdates: Bool = true,
                 now: @escaping () -> Date = Date.init,
-                clock: any Clock<Duration> = ContinuousClock()) {
+                clock: any Clock<Duration> = ContinuousClock(),
+                work: BackgroundWork = BackgroundWork(label: "com.cmuxterm.next.work.updater")) {
         self.now = now
+        self.work = work
+        automaticUpdates = identity.track.downloadsAutomaticallyByDefault
         cardTimer = DemandTimer(owner: "UpdaterService.card", clock: clock)
+        installTimer = DemandTimer(owner: "UpdaterService.install", clock: clock)
         snoozeTimer = DemandTimer(owner: "UpdaterService.snooze", clock: clock)
         stagedRefresh = StagedUpdateRefresh(clock: clock)
+        tipCheck = TipUpdateCheck(clock: clock)
         self.identity = identity
         self.policy = policy
         self.prober = prober
@@ -204,24 +237,30 @@ public final class UpdaterService {
         // The managed policy is re-read by the driver on every start and check,
         // so it is not a reason to skip building it.
         if enableSparkle, identity.sparkleDisabledReason(managedPolicyDisablesUpdates: false) == nil {
-            let controller = UpdateController(log: log, defaults: defaults, isDisabledByPolicy: { policy.disablesUpdates })
+            // The track decides, not the bundle id: the tip app has a DEV id but runs Sparkle.
+            let controller = UpdateController(log: log, defaults: defaults, isDevLikeBundle: identity.track == .development,
+                                              isDisabledByPolicy: { policy.disablesUpdates })
             // Never prompt: download in the background and wait for a click.
             // Set on this updater only; no defaults change, so the legacy app
             // sharing the domain keeps its own behavior.
             controller.installsUpdatesInBackground = true
-            // The click hides every window and the daemon keeps every session, so a user
-            // install relaunches at once; only automatic idle installs wait.
+            // The daemon keeps every terminal, agent and running turn, so all app relaunches are
+            // immediate. `UpdateDriver` uses this same flag for automatic installs.
             controller.holdsUserInstalls = false
             // The nightly feed lists each build's deltas minutes after its DMG
             // (nightly.yml generate-nightly-deltas); a scheduled check in that gap
-            // waits once instead of downloading the full DMG.
-            if identity.track == .nightly { controller.pendingDeltaWindow = 45 * 60 }
-            // A nightly installs a downloaded update by itself once agents, commands and input
-            // are quiet, or at `updates.idleInstallMaxWaitSeconds`; no prompt.
-            controller.installsUpdatesWhenIdle = identity.track == .nightly
+            // waits once instead of downloading the full DMG. The tip feed lists an
+            // item's deltas with it (cmux-next-dev-daily.yml, job tip): nothing comes later.
+            if identity.track == .nightly, !identity.isTipBuild { controller.pendingDeltaWindow = 45 * 60 }
+            // Until the settings load (``configure``), a launch check's update waits: nothing
+            // downloads or installs by itself, whichever way `updates.downloadAutomatically` is set.
+            // Once it is on, a downloaded update installs by itself once staged; the daemon preserves
+            // agents, commands and turns while the app relaunches.
+            controller.installsUpdatesWhenIdle = false
+            controller.downloadsUpdatesInBackground = false
             self.controller = controller
         } else {
-            #if DEBUG
+            #if DEBUG || CMUX_BENCH_HOOKS
             controller = enableSparkle ? UpdateHarness.current?.controller(identity: identity, log: log, defaults: defaults, policy: policy) : nil
             #else
             controller = nil
@@ -255,6 +294,7 @@ public final class UpdaterService {
         refreshAnnouncements()
         refreshTip()
         refreshUpdateSnooze()
+        tipCheck.refresh(self)
         guard let controller else {
             log.append("sparkle not started (\(disabledReason?.rawValue ?? "no driver"), track=\(identity.track.rawValue))")
             return
@@ -262,7 +302,7 @@ public final class UpdaterService {
         controller.actionDelegate = self
         pulledWatch.start(controller: controller)
         controller.startUpdaterIfNeeded()
-        #if DEBUG
+        #if DEBUG || CMUX_BENCH_HOOKS
         if UpdateHarness.current?.backgroundCheck == true {
             UpdateHarness.mark("background_check")
             controller.checkInBackground()
@@ -359,7 +399,7 @@ public final class UpdaterService {
     /// card (Restart to Update).
     public func installAvailableUpdate() throws {
         guard let controller, disabledReason == nil else { throw UpdaterUnavailable(reason: disabledReason) }
-        #if DEBUG
+        #if DEBUG || CMUX_BENCH_HOOKS
         UpdateHarness.mark("install_clicked")
         #endif
         if needsSheet { presentUpdateUI?() }
