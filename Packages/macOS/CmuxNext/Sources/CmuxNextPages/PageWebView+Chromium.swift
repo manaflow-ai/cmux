@@ -298,7 +298,8 @@ extension PageWebView {
     /// for the supervisor. A page that closed, fell back or was discarded has no start and no session,
     /// and a page that waits already ignores it.
     private func chromiumBrowserEnded() {
-        guard chromiumSession != nil || chromiumStart != nil else { return }
+        // A closed page waiting for its engine close asks no supervisor for a new browser.
+        guard !router.isEnded, chromiumSession != nil || chromiumStart != nil else { return }
         PageChromiumRecovery.browserEnded(self)
     }
 

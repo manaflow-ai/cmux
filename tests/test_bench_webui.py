@@ -46,10 +46,12 @@ class FakeApp:
     override), or ignored (a reply that confirms nothing, as a build without the verb).
     `other_pane` holds the tabs of a second pane; a new chat opens in the first. Cmd-, opens Settings, painted
     `open_delay` s after the key (`cold_delay` when its renderer is new); Cmd-W closes it. `freeze_after` None is
-    `browser.freezeHiddenTabs` "off" (pages stay hidden and still discard on time)."""
+    `browser.freezeHiddenTabs` "off" (pages stay hidden and still discard on time). `engine_close` is when a Cmd-W
+    ends Settings' engine page, stamped in `debug.webui` `retire`: "deferred" at the retirer's deadline (0.5 s
+    later), "in_turn" in the key's turn; None is a build with no `retire`."""
 
     def __init__(self, clock, census=True, windows=1, tabs=("terminal",), cef=None, leak=False, fork_api=29, keep=(),
-                 verbs="ok", other_pane=(), open_delay=0.012, cold_delay=0.09, freeze_after=10):
+                 verbs="ok", other_pane=(), open_delay=0.012, cold_delay=0.09, freeze_after=10, engine_close=None):
         self.clock, self.has_census, self.leak, self.keep = clock, census, leak, set(keep)
         self.windows, self.tabs, self.other_pane = windows, list(tabs), list(other_pane)
         self.verbs, self.open_delay, self.cold_delay = verbs, open_delay, cold_delay
@@ -64,6 +66,7 @@ class FakeApp:
         self.hides = 0  # the order pages were hidden in: socket calls take no fake time, so several hide at once
         self.budget, self.shown_tab, self.seeded = [], None, {}
         self.visible = iter([4.0, 6.0, 7.5, 9.0] * 50)
+        self.engine_close, self.engine_close_uptimes = engine_close, []
 
     def page_for(self, action, args):
         for page_id, name, _ in webui.PAGES10:
@@ -140,6 +143,8 @@ class FakeApp:
             elif params["key"] == "w":
                 self.pages.pop("cmux.settings", None)
                 self.record("closeTab")
+                if self.engine_close:
+                    self.engine_close_uptimes.append(self.clock.now + (0.5 if self.engine_close == "deferred" else 0.001))
             return {}
         if method == "debug.action_budget":
             return {"recent": self.budget[-params.get("limit", 64):]}
@@ -195,7 +200,9 @@ class FakeApp:
                               "keep_reasons": ["audio"] if p in self.keep else [],
                               "renderer_pid": None if page["state"] == "discarded" else page["pid"],
                               "hidden_deliveries": page["deliveries"], "hidden_pushes": 0, "devtools": False}
-                             for p, page in self.pages.items()]}
+                             for p, page in self.pages.items()],
+                    **({"retire": {"engine_closes": len(self.engine_close_uptimes),
+                                   "engine_close_uptimes": self.engine_close_uptimes[-32:]}} if self.engine_close else {})}
         if method == "debug.wakeups":
             return {"ledger": [{"owner": "terminal.cursor", "reason": "blink", "per_second": 2}]}
         return {}
@@ -642,6 +649,18 @@ class OpenTests(unittest.TestCase):
         for name in ("cef.window_built_on_key_turn", "second_page_same_pane_windows",
                      "settings.cmd_w_engine_close_calls", "settings.cover_frame_ms"):
             self.assertEqual(got[name]["status"], "unscored", name)
+
+    def test_settings_cmd_w_counts_the_engine_closes_in_the_keys_turn(self):
+        clock = FakeClock()
+        app = FakeApp(clock, engine_close="deferred")
+        deferred = self.run_open(app, clock, kill=self.killer(app, set()))["settings.cmd_w_engine_close_calls"]
+        self.assertEqual(deferred["value"], 0)  # each close's engine page ended at the retirer's deadline
+        self.assertEqual(deferred["status"], "met")
+        clock = FakeClock()
+        app = FakeApp(clock, engine_close="in_turn")
+        in_turn = self.run_open(app, clock, kill=self.killer(app, set()))["settings.cmd_w_engine_close_calls"]
+        self.assertEqual(in_turn["value"], 7)  # one per Cmd-W: the first, --runs 4 and --cold-runs 2
+        self.assertEqual(in_turn["status"], "missed")
 
     def test_a_renderer_that_is_not_killed_gives_no_cold_sample(self):
         clock = FakeClock()

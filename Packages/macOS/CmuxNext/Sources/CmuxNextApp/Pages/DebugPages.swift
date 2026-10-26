@@ -81,7 +81,8 @@ extension AppControl {
                 let tab = (page as? CEFPageChromiumPage)?.tab
                 return (tab?.browserID, tab?.rendererClientIDs ?? [])
             },
-            webKitPID: { WebContentProcess.identifier(of: $0) })
+            webKitPID: { WebContentProcess.identifier(of: $0) },
+            retiring: services.webUI.retirer.count, engineCloses: services.webUI.engineCloses)
         if reset { pages.forEach { $0.resetCensusCounters() } }
         return census
     }

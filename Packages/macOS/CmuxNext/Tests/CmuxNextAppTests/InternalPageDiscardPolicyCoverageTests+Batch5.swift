@@ -106,6 +106,7 @@ import CmuxNextWakeups
         }
         let rig = Rig(cloud)
         let discarded = try await Self.discard(rig)
+        services.webUI.retirer.closeRetired() // the engine page ends at the retirer's deadline (p13-webui-064)
         #expect(web.hosting.made.first?.closed == true, "the discarded page's engine session outlived it")
         #expect(await Self.isClosed(discarded))
 
@@ -121,6 +122,7 @@ import CmuxNextWakeups
         let engine = try #require(web.hosting.made.last)
         #expect(web.scrolled(engine), "the machine list did not scroll back")
         rig.pages.close(rig.key)
+        services.webUI.retirer.closeRetired()
         #expect(engine.closed, "a closed Cloud tab left its page open")
     }
 
