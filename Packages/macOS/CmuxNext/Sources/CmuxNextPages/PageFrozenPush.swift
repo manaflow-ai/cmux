@@ -40,4 +40,7 @@ public nonisolated struct PagePushKind: Hashable, Sendable {
     public static let route = PagePushKind("route")
     /// The first-paint probe (``PagePaintProbe``).
     public static let paintProbe = PagePushKind("paintProbe")
+    /// The glass lenses' wallpaper still (`GlassBackdropFeed`): a held push carries the whole state, as the
+    /// feed sends everything after a push the page held (`GlassBackdropFeed.pushWasHeld()`).
+    public static let glass = PagePushKind("glass")
 }

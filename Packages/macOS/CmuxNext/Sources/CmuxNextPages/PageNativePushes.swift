@@ -18,6 +18,9 @@ final class PageNativePushes {
 
     private weak var page: PageWebView?
     private var held: [Held] = []
+    /// Calls that wait for the page's answer now (``callStarted()``): while one runs, the page keeps
+    /// ``PageLifecyclePlanner/KeepReason/pageCall`` and does not freeze.
+    private(set) var callsInFlight = 0
 
     /// - Parameter page: The page the scripts run in (it owns this).
     init(_ page: PageWebView) {
@@ -30,19 +33,40 @@ final class PageNativePushes {
     /// Runs `script` in the page's main frame in whichever engine shows it, after the router
     /// envelopes waiting for the frame. While the page is frozen, `push` says whether it waits for
     /// the thaw or thaws the page first.
-    func run(_ script: String, whileFrozen push: PageFrozenPush) {
-        guard let page else { return }
+    ///
+    /// - Returns: False when the script waits for the thaw (or the page is gone), true when it ran.
+    @discardableResult
+    func run(_ script: String, whileFrozen push: PageFrozenPush) -> Bool {
+        guard let page else { return false }
         if page.frozenEngine != nil {
             switch push {
             case .latest(let kind):
                 held.removeAll { $0.kind == kind }
                 held.append(Held(kind: kind, script: script))
-                return
+                return false
             case .thawsFirst:
                 thawForCall()
             }
         }
         send(script, to: page)
+        return true
+    }
+
+    /// A call that waits for the page's answer starts (``PageWebView/callPageScript(_:arguments:)``,
+    /// ``PageWebView/callPageFunction(_:arguments:)``): the page thaws first, and does not freeze until
+    /// the matching ``callEnded()``.
+    func callStarted() {
+        callsInFlight += 1
+        thawForCall()
+    }
+
+    /// The call of one ``callStarted()`` has its answer: once none is left, the lifecycle looks at the
+    /// page again and may freeze it.
+    func callEnded() {
+        guard callsInFlight > 0 else { return }
+        callsInFlight -= 1
+        guard callsInFlight == 0, let page else { return }
+        page.loadState.lifecycle?.pageReasonsDidChange(page)
     }
 
     /// A freeze starts: nothing is held.
@@ -60,8 +84,8 @@ final class PageNativePushes {
 
     /// A call that needs the page running reached it frozen (a ``PageFrozenPush/thawsFirst`` push, or a
     /// call that waits for the page's answer): it thaws in this turn through its lifecycle, which counts
-    /// it hidden and freezes it at its next pass, or by itself when no lifecycle holds it. Nothing on
-    /// a running page.
+    /// it hidden and freezes it again once no call runs and one recently visible window passed
+    /// (``PageLifecycle/thawForCall(_:)``), or by itself when no lifecycle holds it. Nothing on a running page.
     func thawForCall() {
         guard let page, page.frozenEngine != nil else { return }
         page.loadState.lifecycle?.thawForCall(page)

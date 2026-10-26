@@ -109,6 +109,24 @@ struct PageFrozenEvaluateTests {
         #expect(bridge.scripts.count == 2, "a second thaw ran the held pushes again")
     }
 
+    /// A glass feed push (wallpaper, art, blur) to a frozen page is held as the latest of its kind: it
+    /// runs no script and never thaws the page; the thaw runs the newest one once.
+    @Test func aGlassPushToAFrozenPageIsHeldAndItsThawRunsItOnce() throws {
+        let bridge = RecordingBridge()
+        let view = try frozenWebKitView(bridge)
+        defer { finish(view) }
+        view.pushGlass("glass(1)")
+        view.pushGlass("glass(2)")
+        #expect(bridge.scripts.isEmpty, "a frozen page ran \(bridge.scripts.count) glass scripts")
+        #expect(view.frozenEngine != nil, "a glass push thawed the frozen page")
+        #expect(view.pushes.heldScripts == ["glass(2)"])
+
+        view.thawPage()
+        #expect(bridge.scripts == ["glass(2)"])
+        view.pushGlass("glass(3)")
+        #expect(bridge.scripts == ["glass(2)", "glass(3)"], "a running page's glass push was held")
+    }
+
     /// A freeze starts with nothing held: what was held for a document that ended while frozen (a
     /// discard, a Chromium page that ended) never reaches the next one.
     @Test func aFreezeStartsWithNothingHeld() throws {
@@ -195,6 +213,85 @@ struct PageFrozenEvaluateTests {
         rig.fire()
         #expect(lifecycle.state(of: "a") == .frozen, "the page was not frozen again")
         #expect(view.frozenEngine != nil)
+    }
+
+    /// A call that waits for a frozen Chromium page's answer thaws it, and no pass freezes it again
+    /// before the answer: not one armed before the thaw, nor one after the thaw's window. Once the
+    /// answer came, the next pass freezes it.
+    @Test func aPageWaitingForACallsAnswerIsNotFrozenUntilTheAnswerComes() async throws {
+        let hosting = FakeChromiumHosting()
+        let view = try #require(PageWebView(descriptor: descriptor, root: root, routes: [], chromium: hosting))
+        defer { finish(view) }
+        view.chromiumClock = PageTestClock.never
+        await view.chromiumStart?.value
+        view.frame = tab.bounds
+        tab.addSubview(view)
+        let page = try #require(hosting.made.first)
+        view.loaded = true
+
+        let rig = LifecycleDeadlineRig()
+        let lifecycle = PageLifecycle(deadlines: rig.scheduler)
+        let encoder = PageSnapshotEncoder { _, done in done(nil) }
+        lifecycle.hide("a", page: PageWebViewLifecycle(view, encoder: encoder))
+        tab.isHidden = true
+        rig.advance(to: .seconds(5))
+        lifecycle.hide("b", page: OtherPage()) // takes mostRecentlyUsed, so "a" may freeze at 10 s
+        rig.fire()
+        #expect(lifecycle.state(of: "a") == .frozen)
+        #expect(page.lifecycleSteps.last == .frozen(true))
+
+        let answer = HeldAnswer()
+        page.evaluateGate = { await answer.gate() }
+        let call = Task { _ = await view.callPageFunction("return 1;") }
+        await answer.waitUntilEntered()
+        #expect(lifecycle.state(of: "a") == .hidden)
+        #expect(page.lifecycleSteps.last == .frozen(false), "the call did not thaw the page first")
+        let thawed = page.lifecycleSteps.count
+
+        // A pass armed before the thaw's window ends: "b"'s hide moves mostRecentlyUsed off "b" at 15 s.
+        lifecycle.hide("c", page: OtherPage())
+        let window = Duration.seconds(PageLifecyclePlanner().timing.visibleWindow(energySaver: false))
+        let early = try #require(lifecycle.nextPassAt)
+        #expect(early < rig.now + window, "no pass armed inside the thaw's window")
+        rig.fire()
+        #expect(rig.now == early)
+        #expect(lifecycle.state(of: "a") == .hidden, "a pass froze the page under its call")
+        // The thaw's window ended; the call still waits.
+        rig.fire()
+        #expect(rig.now >= early + .seconds(5))
+        #expect(lifecycle.state(of: "a") == .hidden, "a pass froze the page under its call")
+        #expect(!page.lifecycleSteps.dropFirst(thawed).contains(.frozen(true)), "the page froze before its answer")
+
+        answer.answer()
+        await call.value
+        rig.fire()
+        #expect(lifecycle.state(of: "a") == .frozen, "the page did not freeze once its answer came")
+        #expect(page.lifecycleSteps.last == .frozen(true))
+    }
+}
+
+/// An answer a test holds back: ``gate()`` waits until ``answer()``.
+@MainActor
+private final class HeldAnswer {
+    private var entered = false
+    private var onEnter: CheckedContinuation<Void, Never>?
+    private var release: CheckedContinuation<Void, Never>?
+
+    func gate() async {
+        entered = true
+        onEnter?.resume()
+        onEnter = nil
+        await withCheckedContinuation { release = $0 }
+    }
+
+    func waitUntilEntered() async {
+        guard !entered else { return }
+        await withCheckedContinuation { onEnter = $0 }
+    }
+
+    func answer() {
+        release?.resume()
+        release = nil
     }
 }
 

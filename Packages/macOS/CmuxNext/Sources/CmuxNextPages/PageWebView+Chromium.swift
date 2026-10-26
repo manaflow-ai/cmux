@@ -359,7 +359,9 @@ extension PageWebView {
     /// - Returns: The returned value as Foundation JSON (`String`, `NSNumber`, arrays, dictionaries).
     public func callPageFunction(_ body: String, arguments: [String: Any] = [:]) async -> Any? {
         guard !awaitsFirstShow else { return nil } // no document yet; WebKit would launch its process for it
-        pushes.thawForCall() // MQ12 thaws first: a frozen page cannot answer
+        // MQ12 thaws first: a frozen page cannot answer, and it does not freeze until the answer comes.
+        pushes.callStarted()
+        defer { pushes.callEnded() }
         // The router envelopes waiting for the frame were sent before it.
         scripts.flush()
         guard let page = chromiumSession?.page else {

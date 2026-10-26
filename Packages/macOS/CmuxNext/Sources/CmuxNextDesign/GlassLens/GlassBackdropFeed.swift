@@ -55,6 +55,9 @@ public final class GlassBackdropFeed {
     private(set) var pageShown = true
     /// Something asked for a push while the page was hidden: the show pushes.
     private var updateWhenShown = false
+    /// The page holds the last push for later (``pushWasHeld()``): the next one carries every field, so it
+    /// can take the held one's place.
+    private var sendsWholeState = false
 
     /// - Parameters:
     ///   - host: The view the page's viewport fills.
@@ -147,6 +150,13 @@ public final class GlassBackdropFeed {
         setNeedsUpdate()
     }
 
+    /// The page did not run the push just sent: it holds the newest push for its thaw (a frozen page,
+    /// MQ12), and a newer push takes the held one's place. Until a push runs, each one carries every
+    /// field and the image, not only what changed since the held one.
+    public func pushWasHeld() {
+        sendsWholeState = true
+    }
+
     /// Neither a live window resize nor a pane motion moves `host` now.
     private func atRest(_ host: NSView) -> Bool { !liveResize(host) && !host.isInPaneMotion }
 
@@ -200,9 +210,11 @@ public final class GlassBackdropFeed {
     }
 
     private func send(_ payload: GlassBackdropPayload, image: String?) {
-        guard let fields = payload.changes(since: sent, image: image), let script = GlassBackdropPayload.script(fields) else { return }
+        guard let fields = payload.changes(since: sendsWholeState ? nil : sent, image: image),
+              let script = GlassBackdropPayload.script(fields) else { return }
         sent = payload
-        evaluate(script)
+        sendsWholeState = false
+        evaluate(script) // a page that holds it calls pushWasHeld()
     }
 
     /// Hears art, blur and tint changes of `backdrop` (and of no other).
