@@ -837,7 +837,7 @@ def value_summary(runs, temperature=None):
         else:
             lines.append(f"  {mark}: missing in all {total} runs")
     lines.append(completion_summary(runs))
-    stopped =[str(index + 1) for index, run in enumerate(runs) if interrupted(run)]
+    stopped = [str(index + 1) for index, run in enumerate(runs) if interrupted(run)]
     lines.append(f"  {INTERRUPTED}: " + (f"runs {', '.join(stopped)} ({len(stopped)} of {total})" if stopped
                                          else f"none of {total} runs"))
     return lines

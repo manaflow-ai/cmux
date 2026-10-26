@@ -8,28 +8,57 @@ public import CmuxNextWakeups
 /// queues (content/browser/scheduler/browser_task_executor.cc) and the after-startup state
 /// (chrome/browser/after_startup_task_utils.cc), which lowers the thread pool's best-effort fence
 /// (`ThreadPoolInstance::EndBestEffortFence`, base/task/thread_pool/thread_pool_instance.h) at
-/// startup complete. `main()` raises that fence on the app's ``BackgroundWork`` as soon as the
-/// lanes exist; the order lowers it at the completion, after the `startup_complete` marks.
+/// startup complete. The fence is one pair: ``BestEffortFence`` raises it on the app's
+/// ``BackgroundWork`` as soon as the lanes exist, and the order made on that fence lowers it at
+/// the completion, after the `startup_complete` marks.
 ///
 /// ```swift
 /// let work = BackgroundWork(hangs: hangWatch)
-/// work.beginBestEffortFence()                  // main(): before any launch read is posted
-/// let order = LaunchOrder(background: work) { DebugTimings.markLaunch($0) }
-/// let restored = order.restoreHold { daemon.startup.isUnavailable }
-/// windows.onRestored = { restored(windows.controllers.count) }
+/// let fence = LaunchOrder.BestEffortFence(raisingOn: work)   // main(): before any launch read is posted
+/// let order = LaunchOrder(fence: fence) { DebugTimings.markLaunch($0) }
 /// ```
 @MainActor
 public struct LaunchOrder {
+    /// The best-effort fence `main()` raises before the first launch read is posted (Chrome's
+    /// `ThreadPoolInstance::BeginBestEffortFence`): idle and best-effort lane work waits until the
+    /// ``LaunchOrder`` made on it lowers it at startup complete.
+    public struct BestEffortFence: Sendable {
+        /// The lanes the fence holds.
+        public let background: BackgroundWork
+
+        /// Raises the fence on `background`.
+        public init(raisingOn background: BackgroundWork) {
+            background.beginBestEffortFence()
+            self.background = background
+        }
+    }
+
     /// The app's one main-thread scheduler (budget, input check, task signposts, starvation guard);
     /// its ``MainWorkScheduler/startup`` phase is the launch's.
     public let mainWork: MainWorkScheduler
     /// The one owner of launch order: posts, refs and the completion.
     public let startup: StartupScheduler
 
-    /// An order on schedulers made elsewhere (tests: hand-run frames and main hop).
-    public init(mainWork: MainWorkScheduler, startup: StartupScheduler) {
+    /// An order on schedulers made elsewhere (tests: hand-run frames and main hop); `startup` must
+    /// post its lane work to `fence`'s lanes. At startup complete it marks `startup_complete.<reason>`
+    /// (an instant mark, as task 007 sends the temperature) and then `startup_complete`, so a reader
+    /// that waits for `startup_complete` has the reason too; then it lowers the fence, so the held
+    /// idle and best-effort items start. A quit before completion never lowers it (shutdown lifts it).
+    ///
+    /// - Parameters:
+    ///   - fence: The fence `main()` raised.
+    ///   - mainWork: The main-thread scheduler.
+    ///   - startup: The startup scheduler on `mainWork`.
+    ///   - mark: Records a launch mark.
+    public init(fence: BestEffortFence, mainWork: MainWorkScheduler, startup: StartupScheduler,
+                mark: @escaping @MainActor (String) -> Void) {
         self.mainWork = mainWork
         self.startup = startup
+        startup.whenComplete { [background = fence.background] completion in
+            mark("startup_complete.\(completion.reason)")
+            mark("startup_complete")
+            background.endBestEffortFence()
+        }
     }
 
     /// The app's order: the display clock, the startup phase, the main-thread scheduler and the startup
@@ -37,10 +66,9 @@ public struct LaunchOrder {
     /// screens) and before the delegate.
     ///
     /// - Parameters:
-    ///   - background: The app's lanes, whose best-effort fence `main()` raised; it is lowered at
-    ///     startup complete (``endFenceAtCompletion(_:mark:)``).
+    ///   - fence: The fence `main()` raised on the app's lanes; lowered at startup complete.
     ///   - mark: Records a launch mark (`launch.revealed`, `launch.settled`, `startup_complete`).
-    public init(background: BackgroundWork, mark: @escaping @MainActor (String) -> Void) {
+    public init(fence: BestEffortFence, mark: @escaping @MainActor (String) -> Void) {
         // One display link per display, shared by the app, window and budgeted frame schedulers.
         let displays = DisplayClock()
         FrameScheduler.install(displays: displays)
@@ -53,52 +81,7 @@ public struct LaunchOrder {
         let mainWork = MainWorkScheduler(budget: MainFrameBudget(input: SessionInputPending(), signposts: true, starvation: starvation),
                                          displays: displays, startup: phase)
         starvation.watch(mainWork.frames, FrameScheduler.app)
-        self.init(mainWork: mainWork, startup: StartupScheduler(mainWork: mainWork, background: background, clock: ContinuousClock()))
-        endFenceAtCompletion(background, mark: mark)
-    }
-
-    /// At startup complete: marks `startup_complete.<reason>` (an instant mark, as task 007 sends the
-    /// temperature) and then `startup_complete`, so a reader that waits for `startup_complete` has the
-    /// reason too; then lowers `background`'s best-effort fence, so its held idle and best-effort items
-    /// start. A quit before completion never lowers it (shutdown lifts it).
-    ///
-    /// - Parameters:
-    ///   - background: The lanes whose fence `main()` raised.
-    ///   - mark: Records a launch mark.
-    public func endFenceAtCompletion(_ background: BackgroundWork, mark: @escaping @MainActor (String) -> Void) {
-        startup.whenComplete { completion in
-            mark("startup_complete.\(completion.reason)")
-            mark("startup_complete")
-            background.endBestEffortFence()
-        }
-    }
-
-    /// Holds startup open across the session restore (Chrome's session-restore
-    /// `StartupInProgressRef`, chrome/browser/after_startup_task_utils.cc): call the result with the
-    /// window count once restore ran. A daemon that never loads never restores, so the launch phase's
-    /// settle ends the ref too.
-    ///
-    /// - Parameter daemonUnavailable: Whether the local daemon could not be reached.
-    /// - Returns: Ends the ref (first call only) with the reason the restore had.
-    public func restoreHold(daemonUnavailable: @escaping @MainActor () -> Bool) -> @MainActor (_ windowCount: Int) -> Void {
-        let restore = startup.hold("WindowManager.restore")
-        let phase = mainWork.startup
-        phase.whenReached(.settled) { [weak phase] in
-            restore.release(Self.settledReason(phase?.settleCause, daemonUnavailable: daemonUnavailable()))
-        }
-        return { windowCount in restore.release(Self.restoreReason(windowCount: windowCount, daemonUnavailable: daemonUnavailable())) }
-    }
-
-    /// Why the restore ref ends when restore ran: no daemon, no window, or the windows are restored.
-    private static func restoreReason(windowCount: Int, daemonUnavailable: Bool) -> StartupInProgressRef.Reason {
-        if daemonUnavailable { return .daemonUnavailable }
-        return windowCount == 0 ? .noWindow : .restoreFinished
-    }
-
-    /// Why the restore ref ends when the launch phase settled before restore ran: its failsafe, or a
-    /// daemon that never loaded (StartupReferences marks restore done for it).
-    private static func settledReason(_ cause: StartupPhase.SettleCause?, daemonUnavailable: Bool) -> StartupInProgressRef.Reason {
-        if cause == .failsafe { return .failsafe }
-        return daemonUnavailable ? .daemonUnavailable : .launchPhaseSettled
+        self.init(fence: fence, mainWork: mainWork,
+                  startup: StartupScheduler(mainWork: mainWork, background: fence.background, clock: ContinuousClock()), mark: mark)
     }
 }

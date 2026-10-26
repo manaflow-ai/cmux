@@ -57,8 +57,8 @@ public struct CmuxNextApp {
         let hangWatch = TraceRuntime.shared.hangWatch
         let state = environment.sidebarSnapshotFile?.url.deletingLastPathComponent()
         let work = BackgroundWork(hangs: hangWatch, onRan: startupTrace?.laneJobSink)
-        // Idle and best-effort lane work waits for startup complete (Chrome's BeginBestEffortFence); LaunchOrder lowers it.
-        work.beginBestEffortFence()
+        // Idle and best-effort lane work waits for startup complete (Chrome's BeginBestEffortFence); the order made on it lowers it.
+        let fence = LaunchOrder.BestEffortFence(raisingOn: work)
         startupTrace?.start(writingOn: work) // its file is written on work's files lane, never here
         startupTrace?.whenClosed { work.stopReportingRuns() } // a closed trace costs the lanes nothing
         let launchImages = AgentPaneLaunchImages(state: state), relaunchWake = AgentPaneRelaunchWake(directory: state)
@@ -79,7 +79,7 @@ public struct CmuxNextApp {
         let app = CmuxApplication.shared
         (app as? CmuxApplication)?.refusesActivation = ProcessInfo.processInfo.environment["CMUX_NEXT_NO_ACTIVATE"] == "1"
         // The launch's order owners: the main-thread scheduler and the StartupScheduler on it, passed by init.
-        let order = LaunchOrder(background: work) { DebugTimings.markLaunch($0) }
+        let order = LaunchOrder(fence: fence) { DebugTimings.markLaunch($0) }
         let delegate = AppDelegate(environment: environment, daemonPrestart: prestart, wireStats: wireStats,
                                    startupTrace: startupTrace, order: order,
                                    launchReads: (work, launchImages, relaunchWake))

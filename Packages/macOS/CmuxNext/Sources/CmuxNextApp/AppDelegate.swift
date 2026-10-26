@@ -138,7 +138,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         PageDescriptor.registerAgentActivityRoot()
         DebugTimings.markLaunch("dfl.theme")
         let services = AppServices(environment: environment, launchReveal: launchReveal, work: launchReads.work, mainWork: mainWork,
-                                   startup: order.startup, launchImages: launchReads.images, relaunchWake: launchReads.wake, wireStats: wireStats)
+                                   launchImages: launchReads.images, relaunchWake: launchReads.wake, wireStats: wireStats)
         AppProcessRoot.shared.adopt(services)
         self.services = services
         // The settle references, one closure each, before the daemon starts and the windows restore
@@ -150,9 +150,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let references = startupReferences
         references.watchUnavailable { [daemon = services.daemon] in daemon.startup.isUnavailable }
         services.cache.presentationChanges.subscribe("startup-references") { [weak references] in references?.noteContentChange() }
-        let windows = services.windows, restored = order.restoreHold { [daemon = services.daemon] in daemon.startup.isUnavailable }
+        let windows = services.windows
         windows.onRestored = { [weak references, weak windows] in
-            restored(windows?.controllers.count ?? 0) // the scheduler's restore ref ends before the phase reference it feeds
             references?.restored { [weak windows] in windows?.visiblePageLoad() ?? .idle }
         }
         // Hangs, lag spikes and opt-in hang reports (WatchdogReporting); the controller lives with the process.
@@ -273,8 +272,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         services.windows.onContentDidAppear = { [weak services] in services?.externalOpen.flush(); services?.pageHostPool.windowDidAppear($0.window) }
         NSApp.servicesProvider = CmuxServicesProvider(open: services.externalOpen)
         // A launch whose first window never draws (no window, a daemon that never answers) still
-        // starts the work waiting for that frame. The registered launch work ends the implicit ref.
-        firstFrame.armBackstop(after: .seconds(3))
+        // starts the work waiting for that frame; the first-frame ref ends only with a reason that
+        // is true (a frame that may still come keeps it for that frame or the failsafe).
+        // The registered launch work ends the implicit ref.
+        firstFrame.armBackstop(after: .seconds(3)) { [weak services] () -> StartupInProgressRef.Reason? in
+            guard let services else { return nil }
+            if services.daemon.startup.isUnavailable { return .daemonUnavailable }
+            return NSApp.isHidden || services.windows.controllers.isEmpty ? .noWindow : nil
+        }
         order.startup.finishRegistration()
     }
 
