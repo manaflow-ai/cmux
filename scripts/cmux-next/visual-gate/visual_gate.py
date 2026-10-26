@@ -497,11 +497,13 @@ def stacked_lines(observations: list[dict[str, Any]]) -> list[tuple[dict[str, An
 
 
 def check_overlaps(boxes: dict[str, Any] | None, name: str) -> list[dict[str, Any]]:
+    # No text boxes means the text-over-text check could not run: the state is not judged
+    # (`error`, so a run with no `fail` is `unavailable`), never a silent pass.
     if boxes is None:
-        return [finding("overlap", "warn", f"{name}: no text boxes (text-boxes.json); overlap not checked")]
+        return [finding("overlap", "error", f"{name}: no text boxes (text-boxes.json); overlap not checked")]
     observations = boxes.get("observations") if isinstance(boxes, dict) else None
     if not isinstance(observations, list):
-        return [finding("overlap", "warn", f"{name}: text-boxes.json has no observation list; overlap not checked")]
+        return [finding("overlap", "error", f"{name}: text-boxes.json has no observation list; overlap not checked")]
     found = []
     for a, b, share in text_overlaps(observations):
         found.append(finding("overlap", "fail",
@@ -532,9 +534,9 @@ def read_boxes(directory: Path) -> tuple[dict[str, Any] | None, list[dict[str, A
     try:
         data = read_json(boxes_file)
     except BadInput as error:
-        return None, [finding("overlap", "warn", f"{error}; overlap not checked")]
+        return None, [finding("overlap", "error", f"{error}; overlap not checked")]
     if not isinstance(data, dict):
-        return None, [finding("overlap", "warn", "text-boxes.json is not an object; overlap not checked")]
+        return None, [finding("overlap", "error", "text-boxes.json is not an object; overlap not checked")]
     return {Path(key).name: value for key, value in data.items()}, []
 
 

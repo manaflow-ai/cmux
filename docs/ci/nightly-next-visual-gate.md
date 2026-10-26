@@ -117,8 +117,9 @@ publication by the difference.
       `App`). A state that can't launch records its error and the next state
       runs.
    3. Reads the text boxes. Each state's boxes are written only when the read
-      succeeds. A failed read leaves none, so that state's overlap check is
-      skipped with a warning.
+      succeeds. A failed read leaves none, so that state's overlap check
+      can't run: the state is an `error` (not judged), and a run with no
+      `fail` is `unavailable`, never a pass.
    4. Runs the gate with `--states`, so a state that was never captured
       fails. Exit 1 is `fail`. Exit 3 (a state couldn't be judged) and exit 2
       (bad input or a crash) are `unavailable`.
@@ -158,6 +159,13 @@ report mode, a skipped gate (no owned session runner idle, mode `off`), a
 gate that couldn't capture or judge, or one that queued past its budget
 (`unavailable`, reported as a warning).
 
+The gate fails closed on its own configuration. When the mode can't be
+resolved (an invalid `NIGHTLY_NEXT_VISUAL_GATE`, or the resolver crashing),
+`route-visual-gate-nightly` gives the mode `invalid` with an error: no gate
+runs and `publish-nightly` doesn't publish this run's own build. Set the
+variable to `report`, `enforce`, `off` or `auto` to publish again. A failure
+outside the gate never holds a build this way.
+
 A build whose notarization was still pending can be published later by
 another run, through `find-nightly-next-recovery` →
 `recover-nightly-next-notarization` → `publish-nightly`, or by a
@@ -175,6 +183,8 @@ continuation runs `nightly_next_canary_mode.py admit`:
 | `report`, `off` | any | Published. |
 
 The run's own `blocks` holds only its own build, never a recovered one.
+When the mode can't be resolved, recovery reads it as `enforce`: a build
+the gate recorded as failed is refused and any other is admitted.
 
 HQ's `cmux-ci capture` (`build-fleet/pr-capture`) takes the same stills on a
 fleet capture mini. It needs an HQ checkout, SSH to the `cmux-mac-mini-cua*`

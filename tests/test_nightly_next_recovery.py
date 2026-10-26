@@ -338,7 +338,7 @@ class WorkflowTests(unittest.TestCase):
         condition = workflow()["jobs"]["publish-nightly"]["if"]
         self.assertTrue(condition.startswith("!cancelled() && needs.decide.result == 'success' && "), condition)
         self.assertIn(
-            "((needs.build-sign-notarize-nightly.result == 'success' && needs.build-sign-notarize-nightly.outputs.notary_pending != 'true' && needs.verify-signed-nightly.result == 'success' && needs.verify-final-dmg-nightly.result == 'success' && needs.visual-gate-nightly-verdict.outputs.blocks != 'true') || (needs.recover-nightly-next-notarization.outputs.accepted == 'true' && needs.verify-recovered-nightly-next.result == 'success'))",
+            "((needs.build-sign-notarize-nightly.result == 'success' && needs.build-sign-notarize-nightly.outputs.notary_pending != 'true' && needs.verify-signed-nightly.result == 'success' && needs.verify-final-dmg-nightly.result == 'success' && needs.visual-gate-nightly-verdict.outputs.blocks != 'true' && needs.route-visual-gate-nightly.outputs.mode != 'invalid') || (needs.recover-nightly-next-notarization.outputs.accepted == 'true' && needs.verify-recovered-nightly-next.result == 'success'))",
             condition,
         )
 

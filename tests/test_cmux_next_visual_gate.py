@@ -260,8 +260,10 @@ class OverlapTests(unittest.TestCase):
                                   obs(".", [900, 250, 3, 3])]}
         self.assertEqual(gate.check_overlaps(boxes, "light.png"), [])
 
-    def test_missing_boxes_warn(self):
-        self.assertEqual(gate.check_overlaps(None, "dark.png")[0]["level"], "warn")
+    def test_missing_or_malformed_boxes_are_not_judged(self):
+        # The overlap check could not run: an error (the run is `unavailable`), never a pass.
+        self.assertEqual(gate.check_overlaps(None, "dark.png")[0]["level"], "error")
+        self.assertEqual(gate.check_overlaps({"observations": "x"}, "dark.png")[0]["level"], "error")
 
     def lines(self, *special):
         normal = [obs(f"An ordinary line of text {i}", [10, 20 * i, 200, 14]) for i in range(6)]
@@ -355,6 +357,8 @@ class CaptureDirTests(unittest.TestCase):
             (drift / "light.png").write_bytes(same)
             (drift / "dark.png").write_bytes(same)
             (drift / "result.json").write_text(json.dumps({"steps": [], "host": "cmux-mac-mini"}))
+            (drift / "text-boxes.json").write_text(json.dumps({"light.png": {"observations": []},
+                                                               "dark.png": {"observations": []}}))
             report = Path(tmp) / "report.json"
             summary = Path(tmp) / "summary.md"
             done = subprocess.run([sys.executable, str(GATE / "visual_gate.py"), "--json", str(report),
@@ -394,13 +398,25 @@ class RobustnessTests(unittest.TestCase):
     """One bad file is that state's finding; the other states are still judged, and a gate that
     could not judge is never a build failure (exit 3 or 2, which the workflow reads as unavailable)."""
 
-    def test_an_empty_text_boxes_file_only_skips_the_overlap_check(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            state = good_capture(Path(tmp) / "a")
-            (state / "text-boxes.json").write_text("")  # what a failed `ocr_boxes > file` left behind
-            report = gate.judge(state)
-            self.assertEqual(report["verdict"], "pass", report)
-            self.assertIn("overlap not checked", " ".join(f["message"] for f in report["findings"]))
+    def test_missing_or_unreadable_text_boxes_leave_the_state_unjudged(self):
+        # The workflow removes a failed read's output, so a missing text-boxes.json is what a failed
+        # OCR leaves: the overlap check could not run, so the state is `error` and the run exits 3
+        # (`unavailable`), never a pass that enforce mode would publish as checked.
+        for content in (None, "", "[]"):
+            with tempfile.TemporaryDirectory() as tmp:
+                state = good_capture(Path(tmp) / "a")
+                if content is None:
+                    (state / "text-boxes.json").unlink()
+                else:
+                    (state / "text-boxes.json").write_text(content)
+                report = gate.judge(state)
+                self.assertEqual(report["verdict"], "error", (content, report))
+                self.assertIn("overlap not checked", " ".join(f["message"] for f in report["findings"]))
+                self.assertEqual(run_gate(state).returncode, 3, content)
+                # A real failure in the same state still fails it.
+                (state / "result.json").write_text(json.dumps({"steps": [{"title": "a", "status": "failed"}],
+                                                               "window_points": [60, 40]}))
+                self.assertEqual(gate.judge(state)["verdict"], "fail", content)
 
     def test_a_bad_png_and_a_bad_result_are_errors_and_the_rest_are_judged(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -927,8 +943,40 @@ class WiringTests(unittest.TestCase):
         own, recovered = condition.split(" || (needs.recover-nightly-next-notarization")
         self.assertIn("needs.visual-gate-nightly-verdict.outputs.blocks != 'true'", own.split("((", 1)[1])
         self.assertNotIn("visual-gate-nightly", recovered)
-        self.assertIn("OWN_GATE_BLOCKS: ${{ needs.visual-gate-nightly-verdict.outputs.blocks }}", publish)
+        self.assertIn("needs.visual-gate-nightly-verdict.outputs.blocks == 'true' || "
+                      "needs.route-visual-gate-nightly.outputs.mode == 'invalid'", publish)
         self.assertIn('[ "$OWN_GATE_BLOCKS" != true ]', publish)
+
+    def test_a_gate_mode_that_cannot_be_resolved_holds_this_runs_build(self):
+        # The gate's own misconfiguration fails closed: the resolver failing gives `invalid`, which
+        # runs no gate and holds this run's build, instead of a skipped verdict job that publishes.
+        body = self.step_body("route-visual-gate-nightly", "Resolve the visual gate mode")
+        for code, mode in ((2, "invalid"), (1, "invalid"), (0, "report")):
+            with tempfile.TemporaryDirectory() as tmp, self.subTest(code=code):
+                tmp = Path(tmp)
+                resolver = tmp / "scripts/ci/nightly_next_canary_mode.py"
+                resolver.parent.mkdir(parents=True)
+                resolver.write_text(f"import sys\nprint('mode=report')\nprint('why=test')\nsys.exit({code})\n"
+                                    if code == 0 else f"import sys\nsys.exit({code})\n")
+                out = tmp / "output"
+                done = subprocess.run(["bash", "-e", "-c", body], cwd=tmp, capture_output=True, text=True,
+                                      timeout=60, env=dict(os.environ, GITHUB_OUTPUT=str(out),
+                                                           GITHUB_STEP_SUMMARY=str(tmp / "summary"),
+                                                           NIGHTLY_NEXT_VISUAL_GATE="enforec"))
+                self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+                self.assertIn(f"mode={mode}", out.read_text().split("\n"))
+                if mode == "invalid":
+                    self.assertIn("::error title=nightly-next visual gate::", done.stdout)
+        route = self.job("route-visual-gate-nightly")
+        self.assertIn("steps.mode.outputs.mode != 'invalid'", route[route.index("id: pick"):][:200])
+        for name in ("visual-gate-nightly", "visual-gate-nightly-verdict"):
+            self.assertIn("needs.route-visual-gate-nightly.outputs.mode != 'invalid'", self.job(name))
+        publish = self.job("publish-nightly")
+        needs = publish[publish.index("needs: [") + len("needs: ["):].split("]", 1)[0]
+        self.assertIn("route-visual-gate-nightly", [n.strip() for n in needs.split(",")])
+        condition = next(line for line in publish.splitlines() if line.strip().startswith("if: \"!cancelled()"))
+        own = condition.split(" || (needs.recover-nightly-next-notarization")[0]
+        self.assertIn("needs.route-visual-gate-nightly.outputs.mode != 'invalid'", own)
 
     def test_the_verdict_job_is_skipped_with_the_gate_and_reads_only_actions(self):
         verdict = self.job("visual-gate-nightly-verdict")
@@ -1035,7 +1083,7 @@ class WiringTests(unittest.TestCase):
                 self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
                 self.assertEqual(out.read_text().split(), ["verdict=unavailable", "blocks=false"])
 
-    def test_a_bad_gate_variable_never_stops_a_recovery(self):
+    def test_a_bad_gate_variable_never_stops_a_recovery_nor_admits_a_failed_build(self):
         find = self.job("find-nightly-next-recovery")
         step = find[find.index("- name: Read the visual gate's verdicts"):]
         self.assertIn("continue-on-error: true", step[:step.index("run: |")])
@@ -1049,7 +1097,8 @@ class WiringTests(unittest.TestCase):
             done = subprocess.run(["bash", "-e", "-c", body], cwd=tmp, capture_output=True, text=True, timeout=60,
                                   env=dict(os.environ, GITHUB_OUTPUT=str(out)))
             self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
-            self.assertEqual(out.read_text().split(), ["mode=report", "verdicts={}"])
+            # Read as enforce: a recovered build the gate recorded as failed is still refused.
+            self.assertEqual(out.read_text().split(), ["mode=enforce", "verdicts={}"])
 
     def test_the_gate_uses_the_shared_mode_resolver(self):
         route = self.job("route-visual-gate-nightly")
