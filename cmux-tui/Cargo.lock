@@ -1130,6 +1130,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-hang-watch"
+version = "0.1.0"
+dependencies = [
+ "cmux-trace",
+ "libc",
+]
+
+[[package]]
 name = "cmux-history"
 version = "0.1.0"
 dependencies = [
