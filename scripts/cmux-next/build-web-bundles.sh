@@ -129,21 +129,12 @@ if [ "$MODE" = from ]; then
   rm -f "$STAMP"
   # An --out-root tree holds only what the builders wrote. The files a commit keeps in these
   # directories (their GENERATED.md notes, which the app bundles) stay as the checkout has
-  # them, as an in-tree build leaves them: set aside, the directory replaced, put back.
-  KEEP="$(mktemp -d)"
-  trap 'rm -rf "$KEEP"' EXIT
+  # them, as an in-tree build leaves them: only untracked and ignored files are cleared, so a
+  # copy that fails part way never loses a tracked file (the fallback build rewrites the rest).
   for path in "$PANE" "$PAGES" "$ACTIVITY" "$APP"; do
-    git -C "$ROOT" ls-files -- "$path" | while IFS= read -r kept; do
-      [ -f "$ROOT/$kept" ] || continue
-      mkdir -p "$KEEP/$(dirname "$kept")"
-      cp -p "$ROOT/$kept" "$KEEP/$kept"
-    done
-    rm -rf "${ROOT:?}/$path"
-    mkdir -p "$(dirname "${ROOT:?}/$path")"
-    cp -R "$FROM_ROOT/$path" "$ROOT/$path"
-    if [ -d "$KEEP/$path" ]; then
-      cp -Rp "$KEEP/$path/." "$ROOT/$path/"
-    fi
+    mkdir -p "${ROOT:?}/$path"
+    git -C "$ROOT" clean -fdqx -- "$path"
+    cp -R "$FROM_ROOT/$path/." "$ROOT/$path/"
   done
   cp "$FROM_ROOT/$PALETTE/palette-ranker.js" "$ROOT/$PALETTE/palette-ranker.js"
   python3 "$KEY" "$ROOT" --stamp > "$STAMP.tmp"

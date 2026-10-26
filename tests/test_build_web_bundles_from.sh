@@ -85,4 +85,21 @@ fi
 [ -f "$REPO/$PAGES/index.html" ] || { echo "FAIL: a refused --from must leave the checkout's bundles alone"; exit 1; }
 [ ! -f "$REPO/.web-bundles.key" ] || { echo "FAIL: a refused --from must not stamp the bundles current"; exit 1; }
 
+# A copy that fails after the checkout's build output was cleared must still leave the
+# committed notes in place, so the fallback build ships them.
+cp -R "$WORK/out" "$WORK/unreadable"
+mkdir -p "$WORK/unreadable/$PAGES/sub"
+printf 'x\n' > "$WORK/unreadable/$PAGES/sub/locked.js"
+chmod 000 "$WORK/unreadable/$PAGES/sub/locked.js"
+rm -f "$REPO/.web-bundles.key"
+if "$SCRIPT" --from "$WORK/unreadable" > "$WORK/log" 2>&1; then
+  chmod 644 "$WORK/unreadable/$PAGES/sub/locked.js"
+  if [ "$(id -u)" != 0 ]; then echo "FAIL: --from must fail when a file cannot be copied"; exit 1; fi
+fi
+chmod 644 "$WORK/unreadable/$PAGES/sub/locked.js"
+for path in "$PANE" "$PAGES" "$ACTIVITY"; do
+  grep -qx "generated: $path" "$REPO/$path/GENERATED.md" || { echo "FAIL: a failed copy must keep the committed $path/GENERATED.md"; exit 1; }
+done
+[ ! -f "$REPO/.web-bundles.key" ] || { echo "FAIL: a failed copy must not stamp the bundles current"; exit 1; }
+
 echo "PASS: build-web-bundles.sh --from installs and stamps a prebuilt tree, and refuses an incomplete one or a stale inspector page, and keeps committed files"
