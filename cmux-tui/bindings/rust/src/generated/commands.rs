@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 34e67f493acd3c2652a00ca96aa114eceff2edd43bc458265a55bf52754cb373.
+// cmux-tui mux protocol 12, IR 33693b7d09a6d8f16ecda8cfc64327086d45a166e95fe112a14347db83668d97.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -182,6 +182,36 @@ pub struct AgentCliUpdateJobResolveRequest {
 
 #[rustfmt::skip]
 pub type AgentCliUpdateJobResolveResult = T::AgentCLIJobResolution;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct AgentInventoryRequest {
+    /// Identity fence: the canonical public machine id the caller expects; another daemon refuses with agent_inventory.owner_mismatch. Never a routing selector.
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub expected_machine_id: Option<String>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AgentInventoryRefreshRequest {
+    /// Identity fence: the canonical public machine id the caller expects; another daemon refuses with agent_inventory.owner_mismatch. Never a routing selector.
+    pub expected_machine_id: String,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AgentInventoryWatchRequest {
+    /// Only with enabled:true: an unavailable, unsupported or busy refusal carries data {machine, admission:"not_admitted"} when this connection holds no lease.
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub admission_receipt: Option<bool>,
+    /// true opens (or acknowledges again) this connection's lease; false retires it without an ended event.
+    pub enabled: bool,
+    /// Identity fence: the canonical public machine id the caller expects; another daemon refuses with agent_inventory.owner_mismatch. Never a routing selector.
+    pub expected_machine_id: String,
+    /// Only with enabled:false: retire the lease only while it has this id.
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub expected_watch_id: Option<String>,
+}
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -5135,6 +5165,27 @@ impl CmuxClient {
 
     pub fn agent_cli_update_job_resolve(&mut self, request: AgentCliUpdateJobResolveRequest) -> Result<AgentCliUpdateJobResolveResult> {
         self.execute(&AGENT_CLI_UPDATE_JOB_RESOLVE_METADATA, &request)
+    }
+
+    pub fn agent_inventory(&mut self, request: AgentInventoryRequest) -> Result<T::AgentInventoryResult> {
+        if request.expected_machine_id.is_some() {
+            self.require_capability_field("agent-inventory", "agent-inventory-owner-v1")?;
+        }
+        self.execute(&AGENT_INVENTORY_METADATA, &request)
+    }
+
+    pub fn agent_inventory_refresh(&mut self, request: AgentInventoryRefreshRequest) -> Result<T::AgentInventoryRefreshResult> {
+        self.execute(&AGENT_INVENTORY_REFRESH_METADATA, &request)
+    }
+
+    pub fn agent_inventory_watch(&mut self, request: AgentInventoryWatchRequest) -> Result<T::AgentInventoryWatchResult> {
+        if request.admission_receipt.is_some() {
+            self.require_capability_field("agent-inventory-watch", "agent-inventory-watch-admission-v1")?;
+        }
+        if request.expected_watch_id.is_some() {
+            self.require_capability_field("agent-inventory-watch", "agent-inventory-watch-fence-v1")?;
+        }
+        self.execute(&AGENT_INVENTORY_WATCH_METADATA, &request)
     }
 
     pub fn agent_session_attach(&mut self, request: AgentSessionAttachRequest) -> Result<AgentSessionAttachResult> {

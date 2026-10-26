@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "34e67f493acd3c2652a00ca96aa114eceff2edd43bc458265a55bf52754cb373";
+pub const ir_sha256 = "33693b7d09a6d8f16ecda8cfc64327086d45a166e95fe112a14347db83668d97";
 
 pub const AccessRequestKind = enum {
     file,
@@ -192,6 +192,164 @@ pub const AgentCLIStoredIntent = struct {
     receipt: wire.Nullable(AgentCLIJobReceipt),
     root_key: []const u8,
     session: []const u8,
+};
+
+pub const AgentInventoryAuth = enum {
+    signed_in,
+    signed_out,
+    unknown,
+
+    pub fn fromWire(value: []const u8) !@This() {
+        if (std.mem.eql(u8, value, "signedIn")) return .signed_in;
+        if (std.mem.eql(u8, value, "signedOut")) return .signed_out;
+        if (std.mem.eql(u8, value, "unknown")) return .unknown;
+        return error.UnknownEnumValue;
+    }
+
+    pub fn toWire(self: @This()) []const u8 {
+        return switch (self) {
+            .signed_in => "signedIn",
+            .signed_out => "signedOut",
+            .unknown => "unknown",
+        };
+    }
+};
+
+pub const AgentInventoryChannel = enum {
+    npm,
+    bun,
+    brew,
+    brew_cask,
+    native,
+    launcher,
+    standalone,
+    missing,
+
+    pub fn fromWire(value: []const u8) !@This() {
+        if (std.mem.eql(u8, value, "npm")) return .npm;
+        if (std.mem.eql(u8, value, "bun")) return .bun;
+        if (std.mem.eql(u8, value, "brew")) return .brew;
+        if (std.mem.eql(u8, value, "brewCask")) return .brew_cask;
+        if (std.mem.eql(u8, value, "native")) return .native;
+        if (std.mem.eql(u8, value, "launcher")) return .launcher;
+        if (std.mem.eql(u8, value, "standalone")) return .standalone;
+        if (std.mem.eql(u8, value, "missing")) return .missing;
+        return error.UnknownEnumValue;
+    }
+
+    pub fn toWire(self: @This()) []const u8 {
+        return switch (self) {
+            .npm => "npm",
+            .bun => "bun",
+            .brew => "brew",
+            .brew_cask => "brewCask",
+            .native => "native",
+            .launcher => "launcher",
+            .standalone => "standalone",
+            .missing => "missing",
+        };
+    }
+};
+
+pub const AgentInventoryFamily = enum {
+    claude,
+    codex,
+    opencode,
+    pi,
+    chief,
+    gemini,
+    amp,
+    copilot,
+    cursor,
+
+    pub fn fromWire(value: []const u8) !@This() {
+        if (std.mem.eql(u8, value, "claude")) return .claude;
+        if (std.mem.eql(u8, value, "codex")) return .codex;
+        if (std.mem.eql(u8, value, "opencode")) return .opencode;
+        if (std.mem.eql(u8, value, "pi")) return .pi;
+        if (std.mem.eql(u8, value, "chief")) return .chief;
+        if (std.mem.eql(u8, value, "gemini")) return .gemini;
+        if (std.mem.eql(u8, value, "amp")) return .amp;
+        if (std.mem.eql(u8, value, "copilot")) return .copilot;
+        if (std.mem.eql(u8, value, "cursor")) return .cursor;
+        return error.UnknownEnumValue;
+    }
+
+    pub fn toWire(self: @This()) []const u8 {
+        return switch (self) {
+            .claude => "claude",
+            .codex => "codex",
+            .opencode => "opencode",
+            .pi => "pi",
+            .chief => "chief",
+            .gemini => "gemini",
+            .amp => "amp",
+            .copilot => "copilot",
+            .cursor => "cursor",
+        };
+    }
+};
+
+pub const AgentInventoryHarness = struct {
+    auth: AgentInventoryAuth,
+    channel: AgentInventoryChannel,
+    /// When the owner's health check saved this row, in Unix milliseconds.
+    checked_at: u64,
+    /// Recognized CLI family from the owner's saved health check; null for launchers, missing executables, conflicting evidence and families this daemon does not know.
+    family: wire.Nullable(AgentInventoryFamily),
+    /// Harness profile id: 1-128 bytes of `[A-Za-z0-9._-]`.
+    id: []const u8,
+    /// Latest registry version from the last successful check, or null.
+    latest: wire.Nullable([]const u8),
+    /// When `latest` was checked, in Unix milliseconds; null when never checked.
+    latest_checked_at: wire.Nullable(u64),
+    /// True only when `version` and `latest` are both known and `latest` is newer.
+    outdated: bool,
+    /// Installed semantic version, or null when unknown.
+    version: wire.Nullable([]const u8),
+};
+
+pub const AgentInventoryRefreshResult = struct {
+    cached: bool,
+    harnesses: []const AgentInventoryHarness,
+    /// Canonical public machine id (`machine_…`) of the daemon that answered.
+    machine: []const u8,
+    view: []const u8,
+};
+
+pub const AgentInventoryResult = struct {
+    cached: bool,
+    harnesses: []const AgentInventoryHarness,
+    view: []const u8,
+};
+
+pub const AgentInventoryWatchActive = struct {
+    /// Canonical public machine id (`machine_…`) of the daemon that answered.
+    machine: []const u8,
+    /// The owner's inventory revision when the lease became active.
+    revision: u64,
+    /// Opaque lease id: `inventory_watch_` and 32 lowercase hex digits.
+    watch_id: []const u8,
+};
+
+pub const AgentInventoryWatchResult = union(enum) {
+    agent_inventory_watch_active: AgentInventoryWatchActive,
+    empty_result: EmptyResult,
+
+    pub const cmux_wire_custom_union = true;
+
+    pub fn cmuxEncode(self: @This(), allocator: std.mem.Allocator) !wire.Value {
+        return switch (self) {
+            .agent_inventory_watch_active => |payload| try wire.encodeValue(allocator, payload),
+            .empty_result => |payload| try wire.encodeValue(allocator, payload),
+        };
+    }
+
+    pub fn cmuxDecode(allocator: std.mem.Allocator, value: wire.Value) !@This() {
+        _ = allocator;
+        _ = value;
+        return error.AmbiguousUnion;
+    }
 };
 
 pub const AgentPresenceActivity = enum {
@@ -4377,6 +4535,82 @@ pub fn agentCliUpdateJobResolve(client: anytype, request: AgentCliUpdateJobResol
             .authority = "local-admin",
             .since = 12,
             .capability = "agent-cli-update-job-resolve-v1",
+        },
+        request,
+    );
+}
+
+pub const AgentInventoryRequest = struct {
+    /// Identity fence: the canonical public machine id the caller expects; another daemon refuses with agent_inventory.owner_mismatch. Never a routing selector.
+    expected_machine_id: ?[]const u8 = null,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "expected_machine_id",
+    };
+};
+
+pub fn agentInventory(client: anytype, request: AgentInventoryRequest) !wire.Decoded(AgentInventoryResult) {
+    return client.callTyped(
+        AgentInventoryResult,
+        .{
+            .name = "agent-inventory",
+            .authority = "local-admin",
+            .since = 12,
+            .capability = "agent-inventory-v1",
+            .fields = &.{
+                .{ .name = "expected_machine_id", .since = null, .capability = "agent-inventory-owner-v1" },
+            },
+        },
+        request,
+    );
+}
+
+pub const AgentInventoryRefreshRequest = struct {
+    /// Identity fence: the canonical public machine id the caller expects; another daemon refuses with agent_inventory.owner_mismatch. Never a routing selector.
+    expected_machine_id: []const u8,
+};
+
+pub fn agentInventoryRefresh(client: anytype, request: AgentInventoryRefreshRequest) !wire.Decoded(AgentInventoryRefreshResult) {
+    return client.callTyped(
+        AgentInventoryRefreshResult,
+        .{
+            .name = "agent-inventory-refresh",
+            .authority = "local-admin",
+            .since = 12,
+            .capability = "agent-inventory-refresh-v1",
+        },
+        request,
+    );
+}
+
+pub const AgentInventoryWatchRequest = struct {
+    /// Only with enabled:true: an unavailable, unsupported or busy refusal carries data {machine, admission:"not_admitted"} when this connection holds no lease.
+    admission_receipt: ?bool = null,
+    /// true opens (or acknowledges again) this connection's lease; false retires it without an ended event.
+    enabled: bool,
+    /// Identity fence: the canonical public machine id the caller expects; another daemon refuses with agent_inventory.owner_mismatch. Never a routing selector.
+    expected_machine_id: []const u8,
+    /// Only with enabled:false: retire the lease only while it has this id.
+    expected_watch_id: ?[]const u8 = null,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "admission_receipt",
+        "expected_watch_id",
+    };
+};
+
+pub fn agentInventoryWatch(client: anytype, request: AgentInventoryWatchRequest) !wire.Decoded(AgentInventoryWatchResult) {
+    return client.callTyped(
+        AgentInventoryWatchResult,
+        .{
+            .name = "agent-inventory-watch",
+            .authority = "local-admin",
+            .since = 12,
+            .capability = "agent-inventory-watch-v1",
+            .fields = &.{
+                .{ .name = "admission_receipt", .since = null, .capability = "agent-inventory-watch-admission-v1" },
+                .{ .name = "expected_watch_id", .since = null, .capability = "agent-inventory-watch-fence-v1" },
+            },
         },
         request,
     );
@@ -14497,7 +14731,7 @@ pub const CommandDescriptor = struct {
     stream: ?[]const u8,
 };
 
-pub const command_count: usize = 356;
+pub const command_count: usize = 359;
 pub const commands = [_]CommandDescriptor{
     .{ .name = "access-request", .authority = "local-admin", .since = 12, .capability = "access-request-v1", .stream = null },
     .{ .name = "access-request-answer", .authority = "local-admin", .since = 12, .capability = "access-request-v1", .stream = null },
@@ -14512,6 +14746,9 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "agent-cli-intents-settle", .authority = "local-admin", .since = 12, .capability = "agent-cli-intents-v1", .stream = null },
     .{ .name = "agent-cli-update-job", .authority = "local-admin", .since = 12, .capability = "agent-cli-update-job-v1", .stream = null },
     .{ .name = "agent-cli-update-job-resolve", .authority = "local-admin", .since = 12, .capability = "agent-cli-update-job-resolve-v1", .stream = null },
+    .{ .name = "agent-inventory", .authority = "local-admin", .since = 12, .capability = "agent-inventory-v1", .stream = null },
+    .{ .name = "agent-inventory-refresh", .authority = "local-admin", .since = 12, .capability = "agent-inventory-refresh-v1", .stream = null },
+    .{ .name = "agent-inventory-watch", .authority = "local-admin", .since = 12, .capability = "agent-inventory-watch-v1", .stream = null },
     .{ .name = "agent-session-attach", .authority = "local-admin", .since = 12, .capability = "agent-session-attach-v1", .stream = null },
     .{ .name = "agent-session-cancel", .authority = "local-admin", .since = 12, .capability = "agent-session-attach-v1", .stream = null },
     .{ .name = "agent-session-children", .authority = "local-admin", .since = 12, .capability = "agent-session-children-v1", .stream = null },

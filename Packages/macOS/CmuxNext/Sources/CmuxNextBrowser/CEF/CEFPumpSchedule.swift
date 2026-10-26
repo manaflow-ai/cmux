@@ -38,6 +38,47 @@ nonisolated struct CEFPumpSchedule: Equatable, Sendable {
         return TimeInterval(seconds) + TimeInterval(attoseconds) / 1e18
     }()
 
+    /// The class a pass runs in on the main-thread task board (``CEFPumpBoard``, p06-scheduler-048):
+    /// input while a page has the keyboard or its ack of a page input may still be due
+    /// (``RecentPageInput``; Chromium's input router runs inside `CefDoMessageLoopWork`), frame
+    /// otherwise. Never a budgeted class and never by visibility: Chromium's one UI thread serves every
+    /// page, a hidden tab's CDP round trip included, as Chrome's browser UI thread runs input at
+    /// USER_BLOCKING and its other work unbudgeted (content/browser/scheduler/browser_task_queues.cc).
+    static func workClass(pageHasFocus: Bool, pageInputRecent: Bool) -> MainWorkClass {
+        pageHasFocus || pageInputRecent ? .input : .frame
+    }
+
+    /// The last input AppKit delivered to a Chromium page, while its ack may still be due. The pump
+    /// sees no ack: the renderer's comes back through the IO thread, and a later pass handles it after
+    /// an `OnScheduleMessagePumpWork` (content/browser/renderer_host/input/input_router_impl.cc; the
+    /// wheel queue of components/input/mouse_wheel_event_queue.cc sends the next event only then). So
+    /// an input counts until a pass began after it and one refresh passed since its dispatch ended.
+    nonisolated struct RecentPageInput: Equatable, Sendable {
+        /// When the last page input's dispatch ended, in the pump's clock (nil: none since start).
+        private var dispatchedAt: TimeInterval?
+        /// A pass began after it.
+        private var passSince = false
+
+        init() {}
+
+        /// An input's dispatch to a page ended at `now` (a pass running then does not count).
+        mutating func dispatched(at now: TimeInterval) {
+            dispatchedAt = now
+            passSince = false
+        }
+
+        /// A pass begins.
+        mutating func passBegan() {
+            passSince = true
+        }
+
+        /// Whether a pass at `now` may still be the one that handles that input's ack.
+        func isRecent(at now: TimeInterval, refresh: TimeInterval) -> Bool {
+            guard let dispatchedAt else { return false }
+            return !passSince || now < dispatchedAt + refresh
+        }
+    }
+
     /// The next timer fire, in the clock's seconds.
     struct Wake: Equatable, Sendable {
         var deadline: TimeInterval

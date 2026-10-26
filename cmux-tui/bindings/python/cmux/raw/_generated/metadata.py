@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = '34e67f493acd3c2652a00ca96aa114eceff2edd43bc458265a55bf52754cb373'
+IR_SHA256 = '33693b7d09a6d8f16ecda8cfc64327086d45a166e95fe112a14347db83668d97'
 
 
 @dataclass(frozen=True)
@@ -204,6 +204,42 @@ COMMANDS = {
             'expected_machine_id': CommandFieldMetadata(None, None),
             'expected_session_id': CommandFieldMetadata(None, None),
             'idempotency_key': CommandFieldMetadata(None, None),
+        },
+    ),
+    'agent-inventory': CommandMetadata(
+        'agent-inventory',
+        'local-admin',
+        12,
+        'agent-inventory-v1',
+        ('local-admin',),
+        None,
+        {
+            'expected_machine_id': CommandFieldMetadata(None, 'agent-inventory-owner-v1'),
+        },
+    ),
+    'agent-inventory-refresh': CommandMetadata(
+        'agent-inventory-refresh',
+        'local-admin',
+        12,
+        'agent-inventory-refresh-v1',
+        ('local-admin',),
+        None,
+        {
+            'expected_machine_id': CommandFieldMetadata(None, None),
+        },
+    ),
+    'agent-inventory-watch': CommandMetadata(
+        'agent-inventory-watch',
+        'local-admin',
+        12,
+        'agent-inventory-watch-v1',
+        ('local-admin',),
+        None,
+        {
+            'admission_receipt': CommandFieldMetadata(None, 'agent-inventory-watch-admission-v1'),
+            'enabled': CommandFieldMetadata(None, None),
+            'expected_machine_id': CommandFieldMetadata(None, None),
+            'expected_watch_id': CommandFieldMetadata(None, 'agent-inventory-watch-fence-v1'),
         },
     ),
     'agent-session-attach': CommandMetadata(

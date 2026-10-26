@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "34e67f493acd3c2652a00ca96aa114eceff2edd43bc458265a55bf52754cb373";
+inline constexpr std::string_view kProtocolIrSha256 = "33693b7d09a6d8f16ecda8cfc64327086d45a166e95fe112a14347db83668d97";
 
 enum class AccessRequestKind;
 struct AccessRequestPending;
@@ -26,6 +26,14 @@ struct AgentCliJobPath;
 struct AgentCliJobReceipt;
 struct AgentCliJobResolution;
 struct AgentCliStoredIntent;
+enum class AgentInventoryAuth;
+enum class AgentInventoryChannel;
+enum class AgentInventoryFamily;
+struct AgentInventoryHarness;
+struct AgentInventoryRefreshResult;
+struct AgentInventoryResult;
+struct AgentInventoryWatchActive;
+struct AgentInventoryWatchResult;
 enum class AgentPresenceActivity;
 struct AgentRecord;
 enum class AgentReportSource;
@@ -331,6 +339,9 @@ struct AgentCliIntentsSettleRequest;
 struct AgentCliIntentsSettleResult;
 struct AgentCliUpdateJobRequest;
 struct AgentCliUpdateJobResolveRequest;
+struct AgentInventoryRequest;
+struct AgentInventoryRefreshRequest;
+struct AgentInventoryWatchRequest;
 struct AgentSessionAttachRequest;
 struct AgentSessionCancelRequest;
 struct AgentSessionCancelResult;
@@ -1186,6 +1197,12 @@ struct AgentCliUpdateJobResolveRequest {
     friend bool operator==(const AgentCliUpdateJobResolveRequest&, const AgentCliUpdateJobResolveRequest&) = default;
 };
 
+enum class AgentInventoryAuth {
+    signed_in,
+    signed_out,
+    unknown,
+};
+
 struct AgentInventoryChangedEvent {
     std::string machine{};
     std::uint64_t revision{};
@@ -1193,11 +1210,93 @@ struct AgentInventoryChangedEvent {
     friend bool operator==(const AgentInventoryChangedEvent&, const AgentInventoryChangedEvent&) = default;
 };
 
+enum class AgentInventoryChannel {
+    npm,
+    bun,
+    brew,
+    brew_cask,
+    native,
+    launcher,
+    standalone,
+    missing,
+};
+
+enum class AgentInventoryFamily {
+    claude,
+    codex,
+    opencode,
+    pi,
+    chief,
+    gemini,
+    amp,
+    copilot,
+    cursor,
+};
+
+struct AgentInventoryHarness {
+    AgentInventoryAuth auth{};
+    AgentInventoryChannel channel{};
+    std::uint64_t checked_at{};
+    std::optional<AgentInventoryFamily> family{};
+    std::string id{};
+    std::optional<std::string> latest{};
+    std::optional<std::uint64_t> latest_checked_at{};
+    bool outdated{};
+    std::optional<std::string> version{};
+    friend bool operator==(const AgentInventoryHarness&, const AgentInventoryHarness&) = default;
+};
+
+struct AgentInventoryRefreshRequest {
+    std::string expected_machine_id{};
+    friend bool operator==(const AgentInventoryRefreshRequest&, const AgentInventoryRefreshRequest&) = default;
+};
+
+struct AgentInventoryRefreshResult {
+    std::vector<AgentInventoryHarness> harnesses{};
+    std::string machine{};
+    friend bool operator==(const AgentInventoryRefreshResult&, const AgentInventoryRefreshResult&) = default;
+};
+
+struct AgentInventoryRequest {
+    std::optional<std::string> expected_machine_id{};
+    friend bool operator==(const AgentInventoryRequest&, const AgentInventoryRequest&) = default;
+};
+
+struct AgentInventoryResult {
+    std::vector<AgentInventoryHarness> harnesses{};
+    friend bool operator==(const AgentInventoryResult&, const AgentInventoryResult&) = default;
+};
+
+struct AgentInventoryWatchActive {
+    std::string machine{};
+    std::uint64_t revision{};
+    std::string watch_id{};
+    friend bool operator==(const AgentInventoryWatchActive&, const AgentInventoryWatchActive&) = default;
+};
+
 struct AgentInventoryWatchEndedEvent {
     std::string machine{};
     std::string reason{};
     std::string watch_id{};
     friend bool operator==(const AgentInventoryWatchEndedEvent&, const AgentInventoryWatchEndedEvent&) = default;
+};
+
+struct AgentInventoryWatchRequest {
+    std::optional<bool> admission_receipt{};
+    bool enabled{};
+    std::string expected_machine_id{};
+    std::optional<std::string> expected_watch_id{};
+    friend bool operator==(const AgentInventoryWatchRequest&, const AgentInventoryWatchRequest&) = default;
+};
+
+struct EmptyResult {
+    friend bool operator==(const EmptyResult&, const EmptyResult&) = default;
+};
+
+struct AgentInventoryWatchResult {
+    using Variant = std::variant<AgentInventoryWatchActive, EmptyResult>;
+    Variant value{};
+    friend bool operator==(const AgentInventoryWatchResult&, const AgentInventoryWatchResult&) = default;
 };
 
 enum class AgentPresenceActivity {
@@ -3772,10 +3871,6 @@ struct DetachedEvent {
 struct EmptyEvent {
     std::optional<EventCause> cause{};
     friend bool operator==(const EmptyEvent&, const EmptyEvent&) = default;
-};
-
-struct EmptyResult {
-    friend bool operator==(const EmptyResult&, const EmptyResult&) = default;
 };
 
 struct ExportLayoutRequest {
@@ -7653,6 +7748,54 @@ struct Codec<AgentCliStoredIntent> {
 };
 
 template <>
+struct Codec<AgentInventoryAuth> {
+    static Result<Json> encode(const AgentInventoryAuth& value);
+    static Result<AgentInventoryAuth> decode(const Json& value);
+};
+
+template <>
+struct Codec<AgentInventoryChannel> {
+    static Result<Json> encode(const AgentInventoryChannel& value);
+    static Result<AgentInventoryChannel> decode(const Json& value);
+};
+
+template <>
+struct Codec<AgentInventoryFamily> {
+    static Result<Json> encode(const AgentInventoryFamily& value);
+    static Result<AgentInventoryFamily> decode(const Json& value);
+};
+
+template <>
+struct Codec<AgentInventoryHarness> {
+    static Result<Json> encode(const AgentInventoryHarness& value);
+    static Result<AgentInventoryHarness> decode(const Json& value);
+};
+
+template <>
+struct Codec<AgentInventoryRefreshResult> {
+    static Result<Json> encode(const AgentInventoryRefreshResult& value);
+    static Result<AgentInventoryRefreshResult> decode(const Json& value);
+};
+
+template <>
+struct Codec<AgentInventoryResult> {
+    static Result<Json> encode(const AgentInventoryResult& value);
+    static Result<AgentInventoryResult> decode(const Json& value);
+};
+
+template <>
+struct Codec<AgentInventoryWatchActive> {
+    static Result<Json> encode(const AgentInventoryWatchActive& value);
+    static Result<AgentInventoryWatchActive> decode(const Json& value);
+};
+
+template <>
+struct Codec<AgentInventoryWatchResult> {
+    static Result<Json> encode(const AgentInventoryWatchResult& value);
+    static Result<AgentInventoryWatchResult> decode(const Json& value);
+};
+
+template <>
 struct Codec<AgentPresenceActivity> {
     static Result<Json> encode(const AgentPresenceActivity& value);
     static Result<AgentPresenceActivity> decode(const Json& value);
@@ -9480,6 +9623,24 @@ template <>
 struct Codec<AgentCliUpdateJobResolveRequest> {
     static Result<Json> encode(const AgentCliUpdateJobResolveRequest& value);
     static Result<AgentCliUpdateJobResolveRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<AgentInventoryRequest> {
+    static Result<Json> encode(const AgentInventoryRequest& value);
+    static Result<AgentInventoryRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<AgentInventoryRefreshRequest> {
+    static Result<Json> encode(const AgentInventoryRefreshRequest& value);
+    static Result<AgentInventoryRefreshRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<AgentInventoryWatchRequest> {
+    static Result<Json> encode(const AgentInventoryWatchRequest& value);
+    static Result<AgentInventoryWatchRequest> decode(const Json& value);
 };
 
 template <>
