@@ -54,6 +54,14 @@ public final class MainWorkScheduler {
     /// pass applies: one per scheduler, shared by every ``VisibleObservation`` on it and the
     /// daemon store's drain (p06-scheduler.md: "The scheduler holds `currentCause`").
     public let causes: ObservationCauses
+    /// The app's one Energy Saver policy (p14-energy-024): its owners write it once (the App's
+    /// `EnergyPolicyDriver`), and everything this scheduler is passed to reads it from here, so no
+    /// consumer needs a shared instance or a second injection path.
+    public nonisolated let energy: EnergyPolicySource
+    /// The main thread's one deadline timer, on ``energy``'s wake grid (`delayed_work_timer_`,
+    /// base/message_loop/message_pump_apple.mm): main-thread DemandTimer deadlines and CEF's delayed
+    /// pump share it.
+    public nonisolated let wakeUps: MainWakeUpQueue
 
     /// Times the render pass after each frame's scheduled work while the link runs (nil in tests).
     private let renderPasses: RenderPassMeter?
@@ -91,6 +99,9 @@ public final class MainWorkScheduler {
         self.frames = frames
         self.startup = startup
         causes = ObservationCauses(budget: budget)
+        let energy = EnergyPolicySource()
+        self.energy = energy
+        wakeUps = MainWakeUpQueue(energy: energy)
         self.renderPasses = renderPasses
         inputResponseTick = FrameClient(owner: "MainFrameBudget.inputResponse", isAnimation: false, on: frames) { [weak budget] _ in
             budget?.isInputResponseOpen ?? false
