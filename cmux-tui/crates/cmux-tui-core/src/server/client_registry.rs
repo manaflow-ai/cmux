@@ -645,8 +645,10 @@ impl ClientRegistry {
             record.kind = Some(clamp_client_label(kind));
         }
         if let Some(capabilities) = capabilities {
+            let ipc = super::capabilities::IpcGrant::of(record, &capabilities);
             record.capabilities.extend(capabilities.into_iter().filter(|capability| {
-                capability == GUARDED_BROWSER_POINTER_CAPABILITY
+                ipc.allows(capability)
+                    || capability == GUARDED_BROWSER_POINTER_CAPABILITY
                     || capability == VIEW_ATTACHMENT_LEASE_CAPABILITY
                     || capability == VIEW_ATTACHMENT_DETACH_CAPABILITY
                     || capability == SHARED_SIZING_CAPABILITY
@@ -902,7 +904,7 @@ impl ClientRegistry {
             .recover_poison()
             .clients
             .get(&client)
-            .is_some_and(|record| record.capabilities.contains(capability))
+            .is_some_and(|record| super::capabilities::holds(record, capability))
     }
 
     pub(super) fn surface_attachment_is_current_or_retired(

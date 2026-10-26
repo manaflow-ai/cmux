@@ -86,10 +86,182 @@ pub(super) fn identify_capabilities(mux: &Mux) -> Vec<&'static str> {
     if crate::chief_brains::taken().is_some() {
         capabilities.push(chief_control::CAPABILITY);
     }
-    #[cfg(debug_assertions)]
+    hide_for_tests(&mut capabilities);
+    capabilities
+}
+
+/// `identify`'s capabilities for connection `client`: [`identify_capabilities`]
+/// plus the framed IPC ones its connection may be granted ([`IpcCapability::offered`]).
+pub(super) fn identify_capabilities_for(mux: &Mux, client: u64) -> Vec<&'static str> {
+    let mut ipc: Vec<_> =
+        mux.control_clients.ipc_offer(client).into_iter().map(IpcCapability::name).collect();
+    hide_for_tests(&mut ipc);
+    let mut capabilities = identify_capabilities(mux);
+    capabilities.extend(ipc);
+    capabilities
+}
+
+/// Leaves out what `CMUX_TEST_DAEMON_HIDE_CAPABILITIES` names.
+#[cfg(debug_assertions)]
+fn hide_for_tests(capabilities: &mut Vec<&'static str>) {
     capabilities
         .retain(|capability| !test_hidden_capabilities().iter().any(|hidden| hidden == capability));
-    capabilities
+}
+
+#[cfg(not(debug_assertions))]
+fn hide_for_tests(_: &mut Vec<&'static str>) {}
+
+/// The framed IPC capabilities (plans/cmux-next/chrome-parity/p05-ipc.md 3.1,
+/// 3.2; cmux-tui/spec/transports.md "Framed IPC grants"). The daemon grants one
+/// only when the client echoes it in `set-client-info` and its connection may
+/// carry it ([`IpcCapability::allowed`]); a grant is checked again on every
+/// use, so a later `api_revision` or `client-hello` that breaks the rule ends it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum IpcCapability {
+    /// 16-byte framed messages beside JSON lines, SHARED_BUFFER included.
+    Frames,
+    /// Client-minted streams on one connection; their items stay JSON lines.
+    AttachStreams,
+    /// Attach output as OUTPUT, GRID, SNAPSHOT and REPLAY frames on a stream.
+    AttachFrames,
+    /// The per-terminal shared-memory output ring (RING, RING_ADVANCE, RING_ACK).
+    OutputRing,
+}
+
+impl IpcCapability {
+    /// Every one, each after the ones it [`requires`](Self::requires).
+    pub(super) const ALL: [Self; 4] =
+        [Self::Frames, Self::AttachStreams, Self::AttachFrames, Self::OutputRing];
+
+    pub(super) const fn name(self) -> &'static str {
+        match self {
+            Self::Frames => "ipc-frames-v2",
+            Self::AttachStreams => "attach-streams-v1",
+            Self::AttachFrames => "attach-frames-v1",
+            Self::OutputRing => "terminal-output-ring-v1",
+        }
+    }
+
+    pub(super) fn named(name: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|capability| capability.name() == name)
+    }
+
+    /// What must be granted with it: frames on a stream need both, and the
+    /// ring announces its spans with frames on the attach stream.
+    const fn requires(self) -> &'static [Self] {
+        match self {
+            Self::Frames | Self::AttachStreams => &[],
+            Self::AttachFrames => &[Self::Frames, Self::AttachStreams],
+            Self::OutputRing => &[Self::AttachFrames],
+        }
+    }
+
+    /// The grant rule. Streams are JSON lines, so any peer that reaches the
+    /// full local surface may have them, through a bridge and at any revision
+    /// the daemon translates. Frames, the ring and shared buffers carry
+    /// payloads untranslated and descriptors over SCM_RIGHTS, so only a direct
+    /// local peer at exactly this revision gets them: Mojo passes platform
+    /// handles only on a channel endpoint that can carry them
+    /// (mojo/core/channel_posix.cc), and its unversioned interfaces assume both
+    /// ends come from one build (mojo/public/tools/bindings/README.md,
+    /// "Versioning"). WebSocket, the remote entry and page relays get none.
+    pub(super) const fn allowed(self, peer: IpcPeer, current_revision: bool) -> bool {
+        match (self, peer) {
+            (_, IpcPeer::WebSocket | IpcPeer::RemoteEntry | IpcPeer::PageRelay) => false,
+            (Self::AttachStreams, IpcPeer::Local | IpcPeer::Bridged) => true,
+            (_, IpcPeer::Local) => current_revision,
+            (_, IpcPeer::Bridged) => false,
+        }
+    }
+
+    /// What `identify` advertises to `peer`, before it declares a revision.
+    pub(super) fn offered(peer: IpcPeer) -> Vec<Self> {
+        Self::ALL.into_iter().filter(|capability| capability.allowed(peer, true)).collect()
+    }
+}
+
+/// What a connection is, for [`IpcCapability::allowed`]: kernel and hello
+/// facts the daemon fixed itself, never a claim in a request.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum IpcPeer {
+    /// A process on this host on the Unix socket.
+    Local,
+    /// A byte bridge on the Unix socket that cannot pass descriptors: this
+    /// build's `cmux-mobile-host` (a phone's spliced lane), seen at accept.
+    Bridged,
+    WebSocket,
+    /// A `cmux link` peer through the remote entry.
+    RemoteEntry,
+    /// A page relay or a page's connection.
+    PageRelay,
+}
+
+impl IpcPeer {
+    pub(super) fn of(record: &ClientRecord) -> Self {
+        let origin = &record.origin;
+        match record.transport {
+            ClientTransport::WebSocket => Self::WebSocket,
+            ClientTransport::Remote => Self::RemoteEntry,
+            ClientTransport::Unix
+                if origin.role == crate::request_origin::HelloRole::PageRelay
+                    || origin.page.is_some() =>
+            {
+                Self::PageRelay
+            }
+            ClientTransport::Unix if origin.mobile_host => Self::Bridged,
+            ClientTransport::Unix => Self::Local,
+        }
+    }
+}
+
+/// The framed IPC capabilities one `set-client-info` grants: each one asked
+/// for (now or before), allowed for the connection, and with what it
+/// [requires](IpcCapability::requires) granted too.
+pub(super) struct IpcGrant(Vec<IpcCapability>);
+
+impl IpcGrant {
+    pub(super) fn of(record: &ClientRecord, requested: &[String]) -> Self {
+        let peer = IpcPeer::of(record);
+        let current_revision = record.writer.api_revision.is_current();
+        let mut granted = Vec::new();
+        for capability in IpcCapability::ALL {
+            let name = capability.name();
+            let asked = requested.iter().any(|requested| requested == name)
+                || record.capabilities.contains(name);
+            if asked
+                && capability.allowed(peer, current_revision)
+                && capability.requires().iter().all(|required| granted.contains(required))
+            {
+                granted.push(capability);
+            }
+        }
+        Self(granted)
+    }
+
+    pub(super) fn allows(&self, name: &str) -> bool {
+        IpcCapability::named(name).is_some_and(|capability| self.0.contains(&capability))
+    }
+}
+
+/// Whether `record` holds `capability`; a framed IPC one only while the
+/// connection still meets its rule (a later revision or page hello ends it).
+pub(super) fn holds(record: &ClientRecord, capability: &str) -> bool {
+    record.capabilities.contains(capability)
+        && IpcCapability::named(capability).is_none_or(|ipc| {
+            ipc.allowed(IpcPeer::of(record), record.writer.api_revision.is_current())
+        })
+}
+
+impl ClientRegistry {
+    /// The framed IPC capabilities `identify` advertises to `client`. A
+    /// poisoned registry or an unknown client gets none (fail closed).
+    pub(super) fn ipc_offer(&self, client: u64) -> Vec<IpcCapability> {
+        let Ok(state) = self.state.lock() else { return Vec::new() };
+        state
+            .clients
+            .get(&client)
+            .map_or_else(Vec::new, |record| IpcCapability::offered(IpcPeer::of(record)))
+    }
 }
 
 /// What `identify` advertises on every daemon this binary starts here, however
@@ -387,6 +559,10 @@ pub(super) fn advertised_capabilities(
     capabilities.push(BROWSER_RUNTIME_CAPABILITY);
     capabilities
 }
+
+#[cfg(test)]
+#[path = "ipc_grant_tests.rs"]
+mod ipc_grant_tests;
 
 #[cfg(test)]
 mod tests {
