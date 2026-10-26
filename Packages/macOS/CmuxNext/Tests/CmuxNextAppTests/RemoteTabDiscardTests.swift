@@ -50,12 +50,14 @@ import Testing
         let pane = RemoteDesktopPane(hostName: RemoteViewPageSession.mockHost, source: source, inputSink: nil, presenter: .layerContents)
         pane.start()
         try await Self.until("the pane asks for a frame") { source.asked == 1 }
-        source.hand(try #require(Self.decodedFrame(1)))
+        let first = try #require(Self.decodedFrame(1))
+        let late = try #require(Self.decodedFrame(2))
+        source.hand(first)
         try await Self.until("the first frame shows") { pane.lastFrame?.frame == 1 }
         try await Self.until("the pane decodes the next frame") { source.asked == 2 }
 
         pane.stop()
-        source.hand(try #require(Self.decodedFrame(2)))
+        source.hand(late)
         // The late frame would reach the screen within a few main-actor turns.
         try await Task.sleep(for: .milliseconds(300))
         #expect(pane.lastFrame?.frame == 1, "a frame decoded before the stop showed after it")
@@ -201,7 +203,8 @@ import Testing
         let clock = ManualClock()
         let cap = try #require(stream.tab.wakeCoverCap)
         #expect(cap > BrowserHibernation.standInCap)
-        #expect(stream.tab.showStandIn(try #require(Self.picture()), decoded: true, cap: cap, clock: clock))
+        let picture = try #require(Self.picture())
+        #expect(stream.tab.showStandIn(picture, decoded: true, cap: cap, clock: clock))
         #expect(stream.tab.wakeCoverPixels != nil, "the cover has no pixels in its first frame")
         try await clock.waitForSleeper()
         clock.advance(by: BrowserHibernation.standInCap + .milliseconds(200))
@@ -217,7 +220,8 @@ import Testing
         defer { stream.close() }
         let clock = ManualClock()
         let cap = try #require(stream.tab.wakeCoverCap)
-        stream.tab.showStandIn(try #require(Self.picture()), decoded: false, cap: cap, clock: clock)
+        let picture = try #require(Self.picture())
+        stream.tab.showStandIn(picture, decoded: false, cap: cap, clock: clock)
         try await clock.waitForSleeper()
         clock.advance(by: cap)
         try await Self.until("the last frame went at the cap") { !stream.tab.showsWakeCover }
@@ -290,7 +294,8 @@ import Testing
     @Test func aMachinesBrowserThatFailsToStartDropsTheLastFrame() throws {
         let page = Self.machinePage()
         page.phase = .starting("m1")
-        page.showStandIn(try #require(Self.picture()), decoded: true, cap: BrowserWakeCover.reconnectCap, clock: ManualClock())
+        let picture = try #require(Self.picture())
+        page.showStandIn(picture, decoded: true, cap: BrowserWakeCover.reconnectCap, clock: ManualClock())
         page.phase = .failed("m1", "no runtime")
         #expect(!page.showsWakeCover, "a failed start kept the last frame over its reason")
     }

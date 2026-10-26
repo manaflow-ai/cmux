@@ -24,7 +24,7 @@ extension BrowserStreamedPage {
     public var allowsNotifications: Bool { false }
 
     public func hibernationState() -> BrowserRestoreState? {
-        wakeAddress.map { .appPage(BrowserAppPageState(url: $0)) }
+        wakeAddress.map { BrowserRestoreState.appPage(BrowserAppPageState(url: $0)) }
     }
 }
 
