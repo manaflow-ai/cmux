@@ -591,7 +591,10 @@ pub(crate) async fn collect_reply(
                 );
                 eprintln!("acpmux: agent error, retry {attempt}/{} in {:?}", opts.retries, backoff);
                 tokio::time::sleep(backoff).await;
+                // The same message again, its attachments too.
+                let attachments = std::mem::take(&mut prompt.attachments);
                 prompt = PromptId::new(None);
+                prompt.attachments = attachments;
             }
         }
     }

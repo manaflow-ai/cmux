@@ -113,3 +113,29 @@ fn send_attach_delivers_an_image_to_the_lane_and_saves_it_owner_only() {
     assert!(text(&big).contains("8 MiB"), "{}", text(&big));
     assert!(uploads_named(&dir, "huge.png").is_empty());
 }
+
+/// Text and files that together pass one JSON-RPC message (15 MiB) are refused before the
+/// daemon is asked anything: none is started.
+#[test]
+fn a_message_too_big_for_one_frame_is_refused_before_the_daemon_starts() {
+    let dir = scratch("f");
+    let _shutdown = Shutdown(&dir);
+    fs::write(dir.join("p/big.bin"), vec![0u8; 8 << 20]).unwrap();
+    let before: Vec<_> = fs::read_dir(&dir).unwrap().flatten().map(|e| e.file_name()).collect();
+    let mut cmd = daemon_env::command(&dir, daemon_env::Agents::StandIn, &[]);
+    cmd.args(["send", "-q", "lane", "-", "--attach", "big.bin"])
+        .env("ACPMUX_HOME", &dir)
+        .env("ACPMUX_LOGIN_ENV", "0")
+        .current_dir(dir.join("p"))
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped());
+    let mut child = cmd.spawn().unwrap();
+    use std::io::Write;
+    let _ = child.stdin.take().unwrap().write_all("x".repeat(5 << 20).as_bytes());
+    let sent = child.wait_with_output().unwrap();
+    assert!(!sent.status.success(), "{}", text(&sent));
+    assert!(text(&sent).contains("15 MiB"), "{}", text(&sent));
+    let after: Vec<_> = fs::read_dir(&dir).unwrap().flatten().map(|e| e.file_name()).collect();
+    assert_eq!(before, after, "the daemon was started");
+}

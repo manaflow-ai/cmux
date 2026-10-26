@@ -553,12 +553,13 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             supersede,
             attach,
         } => {
-            // Read before the daemon is asked anything: a file past the cap sends nothing.
-            let attachments = crate::attach::blocks_from_paths(&attach)?;
-            let client = connect(true).await?;
             if let Some(delivery) = status {
+                let client = connect(true).await?;
                 return super::send_async::status(&client, &delivery, json_out).await;
             }
+            // Read and checked before the daemon is asked anything (or started): a message past
+            // a cap sends nothing.
+            let attachments = crate::attach::blocks_from_paths(&attach)?;
             let session = session.ok_or_else(|| anyhow!("a session is required"))?;
             let mut prompt_id = PromptId::new(prompt_id);
             prompt_id.from_agent = from.or_else(crate::cli::sender::of_this_process);
@@ -574,6 +575,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                 let request = prompt_id.params(&session, &text, steer, None);
                 crate::attach::check_wire(&request).map_err(|e| anyhow::anyhow!(e.message))?;
             }
+            let client = connect(true).await?;
             if no_wait {
                 return super::send_async::queue(
                     &client,
