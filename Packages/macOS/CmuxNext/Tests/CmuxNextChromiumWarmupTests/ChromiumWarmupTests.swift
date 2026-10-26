@@ -1,14 +1,17 @@
 import CmuxNextBrowser
 @testable import CmuxNextChromiumWarmup
 import CmuxNextInput
+import CmuxNextInputCore
+import CmuxNextInputCoreTestSupport
 import Foundation
 import Testing
 
-/// When the warm start skips, and that every step is an idle task (p06-scheduler-050): posted,
-/// never run in the turn that asked, the spare refill with a 500 ms `maxDelay`. An engine with no
-/// embedded runtime is unavailable, so nothing here maps or starts Chromium (the runtime is
-/// process-wide); the steps run against a fake engine and a fake idle poster.
-@MainActor struct ChromiumWarmupTests {
+/// When the warm start skips, and that every step is an idle task (p06-scheduler-050): posted once
+/// startup settled, never run in the turn that asked, each with a `maxDelay`; the steps that hold
+/// the main thread wait for 750 ms with no input and for a slot that may run past its deadline. An
+/// engine with no embedded runtime is unavailable, so nothing here maps or starts Chromium (the
+/// runtime is process-wide); the steps run against a fake engine and a fake idle poster.
+@MainActor @Suite(.timeLimit(.minutes(1))) struct ChromiumWarmupTests {
     final class Flag {
         var value: Bool
         init(_ value: Bool) { self.value = value }
@@ -38,11 +41,12 @@ import Testing
 
     let idle = FakeIdle()
     let menu = MenuEnd()
+    let input = FakeInputTap()
 
     func warmup(engine: any ChromiumWarmupEngine = CEFEngine(layout: nil, stores: .inMemory(), signInCallbacks: CEFSignInCallbacks(), input: InputEventTap()),
                 trackingMenu: @escaping @MainActor () -> Bool = { false }) -> ChromiumWarmup {
         let menu = menu
-        return ChromiumWarmup(engine: engine, idle: idle, isTrackingMenu: trackingMenu, observeMenuEnd: { menu.observe($0) })
+        return ChromiumWarmup(engine: engine, idle: idle, input: input, isTrackingMenu: trackingMenu, observeMenuEnd: { menu.observe($0) })
     }
 
     /// Starts `warmup` with Chromium not the default and runs its launch check, so only the steps
@@ -54,6 +58,19 @@ import Testing
         idle.runPeriod()
     }
 
+    /// The person's key `ago` before the fake's now.
+    func key(_ ago: Duration) {
+        let at = (idle.now - ago).components
+        input.deliver(InputEventRecord(type: .keyDown, timestamp: Double(at.seconds) + Double(at.attoseconds) * 1e-18))
+    }
+
+    /// The delays the warmup asked for, each within a microsecond of `expected` (the key's time is
+    /// a `Double` of seconds).
+    func delays(are expected: [Duration]) -> Bool {
+        idle.afters.count == expected.count
+            && zip(idle.afters, expected).allSatisfy { abs(($0.delay - $1) / .microseconds(1)) < 1 }
+    }
+
     @Test func anUnavailableEngineNeverWarms() {
         let warmup = warmup()
         warmup.start(defaultIsChromium: { true })
@@ -63,25 +80,26 @@ import Testing
     }
 
     /// While Chromium is the default engine: the launch check, CefInitialize and the first spare are
-    /// three idle tasks, each posted by the one before; only the spare refill has a `maxDelay`.
+    /// three idle tasks, each posted by the one before, each with a `maxDelay` so a busy app still
+    /// warms up as background work.
     @Test func launchInitializeAndSpareAreEachAnIdleTask() async {
         let engine = FakeWarmupEngine(running: false)
         let warmup = warmup(engine: engine)
         warmup.start(defaultIsChromium: { true })
         #expect(engine.preloads == 0, "start posts; nothing runs on its turn")
         #expect(idle.queued.map(\.owner) == ["ChromiumWarmup.launch"])
-        #expect(idle.queued.first?.maxDelay == nil)
+        #expect(idle.queued.first?.maxDelay == .seconds(5))
 
         idle.runPeriod()
         #expect(warmup.reason == .launch)
         #expect(engine.preloads == 1)
-        await settle { idle.queued.count == 1 }
+        await idle.posted(2)
         #expect(idle.queued.map(\.owner) == ["ChromiumWarmup.initialize"], "posted once the framework is mapped")
-        #expect(idle.queued.first?.maxDelay == nil)
+        #expect(idle.queued.first?.maxDelay == .seconds(5), "an app that never goes idle still starts Chromium")
         #expect(engine.warmStarts.isEmpty)
 
         idle.runPeriod()
-        await settle { idle.queued.count == 1 }
+        await idle.posted(3)
         #expect(engine.warmStarts == ["launch"])
         #expect(idle.queued.map(\.owner) == ["ChromiumWarmup.spare"])
         #expect(idle.queued.first?.maxDelay == .milliseconds(500), "the refill runs as background work past 500 ms")
@@ -89,6 +107,24 @@ import Testing
 
         idle.runPeriod()
         #expect(engine.prepared == [false])
+        warmup.stop()
+    }
+
+    /// Nothing is posted while startup is not settled (the launch window, session restore): the
+    /// launch check and a restored tab's CefInitialize wait for the settle.
+    @Test func noStepRunsBeforeStartupSettles() async {
+        idle.settled = false
+        let engine = FakeWarmupEngine(running: false)
+        let warmup = warmup(engine: engine)
+        warmup.start(defaultIsChromium: { true })
+        warmup.chromiumLikely(.restoredTab)
+        #expect(engine.preloads == 1, "the framework maps off the main thread at once")
+        await idle.held(2)
+        #expect(idle.posts.isEmpty, "no idle task while launching")
+
+        idle.settle()
+        await idle.posted(2)
+        #expect(Set(idle.queued.map(\.owner)) == ["ChromiumWarmup.launch", "ChromiumWarmup.initialize"])
         warmup.stop()
     }
 
@@ -107,6 +143,71 @@ import Testing
 
         engine.onSpareWindowNeeded?()
         #expect(idle.queued.count == 1, "the next take posts the next refill")
+        warmup.stop()
+    }
+
+    /// A key 60 ms before the idle period (a gap between two keys): no spare is built, and no idle
+    /// task is posted again until one deadline at the end of the 750 ms quiet. A key during that
+    /// wait makes the step wait again; once the person is quiet, the spare is built.
+    @Test func inputLessThanTheQuietBeforeTheSlotBuildsNothing() {
+        let engine = FakeWarmupEngine()
+        let warmup = warmup(engine: engine)
+        started(warmup)
+        engine.onSpareWindowNeeded?()
+        key(.milliseconds(60))
+        idle.runPeriod()
+        #expect(engine.prepared.isEmpty, "a spare was built 60 ms after a key")
+        #expect(idle.queued.isEmpty, "nothing polls while the quiet runs")
+        #expect(delays(are: [.milliseconds(690)]))
+        #expect(idle.afters.first?.owner == "ChromiumWarmup.quiet")
+
+        idle.now += .milliseconds(690)
+        key(.milliseconds(100))
+        idle.fireAfters()
+        #expect(idle.queued.map(\.owner) == ["ChromiumWarmup.spare"])
+        idle.runPeriod()
+        #expect(engine.prepared.isEmpty, "a key came during the wait")
+        #expect(delays(are: [.milliseconds(650)]))
+
+        idle.now += .milliseconds(651)
+        idle.fireAfters()
+        idle.runPeriod()
+        #expect(engine.prepared == [false])
+        warmup.stop()
+    }
+
+    /// The same quiet holds CefInitialize: a key 60 ms before the period starts no Chromium.
+    @Test func inputLessThanTheQuietBeforeTheSlotStartsNoChromium() async {
+        let engine = FakeWarmupEngine(running: false)
+        let warmup = warmup(engine: engine)
+        started(warmup)
+        warmup.chromiumLikely(.newTabMenu)
+        await idle.posted(2)
+        key(.milliseconds(60))
+        idle.runPeriod()
+        #expect(engine.warmStarts.isEmpty, "CefInitialize ran 60 ms after a key")
+        #expect(idle.afters.count == 1)
+        warmup.stop()
+    }
+
+    /// A short period between frames cannot hold CefInitialize or a window build: the step is posted
+    /// for the next slot with what is left of its `maxDelay`, and runs in a slot that may overrun.
+    @Test func aShortPeriodPostsTheStepAgainWithItsMaxDelayLeft() {
+        let engine = FakeWarmupEngine()
+        let warmup = warmup(engine: engine)
+        started(warmup)
+        engine.onSpareWindowNeeded?()
+        idle.now += .milliseconds(200)
+        idle.runPeriod(mayOverrun: false)
+        #expect(engine.prepared.isEmpty, "a spare was built in a short period")
+        #expect(idle.queued.map(\.owner) == ["ChromiumWarmup.spare"])
+        #expect(idle.queued.first?.maxDelay == .milliseconds(300), "the post again keeps the first post's deadline")
+
+        idle.now += .milliseconds(400)
+        idle.runPeriod(mayOverrun: false)
+        #expect(idle.queued.first?.maxDelay == .zero, "past its deadline: background work at once")
+        idle.runPeriod()
+        #expect(engine.prepared == [false])
         warmup.stop()
     }
 
@@ -185,6 +286,23 @@ import Testing
         warmup.stop()
     }
 
+    /// A window drag or a live resize runs the main run loop in `eventTracking` mode with no menu
+    /// (the app's `isTrackingMenu` reads NSMenu's notifications, so it is false then): the step
+    /// waits for no menu end, and the next spare request still builds a spare.
+    @Test func eventTrackingWithNoMenuNeverParksTheSpare() {
+        let engine = FakeWarmupEngine()
+        let warmup = warmup(engine: engine)
+        started(warmup)
+        engine.onSpareWindowNeeded?()
+        idle.runPeriod()
+        #expect(engine.prepared == [false])
+        #expect(menu.observations == 0, "no wait for a menu end that never comes")
+        engine.onSpareWindowNeeded?()
+        idle.runPeriod()
+        #expect(engine.prepared == [false, false], "the next request still builds a spare")
+        warmup.stop()
+    }
+
     /// A page being made builds its own window: the spare step waits for the pages to settle, and
     /// reports meanwhile post nothing.
     @Test func aPageBeingMadeHoldsTheSpareUntilThePagesSettle() {
@@ -221,49 +339,115 @@ import Testing
     @Test func theDefaultPolicy() {
         let policy = ChromiumWarmup.Policy()
         #expect(policy.recentUse == 7 * 24 * 60 * 60)
+        #expect(policy.inputQuiet == .milliseconds(750))
+        #expect(policy.warmStartMaxDelay == .seconds(5))
         #expect(policy.spareMaxDelay == .milliseconds(500))
-    }
-
-    /// Lets the warmup's tasks (the framework load, the warm start) finish: yields until `done`.
-    private func settle(_ done: @MainActor () -> Bool) async {
-        var turns = 0
-        while !done(), turns < 1000 {
-            turns += 1
-            await Task.yield()
-        }
     }
 }
 
-/// The idle poster: records each step and runs them in ``runPeriod()``.
+/// The idle poster: records each step and runs them in ``runPeriod(mayOverrun:)``, holds posts
+/// until ``settle()`` while not ``settled``, and records each delay for ``fireAfters()``.
 @MainActor final class FakeIdle: ChromiumWarmupIdle {
     struct Post {
         let owner: String
-        let maxDelay: Duration?
-        let body: @MainActor () -> Void
+        let maxDelay: Duration
+        let body: @MainActor (ChromiumWarmupSlot) -> Void
     }
 
+    struct After {
+        let delay: Duration
+        let owner: String
+        let action: @MainActor () -> Void
+        weak var token: AnyObject?
+    }
+
+    final class Token {}
+
+    var now: Duration = .seconds(100)
+    var uptime: Duration { now }
+    var settled = true
     private(set) var posts: [Post] = []
+    private(set) var afters: [After] = []
     private var ran = 0
+    private var held: [@MainActor () -> Void] = []
+    private var postWaiters: [(count: Int, continuation: CheckedContinuation<Void, Never>)] = []
+    private var heldWaiters: [(count: Int, continuation: CheckedContinuation<Void, Never>)] = []
 
     /// Posted and not run yet.
     var queued: [Post] { Array(posts[ran...]) }
 
-    func postIdleStep(owner: String, maxDelay: Duration?, file: StaticString, line: UInt, _ body: @escaping @MainActor () -> Void) {
+    func postIdleStep(owner: String, maxDelay: Duration, file: StaticString, line: UInt,
+                      _ body: @escaping @MainActor (ChromiumWarmupSlot) -> Void) {
         posts.append(Post(owner: owner, maxDelay: maxDelay, body: body))
+        let ready = postWaiters.filter { $0.count <= posts.count }
+        postWaiters.removeAll { $0.count <= posts.count }
+        for waiter in ready {
+            waiter.continuation.resume()
+        }
+    }
+
+    func whenStartupSettled(_ action: @escaping @MainActor () -> Void) {
+        guard settled else {
+            held.append(action)
+            let ready = heldWaiters.filter { $0.count <= held.count }
+            heldWaiters.removeAll { $0.count <= held.count }
+            for waiter in ready {
+                waiter.continuation.resume()
+            }
+            return
+        }
+        action()
+    }
+
+    func after(_ delay: Duration, owner: String, _ action: @escaping @MainActor () -> Void) -> AnyObject {
+        let token = Token()
+        afters.append(After(delay: delay, owner: owner, action: action, token: token))
+        return token
+    }
+
+    /// Startup settled: the held posts go on, in order.
+    func settle() {
+        settled = true
+        let actions = held
+        held = []
+        for action in actions {
+            action()
+        }
+    }
+
+    /// Returns once `count` steps were posted in all (the warmup's tasks posted them).
+    func posted(_ count: Int) async {
+        guard posts.count < count else { return }
+        await withCheckedContinuation { postWaiters.append((count, $0)) }
+    }
+
+    /// Returns once `count` steps are held for the settle.
+    func held(_ count: Int) async {
+        guard held.count < count else { return }
+        await withCheckedContinuation { heldWaiters.append((count, $0)) }
+    }
+
+    /// The delays end: each whose token lives runs.
+    func fireAfters() {
+        let due = afters
+        afters = []
+        for after in due where after.token != nil {
+            after.action()
+        }
     }
 
     /// One idle period: runs the steps posted before it; a step posted meanwhile waits for the next.
-    func runPeriod() {
+    func runPeriod(mayOverrun: Bool = true) {
         let due = queued
         ran = posts.count
         for post in due {
-            post.body()
+            post.body(ChromiumWarmupSlot(mayOverrun: mayOverrun))
         }
     }
 }
 
 /// Records the warmup's steps; runs nothing.
-@MainActor private final class FakeWarmupEngine: ChromiumWarmupEngine {
+@MainActor final class FakeWarmupEngine: ChromiumWarmupEngine {
     var availability: BrowserEngineAvailability = .available
     var isRunning: Bool
     /// The `pages` argument of each `prepareSpareWindow` call.

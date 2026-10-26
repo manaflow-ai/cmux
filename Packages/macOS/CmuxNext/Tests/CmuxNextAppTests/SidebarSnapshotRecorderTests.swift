@@ -89,4 +89,38 @@ import Testing
         #expect(harness.saved.isEmpty)
         #expect(harness.posts.isEmpty)
     }
+
+    /// Quit: a change whose idle task has not run is built at once and reaches the store before its
+    /// flush, with the newest sequence; the queued task then saves nothing.
+    @Test func flushNowSavesTheQueuedChangeWithNoIdleRun() async {
+        let store = SidebarSnapshotStore(file: nil)
+        model.activeProfileID = ProfileKey("a")
+        recorder.record(model, window: "w1", target: harness.target)
+        harness.runIdle()
+        guard let first = harness.saved.first else {
+            Issue.record("the first change was not saved")
+            return
+        }
+        await store.record(SidebarSnapshot(sections: [SidebarSnapshot.Section](), profiles: [SidebarSnapshot.Profile](), activeProfileID: first.active), window: "w1", sequence: first.sequence)
+
+        model.activeProfileID = ProfileKey("b")
+        recorder.record(model, window: "w1", target: harness.target)
+        #expect(harness.posts.count == 1, "queued, not run")
+        guard let pending = recorder.flushNow(model, window: "w1", target: harness.target) else {
+            Issue.record("flushNow built nothing for a queued change")
+            return
+        }
+        #expect(pending.sequence == 2)
+        await store.record(pending.snapshot, window: "w1", sequence: pending.sequence)
+        await store.flush()
+        #expect(await store.document.snapshot(for: "w1", fallback: false)?.activeProfileID == ProfileKey("b").rawValue)
+
+        harness.runIdle()
+        #expect(harness.saved.count == 1, "the queued task found the change saved")
+        #expect(recorder.flushNow(model, window: "w1", target: harness.target) == nil, "nothing waits any more")
+
+        model.activeProfileID = ProfileKey("c")
+        recorder.record(model, window: "w1", target: harness.target)
+        #expect(harness.posts.count == 1, "the next change posts again after a flush")
+    }
 }

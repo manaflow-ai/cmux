@@ -1,5 +1,5 @@
 public import CmuxNextBrowser
-public import CmuxNextWakeups
+public import CmuxNextInputCore
 public import Foundation
 
 /// Starts Chromium before the first Chromium tab needs it, so its two
@@ -8,28 +8,33 @@ public import Foundation
 /// exception) do not land in the middle of user input.
 ///
 /// Every step is an idle task of the app's main-thread scheduler (``ChromiumWarmupIdle``,
-/// `MainWorkScheduler.postIdle`): it runs in an idle period (no input pending, no frame client
-/// running, no budgeted work waiting), never in the turn that asked for it and never inside a
-/// person's input response. Nothing here polls or arms a timer of its own: Chrome's idle tasks
+/// `MainWorkScheduler.postIdle`), posted once startup settled (`StartupPhase.settled`), never run
+/// in the turn that asked for it. Nothing here polls: Chrome's idle tasks
 /// (`third_party/blink/renderer/platform/scheduler/common/idle_helper.h`) and after-startup work
-/// (`content/browser/after_startup_task_utils.cc`).
+/// (`chrome/browser/after_startup_task_utils.cc`).
 ///
-/// - At the first idle period after ``start(defaultIsChromium:pagesPending:pagesSpare:)`` (called
-///   after the first frame; idle work waits for the settled startup phase), while Chromium is the
-///   default engine (`browser.defaultEngine`), Chromium starts (`Reason.launch`); otherwise, for a
-///   user who opened a Chromium tab in the last 7 days (`ChromiumUseRecord`), the framework is
-///   mapped on a background thread (`CEFEngine.preload`, no Chromium code runs).
-/// - When a Chromium tab is likely, the framework is mapped and `CefInitialize` runs in the first
-///   idle period after the load. Likely means launch itself while Chromium is the default engine
-///   (`Reason.launch`), and otherwise a Chromium tab in any window (restored or not), the "+" menu,
-///   the palette's Chromium entries, or switching the default to Chromium. With WebKit as the
-///   default engine CEF stays lazy: a user who never opens a Chromium tab never pays for it
-///   (AppServices+Chromium).
+/// - The two steps that hold the main thread (`CefInitialize`, a spare window) cannot fit in any
+///   idle deadline, so they start only in a slot that may run past it (a long idle period, or past
+///   the step's `maxDelay` as background work, never in an open input response; Chrome's
+///   `IdleHelper::CanExceedIdleDeadlineIfRequired`), and only after ``Policy/inputQuiet`` (750 ms)
+///   with no input from the person: one gap between two keys is never enough. A step that comes
+///   sooner waits for the rest of the quiet with one deadline (Chrome delays its long idle period
+///   while a gesture is expected, `MainThreadSchedulerImpl::CanEnterLongIdlePeriod`), and a step
+///   in a short period between frames is posted for the next period.
+/// - Every step has a `maxDelay` (``Policy/warmStartMaxDelay``, ``Policy/spareMaxDelay``): an app
+///   that never goes idle (an animation, an agent's stream) still warms up, as background work.
+/// - Once startup settled, while Chromium is the default engine (`browser.defaultEngine`),
+///   Chromium starts (`Reason.launch`); otherwise, for a user who opened a Chromium tab in the
+///   last 7 days (`ChromiumUseRecord`), the framework is mapped on a background thread
+///   (`CEFEngine.preload`, no Chromium code runs).
+/// - When a Chromium tab is likely, the framework is mapped and `CefInitialize` is posted once it
+///   loaded. Likely means launch itself while Chromium is the default engine (`Reason.launch`),
+///   and otherwise a Chromium tab in any window (restored or not), the "+" menu, the palette's
+///   Chromium entries, or switching the default to Chromium. With WebKit as the default engine CEF
+///   stays lazy: a user who never opens a Chromium tab never pays for it (AppServices+Chromium).
 /// - Once Chromium runs, an idle task builds the next missing spare Chromium window
 ///   (`CEFEngine.prepareSpareWindow`), so each pane's first Chromium tab joins a live window
-///   instead of building one on the key's turn. The refill has a ``Policy/spareMaxDelay`` of
-///   500 ms: past it the step runs as background work, so a busy app (an animation, an agent's
-///   stream) still has a spare for the next Cmd-T (p06-scheduler.md, risk 6). While cmux pages use
+///   instead of building one on the key's turn (p06-scheduler.md, risk 6). While cmux pages use
 ///   Chromium (`pagesSpare`, the `pagesSpareWindow` feature), the warm start's spare step also
 ///   makes the pages profile (`CEFEngine.beginPagesProfile`), and the step after the default
 ///   profile's spare comes up builds the pages spare, so a cmux page's key joins a live window too
@@ -56,8 +61,13 @@ public final class ChromiumWarmup {
         /// A Chromium tab opened this recently (`ChromiumUseRecord`) makes
         /// launch itself the warm-start signal.
         public var recentUse: TimeInterval = 7 * 24 * 60 * 60
-        /// The longest a spare window refill waits for an idle period before it runs as
-        /// background work (the idle task's `maxDelay`).
+        /// How long the person gives no input before `CefInitialize` or a spare window build
+        /// starts: longer than the gaps of typing (100-300 ms between keys).
+        public var inputQuiet: Duration = .milliseconds(750)
+        /// The longest the launch check and `CefInitialize` wait for idle time before they run as
+        /// background work.
+        public var warmStartMaxDelay: Duration = .seconds(5)
+        /// The longest a spare window refill waits for idle time before it runs as background work.
         public var spareMaxDelay: Duration = .milliseconds(500)
 
         public init() {}
@@ -73,20 +83,34 @@ public final class ChromiumWarmup {
         case spare
 
         var owner: String { "ChromiumWarmup.\(rawValue)" }
+
+        /// Whether the step holds the main thread for long: it waits for a quiet person and for a
+        /// slot that may run past its deadline.
+        var holdsMainThread: Bool { self != .launch }
     }
 
     private let engine: any ChromiumWarmupEngine
     private let idle: any ChromiumWarmupIdle
+    /// The app's input tap: its last dispatched event dates the person's last input.
+    private let input: any InputObserving
     private let policy: Policy
     private let isTrackingMenu: @MainActor () -> Bool
     private let observeMenuEnd: MenuEndObserving
     /// The observation of the menu's end while a step waits for it.
     private var menuEnd: AnyObject?
+    /// The deadline at the end of the input quiet while a step waits for it.
+    private var quietEnd: AnyObject?
     private var started = false
-    /// The steps queued as idle tasks or waiting for a menu to close: one task per step.
+    /// The steps posted and not run yet (held for the settle, queued as idle tasks, or waiting for
+    /// a menu or the quiet): one task per step.
     private(set) var pending: Set<Step> = []
+    /// When each queued step's `maxDelay` ends (on ``ChromiumWarmupIdle/uptime``): a step posted
+    /// again keeps it.
+    private var due: [Step: Duration] = [:]
     /// The steps that came while a menu tracked, in order: posted again when it closes.
     private var afterMenu: [Step] = []
+    /// The steps that came before the input quiet ended, in order: posted again when it does.
+    private var afterQuiet: [Step] = []
     public private(set) var reason: Reason?
     /// Whether new browser tabs open in Chromium (`browser.defaultEngine`).
     private var defaultIsChromium: @MainActor () -> Bool = { false }
@@ -103,19 +127,25 @@ public final class ChromiumWarmup {
 
     /// - Parameters:
     ///   - engine: The Chromium engine to start.
-    ///   - idle: Where the steps are posted as idle tasks (the app's `MainWorkScheduler`).
-    ///   - isTrackingMenu: Whether a menu tracks now (a step then waits for it to close).
+    ///   - idle: Where the steps are posted as idle tasks, held for the settled startup and delayed
+    ///     for the input quiet (the app's `MainDeadlineScheduler`).
+    ///   - input: The app's input tap (its ``InputObserving/lastDispatched`` event).
+    ///   - isTrackingMenu: Whether a menu tracks now (a step then waits for it to close). The app
+    ///     reads `NSMenu`'s begin and end of tracking, not the run loop's `eventTracking` mode,
+    ///     which a window drag or a live resize also runs in, with no menu end after it.
     ///   - observeMenuEnd: Observes the end of menu tracking (the app: an observation of
     ///     `NSMenu.didEndTrackingNotification`); the observation stops when its token is released.
     public init(
         engine: any ChromiumWarmupEngine,
         idle: any ChromiumWarmupIdle,
+        input: any InputObserving,
         policy: Policy = Policy(),
-        isTrackingMenu: @escaping @MainActor () -> Bool = { RunLoop.main.currentMode == .eventTracking },
+        isTrackingMenu: @escaping @MainActor () -> Bool,
         observeMenuEnd: @escaping MenuEndObserving
     ) {
         self.engine = engine
         self.idle = idle
+        self.input = input
         self.policy = policy
         self.isTrackingMenu = isTrackingMenu
         self.observeMenuEnd = observeMenuEnd
@@ -126,10 +156,10 @@ public final class ChromiumWarmup {
 
     private var isAvailable: Bool { engine.availability == .available }
 
-    /// At the next idle period, for a user who opened a Chromium tab within `Policy.recentUse`:
-    /// maps the framework, and while new tabs open in Chromium (`defaultIsChromium`) starts it
-    /// (CefInitialize, then the spare window, each in an idle period). Anyone else pays nothing
-    /// until a signal (`chromiumLikely`). Once per process.
+    /// Once startup settled, for a user who opened a Chromium tab within `Policy.recentUse`: maps
+    /// the framework, and while new tabs open in Chromium (`defaultIsChromium`) starts it
+    /// (CefInitialize, then the spare window, each an idle step). Anyone else pays nothing until a
+    /// signal (`chromiumLikely`). Once per process.
     ///
     /// - Parameters:
     ///   - defaultIsChromium: Whether new browser tabs open in Chromium (`browser.defaultEngine`).
@@ -155,8 +185,8 @@ public final class ChromiumWarmup {
         post(.spare)
     }
 
-    /// A Chromium tab is likely soon: map the framework now and run
-    /// `CefInitialize` in the first idle period after the load. Once per process.
+    /// A Chromium tab is likely soon: map the framework now and post `CefInitialize` once it
+    /// loaded. Once per process.
     public func chromiumLikely(_ reason: Reason) {
         guard self.reason == nil, isAvailable, !engine.isRunning, !stopped else { return }
         self.reason = reason
@@ -192,30 +222,62 @@ public final class ChromiumWarmup {
     public func stop() {
         stopped = true
         pending = []
+        due = [:]
         afterMenu = []
+        afterQuiet = []
         menuEnd = nil
+        quietEnd = nil
     }
 
-    /// Posts `step` as an idle task unless one is pending (it runs the same step later).
+    /// Takes `step` unless it is pending (the pending one runs the same step later), and queues it
+    /// once startup settled.
     private func post(_ step: Step) {
         guard !stopped, !pending.contains(step) else { return }
         pending.insert(step)
-        idle.postIdleStep(owner: step.owner, maxDelay: step == .spare ? policy.spareMaxDelay : nil, file: #fileID, line: #line) { [weak self] in
-            self?.run(step)
+        idle.whenStartupSettled { [weak self] in self?.queue(step) }
+    }
+
+    /// Posts pending `step`'s idle task with what is left of its `maxDelay` (its first queue sets
+    /// the end).
+    private func queue(_ step: Step) {
+        guard !stopped, pending.contains(step) else { return }
+        let now = idle.uptime
+        let end = due[step] ?? now + maxDelay(step)
+        due[step] = end
+        idle.postIdleStep(owner: step.owner, maxDelay: max(.zero, end - now), file: #fileID, line: #line) { [weak self] slot in
+            self?.run(step, in: slot)
         }
     }
 
-    /// `step`'s idle task runs: while a menu tracks it waits for the menu to close and is posted
-    /// again then. Internal, not private: tests run the posted steps through their fake poster.
-    func run(_ step: Step) {
+    private func maxDelay(_ step: Step) -> Duration {
+        step == .spare ? policy.spareMaxDelay : policy.warmStartMaxDelay
+    }
+
+    /// `step`'s idle task runs. While a menu tracks it waits for the menu to close; a step that
+    /// holds the main thread waits for the rest of the input quiet, and for a slot that may run
+    /// past its deadline. Internal, not private: tests run the posted steps through their fake.
+    func run(_ step: Step, in slot: ChromiumWarmupSlot) {
         guard !stopped, pending.contains(step) else { return }
         if isTrackingMenu() { return waitForMenu(step) }
+        if step.holdsMainThread {
+            let quietLeft = inputQuietLeft()
+            if quietLeft > .zero { return waitForQuiet(step, quietLeft) }
+            guard slot.mayOverrun else { return queue(step) }
+        }
         pending.remove(step)
+        due[step] = nil
         switch step {
         case .launch: launchCheck()
         case .initialize: initialize()
         case .spare: prepareSpare()
         }
+    }
+
+    /// The rest of ``Policy/inputQuiet`` after the person's last dispatched input; zero or less
+    /// once it passed, or before any input.
+    private func inputQuietLeft() -> Duration {
+        guard let last = input.lastDispatched?.timestamp else { return .zero }
+        return policy.inputQuiet - (idle.uptime - .seconds(last))
     }
 
     /// The launch step: while new browser tabs open in Chromium, any browser tab is a Chromium
@@ -272,31 +334,26 @@ public final class ChromiumWarmup {
         let steps = afterMenu
         afterMenu = []
         for step in steps {
-            pending.remove(step)
-            post(step)
+            queue(step)
         }
     }
-}
 
-/// Where ``ChromiumWarmup`` posts its steps: the app's `MainWorkScheduler` (its idle class);
-/// tests pass a fake that runs the posted steps by hand.
-@MainActor
-public protocol ChromiumWarmupIdle: AnyObject {
-    /// Queues `body` for the main thread's next idle period, never inline. With `maxDelay`, a
-    /// body that has not run by then runs as background work.
-    ///
-    /// - Parameters:
-    ///   - owner: The task's owner in the scheduler's board.
-    ///   - maxDelay: The longest the body waits for idle time; nil waits for it however long.
-    ///   - file: The posting file, for the board.
-    ///   - line: The posting line, for the board.
-    ///   - body: The step.
-    func postIdleStep(owner: String, maxDelay: Duration?, file: StaticString, line: UInt, _ body: @escaping @MainActor () -> Void)
-}
+    /// `step` came `left` before the input quiet ends: it stays pending, and one deadline at the
+    /// end of the quiet posts it again (with the other steps that came meanwhile). Input after
+    /// that makes the step wait again when it runs.
+    private func waitForQuiet(_ step: Step, _ left: Duration) {
+        if !afterQuiet.contains(step) { afterQuiet.append(step) }
+        guard quietEnd == nil else { return }
+        quietEnd = idle.after(left, owner: "ChromiumWarmup.quiet") { [weak self] in self?.quietEnded() }
+    }
 
-extension MainWorkScheduler: ChromiumWarmupIdle {
-    public func postIdleStep(owner: String, maxDelay: Duration?, file: StaticString, line: UInt, _ body: @escaping @MainActor () -> Void) {
-        postIdle(owner: owner, maxDelay: maxDelay, file: file, line: line) { _ in body() }
+    private func quietEnded() {
+        quietEnd = nil
+        let steps = afterQuiet
+        afterQuiet = []
+        for step in steps {
+            queue(step)
+        }
     }
 }
 

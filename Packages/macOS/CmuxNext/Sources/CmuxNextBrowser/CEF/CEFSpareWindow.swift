@@ -34,8 +34,9 @@ import Foundation
 /// reports `onNeeded`. The report only posts the refill: the warmup builds the
 /// next spare in an idle task of the main-thread scheduler with a 500 ms
 /// `maxDelay` (`ChromiumWarmup`, `MainWorkScheduler.postIdle`), never in the
-/// key's turn or its input response, and past the delay as background work, so
-/// the next Cmd-T still finds one in a busy app (p06-scheduler-050). Chrome
+/// key's turn or its input response and only after 750 ms with no input, and
+/// past the delay as background work, so the next Cmd-T still finds one in a
+/// busy app (p06-scheduler-050). Chrome
 /// also refills its spare renderer after the take, off the navigation's path
 /// (`SpareRenderProcessHostManagerImpl::PrepareForFutureRequests`).
 ///

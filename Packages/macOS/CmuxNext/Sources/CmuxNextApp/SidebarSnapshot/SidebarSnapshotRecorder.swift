@@ -9,7 +9,11 @@ import CmuxNextWakeups
 /// passes builds one snapshot and none is built in a person's input response; the store (an
 /// actor) merges it and writes the file off the main thread. This is Chrome's session save: a
 /// change only schedules the save, which runs later with the newest state
-/// (`components/sessions/core/command_storage_manager.cc`, `ScheduleSave`, `kSaveDelayMS`).
+/// (`components/sessions/core/command_storage_manager.cc`, `ScheduleSave`, `kSaveDelayMS`). Quit
+/// does not wait for the task: ``flushNow(_:window:services:)`` builds the queued snapshot at once,
+/// before the store's own flush, as Chrome's session service writes its pending commands at once
+/// when the browser shuts down (`CommandStorageManager::Save`), not at its next timer. A closed window needs no flush: the store
+/// forgets it (`WindowManager.userClosed`).
 final class SidebarSnapshotRecorder {
     /// The longest a changed sidebar waits for idle time before its snapshot is built as
     /// background work (Chrome's session save delay, `kSaveDelayMS`, is 2.5 s).
@@ -37,6 +41,8 @@ final class SidebarSnapshotRecorder {
     private var everIncognito = false
     /// An idle task is queued: later passes leave it to save the newest state.
     private(set) var isQueued = false
+    /// Bumped by each post and each flush: an idle task of an older post saves nothing.
+    private var generation: UInt64 = 0
 
     /// `model` changed: what it shows (placeholders and live-only detail left out) is saved in an
     /// idle task, once the launch is over, only for an open registered window and never an
@@ -50,12 +56,29 @@ final class SidebarSnapshotRecorder {
     func record(_ model: SidebarModel, window: String, target: Target) {
         guard !isQueued, needsSave(model, window: window, target: target) else { return }
         isQueued = true
+        generation &+= 1
+        let posted = generation
         target.postIdle("SidebarSnapshot.record", Self.maxDelay) { [weak self, weak model] in
-            guard let self else { return }
+            guard let self, self.isQueued, self.generation == posted else { return }
             self.isQueued = false
-            guard let model else { return }
-            self.save(model, window: window, target: target)
+            guard let model, let save = self.take(model, window: window, target: target) else { return }
+            target.save(save.snapshot, window, save.sequence)
         }
+    }
+
+    /// The queued idle task's save, now (quit): the snapshot of what `model` shows, with its
+    /// sequence, when a change still waits for its task. The caller awaits the store's record of it
+    /// before the store's flush; the queued task then saves nothing.
+    func flushNow(_ model: SidebarModel, window: String, services: AppServices) -> (snapshot: SidebarSnapshot, sequence: UInt64)? {
+        flushNow(model, window: window, target: Self.target(services))
+    }
+
+    /// ``flushNow(_:window:services:)`` against `target` (tests pass their own).
+    func flushNow(_ model: SidebarModel, window: String, target: Target) -> (snapshot: SidebarSnapshot, sequence: UInt64)? {
+        guard isQueued else { return nil }
+        isQueued = false
+        generation &+= 1
+        return take(model, window: window, target: target)
     }
 
     /// Whether `model` shows what was not saved yet, for a window whose sidebar is saved now.
@@ -66,14 +89,13 @@ final class SidebarSnapshotRecorder {
         return !(key.0 == model.contentRevision && key.1 == model.profiles && key.2 == model.activeProfileID)
     }
 
-    /// The idle task: the checks again (the window may have closed or gone incognito since the
-    /// pass), then the snapshot of what the sidebar shows now.
-    private func save(_ model: SidebarModel, window: String, target: Target) {
-        guard needsSave(model, window: window, target: target) else { return }
+    /// The checks again (the window may have closed or gone incognito since the pass), then the
+    /// snapshot of what the sidebar shows now, with the next sequence.
+    private func take(_ model: SidebarModel, window: String, target: Target) -> (snapshot: SidebarSnapshot, sequence: UInt64)? {
+        guard needsSave(model, window: window, target: target) else { return nil }
         savedKey = (model.contentRevision, model.profiles, model.activeProfileID)
-        let snapshot = SidebarSnapshot(sections: model.sections, profiles: model.profiles, activeProfileID: model.activeProfileID)
         recordSequence += 1
-        target.save(snapshot, window, recordSequence)
+        return (SidebarSnapshot(sections: model.sections, profiles: model.profiles, activeProfileID: model.activeProfileID), recordSequence)
     }
 
     /// The app's target: its window registry, its snapshot store (merged and written off main, on

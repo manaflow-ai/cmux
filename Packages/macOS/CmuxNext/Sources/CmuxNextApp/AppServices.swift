@@ -389,7 +389,12 @@ final class AppServices {
     let inputTap: InputEventTap  // the one input tap (AppDelegate's; a test's own); owners subscribe, never add event monitors (p04-input.md 3 (A))
     private var mouseDownSubscription: InputSubscription?  // a click after dispatch (start)
     private(set) lazy var keyRouter: KeyRouter = KeyRouter(registry: registry, inputDispatch: inputDispatch)  // first read in init (no IUO)
-    private(set) lazy var chromiumWarmup: ChromiumWarmup = ChromiumWarmup(engine: cache.cef, idle: mainWork, observeMenuEnd: { MainActorObservation(NSMenu.didEndTrackingNotification, $0) })  // idle steps; first read by its afterFirstFrame start
+    private(set) lazy var menuTracking = MenuTrackingState()  // whether an NSMenu tracks (not the run loop's eventTracking mode)
+    // Idle steps on the main-thread scheduler, gated on the person's input and on menus; first read by its afterFirstFrame start.
+    private(set) lazy var chromiumWarmup: ChromiumWarmup = ChromiumWarmup(
+        engine: cache.cef, idle: mainDeadlines, input: inputTap,
+        isTrackingMenu: { [menuTracking = self.menuTracking] in menuTracking.isTracking },
+        observeMenuEnd: { [menuTracking = self.menuTracking] in menuTracking.observeEnd($0) })
     /// The Settings window (Settings…, Cmd-,).
     private(set) lazy var settingsWindow = SettingsWindowService(services: self)
     /// The wallpaper choices, built off main and kept current by folder events (BackdropCatalogStore).
