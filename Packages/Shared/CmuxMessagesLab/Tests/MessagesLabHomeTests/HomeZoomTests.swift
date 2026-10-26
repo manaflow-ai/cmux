@@ -17,8 +17,15 @@ import Testing
         let header = view.headerHeight, fieldTop = view.fieldTop
         #expect(demo.renderScale == backing)
 
+        var fieldMoves = 0
+        view.onFieldTopChange = { fieldMoves += 1 }
         view.zoom = 1.5
+        // The zoom lays the host out at once and tells the host page: what it keeps above the field (the
+        // first-run panel, a notice) reads the zoomed field's place before any later layout pass.
+        let zoomedFieldTop = view.fieldTop
+        #expect(fieldMoves >= 1)
         rig.frame()
+        #expect(view.fieldTop == zoomedFieldTop)
         #expect(view.frame.size == CGSize(width: 600, height: 900))
         #expect(view.bounds.size == CGSize(width: 400, height: 600))
         // The rows lay out in the narrower design width, at 1.5 device pixels per window pixel.

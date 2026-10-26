@@ -13,10 +13,14 @@ import Testing
         (Shortcut("0", modifiers: [.command]), "home.zoomReset"),
     ]
 
-    static func winner(_ key: Shortcut, in context: KeyContext) -> String? {
+    static func registry() -> ActionRegistry {
         let registry = ActionRegistry.standard()
         for descriptor in ActionCatalog.all { registry.bind(descriptor.id) {} }
-        let table = RegistryKeyBindings(registry).table
+        return registry
+    }
+
+    static func winner(_ key: Shortcut, in context: KeyContext, registry: ActionRegistry? = nil) -> String? {
+        let table = RegistryKeyBindings(registry ?? Self.registry()).table
         return table.resolve([key], in: context, isRunnable: { _ in true }).winner?.command.rawValue
     }
 
@@ -42,5 +46,16 @@ import Testing
         for (key, _) in Self.keys {
             #expect(Self.winner(key, in: terminal)?.hasPrefix("home.") != true, "\(key) in a terminal")
         }
+    }
+
+    /// A rebind in Settings or cmux.json keeps the Home scope: it never zooms the Chief chat from a terminal.
+    @Test func aReboundChiefZoomKeyStaysOnHome() {
+        let registry = Self.registry()
+        let key = Shortcut("k", modifiers: [.control, .option])
+        registry.setShortcutOverride(key, for: "home.zoomIn")
+        #expect(Self.winner(key, in: KeyContext([KeyContext.topPage: .string("home")]), registry: registry) == "home.zoomIn")
+        var terminal = KeyContext(bits: [.terminalFocused])
+        terminal[KeyContext.surfaceKind] = .string("terminal")
+        #expect(Self.winner(key, in: terminal, registry: registry) != "home.zoomIn")
     }
 }
