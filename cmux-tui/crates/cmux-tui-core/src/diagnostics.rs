@@ -22,6 +22,13 @@ mod resource_projection;
 pub use resource_projection::{
     CommitSpans, ProjectionSpans, ResourceProjectionSnapshot, ResourceProjectionStats,
 };
+mod ipc;
+pub use ipc::{
+    CountedWrite, IpcKindSnapshot, IpcParseSnapshot, IpcParsesSnapshot, IpcSnapshot, IpcStats,
+    IpcStreamsSnapshot, IpcTransport, IpcWritesSnapshot, JsonParseScope, OpenStream,
+    WRITE_STALL_THRESHOLD,
+};
+pub(crate) use ipc::note_json_parse;
 mod owner_panic_log;
 #[cfg(debug_assertions)]
 pub use owner_panic_log::spawn_owner_hang_test;
@@ -571,6 +578,11 @@ pub struct ServerStatsSnapshot {
     /// present only when the request names `requests` in `include`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub dispatch_queue_us: Option<HistogramSnapshot>,
+    /// Streams, sequence depths, messages and bytes by kind, parses per
+    /// request, write syscalls and stalls and bad_message closes; present
+    /// only when the request names `ipc` in `include`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ipc: Option<IpcSnapshot>,
 }
 
 pub const SERVER_STATS_SCHEMA: u32 = 1;
