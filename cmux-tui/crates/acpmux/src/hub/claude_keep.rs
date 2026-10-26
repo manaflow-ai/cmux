@@ -219,7 +219,7 @@ fn keep_companion(session_dir: &Path, store: &Path, sid: &str) -> io::Result<()>
 
 /// Gives the folder `to` every file under the folder `from` it lacks (a link,
 /// or a copy across volumes), folders included. With `refresh`, a copy that
-/// differs in size is taken again; without it, a file `to` has is left alone.
+/// `from` has added to is taken again; without it, a file `to` has is left alone.
 fn mirror(from: &Path, to: &Path, refresh: bool) -> io::Result<()> {
     make_dir(to)?;
     for entry in fs::read_dir(from)?.flatten() {
@@ -230,7 +230,7 @@ fn mirror(from: &Path, to: &Path, refresh: bool) -> io::Result<()> {
         } else if kind.is_file() && !same_file(&src, &dst) {
             match share(&src, &dst) {
                 Err(e) if e.kind() == io::ErrorKind::AlreadyExists => {
-                    if refresh && fs::metadata(&src)?.len() != fs::metadata(&dst)?.len() {
+                    if refresh && grew_from(&src, &dst)? {
                         fs::copy(&src, &dst)?;
                     }
                 }
@@ -239,6 +239,19 @@ fn mirror(from: &Path, to: &Path, refresh: bool) -> io::Result<()> {
         }
     }
     Ok(())
+}
+
+/// Whether the file at `grown` holds all of the file at `kept` and more: a
+/// copy taken again. A file Claude made again after its cleanup holds only
+/// what came since, and copying it would cut the kept one short.
+fn grew_from(grown: &Path, kept: &Path) -> io::Result<bool> {
+    let len = fs::metadata(kept)?.len();
+    if fs::metadata(grown)?.len() <= len {
+        return Ok(false);
+    }
+    let mut head = Vec::new();
+    File::open(grown)?.take(len).read_to_end(&mut head)?;
+    Ok(head == fs::read(kept)?)
 }
 
 /// Appends what `from` holds past its position to `to`, reading again until nothing more comes.
@@ -542,6 +555,31 @@ mod tests {
         assert!(restore(&dirs.session(), &dirs.store(), SID).unwrap());
         assert_eq!(fs::read_to_string(companion.join("tool-results/old.txt")).unwrap(), "old");
         assert_eq!(fs::read_to_string(companion.join("tool-results/new.txt")).unwrap(), "new");
+    }
+
+    /// A subagent running through Claude's cleanup writes its file again with
+    /// only the lines since: the kept file keeps the earlier ones, and a
+    /// resume leaves Claude's newer file as it is.
+    #[test]
+    fn a_companion_file_claude_wrote_again_does_not_cut_the_kept_one() {
+        let dirs = Dirs::new();
+        let companion = dirs.live().with_file_name(SID);
+        let agent = companion.join("subagents/agent-1.jsonl");
+        fs::create_dir_all(agent.parent().unwrap()).unwrap();
+        append(&dirs.live(), "{\"uuid\":\"a\"}\n");
+        append(&agent, "{\"uuid\":\"s1\"}\n{\"uuid\":\"s2\"}\n");
+        keep(&dirs.session(), &dirs.store(), SID).unwrap();
+        fs::remove_file(&agent).unwrap();
+        append(&agent, "{\"uuid\":\"s3\"}\n");
+        keep(&dirs.session(), &dirs.store(), SID).unwrap();
+
+        let kept = kept_file(&dirs.session(), SID).unwrap().with_file_name(SID);
+        assert_eq!(
+            fs::read_to_string(kept.join("subagents/agent-1.jsonl")).unwrap(),
+            "{\"uuid\":\"s1\"}\n{\"uuid\":\"s2\"}\n"
+        );
+        assert!(restore(&dirs.session(), &dirs.store(), SID).unwrap());
+        assert_eq!(fs::read_to_string(&agent).unwrap(), "{\"uuid\":\"s3\"}\n");
     }
 
     /// Chief sets its own short retention and never deletes its sessions: a
