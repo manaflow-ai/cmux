@@ -428,12 +428,24 @@ pub fn remove_worktree(folder: Dir<'_>, worktree: &Worktree) {
         }
         #[cfg(test)]
         after_root_removal(&worktree.root);
+        // Something at its path again (recreated, a copy of its `.git` file) keeps what it names.
+        // This cleanup is a failed start's, so its branch has no work of its own to lose by being
+        // kept; and git refuses `branch -D` for a branch a registered worktree is on.
+        let reappeared = || worktree.root.symlink_metadata().is_ok();
+        if reappeared() {
+            tracing::warn!(root = %worktree.root.display(), "worktree registration kept: a folder is at its path again");
+            return;
+        }
         let Some(registration) = registration else {
             tracing::warn!(root = %worktree.root.display(), "worktree registration kept: not found as its own");
             return;
         };
         if let Err(e) = registration.remove() {
             tracing::warn!(registration = %registration.path.display(), "worktree registration kept: {e}");
+            return;
+        }
+        if reappeared() {
+            tracing::warn!(root = %worktree.root.display(), "worktree branch kept: a folder is at its path again");
             return;
         }
         if git(folder, &["branch", "-D", &worktree.branch]).is_ok() {
