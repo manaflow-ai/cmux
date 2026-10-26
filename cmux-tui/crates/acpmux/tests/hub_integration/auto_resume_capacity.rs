@@ -293,3 +293,37 @@ async fn no_row_of_a_cut_turn_reads_settled_before_its_retry_is_set() {
         bad[0]
     );
 }
+
+/// A cut turn that gets no retry (here automatic retries are off) records that decision, so
+/// a watcher, and a peer that keeps the chat's row, hears the row stop saying `retryDeciding`
+/// (Codex review, round 2: a peer's row kept saying it, and each wait there held for it).
+#[tokio::test]
+async fn a_cut_turn_with_no_retry_records_the_decision_for_watchers() {
+    let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
+    hub.config.write().await.auto_resume_delays_ms = Some(vec![]);
+    let mut w = connect(&hub).await;
+    w.request(method::MUX_WATCH, json!({"enabled": true})).await.unwrap();
+    let id = new_session(&mut c, "cap-off").await;
+    cap_fail(&mut c, &id, "p-off").await;
+    let settled = w
+        .wait_for(method::MUX_SESSION_CHANGED, |p| {
+            p["sessionId"] == id && p["kind"] == "auto_resume_settled"
+        })
+        .await;
+    let row = &settled["session"];
+    assert_eq!(row["lastTurn"]["status"], "failed", "{settled}");
+    assert_eq!(row["retry"], Value::Null, "{settled}");
+    assert_eq!(row["retryDeciding"], Value::Null, "{settled}");
+    let records = records(&hub, &id, "auto_resume_settled");
+    assert_eq!(records.len(), 1, "{records:?}");
+    assert_eq!(records[0]["why"], "off", "{records:?}");
+    assert_eq!(records[0]["turnId"], row["lastTurn"]["turnId"], "{records:?}");
+    // A turn that failed on another error, or ended well, records none.
+    c.request(
+        method::SESSION_PROMPT,
+        json!({"sessionId": id, "prompt": [{"type": "text", "text": "fine now"}]}),
+    )
+    .await
+    .unwrap();
+    assert_eq!(records(&hub, &id, "auto_resume_settled").len(), 1);
+}
