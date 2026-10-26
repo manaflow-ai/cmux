@@ -17,20 +17,11 @@ nonisolated struct CEFForkFeatures: Equatable, Sendable {
     /// "Renderer sharing"). Both the fork and the shim must have them: the same app runs on an
     /// older CEF with the DevTools path.
     var rendererPaths: Bool { shimHasRendererPaths && forkAPIVersion >= Self.rendererPathsForkAPI }
-
-    /// The shim exports `cmux_shim_page_scheme_set_group` (`CEFShimLibrary.pageSchemeSetGroup`).
-    var shimHasPageProcessGroups: Bool = false
-
-    /// First-party pages of one capability group share a renderer (p13-webui-011, plans/cmux-next/webui-DESIGN.md
-    /// 5.1). Only the export decides: the fork that adds the page groups ships the shim export with it, and an
-    /// older fork has none (`dlsym` nil), so the app keeps one process per page there.
-    var pageProcessGroups: Bool { shimHasPageProcessGroups }
 }
 
 extension CEFForkFeatures {
     /// The features of a loaded shim.
     init(_ shim: CEFShimLibrary) {
-        self.init(forkAPIVersion: shim.forkAPIVersion(), shimHasRendererPaths: shim.hasRendererPaths,
-                  shimHasPageProcessGroups: shim.pageSchemeSetGroup != nil)
+        self.init(forkAPIVersion: shim.forkAPIVersion(), shimHasRendererPaths: shim.hasRendererPaths)
     }
 }

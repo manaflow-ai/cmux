@@ -58,14 +58,17 @@ enum FirstPartyPageSchemes {
 
     /// The accepted entries of `roots`, each with its page's own CSP.
     ///
-    /// - Parameter processGroups: Each entry names its page's ``PageDescriptor/processGroup``, which
-    ///   the fork shares renderers by (the `pageProcessGroups` feature); off, no entry names one.
+    /// - Parameter processGroups: Each entry of a page whose ``PageDescriptor/processGroup`` shares a
+    ///   renderer (``PageProcessGroup/sharesRenderer``) names that group, which the fork shares renderers
+    ///   by (the `pageProcessGroups` feature). A `solo` or `secrets` page names none and keeps Chromium's
+    ///   one process per origin: its raw value is a class, not a group, and two pages with one key would
+    ///   share. Off, no entry names one.
     static func entries(roots: [String: URL], bundleResources: URL, processGroups: Bool = false) -> [String: CEFPageSchemes.Entry] {
         var out: [String: CEFPageSchemes.Entry] = [:]
         for (id, root) in accepted(roots: roots, bundleResources: bundleResources) {
             guard let page = descriptors.first(where: { $0.id == id }) else { continue }
             out[id] = CEFPageSchemes.Entry(root: root, csp: page.csp.header, dynamicPrefixes: page.dynamicPrefixes.sorted(),
-                                           entry: page.entry, processGroup: processGroups ? page.processGroup.rawValue : nil)
+                                           entry: page.entry, processGroup: processGroups && page.processGroup.sharesRenderer ? page.processGroup.rawValue : nil)
         }
         return out
     }

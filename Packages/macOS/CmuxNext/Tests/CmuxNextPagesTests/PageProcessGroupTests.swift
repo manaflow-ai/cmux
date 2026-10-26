@@ -1,15 +1,15 @@
 @testable import CmuxNextPages
 import Testing
 
-/// The pages declared in CmuxNextPages are in their capability group (p13-webui.md section 3.B); the
+/// The pages declared in CmuxNextPages are in their capability group (p13-webui.md 3.B as task 087 corrects it); the
 /// app's PageProcessGroupTableTests checks all 22.
 @Suite struct PageProcessGroupTests {
     @Test func thePagesOfThisModuleAreInTheirGroups() {
         let expected: [(PageDescriptor, PageProcessGroup)] = [
-            (.settings, .privileged), (.cloud, .privileged), (.apps, .privileged), (.coderouter, .privileged),
+            (.cloud, .privileged), (.apps, .privileged), (.coderouter, .privileged),
             (.history, .privileged), (.stats, .privileged), (.chiefUsage, .privileged),
-            (.markdown, .viewer), (.files, .viewer),
-            (.diff, .solo), (.editor, .solo), (.changelog, .solo),
+            (.files, .viewer),
+            (.diff, .solo), (.editor, .solo), (.changelog, .solo), (.markdown, .solo), (.settings, .solo),
         ]
         for (page, group) in expected {
             #expect(page.processGroup == group, "\(page.id) is in \(page.processGroup)")

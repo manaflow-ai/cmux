@@ -145,7 +145,7 @@ public extension PageDescriptor {
     /// highlighting Shiki's JavaScript engine) plus `'wasm-unsafe-eval'` for Ondine, the Mermaid
     /// compiler (a WebAssembly module with no imports), with images and libraries from its own origin.
     static let markdown = PageDescriptor(
-        id: "cmux.markdown", resource: diffResource, processGroup: .viewer, namespaces: ["cmux.markdown."],
+        id: "cmux.markdown", resource: diffResource, processGroup: .solo, namespaces: ["cmux.markdown."],
         nativeOps: [PageNativeOp.clipboardWrite],
         commands: PageNativeOp.commands.union(MarkdownPageCommand.all), csp: PageCSP(script: ["'wasm-unsafe-eval'"], inlineScript: false), entry: markdownEntry,
         dynamicPrefixes: [MarkdownPageResource.asset, MarkdownPageResource.library, MarkdownPageResource.remoteImage])

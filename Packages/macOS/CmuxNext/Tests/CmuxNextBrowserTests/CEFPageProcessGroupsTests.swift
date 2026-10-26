@@ -5,17 +5,19 @@ import Testing
 /// First-party pages reach the fork's renderer groups (p13-webui-012) only through the optional
 /// export `cmux_shim_page_scheme_set_group`: a fork without it still loads and gets no call, and a
 /// table made with the `pageProcessGroups` feature off names no group, so it makes no call either.
-/// Against a spy shim.
+/// A `solo` or `secrets` page names no group in the app's table (FirstPartyPageSchemes), so it makes
+/// no call and keeps one process per origin. Against a spy shim.
 @MainActor @Suite(.serialized) struct CEFPageProcessGroupsTests {
     private static let root = URL(fileURLWithPath: "/Applications/cmux.app/Contents/Resources/pages/x")
 
     private static func table(grouped: Bool) -> [String: CEFPageSchemes.Entry] {
         [
-            "cmux.settings": CEFPageSchemes.Entry(root: root, csp: "default-src 'self'", processGroup: grouped ? "privileged" : nil),
+            "cmux.cloud": CEFPageSchemes.Entry(root: root, csp: "default-src 'self'", processGroup: grouped ? "privileged" : nil),
             "cmux.history": CEFPageSchemes.Entry(root: root, csp: "default-src 'self'", processGroup: grouped ? "privileged" : nil),
+            "cmux.files": CEFPageSchemes.Entry(root: root, csp: "default-src 'self'", processGroup: grouped ? "viewer" : nil),
             "cmux.diff": CEFPageSchemes.Entry(root: root, csp: "default-src 'self'", dynamicPrefixes: ["__patch"],
-                                              entry: "diff-page.html", processGroup: grouped ? "solo" : nil),
-            "cmux.passwords": CEFPageSchemes.Entry(root: root, csp: "default-src 'self'", processGroup: grouped ? "secrets" : nil),
+                                              entry: "diff-page.html"),
+            "cmux.passwords": CEFPageSchemes.Entry(root: root, csp: "default-src 'self'"),
         ]
     }
 
@@ -23,21 +25,21 @@ import Testing
         GroupSpy.reset(exportsSetGroup: false)
         let library = try GroupSpy.library()
         #expect(library.pageSchemeSetGroup == nil, "dlsym found no export, so the shim must not have one")
-        #expect(!CEFForkFeatures(library).pageProcessGroups)
         let refused = CEFPageSchemes.add(Self.table(grouped: true), to: library)
         #expect(refused.pages.isEmpty && refused.groups.isEmpty)
-        #expect(GroupSpy.added.sorted() == ["cmux.diff", "cmux.history", "cmux.passwords", "cmux.settings"])
+        #expect(GroupSpy.added.sorted() == ["cmux.cloud", "cmux.diff", "cmux.files", "cmux.history", "cmux.passwords"])
         #expect(GroupSpy.groups.isEmpty, "\(GroupSpy.groups)")
     }
 
     @Test func aForkWithTheExportGetsEachPagesGroup() throws {
         GroupSpy.reset(exportsSetGroup: true)
         let library = try GroupSpy.library()
-        #expect(CEFForkFeatures(library).pageProcessGroups)
+        #expect(library.pageSchemeSetGroup != nil)
         let refused = CEFPageSchemes.add(Self.table(grouped: true), to: library)
         #expect(refused.pages.isEmpty && refused.groups.isEmpty)
-        #expect(GroupSpy.groups == ["cmux.diff": "solo", "cmux.history": "privileged", "cmux.passwords": "secrets",
-                                    "cmux.settings": "privileged"])
+        #expect(GroupSpy.groups == ["cmux.cloud": "privileged", "cmux.files": "viewer", "cmux.history": "privileged"])
+        #expect(GroupSpy.groups["cmux.diff"] == nil && GroupSpy.groups["cmux.passwords"] == nil,
+                "a solo or secrets page got a group key, so it would share a renderer: \(GroupSpy.groups)")
     }
 
     /// The feature off: the app's table names no group, so the fork gets no call even when it has the export.
@@ -46,16 +48,16 @@ import Testing
         let library = try GroupSpy.library()
         let refused = CEFPageSchemes.add(Self.table(grouped: false), to: library)
         #expect(refused.pages.isEmpty && refused.groups.isEmpty)
-        #expect(GroupSpy.added.count == 4)
+        #expect(GroupSpy.added.count == 5)
         #expect(GroupSpy.groups.isEmpty, "\(GroupSpy.groups)")
     }
 
     @Test func theIDsTheForkRefusesAreReported() throws {
         GroupSpy.reset(exportsSetGroup: true)
-        GroupSpy.refusedGroupIDs = ["cmux.passwords"]
+        GroupSpy.refusedGroupIDs = ["cmux.files"]
         let library = try GroupSpy.library()
         let refused = CEFPageSchemes.add(Self.table(grouped: true), to: library)
-        #expect(refused.groups == ["cmux.passwords"])
+        #expect(refused.groups == ["cmux.files"])
         #expect(refused.pages.isEmpty)
     }
 }

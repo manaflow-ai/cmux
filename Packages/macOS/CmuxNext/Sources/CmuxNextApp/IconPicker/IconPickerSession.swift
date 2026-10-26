@@ -8,7 +8,7 @@ extension PageDescriptor {
     /// scripts/cmux-next/build-pages-web.sh from webviews/src/pages/icon-picker.
     /// `__symbol/<name>.png` are SF Symbols the host draws (IconPickerSymbols).
     /// Copy in its Actions menu writes the pasteboard through the shared clipboard op.
-    static let iconPicker = PageDescriptor(id: "cmux.icon-picker", resource: "icon-picker", processGroup: .viewer, namespaces: ["cmux.iconPicker."],
+    static let iconPicker = PageDescriptor(id: "cmux.icon-picker", resource: "icon-picker", processGroup: .privileged, namespaces: ["cmux.iconPicker."],
                                            nativeOps: [PageNativeOp.clipboardWrite], commands: [],
                                            dynamicPrefixes: [IconPickerSymbols.prefix])
 }

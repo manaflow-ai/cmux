@@ -165,7 +165,7 @@ public extension PageDescriptor {
     // (`cmux.chief.profile.`) and the harness center (`cmux.chief.backend.`), as Home does.
     // These notes sit above the call: gallery-coverage reads the id right after the open parenthesis.
     static let settings = PageDescriptor(
-        id: "cmux.settings", resource: "settings", processGroup: .privileged, namespaces: ["cmux.settings.", "cmux.chief.profile.", "cmux.chief.backend."],
+        id: "cmux.settings", resource: "settings", processGroup: .solo, namespaces: ["cmux.settings.", "cmux.chief.profile.", "cmux.chief.backend."],
         nativeOps: [PageNativeOp.actionRun, PageNativeOp.clipboardWrite],
         actions: Set<String>(["palette.openCmuxSettingsFile", "openSettings", "browserProfile.new", "browserProfile.rename",
                   "browserProfile.setColor", "browserProfile.clearColor", "browserProfile.setIcon", "browserProfile.clearIcon",

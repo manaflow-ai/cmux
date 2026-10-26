@@ -21,9 +21,10 @@ public struct CEFPageSchemes {
         /// The file `cmux-page://<id>/` serves (`index.html`, or a shared build's own page,
         /// `diff-page.html`).
         public var entry: String
-        /// The renderer group the fork puts the page in (a `PageProcessGroup` raw value: `agent`,
-        /// `privileged`, `viewer`, `solo`, `secrets`). Nil: the page is in no group and keeps
-        /// Chromium's default of one process per origin.
+        /// The renderer group the fork puts the page in, shared with every page of the same key (a
+        /// sharing `PageProcessGroup` raw value: `agent`, `privileged`, `viewer`). Nil: the page is in
+        /// no group and keeps Chromium's default of one process per origin, as every `solo` and
+        /// `secrets` page does.
         public var processGroup: String?
         public init(root: URL, csp: String, dynamicPrefixes: [String] = [], entry: String = "index.html",
                     processGroup: String? = nil) {
@@ -40,7 +41,7 @@ public struct CEFPageSchemes {
 
     /// Adds each entry to `shim` (`cmux_shim_page_scheme_add_first_party`, or its dynamic form for a page
     /// with dynamic prefixes or its own entry file), then each entry's process group when the shim exports
-    /// `cmux_shim_page_scheme_set_group` (``CEFForkFeatures/pageProcessGroups``). Call before `CefInitialize`.
+    /// `cmux_shim_page_scheme_set_group` (``CEFShimLibrary/pageSchemeSetGroup``). Call before `CefInitialize`.
     ///
     /// - Returns: The page ids the shim refused, and the ids whose group it refused, each sorted.
     static func add(_ entries: [String: Entry], to shim: CEFShimLibrary) -> (pages: [String], groups: [String]) {

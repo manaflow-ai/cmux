@@ -246,7 +246,7 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
                                                         UnsafePointer<CChar>?, UnsafePointer<CChar>?) -> Int32
     /// The renderer group of a first-party page (p13-webui-011): id, group name (`privileged`); 1 set,
     /// 0 an unknown id or group. Call before `CefInitialize` ends. Optional: a fork before page groups
-    /// has no such export and still loads (`CEFForkFeatures.pageProcessGroups`).
+    /// has no such export (nil) and still loads, with no page in a group.
     let pageSchemeSetGroup: (@convention(c) (UnsafePointer<CChar>?, UnsafePointer<CChar>?) -> Int32)?
     /// Answers a PAGE_RESOURCE request: token, status, MIME, body, length; 1 when it was waiting.
     let pageResourceRespond: @convention(c) (Int32, Int32, UnsafePointer<CChar>?, UnsafeRawPointer?, Int) -> Int32
