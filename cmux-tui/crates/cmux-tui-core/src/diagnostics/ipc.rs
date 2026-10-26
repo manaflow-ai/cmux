@@ -21,7 +21,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
 use cmux_ipc::frame::FrameKind;
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 
 use super::{HistogramSnapshot, LogLinearHistogram};
 
@@ -268,16 +268,6 @@ pub(crate) fn note_json_parse() {
             parses.set(Some(count.wrapping_add(1)));
         }
     });
-}
-
-/// Parses a request message's bytes, counted by [`note_json_parse`]. Every
-/// request-path parse of a message goes through this, also one whose route
-/// then declines the message: that is the redundant parse IPC-4 removes.
-pub(crate) fn parse_request_json<'a, T: Deserialize<'a>>(
-    message: &'a str,
-) -> serde_json::Result<T> {
-    note_json_parse();
-    serde_json::from_str(message)
 }
 
 /// One request message from arrival to its answer or dispatch, entered by

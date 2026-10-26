@@ -7,7 +7,6 @@ use cmux_app_host::script::ScriptRouter;
 use serde_json::{Value, json};
 
 use crate::apps::routing::{answer, is_daemon_op, request};
-use crate::event_cause::EventCauseScope;
 use crate::mux::Mux;
 use crate::request_origin::{RequestOrigin, require_origin};
 use crate::stream_interrupt::StreamInterrupt;
@@ -56,9 +55,6 @@ pub(crate) fn admits(op: &str) -> bool {
 
 impl ScriptRouter for DaemonRouter {
     fn call(&self, op: &str, params: Value, options: Value) -> Result<Value, Value> {
-        // The script host calls in on its own threads: what the op sets off
-        // is automation, as its origin below is `agent` (crate::event_cause).
-        let _cause = EventCauseScope::enter(RequestOrigin::Agent.event_cause());
         if !admits(op) {
             return Err(error(
                 "operation.unsupported",
@@ -69,6 +65,10 @@ impl ScriptRouter for DaemonRouter {
             .mux
             .upgrade()
             .ok_or_else(|| error("operation.failed", "the daemon is shutting down"))?;
+        // The script host calls in on its own threads: what the op sets off
+        // is automation, as its origin below is `agent`, and it runs at
+        // automation's class (crate::request_qos).
+        let _cause = mux.request_qos().enter(RequestOrigin::Agent.event_cause());
         // A script has the rights of the CLI that started it: a plain local
         // connection, which derives origin `agent` (request-origin.md).
         require_origin(op, RequestOrigin::Agent)

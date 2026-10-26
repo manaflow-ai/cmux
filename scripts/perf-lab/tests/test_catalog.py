@@ -323,6 +323,12 @@ class StoryLintTests(FixtureTestCase):
             with self.subTest(config=config):
                 self.assertProblem(self.problems([*baseline_stories(), story("x", config=config)]), "config is one of")
 
+    def test_only_a_builder_story_may_time_a_debug_build(self) -> None:
+        problems = self.problems([*baseline_stories(), story("x", tier="builder", config="debug")])
+        self.assertFalse(any("config is one of" in p for p in problems), problems)
+        self.assertProblem(self.problems([*baseline_stories(), story("x", tier="T1", config="debug")]),
+                           "config is one of")
+
     def test_id_must_match_the_file_name(self) -> None:
         tree = self.tree(baseline_stories())
         tree.write(f"{catalog.STORIES_DIR}/other.json", json.dumps(story("not-other")))

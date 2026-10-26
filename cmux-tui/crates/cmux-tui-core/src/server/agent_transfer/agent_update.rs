@@ -213,6 +213,14 @@ impl Failure {
     }
 }
 
+/// The `cmd` names this module answers (server/routes.rs).
+pub(in crate::server) const ROUTES: &[crate::server::routes::Route] =
+    &[crate::server::routes::Route {
+        names: &[crate::server::routes::RouteName::OneOf(&[PLAN, APPLY])],
+        stage: crate::server::FrameStage::AgentTransfer,
+        entry: |line| try_handle(line.mux, line.client, line.message, line.writer),
+    }];
+
 /// Handles an `agent-update-*` frame of a local connection; `None` for any
 /// other frame. Remote-relay connections never get here.
 pub(in crate::server) fn try_handle(
@@ -224,8 +232,7 @@ pub(in crate::server) fn try_handle(
     if !message.contains("\"agent-update-") {
         return None;
     }
-    let Ok(Value::Object(mut object)) = crate::diagnostics::parse_request_json::<Value>(message)
-    else {
+    let Ok(Value::Object(mut object)) = crate::line_parses::parse::<Value>(message) else {
         return None;
     };
     if !matches!(object.get("cmd").and_then(Value::as_str), Some(PLAN | APPLY)) {

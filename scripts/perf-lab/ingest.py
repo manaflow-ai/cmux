@@ -12,6 +12,8 @@ results in a rejected file is not stored at all until that file is fixed (`_reje
 of the series key (store.series_key), so a debug result lands in a debug series and is never a point of a bench series.
 A waterfall point's commit position is its index on the mainline's first-parent chain, as Chromium's
 Cr-Commit-Position is `refs/heads/main@{#N}`; a commit off that chain is no waterfall point.
+A stored run's attachment file next to its results (`<kind>.json` whose sha256 is the declared digest) is kept in
+the store by that digest (store.keep_attachment), so `lab.py queue typecheck --latest` reads it away from the builder.
 
 `import-perf-cron` turns each good p95 of the cron's `row_history` (scripts/cmux-next/perf-cron.py, state artifact
 `perf-cron-state`) into one point of a legacy series. The cron kept p95 only, from Debug builds: a legacy point has no
@@ -27,6 +29,7 @@ Stdlib only; loads its siblings by file path, so it runs under `python3 -I`.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import importlib.util
 import json
 import math
@@ -86,6 +89,9 @@ DEFAULT_MAINLINE = "origin/feat-cmux-next"
 # A result-v1 host class in store.host_class form: chip / memory / display Hz.
 MAC_CLASS = re.compile(r"^(?P<chip>.+)/(?P<memory>[0-9]+)gb/(?P<hz>[0-9]+)hz$")
 CRON_TIME = "%Y-%m-%dT%H:%M:%SZ"
+# An attachment file ingest keeps in the store (store.keep_attachment): <kind>.json next to the results, at most this
+# big. A queue or a module list is kilobytes; a trace is uploaded to R2 instead (trace_quest.py).
+ATTACHMENT_FILE_MAX_BYTES = 8 * 2 ** 20
 
 
 class IngestError(RuntimeError):
@@ -125,11 +131,12 @@ class IngestReport:
     added_runs: int = 0
     added_results: int = 0
     unchanged_runs: int = 0
+    kept_attachments: int = 0
     rejected: list[Rejection] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, object]:
         return {"added_runs": self.added_runs, "added_results": self.added_results,
-                "unchanged_runs": self.unchanged_runs,
+                "unchanged_runs": self.unchanged_runs, "kept_attachments": self.kept_attachments,
                 "rejected": [{"source": r.source, "reason": r.reason} for r in self.rejected]}
 
     def summary_line(self) -> str:
@@ -312,18 +319,42 @@ def _store_records(group: _Group, *, commit_positions: CommitPositions, host_nam
 
 
 def _insert(db: store.Store, report: IngestReport, source: str, run: store.Run, build: store.Build, host: LabHost,
-            metrics: Sequence[store.Metric]) -> None:
+            metrics: Sequence[store.Metric]) -> bool:
+    """True when the run is stored (now or before)."""
     existed = bool(db.run_metrics(run.run_uuid))
     try:
         db.insert_run(run, build=build, host=host, metrics=metrics)
     except (store.StoreError, sqlite3.IntegrityError) as error:
         report.rejected.append(Rejection(source, str(error)))
-        return
+        return False
     if existed:
         report.unchanged_runs += 1
     else:
         report.added_runs += 1
         report.added_results += len(metrics)
+    return True
+
+
+def _keep_attachments(db: store.Store, group: _Group, run: store.Run) -> int:
+    """Keeps the bytes of each of the run's attachments found next to its results: <kind>.json in a result file's
+    folder whose sha256 is the declared digest. Returns how many; any other attachment stays a digest only."""
+    folders = sorted({path.parent for path, _ in group.results})
+    kept = 0
+    for attachment in run.attachments:
+        kind, digest = attachment["kind"], attachment["digest"]
+        for folder in folders:
+            candidate = folder / f"{kind}.json"
+            try:
+                if not candidate.is_file() or candidate.stat().st_size > ATTACHMENT_FILE_MAX_BYTES:
+                    continue
+                data = candidate.read_bytes()
+            except OSError:
+                continue
+            if f"sha256:{hashlib.sha256(data).hexdigest()}" == digest:
+                db.keep_attachment(kind, data)
+                kept += 1
+                break
+    return kept
 
 
 def _file_reason(path: Path, error: perf_result.ResultError) -> str:
@@ -405,7 +436,8 @@ def ingest_paths(db: store.Store, paths: Sequence[Path | str], *, commit_positio
         except _Reject as reason:
             report.rejected.append(Rejection(group.source, str(reason)))
             continue
-        _insert(db, report, group.source, *records)
+        if _insert(db, report, group.source, *records):
+            report.kept_attachments += _keep_attachments(db, group, records[0])
     return report
 
 

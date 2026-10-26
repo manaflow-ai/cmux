@@ -387,7 +387,9 @@ mod unix {
     use cmux_process::Stdio;
     #[cfg(test)]
     use std::collections::HashMap;
-    use std::fs::{self, File, OpenOptions};
+    #[cfg(test)]
+    use std::fs::OpenOptions;
+    use std::fs::{self, File};
     use std::io as std_io;
     #[cfg(test)]
     use std::io::Read;
@@ -405,6 +407,7 @@ mod unix {
     use std::sync::mpsc::{channel as mpsc_channel, sync_channel};
     #[cfg(test)]
     use std::sync::{Condvar, Mutex};
+    #[cfg(test)]
     use std::thread;
     use std::time::Duration;
     #[cfg(test)]

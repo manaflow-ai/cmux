@@ -99,10 +99,12 @@ impl Mux {
             *slot = Some(wake);
         }
         let mux = Arc::downgrade(self);
-        let spawned = std::thread::Builder::new()
-            .name("mux-agent-message-pump".into())
-            .stack_size(256 * 1024)
-            .spawn(move || run(&mux, &woken));
+        let spawned = cmux_tui_platform::qos::spawn_outside_request(
+            std::thread::Builder::new()
+                .name("mux-agent-message-pump".into())
+                .stack_size(256 * 1024),
+            move || run(&mux, &woken),
+        );
         if spawned.is_err() {
             self.report_internal_diagnostic("agent message pump not started");
             return;

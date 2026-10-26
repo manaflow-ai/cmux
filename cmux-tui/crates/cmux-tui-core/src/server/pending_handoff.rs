@@ -42,7 +42,7 @@ pub(super) fn reject_message_during_pending_handoff(message: &str, writer: &Mess
             }
         };
     }
-    match crate::diagnostics::parse_request_json::<Request>(message) {
+    match crate::line_parses::parse::<Request>(message) {
         Ok(request) => {
             let is_clear_history = request.cmd.is_clear_history();
             // The stable code lets a client wait for the shutdown notice

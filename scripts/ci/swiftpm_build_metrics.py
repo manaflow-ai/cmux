@@ -10,6 +10,7 @@ import os
 from pathlib import Path
 import platform
 import re
+import signal
 import subprocess
 import sys
 import time
@@ -24,6 +25,8 @@ BUILD_ENV = (
     "CFLAGS", "CXXFLAGS", "LDFLAGS", "MACOSX_DEPLOYMENT_TARGET", "ARCHS",
 )
 PROGRESS = re.compile(r"^\[\d+/\d+\] (Compiling|Emitting module|Linking)\b")
+STOP_GRACE_SECONDS = 10.0
+STOP_HELD_SIGNALS = (signal.SIGTERM, signal.SIGINT, signal.SIGHUP)
 
 
 def digest(value: object) -> str:
@@ -158,7 +161,38 @@ def observe(function, fallback):
         return fallback
 
 
-def run_build(role: str, directory: Path, command: list[str]) -> int:
+def stop_build(process: subprocess.Popen, own_process_group: bool, grace_seconds: float = STOP_GRACE_SECONDS) -> None:
+    """Stops a build that is still running: SIGTERM, up to GRACE_SECONDS for it to exit, then SIGKILL, and reaps it.
+    With its own process group the signals go to the whole group, so no compiler job outlives it."""
+    def send(signum: int) -> None:
+        try:
+            if own_process_group:
+                os.killpg(process.pid, signum)
+            else:
+                process.send_signal(signum)
+        except ProcessLookupError:
+            pass
+
+    # A second signal must not cut the stop short and leave the build running; it is delivered after the stop.
+    held = signal.pthread_sigmask(signal.SIG_BLOCK, STOP_HELD_SIGNALS)
+    try:
+        if process.poll() is None:
+            send(signal.SIGTERM)
+            try:
+                process.wait(timeout=grace_seconds)
+            except subprocess.TimeoutExpired:
+                pass
+        send(signal.SIGKILL)  # what is left of the group; a no-op once every member is gone
+        process.wait()
+    finally:
+        signal.pthread_sigmask(signal.SIG_SETMASK, held)
+
+
+def run_build(role: str, directory: Path, command: list[str], own_process_group: bool = False) -> int:
+    """Runs COMMAND, streams and logs its output and writes the receipt; returns its exit code. When the caller's
+    exception (a signal turned into one, KeyboardInterrupt) leaves the read loop, the build is stopped and reaped
+    before the exception goes on (stop_build), so the caller's cleanup never races a live build.
+    OWN_PROCESS_GROUP starts the build in a new process group, which stop_build then signals as a whole."""
     setup_start = time.monotonic()
     package = Path.cwd()
     root_text = command_output("git", "rev-parse", "--show-toplevel")
@@ -193,8 +227,10 @@ def run_build(role: str, directory: Path, command: list[str]) -> int:
     events = {"parser": "swiftpm-progress/v1", "compiling": 0, "emitting_module": 0, "linking": 0, "build_complete_observed": False}
     record["measurement_setup_seconds"] = round(time.monotonic() - setup_start, 6)
     start = time.monotonic()
+    process = None
     try:
-        process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+        process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                   start_new_session=own_process_group)
         assert process.stdout is not None
         with process.stdout:
             for line in process.stdout:
@@ -216,6 +252,12 @@ def run_build(role: str, directory: Path, command: list[str]) -> int:
     except OSError as error:
         print(f"{command[0]}: {error}", file=sys.stderr)
         return_code = 127 if isinstance(error, FileNotFoundError) else 126
+        if process is not None:
+            stop_build(process, own_process_group)
+    except BaseException:
+        if process is not None:
+            stop_build(process, own_process_group)
+        raise
     finally:
         elapsed = time.monotonic() - start
         if log:

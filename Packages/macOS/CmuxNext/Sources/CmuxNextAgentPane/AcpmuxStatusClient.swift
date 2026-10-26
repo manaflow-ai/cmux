@@ -211,7 +211,7 @@ nonisolated enum AcpmuxStatusClient {
                     break
                 }
             }
-            connection.start(queue: DispatchQueue(label: "cmux.next.agent-pane.acpmux-status"))
+            connection.start(queue: DispatchQueue(label: "cmux.next.agent-pane.acpmux-status", qos: .userInitiated))
         }
     }
 

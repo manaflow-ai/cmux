@@ -21,13 +21,12 @@
 //! The writer thread's socket write is not stamped: a reply's time in the
 //! outbound queue is outside the latency.
 
-use std::borrow::Cow;
 use std::io;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use cmux_trace::{trace_async_begin, trace_async_end, trace_instant, trace_scope};
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use serde_json::Value;
 
 use super::Command;
@@ -80,7 +79,7 @@ impl RequestMethod {
     }
 
     /// A line no `Command` names (its `cmd` is a feature route's, or absent).
-    fn routed(cmd: Option<&str>) -> Self {
+    pub(super) fn routed(cmd: Option<&str>) -> Self {
         let class = match cmd {
             Some(cmd) if cmd.starts_with("agent-") || cmd.starts_with("access-request") => {
                 MethodClass::Agent
@@ -123,56 +122,14 @@ fn resource_class(operation: ResourceOperation) -> MethodClass {
     }
 }
 
-/// A request line's `id` and `cmd`, read before any route parses it.
-pub(super) struct RequestHead {
-    id: Option<Value>,
-    method: RequestMethod,
-    /// Whether `cmd` names a `Command`, or the head did not parse (the
-    /// `Command` parse then answers the line).
-    command: bool,
-}
-
-impl RequestHead {
-    pub(super) fn parse(message: &str) -> Self {
-        #[derive(Deserialize)]
-        struct Head<'a> {
-            #[serde(default)]
-            id: Option<Value>,
-            #[serde(default, borrow)]
-            cmd: Option<Cow<'a, str>>,
-        }
-        crate::diagnostics::note_json_parse();
-        let Ok(Head { id, cmd }) = serde_json::from_str::<Head>(message) else {
-            return Self { id: None, method: RequestMethod::routed(None), command: true };
-        };
-        match cmd.as_deref().and_then(Command::method_of_wire) {
-            Some((method, class)) => {
-                Self { id, method: RequestMethod { id: method, class }, command: true }
-            }
-            None => Self { id, method: RequestMethod::routed(cmd.as_deref()), command: false },
-        }
-    }
-
-    /// Whether the `Command` path answers this line (and opens its span).
-    pub(super) fn is_command(&self) -> bool {
-        self.command
-    }
-
-    pub(super) fn open<'a>(
-        &self,
-        stats: &'a Arc<RequestStats>,
-        arrival: RequestArrival,
-    ) -> RequestSpan<'a> {
-        RequestSpan::open_method(stats, self.method, request_id_hash(self.id.as_ref()), arrival)
-    }
-}
-
 /// Where a request's latency is recorded.
 enum Reply {
     /// The handler answers on this thread; recorded at its reply or drop.
     Pending,
-    /// Recorded already, or handed to an [`AsyncReply`].
+    /// Recorded already.
     Done,
+    /// Handed to an [`AsyncReply`], which records it at the real reply.
+    Async,
 }
 
 /// One request being handled. Not `Send`: its slice ends on its own thread.
@@ -219,6 +176,17 @@ impl<'a> RequestSpan<'a> {
         Self { stats, method, arrival, reply: Reply::Pending, _scope: scope }
     }
 
+    /// The span of a resource request that arrives now (tests).
+    #[cfg(test)]
+    pub(super) fn for_resource(stats: &'a Arc<RequestStats>, operation: ResourceOperation) -> Self {
+        Self::open_method(
+            stats,
+            RequestMethod::of_resource(operation),
+            0,
+            RequestArrival::parsed_now(Instant::now()),
+        )
+    }
+
     /// Sends the reply the handler built with `send`: `handled` before,
     /// `reply.queued` after (the outbound queue took it, or refused it), and
     /// the latency sample then.
@@ -230,7 +198,12 @@ impl<'a> RequestSpan<'a> {
 
     /// A route sent its own reply and returned `keep_open`: `reply.queued`
     /// and the latency sample now.
+    /// A span handed to an [`AsyncReply`] stamps nothing here: its worker
+    /// stamps the reply.
     pub(super) fn answered(&mut self, keep_open: bool) -> bool {
+        if matches!(self.reply, Reply::Async) {
+            return keep_open;
+        }
         trace_instant!(daemon, "daemon.request.reply.queued", keep_open);
         self.record();
         keep_open
@@ -239,7 +212,7 @@ impl<'a> RequestSpan<'a> {
     /// Hands the latency to a worker that answers later: an async slice
     /// `daemon.request.async` that its [`AsyncReply`] ends.
     pub(super) fn start_async(&mut self) -> AsyncReply {
-        self.reply = Reply::Done;
+        self.reply = Reply::Async;
         let id = self.stats.next_async_id();
         trace_async_begin!(daemon, "daemon.request.async", id, self.method.id);
         AsyncReply {

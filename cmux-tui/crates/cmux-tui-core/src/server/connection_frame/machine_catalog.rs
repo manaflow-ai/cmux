@@ -8,6 +8,14 @@ use crate::resource::MachinePublicId;
 use serde_json::Value;
 use std::sync::Arc;
 
+/// The `cmd` names this module answers (server/routes.rs).
+pub(in crate::server) const ROUTES: &[crate::server::routes::Route] =
+    &[crate::server::routes::Route {
+        names: &[crate::server::routes::RouteName::Exact("machine-catalog-publish")],
+        stage: crate::server::FrameStage::MachineCatalog,
+        entry: |line| try_handle(line.mux, line.client, line.message, line.writer),
+    }];
+
 pub(super) fn try_handle(
     mux: &Arc<Mux>,
     client: u64,
@@ -17,8 +25,7 @@ pub(super) fn try_handle(
     if !message.contains("machine-catalog-publish") {
         return None;
     }
-    let Ok(Value::Object(mut fields)) = crate::diagnostics::parse_request_json::<Value>(message)
-    else {
+    let Ok(Value::Object(mut fields)) = crate::line_parses::parse::<Value>(message) else {
         return None;
     };
     if fields.remove("cmd").as_ref().and_then(Value::as_str) != Some("machine-catalog-publish") {

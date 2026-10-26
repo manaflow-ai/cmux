@@ -1,10 +1,9 @@
 import Foundation
 import Observation
 import CmuxNextTerminal
-import CmuxNextCompat
 
 /// The R92 diagnostics of the applied Ghostty config, kept current: read
-/// again on every config change (`GhosttyRuntime.configDidChange`). The
+/// again on every config change (`GhosttyRuntime.addConfigChangeHandler`). The
 /// Settings page's Ghostty group reads it (host lists, live through
 /// `cmux.settings.host.changed`); the socket's `ghostty.diagnostics`
 /// computes the same list on demand.
@@ -17,14 +16,18 @@ final class GhosttyDiagnosticsModel {
     private(set) var diagnostics: [GhosttyConfigDiagnostic]?
 
     @ObservationIgnored private let read: @MainActor () -> GhosttyConfigDiagnosticsSnapshot?
-    @ObservationIgnored private var observer: MainActorObservation?
     @ObservationIgnored private var generation = 0
 
+    /// - Parameters:
+    ///   - read: The applied config's diagnostics snapshot.
+    ///   - onConfigChange: Registers a handler for every config change
+    ///     (``GhosttyRuntime/addConfigChangeHandler(_:)``). A service: it follows every change, with
+    ///     or without the Settings page shown.
     init(read: @escaping @MainActor () -> GhosttyConfigDiagnosticsSnapshot? = { GhosttyRuntime.shared.configDiagnosticsSnapshot },
-         notifications: NotificationCenter = .default) {
+         onConfigChange: @MainActor (@escaping @MainActor () -> Void) -> Void = { GhosttyRuntime.shared.addConfigChangeHandler($0) }) {
         self.read = read
         refresh()
-        observer = MainActorObservation(GhosttyRuntime.configDidChange, center: notifications) { [weak self] in
+        onConfigChange { [weak self] in
             self?.refresh()
         }
     }

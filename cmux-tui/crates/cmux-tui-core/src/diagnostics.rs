@@ -28,7 +28,7 @@ pub use ipc::{
     IpcStreamsSnapshot, IpcTransport, IpcWritesSnapshot, JsonParseScope, OpenStream,
     WRITE_STALL_THRESHOLD,
 };
-pub(crate) use ipc::{note_json_parse, parse_request_json};
+pub(crate) use ipc::note_json_parse;
 mod owner_panic_log;
 #[cfg(debug_assertions)]
 pub use owner_panic_log::spawn_owner_hang_test;

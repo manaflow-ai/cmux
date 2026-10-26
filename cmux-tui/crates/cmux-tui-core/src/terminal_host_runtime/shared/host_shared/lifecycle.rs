@@ -3,6 +3,7 @@
 
 use super::*;
 use crate::panic_free::RecoverPoison;
+use cmux_threads::checked::sync as waits;
 
 impl HostShared {
     pub(crate) fn child_exited(&self) -> bool {
@@ -130,7 +131,7 @@ impl HostShared {
     }
 
     pub(crate) fn run_exit_publisher(weak_host: Weak<Self>, requests: Receiver<()>) {
-        while requests.recv().is_ok() {
+        while waits::recv(&requests).is_ok() {
             let mut attempt = 0_u64;
             let mut retry_delay = HOST_EXIT_PERSIST_RETRY_MIN;
             let mut next_report = Instant::now();
@@ -164,7 +165,7 @@ impl HostShared {
                             }
                             next_report = now + HOST_EXIT_PERSIST_REPORT_INTERVAL;
                         }
-                        thread::sleep(retry_delay);
+                        crate::request_path::sleep(retry_delay);
                         while requests.try_recv().is_ok() {}
                         retry_delay = next_exit_persistence_retry_delay(retry_delay);
                     }

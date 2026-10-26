@@ -11,36 +11,26 @@ public import CmuxNextDesignTokens
 /// combines the master switch `ui.animations.enabled`, the category's
 /// `ui.animations.<category>`, `ui.animationSpeed` and the system Reduce
 /// Motion setting. Reading it inside an Observation-tracked scope registers
-/// a dependency on those settings.
+/// a dependency on those settings, Reduce Motion included (``AppearanceSignals``);
+/// an owner outside Observation subscribes to ``AppearanceSignals/Signal/motion``.
 public struct Motion {
     public init() {}
-    /// Tests set this to pin Reduce Motion; nil reads the system setting.
-    /// A change posts `reduceMotionDidChange`, so a host that caches a value
-    /// derived from `reduceMotion` (StatusIndicatorAppearance) re-reads it at
-    /// once, as it does for the system setting's notification.
+    /// Tests set this to pin Reduce Motion; nil reads the system setting. It is the app's
+    /// ``AppearanceSignals/reduceMotionOverride``: Observation readers re-read when it changes, and
+    /// a host that caches a value derived from `reduceMotion` (StatusIndicatorAppearance) follows
+    /// the signals' ``AppearanceSignals/Signal/reduceMotion``.
     public static var reduceMotionOverride: Bool? {
-        didSet {
-            guard reduceMotionOverride != oldValue else { return }
-            NotificationCenter.default.post(name: reduceMotionDidChange, object: nil)
-        }
+        get { DesignSettings.shared.signals.reduceMotionOverride }
+        set { DesignSettings.shared.signals.reduceMotionOverride = newValue }
     }
 
-    /// Posted on the main actor when `reduceMotionOverride` changes. The
-    /// system setting has its own notification
-    /// (`NSWorkspace.accessibilityDisplayOptionsDidChangeNotification`).
-    public static let reduceMotionDidChange = Notification.Name("CmuxNextDesign.Motion.reduceMotionDidChange")
-
-    /// Posted on the main actor when `ui.animationSpeed` (`DesignSettings.animationSpeed`), the
-    /// master switch `ui.animations.enabled` or a category switch changes.
-    public static let speedDidChange = Notification.Name("CmuxNextDesign.Motion.speedDidChange")
-
     /// System Reduce Motion (Accessibility > Display) or calm mode (`ui.calm`, ``CalmMode``), or
-    /// the test override.
+    /// the test override. Observable: it reads ``AppearanceSignals``.
     public static var reduceMotion: Bool { reduceMotion(of: .shared) }
 
     /// ``reduceMotion`` with `design`'s calm mode.
     public static func reduceMotion(of design: DesignSettings) -> Bool {
-        reduceMotionOverride ?? (NSWorkspace.shared.accessibilityDisplayShouldReduceMotion || design.calmMode.reducesMotion)
+        DesignSettings.shared.signals.reduceMotion(of: design)
     }
 
     public static var speed: MotionSpeed { DesignSettings.shared.animationSpeed }

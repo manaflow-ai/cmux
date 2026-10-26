@@ -16,15 +16,16 @@ final class GlassModeWatch {
     /// The glass tunable's observation loop (read by the release tests).
     private(set) var settings: Task<Void, Never>?
     private var lowPower: LowPowerModeObservation?
-    private var display: MainActorObservation?
+    private var display: AppearanceSignals.Subscription?
 
     /// - Parameters:
     ///   - store: Where the `glass.lens` choice lives.
     ///   - reduceTransparency: Reduce Transparency and its Debug override.
+    ///   - signals: Where display option changes come from (the composition root's ``AppearanceSignals``).
     ///   - lowPowerMode: The app's Low Power Mode (its energy monitor's); the default, fixed off, is for tests.
     ///   - onChange: Called with the new mode when it is not the one last seen.
     init(store: TunableStore = .shared, reduceTransparency: ReduceTransparency = .shared,
-         lowPowerMode: LowPowerMode = LowPowerMode(enabled: false), onChange: @escaping @MainActor (GlassLensMode) -> Void) {
+         signals: AppearanceSignals = DesignSettings.shared.signals, lowPowerMode: LowPowerMode = LowPowerMode(enabled: false), onChange: @escaping @MainActor (GlassLensMode) -> Void) {
         self.store = store
         self.reduceTransparency = reduceTransparency
         self.lowPowerMode = lowPowerMode
@@ -34,7 +35,7 @@ final class GlassModeWatch {
             for await _ in ObservationStream({ GlassLensMode.tunable.value(in: store) }) { self?.check() }
         }
         lowPower = lowPowerMode.observe { [weak self] _ in self?.check() }
-        display = MainActorObservation(NSWorkspace.accessibilityDisplayOptionsDidChangeNotification, center: NSWorkspace.shared.notificationCenter) { [weak self] in
+        display = signals.subscribe([.displayOptions], owner: "GlassModeWatch") { [weak self] in
             self?.check()
         }
     }

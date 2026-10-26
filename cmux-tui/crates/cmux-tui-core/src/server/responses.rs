@@ -21,7 +21,7 @@ pub(super) fn send_bad_request(
 /// The `id` member of a request line that failed to decode, if the line is a
 /// JSON object.
 fn undecodable_request_id(message: &str) -> Option<Value> {
-    match crate::diagnostics::parse_request_json::<Value>(message) {
+    match crate::line_parses::parse::<Value>(message) {
         Ok(Value::Object(mut object)) => object.remove("id"),
         _ => None,
     }

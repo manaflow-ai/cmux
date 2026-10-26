@@ -195,7 +195,9 @@ struct DockArrivalRenderMotionTests {
             let screen = fixture.screen
             #expect(screen.hasMotion, "the new dock does not spring on the CPU")
             #expect(screen.renderSpringsInFlight == 0)
-            #expect(try fixture.host("chat").layer?.animationKeys()?.isEmpty ?? true, "the dock springs on the render server with the switch off")
+            // Out of the #expect: a closure whose only `try` sits in a macro is inferred not to throw.
+            let chat = try fixture.host("chat")
+            #expect(chat.layer?.animationKeys()?.isEmpty ?? true, "the dock springs on the render server with the switch off")
             #expect(screen.stripContainer.layer?.animationKeys()?.isEmpty ?? true, "the strip's clip springs on the render server with the switch off")
             let first = screen.stripContainer.frame
             #expect(fixture.root.advanceFrame(1.0 / 120), "the CPU step has nothing to move")

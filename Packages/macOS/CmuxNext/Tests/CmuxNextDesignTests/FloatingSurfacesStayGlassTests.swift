@@ -118,7 +118,7 @@ import CmuxNextDesignTokens
     @Test(arguments: Look.allCases)
     func theUpdateReadyCardIsTheSharedVeil(look: Look) throws {
         let scope = try scope(look)
-        let card = CardSurfaceView(reduceTransparency: ReduceTransparency(system: { false }, changes: NotificationCenter()))
+        let card = CardSurfaceView(reduceTransparency: ReduceTransparency(system: { false }))
         card.frame = NSRect(x: 0, y: 0, width: 200, height: 60)
         scope.root(card)
         card.updateLayer()

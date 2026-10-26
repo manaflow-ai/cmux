@@ -219,6 +219,14 @@ enum RuntimeCommand {
     Stop { runtime: u64 },
 }
 
+/// The `cmd` names this module answers (server/routes.rs).
+pub(in crate::server) const ROUTES: &[crate::server::routes::Route] =
+    &[crate::server::routes::Route {
+        names: &[crate::server::routes::RouteName::Prefix("browser-runtime-")],
+        stage: crate::server::FrameStage::BrowserRuntime,
+        entry: |line| try_handle(line.mux, line.client, line.message, line.writer),
+    }];
+
 /// Handles a `browser-runtime-*` message on the connection's reader thread.
 /// A start runs on its own thread and answers when the host listens.
 pub(super) fn try_handle(
@@ -230,7 +238,7 @@ pub(super) fn try_handle(
     if !message.contains("\"browser-runtime-") {
         return None;
     }
-    let RuntimeRequest { id, command } = crate::diagnostics::parse_request_json(message).ok()?;
+    let RuntimeRequest { id, command } = crate::line_parses::parse(message).ok()?;
     let runtimes = &mux.control_clients.browser_runtimes;
     if !(mux.control_clients.is_unix(client)
         && mux.control_clients.supports_capability(client, BROWSER_RUNTIME_CAPABILITY))

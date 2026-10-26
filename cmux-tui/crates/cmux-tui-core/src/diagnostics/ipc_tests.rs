@@ -57,9 +57,9 @@ fn parse_scopes_count_requests_and_parses_per_transport() {
     }
     {
         let _scope = JsonParseScope::enter(&stats, IpcTransport::Lines);
-        let _: serde_json::Value = parse_request_json("{}").unwrap();
+        let _: serde_json::Value = crate::line_parses::parse("{}").unwrap();
         // A parse that fails still parsed the bytes.
-        assert!(parse_request_json::<serde_json::Value>("{").is_err());
+        assert!(crate::line_parses::parse::<serde_json::Value>("{").is_err());
         note_json_parse();
     }
     {
@@ -81,7 +81,7 @@ fn parse_scopes_count_requests_and_parses_per_transport() {
 fn parses_outside_a_scope_never_reach_a_later_request() {
     let stats = IpcStats::default();
     note_json_parse();
-    let _: serde_json::Result<serde_json::Value> = parse_request_json("{}");
+    let _: serde_json::Result<serde_json::Value> = crate::line_parses::parse("{}");
     {
         let _scope = JsonParseScope::enter(&stats, IpcTransport::Lines);
     }

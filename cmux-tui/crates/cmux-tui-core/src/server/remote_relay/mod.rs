@@ -342,7 +342,7 @@ pub(super) fn handle_watched_frame(
     if gate::check_frame(message).is_err() {
         return refuse(routed, REMOTE_DENIED);
     }
-    match crate::diagnostics::parse_request_json::<super::Request>(message) {
+    match crate::line_parses::parse::<super::Request>(message) {
         // Only a `cmd` the table names parses as a `Command`, so no line
         // span is open here.
         Ok(request) => {
@@ -403,7 +403,7 @@ impl Mux {
 /// A refusal of `message` with `code` and no detail; its `id` when it has
 /// one.
 pub(super) fn refusal(message: &str, code: &str) -> Value {
-    let id = crate::diagnostics::parse_request_json::<Value>(message)
+    let id = crate::line_parses::parse::<Value>(message)
         .ok()
         .and_then(|frame| frame.get("id").cloned());
     let mut response = json!({"ok": false, "error": code, "error_code": code});

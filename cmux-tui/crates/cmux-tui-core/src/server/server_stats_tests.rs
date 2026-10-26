@@ -342,22 +342,18 @@ fn json_parses_of(mux: &Arc<Mux>, client: u64, line: &str) -> u64 {
     parses.json_parses
 }
 
-/// json_parses counts every parse where it happens, also a route's parse of
-/// a line it then declines: `agent_inventory` parses an
-/// `agent-inventory-watch` line (its name contains "agent-inventory") and
-/// declines it, and the watch route parses it again.
+/// json_parses counts every parse where it happens: a line takes its
+/// RequestHead and then the one handler its head names (p05-ipc-062), the
+/// `Command` parse or a feature route's, and `server-stats` `ipc` sees the
+/// same count as the line's `daemon.frame.json_parses` trace instant.
 #[cfg(unix)]
 #[test]
-fn server_stats_ipc_counts_the_parse_of_a_declining_route() {
+fn server_stats_ipc_counts_each_parse_of_a_line() {
     let mux = Mux::new_for_test("server-stats-ipc-parses", crate::SurfaceOptions::default());
     let client = mux.control_clients.register(ClientTransport::Unix, writer());
-    // Both lines take the v2 probe (two parses) and RequestHead (one).
     let ping = json_parses_of(&mux, client, r#"{"id":1,"cmd":"ping"}"#);
-    assert_eq!(ping, 4, "the v2 probe, RequestHead and the Command parse");
+    assert_eq!(ping, 2, "RequestHead and the Command parse");
     let watch =
         json_parses_of(&mux, client, r#"{"id":2,"cmd":"agent-inventory-watch","enabled":true}"#);
-    assert_eq!(
-        watch, 5,
-        "the v2 probe, RequestHead, agent_inventory's declined parse and the watch's"
-    );
+    assert_eq!(watch, 2, "RequestHead and the watch route's parse");
 }

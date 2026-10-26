@@ -37,7 +37,7 @@ public final class SidebarView: NSView {
     private(set) lazy var spacePaging = SidebarSpacePaging(host: self)
     /// Hosts the list's scroll view and fades rows out at its top or bottom
     /// while more are hidden there.
-    private lazy var edgeFade = ScrollEdgeFadeView(scrollView: scrollView)  // built in setup (no IUO)
+    private(set) lazy var edgeFade = ScrollEdgeFadeView(scrollView: scrollView)  // built in setup (no IUO)
     /// No rubber band while every row fits.
     private var scrollFit: ScrollFitElasticity?
     let profileBar: ProfileBarView
@@ -76,7 +76,7 @@ public final class SidebarView: NSView {
     /// Edit mode's Add Items and Done (`SidebarView+EditItems`); nil out of edit mode.
     var editBar: SidebarEditBar?
     let updateCardView = SidebarUpdateCardView(), nowPlayingCardView = SidebarNowPlayingCardView(), updatedCardView = SidebarUpdatedCardHost(), noticeCardView = SidebarNoticeCardView()
-    /// The card slot's height as the list lays out: springs when a card comes or goes.
+    /// The card slot's room: the list's bottom edge springs on the render server when a card comes or goes.
     let cardSlotMotion = SidebarCardSlotMotion()
     /// Where the spaces dots sit (`sidebar.spacesPosition`, R109).
     public var spacesPosition: SpacesPosition = .bottom {
@@ -322,24 +322,27 @@ public final class SidebarView: NSView {
             updateBands()
         }
         let footerHeight: CGFloat = spacesPosition == .bottom && footerBand.dotsShareBandRow ? 0 : SidebarStyle.footerHeight
-        // The list makes room for a card (and takes it back) on a spring; the card sits at its place.
+        // The list makes room for a card (and takes it back) on a render-server spring; the card
+        // sits at its place (SidebarCardSlotMotion).
         let cardsHeight = attachFooterCards(), slotHeight = cardSlot.height
-        let updateHeight = cardSlotMotion.height(toward: slotHeight, in: self)
+        let room = cardSlotMotion.room(toward: slotHeight, in: self), scrolledFrom = scrollView.contentView.bounds.minY
         // From the bottom up (R112/R114): the pinned footer section (the
         // profile control, then the dots), the band below the list, the
         // staged update card (UPDATE-CARD), the cards.
         let priorityHeight = layoutPriority(top: y + spacesHeight, width: b.width)
-        let listFrame = layoutBands(top: y + spacesHeight + priorityHeight, footerHeight: footerHeight + updateHeight + cardsHeight)
+        let listFrame = layoutBands(top: y + spacesHeight + priorityHeight, footerHeight: footerHeight + room.list + cardsHeight)
         if !isChromeRevealed { belowFade.alphaValue = belowRegion.restAlpha(hiddenByMode: minimalHiddenBands.bottom) }
         footer.frame = NSRect(x: 0, y: belowFade.frame.minY - footerHeight, width: b.width, height: footerHeight)
         cardSlot.place(above: footer.frame.minY, width: b.width, slotHeight: slotHeight)
-        footerCards?.frame = NSRect(x: 0, y: footer.frame.minY - updateHeight - cardsHeight, width: b.width, height: cardsHeight)
+        footerCards?.frame = NSRect(x: 0, y: footer.frame.minY - slotHeight - cardsHeight, width: b.width, height: cardsHeight)
         footerBand.layoutFooter(visibleSlots)
         footerBand.placeSpaces(top: y, height: spacesHeight)
         edgeFade.frame = listFrame
-        layoutEditBar(over: listFrame)
         scrollView.tile()
         syncListSize()
+        let shownList = cardSlotMotion.didLayOut(room, listFrame: listFrame, edge: edgeFade, document: list,
+                                                 scrolled: scrollView.contentView.bounds.minY - scrolledFrom, in: self)
+        layoutEditBar(over: shownList)
         // Everything above may have moved under a still pointer (cx-3wu5).
         PointerHover.refresh(in: window)
     }

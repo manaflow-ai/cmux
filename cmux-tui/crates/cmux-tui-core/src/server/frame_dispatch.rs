@@ -370,7 +370,7 @@ fn member_present<'de, D: Deserializer<'de>>(deserializer: D) -> Result<bool, D:
 /// The body must be the v12 line of the header's method, so the handler that
 /// runs is the one the header was checked for.
 fn names_method(body: &str, method: &MethodAttrs) -> Result<(), CallRefusal> {
-    match crate::diagnostics::parse_request_json::<BodyHead<'_>>(body) {
+    match crate::line_parses::parse::<BodyHead<'_>>(body) {
         Ok(BodyHead { cmd: Some(cmd), protocol: false }) if cmd == method.name => Ok(()),
         _ => Err(CallRefusal::MethodMismatch { method_id: method.id.raw() }),
     }

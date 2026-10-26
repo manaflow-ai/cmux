@@ -729,6 +729,14 @@ pub(super) enum LoopbackCommand {
     Status,
 }
 
+/// The `cmd` names this module answers (server/routes.rs).
+pub(in crate::server) const ROUTES: &[crate::server::routes::Route] =
+    &[crate::server::routes::Route {
+        names: &[crate::server::routes::RouteName::Prefix("loopback-")],
+        stage: crate::server::FrameStage::LoopbackForward,
+        entry: |line| try_handle(line.mux, line.client, line.message, line.writer),
+    }];
+
 /// Handles a `loopback-*` message on the connection's reader thread, apart
 /// from the per-connection surface queue, so forwarded bytes never use the
 /// daemon's surface-operation budget. Returns `None` for other messages.
@@ -744,7 +752,7 @@ pub(super) fn try_handle(
     if !message.contains("\"loopback-") {
         return None;
     }
-    let request = crate::diagnostics::parse_request_json::<LoopbackRequest>(message).ok()?;
+    let request = crate::line_parses::parse::<LoopbackRequest>(message).ok()?;
     let forwarder = &mux.control_clients.loopback;
     let LoopbackRequest { id, command } = request;
     let allowed = mux.control_clients.is_unix(client)

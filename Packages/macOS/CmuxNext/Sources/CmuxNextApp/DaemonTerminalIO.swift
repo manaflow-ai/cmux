@@ -65,10 +65,12 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
     /// go while the burst bench records (`debug.burst`).
     /// `resizes`: the app's grid sender (``ResizeCoordinator``), from its composition root.
     /// `hangWatch`: watches each line the attachment's reader handles (`DaemonService.hangWatch`).
+    /// `screenChanged`: told after each step this view maps (output, replay, grid, link status), so the oracle's
+    /// `terminals` facet waits wake (`AppServices.terminalScreenChanged`; nil in Release).
     init(target: Target, resizes: ResizeCoordinator, visible: Bool = true, gate: TerminalTargetGate? = nil,
          creatingInput: CreatingTerminalInput? = nil,
          burstTrace: BurstTrace? = nil, policyBlocked: @escaping @Sendable () -> Bool = { false },
-         hangWatch: (any HangWatchScoping)? = nil,
+         hangWatch: (any HangWatchScoping)? = nil, screenChanged: (@Sendable () -> Void)? = nil,
          endpoint: @escaping @Sendable () async throws -> DaemonEndpoint) {
         self.resizes = resizes
         let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.terminal")
@@ -119,6 +121,7 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
         events = AsyncStream(unfolding: {
             await driver.nextStep().map { step in
                 let event = Self.event(for: step)
+                screenChanged?()
                 if let burstTrace, burstTrace.isArmed {
                     switch event {
                     case .output: burstTrace.output(surface: surface)
