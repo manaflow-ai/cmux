@@ -1068,6 +1068,23 @@ impl Hub {
             )
     }
 
+    /// What a `_acpmux/permission_respond` with `params` does, for the
+    /// Web's asking rule (`Hub::web_answer_check`): whether it only narrows
+    /// (a cancel, or a reject the pending prompt offered) and whether its
+    /// allow carries the person's decision proof or an approver's signature
+    /// that counts now. The answer checks both again under the prompt's lock.
+    pub(crate) fn answer_shape(&self, params: &Value) -> (bool, bool) {
+        let Some(option) = params.get("optionId").filter(|v| !v.is_null()) else {
+            return (true, false);
+        };
+        let answered_by = params
+            .pointer(&format!("/_meta/acpmux/{ANSWERED_BY_FIELD}"))
+            .is_some_and(|v| !v.is_null());
+        let proved = self.person_decided(params, option)
+            || (!answered_by && self.approver_decided(params, option));
+        (self.option_rejects(params, option), proved)
+    }
+
     /// Whether `option` is a reject the pending permission offered. Unknown
     /// sessions, permissions and options are not rejects: the handler still
     /// answers not-found or invalid params for a person, and a client
