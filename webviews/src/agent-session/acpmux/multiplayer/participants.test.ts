@@ -53,7 +53,15 @@ test("presence leaves the reader out, and a typer is also viewing", () => {
   expect(presence.typing.map((p) => p.id)).toEqual(["sam"]);
   expect(chatPresence(undefined)).toEqual({ viewing: [], typing: [] });
   // A teammate's pane leaves itself out by its own id; the owner then shows as "owner".
-  const theirs = chatPresence({ participants: [{ id: "owner", name: "Leo", viewing: true }, { id: "ana", name: "Ana", viewing: true }] }, "ana");
+  const theirs = chatPresence(
+    {
+      participants: [
+        { id: "owner", name: "Leo", viewing: true },
+        { id: "ana", name: "Ana", viewing: true },
+      ],
+    },
+    "ana",
+  );
   expect(theirs.viewing.map((p) => p.id)).toEqual(["owner"]);
 });
 
@@ -68,7 +76,12 @@ test("a name loses hidden characters and is bounded; an id is kept whole", () =>
   expect(displayName("\u202E\u200B")).toBeUndefined();
   const long = `tailnet:${"a".repeat(80)}`;
   const presence = chatPresence(
-    { participants: [{ id: long, name: "Me", viewing: true }, { id: `${long}b`, name: "Other", viewing: true }] },
+    {
+      participants: [
+        { id: long, name: "Me", viewing: true },
+        { id: `${long}b`, name: "Other", viewing: true },
+      ],
+    },
     long,
   );
   expect(presence.viewing.map((p) => p.id)).toEqual([`${long}b`]);
