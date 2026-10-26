@@ -172,4 +172,13 @@ struct CrashWindowSignatureTests {
         let lhs = signature(windowId: id, workspaces: 4, checkpoints: [], titles: titles)
         #expect(!lhs.isCrashDuplicate(of: lhs))
     }
+    @Test("Workspace order does not change a persisted window identity")
+    func reorderedWorkspaceIDsWithoutCheckpoints() {
+        let id = UUID()
+        let workspaces = [UUID(), UUID()]
+        let lhs = signature(windowId: id, workspaces: 2, checkpoints: [], titles: [], workspaceIDs: workspaces)
+        let rhs = signature(windowId: id, workspaces: 2, checkpoints: [], titles: [], workspaceIDs: workspaces.reversed())
+        #expect(lhs.isCrashDuplicate(of: rhs))
+    }
+
 }

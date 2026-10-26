@@ -1953,6 +1953,7 @@
 		C11538000000000000000003 /* CopyOnlyTextSelection.swift in Sources */ = {isa = PBXBuildFile; fileRef = C11538000000000000000004 /* CopyOnlyTextSelection.swift */; };
 		C11538000000000000000001 /* CopyOnlyTextSelectionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C11538000000000000000002 /* CopyOnlyTextSelectionTests.swift */; };
 		C65930010000000000000002 /* CrashDiagnosticSessionPolicyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C65930010000000000000001 /* CrashDiagnosticSessionPolicyTests.swift */; };
+		9265332223B5CDF1D682913B /* CrashDuplicateMergeRegressionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 38511CA80DDBF24B42BA634C /* CrashDuplicateMergeRegressionTests.swift */; };
 		46FF4C2573735348394EB428 /* CurrentWorkCommandPaletteTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8D2A0A1060BF9D77B71CE803 /* CurrentWorkCommandPaletteTests.swift */; };
 		4968BF255B858F36FB675B22 /* CurrentWorkPalettePresentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = AFBCA7B529B723C1525D40DB /* CurrentWorkPalettePresentation.swift */; };
 		A83CEB14BF353C5152590A0E /* CurrentWorkQueryService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9E83BB2716EBCA8C2F0A93DA /* CurrentWorkQueryService.swift */; };
@@ -6637,6 +6638,7 @@
 		C11538000000000000000004 /* CopyOnlyTextSelection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CopyOnlyTextSelection.swift; sourceTree = "<group>"; };
 		C11538000000000000000002 /* CopyOnlyTextSelectionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CopyOnlyTextSelectionTests.swift; sourceTree = "<group>"; };
 		C65930010000000000000001 /* CrashDiagnosticSessionPolicyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CrashDiagnosticSessionPolicyTests.swift; sourceTree = "<group>"; };
+		38511CA80DDBF24B42BA634C /* CrashDuplicateMergeRegressionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CrashDuplicateMergeRegressionTests.swift"; sourceTree = "<group>"; };
 		8D2A0A1060BF9D77B71CE803 /* CurrentWorkCommandPaletteTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CurrentWorkCommandPaletteTests.swift"; sourceTree = "<group>"; };
 		AFBCA7B529B723C1525D40DB /* CurrentWorkPalettePresentation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CommandPalette/CurrentWorkPalettePresentation.swift"; sourceTree = "<group>"; };
 		9E83BB2716EBCA8C2F0A93DA /* CurrentWorkQueryService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CurrentWorkQueryService.swift"; sourceTree = "<group>"; };
@@ -14281,6 +14283,7 @@
 				FBFA082D961AFAB3FFBFF6CC /* RawOSCMachinePayloadTests.swift */,
 				E5E915CF2237052FDE02EE05 /* WorkspaceTitleRecoveryTests.swift */,
 				AD2084D340B702301EBB1356 /* SurfaceSocketCommandTests+NewDisplay.swift */,
+				38511CA80DDBF24B42BA634C /* CrashDuplicateMergeRegressionTests.swift */,
 			);
 			path = cmuxTests;
 			sourceTree = "<group>";
@@ -18878,6 +18881,7 @@
 				C0A0B00A0000000000000001 /* ConversationSidebarRegressionTests.swift in Sources */,
 				C11538000000000000000001 /* CopyOnlyTextSelectionTests.swift in Sources */,
 				C65930010000000000000002 /* CrashDiagnosticSessionPolicyTests.swift in Sources */,
+				9265332223B5CDF1D682913B /* CrashDuplicateMergeRegressionTests.swift in Sources */,
 				46FF4C2573735348394EB428 /* CurrentWorkCommandPaletteTests.swift in Sources */,
 				7657BE6E69D9F4E6DAE62072 /* CurrentWorkQueryServiceTests.swift in Sources */,
 				A229999BB6C8A757F54AB35F /* CurrentWorkReducerTests.swift in Sources */,

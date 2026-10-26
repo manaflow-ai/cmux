@@ -1111,7 +1111,7 @@ struct CrashDiagnosticSessionPolicyTests {
         return (original, replay)
     }
 
-    private func crashTestWorkspace(
+    func crashTestWorkspace(
         _ title: String,
         agents: [String] = [],
         tmuxSessions: [String] = [],
@@ -1163,7 +1163,7 @@ struct CrashDiagnosticSessionPolicyTests {
         )
     }
 
-    private func crashTestWindow(_ workspaces: [SessionWorkspaceSnapshot], id: UUID = UUID()) -> SessionWindowSnapshot {
+    func crashTestWindow(_ workspaces: [SessionWorkspaceSnapshot], id: UUID = UUID()) -> SessionWindowSnapshot {
         SessionWindowSnapshot(
             windowId: id,
             frame: nil,
