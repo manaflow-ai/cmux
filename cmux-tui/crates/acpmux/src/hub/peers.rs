@@ -749,16 +749,20 @@ impl Hub {
     }
 
     /// A remote session was deleted through us: drop it now rather than at
-    /// the next reconnect.
+    /// the next reconnect, and tell watchers and pending waits it left: a row
+    /// changes only with an event (`server/wait.rs` reads no row on a timer).
     pub fn forget_remote(&self, id: &str) {
-        let mut map = self.remote_sessions.lock().unwrap();
-        if map.remove(id).is_some() {
-            return;
-        }
-        let key =
-            map.iter().find(|(_, r)| r.receipt.mux_session_id == id).map(|(key, _)| key.clone());
-        if let Some(key) = key {
-            map.remove(&key);
+        let removed = {
+            let mut map = self.remote_sessions.lock().unwrap_or_else(|e| e.into_inner());
+            let key = if map.contains_key(id) {
+                Some(id.to_owned())
+            } else {
+                map.iter().find(|(_, r)| r.receipt.mux_session_id == id).map(|(key, _)| key.clone())
+            };
+            key.and_then(|key| map.remove(&key))
+        };
+        if let Some(r) = removed {
+            self.announce_remote(&r.peer, r.summary, "purged");
         }
     }
 
