@@ -22,8 +22,8 @@ public import QuartzCore
 ///   deadlines MainDeadline runs through post (p06-scheduler task 011) and the drain's automation
 ///   tail, a budgeted queue (task 223).
 /// - A CEF pump made with the guard runs one slice per late frame (``admitsSlice(_:)``) and the next
-///   after the late link ticks (``afterLateFrame(_:)``). `CEFRuntime` makes its pump without one
-///   until task 048 puts the pump on the main-thread board.
+///   after the late link ticks (``afterLateFrame(_:)``). `CEFRuntime` makes its pump without one,
+///   also on the main-thread board (task 048): a late frame must not slow a hidden tab's CDP round trip.
 /// - Idle periods (IdleScheduler, task 005) start only when ``MainFrameBudget/isRenderStarved`` is
 ///   false; that task adds the read.
 ///
@@ -34,7 +34,7 @@ public import QuartzCore
 /// subscribers, never queued behind the classes it measures.
 ///
 /// ```swift
-/// // After FrameScheduler.install(displays:): the window schedulers made later are watched with the app's.
+/// // After FrameScheduler.install(displays:energy:): the window schedulers made later are watched with the app's.
 /// let starvation = RenderStarvationGuard(holdsWork: features.isEnabled(.renderStarvationGuard), signposts: true)
 /// let mainWork = MainWorkScheduler(budget: MainFrameBudget(input: SessionInputPending(events: WindowServerInputEvents(input: inputTap)), signposts: true,
 ///                                                          starvation: starvation), displays: displays)

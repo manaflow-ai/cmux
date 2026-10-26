@@ -1,3 +1,4 @@
+public import CmuxNextCompat
 public import CmuxNextInputCore
 public import CmuxNextTrace
 public import Foundation
@@ -8,7 +9,7 @@ public import Foundation
 /// ```swift
 /// let builder = HangReportBuilder(classifier: classifier, resolver: DyldImageResolver())
 /// let report = builder.build(context: context, watchdog: aggregate, metricKit: deliveries,
-///                            inputLatency: await source.take())
+///                            inputLatency: await source.take(), mainThread: mainThreadInput)
 /// ```
 public nonisolated struct HangReportBuilder: Sendable {
     /// The envelope of one report: who, when and what was open.
@@ -45,13 +46,15 @@ public nonisolated struct HangReportBuilder: Sendable {
     public let classifier: ImageClassifier
     /// Finds the loaded image of an address or UUID.
     public let resolver: any ImageResolving
-    /// The schema every report is written in; ``HangReportService`` sends only queued reports in it.
+    /// The schema every report is written in; ``HangReportService`` sends only queued reports in it,
+    /// and blocking samples, launches and input latency go into a report only when it carries them.
     public let wireSchema: HangReport.WireSchema
     private let reader = CallStackTreeReader()
 
-    /// - Parameter wireSchema: ``HangReport/WireSchema/v2`` (the default) until the server accepts
-    ///   schema 3; a schema-2 server answers 400 to a report with `launches`, and that drops it.
-    public init(classifier: ImageClassifier, resolver: any ImageResolving, wireSchema: HangReport.WireSchema = .v2) {
+    /// - Parameter wireSchema: ``HangReport/WireSchema/deployed`` (schema 2, the default) until the
+    ///   server accepts schema 3; a schema-2 server answers 400 to a report with `launches` or a
+    ///   blocking sample, and that drops it.
+    public init(classifier: ImageClassifier, resolver: any ImageResolving, wireSchema: HangReport.WireSchema = .deployed) {
         self.classifier = classifier
         self.resolver = resolver
         self.wireSchema = wireSchema
@@ -59,17 +62,21 @@ public nonisolated struct HangReportBuilder: Sendable {
 
     /// The report of `watchdog`'s findings, the MetricKit deliveries and the input latency since
     /// the last report. `inputLatency` (the field ledger's counts, ``HangReportInputLatencySource``)
-    /// goes in only when ``wireSchema`` carries it.
+    /// and `mainThread` (active seconds and the main-turn and input-queueing histograms,
+    /// ``MainThreadInput``) go in only when ``wireSchema`` carries them.
     public func build(context: Context, watchdog: StallAggregate, metricKit: [MetricKitInput],
-                      inputLatency: InputLatencySnapshot? = nil) -> HangReport {
+                      inputLatency: InputLatencySnapshot? = nil, mainThread: MainThreadInput? = nil) -> HangReport {
         var report = HangReport(reportId: context.reportId, installId: context.installId, day: Self.safeDay(context.day),
                                 app: Self.safeApp(context.app), os: HangReport.OS(version: Self.safeVersion(context.os.version)),
-                                hardware: context.hardware, counts: context.counts)
+                                hardware: context.hardware, counts: safeCounts(context.counts))
         let metricKitHangs = metricKit.flatMap(\.hangs).map { hang in
             HangSample(source: .metrickit, kind: .hang, durationMs: hang.durationMs, frames: frames(hang.callStackTree))
         }
-        report.hangs = Array((metricKitHangs + watchdog.hangs + watchdog.stalls).sorted { $0.durationMs > $1.durationMs }
-            .prefix(HangReport.maxHangs))
+        // Blocking samples have no duration: they take their own slots first, so neither the
+        // longest-first cut nor the body cap (which drops from the end) pushes them out.
+        let blocking = wireSchema.carriesBlocking ? Array(watchdog.blocking.prefix(StallAggregate.maxSamples)) : []
+        let timed = (metricKitHangs + watchdog.hangs + watchdog.stalls).sorted { $0.durationMs > $1.durationMs }
+        report.hangs = blocking + Array(timed.prefix(HangReport.maxHangs - blocking.count))
         report.cpuExceptions = Array(metricKit.flatMap(\.cpuExceptions).sorted { $0.cpuMs > $1.cpuMs }
             .prefix(HangReport.maxCPUExceptions)
             .map { CPUExceptionSample(cpuMs: $0.cpuMs, sampledMs: $0.sampledMs, frames: frames($0.callStackTree)) })
@@ -79,7 +86,18 @@ public nonisolated struct HangReportBuilder: Sendable {
         report.schema = wireSchema.rawValue
         report.launches = wireSchema.carriesLaunches ? Self.launches(watchdog.launches) : nil
         if let inputLatency, wireSchema.carriesInputLatency { Self.addInputLatency(inputLatency, to: &report) }
+        if let mainThread, wireSchema.carriesMainThread { Self.addMainThread(mainThread, to: &report) }
         return report
+    }
+
+    /// `counts` with the lane wait only when ``wireSchema`` carries it and it is one of
+    /// ``CoarseCounts/waitLabels``.
+    func safeCounts(_ counts: CoarseCounts) -> CoarseCounts {
+        var counts = counts
+        if !wireSchema.carriesLaneWait || !(counts.userBlockingWaitP99Ms.map { CoarseCounts.waitLabels.contains($0) } ?? false) {
+            counts.userBlockingWaitP99Ms = nil
+        }
+        return counts
     }
 
     /// The launches, rebuilt through ``LaunchAggregate/merge(_:)`` (closed-set temperatures and
@@ -101,6 +119,23 @@ public nonisolated struct HangReportBuilder: Sendable {
     public func frames(addresses: [UInt]) -> [HangReportFrame] {
         addresses.prefix(HangSample.maxFrames).map { address in
             classifier.frame(image: resolver.image(containing: UInt64(address)), address: UInt64(address))
+        }
+    }
+
+    /// Frames of a blocking detector stack (image UUID + offset, innermost first): each through the
+    /// classifier by its loaded image, so a third-party or unknown image is ``HangReportFrame/other``.
+    public func frames(blocking stack: [BlockingFrame]) -> [HangReportFrame] {
+        var loaded: [UUID: LoadedImage?] = [:]
+        return stack.prefix(HangSample.maxFrames).map { frame in
+            let image: LoadedImage?
+            if let known = loaded[frame.imageUUID] {
+                image = known
+            } else {
+                image = resolver.image(uuid: frame.imageUUID.uuidString)
+                loaded[frame.imageUUID] = image
+            }
+            guard let image else { return .other }
+            return classifier.frame(image: image, offset: frame.offset)
         }
     }
 

@@ -49,8 +49,11 @@ Inputs (paths relative to --root, the repository by default):
            preinit  queued in the client and applied in order before CefInitialize. A non-void one
                     returns the client's own check and names `reply_event` wire:REPLY: the host's
                     verdict, sent by token when it applies the op
-         `pending_keys` are mirror keys a post changes, `*` for a param the post does not name:
-         the client marks them pending under the op's token until the host's ack. `local` and
+         `pending_keys` are mirror keys a post (or an async op) changes, `*` for a param the op
+         does not name: the client marks them pending under the op's token until the host's ack
+         (an async op's: its REPLY), and the host pushes them again after it runs the op and
+         before that ack or REPLY (RefreshMirror), so the value cmux reads once the mark clears is
+         the host's after the op. `local` and
          `policy` need a `reason`. `channel` "input" sends the op on the input ring.
          `optional_exports` are fork API symbols CEFShimLibrary binds with r.optional that the
          header does not declare yet (with a `fork_api`); they take op ids after the header's, and
@@ -60,10 +63,11 @@ Inputs (paths relative to --root, the repository by default):
          sites that stay as written (needs `kept`, `change` says why: in-process-only code, a
          local the remote answers the same way); --check-return-use and --check-pre-attach accept
          a listed site's calls of its exports. --swift-sites drops a site that is done: one listed
-         with needs after_attach, host_exit or kept (a finished pending_tab site becomes kept), and
-         an async or mint call in the token form, inside a closure handed to CEFRuntime's
-         sendAsync, siteCall or profileWrite (CEFRuntime+HostReplies.swift), which await the
-         answer the same way in both backends.
+         with needs after_attach, host_exit or kept (a finished pending_tab site becomes kept), an
+         async call in the token form, inside a closure handed to CEFRuntime's sendAsync, siteCall
+         or profileWrite (CEFRuntime+HostReplies.swift), which await the answer the same way in
+         both backends, and a mint_returns id call in the mint form (its id keys a `.reply(for:`
+         wait for its reply_event).
 
 Outputs (written by a run without a check flag; --check fails when one is stale):
 
@@ -116,6 +120,9 @@ argument named `reply` or `token` never collides with a generated local:
       BindMintedOnEvent(uint16_t op, int32_t minted, int event_kind, int32_t request, int64_t started)
         (the event of that kind and request reports Chromium's id; started 0: it never comes)
       PushMirror(uint16_t op, const TlvWriter& key, const TlvWriter& value)
+      RefreshMirror(uint16_t op, const TlvWriter& key, uint32_t wildcards): pushes mirror `op` again
+        now, before the op's ACK: the key itself when `key` names every parameter, else each key it
+        has pushed that matches (bit i of wildcards: param i is `*` and absent from key)
     void Wipe(std::vector<std::string>&)
   scripts/cmux-next/tests/gen-chromium-host-wire.test.sh declares this interface and compiles both
   .inc files against it (c++ -fsyntax-only -Wshadow -Werror).
@@ -196,10 +203,11 @@ REWRITE_NEEDS = ("after_attach", "reply", "pending_tab", "host_exit", "kept")
 # becomes `kept`, with a change that names the task that did it.
 SETTLED_NEEDS = ("after_attach", "host_exit", "kept")
 # CEFRuntime functions that send an async op and await its answer the same way in both backends
-# (CEFRuntime+HostReplies.swift, task p01-process-021): a call in a closure handed to one is in the
-# token form, and --swift-sites no longer lists it.
+# (CEFRuntime+HostReplies.swift, task p01-process-021): an async call in a closure handed to one is in
+# the token form, and --swift-sites no longer lists it. A mint call there is no reply's call (sendAsync
+# returns nothing sent for it), so it stays listed.
 TOKEN_FORM_CALLS = ("sendAsync", "siteCall", "profileWrite")
-TOKEN_FORM_CLASSES = ("async", "mint")
+TOKEN_FORM_CLASSES = ("async",)
 MINT_RETURNS = ("id", "sent")  # the minted id at once, or 1 when sent (the id arrives in reply_event)
 REPLY_WIRE = "wire:REPLY"  # the control channel's REPLY frame answers the call
 ARG_PREFIX = "arg_"  # every C argument in generated code; generator locals never start with it
@@ -936,8 +944,8 @@ def class_problems(op: Op) -> list[str]:
             out.append("a mirror key is ints and strings only; its only out-parameters are int*")
     elif op.mirror_key or op.refresh_events:
         out.append("mirror_key and refresh_events are for mirror exports")
-    if op.pending_keys and cls not in ("post", "view", "preinit", "mint"):
-        out.append("pending_keys are for posts")
+    if op.pending_keys and cls not in ("post", "view", "preinit", "mint", "async"):
+        out.append("pending_keys are for ops the host acks or answers")
     if cls == "async":
         if op.reply_event is None:
             out.append(f"an async export names its answer: reply_event is an event kind or {REPLY_WIRE}")
@@ -1301,6 +1309,32 @@ def host_call(e: Export, call_args: list[str], lines: list[str], result: str | N
         lines.append(f"      if (optional_fn != nullptr) optional_fn({args});")
 
 
+def host_refresh(op: Op, model: Model, lines: list[str]) -> None:
+    """Pushes the op's pending keys again, read after the op ran, before its ACK or REPLY. cmux's mark
+    clears at that ACK, so what it reads next is the host's value after the op, never the one from
+    before it; a navigation's commit pushes again later (LOAD_START, ADDRESS)."""
+    own = {a.name: a for a in key_args(op.export)}
+    for pattern in op.pending_keys:
+        target = model.mirror_ops[pattern.base]
+        var = f"refresh_{pattern.ident}"
+        lines.append(f"      TlvWriter {var};")
+        wildcards = 0
+        for index, param in enumerate(pattern.params):
+            if param == "*":
+                wildcards |= 1 << index
+                continue
+            a = own[param]
+            if a.kind in WIRE_NUMBER:
+                lines.append(f"      {var}.{WIRE_NUMBER[a.kind]}({a.var});")
+            elif a.kind == "s":
+                lines.append(f"      {var}.Str({a.var} ? {a.var}->c_str() : nullptr);")
+            else:
+                raise Failure(f"{op.export.name}: pending key {pattern.text!r}: a {a.ctype} parameter "
+                              "cannot name a mirror key")
+        lines.append(f"      ctx.RefreshMirror({op_const(target.export)}, {var}, {wildcards:#x}u);  "
+                     f"// {pattern.text}")
+
+
 def host_case(op: Op, model: Model) -> list[str]:
     e, cls = op.export, op.cls
     lines = [f"    case {op_const(e)}: {{"]
@@ -1314,15 +1348,15 @@ def host_case(op: Op, model: Model) -> list[str]:
             continue
         call_args.append(host_decode(a, model.header.structs, lines))
     lines.append("      if (!r.ok() || !r.AtEnd()) return false;")
+    answer = "      ctx.Ack(wire_token);"
     if cls == "policy":
         lines.append(f"      InstallPolicy{pascal(e.short)}(ctx, policy_installed"
                      f"{''.join(', ' + p for p in call_args)});")
-        lines.append("      ctx.Ack(wire_token);")
     elif cls == "async" or (cls == "preinit" and op.reply_event == REPLY_WIRE):
         host_call(e, call_args, lines, "call_result" if e.ret_kind else None)
         lines.append("      TlvWriter reply_w;")
         host_value(e, "reply_w", lines, "call_result")
-        lines.append("      ctx.Reply(wire_token, reply_w);")
+        answer = "      ctx.Reply(wire_token, reply_w);"
     elif cls == "mint":
         host_call(e, call_args, lines, "call_result")
         if op.mint_returns == "sent":
@@ -1332,12 +1366,12 @@ def host_case(op: Op, model: Model) -> list[str]:
         else:
             browser = next((a.var for a in e.wire if is_browser_arg(a)), "0")
             lines.append(f"      ctx.BindMinted({op_const(e)}, minted_id, call_result, {browser});")
-        lines.append("      ctx.Ack(wire_token);")
     else:
         host_call(e, call_args, lines, "call_result" if e.ret_kind else None)
         if e.ret_kind:
             lines.append("      (void)call_result;")
-        lines.append("      ctx.Ack(wire_token);")
+    host_refresh(op, model, lines)
+    lines.append(answer)
     lines += [f"      Wipe({a.var}_s);" for a in e.wire if a.kind == "R"]
     lines += ["      return true;", "    }"]
     return lines
@@ -1471,6 +1505,37 @@ def swift_types(export: Export, cls: str) -> tuple[list[str], list[str]]:
     return args, reply
 
 
+# Frame fields each wire kind takes in client_encode; a list (L, R) takes a variable number.
+FRAME_FIELDS = {"i": 1, "u": 1, "l": 1, "d": 1, "s": 1, "b": 1, "v": 1, "A": 1, "B": 1, "C": 0, "F": 0, "I": 0}
+
+
+def swift_pending_keys(op: Op, model: Model) -> list[str]:
+    """`PendingKey(.mirror, [field index or nil])` per pending key: the frame field client_encode puts
+    each named parameter in (a mint or policy op's first field is the minted id or the flag)."""
+    position: dict[str, int] = {}
+    index: int | None = 1 if op.cls in ("mint", "policy") else 0
+    for a in op.export.wire:
+        if index is None:
+            break
+        position[a.name] = index
+        count = FRAME_FIELDS.get(a.kind)
+        index = None if count is None else index + count
+    keys = []
+    for pattern in op.pending_keys:
+        fields = []
+        for param in pattern.params:
+            if param == "*":
+                fields.append("nil")
+            elif param in position:
+                fields.append(str(position[param]))
+            else:
+                raise Failure(f"{op.export.name}: pending key {pattern.text!r}: {param!r} follows a list "
+                              "argument, so no fixed frame field holds it")
+        mirror = swift_name(model.mirror_ops[pattern.base].export.short).strip("`")
+        keys.append(f"PendingKey(.{mirror}, [{', '.join(fields)}])")
+    return keys
+
+
 def render_swift(model: Model) -> str:
     h = model.header
     names = [swift_name(e.short) for e in model.exports]
@@ -1557,15 +1622,31 @@ def render_swift(model: Model) -> str:
             "        }",
             "    }",
             "",
+            "    /// A mirror key the op changes (`pending_keys`): cmux marks it pending under the op's token",
+            "    /// until the host's ACK. `fields` holds, per key parameter, the index of the op frame's field",
+            "    /// that names it, or nil for `*` (any value).",
+            "    nonisolated struct PendingKey: Equatable, Sendable {",
+            "        let mirror: ChromiumHostOp",
+            "        let fields: [Int?]",
+            "",
+            "        init(_ mirror: ChromiumHostOp, _ fields: [Int?]) {",
+            "            self.mirror = mirror",
+            "            self.fields = fields",
+            "        }",
+            "    }",
+            "",
             "    private nonisolated struct Row: Sendable {",
             "        let wireClass: Class",
             "        let arguments: [WireType]",
             "        let reply: [WireType]",
+            "        let pending: [PendingKey]",
             "",
-            "        init(_ wireClass: Class, _ arguments: [WireType], _ reply: [WireType]) {",
+            "        init(_ wireClass: Class, _ arguments: [WireType], _ reply: [WireType],",
+            "             _ pending: [PendingKey] = []) {",
             "            self.wireClass = wireClass",
             "            self.arguments = arguments",
             "            self.reply = reply",
+            "            self.pending = pending",
             "        }",
             "    }",
             "",
@@ -1573,7 +1654,14 @@ def render_swift(model: Model) -> str:
     for e in model.exports:
         op = model.ops[e.name]
         args, reply = swift_types(e, op.cls)
-        out.append(f"        Row(.{op.cls}, [{', '.join(args)}], [{', '.join(reply)}]),")
+        row = f"        Row(.{op.cls}, [{', '.join(args)}], [{', '.join(reply)}]"
+        pending = swift_pending_keys(op, model)
+        if pending:
+            out.append(f"{row},")
+            out += [f"            [{', '.join(pending)}]),"] if len(", ".join(pending)) < 90 else \
+                ["            ["] + [f"                {key}," for key in pending] + ["            ]),"]
+        else:
+            out.append(f"{row}),")
     out += ["    ]",
             "",
             "    private var row: Row { Self.rows[Int(rawValue) - 1] }",
@@ -1582,6 +1670,8 @@ def render_swift(model: Model) -> str:
             "    var argumentTypes: [WireType] { row.arguments }",
             "    /// An async op's REPLY or a mirror's value: the result, then the out-parameters.",
             "    var replyTypes: [WireType] { row.reply }",
+            "    /// The mirror keys the op changes (`pending_keys`); empty for most ops.",
+            "    var pendingKeys: [PendingKey] { row.pending }",
             "",
             "    /// Decodes a REPLY or MIRROR value; `next` reads one value of a type from the frame.",
             "    func decodeReply(reading next: (WireType) throws(WireError) -> Value) throws(WireError) -> [Value] {",
@@ -1775,6 +1865,7 @@ class Site:
     function: str = ""  # the innermost func, init or computed var around the call
     offset: int = 0  # in the file's text
     token_form: bool = False  # in a closure handed to one of TOKEN_FORM_CALLS
+    mint_form: bool = False  # a mint_returns id call whose id keys the wait for its reply_event (in_mint_form)
 
 
 def shim_properties(root: Path) -> dict[str, str]:
@@ -2030,7 +2121,7 @@ def swift_sites(root: Path) -> list[Site]:
             owner, function = context_at(scopes, begin)
             sites.append(Site(rel, masked.count("\n", 0, begin) + 1, export, prop,
                               result_used(masked, start, close + 1), owner, function, begin,
-                              in_token_form(masked, scopes, begin)))
+                              in_token_form(masked, scopes, begin), in_mint_form(masked, scopes, start)))
     return sites
 
 
@@ -2070,10 +2161,53 @@ def in_token_form(masked: str, scopes: list[Scope], index: int) -> bool:
     return False
 
 
+MINT_BINDING = re.compile(r"\b(?:let|var)\s+([A-Za-z_]\w*)\s*(?::[^=\n]+)?=\s*$")
+REPLY_WAIT = re.compile(r"\.reply\(\s*for\s*:")
+
+
+def in_mint_form(masked: str, scopes: list[Scope], start: int) -> bool:
+    """Whether the call whose expression starts at `start` is in the mint form: its result is bound to a
+    local (`let message = shim.devToolsCall(...)`) that keys, directly or through locals made from it, a
+    `.reply(for:` wait later in the same function. The minted id is the key in both backends: the host
+    answers it in the export's reply_event, a refusal included, so nothing reads an answer in the call."""
+    line_start = masked.rfind("\n", 0, start) + 1
+    bound = MINT_BINDING.search(masked, line_start, start)
+    body = min((s for s in scopes if s.kind == "func" and s.open < start < s.close),
+               key=lambda s: s.close - s.open, default=None)
+    if bound is None or body is None:
+        return False
+    rest = masked[start:body.close]
+    names = {bound.group(1)}
+    for m in re.finditer(r"\b(?:let|var)\s+([A-Za-z_]\w*)\s*(?::[^=\n]+)?=([^\n]*)", rest):
+        if any(re.search(rf"\b{re.escape(n)}\b", m.group(2)) for n in names):
+            names.add(m.group(1))
+    for m in REPLY_WAIT.finditer(rest):
+        key = first_argument(rest, m.end(), matching_close(rest, rest.index("(", m.start()), "(", ")"))
+        if any(re.search(rf"\b{re.escape(n)}\b", key) for n in names):
+            return True
+    return False
+
+
+def first_argument(text: str, begin: int, close: int) -> str:
+    """text[begin:close] up to its first comma outside nested brackets."""
+    depth = 0
+    for i in range(begin, close):
+        if text[i] in "([{":
+            depth += 1
+        elif text[i] in ")]}":
+            depth -= 1
+        elif text[i] == "," and depth == 0:
+            return text[begin:i]
+    return text[begin:close]
+
+
 def site_settled(model: Model, site: Site, op: Op) -> bool:
-    """Whether a call site already meets host mode, so --swift-sites no longer lists it: an async or
-    mint call in the token form, or a site a host_mode_rewrites entry settles (SETTLED_NEEDS)."""
+    """Whether a call site already meets host mode, so --swift-sites no longer lists it: an async call in
+    the token form, a mint_returns id call in the mint form, or a site a host_mode_rewrites entry
+    settles (SETTLED_NEEDS)."""
     if site.token_form and op.cls in TOKEN_FORM_CLASSES:
+        return True
+    if site.mint_form and op.cls == "mint" and op.mint_returns == "id" and op.reply_event:
         return True
     rewrite = rewrite_for(model, site)
     return rewrite is not None and rewrite.needs in SETTLED_NEEDS

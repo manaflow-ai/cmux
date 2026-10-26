@@ -10,15 +10,10 @@ extension CrashReporter {
     /// stack. Call on the main thread.
     public static func installAlternateSignalStacks() {
         installAlternateSignalStack()
-        if !threadHookInstalled {
-            threadHookInstalled = true
-            installAlternateSignalStackOnNewThreads()
-        }
+        // The first read installs the thread-start hook; later reads find it.
+        _ = threadStartHookState
     }
 }
-
-// crash-allow: written once on the main thread, the only caller of installAlternateSignalStacks.
-nonisolated(unsafe) private var threadHookInstalled = false
 
 /// Gives the calling thread an alternate signal stack, so a fatal-signal
 /// handler installed with `SA_ONSTACK` still runs when that thread has
@@ -55,12 +50,21 @@ nonisolated private func alternateSignalStackSize() -> Int {
 /// `pthread_introspection_hook_t`: event, thread, address, size.
 private typealias ThreadIntrospectionHook = @convention(c) (UInt32, UnsafeMutableRawPointer?, UnsafeMutableRawPointer?, Int) -> Void
 
-/// The hook that was installed before ours (Instruments, sanitizers).
-// crash-allow: written once on the main thread when the hook is installed, read by thread starts after.
-nonisolated(unsafe) private var previousThreadHook: ThreadIntrospectionHook?
-/// Holds each thread's alternate stack mapping, freed when the thread exits.
-// crash-allow: written once on the main thread before the hook is installed, read-only after.
-nonisolated(unsafe) private var alternateStackKey = pthread_key_t()
+/// What the thread-start hook reads: the key that holds each thread's
+/// alternate stack mapping (freed when the thread exits), and the hook that
+/// was installed before ours (Instruments, sanitizers).
+private struct ThreadStartHookState: Sendable {
+    let stackKey: pthread_key_t
+    let previous: ThreadIntrospectionHook?
+}
+
+/// The installed hook's state; nil when the hook could not be installed.
+/// Made by its first read (``CrashReporter/installAlternateSignalStacks()``,
+/// main thread) through Swift's one-time global initialization, which also
+/// makes a thread-start event that races the install wait for it; immutable
+/// after. Chromium's thread-safe function-local statics (`base::NoDestructor`,
+/// base/no_destructor.h) do the same job.
+private let threadStartHookState: ThreadStartHookState? = installThreadStartHook()
 
 /// Gives every thread that starts from now on (Chromium's, the system's
 /// workers, ours) its own alternate signal stack, so a stack overflow on
@@ -68,10 +72,11 @@ nonisolated(unsafe) private var alternateStackKey = pthread_key_t()
 /// (2) runs on the new thread before its start routine. Threads that were
 /// already running keep none until the system replaces them.
 private let threadStartHook: ThreadIntrospectionHook = { event, thread, address, size in
+    guard let state = threadStartHookState else { return }
     if event == 2, let base = installAlternateSignalStack() {
-        _ = pthread_setspecific(alternateStackKey, base)
+        _ = pthread_setspecific(state.stackKey, base)
     }
-    previousThreadHook?(event, thread, address, size)
+    state.previous?(event, thread, address, size)
 }
 
 /// Runs on an exiting thread: turns its alternate stack off if it is still
@@ -86,14 +91,17 @@ private let alternateStackDestructor: @convention(c) (UnsafeMutableRawPointer) -
     _ = munmap(base, alternateSignalStackSize() + page)
 }
 
-/// Installs `threadStartHook` once. Looked up at run time: the hook is in
-/// libSystem's `pthread/introspection.h`, which Swift's Darwin module does
-/// not import.
-private func installAlternateSignalStackOnNewThreads() {
+/// Installs `threadStartHook`; called once, by `threadStartHookState`'s
+/// initializer. Looked up at run time: the hook is in libSystem's
+/// `pthread/introspection.h`, which Swift's Darwin module does not import.
+/// The key is made before the hook is installed, so a thread-start event
+/// waiting on this initializer never waits on libpthread's key lock.
+private func installThreadStartHook() -> ThreadStartHookState? {
     // RTLD_DEFAULT
-    guard let symbol = dlsym(UnsafeMutableRawPointer(bitPattern: -2), "pthread_introspection_hook_install"),
-          pthread_key_create(&alternateStackKey, alternateStackDestructor) == 0 else { return }
+    guard let symbol = dlsym(UnsafeMutableRawPointer(bitPattern: -2), "pthread_introspection_hook_install") else { return nil }
+    var stackKey = pthread_key_t()
+    guard pthread_key_create(&stackKey, alternateStackDestructor) == 0 else { return nil }
     typealias Install = @convention(c) (ThreadIntrospectionHook?) -> ThreadIntrospectionHook?
-    previousThreadHook = unsafeBitCast(symbol, to: Install.self)(threadStartHook)
+    let previous = unsafeBitCast(symbol, to: Install.self)(threadStartHook)
+    return ThreadStartHookState(stackKey: stackKey, previous: previous)
 }
-

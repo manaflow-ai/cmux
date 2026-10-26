@@ -200,6 +200,8 @@ extension PageWebView {
         public var deliveriesWhileHidden: Int
         /// Native script pushes (theme, glass, document attributes) while hidden.
         public var pushesWhileHidden: Int
+        /// Reloads after a crash (``PageCrashRecovery/reloads``); a crash while hidden waits for the show.
+        public var crashReloads = 0
     }
 
     /// The page's `debug.webui` fields now.
@@ -209,7 +211,7 @@ extension PageWebView {
                hiddenForSeconds: censusState.hiddenSince.map { max(0, now().timeIntervalSince($0)) },
                loading: !loaded, parked: isParkedSpare, pooled: isPooled,
                deliveriesWhileHidden: router.debugDeliveriesWhileHidden,
-               pushesWhileHidden: censusState.pushesWhileHidden)
+               pushesWhileHidden: censusState.pushesWhileHidden, crashReloads: crash.reloads)
     }
 
     /// Zeroes the while-hidden counters (`debug.webui {reset: true}`, a bench's window start).
@@ -322,12 +324,14 @@ extension PageWebView {
     }
 
     /// `-[WKWebView _setWindowOcclusionDetectionEnabled:]`, when this WebKit has it, so a tagged
-    /// build behind other windows still renders.
-    func keepRenderingWhenCovered() {
+    /// build behind other windows still renders (`debug.agent_pane` asks it of the chat it drives).
+    /// A Chromium page follows the view's own visibility (``PageChromiumPage/setVisible(_:)``), so
+    /// only the WebKit view needs it.
+    public func keepRenderingWhenCovered() {
         Self.keepRenderingWhenCovered(webView)
     }
 
-    /// The same for a web view no `PageWebView` owns (the agent pane's own, cx-zjtn.6).
+    /// The same for a web view no `PageWebView` owns.
     public static func keepRenderingWhenCovered(_ webView: WKWebView) {
         let selector = NSSelectorFromString("_setWindowOcclusionDetectionEnabled:")
         guard let method = class_getInstanceMethod(WKWebView.self, selector) else { return }

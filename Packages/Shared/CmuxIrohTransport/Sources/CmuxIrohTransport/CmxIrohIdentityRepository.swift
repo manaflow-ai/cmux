@@ -156,7 +156,7 @@ public actor CmxIrohIdentityRepository {
             throw CmxIrohIdentityRepositoryError.invalidGeneration
         }
         var bytes = Data([recordVersion])
-        withUnsafeBytes(of: generation.bigEndian) { bytes.append(contentsOf: $0) }
+        bytes.appendBigEndian(generation)
         bytes.append(contentsOf: material.secretKey.bytes)
         return bytes
     }

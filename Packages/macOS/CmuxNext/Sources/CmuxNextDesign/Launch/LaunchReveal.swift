@@ -69,7 +69,7 @@ public final class LaunchReveal {
         let table = held[region] ?? NSHashTable<NSView>.weakObjects()
         held[region] = table
         table.add(view)
-        deadlineTimer.scheduleIfIdle(after: deadline) { @MainActor [weak self] in
+        deadlineTimer.scheduleOnMainIfIdle(after: deadline) { [weak self] in
             for region in LaunchRegion.allCases { self?.show(region) }
         }
     }

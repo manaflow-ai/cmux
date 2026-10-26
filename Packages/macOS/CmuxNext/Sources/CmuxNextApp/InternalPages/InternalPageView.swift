@@ -28,10 +28,15 @@ final class InternalPageView: NSView {
         var topBar: NSView?
         /// Runs right after the parts are installed (a discarded tab's picture and state going back).
         var installed: (@MainActor (InternalPageView) -> Void)?
+        /// The title a page's stand-in shows from this build until the page's first frame
+        /// (``PageWebView/showStandIn(title:)``, feature `pageStandIn`); nil shows none.
+        var standInTitle: String?
 
-        init(content: NSView, topBar: NSView? = nil, installed: (@MainActor (InternalPageView) -> Void)? = nil) {
+        init(content: NSView, topBar: NSView? = nil, standInTitle: String? = nil,
+             installed: (@MainActor (InternalPageView) -> Void)? = nil) {
             self.content = content
             self.topBar = topBar
+            self.standInTitle = standInTitle
             self.installed = installed
         }
     }
@@ -70,8 +75,8 @@ final class InternalPageView: NSView {
     private let barEdge = ToolbarEdgeConstraints()
 
     /// A tab view whose content is made already.
-    convenience init(key: String, page: InternalPageID, content: NSView, topBar: NSView? = nil) {
-        self.init(key: key, page: page) { Parts(content: content, topBar: topBar) }
+    convenience init(key: String, page: InternalPageID, content: NSView, topBar: NSView? = nil, standInTitle: String? = nil) {
+        self.init(key: key, page: page) { Parts(content: content, topBar: topBar, standInTitle: standInTitle) }
         build()
     }
 
@@ -95,6 +100,10 @@ final class InternalPageView: NSView {
             stage = .built(parts)
             install(parts)
             parts.installed?(self)
+            // A cold page shows its stand-in from this turn; a discarded tab's picture covers it instead.
+            if let title = parts.standInTitle, picture == nil, let page = parts.content as? PageWebView {
+                page.showStandIn(title: title)
+            }
             return parts
         }
     }

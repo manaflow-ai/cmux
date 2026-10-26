@@ -4,8 +4,9 @@ import Foundation
 /// One `cmux.protocol/2` operation named at runtime, for relays that forward a caller's typed
 /// op unchanged (the React pages' bridge: `cmux.history.entries.list` -> `history.entries.list`;
 /// plans/cmux-next/react-pages.md 1.1). The daemon validates params against its catalog; the
-/// relay never interprets them. Its own type, not a `DaemonConnection` member (that type's line
-/// budget is frozen).
+/// relay never interprets them. A caller that knows its operation at build time sends the
+/// generated request through ``ResourceOperationClient`` instead. Its own type, not a
+/// `DaemonConnection` member (that type's line budget is frozen).
 public struct ResourceRelayClient: Sendable {
     public let connection: DaemonConnection
 

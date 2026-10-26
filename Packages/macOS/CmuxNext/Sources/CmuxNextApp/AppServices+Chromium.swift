@@ -13,6 +13,15 @@ import Observation
 // PaneController.contextMenu(for: .newTabButton), the default-engine action
 // from SettingsHandlers.
 extension AppServices {
+    /// The cmux-shipped uBlock Origin's pinned folder (``AgentExtensionAccess/readTrustedBuiltInFolder(resources:)``,
+    /// a manifest read and hash), read once on `work`'s files lane: each tab's extension access
+    /// (``AppBrowserHostTabs/access(forTab:)``) and the Allow Agents prompt read it in memory (p02-threads-122).
+    static func preloadBuiltInAdBlockerFolder(on work: BackgroundWork) -> PreloadedValue<String?> {
+        let folder = PreloadedValue<String?> { AgentExtensionAccess.readTrustedBuiltInFolder() }
+        work.post(.userVisible, mayBlock: .files) { folder.load() }
+        return folder
+    }
+
     /// Starts the launch preload and the likelihood observers.
     func startChromiumWarmup() {
         let machines = machines
@@ -63,6 +72,8 @@ extension AppServices {
         let pumpInput = features.isEnabled(.cefPumpInputPolicy) ? CEFPumpInputSeams(mainWork: mainWork) : nil
         // The lanes whose startup fence holds a predicted start's framework read (p08-startup-045).
         let prefetchWork = features.isEnabled(.cefPrefetchBehindFence) ? work : nil
+        // Host mode only: the host's widgets in cmux panels and panes (p01-process-066).
+        chromiumRuntime.source.showsHostWidgets = features.isEnabled(.chromiumHostWidgets)
         return ChromiumEngineSlot(stores: browserStores, waitDeadlines: mainWork.wakeUps, source: chromiumRuntime.source,
                                   make: { [signInCallbacks, contextMenus, inputTap, crashKeys, launchStartup, pointerFrames = dragFrameInput,
                                            chromiumFeatures = features.enabledChromiumFeatures, layerHosting = features.isEnabled(.cefLayerHosting)] stores, deadlines, source in

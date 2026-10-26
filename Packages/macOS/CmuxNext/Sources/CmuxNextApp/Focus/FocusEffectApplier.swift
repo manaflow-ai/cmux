@@ -121,7 +121,7 @@ final class FocusEffectApplier: FocusEffectApplying {
             // An agent page in Chromium shows in a child window: it takes the keys like a Chromium page.
             if let page = TabContent.agent(view).childWindowTab { return focusPage(page, in: window) }
             blurChildWindowPage()
-            if !responder(of: window, isInside: view) { window.makeFirstResponder(view.webView) }
+            if !responder(of: window, isInside: view) { window.makeFirstResponder(view.focusTarget) }
         case .page(let pane, let tab):
             guard case .page(let view)? = presented(pane: pane, tab: tab) else { return }
             // A page in Chromium shows in a child window: it takes the keys like a Chromium browser tab.
@@ -187,7 +187,9 @@ final class FocusEffectApplier: FocusEffectApplying {
             // this window is key because of a click, the click decides.
             // The page window has the keys: nothing in this window keeps a
             // responder (a field editor or the sidebar would show a caret).
-            if window.firstResponder !== window { window.makeFirstResponder(nil) }
+            // In host mode the page's own view in this window is the responder (p01-process-046):
+            // it keeps it.
+            if window.firstResponder !== window, !hostedPageHasResponder(page, in: window) { window.makeFirstResponder(nil) }
             // One key change (#24913): the old page blurs without this window taking the keys
             // back first; the grant moves them straight to the new page window.
             pageFocus.focus(page)
@@ -259,6 +261,13 @@ final class FocusEffectApplier: FocusEffectApplying {
         page.setFocused(focused)
         InputJournal.shared.append(window: controller.state.id, .page(tab: page.id.rawValue, focused: focused,
                                                                       engine: page.presentation == .childWindow ? "chromium" : "webkit"))
+    }
+
+    /// Whether `page`'s Chromium Host page view is `window`'s first responder (host mode: the
+    /// page's focus is that view plus the host's embedder-active state, no page window is key).
+    private func hostedPageHasResponder(_ page: any BrowserTab, in window: NSWindow) -> Bool {
+        guard let view = window.firstResponder as? ChromiumHostPageView else { return false }
+        return view.isDescendant(of: page.contentView)
     }
 
     private func responder(of window: NSWindow, isInside view: NSView) -> Bool {

@@ -3,6 +3,7 @@ import CmuxNextWakeups
 import CmuxNextBridge
 import CmuxNextDaemon
 import CmuxNextDesign
+import CmuxNextInput
 import CmuxNextTabs
 import QuartzCore
 
@@ -47,7 +48,11 @@ extension TabDragSession {
         let lifecycle: TabDragLifecycle
         let ghost: TabDragGhostPanel
         var motion: TabDragGhostMotion
+        /// The real pointer: every hit test, the window order, autoscroll and the drop read it.
         var point: CGPoint
+        /// Where the ghost is drawn: the pointer resampled at the frame's time (feature `resampledDrags`); nil: at
+        /// ``point``. Only the ghost's rect reads it.
+        var shownPoint: CGPoint?
         /// Pointer velocity in points per second, from `samplePointer`.
         var pointerVelocity = CGVector.zero
         var lastPointerSample: (point: CGPoint, time: CFTimeInterval)?
@@ -62,7 +67,12 @@ extension TabDragSession {
         /// crossing); nil when it does.
         var noTargetReason: String?
         var presentation: Presentation = .none
-        var monitor: Any?
+        /// The drag's input tap intercept; cancelled when the drag ends.
+        var input: InputSubscription?
+        /// The drag's moves on the ghost window's coalescer (feature `pointerFrameDrags`); nil: every move hit-tests.
+        var moves: PointerFrameConsumer?
+        /// Resamples the drag's moves for the ghost (feature `resampledDrags`); nil: drawn at the real pointer.
+        var resampler: DragResampler?
         var link: FrameClient?
         /// Every surface that answered during this drag, told once at the end.
         var touched: [ObjectIdentifier: any TabDropTargetProviding] = [:]
