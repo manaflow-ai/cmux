@@ -27,11 +27,20 @@ extension AgentPaneModel {
     /// An agent-home folder (a terminal the user moved there) is no workspace folder either: the
     /// chat still starts in agent-home, and the page still offers Choose Folder….
     func primaryRoot() -> String? {
+        primaryRootChoice().resolve()
+    }
+
+    /// What ``primaryRoot()`` chooses from, read without touching the disk; choosing may
+    /// (`standardizingPath`), so a caller off the main actor resolves it there.
+    func primaryRootChoice() -> AgentPanePrimaryRoot {
         // The store's answer when it gave one (cx-9aps): a real folder, else agent-home (nil).
-        if startFolders.answer != nil { return chosenFolder ?? startFolders.current(of: self) }
+        if startFolders.answer != nil {
+            return AgentPanePrimaryRoot(answered: true, candidates: [chosenFolder ?? startFolders.current(of: self)].compactMap { $0 })
+        }
         // Compatibility only (a daemon without workspace-agent-start-v1). Remove with cx-6bf9.
         let candidates = [handshakeCwd, chosenFolder] + (workspaceRoots?() ?? []).map(Optional.some) + [newTab?.cwd]
-        return candidates.lazy.compactMap { $0 }.first { !isHomeOrAbove($0) && !isAgentHome($0) }
+        return AgentPanePrimaryRoot(answered: false, candidates: candidates.compactMap { $0 }, home: transport.homeFolder,
+                                    agentHome: workspaceAgentHome?()?.home)
     }
 
     /// Whether `path` is in an agent-home folder: this workspace's base, else the standard one.
@@ -109,4 +118,23 @@ extension AgentPaneModel {
         AgentHome.isHomeOrAbove(path, home: transport.homeFolder)
     }
 
+}
+
+/// The pane's workspace root before it is chosen (``AgentPaneModel/primaryRootChoice()``): the
+/// store's answer as it is, or the first candidate that is neither the home folder or above it nor
+/// an agent-home folder.
+nonisolated struct AgentPanePrimaryRoot: Equatable, Sendable {
+    /// The store answered: its folder is the root (none: agent-home).
+    var answered: Bool
+    var candidates: [String]
+    var home: String? = NSHomeDirectory()
+    /// The workspace's agent home; nil: the standard one, looked up when it is chosen.
+    var agentHome: AgentHome?
+
+    /// The root. May read the disk (`standardizingPath`, the standard agent home's lookup).
+    func resolve() -> String? {
+        if answered { return candidates.first }
+        let agentHome = agentHome ?? AgentHome.standard
+        return candidates.first { !AgentHome.isHomeOrAbove($0, home: home) && agentHome?.contains($0) != true }
+    }
 }

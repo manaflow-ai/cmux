@@ -4,6 +4,9 @@ import Foundation
 /// The dispatcher commands the app sends the page: Continue in, Create checkpoint, the chat's
 /// keyboard actions and the grouped-permission actions.
 extension AgentPaneView {
+    /// Toggles Session Info through the same page callback as the header button.
+    public func toggleSessionInfo() { send("toggleSessionInfo") }
+
     /// Opens the frontend's Continue In… chooser. The chooser owns target selection and
     /// preparation; native actions do not create a second handoff pipeline.
     public func showContinueIn() { send("continueIn") }

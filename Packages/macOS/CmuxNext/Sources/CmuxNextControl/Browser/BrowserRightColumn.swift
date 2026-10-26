@@ -11,6 +11,8 @@ struct BrowserRightColumn: Sendable, Equatable {
     var dock: ControlPaneInfo
     /// The column right of the chat; nil when the user has none open.
     var pane: ControlPaneInfo?
+    /// The browser tabs of other workspaces the column mirrors (`browser.page.mirror`), in its order.
+    var mirroredTabs: [ControlTabInfo] = []
 
     /// The Home workspace's chat pane and its right column, nil without a Home workspace.
     static func resolve(in topology: ControlTopology) -> Self? {
@@ -21,7 +23,12 @@ struct BrowserRightColumn: Sendable, Equatable {
                 let chat: ControlPaneInfo? = screen.panes.first { pane in pane.tabs.contains { tab in tab.page == "home-dock" } }
                 let docked: ControlPaneInfo? = workspace.kind == "home" ? screen.panes.first { pane in pane.dock != nil } : nil
                 guard let dock = chat ?? docked else { continue }
-                return Self(workspace: workspace, dock: dock, pane: ControlCallerLocation.besidePane(of: dock, on: screen))
+                let pane = ControlCallerLocation.besidePane(of: dock, on: screen)
+                let mirrored = pane?.mirroredTabIDs ?? []
+                let tabs = mirrored.isEmpty ? [] : topology.workspaces.lazy.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs)
+                    .filter { mirrored.contains($0.id) }
+                return Self(workspace: workspace, dock: dock, pane: pane,
+                            mirroredTabs: mirrored.compactMap { id in tabs.first { $0.id == id } })
             }
         }
         return nil
@@ -33,10 +40,11 @@ struct BrowserRightColumn: Sendable, Equatable {
         return pane.tabs.filter { (tab: ControlTabInfo) -> Bool in tab.kind == "browser" && tab.page == nil }
     }
 
-    /// The browser tab the column shows, else its last browser tab.
+    /// The browser tab the column shows (its own or a mirrored one), else its last browser tab.
     var shownBrowserTab: ControlTabInfo? {
         let tabs = browserTabs
-        if let selected = pane?.selectedTabID, let shown = tabs.first(where: { $0.id == selected }) { return shown }
+        if let selected = pane?.selectedTabID,
+           let shown = tabs.first(where: { $0.id == selected }) ?? mirroredTabs.first(where: { $0.id == selected }) { return shown }
         return tabs.last
     }
 }
