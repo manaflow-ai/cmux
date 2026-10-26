@@ -707,6 +707,16 @@ struct CoderouterAccountStoreTests {
         #expect(store.refreshRequest == 1)
     }
 
+    @Test("Scope cancellation invalidates an in-flight New Account operation")
+    func addTaskGenerationIsScoped() {
+        let store = CoderouterAccountStore()
+        let generation = store.beginAddTask()
+
+        #expect(store.isCurrentAddTask(generation))
+        store.cancelAddTask()
+        #expect(!store.isCurrentAddTask(generation))
+    }
+
     @Test("Remounted machine panels reuse the CodeRouter state owner")
     func remountedPanelsKeepStore() {
         let store = CoderouterAccountStore()
