@@ -1,0 +1,620 @@
+/* Subagent groups (SubagentGroup.tsx), after the ChatGPT and T3 Code apps. Heights are fixed
+   and match model.ts: the group line is 48px with 8px above it, each listed subagent 48px, and
+   the list's last row adds 8px below. */
+.cv-subagents {
+  all: unset;
+  box-sizing: border-box;
+  width: 100%;
+  height: 48px;
+  margin-top: 8px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-family: var(--cv-font);
+  font-size: var(--cv-font-size);
+  letter-spacing: var(--cv-tracking, 0.045px);
+  color: var(--cv-text);
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+  user-select: none;
+}
+.cv-subagents:focus-visible {
+  outline: 2px solid var(--agent-accent);
+  outline-offset: 2px;
+  border-radius: 8px;
+}
+.cv-subagents__stack {
+  display: flex;
+  align-items: center;
+  flex: none;
+}
+.cv-subagents__stack > .cv-subagent-avatar + .cv-subagent-avatar {
+  margin-left: -8px;
+}
+.cv-subagents__more {
+  margin-left: 4px;
+  font-size: 11px;
+  color: var(--cv-text-muted);
+}
+.cv-subagents__text,
+.cv-subagent__text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 1;
+  line-height: 18px;
+}
+.cv-subagents__title,
+.cv-subagent__name {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-weight: 600;
+}
+.cv-subagent__state {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: 12px;
+  color: var(--cv-text-muted);
+}
+/* The kind of agent beside its name (Explore, general-purpose): quiet, not a second title. */
+.cv-subagent__kind {
+  margin-left: 8px;
+  font-weight: 400;
+  font-size: var(--text-detail);
+  color: var(--cv-text-muted);
+}
+.cv-subagents__time,
+.cv-subagent__time {
+  flex: none;
+  color: var(--cv-text-muted);
+}
+.cv-subagent-avatar {
+  position: relative;
+  box-sizing: border-box;
+  width: 26px;
+  height: 26px;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: var(--cv-card-fill);
+  box-shadow: 0 0 0 1px var(--cv-card-ring);
+  color: var(--cv-text);
+}
+/* A listed subagent: one 48px line inside the list's border. */
+.cv-subagent {
+  box-sizing: border-box;
+  height: 48px;
+  padding: 0 14px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-family: var(--cv-font);
+  font-size: var(--cv-font-size);
+  color: var(--cv-text);
+  font-variant-numeric: tabular-nums;
+  border-left: 1px solid var(--cv-card-ring);
+  border-right: 1px solid var(--cv-card-ring);
+}
+.cv-subagent[data-edge="first"],
+.cv-subagent[data-edge="only"] {
+  border-top: 1px solid var(--cv-card-ring);
+  border-top-left-radius: 12px;
+  border-top-right-radius: 12px;
+}
+.cv-subagent[data-edge="last"],
+.cv-subagent[data-edge="only"] {
+  border-bottom: 1px solid var(--cv-card-ring);
+  border-bottom-left-radius: 12px;
+  border-bottom-right-radius: 12px;
+  margin-bottom: 8px;
+}
+/* A listed subagent that opens its own view: the line is a button with a chevron. */
+button.cv-subagent {
+  appearance: none;
+  width: 100%;
+  margin: 0;
+  background: none;
+  border-top: none;
+  border-bottom: none;
+  text-align: start;
+  cursor: pointer;
+}
+button.cv-subagent:hover {
+  background: var(--agent-control-hover);
+}
+button.cv-subagent:focus-visible {
+  outline: 2px solid var(--agent-accent);
+  outline-offset: -2px;
+}
+button.cv-subagent > :last-child {
+  flex: none;
+  color: var(--cv-text-muted);
+}
+/* A running subagent's line with its stop button at the line's right end, after the time. */
+.cv-subagent-stoppable {
+  position: relative;
+}
+.cv-subagent-stoppable > .cv-subagent {
+  padding-right: 48px;
+}
+.cv-subagent__stop {
+  appearance: none;
+  position: absolute;
+  top: 12px;
+  right: 14px;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 6px;
+  background: none;
+  color: var(--cv-text-muted);
+  cursor: pointer;
+}
+.cv-subagent__stop:hover:not(:disabled) {
+  background: var(--agent-control-hover);
+  color: var(--cv-text);
+}
+.cv-subagent__stop:focus-visible {
+  outline: 2px solid var(--agent-accent);
+  outline-offset: -2px;
+}
+/* Off while Claude has the request; red after Claude or acpmux refused it. */
+.cv-subagent__stop:disabled {
+  background: none;
+  color: var(--cv-text-muted);
+  opacity: 0.5;
+  cursor: default;
+}
+.cv-subagent__stop[data-state="failed"],
+.cv-subagent__stop[data-state="failed"]:hover:not(:disabled) {
+  color: var(--agent-status-failure);
+}
+/* The child view's first line (model.ts: 44px): a 28px "Subagent of" chip centred on a rule,
+   8px above and below. A click goes back to the parent's view. */
+.cv-subagent-of {
+  box-sizing: border-box;
+  height: 44px;
+  padding: 8px 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.cv-subagent-of::before,
+.cv-subagent-of::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--cv-card-ring);
+}
+.cv-subagent-of__pill {
+  all: unset;
+  box-sizing: border-box;
+  height: 28px;
+  max-width: 70%;
+  padding: 0 10px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border-radius: 6px;
+  box-shadow: 0 0 0 1px var(--cv-card-ring);
+  font-family: var(--cv-font);
+  font-size: var(--text-detail);
+  color: var(--cv-text-muted);
+  cursor: pointer;
+  user-select: none;
+}
+.cv-subagent-of__pill:hover {
+  color: var(--cv-text);
+}
+.cv-subagent-of__pill:focus-visible {
+  outline: 2px solid var(--agent-accent);
+  outline-offset: 2px;
+}
+.cv-subagent-of__label {
+  flex: none;
+  font-weight: 600;
+  color: var(--cv-text);
+}
+.cv-subagent-of__parent,
+.cv-subagent-of__task {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.cv-subagent-of__parent {
+  flex: 0 1 auto;
+  color: var(--cv-text);
+}
+.cv-subagent-of__dot {
+  flex: none;
+}
+.cv-subagent-of__task {
+  flex: 1 1 auto;
+}
+/* Each subagent's color (agentTones.ts): its dot in the agents list and its name in the
+   transcript. The theme's terminal colors, so a theme recolors them. Red stays for failure and
+   blue for the accent. */
+[data-agent-tone="0"] {
+  --agent-tone: var(--agent-ansi-2, #3fb950);
+}
+[data-agent-tone="1"] {
+  --agent-tone: var(--agent-ansi-5, #a371f7);
+}
+[data-agent-tone="2"] {
+  --agent-tone: var(--agent-ansi-3, #d29922);
+}
+[data-agent-tone="3"] {
+  --agent-tone: var(--agent-ansi-6, #39c5cf);
+}
+[data-agent-tone="4"] {
+  --agent-tone: var(--agent-ansi-13, #db61a2);
+}
+/* As text, a tone mixes toward the text color: a terminal yellow or cyan alone is too faint on a
+   light page. The list's dot uses the same mix, so the two read as one color. */
+[data-agent-tone] {
+  --agent-tone-ink: color-mix(in srgb, var(--agent-tone) 72%, var(--agent-text));
+}
+/* On light, the green, yellow and cyan tones are faint on white: more of the text color keeps each
+   name at WCAG AA (agent-tone-contrast.test.ts). */
+:root[data-theme="light"] [data-agent-tone] {
+  --agent-tone-ink: color-mix(in srgb, var(--agent-tone) 58%, var(--agent-text));
+}
+.cv-subagent[data-agent-tone] .cv-subagent__name {
+  color: var(--agent-tone-ink);
+}
+/* The agents pill (AgentsPill.tsx): a part of the bottom stack (bottomStack.css places it), at
+   the column's leading edge. Its list opens upward over the transcript, as a popover does. */
+.acpmux-agents-pill {
+  all: unset;
+  box-sizing: border-box;
+  height: 30px;
+  padding: 0 12px 0 10px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--agent-page-bg) 82%, var(--agent-text) 6%);
+  box-shadow:
+    inset 0 0 0 var(--cmux-hairline, 0.5px) color-mix(in srgb, var(--agent-text) 18%, transparent),
+    var(--elevation-2);
+  color: var(--agent-text);
+  font-family: var(--cv-font);
+  font-size: var(--text-control);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  cursor: default;
+  user-select: none;
+}
+.acpmux-agents-pill:hover,
+.acpmux-agents-pill[aria-expanded="true"] {
+  background: color-mix(in srgb, var(--agent-page-bg) 70%, var(--agent-text) 10%);
+}
+.acpmux-agents-pill:focus-visible {
+  outline: 2px solid var(--agent-accent);
+  outline-offset: 2px;
+}
+/* The list opens above the pill (Codex's card): Active, then Completed. */
+.acpmux-agents-list {
+  position: absolute;
+  left: var(--cv-inset);
+  bottom: 100%;
+  z-index: var(--layer-dropdown);
+  box-sizing: border-box;
+  width: min(320px, calc(100% - 2 * var(--cv-inset)));
+  max-height: min(360px, 60vh);
+  margin: 0 0 8px;
+  padding: 6px;
+  overflow-y: auto;
+  border: 0;
+  border-radius: var(--ui-popup-radius);
+  color: var(--agent-text);
+  font-family: var(--cv-font);
+  font-size: var(--text-control);
+  line-height: 18px;
+}
+.acpmux-agents-list ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.acpmux-agents-list__section + .acpmux-agents-list__section {
+  margin-top: 6px;
+}
+.acpmux-agents-list__heading {
+  margin: 0;
+  padding: 6px 8px 4px;
+  color: var(--agent-muted);
+  font-size: var(--text-detail);
+  font-weight: 600;
+}
+.acpmux-agents-list__row {
+  all: unset;
+  box-sizing: border-box;
+  width: 100%;
+  height: 44px;
+  padding: 0 8px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border-radius: 8px;
+  color: var(--agent-muted);
+  cursor: default;
+}
+/* An agent another one spawned sits under it, moved in a step per level (AgentsPill.tsx). */
+.acpmux-agents-list__row[data-depth="1"] {
+  padding-inline-start: 24px;
+}
+.acpmux-agents-list__row[data-depth="2"] {
+  padding-inline-start: 40px;
+}
+.acpmux-agents-list__row[data-depth="3"] {
+  padding-inline-start: 56px;
+}
+.acpmux-agents-list__row:hover {
+  background: var(--agent-control-hover);
+}
+.acpmux-agents-list__row:focus-visible {
+  outline: 2px solid var(--agent-accent);
+  outline-offset: -2px;
+}
+.acpmux-agents-list__dot {
+  flex: none;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--agent-tone-ink, var(--agent-muted));
+}
+.acpmux-agents-list__text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.acpmux-agents-list__name,
+.acpmux-agents-list__state {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.acpmux-agents-list__name {
+  color: var(--agent-text);
+  font-weight: 600;
+}
+.acpmux-agents-list__state {
+  font-size: var(--text-detail);
+}
+.acpmux-agents-list__row[data-status="failed"] .acpmux-agents-list__state {
+  color: var(--agent-status-failure);
+}
+.acpmux-agents-list__time {
+  flex: none;
+  font-size: var(--text-detail);
+  font-variant-numeric: tabular-nums;
+}
+/* A subagent's own pane: where the chat's composer would be, the line naming the chat that takes
+   messages (SubagentPaneFooter.tsx). */
+.cv-subagent-pane-footer {
+  margin: 0;
+  padding: 12px 16px;
+  font-family: var(--cv-font);
+  font-size: var(--text-detail);
+  color: var(--cv-text-muted);
+  text-align: center;
+  user-select: none;
+}
+
+/* ---------- The tray of running work above the composer (SubagentTray.tsx) ---------- */
+/* The user bubble's tinted glass (conversation.css .cv-user__bubble): the theme's text at a low
+   strength over the backdrop, never a solid fill, with the composer's hairline rim. Its rows are
+   the summary card's (AgentLine.tsx, summary.css), so a subagent reads the same in both.
+   No padding: a line's hover fills it to the tray's own edges, which round it (one inset, never a
+   pill inside the strip; Leo 2026-10-21). */
+.acpmux-running-tray {
+  box-sizing: border-box;
+  padding: 0;
+  overflow: hidden;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--agent-text) 8%, transparent);
+  box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) var(--acpmux-composer-edge, transparent);
+  color: var(--agent-text);
+  font-family: var(--cv-font);
+  font-size: var(--text-control);
+  line-height: 18px;
+}
+/* Past five lines the list scrolls in place; the stack never scrolls the transcript. */
+.acpmux-running-tray__list {
+  max-height: calc(5 * 28px);
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  list-style: none;
+}
+.acpmux-running-tray__head > svg {
+  flex: none;
+  color: var(--agent-muted);
+}
+/* Under the header's divider the first line keeps the tray's 2px gap, as the last keeps its rim's. */
+.acpmux-running-tray__head + .acpmux-running-tray__list {
+  padding-top: 2px;
+  border-top: var(--cmux-hairline, 0.5px) solid var(--acpmux-composer-edge, transparent);
+}
+/* The overflow control for ended cards, dim beside what runs. */
+.acpmux-running-tray__finished {
+  color: var(--agent-muted);
+}
+.acpmux-running-tray__finished > svg {
+  flex: none;
+}
+/* A line (AgentLine.tsx) is its button and, for a running subagent or a registry command, its
+   stop button (SubagentGroup.tsx, inspector/TasksSection.tsx). */
+.acpmux-agent-line {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+.acpmux-agent-line > .acpmux-agent-line__button {
+  flex: 1;
+  min-width: 0;
+}
+.acpmux-agent-line > .cv-subagent__stop {
+  position: static;
+  flex: none;
+  margin-left: 2px;
+}
+.acpmux-agent-line > .acpmux-chat-inspector-stop {
+  margin: 0 4px 0 2px;
+}
+/* Quiet at rest: no line, header or button in the tray has a fill or a corner of its own. Hover is
+   the composer chips' wash (--acpmux-pill-hover, the text at 11% over the glass, never opaque) on
+   the whole line, its stop button included, and only on a line that opens something; with the
+   hand, as a link. A line with nothing to open (a disabled button) has no hover at all. Its stop
+   button only brightens: a fill of its own would be a box inside the line's. */
+.acpmux-running-tray .acpmux-summary-row,
+.acpmux-running-tray .acpmux-summary-link:is(:hover, :active),
+.acpmux-running-tray :is(.acpmux-chat-inspector-stop, .cv-subagent__stop):is(:hover, :active) {
+  border-radius: 0;
+  background: none;
+}
+.acpmux-running-tray .acpmux-agent-line:has(> .acpmux-agent-line__button:enabled):hover,
+.acpmux-running-tray .acpmux-running-tray__head:hover {
+  background: var(--acpmux-pill-hover, color-mix(in srgb, var(--agent-text) 11%, transparent));
+}
+.acpmux-running-tray :is(.acpmux-agent-line__button, .acpmux-running-tray__head, .acpmux-chat-inspector-stop):enabled {
+  cursor: pointer;
+}
+/* What the line is ("Command", "Subagent"), dim before its name. */
+.acpmux-agent-line__kind {
+  margin-right: 6px;
+  color: var(--agent-muted);
+}
+/* A line that opens something ends in a chevron. */
+.acpmux-agent-line__chevron {
+  flex: none;
+  display: inline-flex;
+  margin-left: -2px;
+  color: var(--agent-muted);
+}
+/* Running work's icon is the theme's accent, never a brand color. */
+.acpmux-agent-line .acpmux-lineage__icon[data-state="running"],
+.acpmux-running-tray__head .acpmux-lineage__icon {
+  color: var(--agent-accent);
+}
+/* A line's hover card (the Inspector's Subagents): its name, then its state, time and what it does
+   now, then its task, dim; a failed one's state in the danger color. */
+.ui-card.acpmux-agent-card__popup {
+  max-width: min(320px, calc(100vw - 24px));
+  padding: 8px 10px;
+  border-radius: 8px;
+}
+.acpmux-agent-card {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.acpmux-agent-card__name {
+  color: var(--agent-text, var(--cmux-text));
+  overflow-wrap: anywhere;
+}
+.acpmux-agent-card__state,
+.acpmux-agent-card__task {
+  color: var(--agent-muted, var(--cmux-text-secondary));
+}
+
+/* An expanded background command keeps its bounded tail in the row; only this disclosed row
+   polls process/tail, and the terminal action remains in the same compact surface. */
+.acpmux-running-tray__tail {
+  display: flex;
+  align-items: flex-start;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  margin: 0 8px 8px 24px;
+  min-width: 0;
+}
+.acpmux-running-tray__tail pre {
+  flex: 1 1 240px;
+  max-height: calc(var(--text-detail--line-height) * 10);
+  min-width: 0;
+  margin: 0;
+  overflow: auto;
+  color: var(--agent-muted);
+  font-family: var(--cv-mono, ui-monospace, monospace);
+  font-size: var(--text-detail);
+  line-height: var(--text-detail--line-height);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.acpmux-running-tray__tail button {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex: none;
+  border: 0;
+  padding: 4px 8px;
+  color: var(--agent-muted);
+  background: transparent;
+  cursor: pointer;
+}
+.acpmux-running-tray__tail button:hover,
+.acpmux-running-tray__tail button:focus-visible {
+  color: var(--agent-text);
+}
+.acpmux-running-tray[data-placement="after-latest-message"] {
+  flex: none;
+  margin: 0 var(--cv-inset) 8px;
+}
+.acpmux-agent-card__state[data-status="failed"] {
+  color: var(--agent-status-failure);
+}
+.acpmux-agent-card__task {
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* ---------- Where a subagent ended (SubagentDoneLine.tsx) ---------- */
+/* A tool row like a background task's end; a failure in the danger color. */
+.cv-subagent-done:disabled {
+  cursor: default;
+}
+.cv-subagent-done[data-state="failed"] {
+  color: var(--agent-status-failure);
+}
+/* The line and, on hover or focus, its Restart (SubagentDoneLine.tsx), the hover row's compact
+   button (conversation/MessageActions.tsx): hidden, it keeps its room, so pointing moves nothing. */
+.cv-subagent-done-row {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+.cv-subagent-done-row > .cv-subagent-done {
+  width: auto;
+  min-width: 0;
+  flex: 0 1 auto;
+}
+.cv-subagent-done__actions {
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+  margin-inline-start: 4px;
+  opacity: 0;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .cv-subagent-done__actions {
+    transition: opacity 120ms ease-out;
+  }
+}
+.cv-subagent-done-row:hover .cv-subagent-done__actions,
+.cv-subagent-done__actions:focus-within {
+  opacity: 1;
+}
