@@ -332,6 +332,16 @@ test("a token of an attachment taken out of the prompt goes as nothing", () => {
   expect(sent.text).toBe(`say ${inlineToken("one")}`);
 });
 
+test("a removed final attachment never borrows the person's preceding object character", () => {
+  const dropped = (id: string) => id === "v";
+  const draft = `${MARK}word${inlineToken("v")} then ${MARK}literal${MARK}`;
+  const expected = `${MARK}word then ${MARK}literal${MARK}`;
+  expect(promptBlocks(draft, [], { dropped })).toEqual([{ type: "text", text: expected }]);
+  expect(promptText(draft, [], { dropped })).toBe(expected);
+  expect(orderedDraftParts(draft, [], { dropped })).toEqual([{ type: "text", text: expected }]);
+  expect(placeInline(draft, [], { dropped })).toEqual({ text: expected, attachments: [] });
+});
+
 // Review (Astra, e082): the strip ranked an id by its last place, the prompt by its first.
 test("the strip orders by each id's first place, as the prompt does", () => {
   const [a, b] = [strip(image("a")), strip(image("b"))];
