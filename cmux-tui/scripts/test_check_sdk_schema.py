@@ -158,6 +158,70 @@ class LiveSchemaTests(unittest.TestCase):
         with self.assertRaisesRegex(CHECKER.SdkSchemaError, "event stream drift"):
             self.validate(document, self.inventory)
 
+    def test_sniffed_command_request_fields_come_from_its_module(self) -> None:
+        served = CHECKER.sniffed_commands.resolve(CHECKER.SERVER.with_suffix(""))
+        self.assertEqual(served["agent-inventory"].fields, {"expected_machine_id"})
+        self.assertEqual(
+            served["agent-inventory-watch"].fields,
+            {"expected_machine_id", "enabled", "expected_watch_id", "admission_receipt"},
+        )
+        self.assertTrue(all(command.local_admin for command in served.values()))
+
+    def test_sniffed_command_missing_request_field_is_rejected(self) -> None:
+        document = copy.deepcopy(self.document)
+        document["commands"]["agent-inventory-watch"]["request"]["fields"].pop("enabled")
+        with self.assertRaisesRegex(CHECKER.SdkSchemaError, "request field for agent-inventory-watch"):
+            self.validate(document, self.inventory)
+
+    def test_sniffed_command_wrong_authority_is_rejected(self) -> None:
+        document = copy.deepcopy(self.document)
+        inventory = copy.deepcopy(self.inventory)
+        document["commands"]["agent-inventory"]["authority"] = "control"
+        inventory["commands"]["local-admin"].remove("agent-inventory")
+        inventory["commands"]["control"].append("agent-inventory")
+        with self.assertRaisesRegex(CHECKER.SdkSchemaError, "sniffed command authority drift"):
+            self.validate(document, inventory)
+
+
+class SniffedCommandSourceTests(unittest.TestCase):
+    """sniffed_commands.resolve reads a fixture server/ directory."""
+
+    CHAIN = "fn frame() { agent_inventory::try_handle(m, c, s, w); }\n"
+    MODULE = (
+        "pub(super) fn try_handle(mux: &Mux, message: &str) -> Option<bool> {\n"
+        "    // fields.remove(\"commented_out\") is not a field\n"
+        "    let mode = match fields.remove(\"cmd\").as_deref() {\n"
+        "        Some(\"agent-inventory\") => 1,\n"
+        "        _ => return None,\n"
+        "    };\n"
+        "    if !mux.control_clients.is_unix(client) { return Some(false); }\n"
+        "    let quote = '\"';\n"
+        "    let _ = fields.remove(\"expected_machine_id\");\n"
+        "    Some(true)\n"
+        "}\n"
+    )
+
+    def resolve(self, chain: str, module: str) -> dict:
+        with tempfile.TemporaryDirectory() as directory:
+            server = Path(directory)
+            (server / "connection_frame.rs").write_text(chain, encoding="utf-8")
+            (server / "agent_inventory.rs").write_text(module, encoding="utf-8")
+            return CHECKER.sniffed_commands.resolve(server, {"agent-inventory"})
+
+    def test_fields_and_guard_come_from_try_handle(self) -> None:
+        served = self.resolve(self.CHAIN, self.MODULE)["agent-inventory"]
+        self.assertEqual(served.fields, {"expected_machine_id"})
+        self.assertTrue(served.local_admin)
+
+    def test_a_module_off_the_sniffer_chain_is_rejected(self) -> None:
+        with self.assertRaisesRegex(CHECKER.sniffed_commands.SniffedCommandError, "never calls"):
+            self.resolve("fn frame() {}\n", self.MODULE)
+
+    def test_a_module_that_no_longer_matches_the_name_is_rejected(self) -> None:
+        module = self.MODULE.replace('Some("agent-inventory")', 'Some("agent-stock")')
+        with self.assertRaisesRegex(CHECKER.sniffed_commands.SniffedCommandError, "never matches"):
+            self.resolve(self.CHAIN, module)
+
 
 if __name__ == "__main__":
     unittest.main()

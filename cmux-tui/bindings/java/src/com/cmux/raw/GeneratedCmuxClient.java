@@ -29,6 +29,21 @@ public abstract class GeneratedCmuxClient {
         return TabGroupOutcome.fromWire(result);
     }
 
+    public final AgentInventoryResult agentInventory(AgentInventoryRequest request) throws CmuxException {
+        Object result = execute(Commands.AGENT_INVENTORY, request.toWire());
+        return AgentInventoryResult.fromWire(result);
+    }
+
+    public final AgentInventoryRefreshResult agentInventoryRefresh(AgentInventoryRefreshRequest request) throws CmuxException {
+        Object result = execute(Commands.AGENT_INVENTORY_REFRESH, request.toWire());
+        return AgentInventoryRefreshResult.fromWire(result);
+    }
+
+    public final AgentInventoryWatchResult agentInventoryWatch(AgentInventoryWatchRequest request) throws CmuxException {
+        Object result = execute(Commands.AGENT_INVENTORY_WATCH, request.toWire());
+        return AgentInventoryWatchResult.fromWire(result);
+    }
+
     public final ApplyLayoutResult applyLayout(ApplyLayoutRequest request) throws CmuxException {
         Object result = execute(Commands.APPLY_LAYOUT, request.toWire());
         return ApplyLayoutResult.fromWire(result);

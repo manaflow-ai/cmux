@@ -17,6 +17,10 @@ class ProtocolDecodeError(ValueError):
 MODEL_BY_PATH = {
     'types/ActivitySnapshot': models.ActivitySnapshot,
     'types/ActivitySubscribeResult': models.ActivitySubscribeResult,
+    'types/AgentInventoryHarness': models.AgentInventoryHarness,
+    'types/AgentInventoryRefreshResult': models.AgentInventoryRefreshResult,
+    'types/AgentInventoryResult': models.AgentInventoryResult,
+    'types/AgentInventoryWatchActive': models.AgentInventoryWatchActive,
     'types/AgentRecord': models.AgentRecord,
     'types/AgentSessionSource': models.AgentSessionSource,
     'types/AppliedPane': models.AppliedPane,
@@ -207,6 +211,9 @@ MODEL_BY_PATH = {
     'commands/ack-tab-notifications/request': models.AckTabNotificationsRequest,
     'commands/add-screens-to-screen-group/request': models.AddScreensToScreenGroupRequest,
     'commands/add-tabs-to-tab-group/request': models.AddTabsToTabGroupRequest,
+    'commands/agent-inventory/request': models.AgentInventoryRequest,
+    'commands/agent-inventory-refresh/request': models.AgentInventoryRefreshRequest,
+    'commands/agent-inventory-watch/request': models.AgentInventoryWatchRequest,
     'commands/apply-layout/request': models.ApplyLayoutRequest,
     'commands/attach-surface/request': models.AttachSurfaceRequest,
     'commands/bind-conversation-tab-session/request': models.BindConversationTabSessionRequest,
@@ -629,6 +636,8 @@ MODEL_BY_PATH = {
 }
 
 ENUM_BY_PATH = {
+    'types/AgentInventoryAuth': models.AgentInventoryAuth,
+    'types/AgentInventoryChannel': models.AgentInventoryChannel,
     'types/AgentPresenceActivity': models.AgentPresenceActivity,
     'types/AgentReportSource': models.AgentReportSource,
     'types/AgentSource': models.AgentSource,

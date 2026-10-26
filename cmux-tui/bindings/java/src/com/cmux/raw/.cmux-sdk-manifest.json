@@ -36,14 +36,64 @@
       "size": 8714
     },
     {
+      "path": "AgentInventoryAuth.java",
+      "sha256": "8b3dc389c813a666d712a1a9ab050615a9989d25b845ae86d325021eef461ed4",
+      "size": 950
+    },
+    {
       "path": "AgentInventoryChangedEvent.java",
       "sha256": "c027a12981fef0eb104e1abc7e952edea9a0d648119eb5886311e6bd9a403a9a",
       "size": 3827
     },
     {
+      "path": "AgentInventoryChannel.java",
+      "sha256": "c4df82c40c2e6feeb26ff6d877865eedc49b833775a9a7213ca3c34716f84dc7",
+      "size": 1064
+    },
+    {
+      "path": "AgentInventoryHarness.java",
+      "sha256": "df232ed5383547969ad6245e0c99506360f851c4d98cd38c0a3028d300e860db",
+      "size": 8375
+    },
+    {
+      "path": "AgentInventoryRefreshRequest.java",
+      "sha256": "271b58069e7dee79154f0c112c08b5be1d6965684f825e5d9c30d2250db94c8f",
+      "size": 2547
+    },
+    {
+      "path": "AgentInventoryRefreshResult.java",
+      "sha256": "f315be1e2ff0845f3eb46fcd28ad96e2b99fd2e55008c888646289d5f2e471fc",
+      "size": 3501
+    },
+    {
+      "path": "AgentInventoryRequest.java",
+      "sha256": "5a185fdcebcf01039a10d29599e9726d950258bef27b2ab4a9a6e2279752d0dc",
+      "size": 2349
+    },
+    {
+      "path": "AgentInventoryResult.java",
+      "sha256": "84f263edd5322cb86d6ef3cf007eba78a2e5d5f4a9d761083ea3fce038872cf3",
+      "size": 2634
+    },
+    {
+      "path": "AgentInventoryWatchActive.java",
+      "sha256": "281735445e9ea71b538a1f78120e3aef1d51f75e5f7e887d5d99ded95cd869af",
+      "size": 3695
+    },
+    {
       "path": "AgentInventoryWatchEndedEvent.java",
       "sha256": "00c88942e6b2378b3663d7bc093b385958c8b3da1175b39486d84ea1f81616b6",
       "size": 3833
+    },
+    {
+      "path": "AgentInventoryWatchRequest.java",
+      "sha256": "d404dd783aad7aa7473ccd4e1f85cc38069009fbb4684a9ef68ffc17d88a05d4",
+      "size": 5144
+    },
+    {
+      "path": "AgentInventoryWatchResult.java",
+      "sha256": "b6a4218352e7c278aba129f109ef704898edab08d63a26c84c401b7dc872c305",
+      "size": 2491
     },
     {
       "path": "AgentPresenceActivity.java",
@@ -707,8 +757,8 @@
     },
     {
       "path": "Commands.java",
-      "sha256": "2472922908d2ea0616f93c094a0421cb8bff39775c1c008cbfed48c0a5021a1e",
-      "size": 78355
+      "sha256": "ff4f99bddebbdaa896f6d6ad7f5e1fe2cd8e3ecaea931f91dbfe25ce08dc365f",
+      "size": 79353
     },
     {
       "path": "ConfigReloadRequestedEvent.java",
@@ -1357,8 +1407,8 @@
     },
     {
       "path": "GeneratedCmuxClient.java",
-      "sha256": "056a742a2329974123b008a6a79431edec0af1a2ef4c740ff56b064e1808f0ea",
-      "size": 67823
+      "sha256": "663f00e6fd953d0c389c1a41fda038322c2d2626950047c10dfe03888bf63313",
+      "size": 68620
     },
     {
       "path": "GetBlobRequest.java",
@@ -2112,7 +2162,7 @@
     },
     {
       "path": "Protocol.java",
-      "sha256": "24f34d98b90ea2cb9b619679b3901bdfa41dbcbddc9165650ac3ddaa8c2e9c45",
+      "sha256": "12a53fb6da618b652a06903480187c220406e6441f3a420c8420de2589292a24",
       "size": 7486
     },
     {
@@ -3442,7 +3492,7 @@
     }
   ],
   "format": 1,
-  "ir_sha256": "77f0c70101ce816e2ee667ac7315cd3b234194807cf3cffd297c5e4bc46edda9",
+  "ir_sha256": "1c44b920fa20b23278111888c09c83cee778be92ffd6ca0d4ca07ee71e96c207",
   "language": "java",
   "mux_protocol": 12,
   "schema_version": 2

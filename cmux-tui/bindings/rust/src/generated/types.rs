@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 77f0c70101ce816e2ee667ac7315cd3b234194807cf3cffd297c5e4bc46edda9.
+// cmux-tui mux protocol 12, IR 1c44b920fa20b23278111888c09c83cee778be92ffd6ca0d4ca07ee71e96c207.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use crate::{Nullable, Optional};
@@ -34,6 +34,98 @@ pub struct ActivitySnapshot {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ActivitySubscribeResult {
     pub activity: ActivitySnapshot,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum AgentInventoryAuth {
+    #[serde(rename = "signedIn")]
+    SignedIn,
+    #[serde(rename = "signedOut")]
+    SignedOut,
+    #[serde(rename = "unknown")]
+    Unknown,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum AgentInventoryChannel {
+    #[serde(rename = "npm")]
+    Npm,
+    #[serde(rename = "bun")]
+    Bun,
+    #[serde(rename = "brew")]
+    Brew,
+    #[serde(rename = "brewCask")]
+    BrewCask,
+    #[serde(rename = "native")]
+    Native,
+    #[serde(rename = "launcher")]
+    Launcher,
+    #[serde(rename = "standalone")]
+    Standalone,
+    #[serde(rename = "missing")]
+    Missing,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AgentInventoryHarness {
+    pub auth: AgentInventoryAuth,
+    pub channel: AgentInventoryChannel,
+    /// When the owner's health check saved this row, in Unix milliseconds.
+    #[serde(rename = "checkedAt")]
+    pub checked_at: u64,
+    /// Recognized CLI family (claude, codex, opencode, pi, chief, gemini, amp, copilot or cursor) from the owner's saved health check; null for launchers, missing executables, conflicting evidence and families this daemon does not know.
+    pub family: Nullable<String>,
+    /// Harness profile id: 1-128 bytes of \`\[A-Za-z0-9._-\]\`.
+    pub id: String,
+    /// Latest registry version from the last successful check, or null.
+    pub latest: Nullable<String>,
+    /// When \`latest\` was checked, in Unix milliseconds; null when never checked.
+    #[serde(rename = "latestCheckedAt")]
+    pub latest_checked_at: Nullable<u64>,
+    /// True only when \`version\` and \`latest\` are both known and \`latest\` is newer.
+    pub outdated: bool,
+    /// Installed semantic version, or null when unknown.
+    pub version: Nullable<String>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AgentInventoryRefreshResult {
+    pub cached: bool,
+    pub harnesses: Vec<AgentInventoryHarness>,
+    /// Canonical public machine id (\`machine_…\`) of the daemon that answered.
+    pub machine: String,
+    pub view: String,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AgentInventoryResult {
+    pub cached: bool,
+    pub harnesses: Vec<AgentInventoryHarness>,
+    pub view: String,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AgentInventoryWatchActive {
+    /// Canonical public machine id (\`machine_…\`) of the daemon that answered.
+    pub machine: String,
+    /// The owner's inventory revision when the lease became active.
+    pub revision: u64,
+    /// Opaque lease id: \`inventory_watch_\` and 32 lowercase hex digits.
+    pub watch_id: String,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum AgentInventoryWatchResult {
+    AgentInventoryWatchActive(AgentInventoryWatchActive),
+    EmptyResult(EmptyResult),
 }
 
 #[rustfmt::skip]

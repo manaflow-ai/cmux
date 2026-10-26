@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 77f0c70101ce816e2ee667ac7315cd3b234194807cf3cffd297c5e4bc46edda9. */
+/* cmux-tui mux protocol 12, IR 1c44b920fa20b23278111888c09c83cee778be92ffd6ca0d4ca07ee71e96c207. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -16,6 +16,54 @@ export type ActivitySnapshot = {
 export type ActivitySubscribeResult = {
   "activity": ActivitySnapshot;
 };
+
+export type AgentInventoryAuth = "signedIn" | "signedOut" | "unknown";
+
+export type AgentInventoryChannel = "npm" | "bun" | "brew" | "brewCask" | "native" | "launcher" | "standalone" | "missing";
+
+export type AgentInventoryHarness = {
+  "auth": AgentInventoryAuth;
+  "channel": AgentInventoryChannel;
+  /** When the owner's health check saved this row, in Unix milliseconds. */
+  "checkedAt": bigint;
+  /** Recognized CLI family (claude, codex, opencode, pi, chief, gemini, amp, copilot or cursor) from the owner's saved health check; null for launchers, missing executables, conflicting evidence and families this daemon does not know. */
+  "family": (string) | null;
+  /** Harness profile id: 1-128 bytes of `[A-Za-z0-9._-]`. */
+  "id": string;
+  /** Latest registry version from the last successful check, or null. */
+  "latest": (string) | null;
+  /** When `latest` was checked, in Unix milliseconds; null when never checked. */
+  "latestCheckedAt": (bigint) | null;
+  /** True only when `version` and `latest` are both known and `latest` is newer. */
+  "outdated": boolean;
+  /** Installed semantic version, or null when unknown. */
+  "version": (string) | null;
+};
+
+export type AgentInventoryRefreshResult = {
+  "cached": true;
+  "harnesses": Array<AgentInventoryHarness>;
+  /** Canonical public machine id (`machine_…`) of the daemon that answered. */
+  "machine": string;
+  "view": "inventory";
+};
+
+export type AgentInventoryResult = {
+  "cached": true;
+  "harnesses": Array<AgentInventoryHarness>;
+  "view": "inventory";
+};
+
+export type AgentInventoryWatchActive = {
+  /** Canonical public machine id (`machine_…`) of the daemon that answered. */
+  "machine": string;
+  /** The owner's inventory revision when the lease became active. */
+  "revision": bigint;
+  /** Opaque lease id: `inventory_watch_` and 32 lowercase hex digits. */
+  "watch_id": string;
+};
+
+export type AgentInventoryWatchResult = (AgentInventoryWatchActive) | (EmptyResult);
 
 export type AgentPresenceActivity = "thinking" | "editing" | "reading" | "running" | "browsing" | "computer_use" | "waiting";
 

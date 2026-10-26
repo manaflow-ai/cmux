@@ -1,6 +1,11 @@
 //! An explicit cache subscription on one trusted native owner connection.
 //! Only bounded invalidation receipts cross this carrier, never cache rows.
 //! No acpmux starter, legacy health, reconnect or fallback path is used.
+//!
+//! Wire: the `agent-inventory-watch` command and the `agent-inventory-changed`
+//! (background priority) and `agent-inventory-watch-ended` events in
+//! spec/sdk-schema.json. check-sdk-schema.py reads `try_handle` through
+//! scripts/sniffed_commands.py: each request field is a `fields.remove("...")`.
 
 #[path = "agent_inventory_watch/state.rs"]
 mod state;
@@ -184,4 +189,16 @@ fn valid_watch_id(value: &str) -> bool {
         suffix.len() == 32
             && suffix.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
     })
+}
+
+#[cfg(test)]
+#[test]
+fn watch_ids_are_the_schema_bound() {
+    use crate::server::agent_inventory::schema;
+    let id = format!("inventory_watch_{}", "0123456789abcdef".repeat(2));
+    assert!(valid_watch_id(&id));
+    assert!(!valid_watch_id(&format!("{id}0")));
+    let bound = Some(id.len() as u64);
+    assert_eq!(schema::max_bytes("AgentInventoryWatchActive", "watch_id"), bound);
+    assert_eq!(schema::request_max_bytes("agent-inventory-watch", "expected_watch_id"), bound);
 }

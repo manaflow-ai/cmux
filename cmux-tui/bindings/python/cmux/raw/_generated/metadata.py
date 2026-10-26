@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = '77f0c70101ce816e2ee667ac7315cd3b234194807cf3cffd297c5e4bc46edda9'
+IR_SHA256 = '1c44b920fa20b23278111888c09c83cee778be92ffd6ca0d4ca07ee71e96c207'
 
 
 @dataclass(frozen=True)
@@ -73,6 +73,42 @@ COMMANDS = {
             'group': CommandFieldMetadata(None, None),
             'surfaces': CommandFieldMetadata(None, None),
             'transaction': CommandFieldMetadata(None, None),
+        },
+    ),
+    'agent-inventory': CommandMetadata(
+        'agent-inventory',
+        'local-admin',
+        12,
+        'agent-inventory-v1',
+        ('local-admin',),
+        None,
+        {
+            'expected_machine_id': CommandFieldMetadata(None, 'agent-inventory-owner-v1'),
+        },
+    ),
+    'agent-inventory-refresh': CommandMetadata(
+        'agent-inventory-refresh',
+        'local-admin',
+        12,
+        'agent-inventory-refresh-v1',
+        ('local-admin',),
+        None,
+        {
+            'expected_machine_id': CommandFieldMetadata(None, None),
+        },
+    ),
+    'agent-inventory-watch': CommandMetadata(
+        'agent-inventory-watch',
+        'local-admin',
+        12,
+        'agent-inventory-watch-v1',
+        ('local-admin',),
+        None,
+        {
+            'admission_receipt': CommandFieldMetadata(None, 'agent-inventory-watch-admission-v1'),
+            'enabled': CommandFieldMetadata(None, None),
+            'expected_machine_id': CommandFieldMetadata(None, None),
+            'expected_watch_id': CommandFieldMetadata(None, 'agent-inventory-watch-fence-v1'),
         },
     ),
     'apply-layout': CommandMetadata(

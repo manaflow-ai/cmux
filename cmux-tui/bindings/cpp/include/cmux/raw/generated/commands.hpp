@@ -44,6 +44,9 @@ public:
     [[nodiscard]] Result<JsonValue> ack_tab_notifications(const AckTabNotificationsRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> add_screens_to_screen_group(const AddScreensToScreenGroupRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<TabGroupOutcome> add_tabs_to_tab_group(const AddTabsToTabGroupRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<AgentInventoryResult> agent_inventory(const AgentInventoryRequest& request = {}, RequestOptions options = {});
+    [[nodiscard]] Result<AgentInventoryRefreshResult> agent_inventory_refresh(const AgentInventoryRefreshRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<AgentInventoryWatchResult> agent_inventory_watch(const AgentInventoryWatchRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<ApplyLayoutResult> apply_layout(const ApplyLayoutRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<EventStream> attach_surface(const AttachSurfaceRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<BindConversationTabSessionResult> bind_conversation_tab_session(const BindConversationTabSessionRequest& request, RequestOptions options = {});

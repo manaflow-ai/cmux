@@ -101,8 +101,8 @@
   },
   "agents": {
    "id": 14,
-   "description": "Agents in terminals and the local feed.",
-   "next_ordinal": 7
+   "description": "Agents in terminals, the local feed and the agent CLI inventory.",
+   "next_ordinal": 10
   },
   "conversations": {
    "id": 15,
@@ -9610,6 +9610,245 @@
     "browsing",
     "computer_use",
     "waiting"
+   ]
+  },
+  "AgentInventoryChannel": {
+   "kind": "enum",
+   "values": [
+    "npm",
+    "bun",
+    "brew",
+    "brewCask",
+    "native",
+    "launcher",
+    "standalone",
+    "missing"
+   ]
+  },
+  "AgentInventoryAuth": {
+   "kind": "enum",
+   "values": [
+    "signedIn",
+    "signedOut",
+    "unknown"
+   ]
+  },
+  "AgentInventoryHarness": {
+   "kind": "object",
+   "fields": {
+    "id": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false,
+     "max_bytes": 128,
+     "description": "Harness profile id: 1-128 bytes of `[A-Za-z0-9._-]`."
+    },
+    "family": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": true,
+     "description": "Recognized CLI family (claude, codex, opencode, pi, chief, gemini, amp, copilot or cursor) from the owner's saved health check; null for launchers, missing executables, conflicting evidence and families this daemon does not know."
+    },
+    "channel": {
+     "type": {
+      "kind": "ref",
+      "name": "AgentInventoryChannel"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "version": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": true,
+     "max_bytes": 64,
+     "description": "Installed semantic version, or null when unknown."
+    },
+    "latest": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": true,
+     "max_bytes": 64,
+     "description": "Latest registry version from the last successful check, or null."
+    },
+    "latestCheckedAt": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": true,
+     "description": "When `latest` was checked, in Unix milliseconds; null when never checked."
+    },
+    "outdated": {
+     "type": {
+      "kind": "scalar",
+      "name": "boolean"
+     },
+     "presence": "required",
+     "nullable": false,
+     "description": "True only when `version` and `latest` are both known and `latest` is newer."
+    },
+    "auth": {
+     "type": {
+      "kind": "ref",
+      "name": "AgentInventoryAuth"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "checkedAt": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false,
+     "description": "When the owner's health check saved this row, in Unix milliseconds."
+    }
+   },
+   "additional_properties": false
+  },
+  "AgentInventoryResult": {
+   "kind": "object",
+   "fields": {
+    "view": {
+     "type": {
+      "kind": "literal",
+      "value": "inventory"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "cached": {
+     "type": {
+      "kind": "literal",
+      "value": true
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "harnesses": {
+     "type": {
+      "kind": "array",
+      "items": {
+       "kind": "ref",
+       "name": "AgentInventoryHarness"
+      },
+      "max_items": 256
+     },
+     "presence": "required",
+     "nullable": false
+    }
+   },
+   "additional_properties": false,
+   "constraints": [
+    "A partial cache of the owner's last health check: empty rows mean no observations, not that the machine has no agents. No paths, commands, account labels or diagnostics."
+   ]
+  },
+  "AgentInventoryRefreshResult": {
+   "kind": "object",
+   "fields": {
+    "view": {
+     "type": {
+      "kind": "literal",
+      "value": "inventory"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "cached": {
+     "type": {
+      "kind": "literal",
+      "value": true
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "harnesses": {
+     "type": {
+      "kind": "array",
+      "items": {
+       "kind": "ref",
+       "name": "AgentInventoryHarness"
+      },
+      "max_items": 256
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "machine": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false,
+     "description": "Canonical public machine id (`machine_…`) of the daemon that answered."
+    }
+   },
+   "additional_properties": false,
+   "constraints": [
+    "The agent-inventory cache after the owner's registry refresh; installed versions, auth and checkedAt stay cached."
+   ]
+  },
+  "AgentInventoryWatchActive": {
+   "kind": "object",
+   "fields": {
+    "machine": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false,
+     "description": "Canonical public machine id (`machine_…`) of the daemon that answered."
+    },
+    "watch_id": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false,
+     "max_bytes": 48,
+     "description": "Opaque lease id: `inventory_watch_` and 32 lowercase hex digits."
+    },
+    "revision": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false,
+     "description": "The owner's inventory revision when the lease became active."
+    }
+   },
+   "additional_properties": false
+  },
+  "AgentInventoryWatchResult": {
+   "kind": "untagged_union",
+   "variants": [
+    {
+     "kind": "ref",
+     "name": "AgentInventoryWatchActive"
+    },
+    {
+     "kind": "ref",
+     "name": "EmptyResult"
+    }
    ]
   },
   "ProgramStatusState": {
@@ -27929,6 +28168,152 @@
    "method_id": 3590,
    "priority": "control",
    "durability": "reply_before_journal",
+   "clients": [
+    "macos",
+    "sdk"
+   ]
+  },
+  "agent-inventory": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": "agent-inventory-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "expected_machine_id": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "capability": "agent-inventory-owner-v1",
+      "description": "Identity fence: the canonical public machine id the caller expects; another daemon refuses with agent_inventory.owner_mismatch. Never a routing selector."
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "AgentInventoryResult"
+   },
+   "stream": null,
+   "constraints": [
+    "Trusted native Unix control connections only: WebSocket clients and the conversations-only relay get agent_inventory.not_trusted before params are read.",
+    "Reads this daemon's own acpmux cache (harnessInventory); never starts acpmux, scans PATH or refreshes registries.",
+    "Reads, refreshes and watch handshakes share eight concurrent owner workers per daemon; one more gets agent_inventory.busy.",
+    "Errors are agent_inventory.not_trusted, bad_request, owner_mismatch, unavailable, unsupported, busy or invalid_response."
+   ],
+   "method_id": 3591,
+   "priority": "control",
+   "durability": "read_only",
+   "clients": [
+    "macos",
+    "sdk"
+   ]
+  },
+  "agent-inventory-refresh": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": "agent-inventory-refresh-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "expected_machine_id": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false,
+      "description": "Identity fence: the canonical public machine id the caller expects; another daemon refuses with agent_inventory.owner_mismatch. Never a routing selector."
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "AgentInventoryRefreshResult"
+   },
+   "stream": null,
+   "constraints": [
+    "Trusted native Unix control connections only: WebSocket clients and the conversations-only relay get agent_inventory.not_trusted before params are read.",
+    "Asks the owner's fixed registries about the cached installations (harnessInventoryRefresh); the reply waits at most 25 seconds and an overlapping refresh gets agent_inventory.busy.",
+    "Reads, refreshes and watch handshakes share eight concurrent owner workers per daemon; one more gets agent_inventory.busy.",
+    "Errors are agent_inventory.not_trusted, bad_request, owner_mismatch, unavailable, unsupported, busy or invalid_response."
+   ],
+   "method_id": 3592,
+   "priority": "background",
+   "durability": "read_only",
+   "clients": [
+    "macos",
+    "sdk"
+   ]
+  },
+  "agent-inventory-watch": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": "agent-inventory-watch-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "expected_machine_id": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false,
+      "description": "Identity fence: the canonical public machine id the caller expects; another daemon refuses with agent_inventory.owner_mismatch. Never a routing selector."
+     },
+     "enabled": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "required",
+      "nullable": false,
+      "description": "true opens (or acknowledges again) this connection's lease; false retires it without an ended event."
+     },
+     "expected_watch_id": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "max_bytes": 48,
+      "capability": "agent-inventory-watch-fence-v1",
+      "description": "Only with enabled:false: retire the lease only while it has this id."
+     },
+     "admission_receipt": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "capability": "agent-inventory-watch-admission-v1",
+      "description": "Only with enabled:true: an unavailable, unsupported or busy refusal carries data {machine, admission:\"not_admitted\"} when this connection holds no lease."
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "AgentInventoryWatchResult"
+   },
+   "stream": null,
+   "constraints": [
+    "Trusted native Unix control connections only: WebSocket clients and the conversations-only relay get agent_inventory.not_trusted before params are read.",
+    "One lease per control connection and at most eight per daemon; the lease ends with the connection.",
+    "While the lease is active, agent-inventory-changed and agent-inventory-watch-ended go only to this connection; enabled:false replies an empty object.",
+    "Reads, refreshes and watch handshakes share eight concurrent owner workers per daemon; one more gets agent_inventory.busy.",
+    "Errors are agent_inventory.not_trusted, bad_request, owner_mismatch, unavailable, unsupported, busy or invalid_response. The request line is at most 4096 bytes."
+   ],
+   "method_id": 3593,
+   "priority": "control",
+   "durability": "memory",
    "clients": [
     "macos",
     "sdk"

@@ -19,6 +19,9 @@ fn expectExplicitNullRejected(
 }
 
 test "every generated optional non-null field rejects explicit null" {
+    try expectExplicitNullRejected(protocol.AgentInventoryRequest, "expected_machine_id");
+    try expectExplicitNullRejected(protocol.AgentInventoryWatchRequest, "admission_receipt");
+    try expectExplicitNullRejected(protocol.AgentInventoryWatchRequest, "expected_watch_id");
     try expectExplicitNullRejected(protocol.AttachSurfaceRequest, "snapshot_images");
     try expectExplicitNullRejected(protocol.AttachSurfaceRequest, "snapshot_local_history");
     try expectExplicitNullRejected(protocol.ChiefInspectRequest, "query");

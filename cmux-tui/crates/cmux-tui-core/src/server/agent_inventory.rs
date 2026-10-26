@@ -1,6 +1,12 @@
 //! Cached inventory and explicit registry refresh of THIS machine, over the trusted native
 //! daemon carrier (local, SSH or Cloud). The conversations-only relay never
 //! admits this verb. No client-selected socket, machine or control params.
+//!
+//! Wire: `agent-inventory` and `agent-inventory-refresh` in spec/sdk-schema.json (agents
+//! family; the refresh is `background` priority because it waits on registries for
+//! seconds). This sniffer answers them before `Command`, so check-sdk-schema.py reads
+//! `try_handle` through scripts/sniffed_commands.py: a request field is a
+//! `fields.remove("...")` here and a schema field there.
 
 #[path = "agent_inventory_watch.rs"]
 pub(super) mod watch;
@@ -24,6 +30,14 @@ pub(super) const OWNER_CAPABILITY: &str = "agent-inventory-owner-v1";
 pub(super) const REFRESH_CAPABILITY: &str = "agent-inventory-refresh-v1";
 const MAX_READS: usize = 8;
 const MAX_HARNESSES: usize = 256;
+/// Spec `AgentInventoryChannel`.
+const CHANNELS: [&str; 8] =
+    ["npm", "bun", "brew", "brewCask", "native", "launcher", "standalone", "missing"];
+/// Spec `AgentInventoryAuth`.
+const AUTH: [&str; 3] = ["signedIn", "signedOut", "unknown"];
+/// The CLI families forwarded as `family`; any other family is sent as null.
+const FAMILIES: [&str; 9] =
+    ["claude", "codex", "opencode", "pi", "chief", "gemini", "amp", "copilot", "cursor"];
 pub(super) const CALL_TIMEOUT: Duration = Duration::from_secs(2);
 
 #[derive(Clone, Copy)]
@@ -226,13 +240,7 @@ fn read(socket: &Path, mode: ReadMode) -> Result<Value, Failure> {
     // new metadata string or infer a family from the profile id here.
     for row in &mut inventory.harnesses {
         if matches!(row.channel.as_str(), "launcher" | "missing")
-            || row.family.as_deref().is_some_and(|family| {
-                ![
-                    "claude", "codex", "opencode", "pi", "chief", "gemini", "amp", "copilot",
-                    "cursor",
-                ]
-                .contains(&family)
-            })
+            || row.family.as_deref().is_some_and(|family| !FAMILIES.contains(&family))
         {
             row.family = None;
         }
@@ -280,18 +288,8 @@ impl Inventory {
                         .id
                         .bytes()
                         .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'-' | b'.'))
-                    && [
-                        "npm",
-                        "bun",
-                        "brew",
-                        "brewCask",
-                        "native",
-                        "launcher",
-                        "standalone",
-                        "missing",
-                    ]
-                    .contains(&row.channel.as_str())
-                    && ["signedIn", "signedOut", "unknown"].contains(&row.auth.as_str())
+                    && CHANNELS.contains(&row.channel.as_str())
+                    && AUTH.contains(&row.auth.as_str())
                     && [&row.version, &row.latest]
                         .iter()
                         .all(|value| value.as_ref().is_none_or(|v| safe_version(v)))
@@ -329,4 +327,91 @@ pub(super) fn reply(
             error_delivery: None,
         },
     )
+}
+
+/// The reply DTOs are the schema's result types (spec/sdk-schema.json).
+#[cfg(test)]
+pub(super) mod schema {
+    use std::collections::BTreeSet;
+
+    use serde_json::Value;
+
+    use super::{AUTH, CHANNELS, Harness, Inventory, View};
+
+    fn sdk_schema() -> Value {
+        serde_json::from_str(include_str!("../../../../spec/sdk-schema.json"))
+            .expect("spec/sdk-schema.json parses")
+    }
+
+    /// Member names of the schema's object type `name`.
+    pub(in crate::server) fn type_fields(name: &str) -> BTreeSet<String> {
+        let schema = sdk_schema();
+        let fields = schema["types"][name]["fields"].as_object();
+        fields.unwrap_or_else(|| panic!("spec type {name} is an object")).keys().cloned().collect()
+    }
+
+    fn enum_values(name: &str) -> Vec<String> {
+        let schema = sdk_schema();
+        let values = schema["types"][name]["values"].as_array();
+        let values = values.unwrap_or_else(|| panic!("spec type {name} is an enum"));
+        values.iter().filter_map(Value::as_str).map(str::to_owned).collect()
+    }
+
+    /// Member names of the schema event `name`'s payload.
+    pub(in crate::server) fn event_fields(name: &str) -> BTreeSet<String> {
+        let schema = sdk_schema();
+        let fields = schema["events"][name]["payload"]["fields"].as_object();
+        fields
+            .unwrap_or_else(|| panic!("spec event {name} has an object payload"))
+            .keys()
+            .cloned()
+            .collect()
+    }
+
+    /// `max_bytes` of member `field` of the schema object type `name`.
+    pub(in crate::server) fn max_bytes(name: &str, field: &str) -> Option<u64> {
+        sdk_schema()["types"][name]["fields"][field]["max_bytes"].as_u64()
+    }
+
+    /// `max_bytes` of request field `field` of the schema command `name`.
+    pub(in crate::server) fn request_max_bytes(name: &str, field: &str) -> Option<u64> {
+        sdk_schema()["commands"][name]["request"]["fields"][field]["max_bytes"].as_u64()
+    }
+
+    pub(in crate::server) fn keys(value: &Value) -> BTreeSet<String> {
+        value.as_object().expect("an object").keys().cloned().collect()
+    }
+
+    #[test]
+    fn reply_members_are_the_schema_result_fields() {
+        let inventory = Inventory {
+            view: View::Inventory,
+            cached: true,
+            harnesses: vec![Harness {
+                id: "claude".into(),
+                family: Some("claude".into()),
+                channel: "npm".into(),
+                version: Some("1.2.3".into()),
+                latest: None,
+                latest_checked_at: None,
+                outdated: false,
+                auth: "unknown".into(),
+                checked_at: 1,
+            }],
+        };
+        assert!(inventory.valid());
+        let value = serde_json::to_value(&inventory).expect("serializes");
+        assert_eq!(keys(&value), type_fields("AgentInventoryResult"));
+        assert_eq!(keys(&value["harnesses"][0]), type_fields("AgentInventoryHarness"));
+        // The refresh reply is the same object plus the owner echo `machine`.
+        let mut refresh = type_fields("AgentInventoryResult");
+        refresh.insert("machine".into());
+        assert_eq!(refresh, type_fields("AgentInventoryRefreshResult"));
+    }
+
+    #[test]
+    fn accepted_channels_and_auth_are_the_schema_enums() {
+        assert_eq!(enum_values("AgentInventoryChannel"), CHANNELS);
+        assert_eq!(enum_values("AgentInventoryAuth"), AUTH);
+    }
 }

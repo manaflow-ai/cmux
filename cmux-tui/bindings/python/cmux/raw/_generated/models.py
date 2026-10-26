@@ -37,6 +37,21 @@ class UnknownEvent(EventBase):
     event: str
     raw: Mapping[str, Any]
 
+class AgentInventoryAuth(str, Enum):
+    SIGNEDIN = 'signedIn'
+    SIGNEDOUT = 'signedOut'
+    UNKNOWN = 'unknown'
+
+class AgentInventoryChannel(str, Enum):
+    NPM = 'npm'
+    BUN = 'bun'
+    BREW = 'brew'
+    BREWCASK = 'brewCask'
+    NATIVE = 'native'
+    LAUNCHER = 'launcher'
+    STANDALONE = 'standalone'
+    MISSING = 'missing'
+
 class AgentPresenceActivity(str, Enum):
     THINKING = 'thinking'
     EDITING = 'editing'
@@ -355,6 +370,45 @@ class ActivitySnapshot:
 class ActivitySubscribeResult:
     __cmux_schema_path__: ClassVar[str] = 'types/ActivitySubscribeResult'
     activity: ActivitySnapshot
+
+
+@dataclass(frozen=True)
+class AgentInventoryHarness:
+    __cmux_schema_path__: ClassVar[str] = 'types/AgentInventoryHarness'
+    auth: AgentInventoryAuth
+    channel: AgentInventoryChannel
+    checkedAt: int
+    family: Union[str, None]
+    id: str
+    latest: Union[str, None]
+    latestCheckedAt: Union[int, None]
+    outdated: bool
+    version: Union[str, None]
+
+
+@dataclass(frozen=True)
+class AgentInventoryRefreshResult:
+    __cmux_schema_path__: ClassVar[str] = 'types/AgentInventoryRefreshResult'
+    cached: Literal[True]
+    harnesses: List[AgentInventoryHarness]
+    machine: str
+    view: Literal['inventory']
+
+
+@dataclass(frozen=True)
+class AgentInventoryResult:
+    __cmux_schema_path__: ClassVar[str] = 'types/AgentInventoryResult'
+    cached: Literal[True]
+    harnesses: List[AgentInventoryHarness]
+    view: Literal['inventory']
+
+
+@dataclass(frozen=True)
+class AgentInventoryWatchActive:
+    __cmux_schema_path__: ClassVar[str] = 'types/AgentInventoryWatchActive'
+    machine: str
+    revision: int
+    watch_id: str
 
 
 @dataclass(frozen=True)
@@ -2250,6 +2304,27 @@ class AddTabsToTabGroupRequest:
     group: str
     surfaces: List[TabRef]
     transaction: Union[str, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class AgentInventoryRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/agent-inventory/request'
+    expected_machine_id: Union[str, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class AgentInventoryRefreshRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/agent-inventory-refresh/request'
+    expected_machine_id: str
+
+
+@dataclass(frozen=True)
+class AgentInventoryWatchRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/agent-inventory-watch/request'
+    enabled: bool
+    expected_machine_id: str
+    admission_receipt: Union[bool, MissingType] = field(default=MISSING)
+    expected_watch_id: Union[str, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -6006,6 +6081,7 @@ class WorkspaceRenamedEvent(EventBase):
 
 
 # Named protocol aliases.
+AgentInventoryWatchResult = Union[AgentInventoryWatchActive, EmptyResult]
 Base64 = str
 ColorHex = str
 DeclarativeLayout = Union[DeclarativeLayoutLeaf, DeclarativeLayoutSplit, DeclarativeLayoutStack]
@@ -6030,6 +6106,8 @@ __all__ = [
     'UnknownEvent',
     'KnownEvent',
     'AnyEvent',
+    'AgentInventoryAuth',
+    'AgentInventoryChannel',
     'AgentPresenceActivity',
     'AgentReportSource',
     'AgentSource',
@@ -6067,6 +6145,10 @@ __all__ = [
     'ViewAttachmentOutcome',
     'ActivitySnapshot',
     'ActivitySubscribeResult',
+    'AgentInventoryHarness',
+    'AgentInventoryRefreshResult',
+    'AgentInventoryResult',
+    'AgentInventoryWatchActive',
     'AgentRecord',
     'AgentSessionSource',
     'AppliedPane',
@@ -6257,6 +6339,9 @@ __all__ = [
     'AckTabNotificationsRequest',
     'AddScreensToScreenGroupRequest',
     'AddTabsToTabGroupRequest',
+    'AgentInventoryRequest',
+    'AgentInventoryRefreshRequest',
+    'AgentInventoryWatchRequest',
     'ApplyLayoutRequest',
     'AttachSurfaceRequest',
     'BindConversationTabSessionRequest',
@@ -6676,6 +6761,7 @@ __all__ = [
     'WorkspaceClosedEvent',
     'WorkspaceMovedEvent',
     'WorkspaceRenamedEvent',
+    'AgentInventoryWatchResult',
     'Base64',
     'ColorHex',
     'DeclarativeLayout',

@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 77f0c70101ce816e2ee667ac7315cd3b234194807cf3cffd297c5e4bc46edda9. */
+/* cmux-tui mux protocol 12, IR 1c44b920fa20b23278111888c09c83cee778be92ffd6ca0d4ca07ee71e96c207. */
 
 
 import type * as T from "./types.js";
@@ -47,6 +47,33 @@ export interface AddTabsToTabGroupRequest extends CmuxRequestBase {
   "transaction"?: (string) | null;
 }
 export type AddTabsToTabGroupResult = T.TabGroupOutcome;
+
+/** Protocol v12; authority: local-admin. */
+export interface AgentInventoryRequest extends CmuxRequestBase {
+  cmd: "agent-inventory";
+  /** Identity fence: the canonical public machine id the caller expects; another daemon refuses with agent_inventory.owner_mismatch. Never a routing selector. */
+  "expected_machine_id"?: string;
+}
+
+/** Protocol v12; authority: local-admin. */
+export interface AgentInventoryRefreshRequest extends CmuxRequestBase {
+  cmd: "agent-inventory-refresh";
+  /** Identity fence: the canonical public machine id the caller expects; another daemon refuses with agent_inventory.owner_mismatch. Never a routing selector. */
+  "expected_machine_id": string;
+}
+
+/** Protocol v12; authority: local-admin. */
+export interface AgentInventoryWatchRequest extends CmuxRequestBase {
+  cmd: "agent-inventory-watch";
+  /** Only with enabled:true: an unavailable, unsupported or busy refusal carries data {machine, admission:"not_admitted"} when this connection holds no lease. */
+  "admission_receipt"?: boolean;
+  /** true opens (or acknowledges again) this connection's lease; false retires it without an ended event. */
+  "enabled": boolean;
+  /** Identity fence: the canonical public machine id the caller expects; another daemon refuses with agent_inventory.owner_mismatch. Never a routing selector. */
+  "expected_machine_id": string;
+  /** Only with enabled:false: retire the lease only while it has this id. */
+  "expected_watch_id"?: string;
+}
 
 /** Protocol v6; authority: control. */
 export interface ApplyLayoutRequest extends CmuxRequestBase {
@@ -2881,6 +2908,9 @@ export type CmuxRequest =
   | AckTabNotificationsRequest
   | AddScreensToScreenGroupRequest
   | AddTabsToTabGroupRequest
+  | AgentInventoryRequest
+  | AgentInventoryRefreshRequest
+  | AgentInventoryWatchRequest
   | ApplyLayoutRequest
   | AttachSurfaceRequest
   | BindConversationTabSessionRequest
@@ -3188,6 +3218,30 @@ export interface CmuxCommandDefinitionMap {
     authority: "control";
     since: 12;
     capability: "tab-groups-v1";
+    stream: null;
+  };
+  "agent-inventory": {
+    request: AgentInventoryRequest;
+    result: T.AgentInventoryResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "agent-inventory-v1";
+    stream: null;
+  };
+  "agent-inventory-refresh": {
+    request: AgentInventoryRefreshRequest;
+    result: T.AgentInventoryRefreshResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "agent-inventory-refresh-v1";
+    stream: null;
+  };
+  "agent-inventory-watch": {
+    request: AgentInventoryWatchRequest;
+    result: T.AgentInventoryWatchResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "agent-inventory-watch-v1";
     stream: null;
   };
   "apply-layout": {

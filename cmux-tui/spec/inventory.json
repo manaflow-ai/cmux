@@ -607,7 +607,10 @@
       "conversation-live",
       "feed-local-handoff-begin",
       "feed-local-handoff-abort",
-      "feed-local-handoff-done"
+      "feed-local-handoff-done",
+      "agent-inventory",
+      "agent-inventory-refresh",
+      "agent-inventory-watch"
     ],
     "provider-authority": [
       "mark-workspaces-provider-managed",

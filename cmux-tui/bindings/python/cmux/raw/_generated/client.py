@@ -21,6 +21,15 @@ class GeneratedClientMixin:
     def add_tabs_to_tab_group(self, group: str, surfaces: List[TabRef], *, transaction: Union[str, None, MissingType] = MISSING) -> TabGroupOutcome:
         return self._invoke_command('add-tabs-to-tab-group', AddTabsToTabGroupRequest(group=group, surfaces=surfaces, transaction=transaction))
 
+    def agent_inventory(self, *, expected_machine_id: Union[str, MissingType] = MISSING) -> AgentInventoryResult:
+        return self._invoke_command('agent-inventory', AgentInventoryRequest(expected_machine_id=expected_machine_id))
+
+    def agent_inventory_refresh(self, expected_machine_id: str) -> AgentInventoryRefreshResult:
+        return self._invoke_command('agent-inventory-refresh', AgentInventoryRefreshRequest(expected_machine_id=expected_machine_id))
+
+    def agent_inventory_watch(self, enabled: bool, expected_machine_id: str, *, admission_receipt: Union[bool, MissingType] = MISSING, expected_watch_id: Union[str, MissingType] = MISSING) -> AgentInventoryWatchResult:
+        return self._invoke_command('agent-inventory-watch', AgentInventoryWatchRequest(enabled=enabled, expected_machine_id=expected_machine_id, admission_receipt=admission_receipt, expected_watch_id=expected_watch_id))
+
     def apply_layout(self, layout: DeclarativeLayout, *, workspace: Union[Id, None, MissingType] = MISSING, name: Union[str, None, MissingType] = MISSING, cols: Union[int, None, MissingType] = MISSING, rows: Union[int, None, MissingType] = MISSING) -> ApplyLayoutResult:
         return self._invoke_command('apply-layout', ApplyLayoutRequest(layout=layout, workspace=workspace, name=name, cols=cols, rows=rows))
 
@@ -871,6 +880,9 @@ class GeneratedClientMixin:
 GeneratedClientMixin.ack_tab_notifications.__cmux_command__ = COMMANDS['ack-tab-notifications']
 GeneratedClientMixin.add_screens_to_screen_group.__cmux_command__ = COMMANDS['add-screens-to-screen-group']
 GeneratedClientMixin.add_tabs_to_tab_group.__cmux_command__ = COMMANDS['add-tabs-to-tab-group']
+GeneratedClientMixin.agent_inventory.__cmux_command__ = COMMANDS['agent-inventory']
+GeneratedClientMixin.agent_inventory_refresh.__cmux_command__ = COMMANDS['agent-inventory-refresh']
+GeneratedClientMixin.agent_inventory_watch.__cmux_command__ = COMMANDS['agent-inventory-watch']
 GeneratedClientMixin.apply_layout.__cmux_command__ = COMMANDS['apply-layout']
 GeneratedClientMixin.attach_surface.__cmux_command__ = COMMANDS['attach-surface']
 GeneratedClientMixin.bind_conversation_tab_session.__cmux_command__ = COMMANDS['bind-conversation-tab-session']

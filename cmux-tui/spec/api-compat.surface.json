@@ -6679,6 +6679,33 @@
         "nullable": true
       }
     },
+    "request:agent-inventory": {
+      "/expected_machine_id": {
+        "ty": "string"
+      }
+    },
+    "request:agent-inventory-refresh": {
+      "/expected_machine_id": {
+        "ty": "string",
+        "required": true
+      }
+    },
+    "request:agent-inventory-watch": {
+      "/admission_receipt": {
+        "ty": "boolean"
+      },
+      "/enabled": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/expected_machine_id": {
+        "ty": "string",
+        "required": true
+      },
+      "/expected_watch_id": {
+        "ty": "string"
+      }
+    },
     "request:apply-layout": {
       "/cols": {
         "ty": "uint16",
@@ -12139,6 +12166,184 @@
         "ty": "uint64",
         "required": true,
         "nullable": true
+      }
+    },
+    "response:agent-inventory": {
+      "/data/cached": {
+        "ty": "literal",
+        "required": true,
+        "values": [
+          "true"
+        ]
+      },
+      "/data/harnesses": {
+        "ty": "array",
+        "required": true
+      },
+      "/data/harnesses/*": {
+        "ty": "object"
+      },
+      "/data/harnesses/*/auth": {
+        "ty": "enum",
+        "required": true,
+        "values": [
+          "signedIn",
+          "signedOut",
+          "unknown"
+        ]
+      },
+      "/data/harnesses/*/channel": {
+        "ty": "enum",
+        "required": true,
+        "values": [
+          "brew",
+          "brewCask",
+          "bun",
+          "launcher",
+          "missing",
+          "native",
+          "npm",
+          "standalone"
+        ]
+      },
+      "/data/harnesses/*/checkedAt": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/harnesses/*/family": {
+        "ty": "string",
+        "required": true,
+        "nullable": true
+      },
+      "/data/harnesses/*/id": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/harnesses/*/latest": {
+        "ty": "string",
+        "required": true,
+        "nullable": true
+      },
+      "/data/harnesses/*/latestCheckedAt": {
+        "ty": "uint64",
+        "required": true,
+        "nullable": true
+      },
+      "/data/harnesses/*/outdated": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/data/harnesses/*/version": {
+        "ty": "string",
+        "required": true,
+        "nullable": true
+      },
+      "/data/view": {
+        "ty": "literal",
+        "required": true,
+        "values": [
+          "\"inventory\""
+        ]
+      }
+    },
+    "response:agent-inventory-refresh": {
+      "/data/cached": {
+        "ty": "literal",
+        "required": true,
+        "values": [
+          "true"
+        ]
+      },
+      "/data/harnesses": {
+        "ty": "array",
+        "required": true
+      },
+      "/data/harnesses/*": {
+        "ty": "object"
+      },
+      "/data/harnesses/*/auth": {
+        "ty": "enum",
+        "required": true,
+        "values": [
+          "signedIn",
+          "signedOut",
+          "unknown"
+        ]
+      },
+      "/data/harnesses/*/channel": {
+        "ty": "enum",
+        "required": true,
+        "values": [
+          "brew",
+          "brewCask",
+          "bun",
+          "launcher",
+          "missing",
+          "native",
+          "npm",
+          "standalone"
+        ]
+      },
+      "/data/harnesses/*/checkedAt": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/harnesses/*/family": {
+        "ty": "string",
+        "required": true,
+        "nullable": true
+      },
+      "/data/harnesses/*/id": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/harnesses/*/latest": {
+        "ty": "string",
+        "required": true,
+        "nullable": true
+      },
+      "/data/harnesses/*/latestCheckedAt": {
+        "ty": "uint64",
+        "required": true,
+        "nullable": true
+      },
+      "/data/harnesses/*/outdated": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/data/harnesses/*/version": {
+        "ty": "string",
+        "required": true,
+        "nullable": true
+      },
+      "/data/machine": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/view": {
+        "ty": "literal",
+        "required": true,
+        "values": [
+          "\"inventory\""
+        ]
+      }
+    },
+    "response:agent-inventory-watch": {
+      "/data": {
+        "ty": "untagged_union",
+        "required": true
+      },
+      "/data/machine": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/revision": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/watch_id": {
+        "ty": "string",
+        "required": true
       }
     },
     "response:apply-layout": {

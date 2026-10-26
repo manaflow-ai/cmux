@@ -126,8 +126,8 @@ FAMILIES: dict[str, tuple[int, str, tuple[str, ...]]] = {
         "forget-session", "set-session-icon", "import-session-organization",
         "*-personal-group", "set-personal-*",
     )),
-    "agents": (0x0E, "Agents in terminals and the local feed.", (
-        "list-agents", "report-agent", "feed-local-*",
+    "agents": (0x0E, "Agents in terminals, the local feed and the agent CLI inventory.", (
+        "list-agents", "report-agent", "feed-local-*", "agent-inventory", "agent-inventory-*",
     )),
     "conversations": (0x0F, "Local conversations, runs, attachments, inbox and search.", (
         "conversation-*", "home-inbox", "history-search", "chief-inspect",
@@ -170,7 +170,8 @@ EVENT_FAMILIES: dict[str, tuple[int, str, tuple[str, ...]]] = {
 # WidgetInputHandler, content/common/input/widget_input_handler.mojom).
 # bulk: large reads (journal and history reads, attachment bytes, icon
 # assets); a write stays control, so a later control command that names what
-# it wrote cannot pass it. background: stats; else control.
+# it wrote cannot pass it. background: stats and the agent inventory
+# registry refresh, which waits on the network for seconds; else control.
 
 COMMAND_PRIORITY: dict[str, tuple[str, ...]] = {
     "input": (
@@ -184,7 +185,7 @@ COMMAND_PRIORITY: dict[str, tuple[str, ...]] = {
         "cloud-conversation-history", "conversation-attachment-read", "cloud-attachment-read",
         "get-blob",
     ),
-    "background": ("server-stats", "machine-usage", "terminal-resources"),
+    "background": ("server-stats", "machine-usage", "terminal-resources", "agent-inventory-refresh"),
 }
 
 # Events: what draws the person's terminal rides input (the key echo path,
@@ -220,6 +221,8 @@ READ_ONLY = (
     "cloud-conversation-snapshot", "cloud-conversation-history",
     "cloud-conversation-thread", "cloud-conversation-runs", "cloud-conversation-run",
     "cloud-participant-avatar-get", "cloud-attachment-read", "feed-local-list",
+    # Ask this machine's acpmux owner; nothing in the daemon changes.
+    "agent-inventory", "agent-inventory-refresh",
 )
 MEMORY = (
     "send", "send-key", "paste-image", "copy", "scroll-surface", "browser-key", "browser-key-press",
@@ -232,7 +235,7 @@ MEMORY = (
     "mint-terminal-renderer", "mint-terminal-renderer-by-terminal", "set-cell-pixels",
     "set-client-info", "client-focus", "report-focus", "detach-client", "set-window-title",
     "clear-window-title", "reload-config", "shutdown-daemon", "ws-listen", "page-credential",
-    "subscribe-activity",
+    "subscribe-activity", "agent-inventory-watch",
     # Writes the lease's account, bumps its generation and reconnects sockets.
     "cloud-selfhost-info",
     # Binds the browser host's sockets and starts the host process.
