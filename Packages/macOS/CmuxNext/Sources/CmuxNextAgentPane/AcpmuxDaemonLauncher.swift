@@ -242,7 +242,7 @@ nonisolated enum AcpmuxDaemonLauncher {
     private static func reap(_ pid: pid_t) async {
         if collect(pid) { return }
         await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
-            let queue = DispatchQueue(label: "cmux.next.agent-pane.acpmux-launch-reap.\(pid)")
+            let queue = DispatchQueue(label: "cmux.next.agent-pane.acpmux-launch-reap.\(pid)", qos: .userInitiated)
             let source = DispatchSource.makeProcessSource(identifier: pid, eventMask: .exit, queue: queue)
             let done = Mutex(false)
             let finish: @Sendable () -> Void = {
