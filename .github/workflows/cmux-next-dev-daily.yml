@@ -719,26 +719,40 @@ jobs:
   # track the latest tip"). cmux NEXT DEV reads it with Sparkle and installs
   # each build by itself; deltas from the last builds keep a pull small.
   # Independent of publish: a notarization or feed failure never holds the
-  # rolling prerelease, and the prerelease never holds the feed. Like publish,
-  # it ships only what verify passed: Apple's codesign checks the Linux
-  # signature there before tip builds, signs or submits a DMG.
-  tip:
-    name: Publish the cmux NEXT DEV tip feed
-    # Advisory: the dispatcher treats only successful publisher runs as
-    # handled, so a red tip job would re-sign and re-publish the same source
-    # run every tick. A failure still shows red on the job.
+  # rolling prerelease, and the prerelease never holds the feed.
+  #
+  # Two jobs, so the DMG work runs while verify does (Leo, 2026-10-26: "And I
+  # thought we were incremental..."). tip-dmg needs only sign: it runs Apple's
+  # codesign --verify --deep --strict on the Linux-signed app itself before it
+  # builds, signs or submits a DMG, then notarizes and staples it and generates
+  # the appcast. Nothing it makes is public: it hands the DMG, deltas and
+  # appcast to tip in an artifact. tip, the only job that writes R2, needs
+  # verify to succeed with outputs.verified 'true' (as publish does) and the
+  # digest verify tested to be the one tip-dmg built from. So a build verify
+  # rejects never reaches the feed, and there is nothing to roll back.
+  tip-dmg:
+    name: Build the cmux NEXT DEV tip DMG
+    # Advisory, as tip is: a red tip-dmg never makes the dispatcher re-publish
+    # the same source run. A failure still shows red on the job.
     continue-on-error: true
-    needs: [sign, verify]
-    if: ${{ !cancelled() && needs.sign.result == 'success' && needs.sign.outputs.signed == 'true' && needs.sign.outputs.build != '' && needs.verify.result == 'success' && needs.verify.outputs.verified == 'true' }}
+    needs: [sign]
+    if: ${{ !cancelled() && needs.sign.result == 'success' && needs.sign.outputs.signed == 'true' && needs.sign.outputs.build != '' }}
     # No concurrency group (a group replaces a pending run, which the dev-build
-    # rule forbids): tip runs side by side, and the newest build wins. The
-    # feed write is a compare-and-swap on R2 (If-Match on the feed it read),
-    # so an older build can never overwrite a newer one.
+    # rule forbids): tip-dmg runs side by side, and tip's compare-and-swap lets
+    # the newest build win.
     environment: release
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-6vcpu-macos-26' }}
-    timeout-minutes: 55
+    timeout-minutes: 50
     permissions:
       contents: read
+    outputs:
+      # 'true' only after the appcast passed tip_feed.py check and the handoff
+      # uploaded: tip publishes nothing without it.
+      ready: ${{ steps.ready.outputs.ready }}
+      # The archive and delta names of this attempt, which tip uploads; a
+      # re-run of tip alone reads them here instead of making its own.
+      run_tag: ${{ steps.appcast.outputs.run_tag }}
+      handoff: ${{ steps.appcast.outputs.handoff }}
     env:
       APP_NAME: cmux NEXT DEV
       APP_ARCHIVE_NAME: cmux-NEXT-DEV.zip
@@ -749,9 +763,7 @@ jobs:
       # collides with an earlier attempt's upload.
       TIP_RUN_TAG: r${{ github.run_id }}-${{ github.run_attempt }}
       TIP_BUILD: ${{ needs.sign.outputs.build }}
-      SOURCE_SHA: ${{ needs.sign.outputs.source_sha }}
       TIP_BASE_URL: https://files.cmux.com/nightly-next/tip
-      TIP_R2_PREFIX: nightly-next/tip
       TIP_APPCAST: appcast-arm64.xml
       # Builds the feed keeps; the newest gets deltas from the others.
       TIP_KEEP: "3"
@@ -808,7 +820,13 @@ jobs:
           set -euo pipefail
           mkdir -p signed tip-handoff
           /usr/bin/ditto -x -k "signed-handoff/$APP_ARCHIVE_NAME" signed
-          /usr/bin/codesign --verify --deep --strict --verbose=2 "signed/$APP_NAME.app"
+          # Apple's check of the Linux signature, here and not only in verify:
+          # no DMG is built, signed or submitted around an app it rejects.
+          /usr/bin/codesign --verify --deep --strict --verbose=2 "signed/$APP_NAME.app" 2>&1 | tee codesign-verify.log
+          if grep -q "sealed resource is missing or invalid" codesign-verify.log; then
+            echo "codesign reports a sealed resource missing or invalid" >&2
+            exit 1
+          fi
           dmg_root="$RUNNER_TEMP/cmux-next-dev-tip/dmg-root"
           mkdir -p "$dmg_root"
           /usr/bin/ditto "signed/$APP_NAME.app" "$dmg_root/$APP_NAME.app"
@@ -883,6 +901,7 @@ jobs:
           cp "$dmg" "tip-new/cmux-NEXT-DEV-$TIP_BUILD-$TIP_RUN_TAG.dmg"
 
       - name: Generate the tip appcast with deltas
+        id: appcast
         if: steps.feed.outputs.fresh == 'true'
         env:
           SPARKLE_PRIVATE_KEY: ${{ secrets.NIGHTLY_SPARKLE_PRIVATE_KEY }}
@@ -914,11 +933,132 @@ jobs:
             exit 1
           fi
           python3 scripts/ci/tip_feed.py check "tip-out/$TIP_APPCAST" --build "$TIP_BUILD"
+          # What tip publishes: the stapled DMG, the deltas, the appcast, and the
+          # digest of the archive the DMG holds (tip compares it with verify's).
+          mkdir -p tip-handoff-out
+          cp "tip-new/cmux-NEXT-DEV-$TIP_BUILD-$TIP_RUN_TAG.dmg" tip-out/* tip-handoff-out/
+          cp "signed-handoff/$APP_ARCHIVE_NAME.sha256" tip-handoff-out/built-from.sha256
+          echo "handoff=cmux-next-dev-tip-$GITHUB_RUN_ATTEMPT" >> "$GITHUB_OUTPUT"
+          echo "run_tag=$TIP_RUN_TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Upload the tip DMG and appcast for tip
+        if: steps.appcast.outputs.handoff != ''
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ steps.appcast.outputs.handoff }}
+          path: tip-handoff-out/*
+          compression-level: 0
+          if-no-files-found: error
+          # A DMG on every DEV run: keep it no longer than tip needs it.
+          retention-days: 1
+
+      # Only after the handoff uploaded: tip runs on this output alone.
+      - name: Mark the tip DMG ready for tip
+        id: ready
+        if: steps.appcast.outputs.handoff != ''
+        run: echo "ready=true" >> "$GITHUB_OUTPUT"
+
+      - name: Cleanup signing keychain
+        if: always()
+        run: |
+          if [[ -n "${CMUX_NEXT_DEV_TIP_KEYCHAIN:-}" ]]; then
+            ./scripts/ci/signing-keychain.sh delete --keychain "$CMUX_NEXT_DEV_TIP_KEYCHAIN" \
+              || security delete-keychain "$CMUX_NEXT_DEV_TIP_KEYCHAIN" >/dev/null 2>&1 || true
+          fi
+
+  tip:
+    name: Publish the cmux NEXT DEV tip feed
+    # Advisory: the dispatcher treats only successful publisher runs as
+    # handled, so a red tip job would re-sign and re-publish the same source
+    # run every tick. A failure still shows red on the job.
+    continue-on-error: true
+    needs: [sign, verify, tip-dmg]
+    # Like publish, it ships only what verify passed. tip-dmg's outputs are
+    # empty unless it finished (continue-on-error never makes them 'true').
+    if: ${{ !cancelled() && needs.sign.result == 'success' && needs.sign.outputs.signed == 'true' && needs.sign.outputs.build != '' && needs.verify.result == 'success' && needs.verify.outputs.verified == 'true' && needs.tip-dmg.outputs.ready == 'true' }}
+    # No concurrency group (a group replaces a pending run, which the dev-build
+    # rule forbids): tip runs side by side, and the newest build wins. The
+    # feed write is a compare-and-swap on R2 (If-Match on the feed it read),
+    # so an older build can never overwrite a newer one.
+    environment: release
+    # Linux: only R2 writes are left here.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    env:
+      # Names unique to this tip attempt, which alone may remove them: a re-run
+      # of tip alone publishes tip-dmg's files under its own names, so it never
+      # shares an object with an earlier tip whose write or delete is still
+      # landing. DMG_RUN_TAG names the files in tip-dmg's handoff.
+      TIP_RUN_TAG: r${{ github.run_id }}-${{ github.run_attempt }}
+      DMG_RUN_TAG: ${{ needs.tip-dmg.outputs.run_tag }}
+      TIP_BUILD: ${{ needs.sign.outputs.build }}
+      SOURCE_SHA: ${{ needs.sign.outputs.source_sha }}
+      TIP_BASE_URL: https://files.cmux.com/nightly-next/tip
+      TIP_R2_PREFIX: nightly-next/tip
+      TIP_APPCAST: appcast-arm64.xml
+      TIP_KEEP: "3"
+    steps:
+      - name: Checkout trusted feed scripts
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Download the tip DMG and appcast
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: ${{ needs.tip-dmg.outputs.handoff }}
+          path: tip-handoff
+
+      - name: Download the digest verify tested
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: cmux-next-dev-daily-tested
+          path: tip-tested
+
+      # The DMG holds the archive verify passed, byte for byte. The files go
+      # where the upload step reads them, under this attempt's names, and the
+      # appcast's URLs follow (the signatures cover bytes, not names).
+      - name: Require the archive verify tested
+        run: |
+          set -euo pipefail
+          [[ "$DMG_RUN_TAG" =~ ^r[0-9]+-[0-9]+$ ]] || { echo "tip-dmg named no run tag ('$DMG_RUN_TAG')" >&2; exit 1; }
+          [[ "$TIP_RUN_TAG" =~ ^r[0-9]+-[0-9]+$ ]] || { echo "bad run tag '$TIP_RUN_TAG'" >&2; exit 1; }
+          cmp -s tip-handoff/built-from.sha256 tip-tested/tested.sha256 \
+            || { echo "the tip DMG holds an archive verify did not test" >&2; exit 1; }
+          mkdir -p tip-new tip-out
+          dmg_from="cmux-NEXT-DEV-$TIP_BUILD-$DMG_RUN_TAG.dmg" dmg_to="cmux-NEXT-DEV-$TIP_BUILD-$TIP_RUN_TAG.dmg"
+          # rRUN-ATTEMPT -> cmux-NEXT-DEV-tip-RUN-ATTEMPT-, the delta prefix tip-dmg used.
+          delta_from="cmux-NEXT-DEV-tip-${DMG_RUN_TAG#r}-" delta_to="cmux-NEXT-DEV-tip-${TIP_RUN_TAG#r}-"
+          mv "tip-handoff/$dmg_from" "tip-new/$dmg_to"
+          moved=0
+          for delta in tip-handoff/*.delta; do
+            [[ -f "$delta" ]] || continue
+            name="$(basename "$delta")"
+            [[ "$name" == "$delta_from"* ]] || { echo "unexpected delta $name" >&2; exit 1; }
+            mv "$delta" "tip-out/$delta_to${name#"$delta_from"}"
+            moved=$((moved + 1))
+          done
+          python3 - "tip-handoff/$TIP_APPCAST" "tip-out/$TIP_APPCAST" "$dmg_from" "$dmg_to" "$delta_from" "$delta_to" "$moved" <<'EOF'
+          import sys
+          source, out, dmg_from, dmg_to, delta_from, delta_to, moved = sys.argv[1:]
+          text = open(source, encoding="utf-8").read()
+          if text.count("/" + dmg_from + '"') != 1:
+              sys.exit(f"the appcast does not name {dmg_from} exactly once")
+          # Every delta URL is renamed with its file: a prefix drift between
+          # the generator and this rename fails here, not on a client.
+          if text.count("/" + delta_from) != int(moved) or text.count(".delta") != int(moved):
+              sys.exit(f"the appcast names {text.count('.delta')} deltas ({text.count('/' + delta_from)} with {delta_from}), but {moved} moved")
+          text = text.replace("/" + dmg_from + '"', "/" + dmg_to + '"').replace("/" + delta_from, "/" + delta_to)
+          open(out, "w", encoding="utf-8").write(text)
+          EOF
 
       # Archives and deltas first, the feed last: a feed never names a file
       # that is not there yet.
       - name: Upload the tip feed to R2
-        if: steps.feed.outputs.fresh == 'true'
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.CF_R2_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.CF_R2_SECRET_ACCESS_KEY }}
@@ -996,11 +1136,3 @@ jobs:
             echo "feat-cmux-next $SOURCE_SHA, feed $TIP_BASE_URL/$TIP_APPCAST"
             echo "deltas: $(find tip-out -name '*.delta' | wc -l | tr -d ' ')"
           } >> "$GITHUB_STEP_SUMMARY"
-
-      - name: Cleanup signing keychain
-        if: always()
-        run: |
-          if [[ -n "${CMUX_NEXT_DEV_TIP_KEYCHAIN:-}" ]]; then
-            ./scripts/ci/signing-keychain.sh delete --keychain "$CMUX_NEXT_DEV_TIP_KEYCHAIN" \
-              || security delete-keychain "$CMUX_NEXT_DEV_TIP_KEYCHAIN" >/dev/null 2>&1 || true
-          fi
