@@ -5,11 +5,13 @@
         {
           "index": 0,
           "seconds": {
-            "T1": 12000,
+            "T1": 13330,
             "T2": 18960
           },
           "stories": {
             "T1": [
+              "activation",
+              "activation-stress",
               "blocking-hangs",
               "chat-anim",
               "daemon-ops",
@@ -20,13 +22,20 @@
               "memory-hidden",
               "memory-hidden-webkit",
               "motion",
+              "new-browser-tab",
+              "new-browser-tab-webkit",
               "new-surfaces-matrix",
+              "new-tab-daemon",
+              "new-tab-page",
               "omnibar",
+              "open-panel",
               "pane-stress",
               "perf-gate",
               "sidebar",
               "switch",
-              "tab-switch"
+              "tab-switch",
+              "tab-switch-repeat",
+              "tab-switch-stages"
             ],
             "T2": [
               "action-sweep-light-1",
@@ -97,22 +106,26 @@
           "index": 0,
           "seconds": {
             "T0": 330,
-            "T1": 6000
+            "T1": 6660
           },
           "stories": {
             "T0": [
               "new-surfaces"
             ],
             "T1": [
+              "activation-stress",
               "blocking-hangs",
               "daemon-ops",
               "launch-cold",
               "launch-cold-realistic",
               "motion",
-              "new-surfaces-matrix",
+              "new-browser-tab",
+              "new-tab-daemon",
+              "new-tab-page",
               "omnibar",
               "pane-stress",
-              "switch"
+              "switch",
+              "tab-switch-stages"
             ]
           }
         },
@@ -120,21 +133,26 @@
           "index": 1,
           "seconds": {
             "T0": 120,
-            "T1": 6000
+            "T1": 6670
           },
           "stories": {
             "T0": [
               "launch-warm"
             ],
             "T1": [
+              "activation",
               "chat-anim",
               "home-idle",
               "launch-warm-realistic",
               "memory-hidden",
               "memory-hidden-webkit",
+              "new-browser-tab-webkit",
+              "new-surfaces-matrix",
+              "open-panel",
               "perf-gate",
               "sidebar",
-              "tab-switch"
+              "tab-switch",
+              "tab-switch-repeat"
             ]
           }
         }
