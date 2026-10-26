@@ -221,8 +221,9 @@ a CI gate, and no CI job runs it (Lawrence 2026-10-23).
 - Sessions: light-webkit, light, light-hidden, minimized, occluded, home, tabs-static, stress-static, stress,
   energy-saver, energy-saver-auto, signed-in, signed-in-display-sleep, app-quit, external-churn, agent-idle,
   agent-working-visible, busy-hidden and chrome-static.
-- `--gate` refuses a Debug build, and a run whose Energy Saver or thermal state is not the state that the session
-  asks for (`debug.energy` at the two ends of the window).
+- `--gate` refuses a Debug build and a run whose Energy Saver state (`debug.energy` at the two ends of the window)
+  is not the state that the session asks for. A run whose thermal state reached serious or critical is marked
+  `thermal_marked` (IDLE-BUDGET-THERMAL) and is not comparable. The gate does not refuse it.
 - Counters: since p14-energy-047 (2026-10-25) `wakeups_per_s` counts interrupt wakeups only. Earlier numbers,
   Chrome's included, counted package-idle wakeups two times and are not comparable.
 - Measurement (p14-energy.md sec. 4, rule 10): a quiet host (`--max-load 4`), the median of 3 windows, Release with
@@ -351,7 +352,7 @@ publishes nothing until it knows both the setting and the inputs. While the feat
 | `MainWakeUpQueue`, `MainDeadline`, `DemandTimer` | Flexible sub-second wakes on a 32 ms grid with 32 ms leeway | 023, 012, 014 | landed |
 | `FrameScheduler` `.ambient` clients | At most 30 fps; they stop while the displays sleep. `.motion` clients (every client today) do not change | 028 | landed; no client opted in yet |
 | Motion loops (spin, step, sweep, breath, pulse) | The static glyph shows; movement and fades that the person starts do not change | 027 | landed |
-| Chromium (`cmux_cef_set_energy_saver`) | Frame sinks at 30 Hz except a page with input in the last 1 s and cmux's own `cmux-page` pages; wake leeway 32 ms (`OverrideAlignWakeUpsState`); `SetBatterySaverMode` on every child process | 029, 030 | landed in cmux; works with a fork pin that has the API (136); `debug.energy` `cef.energySaver.applied` says so |
+| Chromium (`cmux_cef_set_energy_saver`) | Frame sinks at 30 Hz except a page with input in the last 1 s and cmux's own `cmux-page` pages; wake leeway 32 ms (`OverrideAlignWakeUpsState`); `SetBatterySaverMode` on every child process | 029, 030 | landed in cmux; works with a fork pin that has the API (136); `debug.energy` `cef.energySaver` is `applied` (else `unsupported`) |
 | Chromium child wake alignment (`--enable-features=AlignWakeUps,BatterySaverModeAlignWakeUps`) | Children align their wakes | 040 | spec'd |
 | WebKit render rate, hibernation neighbor radius, page lifecycle | WebKit near 60 fps, no neighbor tab kept awake, hidden cmux pages freeze sooner (`pageSaver`) | 031 | landed |
 | Background polls: GitHub feed, error journal harvest, Cloud access asks, web updates | Each wait is 4 times longer | 032 | landed |

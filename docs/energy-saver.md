@@ -11,8 +11,8 @@ Energy Saver is a Labs feature. It is off by default in all builds, and while it
 on.
 
 - Start cmux with the environment variable `CMUX_ENABLE_FEATURES=energySaver`.
-- In Dev and Nightly builds, the Feature Flags card in **Settings > Experimental** (**Help > Feature Flags**) can
-  also turn on `energySaver`, when that card shows (feature `featureFlagsCard`).
+- In Dev and Nightly builds, the Feature Flags card in **Settings > Experimental** (or the command palette action
+  **Feature Flags**) can also turn on `energySaver`, when that card shows (feature `featureFlagsCard`).
 
 The feature changes only when cmux starts. Quit cmux and open it again.
 
@@ -53,7 +53,7 @@ When Energy Saver is on:
   the tab that you see are not kept ready, and hidden cmux pages are put to sleep sooner.
 - Spinners, pulses and other animations that repeat show a still icon.
 - Timers that are not urgent fire in groups 32 ms apart, not 8 ms apart, so the Mac wakes up less often.
-- Background checks wait 4 times longer: the GitHub feed, the update check, the collection of error reports and
+- Background checks wait 4 times longer: the GitHub feed, the check for web page updates, the collection of error reports and
   the check for Cloud access requests.
 
 ## What never changes
