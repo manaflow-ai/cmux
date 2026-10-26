@@ -193,6 +193,8 @@ final class DividerHandleView: NSView {
         if newSuperview == nil {
             isDragging = false
             isHovered = false
+            // Its render-server springs end now, so their landings run (`ScreenContentView.springDivider`).
+            if let layer { for keyPath in ["position", "bounds.size"] { RenderSpring.stop(layer, keyPath) } }
         }
     }
 

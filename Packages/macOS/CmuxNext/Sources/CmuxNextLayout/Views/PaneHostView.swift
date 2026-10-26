@@ -29,6 +29,9 @@ final class PaneHostView: NSView, RestingPlacement {
     private var reporter: PaneContentChrome? { content as? PaneContentChrome }
     private var lastWindowFrame: CGRect?
 
+    /// Render-server spring calls on the host's layer that have not landed yet (`PaneHostView+RenderSpring.swift`).
+    var renderSpringsInFlight = 0
+
     /// Whether content keeps its size while the host is on a layout spring (`motion.pane.holdContent`, off by
     /// default: live resize). Injected so tests pin it without the shared tunable store.
     private let holdsContentInMotion: () -> Bool
@@ -102,9 +105,10 @@ final class PaneHostView: NSView, RestingPlacement {
     /// lays out once and the clip shows what each frame shows. It is pinned at the edge nearer its
     /// rest, so it rides that edge: a pane opening on the right slides in from the right while the
     /// chat keeps its width under it until the spring lands.
-    /// A host at its rest place and size holds nothing, whatever its spring flag says.
+    /// A host at its rest place and size holds nothing, whatever its spring flag says, nor one on a
+    /// render-server spring (its frame is at rest from the spring's start).
     private func contentFrame(in clip: CGRect) -> CGRect {
-        guard let held = heldContentSize, let restSize, restOffset != .zero || frame.size != restSize else { return clip }
+        guard let held = heldContentSize, !isOnRenderSpring, let restSize, restOffset != .zero || frame.size != restSize else { return clip }
         let rest = CGSize(width: max(0, clip.width + restSize.width - frame.width),
                           height: max(0, clip.height + restSize.height - frame.height))
         let size = CGSize(width: max(clip.width, held.width, rest.width), height: max(clip.height, held.height, rest.height))
@@ -119,7 +123,11 @@ final class PaneHostView: NSView, RestingPlacement {
     /// A host taken out of the layout mid-spring is at rest: its content reports what it holds.
     override func viewDidMoveToSuperview() {
         super.viewDidMoveToSuperview()
-        if superview == nil { isOnLayoutSpring = false }
+        if superview == nil {
+            // Its render-server springs end now; their landings still run (``springOnRenderServer``).
+            if let layer, isOnRenderSpring { for keyPath in Self.renderSpringKeyPaths { RenderSpring.stop(layer, keyPath) } }
+            isOnLayoutSpring = false
+        }
         // Another screen (or none) places it now: its clip and overlay are computed afresh.
         stripClipInput = nil
         overlaySyncKey = nil

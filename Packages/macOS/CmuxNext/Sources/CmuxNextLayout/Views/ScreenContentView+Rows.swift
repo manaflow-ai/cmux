@@ -15,12 +15,16 @@ extension ScreenContentView {
     }
 
     func rowOffset(of kind: DividerHandleView.Kind) -> CGFloat {
-        let column: ColumnID? = switch kind {
+        rowColumn(of: kind).flatMap { rowScrolls[$0]?.state.spring.value } ?? 0
+    }
+
+    /// The row column whose vertical offset moves a divider handle, if any.
+    func rowColumn(of kind: DividerHandleView.Kind) -> ColumnID? {
+        switch kind {
         case let .split(id): baseGeometry.rowColumnOfSplit[id]
         case let .rowEdge(id, _): id
         case .columnEdge: nil
         }
-        return column.flatMap { rowScrolls[$0]?.state.spring.value } ?? 0
     }
 
     var rowsMoving: Bool {
@@ -108,7 +112,7 @@ extension ScreenContentView {
     }
 
     func beginRowScroll(_ column: ColumnID) {
-        scrollRidesFrames = false
+        cpuTakesCamera()
         rowScrolls[column]?.state.reduce(.gestureBegan)
     }
 
@@ -131,7 +135,7 @@ extension ScreenContentView {
     /// One mouse wheel notch on the vertical axis.
     @discardableResult
     func discreteRowScroll(_ column: ColumnID, direction: Int) -> Bool {
-        scrollRidesFrames = false
+        cpuTakesCamera()
         guard var scroll = rowScrolls[column] else { return false }
         let effects = scroll.state.reduce(.wheel(direction: direction, animated: !context.reduceMotion))
         rowScrolls[column] = scroll

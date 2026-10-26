@@ -7,7 +7,7 @@ extension ScreenContentView {
     /// (the screen's kinds: ``RenderMotionKind``). A task that moves a kind to the render server writes
     /// its variant in its own file and adds its one line here; a kind not listed, or every kind while
     /// `motion.renderServer` is off (the default), steps on the main thread in ``step(_:policy:)``.
-    static var renderServerMotions: [any RenderServerMotion<ScreenContentView>] { [] }
+    static var renderServerMotions: [any RenderServerMotion<ScreenContentView>] { [SplitRenderMotion()] }
 
     /// What an open change turn held back from ``applyPresentation(force:)``.
     struct HeldPresentation {
@@ -34,6 +34,7 @@ extension ScreenContentView {
         let held = heldPresentation
         heldPresentation = nil
         let taken = motionBackends.begin(on: self, policy: policy)
+        renderTracks.tookBack = false
         // The render server runs the close: it has no first frame on the CPU.
         if taken.contains(.splitClose) { leadsFrame = false }
         let led = leadIfPending(policy: policy)
@@ -61,7 +62,8 @@ extension ScreenContentView {
     /// moved nothing, a still pointer) does no work.
     func step(_ dt: Double, policy: MotionPolicy = Motion.panes.policy) -> Bool { // perf-hot: 4ms motion-frame
         guard hasMotion || reportScrollOnSettle else {
-            scrollRidesFrames = false
+            // A close on the render server keeps the camera on its spring until it lands (`renderSpringLanded`).
+            if renderClose == nil { scrollRidesFrames = false }
             return false
         }
         var moving = false
@@ -205,9 +207,7 @@ extension ScreenContentView {
             guard let host = context.hosts[pane], host.superview === self else { continue }
             let scrolls = geometry.scrolls(pane: pane)
             if arriving.contains(pane), frame.rect == frame.targetRect { arriving.remove(pane) }
-            // On the pixel grid, each edge rounded on its own: two edges a whole number of pixels
-            // apart (a pane and the divider beside it, both on the one spring) stay that far apart.
-            let placed = frame.rect.pixelEdges(scale).offsetBy(dx: (scrolls ? strip : 0) - areaOffset(of: pane), dy: -rowOffset(of: pane))
+            let placed = shownRect(frame.rect, of: pane, strip: strip, scale: scale)
             // Before the frame moves: chrome that re-checks itself on the move reads the rest.
             let rest = frame.targetRect.offsetBy(dx: (scrolls ? restStrip : 0) - areaOffset(of: pane), dy: -rowOffset(of: pane))
             let restOffset = CGVector(dx: rest.minX - placed.minX, dy: rest.minY - placed.minY)
@@ -216,7 +216,7 @@ extension ScreenContentView {
             let restChanged = host.restSize != rest.size
             if host.restSize != rest.size { host.restSize = rest.size }
             // On a spring until the frame it lands at is laid out (`PaneHostView.isOnLayoutSpring`).
-            let springing = frame.rect != frame.targetRect
+            let springing = frame.rect != frame.targetRect || host.isOnRenderSpring
             if springing { host.isOnLayoutSpring = true }
             defer { if !springing { host.isOnLayoutSpring = false } }
             if host.frame.size != placed.size {
@@ -266,7 +266,7 @@ extension ScreenContentView {
         for (kind, frame) in dividerFrames {
             guard let view = dividerViews[kind] else { continue }
             let scrolls = self.scrolls(kind)
-            let placed = frame.rect.pixelEdges(scale).offsetBy(dx: (scrolls ? strip : 0) - areaOffset(of: kind), dy: -rowOffset(of: kind))
+            let placed = shownRect(frame.rect, of: kind, strip: strip, scale: scale)
             let shownArea = areaWindow(of: kind), clips: [CGRect?] = [uncovered, shownArea]
             guard force || view.frame != placed || view.alphaValue != frame.alpha.value || view.placedClips != clips else { continue }
             dividersChanged = true
@@ -285,13 +285,13 @@ extension ScreenContentView {
         updateScrollbar()
         // A pan with the finger down is layout motion too (hasMotion leaves user gestures out): motion-time content
         // (divider catcher panels, page windows) waits for the landing. The landing frame's advanceFrame clears it.
-        let gesturing = isUserScrolling || rowScrolls.values.contains(where: \.state.isGestureActive)
-            || areaScrolls.values.contains(where: \.state.isGestureActive)
+        let gesturing = isGesturing
         if gesturing, changed {
             userMotionActive = true
             context.userMotionStepped()
-        } else if !gesturing, userMotionActive {
+        } else if !gesturing, userMotionActive, renderSpringsInFlight == 0 {
             // The gesture ended: a fling springs on (advanceFrame ends the motion when it lands), else it ends now.
+            // Render-server springs still running end it at their landing (`renderSpringLanded`).
             userMotionActive = false
             if !hasMotion { context.userMotionEnded() }
         }
@@ -299,6 +299,24 @@ extension ScreenContentView {
         if dividersChanged || changed { refreshDividerHover() }
         if dividersChanged || changed { context.overlayNeedsSync() }
     }
+    /// A pan of the strip, a row column or a scroll area has its finger down.
+    var isGesturing: Bool {
+        isUserScrolling || rowScrolls.values.contains(where: \.state.isGestureActive)
+            || areaScrolls.values.contains(where: \.state.isGestureActive)
+    }
+
+    /// Where a pane's spring rect `rect` shows in this view with the strip camera at `strip`: on the pixel
+    /// grid, each edge rounded on its own (two edges a whole number of pixels apart, a pane and the divider
+    /// beside it on the one spring, stay that far apart), less its scroll area's and its row column's offsets.
+    func shownRect(_ rect: CGRect, of pane: PaneID, strip: CGFloat, scale: CGFloat) -> CGRect {
+        rect.pixelEdges(scale).offsetBy(dx: (geometry.scrolls(pane: pane) ? strip : 0) - areaOffset(of: pane), dy: -rowOffset(of: pane))
+    }
+
+    /// Where a divider's spring rect `rect` shows in this view with the strip camera at `strip`.
+    func shownRect(_ rect: CGRect, of kind: DividerHandleView.Kind, strip: CGFloat, scale: CGFloat) -> CGRect {
+        rect.pixelEdges(scale).offsetBy(dx: (scrolls(kind) ? strip : 0) - areaOffset(of: kind), dy: -rowOffset(of: kind))
+    }
+
     /// Divider hover from the pointer and the current frames (`ScreenDividers`); `event` is a
     /// handle's enter or exit, read for its point.
     func refreshDividerHover(at event: NSEvent? = nil) { ScreenDividers(screen: self).refreshHover(at: event) }
