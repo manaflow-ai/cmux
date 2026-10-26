@@ -29,8 +29,9 @@ Modes (each prints `WEBUI-ROW` lines, one per row, and writes OUT/webui-<mode>.j
             --chat-turns turns shown again --runs times. D4 rows with no app signal yet print `unscored`.
   crash     D5. 5 privileged pages, 1 shown; kill -9 of the shown page's renderer --kills times: cmux survives, the
             shown page paints again (until the group cap, 3 per 600 s), hidden pages do not reload.
-  pressure  D6. A browser tab and a chat, then pages; `debug.webui pressure critical`: the preload slot right after,
-            renderers once discards settle.
+  pressure  D6. A browser tab and a chat, then pages; `debug.hibernation.pressure critical` (the memory coordinator's
+            override, which every web object follows): the preload slot right after, renderers once discards
+            settle. The override is cleared (`none`) at the end.
   priority  D12. Page renderers (or WebContent processes) with every page hidden: backgrounded (`ps` priority <= 4,
             darwinbg) within --priority-wait s.
   delivery  D3's delivery rows alone: events and native pushes to frozen pages over --measure s while
@@ -482,8 +483,8 @@ class Bench:
 
     @staticmethod
     def acknowledged(reply, keys):
-        """Whether a `debug.webui` verb's reply confirms it ran (one of `keys`), not an error or a census that
-        ignored the verb; else the reason it did not."""
+        """Whether a debug verb's reply confirms it ran (one of `keys`), not an error or a reply that ignored the
+        verb; else the reason it did not."""
         if not isinstance(reply, dict) or reply.get("error"):
             return False, f"refused: {json.dumps(reply)[:120]}"
         if not any(key in reply for key in keys):
@@ -816,9 +817,21 @@ class Bench:
         if self.census() is None:
             self.add(row("pressure", None, note="no debug.webui in this build"))
             return
-        ran, why = self.acknowledged(self.rpc("debug.webui", {"action": "pressure", "level": "critical"}), ("pressure", "level"))
+        try:
+            self.pressure_rows()
+        finally:
+            self.rpc("debug.hibernation.pressure", {"level": "none"})
+
+    def pressure_rows(self):
+        """Critical pressure through the memory coordinator's override (`debug.hibernation.pressure`), the one path
+        the preload slot, the spare windows and the ranked discard pass follow (p13-webui-047). The caller clears
+        the override."""
+        reply = self.rpc("debug.hibernation.pressure", {"level": "critical"})
+        ran, why = self.acknowledged(reply, ("override",))
+        if ran and reply.get("level") != "critical":
+            ran, why = False, f"the coordinator's level is {reply.get('level')!r}, not critical"
         if not ran:
-            note = f"debug.webui pressure {why}"
+            note = f"debug.hibernation.pressure {why}"
             self.add(row("preload_after_pressure", None, ("==", 0), note=note),
                      row("renderers_after_discard", None, note=note),
                      row("pages_left_undiscarded", None, ("==", 0), note=note))

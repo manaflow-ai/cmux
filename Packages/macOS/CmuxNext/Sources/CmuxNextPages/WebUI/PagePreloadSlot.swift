@@ -28,7 +28,7 @@ import QuartzCore
 ///   live frame, or at ``coverLimit`` when no frame comes (a renderer that died while parked).
 ///   Nothing animates: every layer change runs with actions disabled.
 /// - Drop: any non-normal memory pressure (``memoryPressureDidChange(_:)``, through
-///   ``WebUIHost``'s one subscription) closes the page, and no preload starts until normal.
+///   ``WebUIHost``'s memory coordinator registration) closes the page, and no preload starts until normal.
 ///
 /// Which page to preload and when (first paint or 3 s, then 750 ms of quiet input) is the pure
 /// `PreloadSelector`'s choice (p13-webui-042); the slot only holds what it is given.
@@ -284,7 +284,7 @@ public final class PagePreloadSlot {
         onEmptied?(held.key)
     }
 
-    /// The memory pressure changed (``WebUIHost``'s one subscription): anything but normal drops
+    /// The memory pressure changed (``WebUIHost``'s memory registration): anything but normal drops
     /// the held page, and no preload starts until normal again (Chrome makes no preload under
     /// heavy pressure).
     public func memoryPressureDidChange(_ level: MemoryPressureLevel) {

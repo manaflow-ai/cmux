@@ -10,8 +10,8 @@ import Testing
 /// ``PagePreloadSlot`` holds at most one page, parks it in Chrome's order (visible load, cover,
 /// hidden, then frozen), refits it once per quiet size, claims it in the open's turn with its cover
 /// on top only at the size the cover shows and no implicit animation, takes the cover off at the
-/// first live frame or its limit, and drops it on any non-normal pressure through ``WebUIHost``'s
-/// subscription (p13-webui-043).
+/// first live frame or its limit, and drops it on any non-normal pressure (p13-webui-043; the host's
+/// memory registration is `WebUIHostPressureTests`).
 @MainActor @Suite(.serialized, .timeLimit(.minutes(1)))
 struct PagePreloadSlotTests {
     /// A page that logs each call and holds its paint and cover callbacks until the test fires them.
@@ -532,31 +532,6 @@ struct PagePreloadSlotTests {
         slot.memoryPressureDidChange(.normal)
         #expect(slot.preload(Self.newTab, size: Self.size, in: parking) { _ in made += 1; return FakePage("b") })
         #expect(made == 1)
-    }
-
-    @Test func hostSubscriptionDropsTheSlot() {
-        let source = ManualMemoryPressureSource()
-        let host = WebUIHost(chromium: nil, openPanel: nil, memoryPressure: MemoryPressureEvents(source: source))
-        let slot = makeSlot()
-        host.preload = slot
-        let page = FakePage("a")
-        park(page, in: slot, parking: FakeParking())
-        #expect(slot.count == 1)
-        source.send(.critical)
-        #expect(slot.count == 0)
-        #expect(page.closed)
-        #expect(!slot.allowsPreload)
-        source.send(.normal)
-        #expect(slot.allowsPreload)
-    }
-
-    @Test func anInstalledSlotStartsAtTheCurrentLevel() {
-        let source = ManualMemoryPressureSource()
-        source.send(.warning)
-        let host = WebUIHost(chromium: nil, openPanel: nil, memoryPressure: MemoryPressureEvents(source: source))
-        let slot = makeSlot()
-        host.preload = slot
-        #expect(!slot.allowsPreload)
     }
 
     // MARK: Trace
