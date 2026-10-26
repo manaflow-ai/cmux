@@ -156,8 +156,46 @@ test("project rows preserve press-to-pick behavior for composer mouse menus", as
   );
   await click(host.querySelector<HTMLButtonElement>("button")!);
   const row = document.querySelector('[role="option"][aria-label$="/demo/other"]')!;
-  await act(async () => row.dispatchEvent(new dom.window.MouseEvent("mousedown", { bubbles: true, button: 0 })));
+  await act(async () => {
+    row.dispatchEvent(new dom.window.MouseEvent("mousedown", { bubbles: true, button: 0 }));
+    row.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true, detail: 1 }));
+  });
   expect(calls).toEqual(["/demo/other"]);
+});
+
+test("shared combobox ignores non-primary and disabled presses, while keyboard click still submits", async () => {
+  const { createRoot } = await import("react-dom/client");
+  const { Combobox } = await import("../src/ui/Combobox");
+  const calls: string[] = [];
+  root = createRoot(host);
+  await act(async () =>
+    root!.render(
+      <Combobox
+        inline
+        label="Choose project"
+        suggestions={["blocked", "open"]}
+        isItemDisabled={(value) => value === "blocked"}
+        onQuery={() => {}}
+        onSubmit={(value) => calls.push(value)}
+        onCancel={() => {}}
+      />,
+    ),
+  );
+  const blocked = document.querySelector('[role="option"][aria-label="blocked"]')!;
+  const open = document.querySelector('[role="option"][aria-label="open"]')!;
+  await act(async () => {
+    blocked.dispatchEvent(new dom.window.MouseEvent("mousedown", { bubbles: true, button: 0 }));
+    open.dispatchEvent(new dom.window.MouseEvent("mousedown", { bubbles: true, button: 2 }));
+    open.dispatchEvent(new dom.window.MouseEvent("mousedown", { bubbles: true, button: 1 }));
+  });
+  expect(calls).toEqual([]);
+  await act(async () => {
+    open.dispatchEvent(new dom.window.MouseEvent("mousedown", { bubbles: true, button: 0 }));
+    open.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true, detail: 1 }));
+  });
+  expect(calls).toEqual(["open"]);
+  await act(async () => open.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true, detail: 0 })));
+  expect(calls).toEqual(["open", "open"]);
 });
 
 test("projects use the shared combobox's Tab completion and retain same-path remote identity", async () => {
