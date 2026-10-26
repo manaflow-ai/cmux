@@ -725,7 +725,8 @@ struct SurfaceSocketCommandTests {
         }
     }
 
-    private static let createdDisplaySnapshot = #"{"version":1,"canCreate":true,"displays":[{"id":"display:2","number":2,"port":6902,"state":"running"}],"created":"display:2"}"#
+    // A guest creation receipt carries the primary display and the newly allocated display.
+    private static let createdDisplaySnapshot = #"{"version":1,"canCreate":true,"displays":[{"id":"display:1","number":1,"port":6901,"state":"running"},{"id":"display:2","number":2,"port":6902,"state":"running"}],"created":"display:2"}"#
 
     /// Uses a real display provider with an isolated guest executor, never a live Cloud VM.
     private static func installDisplayProvider(_ fixture: Fixture, coordinator: CloudDisplayCoordinator) -> CmuxTuiSurfaceProvider {
