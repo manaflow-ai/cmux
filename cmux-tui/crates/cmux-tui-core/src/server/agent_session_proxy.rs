@@ -86,6 +86,11 @@ mod tests {
         for _ in 0..2 {
             assert_eq!(fake.raw_frame()["params"]["_meta"]["acpmux"]["author"], author);
         }
+        // Whatever kinds a teammate asks for, it pages the transcript only.
+        let events = json!({"cmd":"agent-session-events", "surface":surface,
+            "kinds":["wire", "all"], "_host_author":author});
+        assert_eq!(client.request(events)["ok"], true);
+        assert_eq!(fake.frame()["params"]["kinds"], json!(["transcript"]));
         let prompt = json!({"cmd":"agent-session-prompt", "surface":surface,
             "prompt_id":"p1", "text":"hello", "_host_author":author});
         assert_eq!(client.request(prompt)["ok"], true);

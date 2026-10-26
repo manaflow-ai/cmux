@@ -595,6 +595,13 @@ fn tab_session(mux: &Mux, surface: SurfaceId) -> Option<String> {
 
 /// acpmux page params from the client's, with the session pinned and the
 /// limit and kinds bounded.
+/// The record kinds a teammate (a bound proxy author) may read, whatever it asked for:
+/// the chat's transcript (acpmux `paging.rs` `transcript`), which holds no drafts and no raw
+/// protocol traffic. acpmux filters the attachment's live records by the same kinds.
+fn teammate_kinds(params: &mut Value) {
+    params["kinds"] = json!(["transcript"]);
+}
+
 fn page_params(session: &str, params: &PageParams, attach: bool) -> Result<Value, Refusal> {
     let mut out =
         json!({"sessionId": session, "limit": params.limit.unwrap_or(200).clamp(1, MAX_PAGE)});
@@ -648,6 +655,8 @@ fn attach(
     };
     if let Some(author) = proxy::author(mux, client) {
         acpmux_params["_meta"]["acpmux"]["author"] = author;
+        // A teammate reads the transcript only, never raw wire records or other kinds, live or replayed.
+        teammate_kinds(&mut acpmux_params);
     }
     {
         let mut state = sessions.lock();
@@ -810,14 +819,20 @@ fn call(attachment: &Attachment, command: AgentSessionCommand) -> Result<Value, 
     match command {
         AgentSessionCommand::Attach(params) => {
             let newest_first = params.after_seq.is_none() || params.before_seq.is_some();
-            let params = page_params(session, &params, true)?;
+            let mut params = page_params(session, &params, true)?;
+            if attachment.author.is_some() {
+                teammate_kinds(&mut params);
+            }
             let page =
                 attachment.link.call("_acpmux/attach", attachment.stamp(params), CALL_TIMEOUT);
             page.map(|page| attachment.private(bound_page(page, newest_first))).map_err(Refusal::of)
         }
         AgentSessionCommand::Events(params) => {
             let newest_first = params.before_seq.is_some();
-            let params = page_params(session, &params, false)?;
+            let mut params = page_params(session, &params, false)?;
+            if attachment.author.is_some() {
+                teammate_kinds(&mut params);
+            }
             let page =
                 attachment.link.call("_acpmux/events", attachment.stamp(params), CALL_TIMEOUT);
             page.map(|page| attachment.private(bound_page(page, newest_first))).map_err(Refusal::of)
