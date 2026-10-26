@@ -93,6 +93,24 @@ let sourceCache: { revision: symbol; pullRequests: string; sources: SummarySourc
 const pullRequestSourceKey = (pullRequests: readonly SummaryPullRequest[]) =>
   pullRequests.map((pr) => `${pr.url}:${pr.opened ? 1 : 0}:${pr.changed ? 1 : 0}:${pr.mentioned ? 1 : 0}`).join("|");
 
+const normalizedPath = (path: string) => {
+  const compact = path.replaceAll("//", "/").replace(/\/$/, "");
+  return compact || "/";
+};
+
+/// Outputs belong to the chat's project folder. Relative tool paths are already rooted there;
+/// absolute paths must stay under `cwd`, so scratch files such as `/tmp/m1076.txt` never appear.
+export function filesInProject(files: readonly TurnFile[], cwd?: string): TurnFile[] {
+  if (!cwd) return [...files];
+  const root = normalizedPath(cwd);
+  return files.filter((file) => {
+    const path = file.canonical ?? file.path;
+    if (!path.startsWith("/")) return !path.split("/").includes("..");
+    const normalized = normalizedPath(path);
+    return normalized === root || normalized.startsWith(`${root}/`);
+  });
+}
+
 /// Pages, files, MCP calls and read-only PR/issue references, in the order first encountered.
 function sources(
   rows: readonly AcpmuxRow[],
@@ -188,7 +206,7 @@ export const runningBackgroundTasks = (rows: readonly AcpmuxRow[]) =>
 /// What the chat made. With `repository` (the chat folder's `owner/name`, or null when it has
 /// none), the Inspector's Changes: its pull requests include the ones the agent only named in a
 /// reply, a bare `#N` in that repository among them; without it, only the ones it opened or touched.
-export function sessionSummary(rows: readonly AcpmuxRow[], repository?: string | null): SessionSummary {
+export function sessionSummary(rows: readonly AcpmuxRow[], repository?: string | null, cwd?: string): SessionSummary {
   const all = tools(rows);
   const inspector = repository !== undefined;
   // The summary card reads only the commands, and lists no mention.
@@ -196,7 +214,7 @@ export function sessionSummary(rows: readonly AcpmuxRow[], repository?: string |
   return {
     scheduled: scheduled(all),
     pullRequests: inspector ? pullRequests : pullRequests.filter((pr) => !pr.mentioned),
-    outputs: turnFiles(rows as AcpmuxRow[]),
+    outputs: filesInProject(turnFiles(rows as AcpmuxRow[]), cwd),
     subagents: subagents(rows, all),
     sources: sources(rows, all, pullRequests),
     backgroundTasks: backgroundTasks(rows, all),

@@ -538,7 +538,10 @@ function InspectorPresence({
   }, [shell]);
   // A subagent's panel reads its own rows only: its replies, thoughts and tool calls.
   const rows = scope?.rows ?? snapshot.rows;
-  const made = useMemo(() => (drawn ? sessionSummary(rows, repository ?? null) : undefined), [drawn, rows, repository]);
+  const made = useMemo(
+    () => (drawn ? sessionSummary(rows, repository ?? null, snapshot.summary?.cwd) : undefined),
+    [drawn, rows, repository, snapshot.summary?.cwd],
+  );
   const links = useMemo(() => (drawn ? outputLinks(rows) : []), [drawn, rows]);
   const artifacts = useMemo(() => (drawn ? chatGallery(rows).length : 0), [drawn, rows]);
   const documents = useMemo(() => (drawn ? outputArtifacts(rows) : []), [drawn, rows]);
