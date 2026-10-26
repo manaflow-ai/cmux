@@ -52,19 +52,17 @@ extension HomeService {
     /// A Home view's first frame is the last launch's list (``primeHomeList()``), so it waits for none of them.
     /// The pages' chat clicks and All chats pager are wired at launch (`AgentPageChats.wirePager`): no feed.
     func postLaunchFeeds(startup: StartupScheduler) {
-        let services = self.services
-        let feeds = LaunchNeedPosts(startup: startup, starts: [
+        launchFeeds = LaunchNeedPosts(startup: startup, starts: [
             .init("Home.start", needed: "Home.startNeeded") { [weak self] in self?.start() },
-            .init("ChatsFeed.keepCurrent", needed: "ChatsFeed.keepCurrentNeeded") { [weak services] in services?.chatsFeed?.keepCurrent() },
-            .init("ProjectsImport.start", needed: "ProjectsImport.startNeeded") { [weak services] in if let services { services.projectsImport.start(feed: services.chatsFeed) } },
-            .init("AgentPageChats.wire", needed: "AgentPageChats.wireNeeded") { [weak services] in
-                if let services, let feed = services.chatsFeed { AgentPageChats.wire(services.agentTabs, to: feed, opener: services.chatsOpener) }
+            .init("ChatsFeed.keepCurrent", needed: "ChatsFeed.keepCurrentNeeded") { [weak self] in self?.services.chatsFeed?.keepCurrent() },
+            .init("ProjectsImport.start", needed: "ProjectsImport.startNeeded") { [weak self] in if let s = self?.services { s.projectsImport.start(feed: s.chatsFeed) } },
+            .init("AgentPageChats.wire", needed: "AgentPageChats.wireNeeded") { [weak self] in
+                if let s = self?.services, let feed = s.chatsFeed { AgentPageChats.wire(s.agentTabs, to: feed, opener: s.chatsOpener) }
             },
-            .init("NewTabClosed.wire", needed: "NewTabClosed.wireNeeded") { [weak services] in if let services { NewTabClosed.wire(services.agentTabs, services: services) } },
-            .init("NewTabPlacesFeed.wire", needed: "NewTabPlacesFeed.wireNeeded") { [weak services] in if let services { NewTabPlacesFeed.wire(services.agentTabs, services: services) } },
-            .init("NewTabWeather.wire", needed: "NewTabWeather.wireNeeded") { [weak services] in if let services { NewTabWeather.wire(services.agentTabs, services: services) } },
+            .init("NewTabClosed.wire", needed: "NewTabClosed.wireNeeded") { [weak self] in if let s = self?.services { NewTabClosed.wire(s.agentTabs, services: s) } },
+            .init("NewTabPlacesFeed.wire", needed: "NewTabPlacesFeed.wireNeeded") { [weak self] in if let s = self?.services { NewTabPlacesFeed.wire(s.agentTabs, services: s) } },
+            .init("NewTabWeather.wire", needed: "NewTabWeather.wireNeeded") { [weak self] in if let s = self?.services { NewTabWeather.wire(s.agentTabs, services: s) } },
         ])
-        launchFeeds = feeds
-        feeds.post()
+        launchFeeds?.post()
     }
 }

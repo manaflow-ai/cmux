@@ -182,8 +182,7 @@ final class HomeService {
     /// It asks only the build's own daemon; the Chief tab it adds waits for ``start()``'s Chief owner.
     func startWorkspace() {
         guard homeObservation == nil else { return }
-        let local = services.machines.local
-        let auth = services.cloudAuth
+        let (local, auth) = (services.machines.local, services.cloudAuth)
         // task-owner: lives as long as the service; event-driven (Observation)
         homeObservation = Task { [weak self] in
             // A sign-in or account change re-reads the placed chief (G6), so the Chief tab follows it.
