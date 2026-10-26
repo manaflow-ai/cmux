@@ -2553,12 +2553,13 @@ class BuildFleetGatewayJobsFallBack(unittest.TestCase):
             "next_macos_cascade", WORKFLOW.parents[2] / "scripts/ci/next_macos_cascade.py")
         module = importlib.util.module_from_spec(spec)
         # @dataclass reads its module from sys.modules while the module executes.
-        previous = sys.modules.get(spec.name)
+        missing = object()
+        previous = sys.modules.get(spec.name, missing)
         sys.modules[spec.name] = module
         try:
             spec.loader.exec_module(module)
         finally:
-            if previous is None:
+            if previous is missing:
                 sys.modules.pop(spec.name, None)
             else:
                 sys.modules[spec.name] = previous
