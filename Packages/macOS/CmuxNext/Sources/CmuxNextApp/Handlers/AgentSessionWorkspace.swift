@@ -42,7 +42,8 @@ enum AgentSessionWorkspace {
         // The Chief host's own acpmux runs the session (`chief:<home id>`); absent: this Mac's.
         let host = invocation["host"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 }
         let group = invocation["group"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 }
-        let task = try open(session: session, name: name, key: key, cwd: cwd, host: host, group: group, services: context.services)
+        let task = try open(session: session, name: name, key: key, cwd: cwd, host: host, group: group,
+                           focus: invocation.allowsViewChange, services: context.services)
         context.services.registry.track(task)
     }
 
@@ -52,7 +53,7 @@ enum AgentSessionWorkspace {
     /// daemon is offline.
     @discardableResult
     static func open(session: String, name: String?, key: WorkspaceKey = .generate(), cwd: String?, host: String? = nil,
-                     group: String? = nil, services: AppServices) throws -> ActionWork {
+                     group: String? = nil, focus: Bool = false, services: AppServices) throws -> ActionWork {
         guard services.agentTabs.canHostChat else { throw ActionFailure(message: MiscHandlerStrings.quickChatUnavailable) }
         let daemon = services.daemon
         guard let connection = daemon.connection, case let repair = services.emptyWorkspaces else {
@@ -66,7 +67,7 @@ enum AgentSessionWorkspace {
         // Every window's sidebar: each lists only its own workspaces, and the predecessor may be in any.
         if let group, let name,
            let row = windows.controllers.lazy.compactMap({ predecessor(named: name, inGroup: group, in: $0.sidebar.model.sections) }).first {
-            return reuse(row, session: session, key: key, host: host, services: services)
+            return reuse(row, session: session, key: key, host: host, focus: focus, services: services)
         }
         // Placed like Cmd-N (`workspaces.newPlacement`): in the group of the
         // workspace the window shows, when it is in one (cx-caoh), then into
@@ -99,8 +100,10 @@ enum AgentSessionWorkspace {
                 let pending = try services.agentTabs.open(in: pane.handle, of: daemon, session: session, linked: true, host: host)
                 let created = try await pending.value()
                 // Selected wherever the workspace is shown later, never shown now.
-                for window in services.windows.controllers {
-                    window.state.selection.select(created.key, in: pane.id)
+                if focus {
+                    for window in services.windows.controllers {
+                        window.state.selection.select(created.key, in: pane.id)
+                    }
                 }
                 logger.info("agent.openSessionWorkspace: session \(session, privacy: .public) in workspace \(key.rawValue, privacy: .public) tab \(created.key, privacy: .public)")
                 return nil
@@ -116,7 +119,7 @@ enum AgentSessionWorkspace {
     /// The chat of a re-homed lane's new session as a tab of its predecessor's
     /// row `row`, selected there; the caller's `key` is the tab's creation key,
     /// so a launcher run again gets the same tab.
-    private static func reuse(_ row: SidebarWorkspaceID, session: String, key: WorkspaceKey, host: String?,
+    private static func reuse(_ row: SidebarWorkspaceID, session: String, key: WorkspaceKey, host: String?, focus: Bool,
                               services: AppServices) -> ActionWork {
         let daemon = services.daemon
         let logger = daemon.logger
@@ -128,8 +131,10 @@ enum AgentSessionWorkspace {
                 let pending = try services.agentTabs.open(in: pane.handle, of: daemon, session: session, linked: true, host: host,
                                                           idempotencyKey: key.rawValue)
                 let created = try await pending.value()
-                for window in services.windows.controllers {
-                    window.state.selection.select(created.key, in: pane.id)
+                if focus {
+                    for window in services.windows.controllers {
+                        window.state.selection.select(created.key, in: pane.id)
+                    }
                 }
                 logger.info("agent.openSessionWorkspace: session \(session, privacy: .public) in its predecessor's workspace \(row.rawValue, privacy: .public)")
                 return nil

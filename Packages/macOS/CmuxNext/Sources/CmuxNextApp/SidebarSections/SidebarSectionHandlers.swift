@@ -37,7 +37,7 @@ enum SidebarSectionHandlers {
         let services = context.services
         ChiefSidebar.shared.bind(into: registry, host: .init(conversation: { TopHomePageView.chief(services.home) }, chiefHost: { services.agentTabs.chiefHost },
             tab: { services.agentTabs.tab(showing: $0, host: $1) }, reveal: { services.revealTab($0) },
-            openWorkspace: { try AgentSessionWorkspace.open(session: $0, name: nil, cwd: nil, host: $1, services: services) }))
+            openWorkspace: { try AgentSessionWorkspace.open(session: $0, name: nil, cwd: nil, host: $1, focus: true, services: services) }))
         RemoteMachinesSidebar.shared.bind(host: .init(
             peers: {
                 guard let socket = await AgentLaneStore.shared.socketPath else { return nil }
