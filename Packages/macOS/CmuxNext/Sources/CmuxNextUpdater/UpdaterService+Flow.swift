@@ -51,6 +51,23 @@ extension UpdaterService {
         return action
     }
 
+    /// Why the update flow failed, as Sparkle reported it (a failed check, download or install
+    /// preflight), else the read-only probe's failure on a build without Sparkle; nil otherwise.
+    public var failureReason: String? {
+        if let controller, disabledReason == nil {
+            guard case .error(let failure) = controller.model.effectiveState else { return nil }
+            return failure.error.localizedDescription
+        }
+        return lastProbeError
+    }
+
+    /// ``flowMoves`` once the gate holds Sparkle's current phase: the baseline a caller takes
+    /// before its request, so only a move the request caused counts.
+    public func settledFlowMoves() -> Int {
+        syncFlowPhase()
+        return flowMoves
+    }
+
     /// A note's display time ended.
     func noteExpired() { send(.noteExpired) }
 
@@ -126,6 +143,7 @@ extension UpdaterService {
             UpdateHarness.mark("failure_content." + content.buttons.map { String(describing: $0).prefix { $0 != "(" } }.joined(separator: "_"))
         }
         #endif
+        flowMoves &+= 1
         let wasInstalling = flow.phase == .installing
         let wasReady = if case .ready = flow.phase { true } else { false }
         let clickedInstall = flow.installRequested

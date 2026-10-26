@@ -410,6 +410,7 @@
         "CmuxNextMobile",
         "CmuxNextNowPlaying",
         "CmuxNextOnboarding",
+        "CmuxNextPagesTestSupport",
         "CmuxNextPalette",
         "CmuxNextProcessEnvironment",
         "CmuxNextRemote",
