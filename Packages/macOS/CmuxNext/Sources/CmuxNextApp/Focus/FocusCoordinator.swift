@@ -34,6 +34,8 @@ final class FocusCoordinator {
     weak var applier: (any FocusEffectApplying)?
     /// The window this coordinator focuses in (`debug.pane_focus` times its commit).
     weak var window: NSWindow?
+    /// Times each pane focus move (`switch.pane_focus`, `debug.pane_focus`); tests pass their own.
+    var paneFocusTimer = DebugPaneFocus.timer
     /// The app's crash keys: what has the keyboard in the key window's focused pane (``CrashKeySlots/Key/paneKind``).
     var crashKeys: CrashKeySlots?
     private var queue: [FocusEvent] = []
@@ -86,11 +88,11 @@ final class FocusCoordinator {
         guard !isRunning else { return }
         isRunning = true
         defer { isRunning = false }
-        // debug.pane_focus: a drain that lands on another pane is one timed move (a key, a click, pane.focus).
+        // switch.pane_focus: an intent's drain that lands on another pane is one timed move (a key, a click, pane.focus).
         let paneBefore = reduced.pane
-        DebugPaneFocus.began(self)
+        let timed = DebugPaneFocus.began(self, for: event)
         defer {
-            if reduced.pane != paneBefore, reduced.pane != nil { DebugPaneFocus.shown(self, in: window) } else { DebugPaneFocus.dropped(self) }
+            if reduced.pane != paneBefore, reduced.pane != nil { DebugPaneFocus.shown(self, in: window) } else if timed { DebugPaneFocus.dropped(self) }
             if reduced.pane != paneBefore { paneMoved(from: paneBefore) }
             noteCrashKeyPane()
         }

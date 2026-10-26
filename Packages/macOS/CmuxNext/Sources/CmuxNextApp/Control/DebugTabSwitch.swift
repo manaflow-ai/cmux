@@ -17,6 +17,8 @@ enum DebugTabSwitch {
     /// The timestamp of the key whose binding runs now (a synthetic key never becomes `NSApp.currentEvent`).
     private static var input: TimeInterval?
     static var isRecording: Bool { timer.isRecording }
+    /// The timestamp of the key whose binding runs now (``handling(input:_:)``): a pane focus move reads it too.
+    static var keyInput: TimeInterval? { input }
 
     /// Runs `body` with `input` (an `NSEvent.timestamp`) as the start of any switch it begins.
     static func handling(input timestamp: TimeInterval, _ body: () -> Void) {
