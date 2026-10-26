@@ -308,6 +308,7 @@ class Pass:
         floor = max(min(10 * GB, total // 5), total // 20) if floor is None else floor
         hard = self.config["diskHardFloorBytes"]
         hard = min(3 * GB, total // 10) if hard is None else hard
+        floor = max(floor, hard)  # the hard floor is never under the soft one
         if free >= floor:
             return
         commands = self.hygiene_commands()
@@ -361,6 +362,9 @@ def config_problems(given):
         v = given.get(key)
         if v is not None and (isinstance(v, bool) or not isinstance(v, int) or v < 0):
             problems.append(f"{key} must be a whole number of bytes, or null")
+    soft, hard = given.get("diskFloorBytes"), given.get("diskHardFloorBytes")
+    if all(isinstance(v, int) and not isinstance(v, bool) for v in (soft, hard)) and hard > soft:
+        problems.append("diskHardFloorBytes must not be above diskFloorBytes")
     hc = given.get("hygieneCommands")
     if hc is not None and not (isinstance(hc, list) and all(isinstance(a, list) and a and all(isinstance(x, str) for x in a) for a in hc)):
         problems.append("hygieneCommands must be a list of argv lists")

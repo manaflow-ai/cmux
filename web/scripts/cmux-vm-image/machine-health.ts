@@ -51,6 +51,8 @@ export function machineHealthSmokeCommand(workUser: string): string {
   const scope = "g=/sys/fs/cgroup$(cut -d: -f3 /proc/self/cgroup); echo $(cat $g/pids.max) $(cat $g/memory.high) $(cat $g/memory.max) $(cat $g/memory.swap.max)";
   return [
     "echo timer=$(systemctl is-active cmux-machine-health.timer)",
+    // The arm step deleted the health file, so its existence proves a timer-started pass on this clone.
+    "for _ in $(seq 90); do [ -s /run/cmux/machine-health.json ] && break; sleep 1; done; echo timerpass=$(test -s /run/cmux/machine-health.json && systemctl show -p Result --value cmux-machine-health.service)",
     "systemctl start cmux-machine-health.service; echo run=$?",
     "echo result=$(systemctl show -p Result --value cmux-machine-health.service)",
     "echo health=$(tr -d '\\n' < /run/cmux/machine-health.json)",
@@ -67,6 +69,7 @@ export function machineHealthSmokeProblems(stdout: string): string[] {
   const kv = new Map(stdout.trim().split("\n").map((l) => [l.slice(0, l.indexOf("=")), l.slice(l.indexOf("=") + 1).trim()] as const));
   const problems: string[] = [];
   if (kv.get("timer") !== "active") problems.push(`timer: ${kv.get("timer") ?? "no answer"}`);
+  if (kv.get("timerpass") !== "success") problems.push(`timer: no pass started by the timer within 90 s (${kv.get("timerpass") || "no health file"})`);
   if (kv.get("run") !== "0" || kv.get("result") !== "success") problems.push(`one pass: exit ${kv.get("run")}, result ${kv.get("result")}`);
   try {
     const health = JSON.parse(kv.get("health") ?? "") as { schema?: number; checkedAt?: string; problems?: unknown[]; fixed?: unknown[] };

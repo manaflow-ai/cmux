@@ -262,6 +262,14 @@ class HealthTests(unittest.TestCase):
         if last and open("/proc/self/comm").read().strip() != "systemd":
             self.assertFalse(cmh.Host().set_oom_score(os.getpid(), 0, last), "comm must be systemd")
 
+    def test_the_hard_floor_is_reported_even_above_a_lower_soft_floor(self):
+        host = FakeHost()
+        host.free = int(1.5 * cmh.GB)
+        p = cmh.Pass(host, dict(cmh.DEFAULTS, diskFloorBytes=1 * cmh.GB, diskHardFloorBytes=2 * cmh.GB), {})
+        p.check_disk()
+        self.assertTrue(p.problems[0]["detail"].startswith("disk: CRITICAL: 1.5 GB free"), p.problems)
+        self.assertEqual(cmh.config_problems({"diskFloorBytes": 1, "diskHardFloorBytes": 2}), ["diskHardFloorBytes must not be above diskFloorBytes"])
+
     def test_dns_names_must_be_host_names_so_none_can_carry_a_credential(self):
         for bad in (["https://user:pw@example.com"], ["a b"], ["-x.com"], ["x" * 300]):
             with self.assertRaises(SystemExit, msg=bad):

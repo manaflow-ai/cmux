@@ -8,6 +8,7 @@ const MEM = 4_101_844_992;
 const healthy = (over: Record<string, string> = {}) =>
   Object.entries({
     timer: "active",
+    timerpass: "success",
     run: "0",
     result: "success",
     health: '{"schema": 1, "checkedAt": "2026-10-25T21:00:00Z", "problems": [], "fixed": []}',
@@ -50,6 +51,7 @@ describe("cmux-machine-health in the cmux VM image", () => {
 
   test("each broken piece is named", () => {
     expect(machineHealthSmokeProblems(healthy({ timer: "inactive" }))).toEqual(["timer: inactive"]);
+    expect(machineHealthSmokeProblems(healthy({ timerpass: "" }))).toEqual(["timer: no pass started by the timer within 90 s (no health file)"]);
     expect(machineHealthSmokeProblems(healthy({ run: "1", result: "timeout" }))).toEqual(["one pass: exit 1, result timeout"]);
     expect(machineHealthSmokeProblems(healthy({ health: "{" }))).toEqual(["health file: not JSON: {"]);
     expect(machineHealthSmokeProblems(healthy({ health: '{"schema": 1, "checkedAt": "2026-10-25T21:00:00Z", "problems": [{"check": "dns"}], "fixed": []}' }))).toEqual(['health file problems: [{"check":"dns"}]']);
