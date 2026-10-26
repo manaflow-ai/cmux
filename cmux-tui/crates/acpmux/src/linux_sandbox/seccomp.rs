@@ -132,6 +132,7 @@ fn deny_syscalls() -> Vec<u32> {
             libc::SYS_listen,
             libc::SYS_accept,
             libc::SYS_accept4,
+            libc::SYS_seccomp,
         ]
         .into_iter()
         .map(|n| n as u32),
@@ -159,6 +160,8 @@ pub(crate) fn deny_filter() -> Result<Vec<libc::sock_filter>, String> {
     let socketpair_body = asm.label();
     let socketpair_after = asm.label();
     let socketpair_type = asm.label();
+    let prctl_body = asm.label();
+    let prctl_after = asm.label();
 
     asm.stmt(BPF_LD | BPF_W | BPF_ABS, SECCOMP_DATA_ARCH);
     // A mismatched architecture reaches the kill return; a match skips it.
@@ -184,6 +187,19 @@ pub(crate) fn deny_filter() -> Result<Vec<libc::sock_filter>, String> {
         asm.stmt(BPF_RET | BPF_K, eperm);
         asm.mark(next);
     }
+
+    // Keep this filter as the single seccomp installation point. A later
+    // equal-precedence filter could otherwise win and answer USER_NOTIF
+    // requests with CONTINUE, while NEW_LISTENER could race the supervisor.
+    // E's notify rules are therefore added to this same program before its
+    // one install; target code cannot install another filter afterward.
+    let after_prctl = asm.label();
+    asm.cond(BPF_JMP | BPF_JEQ | BPF_K, libc::SYS_prctl as u32, prctl_body, after_prctl);
+    asm.mark(prctl_body);
+    asm.stmt(BPF_LD | BPF_W | BPF_ABS, SECCOMP_DATA_ARG0_LO);
+    asm.cond(BPF_JMP | BPF_JEQ | BPF_K, libc::PR_SET_SECCOMP as u32, deny, prctl_after);
+    asm.mark(prctl_after);
+    asm.mark(after_prctl);
 
     // clone's namespace flags occupy the low 32 bits of arg0 on both arches;
     // the high word is separately rejected so no 64-bit flag can hide there.
@@ -269,6 +285,16 @@ pub(crate) fn deny_filter() -> Result<Vec<libc::sock_filter>, String> {
     Err(format!("unsupported Linux seccomp architecture: {}", std::env::consts::ARCH))
 }
 
+fn classify_install_result(rc: libc::c_long, errno: i32) -> io::Result<()> {
+    if rc < 0 {
+        Err(io::Error::from_raw_os_error(errno))
+    } else if rc > 0 {
+        Err(io::Error::other(format!("thread {rc} not synchronized")))
+    } else {
+        Ok(())
+    }
+}
+
 pub(crate) fn install(filter: &[libc::sock_filter]) -> io::Result<()> {
     if filter.is_empty() || filter.len() >= 4096 {
         return Err(io::Error::new(io::ErrorKind::InvalidInput, "invalid seccomp filter length"));
@@ -292,15 +318,7 @@ pub(crate) fn install(filter: &[libc::sock_filter]) -> io::Result<()> {
             &program,
         )
     };
-    if rc < 0 { Err(io::Error::last_os_error()) } else { Ok(()) }
-}
-
-fn classify_install_result(rc: libc::c_long, errno: i32) -> io::Result<()> {
-    if rc < 0 {
-        Err(io::Error::from_raw_os_error(errno))
-    } else {
-        Ok(())
-    }
+    classify_install_result(rc, io::Error::last_os_error().raw_os_error().unwrap_or(libc::EIO))
 }
 
 #[cfg(all(test, not(any(target_arch = "x86_64", target_arch = "aarch64"))))]
@@ -571,6 +589,11 @@ mod tests {
                 syscall(SYS_seccomp, SECCOMP_GET_ACTION_AVAIL, 0usize, 0usize) == -1
                     && *__errno_location() == EPERM,
                 33
+            );
+            require!(
+                syscall(SYS_seccomp, SECCOMP_SET_MODE_FILTER, 0usize, 0usize) == -1
+                    && *__errno_location() == EPERM,
+                35
             );
             require!(
                 syscall(SYS_prctl, PR_SET_SECCOMP as c_long, 2, 0usize, 0usize, 0usize) == -1
