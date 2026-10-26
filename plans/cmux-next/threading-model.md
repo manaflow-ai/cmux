@@ -199,7 +199,10 @@ per process, built where the session opens (`mux/construct.rs`, label `mux`).
   After `beginShutdown` the cap is lifted so block-shutdown items finish (Chrome's `OnShutdownStarted` sets
   `max_best_effort_tasks_` to `max_tasks_`).
 - Startup fence: best-effort and idle posts wait until launch settles (`beginBestEffortFence` /
-  `endBestEffortFence`); an awaited item never waits for the fence.
+  `endBestEffortFence`); an awaited item never waits for the fence. The app raises it once
+  (`raiseLaunchFence`, from `LaunchOrder.BestEffortFence` in `main()`) and lowers it once, at startup complete
+  or after its 3 s cap, whichever comes first; the cap's one-shot timer exists only while the fence is up, and
+  shutdown lifts the fence and cancels the cap.
 - QoS by priority: the table in "QoS and task priority" below. Daemon workers keep one class for life (`fg`
   user-initiated, `be` utility, `idle` background), named `mux-<lane>-<fg|be|idle>` (lane `files`, `sys`,
   `cpu`); on Linux a `mux-launch` thread (user-initiated) starts them.

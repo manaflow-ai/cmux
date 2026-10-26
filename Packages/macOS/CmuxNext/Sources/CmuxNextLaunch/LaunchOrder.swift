@@ -12,7 +12,9 @@ public import CmuxNextWakeups
 /// (`ThreadPoolInstance::EndBestEffortFence`, base/task/thread_pool/thread_pool_instance.h) at
 /// startup complete. The fence is one pair: ``BestEffortFence`` raises it on the app's
 /// ``BackgroundWork`` as soon as the lanes exist, and the order made on that fence lowers it at
-/// the completion, after the `startup_complete` marks.
+/// the completion, after the `startup_complete` marks. Its cap (``BackgroundWork/LaunchFence/cap``,
+/// 3 s) lowers it first when startup completes later; the completion then marks
+/// `startup_complete.fence_capped`.
 ///
 /// ```swift
 /// let work = BackgroundWork(hangs: hangWatch)
@@ -24,15 +26,22 @@ public import CmuxNextWakeups
 public struct LaunchOrder {
     /// The best-effort fence `main()` raises before the first launch read is posted (Chrome's
     /// `ThreadPoolInstance::BeginBestEffortFence`): idle and best-effort lane work waits until the
-    /// ``LaunchOrder`` made on it lowers it at startup complete.
+    /// ``LaunchOrder`` made on it lowers it at startup complete, or its cap does.
     public struct BestEffortFence: Sendable {
+        /// The raised fence; the order lowers it.
+        public let launch: BackgroundWork.LaunchFence
         /// The lanes the fence holds.
-        public let background: BackgroundWork
+        public var background: BackgroundWork { launch.work }
 
-        /// Raises the fence on `background`.
-        public init(raisingOn background: BackgroundWork) {
-            background.beginBestEffortFence()
-            self.background = background
+        /// Raises the fence on `background`, capped at `cap` on `clock`.
+        ///
+        /// - Parameters:
+        ///   - background: The app's lanes.
+        ///   - cap: The longest the fence holds; default ``BackgroundWork/LaunchFence/cap``.
+        ///   - clock: The clock the cap sleeps on; tests pass a manual one.
+        public init(raisingOn background: BackgroundWork, cap: Duration = BackgroundWork.LaunchFence.cap,
+                    clock: any Clock<Duration> = ContinuousClock()) {
+            launch = background.raiseLaunchFence(cap: cap, clock: clock)
         }
     }
 
@@ -46,7 +55,8 @@ public struct LaunchOrder {
     /// post its lane work to `fence`'s lanes. At startup complete it marks `startup_complete.<reason>`
     /// (an instant mark, as task 007 sends the temperature) and then `startup_complete`, so a reader
     /// that waits for `startup_complete` has the reason too; then it lowers the fence, so the held
-    /// idle and best-effort items start. A quit before completion never lowers it (shutdown lifts it).
+    /// idle and best-effort items start, or marks `startup_complete.fence_capped` when the cap lowered
+    /// it first. A quit before completion never lowers it (shutdown lifts it).
     ///
     /// - Parameters:
     ///   - fence: The fence `main()` raised.
@@ -57,10 +67,10 @@ public struct LaunchOrder {
                 mark: @escaping @MainActor (String) -> Void) {
         self.mainWork = mainWork
         self.startup = startup
-        startup.whenComplete { [background = fence.background] completion in
+        startup.whenComplete { [launch = fence.launch] completion in
             mark("startup_complete.\(completion.reason)")
             mark("startup_complete")
-            background.endBestEffortFence()
+            if !launch.lower() { mark("startup_complete.fence_capped") }
         }
     }
 
