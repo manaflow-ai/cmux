@@ -591,10 +591,17 @@ mod tests {
     #[test]
     fn bwrap_command_scrubs_loader_env() {
         let mut cmd = Command::new("/usr/bin/bwrap");
-        cmd.env("LD_PRELOAD", "injected").env("LOCPATH", "injected").env("PATH", "/usr/bin");
+        cmd.env("LD_PRELOAD", "injected")
+            .env("LOCPATH", "injected")
+            .env("TMPDIR", "/injected")
+            .env("MALLOC_CHECK_", "3")
+            .env("PATH", "/usr/bin");
         crate::hub::remote_sandbox::scrub_loader_env(&mut cmd);
         let env = crate::agent::command_env(&cmd);
-        assert!(!env.iter().any(|(k, _)| k == "LD_PRELOAD" || k == "LOCPATH"));
+        assert!(!env.iter().any(|(k, _)| matches!(
+            k.as_str(),
+            "LD_PRELOAD" | "LOCPATH" | "TMPDIR" | "MALLOC_CHECK_"
+        )));
         assert!(env.iter().any(|(k, v)| k == "PATH" && v == "/usr/bin"));
     }
 

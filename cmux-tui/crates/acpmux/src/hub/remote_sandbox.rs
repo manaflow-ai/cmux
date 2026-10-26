@@ -1212,7 +1212,7 @@ mod endpoint_tests {
     use super::*;
 
     #[cfg(target_os = "linux")]
-    const LOADER_KEYS: &str = "LD_PRELOAD LD_LIBRARY_PATH LD_AUDIT LD_UNKNOWN GCONV_PATH GETCONF_DIR GLIBC_TUNABLES HOSTALIASES LOCALDOMAIN LOCPATH MALLOC_ARENA_MAX MALLOC_ARENA_TEST MALLOC_PERTURB_ MALLOC_TOP_PAD_ MALLOC_TRACE MALLOC_MMAP_MAX_ MALLOC_MMAP_THRESHOLD_ MALLOC_TRIM_THRESHOLD_ NIS_PATH NLSPATH RESOLV_HOST_CONF RES_OPTIONS TZDIR";
+    const LOADER_KEYS: &str = "GCONV_PATH GETCONF_DIR GLIBC_TUNABLES HOSTALIASES LD_AUDIT LD_DEBUG LD_DEBUG_OUTPUT LD_DYNAMIC_WEAK LD_HWCAP_MASK LD_LIBRARY_PATH LD_ORIGIN_PATH LD_PRELOAD LD_PROFILE LD_SHOW_AUXV LD_USE_LOAD_BIAS LD_UNKNOWN LOCALDOMAIN LOCPATH MALLOC_ARENA_MAX MALLOC_ARENA_TEST MALLOC_CHECK_ MALLOC_MMAP_MAX_ MALLOC_MMAP_THRESHOLD_ MALLOC_PERTURB_ MALLOC_TCACHE_COUNT MALLOC_TCACHE_MAX MALLOC_TCACHE_UNSORTED_LIMIT MALLOC_TOP_PAD_ MALLOC_TRACE MALLOC_TRIM_THRESHOLD_ NIS_PATH NLSPATH RESOLV_HOST_CONF RES_OPTIONS TMPDIR TZDIR";
 
     #[test]
     fn macos_profile_identity_stays_at_base() {
@@ -1242,8 +1242,19 @@ mod endpoint_tests {
     fn linux_refuses_loader_profile_env() {
         for key in LOADER_KEYS.split_whitespace() {
             let p = profile(&["claude"], &[(key, "injected")]);
-            assert!(claude_args(&bound(None), &p, vec![]).is_err(), "{key}");
+            assert_eq!(claude_args(&bound(None), &p, vec![]).is_err(), key != "TMPDIR", "{key}");
+            assert!(loader_env_key(key), "{key} must be scrubbed");
         }
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn linux_profile_tmpdir_is_replaced_inside_the_sandbox() {
+        let bound = bound(None);
+        let p = profile(&["claude"], &[("TMPDIR", "/injected")]);
+        let (_, args) = linux_wrap(&bound, &p, "claude".into(), vec![]).unwrap();
+        assert!(args.contains(&format!("TMPDIR={}", bound.tmp.display())));
+        assert!(!args.iter().any(|a| a.contains("/injected")));
     }
 
     #[cfg(target_os = "linux")]
