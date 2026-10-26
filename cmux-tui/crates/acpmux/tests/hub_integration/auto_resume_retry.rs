@@ -195,7 +195,8 @@ async fn a_caller_that_may_not_prompt_the_chat_cannot_take_over_a_waiting_retry(
 }
 
 /// Stop between a retry's claim and its turn's start refuses it (`retry.stopped`): the
-/// failed turn is not sent again.
+/// failed turn is not sent again. A second retry before the stopped one's task ended is busy,
+/// never joined to it under the first caller's rules (Codex review of #25296, round 2).
 #[tokio::test]
 async fn stop_before_a_retrys_turn_starts_prevents_it() {
     let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
@@ -213,11 +214,16 @@ async fn stop_before_a_retrys_turn_starts_prevents_it() {
     let retry = tokio::spawn(async move { other.request(RETRY, json!({"sessionId": sid})).await });
     tokio::time::sleep(Duration::from_millis(500)).await;
     let _ = tokio::time::timeout(Duration::from_secs(2), hub.cancel(&session)).await;
+    let e = c.request(RETRY, json!({"sessionId": id})).await.unwrap_err();
+    assert!(e.starts_with("retry.busy"), "{e}");
     drop(config);
     let e = retry.await.unwrap().unwrap_err();
     assert!(e.starts_with("retry.stopped"), "{e}");
     tokio::time::sleep(Duration::from_millis(500)).await;
     assert_eq!(user_messages(&hub, &id).len(), 1, "{:?}", kinds(&hub, &id));
+    // Once it ended, a retry goes.
+    let v = c.request(RETRY, json!({"sessionId": id})).await.unwrap();
+    assert_eq!(v["promptId"], "p-x~resume-1", "{v}");
 }
 
 /// A failed turn of agent messages put the ones that joined it back (`digest.rs`): its retry is
