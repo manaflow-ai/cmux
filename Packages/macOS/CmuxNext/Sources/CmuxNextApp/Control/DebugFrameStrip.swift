@@ -29,14 +29,15 @@ enum DebugFrameStrip {
         let cropsStrip = params["crop"]?.stringValue == "strip"
         let crop = cropsStrip ? controller.content?.focusedPane.flatMap { window.unitRect(of: $0.view.stripView) } : nil
         // The window server reads run back to back on one system lane slot, never on main or the pool.
-        let recording = Task { [work = services.work] in
+        let recording = services.work.task(.userBlocking) { [work = services.work] in
             (try? await work.run(.userBlocking, mayBlock: .system) { WindowFrame.record(number, scale: scale, crop: crop, from: start, until: 120 + duration) }) ?? []
         }
-        // The key goes in once the recorder has frames from before it.
-        let lead = DemandTimer(owner: "debug.frame_strip.lead")
+        // The key goes in once the recorder has frames from before it: the CLI's deadline, automation class.
+        let lead = MainDeadline(owner: "debug.frame_strip.lead", workClass: .automation, scheduler: services.mainDeadlines)
         await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
-            lead.schedule(after: .milliseconds(120)) { @MainActor in done.resume() }
+            lead.schedule(after: .milliseconds(120)) { done.resume() }
         }
+        withExtendedLifetime(lead) {}  // a released deadline never fires
         let sent: JSONValue
         // When the first key went in (a burst's later keys come after it).
         var firstSent: (ms: Double, time: CFTimeInterval)?
@@ -56,6 +57,7 @@ enum DebugFrameStrip {
             let count = max(1, Int(params["repeat"]?.doubleValue ?? 1))
             if count > 1 {
                 let interval = max(1, Int(params["repeat_interval_ms"]?.doubleValue ?? 40))
+                // timer-class-allow: a person's key cadence; a classed deadline would wait out each key's input response, which a person's next key never does
                 let gap = DemandTimer(owner: "debug.frame_strip.repeat")
                 for _ in 1..<count {
                     await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
@@ -66,7 +68,7 @@ enum DebugFrameStrip {
             }
         }
         let (sentAt, sentTime) = firstSent ?? (BenchSpans.ms(.now - start), CACurrentMediaTime())
-        let frames = await recording.value
+        let frames = (try? await recording.value) ?? []
         let spans = BenchSpans.end()
         let pane = controller.content?.focusedPane
         guard let report = await window.frameStripReport(frames, sentAt: sentAt, sentTime: sentTime,

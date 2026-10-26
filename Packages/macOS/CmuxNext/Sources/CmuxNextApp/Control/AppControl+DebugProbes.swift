@@ -69,7 +69,9 @@ extension AppControl {
                                                          hiddenWork: services?.hiddenLayoutWork))
             },
             // A full-screen or Space transition: notifications, resizes, layout passes (fullscreen-transition.py).
-            .mainActor("debug.window_transition") { call in .value(DebugWindowTransition.shared.handle(call.params)) },
+            .mainActor("debug.window_transition") { [events = services.workspaceEvents] call in
+                .value(DebugWindowTransition.shared.handle(call.params, workspaceEvents: events))
+            },
             // A split's or close's terminals: grids sent, drawn and announced, ms from start (bench-terminal-resize.py split-resize).
             .mainActor("debug.terminal_final_grid") { [weak services] call in
                 guard let trace = services?.finalGridTrace else { return .value(.null) }

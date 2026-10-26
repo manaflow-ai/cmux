@@ -45,10 +45,10 @@ extension AppBrowserPage {
         _ = cache.hibernation?.wake(key)
         let woke = try? await ControlDeadline.shared.run(method: "browser.wake", deadline: .now + within) { @MainActor in
             // Every restore installs a page (`pageInstalls`), which wakes this wait.
-            for await live in ObservationStream({ _ = cache.pageInstalls.revision; return isLive(cache.existingBrowser(key)?.tab) }) where live {
-                return true
+            await ControlConditionWait(on: cache.mainWork, owner: "browser.page.wake").until {
+                _ = cache.pageInstalls.revision
+                return isLive(cache.existingBrowser(key)?.tab)
             }
-            return false
         }
         guard woke == true, let live = cache.existingBrowser(key)?.tab, isLive(live) else { return nil }
         cache.hibernation?.noteAgentUse(key)

@@ -121,8 +121,7 @@ final class AppControl {
         router.register([
             // CPU and memory per tab and workspace, two samples `interval_ms` apart.
             .async("resources") { [weak services] call in
-                let services = await MainActor.run { services }
-                return try await ResourceControl.run(call.params, services: services)
+                try await ResourceControl.run(call.params, services: services)
             }.withDeadline(.fixed(ResourceControl.deadline)),
             // Installed Chrome extensions, shortcuts and toolbar badges.
             .mainActor("browser.extensions") { [weak services] _ in
@@ -243,10 +242,16 @@ extension AppControl {
             group("Control.registerBrowserPage", services) { [weak settings] _, services, router in
                 // The passkey hand-off: an agent's request waits for the person's banner click.
                 let passkeys = BrowserPasskeyRequests(host: AppBrowserPasskeyHost(services: services))
-                services.notifications.onPasskeyBanner = { id in Task { _ = try? await passkeys.answer(id) } }
+                // The person's banner click: the answer awaits the requests' actor off main; its reveal is main work.
+                services.notifications.onPasskeyBanner = { [work = services.work] id in
+                    _ = work.task(.userBlocking) { _ = try? await passkeys.answer(id) }
+                }
+                // Read per agent click: the agent's work, in the automation class.
                 BrowserPageService(engine: AppBrowserPageEngine(services: services), passkeys: passkeys,
-                                   agentMouse: { [weak settings] in
-                                       await MainActor.run { settings?.snapshot.browserAgentMouse } ?? AgentMouseSetting().fallback
+                                   agentMouse: { [weak settings, work = services.mainWork] in
+                                       await work.apply(.automation, owner: "browser.agent_mouse") {
+                                           settings?.snapshot.browserAgentMouse
+                                       } ?? AgentMouseSetting().fallback
                                    }).install(on: router)
                 services.apps.attach(router: router)
             },
