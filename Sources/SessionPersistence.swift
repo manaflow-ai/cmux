@@ -18,24 +18,9 @@ enum SessionSnapshotSchema {
     static let currentVersion = 1
 }
 
-/// Which saved container left panels out of a session snapshot.
-enum SessionSnapshotOmittedPanelContainer: Sendable {
-    case workspace
-    case workspaceDock
-    case windowDock
-
-    /// Stable diagnostic token. The workspace log uses `warning(omittedCount:)`.
-    nonisolated var logLabel: String {
-        switch self {
-        case .workspace:
-            return "workspace"
-        case .workspaceDock:
-            return "workspace-dock"
-        case .windowDock:
-            return "window-dock"
-        }
-    }
-
+/// App-side restore warning for each container. The container itself is a
+/// pure value in CmuxWorkspaces; `String(localized:)` stays in the app.
+extension SessionSnapshotOmittedPanelContainer {
     /// User-facing restore warning. The 512 in the sentence is
     /// `SessionPersistencePolicy.maxPanelsPerWorkspace`.
     nonisolated func warning(omittedCount: Int) -> String {
@@ -86,7 +71,7 @@ enum SessionPersistencePolicy {
     /// cannot bring those panels back; it warns in the workspace log instead.
     /// Layout and focus stay limited to the panels that were saved. The
     /// bound is documented in `docs/session-snapshots.md`.
-    static let maxPanelsPerWorkspace: Int = SessionPanelCap.sessionSnapshotMaxPanels
+    nonisolated static let maxPanelsPerWorkspace: Int = SessionPanelCap.sessionSnapshotMaxPanels
     static let maxScrollbackLinesPerTerminal: Int = 4000
     static let maxScrollbackCharactersPerTerminal: Int = 400_000
 
