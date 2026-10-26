@@ -1,3 +1,4 @@
+import CmuxSafeConcurrency
 public import Foundation
 import OSLog
 
@@ -21,13 +22,12 @@ nonisolated private let pushRedirectLog = Logger(
 public final class RedirectMethodPreservingDelegate:
     NSObject,
     URLSessionTaskDelegate,
-    @unchecked Sendable
+    Sendable
 {
     // URLSession's redirect delegate callback and the public refusal read are
     // both synchronous on different executors, so an actor cannot own this
     // single-bit handoff without changing either API to async.
-    private let refusalLock = NSLock()
-    private var refusedRedirectValue = false
+    private let refused = Mutex(false)
 
     /// Creates a stateless per-owner redirect delegate.
     public override init() {
@@ -36,7 +36,7 @@ public final class RedirectMethodPreservingDelegate:
 
     /// Whether this request was stopped by the redirect policy.
     public var refusedRedirect: Bool {
-        refusalLock.withLock { refusedRedirectValue }
+        refused.withLock { $0 }
     }
 
     /// Applies the redirect policy to one URL loading task.
@@ -91,9 +91,7 @@ public final class RedirectMethodPreservingDelegate:
     }
 
     private func markRefused() {
-        refusalLock.withLock {
-            refusedRedirectValue = true
-        }
+        refused.withLock { $0 = true }
     }
 
     private static let mutatingMethods = Set(["POST", "PUT", "PATCH", "DELETE"])

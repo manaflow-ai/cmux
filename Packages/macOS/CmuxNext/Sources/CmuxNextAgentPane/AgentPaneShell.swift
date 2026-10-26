@@ -11,7 +11,7 @@ public import Foundation
 ///
 /// Bounded: at most ``maximumRunning`` commands run per pane, each keeps the last
 /// ``maximumBuffer`` bytes, and finished runs past ``maximumKept`` are dropped oldest first.
-/// Idle, nothing runs: no timer, only a blocked `waitpid` and a pipe read per running command.
+/// Idle, nothing runs: no timer, only a process-exit source (``ChildExitWatch``) and a pipe read per running command.
 /// Deadlines (a read's wait, Stop's escalation, the drain after exit) are one-shot DemandTimers.
 public final class AgentPaneShell {
     public static let maximumRunning = 4
@@ -159,14 +159,10 @@ public final class AgentPaneShell {
                 continuation.yield(.output(data))
             }
         }
-        DispatchQueue.global(qos: .utility).async {
-            var status: Int32 = 0
-            var result: pid_t
-            // wakeup-allow: a blocking wait for the child's exit, retried only when a signal interrupts it.
-            repeat { result = waitpid(pid, &status, 0) } while result == -1 && errno == EINTR
-            // ECHILD: someone else reaped it; the exit status is unknown.
-            continuation.yield(.exit(result == pid ? status : nil))
-        }
+        // Reaped from an exit source on its own queue, so no thread waits in `waitpid` while the command runs.
+        // A nil status (ECHILD): someone else reaped it; the exit status is unknown.
+        ChildExitWatch(pid: pid, queue: DispatchQueue(label: "cmux.next.agent-pane.shell-reap.\(pid)", qos: .utility))
+            .start { status in continuation.yield(.exit(status)) }
         // Reading ends once the run has both its exit and its EOF, or when the drain after exit
         // gives up on a pipe a background child keeps open; either way the pipe closes.
         run.stopReading = {

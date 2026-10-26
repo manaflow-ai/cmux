@@ -57,7 +57,7 @@ let cefUnhandledKeyCallback: CEFShimLibrary.KeyFn = { context, browser, nsEvent 
 }
 
 /// C entry before a DevTools browser sees a key down; `browser` is the
-/// inspected page.
+/// inspected page. In process only (``CEFDevToolsKeyPolicy/preKeyHook``).
 let cefDevToolsKeyCallback: CEFShimLibrary.KeyFn = { context, browser, nsEvent in
     guard let context, let nsEvent else { return 0 }
     // Keys arrive on the main thread; off it, the DevTools page keeps the key.

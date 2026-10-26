@@ -16,7 +16,7 @@ import PackageDescription
 //   CmuxNextBrowser -> Input, InputCore (page link clicks, swipes and mouse side buttons hear the app's input tap)
 //   Feature UI modules never import CmuxNextDaemon; the App maps daemon state into their view models.
 //   CmuxNextTerminal -> CmuxNextTerminalGeometry, CmuxNextCopyMode (pure), CmuxGhosttyKit (binary)
-//   CmuxNextCompat -> swift-atomics, system frameworks (back-ports of newer system APIs for the
+//   CmuxNextCompat -> swift-atomics, CmuxSafeConcurrency, system frameworks (back-ports of newer system APIs for the
 //     macOS 14 floor: Mutex, Atomic; any module may import it; plans/cmux-next/macos-floor.md)
 //   CmuxNextWakeups -> Compat, Signposts, Trace, Metrics, system frameworks (the only sanctioned wakeup
 //     primitives: FrameScheduler, DemandTimer, Backoff, WakeupLedger, the one main-thread scheduler's
@@ -1306,11 +1306,15 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             swiftSettings: uiSwiftSettings
         ),
         // Back-ports of newer system APIs so that cmux-next runs on macOS 14
-        // (plans/cmux-next/macos-floor.md): Mutex (os_unfair_lock) and Atomic
+        // (plans/cmux-next/macos-floor.md): Mutex (CmuxSafeConcurrency's os_unfair_lock Mutex) and Atomic
         // (lock-free, swift-atomics) with the Synchronization API.
         .target(
             name: "CmuxNextCompat",
-            dependencies: [.product(name: "Atomics", package: "swift-atomics")],
+            dependencies: [
+                .product(name: "Atomics", package: "swift-atomics"),
+                // Mutex wraps the portable one (p10-stability-172), with the blocking detector as its wait observer.
+                .product(name: "CmuxSafeConcurrency", package: "CmuxSafeConcurrency"),
+            ],
             swiftSettings: daemonSwiftSettings
         ),
         .testTarget(
@@ -2150,6 +2154,8 @@ let package = Package(
         .package(path: "../../Shared/CmuxIrxTransport"),
         // Seeded property tests (test targets only): p10-stability-016.
         .package(path: "../../Shared/CmuxFuzzSupport"),
+        // The portable Mutex (os_unfair_lock) every package of the closure shares: p10-stability-172.
+        .package(path: "../../Shared/CmuxSafeConcurrency"),
         // RFB (VNC) client for compatibility hosts in the remote view pane (remote-desktop.md 12).
         .package(path: "../../Shared/CmuxVNC"),
         .package(path: "../../Shared/CmuxScreenKit"),
@@ -2362,6 +2368,7 @@ if ProcessInfo.processInfo.environment["CMUX_SWIFTPM_TARGET_LINUX"] == "1" {
                 "Packages/Shared/CmuxAuthRuntime",
                 "Packages/Shared/CmuxInstallAuthCore",
                 "Packages/Shared/CmuxIrxTransport",
+                "Packages/Shared/CmuxSafeConcurrency",
                 "Packages/Shared/CmuxTheme",
                 "Packages/iOS/CmuxMobileRPC",
                 "Packages/iOS/CmuxMobileSSH",
