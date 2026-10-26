@@ -1,8 +1,10 @@
 //! HOME snapshots for the staged bubblewrap plan. Collection loops exhaust
 //! supplied paths or directory entries; descriptor collection refuses over 512.
 use super::*;
+use crate::linux_sandbox::lookup;
 use std::collections::{BTreeMap, BTreeSet};
 use std::ffi::{OsStr, OsString};
+use std::os::fd::AsFd;
 use std::os::unix::ffi::{OsStrExt, OsStringExt};
 
 const RESOLVE_BENEATH: u32 = 0x08;
@@ -228,9 +230,13 @@ pub(super) fn rebuild(
     let mut parents = BTreeMap::from([(home.to_owned(), open_bind_source(home)?)]);
     for dir in &dirs {
         out.extend(["--tmpfs".into(), path_arg(dir)?]);
-        let Some(parent_fd) = parents.get(dir).map(AsRawFd::as_raw_fd) else {
+        let Some(parent) = parents.get(dir) else {
             continue; // An absent ancestor contributes only an empty tmpfs.
         };
+        // Verify HOME and every rebuilt directory before bytewise exclusion.
+        lookup::verify_dir(parent.as_fd())
+            .map_err(|e| format!("HOME lookup refused at {}: {e}", dir.display()))?;
+        let parent_fd = parent.as_raw_fd();
         let pinned = PathBuf::from(format!("/proc/self/fd/{parent_fd}"));
         let children = match fs::read_dir(&pinned) {
             Ok(entries) => entries
