@@ -6,6 +6,7 @@ pub(crate) struct SandboxRunMessages {
     pub task_required: &'static str,
     pub task_too_long: &'static str,
     pub bad_timeout: &'static str,
+    pub bad_agent: &'static str,
     pub waiting: &'static str,
     pub still_running: &'static str,
     pub refused_while_running: &'static str,
@@ -25,10 +26,11 @@ pub(crate) struct SandboxRunMessages {
 }
 
 pub(super) const ENGLISH: SandboxRunMessages = SandboxRunMessages {
-    usage: "usage: cmux run --sandboxed [OPTIONS] <task...> [--json]\n\nRun one task on a throwaway cmux Cloud VM booted from a pinned image, print its\nresult receipt, and destroy the VM: its files, home and processes are gone when the\nrun ends (no snapshot, no attach window; it can't be paused or promoted). The run's\nrecord (task, receipt, artifacts list) stays in your cmux Cloud account. Preview: needs Settings >\nAdvanced > Labs > Show Preview Features and a signed-in cmux app.\n\n  --agent claude|codex|opencode|pi   the agent that runs the task (default codex)\n  --image ID                         a Cloud VM manifest image (default: the base image)\n  --timeout SECONDS                  stop the task after this long (30-720, default 600)\n  --no-wait                          print the new run and return at once\n\nCost: VM time at the sandbox list price, shown on the receipt; model tokens bill as usual.\n\nExit: 0 the task succeeded; 1 it failed or was cancelled, or the app lost the answer; 2 usage;\n3 act first (open or sign in to the cmux app, turn on Labs, or Cloud is off or not enabled);\n4 still running at the deadline (the server ends it at its own timeout); 5 the cmux app is too old for sandboxed runs.\n",
+    usage: "usage: cmux run --sandboxed [OPTIONS] <task...> [--json]\n\nRun one task on a throwaway cmux Cloud VM booted from a pinned image, print its\nresult receipt, and destroy the VM: its files, home and processes are gone when the\nrun ends (no snapshot, no attach window; it can't be paused or promoted). The run's\nrecord (task, receipt, artifacts list) stays in your cmux Cloud account. Preview: needs Settings >\nAdvanced > Labs > Show Preview Features and a signed-in cmux app.\n\n  --agent claude|codex|opencode|pi   the agent that runs the task (default codex)\n  --image ID                         a Cloud VM manifest image (default: the base image)\n  --timeout SECONDS                  stop the task after this long (30-720, default 600)\n\nCost: VM time at the sandbox list price, shown on the receipt; model tokens bill as usual.\n\nExit: 0 the task succeeded; 1 it failed or was cancelled, or the app lost the answer; 2 usage (the task, agent, image or timeout);\n3 act first (open or sign in to the cmux app, turn on Labs, or Cloud is off or not enabled);\n4 still running at the deadline (the server ends it at its own timeout); 5 the cmux app is too old for sandboxed runs.\n",
     task_required: "cmux run --sandboxed needs a task, for example: cmux run --sandboxed \"list the repo's TODOs\"",
     task_too_long: "the task is longer than {max} characters; put the details in a file in the repo and point the task at it",
     bad_timeout: "--timeout takes whole seconds from 30 to 720, not \"{value}\"",
+    bad_agent: "--agent takes claude, codex, opencode or pi, not \"{value}\"",
     waiting: "sandbox run {id} started; waiting for its receipt",
     still_running: "sandbox run {id} did not finish in time; the server ends it at its own timeout and destroys its VM",
     refused_while_running: "sandbox run {id} is running, but the app refused to wait on it ({message}); the server destroys its VM when the run's own timeout ends it",
@@ -48,10 +50,11 @@ pub(super) const ENGLISH: SandboxRunMessages = SandboxRunMessages {
 };
 
 pub(super) const JAPANESE: SandboxRunMessages = SandboxRunMessages {
-    usage: "使い方: cmux run --sandboxed [オプション] <タスク...> [--json]\n\n固定イメージから起動した使い捨ての cmux Cloud VM でタスクを 1 つ実行し、結果の\nレシートを表示して VM を破棄します。実行が終わると VM のファイル、ホーム、プロセスは\n消えます (スナップショットも接続期間もなく、一時停止や昇格もできません)。実行の記録\n(タスク、レシート、成果物の一覧) は cmux Cloud アカウントに残ります。プレビュー機能: 設定 > 詳細 > Labs > プレビュー\n機能を表示 と、サインイン済みの cmux アプリが必要です。\n\n  --agent claude|codex|opencode|pi   タスクを実行するエージェント (既定 codex)\n  --image ID                         Cloud VM マニフェストのイメージ (既定: ベースイメージ)\n  --timeout 秒                       この時間でタスクを止めます (30-720、既定 600)\n  --no-wait                          作成した実行を表示してすぐ戻ります\n\n費用: サンドボックスの定価での VM 時間 (レシートに表示)。モデルのトークンは通常どおり課金されます。\n\n終了コード: 0 タスク成功、1 失敗またはキャンセル、またはアプリが応答を失った、2 使い方の誤り、\n3 先に対応が必要 (cmux アプリを開くかサインインする、Labs をオンにする、Cloud がオフか未有効)、\n4 期限の時点でまだ実行中 (サーバーが実行自体のタイムアウトで終了)、5 cmux アプリがサンドボックス実行に対応していない古い版。\n",
+    usage: "使い方: cmux run --sandboxed [オプション] <タスク...> [--json]\n\n固定イメージから起動した使い捨ての cmux Cloud VM でタスクを 1 つ実行し、結果の\nレシートを表示して VM を破棄します。実行が終わると VM のファイル、ホーム、プロセスは\n消えます (スナップショットも接続期間もなく、一時停止や昇格もできません)。実行の記録\n(タスク、レシート、成果物の一覧) は cmux Cloud アカウントに残ります。プレビュー機能: 設定 > 詳細 > Labs > プレビュー\n機能を表示 と、サインイン済みの cmux アプリが必要です。\n\n  --agent claude|codex|opencode|pi   タスクを実行するエージェント (既定 codex)\n  --image ID                         Cloud VM マニフェストのイメージ (既定: ベースイメージ)\n  --timeout 秒                       この時間でタスクを止めます (30-720、既定 600)\n\n費用: サンドボックスの定価での VM 時間 (レシートに表示)。モデルのトークンは通常どおり課金されます。\n\n終了コード: 0 タスク成功、1 失敗またはキャンセル、またはアプリが応答を失った、2 使い方の誤り (タスク、エージェント、イメージ、タイムアウト)、\n3 先に対応が必要 (cmux アプリを開くかサインインする、Labs をオンにする、Cloud がオフか未有効)、\n4 期限の時点でまだ実行中 (サーバーが実行自体のタイムアウトで終了)、5 cmux アプリがサンドボックス実行に対応していない古い版。\n",
     task_required: "cmux run --sandboxed にはタスクが必要です。例: cmux run --sandboxed \"リポジトリの TODO を一覧にして\"",
     task_too_long: "タスクが {max} 文字を超えています。詳細はリポジトリ内のファイルに書き、タスクからそのファイルを指してください",
     bad_timeout: "--timeout は 30 から 720 までの整数秒です (\"{value}\" は使えません)",
+    bad_agent: "--agent には claude、codex、opencode、pi のいずれかを指定してください (\"{value}\" は使えません)",
     waiting: "サンドボックス実行 {id} を開始しました。レシートを待っています",
     still_running: "サンドボックス実行 {id} は時間内に終わりませんでした。実行自体のタイムアウトでサーバーが終了し、VM を破棄します",
     refused_while_running: "サンドボックス実行 {id} は実行中ですが、アプリが待機を拒否しました（{message}）。実行自体のタイムアウトで終わるとサーバーが VM を破棄します",

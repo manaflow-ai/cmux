@@ -32,6 +32,8 @@ const WAIT_TRANSIT: Duration = Duration::from_secs(15);
 const WAIT_SLICE_MS: u64 = 10_000;
 /** The server's limit on a sandbox task (web/services/runs/model.ts SANDBOX_TASK_MAX_CHARS). */
 const TASK_MAX_CHARS: usize = 16_000;
+/** The agents a sandboxed run can use (the server's CLOUD_VM_AGENTS). */
+const AGENTS: [&str; 4] = ["claude", "codex", "opencode", "pi"];
 /** What an app call may take past its budget and probe (connecting, the thread handoff). */
 const CALL_MARGIN: Duration = Duration::from_secs(1);
 /** The pause after a wait that got no answer, doubling to `RETRY_PAUSE_MAX`, never past the deadline. */
@@ -50,7 +52,6 @@ pub(super) struct Request {
     pub agent: Option<String>,
     pub image: Option<String>,
     pub timeout_secs: u64,
-    pub wait: bool,
 }
 
 /// `cmux run --sandboxed …`. `None` for any other command, `cmux run <script.ts>` included.
@@ -81,7 +82,6 @@ pub(super) fn parse(rest: &[String]) -> Result<Invocation, UsageError> {
         agent: None,
         image: None,
         timeout_secs: DEFAULT_TIMEOUT_SECS,
-        wait: true,
     };
     let mut words: Vec<&str> = Vec::new();
     let mut index = 0;
@@ -95,10 +95,6 @@ pub(super) fn parse(rest: &[String]) -> Result<Invocation, UsageError> {
         match arg {
             "--help" | "-h" => return Ok(Invocation::Help),
             "--sandboxed" => continue,
-            "--no-wait" => {
-                request.wait = false;
-                continue;
-            }
             _ => {}
         }
         let Some(flag) = arg.strip_prefix("--") else {
@@ -124,7 +120,14 @@ pub(super) fn parse(rest: &[String]) -> Result<Invocation, UsageError> {
         };
         let value = value.trim().to_owned();
         match name {
-            "agent" => request.agent = Some(value).filter(|agent| !agent.is_empty()),
+            "agent" => {
+                // The agents a sandbox runs (web/services/vms CLOUD_VM_AGENTS); checked here so a
+                // typo is a usage error before anything is sent.
+                if !AGENTS.contains(&value.as_str()) {
+                    return Err(UsageError::new(messages.bad_agent.replace("{value}", &value)));
+                }
+                request.agent = Some(value);
+            }
             "image" => request.image = Some(value).filter(|image| !image.is_empty()),
             _ => {
                 request.timeout_secs = value
@@ -240,6 +243,8 @@ fn call_on_connection(
         Ok(Err(error)) => {
             let exit_code = if is_gate_refusal(&error) {
                 3
+            } else if is_input_refusal(&error) {
+                2
             } else if error.get("code").and_then(Value::as_str) == Some("method_not_found") {
                 5
             } else {
@@ -252,6 +257,16 @@ fn call_on_connection(
             exit_code: 1,
         }),
     }
+}
+
+/// The server refused the request itself (the task, agent, image or timeout): a usage error, exit 2.
+pub(super) fn is_input_refusal(error: &Value) -> bool {
+    matches!(
+        error.get("code").and_then(Value::as_str),
+        Some(
+            "run_task_required" | "run_agent_invalid" | "run_image_invalid" | "run_timeout_invalid"
+        )
+    )
 }
 
 /// Signed out, or the preview is off: the app's Labs flag, an administrator's policy
@@ -309,9 +324,6 @@ pub(super) fn run(global: &GlobalArgs, invocation: Invocation) -> i32 {
         };
         return print_error(global, &failed);
     };
-    if !request.wait {
-        return super::wire::print_local_success(&created, global.output);
-    }
     if global.output == OutputMode::Human {
         eprintln!("{}", messages.waiting.replace("{id}", &id));
     }
@@ -377,7 +389,23 @@ pub(super) fn run(global: &GlobalArgs, invocation: Invocation) -> i32 {
             let printed = print_receipt(global, receipt, messages);
             return if printed == 0 { code } else { printed };
         }
+        // A finished run whose answer holds no valid receipt will never get one: the answer is lost.
+        if run_finished(&snapshot) {
+            let failed = CallError {
+                error: json!({ "code": "bad_response", "message": messages.bad_response, "details": { "runId": id } }),
+                exit_code: 1,
+            };
+            return print_error(global, &failed);
+        }
     }
+}
+
+/// The snapshot says its run has finished (succeeded, failed or cancelled).
+pub(super) fn run_finished(snapshot: &Value) -> bool {
+    matches!(
+        snapshot.get("run").and_then(|run| run.get("status")).and_then(Value::as_str),
+        Some("succeeded" | "failed" | "cancelled")
+    )
 }
 
 fn print_receipt(global: &GlobalArgs, receipt: &Value, messages: &SandboxRunMessages) -> i32 {

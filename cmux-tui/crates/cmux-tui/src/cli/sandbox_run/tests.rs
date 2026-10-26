@@ -15,7 +15,7 @@ fn parsed(words: &[&str]) -> Result<Invocation, UsageError> {
 }
 
 fn request(task: &str) -> Request {
-    Request { task: task.to_owned(), agent: None, image: None, timeout_secs: 600, wait: true }
+    Request { task: task.to_owned(), agent: None, image: None, timeout_secs: 600 }
 }
 
 #[test]
@@ -42,7 +42,6 @@ fn the_task_is_every_word_and_flags_take_both_forms() {
             "--timeout=60",
             "--image",
             "sh-1",
-            "--no-wait",
             "go"
         ])
         .unwrap(),
@@ -51,7 +50,6 @@ fn the_task_is_every_word_and_flags_take_both_forms() {
             agent: Some("claude".into()),
             image: Some("sh-1".into()),
             timeout_secs: 60,
-            wait: false,
         })
     );
     // After `--` everything is task text, flags included.
@@ -126,14 +124,12 @@ fn the_receipt_reads_reply_first_then_status_time_cost_and_cleanup() {
 
 #[test]
 fn the_whole_command_line_keeps_globals_and_task_apart() {
-    // `--sandboxed` and `--no-wait` take no value, so a global `--json` after them stays global.
-    let all = args(&["run", "--sandboxed", "--json", "--no-wait", "list", "--", "--json"]);
+    // `--sandboxed` takes no value, so a global `--json` after it stays global.
+    let all = args(&["run", "--sandboxed", "--json", "list", "--", "--json"]);
     let (global, command) = super::super::parse_globals(&all).map_err(|(error, _)| error).unwrap();
     assert_eq!(global.output, OutputMode::Json);
     let rest = split(&command).expect("a sandboxed run");
-    let mut expected = request("list --json");
-    expected.wait = false;
-    assert_eq!(parse(rest).unwrap(), Invocation::Run(expected));
+    assert_eq!(parse(rest).unwrap(), Invocation::Run(request("list --json")));
 }
 
 #[test]
@@ -181,6 +177,34 @@ fn a_receipt_counts_only_when_it_is_this_runs_finished_sandbox_receipt() {
     ] {
         assert_eq!(run_receipt(&snapshot, "run-1"), None, "{snapshot}");
     }
+}
+
+#[test]
+fn an_unknown_agent_is_a_usage_error_and_server_input_refusals_exit_2() {
+    assert!(parsed(&["run", "--sandboxed", "--agent", "bogus", "go"]).is_err());
+    for agent in ["claude", "codex", "opencode", "pi"] {
+        assert!(parsed(&["run", "--sandboxed", "--agent", agent, "go"]).is_ok(), "{agent}");
+    }
+    for code in
+        ["run_task_required", "run_agent_invalid", "run_image_invalid", "run_timeout_invalid"]
+    {
+        assert!(is_input_refusal(&json!({ "code": code })), "{code}");
+    }
+    assert!(!is_input_refusal(&json!({ "code": "run_sandbox_unavailable" })));
+}
+
+#[test]
+fn a_finished_run_without_a_receipt_is_a_lost_answer_not_a_running_one() {
+    for status in ["succeeded", "failed", "cancelled"] {
+        assert!(
+            run_finished(&json!({ "run": { "id": "run-1", "status": status }, "receipt": null })),
+            "{status}"
+        );
+    }
+    for status in ["queued", "running", "cancelling"] {
+        assert!(!run_finished(&json!({ "run": { "id": "run-1", "status": status } })), "{status}");
+    }
+    assert!(!run_finished(&json!({})));
 }
 
 #[test]
