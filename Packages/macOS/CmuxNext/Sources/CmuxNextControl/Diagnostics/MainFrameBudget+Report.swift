@@ -53,9 +53,9 @@ extension MainTaskBoard {
         }
         guard case .object(var fields) = classes else { return classes }
         fields["owners"] = .array(snapshot.owners.map(\.report))
-        fields["owner_ledger"] = [
+        fields["owner_ledger"] = .object([
             "recorded": .number(Double(snapshot.recorded)), "dropped": .number(Double(snapshot.dropped)), "pending": JSONValue(snapshot.pending),
-        ]
+        ])
         return .object(fields)
     }
 }
