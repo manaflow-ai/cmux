@@ -23,6 +23,8 @@ extension AppServices: OracleHost {
                     OracleLayoutFacet.Shown(workspace: content.workspace.resourceID?.rawValue ?? content.workspace.id, model: content.layoutModel)
                 }
             },
+            // The windows front to back, key and main, and each window's state and frame as screen fractions.
+            windows.oracleWindowsFacet(),
         ])
     }
 
