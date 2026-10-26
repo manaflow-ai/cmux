@@ -4,6 +4,7 @@ import CmuxNextDesign
 import CmuxNextPages
 import CmuxNextSidebar
 import CmuxNextSignposts
+import CmuxNextWakeups
 
 /// Shows the one icon picker (R94) in a floating panel beside its anchor and
 /// reports the outcome. One warm picker (S3 d): the first open loads the page
@@ -47,6 +48,14 @@ final class IconPickerService {
     private let symbols = IconPickerSymbols()
     /// The system SF Symbol catalog, loaded off the main actor at the first open; nil until then.
     private var catalog: IconPickerSymbolCatalog?
+    /// The catalog read in flight: every caller that asks while it runs shares it.
+    private var catalogLoad: Task<IconPickerSymbolCatalog, Never>?
+    /// What runs once the catalog is loaded, by waiter: each waiter's reply is its own task in its own class (a pick
+    /// `userBlocking`, the idle prepare `background`), so a pick never waits behind the prepare's class.
+    private var catalogWaiters: [Int: () -> Void] = [:]
+    private var nextCatalogWaiter = 0
+    /// The app's main-thread scheduler: the catalog's reply and its waiters are posted tasks on it.
+    private let mainWork: MainWorkScheduler
     private lazy var maxEmojiVersion = IconPickerSymbols.maxEmojiVersion()
     private(set) var open: OpenPicker?
     private var warm: Warm?
@@ -56,9 +65,10 @@ final class IconPickerService {
     /// Makes the picker's page (the app's one ``WebUIHost``).
     private let webUI: WebUIHost
 
-    init(services: AppServices?, webUI: WebUIHost) {
+    init(services: AppServices?, webUI: WebUIHost, mainWork: MainWorkScheduler) {
         self.services = services
         self.webUI = webUI
+        self.mainWork = mainWork
     }
 
     /// Whether the panel, page and provider exist, so an open reuses them.
@@ -73,7 +83,7 @@ final class IconPickerService {
     /// launch); `then` runs when it is ready.
     func prepare(then: (() -> Void)? = nil) {
         guard let catalog else {
-            loadCatalog { [weak self] in self?.prepare(then: then) }
+            loadCatalog(.background) { [weak self] in self?.prepare(then: then) }
             return
         }
         if warm == nil { _ = makeWarm(catalog: catalog) }
@@ -91,7 +101,7 @@ final class IconPickerService {
     private func pick(current: String?, target: String, at anchor: Anchor, assets: IconAssetStore?, started: ContinuousClock.Instant,
                       completion: @escaping (IconPickerResult) -> Void) {
         guard let catalog else {
-            loadCatalog { [weak self] in
+            loadCatalog(.userBlocking) { [weak self] in
                 self?.pick(current: current, target: target, at: anchor, assets: assets, started: started, completion: completion)
             }
             return
@@ -133,15 +143,29 @@ final class IconPickerService {
                                        present: pageReady.duration(to: .now), createdPage: createdPage))
     }
 
-    /// Loads the symbol catalog off the main actor (a few plist reads), then runs `then`.
-    private func loadCatalog(then: @escaping () -> Void) {
-        // task-owner: one load per first open; it ends with the read, and the service outlives it weakly
-        Task { [weak self] in
-            let loaded = await IconPickerSymbolCatalog.load()
-            guard let self else { return }
-            if self.catalog == nil { self.catalog = loaded }
-            then()
+    /// Loads the symbol catalog off the main actor (a few plist reads), then runs `then` as a task of `workClass`.
+    /// One load serves every caller that asks while it runs; each caller's reply is posted in that caller's class.
+    private func loadCatalog(_ workClass: BudgetedWorkClass, then: @escaping () -> Void) {
+        let waiter = nextCatalogWaiter
+        nextCatalogWaiter += 1
+        catalogWaiters[waiter] = then
+        // task-owner: one read per first open; it ends with the read, and every waiter's reply holds it
+        let load = catalogLoad ?? Task { @concurrent in await IconPickerSymbolCatalog.load() }
+        catalogLoad = load
+        let mainWork = mainWork
+        // task-owner: one wait per waiter; it ends when the shared read does, and the service outlives it weakly
+        Task { @concurrent [weak self] in
+            let loaded = await load.value
+            mainWork.postFromAnyThread(workClass, owner: "IconPickerService.catalog") { [weak self] in
+                self?.catalogLoaded(loaded, waiter: waiter)
+            }
         }
+    }
+
+    private func catalogLoaded(_ loaded: IconPickerSymbolCatalog, waiter: Int) {
+        if catalog == nil { catalog = loaded }
+        catalogLoad = nil
+        catalogWaiters.removeValue(forKey: waiter)?()
     }
 
     /// The picker page's engine options: it shows in a floating glass panel that closes when it

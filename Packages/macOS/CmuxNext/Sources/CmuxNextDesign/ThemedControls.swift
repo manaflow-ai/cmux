@@ -36,6 +36,7 @@ public class ThemedBezelButton: NSButton {
         applyTheme()
     }
 
+    // visibility-walk-allow: a bezel color store (and a key-hint title's colors); no layout, cheaper than a deferral
     public override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         applyTheme()

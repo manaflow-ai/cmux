@@ -33,6 +33,8 @@ extension NSMenu {
             _ = self
             body()
         }
+        // main-hop-allow: menu tracking: AppKit runs the chosen row before popUp returns, and the outcome settles only
+        // after the tracking loop has ended, on the default mode's next turn
         RunLoop.main.perform(#selector(ThemedMenuAfterRun.run), target: step, argument: nil, order: 0, modes: [.default])
     }
 }

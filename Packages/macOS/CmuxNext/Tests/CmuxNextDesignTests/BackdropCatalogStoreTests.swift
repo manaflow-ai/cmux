@@ -1,5 +1,6 @@
 import CmuxNextCompat
 @testable import CmuxNextDesign
+import CmuxNextWakeups
 import Foundation
 import Testing
 
@@ -26,7 +27,8 @@ import Testing
         defer { try? FileManager.default.removeItem(at: root) }
         FileManager.default.createFile(atPath: pictures.appendingPathComponent("Dunes.heic").path, contents: Data([0]))
         let store = BackdropCatalogStore(systemDirectory: pictures, userImages: BackdropUserImages(folder: images),
-                                         aerials: root.appendingPathComponent("aerials"), assetFolders: [])
+                                         aerials: root.appendingPathComponent("aerials"), assetFolders: [],
+                                         mainWork: MainWorkScheduler(budget: MainFrameBudget()))
         store.start()
         defer { store.stop() }
         await waitForBuilds(store, atLeast: 1)
@@ -40,5 +42,27 @@ import Testing
         FileManager.default.createFile(atPath: images.appendingPathComponent("mine.png").path, contents: Data([0]))
         await waitForBuilds(store, atLeast: 2)
         #expect(store.catalog.choices.contains { $0.id.contains("mine.png") })
+    }
+
+    /// Rule 9 (p06-scheduler.md): a build lands on main as one `visible` task of the app's scheduler, attributed to
+    /// `BackdropCatalogStore.build` and its posting site in the owners ledger. A build that resumed the store's own
+    /// main-actor task landed as an unattributed job: no ledger row.
+    @Test func eachBuildLandsAsOneVisibleTaskOnTheScheduler() async throws {
+        let (pictures, images, root) = try folders()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let board = MainTaskBoard(ledger: MainOwnerLedger(capacity: 64, folding: .manual))
+        let mainWork = MainWorkScheduler(budget: MainFrameBudget(board: board))
+        let store = BackdropCatalogStore(systemDirectory: pictures, userImages: BackdropUserImages(folder: images),
+                                         aerials: root.appendingPathComponent("aerials"), assetFolders: [], mainWork: mainWork)
+        #expect(store.builds == 0, "the store built on the main thread before start()")
+        store.start()
+        defer { store.stop() }
+        await waitForBuilds(store, atLeast: 1)
+        #expect(store.builds == 1)
+        let row = try #require(board.ownerSnapshot().owners.first { $0.owner == "BackdropCatalogStore.build" },
+                               "the build landed outside the scheduler: no owner row")
+        #expect(row.workClass == .visible)
+        #expect(row.tasks == 1, "one build landed as \(row.tasks) tasks")
+        #expect(row.sites.first?.location.contains("BackdropCatalogStore.swift") == true, "\(row.sites)")
     }
 }

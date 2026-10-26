@@ -1,5 +1,6 @@
 import CmuxNextDaemon
 import CmuxNextPalette
+import CmuxNextWakeups
 import Foundation
 import os
 
@@ -11,11 +12,17 @@ import os
 /// daemon that lacks the capability the former local history is kept as
 /// before (no learned picks); while the daemon is away a run is dropped,
 /// never written to a second store.
+///
+/// The daemon calls run off main, in one nonisolated task per fetch or per batch of writes; only their
+/// replies are main-thread tasks on ``MainWorkScheduler`` (p06 recipe R-hop), as Chromium posts a
+/// thread-pool reply back to the UI thread (`base::PostTaskAndReplyWithResult`, base/task/post_task.h).
 @MainActor
 final class DaemonPaletteUsageStore: PaletteUsageStore {
     private nonisolated static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "palette.usage")
 
     private weak var services: AppServices?
+    /// The app's main-thread scheduler: a fetch's and a batch's replies are posted tasks on it.
+    private let mainWork: MainWorkScheduler
     private let local: LocalPaletteUsageStore
     private let preferences: URL
     /// The connection whose former histories were imported this launch.
@@ -25,7 +32,7 @@ final class DaemonPaletteUsageStore: PaletteUsageStore {
     private var fetching: Task<Void, Never>?
     private var fetchAgain = false
     /// One write to the daemon's history.
-    private enum Write {
+    private nonisolated enum Write: Sendable {
         case record(key: String, query: String)
         case hide(key: String, hidden: Bool)
         case forget(key: String)
@@ -38,9 +45,11 @@ final class DaemonPaletteUsageStore: PaletteUsageStore {
     private(set) var history: FrecencyStore
     var onChange: (@MainActor () -> Void)?
 
-    init(services: AppServices, local: LocalPaletteUsageStore = LocalPaletteUsageStore(persistence: UserDefaultsFrecencyPersistence()),
+    init(services: AppServices, mainWork: MainWorkScheduler,
+         local: LocalPaletteUsageStore = LocalPaletteUsageStore(persistence: UserDefaultsFrecencyPersistence()),
          preferences: URL = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Preferences")) {
         self.services = services
+        self.mainWork = mainWork
         self.local = local
         self.preferences = preferences
         history = local.history
@@ -79,42 +88,65 @@ final class DaemonPaletteUsageStore: PaletteUsageStore {
             fetchAgain = true
             return
         }
-        fetching = Task { [weak self] in
-            await self?.fetchOnce()
-            guard let self else { return }
-            fetching = nil
-            if fetchAgain {
-                fetchAgain = false
-                fetch()
+        guard case .daemon(let client, let id) = owner else { return }
+        let importing = importedOn != id, preferences = preferences, mainWork = mainWork
+        // task-owner: DaemonPaletteUsageStore.fetching (cancelled with the store); one read, off main (recipe R-hop)
+        fetching = Task { @concurrent [weak self] in
+            let answer = await Self.read(client, importing: importing, preferences: preferences)
+            guard !Task.isCancelled else { return }
+            // `visible`: an open palette reranks with what it reads; no input of the person waits on it.
+            mainWork.postFromAnyThread(.visible, owner: "DaemonPaletteUsageStore.fetched") { [weak self] in
+                self?.fetched(answer, on: id)
             }
         }
     }
 
-    private func fetchOnce() async {
-        guard case .daemon(let client, let id) = owner else { return }
+    /// One fetch's answer: the history, and whether this connection's former histories were imported.
+    private nonisolated struct Fetched: Sendable {
+        var history: FrecencyStore
+        var revision: UInt64
+        var imported: Bool
+    }
+
+    /// Reads the daemon's history, importing first (when `importing`) each former history it has not seen.
+    @concurrent private nonisolated static func read(_ client: PaletteUsageStateClient, importing: Bool,
+                                                     preferences: URL) async -> Fetched? {
         do {
             var snapshot = try PaletteUsageWire.history(try await client.get())
-            if importedOn != id {
-                var importedAny = false
-                for former in await PaletteUsageLegacyHistory.read(preferences: preferences)
-                where !snapshot.imported.contains(former.source) && !Task.isCancelled {
-                    do {
-                        _ = try await client.importHistory(source: former.source, entries: former.rows,
-                                                           idempotencyKey: "palette-usage-import:\(former.source)")
-                        importedAny = true
-                    } catch {
-                        Self.logger.error("palette usage import of one former history failed: \(String(describing: error), privacy: .public)")
-                    }
+            guard importing else { return Fetched(history: snapshot.history, revision: snapshot.revision, imported: false) }
+            var importedAny = false
+            for former in await PaletteUsageLegacyHistory.read(preferences: preferences)
+            where !snapshot.imported.contains(former.source) && !Task.isCancelled {
+                do {
+                    _ = try await client.importHistory(source: former.source, entries: former.rows,
+                                                       idempotencyKey: "palette-usage-import:\(former.source)")
+                    importedAny = true
+                } catch {
+                    logger.error("palette usage import of one former history failed: \(String(describing: error), privacy: .public)")
                 }
-                importedOn = id
-                if importedAny { snapshot = try PaletteUsageWire.history(try await client.get()) }
             }
-            guard snapshot.revision >= revision else { return }
-            revision = snapshot.revision
-            history = snapshot.history
-            onChange?()
+            if importedAny { snapshot = try PaletteUsageWire.history(try await client.get()) }
+            return Fetched(history: snapshot.history, revision: snapshot.revision, imported: true)
         } catch {
-            Self.logger.error("palette usage fetch failed: \(String(describing: error), privacy: .public)")
+            logger.error("palette usage fetch failed: \(String(describing: error), privacy: .public)")
+            return nil
+        }
+    }
+
+    /// The fetch's reply on main: keeps a newer history, then runs the fetch asked for while it ran.
+    private func fetched(_ answer: Fetched?, on connection: ObjectIdentifier) {
+        fetching = nil
+        if let answer {
+            if answer.imported { importedOn = connection }
+            if answer.revision >= revision {
+                revision = answer.revision
+                history = answer.history
+                onChange?()
+            }
+        }
+        if fetchAgain {
+            fetchAgain = false
+            fetch()
         }
     }
 
@@ -155,21 +187,31 @@ final class DaemonPaletteUsageStore: PaletteUsageStore {
     private func enqueue(_ write: Write) {
         pendingRuns.append((write, "palette-usage:\(UUID().uuidString)"))
         guard recorder == nil else { return }
-        recorder = Task { [weak self] in
-            await self?.recordPending()
-            self?.recorder = nil
+        sendPending()
+    }
+
+    /// Sends the waiting writes in order, off main, then rereads the history once (``sent()``). A write whose
+    /// daemon went away is dropped (never written elsewhere).
+    private func sendPending() {
+        guard case .daemon(let client, _) = owner else {
+            pendingRuns.removeAll()
+            return
+        }
+        let batch = pendingRuns
+        pendingRuns.removeAll()
+        let mainWork = mainWork
+        // task-owner: DaemonPaletteUsageStore.recorder (cancelled with the store); one batch of writes, off main (recipe R-hop)
+        recorder = Task { @concurrent [weak self] in
+            await Self.send(batch, to: client)
+            guard !Task.isCancelled else { return }
+            mainWork.postFromAnyThread(.visible, owner: "DaemonPaletteUsageStore.sent") { [weak self] in self?.sent() }
         }
     }
 
-    /// Sends the waiting writes in order, then rereads the history once. A
-    /// write whose daemon went away is dropped (never written elsewhere).
-    private func recordPending() async {
-        while !pendingRuns.isEmpty, !Task.isCancelled {
-            let run = pendingRuns.removeFirst()
-            guard case .daemon(let client, _) = owner else {
-                pendingRuns.removeAll()
-                return
-            }
+    /// Each write of `batch` in order; a failed one is logged and the next still goes.
+    @concurrent private nonisolated static func send(_ batch: [(write: Write, idempotencyKey: String)],
+                                                     to client: PaletteUsageStateClient) async {
+        for run in batch where !Task.isCancelled {
             do {
                 switch run.write {
                 case .record(let key, let query):
@@ -180,9 +222,14 @@ final class DaemonPaletteUsageStore: PaletteUsageStore {
                     _ = try await client.forget(key: key, idempotencyKey: run.idempotencyKey)
                 }
             } catch {
-                Self.logger.error("palette usage record failed: \(String(describing: error), privacy: .public)")
+                logger.error("palette usage record failed: \(String(describing: error), privacy: .public)")
             }
         }
-        if !Task.isCancelled { fetch() }
+    }
+
+    /// A batch's reply on main: the writes that came while it ran go next, else the history is read again.
+    private func sent() {
+        recorder = nil
+        if pendingRuns.isEmpty { fetch() } else { sendPending() }
     }
 }

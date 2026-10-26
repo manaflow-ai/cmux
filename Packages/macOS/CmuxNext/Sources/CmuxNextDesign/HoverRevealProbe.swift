@@ -15,10 +15,11 @@ final class HoverRevealProbe: NSView {
     private weak var routedWindow: NSWindow?
     private let trackingOptions: NSTrackingArea.Options
     private let tracksPointer: Bool
-    private var closeObserver: Task<Void, Never>?
-    /// The moves inside (feature `pointerFrameHover`, its window's ``HoverFrameInputHosting`` frames): a move
-    /// marks a pointer inside whose enter was missed, on its frame interval's leading edge or once at the frame.
-    private(set) lazy var moves = PointerFrameHover(owner: "HoverRevealProbe", view: self) { [weak self] _ in
+    /// The window's close, through its ``WindowEvents`` (one observer per notice for the window).
+    private var closeObserver: EventSubscription?
+    /// The moves inside, on its window's FrameInputCoalescer (feature `pointerFrameHover`, its window's
+    /// ``HoverFrameInputHosting`` frames): a move marks a pointer inside whose enter was missed, on its frame interval's leading edge or once at the frame.
+    private(set) lazy var frameInput = PointerFrameHover(owner: "HoverRevealProbe", view: self) { [weak self] _ in
         if self?.owner?.state.pointerInside == false { self?.owner?.setPointerInside(true) }
     }
 
@@ -75,13 +76,13 @@ final class HoverRevealProbe: NSView {
     }
 
     override func mouseEntered(with event: NSEvent) {
-        moves.flush()
+        frameInput.flush()
         owner?.setPointerInside(true)
     }
-    override func mouseMoved(with event: NSEvent) { moves.moved(event) }
+    override func mouseMoved(with event: NSEvent) { frameInput.moved(event) }
     override func mouseExited(with event: NSEvent) {
         // A move from before the exit would only mark the pointer inside again.
-        moves.cancel()
+        frameInput.cancel()
         owner?.setPointerInside(false)
     }
 
@@ -97,19 +98,17 @@ final class HoverRevealProbe: NSView {
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
-        moves.frames = (window as? HoverFrameInputHosting)?.hoverFrameInput
+        frameInput.frames = (window as? HoverFrameInputHosting)?.hoverFrameInput
         guard let window else { return }
         if let owner {
             HoverRevealFocusRouter.join(owner, window: window)
             routedWindow = window
         }
-        // task-owner: the probe (cancelled when it leaves the window or deinits); event-driven.
-        closeObserver = Task { @MainActor [weak self, weak window] in
+        // Ended when the probe leaves the window or deinits; runs in the close's own turn.
+        closeObserver = WindowEvents.of(window).subscribe(NSWindow.willCloseNotification, owner: "HoverRevealProbe") { [weak self, weak window] in
             guard let window else { return }
-            for await _ in NotificationCenter.default.notifications(named: NSWindow.willCloseNotification, object: window) {
-                if let key = self?.ownerKey { HoverRevealFocusRouter.forgetFocus(key, window: window) }
-                self?.owner?.windowWillChange()
-            }
+            if let key = self?.ownerKey { HoverRevealFocusRouter.forgetFocus(key, window: window) }
+            self?.owner?.windowWillChange()
         }
         // A pointer already over the region when it joins a shown window
         // reveals at once, before any click (no mouseEntered arrives for
