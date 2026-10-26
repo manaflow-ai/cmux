@@ -15,7 +15,6 @@ final class ChromiumHostFiles {
     private struct Asking {
         let browser: Int32
         let multiple: Int32
-        weak var window: NSWindow?
         let answer: Answer
     }
 
@@ -38,8 +37,10 @@ final class ChromiumHostFiles {
              answer: @escaping Answer) {
         asked += 1
         guard asking[dialog] == nil else { return answer(dialog, request.multiple, nil) }
-        asking[dialog] = Asking(browser: browser, multiple: request.multiple, window: window, answer: answer)
-        panels.answerFileDialog(request, window: window) { [weak self] urls in self?.finish(dialog, with: urls) }
+        asking[dialog] = Asking(browser: browser, multiple: request.multiple, answer: answer)
+        panels.answerFileDialog(dialog, request: request, window: window) { [weak self] urls in
+            self?.finish(dialog, with: urls)
+        }
     }
 
     /// Answers the newest waiting chooser with `urls` (nil cancels) and takes its picker down, as a
@@ -47,17 +48,17 @@ final class ChromiumHostFiles {
     /// file_picker row). False when none waits.
     func answerNewest(with urls: [URL]?) -> Bool {
         guard let dialog = asking.keys.max() else { return false }
-        let window = asking[dialog]?.window
         finish(dialog, with: urls)
-        panels.endFileDialog(on: window)
+        panels.endFileDialog(dialog)
         return true
     }
 
-    /// Chromium closed `browser` and cancelled its choosers itself: their pickers go, unanswered.
+    /// Chromium closed `browser` and cancelled its choosers itself: their pickers go, unanswered;
+    /// another browser's chooser keeps its picker, even on the same window.
     func browserClosed(_ browser: Int32) {
         for (dialog, entry) in asking where entry.browser == browser {
             asking[dialog] = nil
-            panels.endFileDialog(on: entry.window)
+            panels.endFileDialog(dialog)
         }
     }
 

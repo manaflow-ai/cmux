@@ -42,14 +42,14 @@ public nonisolated struct ChromiumFileDialogRequest: Equatable, Sendable {
 /// stand-in in tests (a test host cannot make an `NSOpenPanel` without its view service).
 @MainActor
 public protocol ChromiumFileDialogAnswering: AnyObject {
-    /// Shows the picker for `request`, as a sheet on `window` (else as its own window), and calls
-    /// `completion` exactly once: the chosen files, or nil when the person cancelled or no picker
-    /// could be shown.
-    func answerFileDialog(_ request: ChromiumFileDialogRequest, window: NSWindow?,
+    /// Shows the picker for chooser `dialog`'s `request`, as a sheet on `window` (else as its own
+    /// window), and calls `completion` exactly once: the chosen files, or nil when the person
+    /// cancelled or no picker could be shown.
+    func answerFileDialog(_ dialog: Int32, request: ChromiumFileDialogRequest, window: NSWindow?,
                           completion: @escaping @MainActor ([URL]?) -> Void)
-    /// Takes down the picker shown on `window` (nil: the one shown as its own window), if any; its
-    /// completion then runs with nil.
-    func endFileDialog(on window: NSWindow?)
+    /// Takes down chooser `dialog`'s picker, if it shows, and no other; its completion then runs
+    /// with nil.
+    func endFileDialog(_ dialog: Int32)
 }
 
 /// cmux's pickers for a page's file chooser: the app's made-ahead open panel (``MadeAheadOpenPanel``,
@@ -57,21 +57,21 @@ public protocol ChromiumFileDialogAnswering: AnyObject {
 /// sheet on the page's window.
 public final class ChromiumFileDialogPanels: ChromiumFileDialogAnswering {
     private let openPanel: MadeAheadOpenPanel
-    /// The picker showing on each window (nil key: one shown as its own window).
-    private var shown: [ObjectIdentifier?: NSSavePanel] = [:]
+    /// The picker showing for each chooser, by Chromium's dialog id. Two choosers can share a
+    /// window (AppKit queues the second sheet) or have none, so a window names no one picker.
+    private var shown: [Int32: NSSavePanel] = [:]
 
     /// - Parameter openPanel: The app's made-ahead panel (`AppServices.openPanel`).
     public init(openPanel: MadeAheadOpenPanel) {
         self.openPanel = openPanel
     }
 
-    public func answerFileDialog(_ request: ChromiumFileDialogRequest, window: NSWindow?,
+    public func answerFileDialog(_ dialog: Int32, request: ChromiumFileDialogRequest, window: NSWindow?,
                                  completion: @escaping @MainActor ([URL]?) -> Void) {
-        guard let panel = panel(for: request) else { return completion(nil) }
-        let key = window.map(ObjectIdentifier.init)
-        shown[key] = panel
+        guard shown[dialog] == nil, let panel = panel(for: request) else { return completion(nil) }
+        shown[dialog] = panel
         let finish: (NSApplication.ModalResponse) -> Void = { [weak self] response in
-            if self?.shown[key] === panel { self?.shown[key] = nil }
+            self?.shown[dialog] = nil
             completion(response == .OK ? Self.chosen(in: panel) : nil)
         }
         if let window {
@@ -81,8 +81,8 @@ public final class ChromiumFileDialogPanels: ChromiumFileDialogAnswering {
         }
     }
 
-    public func endFileDialog(on window: NSWindow?) {
-        shown[window.map(ObjectIdentifier.init)]?.cancel(nil)
+    public func endFileDialog(_ dialog: Int32) {
+        shown[dialog]?.cancel(nil)
     }
 
     /// A panel set up for `request`; nil when the open panel came back dead (``MadeAheadOpenPanel/panel()``).

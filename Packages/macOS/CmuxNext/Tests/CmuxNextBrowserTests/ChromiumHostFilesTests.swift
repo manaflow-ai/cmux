@@ -76,7 +76,8 @@ import Testing
         panels.complete(1, with: nil)
 
         #expect(answers == ["4 0 /tmp/z"])
-        #expect(panels.ended == 1)
+        #expect(panels.ended == [4], "the debug choice took down another chooser's picker")
+        #expect(panels.showing == [3])
         #expect(files.waiting == 1)
         #expect(files.answerNewest(with: nil))
         #expect(answers == ["4 0 /tmp/z", "3 0 nil"])
@@ -97,12 +98,38 @@ import Testing
         panels.complete(0, with: [URL(filePath: "/tmp/late")])
 
         #expect(answers.isEmpty, "a closed browser's chooser was answered")
-        #expect(panels.ended == 1)
+        #expect(panels.ended == [1])
         #expect(files.waiting == 1)
         files.hostEnded()
-        #expect(panels.ended == 2)
+        #expect(panels.ended == [1, 2])
         #expect(files.waiting == 0)
         #expect(answers.isEmpty)
+    }
+
+    /// Before, the pickers were kept by window: two choosers on one window, or both with none,
+    /// shared one picker slot, so closing one browser cancelled the other's picker (a cancel its
+    /// person never chose) and left the closed page's picker up.
+    @Test(arguments: [true, false])
+    func closingOneBrowserLeavesAnotherChooserOnTheSameWindowWaiting(sharesAWindow: Bool) {
+        let window: NSWindow? = sharesAWindow
+            ? NSWindow(contentRect: NSRect(x: 0, y: 0, width: 200, height: 100), styleMask: [.titled], backing: .buffered, defer: true)
+            : nil
+        let panels = RecordingFileDialogs()
+        let files = ChromiumHostFiles(panels: panels)
+        var answers: [String] = []
+        let record: ChromiumHostFiles.Answer = { answers.append("\($0) \($1) \($2 ?? "nil")") }
+        files.ask(1, browser: 7, request: ChromiumFileDialogRequest(mode: 0, acceptTypes: [], defaultPath: ""), window: window, answer: record)
+        files.ask(2, browser: 8, request: ChromiumFileDialogRequest(mode: 0, acceptTypes: [], defaultPath: ""), window: window, answer: record)
+        #expect(panels.windows.allSatisfy { $0 === window }, "a picker was not shown on its page's window")
+
+        files.browserClosed(7)
+
+        #expect(panels.ended == [1], "closing browser 7 took down another chooser's picker")
+        #expect(panels.showing == [2], "browser 8's picker went down, or browser 7's stayed up")
+        #expect(answers.isEmpty, "browser 8's chooser was answered with a cancel nobody chose")
+        #expect(files.waiting == 1)
+        panels.complete(1, with: [URL(filePath: "/tmp/b8")])
+        #expect(answers == ["2 0 /tmp/b8"], "browser 8's choice was lost")
     }
 
     // MARK: The runtime
@@ -125,7 +152,7 @@ import Testing
         #expect(FilesSpy.calls == ["set_file_dialogs 1", "file_dialog_answer 2 0 /tmp/a.png"])
         runtime.handle(.fileDialog(browser: 7, dialogID: 3, mode: 1, acceptTypes: [], defaultPath: ""))
         runtime.handle(.beforeClose(browser: 7))
-        #expect(panels.ended == 1, "a closed page's picker stayed up")
+        #expect(panels.ended == [3], "a closed page's picker stayed up")
     }
 
     /// Without cmux's picker (in process, or the feature off) a chooser the shim sends is cancelled at
@@ -187,23 +214,36 @@ import Testing
     }
 }
 
-/// The pickers a test stands in for: each request, completed when the test says.
+/// The pickers a test stands in for: each request, completed when the test says. Ending a chooser
+/// cancels only its own picker, as ``ChromiumFileDialogPanels`` does.
 @MainActor final class RecordingFileDialogs: ChromiumFileDialogAnswering {
     private(set) var requests: [ChromiumFileDialogRequest] = []
+    private(set) var windows: [NSWindow?] = []
+    private var dialogs: [Int32] = []
     private var completions: [@MainActor ([URL]?) -> Void] = []
-    private(set) var ended = 0
+    /// The choosers whose picker is up.
+    private(set) var showing: Set<Int32> = []
+    /// The choosers whose picker was taken down, in order.
+    private(set) var ended: [Int32] = []
 
-    func answerFileDialog(_ request: ChromiumFileDialogRequest, window: NSWindow?,
+    func answerFileDialog(_ dialog: Int32, request: ChromiumFileDialogRequest, window: NSWindow?,
                           completion: @escaping @MainActor ([URL]?) -> Void) {
         requests.append(request)
+        windows.append(window)
+        dialogs.append(dialog)
         completions.append(completion)
+        showing.insert(dialog)
     }
 
-    func endFileDialog(on window: NSWindow?) {
-        ended += 1
+    func endFileDialog(_ dialog: Int32) {
+        ended.append(dialog)
+        guard showing.contains(dialog), let index = dialogs.firstIndex(of: dialog) else { return }
+        complete(index, with: nil)
     }
 
+    /// Runs picker `index`'s completion, as the person's choice (nil: cancel) would.
     func complete(_ index: Int, with urls: [URL]?) {
+        showing.remove(dialogs[index])
         completions[index](urls)
     }
 }
