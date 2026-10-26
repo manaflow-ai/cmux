@@ -500,9 +500,13 @@ final class TopHomePageView: NSView {
     }
 
     /// I left `id` while it showed: its neighbor in the list shows (else the default conversation).
+    /// A neighbor the Engine row excludes (a cloud Chief under This Mac) is not one: the default
+    /// conversation decides instead.
     func conversationLeft(_ id: ConversationID, next: ConversationID?) {
         guard shown == id, let services else { return }
-        let fallback = next.flatMap { $0 == id ? nil : $0 } ?? defaultConversation(rows: rows.filter { $0.id != id }, home: services.home)
+        let excluded = services.home.excludedChiefConversations
+        let neighbor = next.flatMap { $0 == id || excluded.contains($0.rawValue) ? nil : $0 }
+        let fallback = neighbor ?? defaultConversation(rows: rows.filter { $0.id != id }, home: services.home)
         guard let fallback, fallback != id else { return }
         show(fallback)
     }

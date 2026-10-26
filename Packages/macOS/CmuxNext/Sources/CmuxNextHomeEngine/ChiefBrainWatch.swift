@@ -19,7 +19,11 @@ public final class ChiefBrainWatch {
     private let home: ChiefHome
     private let restart: Restart
     private let watching: Watching?
+    /// Whether a pid runs an `optchat-chief`; the tests name a stand-in process instead.
+    private let isChiefHost: (pid_t) -> Bool
     private var source: (any DispatchSourceProcess)?
+    /// One kernel event on the home's state folder while no host is watched (see ``armOnLock``).
+    private var lockSource: (any DispatchSourceFileSystemObject)?
     /// The process the armed source watches; an event for another pid is stale.
     private var watchedPID: pid_t?
     private var deaths: [ContinuousClock.Instant] = []
@@ -31,10 +35,12 @@ public final class ChiefBrainWatch {
     static let deathLimit = 3
     static let deathWindow: Duration = .seconds(60)
 
-    public init(home: ChiefHome, restart: @escaping Restart, watching: Watching? = nil) {
+    public init(home: ChiefHome, restart: @escaping Restart, watching: Watching? = nil,
+                isChiefHost: @escaping (pid_t) -> Bool = ChiefHostStop.isChiefHost) {
         self.home = home
         self.restart = restart
         self.watching = watching
+        self.isChiefHost = isChiefHost
     }
 
     /// Watches `pid`, or the host that holds the lock now when `pid` is nil.
@@ -42,11 +48,14 @@ public final class ChiefBrainWatch {
         guard !stopped else { return }
         source?.cancel()
         source = nil
-        guard let pid = pid ?? ChiefHostStop.runningHostPID(home: home) else {
+        guard let pid = pid ?? ChiefHostStop.runningHostPID(home: home, isChiefHost: isChiefHost) else {
             logger.info("chief brain watch: no host process to watch")
             setWatched(nil)
+            armOnLock()
             return
         }
+        lockSource?.cancel()
+        lockSource = nil
         setWatched(pid)
         let source = DispatchSource.makeProcessSource(identifier: pid, eventMask: .exit, queue: .main)
         weak let weakSelf = self
@@ -71,7 +80,44 @@ public final class ChiefBrainWatch {
         stopped = true
         source?.cancel()
         source = nil
+        lockSource?.cancel()
+        lockSource = nil
         setWatched(nil)
+    }
+
+    /// A launch whose pid the shell did not print leaves nothing to watch until the host takes the
+    /// home's lock, which it does a moment later (`ChiefHostStop.runningHostPID` reads the pid the
+    /// holder writes there). So while no host is watched, one kernel event on the home's `state`
+    /// folder (where the lock is written) looks again: no polling and no timer. It ends when a host
+    /// is watched, at ``stop()``, or when the folder cannot be opened, and a reader of the brain's
+    /// liveness (Home's default Chief) hears the host through ``Watching`` either way.
+    private func armOnLock() {
+        guard !stopped, lockSource == nil else { return }
+        let state = home.root.appendingPathComponent("state")
+        // concurrency-allow: one open of a local folder per launch that watched nothing
+        let fd = open(state.path, O_EVTONLY)
+        guard fd >= 0 else {
+            logger.info("chief brain watch: no host and no state folder to watch for its lock")
+            return
+        }
+        let source = DispatchSource.makeFileSystemObjectSource(fileDescriptor: fd, eventMask: .write, queue: .main)
+        weak let weakSelf = self
+        source.setEventHandler {
+            // task-owner: one hop to the main actor per state-folder change
+            Task { @MainActor in weakSelf?.lockMayHaveAHost() }
+        }
+        source.setCancelHandler { close(fd) }
+        lockSource = source
+        source.resume()
+        // The host may have taken the lock between the read above and this arming.
+        lockMayHaveAHost()
+    }
+
+    /// The home's state folder changed while nothing was watched: watch the host that holds the
+    /// lock now, if one does. `watch` cancels this source once it has one.
+    private func lockMayHaveAHost() {
+        guard !stopped, !restarting, source == nil, let pid = ChiefHostStop.runningHostPID(home: home, isChiefHost: isChiefHost) else { return }
+        watch(pid)
     }
 
     /// The watched host changed: `watching` hears it once per change, so a
@@ -90,7 +136,7 @@ public final class ChiefBrainWatch {
         setWatched(nil)
         source?.cancel()
         source = nil
-        if let other = ChiefHostStop.runningHostPID(home: home), other != pid {
+        if let other = ChiefHostStop.runningHostPID(home: home, isChiefHost: isChiefHost), other != pid {
             logger.info("chief brain \(pid, privacy: .public) exited; host \(other, privacy: .public) holds the lock")
             watch(other)
             return
@@ -117,7 +163,7 @@ public final class ChiefBrainWatch {
             // host must not outlive it.
             // concurrency-allow: one small stat after a restart
             let shutdown = FileManager.default.fileExists(atPath: home.shutdownMarker.path)
-            if stopped || shutdown, let next, ChiefHostStop.isChiefHost(next) {
+            if stopped || shutdown, let next, isChiefHost(next) {
                 kill(next, SIGTERM)
                 return
             }

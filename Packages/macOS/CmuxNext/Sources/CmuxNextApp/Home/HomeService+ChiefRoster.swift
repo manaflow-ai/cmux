@@ -92,9 +92,17 @@ extension HomeService {
     /// The cloud Chiefs' conversations the Engine row excludes. With this Mac's Chief the default,
     /// Home never opens one of these, not even as the page's fallback while this Mac's conversation
     /// is not listed yet: the choice is about where the person's Chief messages go.
+    ///
+    /// Every cloud-owned Chief row counts, not only the two the last cloud read named: a row the
+    /// cache kept from an earlier launch, or a Chief whose placement moved, is in the list before
+    /// that read lands and would otherwise be the page's first pick.
     var excludedChiefConversations: Set<String> {
         guard prefersLocalChief else { return [] }
-        return Set([cloudChiefs.hosted?.mainConversation, cloudChiefs.placed?.mainConversation].compactMap { $0 })
+        let cloudRows = homeStore.rows
+            .filter { $0.kind == .chief && homeStore.summary($0.id)?.owner == .cloud }
+            .map(\.id.rawValue)
+        let read = [cloudChiefs.hosted?.mainConversation, cloudChiefs.placed?.mainConversation].compactMap { $0 }
+        return Set(cloudRows).union(read)
     }
 
     /// This Mac's brain host started or died (``ChiefBrainKeeper``): Auto follows it, so the Chief

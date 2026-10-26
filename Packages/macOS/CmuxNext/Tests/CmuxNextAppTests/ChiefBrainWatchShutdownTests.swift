@@ -48,6 +48,39 @@ import Testing
         watch.stop()
     }
 
+    /// A launch whose pid the shell did not print watches nothing until the host takes the home's
+    /// lock a moment later. The watch waits on the state folder for that, so Home's Auto engine
+    /// hears the host without another ask (review of #23984).
+    @Test func aHostThatTakesTheLockAfterTheLaunchIsStillWatched() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("chief-watch-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let home = ChiefHome(root: root, isolated: true)
+        let state = root.appendingPathComponent("state")
+        try FileManager.default.createDirectory(at: state, withIntermediateDirectories: true)
+        let brain = Process()
+        brain.executableURL = URL(fileURLWithPath: "/bin/sleep")
+        brain.arguments = ["30"]
+        try brain.run()
+        defer { brain.terminate() }
+        var seen: [pid_t?] = []
+        // The stand-in brain is not a real optchat-chief, so the lock's pid is read as a host here.
+        let watch = ChiefBrainWatch(home: home, restart: { nil }, watching: { seen.append($0) },
+                                    isChiefHost: { $0 == brain.processIdentifier })
+        // The launch gave no pid and no host holds the lock yet: nothing watched, nothing reported.
+        watch.watch(nil)
+        #expect(seen.isEmpty, "no host yet: nothing to report")
+
+        // The host takes the lock, which is what it writes its pid into.
+        try Data("\(brain.processIdentifier)\n".utf8).write(to: state.appendingPathComponent("host.lock"))
+        let deadline = ContinuousClock.now + .seconds(5)
+        while seen.isEmpty, ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        #expect(seen == [brain.processIdentifier], "the host that took the lock is watched")
+        watch.stop()
+    }
+
     /// Watches a stand-in brain, ends it and counts the watch's restarts.
     private func restartsAfterExit(shutdown: Bool) async throws -> Int {
         let root = FileManager.default.temporaryDirectory
