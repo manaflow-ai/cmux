@@ -48,9 +48,12 @@ struct KeyDownDispatchTests {
         let registry = ActionRegistry(catalog: Self.catalog)
         registry.effectExpectsFrame = { context.noteFrameExpected() }
         registry.bindEffect("test.rename", effect: { _ in .applied(ActionConfirmation(send: { nil })) })
-        let automation = FrameBatchQueue(owner: "Control.frames", budgeted: .automation, on: scheduler)
+        // A frame client keeps the link running, so the post waits for a frame instead of the next turn.
+        let keeper = FrameClient(owner: "test.keeper", isAnimation: false, on: scheduler.frames) { _ in true }
+        keeper.activate()
+        defer { keeper.deactivate() }
         var ran = false
-        automation.enqueue { ran = true }
+        scheduler.post(.automation, owner: "cli.request") { ran = true }
         context.dispatching(try Self.key(.keyDown)) { _ = registry.perform("test.rename") }
         // The key's own turn ends with its own render pass: that pass does not end the response.
         scheduler.renderPassEnded(nanos: 1_000_000)
@@ -72,9 +75,12 @@ struct KeyDownDispatchTests {
         let registry = ActionRegistry(catalog: Self.catalog)
         registry.effectExpectsFrame = { context.noteFrameExpected() }
         registry.bindEffect("test.rename", effect: { _ in .done })
-        let automation = FrameBatchQueue(owner: "Control.frames", budgeted: .automation, on: scheduler)
+        // A frame client keeps the link running, so the post waits for a frame instead of the next turn.
+        let keeper = FrameClient(owner: "test.keeper", isAnimation: false, on: scheduler.frames) { _ in true }
+        keeper.activate()
+        defer { keeper.deactivate() }
         var ran = false
-        automation.enqueue { ran = true }
+        scheduler.post(.automation, owner: "cli.request") { ran = true }
         context.dispatching(try Self.key(.keyDown)) { _ = registry.perform("test.rename") }
         clock.advance(ms: 17)
         scheduler.frameDidFire(timestamp: 1, refreshInterval: 1.0 / 60)
