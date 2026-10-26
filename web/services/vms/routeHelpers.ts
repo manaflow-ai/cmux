@@ -1150,7 +1150,7 @@ export const vmWorkflowErrorResponders = {
       error: "vm_tunnel_not_found",
       status: 404,
       message: "This computer is not enrolled on your Cloud VM network.",
-      action: "Enroll it with `cmux cloud tunnel-attach --arg path=<network-id>`, then bring the WireGuard tunnel up.",
+      action: "Run `cmux cloud sign-out`, then `cmux cloud sign-in` to enroll this Mac again; after that, bring the WireGuard tunnel up.",
       phase: "network",
       retryable: false,
       details: { deviceFingerprint: error.deviceFingerprint },
