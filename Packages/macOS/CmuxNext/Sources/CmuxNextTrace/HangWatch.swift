@@ -29,7 +29,7 @@ public final class HangWatch: Sendable {
     /// The monitor's scan period while scopes open and close, and so the latency past a deadline at which
     /// a hang is seen. A shorter deadline is still watched, up to this much late.
     public let minimumDeadline: Duration
-    let periodNanos: UInt64
+    public let periodNanos: UInt64 // ``minimumDeadline`` in nanoseconds (at least 1)
     /// How long a scope may stay open past its budget before the monitor reports it as a hang (a stack
     /// dump); before that it is a jank (a record with no stack).
     public let hangAfterBudget: Duration

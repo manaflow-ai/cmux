@@ -44,27 +44,25 @@ struct HangMonitor {
     #endif
     /// The reported scopes still named in ``crashKeys``' hung threads (at most its capacity).
     private var named: [HangWatch.Overdue] = []
-    /// The scan period: a named hung thread is looked at this often, since its scope's close wakes nobody.
-    private let periodNanos: UInt64
 
     init(source: Source, log: HangLog, janks: HangLog, logger: Logger?) {
         (self.watch, self.crashKeys, self.log, self.janks, self.logger) = (source.watch, source.crashKeys, log, janks, logger)
         #if DEBUG
         afterHangForTesting = source.afterHangForTesting
         #endif
-        periodNanos = UInt64(max(source.watch.minimumDeadline / .nanoseconds(1), 1))
         named.reserveCapacity(CrashKeySlots.hungThreadCapacity)
     }
 
     /// Scans when a scan is due and reports what it finds (watchdog thread only).
     ///
     /// - Returns: How long the watchdog thread may wait before the next scan; nil while the slot table
-    ///   is parked (a scope wakes the thread through the kqueue) and no hung thread is named.
+    ///   is parked (a scope wakes the thread through the kqueue) and no hung thread is named. A named hung
+    ///   thread is looked at once per scan period, since its scope's close wakes nobody.
     mutating func service() -> UInt64? {
         clearEndedHangs()
         let wait = scanIfDue()
         guard !named.isEmpty else { return wait }
-        return min(wait ?? .max, periodNanos)
+        return min(wait ?? .max, watch.periodNanos)
     }
 
     private mutating func scanIfDue() -> UInt64? {
