@@ -29,7 +29,10 @@ extension CEFPaneHost {
         copy.navigationGuard = tab.navigationGuard
         copy.isCreationPending = true
         runtime.tabBeingAdded = copy
-        let browser = shim.tabDuplicate(browserID, anchor, -1)
+        let browser = runtime.spareWindow.createTrace.addTab(profile: key.profile, hostMode: isHostMode,
+                                                             answeredByMintedID: createsBrowsersAtOnce) {
+            shim.tabDuplicate(browserID, anchor, -1)
+        }
         runtime.tabBeingAdded = nil
         guard browser > 0 else {
             runtime.logger.notice("duplicate of browser \(browserID, privacy: .public) refused by the fork")

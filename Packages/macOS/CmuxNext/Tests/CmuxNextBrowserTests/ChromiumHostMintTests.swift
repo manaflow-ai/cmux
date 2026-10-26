@@ -1,5 +1,7 @@
 import AppKit
 @testable import CmuxNextBrowser
+import CmuxNextSignposts
+@testable import CmuxNextTrace
 import Foundation
 import Testing
 
@@ -224,6 +226,123 @@ import Testing
         let event = CEFShimEvent(kind: 51, browser: MintSpyShim.firstMinted, request: 7, a: 0, b: 0, s1: "", s2: "")
         #expect(event == .createFailed(browser: MintSpyShim.firstMinted, request: 7))
         #expect(event.browserID == MintSpyShim.firstMinted)
+    }
+
+    // MARK: cef.create_browser around tab_add and tab_duplicate
+
+    /// In process `tab_add` builds the tab inside the call (its OnAfterCreated before it returns): one pair, the
+    /// call, with the joins-a-window bit.
+    @Test func inProcessATabAddIsOneCreateBrowserPair() throws {
+        let (runtime, root) = try Self.runtime(hostMode: false)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let (host, _, container) = try Self.liveHost(runtime)
+        let log = CreateRecordLog.recording(runtime)
+
+        let link = CEFTab(id: .random(), profile: .default, host: host, runtime: runtime)
+        host.add(link)
+        host.present(link, in: container)
+        host.createDeferred()
+
+        #expect(link.browserID == MintSpyShim.firstMinted + 1)
+        #expect(log.creates.map(\.phase) == [.asyncBegin, .asyncEnd])
+        #expect(log.creates.first?.arg0 == CEFCreateBrowserTrace.beginArg0(spare: false, joinsWindow: true, profileIndex: 0))
+        #expect(runtime.spareWindow.createTrace.openCount == 0)
+    }
+
+    /// Host mode: `tab_add` only posts the minted id, so its pair stays open until the host's AFTER_CREATED for it.
+    @Test func aHostModeTabAddEndsAtTheMintedIDsCreatedReply() throws {
+        let (runtime, root) = try Self.runtime(hostMode: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let (host, _, container) = try Self.liveHost(runtime)
+        let log = CreateRecordLog.recording(runtime)
+        let link = CEFTab(id: .random(), profile: .default, host: host, runtime: runtime)
+        host.add(link)
+        host.present(link, in: container)
+        let minted = MintSpyShim.firstMinted + 1
+        #expect(log.creates.map(\.phase) == [.asyncBegin], "sent is not created")
+        #expect(runtime.spareWindow.createTrace.openCount == 1)
+
+        runtime.handle(.afterCreated(browser: minted, request: 0, window: 1))
+
+        #expect(log.creates.map(\.phase) == [.asyncBegin, .asyncEnd])
+        #expect(log.creates.first?.arg1 == log.creates.last?.arg1)
+        #expect(runtime.spareWindow.createTrace.openCount == 0)
+    }
+
+    /// Host mode: the host's CREATE_FAILED for a minted tab answers its create, as a created reply would.
+    @Test func aHostModeTabAddTheHostRefusesEndsAtTheRefusal() throws {
+        let (runtime, root) = try Self.runtime(hostMode: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let (host, _, container) = try Self.liveHost(runtime)
+        let log = CreateRecordLog.recording(runtime)
+        let link = CEFTab(id: .random(), profile: .default, host: host, runtime: runtime)
+        host.add(link)
+        host.present(link, in: container)
+
+        runtime.handle(.createFailed(browser: MintSpyShim.firstMinted + 1, request: 0))
+
+        #expect(log.creates.map(\.phase) == [.asyncBegin, .asyncEnd])
+        #expect(runtime.spareWindow.createTrace.openCount == 0)
+    }
+
+    /// A host that does not map minted ids answers with Chromium's own id, never the returned one: the pair is the call.
+    @Test func aTabAddOnAHostThatDoesNotMapMintedIDsEndsWhenTheCallReturns() throws {
+        let (runtime, root) = try Self.runtime(hostMode: true, mapsIDs: false)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let (host, _, container) = try Self.liveHost(runtime)
+        let log = CreateRecordLog.recording(runtime)
+        let link = CEFTab(id: .random(), profile: .default, host: host, runtime: runtime)
+        host.add(link)
+        host.present(link, in: container)
+        host.createDeferred()
+
+        #expect(MintSpyShim.added.count == 1)
+        #expect(log.creates.map(\.phase) == [.asyncBegin, .asyncEnd])
+        #expect(runtime.spareWindow.createTrace.openCount == 0)
+    }
+
+    /// In process a duplicate is one pair, the call, with the joins-a-window bit.
+    @Test func inProcessADuplicateIsOneCreateBrowserPair() throws {
+        let (runtime, root) = try Self.runtime(hostMode: false)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let (host, first, _) = try Self.liveHost(runtime)
+        let log = CreateRecordLog.recording(runtime)
+
+        _ = try #require(host.duplicate(first))
+
+        #expect(log.creates.map(\.phase) == [.asyncBegin, .asyncEnd])
+        #expect(log.creates.first?.arg0 == CEFCreateBrowserTrace.beginArg0(spare: false, joinsWindow: true, profileIndex: 0))
+        #expect(runtime.spareWindow.createTrace.openCount == 0)
+    }
+
+    /// Host mode: a duplicate's pair stays open until the host's AFTER_CREATED for its minted id.
+    @Test func aHostModeDuplicateEndsAtTheMintedIDsCreatedReply() throws {
+        let (runtime, root) = try Self.runtime(hostMode: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let (host, first, _) = try Self.liveHost(runtime)
+        let log = CreateRecordLog.recording(runtime)
+        let copy = try #require(host.duplicate(first))
+        let minted = try #require(copy.browserID)
+        #expect(log.creates.map(\.phase) == [.asyncBegin])
+
+        runtime.handle(.afterCreated(browser: minted, request: 0, window: 1))
+
+        #expect(log.creates.map(\.phase) == [.asyncBegin, .asyncEnd])
+        #expect(runtime.spareWindow.createTrace.openCount == 0)
+    }
+
+    /// A duplicate the fork refuses at once (0) ends its pair when the call returns.
+    @Test func aDuplicateRefusedAtOnceEndsItsPair() throws {
+        let (runtime, root) = try Self.runtime(hostMode: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let (host, first, _) = try Self.liveHost(runtime)
+        let log = CreateRecordLog.recording(runtime)
+        MintSpyShim.refusesDuplicate = true
+
+        #expect(host.duplicate(first) == nil)
+
+        #expect(log.creates.map(\.phase) == [.asyncBegin, .asyncEnd])
+        #expect(runtime.spareWindow.createTrace.openCount == 0)
     }
 
     // MARK: Fixtures

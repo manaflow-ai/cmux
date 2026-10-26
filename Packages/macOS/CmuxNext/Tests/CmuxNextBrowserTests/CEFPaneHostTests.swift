@@ -6,9 +6,10 @@ import Foundation
 import Testing
 
 /// `cef.create_browser` (p09-observability 033): every shim create (`cmux_shim_create_window`,
-/// `cmux_shim_create_placeholder_window`) is inside one async pair, role-aware. In process the pair is the create
-/// call; in host mode it stays open until the host's created reply for its window request (a late one, or one
-/// that comes during quit, included), or until quit stops waiting for it.
+/// `cmux_shim_create_placeholder_window`) is inside one async pair, role-aware (tabs that join a live window:
+/// `ChromiumHostMintTests`). In process the pair is the create call; in host mode it stays open until the host
+/// answers its window request (a created reply, a late one or one that comes during quit included, or a refusal),
+/// or until quit stops waiting for it.
 /// The begin's `arg0` holds the spare bit and the profile index. Against a spy shim; each test has its own
 /// runtime and trace runtime.
 @MainActor @Suite(.serialized) struct CEFPaneHostTests {
@@ -107,6 +108,25 @@ import Testing
         #expect(runtime.spareWindow.createTrace.openCount == 0)
     }
 
+    @Test func aHostModeCreateTheHostRefusesEndsAtTheRefusal() throws {
+        let (runtime, root, log) = try Self.spyRuntime(hostMode: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let host = Self.paneHost(runtime)
+        let tab = CEFTab(id: .random(), profile: .default, host: host, runtime: runtime)
+        host.add(tab)
+        host.ensureCreated(tab)
+        let request = try #require(runtime.pendingWindows.keys.first)
+        #expect(runtime.spareWindow.createTrace.openCount == 1)
+
+        runtime.handle(.createFailed(browser: 1 << 20, request: request))
+
+        let records = log.records(named: Self.name)
+        #expect(records.map(\.phase) == [.asyncBegin, .asyncEnd], "CREATE_FAILED answers the create")
+        #expect(records.first?.arg1 == records.last?.arg1)
+        #expect(runtime.spareWindow.createTrace.openCount == 0)
+        #expect(runtime.pendingWindows.isEmpty)
+    }
+
     @Test func eachProfilesCreateCarriesItsIndex() throws {
         let (runtime, root, log) = try Self.spyRuntime()
         defer { try? FileManager.default.removeItem(at: root) }
@@ -155,6 +175,7 @@ import Testing
         #expect(trace.profileIndex(of: first) == 1)
         #expect(trace.profileIndex(of: .default) == 0)
         #expect(CEFCreateBrowserTrace.beginArg0(spare: true, profileIndex: 2) == 0x201)
+        #expect(CEFCreateBrowserTrace.beginArg0(spare: false, joinsWindow: true, profileIndex: 1) == 0x102)
     }
 
     /// A pane's host of `profile` (no spare is up, so it builds its own window).
@@ -178,22 +199,32 @@ import Testing
         let root = FileManager.default.temporaryDirectory.appending(path: "cef-create-browser-\(UUID().uuidString)", directoryHint: .isDirectory)
         let runtime = CEFRuntime(shim: try CreateSpy.library(), storage: CEFProfileStorage(root: root))
         if hostMode { runtime.hostStart = CEFHostStart(supervisor: UnaskedSupervisor()) }
-        let log = CreateRecordLog()
-        let trace = TraceRuntime(role: .app, clock: TraceClock(), stubRecorder: { log.append($0) })
-        if categoryOn { trace.setCategoryMask(1 << UInt64(SignpostCategory.cef.traceBit)) }
-        runtime.spareWindow.createTrace = CEFCreateBrowserTrace(signposter: Signposter(category: .cef, trace: trace))
+        let log = CreateRecordLog.recording(runtime, categoryOn: categoryOn)
         _ = Unmanaged.passRetained(runtime)
         return (runtime, root, log)
     }
 }
 
 /// The records a test's trace runtime writes, in order.
-private nonisolated final class CreateRecordLog: Sendable {
+nonisolated final class CreateRecordLog: Sendable {
     private let state = Mutex<[TraceRuntime.StubRecord]>([])
 
     func append(_ record: TraceRuntime.StubRecord) { state.withLock { $0.append(record) } }
 
     func records(named name: UInt16) -> [TraceRuntime.StubRecord] { state.withLock { $0.filter { $0.name == name } } }
+
+    /// The `cef.create_browser` records.
+    var creates: [TraceRuntime.StubRecord] { records(named: SignpostName.cefCreateBrowser.rawValue) }
+
+    /// A log of `runtime`'s `cef.create_browser` pairs from now on: its create trace writes to a trace runtime of
+    /// its own, with the `cef` category on unless `categoryOn` is false.
+    @MainActor static func recording(_ runtime: CEFRuntime, categoryOn: Bool = true) -> CreateRecordLog {
+        let log = CreateRecordLog()
+        let trace = TraceRuntime(role: .app, clock: TraceClock(), stubRecorder: { log.append($0) })
+        if categoryOn { trace.setCategoryMask(1 << UInt64(SignpostCategory.cef.traceBit)) }
+        runtime.spareWindow.createTrace = CEFCreateBrowserTrace(signposter: Signposter(category: .cef, trace: trace))
+        return log
+    }
 }
 
 /// Host mode's supervisor in these tests: the runtime is never started, so it is never asked.

@@ -198,7 +198,7 @@ extension CEFRuntime {
 
     private func browserCreated(_ browser: Int32, request: Int32, window: Int32, created: CEFCreatedBy) {
         // Host mode's `cef.create_browser` ends at the host's created reply, whoever takes the browser below.
-        if request != 0 { spareWindow.createTrace.created(request: request) }
+        spareWindow.createTrace.answered(browser: browser, request: request)
         if shutdownSequence != nil {
             // Its creation was under way when quit closed every browser (`shutdown`): close it
             // too, or the wait for Chromium's windows runs out and CefShutdown is skipped.

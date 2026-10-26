@@ -331,7 +331,14 @@ final class CEFPaneHost {
         tab.isCreationPending = true
         runtime.tabBeingAdded = tab
         let activates = visibleTab === tab
-        let add = { shim.tabAdd(anchor, tab.takeInitialURLString(), -1, activates ? 1 : 0) }
+        let initialURL = tab.takeInitialURLString()
+        let createTrace = runtime.spareWindow.createTrace
+        let (profile, hostMode, answeredByMintedID) = (key.profile, isHostMode, createsBrowsersAtOnce)
+        let add = {
+            createTrace.addTab(profile: profile, hostMode: hostMode, answeredByMintedID: answeredByMintedID) {
+                shim.tabAdd(anchor, initialURL, -1, activates ? 1 : 0)
+            }
+        }
         #if DEBUG || CMUX_BENCH_HOOKS
         let browser = runtime.benchMarks.span("cef.tab_add", add)
         #else

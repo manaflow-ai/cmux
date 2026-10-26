@@ -33,6 +33,8 @@ struct CEFCreateFailure {
     let request: Int32
 
     func apply(to runtime: CEFRuntime) {
+        // The refusal answers the create, as a created reply would (`CEFRuntime.browserCreated`).
+        runtime.spareWindow.createTrace.answered(browser: browser, request: request)
         if request != 0, let host = runtime.pendingWindows.removeValue(forKey: request) {
             host.windowCreationFailed(request: request)
         } else if let tab = runtime.tabsByBrowser.removeValue(forKey: browser) {

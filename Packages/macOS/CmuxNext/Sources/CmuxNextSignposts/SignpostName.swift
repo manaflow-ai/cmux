@@ -175,7 +175,7 @@ public nonisolated enum SignpostName: UInt16, Sendable, Hashable, CaseIterable, 
     /// the top 24 bits (all ones without one); end arg0 the end code (0 ended, 1 missed).
     case createWorkspace = 13
 
-    // MARK: cef (reserved: PL-motion-cef, PL-cef-tab)
+    // MARK: cef (PL-motion-cef, PL-cef-tab)
 
     /// One Chromium message pump pass (task 032, ``Signposter/beginCEFPump(reasonCode:)``): `CefDoMessageLoopWork`
     /// on the app's main thread while the pump is in the app; with the Chromium host on, the host emits it (task 104).
@@ -183,8 +183,10 @@ public nonisolated enum SignpostName: UInt16, Sendable, Hashable, CaseIterable, 
     /// 2 delayed, 3 kept, 4 the pass a nested run loop's fire deferred; 0 a pass no timer armed), end arg0 1 for a
     /// long run (CEF's whole time slice), arg1 the elapsed us.
     case cefPump = 14
-    /// Reserved (task 033, PL-cef-tab). `CefBrowserHost::CreateBrowser` on the main thread, or the Chromium
-    /// host's create to its reply. Ring: AB/AE; begin arg0 bit 0 1 for a spare, bits 8-39 the profile index.
+    /// One Chromium browser create (task 033, `CEFCreateBrowserTrace`; PL-cef-tab): a window's
+    /// `CefBrowserHost::CreateBrowser` or a tab joining a live window (`tab_add`, `tab_duplicate`) on the main
+    /// thread, or in host mode the create to the host's answer (created or refused). Ring: AB/AE; begin arg0 bit 0
+    /// 1 for a spare, bit 1 1 for a tab joining a live window, bits 8-39 the profile index.
     case cefCreateBrowser = 15
     /// A parent geometry change or catcher sync, an I per page post (``Signposter/beginCEFGeometry(_:)``). Ring: B/E/I
     /// only with `motion` on too (never the black box); begin arg0 the source, end arg0/arg1 catchers shown/moved.
