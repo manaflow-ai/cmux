@@ -9,6 +9,7 @@ import CmuxNextMemory
 import CmuxNextResources
 import CmuxNextSettings
 import CmuxNextWakeups
+import CoreGraphics
 
 // Browser hibernation and the memory-budgeted warm sets
 // (plans/cmux-next/tab-lifecycle.md).
@@ -40,26 +41,40 @@ extension AppServices {
         hibernation.agentPages = agentPages
         hibernation.follow(settings)
         hibernation.start()
-        if features.isEnabled(.intentPrewarmHover) || features.isEnabled(.directionalPrewarm) { startIntentPrewarm(over: hibernation) }
+        startIntentPrewarm(over: hibernation)
         AppMemoryConsumers(services: self).registerHibernationSnapshots(hibernation)  // AppServices+Memory.swift
         cache.warmSetRelease = WarmSetRelease(host: cache, normalCapacity: cache.normalWarmCapacity, registry: memoryCoordinator)
         _ = parkedWorkspaceBudget  // registers with the coordinator before any pressure change reads it
     }
 
-    /// The intent prewarm over `hibernation`, its weak warmer: a background-class dwell deadline with
-    /// `intentPrewarmHover` (p04-input-043), a background-class step deadline with `directionalPrewarm`
-    /// (p04-input-044), the app's memory pressure, the feature's dwell and Energy Saver's inputs as its power.
+    /// The intent prewarm over `hibernation`, its weak warmer, with a background-class deadline per trigger whose
+    /// feature is on: the hover dwell (`intentPrewarmHover`, p04-input-043), the key steps (`directionalPrewarm`,
+    /// p04-input-044) and the press start on a row that commits on its release (`intentPrewarmPress`,
+    /// p04-input-042; no warmer work on a press's input turn). The app's memory pressure, the feature's dwell
+    /// and Energy Saver's inputs as its power. No feature on: no service.
     private func startIntentPrewarm(over hibernation: BrowserHibernation) {
         let hovers = features.isEnabled(.intentPrewarmHover), steps = features.isEnabled(.directionalPrewarm)
+        let presses = features.isEnabled(.intentPrewarmPress)
+        guard hovers || steps || presses else { return }
         let service = IntentPrewarmService<String>(
             warmer: hibernation, memoryPressure: memoryPressure,
             dwellTimer: hovers ? MainDeadline(owner: "IntentPrewarm.hoverDwell", workClass: .background, scheduler: mainDeadlines) : nil,
             stepTimer: steps ? MainDeadline(owner: "IntentPrewarm.keyStep", workClass: .background, scheduler: mainDeadlines) : nil,
+            pressStart: presses ? MainDeadline(owner: "IntentPrewarm.pressStart", workClass: .background, scheduler: mainDeadlines) : nil,
             dwell: Feature.intentPrewarmHover.durationParam("dwell") ?? .milliseconds(200))
         let power = energyMonitor.follow { [weak service] inputs in
             service?.power = IntentPrewarmPower(lowPowerMode: inputs.lowPowerMode, onBattery: inputs.onBattery)
         }
         hibernation.intentPrewarm = (service, power)
+        hibernation.prewarmKinds.decodeCover = { [weak self] picture, landed in self?.decodePrewarmCover(picture, landed: landed) }
+    }
+
+    /// The intent prewarm's cover decode: `picture` drawn into a bitmap on the `.cpu` lane, never on the main
+    /// thread, and handed to `landed` in a background-class main task (Chrome decodes images off its UI thread,
+    /// services/data_decoder/public/cpp/decode_image.h).
+    func decodePrewarmCover(_ picture: CGImage, landed: @escaping @MainActor @Sendable (CGImage) -> Void) {
+        work.run(.userVisible, mayBlock: .cpu) { BrowserPictureView.decoded(picture) }
+            .reply(on: mainWork, class: .background, owner: "IntentPrewarm.cover", landed)
     }
 
     /// The hibernation's measurements, after startup (p08-startup-029): the hourly footprint samples and,

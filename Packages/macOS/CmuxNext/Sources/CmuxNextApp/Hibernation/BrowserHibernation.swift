@@ -136,7 +136,7 @@ final class BrowserHibernation {
     }
     var restoredCount = 0
     /// Each pane's tab order and shown tab, from its `PaneController`.
-    private var neighbors = NeighborTabs()
+    private(set) var neighbors = NeighborTabs()
     /// Tabs kept awake now because they sit beside a shown tab.
     private(set) var awakeNeighbors: Set<String> = []
     /// When the pointer last rested on each hidden tab's strip cell (`noteHover`).
@@ -146,8 +146,9 @@ final class BrowserHibernation {
     /// Pages woken early (neighbors and hovers): `debug.surfaces` and the bench read it.
     var prewarmedCount = 0
     /// The intent prewarm with this hibernation as its weak warmer, and its power feed (`intentPrewarmHover`'s
-    /// hover dwell, `directionalPrewarm`'s key steps).
+    /// hover dwell, `directionalPrewarm`'s key steps, `intentPrewarmPress`'s presses).
     var intentPrewarm: (service: IntentPrewarmService<String>, power: MainActorHandlerRegistration<EnergyInputs>)?
+    var prewarmKinds = IntentPrewarmKinds() // the intent prewarm's cover decodes and target sizes
     /// The longest a woken page's last frame stands in for it before it paints (Chrome has no
     /// picture; a page that paints later than this shows itself loading rather than look frozen).
     static let standInCap: Duration = .milliseconds(500)
@@ -390,7 +391,7 @@ final class BrowserHibernation {
     }
 
     func forget(_ key: String) {
-        intentPrewarm?.service.forget(key)
+        forgetPrewarm(key)
         agentPages?.forget(key)
         cache?.dormantTabs.set(key, false)
         hiddenAt[key] = nil
@@ -662,7 +663,7 @@ final class BrowserHibernation {
             return
         }
         frozen.insert(key)
-        cache?.trace(key, "frozen")
+        noteFrozen(key)
         trackGrowth(key)
     }
 
@@ -779,7 +780,7 @@ final class BrowserHibernation {
             favicon: page.favicon, restoreState: saved.state, snapshot: { [weak self] in self?.snapshotImage(key) }
         )
         placeholder.onWake = { [weak self] wake in self?.wakeForNavigation(key, wake) }
-        if let snapshot = saved.snapshot { keep(snapshot, for: key) }
+        keepAsleep(key, picture: saved.snapshot, size: page.contentView.frame.size)
         cache.swapPage(key, with: placeholder)
         cache.dormantTabs.set(key, true)
         savedBytes[key] = memoryBytes[key].flatMap { $0 > 0 ? $0 : nil }
