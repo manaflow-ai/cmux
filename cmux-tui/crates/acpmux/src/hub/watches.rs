@@ -213,6 +213,10 @@ async fn reconcile(hub: &Arc<Hub>) -> Result<(), RpcError> {
             };
             match collected {
                 Ok(rows) => {
+                    // A successful read, including a no-op page, proves the source is
+                    // reachable again. Do not let an earlier burst of timeouts strand
+                    // this watch's future retries.
+                    w.retry_count = 0;
                     resolved |= !rows.is_empty();
                     lines.extend(rows);
                 }
@@ -221,10 +225,8 @@ async fn reconcile(hub: &Arc<Hub>) -> Result<(), RpcError> {
                     if let Some(c) = checkpoint {
                         w.cursors.insert(key.clone(), c);
                     }
-                    if w.retry_count < 5 {
-                        w.retry_count += 1;
-                        retry_needed = true;
-                    }
+                    w.retry_count = w.retry_count.saturating_add(1);
+                    retry_needed = true;
                     tracing::warn!("watch {} source {key}: {e}", w.id);
                 }
             }
@@ -234,9 +236,6 @@ async fn reconcile(hub: &Arc<Hub>) -> Result<(), RpcError> {
         }
         if old == json!(w) {
             continue;
-        }
-        if !retry_needed {
-            w.retry_count = 0;
         }
         hub.watches.change(|saved| {
             // rm while a peer reply was in flight must not resurrect the watch.
@@ -257,9 +256,24 @@ async fn reconcile(hub: &Arc<Hub>) -> Result<(), RpcError> {
     if retry_needed {
         let retry_hub = Arc::clone(hub);
         tokio::spawn(async move {
-            // A bounded retry is only armed after an actual read error; normal watches
-            // are driven solely by hub events, with no polling timer.
-            tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+            // A retry is armed only after an actual read error; normal watches are
+            // driven solely by hub events, with no polling timer. Back off repeated
+            // failures so a down peer cannot create a tight loop, while a later
+            // successful no-op read resets the counter above.
+            let failures = retry_hub
+                .watches
+                .inner
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .saved
+                .watches
+                .values()
+                .map(|w| w.retry_count)
+                .max()
+                .unwrap_or(1)
+                .min(6);
+            let delay_ms = 250u64 << failures.saturating_sub(1);
+            tokio::time::sleep(std::time::Duration::from_millis(delay_ms)).await;
             retry_hub.watches.wake.notify_one();
         });
     }
