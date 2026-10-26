@@ -83,7 +83,22 @@ public nonisolated struct AutoArchivePlanner: Sendable {
     /// The plan for `candidates` at `now`. `rules` holds each group's own rule by item id.
     public func plan(_ candidates: [Candidate], rules: [String: SidebarDocAutoArchiveRule], policy: AutoArchivePolicy,
                      trigger: Trigger, now: Date) -> Plan {
-        Plan() // red: not built yet
+        if trigger == .background, policy.style == .off || policy.style == .manual { return Plan() }
+        var due: [(Candidate, TimeInterval)] = []
+        var next: Date?
+        for candidate in candidates where !candidate.archived && !candidate.pinned && !candidate.shown
+            && !candidate.running && !candidate.needsAttention {
+            guard let idle = idleSeconds(for: candidate, rules: rules, policy: policy, trigger: trigger),
+                  let lastActive = candidate.lastActive else { continue }
+            let deadline = lastActive.addingTimeInterval(idle)
+            if deadline <= now {
+                due.append((candidate, now.timeIntervalSince(lastActive)))
+            } else if next.map({ deadline < $0 }) ?? true {
+                next = deadline
+            }
+        }
+        let floor = now.addingTimeInterval(Self.minimumRecheck)
+        return Plan(due: due.sorted { $0.1 > $1.1 }.map(\.0), nextCheck: next.map { max($0, floor) })
     }
 
     /// Seconds `candidate` must stay idle, or nil when nothing archives it: the nearest group with a

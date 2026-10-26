@@ -71,7 +71,7 @@ and MCP agree and each change is one undo step:
 
 ## Archived view
 
-**Restore Archived Workspace…** (sidebar background menu, palette, `cmux workspace restore-archived
+**Restore Archived Workspace…** (sidebar background menu ▸ Group, palette, `cmux workspace restore-archived
 --arg item=<item|all>`): a searchable Cmd-Shift-P step listing every archived workspace (by hand, on its
 own, or under an archived group), last used first, with **Restore All** first. Return restores it (and its
 archived groups). Opening an archived workspace from the sidebar still works as before (dimmed).
@@ -95,7 +95,7 @@ archived by hand keeps Aziz's rule: it opens dimmed until Unarchive.
 | --- | --- |
 | Settings > General > Auto-Archive | Idle Workspaces (style), Idle For (days) |
 | cmux.json | `workspaces.autoArchive.style`, `workspaces.autoArchive.idleDays` |
-| Sidebar background menu | Archive Idle Workspaces, Restore Archived Workspace… |
+| Sidebar background menu ▸ Group | Archive Idle Workspaces, Restore Archived Workspace… (beside Collapse All; the menu keeps 12 top-level rows) |
 | Group menu > Options | Auto-Archive Group Workspaces ▸ |
 | Palette | all three |
 | CLI | `cmux workspace archive-idle`, `cmux workspace restore-archived`, `cmux workspace-group set-auto-archive` |
