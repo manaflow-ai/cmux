@@ -709,6 +709,7 @@ struct MachinesPanelView: View {
                     teamName: teamName
                 )
             } catch {
+                guard coderouterStore.isCurrentAddTask(addGeneration), currentCoderouterScope == scope else { return }
                 viewModel.noteTreeHint(CoderouterCLIFailure.classify(error).message)
                 return
             }
