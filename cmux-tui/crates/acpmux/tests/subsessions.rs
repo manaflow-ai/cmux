@@ -124,7 +124,7 @@ async fn agents_start_children_within_their_width_and_depth_limits() {
         std::env::set_var("FLEET_REGISTRY", root.join("fleet-registry.json"));
     }
     // A registry that lists no machine: this host is uncapped. A set
-    // FLEET_REGISTRY that is missing refuses every create (`hub/admission.rs`).
+    // FLEET_REGISTRY that is missing would log a warning on every create (`hub/admission.rs`).
     std::fs::write(root.join("fleet-registry.json"), r#"{"machines": {}}"#).unwrap();
     let hub = hub();
     let mut app = Client::new(&hub);
