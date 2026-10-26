@@ -152,6 +152,56 @@ struct HomeChiefDefaultTests {
         #expect(TopHomePageView.replacementForExcluded(shown: nil, rows: rows, home: home) == nil)
     }
 
+    /// Picking This Mac goes through a stretch with no Chief at all (its conversation is not listed
+    /// yet), and the Chief that arrives after it must still open: the page follows the Chief it
+    /// opened itself across that stretch (review of #23984, finding 1).
+    @Test func theChiefThatArrivesAfterPickingThisMacStillOpens() async throws {
+        let services = Self.services()
+        let home = services.home
+        home.setCloudChiefs(HomeCloudChiefs(hosted: Self.hosted, placed: Self.placed))
+        services.settings = try await Self.settings(#"{"home":{"chiefEngine":"local"}}"#).0
+        let hosted = CmuxHomeCore.ConversationID("conv_hosted")
+
+        // Nothing the row allows is listed, so the Hosted Chief stays on screen for now.
+        let cloudOnly = [HomeChiefRosterTests.chief(HomeChiefRosterTests.hosted, "chief_hosted", "Chief", at: 5),
+                         HomeChiefRosterTests.chief(HomeChiefRosterTests.placed, "chief_placed", "Chief", at: 4)]
+        let waiting = TopHomePageView.followUp(chief: nil, shown: hosted, followed: "conv_hosted", composing: false,
+                                               rows: cloudOnly, home: home)
+        #expect(waiting == .init(open: nil, followed: "conv_hosted"))
+        // This Mac's Chief is listed: it opens, because the page still follows what it opened.
+        #expect(TopHomePageView.followUp(chief: "conv_local", shown: hosted, followed: waiting.followed, composing: false,
+                                         rows: Self.cloudLedRows, home: home).open?.rawValue == "conv_local")
+
+        // With a DM listed the page leaves the Hosted Chief for it, and follows the DM, so this
+        // Mac's Chief replaces that too once it arrives.
+        let withDM = cloudOnly + [HomeChiefRosterTests.dm(HomeChiefRosterTests.ada, at: 1)]
+        let moved = TopHomePageView.followUp(chief: nil, shown: hosted, followed: "conv_hosted", composing: false,
+                                             rows: withDM, home: home)
+        #expect(moved == .init(open: HomeChiefRosterTests.ada, followed: "conv_ada"))
+        #expect(TopHomePageView.followUp(chief: "conv_local", shown: HomeChiefRosterTests.ada, followed: moved.followed,
+                                         composing: false, rows: Self.cloudLedRows, home: home).open?.rawValue == "conv_local")
+
+        // What the person opened themselves is never replaced, by a Chief or by this stretch.
+        #expect(TopHomePageView.followUp(chief: "conv_local", shown: HomeChiefRosterTests.ada, followed: "conv_hosted",
+                                         composing: false, rows: Self.cloudLedRows, home: home).open == nil)
+    }
+
+    /// The New Message page is never closed by the Engine row: `show(_:)` would leave it, dropping
+    /// an empty compose page and hiding a written one (review of #23984, finding 2).
+    @Test func pickingThisMacNeverClosesTheNewMessagePage() async throws {
+        let services = Self.services()
+        let home = services.home
+        home.setCloudChiefs(HomeCloudChiefs(hosted: Self.hosted, placed: Self.placed))
+        services.settings = try await Self.settings(#"{"home":{"chiefEngine":"local"}}"#).0
+        let hosted = CmuxHomeCore.ConversationID("conv_hosted")
+        #expect(TopHomePageView.followUp(chief: nil, shown: hosted, followed: "conv_hosted", composing: true,
+                                         rows: Self.cloudLedRows, home: home) == .init(open: nil, followed: "conv_hosted"),
+                "a conversation the row allows is listed, but the New Message page is up")
+        #expect(TopHomePageView.followUp(chief: nil, shown: hosted, followed: "conv_hosted", composing: false,
+                                         rows: Self.cloudLedRows, home: home).open?.rawValue == "conv_local",
+                "with no New Message page it moves, so the test above fails for its own reason")
+    }
+
     @Test func theEngineSettingForcesEitherChief() async throws {
         let services = Self.services()
         let home = services.home

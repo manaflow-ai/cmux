@@ -219,23 +219,20 @@ final class TopHomePageView: NSView {
         // task-owner: lives as long as this view; event-driven (Observation). The chief placed
         // on a paired server (G6) replaces the local chief while the page shows the local one.
         chiefObservation = Task { [weak self] in
-            var previous = Self.chief(home)
+            var last = Self.chief(home)
+            var followed = last
             for await chief in ObservationStream({ Self.chief(home) }) {
-                guard let self, chief != previous else { continue }
-                let shownChief = previous
-                previous = chief
-                guard let chief else {
-                    // There is no Chief to show: This Mac was picked while its Chief is not listed
-                    // yet. The cloud Chief on screen is one the Engine row now excludes, so the
-                    // page leaves it instead of keeping the host the person turned away from.
-                    if let next = Self.replacementForExcluded(shown: shown, rows: rows, home: home) { show(next) }
+                guard let self, chief != last else { continue }
+                last = chief
+                if let chief, shownIsGone(home.homeStore) {
+                    replaceGone(with: ConversationID(chief), store: home.homeStore)
+                    followed = chief
                     continue
                 }
-                if shownIsGone(home.homeStore) {
-                    replaceGone(with: ConversationID(chief), store: home.homeStore)
-                } else if shown == nil || shown?.rawValue == shownChief {
-                    show(ConversationID(chief))
-                }
+                let next = Self.followUp(chief: chief, shown: shown, followed: followed,
+                                         composing: isComposingNewMessage, rows: rows, home: home)
+                followed = next.followed
+                if let open = next.open { show(open) }
             }
         }
         let auth = home.services.cloud.auth
@@ -285,6 +282,38 @@ final class TopHomePageView: NSView {
         if let chief = Self.chief(home) { return ConversationID(chief) }
         let excluded = home.excludedChiefConversations
         return rows.homeLines.lazy.compactMap(\.conversation).first { !excluded.contains($0.rawValue) }
+    }
+
+    /// What the page does when the preferred Chief changes, and which Chief it follows afterwards.
+    struct ChiefFollowUp: Equatable {
+        /// The conversation to open; nil: what is shown stays.
+        var open: ConversationID?
+        /// The Chief conversation the page opened by itself, which a later Chief replaces. What the
+        /// person picked themselves is never replaced, so it is not this.
+        var followed: String?
+    }
+
+    /// The preferred Chief is now `chief` (``HomeService/defaultChiefConversation``), the page
+    /// shows `shown`, and `followed` is what it last opened by itself. Pure, so the whole
+    /// transition is under test: the Engine row's switch to This Mac goes through a stretch with no
+    /// Chief at all, and the Chief that arrives after it must still open.
+    static func followUp(chief: String?, shown: ConversationID?, followed: String?, composing: Bool,
+                         rows: [InboxRow], home: HomeService) -> ChiefFollowUp {
+        guard let chief else {
+            // No Chief to open: This Mac was picked while its Chief is not listed yet. The cloud
+            // Chief on screen is one the Engine row now excludes, so the page leaves it for the
+            // first conversation the row allows. `followed` stays whatever it was, so the Chief
+            // that arrives next still replaces what this left behind.
+            guard !composing, let next = replacementForExcluded(shown: shown, rows: rows, home: home) else {
+                // Nothing the row allows is listed, or the New Message page is up (which nothing
+                // here may close): the excluded conversation stays rather than leave an empty
+                // window, as it does when the person opens one themselves.
+                return ChiefFollowUp(open: nil, followed: followed)
+            }
+            return ChiefFollowUp(open: next, followed: next.rawValue)
+        }
+        let mine = shown == nil || shown?.rawValue == followed
+        return ChiefFollowUp(open: mine ? ConversationID(chief) : nil, followed: chief)
     }
 
     /// What the page shows once there is no Chief conversation at all: the first conversation the
