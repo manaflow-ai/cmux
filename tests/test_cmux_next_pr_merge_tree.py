@@ -7,10 +7,12 @@ publication authority. Until a credential-free build plus trusted
 default-branch publisher replaces it, both the workflow and helper refuse.
 """
 
+import http.server
 import os
 import pathlib
 import subprocess
 import sys
+import threading
 import unittest
 
 import yaml
@@ -23,13 +25,30 @@ HEAD = "a" * 40
 
 class PublisherTests(unittest.TestCase):
     def test_refuses_to_turn_a_pull_request_merge_commit_into_a_push_event(self):
+        calls = []
+
+        class GitHub(http.server.BaseHTTPRequestHandler):
+            def log_message(self, *_args):
+                pass
+
+            def do_GET(self):
+                calls.append((self.command, self.path))
+                self.send_response(503)
+                self.end_headers()
+
+            do_POST = do_GET
+
+        server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), GitHub)
+        self.addCleanup(server.server_close)
+        self.addCleanup(server.shutdown)
+        threading.Thread(target=server.serve_forever, daemon=True).start()
         env = dict(
             os.environ,
             GH_TOKEN="actions-token",
             CMUX_PR_TREE_PIN_TOKEN="app-token",
             GITHUB_REPOSITORY="o/r",
-            # Any network attempt would fail; the helper must refuse before it.
-            GITHUB_API_URL="http://127.0.0.1:1",
+            # Even valid credentials must not let a stale caller reach GitHub.
+            GITHUB_API_URL=f"http://127.0.0.1:{server.server_address[1]}",
         )
         result = subprocess.run(
             [sys.executable, str(SCRIPT), "7", HEAD],
@@ -39,6 +58,7 @@ class PublisherTests(unittest.TestCase):
             timeout=10,
         )
         self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertEqual(calls, [], "retired publisher must refuse before any API request")
         self.assertIn("untrusted merge commit", result.stdout)
 
     def test_rejects_malformed_arguments(self):
