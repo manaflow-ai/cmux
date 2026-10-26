@@ -282,6 +282,11 @@ final class AppServices {
     /// (`CMUX_ENABLE_FEATURES`, `CMUX_DISABLE_FEATURES`). Tests set their own before the first read.
     lazy var features = FeatureList(registry: FeatureRegistry(), channel: Feature.Channel(environment.build.kind),
                                     overrides: FeatureOverrides(environment: ProcessInfo.processInfo.environment))
+    /// The windows' frame-aligned input for sidebar and tab strip hover (feature `pointerFrameHover`): a frame's moves
+    /// hit-test the rows and tabs once, at the latest point. Nil while it is off: each move hovers at once.
+    var hoverFrameInput: FrameInputCoalescers? {
+        features.isEnabled(.pointerFrameHover) ? (NSApp as? CmuxApplication)?.frameInput : nil
+    }
     /// The Task Manager page and Kill Process (`TaskManagerPageService`).
     private(set) lazy var taskManager = TaskManagerPageService(services: self)
     /// The Todo page: a workspace's checklist (`workspace-checklist-v1`).
