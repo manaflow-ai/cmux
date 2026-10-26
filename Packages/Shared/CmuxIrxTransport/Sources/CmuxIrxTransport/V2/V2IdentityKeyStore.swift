@@ -28,6 +28,16 @@ public actor V2IdentityKeyStore {
     /// - Returns: The scope's stable v2 endpoint key.
     /// - Throws: A keychain or decoding error; never falls back to another scope.
     public func loadOrCreate(identity: V2Identity) throws -> V2IdentityKey {
+        try loadOrCreateBlocking(identity: identity)
+    }
+
+    /// ``loadOrCreate(identity:)`` on the caller's thread: it blocks on the Keychain (`SecItem` calls), so
+    /// call it from a thread that may block (a blocking-work lane), never from the cooperative pool or the
+    /// main thread.
+    /// - Parameter identity: Environment, project, team, user, device, app namespace, and build tag.
+    /// - Returns: The scope's stable v2 endpoint key.
+    /// - Throws: A keychain or decoding error; never falls back to another scope.
+    public nonisolated func loadOrCreateBlocking(identity: V2Identity) throws -> V2IdentityKey {
         let digest = SHA256.hash(data: try V2WireSigningCodec().encode(identity))
         let account = digest.map { String(format: "%02x", $0) }.joined()
         let key = V2IdentityKey()

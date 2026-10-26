@@ -323,8 +323,8 @@ final class SSHService {
         }
         if status == .connected {
             session.lastError = nil
-            // task-owner: one update check per connect; it installs only an older remote build
-            Task { await updateIfOlder(session) }
+            // task-owner: one update check per connect, at best effort (nobody waits); it installs only an older remote build
+            Task(priority: WorkPriority.bestEffort.taskPriority) { await updateIfOlder(session) }
         }
     }
 
@@ -332,7 +332,7 @@ final class SSHService {
     /// build, daemons handed over; any other answer or a failure leaves the machine as it was.
     func updateIfOlder(_ session: SSHMachineSession) async {
         guard !policyDisabled, let binary, case .installed? = await session.link.lastReport?.binary,
-              let commit = await BundledCmuxTUI.commit(binary: binary, on: work) else { return }
+              let commit = await BundledCmuxTUI.commit(binary: binary, on: work, priority: .bestEffort) else { return }
         let tried = session.machineID + "|" + commit
         guard autoUpdated.mayTry(tried), !installing.contains(session.machineID),
               let checked = await session.host.updateCheck(binary: binary, environment: await Self.environment())
@@ -363,7 +363,8 @@ final class SSHService {
     func install(_ session: SSHMachineSession, automatic: String? = nil) async throws {
         if policyDisabled { throw ActionFailure(message: RefusalStrings.turnedOffByOrganization) }
         guard let binary else { throw ActionFailure(message: RemoteStrings.noClient) }
-        guard let commit = await BundledCmuxTUI.commit(binary: binary, on: work) else { throw ActionFailure(message: RemoteStrings.noPinnedBuild) }
+        let priority: WorkPriority = automatic == nil ? .userVisible : .bestEffort  // nobody waits for an automatic update
+        guard let commit = await BundledCmuxTUI.commit(binary: binary, on: work, priority: priority) else { throw ActionFailure(message: RemoteStrings.noPinnedBuild) }
         let link = session.link, host = session.host
         let environment = await Self.environment()
         var report = await link.lastReport
@@ -395,7 +396,7 @@ final class SSHService {
             // Turned off while planning: refuse before the remote work starts (never mid-install).
             if policyDisabled { throw ActionFailure(message: RefusalStrings.turnedOffByOrganization) }
             lockedPlan = plan
-            try await installer.install(plan, on: host, daemonPID: daemonPID, environment: environment) { phase in
+            try await installer.install(plan, on: host, daemonPID: daemonPID, environment: environment, priority: priority) { phase in
                 // task-owner: one main-actor hop per install step
                 Task { @MainActor in session.installPhase = phase }
             }

@@ -79,9 +79,10 @@ public struct RemoteInstaller: Sendable {
     }
 
     /// Installs `plan` on `host`, then restarts its session's daemon
-    /// (`daemonPID` from its `identify`, nil when none runs).
+    /// (`daemonPID` from its `identify`, nil when none runs). The download cache's disk steps run at
+    /// `priority` (``WorkPriority/bestEffort`` for an automatic update nobody waits for).
     public func install(_ plan: RemoteInstallPlan, on host: SSHHost, daemonPID: Int32?, environment: [String: String],
-                        progress: @Sendable (Phase) -> Void) async throws {
+                        priority: WorkPriority = .userVisible, progress: @Sendable (Phase) -> Void) async throws {
         progress(.remoteDownload)
         let fetched = try await ssh(host, script: plan.fetchScript, environment: environment, label: "remote install")
         if fetched.status != 0 {
@@ -89,7 +90,7 @@ public struct RemoteInstaller: Sendable {
             guard error.fallsBackToUpload else { throw error }
             logger.info("\(host.destination.description, privacy: .public) cannot fetch (\(String(describing: error), privacy: .public)); uploading")
             progress(.localDownload)
-            let file = try await localCopy(plan, environment: environment)
+            let file = try await localCopy(plan, environment: environment, priority: priority)
             progress(.upload)
             let uploaded = try await SSHProcessRunner.run(commandLine.command(host, plan.uploadCommand), input: .file(file),
                                                        environment: environment, deadline: .seconds(1800),
@@ -124,11 +125,11 @@ public struct RemoteInstaller: Sendable {
 
     /// The artifact in the download cache, fetched with resume when needed
     /// and checked against the manifest digest. The cache's disk steps (its
-    /// folders, the digest of a whole artifact, the move) run on `work`'s files lane.
-    func localCopy(_ plan: RemoteInstallPlan, environment: [String: String]) async throws -> URL {
+    /// folders, the digest of a whole artifact, the move) run on `work`'s files lane at `priority`.
+    func localCopy(_ plan: RemoteInstallPlan, environment: [String: String], priority: WorkPriority = .userVisible) async throws -> URL {
         let paths = paths
         let file = paths.downloads.appendingPathComponent("\(plan.artifact)-\(plan.commit.prefix(12))")
-        let cached = try await work.run(.userVisible, mayBlock: .files) {
+        let cached = try await work.run(priority, mayBlock: .files) {
             try paths.prepare()
             return (try? SHA256File.verify(file, expected: plan.sha256)) != nil
         }
@@ -139,7 +140,7 @@ public struct RemoteInstaller: Sendable {
         guard result.status == 0 else {
             throw RemoteInstallError.downloadFailed(result.stderr.trimmingCharacters(in: .whitespacesAndNewlines))
         }
-        try await work.run(.userVisible, mayBlock: .files) {
+        try await work.run(priority, mayBlock: .files) {
             do {
                 try SHA256File.verify(partial, expected: plan.sha256)
             } catch {
@@ -157,10 +158,11 @@ public struct RemoteInstaller: Sendable {
 /// binary (`commit=`), else the commit in `cmux-tui --version`.
 public struct BundledCmuxTUI {
     public init() {}
-    /// The commit of `binary`; its `cmux-tui.version` is read on `work`'s files lane.
-    public static func commit(binary: URL, on work: BackgroundWork) async -> String? {
+    /// The commit of `binary`; its `cmux-tui.version` is read on `work`'s files lane at `priority`
+    /// (``WorkPriority/bestEffort`` for the automatic update check on connect).
+    public static func commit(binary: URL, on work: BackgroundWork, priority: WorkPriority = .userVisible) async -> String? {
         let versionFile = binary.deletingLastPathComponent().appendingPathComponent("cmux-tui.version")
-        let text = try? await work.run(.userVisible, mayBlock: .files) { try String(blockingContentsOf: versionFile, encoding: .utf8) }
+        let text = try? await work.run(priority, mayBlock: .files) { try String(blockingContentsOf: versionFile, encoding: .utf8) }
         if let text, let line = text.split(whereSeparator: \.isNewline).first(where: { $0.hasPrefix("commit=") }) {
             let commit = String(line.dropFirst("commit=".count))
             if RemoteInstallPlan.isHex(commit, count: 40) { return commit.lowercased() }

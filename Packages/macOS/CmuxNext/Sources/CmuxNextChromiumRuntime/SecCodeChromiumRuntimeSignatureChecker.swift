@@ -20,15 +20,27 @@ public struct SecCodeChromiumRuntimeSignatureChecker: ChromiumRuntimeSignatureCh
         self.work = work
     }
 
-    public func check(_ item: URL, teamID: String) async throws(ChromiumRuntimeInstallError) {
+    public func check(_ item: URL, teamID: String,
+                      priority: ChromiumRuntimeInstaller.Priority) async throws(ChromiumRuntimeInstallError) {
         let failure: ChromiumRuntimeInstallError?
         do {
-            failure = try await work.run(.userVisible, mayBlock: .system) { Self.validate(item, teamID: teamID) }
+            failure = try await work.run(Self.lanePriority(priority), mayBlock: .system) { Self.validate(item, teamID: teamID) }
         } catch {
-            // Cancelled, or dropped by shutdown before it ran: nothing vouched for the item.
-            throw .signature(item.lastPathComponent)
+            // The only error `run` throws for a non-throwing body: the item never ran (the caller was cancelled
+            // or quit dropped it), so nothing vouched for it, and it is no signature failure either.
+            throw .cancelled
         }
         if let failure { throw failure }
+    }
+
+    /// The lane priority of an install job's check. A background prefetch is work nobody waits for, as Chrome's
+    /// component installs post their unpack and verify at `BEST_EFFORT` (components/update_client/task_traits.h);
+    /// a person's request is user-visible. `run` still raises it to an awaiting caller's priority.
+    static func lanePriority(_ priority: ChromiumRuntimeInstaller.Priority) -> WorkPriority {
+        switch priority {
+        case .background: .bestEffort
+        case .user: .userVisible
+        }
     }
 
     /// The Security framework calls, on the lane: nil when `item` is validly signed by `teamID`, else why not.

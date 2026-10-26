@@ -104,14 +104,15 @@ struct AttachmentTransfer<Upload: AttachmentUploadStep, Read: AttachmentReadStep
                 guard eof || !bytes.isEmpty else { throw DaemonError.malformedResponse("attachment read: no progress before eof") }
             }
         } catch {
-            // Posted, not awaited: a cancelled caller's run would be refused before it starts.
-            work.post(.userVisible, mayBlock: .files) { partial.discard() }
+            // Posted, not awaited: a cancelled caller's run would be refused before it starts. Block-shutdown, so a
+            // quit that has begun still takes this one close and unlink (cache eviction skips hidden files).
+            work.post(.userVisible, mayBlock: .files, shutdown: .blockShutdown) { partial.discard() }
             throw error
         }
         do {
             try await work.run(.userVisible, mayBlock: .files) { try partial.finish() }
         } catch is CancellationError {
-            work.post(.userVisible, mayBlock: .files) { partial.discard() }
+            work.post(.userVisible, mayBlock: .files, shutdown: .blockShutdown) { partial.discard() }
             throw CancellationError()
         }
         return mimeType

@@ -48,4 +48,22 @@ import Testing
         #expect(await BundledCmuxTUI.commit(binary: root.appending(path: "cmux-tui"), on: work) == commit)
         #expect(await Self.first(1, of: lanes) == [.files])
     }
+
+    /// The automatic update check on connect reads the version file at best effort (its task is best effort too).
+    @Test func theAutomaticUpdateChecksCommitIsReadAtBestEffort() async throws {
+        let root = FileManager.default.temporaryDirectory.appending(path: "bundled-tui-\(UUID().uuidString)", directoryHint: .isDirectory)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        try Data("mode=pinned\ncommit=\(String(repeating: "cd", count: 20))\n".utf8).write(to: root.appending(path: "cmux-tui.version"))
+        let (priorities, ran) = AsyncStream.makeStream(of: WorkPriority.self)
+        let work = BackgroundWork(label: "test.bundled-tui-priority", onRan: { _, priority, _, _ in ran.yield(priority) })
+        let binary = root.appending(path: "cmux-tui")
+        // Detached and not awaited until the item ran: awaiting it would escalate it to the test's priority.
+        let read = Task.detached(priority: WorkPriority.bestEffort.taskPriority) {
+            await BundledCmuxTUI.commit(binary: binary, on: work, priority: .bestEffort)
+        }
+        var first = priorities.makeAsyncIterator()
+        #expect(await first.next() == .bestEffort)
+        #expect(await read.value != nil)
+    }
 }

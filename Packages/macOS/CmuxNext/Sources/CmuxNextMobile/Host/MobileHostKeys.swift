@@ -5,8 +5,8 @@ import CryptoKit
 import Foundation
 
 /// The Mac's v2 installation id and per-identity endpoint key. The key files
-/// are read and written on `work`'s files lane and the Keychain id on its
-/// system lane, never on the host actor's pool thread.
+/// are read and written on `work`'s files lane and the Keychain id and keys
+/// on its system lane, never on a cooperative pool thread.
 struct MobileHostKeys: Sendable {
     let configuration: MobileHostConfiguration
     let work: BackgroundWork
@@ -24,7 +24,8 @@ struct MobileHostKeys: Sendable {
     func key(identity: V2Identity) async throws -> V2IdentityKey {
         switch configuration.keyStorage {
         case .keychain:
-            return try await V2IdentityKeyStore(applicationNamespace: configuration.namespace).loadOrCreate(identity: identity)
+            let store = V2IdentityKeyStore(applicationNamespace: configuration.namespace)
+            return try await work.run(.userVisible, mayBlock: .system) { try store.loadOrCreateBlocking(identity: identity) }
         case .files:
             let digest = SHA256.hash(data: try V2WireSigningCodec().encode(identity))
                 .map { String(format: "%02x", $0) }.joined()
