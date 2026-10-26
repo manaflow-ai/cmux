@@ -10,6 +10,8 @@
 //!
 //! Prints one JSON line and exits 0 only when all views match.
 
+#![cfg_attr(not(test), deny(clippy::disallowed_methods))]
+
 use std::os::unix::net::UnixStream;
 
 use cmux_mux2::{self as proto};
