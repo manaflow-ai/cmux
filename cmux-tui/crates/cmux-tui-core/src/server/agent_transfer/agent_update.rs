@@ -55,7 +55,8 @@ use crate::mux::Mux;
 use crate::server::agent_session_attach::agent_session_link::{AcpmuxLink, LinkError};
 use crate::server::agent_session_attach::agent_session_start;
 use crate::server::responses::send_response;
-use crate::server::{MessageWriter, Response};
+use crate::server::routes::{Route, RouteLine, RouteName};
+use crate::server::{FrameStage, MessageWriter, Response};
 
 pub const AGENT_UPDATE_CAPABILITY: &str = "agent-update-v1";
 pub const AGENT_UPDATE_OWNER_CAPABILITY: &str = "agent-update-owner-v1";
@@ -214,30 +215,22 @@ impl Failure {
 }
 
 /// The `cmd` names this module answers (server/routes.rs).
-pub(in crate::server) const ROUTES: &[crate::server::routes::Route] =
-    &[crate::server::routes::Route {
-        names: &[crate::server::routes::RouteName::OneOf(&[PLAN, APPLY])],
-        stage: crate::server::FrameStage::AgentTransfer,
-        entry: |line| try_handle(line.mux, line.client, line.message, line.writer),
-    }];
+pub(in crate::server) const ROUTES: &[Route] = &[Route {
+    names: &[RouteName::OneOf(&[PLAN, APPLY])],
+    stage: FrameStage::AgentTransfer,
+    entry: handle,
+}];
 
-/// Handles an `agent-update-*` frame of a local connection; `None` for any
-/// other frame. Remote-relay connections never get here.
-pub(in crate::server) fn try_handle(
-    mux: &Arc<Mux>,
-    client: u64,
-    message: &str,
-    writer: &MessageWriter,
-) -> Option<bool> {
-    if !message.contains("\"agent-update-") {
-        return None;
-    }
+/// Answers a [`PLAN`] or [`APPLY`] line (the route found it by name). The
+/// line's one decode is its `Value`, which gives every reply the `id` as
+/// written, a refused one too, and then the typed [`Frame`]. `None` only for
+/// a line with no `Value` (a number past `f64`, a lone surrogate); the
+/// `Command` parse answers it. Remote-relay connections never get here.
+fn handle(line: &RouteLine<'_>) -> Option<bool> {
+    let RouteLine { mux, client, message, writer, .. } = *line;
     let Ok(Value::Object(mut object)) = crate::line_parses::parse::<Value>(message) else {
         return None;
     };
-    if !matches!(object.get("cmd").and_then(Value::as_str), Some(PLAN | APPLY)) {
-        return None;
-    }
     let id = object.remove("id");
     // Trust first: an untrusted client gets one answer whatever it sent.
     if !mux.control_clients.is_unix(client) || mux.is_remote_client(client) {
