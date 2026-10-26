@@ -549,6 +549,7 @@ mod tests {
         fs::remove_file(dirs.live()).unwrap();
         fs::remove_dir_all(&companion).unwrap();
         append(&dirs.live(), "{\"uuid\":\"b\"}\n");
+        fs::create_dir_all(companion.join("tool-results")).unwrap();
         append(&companion.join("tool-results/new.txt"), "new");
         keep(&dirs.session(), &dirs.store(), SID).unwrap();
 
