@@ -267,6 +267,7 @@ struct KeybindingPageWrites {
         }
         guard let id = try? command(params), toConfig(id, params) else { return sent.flatMap { try? WhenClause.parse($0) } }
         let requiring = WhenClause.requiring(registry.descriptor(for: id)?.requires ?? [])
+        if KeyBindingDefaults.homeScoped.contains(id) { return WhenClause.and([requiring, KeyBindingDefaults.onHome].compactMap { $0 }) }
         guard KeyBindingDefaults.homeChatScoped.contains(id) else { return requiring }
         return WhenClause.and([requiring, KeyBindingDefaults.onHomeChats].compactMap { $0 })
     }
