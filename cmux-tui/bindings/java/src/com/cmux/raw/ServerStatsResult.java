@@ -15,6 +15,7 @@ public final class ServerStatsResult implements WireValue {
     private final Field<ServerStatsHistogram> dispatchQueueUs;
     private final Field<ServerStatsIpc> ipc;
     private final ServerStatsJournalWriter journalWriter;
+    private final Field<ServerStatsLockClasses> lockClasses;
     private final ServerStatsRegistryLock registryLock;
     private final Field<ServerStatsRequestLatency> requestLatencyUs;
     private final Field<ServerStatsRequestPathIo> requestPathIo;
@@ -31,6 +32,7 @@ public final class ServerStatsResult implements WireValue {
         this.ipc = builder.ipc;
         if (!builder.journalWriterSet) throw new IllegalArgumentException("journal_writer is required");
         this.journalWriter = builder.journalWriter;
+        this.lockClasses = builder.lockClasses;
         if (!builder.registryLockSet) throw new IllegalArgumentException("registry_lock is required");
         this.registryLock = Wire.nonNull(builder.registryLock, "registry_lock");
         this.requestLatencyUs = builder.requestLatencyUs;
@@ -50,6 +52,7 @@ public final class ServerStatsResult implements WireValue {
     public Field<ServerStatsHistogram> dispatchQueueUs() { return dispatchQueueUs; }
     public Field<ServerStatsIpc> ipc() { return ipc; }
     public ServerStatsJournalWriter journalWriter() { return journalWriter; }
+    public Field<ServerStatsLockClasses> lockClasses() { return lockClasses; }
     public ServerStatsRegistryLock registryLock() { return registryLock; }
     public Field<ServerStatsRequestLatency> requestLatencyUs() { return requestLatencyUs; }
     public Field<ServerStatsRequestPathIo> requestPathIo() { return requestPathIo; }
@@ -74,6 +77,10 @@ public final class ServerStatsResult implements WireValue {
         }
         Object rawJournalWriter = Wire.required(object, "journal_writer");
         builder.journalWriter(rawJournalWriter == null ? null : ServerStatsJournalWriter.fromWire(rawJournalWriter));
+        Object rawLockClasses = Wire.optional(object, "lock_classes");
+        if (!Wire.isMissing(rawLockClasses)) {
+            builder.lockClasses(ServerStatsLockClasses.fromWire(rawLockClasses));
+        }
         Object rawRegistryLock = Wire.required(object, "registry_lock");
         builder.registryLock(ServerStatsRegistryLock.fromWire(rawRegistryLock));
         Object rawRequestLatencyUs = Wire.optional(object, "request_latency_us");
@@ -110,6 +117,7 @@ public final class ServerStatsResult implements WireValue {
         Wire.put(object, "dispatch_queue_us", dispatchQueueUs);
         Wire.put(object, "ipc", ipc);
         Wire.put(object, "journal_writer", journalWriter);
+        Wire.put(object, "lock_classes", lockClasses);
         Wire.put(object, "registry_lock", registryLock);
         Wire.put(object, "request_latency_us", requestLatencyUs);
         Wire.put(object, "request_path_io", requestPathIo);
@@ -124,11 +132,11 @@ public final class ServerStatsResult implements WireValue {
     @Override
     public boolean equals(Object other) {
         if (!(other instanceof ServerStatsResult that)) return false;
-        return Objects.equals(connections, that.connections) && Objects.equals(dispatchQueueUs, that.dispatchQueueUs) && Objects.equals(ipc, that.ipc) && Objects.equals(journalWriter, that.journalWriter) && Objects.equals(registryLock, that.registryLock) && Objects.equals(requestLatencyUs, that.requestLatencyUs) && Objects.equals(requestPathIo, that.requestPathIo) && Objects.equals(resourceProjection, that.resourceProjection) && Objects.equals(schema, that.schema) && Objects.equals(slowRequests, that.slowRequests) && Objects.equals(uptimeMs, that.uptimeMs) && Objects.equals(writePath, that.writePath);
+        return Objects.equals(connections, that.connections) && Objects.equals(dispatchQueueUs, that.dispatchQueueUs) && Objects.equals(ipc, that.ipc) && Objects.equals(journalWriter, that.journalWriter) && Objects.equals(lockClasses, that.lockClasses) && Objects.equals(registryLock, that.registryLock) && Objects.equals(requestLatencyUs, that.requestLatencyUs) && Objects.equals(requestPathIo, that.requestPathIo) && Objects.equals(resourceProjection, that.resourceProjection) && Objects.equals(schema, that.schema) && Objects.equals(slowRequests, that.slowRequests) && Objects.equals(uptimeMs, that.uptimeMs) && Objects.equals(writePath, that.writePath);
     }
 
     @Override
-    public int hashCode() { return Objects.hash(connections, dispatchQueueUs, ipc, journalWriter, registryLock, requestLatencyUs, requestPathIo, resourceProjection, schema, slowRequests, uptimeMs, writePath); }
+    public int hashCode() { return Objects.hash(connections, dispatchQueueUs, ipc, journalWriter, lockClasses, registryLock, requestLatencyUs, requestPathIo, resourceProjection, schema, slowRequests, uptimeMs, writePath); }
 
     @Override
     public String toString() { return "ServerStatsResult" + toWire(); }
@@ -140,6 +148,7 @@ public final class ServerStatsResult implements WireValue {
         private Field<ServerStatsIpc> ipc = Field.omitted();
         private ServerStatsJournalWriter journalWriter;
         private boolean journalWriterSet;
+        private Field<ServerStatsLockClasses> lockClasses = Field.omitted();
         private ServerStatsRegistryLock registryLock;
         private boolean registryLockSet;
         private Field<ServerStatsRequestLatency> requestLatencyUs = Field.omitted();
@@ -168,6 +177,10 @@ public final class ServerStatsResult implements WireValue {
         public Builder journalWriter(ServerStatsJournalWriter value) {
             this.journalWriter = value;
             this.journalWriterSet = true;
+            return this;
+        }
+        public Builder lockClasses(ServerStatsLockClasses value) {
+            this.lockClasses = Field.of(value);
             return this;
         }
         public Builder registryLock(ServerStatsRegistryLock value) {

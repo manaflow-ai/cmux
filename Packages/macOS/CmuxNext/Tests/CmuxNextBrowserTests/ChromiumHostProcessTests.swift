@@ -1,6 +1,7 @@
 #if DEBUG
 // The Chromium host app ships in Debug builds only (embed-cef.sh), and so does its Swift side.
 @testable import CmuxNextBrowser
+import CmuxNextCompat
 import Darwin
 import Foundation
 import Testing
@@ -15,7 +16,7 @@ import Testing
 
     @Test func framesRoundTripThroughAChildProcess() async throws {
         let launcher = ChromiumHostLauncher()
-        let handle = try launcher.launch(executable: Self.echo, arguments: Self.echoArguments)
+        let handle = try await launcher.launch(executable: Self.echo, arguments: Self.echoArguments)
         let connection = ChromiumHostConnection(readFD: handle.readFD, writeFD: handle.writeFD)
         var ping = ChromiumHostFrame(.ping, t0: 42)
         ping.seq = 7
@@ -34,7 +35,7 @@ import Testing
 
     @Test func aKilledHostReportsItsSignalAndEndsTheWire() async throws {
         let launcher = ChromiumHostLauncher()
-        let handle = try launcher.launch(executable: Self.echo, arguments: Self.echoArguments)
+        let handle = try await launcher.launch(executable: Self.echo, arguments: Self.echoArguments)
         let connection = ChromiumHostConnection(readFD: handle.readFD, writeFD: handle.writeFD)
         #expect(kill(handle.pid, SIGKILL) == 0)
         let exit = await launcher.exit(of: handle.pid)
@@ -51,7 +52,7 @@ import Testing
 
     @Test func anExitStatusIsReported() async throws {
         let launcher = ChromiumHostLauncher()
-        let handle = try launcher.launch(executable: Self.echo, arguments: ["-c", "exit 3"])
+        let handle = try await launcher.launch(executable: Self.echo, arguments: ["-c", "exit 3"])
         let exit = await launcher.exit(of: handle.pid)
         #expect(exit == ChromiumHostExit(signal: nil, status: 3))
         launcher.reap(handle.pid)
@@ -69,7 +70,10 @@ import Testing
         // posix_spawn gives the child the calling thread's mask unless told otherwise.
         // No await until the mask is restored, so this thread runs nothing else meanwhile.
         pthread_sigmask(SIG_BLOCK, &blocked, &previous)
-        let launched = Result { try launcher.launch(executable: Self.echo, arguments: ["-c", "kill -USR1 $$; echo alive >&4"]) }
+        // The spawn queue's seam, called on this thread, so the mask under test is the spawning thread's.
+        let launched = Result { () throws(ChromiumHostLauncher.LaunchError) in
+            try ChromiumHostLauncher.spawn(executable: Self.echo, arguments: ["-c", "kill -USR1 $$; echo alive >&4"], priority: .userBlocking)
+        }
         pthread_sigmask(SIG_SETMASK, &previous, nil)
         let handle = try launched.get()
         let exit = await launcher.exit(of: handle.pid)
@@ -142,7 +146,7 @@ import Testing
     @Test func aHostThatStopsReadingEndsTheConnection() async throws {
         let launcher = ChromiumHostLauncher()
         // Never reads fd 3.
-        let handle = try launcher.launch(executable: Self.echo, arguments: ["-c", "exec /bin/sleep 30"])
+        let handle = try await launcher.launch(executable: Self.echo, arguments: ["-c", "exec /bin/sleep 30"])
         let connection = ChromiumHostConnection(readFD: handle.readFD, writeFD: handle.writeFD)
         let frame = ChromiumHostFrame(.mouse, v: [1, 2, 0, 0, 0, 0])
         var sent = 0
