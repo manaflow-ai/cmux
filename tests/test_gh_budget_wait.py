@@ -167,6 +167,20 @@ class WrapperTests(unittest.TestCase):
                            text=True, timeout=3)
         self.assertEqual(h.waited(), 30)
 
+    def test_an_unwritable_ledger_stops_the_wait(self) -> None:
+        # A wait the ledger cannot record would be invisible to later steps: the refusal stands.
+        if os.geteuid() == 0:
+            self.skipTest("root writes through a read-only directory")
+        h = self.harness(refusals=1, GH_BUDGET_WAIT_MAX_SECONDS="30")
+        ledger_dir = h.runner_temp / "gh-budget-wait"
+        ledger_dir.mkdir(exist_ok=True)
+        ledger_dir.chmod(0o500)
+        self.addCleanup(ledger_dir.chmod, 0o700)
+        result = h.gh("api", "repos/o/r")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("rate limit exceeded", result.stderr)
+        self.assertEqual(h.calls().count("call api repos/o/r"), 1)
+
     def test_a_malformed_ledger_counts_as_spent(self) -> None:
         h = self.harness(refusals=1, GH_BUDGET_WAIT_MAX_SECONDS="60")
         (h.runner_temp / "gh-budget-wait").mkdir(exist_ok=True)

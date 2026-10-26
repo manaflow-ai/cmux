@@ -90,11 +90,11 @@ def _job_wait_left() -> float:
     return _job_cap() - _job_spent()
 
 
-def _record_job_wait(seconds: float) -> None:
-    """Add a wait to the job's ledger; call with _rate_limit_lock held (one writer at a time)."""
+def _record_job_wait(seconds: float) -> bool:
+    """Add a wait to the job's ledger; call with _rate_limit_lock held (one writer at a time).
+    False when it could not be recorded: the caller must not wait (later steps could not see it)."""
     global _waited_here
     total = _job_spent() + seconds
-    _waited_here += seconds
     try:
         _LEDGER.parent.mkdir(parents=True, exist_ok=True)
         # Written whole and renamed into place, so a reader never sees a partial file.
@@ -103,6 +103,9 @@ def _record_job_wait(seconds: float) -> None:
         partial.replace(_LEDGER)
     except OSError as error:
         print(f"could not record the rate-limit wait in {_LEDGER}: {error}", file=sys.stderr, flush=True)
+        return False
+    _waited_here += seconds
+    return True
 _write_lock = threading.Lock()
 _last_write: float | None = None
 
@@ -179,8 +182,8 @@ def backoff(attempt: int, error: RequestError | None = None) -> None:
             wanted = error.wait
         wait = min(max(wanted, 1.0), left)
         # Reserve the wait before sleeping, under the lock, so concurrent waits never overrun the cap.
-        if left >= 1:
-            _record_job_wait(wait)
+        if left >= 1 and not _record_job_wait(wait):
+            left = 0  # an unrecorded wait could push the job's steps past its cap: fail instead
     if left < 1:
         raise RuntimeError(f"GitHub rate limit did not reset within {RATE_LIMIT_BUDGET_SECONDS} s: {error}") from error
     print(f"GitHub rate limit ({error}); waiting {wait:.0f} s", file=sys.stderr, flush=True)

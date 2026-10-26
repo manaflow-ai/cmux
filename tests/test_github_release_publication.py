@@ -514,8 +514,8 @@ class TransportTests(unittest.TestCase):
                 self.rate_limited_publish(refused, refused, refused)
             self.assertEqual(publisher._waited_here, 0.0)
 
-    def test_a_ledger_that_stops_being_writable_keeps_its_earlier_total(self):
-        # 3590 s already waited in this job, then the ledger turns read-only: 10 s are left, not 3600.
+    def test_a_ledger_that_cannot_be_written_stops_the_wait(self):
+        # A wait the ledger cannot record would be invisible to the job's later steps: fail, don't wait.
         ledger = self.root / "ro" / "waited"
         ledger.parent.mkdir()
         ledger.write_text("3590")
@@ -523,7 +523,7 @@ class TransportTests(unittest.TestCase):
         real_write = Path.write_text
 
         def read_only(path, *args, **kwargs):
-            if path == ledger:
+            if path.parent == ledger.parent:
                 raise PermissionError("read-only")
             return real_write(path, *args, **kwargs)
 
@@ -542,7 +542,8 @@ class TransportTests(unittest.TestCase):
             self.addCleanup(setattr, publisher, "_rate_limit_deadline", None)
             with self.assertRaisesRegex(RuntimeError, "did not reset within"):
                 publisher.publish(self.client, 42, [[self.file()], [], []])
-        self.assertEqual(sum(waits), 10.0)
+        self.assertEqual(waits, [])
+        self.assertEqual(ledger.read_text(), "3590")
 
     def test_an_unreadable_or_malformed_ledger_counts_as_spent(self):
         ledger = self.root / "bad" / "waited"
