@@ -13,7 +13,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use crate::cli::output::{PromptId, last_replies, queue_prompt};
+use crate::cli::output::{PromptId, last_replies};
 use crate::client::Client;
 use crate::rpc::method;
 use crate::secret_mcp::error_result;
@@ -23,13 +23,11 @@ use serde_json::{Value, json};
 pub const SERVER_NAME: &str = "acpmux";
 /// The session the tools act for, set in this server's env with its caller token.
 pub const SESSION_ENV: &str = "ACPMUX_SESSION_ID";
-/// How long `send` waits for the daemon to record the message before it answers that the
-/// message is on its way: under the shortest MCP tool timeout of the harnesses (Codex: 60 s).
-/// A session on a peer may take longer to answer; the send goes on behind the answer.
-const SEND_WAIT: Duration = Duration::from_secs(20);
-/// How long a send that outlived [`SEND_WAIT`] goes on behind the answer before it gives up, so
-/// a peer that never answers holds no task or connection past it.
-const SEND_MAX: Duration = Duration::from_secs(600);
+/// How long `send` asks the outbox to wait for the delivery to settle before it answers that the
+/// message is on its way: well under the shortest MCP tool timeout of the harnesses (Codex: 60 s).
+/// The daemon's outbox (`server/outbox.rs`) goes on delivering after that, retrying a peer that
+/// is down and across a restart; nothing in this server waits on it.
+const STATUS_WAIT: Duration = Duration::from_secs(5);
 /// Most replies `last` returns.
 const MAX_LAST: u64 = 20;
 
@@ -37,7 +35,7 @@ fn tools() -> Value {
     json!([
         {
             "name": "send",
-            "description": "Message another agent session: a lane, a coordinator, or a chat on a peer (host/name). Use it instead of running `acpmux send` in a shell. It returns at once with the message's promptId; it does not wait for a reply (read one later with last). The receiver's chat shows the message as yours. By default it steers: an agent in the middle of a turn reads it at its next tool step; steer: false queues it behind that turn.",
+            "description": "Message another agent session: a lane, a coordinator, or a chat on a peer (host/name). Use it instead of running `acpmux send` in a shell. It goes through this daemon's outbox, like `acpmux send --no-wait`: it returns within seconds with the message's promptId and delivery id, and a slow target or a peer that is down is retried; it does not wait for a reply (read one later with last). The receiver's chat shows the message as yours. By default it steers: an agent in the middle of a turn reads it at its next tool step; steer: false queues it behind that turn.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -151,9 +149,10 @@ pub(crate) async fn call(daemon: &Arc<Client>, params: &Value) -> Value {
     }
 }
 
-/// `send`: the request `acpmux send --no-wait` makes. It answers once the daemon recorded the
-/// message, or after [`SEND_WAIT`] with the message still on its way: the send goes on in this
-/// server, which lives as long as the session, for up to [`SEND_MAX`].
+/// `send`: what `acpmux send --no-wait` does (`cli/run/send_async.rs`): the message goes to this
+/// daemon's outbox (`_acpmux/send_queue`), which delivers it as this session (its caller token)
+/// and retries a slow target or a peer that is down. It answers with the delivery once it
+/// settles, or after [`STATUS_WAIT`] with the message on its way.
 async fn send(daemon: &Arc<Client>, args: &Value) -> Value {
     let (Some(to), Some(text)) = (arg(args, "to"), args.get("text").and_then(Value::as_str)) else {
         return error_result("to and text are required".to_owned());
@@ -162,45 +161,53 @@ async fn send(daemon: &Arc<Client>, args: &Value) -> Value {
         return error_result("text is empty".to_owned());
     }
     let steer = args.get("steer").and_then(Value::as_bool).unwrap_or(true);
-    let id = match crate::cli::run::resolve_id(daemon, to).await {
-        Ok(id) => id,
+    let key = match crate::cli::orchestrate::expand_session_key(to) {
+        Ok(key) => key,
         Err(e) => return refusal(e),
     };
     let prompt = PromptId::new(None);
-    let prompt_id = prompt.id.clone();
-    let (client, session, body) = (daemon.clone(), id.clone(), text.to_owned());
-    let mut sending = tokio::spawn(async move {
-        tokio::time::timeout(SEND_MAX, queue_prompt(client, &session, &body, steer, None, &prompt))
-            .await
-            .unwrap_or_else(|_| Err(anyhow::anyhow!("no answer in {} s", SEND_MAX.as_secs())))
-    });
-    let accepted = match tokio::time::timeout(SEND_WAIT, &mut sending).await {
-        Ok(Ok(Ok(accepted))) => accepted,
-        Ok(Ok(Err(e))) => return refusal(e),
-        Ok(Err(e)) => return error_result(format!("the send stopped: {e}")),
-        Err(_) => {
-            return ok(
-                format!(
-                    "On its way to {to} (promptId {prompt_id}): its daemon has not answered yet. \
-Do not send it again; info {to} shows it once it arrives."
-                ),
-                json!({"sessionId": id, "promptId": prompt_id, "delivery": "sending"}),
-            );
-        }
+    let request = prompt.params(&key, text, steer, None);
+    let queued = match daemon.request(method::MUX_SEND_QUEUE, json!({"request": request})).await {
+        Ok(queued) => queued,
+        Err(e) => return refusal(e),
     };
+    let delivery = queued.get("deliveryId").and_then(Value::as_str).unwrap_or_default().to_owned();
+    let wait = json!({"deliveryId": delivery, "waitMs": STATUS_WAIT.as_millis() as u64});
+    let status = daemon.request(method::MUX_SEND_STATUS, wait).await.unwrap_or(queued);
+    let state = status.get("status").and_then(Value::as_str).unwrap_or("queued").to_owned();
+    // A refusal the target gave at once (its folder's trust, a paused agent pair) is this
+    // send's error, as `acpmux send --no-wait` says it.
+    if matches!(state.as_str(), "failed" | "held") {
+        let error = status.get("error").and_then(Value::as_str).unwrap_or("delivery failed");
+        return error_result(format!("Not sent to {to} (delivery {delivery}): {error}"));
+    }
+    let accepted = status.get("accepted").cloned().unwrap_or(Value::Null);
+    let prompt_id = prompt.id.clone();
+    let session_id = accepted.get("sessionId").cloned().unwrap_or_else(|| json!(key));
+    let mut structured = json!({"deliveryId": delivery, "target": key, "sessionId": session_id,
+        "promptId": prompt_id, "status": state, "accepted": accepted});
+    if state != "delivered" {
+        structured["delivery"] = json!("sending");
+        return ok(
+            format!(
+                "On its way to {to} (delivery {delivery}, promptId {prompt_id}): this daemon keeps \
+delivering it, retrying while the target is slow or its peer is down. Do not send it again; info \
+{to} shows it once it arrives."
+            ),
+            structured,
+        );
+    }
     let steered = accepted.get("steer") == Some(&json!(true));
-    let queued = accepted.get("queued") == Some(&json!(true));
-    let (delivery, how) = if steered {
+    let waits = accepted.get("queued") == Some(&json!(true));
+    let (how_id, how) = if steered {
         ("next_step", "steered into its running turn: it reads it at its next tool step")
-    } else if queued {
+    } else if waits {
         ("queued", "queued behind its running turn: it reads it when that turn ends")
     } else {
         ("started", "it started a turn with it")
     };
-    ok(
-        format!("Sent to {to}: {how} (promptId {prompt_id})."),
-        json!({"sessionId": id, "promptId": prompt_id, "delivery": delivery, "accepted": accepted}),
-    )
+    structured["delivery"] = json!(how_id);
+    ok(format!("Sent to {to}: {how} (promptId {prompt_id})."), structured)
 }
 
 /// `ls`: `acpmux ls` as one line per session.
