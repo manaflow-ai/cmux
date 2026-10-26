@@ -815,16 +815,13 @@ async fn dispatch_request(
             let (asked_policy, agent) =
                 (policy.is_some(), conn.caller().filter(|_| !conn.is_person()));
             // A new session needs room on this host (`hub/admission.rs`); an adopt of a
-            // conversation a session already holds attaches there and starts nothing,
-            // unless it may fork into a new chat. Before the worktree, so a refusal
-            // makes none; counted until the create ends.
+            // conversation a session already holds (or another create is adopting)
+            // attaches there and starts nothing, unless it may fork into a new chat.
+            // Before the worktree, so a refusal makes none; counted until the create ends.
             let who = who(conn);
             let _admitted = match &adopt {
-                Some(a)
-                    if a.if_live != crate::adopt::IfLive::Fork
-                        && hub.holds_conversation(&a.agent_session_id) =>
-                {
-                    None
+                Some(a) if a.if_live != crate::adopt::IfLive::Fork => {
+                    hub.admit_adopt(ask(conn, &params, &who), &a.agent_session_id).await?
                 }
                 _ => Some(hub.admit_new(ask(conn, &params, &who)).await?),
             };

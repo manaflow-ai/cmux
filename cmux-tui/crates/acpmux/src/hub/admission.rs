@@ -25,7 +25,8 @@
 //! chat on this host (its app pane, or the person key) is admitted and logged
 //! too. `session/new` (with an adopt that may fork), `session/fork`, the
 //! composer's aside (`_acpmux/ask`) and sub-session starts are checked; a
-//! send, a resume, a restart, an adopted conversation, a side chat
+//! send, a resume, a restart, an adopt of a conversation a session holds (or
+//! another create is adopting: it waits for that one, `admit_adopt`), a side chat
 //! (`btw.rs`) and a handoff target never are. An admitted create counts as
 //! live until it ends, so concurrent creates at the cap cannot all pass.
 
@@ -239,10 +240,12 @@ fn read_registry(source: &Path, set: bool) -> (Option<Value>, bool) {
 #[derive(Default)]
 pub(crate) struct Admitting(StdMutex<Vec<Arc<Making>>>, tokio::sync::Notify);
 
-/// One admitted create: the name it asked for, and the id of the session it made.
+/// One admitted create: the name it asked for, the conversation it adopts (not
+/// as a fork), and the id of the session it made.
 #[derive(Default)]
 pub(crate) struct Making {
     name: Option<String>,
+    conversation: Option<String>,
     made: OnceLock<String>,
 }
 
@@ -289,7 +292,8 @@ fn counted(live: &std::collections::HashSet<&str>, open: &[Arc<Making>]) -> usiz
         + open.iter().filter(|m| m.made.get().is_none_or(|id| !live.contains(id.as_str()))).count()
 }
 
-/// How long a refused create waits for another create of its name to end.
+/// How long a refused create waits for another create of its name, or of its
+/// conversation, to end.
 const NAME_WAIT: std::time::Duration = std::time::Duration::from_secs(120);
 
 impl Drop for Admitted<'_> {
@@ -339,6 +343,33 @@ impl Hub {
     /// Whether a new session may start here (module docs). Hold the returned
     /// guard until the create ends: until then it counts as a live session.
     pub(crate) async fn admit_new(&self, ask: Ask<'_>) -> Result<Admitted<'_>, RpcError> {
+        match self.admit(ask, None).await? {
+            Some(admitted) => Ok(admitted),
+            None => Err(RpcError::internal("a create that adopts nothing attached to a session")),
+        }
+    }
+
+    /// `admit_new` for an adopt of `conversation` (not as a fork): None when a
+    /// session holds it, so the adopt attaches there and starts nothing. A
+    /// refused adopt while another create adopts it waits for that create, and
+    /// attaches to its session: concurrent adopts of one conversation converge.
+    pub(crate) async fn admit_adopt(
+        &self,
+        ask: Ask<'_>,
+        conversation: &str,
+    ) -> Result<Option<Admitted<'_>>, RpcError> {
+        if self.holds_conversation(conversation) {
+            return Ok(None);
+        }
+        self.admit(ask, Some(conversation)).await
+    }
+
+    /// `admit_new`, and for an adopt `admit_adopt`.
+    async fn admit(
+        &self,
+        ask: Ask<'_>,
+        conversation: Option<&str>,
+    ) -> Result<Option<Admitted<'_>>, RpcError> {
         let flag = user_home().map(|h| h.join(".cache/worktree-reclaim/under-floor"));
         let read = tokio::task::spawn_blocking(move || {
             let (source, set) = registry_path().unwrap_or_default();
@@ -357,9 +388,12 @@ impl Hub {
         let holds = |open: &[Arc<Making>], name: &String| {
             open.iter().any(|m| m.name.as_ref() == Some(name))
         };
+        let adopts = |open: &[Arc<Making>], c: &str| {
+            open.iter().any(|m| m.conversation.as_deref() == Some(c))
+        };
         // Counted and reserved under one lock, in a scope of its own so no
         // await below holds it: no file I/O while it is held.
-        let (refusal, live, mut held) = {
+        let (refusal, live, mut held, mut adopted) = {
             let admitting = self.admitting.0.lock().unwrap_or_else(|e| e.into_inner());
             let live = self.live_sessions(&admitting, &hosted);
             let (refusal, uncapped) = check(&Inputs {
@@ -371,9 +405,13 @@ impl Hub {
                 live,
             });
             let admitted = |mut open: std::sync::MutexGuard<'_, Vec<Arc<Making>>>| {
-                let made = Arc::new(Making { name: ask.name.clone(), made: OnceLock::new() });
+                let made = Arc::new(Making {
+                    name: ask.name.clone(),
+                    conversation: conversation.map(str::to_owned),
+                    made: OnceLock::new(),
+                });
                 open.push(made.clone());
-                Admitted { admitting: &self.admitting, made }
+                Some(Admitted { admitting: &self.admitting, made })
             };
             // Outside the fleet (no registry) that is every create: only a fleet host's gap is logged.
             match uncapped {
@@ -406,8 +444,26 @@ impl Hub {
                 return Ok(admitted(admitting));
             }
             let held = ask.name.as_ref().is_some_and(|n| holds(&admitting, n));
-            (refusal, live, held)
+            let adopted = conversation.is_some_and(|c| adopts(&admitting, c));
+            (refusal, live, held, adopted)
         };
+        // An adopt refused while another create adopts the same conversation lost
+        // the race for the room, not for the conversation: it waits for that create
+        // and attaches to its session (`admit_adopt`).
+        if let Some(c) = conversation {
+            while adopted {
+                let wake = self.admitting.1.notified();
+                tokio::pin!(wake);
+                wake.as_mut().enable();
+                adopted = adopts(&self.admitting.0.lock().unwrap_or_else(|e| e.into_inner()), c);
+                if adopted && tokio::time::timeout(NAME_WAIT, wake).await.is_err() {
+                    break;
+                }
+            }
+            if self.holds_conversation(c) {
+                return Ok(None);
+            }
+        }
         let (who, why) = (ask.who, refusal.why());
         // A create of a name another create already holds (or made) lost the
         // race for that name, not for room: it says the name is taken, as the
