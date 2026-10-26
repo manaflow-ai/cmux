@@ -4,7 +4,7 @@
   "catalog_sha256": "4c2922739cc0197b0344681e4f831efd0206fb6f85a4296760f0e60424dbb799",
   "suite": "daemon-ops",
   "total": 201,
-  "covered": 148,
+  "covered": 149,
   "verdicts": "not run",
   "excluded": {
     "agent.message.mark": "placeholders params.ids[0]: p15-oracle-069 tunes the success case",
@@ -23,7 +23,7 @@
     "conversation.draft": "placeholders params.conversation: p15-oracle-069 tunes the success case",
     "conversation.send": "placeholders params.conversation: p15-oracle-069 tunes the success case",
     "conversation.typing": "placeholders params.conversation: p15-oracle-069 tunes the success case",
-    "frontend_projection.put": "placeholders params.frontend_id, params.window_id, target.frontend_projection: p15-oracle-070 tunes the success case",
+    "credential.rotate": "the case connection derives origin agent: driver_daemon.py sends no client-hello, and credential.rotate needs the verified frontend on a local Unix connection (origin_gate.rs check_credential_owner); follow-up to p15-oracle-023: driver_daemon.py proves the DEV install key (client-hello step 2) on a second connection for the user-only operations",
     "git.checkpoint.create": "the fixture workspace has no git repository; the family task generates one under $CASE_ROOT: p15-oracle-068 tunes the success case",
     "git.checkpoint.pin": "placeholders params.checkpoint_id, params.pin_id; the fixture workspace has no git repository; the family task generates one under $CASE_ROOT: p15-oracle-068 tunes the success case",
     "git.checkpoint.unpin": "placeholders params.checkpoint_id, params.pin_id; the fixture workspace has no git repository; the family task generates one under $CASE_ROOT: p15-oracle-068 tunes the success case",
@@ -32,12 +32,13 @@
     "git.worktree.apply": "the fixture workspace has no git repository; the family task generates one under $CASE_ROOT: p15-oracle-068 tunes the success case",
     "git.worktree.create": "the fixture workspace has no git repository; the family task generates one under $CASE_ROOT: p15-oracle-068 tunes the success case",
     "git.worktree.remove": "the fixture workspace has no git repository; the family task generates one under $CASE_ROOT: p15-oracle-068 tunes the success case",
-    "history.backups.purge": "placeholders params.restore_id: p15-oracle-070 tunes the success case",
-    "history.entries.remove": "placeholders params.ids[0]: p15-oracle-070 tunes the success case",
-    "history.restore": "placeholders params.restore_id: p15-oracle-070 tunes the success case",
-    "history.visit.import": "placeholders params.path: p15-oracle-070 tunes the success case",
-    "notification.ack": "placeholders params.client_id: p15-oracle-070 tunes the success case",
-    "pairing_request.resolve": "placeholders target.pairing_request: p15-oracle-070 tunes the success case",
+    "history.backups.purge": "the case connection derives origin agent: driver_daemon.py sends no client-hello, and history.backups.purge is user only (request_origin.rs USER_ONLY_OPERATIONS, Gate A2); follow-up to p15-oracle-023: driver_daemon.py proves the DEV install key (client-hello step 2) on a second connection for the user-only operations",
+    "history.restore": "a restore needs a removal that moved a page visit to a backup, and only history.visit.record or history.visit.import (user only, Gate A2) make a visit, which the case connection (origin agent) cannot send; follow-up to p15-oracle-023: driver_daemon.py proves the DEV install key, then this case records a visit, removes it and restores the removal's restore_id",
+    "history.trail.record": "the case connection derives origin agent: driver_daemon.py sends no client-hello, and history.trail.record is user only (request_origin.rs USER_ONLY_OPERATIONS, Gate A2); follow-up to p15-oracle-023: driver_daemon.py proves the DEV install key (client-hello step 2) on a second connection for the user-only operations",
+    "history.visit.import": "the case connection derives origin agent: driver_daemon.py sends no client-hello, and history.visit.import is user only (request_origin.rs USER_ONLY_OPERATIONS, Gate A2); follow-up to p15-oracle-023: driver_daemon.py proves the DEV install key (client-hello step 2) on a second connection for the user-only operations, and the case writes a History.sqlite visit log under $CASE_ROOT first",
+    "history.visit.record": "the case connection derives origin agent: driver_daemon.py sends no client-hello, and history.visit.record is user only (request_origin.rs USER_ONLY_OPERATIONS, Gate A2); follow-up to p15-oracle-023: driver_daemon.py proves the DEV install key (client-hello step 2) on a second connection for the user-only operations",
+    "history.visit.title": "the case connection derives origin agent: driver_daemon.py sends no client-hello, and history.visit.title is user only (request_origin.rs USER_ONLY_OPERATIONS, Gate A2); follow-up to p15-oracle-023: driver_daemon.py proves the DEV install key (client-hello step 2) on a second connection for the user-only operations",
+    "pairing_request.resolve": "a pairing request exists only while a WebSocket peer waits on the daemon's pairing listener, and no case step opens one (the hermetic case daemon is offline); follow-up to p15-oracle-023: driver_daemon.py starts the loopback listener and opens a pairing, then this case rejects it",
     "pane.split_ratio.set": "placeholders params.split_id: p15-oracle-066 tunes the success case",
     "participant.avatar.set": "placeholders params.participant_id: p15-oracle-069 tunes the success case",
     "project.add": "placeholders params.path: p15-oracle-068 tunes the success case",
@@ -57,8 +58,6 @@
     "sidebar.section.remove": "placeholders params.id: p15-oracle-062 tunes the success case",
     "sidebar.section.update": "placeholders params.id: p15-oracle-062 tunes the success case",
     "sidebar.unpin": "placeholders params.items[0]: p15-oracle-062 tunes the success case",
-    "window_record.delete": "placeholders params.install_id, params.window_id: p15-oracle-070 tunes the success case",
-    "window_record.put": "placeholders params.install_id, params.window_id: p15-oracle-070 tunes the success case",
     "workspace.agent_folder.set": "placeholders params.path: p15-oracle-064 tunes the success case"
   },
   "missing": [],
@@ -74,7 +73,7 @@
     "chief": 24,
     "misc": 28
   },
-  "placeholder_operations": 37,
+  "placeholder_operations": 30,
   "tokens": {
     "$CASE_ROOT": "the case's state root (hermetic_env.py ROOT_TOKEN, p15-oracle-200)"
   },
@@ -813,11 +812,14 @@
       },
       "fixture": [],
       "error": {
-        "code": "validation.invalid",
-        "field": "oracle_unknown",
-        "rule": "request contains unknown parameters"
+        "code": "origin.forbidden"
       },
-      "placeholders": []
+      "placeholders": [],
+      "gap": "the case connection derives origin agent: driver_daemon.py sends no client-hello, and credential.rotate needs the verified frontend on a local Unix connection (origin_gate.rs check_credential_owner); follow-up to p15-oracle-023: driver_daemon.py proves the DEV install key (client-hello step 2) on a second connection for the user-only operations",
+      "tuned": [
+        "error",
+        "success"
+      ]
     },
     "frontend_projection.put": {
       "family": "misc",
@@ -831,10 +833,10 @@
         "field": "frontend_id",
         "rule": "value has too few UTF-8 bytes"
       },
-      "placeholders": [
-        "params.frontend_id",
-        "params.window_id",
-        "target.frontend_projection"
+      "placeholders": [],
+      "tuned": [
+        "error",
+        "success"
       ]
     },
     "git.checkpoint.create": {
@@ -987,12 +989,13 @@
       },
       "fixture": [],
       "error": {
-        "code": "validation.invalid",
-        "field": "restore_id",
-        "rule": "value has too few UTF-8 bytes"
+        "code": "origin.forbidden"
       },
-      "placeholders": [
-        "params.restore_id"
+      "placeholders": [],
+      "gap": "the case connection derives origin agent: driver_daemon.py sends no client-hello, and history.backups.purge is user only (request_origin.rs USER_ONLY_OPERATIONS, Gate A2); follow-up to p15-oracle-023: driver_daemon.py proves the DEV install key (client-hello step 2) on a second connection for the user-only operations",
+      "tuned": [
+        "error",
+        "success"
       ]
     },
     "history.clear": {
@@ -1021,8 +1024,9 @@
         "field": "ids",
         "rule": "value has too few items"
       },
-      "placeholders": [
-        "params.ids[0]"
+      "placeholders": [],
+      "tuned": [
+        "success"
       ]
     },
     "history.restore": {
@@ -1033,12 +1037,13 @@
       },
       "fixture": [],
       "error": {
-        "code": "validation.invalid",
-        "field": "restore_id",
-        "rule": "value has too few UTF-8 bytes"
+        "code": "operation.failed"
       },
-      "placeholders": [
-        "params.restore_id"
+      "placeholders": [],
+      "gap": "a restore needs a removal that moved a page visit to a backup, and only history.visit.record or history.visit.import (user only, Gate A2) make a visit, which the case connection (origin agent) cannot send; follow-up to p15-oracle-023: driver_daemon.py proves the DEV install key, then this case records a visit, removes it and restores the removal's restore_id",
+      "tuned": [
+        "error",
+        "success"
       ]
     },
     "history.site.remove": {
@@ -1049,11 +1054,12 @@
       },
       "fixture": [],
       "error": {
-        "code": "validation.invalid",
-        "field": "host",
-        "rule": "value has too few UTF-8 bytes"
+        "code": "validation.invalid"
       },
-      "placeholders": []
+      "placeholders": [],
+      "tuned": [
+        "error"
+      ]
     },
     "history.trail.record": {
       "family": "misc",
@@ -1063,11 +1069,14 @@
       },
       "fixture": [],
       "error": {
-        "code": "validation.invalid",
-        "field": "window",
-        "rule": "value has too few UTF-8 bytes"
+        "code": "origin.forbidden"
       },
-      "placeholders": []
+      "placeholders": [],
+      "gap": "the case connection derives origin agent: driver_daemon.py sends no client-hello, and history.trail.record is user only (request_origin.rs USER_ONLY_OPERATIONS, Gate A2); follow-up to p15-oracle-023: driver_daemon.py proves the DEV install key (client-hello step 2) on a second connection for the user-only operations",
+      "tuned": [
+        "error",
+        "success"
+      ]
     },
     "history.visit.import": {
       "family": "misc",
@@ -1077,12 +1086,15 @@
       },
       "fixture": [],
       "error": {
-        "code": "validation.invalid",
-        "field": "profile",
-        "rule": "value has too few UTF-8 bytes"
+        "code": "origin.forbidden"
       },
       "placeholders": [
         "params.path"
+      ],
+      "gap": "the case connection derives origin agent: driver_daemon.py sends no client-hello, and history.visit.import is user only (request_origin.rs USER_ONLY_OPERATIONS, Gate A2); follow-up to p15-oracle-023: driver_daemon.py proves the DEV install key (client-hello step 2) on a second connection for the user-only operations, and the case writes a History.sqlite visit log under $CASE_ROOT first",
+      "tuned": [
+        "error",
+        "success"
       ]
     },
     "history.visit.record": {
@@ -1093,11 +1105,14 @@
       },
       "fixture": [],
       "error": {
-        "code": "validation.invalid",
-        "field": "profile",
-        "rule": "value has too few UTF-8 bytes"
+        "code": "origin.forbidden"
       },
-      "placeholders": []
+      "placeholders": [],
+      "gap": "the case connection derives origin agent: driver_daemon.py sends no client-hello, and history.visit.record is user only (request_origin.rs USER_ONLY_OPERATIONS, Gate A2); follow-up to p15-oracle-023: driver_daemon.py proves the DEV install key (client-hello step 2) on a second connection for the user-only operations",
+      "tuned": [
+        "error",
+        "success"
+      ]
     },
     "history.visit.remove": {
       "family": "misc",
@@ -1121,11 +1136,14 @@
       },
       "fixture": [],
       "error": {
-        "code": "validation.invalid",
-        "field": "profile",
-        "rule": "value has too few UTF-8 bytes"
+        "code": "origin.forbidden"
       },
-      "placeholders": []
+      "placeholders": [],
+      "gap": "the case connection derives origin agent: driver_daemon.py sends no client-hello, and history.visit.title is user only (request_origin.rs USER_ONLY_OPERATIONS, Gate A2); follow-up to p15-oracle-023: driver_daemon.py proves the DEV install key (client-hello step 2) on a second connection for the user-only operations",
+      "tuned": [
+        "error",
+        "success"
+      ]
     },
     "keybindings.remove": {
       "family": "misc",
@@ -1133,13 +1151,17 @@
         "success": "daemon-ops/keybindings-remove-ok",
         "error": "daemon-ops/keybindings-remove-error"
       },
-      "fixture": [],
+      "fixture": [
+        "bind"
+      ],
       "error": {
-        "code": "validation.invalid",
-        "field": "command",
-        "rule": "value has too few UTF-8 bytes"
+        "code": "keybindings.invalid"
       },
-      "placeholders": []
+      "placeholders": [],
+      "tuned": [
+        "error",
+        "success"
+      ]
     },
     "keybindings.reset": {
       "family": "misc",
@@ -1163,11 +1185,13 @@
       },
       "fixture": [],
       "error": {
-        "code": "validation.invalid",
-        "field": "command",
-        "rule": "value has too few UTF-8 bytes"
+        "code": "keybindings.invalid"
       },
-      "placeholders": []
+      "placeholders": [],
+      "tuned": [
+        "error",
+        "success"
+      ]
     },
     "layout.bulk": {
       "family": "layout",
@@ -1195,12 +1219,12 @@
         "fx-notification"
       ],
       "error": {
-        "code": "validation.invalid",
-        "field": "client_id",
-        "rule": "value has too few UTF-8 bytes"
+        "code": "revision.conflict"
       },
-      "placeholders": [
-        "params.client_id"
+      "placeholders": [],
+      "tuned": [
+        "error",
+        "success"
       ]
     },
     "notification.clear": {
@@ -1239,12 +1263,15 @@
       },
       "fixture": [],
       "error": {
-        "code": "validation.invalid",
-        "field": "decision",
-        "rule": "value is outside the allowed enum"
+        "code": "origin.forbidden"
       },
       "placeholders": [
         "target.pairing_request"
+      ],
+      "gap": "a pairing request exists only while a WebSocket peer waits on the daemon's pairing listener, and no case step opens one (the hermetic case daemon is offline); follow-up to p15-oracle-023: driver_daemon.py starts the loopback listener and opens a pairing, then this case rejects it",
+      "tuned": [
+        "error",
+        "success"
       ]
     },
     "palette_usage.forget": {
@@ -2132,11 +2159,13 @@
       },
       "fixture": [],
       "error": {
-        "code": "validation.invalid",
-        "field": "if_revision",
-        "rule": "value must be an unsigned decimal string"
+        "code": "settings.agent_refused"
       },
-      "placeholders": []
+      "placeholders": [],
+      "tuned": [
+        "error",
+        "success"
+      ]
     },
     "settings.set": {
       "family": "misc",
@@ -2965,15 +2994,16 @@
         "success": "daemon-ops/window-record-delete-ok",
         "error": "daemon-ops/window-record-delete-error"
       },
-      "fixture": [],
+      "fixture": [
+        "put"
+      ],
       "error": {
-        "code": "validation.invalid",
-        "field": "install_id",
-        "rule": "value has too few UTF-8 bytes"
+        "code": "resource.not_found"
       },
-      "placeholders": [
-        "params.install_id",
-        "params.window_id"
+      "placeholders": [],
+      "tuned": [
+        "error",
+        "success"
       ]
     },
     "window_record.put": {
@@ -2984,13 +3014,12 @@
       },
       "fixture": [],
       "error": {
-        "code": "validation.invalid",
-        "field": "install_id",
-        "rule": "value has too few UTF-8 bytes"
+        "code": "revision.conflict"
       },
-      "placeholders": [
-        "params.install_id",
-        "params.window_id"
+      "placeholders": [],
+      "tuned": [
+        "error",
+        "success"
       ]
     },
     "workspace.agent_folder.set": {

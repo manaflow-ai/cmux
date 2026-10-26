@@ -39,7 +39,7 @@
         "method": "history.visit.record",
         "params": {
           "profile": "oracle",
-          "url": "about:blank",
+          "url": "http://127.0.0.1:9/oracle",
           "at_ms": "1"
         },
         "idempotencyKey": "history-visit-record-ok.call"
@@ -52,7 +52,7 @@
         "before",
         "settled"
       ],
-      "note": "every required field from its catalog type"
+      "note": "one finished main-frame navigation of the profile"
     }
   ],
   "invariants": [
@@ -61,5 +61,8 @@
   "teardown": [
     "stop the case daemon",
     "verify the socket and state root are gone"
+  ],
+  "untested": [
+    "the case connection derives origin agent: driver_daemon.py sends no client-hello, and history.visit.record is user only (request_origin.rs USER_ONLY_OPERATIONS, Gate A2); follow-up to p15-oracle-023: driver_daemon.py proves the DEV install key (client-hello step 2) on a second connection for the user-only operations"
   ]
 }

@@ -38,21 +38,26 @@
       "args": {
         "method": "window_record.put",
         "params": {
-          "install_id": "",
-          "window_id": "oracle",
-          "record": {}
+          "install_id": "oracle-install",
+          "window_id": "oracle-window",
+          "record": {},
+          "expected_revision": "5"
         },
         "idempotencyKey": "window-record-put-error.call"
       },
       "expect": {
         "outcome": "error",
-        "error": "validation.invalid"
+        "error": "revision.conflict",
+        "errorDetails": {
+          "actual": "0",
+          "expected": "5"
+        }
       },
       "checkpoint": [
         "before",
         "settled"
       ],
-      "note": "install_id breaks its catalog type (value has too few UTF-8 bytes); the daemon's catalog check refuses it"
+      "note": "a record that does not exist is at revision 0, so expected_revision 5 writes nothing"
     }
   ],
   "invariants": [
@@ -61,9 +66,5 @@
   "teardown": [
     "stop the case daemon",
     "verify the socket and state root are gone"
-  ],
-  "untested": [
-    "params.install_id is a fixed placeholder, not a fixture object; misc/_tuning.json tunes it",
-    "params.window_id is a fixed placeholder, not a fixture object; misc/_tuning.json tunes it"
   ]
 }

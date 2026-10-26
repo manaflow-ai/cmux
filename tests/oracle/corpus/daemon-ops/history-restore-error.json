@@ -38,19 +38,22 @@
       "args": {
         "method": "history.restore",
         "params": {
-          "restore_id": ""
+          "restore_id": "history:0000000000000000000000000000000a"
         },
         "idempotencyKey": "history-restore-error.call"
       },
       "expect": {
         "outcome": "error",
-        "error": "validation.invalid"
+        "error": "operation.failed",
+        "errorDetails": {
+          "operation": "history.restore"
+        }
       },
       "checkpoint": [
         "before",
         "settled"
       ],
-      "note": "restore_id breaks its catalog type (value has too few UTF-8 bytes); the daemon's catalog check refuses it"
+      "note": "a well-formed restore id that no removal issued: history_ops/pages.rs answers operation.failed (no backup, it was restored, purged or expired)"
     }
   ],
   "invariants": [
@@ -59,8 +62,5 @@
   "teardown": [
     "stop the case daemon",
     "verify the socket and state root are gone"
-  ],
-  "untested": [
-    "params.restore_id is a fixed placeholder, not a fixture object; misc/_tuning.json tunes it"
   ]
 }

@@ -38,7 +38,7 @@
       "args": {
         "method": "history.restore",
         "params": {
-          "restore_id": "oracle0000000000000000000000000000000000"
+          "restore_id": "history:0000000000000000000000000000000a"
         },
         "idempotencyKey": "history-restore-ok.call"
       },
@@ -50,7 +50,7 @@
         "before",
         "settled"
       ],
-      "note": "every required field from its catalog type"
+      "note": "puts a removal's visits back, once"
     }
   ],
   "invariants": [
@@ -61,6 +61,6 @@
     "verify the socket and state root are gone"
   ],
   "untested": [
-    "params.restore_id is a fixed placeholder, not a fixture object; misc/_tuning.json tunes it"
+    "a restore needs a removal that moved a page visit to a backup, and only history.visit.record or history.visit.import (user only, Gate A2) make a visit, which the case connection (origin agent) cannot send; follow-up to p15-oracle-023: driver_daemon.py proves the DEV install key, then this case records a visit, removes it and restores the removal's restore_id"
   ]
 }

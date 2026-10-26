@@ -39,7 +39,7 @@
       "args": {
         "method": "pairing_request.resolve",
         "params": {
-          "decision": "accept"
+          "decision": "reject"
         },
         "idempotencyKey": "pairing-request-resolve-ok.call"
       },
@@ -51,7 +51,7 @@
         "before",
         "settled"
       ],
-      "note": "every required field from its catalog type"
+      "note": "rejects the waiting pairing; any local connection may reject"
     }
   ],
   "invariants": [
@@ -62,6 +62,7 @@
     "verify the socket and state root are gone"
   ],
   "untested": [
-    "target.pairing_request is a fixed placeholder, not a fixture object; misc/_tuning.json tunes it"
+    "target.pairing_request is a fixed placeholder, not a fixture object; misc/_tuning.json tunes it",
+    "a pairing request exists only while a WebSocket peer waits on the daemon's pairing listener, and no case step opens one (the hermetic case daemon is offline); follow-up to p15-oracle-023: driver_daemon.py starts the loopback listener and opens a pairing, then this case rejects it"
   ]
 }

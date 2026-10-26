@@ -1480,7 +1480,47 @@ class GenDaemonOpsSelfTest(unittest.TestCase):
             self.assertIn("p15-oracle-204", files[COVERAGE]["excluded"][operation], operation)
         move = files["browser-input-mouse-ok.json"]["steps"][-1]["args"]["params"]
         self.assertEqual((move["kind"], "button" in move), ("move", False))
-        self.assertEqual(files[COVERAGE]["covered"], 148)
+        # The family's own count: the other families' tuning moves the suite total.
+        self.assertEqual(sum(op not in files[COVERAGE]["excluded"] for op in browser), len(browser) - len(engine))
+
+    def test_the_misc_family_tuning(self) -> None:
+        """tests/oracle/corpus/daemon-ops/misc/_tuning.json (p15-oracle-070): the 28 misc mutations. The case
+        connection has no client-hello, so it derives origin agent: the operations that need the verified app (and
+        pairing accept) assert that refusal, and their success cases (with history.restore, which needs a visit only
+        a user-only operation makes) are excluded naming p15-oracle-023. The rest are covered with no placeholder."""
+        user_only = {"credential.rotate", "history.backups.purge", "history.trail.record", "history.visit.import",
+                     "history.visit.record", "history.visit.title"}
+        gapped = user_only | {"history.restore", "pairing_request.resolve"}
+        tuning = load_tuning(DEFAULT_OUT, self.catalog)
+        files = generate(self.catalog, tuning)
+        coverage = files[COVERAGE]
+        misc = sorted(op for op in self.catalog.mutations() if family_of(op) == "misc")
+        self.assertEqual(len(misc), 28)
+
+        def call(operation: str, kind: str) -> Dict[str, Any]:
+            return files[coverage["operations"][operation]["cases"][kind].split("/", 1)[1] + ".json"]["steps"][-1]
+
+        for operation in misc:
+            excluded = coverage["excluded"].get(operation)
+            self.assertEqual(excluded is not None, operation in gapped, operation)
+            if excluded is not None:
+                self.assertIn("p15-oracle-023", excluded, operation)
+            else:
+                self.assertEqual(coverage["operations"][operation]["placeholders"], [], operation)
+        for operation in user_only | {"pairing_request.resolve"}:
+            expect = call(operation, "error")["expect"]
+            self.assertEqual((expect["error"], expect["errorDetails"]["derived"], expect["errorDetails"]["required"]),
+                             ("origin.forbidden", "agent", "user"), operation)
+        # Removing a binding or a record needs one first; the error cases of those ops have no setup step.
+        for operation, setup in (("keybindings.remove", "keybindings.set"), ("window_record.delete", "window_record.put")):
+            ok = files[coverage["operations"][operation]["cases"]["success"].split("/", 1)[1] + ".json"]["steps"]
+            bad = files[coverage["operations"][operation]["cases"]["error"].split("/", 1)[1] + ".json"]["steps"]
+            self.assertEqual([step["args"]["method"] for step in ok], [setup, operation], operation)
+            self.assertEqual([step["args"]["method"] for step in bad], [operation], operation)
+        self.assertEqual(call("settings.reset_all", "success")["args"]["params"]["origin"], "user")
+        self.assertEqual(call("settings.reset_all", "error")["expect"]["error"], "settings.agent_refused")
+        self.assertEqual(call("pairing_request.resolve", "success")["args"]["params"]["decision"], "reject")
+        self.assertEqual(call("pairing_request.resolve", "error")["args"]["params"]["decision"], "accept")
 
     def test_a_git_remote_outside_the_case_root_is_refused(self) -> None:
         for remote in ("git@github.com:manaflow-ai/cmux.git", "/srv/repos/cmux.git", f"{ROOT_TOKEN}/../x.git", "origin"):
