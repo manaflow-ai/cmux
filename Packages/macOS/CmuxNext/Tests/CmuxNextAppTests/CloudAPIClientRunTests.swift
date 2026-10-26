@@ -85,5 +85,7 @@ struct CloudAPIClientRunTests {
         #expect(AppControl.runError(.transport("offline")).code == "unavailable")
         #expect(AppControl.runError(.decoding("bad")).code == "bad_response")
         #expect(AppControl.runError(.timedOut("/api/runs")).code == "timeout")
+        // A timeout's message is the localized one, never the request path.
+        #expect(!AppControl.runError(.timedOut("/api/runs/run-1/wait")).message.contains("/api/runs"))
     }
 }

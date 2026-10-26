@@ -180,7 +180,7 @@ extension AppControl {
         let notSignedIn = String(localized: "runs.error.notSignedIn", defaultValue: "Sign in to cmux in the cmux app first.", table: "Runs", bundle: .module)
         switch error {
         case .notSignedIn: return ControlError(code: "not_signed_in", message: notSignedIn)
-        case .timedOut: return ControlError(code: "timeout", message: error.description)
+        case .timedOut: return ControlError(code: "timeout", message: String(localized: "runs.error.timeout", defaultValue: "cmux.com didn't answer in time.", table: "Runs", bundle: .module))
         // An expired or revoked session: sign in again (the CLI's exit 3), not a failed run.
         case .http(401, _, _, _, _): return ControlError(code: "not_signed_in", message: notSignedIn)
         case .http(_, "run_sandbox_unavailable", _, _, _): return ControlError(code: "run_sandbox_unavailable", message: String(localized: "runs.error.sandboxUnavailable", defaultValue: "Sandboxed runs are not enabled for this cmux Cloud account yet.", table: "Runs", bundle: .module))
