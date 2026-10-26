@@ -31,14 +31,14 @@ use crate::terminal_host_protocol::{
     CLEAR_HISTORY_ACK_AMBIGUOUS, CLEAR_HISTORY_ACK_FALLBACK_UNREPRESENTABLE,
     CLEAR_HISTORY_ACK_FALLBACK_WRITE_TIMEOUT, CLEAR_HISTORY_ACK_KNOWN_NOT_DELIVERED,
     CLEAR_HISTORY_ACK_OK, CLEAR_HISTORY_ACK_PRESERVATION_FAILED, CLEAR_HISTORY_ACK_STREAM_TIMEOUT,
-    FLAG_COLORS_FOLLOW, FLAG_LAUNCH_ACTIVATION_REQUIRED, FLAG_PROGRAM_STATUS, FLAG_PTY_CUSTODY,
-    FLAG_SHELL_ACTIVITY, FLAG_SMART_RENDERER, FLAG_TERMINAL_METADATA, FLAG_VIEWER_SIZE_ACKS,
-    FLAG_VIEWER_SIZE_PRIORITY, Frame, HostLaunchFailure, HostLaunchFailureKind,
-    KITTY_IMAGE_ALIAS_COUNT_LEN, KITTY_IMAGE_ALIAS_ENCODED_LEN, LAUNCH_ACTIVATION_PROTOCOL_VERSION,
-    MAX_FRAME_PAYLOAD, MAX_KITTY_IMAGE_ALIASES, MessageKind, PROTOCOL_VERSION,
-    RESIZE_ACK_CANONICAL_CHANGED, TerminalExit, decode_host_launch_failure, decode_terminal_exit,
-    encode_host_launch_failure, encode_terminal_exit, read_frame,
-    wait_for_native_child_status_with_reap_result, write_frame,
+    FLAG_COLORS_FOLLOW, FLAG_INPUT_FLOW, FLAG_LAUNCH_ACTIVATION_REQUIRED, FLAG_PROGRAM_STATUS,
+    FLAG_PTY_CUSTODY, FLAG_SHELL_ACTIVITY, FLAG_SMART_RENDERER, FLAG_TERMINAL_METADATA,
+    FLAG_VIEWER_SIZE_ACKS, FLAG_VIEWER_SIZE_PRIORITY, Frame, HostLaunchFailure,
+    HostLaunchFailureKind, KITTY_IMAGE_ALIAS_COUNT_LEN, KITTY_IMAGE_ALIAS_ENCODED_LEN,
+    LAUNCH_ACTIVATION_PROTOCOL_VERSION, MAX_FRAME_PAYLOAD, MAX_KITTY_IMAGE_ALIASES, MessageKind,
+    PROTOCOL_VERSION, RESIZE_ACK_CANONICAL_CHANGED, TerminalExit, decode_host_launch_failure,
+    decode_terminal_exit, encode_host_launch_failure, encode_terminal_exit, flow_trailer_payload,
+    read_frame, split_flow_trailer, wait_for_native_child_status_with_reap_result, write_frame,
 };
 
 mod grant_failure;
@@ -208,6 +208,11 @@ pub struct TerminalHostRecord {
     /// TraceControl message, so the daemon never sends it to them.
     #[serde(default)]
     pub supports_trace_control: bool,
+    /// Additive handshake capability (p09-observability-018). Missing/false
+    /// records belong to hosts that take no key-press flow on input and
+    /// reject a ClientHello carrying `FLAG_INPUT_FLOW`.
+    #[serde(default)]
+    pub supports_input_flow: bool,
     /// The orphan grace this host runs with, in seconds (cx-t2sqm D1): it
     /// ends its terminal after this long with no client. `None` (normal
     /// installs, and hosts from before this field): it never does; only a
@@ -238,6 +243,7 @@ impl std::fmt::Debug for TerminalHostRecord {
             .field("supports_program_status", &self.supports_program_status)
             .field("supports_shell_activity", &self.supports_shell_activity)
             .field("supports_trace_control", &self.supports_trace_control)
+            .field("supports_input_flow", &self.supports_input_flow)
             .field("orphan_grace_secs", &self.orphan_grace_secs)
             .finish()
     }

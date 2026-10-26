@@ -55,6 +55,18 @@ pub(super) fn write_pending_sequence_json(
     writer.write_all(b"\"")
 }
 
+/// `,"flow":N` of an `output` event that echoes key press `flow`
+/// (p09-observability-018); nothing for 0.
+pub(super) fn write_output_flow_json(
+    writer: &mut BudgetedJsonWriter,
+    flow: u64,
+) -> std::io::Result<()> {
+    if flow == 0 {
+        return Ok(());
+    }
+    write!(writer, ",\"flow\":{flow}")
+}
+
 fn rgb_hex(color: Rgb) -> String {
     format!("#{:02x}{:02x}{:02x}", color.r, color.g, color.b)
 }
