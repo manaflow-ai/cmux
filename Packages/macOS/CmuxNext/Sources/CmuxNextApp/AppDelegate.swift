@@ -65,9 +65,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         self.daemonPrestart = daemonPrestart
         self.launchCleanup = launchCleanup
         // One display link per display, shared by the app, window and budgeted frame schedulers.
-        let displays = DisplayClock()
-        FrameScheduler.attach(displays)
-        let mainWork = MainWorkScheduler(budget: MainFrameBudget(input: SessionInputPending(), signposts: true), displays: displays)
+        let mainWork = MainWorkScheduler(budget: MainFrameBudget(input: SessionInputPending(), signposts: true),
+                                         displays: FrameScheduler.appDisplays)
         self.mainWork = mainWork
         control = AppControl(mainWork: mainWork)
         super.init()

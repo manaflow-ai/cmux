@@ -23,10 +23,8 @@ public import QuartzCore
 /// it is armed again for the rest of the timeout from that frame.
 ///
 /// ```swift
-/// // The composition root (AppDelegate) builds one and shares it:
-/// let displays = DisplayClock()
-/// FrameScheduler.attach(displays)
-/// let mainWork = MainWorkScheduler(budget: budget, displays: displays)
+/// // FrameScheduler.app owns the app's clock; the composition root shares it:
+/// let mainWork = MainWorkScheduler(budget: budget, displays: FrameScheduler.appDisplays)
 ///
 /// // A test counts links with a fake factory and fires frames by hand:
 /// let displays = DisplayClock(makeLink: { _, _ in FakeLink() }, displayOf: { _ in 1 })

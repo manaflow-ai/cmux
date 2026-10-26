@@ -21,6 +21,7 @@ extension CADisplayLink: FrameLink {}
 /// ``MainWorkScheduler``, the only scheduler that holds a ``MainFrameBudget``. All of them share one
 /// link per display (``DisplayClock``, the only code that creates one, as
 /// `scripts/cmux-next/check-concurrency.sh` enforces), which also runs the display's stall deadline.
+/// ``app`` owns that clock; the composition root passes it to its ``MainWorkScheduler``.
 @MainActor
 public final class FrameScheduler: NSObject {
     /// Makes a test scheduler's fake link (``testing(clock:ledger:mediaTime:makeLink:)``).
@@ -32,34 +33,21 @@ public final class FrameScheduler: NSObject {
     public static let stallsBeforeRebuild = DisplayClock.stallsBeforeRebuild
 
     /// The scheduler for window-less frame work, on the main display (no budget: budgeted batches
-    /// tick on the injected ``MainWorkScheduler``).
-    public static let app = FrameScheduler(name: "app", host: .screen, budget: nil)
+    /// tick on the injected ``MainWorkScheduler``). It owns the app's ``DisplayClock``, which every
+    /// window scheduler subscribes to and the composition root passes to its ``MainWorkScheduler``.
+    public static let app = FrameScheduler(name: "app", host: .screen, displays: DisplayClock(), budget: nil)
 
     private static var windows: [ObjectIdentifier: WeakScheduler] = [:]
-    private static var attachedDisplays: DisplayClock?
 
-    /// The display clock ``app`` and the window schedulers subscribe to: the one the composition root
-    /// attached (``attach(_:)``) and shares with its ``MainWorkScheduler``; without one (tools,
-    /// tests), a system clock made on first use.
-    public static var appDisplays: DisplayClock {
-        if let attachedDisplays { return attachedDisplays }
-        let made = DisplayClock()
-        attachedDisplays = made
-        return made
-    }
-
-    /// Makes `displays` the clock of ``app`` and every window scheduler (the composition root, before
-    /// the first window opens). A scheduler subscribed now stays on its old clock until it goes idle.
-    public static func attach(_ displays: DisplayClock) {
-        attachedDisplays = displays
-    }
+    /// The display clock ``app`` and the window schedulers subscribe to (``app``'s).
+    public static var appDisplays: DisplayClock { app.displayClock }
 
     /// `window`'s scheduler, created on first use and dropped with the window.
     public static func forWindow(_ window: NSWindow) -> FrameScheduler {
         let key = ObjectIdentifier(window)
         if let scheduler = windows[key]?.value, scheduler.window === window { return scheduler }
         windows = windows.filter { $0.value.value?.window != nil }
-        let scheduler = FrameScheduler(name: "window \(window.windowNumber)", host: .window(window), budget: nil)
+        let scheduler = FrameScheduler(name: "window \(window.windowNumber)", host: .window(window), displays: appDisplays, budget: nil)
         windows[key] = WeakScheduler(value: scheduler)
         // The window keeps its scheduler alive.
         objc_setAssociatedObject(window, &FrameScheduler.associationKey, scheduler, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
@@ -95,11 +83,11 @@ public final class FrameScheduler: NSObject {
     /// in this order, and a client that ran moves to the back, so one saturating client never
     /// keeps the others of its class from ticking (round-robin).
     private var budgetedOrder: [ObjectIdentifier] = []
-    /// The clock this scheduler subscribes to; nil: ``appDisplays``, read when it subscribes.
-    private let ownDisplays: DisplayClock?
-    /// The clock and display this scheduler last subscribed to (kept after it leaves, for its stall
-    /// stats); ``isSubscribed`` says whether it ticks on that display now.
-    private var display: (clock: DisplayClock, id: CGDirectDisplayID)?
+    /// The clock this scheduler subscribes to.
+    public let displayClock: DisplayClock
+    /// The display this scheduler last subscribed to (kept after it leaves, for its stall stats);
+    /// ``isSubscribed`` says whether it ticks on that display now.
+    private var displayID: CGDirectDisplayID?
     private var isSubscribed = false
     /// It subscribed to a display that has a link (a headless one ticks on the stall deadline only).
     private var ticksOnLink = false {
@@ -123,8 +111,8 @@ public final class FrameScheduler: NSObject {
     /// (and only that scheduler gets budgeted clients); nil for ``app`` and window schedulers.
     let budget: MainFrameBudget?
 
-    /// - Parameter displays: The clock to subscribe to; nil: ``appDisplays``.
-    init(name: String, host: Host, displays: DisplayClock? = nil, clock: any Clock<Duration> = ContinuousClock(),
+    /// - Parameter displays: The clock to subscribe to (the app's: ``appDisplays``).
+    init(name: String, host: Host, displays: DisplayClock, clock: any Clock<Duration> = ContinuousClock(),
          ledger: WakeupLedger = .shared, budget: MainFrameBudget?) {
         self.budget = budget
         self.name = name
@@ -134,7 +122,7 @@ public final class FrameScheduler: NSObject {
             isScreenHost = false
             self.window = window
         }
-        ownDisplays = displays
+        displayClock = displays
         self.ledger = ledger
         self.clock = clock
         super.init()
@@ -169,7 +157,7 @@ public final class FrameScheduler: NSObject {
     }
 
     /// Its display's link exists and runs, and this scheduler ticks on it.
-    public var isRunning: Bool { subscribed.map { $0.clock.isRunning($0.id) } ?? false }
+    public var isRunning: Bool { subscribed.map { displayClock.isRunning($0) } ?? false }
 
     /// This scheduler's continuous input, coalesced to its frames and delivered before its frame
     /// clients (made on first use; dropped with the scheduler's window).
@@ -181,18 +169,15 @@ public final class FrameScheduler: NSObject {
     }
 
     /// A display link ticks this scheduler (only while clients are active).
-    public var hasLink: Bool { subscribed.map { $0.clock.hasLink($0.id) } ?? false }
-
-    /// The clock this scheduler subscribes to (debug.wakeups reads its live links).
-    public var displayClock: DisplayClock { ownDisplays ?? Self.appDisplays }
+    public var hasLink: Bool { subscribed.map { displayClock.hasLink($0) } ?? false }
 
     /// Times its display's stall timer was armed (each arm is one task and one cooperative-pool wake).
-    public var stallTimerArms: Int { display.map { $0.clock.stallTimerArms(on: $0.id) } ?? 0 }
+    public var stallTimerArms: Int { displayID.map { displayClock.stallTimerArms(on: $0) } ?? 0 }
     /// The last frame stall its display saw (debug and tests).
-    public var lastStall: FrameStall? { display.flatMap { $0.clock.lastStall(on: $0.id) } }
+    public var lastStall: FrameStall? { displayID.flatMap { displayClock.lastStall(on: $0) } }
 
     /// The display it ticks on now.
-    private var subscribed: (clock: DisplayClock, id: CGDirectDisplayID)? { isSubscribed ? display : nil }
+    private var subscribed: CGDirectDisplayID? { isSubscribed ? displayID : nil }
 
     /// True for the ``MainWorkScheduler``'s scheduler: its budgeted classes tick last on its display.
     var holdsBudget: Bool { budget != nil }
@@ -204,14 +189,13 @@ public final class FrameScheduler: NSObject {
         clients[key] = client
         if client.workClass.isBudgeted, !budgetedOrder.contains(key) { budgetedOrder.append(key) }
         guard !isSubscribed else { return }
-        let displays = displayClock
-        let linksBefore = displays.linksMade
+        let linksBefore = displayClock.linksMade
         lastTimestamp = nil
-        let id = displays.subscribe(self, window: isScreenHost ? nil : window)
-        display = (displays, id)
+        let id = displayClock.subscribe(self, window: isScreenHost ? nil : window)
+        displayID = id
         isSubscribed = true
-        if displays.linksMade != linksBefore { linksMade += 1 }
-        ticksOnLink = displays.hasLink(id)
+        if displayClock.linksMade != linksBefore { linksMade += 1 }
+        ticksOnLink = displayClock.hasLink(id)
     }
 
     func deactivate(_ client: FrameClient) {
@@ -231,7 +215,7 @@ public final class FrameScheduler: NSObject {
         guard let subscribed else { return }
         isSubscribed = false
         ticksOnLink = false
-        subscribed.clock.unsubscribe(self, from: subscribed.id)
+        displayClock.unsubscribe(self, from: subscribed)
     }
 
     /// Drops the subscription and every client (the window closed).
@@ -251,7 +235,7 @@ public final class FrameScheduler: NSObject {
     /// scheduler without a display (headless) ticks alone.
     public func frameDidFire(timestamp: CFTimeInterval? = nil, refreshInterval: Double? = nil) {
         if let subscribed {
-            subscribed.clock.displayDidFire(subscribed.id, timestamp: timestamp, refreshInterval: refreshInterval)
+            displayClock.displayDidFire(subscribed, timestamp: timestamp, refreshInterval: refreshInterval)
             return
         }
         let tick = beginFrame(timestamp: timestamp, refreshInterval: refreshInterval)

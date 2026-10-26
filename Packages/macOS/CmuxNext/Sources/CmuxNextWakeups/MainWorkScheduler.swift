@@ -22,9 +22,8 @@ public import QuartzCore
 ///
 /// ```swift
 /// // The composition root:
-/// let displays = DisplayClock()
-/// FrameScheduler.attach(displays)
-/// let mainWork = MainWorkScheduler(budget: MainFrameBudget(input: SessionInputPending(), signposts: true), displays: displays)
+/// let mainWork = MainWorkScheduler(budget: MainFrameBudget(input: SessionInputPending(), signposts: true),
+///                                  displays: FrameScheduler.appDisplays)
 /// let requests = FrameBatchQueue(owner: "Control.frames", budgeted: .automation, on: mainWork)
 /// mainWork.post(.automation, owner: "browser-host.open") { host.open(url) }
 ///
@@ -52,15 +51,15 @@ public final class MainWorkScheduler {
     ///   - budget: The app's budget (the app: ``SessionInputPending`` input and signposts on).
     ///     The render pass (layout, display, the Core Animation commit) is timed on the main run loop
     ///     while it ticks and charged to the next frame (``MainFrameBudget/noteRenderPass(nanos:)``).
-    ///   - displays: The display clock it shares with ``FrameScheduler/app`` and the windows (the
-    ///     composition root's, ``FrameScheduler/attach(_:)``).
+    ///   - displays: The display clock it shares with ``FrameScheduler/app`` and the windows
+    ///     (``FrameScheduler/appDisplays``).
     public convenience init(budget: MainFrameBudget, displays: DisplayClock) {
         let meter = RenderPassMeter { [weak budget] nanos in budget?.noteRenderPass(nanos: nanos) }
         self.init(budget: budget, frames: FrameScheduler(name: "budgeted", host: .screen, displays: displays, budget: budget),
                   renderPasses: meter)
     }
 
-    /// A scheduler on ``FrameScheduler/appDisplays`` (tests and tools without a composition root).
+    /// A scheduler on ``FrameScheduler/appDisplays``.
     public convenience init(budget: MainFrameBudget) {
         self.init(budget: budget, displays: FrameScheduler.appDisplays)
     }
