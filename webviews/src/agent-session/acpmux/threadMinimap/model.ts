@@ -10,9 +10,9 @@ export type MinimapTurn = {
   /// The user row's index in the transcript rows (and in the layout's tops).
   index: number;
   id: string;
-  /// The turn's stable key: session id, row id and a hash of the prompt, since every session
-  /// numbers its rows `user-<seq>` and a row's `at` is not stable across snapshots. Bookmarks use
-  /// the row id's seq instead (bookmarks.ts), which acpmux checks against its log.
+  /// The turn's stable key (turnKey): session id and the prompt's promptId, else its row id, since
+  /// every session numbers its rows `user-<seq>` and a row's `at` is not stable across snapshots.
+  /// Bookmarks use the row id's seq instead (bookmarks.ts), which acpmux checks against its log.
   key: string;
   /// The prompt on one line.
   prompt: string;
@@ -333,14 +333,15 @@ export function minimapTurns(
   };
 }
 
-/// A turn's key. A prompt this pane sent keys on its send (`delivery.promptId`), which its row keeps
-/// from the moment it is sent (`local-<promptId>`) through acpmux's echo (`user-<seq>`): its tick
-/// shows in the frame of the send, at the bottom, and stays the same tick when the echo replaces the
-/// row, rather than going and coming back (Leo 2026-10-25: "my latest prompt that I sent in ...
-/// should be able to go in at the bottom as well").
-function turnKey(sessionId: string, user: AcpmuxRow): string {
-  const sent = user.delivery?.promptId;
-  return `${sessionId}#${sent ? `sent-${sent}` : user.id}#${hash(user.text ?? "")}`;
+/// A turn's key: its prompt's promptId, which the row keeps from the moment this pane sends it
+/// (`local-<promptId>`, its delivery's) through acpmux's echo (`user-<seq>`) and every later read of
+/// the history (the `user_message` record's), else its row id. Never the prompt's text, which the
+/// row can show differently once more is known (a sender's address line, incomingMessage.ts): the
+/// tick stays one element and a jump or step that looks a turn up by key still finds it (Leo
+/// 2026-10-25: "my latest prompt that I sent in ... should be able to go in at the bottom as well").
+export function turnKey(sessionId: string, user: AcpmuxRow): string {
+  const promptId = user.promptId ?? user.delivery?.promptId;
+  return `${sessionId}#${promptId ? `prompt-${promptId}` : user.id}`;
 }
 
 /// Whether two reply previews are the same blocks and spans.
@@ -364,16 +365,6 @@ function ticksOf(turns: readonly MinimapTurn[], previous: readonly MinimapTick[]
       ? tick
       : { key: turn.key, id: turn.id, prompt: turn.prompt };
   });
-}
-
-/// FNV-1a of `text`, as base 36.
-function hash(text: string): string {
-  let value = 0x811c9dc5;
-  for (let index = 0; index < text.length; index += 1) {
-    value ^= text.charCodeAt(index);
-    value = Math.imul(value, 0x01000193);
-  }
-  return (value >>> 0).toString(36);
 }
 
 /// The turn the reader is in: the last prompt above a third of the way down the viewport.

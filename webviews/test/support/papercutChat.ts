@@ -127,17 +127,16 @@ export async function papercutPane(
   };
   /// Every `session/prompt` the page sent, with its params (`_meta.acpmux.promptId`).
   const prompts: Record<string, any>[] = [];
-  let socket: { send(data: string): void } | undefined;
-  let seq = events.length;
-  /// An acpmux record sent to the attached page now, at the log's next seq.
-  const record = (kind: string, msg: Record<string, unknown>, dir = "mux") =>
-    socket?.send(
-      JSON.stringify({
-        jsonrpc: "2.0",
-        method: "_acpmux/event",
-        params: { sessionId: PAPERCUT_CHAT, seq: ++seq, at: Date.now(), dir, kind, msg },
-      }),
-    );
+  let socket: { send(data: string): void; close(): void } | undefined;
+  /// An acpmux record, appended to the log (a later attach replays it) and sent to the attached page.
+  const record = (kind: string, msg: Record<string, unknown>, dir = "mux") => {
+    const event = { sessionId: PAPERCUT_CHAT, seq: events.length + 1, at: Date.now(), dir, kind, msg };
+    events.push(event);
+    (session as { lastSeq: number }).lastSeq = event.seq;
+    socket?.send(JSON.stringify({ jsonrpc: "2.0", method: "_acpmux/event", params: event }));
+  };
+  /// The connection drops (acpmux restarted): the page connects again and reads the log again.
+  const drop = () => socket?.close();
   const daemon = Bun.serve({
     port: 0,
     hostname: "127.0.0.1",
@@ -202,7 +201,7 @@ export async function papercutPane(
     await vite.close();
     await daemon.stop(true);
   };
-  return { open, close, methods, prompts, record };
+  return { open, close, methods, prompts, record, drop };
 }
 
 /// Settings > Agent Chat > Inspector: Push always (or back to the default), as the host's `display`

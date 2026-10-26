@@ -4,7 +4,8 @@
 // latest prompt that I sent in ... should be able to go in at the bottom as well"): its tick draws in
 // the same painted frame as its bubble in the transcript, lit and in view at the rail's end, before
 // any reply. When acpmux's echo of it replaces the pane's own row, the tick stays the same element:
-// no second tick, no tick that goes and comes back (model.ts turnKey).
+// no second tick, no tick that goes and comes back (model.ts turnKey), and so through a reconnect
+// that reads the chat's log again.
 //
 // Before: the echo keyed a new tick (the row id went from `local-<promptId>` to `user-<seq>`), so the
 // rail dropped the sent prompt's tick and mounted another in its place.
@@ -88,6 +89,15 @@ await requireBrowserLane("thread-rail-sent-prompt.test.ts", async () => {
     );
     // A few more frames after the echo.
     for (let n = 0; n < 6; n++) await page.evaluate(() => window.cmuxPaintFrame());
+    // The connection drops and comes back: the page reads the chat's log again, where the prompt is
+    // acpmux's record alone (no send of this page's behind it).
+    const attaches = pane!.methods.filter((method) => method === "_acpmux/attach").length;
+    pane!.drop();
+    await page.waitForFunction(() => true);
+    for (let n = 0; n < 200 && pane!.methods.filter((method) => method === "_acpmux/attach").length === attaches; n++)
+      await page.waitForTimeout(50);
+    expect(pane!.methods.filter((method) => method === "_acpmux/attach").length).toBeGreaterThan(attaches);
+    for (let n = 0; n < 20; n++) await page.evaluate(() => window.cmuxPaintFrame());
     const frames = await page.evaluate(() => {
       const scope = window as unknown as { railFrames: Frame[]; stopRail: () => void };
       scope.stopRail();
