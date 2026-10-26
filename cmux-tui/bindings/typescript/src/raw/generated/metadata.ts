@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR cb66b76b27d6af323d88e6c50c65226de2a2ef09009dcab5c68a8205bfd94675. */
+/* cmux-tui mux protocol 12, IR 88da3e89c750d2b4a0853254ffe2bcac9f4b5816960471f0c9951c6466bdd28b. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "cb66b76b27d6af323d88e6c50c65226de2a2ef09009dcab5c68a8205bfd94675" as const;
+export const SDK_IR_SHA256 = "88da3e89c750d2b4a0853254ffe2bcac9f4b5816960471f0c9951c6466bdd28b" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -7633,6 +7633,13 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
     "additional_properties": false,
     "fields": {},
     "kind": "object"
+  },
+  "EventCause": {
+    "kind": "enum",
+    "values": [
+      "frontend",
+      "automation"
+    ]
   },
   "ExportLayoutResult": {
     "additional_properties": false,
@@ -30313,6 +30320,17 @@ export const EVENT_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
           "name": "string"
         }
       },
+      "cause": {
+        "capability": "event-cause-v1",
+        "description": "What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing.",
+        "nullable": false,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "ref",
+          "name": "EventCause"
+        }
+      },
       "event": {
         "nullable": false,
         "presence": "required",
@@ -30487,6 +30505,17 @@ export const EVENT_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
           "name": "string"
         }
       },
+      "cause": {
+        "capability": "event-cause-v1",
+        "description": "What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing.",
+        "nullable": false,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "ref",
+          "name": "EventCause"
+        }
+      },
       "event": {
         "nullable": false,
         "presence": "required",
@@ -30554,6 +30583,17 @@ export const EVENT_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
   "bell": {
     "additional_properties": false,
     "fields": {
+      "cause": {
+        "capability": "event-cause-v1",
+        "description": "What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing.",
+        "nullable": false,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "ref",
+          "name": "EventCause"
+        }
+      },
       "event": {
         "nullable": false,
         "presence": "required",
@@ -30590,6 +30630,17 @@ export const EVENT_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "scalar",
           "name": "string"
+        }
+      },
+      "cause": {
+        "capability": "event-cause-v1",
+        "description": "What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing.",
+        "nullable": false,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "ref",
+          "name": "EventCause"
         }
       },
       "event": {
@@ -30697,6 +30748,17 @@ export const EVENT_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
   "chief-changed": {
     "additional_properties": false,
     "fields": {
+      "cause": {
+        "capability": "event-cause-v1",
+        "description": "What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing.",
+        "nullable": false,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "ref",
+          "name": "EventCause"
+        }
+      },
       "change": {
         "nullable": false,
         "presence": "required",
@@ -30731,6 +30793,17 @@ export const EVENT_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
   "client-attached": {
     "additional_properties": false,
     "fields": {
+      "cause": {
+        "capability": "event-cause-v1",
+        "description": "What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing.",
+        "nullable": false,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "ref",
+          "name": "EventCause"
+        }
+      },
       "client": {
         "nullable": false,
         "presence": "required",
@@ -30780,6 +30853,17 @@ export const EVENT_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
   "client-changed": {
     "additional_properties": false,
     "fields": {
+      "cause": {
+        "capability": "event-cause-v1",
+        "description": "What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing.",
+        "nullable": false,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "ref",
+          "name": "EventCause"
+        }
+      },
       "client": {
         "nullable": false,
         "presence": "required",
@@ -30818,6 +30902,17 @@ export const EVENT_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
   "client-detached": {
     "additional_properties": false,
     "fields": {
+      "cause": {
+        "capability": "event-cause-v1",
+        "description": "What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing.",
+        "nullable": false,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "ref",
+          "name": "EventCause"
+        }
+      },
       "client": {
         "nullable": false,
         "presence": "required",
@@ -30840,6 +30935,17 @@ export const EVENT_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
   "client-list-invalidated": {
     "additional_properties": false,
     "fields": {
+      "cause": {
+        "capability": "event-cause-v1",
+        "description": "What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing.",
+        "nullable": false,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "ref",
+          "name": "EventCause"
+        }
+      },
       "event": {
         "nullable": false,
         "presence": "required",
@@ -30860,6 +30966,17 @@ export const EVENT_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "scalar",
           "name": "string"
+        }
+      },
+      "cause": {
+        "capability": "event-cause-v1",
+        "description": "What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing.",
+        "nullable": false,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "ref",
+          "name": "EventCause"
         }
       },
       "change": {
@@ -30924,6 +31041,17 @@ export const EVENT_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
           "name": "string"
         }
       },
+      "cause": {
+        "capability": "event-cause-v1",
+        "description": "What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing.",
+        "nullable": false,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "ref",
+          "name": "EventCause"
+        }
+      },
       "conversation": {
         "nullable": false,
         "presence": "required",
@@ -30960,6 +31088,17 @@ export const EVENT_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "scalar",
           "name": "string"
+        }
+      },
+      "cause": {
+        "capability": "event-cause-v1",
+        "description": "What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing.",
+        "nullable": false,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "ref",
+          "name": "EventCause"
         }
       },
       "conversation": {
@@ -31024,6 +31163,17 @@ export const EVENT_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
           "name": "string"
         }
       },
+      "cause": {
+        "capability": "event-cause-v1",
+        "description": "What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing.",
+        "nullable": false,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "ref",
+          "name": "EventCause"
+        }
+      },
       "conversation": {
         "nullable": false,
         "presence": "required",
@@ -31073,6 +31223,17 @@ export const EVENT_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
           "name": "string"
         }
       },
+      "cause": {
+        "capability": "event-cause-v1",
+        "description": "What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing.",
+        "nullable": false,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "ref",
+          "name": "EventCause"
+        }
+      },
       "conversation": {
         "nullable": false,
         "presence": "required",
@@ -31111,6 +31272,17 @@ export const EVENT_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
   "cloud-host-replica-needed": {
     "additional_properties": false,
     "fields": {
+      "cause": {
+        "capability": "event-cause-v1",
+        "description": "What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing.",
+        "nullable": false,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "ref",
+          "name": "EventCause"
+        }
+      },
       "event": {
         "nullable": false,
         "presence": "required",
@@ -31147,6 +31319,17 @@ export const EVENT_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "scalar",
           "name": "string"
+        }
+      },
+      "cause": {
+        "capability": "event-cause-v1",
+        "description": "What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing.",
+        "nullable": false,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "ref",
+          "name": "EventCause"
         }
       },
       "entries": {
@@ -31195,6 +31378,17 @@ export const EVENT_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
           "name": "string"
         }
       },
+      "cause": {
+        "capability": "event-cause-v1",
+        "description": "What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing.",
+        "nullable": false,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "ref",
+          "name": "EventCause"
+        }
+      },
       "event": {
         "nullable": false,
         "presence": "required",
@@ -31223,6 +31417,17 @@ export const EVENT_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "scalar",
           "name": "string"
+        }
+      },
+      "cause": {
+        "capability": "event-cause-v1",
+        "description": "What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing.",
+        "nullable": false,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "ref",
+          "name": "EventCause"
         }
       },
       "event": {
@@ -31263,6 +31468,17 @@ export const EVENT_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
           "name": "string"
         }
       },
+      "cause": {
+        "capability": "event-cause-v1",
+        "description": "What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing.",
+        "nullable": false,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "ref",
+          "name": "EventCause"
+        }
+      },
       "event": {
         "nullable": false,
         "presence": "required",
@@ -31293,6 +31509,17 @@ export const EVENT_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
   "cloud-session-needed": {
     "additional_properties": false,
     "fields": {
+      "cause": {
+        "capability": "event-cause-v1",
+        "description": "What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing.",
+        "nullable": false,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "ref",
+          "name": "EventCause"
+        }
+      },
       "event": {
         "nullable": false,
         "presence": "required",
@@ -31329,6 +31556,17 @@ export const EVENT_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "scalar",
           "name": "string"
+        }
+      },
+      "cause": {
+        "capability": "event-cause-v1",
+        "description": "What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing.",
+        "nullable": false,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "ref",
+          "name": "EventCause"
         }
       },
       "conversation": {
@@ -31477,6 +31715,17 @@ export const EVENT_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
   "config-reload-requested": {
     "additional_properties": false,
     "fields": {
+      "cause": {
+        "capability": "event-cause-v1",
+        "description": "What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing.",
+        "nullable": false,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "ref",
+          "name": "EventCause"
+        }
+      },
       "event": {
         "nullable": false,
         "presence": "required",
@@ -31491,6 +31740,17 @@ export const EVENT_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
   "conversation-changed": {
     "additional_properties": false,
     "fields": {
+      "cause": {
+        "capability": "event-cause-v1",
+        "description": "What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing.",
+        "nullable": false,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "ref",
+          "name": "EventCause"
+        }
+      },
       "change": {
         "nullable": true,
         "presence": "required",
@@ -31537,6 +31797,17 @@ export const EVENT_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
   "conversation-draft": {
     "additional_properties": false,
     "fields": {
+      "cause": {
+        "capability": "event-cause-v1",
+        "description": "What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing.",
+        "nullable": false,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "ref",
+          "name": "EventCause"
+        }
+      },
       "conversation": {
         "nullable": false,
         "presence": "required",
@@ -31575,6 +31846,17 @@ export const EVENT_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
   "conversation-inbox-changed": {
     "additional_properties": false,
     "fields": {
+      "cause": {
+        "capability": "event-cause-v1",
+        "description": "What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing.",
+        "nullable": false,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "ref",
+          "name": "EventCause"
+        }
+      },
       "conversation": {
         "nullable": false,
         "presence": "required",
@@ -31629,6 +31911,17 @@ export const EVENT_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
   "conversation-live": {
     "additional_properties": false,
     "fields": {
+      "cause": {
+        "capability": "event-cause-v1",
+        "description": "What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing.",
+        "nullable": false,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "ref",
+          "name": "EventCause"
+        }
+      },
       "conversation": {
         "nullable": false,
         "presence": "required",
@@ -31659,6 +31952,17 @@ export const EVENT_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
   "conversation-run-changed": {
     "additional_properties": false,
     "fields": {
+      "cause": {
+        "capability": "event-cause-v1",
+        "description": "What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing.",
+        "nullable": false,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "ref",
+          "name": "EventCause"
+        }
+      },
       "conversation": {
         "nullable": false,
         "presence": "required",
@@ -31700,6 +32004,17 @@ export const EVENT_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
   "conversation-typing": {
     "additional_properties": false,
     "fields": {
+      "cause": {
+        "capability": "event-cause-v1",
+        "description": "What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing.",
+        "nullable": false,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "ref",
+          "name": "EventCause"
+        }
+      },
       "conversation": {
         "nullable": false,
         "presence": "required",
@@ -31813,6 +32128,17 @@ export const EVENT_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
   "empty": {
     "additional_properties": false,
     "fields": {
+      "cause": {
+        "capability": "event-cause-v1",
+        "description": "What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing.",
+        "nullable": false,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "ref",
+          "name": "EventCause"
+        }
+      },
       "event": {
         "nullable": false,
         "presence": "required",
@@ -31881,6 +32207,17 @@ export const EVENT_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
   "frontend-projection-changed": {
     "additional_properties": false,
     "fields": {
+      "cause": {
+        "capability": "event-cause-v1",
+        "description": "What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing.",
+        "nullable": false,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "ref",
+          "name": "EventCause"
+        }
+      },
       "event": {
         "nullable": false,
         "presence": "required",
@@ -31954,6 +32291,17 @@ export const EVENT_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "scalar",
           "name": "uint16"
+        }
+      },
+      "cause": {
+        "capability": "event-cause-v1",
+        "description": "What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing.",
+        "nullable": false,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "ref",
+          "name": "EventCause"
         }
       },
       "cell_height": {
@@ -32030,6 +32378,17 @@ export const EVENT_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
   "history-changed": {
     "additional_properties": false,
     "fields": {
+      "cause": {
+        "capability": "event-cause-v1",
+        "description": "What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing.",
+        "nullable": false,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "ref",
+          "name": "EventCause"
+        }
+      },
       "event": {
         "nullable": false,
         "presence": "required",
@@ -32063,6 +32422,17 @@ export const EVENT_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
   "keybindings-changed": {
     "additional_properties": false,
     "fields": {
+      "cause": {
+        "capability": "event-cause-v1",
+        "description": "What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing.",
+        "nullable": false,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "ref",
+          "name": "EventCause"
+        }
+      },
       "event": {
         "nullable": false,
         "presence": "required",
@@ -32109,6 +32479,17 @@ export const EVENT_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "ref",
           "name": "Id"
+        }
+      },
+      "cause": {
+        "capability": "event-cause-v1",
+        "description": "What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing.",
+        "nullable": false,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "ref",
+          "name": "EventCause"
         }
       },
       "event": {
@@ -32173,6 +32554,17 @@ export const EVENT_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
   "machine-usage-changed": {
     "additional_properties": false,
     "fields": {
+      "cause": {
+        "capability": "event-cause-v1",
+        "description": "What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing.",
+        "nullable": false,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "ref",
+          "name": "EventCause"
+        }
+      },
       "event": {
         "nullable": false,
         "presence": "required",
@@ -32201,6 +32593,17 @@ export const EVENT_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "scalar",
           "name": "string"
+        }
+      },
+      "cause": {
+        "capability": "event-cause-v1",
+        "description": "What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing.",
+        "nullable": false,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "ref",
+          "name": "EventCause"
         }
       },
       "desktop": {
@@ -32359,6 +32762,17 @@ export const EVENT_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
   "pairing-requested": {
     "additional_properties": false,
     "fields": {
+      "cause": {
+        "capability": "event-cause-v1",
+        "description": "What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing.",
+        "nullable": false,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "ref",
+          "name": "EventCause"
+        }
+      },
       "code": {
         "nullable": false,
         "presence": "required",
@@ -32405,6 +32819,17 @@ export const EVENT_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
   "pairing-resolved": {
     "additional_properties": false,
     "fields": {
+      "cause": {
+        "capability": "event-cause-v1",
+        "description": "What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing.",
+        "nullable": false,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "ref",
+          "name": "EventCause"
+        }
+      },
       "event": {
         "nullable": false,
         "presence": "required",
@@ -32543,6 +32968,17 @@ export const EVENT_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
           "name": "JsonValue"
         }
       },
+      "cause": {
+        "capability": "event-cause-v1",
+        "description": "What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing.",
+        "nullable": false,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "ref",
+          "name": "EventCause"
+        }
+      },
       "event": {
         "nullable": false,
         "presence": "required",
@@ -32565,6 +33001,17 @@ export const EVENT_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
   "personal-changed": {
     "additional_properties": false,
     "fields": {
+      "cause": {
+        "capability": "event-cause-v1",
+        "description": "What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing.",
+        "nullable": false,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "ref",
+          "name": "EventCause"
+        }
+      },
       "event": {
         "nullable": false,
         "presence": "required",
@@ -32587,6 +33034,17 @@ export const EVENT_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
   "program-status-changed": {
     "additional_properties": false,
     "fields": {
+      "cause": {
+        "capability": "event-cause-v1",
+        "description": "What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing.",
+        "nullable": false,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "ref",
+          "name": "EventCause"
+        }
+      },
       "event": {
         "nullable": false,
         "presence": "required",
@@ -33082,6 +33540,17 @@ export const EVENT_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
           "name": "boolean"
         }
       },
+      "cause": {
+        "capability": "event-cause-v1",
+        "description": "What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing.",
+        "nullable": false,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "ref",
+          "name": "EventCause"
+        }
+      },
       "event": {
         "nullable": false,
         "presence": "required",
@@ -33112,6 +33581,17 @@ export const EVENT_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
   "settings-changed": {
     "additional_properties": false,
     "fields": {
+      "cause": {
+        "capability": "event-cause-v1",
+        "description": "What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing.",
+        "nullable": false,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "ref",
+          "name": "EventCause"
+        }
+      },
       "event": {
         "nullable": false,
         "presence": "required",
@@ -33161,6 +33641,17 @@ export const EVENT_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
   "size-state": {
     "additional_properties": false,
     "fields": {
+      "cause": {
+        "capability": "event-cause-v1",
+        "description": "What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing.",
+        "nullable": false,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "ref",
+          "name": "EventCause"
+        }
+      },
       "event": {
         "nullable": false,
         "presence": "required",
@@ -33199,6 +33690,17 @@ export const EVENT_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
   "status": {
     "additional_properties": false,
     "fields": {
+      "cause": {
+        "capability": "event-cause-v1",
+        "description": "What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing.",
+        "nullable": false,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "ref",
+          "name": "EventCause"
+        }
+      },
       "event": {
         "nullable": false,
         "presence": "required",
@@ -33221,6 +33723,17 @@ export const EVENT_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
   "surface-exited": {
     "additional_properties": false,
     "fields": {
+      "cause": {
+        "capability": "event-cause-v1",
+        "description": "What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing.",
+        "nullable": false,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "ref",
+          "name": "EventCause"
+        }
+      },
       "event": {
         "nullable": false,
         "presence": "required",
@@ -33243,6 +33756,17 @@ export const EVENT_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
   "surface-output": {
     "additional_properties": false,
     "fields": {
+      "cause": {
+        "capability": "event-cause-v1",
+        "description": "What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing.",
+        "nullable": false,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "ref",
+          "name": "EventCause"
+        }
+      },
       "event": {
         "nullable": false,
         "presence": "required",
@@ -33265,6 +33789,17 @@ export const EVENT_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
   "surface-resize-failed": {
     "additional_properties": false,
     "fields": {
+      "cause": {
+        "capability": "event-cause-v1",
+        "description": "What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing.",
+        "nullable": false,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "ref",
+          "name": "EventCause"
+        }
+      },
       "cols": {
         "nullable": false,
         "presence": "required",
@@ -33327,6 +33862,17 @@ export const EVENT_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
   "surface-resized": {
     "additional_properties": false,
     "fields": {
+      "cause": {
+        "capability": "event-cause-v1",
+        "description": "What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing.",
+        "nullable": false,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "ref",
+          "name": "EventCause"
+        }
+      },
       "cols": {
         "nullable": false,
         "presence": "required",
@@ -33730,6 +34276,17 @@ export const EVENT_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
   "terminal-reaped": {
     "additional_properties": false,
     "fields": {
+      "cause": {
+        "capability": "event-cause-v1",
+        "description": "What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing.",
+        "nullable": false,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "ref",
+          "name": "EventCause"
+        }
+      },
       "event": {
         "nullable": false,
         "presence": "required",
@@ -33768,6 +34325,17 @@ export const EVENT_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
   "terminal-registry-changed": {
     "additional_properties": false,
     "fields": {
+      "cause": {
+        "capability": "event-cause-v1",
+        "description": "What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing.",
+        "nullable": false,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "ref",
+          "name": "EventCause"
+        }
+      },
       "event": {
         "nullable": false,
         "presence": "required",
@@ -33814,6 +34382,17 @@ export const EVENT_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
   "title-changed": {
     "additional_properties": false,
     "fields": {
+      "cause": {
+        "capability": "event-cause-v1",
+        "description": "What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing.",
+        "nullable": false,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "ref",
+          "name": "EventCause"
+        }
+      },
       "event": {
         "nullable": false,
         "presence": "required",
@@ -33845,6 +34424,17 @@ export const EVENT_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
   "tree-changed": {
     "additional_properties": false,
     "fields": {
+      "cause": {
+        "capability": "event-cause-v1",
+        "description": "What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing.",
+        "nullable": false,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "ref",
+          "name": "EventCause"
+        }
+      },
       "event": {
         "nullable": false,
         "presence": "required",
@@ -33973,6 +34563,17 @@ export const EVENT_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
   "window-title-requested": {
     "additional_properties": false,
     "fields": {
+      "cause": {
+        "capability": "event-cause-v1",
+        "description": "What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing.",
+        "nullable": false,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "ref",
+          "name": "EventCause"
+        }
+      },
       "event": {
         "nullable": false,
         "presence": "required",

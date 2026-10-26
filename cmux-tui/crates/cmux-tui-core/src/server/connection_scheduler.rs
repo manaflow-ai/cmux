@@ -20,6 +20,8 @@ use super::send_request_error_with_delivery;
 use super::terminal_create;
 use crate::Mux;
 use crate::SurfaceId;
+use crate::event_cause::EventCause;
+use crate::event_cause::EventCauseScope;
 use crate::stream_interrupt::InterruptSet;
 use crate::stream_interrupt::StreamInterrupt;
 use std::collections::HashSet;
@@ -37,6 +39,10 @@ pub(super) struct PendingSurfaceRequest {
     pub(super) request: Request,
     /// When its line arrived and parsed: its request span starts there.
     pub(super) arrival: RequestArrival,
+    /// The cause of the frame that queued it: its events keep that cause on
+    /// whichever thread runs it (the dispatcher, a clear-history worker or
+    /// a creation commit on the terminal work pool).
+    pub(super) cause: EventCause,
     pub(super) retained_bytes: usize,
     pub(super) _bytes_permit: ServerSurfaceBytesPermit,
 }
@@ -199,6 +205,7 @@ impl ConnectionSurfaceScheduler {
         state.requests.push_back(PendingSurfaceRequest {
             request: queued,
             arrival,
+            cause: EventCause::current(),
             retained_bytes,
             _bytes_permit: bytes_permit,
         });
@@ -388,7 +395,8 @@ pub(super) fn run_pending_request(
     pending: PendingSurfaceRequest,
     writer: &MessageWriter,
 ) -> bool {
-    let PendingSurfaceRequest { request, arrival, _bytes_permit, .. } = pending;
+    let PendingSurfaceRequest { request, arrival, cause, _bytes_permit, .. } = pending;
+    let _cause = EventCauseScope::enter(cause);
     // The dispatcher, a clear-history worker or a creation commit runs the
     // request: a request path like the reader's (`crate::request_path`).
     let _request_path = crate::request_path::RequestPathScope::enter(mux.request_path_stats());
