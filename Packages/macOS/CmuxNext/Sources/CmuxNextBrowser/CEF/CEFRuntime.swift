@@ -476,6 +476,8 @@ final class CEFRuntime {
     /// The main-thread part: NSApp check, message pump (in process only), `CefInitialize`.
     /// `inputs`: what it reads from disk, prepared off the main thread (``CEFStartInputs``).
     private func initialize(_ library: CEFRuntimeBoot, inputs: CEFStartInputs, environment: [String: String]) throws(BootError) {
+        // First, so a runtime with no callback slot starts nothing.
+        let token = try registeredCallbackToken()
         let inHostMode = switch library {
         case .host: true
         case .inProcess: false
@@ -539,8 +541,6 @@ final class CEFRuntime {
         switchArguments = arguments
         let locale = library.locale
         logger.info("CEF locale \(locale.locale, privacy: .public), accept-languages \(locale.acceptLanguages, privacy: .public)")
-        let token = callbackToken ?? CallbackRegistry.shared.register(self) // once: a new host initializes again
-        callbackToken = token
         // SAFETY: the token's bits, which the shim only hands back; CEFRuntime.from resolves them in the registry.
         let context = unsafe token.context
         // The shim sets `external_message_pump` from this callback: in process only, where the app pumps.
@@ -577,6 +577,19 @@ final class CEFRuntime {
                 guard CEFRuntime.shared.state == .ready else { return }
                 CEFRuntime.shared.logger.error("CEF still running at willTerminate; skipping CefShutdown")
             }
+        }
+    }
+
+    /// This runtime's entry in ``callbacks``, registered at the first initialize and kept: a new host initializes
+    /// again with the same token, and the shim may call back with it until the process ends.
+    private func registeredCallbackToken() throws(BootError) -> CallbackToken {
+        if let callbackToken { return callbackToken }
+        do throws(CallbackRegistryError) {
+            let token = try Self.callbacks.register(self)
+            callbackToken = token
+            return token
+        } catch {
+            throw .callbackSlots(error)
         }
     }
 

@@ -1,5 +1,4 @@
 import AppKit
-import CmuxNextCompat
 import CmuxNextInput
 import Foundation
 import os
@@ -71,20 +70,6 @@ let cefDevToolsKeyCallback: CEFShimLibrary.KeyFn = { context, browser, nsEvent i
 }
 
 extension CEFRuntime {
-    /// The runtime behind a callback context, its ``CallbackRegistry`` token: nil for 0, an unknown token
-    /// or a runtime that is gone (the registry counts those), never a freed object.
-    static func from(_ address: UInt) -> CEFRuntime? {
-        // SAFETY: only the token's bits; the registry resolves them (a lock-free slot read) or ignores them.
-        unsafe CallbackRegistry.shared.resolve(UnsafeRawPointer(bitPattern: address), as: CEFRuntime.self)
-    }
-
-    /// The pump's cross-thread gate behind a callback context, from any thread (a `nonisolated let`
-    /// of the runtime ``from(_:)`` resolves).
-    nonisolated static func pumpGate(at address: UInt) -> CEFPumpCrossThreadGate? {
-        // SAFETY: as for `from(_:)`; only the runtime's `nonisolated let` gate is read.
-        unsafe CallbackRegistry.shared.resolve(UnsafeRawPointer(bitPattern: address), as: CEFRuntime.self)?.pumpGate
-    }
-
     func dispatch(_ event: CEFShimEvent) {
         switch event {
         case .contextInitialized:

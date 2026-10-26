@@ -142,11 +142,16 @@ public final class GhosttyRuntime {
         // example set_color_scheme emits CONFIG_CHANGE).
         context.runtime = self
 
+        // `start` runs once, so the context registers once; libghostty's app is never freed, so
+        // the entry stays for the process.
+        guard let token = try? RuntimeCallbackContext.callbacks.register(context) else {
+            Self.logger.error("no runtime callback slot; terminal surfaces are disabled")
+            return
+        }
         var runtime = ghostty_runtime_config_s()
-        // SAFETY: the userdata is `context`'s CallbackRegistry token, never its address: a
-        // callback resolves it (RuntimeCallbackContext.from), and one that comes after the
-        // context is gone finds nothing. `start` runs once, so the context registers once.
-        unsafe runtime.userdata = CallbackRegistry.shared.register(context).context
+        // SAFETY: the userdata is `context`'s token, never its address: a callback resolves it
+        // (RuntimeCallbackContext.from), and one that comes after the context is gone finds nothing.
+        unsafe runtime.userdata = token.context
         runtime.supports_selection_clipboard = true
         // SAFETY: each callback has the C signature ghostty.h declares for its slot and
         // reads its pointers only as that header documents (GhosttyRuntimeCallbacks.swift).
@@ -460,22 +465,6 @@ public final class GhosttyRuntime {
         let bytes = unsafe UnsafeRawBufferPointer(start: pointer, count: Int(info.version_len))
         // SAFETY: as above.
         return unsafe String(decoding: bytes, as: UTF8.self)
-    }
-}
-
-/// Runtime-level callback userdata. Collapses bursts of `wakeup_cb` (any thread, which touches
-/// only the atomic flag) into one main-actor tick and points back at the runtime (main-actor only).
-nonisolated final class RuntimeCallbackContext: Sendable {
-    let pending = Atomic<Bool>(false)
-    @MainActor weak var runtime: GhosttyRuntime?
-
-    /// The context behind the runtime's userdata (`ghostty_runtime_config_s.userdata`, its
-    /// ``CallbackRegistry`` token): nil for nil, an unknown token or a context that is gone (counted).
-    /// `wakeup_cb` runs it on every output burst, from any thread: one lock-free slot read.
-    // perf-hot: 0.05us terminal-feed
-    static func from(_ raw: UnsafeMutableRawPointer?) -> RuntimeCallbackContext? {
-        // SAFETY: only the token's bits are read; the registry resolves them or ignores them.
-        unsafe CallbackRegistry.shared.resolve(raw, as: RuntimeCallbackContext.self)
     }
 }
 
