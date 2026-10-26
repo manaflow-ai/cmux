@@ -1,4 +1,5 @@
 package import AppKit
+import CmuxNextCompat
 package import CmuxNextWakeups
 import Dispatch
 import ImageIO
@@ -207,8 +208,7 @@ package nonisolated struct PageSnapshotEncoder: Sendable {
         let output = NSMutableData()
         guard let destination = CGImageDestinationCreateWithData(output, UTType.png.identifier as CFString, 1, nil) else { return nil }
         CGImageDestinationAddImage(destination, image, nil)
-        // blocking-allow: the destination is memory (NSMutableData), no file: CPU work, run on the `.cpu` lane only (precondition above)
-        guard CGImageDestinationFinalize(destination) else { return nil }
+        guard blockingImageDestinationFinalize(destination) else { return nil }
         return PageEncodedSnapshot(data: output as Data, pixelSize: CGSize(width: image.width, height: image.height))
     }
 }
