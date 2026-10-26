@@ -1,3 +1,4 @@
+@testable import CmuxNextApp
 import CmuxNextControl
 import CmuxNextDaemonService
 import CmuxNextSidebar
@@ -169,6 +170,127 @@ import CmuxNextWakeupsTestSupport
         causes.withCause(.automation) { titles.agent = "agent 3" }
         #expect(scheduled.flushes.map { $0.cause } == [.automation, .person, .automation], "a flush that ran is scheduled again")
     }
+
+    // MARK: ContentPresentation on the budget window (p06-scheduler-010)
+
+    /// A pane selection automation changed (a CLI or agent request) is budgeted `visible` work: a
+    /// pending key holds it one frame, never two.
+    @Test func anAutomationSelectionWaitsOneFrameForAPendingKey() {
+        let (work, input, clock) = Self.budgetedScheduler()
+        let presentation = ContentPresentationScheduler(mainWork: work)
+        let shown = ShowLog()
+        let pane = PresentedPane("agent", alive: true, log: shown)
+        work.causes.withCause(.automation) { presentation.setNeedsShowSelected(pane) }
+        input.pending = true
+        Self.fire(work, clock, frame: 1)
+        #expect(shown.panes.isEmpty, "the selection showed while a key was pending")
+        Self.fire(work, clock, frame: 2)
+        #expect(shown.panes == ["agent"])
+    }
+
+    /// The person's selection change reaches the scheduler in a later turn than their key (a daemon
+    /// echo applied with the person's cause), while another key is pending and an automation pane
+    /// was queued first: the person's pane shows in the next frame, the automation pane does not
+    /// ride along (it waits for its class), and no pane shows twice.
+    @Test func aPersonsSelectionFromALaterTurnShowsInTheNextFrameWhileAKeyIsPending() {
+        let (work, input, clock) = Self.budgetedScheduler()
+        let presentation = ContentPresentationScheduler(mainWork: work)
+        let shown = ShowLog()
+        let agent = PresentedPane("agent", alive: true, log: shown), mine = PresentedPane("mine", alive: true, log: shown)
+        work.causes.withCause(.automation) { presentation.setNeedsShowSelected(agent) }
+        work.causes.withCause(.person) { presentation.setNeedsShowSelected(mine) }
+        input.pending = true
+        Self.fire(work, clock, frame: 1)
+        #expect(shown.panes == ["mine"], "the person's selection waited for the budget, or took automation's along: \(shown.panes)")
+        Self.fire(work, clock, frame: 2)
+        #expect(shown.panes == ["mine", "agent"])
+        Self.fire(work, clock, frame: 3)
+        #expect(shown.panes == ["mine", "agent"], "a pane showed twice")
+    }
+
+    /// Both panes need a new surface (one a frame) and the automation pane was queued first: the
+    /// person's pane takes the frame's creation, the automation pane's waits for the next frame.
+    @Test func thePersonsNewSurfaceTakesTheFramesCreationBeforeAnEarlierAutomationOne() {
+        let (work, input, clock) = Self.budgetedScheduler()
+        let presentation = ContentPresentationScheduler(mainWork: work)
+        let shown = ShowLog()
+        let agent = PresentedPane("agent", alive: false, log: shown), mine = PresentedPane("mine", alive: false, log: shown)
+        work.causes.withCause(.automation) { presentation.setNeedsShowSelected(agent) }
+        work.causes.withCause(.person) { presentation.setNeedsShowSelected(mine) }
+        input.pending = true
+        Self.fire(work, clock, frame: 1)
+        #expect(shown.panes == ["mine"], "the person's surface waited behind automation's: \(shown.panes)")
+        input.pending = false
+        Self.fire(work, clock, frame: 2)
+        #expect(shown.panes == ["mine", "agent"], "a frame created two surfaces, or automation's never came: \(shown.panes)")
+    }
+
+    /// In the person's turn (a key that expects a frame) their selection shows in the input-response
+    /// pass, before that turn's commit. Two of their panes need a new surface: one is created in the
+    /// pass, the other on the next frame (the pass does not loop on it).
+    @Test func aPersonsSelectionShowsBeforeTheCommitOfTheirTurn() {
+        let (work, _, clock) = Self.budgetedScheduler()
+        let loop = CommitRunLoop()
+        let pass = InputResponsePass(budget: work.budget, runLoop: loop)
+        let presentation = ContentPresentationScheduler(mainWork: work)
+        let shown = ShowLog()
+        let first = PresentedPane("first", alive: false, log: shown), second = PresentedPane("second", alive: false, log: shown)
+        work.budget.noteDiscreteInput(expectsFrame: true)
+        work.causes.withCause(.person) {
+            presentation.setNeedsShowSelected(first)
+            presentation.setNeedsShowSelected(second)
+        }
+        loop.turn()
+        #expect(shown.panes == ["first"], "the pass showed \(shown.panes)")
+        #expect(pass.stats.items == 1)
+        Self.fire(work, clock, frame: 1)
+        #expect(shown.panes == ["first", "second"])
+    }
+
+    /// A scheduler on a fake link whose budget reads the test's clock and pending-input flag.
+    private static func budgetedScheduler() -> (MainWorkScheduler, PendingKeys, BatcherBudgetClock) {
+        let clock = BatcherBudgetClock(), input = PendingKeys()
+        let budget = MainFrameBudget(input: input, uptimeNanos: clock.read)
+        return (MainWorkScheduler.testing(budget: budget, clock: ManualClock()) { _ in CountedLink() }, input, clock)
+    }
+
+    /// One display frame, 17 ms after the last.
+    private static func fire(_ work: MainWorkScheduler, _ clock: BatcherBudgetClock, frame: Int) {
+        clock.advance(ms: 17)
+        work.frameDidFire(timestamp: Double(frame), refreshInterval: 1.0 / 60)
+    }
+}
+
+/// The panes shown, in order.
+@MainActor
+private final class ShowLog {
+    var panes: [String] = []
+}
+
+/// A pane whose selection is alive or needs a new surface (alive once shown); logs its shows.
+@MainActor
+private final class PresentedPane: PresentablePane {
+    private let name: String
+    private let log: ShowLog
+    private(set) var selectedContentIsAlive: Bool
+
+    init(_ name: String, alive: Bool, log: ShowLog) {
+        self.name = name
+        self.log = log
+        selectedContentIsAlive = alive
+    }
+
+    func showSelected() {
+        log.panes.append(name)
+        selectedContentIsAlive = true
+    }
+}
+
+/// A person's key waiting for the main thread, as the test sets it.
+@MainActor
+private final class PendingKeys: InputPendingSource {
+    var pending = false
+    func hasPendingInput(uptime: TimeInterval) -> Bool { pending }
 }
 
 /// What the queued work ran, in order.

@@ -580,7 +580,8 @@ control-socket admission. Counters accumulate since daemon start. The command
 reads atomics and never touches SQLite or the journal, so it is safe to poll.
 
 Params: `{include?: array<string>|null}`. `include` names optional result
-sections: `resource_projection` and `write_path`; unknown names are ignored.
+sections: `resource_projection`, `write_path` and `slow_requests`; unknown
+names are ignored.
 An optional section is absent unless requested, because SDK decoders refuse
 unknown result fields.
 
@@ -618,6 +619,12 @@ object{
     effect_intents:uint64, effect_intent_failures:uint64,
     effect_intent_batches:uint64, request_effect_commits:uint64,
     writer_registry_locks:uint64
+  },
+  slow_requests?:object{
+    threshold_ms:uint64, total:uint64, unwatched:uint64, expected_waits:uint64,
+    spawn_failures:uint64, watchdog_wakeups:uint64,
+    recent:array<object{method:string,client:uint64,started_ms:uint64,busy_ms:uint64,
+      duration_ms:uint64|null}>
   }
 }
 histogram = object{count:uint64,mean:uint64,max:uint64,p50:uint64,p90:uint64,p99:uint64}
@@ -659,6 +666,29 @@ registry lock, registry connection or mux state lock acquisitions on a
 journal writer thread. It is always `0`: a request thread holds the registry
 lock (and may hold state) while it waits for its writer receipt, so the
 writer never takes either.
+
+`slow_requests` lists requests that ran past `threshold_ms` (250), each
+recorded once. Every frame a connection reads is watched from its arrival
+until its handler returns, and a `cmd` request the connection's scheduler
+runs on another thread is watched there. `method` is the request's `cmd`
+tag, its v2 `operation`, or `frame:<handler>` for a frame its connection
+handler answers itself (`frame:fs`, `frame:agent-inventory`, ...; plain
+`frame` before a handler is picked). `client` is its connection,
+`started_ms` its start in milliseconds since daemon start, `busy_ms` how long
+it had run when it was recorded, and `duration_ms` how long it ran in total
+(`null` while it still runs). A request that ends past the threshold before
+the watchdog looked is still recorded. `total` counts every recorded request
+and `recent` keeps the newest 128, oldest first. `unwatched` counts requests
+that started while all 256 watch slots were taken. `expected_waits` counts
+requests that block by design (`wait-for` waits up to its `timeout_ms`); they
+are not recorded. `spawn_failures` counts failed starts of the watchdog
+thread; each later request tries again, and while it is nonzero slow
+requests may be missing. `watchdog_wakeups` counts wakes of the
+`mux-request-watchdog` thread: it has no periodic timer, so the count stays
+still while the daemon is idle, and it wakes only on a 250 ms grid, so the
+count grows by at most four a second (plus one) under any request pattern.
+With `CMUX_TUI_DEBUG_SPANS` set, each recorded request also appends a
+`slow-request` line with the method as its mark.
 
 `schema` is `1`. Latency histograms are in microseconds; `batch_size` counts
 events. Percentiles are log-linear bucket upper bounds and overestimate by at

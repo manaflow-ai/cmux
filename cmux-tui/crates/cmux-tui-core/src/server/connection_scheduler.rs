@@ -372,6 +372,10 @@ pub(super) fn run_pending_request(
     // The dispatcher, a clear-history worker or a creation commit runs the
     // request: a request path like the reader's (`crate::request_path`).
     let _request_path = crate::request_path::RequestPathScope::enter(mux.request_path_stats());
+    // Watched until the reply is queued: past 250 ms it lands in
+    // server-stats `slow_requests` (request_watchdog.rs). This runs off the
+    // connection thread, whose own watch ended with the hand-off.
+    let _watched = mux.request_watchdog.begin_command(client, &request.cmd);
     handle_request_with_cancellation(mux, client, request, writer, Some(&scheduler.cancelled))
 }
 
