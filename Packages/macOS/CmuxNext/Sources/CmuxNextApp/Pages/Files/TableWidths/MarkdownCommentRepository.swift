@@ -23,35 +23,19 @@ nonisolated protocol MarkdownCommentStoring: Sendable {
 /// so an operation remains reserved while it awaits storage I/O; actor reentrancy cannot let the
 /// next mutation read a stale list.
 private actor MarkdownCommentMutationQueue {
-    private struct Job: Sendable {
-        let run: @Sendable () async -> Void
-    }
-
-    private var jobs: [Job] = []
-    private var running = false
+    /// The end of the newest operation enqueued: the next one starts after it.
+    private var tail: Task<Void, Never>?
 
     func enqueue<Value: Sendable>(_ operation: @escaping @Sendable () async -> Value) async -> Value {
-        await withCheckedContinuation { continuation in
-            jobs.append(Job {
-                continuation.resume(returning: await operation())
-            })
-            startNext()
+        let previous = tail
+        // task-owner: one queued operation; ends with it, after the one enqueued before it
+        let next = Task {
+            await previous?.value
+            return await operation()
         }
-    }
-
-    private func startNext() {
-        guard !running, !jobs.isEmpty else { return }
-        running = true
-        let job = jobs.removeFirst()
-        Task { [weak self] in
-            await job.run()
-            await self?.finished()
-        }
-    }
-
-    private func finished() {
-        running = false
-        startNext()
+        // task-owner: the queue's tail; ends when `next` does
+        tail = Task { _ = await next.value }
+        return await next.value
     }
 }
 

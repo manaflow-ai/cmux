@@ -20,6 +20,9 @@ import CmuxNextTerminal
 import CmuxNextTrace
 import CmuxNextWakeups
 import os
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 
 /// The App's control-socket wiring (architecture.md 5a): the main-thread
 /// watchdog (from launch), the socket server with a display-link frame
@@ -166,11 +169,12 @@ final class AppControl {
         router.register([DebugInput(sources: [InputTapDebugSource(tap: services.inputTap), DebugCEF.pumpInputSource(services.cache.chromium),
                                                IntentPrewarmDebugSource { [weak services] in services?.cache.hibernation?.intentPrewarm?.service },
                                                ScrollViewAuditSource { [mainWork = services.mainWork] in
-                                                   await withCheckedContinuation { continuation in
+                                                   // A job the scheduler dropped audits nothing.
+                                                   (try? await withOnceContinuation { (continuation: OnceContinuation<DebugInputScrollViews, OnceContinuationError>) in
                                                        mainWork.postFromAnyThread(.automation, owner: "debug.input.scroll_views") {
                                                            continuation.resume(returning: DebugInputScrollViews(auditing: NSApp.windows))
                                                        }
-                                                   }
+                                                   }) ?? DebugInputScrollViews(rows: [])
                                                }], recorders: [hops.start(input: input)]).method])
         router.register(DebugWindowsControl.methods(services) + [services.daemon.debugControlMethod { [weak services] in services?.windows.controllers.map { (id: $0.state.id, shows: $0.recoveryShows) } ?? [] }, services.daemon.debugDrainCostMethod])
     }

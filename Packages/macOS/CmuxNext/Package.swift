@@ -342,6 +342,8 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 .product(name: "CmuxFeedPushCore", package: "CmuxFeedPushCore"),
                 // The free tier's App Attest provider is composed here (cx-ds09i).
                 .product(name: "CmuxAppAttest", package: "CmuxAppAttest"),
+                // OnceContinuation, the continuation that resumes exactly once (p10-stability-083/084).
+                .product(name: "CmuxSafeConcurrency", package: "CmuxSafeConcurrency"),
                 "CmuxNextWakeups",
                 "CmuxNextActions",
                 "CmuxNextDaemon",
