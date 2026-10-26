@@ -257,6 +257,8 @@ public final class MenuSwatchStrip: NSView {
         return swatches.firstIndex { $0.insetBy(dx: -Self.gap / 2, dy: -6).contains(point) }
     }
 
+    // input-coalesce: native (an NSMenu item view: AppKit's menu tracking loop delivers its moves, and
+    // setHovered redraws only when the swatch under the pointer changes)
     public override func mouseMoved(with event: NSEvent) { setHovered(swatch(at: event)) }
     public override func mouseEntered(with event: NSEvent) { setHovered(swatch(at: event)) }
     public override func mouseExited(with event: NSEvent) { setHovered(nil) }
