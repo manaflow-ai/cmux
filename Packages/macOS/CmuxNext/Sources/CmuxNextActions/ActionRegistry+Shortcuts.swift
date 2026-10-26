@@ -89,7 +89,7 @@ extension ActionRegistry {
         var groups: [String: (shortcut: Shortcut, ids: [ActionID])] = [:]
         for descriptor in descriptors {
             let alternates = (alternateShortcuts[descriptor.id] ?? []).compactMap { $0.count == 1 ? $0[0] : nil }
-            let onHome = KeyBindingDefaults.homeChatScoped.contains(descriptor.id)
+            let onHome = KeyBindingDefaults.homeChatScoped.contains(descriptor.id) || KeyBindingDefaults.homeScoped.contains(descriptor.id)
             for shortcut in [effectiveShortcut(for: descriptor.id)].compactMap(\.self) + alternates {
                 let key = "\(shortcut.displayString)|\(descriptor.requires.rawValue)|\(descriptor.shortcutFamily == nil)|\(onHome)"
                 if groups[key]?.ids.contains(descriptor.id) == true { continue }

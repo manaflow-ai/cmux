@@ -30,6 +30,7 @@ pub use file_uploads::FEATURE as FILE_PUT_FEATURE;
 mod fork;
 mod fork_at;
 pub mod forum;
+pub(crate) mod full_access_bound;
 mod handoff;
 mod harness_view;
 mod harness_watch;
@@ -128,6 +129,7 @@ pub mod person;
 pub mod presence;
 mod processes;
 mod pull_requests;
+pub(crate) mod purge_tombstones;
 pub(crate) mod questions;
 mod remote_floor;
 pub(crate) mod remote_sandbox;
@@ -518,6 +520,10 @@ impl Hub {
         let (peer_notices, peer_notices_rx) = mpsc::channel(4096);
         let peers_cfg = config.peers.clone();
         let handoffs = handoff::Handoffs::open(store.handoff_dir());
+        // Loaded now, so a forced `sessions.allowFullAccess` off holds from the first request
+        // after a restart, before the app pushes again (`start_mode_state.rs`).
+        let start_mode_state =
+            start_mode_state::StartModeCell::load(start_mode_state::state_file(&config).as_deref());
         let briefs = dispatch::Briefs::open(store.briefs_path());
         let hub = Arc::new(Self {
             config: RwLock::new(config),
@@ -565,7 +571,7 @@ impl Hub {
             remote_sandbox_exec: StdMutex::new(PathBuf::from(remote_sandbox::SANDBOX_EXEC)),
             chats: std::sync::OnceLock::new(),
             chats_waiters: StdMutex::new(Vec::new()),
-            start_mode_state: Default::default(),
+            start_mode_state,
             harness_watch: Default::default(),
             settings_watch: Default::default(),
             git_watch: Default::default(),
