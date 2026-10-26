@@ -18,7 +18,8 @@ extension CEFLayerHosting {
         /// The Track A calls the app makes for this fork's pages while the
         /// feature `cefLayerHosting` is on; nil while it is off.
         let trackA: TrackA?
-        /// `cmux_shim_browser_attach_view` (Track B) while the feature `cefAttachedPages` is on; nil otherwise.
+        /// `cmux_shim_browser_attach_view` (Track B) from fork API ``CEFLayerHosting/attachViewForkAPI`` while the
+        /// feature `cefAttachedPages` is on; nil otherwise.
         let attachView: CEFAttachedPages.Attach?
 
         init(setLayerHosting: @escaping (_ browser: Int32, _ enabled: Bool) -> UInt32,
@@ -38,7 +39,7 @@ extension CEFLayerHosting {
             setResizeSync = CEFLayerHosting.hasResizeSync(apiVersion: apiVersion)
                 ? { browser, timeout in shim.browserSetResizeSync(browser, timeout) == 1 } : nil
             trackA = policy.trackA
-            attachView = CEFAttachedPages.shimAttach(shim, enabled: policy.attachesViews)
+            attachView = CEFAttachedPages.shimAttach(shim, apiVersion: apiVersion, enabled: policy.attachesViews)
         }
 
         /// A page window `runtime` made in process, with its features' calls.

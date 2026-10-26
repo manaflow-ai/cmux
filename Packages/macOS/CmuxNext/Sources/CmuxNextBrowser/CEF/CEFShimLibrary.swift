@@ -231,10 +231,11 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
     /// `WebContents::Discard` in place (p13-webui-018): browser; 1 discarded, 0 refused. Nil without the
     /// export and in host mode, whose return means only "sent" (the answer is a later REPLY).
     let tabDiscard: (@convention(c) (Int32) -> Int32)?
-    /// `cmux_shim_browser_attach_view(browser, parent_view)` (p03-rendering-044, Track B): makes the browser's
-    /// `RenderWidgetHostViewCocoa` a subview of `parent_view` (an NSView*) and returns it unretained; NULL when
-    /// refused. Nil without the export and in host mode, where no view pointer crosses the process.
-    let browserAttachView: (@convention(c) (Int32, UnsafeMutableRawPointer?) -> UnsafeMutableRawPointer?)?
+    /// `cmux_shim_browser_attach_view(browser, parent_view)` (fork API 33, p03-rendering-044, Track B): moves the
+    /// browser's `WebContentsViewCocoa` into `parent_view` (an NSView*), below its other subviews; 1 attached, 0
+    /// refused (an unknown browser, no page window yet, a fork below API 33). Nil without the export and in host
+    /// mode, where no view pointer crosses the process.
+    let browserAttachView: (@convention(c) (Int32, UnsafeMutableRawPointer?) -> Int32)?
 
     /// Every renderer-path export is there (`CEFForkFeatures`).
     var hasRendererPaths: Bool {

@@ -3,8 +3,8 @@ import AppKit
 import Testing
 
 /// A pane's tabs on Chromium's own attached view (p03-rendering-045, Track B), through the fork seam: the fake
-/// attach call adds a stand-in for `RenderWidgetHostViewCocoa` to the host view, as the fork's
-/// `cmux_browser_attach_view` (p03-rendering-044) does. No Chromium.
+/// attach call adds a stand-in for the tab's `WebContentsViewCocoa` below the host view's subviews and answers
+/// 1 or 0, as the fork's `cmux_browser_attach_view` (p03-rendering-044) does. No Chromium.
 @MainActor
 @Suite struct CEFAttachedPagesTests {
     /// Chromium's page view: it takes the first click and makes itself first responder on a mouse down, as
@@ -24,11 +24,12 @@ import Testing
         override func mouseDown(with event: NSEvent) { window?.makeFirstResponder(self) }
     }
 
-    /// The fork: attach and layer hosting calls, and the browsers it refuses to attach.
+    /// The fork: attach and layer hosting calls, and the browsers it refuses to attach (always, or once).
     final class FakeFork {
         private(set) var attaches: [Int32] = []
         private(set) var hostingCalls: [(browser: Int32, enabled: Bool)] = []
         var refuses: Set<Int32> = []
+        var refusesOnce: Set<Int32> = []
 
         func fork(attaching: Bool = true) -> CEFLayerHosting.Fork {
             CEFLayerHosting.Fork(setLayerHosting: { [self] browser, enabled in
@@ -36,10 +37,9 @@ import Testing
                 return enabled ? 7 : 0
             }, attachView: attaching ? { [self] browser, parent in
                 attaches.append(browser)
-                guard !refuses.contains(browser) else { return nil }
-                let view = FakeChromiumView(browser: browser)
-                parent.addSubview(view, positioned: .below, relativeTo: nil)
-                return view
+                guard !refuses.contains(browser), refusesOnce.remove(browser) == nil else { return false }
+                parent.addSubview(FakeChromiumView(browser: browser), positioned: .below, relativeTo: nil)
+                return true
             } : nil)
         }
     }
@@ -149,18 +149,76 @@ import Testing
         turn.end()
         hosting.pageShown(browser: 4)
         turn.end()
-        // The fork refused 4: it takes the page window's hosting, the context-id fallback.
+        // The fork refused 4: it takes the page window's hosting, the context-id fallback, and one retry waits.
         #expect(fake.attaches == [3, 4])
+        #expect(hosting.attachedPages.retryArmed == [4])
         #expect(fake.hostingCalls.map(\.enabled) == [true])
         #expect(hosting.page != nil)
         #expect(try #require(attached(host, 3)).isHidden)
-        // Back to the attached tab: hosting goes, and 4 is never asked to attach again.
+        // Back to the attached tab: hosting goes.
         hosting.pageShown(browser: 3)
         #expect(fake.hostingCalls.map(\.enabled) == [true, false])
         #expect(hosting.page == nil)
+        // The next show of 4 is its one retry; the second refusal is final and 4 takes hosting again.
         hosting.pageShown(browser: 4)
         turn.end()
-        #expect(fake.attaches == [3, 4])
+        #expect(fake.attaches == [3, 4, 4])
+        #expect(hosting.attachedPages.refused == [4] && hosting.attachedPages.retryArmed.isEmpty)
+        #expect(fake.hostingCalls.map(\.enabled) == [true, false, true])
+        // Never asked again: not on a show, not on a tracker read.
+        hosting.pageShown(browser: 3)
+        hosting.pageShown(browser: 4)
+        hosting.trackerDidRead()
+        turn.end()
+        #expect(fake.attaches == [3, 4, 4])
+    }
+
+    @Test func aRefusalAtCreationRetriesOnTheTrackersNextRead() throws {
+        let host = makeHostView()
+        let hosting = host.layerHosting
+        // Chromium had not put the WebContents in its page window yet at the end of the creation turn.
+        fake.refusesOnce = [3]
+        hosting.pageWindowCreated(browser: 3, fork: fake.fork())
+        hosting.pageShown(browser: 3)
+        turn.end()
+        #expect(fake.attaches == [3])
+        #expect(attached(host, 3) == nil)
+        #expect(hosting.page != nil, "the refused tab takes the hosting fallback until its retry")
+        // The tracker read the host view: the page window is there, so the retry attaches.
+        hosting.trackerDidRead()
+        hosting.trackerDidRead()
+        turn.end()
+        #expect(fake.attaches == [3, 3], "one retry, however many tracker reads: \(fake.attaches)")
+        let page = try #require(attached(host, 3))
+        #expect(!page.isHidden)
+        #expect(hosting.page == nil, "the attached tab kept the hosting fallback")
+        #expect(fake.hostingCalls.map(\.enabled) == [true, false])
+        #expect(hosting.attachedPages.retryArmed.isEmpty && hosting.attachedPages.refused.isEmpty)
+    }
+
+    @Test func aTabSwitchHandsThePageFocusToTheShownTab() throws {
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: [.borderless],
+                              backing: .buffered, defer: false)
+        defer { window.orderOut(nil) }
+        let host = makeHostView()
+        window.contentView?.addSubview(host)
+        let hosting = host.layerHosting
+        fake.refuses = [5]
+        hosting.pageWindowCreated(browser: 3, fork: fake.fork())
+        for browser: Int32 in [4, 3] {
+            hosting.pageShown(browser: browser)
+            turn.end()
+        }
+        let three = try #require(attached(host, 3))
+        let four = try #require(attached(host, 4))
+        window.makeFirstResponder(three)
+        hosting.pageShown(browser: 4)
+        #expect(window.firstResponder === four, "first responder after a tab switch: \(String(describing: window.firstResponder))")
+        #expect(three.isHidden && !four.isHidden)
+        // A tab with no attached view: the window takes the focus, not some other key view.
+        hosting.pageShown(browser: 5)
+        #expect(window.firstResponder === window, "first responder after a switch to an unattached tab: \(String(describing: window.firstResponder))")
+        #expect(four.isHidden)
     }
 
     @Test func aClosedTabsViewIsForgottenAndStopClearsAll() throws {
@@ -203,32 +261,42 @@ import Testing
 
     // MARK: The shim
 
-    @Test func theShimsAttachCallNeedsTheFeatureAndAnInProcessShim() throws {
-        AttachSpy.browsers = []
+    @Test func theShimsAttachCallNeedsTheFeatureForkAPI33AndAnInProcessShim() throws {
+        AttachSpy.calls = []
         let shim = try CEFShimLibrary.resolving(AttachSpy.symbol)
-        let on = try #require(CEFLayerHosting.Fork(shim: shim, apiVersion: 32, policy: CEFLayerHosting.Policy(attachesViews: true)))
+        let policy = CEFLayerHosting.Policy(attachesViews: true)
+        let on = try #require(CEFLayerHosting.Fork(shim: shim, apiVersion: CEFLayerHosting.attachViewForkAPI, policy: policy))
         let parent = NSView()
         let attach = try #require(on.attachView)
-        #expect(attach(9, parent) === parent)
-        #expect(AttachSpy.browsers == [9])
-        let off = try #require(CEFLayerHosting.Fork(shim: shim, apiVersion: 32, policy: CEFLayerHosting.Policy(attachesViews: false)))
+        #expect(attach(9, parent), "the shim's 1 is an attach")
+        #expect(!attach(AttachSpy.refusedBrowser, parent), "the shim's 0 is a refusal")
+        let pointer = Unmanaged.passUnretained(parent).toOpaque()
+        #expect(AttachSpy.calls.map(\.browser) == [9, AttachSpy.refusedBrowser])
+        #expect(AttachSpy.calls.allSatisfy { $0.parent == pointer })
+        // Fork API 32: the shim exports the call, but the fork has no binding and refuses every page.
+        let older = try #require(CEFLayerHosting.Fork(shim: shim, apiVersion: CEFLayerHosting.attachViewForkAPI - 1, policy: policy))
+        #expect(older.attachView == nil)
+        let off = try #require(CEFLayerHosting.Fork(shim: shim, apiVersion: CEFLayerHosting.attachViewForkAPI,
+                                                    policy: CEFLayerHosting.Policy(attachesViews: false)))
         #expect(off.attachView == nil)
         // Host mode: no view pointer crosses the process.
         let remote = try CEFShimLibrary.resolving(AttachSpy.symbol, hostExports: ["cmux_shim_browser_attach_view"])
         #expect(remote.browserAttachView == nil)
-        let older = try CEFShimLibrary.resolving { $0 == "cmux_shim_browser_attach_view" ? nil : AttachSpy.symbol($0) }
-        #expect(older.browserAttachView == nil)
+        let withoutExport = try CEFShimLibrary.resolving { $0 == "cmux_shim_browser_attach_view" ? nil : AttachSpy.symbol($0) }
+        #expect(withoutExport.browserAttachView == nil)
     }
 }
 
-/// A shim whose attach call hands back the parent view it got, so the pointer round trip shows.
+/// A shim whose attach call records the browser and parent pointer it got and answers 1, or 0 for
+/// ``refusedBrowser``, as `cmux_shim_browser_attach_view` does.
 private nonisolated enum AttachSpy {
-    nonisolated(unsafe) static var browsers: [Int32] = []
+    static let refusedBrowser: Int32 = 8
+    nonisolated(unsafe) static var calls: [(browser: Int32, parent: UnsafeMutableRawPointer?)] = []
 
     static func symbol(_ name: String) -> UnsafeMutableRawPointer? {
-        let attach: @convention(c) (Int32, UnsafeMutableRawPointer?) -> UnsafeMutableRawPointer? = { browser, parent in
-            AttachSpy.browsers.append(browser)
-            return parent
+        let attach: @convention(c) (Int32, UnsafeMutableRawPointer?) -> Int32 = { browser, parent in
+            AttachSpy.calls.append((browser, parent))
+            return browser == AttachSpy.refusedBrowser ? 0 : 1
         }
         let nothing: @convention(c) () -> Int = { 0 }
         return switch name {

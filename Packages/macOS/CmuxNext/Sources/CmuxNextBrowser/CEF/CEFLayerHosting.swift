@@ -41,6 +41,7 @@ import CmuxNextSignposts
 /// With the fork's attach call (feature `cefAttachedPages`, p03-rendering-045) a pane's tabs attach
 /// Chromium's own view in the host view instead (``attachedPages``): one attach per browser, at the end of
 /// the turn like a hosting request, and the context-id path above is the fallback of a tab the fork refused.
+/// A first refusal retries once, like a hosting request: on the tracker's next read or the tab's next show.
 ///
 /// Tests drive it through ``Fork`` and the `schedule` seam, without Chromium.
 final class CEFLayerHosting {
@@ -60,6 +61,9 @@ final class CEFLayerHosting {
     /// The first fork API where a page window never holds the commit
     /// (`cmux_browser_set_resize_fence`): the resize deadline has no effect.
     static let resizeFenceForkAPI: Int32 = 32
+    /// The first fork API whose `cmux_browser_attach_view` attaches (Track B). The shim exports
+    /// `cmux_shim_browser_attach_view` in every build; below this API it always refuses.
+    static let attachViewForkAPI: Int32 = 33
 
     /// Whether the fork's resize deadline holds the commit: fork API 27 to 31.
     static func hasResizeSync(apiVersion: Int32) -> Bool {
@@ -168,8 +172,13 @@ final class CEFLayerHosting {
             attachedPages.show(browser)
             if attachedPages.shownView != nil { return showAttached(fork) }
             if attachedPages.needsAttach(browser) { return scheduleAttach(browser) }
-            // The fork refused this tab: it keeps the window's hosting, or the window, as below.
+            // The fork refused this tab for good: it keeps the window's hosting, or the window.
         }
+        showWithoutAttach(fork, browser: browser)
+    }
+
+    /// The shown tab draws without an attached view: hosting turns on or off as ``decide(_:)`` gives.
+    private func showWithoutAttach(_ fork: Fork, browser: Int32) {
         let wanted = wants(fork)
         if wanted == (page != nil) {
             syncDeadline()
@@ -230,6 +239,7 @@ final class CEFLayerHosting {
     /// The fork's tracker read the host view's clip (`ChildWindowPageFallback`): it is attached
     /// to the page window now, so a refused request may succeed.
     func trackerDidRead() { // perf-hot: 1us cef-geometry (each tracker read)
+        for browser in attachedPages.retryArmed { scheduleAttach(browser) }
         guard pending == .armed else { return }
         request(retry: true)
     }
@@ -269,8 +279,8 @@ final class CEFLayerHosting {
             guard browser == self.attachedPages.shown else { return }
             switch outcome {
             case .attached: self.showAttached(fork)
-            // A refused tab shown now takes the fallback at once.
-            case .refused: self.pageShown(browser: browser)
+            // A refused tab shown now takes the fallback at once; after a first refusal its retry waits.
+            case .retryArmed, .refused: self.showWithoutAttach(fork, browser: browser)
             case .unchanged: break
             }
         }
