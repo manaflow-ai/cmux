@@ -31,6 +31,14 @@ public struct CloudPaths: Sendable {
         return (NSTemporaryDirectory() as NSString).appendingPathComponent("cmux-wg-\(hash)-\(getpid()).sock")
     }
 
+    /// A name for the running hub's socket that outlives the app's pid: a symlink the hub moves
+    /// to its socket each time it starts, for callers outside the app (an ssh `ProxyCommand`
+    /// of `cmux wg dial --hub`, which `cloud enroll-machine` writes). Dangling while no hub runs.
+    public var hubLink: String {
+        let hash = SHA256.hash(data: Data(root.path.utf8)).prefix(4).map { String(format: "%02x", $0) }.joined()
+        return (NSTemporaryDirectory() as NSString).appendingPathComponent("cmux-wg-\(hash).sock")
+    }
+
     /// The link's local v12 socket, short enough for `sun_path`.
     func linkSocket(machineID: String) -> String {
         let hash = SHA256.hash(data: Data((root.path + machineID).utf8)).prefix(6).map { String(format: "%02x", $0) }.joined()

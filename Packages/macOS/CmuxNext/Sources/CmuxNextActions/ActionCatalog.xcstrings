@@ -93147,6 +93147,21 @@
           }
         }
       }
+    },
+    "action.cloudEnrollMachine": {
+      "comment": "Cloud machine action: make the machine reachable by ssh from this Mac and add it as an agent host.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Enroll Machine as Agent Host"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "マシンをエージェントホストとして登録"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Maschine als Agent-Host einrichten"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Inscrire la machine comme hôte d’agents"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Registrar la máquina como host de agentes"}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "تسجيل الجهاز كمضيف للوكلاء"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "머신을 에이전트 호스트로 등록"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "将机器登记为代理主机"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "將機器登記為代理主機"}}
+      }
     }
   },
   "version": "1.0"

@@ -1,3 +1,4 @@
+import CmuxNextCompat
 public import Foundation
 import os
 
@@ -92,6 +93,20 @@ public actor CloudTunnelHub {
         if case .revoked = phase { phase = .idle }
     }
 
+    /// Moves ``CloudPaths/hubLink`` to the running hub's socket (a new link, then a rename over
+    /// the old one, so a dialer never sees it missing). Best effort: no link costs only the
+    /// callers outside the app their route.
+    private func pointHubLink(at socket: String) {
+        let link = paths.hubLink, staged = link + ".new"
+        try? FileManager.checked.removeItem(atPath: staged)
+        do {
+            try FileManager.checked.createSymbolicLink(atPath: staged, withDestinationPath: socket)
+            guard rename(staged, link) == 0 else { throw POSIXError(.init(rawValue: errno) ?? .EIO) }
+        } catch {
+            logger.error("wireguard hub link not moved: \(String(describing: error), privacy: .public)")
+        }
+    }
+
     private func terminateChild() {
         child?.terminate()
         child = nil
@@ -138,6 +153,7 @@ public actor CloudTunnelHub {
             throw CancellationError()
         }
         phase = .running(socket: ready)
+        pointHubLink(at: ready)
         logger.info("wireguard hub ready (tunnel \(enrollment.tunnelId, privacy: .public))")
         return ready
     }
