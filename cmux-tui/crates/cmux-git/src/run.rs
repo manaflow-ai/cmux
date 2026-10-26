@@ -421,7 +421,7 @@ mod background_tests {
                 let _inner = background();
             }
             assert!(in_background(), "an inner guard restores the outer one's state");
-            assert!(!std::thread::spawn(in_background).join().unwrap());
+            assert!(!thread::spawn(in_background).join().unwrap());
         }
         assert!(!in_background());
     }

@@ -500,8 +500,8 @@ enum Finish {
 /// again about every worktree while most HEADs and bases have not moved
 /// since the last: on a machine with hundreds of worktrees of a big
 /// repository, a `merge-tree` each kept git busy for half an hour a pass.
-static FINISHED: LazyLock<Mutex<HashMap<(String, String), Option<Finish>>>> =
-    LazyLock::new(Mutex::default);
+type Answers = HashMap<(String, String), Option<Finish>>;
+static FINISHED: LazyLock<Mutex<Answers>> = LazyLock::new(Mutex::default);
 /// The most pairs [`FINISHED`] keeps; past it, it starts over.
 const MAX_REMEMBERED: usize = 16_384;
 
