@@ -72,6 +72,10 @@ on:
       - plans/cmux-next/**
       - docs/mdm/**
       - docs/configuration.md
+      # cmux-tui's help-contract tests include_str! this one (acpmux and
+      # cmux-tui both check their help against it), so it is in the tree key
+      # and a change to it has to rebuild and re-run them.
+      - docs/remote-agents-and-cloud.md
       - webviews/test/fixtures/**
       # The web bundles' sources (build output since cx-vn5; the package tests
       # read the built pages; cmux_next_route.py BUNDLE_INPUTS).
@@ -260,6 +264,7 @@ on:
       # tests/test_ci_workflow_path_filter_parity.py).
       - scripts/cmux-next/state-roots-baseline.tsv
       - docs/configuration.md
+      - docs/remote-agents-and-cloud.md
       - scripts/cmux-next/check-generator-inputs.sh
       - tests/test_ci_generator_input_freshness.sh
       - tests/test_cmux_next_base_autofix_finishes.py
