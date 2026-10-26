@@ -3,7 +3,7 @@ import Dispatch
 import dnssd
 import Foundation
 
-private final class CmxIrohBonjourRegisterCallbackBox: @unchecked Sendable {
+private final class CmxIrohBonjourRegisterCallbackBox: Sendable {
     let handler: @Sendable (Int32) -> Void
 
     init(handler: @escaping @Sendable (Int32) -> Void) {

@@ -24,6 +24,7 @@ extension PageWebView {
         repaintsAtNextLayout = false
         let scripts = scripts
         router.send = { envelope in scripts.send(envelope) }
+        crash.committed(self)
     }
 
     /// The document finished loading (either engine).
