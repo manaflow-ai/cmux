@@ -33,13 +33,14 @@
 //!
 //! Child processes never run at an echo thread's QoS: a user child starts
 //! at Default and a helper runs at [`HELPER_CHILD`] (Utility) at most, see
-//! [`process`].
+//! [`process`]. [`process_role`] reads the process's Mach task role.
 
 pub mod blocking;
 pub mod checked;
 pub mod hang;
 pub mod lock_wait;
 pub mod process;
+pub mod process_role;
 pub mod qos;
 pub mod registry;
 pub mod spawn;

@@ -12584,6 +12584,7 @@
         "required": true
       }
     },
+    "request:server-blocking": {},
     "request:server-stats": {
       "/include": {
         "ty": "array",
@@ -12593,6 +12594,7 @@
         "ty": "string"
       }
     },
+    "request:server-threads": {},
     "request:set-cell-pixels": {
       "/height_px": {
         "ty": "uint16",
@@ -22601,6 +22603,12 @@
       }
     },
     "response:send-key": {},
+    "response:server-blocking": {
+      "/data": {
+        "ty": "json",
+        "required": true
+      }
+    },
     "response:server-stats": {
       "/data/connections": {
         "ty": "object",
@@ -24547,6 +24555,12 @@
       },
       "/data/write_path/writer_registry_locks": {
         "ty": "uint64",
+        "required": true
+      }
+    },
+    "response:server-threads": {
+      "/data": {
+        "ty": "json",
         "required": true
       }
     },
