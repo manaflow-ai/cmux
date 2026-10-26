@@ -39,7 +39,7 @@ import Testing
 
     /// The New Tab spare's warm waits on key-downs, left and right clicks and scrolls only.
     @Test func theSpareWarmHearsItsOldMask() {
-        let (types, classes) = heard(NewTabSparePool.warmDelayingInput)
+        let (types, classes) = heard(NewTabPreload.warmDelayingInput)
         #expect(types == [.keyDown, .leftMouseDown, .rightMouseDown, .scrollWheel])
         #expect(classes == [.key, .button, .scroll])
     }

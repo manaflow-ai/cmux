@@ -314,7 +314,7 @@ extension AgentTabStore {
         createTabs?.released(key) // a chat closed (or refused) before its first paint: create.tab ends as closed
         if let view = views.removeValue(forKey: key) {
             // An untouched new tab page goes back to the pool (no teardown, no rebuild, R81); a
-            // page of another machine's chat never does (NewTabSparePool.recycle, cx-k21v).
+            // page of another machine's chat never does (NewTabPreload.recycle, cx-k21v).
             if newTabPages[key] != nil, recycle?(view) == true {
                 standaloneViews.add(view)
             } else {

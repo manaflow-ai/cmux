@@ -200,7 +200,7 @@ enum NewTabPage {
     }
 
     /// What a prewarmed spare page loads with before Cmd-T adopts it
-    /// (NewTabSparePool): the design and remembered choices; no tab context.
+    /// (NewTabPreload): the design and remembered choices; no tab context.
     static func sparePage(_ services: AppServices) -> AgentPaneNewTab {
         AgentPaneNewTab(
             kind: .agent, hotkeys: newActions.compactMapValues { services.registry.shortcutDisplay(for: $0) },

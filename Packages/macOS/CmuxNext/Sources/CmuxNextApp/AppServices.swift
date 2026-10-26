@@ -368,8 +368,8 @@ final class AppServices {
     private(set) lazy var memoryFootprints = MemoryFootprintEmitter(
         histograms: memoryHistograms, webContentPIDs: { [weak self] in if let self { AppMemoryModel.liveWebContentPIDs(self) } else { [] } },
         sample: { await AppMemoryModel.processes(webContentPIDs: $0) })
-    /// One prewarmed new tab page per window (instant open).
-    private(set) lazy var newTabSpares = NewTabSparePool(services: self, memory: memoryCoordinator, input: inputTap)
+    /// The New Tab page on the app's one preload slot (instant open, p13-webui-044).
+    private(set) lazy var newTabSpares = NewTabPreload(services: self, memory: memoryCoordinator, input: inputTap)
     /// The spare React page hosts for Settings, History and Cloud.
     private(set) lazy var pageHostPool = PageHostPool(memory: memoryCoordinator)
     /// The one owner of cmux pages (p13-webui.md 3.A): every page view opens and closes through it.

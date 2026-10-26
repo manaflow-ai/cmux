@@ -16,7 +16,7 @@ extension NewTabPage {
     /// Panes whose New Tab page opening runs in this main-actor turn.
     private static var openingPanes: Set<ObjectIdentifier> = []
     /// The New Tab page in `pane`, adopting the window's prewarmed spare when it has one
-    /// (NewTabSparePool), else loading cold. A static of the page, not the pane (the godfile
+    /// (NewTabPreload), else loading cold. A static of the page, not the pane (the godfile
     /// limit counts PaneController's extensions). Everything happens in this one main-actor
     /// turn, with no hop: the spare waited at this pane's content size, so its adoption changes
     /// no size and WebKit shows the page at its final layout; the strip starts the tab's grow now;
@@ -60,7 +60,7 @@ extension NewTabPage {
         // A pane of another machine shows the same page, never a prewarmed spare: a spare is connected
         // to this Mac's acpmux, and that pane's chat starts on its machine at the first send (cx-k21v).
         let spare = seed == nil && pane.daemon.isLocal
-            ? BenchSpans.measure("newTab.take", { services.newTabSpares.take(for: pane.view.window, size: NewTabSparePool.newTabContentSize(in: pane)) })
+            ? BenchSpans.measure("newTab.take", { services.newTabSpares.take(for: pane.view.window, size: NewTabPreload.newTabContentSize(in: pane)) })
             : nil
         // The tab shows at once (a store intent); the store's tab replaces it when it answers.
         guard BenchSpans.measure("newTab.open", { pane.openAgentTab(seed: seed, newTab: (page, handler), spare: spare?.view, then: then) }) else {
@@ -85,7 +85,8 @@ extension NewTabPage {
             BenchSpans.measure("newTab.strip") { pane.view.stripView.sync(fromModel: true) }
         }
         services.newTabSpares.record(.init(spare: spare != nil, crossWindow: spare?.crossWindow == true,
-                                           milliseconds: NewTabSparePool.milliseconds(since: start), refit: spare?.refit == true))
+                                           milliseconds: NewTabPreload.milliseconds(since: start), refit: spare?.refit == true,
+                                           covered: spare?.covered == true))
     }
 
     /// The page chose a terminal or browser: open it, then close the page,

@@ -1,6 +1,7 @@
 import CmuxNextActions
 import AppKit
 import CmuxNextAgentPane
+import CmuxNextPages
 import CmuxNextWakeups
 import Foundation
 
@@ -49,8 +50,9 @@ struct AgentTabContent {
         }
         if !view.model.hasPainted { drawLastPage(key, until: view) }
         if view.model.newTab != nil { AgentPaneNewTabFrame.shared.capture(view, in: pane.view.contentHost) }
-        if view.model.newTab != nil { BenchSpans.mark(view.superview is NewTabSpareParking ? "newTab.show.parked" : "newTab.show") }
-        if view.model.hasPainted, view.superview is NewTabSpareParking { coverMove(of: view) }
+        if view.model.newTab != nil { BenchSpans.mark(view.superview is PagePreloadParkingView ? "newTab.show.parked" : "newTab.show") }
+        // A page the slot handed over with its cover keeps that cover until its first frame here (p13-webui-044).
+        if view.model.hasPainted, view.superview is PagePreloadParkingView, !services.newTabSpares.openingCovered(view) { coverMove(of: view) }
         AgentReplySites(services: services).wire(view.model.replyLinks)
         return .agent(view)
     }
@@ -76,7 +78,7 @@ struct AgentTabContent {
         view.loadingView.whenRevealed { [weak paneView] in paneView?.clearLaunchImage() }
     }
 
-    /// A parked spare taken into this pane draws nothing until WebKit renders it in its new place
+    /// A preloaded page taken into this pane with no cover (taken before it parked) draws nothing until WebKit renders it in its new place
     /// (2-5 frames of an empty pane after Cmd-N, cx-21zkz): the New Tab frame shows under it, and
     /// the page stays clear, until its next frame there. Its own parked frame first, at the size it shows at.
     private func coverMove(of view: AgentPaneView) {
