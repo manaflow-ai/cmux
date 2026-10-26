@@ -111,41 +111,34 @@ pub fn cmux_worktrees_root() -> Option<PathBuf> {
 /// The file the app writes in each agent-home folder it makes (`AgentHome.ensure`).
 pub const AGENT_HOME_MARKER: &str = ".cmux-agent-home";
 
-/// A folder path the record can key: absolute, without a trailing slash, and one key per
-/// folder whatever spelling reaches it (`canonical_key`): links resolved (also in the part of
-/// the path that does not exist yet), `.` and `..`, /tmp vs /private/tmp, and on macOS each
-/// component as the volume stores it. A path that cannot be canonicalized (a dangling link, or
-/// Windows) keeps the old form: resolved when it exists, else as given.
+/// A folder path the record can key: absolute, without a trailing slash.
+/// The path is resolved (symlinks, `.` and `..`, /tmp vs /private/tmp) when it exists,
+/// so one folder has one key.
 pub fn normalize_cwd(cwd: &str) -> Result<String, String> {
     if cwd.is_empty() || !Path::new(cwd).is_absolute() {
         return Err(format!("cwd must be an absolute path, got {cwd:?}"));
     }
-    if let Some(key) = canonical_key(cwd) {
-        return Ok(key);
-    }
     let resolved = std::fs::canonicalize(cwd).map(|path| path.to_string_lossy().into_owned());
-    Ok(without_slash(&resolved.unwrap_or_else(|_| cwd.to_owned())))
+    let path = resolved.unwrap_or_else(|_| cwd.to_owned());
+    let without_slash = path.trim_end_matches('/');
+    Ok(if without_slash.is_empty() { "/".to_owned() } else { without_slash.to_owned() })
 }
 
-fn without_slash(path: &str) -> String {
-    let trimmed = path.trim_end_matches('/');
-    if trimmed.is_empty() { "/".to_owned() } else { trimmed.to_owned() }
+/// A recorded key as its folder's key now (`normalize_cwd`, the form every lookup uses): the
+/// key is the folder's spelling when the decision was made, and the folder may since have moved
+/// behind a link, been made under a link, or (on a volume that ignores case) been renamed to
+/// another letter case. A key that is not an absolute path stays as written.
+fn current_key(key: &str) -> String {
+    normalize_cwd(key).unwrap_or_else(|_| key.to_owned())
 }
 
-/// The folder's one key (`path_canon::canonical_path`), or None when it cannot be canonicalized.
-fn canonical_key(path: &str) -> Option<String> {
-    crate::path_canon::canonical_path(path, None).map(|canonical| without_slash(&canonical))
-}
-
-/// The record as lookups read it: each key as its folder's key now (`canonical_key`; a key that
-/// cannot be canonicalized stays as written), since a key was the folder's spelling when the
-/// decision was made: the folder may since have moved behind a link, been made under a link, or
-/// been renamed to another letter case. When two keys name one folder the stricter decision
-/// holds, so a no is never hidden by a yes recorded under another spelling.
+/// The record as lookups read it: each key as its folder's key now (`current_key`). When two
+/// keys name one folder the stricter decision holds, so a no is never hidden by a yes recorded
+/// under another spelling.
 fn canonical_record(record: BTreeMap<String, String>) -> BTreeMap<String, String> {
     let mut out: BTreeMap<String, String> = BTreeMap::new();
     for (key, level) in record {
-        let key = canonical_key(&key).unwrap_or(key);
+        let key = current_key(&key);
         let merged = match (out.get(&key).and_then(|l| Level::parse(l)), Level::parse(&level)) {
             (Some(held), Some(new)) => held.stricter(new).as_str().to_owned(),
             (Some(held), None) => held.as_str().to_owned(),
@@ -494,7 +487,7 @@ pub fn set(paths: &Paths, cwd: &str, level: &str) -> Result<Value, Failure> {
     let mut record = read_record(&paths.record)?;
     // Every key that names this folder now (`canonical_record`) gives way to the new decision,
     // so `unknown` forgets the folder under every spelling it was recorded under.
-    record.retain(|key, _| canonical_key(key).as_deref().unwrap_or(key) != cwd);
+    record.retain(|key, _| current_key(key) != cwd);
     if level != Level::Unknown {
         record.insert(cwd.clone(), level.as_str().to_owned());
     }
