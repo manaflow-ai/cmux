@@ -130,7 +130,8 @@ import Testing
         first.apply(failed("lab-mini"))
         first.apply(failed("build-box", reason: "rollback failed too (125)", rolledBack: true))
         first.apply(failed("tidy-yellow-tern", reason: "the new daemon did not answer"))
-        #expect(Set(shown.map(\.toast.id)) == [DaemonUpdateBoard.noticeID], "a toast per machine: \(shown.map(\.toast.id))")
+        let ids = shown.map { $0.toast.id }
+        #expect(Set(ids) == [DaemonUpdateBoard.noticeID], "a toast per machine: \(ids)")
         let grouped = try #require(shown.last?.toast)
         for name in ["lab-mini", "build-box", "tidy-yellow-tern"] {
             #expect(grouped.message.contains(name), "\(grouped.message)")
@@ -185,12 +186,14 @@ import Testing
         }
         board.apply(failed("lab-mini"))
         board.apply(failed("build-box"))
-        #expect(handles.map(\.isDismissed) == [true, false], "two notices up at once")
+        let dismissed = handles.map { $0.isDismissed }
+        #expect(dismissed == [true, false], "two notices up at once")
         #expect(center.toasts(in: windows[0]).isEmpty && center.toasts(in: windows[1]).count == 1)
         // The person closed the first; a third failure showed before that close was read.
         board.apply(failed("tidy-yellow-tern"))
         notices[0].closed()
-        #expect(handles.allSatisfy(\.isDismissed), "a notice of a closed build stayed up")
+        let up = handles.filter { !$0.isDismissed }.count
+        #expect(up == 0, "a notice of a closed build stayed up")
         board.apply(failed("cloud-vm"))
         #expect(handles.count == 3, "a notice of a closed build showed again")
     }
