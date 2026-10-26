@@ -23,7 +23,7 @@ import Testing
     }
 
     func follow(_ settings: SettingsController) -> TerminalThemeSetting {
-        let terminal = TerminalThemeSetting(backdropScope: ThemeScope(level: .room))
+        let terminal = TerminalThemeSetting.testing(backdropScope: ThemeScope(level: .room))
         terminal.reload = {}
         terminal.follow(settings)
         return terminal

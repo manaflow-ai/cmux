@@ -64,7 +64,7 @@ import Testing
         // The config files' own values, as `GhosttyRuntime.loadConfig` records them.
         GhosttyConfigBackground.loaded = GhosttyConfigBackground(opacity: colors.backgroundOpacity, blur: colors.backgroundBlur)
         ThemeScope.app.store.apply(ThemeBridge.input(colors))
-        let terminal = TerminalThemeSetting(backdropScope: ThemeScope(level: .room))
+        let terminal = TerminalThemeSetting.testing(backdropScope: ThemeScope(level: .room))
         terminal.reload = { ThemeScope.app.store.apply(ThemeBridge.input(colors, background: GhosttyRuntime.backgroundOverride)) }
         terminal.follow(settings)
 

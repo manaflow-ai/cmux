@@ -1,6 +1,7 @@
 import CmuxNextAgentPane
 import CmuxNextCompat
 import CmuxNextDaemon
+import CmuxNextDaemonService
 import CmuxNextOnboarding
 import CmuxNextWakeups
 import Foundation
@@ -138,28 +139,18 @@ extension AppOnboardingServices {
     /// `daemon` once it has a connection, within 20 seconds: woken by the
     /// connection itself, never by polling.
     func connected(_ daemon: DaemonService) async throws -> DaemonService {
-        if daemon.connection != nil { return daemon }
-        // The first of the connection appearing, the twenty-second SSH connect limit and
-        // cancellation resumes the wait once (no task group waits for a loser).
-        let outcome = FirstOutcome<Bool>()
-        let watch = Task { @MainActor in
-            for await ready in ObservationStream({ daemon.connection != nil }) where ready {
-                outcome.resolve(true)
-                return
-            }
-        }
-        let bound = DemandTimer(owner: "ClassicImport.sshConnect")
-        bound.schedule(after: .seconds(20)) { outcome.resolve(false) }
-        let ready = await withTaskCancellationHandler {
-            await outcome.value()
-        } onCancel: {
-            outcome.resolve(false)
-        }
-        watch.cancel()
-        bound.cancel()
+        await connected([daemon])
         try Task.checkCancellation()
-        guard ready, daemon.connection != nil else { throw DaemonError.notConnected }
+        guard daemon.connection != nil else { throw DaemonError.notConnected }
         return daemon
+    }
+
+    /// Returns once every one of `daemons` has a connection, after the twenty-second SSH connect
+    /// limit, or when the caller is cancelled, whichever comes first (recipe R-wait: the condition is
+    /// read again only when a connection changes, as one `visible` task, beside a `MainDeadline`).
+    func connected(_ daemons: [DaemonService]) async {
+        await ObservedCondition(owner: "ClassicImport.sshConnect", .visible, on: services.mainWork)
+            .until(timeout: .seconds(20), deadlines: services.mainDeadlines) { daemons.allSatisfy { $0.connection != nil } }
     }
 
     /// Rebuilds the imported topology through the same daemon builder used by

@@ -38,12 +38,11 @@ import Testing
                                           managedReader: FixedManagedPreferenceReader(ManagedPreferences()), managedWatchFiles: [])
         await settings.reload()
         let scope = ThemeScope(level: .room)
-        let terminal = TerminalThemeSetting(backdropScope: scope)
         let center = NotificationCenter()
+        let terminal = TerminalThemeSetting.testing(backdropScope: scope, center: center)
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = try #require(TimeZone(identifier: "Europe/London"))
         terminal.reload = {}
-        terminal.notificationCenter = center
         terminal.now = { Self.today }
         terminal.calendar = { [calendar] in calendar }
         terminal.follow(settings)

@@ -34,7 +34,7 @@ import Testing
     @Test func previewingATerminalThemeShowsItAndEndingRevertsIt() async throws {
         let (settings, url) = try await make()
         defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
-        let terminal = TerminalThemeSetting(backdropScope: ThemeScope(level: .room))
+        let terminal = TerminalThemeSetting.testing(backdropScope: ThemeScope(level: .room))
         var reloads = 0
         terminal.reload = { reloads += 1 }
         terminal.follow(settings)
@@ -57,7 +57,7 @@ import Testing
     @Test func aSliderPreviewDoesNotReloadTheTerminals() async throws {
         let (settings, url) = try await make()
         defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
-        let terminal = TerminalThemeSetting(backdropScope: ThemeScope(level: .room))
+        let terminal = TerminalThemeSetting.testing(backdropScope: ThemeScope(level: .room))
         var reloads = 0
         terminal.reload = { reloads += 1 }
         terminal.follow(settings)
@@ -78,7 +78,7 @@ import Testing
         try Data(#"{"appearance":{"theme":"Nord","experimentalControls":true}}"#.utf8).write(to: url)
         await settings.reload()
         let scope = ThemeScope(level: .room)
-        let terminal = TerminalThemeSetting(backdropScope: scope)
+        let terminal = TerminalThemeSetting.testing(backdropScope: scope)
         terminal.reload = {}
         terminal.follow(settings)
         #expect(scope.appearanceTuning.hue == AppearanceTuning.identity.hue)

@@ -43,7 +43,7 @@ import Testing
             ThemeScope.app.store.apply(original)
         }
         let scope = ThemeScope(level: .room)
-        let terminal = TerminalThemeSetting(backdropScope: scope)
+        let terminal = TerminalThemeSetting.testing(backdropScope: scope)
         terminal.reload = { ThemeScope.app.store.apply(ThemeBridge.input(colors, background: GhosttyRuntime.backgroundOverride)) }
         terminal.follow(settings)
         ThemeScope.app.store.apply(ThemeBridge.input(colors, background: GhosttyRuntime.backgroundOverride))

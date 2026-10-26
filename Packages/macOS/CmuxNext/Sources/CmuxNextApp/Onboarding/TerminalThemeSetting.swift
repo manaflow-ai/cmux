@@ -49,9 +49,23 @@ final class TerminalThemeSetting {
     private static var primed: State?
 
     private let backdropScope: ThemeScope
+    private let mainWork: MainWorkScheduler
+    /// Where it hears of a day, time zone or clock change (the app's one observer per notice; tests post to their own).
+    private let appEvents: AppEvents
 
-    init(backdropScope: ThemeScope) {
+    /// - Parameters:
+    ///   - backdropScope: The scope whose backdrop, tint and tuning the settings set.
+    ///   - deadlines: The app's deadline scheduler: the reload after a background drag and the shuffle's next
+    ///     picture are deadlines on it, and a settings change applies as one `visible` task on its scheduler.
+    ///   - appEvents: The app's one observer per app notice (`AppServices.appEvents`).
+    init(backdropScope: ThemeScope, deadlines: MainDeadlineScheduler, appEvents: AppEvents) {
         self.backdropScope = backdropScope
+        self.appEvents = appEvents
+        mainWork = deadlines.work
+        // `visible`: the terminals and the window repaint with the reload.
+        reloadTimer = MainDeadline(owner: "terminal-theme.background-reload", workClass: .visible, scheduler: deadlines)
+        // `background`: hours ahead, and nobody waits on the turn to the next picture.
+        dailyTimer = MainDeadline(owner: "terminal-theme.daily-background", workClass: .background, scheduler: deadlines)
     }
 
     private var applied: State?
@@ -60,20 +74,30 @@ final class TerminalThemeSetting {
     /// Repaints the window from the theme with the new background, before the reload.
     lazy var repaint: () -> Void = { [backdropScope] in ThemeBridge.repaintBackground(store: backdropScope.store) }
     /// The reload after the last step of a window background drag (the Opacity slider).
-    private let reloadTimer = DemandTimer(owner: "terminal-theme.background-reload")
+    private let reloadTimer: MainDeadline
     /// How long that reload waits after a step (tests lengthen it, so a slow host's steps still coalesce).
     var reloadDelay = TerminalThemeSetting.backgroundReloadDelay
     /// Shuffle: turns the backdrop to its next picture when the period ends (``BackdropRotation``).
-    private let dailyTimer = DemandTimer(owner: "terminal-theme.daily-background")
+    private let dailyTimer: MainDeadline
     /// The clock and calendar (read per pick, so a time zone change applies) a shuffle reads; tests pin both.
     var now: () -> Date = Date.init, calendar: () -> Calendar = { .current }
-    /// Where it hears of a day, time zone or clock change (tests post to their own); set before `follow`.
-    var notificationCenter: NotificationCenter = .default
     /// The shuffle the background is, so a day, time zone or clock change re-picks its picture.
     private var shuffling: BackdropShuffle?
-    private var dayObservers: [any NSObjectProtocol] = []
+    private var dayChanges: [EventSubscription] = []
     static let backgroundReloadDelay = Duration.milliseconds(60)
-    private var observation: Task<Void, Never>?
+    private var observation: ServiceObservation<Followed>?
+
+    /// What ``follow(_:)`` reads from the settings.
+    private struct Followed {
+        let snapshot: CmuxConfigSnapshot
+        let theme: String?
+        let edits: ThemeEdits
+        let background: WindowBackgroundOverride
+        let art: BackdropSelection?
+        let shuffle: BackdropShuffle?
+        let tuning: AppearanceTuning
+        let reduced: Bool
+    }
 
     /// Applies the loaded settings at once (launch loads them before the
     /// first window, which must not draw a frame in the defaults), then
@@ -85,53 +109,45 @@ final class TerminalThemeSetting {
         // `applied`, so a theme picker's, the Opacity, Hue or Saturation slider's or the background
         // picker's live preview repaints the window; the rest follows the loaded
         // settings, so a font size slider's preview never reloads Ghostty per tick. A background step
-        // repaints at once and reloads Ghostty after the steps stop (`apply`).
-        take(settings.snapshot, theme: settings.applied.appTheme, edits: settings.applied.themeEdits,
-             background: settings.applied.windowBackground, art: settings.applied.backdropSelection,
-             shuffle: BackdropSelectionSetting.shuffle(settings.applied.root), tuning: settings.applied.windowTuning,
-             reduced: settings.applied.reducedBackgrounds)
-        // A time zone or clock change moves local midnight, which the armed timer cannot see.
-        for name in [Notification.Name.NSCalendarDayChanged, .NSSystemTimeZoneDidChange, .NSSystemClockDidChange] {
-            dayObservers.append(notificationCenter.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
-                Task { @MainActor in
-                    guard let self, self.shuffling != nil else { return }
-                    self.showShuffledArt()
-                }
-            })
+        // repaints at once and reloads Ghostty after the steps stop (`apply`). The current values apply
+        // here; a change applies as one `visible` task, a person's in the input-response pass.
+        observation = ServiceObservation(.visible, owner: "TerminalThemeSetting.settings", on: mainWork) {
+            Followed(snapshot: settings.snapshot, theme: settings.applied.appTheme, edits: settings.applied.themeEdits,
+                     background: settings.applied.windowBackground, art: settings.applied.backdropSelection,
+                     shuffle: BackdropSelectionSetting.shuffle(settings.applied.root), tuning: settings.applied.windowTuning,
+                     reduced: settings.applied.reducedBackgrounds)
+        } apply: { [weak self] followed in
+            self?.take(followed)
         }
-        observation = Task { [weak self] in
-            for await (snapshot, theme, edits, background, art, shuffle, tuning, reduced) in ObservationStream({
-                (settings.snapshot, settings.applied.appTheme, settings.applied.themeEdits, settings.applied.windowBackground,
-                 settings.applied.backdropSelection, BackdropSelectionSetting.shuffle(settings.applied.root), settings.applied.windowTuning,
-                 settings.applied.reducedBackgrounds)
-            }) {
-                self?.take(snapshot, theme: theme, edits: edits, background: background, art: art, shuffle: shuffle, tuning: tuning,
-                           reduced: reduced)
+        // A time zone or clock change moves local midnight, which the armed timer cannot see.
+        dayChanges = [Notification.Name.NSCalendarDayChanged, .NSSystemTimeZoneDidChange, .NSSystemClockDidChange].map { name in
+            appEvents.subscribe(name, owner: "TerminalThemeSetting.dayChange") { [weak self] in
+                guard let self, shuffling != nil else { return }
+                showShuffledArt()
             }
         }
     }
 
-    private func take(_ snapshot: CmuxConfigSnapshot, theme: String?, edits: ThemeEdits, background: WindowBackgroundOverride,
-                      art: BackdropSelection?, shuffle: BackdropShuffle?, tuning: AppearanceTuning, reduced: Bool) {
-        shuffling = shuffle
+    private func take(_ followed: Followed) {
+        shuffling = followed.shuffle
         // `reduced` (`ui.reducedBackgrounds`, from `applied` so a preview of it repaints): the plain
         // theme background; the person's picks are kept.
-        backdropScope.setBackdropsHidden(reduced)
-        if shuffle != nil {
+        backdropScope.setBackdropsHidden(followed.reduced)
+        if followed.shuffle != nil {
             showShuffledArt()
         } else {
             dailyTimer.cancel()
-            backdropScope.setBackdropSelection(art)
+            backdropScope.setBackdropSelection(followed.art)
         }
-        backdropScope.setAppearanceTuning(tuning)
+        backdropScope.setAppearanceTuning(followed.tuning)
         // Per-surface backgrounds (R55): every owner repaints from them.
-        backdropScope.setSurfaceBackgrounds(snapshot.surfaceBackgrounds)
+        backdropScope.setSurfaceBackgrounds(followed.snapshot.surfaceBackgrounds)
         // Over a picture the Opacity the user set is the window's tint (unset: the work's own).
-        backdropScope.setWindowBackdropTint(reduced ? nil : background.opacity)
-        var state = State(snapshot)
-        state.theme = theme
-        state.edits = edits
-        state.background = ReducedBackgroundsSetting.drawn(background, reduced: reduced)
+        backdropScope.setWindowBackdropTint(followed.reduced ? nil : followed.background.opacity)
+        var state = State(followed.snapshot)
+        state.theme = followed.theme
+        state.edits = followed.edits
+        state.background = ReducedBackgroundsSetting.drawn(followed.background, reduced: followed.reduced)
         apply(state)
     }
 
@@ -139,7 +155,7 @@ final class TerminalThemeSetting {
     func showShuffledArt() {
         guard let turn = shuffling?.turn(at: now(), calendar: calendar()) else { return }
         backdropScope.setBackdropSelection(turn.picture)
-        dailyTimer.scheduleOnMain(after: .seconds(turn.wait)) { [weak self] in self?.showShuffledArt() }
+        dailyTimer.schedule(after: .seconds(turn.wait)) { [weak self] in self?.showShuffledArt() }
     }
 
     /// Puts `snapshot`'s appearance on the Ghostty overrides before the
@@ -173,7 +189,7 @@ final class TerminalThemeSetting {
             // Only the opacity or a frosted radius moved: the window repaints now, and Ghostty
             // reloads once after the last step instead of on every one.
             repaint()
-            return reloadTimer.scheduleOnMain(after: reloadDelay) { [weak self] in self?.reload() }
+            return reloadTimer.schedule(after: reloadDelay) { [weak self] in self?.reload() }
         }
         // At launch the config already loaded with these overrides (primed) or none.
         let loaded = Self.primed ?? State(theme: nil, font: .init(), background: .init())

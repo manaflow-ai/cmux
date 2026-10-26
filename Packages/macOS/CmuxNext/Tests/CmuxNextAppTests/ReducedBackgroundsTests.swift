@@ -39,7 +39,7 @@ import Testing
         let room = ThemeScope(level: .room)
         let workspace = ThemeScope(level: .workspace, parent: room)
         workspace.pinBackdrop(.selection(Self.pinned))
-        let terminal = TerminalThemeSetting(backdropScope: room)
+        let terminal = TerminalThemeSetting.testing(backdropScope: room)
         terminal.reload = {}
         terminal.repaint = {}
         terminal.follow(settings)
