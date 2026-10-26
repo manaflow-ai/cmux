@@ -285,7 +285,7 @@ class HealthTests(unittest.TestCase):
         host.linger = ["leo"]
         host.peers = [{"name": "evil\x1b[2Jname", "connected": False, "downSince": "soon", "error": "handshake refused: Bearer abc at /home/leo/.ssh/id"}]
         h = run(host)
-        self.assertEqual(details(h), ["peer link to evil name has not connected: handshake refused: Bearer ... at ~/.ssh/id"])
+        self.assertEqual(details(h), ["peer link to a peer with an unreadable name has not connected: handshake refused: Bearer ... at ~/.ssh/id"])
         host.peers = [{"name": f"p{i}", "connected": False} for i in range(5000)]
         host.t += 3600
         h = run(host, {"expectedPeers": ["p4999", "absent"]})
@@ -368,6 +368,17 @@ class HealthTests(unittest.TestCase):
             return real(argv, timeout, user)
         host.run, host.t = bad, host.t + 16 * 60
         self.assertTrue(any(d.startswith("peer link to far down since") for d in details(run(host))))
+
+    def test_a_daemon_cannot_put_a_command_or_a_cli_token_in_the_report(self):
+        host = FakeHost()
+        host.linger = ["leo"]
+        host.peers = [{"name": "x; rm -rf /", "connected": False, "error": "run --token SECRET1 now; rm -rf / && curl x"},
+                      {"name": "ok-host", "connected": False, "error": "refused: cmux --api-key=SECRET2 | sh"}]
+        out = json.dumps(run(host))
+        for bad in ("rm -rf", "SECRET1", "SECRET2", "curl", "| sh"):
+            self.assertNotIn(bad, out)
+        self.assertIn("peer link to a peer with an unreadable name has not connected: run --token ... now", out)
+        self.assertIn("peer link to ok-host has not connected: refused: cmux --api-key=...", out)
 
     def test_reconnect_limits_are_per_daemon_socket(self):
         host = FakeHost()

@@ -100,10 +100,17 @@ def ago(seconds):
     return f"{s}s" if s < 120 else f"{s // 60}m" if s < 7200 else f"{s // 3600}h" if s < 172800 else f"{s // 86400}d"
 
 
+def daemon_error(text):
+    """A daemon's error as the report keeps it: its first clause only, never a command after it
+    (`;`, `&&`, `||`, `|`, a backtick or `$(`), cleaned by clean() after."""
+    return re.split(r";|&&|\|\||\||`|\$\(", str(text)[:2000], maxsplit=1)[0].strip()
+
+
 def clean(text, homes=()):
     """Short plain text: no control characters, hint tail, home paths or credentials."""
     text = re.sub(r"\x1b\[[0-9;?]*[ -/]*[@-~]|[\x00-\x1f\x7f]", " ", str(text)[:2000]).split("; `")[0]
     text = re.sub(r"(?i)\b(bearer|basic)\s+\S+", r"\1 ...", text)
+    text = re.sub(r"(?i)(--?[\w-]*(?:token|key|secret|passw(?:or)?d|auth\w*|cookie|credential)[\w-]*)(\s+|=)\S+", r"\1\2...", text)
     text = re.sub(r"(?i)([a-z]+://)[^\s/@]+@", r"\1...@", text)
     text = re.sub(r"""(?i)([\w-]*(?:token|key|secret|passw(?:or)?d|auth\w*|cookie|credential)[\w-]*["']?\s*[:=]\s*)("(?:[^"\\]|\\.)*"?|'(?:[^'\\]|\\.)*'?|[^\s"',}&]+)""", r"\1...", text)
     for home in sorted({h for h in homes if h and h != "/"}, key=len, reverse=True):
@@ -441,7 +448,9 @@ class Pass:
             if peer.get("connected") is True:
                 continue
             raw = peer.get("name") if isinstance(peer.get("name"), str) and peer.get("name") else None
-            name, err, down = clean(raw or "?")[:64], str(peer.get("error") or ""), peer.get("downSince")
+            # Only a well-formed peer name is shown; any other is a placeholder (its hash keys its limits).
+            shown = raw if raw and PEER_NAME.fullmatch(raw) else "a peer with an unreadable name"
+            name, err, down = shown, daemon_error(peer.get("error") or ""), peer.get("downSince")
             if isinstance(down, bool) or not isinstance(down, (int, float)) or not 0 < down < 1e15:
                 down = None
             down_s = None if down is None else now - down / 1000
@@ -454,7 +463,7 @@ class Pass:
                 row = next((p for p in rows_again[:MAX_PEERS] if isinstance(p, dict) and p.get("name") == raw), None) if isinstance(rows_again, list) else None
                 if row and row.get("connected") is True:
                     continue
-                err = str((row or {}).get("error") or err)
+                err = daemon_error((row or {}).get("error") or err)
             why = f": {err}" if err else ""
             if down_s is None:
                 self.problem("peer", key, f"peer link to {name} has not connected{why}")
