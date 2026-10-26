@@ -422,7 +422,7 @@ class HealthTests(unittest.TestCase):
         self.assertEqual(sum(c == "systemctl start -- cmux-tui-daemon.service" for c in host.calls), 1, "once per 5 min")
         host.t, host.start_ok = host.t + 5 * 60, True
         self.assertEqual([p["check"] for p in run(host)["problems"]], [])
-        for bad in (["*"], ["*.service"], ["ssh.service"], ["x.service; rm -rf /"], ["cmux-*"], ["cmux*.service"]):
+        for bad in (["*"], ["*.service"], ["ssh.service"], ["x.service; rm -rf /"], ["cmux-*"], ["cmux*.service"], ["cmux-" + "a" * 5000 + ".service"]):
             self.assertEqual(cmh.config_problems({"cmuxSystemUnits": bad}), ["cmuxSystemUnits must be cmux service names (a trailing * before .service at most)"], bad)
             self.assertEqual(cmh.config_problems({"cmuxUserUnits": bad}), ["cmuxUserUnits must be cmux service names (a trailing * before .service at most)"], bad)
         for bad in (["*"], ["*.service"], ["sshd.service"]):

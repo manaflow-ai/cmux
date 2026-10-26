@@ -556,7 +556,7 @@ def config_problems(given):
         if key in given and not (isinstance(given[key], list) and all(isinstance(x, str) and x for x in given[key])):
             problems.append(f"{key} must be a list of non-empty strings")
     for key, scope in UNIT_KEYS.items():
-        if isinstance(given.get(key), list) and not all(isinstance(u, str) and UNIT_SCOPE[scope].fullmatch(u) for u in given[key]):
+        if isinstance(given.get(key), list) and not all(isinstance(u, str) and UNIT_NAME.fullmatch(u) and UNIT_SCOPE[scope].fullmatch(u) for u in given[key]):
             problems.append(f"{key} must be {scope} service names (a trailing * before .service at most)")
     if isinstance(given.get("expectedPeers"), list) and not all(isinstance(n, str) and PEER_NAME.fullmatch(n) for n in given["expectedPeers"]):
         problems.append("expectedPeers must be peer names (letters, digits, dot, dash, underscore; at most 80)")
