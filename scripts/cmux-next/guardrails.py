@@ -2244,13 +2244,16 @@ RULES += TARGET_SETTINGS_RULES
 # `// SAFETY-TODO(p10)` marks an old unsafe site that the strict-memory-safety pass (apply-unsafe-fixits.py) found
 # when the check went on; the marks are the Q04 queue that module tasks 063-078 empty. Chromium's order
 # (docs/unsafe_buffers.md): UNSAFE_TODO() wraps only code that predates the check, and new code writes
-# UNSAFE_BUFFERS() with a `// SAFETY:` argument. So a mark the push adds is refused unless it marks old code: per
-# file, one mark per changed line that is a removed line of the same file with only `unsafe` / `@unsafe` keywords
-# inserted (the fix-it pass's shape). A mark the push removes anywhere pays for one it adds (a moved site). Local
-# only (prepush-gate runs the guardrails never under --commits or GitHub Actions; Lawrence 2026-10-23: no new CI
-# gates). The block owns its lines from here to `RULES += SAFETY_TODO_RULES`.
+# UNSAFE_BUFFERS() with a `// SAFETY:` argument. So a mark the push adds is refused unless it sits where the pass
+# puts one: directly above a statement (the line below it, or every line of the multi-line string that line opens)
+# holding a changed line that is a removed line of the same hunk with only `unsafe ` / `@unsafe ` inserted. A mark
+# the push removes pays only for an added mark over the same code (a moved or re-indented site); a fixed or deleted
+# site never pays for a mark on new code. Local only (prepush-gate runs the guardrails never under --commits or
+# GitHub Actions; Lawrence 2026-10-23: no new CI gates). The block owns its lines from here to
+# `RULES += SAFETY_TODO_RULES`.
 SAFETY_TODO_MARK = re.compile(r"//\s*SAFETY-TODO\(p10\)")
-UNSAFE_KEYWORD = re.compile(r"(?<![\w.(])@?unsafe\s+")
+UNSAFE_INSERTIONS = ("unsafe ", "@unsafe ")  # apply-unsafe-fixits.py INSERTION
+INSERTION_AFTER_WORD = re.compile(r"[A-Za-z0-9_]")  # apply-unsafe-fixits.py WORD: never inside a word
 PACKAGE_SWIFT_SPECS = (":(glob)Packages/**/Sources/**/*.swift", ":(glob)Packages/**/Tests/**/*.swift")
 
 
@@ -2259,31 +2262,97 @@ def is_package_swift(path: str) -> bool:
     return path.startswith("Packages/") and path.endswith(".swift") and ("/Sources/" in path or "/Tests/" in path)
 
 
-def without_unsafe(text: str) -> str:
-    """TEXT with its `unsafe` / `@unsafe` keywords dropped and its whitespace squashed: an old line and the same line
-    after the fix-it pass compare equal."""
-    return " ".join(UNSAFE_KEYWORD.sub("", text).split())
+def squashed(text: str) -> str:
+    return " ".join(text.split())
+
+
+def gained_only_unsafe(old: str, new: str) -> bool:
+    """NEW is OLD (whitespace squashed on both) with at least one `unsafe ` / `@unsafe ` inserted at a point with no
+    word character before it: the fix-it pass's edit, matched by characters, so `print(unsafe "\\(p)")`,
+    `\\(unsafe p)` in a string and `#expect(unsafe p == 3)` count like `return unsafe p`."""
+    old, new = squashed(old), squashed(new)
+    if old == new:
+        return False
+    seen = {(0, 0)}
+    todo = [(0, 0)]
+    while todo:
+        i, j = todo.pop()
+        if i == len(old) and j == len(new):
+            return True
+        steps = [(i + 1, j + 1)] if i < len(old) and j < len(new) and old[i] == new[j] else []
+        if j == 0 or not INSERTION_AFTER_WORD.match(new[j - 1]):
+            steps += [(i, j + len(word)) for word in UNSAFE_INSERTIONS if new.startswith(word, j)]
+        for step in steps:
+            if step not in seen:
+                seen.add(step)
+                todo.append(step)
+    return False
+
+
+def marked_statement(lines: list[str], index: int) -> range:
+    """The 0-based lines a mark at LINES[INDEX] covers: the line below it and, when that line opens a multi-line
+    string (an odd number of `\"\"\"`), every line through the one that closes it. apply-unsafe-fixits.py marks the
+    line that opens the literal when the site is inside one."""
+    start = end = index + 1
+    if start < len(lines):
+        end = start + 1
+        if lines[start].count('"""') % 2:
+            while end < len(lines) and lines[end].count('"""') % 2 == 0:
+                end += 1
+            end = min(end + 1, len(lines))
+    return range(start, end)
+
+
+def hunk_keys(numbers: list[int]) -> Callable[[int], int]:
+    """Per changed line number of one side, the count of unchanged lines before it: a removed and an added line
+    are in the same hunk exactly when their counts agree (both sides share the unchanged lines, in order)."""
+    ordered = sorted(numbers)
+    return lambda number: number - 1 - bisect.bisect_left(ordered, number)
 
 
 def safety_todo(changes: list[FileChange], moved: collections.Counter) -> list[Added]:
     changes = [c for c in changes if is_package_swift(c.path)]
-    removed_marks = sum(1 for c in changes for r in c.removed if SAFETY_TODO_MARK.search(r.text))
-    hits: list[Added] = []
+    # A removed mark, keyed by the code line under it: it pays for an added mark over the same code.
+    moved_marks: collections.Counter = collections.Counter()
+    for change in changes:
+        for removed in change.removed:
+            if SAFETY_TODO_MARK.search(removed.text):
+                below = marked_statement(change.base_lines, removed.number - 1)
+                moved_marks[squashed(change.base_lines[below.start]) if below else ""] += 1
+    unpaid: list[tuple[FileChange, Added]] = []
     for change in changes:
         marks = [a for a in change.added if SAFETY_TODO_MARK.search(a.text)]
         if not marks:
             continue
-        old = collections.Counter(without_unsafe(r.text) for r in change.removed)
-        marked_old = 0
-        for line in change.added:
-            if SAFETY_TODO_MARK.search(line.text) or not UNSAFE_KEYWORD.search(code_of(line.text)):
-                continue
-            key = without_unsafe(line.text)
-            if old[key] > 0:
-                old[key] -= 1
-                marked_old += 1
-        hits += marks[marked_old:]
-    return hits[removed_marks:]
+        base_key = hunk_keys([r.number for r in change.removed])
+        head_key = hunk_keys([a.number for a in change.added])
+        old: dict[int, list[Added]] = collections.defaultdict(list)
+        for removed in change.removed:
+            if not SAFETY_TODO_MARK.search(removed.text):
+                old[base_key(removed.number)].append(removed)
+        added = {a.number - 1: a for a in change.added if not SAFETY_TODO_MARK.search(a.text)}
+        for mark in marks:
+            paid = False
+            for index in marked_statement(change.head_lines, mark.number - 1):
+                line = added.get(index)
+                pool = old[head_key(line.number)] if line else []
+                match = next((r for r in pool if gained_only_unsafe(r.text, line.text)), None)
+                if match is not None:
+                    pool.remove(match)
+                    del added[index]
+                    paid = True
+                    break
+            if not paid:
+                unpaid.append((change, mark))
+    hits: list[Added] = []
+    for change, mark in unpaid:
+        below = marked_statement(change.head_lines, mark.number - 1)
+        key = squashed(change.head_lines[below.start]) if below else ""
+        if moved_marks[key] > 0:
+            moved_marks[key] -= 1
+        else:
+            hits.append(mark)
+    return hits
 
 
 SAFETY_TODO_RULES = (
@@ -4856,12 +4925,19 @@ TARGET_SETTINGS_CASES = (
 SELF_TEST_SHARED_SOURCE = "Packages/Shared/Linked/Sources/Linked/Buffer.swift"
 SELF_TEST_APP_TEST = TESTS + "CmuxNextTests/BufferTests.swift"
 SELF_TEST_MARKED = "Packages/Shared/Linked/Sources/Linked/Zero.swift"
+SELF_TEST_ARGUMENTS = "Packages/Shared/Linked/Sources/Linked/Describe.swift"
+SELF_TEST_EXPECT = "Packages/Shared/Linked/Tests/LinkedTests/ReadTests.swift"
 SELF_TEST_SAFETY_BASE = {
     SELF_TEST_SHARED_SOURCE: "func fill(_ p: UnsafeMutablePointer<UInt8>, count: Int) {\n"
                              "    for i in 0..<count {\n        p[i] = 0\n    }\n}\n",
     SELF_TEST_APP_TEST: "func check(_ p: UnsafePointer<UInt8>) -> UInt8 {\n    return p.pointee\n}\n",
     SELF_TEST_MARKED: "func zero(_ p: UnsafeMutablePointer<UInt8>) {\n"
                       "    // SAFETY-TODO(p10)\n    unsafe p.pointee = 0\n}\n",
+    # The shapes swiftc 6.2.4 puts its fix-it in that sit after `(`: a call argument, a string literal argument
+    # with a pointer interpolated, an interpolation inside a multi-line string, a macro argument.
+    SELF_TEST_ARGUMENTS: "func describe(_ p: UnsafePointer<Int>) -> String {\n    use(p.pointee)\n"
+                         "    print(\"v: \\(p.pointee)\")\n    return \"\"\"\n    \\(p.pointee)\n    \"\"\"\n}\n",
+    SELF_TEST_EXPECT: "@Test func reads(_ p: UnsafePointer<Int>) {\n    #expect(p.pointee == 3)\n}\n",
 }
 
 
@@ -4905,6 +4981,35 @@ SAFETY_TODO_CASES = (
      {"Packages/Shared/Linked/Sources/Linked/Copy.swift": SELF_TEST_SAFETY_BASE[SELF_TEST_MARKED]}, True),
     ("an old mark re-indented",
      {SELF_TEST_MARKED: SELF_TEST_SAFETY_BASE[SELF_TEST_MARKED].replace("    // SAFETY", "  // SAFETY")}, False),
+    ("the fix-it pass marks a call argument",
+     _safety_edit(SELF_TEST_ARGUMENTS, "    use(p.pointee)\n", "    // SAFETY-TODO(p10)\n    use(unsafe p.pointee)\n"),
+     False),
+    ("the fix-it pass marks a string argument with a pointer interpolated",
+     _safety_edit(SELF_TEST_ARGUMENTS, '    print("v: \\(p.pointee)")\n',
+                  '    // SAFETY-TODO(p10)\n    print(unsafe "v: \\(p.pointee)")\n'), False),
+    ("the fix-it pass marks the line that opens a multi-line string",
+     _safety_edit(SELF_TEST_ARGUMENTS, '    return """\n    \\(p.pointee)\n',
+                  '    // SAFETY-TODO(p10)\n    return """\n    \\(unsafe p.pointee)\n'), False),
+    ("the fix-it pass marks a macro argument in a test",
+     _safety_edit(SELF_TEST_EXPECT, "    #expect(p.pointee == 3)\n",
+                  "    // SAFETY-TODO(p10)\n    #expect(unsafe p.pointee == 3)\n"), False),
+    ("fix one old site, mark new code",
+     {**_safety_edit(SELF_TEST_MARKED, "    // SAFETY-TODO(p10)\n    unsafe p.pointee = 0\n",
+                     "    p.initialize(to: 0)\n"),
+      **_safety_edit(SELF_TEST_SHARED_SOURCE, "    }\n}\n",
+                     "    }\n    // SAFETY-TODO(p10)\n    unsafe p[count] = 0\n}\n")}, True),
+    ("unsafe on an old line, mark on a new line in the same file",
+     _safety_edit(SELF_TEST_SHARED_SOURCE, "        p[i] = 0\n    }\n}\n",
+                  "        unsafe p[i] = 0\n    }\n    // SAFETY-TODO(p10)\n    unsafe p[count] = 0\n}\n"), True),
+    ("unsafe on an old line, a mark on a new copy of it",
+     _safety_edit(SELF_TEST_SHARED_SOURCE, "        p[i] = 0\n    }\n}\n",
+                  "        unsafe p[i] = 0\n    }\n    // SAFETY-TODO(p10)\n    unsafe p[i] = 0\n}\n"), True),
+    ("a mark above an old line the push did not change",
+     _safety_edit(SELF_TEST_SHARED_SOURCE, "        p[i] = 0\n", "        // SAFETY-TODO(p10)\n        p[i] = 0\n"),
+     True),
+    ("a parameter label named unsafe",
+     _safety_edit(SELF_TEST_ARGUMENTS, "    use(p.pointee)\n", "    // SAFETY-TODO(p10)\n    use(unsafe: p.pointee)\n"),
+     True),
 )
 
 

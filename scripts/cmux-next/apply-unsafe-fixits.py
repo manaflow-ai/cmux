@@ -27,15 +27,21 @@ fix-its is refused as stale instead of marking twice.
 Fix-it paths are the fleet host's absolute paths: --source-root names that checkout's root; without it the path's
 first `/Packages/` segment starts the repository-relative path.
 
+What the pass cannot do is the module tasks' list (p10-stability-063..078, by the plan's file globs): every refused
+fix-it and, with --diagnostics (swift-diagnostics.sh --out), every StrictMemorySafety diagnostic with no fix-it.
+It prints the count per owning task and --leftovers-out writes one JSON line per site ({kind, where, path, owner,
+why}). The diagnostics count reaches 0 only after those tasks; the pass alone does not get there.
+
 Usage: scripts/cmux-next/apply-unsafe-fixits.py --fixits FILE --ref SHA [--source-root DIR] [--package DIR]...
+                                                [--diagnostics FILE] [--leftovers-out FILE]
                                                 [--repo DIR] [--dry-run | --commit]
   (default)   write the edits into the working tree
   --dry-run   only print what would change
   --commit    refuse unless the files it edits are clean, then one commit per package (subject UNSAFE_SUBJECT),
               with the package's SAFETY-TODO(p10) count after it (the Q04 queue). Pushing and the fleet
               compile-check are the operator's steps; the script prints them.
-Exit status: 0 every fix-it applied (or already part of a skipped duplicate); 1 some were refused (the rest are
-applied); 2 bad arguments or input. Stdlib only.
+Exit status: 0 every fix-it applied (or already part of a skipped duplicate) and no diagnostic lacks one; 1 some
+sites are left (the rest are applied); 2 bad arguments or input. Stdlib only.
 """
 
 from __future__ import annotations
@@ -59,6 +65,11 @@ INSERTION = re.compile(r"@?unsafe ")
 SOURCE_PATH = re.compile(r"^Packages/.+/(?:Sources|Tests)/.+\.swift$")
 WORD = re.compile(rb"[A-Za-z0-9_]")
 VENDORED_MARKER = "SOURCE"
+PLAN = "plans/cmux-next/chrome-parity/design-result.json"
+PLAN_PROGRAM = "p10-stability"
+MODULE_TASK_TITLE = "SAFETY-TODO removal"
+UNOWNED = "(no module task)"
+BRACES = re.compile(r"\{([^}]*)\}")
 
 
 class UsageError(Exception):
@@ -295,6 +306,70 @@ def apply_file(data: bytes, fixits: list[Fixit]) -> tuple[bytes, int, int, list[
     return b"\n".join(new_lines), len(good), added, refused
 
 
+# ---------------------------------------------------------------- what is left
+
+@dataclass(frozen=True)
+class Leftover:
+    kind: str  # "refused" (a fix-it the pass did not apply) or "no fix-it" (a diagnostic the compiler gave none)
+    where: str
+    path: str | None  # repository-relative
+    why: str
+
+
+def read_unfixable(path: Path, source_root: str | None) -> list[Leftover]:
+    """The StrictMemorySafety rows of a swift-diagnostics.sh --out file that carry no fix-it."""
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except OSError as error:
+        raise UsageError(f"cannot read --diagnostics {path}: {error}") from error
+    found: dict[tuple, Leftover] = {}
+    for number, line in enumerate(lines, 1):
+        if not line.strip():
+            continue
+        try:
+            row = json.loads(line)
+            file, fixits = row["file"], row["fixits"]
+            where = f"{file}:{int(row['line'])}:{int(row['column'])}"
+        except (ValueError, KeyError, TypeError) as error:
+            raise UsageError(f"{path}:{number}: not a swift-diagnostics row ({error})") from error
+        if row.get("group") == GROUP and not fixits:
+            message = str(row.get("message") or "")
+            found.setdefault((where, message), Leftover("no fix-it", where, relative_path(file, source_root), message))
+    return list(found.values())
+
+
+def module_owners(plan: Path) -> list[tuple[str, str]]:
+    """(path prefix, task id) of the SAFETY-TODO removal tasks of PLAN (this checkout's design-result.json), longest
+    prefix first: the task whose file glob (`Packages/X/**`, `.../Sources/{A,B}/**`) covers a path owns its sites."""
+    try:
+        program = json.loads(plan.read_text(encoding="utf-8"))["programs"][PLAN_PROGRAM]
+    except (OSError, ValueError, KeyError) as error:
+        raise UsageError(f"cannot read the module tasks from {PLAN}: {error}") from error
+    owners = []
+    for task in program["tasks"]:
+        if not task["title"].startswith(MODULE_TASK_TITLE):
+            continue
+        for glob in task["files"]:
+            stem = glob.split(" (", 1)[0].split("**", 1)[0]
+            brace = BRACES.search(stem)
+            if brace is None:
+                owners.append((stem, task["id"]))
+                continue
+            owners += [(stem[:brace.start()] + name + stem[brace.end():], task["id"])
+                       for name in brace.group(1).split(",")]
+    return sorted(owners, key=lambda owner: -len(owner[0]))
+
+
+def owner_of(path: str | None, owners: list[tuple[str, str]]) -> str:
+    return next((task for prefix, task in owners if path and path.startswith(prefix)), UNOWNED)
+
+
+def leftovers(refused: list[Refusal], unfixable: list[Leftover], source_root: str | None) -> list[Leftover]:
+    """Every refused fix-it, then every diagnostic with no fix-it."""
+    out = [Leftover("refused", r.where, relative_path(r.where.rsplit(":", 2)[0], source_root), r.why) for r in refused]
+    return out + unfixable
+
+
 # ---------------------------------------------------------------- the pass
 
 def package_of(path: str, packages: list[str]) -> str | None:
@@ -390,6 +465,9 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--ref", required=True, help="the commit swift-diagnostics built (its summary.json head)")
     parser.add_argument("--source-root", help="the fleet checkout root the fix-it paths start with")
     parser.add_argument("--package", action="append", default=[], help="only this closure package; repeatable")
+    parser.add_argument("--diagnostics", type=Path,
+                        help="swift-diagnostics.sh --out JSONL: list its StrictMemorySafety rows with no fix-it")
+    parser.add_argument("--leftovers-out", type=Path, help="write what the pass left, one JSON line per site")
     parser.add_argument("--repo", type=Path, default=ROOT, help="the repository (default: this script's)")
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument("--dry-run", action="store_true")
@@ -410,6 +488,8 @@ def main(argv: list[str] | None = None) -> int:
         ref = done.stdout.decode().strip()
         only = [p.rstrip("/") for p in args.package]
         fixits, refused, duplicates = read_fixits(args.fixits, args.source_root)
+        unfixable = read_unfixable(args.diagnostics, args.source_root) if args.diagnostics else []
+        owners = module_owners(ROOT / PLAN)
         result = plan_pass(root, ref, fixits, only)
         result.refused[:0] = refused
         result.duplicates = duplicates
@@ -431,12 +511,24 @@ def main(argv: list[str] | None = None) -> int:
         print(f"apply-unsafe-fixits: {result.duplicates} duplicate fix-it line(s) dropped")
     for refusal in result.refused:
         print(f"apply-unsafe-fixits: refused {refusal.where}: {refusal.why}", file=sys.stderr)
+    left = leftovers(result.refused, unfixable, args.source_root)
+    by_owner = Counter(owner_of(item.path, owners) for item in left)
+    for item in unfixable:
+        print(f"apply-unsafe-fixits: no fix-it {item.where}: {item.why}", file=sys.stderr)
+    if left:
+        print(f"apply-unsafe-fixits: {len(left)} site(s) left for the module tasks ({len(unfixable)} with no fix-it): "
+              + ", ".join(f"{owner} {count}" for owner, count in sorted(by_owner.items())))
+    if args.leftovers_out:
+        args.leftovers_out.parent.mkdir(parents=True, exist_ok=True)
+        args.leftovers_out.write_text("".join(json.dumps({"kind": item.kind, "where": item.where, "path": item.path,
+                                                          "owner": owner_of(item.path, owners), "why": item.why},
+                                                         sort_keys=True) + "\n" for item in left), encoding="utf-8")
     if shas:
         print("apply-unsafe-fixits: committed " + ", ".join(sha[:12] for sha in shas)
               + "\n  push, then compile-check the tip on the fleet (the operator's step):\n"
               "  cmux-ci build cmux --ref <pushed sha> --tag unsafe-fixits-<sha9> --workspace <branch URL> "
               "--receipt artifacts/fleet/<sha>-submit.json && cmux-ci wait <job id>")
-    return 1 if result.refused else 0
+    return 1 if left else 0
 
 
 if __name__ == "__main__":

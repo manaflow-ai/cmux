@@ -235,6 +235,43 @@ class RefusalTests(Case):
                                        str(self.repo.root)]), 2)
             self.assertEqual(auf.main(["--fixits", str(path), "--ref", "0" * 40, "--repo", str(self.repo.root)]), 2)
 
+    def test_leftovers_list_refusals_and_diagnostics_with_no_fixit_per_module_task(self):
+        offset = at(REAL_SOURCE, 7, 3)
+        diagnostics = self.directory / "diagnostics.jsonl"
+        rows = [{"file": f"{FLEET_ROOT}/Packages/Shared/CmuxVNC/Sources/CmuxVNC/Frame.swift", "line": 4, "column": 9,
+                 "group": auf.GROUP, "message": "expression uses unsafe constructs", "fixits": []},
+                {"file": f"{FLEET_ROOT}/Packages/macOS/CmuxNext/Sources/CmuxNextTerminal/Grid.swift", "line": 2,
+                 "column": 1, "group": auf.GROUP, "message": "unsafe conformance", "fixits": []},
+                {"file": f"{FLEET_ROOT}/{DEMO_SOURCE}", "line": 7, "column": 3, "group": auf.GROUP, "message": "m",
+                 "fixits": [{"text": "unsafe "}]},
+                {"file": f"{FLEET_ROOT}/{DEMO_SOURCE}", "line": 1, "column": 1, "group": "no-usage", "message": "m",
+                 "fixits": []}]
+        diagnostics.write_text("".join(json.dumps(row) + "\n" for row in rows))
+        out_path = self.directory / "left.jsonl"
+        status, out, err = self.run_main([fixit(DEMO_SOURCE, 7, 3, offset, "try ")], "--diagnostics",
+                                         str(diagnostics), "--leftovers-out", str(out_path))
+        self.assertEqual(status, 1)
+        self.assertIn("3 site(s) left for the module tasks (2 with no fix-it): "
+                      f"{auf.UNOWNED} 1, p10-stability-065 1, p10-stability-069 1", out)
+        self.assertIn("no fix-it /Users/runner/work/cmux/Packages/Shared/CmuxVNC/Sources/CmuxVNC/Frame.swift:4:9", err)
+        left = [json.loads(line) for line in out_path.read_text().splitlines()]
+        self.assertEqual([(item["kind"], item["owner"]) for item in left],
+                         [("refused", auf.UNOWNED), ("no fix-it", "p10-stability-065"),
+                          ("no fix-it", "p10-stability-069")])
+        self.assertEqual(left[0]["path"], DEMO_SOURCE)
+
+    def test_module_owners_read_the_plan_globs(self):
+        owners = auf.module_owners(auf.ROOT / auf.PLAN)
+        self.assertEqual(auf.owner_of("Packages/Shared/CmuxAgentCursor/Sources/CmuxCuaHelperCore/A.swift", owners),
+                         "p10-stability-078")
+        self.assertEqual(auf.owner_of("Packages/macOS/CmuxNext/Sources/CmuxNextFocus/F.swift", owners),
+                         "p10-stability-074")
+        self.assertEqual(auf.owner_of("Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/CEF/C.swift", owners),
+                         "p10-stability-067")
+        self.assertEqual(auf.owner_of("Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/Tab.swift", owners),
+                         "p10-stability-068")
+        self.assertEqual(auf.owner_of(None, owners), auf.UNOWNED)
+
     def test_source_root_maps_fleet_paths(self):
         self.assertEqual(auf.relative_path("/x/y/Packages/A/Sources/B/C.swift", None), "Packages/A/Sources/B/C.swift")
         self.assertEqual(auf.relative_path("/fleet/co/Packages/A/S.swift", "/fleet/co"), "Packages/A/S.swift")
