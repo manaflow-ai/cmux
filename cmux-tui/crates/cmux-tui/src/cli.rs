@@ -48,11 +48,11 @@ mod frontend_browser;
 mod host_mount;
 mod launch_credential;
 mod lifecycle;
+#[cfg(unix)]
+mod cloud_secret;
 // Like the other scopes its dispatch is in (`run`, `#[cfg(unix)]`): Unix only.
 #[cfg(unix)]
 mod vm;
-#[cfg(unix)]
-mod cloud_secret;
 #[cfg(unix)]
 pub(crate) use chief::home_for_adopt as chief_home_for_adopt;
 #[cfg(unix)]
