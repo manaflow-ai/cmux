@@ -418,6 +418,7 @@ export interface HomeEventBatch {
   /** Conversations whose open window must be refetched (a gap, a resubscribe). */
   stale?: string[];
   typing?: { conversation: string; participant: string; on: boolean }[];
+  presence?: { conversation: string; participants: { participant: string; viewing: boolean }[] }[];
   /** Running replies, in order (applied before this batch's messages). */
   drafts?: HomeDraftItem[];
   /** My own list state changes (pins, marks), in order. */

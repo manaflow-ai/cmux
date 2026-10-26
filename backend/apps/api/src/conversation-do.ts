@@ -16,7 +16,7 @@ import { LIVE_CAPABILITY, liveBuffer, liveSocketFrame } from "./conversation-liv
 
 type Head = conversation.ConversationState
 /** A conversation socket remembers whether its sender last broadcast `typing on` (for close). */
-type ConvAttachment = Attachment & { typing?: boolean }
+type ConvAttachment = Attachment & { typing?: boolean; viewing?: boolean }
 const MAX_HISTORY_PAGE = 200
 /** Ops the Worker completes (home-routes.ts); refused on the conversation socket. */
 const MEMBERSHIP_ENDING_OPS = new Set(["participants.remove", "invite.accept", "invite.accept_verified", "invite.revoke", "conversation.sweep", "conversation.import.commit"])
@@ -97,6 +97,8 @@ export class ConversationDO extends OwnerDO<Head> {
 
   /** Typing memos per participant, in memory only (home-core typingGate); lost on eviction, which is fine. */
   private readonly typing = new Map<string, conversation.TypingMemo>()
+  /** Viewing is keyed by socket so one person can use several devices. */
+  private readonly viewing = new Map<WebSocket, string>()
 
   private member(state: Head, principal: Principal) {
     const actor = conversation.actorOf(principal)
@@ -261,7 +263,21 @@ export class ConversationDO extends OwnerDO<Head> {
    * Never committed, never in the ledger or the outbox; limited per participant by typingGate.
    */
   protected onFrame(ws: WebSocket, frame: { readonly t?: string } & Record<string, unknown>): boolean {
-    if (frame.t !== "typing") return false
+    if (frame.t !== "typing" && frame.t !== "presence.set") return false
+    if (frame.t === "presence.set") {
+      const a = ws.deserializeAttachment() as ConvAttachment | null
+      const state = this.boundEngine?.currentState
+      const actor = a ? conversation.actorOf(a.principal) : null
+      const member = state && actor ? this.memberById(state, actor) : undefined
+      if (!a || !state || !actor || !member || member.kind === "address" || frame.conversation !== state.id || typeof frame.viewing !== "boolean") {
+        try { ws.send(JSON.stringify({ t: "error", code: "auth.forbidden", message: "not a participant" })) } catch {}
+        return true
+      }
+      if (frame.viewing) this.viewing.set(ws, actor); else this.viewing.delete(ws)
+      ws.serializeAttachment({ ...a, viewing: frame.viewing } satisfies ConvAttachment)
+      this.sendPresence(state)
+      return true
+    }
     const a = ws.deserializeAttachment() as ConvAttachment | null
     const state = this.boundEngine?.currentState
     const fail = (code: string, message: string) => {
@@ -286,6 +302,8 @@ export class ConversationDO extends OwnerDO<Head> {
     const state = this.boundEngine?.currentState
     const actor = a ? conversation.actorOf(a.principal) : null
     if (a?.typing && state && actor) this.sendTyping(state, actor, false, ws, true)
+    this.viewing.delete(ws)
+    if (state) this.sendPresence(state)
     await super.webSocketClose(ws, code)
   }
 
@@ -305,6 +323,12 @@ export class ConversationDO extends OwnerDO<Head> {
     const decision = force ? { send: true, memo: memo ? { ...memo, on: false, at: Date.now() } : undefined } : conversation.typingGate(memo, on, Date.now())
     if (decision.memo) this.typing.set(actor, decision.memo)
     if (decision.send) this.toMembers(state, from, JSON.stringify({ t: "conversation-typing", conversation: state.id, participant: actor, on }))
+  }
+
+  private sendPresence(state: NonNullable<Head>, only: WebSocket | null = null) {
+    const participants = [...new Set([...this.viewing.values()])].map((participant) => ({ participant, viewing: true }))
+    const text = JSON.stringify({ t: "conversation-presence", conversation: state.id, participants })
+    if (only) { try { only.send(text) } catch {} } else this.toMembers(state, null, text)
   }
 
   private toMembers(state: NonNullable<Head>, from: WebSocket | null, text: string) {

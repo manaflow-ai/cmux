@@ -72,6 +72,7 @@ const CLOUD_LIVE_CAPABILITY = "cloud-chief-live-v1";
 /** The daemon passes a cloud conversation's typing (`cloud-conversation-typing`) to a connection that
  *  echoes this. */
 const CLOUD_TYPING_CAPABILITY = "cloud-conversation-typing-v1";
+const CLOUD_PRESENCE_CAPABILITY = "cloud-conversation-presence-v1";
 /** Participants' pictures (`participant.avatar.get`, `cloud-participant-avatar-get`, the
  * `participant-avatar-changed` event for a page that asks). */
 const AVATARS_CAPABILITY = "participant-avatars-v1";
@@ -1139,6 +1140,7 @@ export class DaemonHomeClient implements PageClient {
           if (cloud.stale) (batch.stale ??= []).push(cloud.stale);
           if (cloud.inboxStale) batch.inboxStale = true;
           if (cloud.typing) (batch.typing ??= []).push(cloud.typing);
+          if (cloud.presence) (batch.presence ??= []).push(cloud.presence);
           if (cloud.live) {
             const frame = liveFrame(cloud.live);
             if (frame) (batch.live ??= []).push(frame);
@@ -1185,6 +1187,8 @@ export class DaemonHomeClient implements PageClient {
           });
           (batch.inbox ??= []).push(change);
         });
+      } else if (event.event === "conversation-presence") {
+        deliver((batch) => (batch.presence ??= []).push({ conversation: String(event.conversation), participants: Array.isArray(event.participants) ? (event.participants as Json[]).filter((p) => p && typeof p.participant === "string").map((p) => ({ participant: String(p.participant), viewing: p.viewing === true })) : [] }));
       } else if (event.event === "conversation-typing") {
         deliver((batch) => {
           (batch.typing ??= []).push({

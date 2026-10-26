@@ -224,6 +224,8 @@ export class CloudHome {
     live?: Json;
     /** Someone typing in a cloud conversation (the owner's `conversation-typing`). */
     typing?: { conversation: string; participant: string; on: boolean };
+    /** Who views a cloud conversation (the owner's `conversation-presence`), ephemeral. */
+    presence?: { conversation: string; participants: { participant: string; viewing: boolean }[] };
   } | null {
     // A new lease (the app signed in or switched accounts), or the owner reset the inbox.
     if (event.event === "cloud-inbox-reset") {
@@ -266,6 +268,13 @@ export class CloudHome {
             on: event.on === true,
           },
         };
+      case "cloud-conversation-presence": {
+        if (typeof event.conversation !== "string" || !Array.isArray(event.participants)) return null;
+        const participants = (event.participants as Json[])
+          .filter((p) => p && typeof p.participant === "string")
+          .map((p) => ({ participant: this.localize({ participant: p.participant }).participant as string, viewing: p.viewing === true }));
+        return { presence: { conversation: event.conversation, participants } };
+      }
       case "cloud-conversation-resynced": {
         const id = String(event.conversation);
         this.keepHead(id, this.localize(event.summary as Json));
