@@ -76,10 +76,7 @@ fn explain(peer: &crate::peer::Peer, params: &Value, e: RpcError) -> RpcError {
     let cause = data.and_then(|d| d.get("cause")).and_then(Value::as_str);
     let found = Found { served, try_cwd, cause };
     let (command, why) = match suggest(&Start::of(params), &reason, found) {
-        Hint::Here(start) => (
-            command(params, &start, Some(&peer.name), try_cwd, cause, &reason, false),
-            String::new(),
-        ),
+        Hint::Here(start) => (command(params, &start, Some(&peer.name), false), String::new()),
         Hint::OnHost(start) => {
             let then = start
                 .name
@@ -95,10 +92,7 @@ fn explain(peer: &crate::peer::Peer, params: &Value, e: RpcError) -> RpcError {
                 run_on = Some(peer.name.clone());
             }
             (
-                on_host(
-                    ssh.as_deref(),
-                    &command(params, &start, None, try_cwd, cause, &reason, true),
-                ),
+                on_host(ssh.as_deref(), &command(params, &start, None, true)),
                 format!("{served}: run it on {} itself{then}", peer.name),
             )
         }
@@ -149,16 +143,8 @@ fn reason_of(e: &RpcError) -> Option<String> {
 }
 
 /// Build a refusal's runnable command from the original CLI argv when available. The daemon
-/// adds this metadata before forwarding a request, so prompts and launcher flags survive intact.
-fn command(
-    params: &Value,
-    start: &Start,
-    host: Option<&str>,
-    try_cwd: Option<&str>,
-    cause: Option<&str>,
-    reason: &str,
-    on_host: bool,
-) -> String {
+/// CLI adds this metadata before forwarding a request, so prompts and launcher flags survive intact.
+fn command(params: &Value, start: &Start, host: Option<&str>, on_host: bool) -> String {
     let Some(mut words) = params
         .pointer("/_meta/acpmux/argv")
         .and_then(Value::as_array)
@@ -167,66 +153,70 @@ fn command(
         return if on_host { start.on_host_command() } else { start.command(host) };
     };
     if on_host {
-        remove_option(&mut words, "--host");
-        // A mode supplied by a remote launcher is intentionally not reproduced on the host.
-        remove_option(&mut words, "--mode");
-    } else if reason == MODE_REFUSED {
-        remove_option(&mut words, "--mode");
+        change_option(&mut words, "--host", None);
+    } else if let Some(host) = host {
+        // Pin an automatic placement to the peer that actually refused this start.
+        change_option(&mut words, "--host", Some(host));
     }
-    if reason == CWD_MISSING && (!on_host || cause != Some("missing")) {
-        remove_option(&mut words, "--cwd");
-    }
-    if reason == CWD_OUTSIDE_ROOTS
-        && let Some(cwd) = try_cwd
-    {
-        replace_option(&mut words, "--cwd", cwd);
-    }
-    let mut rendered = words.iter().map(|w| quote(w)).collect::<Vec<_>>();
+    change_option(&mut words, "--mode", None);
+    // `suggest` already selected the usable folder (or the scratch-folder fallback).
+    change_option(&mut words, "--cwd", start.cwd.as_deref());
     let prompt_file = params.pointer("/_meta/acpmux/promptFileText").and_then(Value::as_str);
     let prefix = if let Some(text) = prompt_file
-        && replace_option(&mut rendered, "--prompt-file", "/dev/stdin")
+        && change_option(&mut words, "--prompt-file", Some("/dev/stdin"))
     {
         format!("printf %s {} | ", quote(text))
     } else {
         String::new()
     };
+    let rendered = words.iter().map(|w| quote(w)).collect::<Vec<_>>();
     let inner = format!("{prefix}acpmux {}", rendered.join(" "));
-    if on_host
-        && reason == CWD_MISSING
-        && let Some(cwd) = start.cwd.as_deref()
-    {
+    if on_host && let Some(cwd) = start.cwd.as_deref() {
         format!("mkdir -p {} && {inner}", quote(cwd))
     } else {
         inner
     }
 }
 
-fn remove_option(words: &mut Vec<String>, option: &str) {
+/// Change only actual options, never another option's value or prompt words after `--`.
+/// Read value-taking flags from clap's grammar so future launcher options are preserved too.
+fn change_option(words: &mut Vec<String>, option: &str, value: Option<&str>) -> bool {
+    use clap::CommandFactory;
+    let cli = crate::cli::command::Cli::command();
+    let new = cli.find_subcommand("new").expect("new command");
+    let args: Vec<_> = cli.get_arguments().chain(new.get_arguments()).collect();
     let mut i = 0;
     while i < words.len() {
-        if words[i] == option {
-            words.drain(i..=(i + 1).min(words.len() - 1));
-        } else if words[i].starts_with(&format!("{option}=")) {
-            words.remove(i);
+        let word = &words[i];
+        if word == "--" {
+            break;
+        }
+        if let Some(long) = word.strip_prefix("--") {
+            let (name, inline) = long.split_once('=').map_or((long, false), |(k, _)| (k, true));
+            let takes =
+                args.iter().any(|a| a.get_long() == Some(name) && a.get_action().takes_values());
+            let end = (i + if takes && !inline { 2 } else { 1 }).min(words.len());
+            if name == option.trim_start_matches('-') {
+                let replacement = value.map(|v| format!("{option}={v}"));
+                words.splice(i..end, replacement);
+                return true;
+            }
+            i = end;
+        } else if let Some(shorts) = word.strip_prefix('-').filter(|s| !s.is_empty()) {
+            let mut separate_value = false;
+            for (offset, short) in shorts.char_indices() {
+                if args
+                    .iter()
+                    .any(|a| a.get_short() == Some(short) && a.get_action().takes_values())
+                {
+                    separate_value = offset + short.len_utf8() == shorts.len();
+                    break;
+                }
+            }
+            i += if separate_value { 2 } else { 1 };
         } else {
             i += 1;
         }
-    }
-}
-
-fn replace_option(words: &mut [String], option: &str, value: &str) -> bool {
-    let mut i = 0;
-    while i < words.len() {
-        if words[i] == option {
-            if let Some(next) = words.get_mut(i + 1) {
-                *next = value.to_owned();
-                return true;
-            }
-        } else if words[i].starts_with(&format!("{option}=")) {
-            words[i] = format!("{option}={value}");
-            return true;
-        }
-        i += 1;
     }
     false
 }
@@ -436,13 +426,137 @@ mod tests {
             "cwd": "/remote/project"
         });
         let start = Start { cwd: Some("/remote/project".into()), ..Start::default() };
-        let got = command(&params, &start, Some("b"), None, None, MODE_REFUSED, false);
+        let got = command(&params, &start, Some("b"), false);
         assert_eq!(
             got,
             r#"printf %s 'line 1; $(touch nope)
-line '\''two'\''' | acpmux new --host b -m codex --prompt-file /dev/stdin --tag 'a=$()' 'a prompt with '\''quotes'\'' and
+line '\''two'\''' | acpmux new --host=b -m codex --prompt-file=/dev/stdin --tag 'a=$()' 'a prompt with '\''quotes'\'' and
 newlines'"#
         );
+    }
+
+    #[test]
+    fn option_rewrites_do_not_touch_values_or_prompt_words() {
+        let mut words: Vec<String> = [
+            "new",
+            "--name",
+            "--host=x",
+            "-m--cwd",
+            "--host",
+            "auto",
+            "--mode=yolo",
+            "--cwd=/bad",
+            "--",
+            "--host",
+            "prompt",
+            "--mode=yolo",
+            "--cwd=/bad",
+        ]
+        .into_iter()
+        .map(str::to_owned)
+        .collect();
+        assert!(change_option(&mut words, "--host", Some("b")));
+        assert!(change_option(&mut words, "--mode", None));
+        assert!(change_option(&mut words, "--cwd", None));
+        assert_eq!(
+            words,
+            [
+                "new",
+                "--name",
+                "--host=x",
+                "-m--cwd",
+                "--host=b",
+                "--",
+                "--host",
+                "prompt",
+                "--mode=yolo",
+                "--cwd=/bad"
+            ]
+        );
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn pasted_ssh_command_preserves_every_argument_and_prompt_file_byte() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = std::env::temp_dir().join(format!("acpmux-hint-{}", uuid::Uuid::now_v7()));
+        std::fs::create_dir(&dir).unwrap();
+        for (name, script) in [
+            ("ssh", "#!/bin/sh\n[ \"$1\" = -- ] || exit 9\nshift 2\nexec /bin/sh -c \"$1\"\n"),
+            ("acpmux", "#!/bin/sh\nprintf '%s\\0' \"$@\"\ncat\n"),
+        ] {
+            let path = dir.join(name);
+            std::fs::write(&path, script).unwrap();
+            std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o700)).unwrap();
+        }
+        let prompt = "'quoted' \"double\" $HOME $(exit 99) `exit 98`\nsecond line";
+        let file = "file's text $HOME $(exit 97)\ntrailing newline\n";
+        let argv = json!([
+            "--json",
+            "new",
+            "--host=b",
+            "-n",
+            "demo",
+            "-m",
+            "codex",
+            "-e",
+            "xhigh",
+            "--policy",
+            "approve-all",
+            "--prompt-file=brief with spaces.md",
+            "--tag",
+            "a=b",
+            "--worktree",
+            "repo@main",
+            "--report-to",
+            "boss",
+            "-d",
+            "--",
+            prompt,
+            "--host",
+            "--mode"
+        ]);
+        let params = json!({"_meta":{"acpmux":{"argv":argv,"promptFileText":file}}});
+        let inner = command(&params, &Start::default(), None, true);
+        let tried = on_host(Some("example-host"), &inner);
+        let path = format!("{}:{}", dir.display(), std::env::var("PATH").unwrap());
+        let output = std::process::Command::new("sh")
+            .args(["-c", &tried])
+            .env("PATH", path)
+            .output()
+            .unwrap();
+        assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+        let output = String::from_utf8(output.stdout).unwrap();
+        let actual: Vec<_> = output.split('\0').collect();
+        assert_eq!(
+            actual,
+            [
+                "--json",
+                "new",
+                "-n",
+                "demo",
+                "-m",
+                "codex",
+                "-e",
+                "xhigh",
+                "--policy",
+                "approve-all",
+                "--prompt-file=/dev/stdin",
+                "--tag",
+                "a=b",
+                "--worktree",
+                "repo@main",
+                "--report-to",
+                "boss",
+                "-d",
+                "--",
+                prompt,
+                "--host",
+                "--mode",
+                file
+            ]
+        );
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]

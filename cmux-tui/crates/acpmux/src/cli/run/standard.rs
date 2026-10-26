@@ -337,7 +337,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             if let Some(e) = &args.effort {
                 meta["effort"] = json!(e);
             }
-            meta["argv"] = json!(std::env::args().skip(1).collect::<Vec<_>>());
+            meta["argv"] = json!(crate::cli::entry::original_args());
             if let Some(prompt) = &launch.file_prompt {
                 meta["promptFileText"] = json!(prompt);
             }

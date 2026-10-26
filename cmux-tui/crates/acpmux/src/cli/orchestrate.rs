@@ -397,7 +397,7 @@ pub(crate) async fn ensure(
             if !tags.as_object().is_none_or(|m| m.is_empty()) {
                 meta["tags"] = tags;
             }
-            meta["argv"] = json!(std::env::args().skip(1).collect::<Vec<_>>());
+            meta["argv"] = json!(crate::cli::entry::original_args());
             let mut p = json!({"mcpServers": [], "_meta": {"acpmux": meta}});
             match (&host, cwd) {
                 (Some(_), Some(c)) => p["cwd"] = json!(c),
