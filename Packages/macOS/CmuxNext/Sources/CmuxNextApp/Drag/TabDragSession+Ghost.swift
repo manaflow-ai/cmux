@@ -9,7 +9,9 @@ import QuartzCore
 extension TabDragSession {
     // MARK: Ghost
 
-    func present(_ drag: Drag) {
+    /// Shows `drag`'s ghost at its target. `order` is this pointer event's window order (render server:
+    /// it decides whether the source window's overlay holds the ghost).
+    func present(_ drag: Drag, order: [TabDragWindowPick.Candidate]) {
         let source = drag.source
         let tabSize = source.screenFrame.size
         let presentation: Presentation
@@ -28,24 +30,46 @@ extension TabDragSession {
         let cardness: CGFloat = if case .inline = presentation { 0 } else { 1 }
         drag.motion.setTarget(rect, cardness: cardness, scale: scale, jump: jump)
         guard drag.ghost.rendersOnServer else { return drag.ghost.render(drag.motion) }
-        drag.ghost.present(drag.motion, token: jump ? .track : .appear, inSourceWindow: overSourceWindow(drag))
+        drag.ghost.present(drag.motion, token: jump ? .track : .appear, holds: sourceHolds(drag, order: order))
     }
 
     /// The ghost changed without a new target (its preview arrived): the CPU path steps it from
-    /// the next frame, the render server springs it now.
+    /// the next frame, the render server springs it now. A drag that ended and landed shows nothing.
     func redraw(_ drag: Drag) {
+        guard drag === self.drag || drag === landing else { return }
         guard drag.ghost.rendersOnServer else { return wake(drag) }
-        drag.ghost.present(drag.motion, token: .appear, inSourceWindow: overSourceWindow(drag))
+        drag.ghost.present(drag.motion, token: .appear, holds: sourceHolds(drag, order: windowOrder(for: drag)))
     }
 
-    /// The source window is the frontmost window under the pointer.
-    func overSourceWindow(_ drag: Drag) -> Bool {
-        guard let source = drag.source.window else { return false }
-        return window(at: drag.point) === source
+    /// Whether the source window shows a screen rect in front of every other window, while the
+    /// pointer is over it (Chrome's attached drag); nil elsewhere.
+    func sourceHolds(_ drag: Drag, order: [TabDragWindowPick.Candidate]) -> ((CGRect) -> Bool)? {
+        guard let id = drag.source.window?.state.id, TabDragWindowPick.frontmost(at: drag.point, in: order) == id else { return nil }
+        return { TabDragWindowPick.isFrontmost(id, over: $0, in: order) }
     }
 
     func wake(_ drag: Drag) {
         drag.link?.activate()
+    }
+
+    /// Wakes the frame clock after a pointer event over `controller`. The CPU path steps the ghost
+    /// on it; on the render server it runs only while the pointer auto-scrolls a columns screen or a
+    /// dwell is armed, as Chrome's tab drag runs its scroll timer only in the edge zone
+    /// (chrome/browser/ui/views/tabs/tab_drag_controller.cc `StartScrollingTimer`).
+    func wake(_ drag: Drag, over controller: WindowController?) {
+        guard drag.ghost.rendersOnServer else { return wake(drag) }
+        if dwellDeadline(drag) != nil || autoscrolls(drag, in: controller) { wake(drag) }
+    }
+
+    /// When a pointer resting on a pane edge or a sidebar slot arms its drop.
+    func dwellDeadline(_ drag: Drag) -> CFTimeInterval? {
+        (drag.winner?.provider as? LayoutTabDropTarget)?.dwellDeadline ?? (drag.winner?.provider as? SidebarTabDropTarget)?.dwellDeadline
+    }
+
+    /// Whether the pointer sits in a columns screen's auto-scroll band of `controller`.
+    func autoscrolls(_ drag: Drag, in controller: WindowController?) -> Bool {
+        guard let layout = controller?.content(atScreen: drag.point)?.layoutView, let window = layout.window else { return false }
+        return layout.tabDragAutoscrolls(locationInWindow: window.convertPoint(fromScreen: drag.point))
     }
 
     /// One ghost frame; false once the ghost settled. On the render server nothing steps the
@@ -59,8 +83,7 @@ extension TabDragSession {
             moving = true
         }
         // A pointer resting on a pane edge or a sidebar slot sends no events: hit-test again once it arms.
-        if current === drag, let deadline = (current.winner?.provider as? LayoutTabDropTarget)?.dwellDeadline
-            ?? (current.winner?.provider as? SidebarTabDropTarget)?.dwellDeadline {
+        if current === drag, let deadline = dwellDeadline(current) {
             if CACurrentMediaTime() >= deadline { update(current.point) }
             moving = true
         }
@@ -147,7 +170,7 @@ extension TabDragSession {
         if drag.ghost.rendersOnServer {
             // The flight is one render-server spring; its landing closes the ghost (`onRest`).
             drag.link?.deactivate()
-            drag.ghost.present(drag.motion, token: .settle, inSourceWindow: false, landing: true)
+            drag.ghost.present(drag.motion, token: .settle, holds: nil, landing: true)
             return
         }
         if drag.motion.reduceMotion {

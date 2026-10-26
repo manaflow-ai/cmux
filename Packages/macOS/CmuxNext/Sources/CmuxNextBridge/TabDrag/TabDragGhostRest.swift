@@ -6,7 +6,7 @@ public import CoreGraphics
 public nonisolated struct TabDragGhostRest: Equatable, Sendable {
     /// The root view's bottom-left corner on screen.
     public var origin: CGPoint
-    /// The glass card's mask.
+    /// The glass card (its clip, in the root).
     public var glass: CGRect
     public var glassOpacity: CGFloat
     /// The content preview inside the card.
@@ -47,5 +47,37 @@ public nonisolated struct TabDragGhostRest: Equatable, Sendable {
     /// What draws, in screen coordinates.
     public var shownOnScreen: CGRect {
         glass.union(tab).offsetBy(dx: origin.x, dy: origin.y)
+    }
+}
+
+/// Where the drag ghost may still draw while its render-server springs run: the offsets from its rest
+/// origin its root still flies from (each jump adds its start offset) and what showed in the root when
+/// they started. The newest spring call's landing clears it. A host holds the ghost only with this
+/// room, so a host change never clips a flight.
+public nonisolated struct TabDragGhostFlight: Equatable, Sendable {
+    /// The root's offsets from its rest origin, as a rect around zero.
+    public private(set) var offsets = CGRect.zero
+    /// What showed in the root when the springs started (root coordinates).
+    public private(set) var drawn = CGRect.null
+
+    public init() {}
+
+    /// A spring starts from `drawn` (root coordinates), the root `shift` away from its rest.
+    public mutating func add(shift: CGPoint, drawn: CGRect) {
+        self.drawn = self.drawn.union(drawn)
+        offsets = CGRect(x: offsets.minX + min(0, shift.x), y: offsets.minY + min(0, shift.y),
+                         width: offsets.width + abs(shift.x), height: offsets.height + abs(shift.y))
+    }
+
+    /// `rect` (screen) at every offset the root still flies from.
+    public func widened(_ rect: CGRect) -> CGRect {
+        CGRect(x: rect.minX + offsets.minX, y: rect.minY + offsets.minY,
+               width: rect.width + offsets.width, height: rect.height + offsets.height)
+    }
+
+    /// Where the ghost may draw on screen at `rest`: what shows there and what showed when the
+    /// springs started, at every offset the root still flies from.
+    public func reach(of rest: TabDragGhostRest) -> CGRect {
+        widened(rest.glass.union(rest.tab).union(drawn).offsetBy(dx: rest.origin.x, dy: rest.origin.y))
     }
 }

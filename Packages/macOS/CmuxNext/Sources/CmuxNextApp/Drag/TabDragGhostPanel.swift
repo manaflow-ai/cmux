@@ -21,15 +21,15 @@ import CmuxNextTabs
 /// (chrome/browser/ui/views/tabs/tab_drag_controller.cc: an attached drag moves the tab views in the
 /// source widget; only a detached one gets its own window). Inside the source window it is a view in
 /// that window's overlay host, moved per pointer event with no window call; the panel shows it only
-/// outside. No frame client steps it: Core Animation runs its springs (``present(_:token:inSourceWindow:landing:)``).
+/// outside. No frame client steps it: Core Animation runs its springs (``present(_:token:holds:landing:)``).
 final class TabDragGhostPanel {
     let panel: NSPanel
     let root: NSView
     private let glass: GlassPanelView
-    /// Render server only: the glass fills the root and this clip masks it to the card
-    /// (`glassMask`), so the card unfolds as one mask spring, never a glass relayout per frame.
-    private var glassClip: TabDragGhostRootView?
-    let glassMask = CALayer()
+    /// Render server only: the card's rounded shape and hairline edge. Its frame springs while the
+    /// glass inside it stays still (the size of the root), so the card unfolds with no glass
+    /// relayout and the clip culls the blur to the card.
+    private var cardClip: TabDragGhostRootView?
     /// Render server only: the panel's content, holding the root while the ghost is outside.
     private var panelContainer: TabDragGhostRootView?
     /// Render server only: what the source window's overlay presents, the root inside it.
@@ -47,7 +47,7 @@ final class TabDragGhostPanel {
     /// The tab image stands on the glass (a translucent window): the glass shows at every
     /// cardness, and the glass edge, not a shadow, lifts it.
     let onGlass: Bool
-    /// `motion.renderServer`: ``present(_:token:inSourceWindow:landing:)``, not ``render(_:)`` per frame.
+    /// `motion.renderServer`: ``present(_:token:holds:landing:)``, not ``render(_:)`` per frame.
     let rendersOnServer: Bool
     /// The window the drag started in: its overlay holds the ghost while it fits there.
     weak var sourceWindow: NSWindow?
@@ -66,6 +66,12 @@ final class TabDragGhostPanel {
     var pinsHost = false
     /// A render-server call landed at rest (only the newest call can: ``RenderSpring``).
     var onRest: (() -> Void)?
+    /// Every spring of the render server landed (the newest call's landing).
+    private(set) var isAtRest = true
+    /// Where the ghost may still draw while its springs run; a host holds it only with this room.
+    private(set) var flight = TabDragGhostFlight()
+    /// ``close()`` ran: nothing shows the ghost again (a late preview or daemon echo).
+    private(set) var isClosed = false
 
     /// - Parameters:
     ///   - onGlass: The image was rendered without a card (`WindowBackdrop.dragCardFill`)
@@ -101,25 +107,28 @@ final class TabDragGhostPanel {
 
         root = TabDragGhostRootView(frame: NSRect(origin: .zero, size: panelSize))
         root.wantsLayer = true
-        // On the render server the mask's corners are the card's.
+        // On the render server the card clip has the corners (the glass fills the root).
         glass = Glass.makePanel(style: .regular, cornerRadius: rendersOnServer ? 0 : Metrics.panelCornerRadius)
         glass.translatesAutoresizingMaskIntoConstraints = true
         // The ghost is the whole content of a clear panel (or of the window's
         // clear overlay panel): before Liquid Glass the card blurs what is under it.
         glass.samplesBehindWindow = true
         if rendersOnServer {
-            let clip = TabDragGhostRootView(frame: root.bounds)
+            // The clip gives the card its shape and edge (the hairline `GlassPanelView` draws at its own
+            // bounds, which here are the root's); its border draws above the glass.
+            let clip = TabDragGhostRootView(frame: .zero)
             clip.wantsLayer = true
-            glass.frame = clip.bounds
-            glass.alphaValue = 1
+            clip.clipsToBounds = true
+            clip.layer?.masksToBounds = true
+            clip.layer?.cornerRadius = Metrics.panelCornerRadius
+            clip.layer?.cornerCurve = .continuous
+            clip.layer?.borderWidth = Metrics.lineWidth(1 / max(scale, 1))
+            clip.layer?.borderColor = ThemeScope.app.perform { Palette.separator.cgColor }
+            clip.alphaValue = onGlass ? 1 : 0
+            glass.frame = root.bounds
             clip.addSubview(glass)
             root.addSubview(clip)
-            glassMask.backgroundColor = NSColor.black.cgColor
-            glassMask.cornerRadius = Metrics.panelCornerRadius
-            glassMask.cornerCurve = .continuous
-            glassMask.opacity = onGlass ? 1 : 0
-            clip.layer?.mask = glassMask
-            glassClip = clip
+            cardClip = clip
         } else {
             glass.alphaValue = onGlass ? 1 : 0
             root.addSubview(glass)
@@ -177,6 +186,7 @@ final class TabDragGhostPanel {
     }
 
     func close() {
+        isClosed = true
         onRest = nil
         leaveHost()
         panel.orderOut(nil)
@@ -240,8 +250,6 @@ extension TabDragGhostPanel {
     /// The overlay host keeps an overlay this far inside the window (`WindowOverlayHost.origin`):
     /// the carrier sits there, and the root inside it anywhere, since the carrier does not clip.
     static let overlayInset: CGFloat = 8
-    /// Room around what draws (the tab's shadow) that must fit in the source window.
-    static let fitMargin: CGFloat = 8
 
     /// The rest of `motion`.
     func rest(_ motion: TabDragGhostMotion) -> TabDragGhostRest {
@@ -252,62 +260,64 @@ extension TabDragGhostPanel {
 
     /// Shows `motion` at rest, laid out once. A pointer move only moves the root in its host; a jump
     /// (``TabDragGhostMotion/jumpCount``), a morph or the landing is one spring group of `token` from
-    /// what showed. `inSourceWindow`: the source window is frontmost under the pointer and holds the
-    /// ghost while it fits. `landing`: the ghost keeps its host and ``onRest`` runs when it settles.
-    func present(_ motion: TabDragGhostMotion, token: MotionSpring, inSourceWindow: Bool, landing: Bool = false) {
+    /// what showed. `holds` answers whether the source window shows a screen rect in front of every
+    /// other window (nil: it shows none); its overlay holds the ghost only then. `landing`: the ghost
+    /// keeps its host and ``onRest`` runs when it settles. A closed ghost shows nothing.
+    func present(_ motion: TabDragGhostMotion, token: MotionSpring, holds: ((CGRect) -> Bool)?, landing: Bool = false) {
+        guard !isClosed else { return }
         let next = rest(motion)
         let previous = shown
         let jumped = previous != nil && motion.jumpCount != shownJumps
         shownJumps = motion.jumpCount
         shown = next
-        let from = jumped ? previous?.origin : nil
+        let shift = jumped ? previous.map { CGPoint(x: $0.origin.x - next.origin.x, y: $0.origin.y - next.origin.y) } ?? .zero : .zero
+        let springs = previous.map { landing || jumped || !$0.sameInside(next) } ?? false
+        if springs, let previous { flight.add(shift: shift, drawn: previous.glass.union(previous.tab)) }
         if pinsHost || landing, !host.isHidden {
-            move(to: next.origin, from: from)
+            move(to: next.origin)
         } else {
-            let window = inSourceWindow ? sourceWindow.flatMap { fits(next, in: $0) ? $0 : nil } : nil
-            place(next.origin, in: window, from: from)
+            place(next.origin, in: sourceWindow.flatMap { holdsGhost(next, in: $0, holds: holds) ? $0 : nil })
         }
         pinsHost = pinsHost || landing
-        if let clip = glassClip, clip.layer?.mask !== glassMask { clip.layer?.mask = glassMask }
         guard let previous else { return lay(next, landing: landing) }
-        guard landing || jumped || !previous.sameInside(next) else { return }
-        spring(from: previous, to: next, shift: from.map { CGPoint(x: $0.x - next.origin.x, y: $0.y - next.origin.y) } ?? .zero,
-               velocity: jumped ? motion.jumpVelocity : .zero, token: token)
+        guard springs else { return }
+        spring(from: previous, to: next, shift: shift, velocity: jumped ? motion.jumpVelocity : .zero, token: token)
     }
 
-    /// Whether what draws at `rest` fits in `window`.
-    func fits(_ rest: TabDragGhostRest, in window: NSWindow) -> Bool {
-        window.isVisible && !window.isMiniaturized
-            && window.frame.contains(rest.shownOnScreen.insetBy(dx: -Self.fitMargin, dy: -Self.fitMargin))
+    /// Whether the source `window`'s overlay can show `rest` and every flight still running: the
+    /// window is on screen and in front of every other window over all of it. No margin around it:
+    /// a tab's shadow at the window's own edge clips there like the strip's own tabs, so a top-row
+    /// slot stays in the overlay.
+    func holdsGhost(_ rest: TabDragGhostRest, in window: NSWindow, holds: ((CGRect) -> Bool)?) -> Bool {
+        guard let holds, window.isVisible, !window.isMiniaturized else { return false }
+        return holds(flight.reach(of: rest))
     }
 
     // MARK: Hosts
 
     /// Puts the root at the screen `origin` in the source window's overlay (`window`) or, with no
-    /// window, in the panel. `from` is the root's previous origin when it jumps.
-    func place(_ origin: CGPoint, in window: NSWindow?, from: CGPoint?) {
+    /// window, in the panel. The root's running springs move with it.
+    func place(_ origin: CGPoint, in window: NSWindow?) {
         if let window {
-            if case .window = host { return move(to: origin, from: from) }
+            if case .window = host { return move(to: origin) }
             leaveHost()
             let bounds = NSRect(origin: .zero, size: window.frame.size).insetBy(dx: Self.overlayInset, dy: Self.overlayInset)
             carrier.frame = bounds
-            root.setFrameOrigin(.zero)
             carrier.addSubview(root)
             host = .window(WindowOverlayHost.host(for: window).present(carrier, options: OverlayOptions(kind: .dragGhost, anchor: bounds)))
-            return move(to: origin, from: nil)
+            return move(to: origin)
         }
-        if case .panel = host { return move(to: origin, from: from) }
+        if case .panel = host { return move(to: origin) }
         leaveHost()
         panelContainer?.addSubview(root)
-        root.setFrameOrigin(.zero)
-        panel.setFrame(CGRect(origin: origin, size: panelSize), display: false)
-        panel.orderFrontRegardless()
         host = .panel
+        move(to: origin)
+        panel.orderFrontRegardless()
     }
 
-    /// Moves the root to the screen `origin` in its host. In the panel a jump (`from`) sizes the
-    /// panel once to hold both places, so the flight between them is not clipped; a follow moves it.
-    func move(to origin: CGPoint, from: CGPoint?) {
+    /// Moves the root to the screen `origin` in its host. The panel holds the root and the room of
+    /// every running flight (``TabDragGhostFlight``): a jump resizes it once, a follow only moves it.
+    func move(to origin: CGPoint) {
         switch host {
         case .hidden: return
         case .window:
@@ -315,14 +325,14 @@ extension TabDragGhostPanel {
             let local = carrier.convert(overlay.convertPoint(fromScreen: origin), from: nil)
             if root.frame.origin != local { root.setFrameOrigin(local) }
         case .panel:
-            guard let from else {
-                let panelOrigin = CGPoint(x: origin.x - root.frame.minX, y: origin.y - root.frame.minY)
-                if panel.frame.origin != panelOrigin { panel.setFrameOrigin(panelOrigin) }
-                return
+            let room = flight.widened(CGRect(origin: origin, size: panelSize))
+            if panel.frame.size != room.size {
+                panel.setFrame(room, display: false)
+            } else if panel.frame.origin != room.origin {
+                panel.setFrameOrigin(room.origin)
             }
-            let room = CGRect(origin: origin, size: panelSize).union(CGRect(origin: from, size: panelSize))
-            panel.setFrame(room, display: false)
-            root.setFrameOrigin(CGPoint(x: origin.x - room.minX, y: origin.y - room.minY))
+            let local = CGPoint(x: origin.x - room.minX, y: origin.y - room.minY)
+            if root.frame.origin != local { root.setFrameOrigin(local) }
         }
     }
 
@@ -340,8 +350,7 @@ extension TabDragGhostPanel {
     func lay(_ rest: TabDragGhostRest, landing: Bool) {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        glassMask.frame = rest.glass
-        glassMask.opacity = Float(rest.glassOpacity)
+        placeCard(rest.glass, opacity: rest.glassOpacity)
         thumbLayer.frame = rest.thumb
         thumbLayer.opacity = Float(rest.thumbOpacity)
         tabLayer.frame = rest.tab
@@ -351,29 +360,57 @@ extension TabDragGhostPanel {
         if landing { onRest?() }
     }
 
+    /// The card's clip at `rect` (root coordinates) and `opacity`; the glass in it stays on the root's bounds.
+    func placeCard(_ rect: CGRect, opacity: CGFloat) {
+        guard let clip = cardClip else { return }
+        if clip.frame != rect { clip.frame = rect }
+        let origin = Self.glassOrigin(in: rect)
+        if glass.frame.origin != origin { glass.setFrameOrigin(origin) }
+        if clip.alphaValue != opacity { clip.alphaValue = opacity }
+    }
+
     /// One group from `old` to `new` on every key path the ghost animates, so this call takes over
     /// every earlier one and its landing is the ghost's (``RenderSpring``'s call order). The root
-    /// springs from `shift` away (a jump) at `velocity`, points per second.
+    /// springs from `shift` away (a jump) at `velocity`, points per second. The glass springs against
+    /// the card's clip by the same amount on the same curve, so it stays still on the root.
     func spring(from old: TabDragGhostRest, to new: TabDragGhostRest, shift: CGPoint, velocity: CGVector, token: MotionSpring) {
-        guard let rootLayer = root.layer else { return lay(new, landing: true) }
+        guard let rootLayer = root.layer, let clipLayer = cardClip?.layer, let glassLayer = glass.layer else { return lay(new, landing: true) }
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        placeCard(new.glass, opacity: new.glassOpacity)
+        CATransaction.commit()
         // AppKit placed the root at rest; both hosts are unflipped, so a screen offset is a position offset.
         let position = rootLayer.position
         var moves = [
             RenderSpring.Move(rootLayer, "position.x", from: position.x + shift.x, to: position.x, velocity: velocity.dx),
             RenderSpring.Move(rootLayer, "position.y", from: position.y + shift.y, to: position.y, velocity: velocity.dy),
         ]
-        moves += Self.frameMoves(glassMask, from: old.glass, to: new.glass)
+        moves += Self.frameMoves(clipLayer, from: old.glass, to: new.glass)
+        moves.append(RenderSpring.Move(glassLayer, "position", from: Self.position(of: glassLayer, at: Self.glassOrigin(in: old.glass)),
+                                       to: Self.position(of: glassLayer, at: Self.glassOrigin(in: new.glass))))
         moves += Self.frameMoves(thumbLayer, from: old.thumb, to: new.thumb)
         moves += Self.frameMoves(tabLayer, from: old.tab, to: new.tab)
         moves += [
-            RenderSpring.Move(glassMask, "opacity", from: old.glassOpacity, to: new.glassOpacity),
+            RenderSpring.Move(clipLayer, "opacity", from: old.glassOpacity, to: new.glassOpacity),
             RenderSpring.Move(thumbLayer, "opacity", from: old.thumbOpacity, to: new.thumbOpacity),
             RenderSpring.Move(tabLayer, "opacity", from: old.tabOpacity, to: new.tabOpacity),
             RenderSpring.Move(tabLayer, "shadowOpacity", from: old.tabShadow, to: new.tabShadow),
         ]
+        isAtRest = false
         Motion.tabs.renderSpring(token).animateGroup(moves, in: root) { [weak self] finished in
-            if finished { self?.onRest?() }
+            guard finished, let self else { return }
+            flight = TabDragGhostFlight()
+            isAtRest = true
+            onRest?()
         }
+    }
+
+    /// The glass's origin in a card clip at `card`: the root's origin.
+    static func glassOrigin(in card: CGRect) -> CGPoint { CGPoint(x: -card.minX, y: -card.minY) }
+
+    /// `layer`'s position when its frame's origin is `origin` (its size unchanged).
+    static func position(of layer: CALayer, at origin: CGPoint) -> CGPoint {
+        CGPoint(x: origin.x + layer.anchorPoint.x * layer.bounds.width, y: origin.y + layer.anchorPoint.y * layer.bounds.height)
     }
 
     /// A layer's frame change as its position and size springs (its transform is the identity).
@@ -386,8 +423,18 @@ extension TabDragGhostPanel {
         ]
     }
 
-    /// Whether the ghost shows in the source window's overlay (tests).
+    /// Whether the ghost shows in the source window's overlay (tests, `debug.tab_drag`).
     var isInSourceWindow: Bool { if case .window = host { true } else { false } }
+
+    /// Where the ghost shows (`debug.tab_drag`): "panel", "window" (the source window's overlay) or "hidden".
+    var hostName: String {
+        guard rendersOnServer else { return panel.isVisible ? "panel" : "hidden" }
+        switch host {
+        case .hidden: return "hidden"
+        case .panel: return "panel"
+        case .window: return "window"
+        }
+    }
 }
 
 /// Layer-backed view of the ghost that never takes the mouse.

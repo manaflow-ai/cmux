@@ -22,8 +22,8 @@ import CmuxNextCompat
 ///
 /// A frame client runs only while the ghost animates or a columns screen
 /// auto-scrolls, and is invalidated when the drag ends. With `motion.renderServer`
-/// on the ghost's springs run in Core Animation and the client only
-/// auto-scrolls and re-tests a dwell (`TabDragGhostPanel+RenderServer`).
+/// on the ghost's springs run in Core Animation and the client runs only while
+/// the pointer auto-scrolls a columns screen or a dwell is armed.
 final class TabDragSession: NSObject {
     unowned let services: AppServices
     var drag: Drag?
@@ -120,7 +120,8 @@ final class TabDragSession: NSObject {
             guard let self, let drag, self.landing === drag else { return }
             self.finishLanding()
         }
-        drag.link?.activate()
+        // The render server wakes it only for an auto-scroll or a dwell (`wake(_:over:)`).
+        if !rendersOnServer { drag.link?.activate() }
         update(point)
         loadThumbnail(previewTab, into: drag)
     }
@@ -201,7 +202,8 @@ final class TabDragSession: NSObject {
         drag.samplePointer(point, at: CACurrentMediaTime())
         if case .workspaces = drag.source.item { return updateWorkspaces(point, drag: drag) }
         let context = liveContext(drag)
-        let hit = hitTest(point, drag: drag, context: context)
+        let order = windowOrder(for: drag)
+        let hit = hitTest(point, drag: drag, context: context, order: order)
         // The layout adapter's preview is ended by `outline`, so a move from
         // a pane zone to a strip slot animates instead of fading out and in.
         if let previous = drag.winner, previous.provider !== hit.winner?.provider, !(previous.provider is LayoutTabDropTarget) {
@@ -212,8 +214,8 @@ final class TabDragSession: NSObject {
                                                   context: context)
         drag.outcome = drag.resolution.outcome
         TabDragOutline.update(drag) { self.adapters(for: $0, drag: drag).layout }
-        present(drag)
-        wake(drag)
+        present(drag, order: order)
+        wake(drag, over: hit.window)
     }
 
     struct Hit {
@@ -224,9 +226,9 @@ final class TabDragSession: NSObject {
     /// The first surface that answers at `point` wins, whatever its verdict:
     /// a stay or a refusal is previewed too, never skipped (tab-dnd). The
     /// sidebar and the layout answer for every point of their window.
-    func hitTest(_ point: CGPoint, drag: Drag, context: TabDragContext) -> Hit {
+    func hitTest(_ point: CGPoint, drag: Drag, context: TabDragContext, order: [TabDragWindowPick.Candidate]) -> Hit {
         drag.noTargetReason = nil
-        guard let controller = window(at: point) else { return Hit() }
+        guard let controller = window(at: point, in: order) else { return Hit() }
         guard let payload = drag.source.payload else { return Hit(window: controller) }
         // A tab never crosses between an incognito window and a normal one:
         // that window offers no drop target.
@@ -249,14 +251,40 @@ final class TabDragSession: NSObject {
     /// Chromium page windows, the overlay panel and the ghost are looked
     /// through (`TabDragWindowPick`).
     func window(at point: CGPoint) -> WindowController? {
+        window(at: point, in: windowOrder(source: nil, ghost: nil))
+    }
+
+    /// Frontmost app window containing `point` in `order` (one walk of the windows serves a pointer event).
+    func window(at point: CGPoint, in order: [TabDragWindowPick.Candidate]) -> WindowController? {
+        guard let id = TabDragWindowPick.frontmost(at: point, in: order) else { return nil }
+        return services.windows.controllers.first { $0.state.id == id }
+    }
+
+    /// The app's windows front to back, read once per pointer event: `drag`'s ghost and the source
+    /// window's own children (its pages, its overlay) never hide the ghost's overlay.
+    func windowOrder(for drag: Drag) -> [TabDragWindowPick.Candidate] {
+        windowOrder(source: drag.source.window?.window, ghost: drag.ghost.panel)
+    }
+
+    func windowOrder(source: NSWindow?, ghost: NSWindow?) -> [TabDragWindowPick.Candidate] {
         let controllers = services.windows.controllers
-        let ordered = NSApp.orderedWindows.map { window in
+        return NSApp.orderedWindows.map { window in
             TabDragWindowPick.Candidate(frame: window.frame,
                                         controllerID: controllers.first { $0.window === window }.map { $0.state.id },
-                                        isVisible: window.isVisible && !window.isMiniaturized)
+                                        isVisible: window.isVisible && !window.isMiniaturized,
+                                        occludes: window !== ghost && !Self.isChild(window, of: source))
         }
-        guard let id = TabDragWindowPick.frontmost(at: point, in: ordered) else { return nil }
-        return controllers.first { $0.state.id == id }
+    }
+
+    /// Whether `window` is a child window of `parent`, at any depth.
+    static func isChild(_ window: NSWindow, of parent: NSWindow?) -> Bool {
+        guard let parent else { return false }
+        var current = window.parent
+        while let next = current {
+            if next === parent { return true }
+            current = next.parent
+        }
+        return false
     }
 
     /// Drop targets of `controller` in priority order: sidebar, the strips
