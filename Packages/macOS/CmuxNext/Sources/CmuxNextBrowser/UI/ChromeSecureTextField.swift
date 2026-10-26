@@ -10,7 +10,6 @@ final class ChromeSecureTextField: NSSecureTextField {
 
     override init(frame: NSRect) {
         super.init(frame: frame)
-        translatesAutoresizingMaskIntoConstraints = false
         isBordered = false
         isBezeled = false
         drawsBackground = false
