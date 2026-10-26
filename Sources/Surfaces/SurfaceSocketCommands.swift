@@ -129,8 +129,7 @@ extension TerminalController {
                 do {
                     return try await Self.surfaceNewDisplay(options, destination: destination)
                 } catch is SurfaceDisplayCreationBusy {
-                    // Preserve the synchronous adapter's existing cancellation mapping.
-                    throw CancellationError()
+                    return self.surfaceNewDisplayBusyError(id: id)
                 }
             }
 
@@ -169,14 +168,7 @@ extension TerminalController {
                 id: request.id, method: request.method, isV2: true, error: timeout
             )
         } catch is SurfaceDisplayCreationBusy {
-            return v2Error(
-                id: id,
-                code: "busy",
-                message: String(
-                    localized: "socket.surface.newDisplay.busy",
-                    defaultValue: "A display is already being created on this machine, or the machine changed. Wait for it to finish and retry."
-                )
-            )
+            return surfaceNewDisplayBusyError(id: id)
         } catch is CancellationError {
             return v2Error(
                 id: id,
@@ -260,6 +252,17 @@ extension TerminalController {
             message: String(
                 localized: "socket.surface.newDisplay.workspaceRequired",
                 defaultValue: "surface.new_display: no target workspace to open into (pass `workspace_id`, select one, or send `open: false`)."
+            )
+        )
+    }
+
+    private nonisolated func surfaceNewDisplayBusyError(id: Any?) -> String {
+        v2Error(
+            id: id,
+            code: "busy",
+            message: String(
+                localized: "socket.surface.newDisplay.busy",
+                defaultValue: "A display is already being created on this machine, or the machine changed. Wait for it to finish and retry."
             )
         )
     }
