@@ -6,14 +6,15 @@
 - ``daemon_socket(tag)``: the app's cmux-tui daemon socket (`$DARWIN_USER_TEMP_DIR/cmux-tui-*/cmux-app-<tag>.sock`,
   as bench-startup.py finds it).
 - ``distribution(values)``: n, p50, p95, p99 and max of raw samples (nearest rank; never a mean alone).
-- ``host_block()``: host name, chip, macOS and its build, and the main display's Hz (bench_launch.read_host).
+- ``host_block()``: host name, platform, chip, macOS and its build, and the main display's Hz (bench_launch.read_host);
+  None for what the host does not give (a Linux remote host has no sw_vers), never an exception.
 - ``record_series(app, story, metric_samples, ...)``: one cmux-perf-result/v1 file per series through
   ``BenchApp.record``; a result that cannot be described truthfully (no build sha, no features snapshot) is
   skipped with its reason, not written wrong.
 
 The launch itself is bench_launch.BenchApp's (one launch path for every GUI bench).
 """
-import glob, math, os, subprocess, sys, time
+import glob, math, os, platform, subprocess, sys, time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(os.path.dirname(HERE))
@@ -77,14 +78,20 @@ def distribution(values):
 
 
 def host_block():
-    """This Mac as a bench report names it: host, macOS, chip, memory class and display Hz. A field the host does not
-    give is None (read_host refuses then; the report still says what is known)."""
-    facts = bench_launch.host_facts()
+    """This host as a bench report names it: host, platform, macOS, chip, memory class and display Hz. Never raises: a
+    field the host does not give (no sw_vers or pmset on a Linux remote host, no CoreGraphics) is None, and
+    `host_record_error` says why read_host refused."""
+    block = {"host": platform.node(), "platform": platform.platform(), "macos": None, "low_power_mode": None}
+    try:
+        block.update(bench_launch.host_facts())
+    except (OSError, subprocess.SubprocessError) as error:
+        block["host_facts_error"] = str(error)
+    block["macos"] = block.get("macos") or None
     try:
         host = bench_launch.read_host()
-    except bench_launch.RecordError as error:
-        return {**facts, "display_hz": bench_launch.main_display_hz(), "host_record_error": str(error)}
-    return {**facts, **host}
+    except (bench_launch.RecordError, OSError, subprocess.SubprocessError) as error:
+        return {**block, "display_hz": bench_launch.main_display_hz(), "host_record_error": str(error)}
+    return {**block, **host}
 
 
 def record_series(app, story, series, unit="ms", better="lower", engine="none", log=print):

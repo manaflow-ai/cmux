@@ -15,19 +15,31 @@ Two ways to run it.
    terminals in the background workspaces) and types into the measured workspace's first pane while the
    next N panes' terminals flood. Phases: `single` (no flood output: the baseline) then `flood`.
 
-   Per key, matched by the flow id the app minted (pid << 32 | probe row index) on the daemon's
-   `daemon.send.write` hop, and the key's own timestamp (CLOCK_UPTIME_RAW, as every hop):
+   Keys are joined to the daemon by flow id, never by time. The app mints one flow per key-down (pid << 32 |
+   probe row index, rows numbered in key order), and the daemon's `daemon.send.write` hop carries it. The
+   phase's i-th key is row base + i, where base follows the last row the daemon wrote before the phase; a
+   write whose row is outside the phase's keys, a write before its own key, or a key that failed refuses the
+   phase's join (`join_refused`) instead of guessing. A key with no write is counted (`missed_write`).
+   Per key, from its own timestamp (CLOCK_UPTIME_RAW, as every hop):
      key_to_daemon_write_ms   the daemon writes the key to the PTY
-     key_to_daemon_echo_ms    the daemon hands the typed terminal's echo to its attach taps
-                              (`daemon.output.attach` of that terminal: the echo, never a flooder's output)
+     key_to_daemon_echo_ms    the daemon hands the typed terminal's echo to its attach taps: the
+                              `daemon.output.attach` record of that terminal in the key's window, from its
+                              write to the next key's write (plans/cmux-next/trace.md, key-press flows). It is
+                              taken only when the window holds exactly one record and the key before took its
+                              own; otherwise the key is counted in `echo_missed` (none, two or more, or the key
+                              before is unplaced). A write with no terminal id (a surface without a host
+                              identity) cannot tell the typed terminal from a flooder: the phase's echo series
+                              is refused (`echo_refused`).
      key_to_app_echo_ms       the app decoded output (probe `output_decoded_ms`)
      key_to_frame_ms          the first frame contents after that output was parsed (probe `contents_ms`)
-   The probe's output and frame marks are not tied to a surface: under flood another terminal's output can
-   take them. A key whose app decode is earlier than its daemon echo is therefore dropped from the app
-   series and counted (`unscoped_dropped`); the daemon series are terminal-scoped by construction.
-   Every series is p50/p95/p99/max; `ipc8` is the flood p95 minus the single p95 (IPC-8: <= 0.5 ms for the
-   echo). report.json has the host, macOS and display Hz, the flooders' achieved MB/s, and each series is
-   also a cmux-perf-result/v1 file (BenchApp.record).
+   The probe's output and frame marks are not tied to a surface: the first output of any terminal after the
+   key takes them. So the two app series are reported only for a phase in which no other terminal output
+   anything (the daemon marks every terminal's output); otherwise they are withheld as unscoped
+   (`app_series`), which under --flood and under --stress (its busy terminals) is every phase but a light
+   single, and IPC-8 is then measured daemon-side only.
+   Every series is p50/p95/p99/max; `ipc8` is the flood p95 minus the single p95 of each series both phases
+   report (IPC-8: <= 0.5 ms for the echo). report.json has the host, macOS and display Hz, the flooders'
+   achieved MB/s, and each series is also a cmux-perf-result/v1 file (BenchApp.record).
 
 2. Attached (the original mode): launch a tagged cmux-next with CMUX_NEXT_TYPING_PROBE=<csv> (see
 TypingLatencyProbe.swift), focus a terminal at a shell prompt, then run:
@@ -202,57 +214,128 @@ def read_flows(folder, keep):
     return records, dropped
 
 
-def match_keys(key_times_ns, writes, echoes, app_pid):
-    """One entry per typed key that reached the daemon: its timestamp, the probe row index (from the flow id), the
-    daemon write and the first echo of the same terminal before the next key. `key_times_ns` is sorted;
-    `writes` are this app's `daemon.send.write` hops; `echoes` maps a terminal id to its sorted echo times."""
-    matched = []
+def flow_row(record, app_pid):
+    """The probe row index of a record whose flow this app minted, else None."""
+    flow = int(record.get("flow") or 0)
+    return flow & 0xFFFFFFFF if flow and flow >> 32 == (app_pid & 0xFFFFFFFF) else None
+
+
+def next_row(writes, app_pid):
+    """The probe row after the last one of this app the daemon wrote (`writes` before a phase), or None."""
+    rows = [r for r in (flow_row(w, app_pid) for w in writes) if r is not None]
+    return max(rows) + 1 if rows else None
+
+
+class JoinRefused(Exception):
+    """The phase's writes cannot be joined to its keys by flow id without a guess."""
+
+
+def join_writes(key_times_ns, writes, app_pid, base=None):
+    """One entry per typed key, in typing order: its timestamp, its probe row and its daemon write (the first write
+    of its flow: a return can be two), or no write. The keys of a phase are typed one at a time and every key-down
+    opens one probe row, so the i-th key is row `base + i`. `base` is ``next_row`` of the writes before the phase;
+    None takes the phase's lowest row, which needs every key to have reached the daemon. Raises JoinRefused when the
+    rows do not fit the keys."""
+    first = {}
     for write in sorted(writes, key=lambda r: r["t_ns"]):
-        flow = int(write.get("flow") or 0)
-        if flow >> 32 != (app_pid & 0xFFFFFFFF):
-            continue
-        at = bisect.bisect_right(key_times_ns, write["t_ns"]) - 1
-        if at < 0:
-            continue
-        key = key_times_ns[at]
-        until = key_times_ns[at + 1] if at + 1 < len(key_times_ns) else float("inf")
-        times = echoes.get(write.get("terminal"), [])
-        i = bisect.bisect_right(times, write["t_ns"])
-        echo = times[i] if i < len(times) and times[i] < until else None
-        matched.append({"key_ns": key, "row": flow & 0xFFFFFFFF, "write_ns": write["t_ns"], "echo_ns": echo,
-                        "terminal": write.get("terminal")})
-    # A key is one write: keep the first write after each key (a return can be two).
-    seen, out = set(), []
-    for entry in matched:
-        if entry["key_ns"] not in seen:
-            seen.add(entry["key_ns"])
-            out.append(entry)
-    return out
+        row = flow_row(write, app_pid)
+        if row is not None:
+            first.setdefault(row, write)
+    count = len(key_times_ns)
+    if base is None:
+        if not first:
+            return [{"key_ns": key, "row": None, "write_ns": None, "terminal": None} for key in key_times_ns]
+        base = min(first)
+        if len(first) != count or max(first) - base + 1 != count:
+            raise JoinRefused(f"{len(first)} written rows ({base}..{max(first)}) for {count} keys and no row before "
+                              "the phase to count from")
+    outside = sorted(row for row in first if not base <= row < base + count)
+    if outside:
+        raise JoinRefused(f"{len(outside)} written rows outside the phase's keys (rows {base}..{base + count - 1}): "
+                          f"{outside[:5]}; another key-down opened a probe row")
+    joined = []
+    for index, key in enumerate(key_times_ns):
+        write = first.get(base + index)
+        if write is not None and write["t_ns"] < key:
+            raise JoinRefused(f"row {base + index} was written before its key: the rows are not this phase's keys")
+        joined.append({"key_ns": key, "row": base + index, "write_ns": write["t_ns"] if write else None,
+                       "terminal": (write.get("terminal") or "") if write else None})
+    return joined
 
 
-def key_series(matched, probe_rows):
-    """The four KEY_SERIES from matched keys and the probe's rows by index; and how many app samples were dropped
-    because another terminal's output took the probe's output mark."""
+def place_echoes(joined, echoes):
+    """Sets each joined key's `echo_ns` (or `echo_missed` with why) from `echoes` (terminal id -> sorted
+    daemon.output.attach times). A key's window on its terminal runs from its write to the next key's write there;
+    the key takes the window's record only when there is exactly one and the key before on that terminal took its
+    own (else that one may be the key before's late echo), as trace.py's assemble_flows places flow-0 hops."""
+    by_terminal = {}
+    for entry in joined:
+        entry["echo_ns"] = None
+        if entry["write_ns"] is None:
+            entry["echo_missed"] = "no write"
+        else:
+            by_terminal.setdefault(entry["terminal"], []).append(entry)
+    for terminal, sent in by_terminal.items():
+        times = echoes.get(terminal, [])
+        previous_placed = True
+        for index, entry in enumerate(sent):
+            until = sent[index + 1]["write_ns"] if index + 1 < len(sent) else float("inf")
+            window = times[bisect.bisect_left(times, entry["write_ns"]):bisect.bisect_left(times, until)]
+            if len(window) == 1 and previous_placed:
+                entry["echo_ns"] = window[0]
+            else:
+                entry["echo_missed"] = ("none" if not window else "two or more" if len(window) > 1
+                                        else "the key before did not place its echo")
+            previous_placed = entry["echo_ns"] is not None
+    return joined
+
+
+def key_series(joined, probe_rows, echo_scoped=True, app_scoped=True):
+    """The KEY_SERIES from joined keys (``place_echoes`` run) and the probe's rows by index. `echo_scoped` False
+    leaves the daemon echo series empty, `app_scoped` False the app series (the caller says why). Returns
+    (series, counts)."""
     by_index = {int(r["index"]): r for r in probe_rows if r.get("index", "").isdigit()}
     series = {name: [] for name in KEY_SERIES}
-    dropped = 0
-    for entry in matched:
+    counts = {"missed_write": 0, "echo_missed": {}, "app_row_missing": 0}
+    for entry in joined:
         key = entry["key_ns"]
-        series["key_to_daemon_write_ms"].append((entry["write_ns"] - key) / 1e6)
-        if entry["echo_ns"] is None:
+        if entry["write_ns"] is None:
+            counts["missed_write"] += 1
             continue
-        series["key_to_daemon_echo_ms"].append((entry["echo_ns"] - key) / 1e6)
+        series["key_to_daemon_write_ms"].append((entry["write_ns"] - key) / 1e6)
+        if echo_scoped:
+            if entry.get("echo_ns") is None:
+                why = entry.get("echo_missed", "none")
+                counts["echo_missed"][why] = counts["echo_missed"].get(why, 0) + 1
+            else:
+                series["key_to_daemon_echo_ms"].append((entry["echo_ns"] - key) / 1e6)
+        if not app_scoped:
+            continue
         row = by_index.get(entry["row"])
         if not row or row.get("complete") != "1" or not row.get("output_decoded_ms"):
-            continue
-        decoded_ns = key + float(row["output_decoded_ms"]) * 1e6
-        if decoded_ns < entry["echo_ns"]:
-            dropped += 1  # the app marked output before the daemon sent this terminal's echo: another terminal's
+            counts["app_row_missing"] += 1
             continue
         series["key_to_app_echo_ms"].append(float(row["output_decoded_ms"]))
         if row.get("contents_ms"):
             series["key_to_frame_ms"].append(float(row["contents_ms"]))
-    return series, dropped
+    return series, counts
+
+
+def phase_scope(joined, echo_records):
+    """(echo_refused, app_unscoped): why the phase's daemon echo series and its app series cannot be scoped to the
+    typed terminal, or None. `echo_records` are every terminal's daemon.output.attach records in the phase."""
+    typed = {entry["terminal"] for entry in joined if entry["write_ns"] is not None}
+    echo_refused = app_unscoped = None
+    if "" in typed:
+        echo_refused = ("a write of this app has no terminal id (a surface without a host identity): its echo "
+                        "cannot be told from another terminal's output")
+        app_unscoped = echo_refused
+    others = [r for r in echo_records if r.get("terminal") not in typed]
+    if others and app_unscoped is None:
+        app_unscoped = (f"{len(others)} outputs of {len({r.get('terminal') for r in others})} other terminals in the "
+                        "phase: the probe's output and frame marks are not tied to a surface, so another terminal's "
+                        "output can take them (IPC-8 is measured daemon-side only)")
+    return echo_refused, app_unscoped
 
 
 # ---------------------------------------------------------------- launched mode
@@ -346,7 +429,8 @@ class Launched:
         return workspace, panes[0], panes[1:1 + self.args.flood]
 
     def type_keys(self, count, label):
-        """`count` keys through debug.key, each stamped with its send time; returns the stamps in ns."""
+        """`count` keys through debug.key, each stamped with its send time; returns the stamps in ns, the rpc
+        round trips and how many keys failed."""
         keys = "abcdefghijklmnopqrstuvwxyz"
         stamps, trips, failed = [], [], 0
         for index in range(count):
@@ -365,7 +449,7 @@ class Launched:
             if rest > 0:
                 time.sleep(rest)  # one key in flight at a time
         time.sleep(0.5)  # the last echo and frame land
-        return stamps, trips
+        return stamps, trips, failed
 
     def probe_rows(self):
         try:
@@ -375,28 +459,45 @@ class Launched:
             return []
 
     def phase(self, name, pid):
-        stamps, trips = self.type_keys(self.args.samples, name)
+        stamps, trips, failed = self.type_keys(self.args.samples, name)
         time.sleep(0.3)  # the flow writer drains every 50 ms
-        stamps_sorted = sorted(stamps)
-        lo, hi = stamps_sorted[0], stamps_sorted[-1] + 2_000_000_000
-        writes, dropped_a = read_flows(self.flows, lambda r: r.get("hop") == WRITE_HOP and lo <= r.get("t_ns", 0) <= hi)
-        typed_terminals = {w.get("terminal") for w in writes if int(w.get("flow") or 0) >> 32 == (pid & 0xFFFFFFFF)}
-        echo_records, _ = read_flows(self.flows, lambda r: r.get("hop") == ECHO_HOP and r.get("terminal") in typed_terminals
-                                     and lo <= r.get("t_ns", 0) <= hi)
+        lo, hi = stamps[0], stamps[-1] + 2_000_000_000
+        all_writes, dropped_a = read_flows(self.flows, lambda r: r.get("hop") == WRITE_HOP and r.get("t_ns", 0) <= hi)
+        before = [w for w in all_writes if w.get("t_ns", 0) < lo]
+        writes = [w for w in all_writes if w.get("t_ns", 0) >= lo]
+        echo_records, dropped_b = read_flows(self.flows, lambda r: r.get("hop") == ECHO_HOP and lo <= r.get("t_ns", 0) <= hi)
+        entry = {"keys": len(stamps), "failed_keys": failed, "flow_records_dropped": dropped_a + dropped_b,
+                 "key_rpc_ms": summarize(trips)}
+        try:
+            if failed:
+                raise JoinRefused(f"{failed} keys failed: a failed key may not have opened its probe row")
+            joined = join_writes(stamps, writes, pid, base=next_row(before, pid))
+        except JoinRefused as error:
+            entry.update(join_refused=str(error), series={k: [] for k in KEY_SERIES}, stats={k: None for k in KEY_SERIES})
+            self.note(f"== {name}: keys {len(stamps)}, join refused: {error}")
+            return entry
         echoes = {}
         for record in echo_records:
             echoes.setdefault(record.get("terminal"), []).append(record["t_ns"])
         for times in echoes.values():
             times.sort()
-        matched = match_keys(stamps_sorted, writes, echoes, pid)
-        series, unscoped = key_series(matched, self.probe_rows())
-        entry = {"keys": len(stamps), "matched": len(matched), "typed_terminals": sorted(t for t in typed_terminals if t),
-                 "unscoped_dropped": unscoped, "flow_records_dropped": dropped_a, "key_rpc_ms": summarize(trips),
-                 "series": series, "stats": {k: summarize(v) for k, v in series.items()}}
-        self.note(f"== {name}: keys {entry['keys']} matched {entry['matched']} unscoped dropped {unscoped}")
+        place_echoes(joined, echoes)
+        echo_refused, app_unscoped = phase_scope(joined, echo_records)
+        series, counts = key_series(joined, self.probe_rows(), echo_scoped=echo_refused is None,
+                                    app_scoped=app_unscoped is None)
+        typed = sorted({e["terminal"] for e in joined if e["write_ns"] is not None})
+        entry.update(matched=sum(e["write_ns"] is not None for e in joined), typed_terminals=typed, **counts,
+                     echo_refused=echo_refused, app_series=f"withheld: {app_unscoped}" if app_unscoped else "scoped",
+                     series=series, stats={k: summarize(v) for k, v in series.items()})
+        self.note(f"== {name}: keys {entry['keys']} written {entry['matched']} missed write {counts['missed_write']} "
+                  f"echo missed {counts['echo_missed']} terminals {typed}")
+        if echo_refused:
+            self.note(f"{name}: daemon echo series refused: {echo_refused}")
+        if app_unscoped:
+            self.note(f"{name}: app echo and frame series withheld: {app_unscoped}")
         for key, stats in entry["stats"].items():
             self.note(bench_tagged.summary_line(f"{name} {key}", stats, width=36))
-        if not matched:
+        if not entry["matched"]:
             self.note(f"{name}: no key reached the daemon with a flow id: is the typed terminal focused, and does this "
                       "build pass CMUX_NEXT_TRACE_FLOWS to its daemon?")
         return entry
@@ -453,6 +554,10 @@ class Launched:
                 key: round(flood["stats"][key]["p95"] - single["stats"][key]["p95"], 3)
                 for key in KEY_SERIES if flood["stats"].get(key) and single["stats"].get(key)}
             self.note(f"ipc8 (flood p95 - single p95, ms): {json.dumps(self.report['ipc8'])}")
+            withheld = [n for n, p in (("single", single), ("flood", flood)) if p.get("app_series", "").startswith("withheld")]
+            if withheld:
+                self.report["ipc8_scope"] = f"daemon-side only: the app series are withheld in {', '.join(withheld)}"
+                self.note(f"ipc8: {self.report['ipc8_scope']}")
         story = f"bench-typing-flood-{self.args.flood}"
         recorded = {}
         for name, entry in phases.items():

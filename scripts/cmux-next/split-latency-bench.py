@@ -22,23 +22,45 @@ The run then closes the new surface. Times are milliseconds from the split
 send; the summary prints p50, p95, p99 and max and `app_path_sum` (split +
 resync + handshake + attach, the app's critical path without step 3).
 
---streams (plans/cmux-next/chrome-parity/p05-ipc.md, IPC-2): per view also
-`attach_handshake_rtts` (round trips before attach-surface could be sent),
-`view_requests` (requests the view sent), `view_connections` (connections it
-opened). When the daemon advertises `attach-streams-v1`, the view is a
-client-minted stream on the control connection (attach-surface with `stream`,
-no handshake; cancel-stream after): the target is 0 round trips, 1 request,
-0 connections. Without it the per-view path runs and the report says the
-capability is not advertised (the B0 baseline: 1, 3, 1).
+--streams (plans/cmux-next/chrome-parity/p05-ipc.md, IPC-2) measures what the
+app's own terminal view of each new terminal costs:
+  app_view_connections           daemon connections the app opened for
+                                 terminal views (debug.daemon.wire, the
+                                 DaemonWireStats role terminal_attach,
+                                 p05-ipc-004)
+  app_view_attach_handshake_rtts the handshake round trips those cost: identity
+                                 and capabilities are per connection and the
+                                 view pipelines identify + set-client-info, so
+                                 one per connection; a stream on the
+                                 negotiated control connection has none
+  app_view_bridge_spawns         bridge child processes the app spawned for them
+  app_view_lines_written         every line the app wrote in the run: an upper
+                                 bound of the view's requests (it includes the
+                                 store's resync after the split)
+  app_connections_per_view       the daemon's accepted connections in the run
+                                 (server-stats) minus the bench's own: the same
+                                 census from the daemon side, for a build
+                                 without debug.daemon.wire
+The report's `ipc2` block is the verdict from these alone. Only --tag on the
+local machine has an app attached to the daemon the bench splits; --socket and
+--machine ssh say so and give no IPC-2 verdict (the bench's ssh link is its own
+`cmux remote connect`, which the launched app does not view).
+
+The bench also opens a reference view of its own (`bench_view_*`: handshake
+round trips, requests and connections, counted from what the bench sent). When
+the daemon advertises `attach-streams-v1`, the control connection advertises it
+back in its `set-client-info` (app-daemon-connection-DESIGN.md section 3: a
+capability holds when both peers advertise it) and the reference view is a
+client-minted stream on it (attach-surface with `stream`, cancel-stream after);
+otherwise it is today's per-view connection with identify + set-client-info.
+These rows show the protocol path, never the app's: they are not IPC-2.
 
 --tag TAG launches today's tagged build through bench_launch.py (BenchApp:
 scratch config, fresh saved state, its teardown), finds its daemon socket and
 splits the pane the app shows, so the app attaches its own view of each new
-terminal. With --streams it then also reports `app_connections_per_view`: the
-daemon's accepted connections during the run (server-stats, read on the
-already open control connection) minus the bench's own. Each series is also
-written as cmux-perf-result/v1 (BenchApp.record), and report.json in
---artifacts holds the host, macOS and display Hz.
+terminal. Each series is also written as cmux-perf-result/v1
+(BenchApp.record), and report.json in --artifacts holds the host, macOS and
+display Hz (None where the host has none, a Linux remote host).
 
 --machine ssh starts `cmux remote connect ssh://HOST --headless` (the build's
 own CLI with --tag, else --cmux) on a private local socket and runs every
@@ -70,7 +92,11 @@ now = time.perf_counter
 STREAMS_CAPABILITY = "attach-streams-v1"
 METRICS = ["split_reply", "ev_pane_added", "ev_layout_changed", "list_workspaces", "warm_rtt",
            "attach_handshake", "attach_reply", "first_content_after_attach", "app_path_sum"]
-STREAM_METRICS = ["attach_handshake_rtts", "view_requests", "view_connections", "app_connections_per_view"]
+BENCH_VIEW_METRICS = ["bench_view_attach_handshake_rtts", "bench_view_requests", "bench_view_connections"]
+APP_VIEW_METRICS = ["app_view_connections", "app_view_attach_handshake_rtts", "app_view_bridge_spawns",
+                    "app_view_lines_written", "app_connections_per_view"]
+STREAM_METRICS = BENCH_VIEW_METRICS + APP_VIEW_METRICS
+TERMINAL_ATTACH_ROLE = "terminal_attach"  # DaemonWireStats.Role.terminalAttach in debug.daemon.wire
 
 
 class Conn:
@@ -117,8 +143,9 @@ def is_first_content(m):
 
 
 def open_view(path, ctl, surface, stream_id, timeout=15):
-    """Opens one terminal view of `surface` the way the app does. With `stream_id` (attach-streams-v1) the view is a
-    stream on `ctl`; without, a new connection with today's handshake. Returns its times (perf_counter) and counts."""
+    """Opens the bench's reference view of `surface`. With `stream_id` (attach-streams-v1 negotiated on `ctl`) the
+    view is a stream on `ctl`; without, a new connection with today's handshake. Returns its times (perf_counter)
+    and what the bench sent for it (`bench_view_*`)."""
     t0 = now()
     if stream_id is not None:
         conn, connections, rtts = ctl, 0, 0
@@ -165,7 +192,64 @@ def open_view(path, ctl, surface, stream_id, timeout=15):
     else:
         conn.close()
     return {"t0": t0, "t_hs": t_hs, "t_attach": t_attach, "t_first": t_first, "refused": refused,
-            "attach_handshake_rtts": rtts, "view_requests": requests, "view_connections": connections}
+            "bench_view_attach_handshake_rtts": rtts, "bench_view_requests": requests,
+            "bench_view_connections": connections}
+
+
+def negotiate_streams(ctl, caps):
+    """Advertises attach-streams-v1 in the control connection's set-client-info when the daemon's identify did.
+    Returns (on, why). A reply that lists capabilities must list it; an ok reply without a list accepts what the
+    client advertised."""
+    if STREAMS_CAPABILITY not in caps:
+        return False, f"{STREAMS_CAPABILITY} not advertised by the daemon: the reference view is a per-view connection"
+    reply = ctl.reply(ctl.send({"cmd": "set-client-info", "name": "split-latency-bench", "kind": "bench",
+                                "capabilities": [STREAMS_CAPABILITY]}))
+    if not reply.get("ok"):
+        return False, f"set-client-info with {STREAMS_CAPABILITY} refused: {reply.get('error')}"
+    granted = (reply.get("data") or {}).get("capabilities")
+    if isinstance(granted, list) and STREAMS_CAPABILITY not in granted:
+        return False, f"set-client-info did not grant {STREAMS_CAPABILITY} (granted {granted})"
+    return True, "on"
+
+
+def wire_counts(report):
+    """(terminal-view connections opened, their bridge spawns, lines written) from a debug.daemon.wire reply, or None
+    when the reply is not one (an error, or a build without the method)."""
+    if not isinstance(report, dict) or "error" in report or "lines_written" not in report:
+        return None
+    opened = ((report.get("connections") or {}).get("opened") or {}).get(TERMINAL_ATTACH_ROLE, 0)
+    spawns = (report.get("bridge_spawns") or {}).get(TERMINAL_ATTACH_ROLE, 0)
+    return int(opened), int(spawns), int(report["lines_written"])
+
+
+def app_view_delta(before, after):
+    """The app's cost of one new view: debug.daemon.wire after minus before (wire_counts tuples)."""
+    connections = after[0] - before[0]
+    return {"app_view_connections": connections, "app_view_attach_handshake_rtts": connections,
+            "app_view_bridge_spawns": after[1] - before[1], "app_view_lines_written": after[2] - before[2]}
+
+
+def ipc2_verdict(rows, why_not=None):
+    """IPC-2 from the app's own counts only: no connection, no handshake round trip and no bridge spawn per new view.
+    The bench's reference view never goes in."""
+    def values(key):
+        return [r[key] for r in rows if r.get(key) is not None]
+    if values("app_view_connections"):
+        source = "app debug.daemon.wire"
+        keys = ("app_view_connections", "app_view_attach_handshake_rtts", "app_view_bridge_spawns")
+    elif values("app_connections_per_view"):
+        source, keys = "daemon server-stats census (the app has no debug.daemon.wire)", ("app_connections_per_view",)
+    else:
+        return {"measured": False, "reason": why_not or "no app view was measured"}
+    verdict = {"measured": True, "source": source, "views": len(values(keys[0]))}
+    for key in keys:
+        verdict[f"{key}_max"] = max(values(key))
+    verdict["pass"] = all(verdict[f"{key}_max"] == 0 for key in keys)
+    if values("app_view_lines_written"):
+        verdict["app_view_lines_written_max"] = max(values("app_view_lines_written"))
+        verdict["requests_note"] = ("app_view_lines_written is an upper bound of the view's requests: it includes the "
+                                    "store's resync after the split")
+    return verdict
 
 
 def accepted_connections(ctl):
@@ -193,8 +277,9 @@ def pick_pane(tree, shown=None):
     return None
 
 
-def bench(path, args, shown_workspace=None, log=print):
-    """The runs against the daemon at `path`; returns (rows, info)."""
+def bench(path, args, shown_workspace=None, log=print, app_wire=None, app_absent=None):
+    """The runs against the daemon at `path`; returns (rows, info). `app_wire()` is the attached app's
+    debug.daemon.wire reply (--tag); `app_absent` says why no app view is measured when there is no app."""
     events = []
     lock = threading.Lock()
 
@@ -212,11 +297,17 @@ def bench(path, args, shown_workspace=None, log=print):
 
     ctl = Conn(path)
     caps = set((ctl.reply(ctl.send({"cmd": "identify"})).get("data") or {}).get("capabilities") or [])
-    use_streams = bool(args.streams) and STREAMS_CAPABILITY in caps
+    use_streams = False
     info = {"capabilities": sorted(caps), "streams": None}
     if args.streams:
-        info["streams"] = "on" if use_streams else f"{STREAMS_CAPABILITY} not advertised: per-view connections measured"
-        log(f"== streams: {info['streams']}")
+        use_streams, info["streams"] = negotiate_streams(ctl, caps)
+        log(f"== streams (bench reference view): {info['streams']}")
+    census = args.streams and args.app_census
+    wire = app_wire if args.streams else None
+    if wire is not None and wire_counts(wire()) is None:
+        info["app_wire"] = "debug.daemon.wire not answered: the app's view is counted by the daemon census only"
+        log(f"== {info['app_wire']}")
+        wire = None
     threading.Thread(target=subscriber, daemon=True).start()
     time.sleep(0.3)  # the subscription is in before the first split
 
@@ -231,13 +322,13 @@ def bench(path, args, shown_workspace=None, log=print):
     if pane is None:
         raise SystemExit("no pane to split")
 
-    census = args.streams and args.app_census
     rows = []
     next_stream = 1
     for i in range(args.runs):
         with lock:
             events.clear()
         accepted_before = accepted_connections(ctl) if census else None
+        wire_before = wire_counts(wire()) if wire else None
         t0 = now()
         req = {"cmd": "split", "pane": pane, "dir": "right", "cols": 80, "rows": 24}
         if "terminal-placement-env-v1" in caps:
@@ -278,18 +369,26 @@ def bench(path, args, shown_workspace=None, log=print):
         }
         row["app_path_sum"] = row["split_reply"] + row["list_workspaces"] + row["attach_handshake"] + row["attach_reply"]
         if args.streams:
-            row.update({k: view[k] for k in ("attach_handshake_rtts", "view_requests", "view_connections")})
+            row.update({k: view[k] for k in BENCH_VIEW_METRICS})
             row["stream"] = stream_id
-        if census:
+        if census or wire_before:
             time.sleep(args.settle)  # the app sees the new pane and attaches its view
+        if census:
             accepted_after = accepted_connections(ctl)
             if accepted_before is not None and accepted_after is not None:
-                row["app_connections_per_view"] = accepted_after - accepted_before - view["view_connections"]
+                row["app_connections_per_view"] = accepted_after - accepted_before - view["bench_view_connections"]
+        if wire_before:
+            wire_after = wire_counts(wire())
+            if wire_after:
+                row.update(app_view_delta(wire_before, wire_after))
         rows.append(row)
         log(json.dumps({k: (round(v, 1) if isinstance(v, float) else v) for k, v in row.items()}))
         ctl.reply(ctl.send({"cmd": "close-surface", "surface": surface}))
         time.sleep(0.5)  # the close settles before the next split
     ctl.close()
+    if args.streams:
+        info["ipc2"] = ipc2_verdict(rows, app_absent)
+        log(f"== ipc2: {json.dumps(info['ipc2'])}")
     return rows, info
 
 
@@ -394,7 +493,12 @@ def main(argv=None):
             link = SshLink(app.cli if app else args.cmux, args.ssh_host, args.ssh_config, args.connect_timeout)
             path, shown = link.socket, None
             report["ssh_host"] = args.ssh_host
-        rows, info = bench(path, args, shown_workspace=shown)
+        absent = None
+        if not args.app_census:
+            absent = ("--machine ssh: the launched app does not view the bench's bridged link" if args.machine == "ssh"
+                      else "--socket: no app is attached") + "; bench_view_* is the bench's own reference view"
+        app_wire = (lambda: app.rpc("debug.daemon.wire", timeout=10)) if app and args.app_census else None
+        rows, info = bench(path, args, shown_workspace=shown, app_wire=app_wire, app_absent=absent)
         report.update(info)
         report["n"] = len(rows)
         report["stats"] = summarize(rows, args.label)
@@ -413,7 +517,8 @@ def main(argv=None):
                 json.dump({**report, "rows": rows}, f, indent=1)
             print(f"== report {os.path.join(app.out, 'report.json')}")
         h = report["host"]
-        print(f"== host {h.get('host')} macOS {h.get('macos')} {h.get('chip') or ''} {h.get('display_hz')} Hz")
+        print(f"== host {h.get('host')} ({h.get('platform')}) macOS {h.get('macos')} {h.get('chip') or ''} "
+              f"{h.get('display_hz')} Hz")
     finally:
         if link:
             link.close()
