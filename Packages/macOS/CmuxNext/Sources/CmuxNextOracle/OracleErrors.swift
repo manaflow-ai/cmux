@@ -1,3 +1,4 @@
+#if DEBUG || CMUX_BENCH_HOOKS
 /// A provider could not build its facet from a state it should handle. A facet the build has no
 /// source for is not an error: the provider returns ``OracleValue/notComparable(reason:task:)``.
 public struct OracleFacetError: Error, Sendable, Hashable {
@@ -33,3 +34,4 @@ public enum OracleRequestError: Error, Sendable, Hashable {
         }
     }
 }
+#endif

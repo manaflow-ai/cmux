@@ -4,8 +4,8 @@ import CmuxNextSettings
 
 /// The refactor oracle's control methods (plans/cmux-next/chrome-parity/p15-oracle.md section 3A) over
 /// the one facet list a composition root builds (``OracleHost``). DEV and bench builds only: a Release
-/// build compiles none of this, and its router drops every `debug.*` registration
-/// (``ControlRouter/debugMethodsAllowed``), so Release refuses the names.
+/// build compiles none of this, and its router answers every `debug.oracle.*` name `not_allowed`
+/// (``ControlRouter/releaseRefusedDebugPrefixes``), so a runner tells a refusing build from an older one.
 public struct OracleControl: Sendable {
     public static let snapshot = "debug.oracle.snapshot"
 

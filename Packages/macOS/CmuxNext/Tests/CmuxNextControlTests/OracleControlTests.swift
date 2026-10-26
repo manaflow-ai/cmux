@@ -7,7 +7,7 @@ import Testing
 /// `debug.oracle.snapshot` (p15-oracle-030): a DEV router lists every facet with its task and answers the
 /// facets a case names, not-comparable when the build has no provider; the main-actor and background
 /// facets answer in one reply; a typo is `invalid_params`, a failing provider `internal_error` naming its
-/// facet; a Release router refuses the method. Run: `swift test --filter OracleControlTests`.
+/// facet; a Release router lists no oracle method and answers `not_allowed`, not `method_not_found`. Run: `swift test --filter OracleControlTests`.
 @MainActor @Suite(.serialized) struct OracleControlTests {
     private func router(_ facets: OracleFacets, allowsDebug: Bool = true) -> ControlRouter {
         let router = ControlRouter(identity: testIdentity(), executor: CountingExecutor(),
@@ -71,6 +71,18 @@ import Testing
         #expect(router.method(named: OracleControl.snapshot) == nil)
         #expect(!router.methodNames.contains(where: { $0.hasPrefix("debug.oracle.") }))
         let result = await snapshot(router, ["list": true])
+        #expect(failure(result)?.code == "not_allowed")
+        #expect(failure(result)?.data == ["method": .string(OracleControl.snapshot)])
+        // A later oracle method this build does not have is refused the same way, not reported as missing.
+        let later = await router.handle(ControlRequest(id: "2", method: "debug.oracle.events", params: [:]))
+        #expect(failure(later)?.code == "not_allowed")
+        // Other debug names keep method_not_found: scripts read it as "no hooks in this build".
+        let other = await router.handle(ControlRequest(id: "3", method: "debug.damage", params: [:]))
+        #expect(failure(other)?.code == "method_not_found")
+    }
+
+    @Test func aDevRouterReportsAnUnknownOracleMethodAsNotFound() async {
+        let result = await router(OracleFacets([])).handle(ControlRequest(id: "1", method: "debug.oracle.nope", params: [:]))
         #expect(failure(result)?.code == "method_not_found")
     }
 }

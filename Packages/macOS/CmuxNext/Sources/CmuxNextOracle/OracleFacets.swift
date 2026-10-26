@@ -1,3 +1,4 @@
+#if DEBUG || CMUX_BENCH_HOOKS
 /// The oracle's facet providers: one immutable list the composition root builds once
 /// (p15-oracle.md section 4, rule 4: no singleton, no static registry). `debug.oracle.snapshot`
 /// asks it for the facets a case names; a facet with no provider in this build answers
@@ -125,3 +126,4 @@ public struct OracleCapture: Sendable {
         return .object(values)
     }
 }
+#endif

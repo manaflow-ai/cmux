@@ -1,3 +1,4 @@
+#if DEBUG || CMUX_BENCH_HOOKS
 import CmuxNextOracle
 import Testing
 
@@ -118,3 +119,4 @@ struct OracleFacetsTests {
         #expect(try facets.beginCapture([.windows]).completed == ["windows": "first"])
     }
 }
+#endif

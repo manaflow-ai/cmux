@@ -1,3 +1,4 @@
+#if DEBUG || CMUX_BENCH_HOOKS
 /// A facet of the oracle snapshot (plans/cmux-next/chrome-parity/p15-oracle.md section 3A). The raw
 /// value is the facet's key in schemas/oracle/snapshot-v1.schema.json. `daemon` is not here: the
 /// runner reads it from the daemon itself (`session.snapshot`, `settings.snapshot`, `oracle-state`).
@@ -46,3 +47,4 @@ public enum OracleFacet: String, Sendable, Hashable, CaseIterable {
         }
     }
 }
+#endif

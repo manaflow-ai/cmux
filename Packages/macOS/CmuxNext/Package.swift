@@ -46,7 +46,7 @@ import PackageDescription
 //     the counters, swift-atomics for the table's packed UnsafeAtomic storage, which Compat's Atomic cannot lay out)
 //   CmuxNextOracle -> system frameworks only (the refactor oracle's facet providers, the one immutable list the
 //     composition root builds and the snapshot capture; Control serves it as debug.oracle.snapshot;
-//     plans/cmux-next/chrome-parity/p15-oracle.md section 3A)
+//     every source is under DEBUG || CMUX_BENCH_HOOKS, so Release builds an empty module; p15-oracle.md section 3A)
 //   CmuxNextInput -> InputCore, Control, Settings (the one input tap: typed subscriptions by class, phase and window;
 //     globalObserve; p04-input.md section 3 (A); the debug.input control method, task 007)
 //   CmuxNextIcons -> system frameworks only (the cmux icon pack, catalog, renderer and Icon view)
@@ -1483,6 +1483,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         // The refactor oracle's facet providers and snapshot capture (p15-oracle.md section 3A): the
         // App builds the one provider list (OracleHost) and Control serves it as debug.oracle.snapshot in
         // DEV and bench builds. Pure values: no AppKit, no control socket, so headless services can too.
+        // Every source is under DEBUG || CMUX_BENCH_HOOKS (p15-oracle.md section 4 rule 3): Release builds it empty.
         .target(
             name: "CmuxNextOracle",
             swiftSettings: daemonSwiftSettings

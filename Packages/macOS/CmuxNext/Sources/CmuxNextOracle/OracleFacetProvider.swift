@@ -1,3 +1,4 @@
+#if DEBUG || CMUX_BENCH_HOOKS
 /// Builds one facet from model values, only when a snapshot asks for it: a provider keeps no
 /// observer and no cache. Providers are values the composition root (AppServices, the headless
 /// services) puts in one ``OracleFacets`` list; there is no shared registry.
@@ -27,3 +28,4 @@ public struct OracleFacetSource: OracleFacetProvider {
         self.capture = capture
     }
 }
+#endif
