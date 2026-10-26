@@ -203,7 +203,7 @@ impl HostAttachment {
         {
             return self.send(kind, payload);
         }
-        let mut frame = Frame::new(kind, input_flow_payload(payload, flow));
+        let mut frame = Frame::new(kind, flow_trailer_payload(payload, flow));
         frame.version = self.protocol_version;
         frame.flags = FLAG_INPUT_FLOW;
         write_host_frame(&self.writer, &frame)

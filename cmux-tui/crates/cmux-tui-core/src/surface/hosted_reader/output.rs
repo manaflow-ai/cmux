@@ -16,16 +16,16 @@ impl HostedReader {
         if let Some(delay) = self.output_apply_delay {
             crate::request_path::sleep(delay);
         }
-        let (output, colors) = match transition {
-            HostedTransition::Output(output) => (output, None),
-            HostedTransition::OutputWithColors { output, colors } => (output, Some(colors)),
+        // `flow`: the key press this output echoes, as the host stamped its PTY read.
+        let (output, colors, flow) = match transition {
+            HostedTransition::Output(output) => (output, None, 0),
+            HostedTransition::FlowOutput { output, flow } => (output, None, flow),
+            HostedTransition::OutputWithColors { output, colors } => (output, Some(colors), 0),
             _ => unreachable!(),
         };
         if crate::debug_spans::following() {
             follow_marks(pty, &output);
         }
-        // The key press this output echoes: the first host output after a send with its flow.
-        let flow = pty.take_input_flow();
         cmux_flow_trace::hop("daemon.output.host", flow, pty.flow_terminal_id());
         let mut scroll_changed = None;
         let mut title_update = None;

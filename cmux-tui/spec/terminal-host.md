@@ -427,15 +427,24 @@ hello carrying it, so a client sets it only when the host record advertises
 `supports_shell_activity`, which records before version 4 must not set.
 
 `FLAG_INPUT_FLOW` is bit 9 and is valid only in protocol-v4 `ClientHello` and
-`HostHello`, and on an interactive `Input` frame (request id zero) of a
-connection that negotiated it; the host grants it only to a client with
-`INPUT`. A flagged `Input` payload ends with the 8-byte little-endian `flow`
-of the key press the bytes carry; the bytes before it go to the PTY, the
-trailer never does. The host marks its next PTY read with that flow
-(`host.pty.read`, trace recordings only). A flagged payload shorter than 8
-bytes closes the connection. Hosts that predate it reject a hello carrying it,
-so a client sets it only when the host record advertises `supports_input_flow`,
-which records before version 4 must not set.
+`HostHello`, on an interactive `Input` frame (request id zero) of a
+connection that negotiated it, and on a live `Output` frame toward such a
+connection. A client asks for it only together with `FLAG_SMART_RENDERER`; the
+host grants it only on a smart-renderer connection of a client with `INPUT`.
+A flagged payload ends with the 8-byte little-endian `flow` of a key press; the
+bytes before it are the frame's input or output, the trailer never is:
+
+- On `Input`, the flow of the key press the bytes carry. The host never writes
+  the trailer to the PTY. Once the bytes reached the PTY (not dropped, not
+  failed), the host's next PTY read takes the flow, once.
+- On `Output`, the flow that PTY read took: these bytes are the key press's
+  echo. Only the first frame of that read carries it. A connection that did
+  not negotiate the flag gets the same frame without flag and trailer.
+
+A flagged payload shorter than 8 bytes closes the connection. Hosts that
+predate it reject a hello carrying it, so a client sets it only when the host
+record advertises `supports_input_flow`, which records before version 4 must
+not set.
 
 ## PTY custody and adoption
 

@@ -425,14 +425,33 @@ impl std::fmt::Debug for HolderKiller {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use std::io::Read;
     use std::os::fd::FromRawFd;
 
     use super::*;
 
     /// A raw PTY pair whose master is non-blocking, as the holder leaves it.
-    fn nonblocking_pty() -> (OwnedFd, std::fs::File) {
+    /// A terminal on `service` (a stand-in holder) whose custody master is
+    /// `custody`, its output from offset 0.
+    pub(crate) fn stand_in_terminal(
+        service: Arc<HolderService>,
+        chan: u32,
+        custody: OwnedFd,
+    ) -> Arc<HolderTerminal> {
+        Arc::new(HolderTerminal {
+            chan,
+            id: [0x5a; 16],
+            pid: 0,
+            custody,
+            ring: std::sync::Mutex::new(None),
+            sink: HolderSink::new(0),
+            service,
+            replay: std::sync::Mutex::new(None),
+        })
+    }
+
+    pub(crate) fn nonblocking_pty() -> (OwnedFd, std::fs::File) {
         let (mut master, mut slave) = (-1, -1);
         // SAFETY: out-pointers to live locals; default termios and size.
         let opened = unsafe {

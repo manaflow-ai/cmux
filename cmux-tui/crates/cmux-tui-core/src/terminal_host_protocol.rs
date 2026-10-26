@@ -79,28 +79,32 @@ pub const FLAG_PROGRAM_STATUS: u32 = 1 << 7;
 /// and only toward a host whose record advertises `supports_shell_activity`;
 /// older hosts reject the unknown bit.
 pub const FLAG_SHELL_ACTIVITY: u32 = 1 << 8;
-/// ClientHello opt-in and HostHello acknowledgement for key-press flows on
-/// input (p09-observability-018), and the flag of an interactive `Input`
-/// frame (request id 0) whose last 8 payload bytes are not input but the
-/// little-endian `flow u64` of the key press the bytes carry
-/// ([`input_flow_payload`]). The host stamps its next PTY read with the
-/// flow and never writes the trailer. Sent only toward a host whose record
-/// advertises `supports_input_flow`; older hosts reject the unknown bit.
+/// ClientHello opt-in and HostHello acknowledgement for key-press flows
+/// (p09-observability-018). On a connection that negotiated it, the flag
+/// marks a payload whose last 8 bytes are not terminal bytes but the
+/// little-endian `flow u64` of a key press ([`flow_trailer_payload`]):
+/// - an interactive `Input` frame (request id 0): the key press the bytes
+///   carry. The host never writes the trailer to the PTY;
+/// - a live `Output` frame from the host: the output of the host's first
+///   PTY read after that input reached the PTY, the key's echo.
+///
+/// Sent only toward a host whose record advertises `supports_input_flow`;
+/// older hosts reject the unknown bit.
 pub const FLAG_INPUT_FLOW: u32 = 1 << 9;
 
-/// The payload of an `Input` frame with [`FLAG_INPUT_FLOW`]: `bytes`, then
-/// `flow`.
-pub fn input_flow_payload(bytes: &[u8], flow: u64) -> Vec<u8> {
+/// The payload of an `Input` or `Output` frame with [`FLAG_INPUT_FLOW`]:
+/// `bytes`, then `flow`.
+pub fn flow_trailer_payload(bytes: &[u8], flow: u64) -> Vec<u8> {
     let mut payload = Vec::with_capacity(bytes.len() + size_of::<u64>());
     payload.extend_from_slice(bytes);
     payload.extend_from_slice(&flow.to_le_bytes());
     payload
 }
 
-/// An `Input` payload split into its input and its flow (`None` without
-/// [`FLAG_INPUT_FLOW`] in `flags`, or when a flagged payload is shorter
-/// than its trailer).
-pub fn split_input_flow(flags: u32, payload: &[u8]) -> Option<(&[u8], u64)> {
+/// A payload split into its bytes and its flow (flow 0 without
+/// [`FLAG_INPUT_FLOW`] in `flags`; `None` when a flagged payload is
+/// shorter than its trailer).
+pub fn split_flow_trailer(flags: u32, payload: &[u8]) -> Option<(&[u8], u64)> {
     if flags & FLAG_INPUT_FLOW == 0 {
         return Some((payload, 0));
     }

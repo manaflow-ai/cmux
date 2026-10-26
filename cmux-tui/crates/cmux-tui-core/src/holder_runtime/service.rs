@@ -691,7 +691,7 @@ fn parse_hex(hex: &str) -> Option<[u8; 32]> {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use std::os::fd::AsRawFd;
     use std::os::unix::net::{UnixListener, UnixStream};
     use std::time::Duration;
@@ -701,7 +701,7 @@ mod tests {
     use super::*;
 
     /// The next frame the link sent on `stream`; panics when it ends.
-    pub(super) fn next_frame(stream: &UnixStream, reader: &mut wire::Reader, what: &str) -> Frame {
+    pub(crate) fn next_frame(stream: &UnixStream, reader: &mut wire::Reader, what: &str) -> Frame {
         loop {
             if let Some(frame) = reader.next_frame().unwrap() {
                 return frame;
@@ -720,7 +720,7 @@ mod tests {
 
     /// [`welcome`] granting `granted` capability bits (`None`: a holder
     /// older than them, whose WELCOME has no such field).
-    pub(super) fn welcome_granting(
+    pub(crate) fn welcome_granting(
         stream: &UnixStream,
         reader: &mut wire::Reader,
         listed: &[(u32, [u8; 16])],
@@ -743,7 +743,7 @@ mod tests {
     }
 
     /// A service on a stand-in holder's socket (no holder is launched).
-    pub(super) fn stand_in_service(socket: PathBuf) -> Arc<HolderService> {
+    pub(crate) fn stand_in_service(socket: PathBuf) -> Arc<HolderService> {
         Arc::new(HolderService {
             socket,
             token: [0x44; 32],

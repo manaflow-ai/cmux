@@ -292,10 +292,13 @@ pub struct PtyTerminalRuntime {
     /// byte frontends may reset palettes or switch per-screen cursor storage
     /// even when the final effective values compare equal.
     pub(super) attach_colors_force_pending: AtomicBool,
-    /// The flow of the newest key press a `send` wrote here (0: none since
-    /// the last output took it): the next output this terminal's PTY gives
-    /// carries it, once (p09-observability-018).
-    pub(super) last_input_flow: AtomicU64,
+    /// The flow of the newest key press a `send` wrote on this terminal's
+    /// local PTY master (0: none since the last output took it): the
+    /// daemon's next read of that PTY carries it, once
+    /// (p09-observability-018). A hosted terminal's host and a holder
+    /// terminal's sink keep their own slot: the daemon does not read
+    /// their PTY.
+    pub(super) last_input_flow: crate::input_flow::InputFlowSlot,
     /// Published byte offset and grid generation for snapshot viewers.
     pub(super) snapshot_position: snapshot_attach::SnapshotStreamPosition,
     /// Last effective color state emitted to attach streams. This suppresses

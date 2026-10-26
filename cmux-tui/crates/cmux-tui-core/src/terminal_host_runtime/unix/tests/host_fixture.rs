@@ -60,7 +60,7 @@ pub(super) fn test_host_shared_with_budget(
         clipboard,
         parser_progress: (Mutex::new(0), Condvar::new()),
         next_client: AtomicU64::new(1),
-        last_input_flow: AtomicU64::new(0),
+        last_input_flow: Default::default(),
         dead: AtomicBool::new(false),
         launch_owner_claimed: AtomicBool::new(false),
         launch_owner_stream_ready: AtomicBool::new(false),

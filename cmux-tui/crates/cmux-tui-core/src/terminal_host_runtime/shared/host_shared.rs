@@ -66,7 +66,7 @@ pub(crate) struct HostShared {
     /// The flow of the newest key press an `Input` with `FLAG_INPUT_FLOW`
     /// wrote (0: none since the last read took it): the reader's next PTY
     /// read carries it, once (p09-observability-018).
-    pub(crate) last_input_flow: AtomicU64,
+    pub(crate) last_input_flow: crate::input_flow::InputFlowSlot,
     pub(crate) dead: AtomicBool,
     pub(crate) launch_owner_claimed: AtomicBool,
     pub(crate) launch_owner_stream_ready: AtomicBool,
@@ -387,7 +387,8 @@ impl HostShared {
     }
 
     /// Write `payload` to the PTY; `flow` (0: none) is the key press it
-    /// carries, which the reader's next PTY read takes ([`Self::take_input_flow`]).
+    /// carries, which the reader's next PTY read takes (`last_input_flow`)
+    /// when the bytes reached the PTY.
     pub(crate) fn write_input(
         &self,
         payload: &[u8],
@@ -395,10 +396,6 @@ impl HostShared {
         flow: u64,
         target: &HostTap,
     ) -> bool {
-        // Before the write: the echo can be read before the write returns.
-        if flow != 0 {
-            self.last_input_flow.store(flow, Ordering::Release);
-        }
         // Marked before the writer lock, so the mark never runs under it.
         cmux_flow_trace::hop_id("host.pty.write", flow, self.terminal_id.as_bytes());
         let delivered = {
@@ -418,10 +415,16 @@ impl HostShared {
             };
             let outcome = if !admitted {
                 InputWrite::Dropped
-            } else if writer.write_all(payload).and_then(|()| writer.flush()).is_ok() {
-                InputWrite::Written
             } else {
-                InputWrite::Failed
+                // Armed before the write: the echo can be read before the write returns.
+                self.last_input_flow.arm(flow);
+                if writer.write_all(payload).and_then(|()| writer.flush()).is_ok() {
+                    InputWrite::Written
+                } else {
+                    // No echo comes: the next unrelated read must not take the flow.
+                    self.last_input_flow.withdraw(flow);
+                    InputWrite::Failed
+                }
             };
             write.set_end_args(outcome.bytes_written(payload), outcome as u8);
             outcome != InputWrite::Failed
@@ -438,15 +441,6 @@ impl HostShared {
         response.request_id = request_id;
         let _broadcast = self.broadcast_lock.lock().recover_poison();
         target.try_send(response)
-    }
-
-    /// The key press the PTY read now echoes, once (0: none). Without a
-    /// flow this is one load, no write.
-    pub(crate) fn take_input_flow(&self) -> u64 {
-        if self.last_input_flow.load(Ordering::Acquire) == 0 {
-            return 0;
-        }
-        self.last_input_flow.swap(0, Ordering::AcqRel)
     }
 
     pub(crate) fn fence_client_detach(

@@ -155,7 +155,7 @@ fn exited_host_fixture_with_parser_at(
         clipboard: ClipboardReads::new(Arc::new(SystemClock)),
         parser_progress: (Mutex::new(0), Condvar::new()),
         next_client: AtomicU64::new(1),
-        last_input_flow: AtomicU64::new(0),
+        last_input_flow: Default::default(),
         dead: AtomicBool::new(false),
         launch_owner_claimed: AtomicBool::new(true),
         launch_owner_stream_ready: AtomicBool::new(true),

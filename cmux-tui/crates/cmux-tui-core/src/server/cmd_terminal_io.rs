@@ -200,15 +200,17 @@ pub(super) fn send(
         }
         surface.write_paste(&payload)?;
     } else {
-        // The key press's flow goes with its bytes: the next output of the terminal echoes it.
+        // The key press's flow goes with its first write, so one echo carries it.
         let flow = flow.unwrap_or(0);
+        let mut echo_flow = flow;
         if let Some(text) = text {
-            surface.write_bytes_flow(text.as_bytes(), flow)?;
+            let text_flow = if text.is_empty() { 0 } else { std::mem::take(&mut echo_flow) };
+            surface.write_bytes_flow(text.as_bytes(), text_flow)?;
         }
         if let Some(b64) = bytes {
             let raw = base64::engine::general_purpose::STANDARD.decode(b64)?;
             cmux_flow_trace::hop("daemon.send.write", flow, surface.flow_terminal_id());
-            surface.write_bytes_flow(&raw, flow)?;
+            surface.write_bytes_flow(&raw, echo_flow)?;
             cmux_flow_trace::hop("daemon.send.written", flow, surface.flow_terminal_id());
         }
     }

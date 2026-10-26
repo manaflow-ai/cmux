@@ -24,21 +24,17 @@ fn host_connection_lost(error: &std::io::Error) -> bool {
     )
 }
 
-/// Tell the holder that runs `pty`'s shell, if one does, that its next
-/// output echoes the key press `flow` (WRITE_FLOW; nothing for 0 or for a
-/// holder without the capability). The runtime lock is not held across
-/// the holder link's send.
+/// The holder that runs `pty`'s shell, if one does, when a key press `flow`
+/// (not 0) needs it. The runtime lock is released on return, so the holder
+/// link's send never runs under it.
 #[cfg(unix)]
-fn mark_holder_input_flow(pty: &PtySurface, flow: u64) {
+fn flow_holder(pty: &PtySurface, flow: u64) -> Option<Arc<crate::holder_runtime::HolderTerminal>> {
     if flow == 0 {
-        return;
+        return None;
     }
-    let holder = match &*pty.runtime.lock().unwrap() {
+    match &*pty.runtime.lock().unwrap() {
         PtyRuntime::Local { holder, .. } => holder.clone(),
         _ => None,
-    };
-    if let Some(holder) = holder {
-        holder.mark_input_flow(flow);
     }
 }
 
@@ -49,10 +45,12 @@ impl Surface {
     }
 
     /// [`Self::write_bytes`] of the key press `flow` (0: none,
-    /// p09-observability-018). The next output of this terminal echoes it:
-    /// the PTY owner's next read (a host that negotiated
-    /// `FLAG_INPUT_FLOW`, a holder that granted WRITE_FLOW) and the
-    /// daemon's next output event carry `flow`, once.
+    /// p09-observability-018). The PTY owner's first read after the bytes
+    /// reached the PTY echoes it, and that read's `output` event carries
+    /// `flow`, once: a hosted terminal's host stamps its read
+    /// (`FLAG_INPUT_FLOW`); a master the daemon writes itself, its reader's
+    /// next read (a holder terminal's: the holder's next output). Input
+    /// that is dropped or fails arms nothing.
     pub(crate) fn write_bytes_flow(&self, bytes: &[u8], flow: u64) -> std::io::Result<()> {
         let Some(pty) = self.as_pty() else {
             return Err(std::io::Error::new(
@@ -60,8 +58,6 @@ impl Surface {
                 "browser surface does not accept PTY bytes",
             ));
         };
-        // Before the write: its echo can reach the daemon before the write returns.
-        pty.note_input_flow(flow);
         #[cfg(any(unix, windows))]
         if let Some(result) = Self::send_hosted_input(pty, MessageKind::Input, bytes, flow) {
             return result;
@@ -69,23 +65,44 @@ impl Surface {
         // Not hosted: the daemon writes the PTY itself (the holder model's custody master). Marked
         // before the runtime lock, so the mark never runs under it.
         cmux_flow_trace::hop("daemon.pty.write", flow, pty.flow_terminal_id());
-        // The holder reads the echo: its flow mark goes before the bytes.
+        // The slot of the reader that reads the echo: a holder terminal's sink (the holder gets
+        // its flow mark before the bytes), else the terminal's own.
         #[cfg(unix)]
-        mark_holder_input_flow(pty, flow);
-        let mut runtime = pty.runtime.lock().unwrap();
-        match &mut *runtime {
-            PtyRuntime::Local { writer, master, .. } => {
-                let master = master.as_deref().map(|master| master as &dyn MasterPty);
-                crate::pty_input_room::write_input(master, writer.as_mut(), bytes).map(|_| ())
-            }
-            #[cfg(any(unix, windows))]
-            PtyRuntime::Hosted(host) => host.send(MessageKind::Input, bytes),
-            // A keep-on-exit terminal outlives its child, so typing into the
-            // dead PTY is an expected interaction: drop the bytes silently
-            // instead of failing every keystroke on the final screen.
-            #[cfg(any(unix, windows))]
-            PtyRuntime::ExitedHosted => Ok(()),
+        let holder = flow_holder(pty, flow);
+        #[cfg(unix)]
+        if let Some(holder) = holder.as_ref() {
+            holder.mark_input_flow(flow);
         }
+        #[cfg(unix)]
+        let slot = holder.as_ref().map_or(&pty.last_input_flow, |holder| &holder.sink.input_flow);
+        #[cfg(not(unix))]
+        let slot = &pty.last_input_flow;
+        // Armed before the write: the echo can be read before the write returns.
+        slot.arm(flow);
+        let reached_pty = {
+            let mut runtime = pty.runtime.lock().unwrap();
+            match &mut *runtime {
+                PtyRuntime::Local { writer, master, .. } => {
+                    let master = master.as_deref().map(|master| master as &dyn MasterPty);
+                    crate::pty_input_room::write_input(master, writer.as_mut(), bytes)
+                }
+                // The host stamps its own read of the echo.
+                #[cfg(any(unix, windows))]
+                PtyRuntime::Hosted(host) => {
+                    host.send_flow(MessageKind::Input, bytes, flow).map(|()| false)
+                }
+                // A keep-on-exit terminal outlives its child, so typing into the
+                // dead PTY is an expected interaction: drop the bytes silently
+                // instead of failing every keystroke on the final screen.
+                #[cfg(any(unix, windows))]
+                PtyRuntime::ExitedHosted => Ok(false),
+            }
+        };
+        // Dropped, handed to a host, or failed: no echo of this write comes to this slot.
+        if !matches!(reached_pty, Ok(true)) {
+            slot.withdraw(flow);
+        }
+        reached_pty.map(|_| ())
     }
 
     /// Send input to a hosted terminal's host, across a lost host

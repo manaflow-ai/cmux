@@ -176,7 +176,9 @@ pub(crate) fn connect_record_at_version(
     if shell_activity_requested {
         hello_frame.flags |= FLAG_SHELL_ACTIVITY;
     }
-    let input_flow_requested = protocol_version == PROTOCOL_VERSION && record.supports_input_flow;
+    // Flows come back on the smart stream's Output frames only.
+    let input_flow_requested =
+        protocol_version == PROTOCOL_VERSION && smart_renderer && record.supports_input_flow;
     if input_flow_requested {
         hello_frame.flags |= FLAG_INPUT_FLOW;
     }

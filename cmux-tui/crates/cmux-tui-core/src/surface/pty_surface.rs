@@ -112,30 +112,13 @@ impl PtySurface {
         self.host_identity.as_ref().map_or("", |id| id.terminal_id.as_str())
     }
 
-    /// Note that `flow` (0: none) wrote this terminal's newest input, so
-    /// the next output its PTY gives echoes it ([`Self::take_input_flow`]).
-    /// A newer key press replaces an older one that has no output yet.
-    pub(crate) fn note_input_flow(&self, flow: u64) {
-        if flow != 0 {
-            self.last_input_flow.store(flow, Ordering::Release);
-        }
-    }
-
-    /// The key press the output read now echoes, once (0: none). Without a
-    /// flow this is one load, no write.
-    pub(crate) fn take_input_flow(&self) -> u64 {
-        if self.last_input_flow.load(Ordering::Acquire) == 0 {
-            return 0;
-        }
-        self.last_input_flow.swap(0, Ordering::AcqRel)
-    }
-
     pub(super) fn broadcast_attach_output(&self, bytes: &[u8]) -> bool {
         self.broadcast_attach_output_flow(bytes, 0)
     }
 
     /// [`Self::broadcast_attach_output`] of PTY output that echoes the key
-    /// press `flow` (0: none, [`Self::take_input_flow`]).
+    /// press `flow` (0: none): the read that took it from its
+    /// [`crate::input_flow::InputFlowSlot`], or the flow the host sent with it.
     pub(super) fn broadcast_attach_output_flow(&self, bytes: &[u8], flow: u64) -> bool {
         cmux_flow_trace::hop("daemon.output.attach", flow, self.flow_terminal_id());
         self.snapshot_position.add_output(bytes.len());
