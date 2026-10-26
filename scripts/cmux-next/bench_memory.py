@@ -45,7 +45,7 @@ Usage:
   bench_memory.py --app BUNDLE --pressure warning|critical [--pressure-window 10]
   bench_memory.py --app BUNDLE ... --kernel-pressure warn|critical [--kernel-pressure-window 5]
   bench_memory.py --app BUNDLE --cold-scrollback 100 [--cold-scrollback-mb 10] [--cold-idle 0,10,30]
-      [--cold-codec-samples 5] [--out FILE.json]
+      [--cold-codec-samples 5] [--cold-pressure 5] [--out FILE.json]
 
 Phases (plans/cmux-next/chrome-parity/p07-memory.md, DC6 and DC10):
   --hidden-workspaces N [--grace S]
@@ -97,13 +97,16 @@ or takes --grace. Lab stories: scripts/perf-lab/stories.d/memory-hidden.json
 (Chromium) and memory-hidden-webkit.json (WebKit).
 
 --cold-scrollback N (p07-memory-112, the gate of tasks 040 and 041; cold_scrollback.py has the method):
-N workspaces with one terminal each print --cold-scrollback-mb MiB of log-like text (a full 10 MB scrollback
-each), go hidden, and are sampled with `footprint -j` (dirty and compressed columns) and vm_stat at each
---cold-idle minute; then the deflated size of --cold-codec-samples terminals' scrollback. It prints, per cold
-terminal, resident dirty and compressed bytes, the kernel compressor's ratio, what the kernel holds at best,
-deflate's bytes and the go/no-go (gain >= 2x) as COLD-SCROLLBACK lines and the memory-DESIGN.md table. A launch
-raises `terminal.scrollback.maxTotalMemoryBytes` to twice N x 10 MB so the daemon's scrollback budget does not
-trim the terminals; an attached app keeps its own budget (default 256 MiB), so the bench says it may trim.
+N workspaces with one terminal each are opened (a control sample with empty scrollback), print
+--cold-scrollback-mb MiB of log-like text (a full 10 MB scrollback each), go hidden, and are sampled with
+`footprint -j` (dirty and compressed columns) and vm_stat at each --cold-idle minute and once more after
+--cold-pressure (real memory pressure, memory_pressure -p); then the deflated size of --cold-codec-samples
+terminals' scrollback. It prints, per terminal, the daemon's dirty and compressed growth, its scrollback share, the
+kernel compressor's ratio, what the kernel keeps for that scrollback, deflate's bytes and the go/no-go (gain >= 2x),
+or `not measured`, as COLD-SCROLLBACK lines and the cold-scrollback-DESIGN.md table. A launch runs the holder
+terminal model (refuses --terminal-host-model hosts) and raises `terminal.scrollback.maxTotalMemoryBytes` to twice
+N x 10 MB so the daemon's scrollback budget does not trim the terminals; an attached app keeps its own budget
+(default 256 MiB), so the bench says it may trim, and an attached app on the hosts model decides `not measured`.
 
 --kernel-pressure warn|critical then feeds real kernel pressure
 (`/usr/bin/memory_pressure -S -l LEVEL`, root or passwordless sudo; without
@@ -1338,16 +1341,42 @@ class ColdScrollbackEnv:
             return {}, {}
         with tempfile.TemporaryDirectory() as folder:
             path = os.path.join(folder, "footprint.json")
-            ran = subprocess.run(["footprint", "-j", path, *map(str, sorted(kinds))], capture_output=True, text=True,
-                                 timeout=300)
             try:
+                ran = subprocess.run(["footprint", "-j", path, *map(str, sorted(kinds))], capture_output=True,
+                                     text=True, timeout=300)
+                why = (ran.stderr or ran.stdout).strip()[:300]
                 with open(path) as handle:
                     columns = cold_scrollback.parse_footprint(json.load(handle))
-            except (OSError, ValueError):
-                print(f"bench-memory: footprint -j failed: {(ran.stderr or ran.stdout).strip()[:300]}",
-                      file=sys.stderr, flush=True)
-                columns = {}
+            except subprocess.TimeoutExpired:
+                why, columns = "timed out after 300 s", None
+            except (OSError, ValueError) as error:
+                why, columns = f"{error}", None
+        if columns is None:
+            # The sample is then invalid (no daemon category rows) and the decision says not measured.
+            print(f"bench-memory: footprint -j failed: {why}", file=sys.stderr, flush=True)
+            columns = {}
         return columns, kinds
+
+    @staticmethod
+    def press(free_pct: int, hold_s: float) -> dict:
+        """Real memory pressure: `memory_pressure -p PCT -y S` allocates until PCT% of RAM is free, waits S
+        seconds, then exits and frees its pages. Not -S, which only sets the level the dispatch sources read and
+        makes the kernel compress nothing; not -l, which allocates and then waits forever."""
+        if not os.access(MEMORY_PRESSURE, os.X_OK):
+            return {"ok": False, "error": f"{MEMORY_PRESSURE} not found"}
+        argv = [MEMORY_PRESSURE, "-Q", "-p", str(free_pct), "-y", str(max(1, math.ceil(hold_s)))]
+        started = time.monotonic()
+        try:
+            ran = subprocess.run(argv, capture_output=True, text=True, timeout=hold_s + 900)
+        except subprocess.TimeoutExpired:
+            return {"ok": False, "error": f"{' '.join(argv)} did not exit within {hold_s + 900:.0f} s"}
+        except OSError as error:
+            return {"ok": False, "error": f"{' '.join(argv)}: {error}"}
+        result = {"ok": ran.returncode == 0, "argv": argv, "seconds": round(time.monotonic() - started, 1),
+                  "kernel_level_after": kernel_pressure_level()}
+        if ran.returncode != 0:
+            result["error"] = (ran.stderr or ran.stdout).strip()[:300] or f"exit {ran.returncode}"
+        return result
 
     @staticmethod
     def vm_stat() -> str:
@@ -1426,6 +1455,13 @@ def check_args(parser: argparse.ArgumentParser, args) -> list[int]:
                          "--workspaces, churn or pressure)")
         if args.cold_scrollback < 1 or args.cold_scrollback_mb <= 0 or args.cold_codec_samples < 1:
             parser.error("--cold-scrollback, --cold-scrollback-mb and --cold-codec-samples are > 0")
+        if args.terminal_host_model == "hosts":
+            parser.error("--cold-scrollback runs the holder model: a terminal host keeps a second VT copy of each "
+                         "scrollback, so the daemon's bytes would be half of what a terminal keeps")
+        if not 0 <= args.cold_pressure < 100:
+            parser.error("--cold-pressure is a percent of free RAM, 1 to 99, or 0 for none")
+        if not args.socket:
+            args.terminal_host_model = "holder"
         try:
             args.cold_idle_minutes = sorted(float(n) for n in args.cold_idle.split(",") if n)
         except ValueError:
@@ -1573,6 +1609,12 @@ def parse_args(argv=None):
     parser.add_argument("--cold-codec-samples", type=int, default=5, metavar="N",
                         help="--cold-scrollback: terminals whose scrollback is read back and deflated, after the last "
                              "sample")
+    parser.add_argument("--cold-pressure", type=int, default=5, metavar="PCT_FREE",
+                        help="--cold-scrollback: after the idle samples, real memory pressure (memory_pressure -p, "
+                             "allocating until this percent of RAM is free) until the compressor holds the cold "
+                             "pages; 0 runs none and decides no-go")
+    parser.add_argument("--cold-pressure-hold", type=float, default=30, metavar="S",
+                        help="--cold-pressure: seconds memory_pressure holds before it exits and frees its pages")
     parser.add_argument("--out", help="the report file; with --hidden-slope a path not ending in .json is a folder for "
                                       "the result-v1 files and bench-memory.json")
     args = parser.parse_args(argv)
@@ -1679,7 +1721,7 @@ def main(argv=None):
             env = ColdScrollbackEnv(app, app_pid, bundle, args.url, opened)
             report["cold_scrollback"] = cold_scrollback.cold_scrollback_phase(
                 env, args.cold_scrollback, int(args.cold_scrollback_mb * MB), args.cold_idle_minutes,
-                args.cold_codec_samples)
+                args.cold_codec_samples, pressure=args.cold_pressure, pressure_hold_s=args.cold_pressure_hold)
         if args.hidden_slope:
             report["hidden_slope"] = run_hidden_slope(app, args, slope_counts, opened, chats, app_pid, bundle,
                                                       report, bench, results_dir)
