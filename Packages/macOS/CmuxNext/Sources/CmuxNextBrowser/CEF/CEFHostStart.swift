@@ -27,6 +27,10 @@ final class CEFHostStart {
     var widgetHost: ChromiumHostWidgetHost?
     /// Page resizes hold their window's commit on a fence (feature `chromiumHostResizeFence`).
     let fencesResizes: Bool
+    /// `<select>` popups show as cmux menus (feature `chromiumHostPopupMenus`, `CEFRuntime.showHostPopupMenus(_:)`).
+    let drawsPopupMenus: Bool
+    /// The host's `<select>` popups in cmux menus, from the start on when ``drawsPopupMenus``; nil otherwise.
+    var popupMenus: ChromiumHostPopupMenus?
     /// The attached host's page resizes (`CEFRuntime.hostPageResizes()`), made on first use; a new host starts with none.
     var pageResizes: ChromiumHostResizeFence?
     private let supervisor: any ChromiumHostSupervising
@@ -44,18 +48,22 @@ final class CEFHostStart {
     /// before the start fails (a host that hangs while it starts Chromium). Reply deadlines run on
     /// `clock` too.
     init(supervisor: any ChromiumHostSupervising, showsWidgets: Bool = false, takesDrags: Bool = false,
-         fencesResizes: Bool = false, open: @escaping Open = { CEFRemoteShim.open($0) },
+         fencesResizes: Bool = false, drawsPopupMenus: Bool = false, open: @escaping Open = { CEFRemoteShim.open($0) },
          helloDeadline: Duration = .seconds(30), clock: any Clock<Duration> = ContinuousClock()) {
         self.supervisor = supervisor
         self.showsWidgets = showsWidgets
         self.takesDrags = takesDrags
         self.fencesResizes = fencesResizes
+        self.drawsPopupMenus = drawsPopupMenus
         self.open = open
         self.helloDeadline = helloDeadline
         self.clock = clock
         replies = CEFHostReplies(clock: clock)
-        // A dead host sends no WIDGET_GONE: its panels, panes and windows go when it ends.
-        supervisor.observeHostEnds { [weak self] in self?.widgetHost?.hostEnded() }
+        // A dead host sends no WIDGET_GONE or POPUP_MENU_HIDE: its panels, panes, windows and menu go when it ends.
+        supervisor.observeHostEnds { [weak self] in
+            self?.widgetHost?.hostEnded()
+            self?.popupMenus?.hostEnded()
+        }
     }
 
     /// The attached host; the first caller starts the attach, later ones await it.

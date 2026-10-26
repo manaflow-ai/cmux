@@ -189,7 +189,7 @@ enum DebugDriverControl {
                 return .value(DebugPointerHover.run(call.params, services: services))
             },
             .mainActor("debug.menu") { [weak services] call in
-                .value(DebugExtensions.menu(call.params, presenter: services?.contextMenus))
+                .value(DebugExtensions.menu(call.params, presenter: services?.contextMenus, popupMenu: services?.cache.chromium.built?.hostPopupMenu))
             },
             // The browser-data import offer on the first browser tab.
             .mainActor("debug.browser_import_offer") { [weak services] call in

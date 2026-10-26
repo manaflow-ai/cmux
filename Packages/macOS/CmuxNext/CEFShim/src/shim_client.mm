@@ -574,6 +574,7 @@ class Client : public CefClient,
     std::string features;
     std::string popup_url;
     int64_t popup = request == 0 ? TakePopup(browser, &features, &popup_url) : 0;
+    ApplyPopupMenus(id);
     Emit(CMUX_SHIM_AFTER_CREATED, id, request, window, popup, features, popup_url);
   }
 
