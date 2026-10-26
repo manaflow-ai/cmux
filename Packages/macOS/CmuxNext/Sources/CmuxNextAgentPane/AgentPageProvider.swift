@@ -13,7 +13,7 @@ public extension PageDescriptor {
     /// meta CSP says the same (build-agent-pane-web.sh; AgentPageCSPAlignmentTests); the host runs the
     /// user's registry.js through evaluateJavaScript, which the CSP does not govern.
     static let agent = PageDescriptor(
-        id: "cmux.agent", resource: "agent-pane", namespaces: [AgentPageOps.namespace],
+        id: "cmux.agent", resource: "agent-pane", processGroup: .agent, namespaces: [AgentPageOps.namespace],
         csp: PageCSP(connect: ["'none'"],
                      frame: [AgentPaneRenderFrame.source, "http://localhost:*", "http://127.0.0.1:*", "https://localhost:*", "https://127.0.0.1:*"],
                      script: ["'wasm-unsafe-eval'"], inlineScript: false),

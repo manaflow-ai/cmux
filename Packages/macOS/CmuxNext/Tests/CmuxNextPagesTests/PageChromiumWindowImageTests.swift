@@ -11,7 +11,7 @@ import Testing
 @MainActor
 struct PageChromiumWindowImageTests {
     private let root: URL
-    private let descriptor = PageDescriptor(id: "test.window-image", resource: "window-image", namespaces: [])
+    private let descriptor = PageDescriptor(id: "test.window-image", resource: "window-image", processGroup: .solo, namespaces: [])
     /// A 1x1 PNG, as `Page.captureScreenshot` answers it.
     private static let onePixel = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=="
 

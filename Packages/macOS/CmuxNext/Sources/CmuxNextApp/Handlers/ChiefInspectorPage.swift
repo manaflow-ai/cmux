@@ -13,7 +13,7 @@ extension PageDescriptor {
     /// relays to the brain's daemon (`chief-inspect`). No registry action,
     /// no native op.
     static let chiefInspector = PageDescriptor(
-        id: "cmux.chief-inspector", resource: "chief-inspector", namespaces: ["cmux.chief_inspector."])
+        id: "cmux.chief-inspector", resource: "chief-inspector", processGroup: .viewer, namespaces: ["cmux.chief_inspector."])
 }
 
 extension InternalPageID {

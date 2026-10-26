@@ -1148,6 +1148,7 @@ name = "cmux-holder"
 version = "0.1.0"
 dependencies = [
  "cmux-flow-trace",
+ "cmux-ipc",
  "cmux-process",
  "libc",
 ]
@@ -1176,6 +1177,13 @@ dependencies = [
  "tar",
  "tempfile",
  "tokio",
+]
+
+[[package]]
+name = "cmux-ipc"
+version = "0.1.0"
+dependencies = [
+ "libc",
 ]
 
 [[package]]

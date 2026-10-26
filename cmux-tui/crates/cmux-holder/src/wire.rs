@@ -7,9 +7,10 @@
 //! that carries descriptors sends them with its first byte; the receiver
 //! queues them in arrival order and the frame kind says how many it takes.
 
-use std::collections::VecDeque;
 use std::io;
-use std::os::fd::{AsRawFd, FromRawFd, OwnedFd, RawFd};
+use std::os::fd::{AsRawFd, OwnedFd, RawFd};
+
+use cmux_ipc::fds::{self, FdReceiver};
 
 /// Frame magic.
 pub const MAGIC: [u8; 4] = *b"CMHX";
@@ -265,22 +266,19 @@ pub fn tune_socket(fd: RawFd) {
 
 /// Bytes one `recvmsg` may read into a [`Reader`].
 const READ_CHUNK: usize = 256 * 1024;
-/// Descriptors one `recvmsg` may carry (Linux `SCM_MAX_FD`): a WELCOME
-/// passes one per terminal.
-const MAX_RECV_FDS: usize = 253;
 
 /// Bytes read from a socket, with the descriptors that arrived alongside,
 /// split into frames. Frames are taken from a read cursor; the buffer is
 /// compacted once per [`Self::fill`], not once per frame, and the receive
-/// buffers are allocated once.
+/// buffers are allocated once. The `recvmsg` and the descriptor FIFO are
+/// `cmux_ipc::fds` (a WELCOME passes one descriptor per terminal, so one
+/// read may bring up to [`fds::MAX_RECV_FDS`]).
 #[derive(Default)]
 pub struct Reader {
     buf: Vec<u8>,
     /// Offset in `buf` of the first byte no frame took yet.
     start: usize,
-    fds: VecDeque<OwnedFd>,
-    /// The `recvmsg` control buffer, allocated on the first fill.
-    control: Vec<u8>,
+    fds: FdReceiver,
 }
 
 impl Reader {
@@ -298,21 +296,7 @@ impl Reader {
             self.buf.drain(..self.start);
             self.start = 0;
         }
-        if self.control.is_empty() {
-            self.control = vec![0u8; control_space()];
-        }
-        self.buf.reserve(READ_CHUNK);
-        let len = self.buf.len();
-        let room = (self.buf.capacity() - len).min(READ_CHUNK);
-        // SAFETY: `reserve` made `room` bytes of capacity past `len`, so
-        // the pointer stays inside the allocation; recvmsg writes at most
-        // that many, and `set_len` below covers only what it wrote.
-        let tail = unsafe { self.buf.as_mut_ptr().add(len) };
-        // SAFETY: `tail` is valid for writes of `room` bytes (above).
-        let (n, fds) = unsafe { recv_with_fds(fd, tail, room, &mut self.control, between)? };
-        // SAFETY: recvmsg initialized `n` bytes past `len`.
-        unsafe { self.buf.set_len(len + n) };
-        self.fds.extend(fds);
+        let n = self.fds.recv(fd, &mut self.buf, READ_CHUNK, between)?;
         Ok(n != 0)
     }
 
@@ -344,166 +328,12 @@ impl Reader {
             self.start = 0;
         }
         let wanted = Kind::from_u16(kind).map_or(0, |kind| kind.descriptors_with(flags));
-        let fds = (0..wanted).filter_map(|_| self.fds.pop_front()).collect();
+        let fds = self.fds.take(wanted).map_err(|bad| bad.into_io(io::ErrorKind::InvalidData))?;
         Ok(Some(Frame { kind, flags, chan, payload, fds }))
     }
 }
 
-/// Bytes of a control buffer for [`MAX_RECV_FDS`] descriptors.
-fn control_space() -> usize {
-    // SAFETY: CMSG_SPACE computes a size from a length.
-    unsafe { libc::CMSG_SPACE((MAX_RECV_FDS * size_of::<RawFd>()) as u32) as usize }
-}
-
-/// Write all of `bytes`, passing `fds` with the first byte. Blocking.
-pub fn send_all(fd: RawFd, bytes: &[u8], fds: &[RawFd]) -> io::Result<()> {
-    let mut sent = send_with_fds(fd, bytes, fds)?;
-    while sent < bytes.len() {
-        sent += send_with_fds(fd, &bytes[sent..], &[])?;
-    }
-    Ok(())
-}
-
-/// One `sendmsg` of `bytes` with `fds` as `SCM_RIGHTS`. Returns bytes sent.
-pub fn send_with_fds(fd: RawFd, bytes: &[u8], fds: &[RawFd]) -> io::Result<usize> {
-    let mut iov =
-        libc::iovec { iov_base: bytes.as_ptr() as *mut libc::c_void, iov_len: bytes.len() };
-    let space = if fds.is_empty() {
-        0
-    } else {
-        // SAFETY: CMSG_SPACE computes a size from a length.
-        unsafe { libc::CMSG_SPACE(size_of_val(fds) as u32) as usize }
-    };
-    let mut control = vec![0u8; space];
-    // SAFETY: zeroed msghdr is a valid empty header.
-    let mut msg: libc::msghdr = unsafe { std::mem::zeroed() };
-    msg.msg_iov = &mut iov;
-    msg.msg_iovlen = 1;
-    if !fds.is_empty() {
-        msg.msg_control = control.as_mut_ptr().cast();
-        msg.msg_controllen = space as _;
-        // SAFETY: the control buffer holds one cmsg of CMSG_SPACE(fds) bytes.
-        unsafe {
-            let cmsg = libc::CMSG_FIRSTHDR(&msg);
-            (*cmsg).cmsg_level = libc::SOL_SOCKET;
-            (*cmsg).cmsg_type = libc::SCM_RIGHTS;
-            (*cmsg).cmsg_len = libc::CMSG_LEN(size_of_val(fds) as u32) as _;
-            std::ptr::copy_nonoverlapping(
-                fds.as_ptr(),
-                libc::CMSG_DATA(cmsg).cast::<RawFd>(),
-                fds.len(),
-            );
-        }
-    }
-    loop {
-        // SAFETY: msg points at live buffers for the call.
-        let n = unsafe { libc::sendmsg(fd, &msg, send_flags()) };
-        if n >= 0 {
-            return Ok(n as usize);
-        }
-        let error = io::Error::last_os_error();
-        if error.kind() != io::ErrorKind::Interrupted {
-            return Err(error);
-        }
-    }
-}
-
-#[cfg(target_os = "linux")]
-fn send_flags() -> libc::c_int {
-    libc::MSG_NOSIGNAL
-}
-
-#[cfg(not(target_os = "linux"))]
-fn send_flags() -> libc::c_int {
-    0
-}
-
-/// `recvmsg` flags: received descriptors arrive close-on-exec where the
-/// kernel can do that atomically.
-#[cfg(target_os = "linux")]
-const RECV_FLAGS: libc::c_int = libc::MSG_CMSG_CLOEXEC;
-#[cfg(not(target_os = "linux"))]
-const RECV_FLAGS: libc::c_int = 0;
-
-/// One `recvmsg` of at most `len` bytes into `buf`, with `control` as the
-/// control buffer; descriptors that arrive are returned owned
-/// (close-on-exec), after `between` saw them. A descriptor that cannot be made close-on-exec fails
-/// the read: every descriptor of the frame is closed then, and the link is
-/// lost, rather than keeping a descriptor every later child inherits.
-///
-/// On Linux the kernel installs them close-on-exec (`MSG_CMSG_CLOEXEC`).
-/// macOS has no such flag: there each descriptor gets `FD_CLOEXEC` right
-/// after `recvmsg` returns. The holder is single-threaded, so nothing forks
-/// in between there. In the multithreaded daemon this is NOT atomic: a
-/// process another daemon thread spawns between the two calls inherits the
-/// descriptor (a PTY master, or a ring segment: a writable copy of a
-/// terminal's output) for its whole life, because the daemon's spawns (std
-/// `Command`, `posix_spawn` without `POSIX_SPAWN_CLOEXEC_DEFAULT`) pass
-/// every descriptor that is not close-on-exec. Nothing on the receiving
-/// side can close that window on macOS; only the spawning side can (every
-/// daemon child started with `POSIX_SPAWN_CLOEXEC_DEFAULT` and explicit
-/// `dup2` actions, as `cmux-mux2`'s `spawn_pty` does): `cmux-process`'s
-/// `Command` (review 1 of pl-holder-11, major), which every daemon spawn
-/// moves to. `tests/spawn_race.rs` spawns inside this window.
-///
-/// # Safety
-///
-/// `buf` must be valid for writes of `len` bytes.
-unsafe fn recv_with_fds(
-    fd: RawFd,
-    buf: *mut u8,
-    len: usize,
-    control: &mut [u8],
-    between: impl FnOnce(&[OwnedFd]),
-) -> io::Result<(usize, Vec<OwnedFd>)> {
-    let mut iov = libc::iovec { iov_base: buf.cast(), iov_len: len };
-    // SAFETY: zeroed msghdr is a valid empty header.
-    let mut msg: libc::msghdr = unsafe { std::mem::zeroed() };
-    msg.msg_iov = &mut iov;
-    msg.msg_iovlen = 1;
-    msg.msg_control = control.as_mut_ptr().cast();
-    msg.msg_controllen = control.len() as _;
-    let n = loop {
-        // SAFETY: msg points at live buffers for the call (the caller
-        // vouches for `buf`).
-        let n = unsafe { libc::recvmsg(fd, &mut msg, RECV_FLAGS) };
-        if n >= 0 {
-            break n as usize;
-        }
-        let error = io::Error::last_os_error();
-        if error.kind() != io::ErrorKind::Interrupted {
-            return Err(error);
-        }
-    };
-    let mut fds = Vec::new();
-    // SAFETY: walking the control buffer recvmsg filled, within msg_controllen.
-    unsafe {
-        let mut cmsg = libc::CMSG_FIRSTHDR(&msg);
-        while !cmsg.is_null() {
-            if (*cmsg).cmsg_level == libc::SOL_SOCKET && (*cmsg).cmsg_type == libc::SCM_RIGHTS {
-                let data = libc::CMSG_DATA(cmsg).cast::<RawFd>();
-                let header = libc::CMSG_LEN(0) as usize;
-                let count = ((*cmsg).cmsg_len as usize - header) / size_of::<RawFd>();
-                for index in 0..count {
-                    // Owned at once, so every one of them closes on any
-                    // early return below.
-                    fds.push(OwnedFd::from_raw_fd(std::ptr::read_unaligned(data.add(index))));
-                }
-            }
-            cmsg = libc::CMSG_NXTHDR(&msg, cmsg);
-        }
-    }
-    between(&fds);
-    if RECV_FLAGS == 0 {
-        for fd in &fds {
-            // SAFETY: F_SETFD on a descriptor this call owns.
-            if unsafe { libc::fcntl(fd.as_raw_fd(), libc::F_SETFD, libc::FD_CLOEXEC) } != 0 {
-                return Err(io::Error::last_os_error());
-            }
-        }
-    }
-    Ok((n, fds))
-}
+pub use fds::{send_all, send_with_fds};
 
 /// Little-endian payload builder.
 #[derive(Default)]
@@ -587,7 +417,64 @@ pub fn raw(fd: &OwnedFd) -> RawFd {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::io::Read;
+    use std::os::fd::FromRawFd;
     use std::os::unix::net::UnixStream;
+
+    fn pipe() -> (OwnedFd, OwnedFd) {
+        let mut ends = [0; 2];
+        // SAFETY: pipe fills two descriptors this test then owns.
+        assert_eq!(unsafe { libc::pipe(ends.as_mut_ptr()) }, 0);
+        // SAFETY: both are fresh descriptors nothing else owns.
+        unsafe { (OwnedFd::from_raw_fd(ends[0]), OwnedFd::from_raw_fd(ends[1])) }
+    }
+
+    /// The (inode, access mode) of the file a descriptor names.
+    fn identity(fd: &OwnedFd) -> (u64, libc::c_int) {
+        // SAFETY: zeroed stat is a valid out-parameter.
+        let mut st: libc::stat = unsafe { std::mem::zeroed() };
+        // SAFETY: fstat and F_GETFL of a descriptor this test owns.
+        let (stat, flags) = unsafe {
+            (libc::fstat(fd.as_raw_fd(), &mut st), libc::fcntl(fd.as_raw_fd(), libc::F_GETFL))
+        };
+        assert!(stat == 0 && flags >= 0, "{}", io::Error::last_os_error());
+        (st.st_ino as u64, flags & libc::O_ACCMODE)
+    }
+
+    /// The wire is the holder's frozen format with its descriptors: a ring
+    /// SPAWNED frame is these exact bytes on the socket (what every older
+    /// holder and daemon reads), and its two descriptors arrive with it,
+    /// master first, then the ring segment.
+    #[test]
+    fn a_frame_with_descriptors_is_the_frozen_bytes_in_order() {
+        const SPAWNED_RING: &[u8] = b"CMHX\x04\x00\x02\x00\x07\x00\x00\x00\x07\x00\x00\x00spawned";
+        let frame = encode_flagged(Kind::Spawned, FLAG_RING, 7, b"spawned");
+        assert_eq!(frame, SPAWNED_RING);
+        let (master, _master_write) = pipe();
+        let (_ring_read, ring) = pipe();
+
+        let (sender, mut receiver) = UnixStream::pair().unwrap();
+        send_all(sender.as_raw_fd(), &frame, &[raw(&master), raw(&ring)]).unwrap();
+        let mut bytes = vec![0; SPAWNED_RING.len()];
+        receiver.read_exact(&mut bytes).unwrap();
+        assert_eq!(bytes, SPAWNED_RING, "the bytes on the socket are the encoded frame");
+
+        send_all(sender.as_raw_fd(), &frame, &[raw(&master), raw(&ring)]).unwrap();
+        let mut reader = Reader::default();
+        let frame = loop {
+            if let Some(frame) = reader.next_frame().unwrap() {
+                break frame;
+            }
+            assert!(reader.fill(receiver.as_raw_fd()).unwrap(), "the stream ended early");
+        };
+        assert_eq!((frame.kind, frame.flags, frame.chan), (Kind::Spawned as u16, FLAG_RING, 7));
+        assert_eq!(frame.payload, b"spawned");
+        assert_eq!(
+            frame.fds.iter().map(identity).collect::<Vec<_>>(),
+            [identity(&master), identity(&ring)],
+            "master first, then the ring segment"
+        );
+    }
 
     fn close_on_exec(fd: &OwnedFd) -> bool {
         // SAFETY: F_GETFD of a descriptor this test owns.
