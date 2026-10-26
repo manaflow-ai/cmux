@@ -113,7 +113,14 @@ export function IncomingMessageLine({
   const [details, setDetails] = useState(false);
   // Only the reader's own clicks play the motion; Find opening a message for its match does not.
   const played = useRef(false);
-  const envelope = useAnchoredCollapse({ open: details, onOpenChange: setDetails, animates: () => played.current });
+  // cmux's Minimal Mode, which the chat follows (chatDisplay.ts).
+  const { minimal } = useChatDisplay();
+  // Out of Minimal Mode, Details folds its envelope in and out; in it, Details shows it at once (#25002).
+  const envelope = useAnchoredCollapse({
+    open: details,
+    onOpenChange: setDetails,
+    animates: () => played.current && !minimal,
+  });
   // The card's height as drawn when the reader clicked, which its text's resize starts from.
   const cardFrom = useRef<number | undefined>(undefined);
   // Find in Chat opens a closed message that holds its match, as a folded thought opens; a match
@@ -142,8 +149,6 @@ export function IncomingMessageLine({
   const host = message.remote ? (place?.host ?? "") : place?.host;
   const repository = githubRepository ?? mentionedRepository(text);
   const body = useMemo(() => dedupeReferences(text, repository), [text, repository]);
-  // cmux's Minimal Mode, which the chat follows (chatDisplay.ts).
-  const { minimal } = useChatDisplay();
   const scope = useMemo<MessageScope>(() => (host === undefined ? {} : { host }), [host]);
   // Measure the eight-line limit and the safe cut above any crossing glyph, chip or code card.
   const textBox = useRef<HTMLDivElement>(null);
@@ -321,12 +326,17 @@ export function IncomingMessageLine({
   const detailsRow = (
     <div className="cv-received__details">
       <button
-        ref={envelope.headerRef}
+        ref={minimal ? undefined : envelope.headerRef}
         type="button"
         className="cv-received__more"
         aria-expanded={details}
         aria-controls={details ? rawId : undefined}
         onClick={() => {
+          // Minimal Mode's Details opens and closes at once, as it did (#25002).
+          if (minimal) {
+            setDetails((value) => !value);
+            return;
+          }
           played.current = true;
           envelope.toggle();
         }}
@@ -334,13 +344,19 @@ export function IncomingMessageLine({
         {t("message.details")}
         <ChevronRight size={12} strokeWidth={1.4} className={`cv-rotor${details ? " is-open" : ""}`} />
       </button>
-      {envelope.present && (
-        <div {...envelope.bodyProps}>
-          <pre id={rawId} className="cv-tool-output selectable">
-            {raw}
-          </pre>
-        </div>
-      )}
+      {minimal
+        ? details && (
+            <pre id={rawId} className="cv-tool-output selectable">
+              {raw}
+            </pre>
+          )
+        : envelope.present && (
+            <div {...envelope.bodyProps}>
+              <pre id={rawId} className="cv-tool-output selectable">
+                {raw}
+              </pre>
+            </div>
+          )}
     </div>
   );
   return (
