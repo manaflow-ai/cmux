@@ -426,7 +426,7 @@ pub enum Command {
         name: Option<String>,
         #[arg(long)]
         cwd: Option<PathBuf>,
-        /// Fork even when this host refuses new sessions (disk under its floor, or at max_lanes).
+        /// Fork even when this host refuses new sessions (disk under its floor; max_lanes only warns).
         #[arg(long)]
         force_admit: bool,
     },
@@ -716,7 +716,7 @@ pub enum SessionCmd {
         name: Option<String>,
         #[arg(long)]
         cwd: Option<PathBuf>,
-        /// Fork even when this host refuses new sessions (disk under its floor, or at max_lanes).
+        /// Fork even when this host refuses new sessions (disk under its floor; max_lanes only warns).
         #[arg(long)]
         force_admit: bool,
     },
@@ -986,7 +986,7 @@ pub struct NewArgs {
     #[arg(long)]
     pub reuse: bool,
     /// Create the session even when its host refuses new ones (disk under its
-    /// floor, or at the fleet registry's max_lanes). The daemon logs it.
+    /// floor; the fleet registry's max_lanes only warns). The daemon logs it.
     #[arg(long)]
     pub force_admit: bool,
 }

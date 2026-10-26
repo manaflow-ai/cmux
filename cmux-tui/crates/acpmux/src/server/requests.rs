@@ -896,6 +896,10 @@ async fn dispatch_request(
             if let Some(w) = worktree {
                 summary.set("worktree", w);
             }
+            // Started past the lane cap: the caller hears it (`hub/admission.rs`).
+            if let Some(w) = admitted.as_ref().and_then(|a| a.warning.clone()) {
+                summary.set("admission", w);
+            }
             Ok(json!({
                 "sessionId": s.id,
                 "modes": meta.modes,
@@ -1113,8 +1117,12 @@ async fn dispatch_request(
             let new = admitted.run(hub.fork(&s, name, cwd, env, workspace_id, through)).await?;
             attach(hub, conn, &new.id);
             let meta = new.meta();
+            let mut summary = hub.session_summary(&new);
+            if let Some(w) = admitted.warning.clone() {
+                summary.set("admission", w);
+            }
             Ok(
-                json!({"sessionId": new.id, "modes": meta.modes, "configOptions": meta.config_options, "_meta": {"acpmux": hub.session_summary(&new)}}),
+                json!({"sessionId": new.id, "modes": meta.modes, "configOptions": meta.config_options, "_meta": {"acpmux": summary}}),
             )
         }
         method::SESSION_SET_MODE => {
