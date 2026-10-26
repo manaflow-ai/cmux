@@ -478,6 +478,15 @@ async fn a_persons_queued_prompt_stays_theirs_across_a_crash() {
     hold_startup(&daemon);
     daemon.start();
     let mut rpc = daemon.rpc().await;
+    // The restored queue lists her as its author, though no attach page reaches her record.
+    let info = rpc.call("_acpmux/info", json!({"session": session})).await;
+    let listed = &info["queue"][0];
+    assert_eq!(listed["promptId"], "q-ana", "{info:#}");
+    assert_eq!(
+        listed["author"],
+        json!({"id": "tailnet:ana@example.com", "name": "Ana"}),
+        "the restart lost her name from the list: {info:#}"
+    );
     for other in [Some(json!({"id": "user_bo", "name": "Bo"})), None] {
         let refused = rpc.reply("_acpmux/queue_edit", edit(other.as_ref())).await;
         assert_eq!(
