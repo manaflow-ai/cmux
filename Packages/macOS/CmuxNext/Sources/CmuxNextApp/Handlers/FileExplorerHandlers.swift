@@ -28,6 +28,7 @@ enum FileExplorerHandlers {
                 var commands = FileExplorerCommands(model: target.model, effects: effects)
                 commands.undoManager = target.undoManager
                 // task-owner: the action run; a capturing caller (CLI, MCP) awaits it through the registry.
+                // main-hop-allow: the action's userBlocking rest (p06 rule 2), tracked for a capturing caller: it awaits the main-actor explorer commands; post has no userBlocking class (task 208)
                 registry.track(Task { @MainActor in
                     do {
                         try await body(invocation, commands, target)
@@ -59,6 +60,7 @@ enum FileExplorerHandlers {
                 let item = row.url
                 FileExplorerOpenWithMenu.chooseApp(for: item) { app in
                     // task-owner: one open with the chosen app; ends when the app has the file.
+                    // main-hop-allow: the person's pick in the app panel, userBlocking (p06 rule 2): it awaits the main-actor open effect; post has no userBlocking class (task 208)
                     Task { @MainActor in
                         do { try await effects.open(item, withApp: app) } catch { registry.refuse(Self.reason(error)) }
                     }
