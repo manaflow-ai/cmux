@@ -106,6 +106,9 @@ extension TabContentCache {
         evictsAtOnce = budget.terminalCapacity < warmBudget.terminalCapacity
         defer { evictsAtOnce = false }
         warmBudget = budget
+        // Bounds the frames kept from now on, these evictions' too; it drops no stored frame (the
+        // memory coordinator's critical release slices do, `memoryTerminalLastFrames`).
+        lastFrames.setCapacity(budget.terminalCapacity)
         apply(ledger.setCapacity(budget.terminalCapacity))
     }
 
@@ -128,7 +131,7 @@ extension TabContentCache {
 
     /// A hidden terminal leaves the warm set: its last frame stays (no copy), then it closes.
     private func evict(_ entry: TerminalEntry, key: String) {
-        lastFrames.evict(entry.session, key: key, capacity: warmBudget.terminalCapacity, atOnce: evictsAtOnce)
+        lastFrames.evict(entry.session, key: key, atOnce: evictsAtOnce)
         entry.session.view.removeFromSuperview()
         entry.close()
     }

@@ -44,8 +44,8 @@ final class TabContentCache {
     let dormantTabs = DormantTabs() // hibernated tabs, observed by the tab strips
     let previews = PreviewImageCache()
     /// Evicted terminals' last frames: shown at once when the terminal is shown again, pictured
-    /// on demand for its hover card.
-    var lastFrames = TerminalLastFrames()
+    /// on demand for its hover card; volatile, bounded by the warm set (`setWarmBudget`).
+    let lastFrames = TerminalLastFrames(capacity: WarmSetBudget.standard.terminalCapacity)
     /// Releases terminals whose daemon tree dropped their tab (a closed workspace).
     let goneTabs = GoneTabWatch()
     /// Browser pages' hover card thumbnails (R131), at most `TabPreviewFitting.cachedPixelSize`
