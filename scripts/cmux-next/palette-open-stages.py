@@ -14,14 +14,25 @@ the page window as the key window, `target: page`), and closes the palette with 
 plus rpc_ms, the synchronous `debug.key` round trip (the main thread's whole key handling), and the longest
 main-thread stall during the open (`debug.hangs`). Builds without the input stage report key = ms + 0.
 
-The budget: a warm open commits within one 60 Hz frame (key p90 <= 16 ms).
+The budget: a warm open commits within one 60 Hz frame (key p90 <= 16 ms). Each stage reports p50, p90, p95, p99
+and max (scripts/perf-lab/perf_stats.py pct: linear interpolation between closest ranks).
+
+--engines picks the browser tabs (chromium, webkit or both; default both). With exactly one engine the run also
+writes one cmux-perf-result/v1 file per surface, key and stage into --out (BenchApp.record, story --story): metric
+`<surface>.<key>.<stage>` in ms with every timed open as a sample, for example `terminal.cmd-shift-p.key`. Result-v1
+names one engine per run, so a run of both writes only the JSON report. The perf-lab stories are palette-open
+(Chromium) and palette-open-webkit (scripts/perf-lab/stories.d).
 
 Usage: palette-open-stages.py --tag <tag> --app PATH [--rounds 10] [--interval 0.35] [--out DIR] [--json PATH]
+       [--engines chromium,webkit] [--story palette-open]
 """
-import argparse, glob, json, os, re, signal, socket, statistics, subprocess, sys, tempfile, time
+import argparse, glob, json, os, re, signal, socket, subprocess, sys, tempfile, time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from bench_launch import BenchApp, bundle_id  # noqa: E402
+from bench_launch import PERF_LAB, BenchApp, RecordError, bundle_id, load_by_path  # noqa: E402
+
+perf_stats = load_by_path("perf_stats", os.path.join(PERF_LAB, "perf_stats.py"))
+perf_result = load_by_path("perf_result", os.path.join(PERF_LAB, "perf_result.py"))
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
@@ -32,7 +43,12 @@ parser.add_argument("--budget-ms", type=float, default=16.0)
 parser.add_argument("--out", default="/tmp")
 parser.add_argument("--json", help="write the samples here")
 parser.add_argument("--no-gate", action="store_true", help="report only; exit 0 when every open was timed")
+parser.add_argument("--engines", default="chromium,webkit", help="browser tabs to open: chromium, webkit or both")
+parser.add_argument("--story", default="palette-open", help="result-v1 story of a one-engine run")
 opts = parser.parse_args()
+ENGINES = [e for e in opts.engines.split(",") if e]
+if not ENGINES or any(e not in ("chromium", "webkit") for e in ENGINES):
+    parser.error(f"--engines takes chromium, webkit or both, got {opts.engines!r}")
 TAG, APP = opts.tag, os.path.abspath(opts.app.rstrip("/"))
 BUNDLE_ID = bundle_id(APP) or f"com.cmuxterm.app.debug.{TAG}"
 SOCKET = f"/tmp/cmux-debug-{TAG}.sock"
@@ -45,6 +61,8 @@ open(CONFIG, "w").write("{}\n")
 ENV = {"HOME": os.environ["HOME"], "PATH": "/usr/bin:/bin", "TMPDIR": os.environ.get("TMPDIR", "/tmp"),
        "CMUX_SOCKET_PATH": SOCKET, "CMUX_QUIET": "1"}
 STAGES = ["input", "model", "panel", "present", "commit", "key", "rpc"]
+# p90 stays: the budget is a p90 (one 60 Hz frame for a warm open).
+PERCENTILES = (("p50", 0.5), ("p90", 0.9), ("p95", 0.95), ("p99", 0.99))
 KEYS = [("Cmd-Shift-P", {"key": "p", "modifiers": ["command", "shift"]}), ("Cmd-P", {"key": "p", "modifiers": ["command"]})]
 ROWS, LAUNCHED = [], []
 app = None
@@ -119,11 +137,6 @@ def strip_tabs(minimum):
     return []
 
 
-def pct(values, q):
-    values = sorted(values)
-    return values[min(len(values) - 1, int(len(values) * q))] if values else None
-
-
 def one_open(params):
     """One open and close: the open's timing row, or None when the palette did not report an open."""
     rpc("debug.timings", {"clear": True})
@@ -158,14 +171,39 @@ def summarize(label, samples):
     for stage in STAGES:
         values = [s[stage] for s in samples if s.get(stage) is not None]
         if values:
-            line[stage] = {"p50": round(pct(values, 0.5), 2), "p90": round(pct(values, 0.9), 2), "max": round(max(values), 2)}
-    cells = " ".join(f"{st}={line[st]['p50']}/{line[st]['p90']}" for st in STAGES if st in line)
-    print(f"  {label:<26} n={len(samples):<3} p50/p90 ms: {cells}", flush=True)
+            line[stage] = {q: round(perf_stats.pct(values, p), 2) for q, p in PERCENTILES}
+            line[stage]["max"] = round(max(values), 2)
+    cells = " ".join(f"{st}={line[st]['p50']}/{line[st]['p90']}/{line[st]['p99']}" for st in STAGES if st in line)
+    print(f"  {label:<26} n={len(samples):<3} p50/p90/p99 ms: {cells}", flush=True)
     worst = max(samples, key=lambda s: s.get("key") or 0, default=None)
     if worst and worst.get("stalls"):
         for stall in worst["stalls"]:
             print(f"    stall {stall['ms']} ms: " + " < ".join(str(f)[:70] for f in stall["frames"]), flush=True)
     return line
+
+
+def slug(text):
+    """A result-v1 name part: `chromium page window` -> `chromium-page-window`, `Cmd-Shift-P` -> `cmd-shift-p`."""
+    return re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-")
+
+
+def record_results(launcher, engine, timed):
+    """One cmux-perf-result/v1 file per surface, key and stage (BenchApp.record) from `timed` [(surface, key,
+    samples)], every timed open a sample. A series the bench cannot describe truthfully (no build sha, no features
+    snapshot) is not written; its reason is returned in its place."""
+    written = {}
+    for label, key_label, opens in timed:
+        for stage in STAGES:
+            samples = [s[stage] for s in opens if s.get(stage) is not None]
+            if not samples:
+                continue
+            metric = f"{slug(label)}.{slug(key_label)}.{stage}"
+            try:
+                written[metric] = str(launcher.record(opts.story, metric, "ms", samples, better="lower", engine=engine))
+            except (RecordError, perf_result.ResultError) as error:
+                written[metric] = f"not recorded: {error}"
+                print(f"result-v1 {metric}: not recorded: {error}", flush=True)
+    return written
 
 
 def cleanup():
@@ -235,6 +273,7 @@ def main():
              ("webkit", lambda: action("openBrowser.webkit", {"url": "file://" + page})),
              ("markdown", lambda: action("openMarkdownFile", {"path": markdown})),
              ("home", lambda: action("home.tab"))]
+    steps = [(name, make) for name, make in steps if name not in ("chromium", "webkit") or name in ENGINES]
     for name, make in steps:
         before = len(strip_tabs(1))
         reply = make()
@@ -250,6 +289,7 @@ def main():
     for _, params in KEYS:
         one_open(params)
     report = {"tag": TAG, "kinds": kinds, "surfaces": {}}
+    timed = []  # (surface, key, samples) for result-v1
     print("\n== palette opens", flush=True)
     for index, kind in enumerate(kinds):
         if index >= len(tabs):
@@ -277,9 +317,15 @@ def main():
                     continue
                 line = summarize(name, samples)
                 report["surfaces"][name] = {"table": line, "samples": samples, "missed": missed}
+                timed.append((label, key_label, samples))
                 key_p90 = line.get("key", {}).get("p90", 1e9)
                 row(name, f"key-down to frame p90 <= {opts.budget_ms} ms, {opts.rounds} opens",
                     f"p90 {key_p90} ms, {len(samples)} timed", (opts.no_gate or key_p90 <= opts.budget_ms) and missed == 0)
+    if len(ENGINES) == 1:
+        report["results"] = record_results(launcher, ENGINES[0], timed)
+    else:
+        print("result-v1: not written: a run of both engines has no one engine (pass --engines chromium or webkit)",
+              flush=True)
     if opts.json:
         with open(opts.json, "w") as handle:
             json.dump(report, handle, indent=1)

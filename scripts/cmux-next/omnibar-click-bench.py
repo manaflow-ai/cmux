@@ -9,15 +9,25 @@ attached (`attached_ms`, the caret), the whole address is selected (`selected_ms
 look has fully shown (`focused_ms`, no fade left), plus the press's main-thread spans and marks.
 
 Phases: `idle`, then `load` (every core busy with `yes`). With `--budget-ms N` the run fails when
-any engine's p95 `focused_ms` is above N or a run never showed focus.
+any engine's p95 `focused_ms` is above N or a run never showed focus. The summary has p50, p95, p99 and
+max of each value (scripts/perf-lab/perf_stats.py pct: linear interpolation between closest ranks).
+
+With exactly one engine (`--engines chromium` or `webkit`) the run also writes one cmux-perf-result/v1
+file per phase and value into --out (BenchApp.record, story --story): metric `<phase>.<value>` in ms with
+every click as a sample, for example `idle.focused_ms`; the values are RESULT_KEYS and TIMING_KEYS below.
+Result-v1 names one engine per run, so a run of both writes only the JSON report. The perf-lab stories are
+omnibar-click (Chromium) and omnibar-click-webkit (scripts/perf-lab/stories.d).
 
 Usage: omnibar-click-bench.py --tag TAG --app PATH [--runs 15] [--engines chromium,webkit]
-       [--phases idle,load] [--json FILE] [--budget-ms 0]
+       [--phases idle,load] [--json FILE] [--budget-ms 0] [--story omnibar-click]
 """
 import argparse, glob, json, os, signal, socket, subprocess, sys, tempfile, time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from bench_launch import BenchApp, bundle_id  # noqa: E402
+from bench_launch import PERF_LAB, BenchApp, RecordError, bundle_id, load_by_path  # noqa: E402
+
+perf_stats = load_by_path("perf_stats", os.path.join(PERF_LAB, "perf_stats.py"))
+perf_result = load_by_path("perf_result", os.path.join(PERF_LAB, "perf_result.py"))
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
@@ -33,6 +43,7 @@ parser.add_argument("--activate", action="store_true",
                     help="run the app active (real key windows: a Chromium page's child window holds the keys); fleet hosts only")
 parser.add_argument("--out", default="/tmp")
 parser.add_argument("--json")
+parser.add_argument("--story", default="omnibar-click", help="result-v1 story of a one-engine run")
 opts = parser.parse_args()
 TAG, APP = opts.tag, os.path.abspath(opts.app.rstrip("/"))
 BUNDLE_ID = bundle_id(APP) or f"com.cmuxterm.app.debug.{TAG}"
@@ -83,11 +94,22 @@ def wait(check, seconds, step=0.25):
     return None
 
 
+# The per-click values of debug.omnibar_bench written as result-v1 (ms after the click was posted, or after its
+# dispatch), and those of debug.timings omnibar_clicks.
+RESULT_KEYS = ("attached_ms", "selected_ms", "focused_ms", "dispatch_to_attached_ms", "dispatch_to_selected_ms",
+               "dispatch_to_focused_ms")
+TIMING_KEYS = ("input_ms", "key_to_frame_ms")
+
+
 def pct(values, q):
-    values = sorted(v for v in values if v is not None)
-    if not values:
-        return None
-    return values[min(len(values) - 1, int(round(q * (len(values) - 1))))]
+    """perf_stats.pct over the values the runs reported (a missed run reports None)."""
+    return perf_stats.pct([v for v in values if v is not None], q)
+
+
+def spread(prefix, values):
+    """{prefix_p50, prefix_p95, prefix_p99, prefix_max} of the values."""
+    return {f"{prefix}_p50": pct(values, .5), f"{prefix}_p95": pct(values, .95), f"{prefix}_p99": pct(values, .99),
+            f"{prefix}_max": pct(values, 1)}
 
 
 def start_load():
@@ -151,24 +173,44 @@ def summary(rows):
             if not sel:
                 continue
             down = [next((s["ms"] for s in r.get("spans") or [] if s["name"] == "app.sendEvent.down"), None) for r in sel]
-            out[f"{phase}/{engine}"] = {
-                "n": len(sel), "missed": sum(r.get("focused_ms") is None for r in sel),
-                "attached_p50": pct([r.get("attached_ms") for r in sel], .5), "attached_p95": pct([r.get("attached_ms") for r in sel], .95),
-                "selected_p50": pct([r.get("selected_ms") for r in sel], .5), "selected_p95": pct([r.get("selected_ms") for r in sel], .95),
-                "focused_p50": pct([r.get("focused_ms") for r in sel], .5), "focused_p95": pct([r.get("focused_ms") for r in sel], .95),
-                "focused_max": pct([r.get("focused_ms") for r in sel], 1),
-                "mouse_down_dispatch_p50": pct(down, .5), "mouse_down_dispatch_max": pct(down, 1),
-            }
+            row = {"n": len(sel), "missed": sum(r.get("focused_ms") is None for r in sel)}
+            for name in ("attached", "selected", "focused"):
+                row.update(spread(name, [r.get(f"{name}_ms") for r in sel]))
+            row.update({"mouse_down_dispatch_p50": pct(down, .5), "mouse_down_dispatch_p99": pct(down, .99),
+                        "mouse_down_dispatch_max": pct(down, 1)})
             for key in ("press_ms", "dispatch_to_attached_ms", "dispatch_to_selected_ms", "dispatch_to_focused_ms",
                         "attached_frames_after_press", "selected_frames_after_press", "focused_frames_after_press"):
-                values = [r.get(key) for r in sel]
-                out[f"{phase}/{engine}"].update({f"{key}_p50": pct(values, .5), f"{key}_p95": pct(values, .95), f"{key}_max": pct(values, 1)})
+                row.update(spread(key, [r.get(key) for r in sel]))
             clicks = TIMINGS.get((phase, engine)) or []
-            for key in ("input_ms", "key_to_frame_ms"):
-                values = [c.get(key) for c in clicks]
-                out[f"{phase}/{engine}"].update({f"{key}_n": len(clicks), f"{key}_p50": pct(values, .5),
-                                                 f"{key}_p95": pct(values, .95), f"{key}_max": pct(values, 1)})
+            for key in TIMING_KEYS:
+                row[f"{key}_n"] = len(clicks)
+                row.update(spread(key, [c.get(key) for c in clicks]))
+            out[f"{phase}/{engine}"] = row
     return out
+
+
+def record_results(launcher, engine, rows):
+    """One cmux-perf-result/v1 file per phase and value (BenchApp.record), every click that reported the value a
+    sample. A series the bench cannot describe truthfully (no build sha, no features snapshot) is not written; its
+    reason is returned in its place."""
+    series = {}
+    for row in rows:
+        for key in RESULT_KEYS:
+            series.setdefault(f"{row['phase']}.{key}", []).append(row.get(key))
+    for (phase, _), clicks in TIMINGS.items():
+        for key in TIMING_KEYS:
+            series.setdefault(f"{phase}.{key}", []).extend(c.get(key) for c in clicks)
+    written = {}
+    for metric, values in series.items():
+        samples = [v for v in values if isinstance(v, (int, float))]
+        if not samples:
+            continue
+        try:
+            written[metric] = str(launcher.record(opts.story, metric, "ms", samples, better="lower", engine=engine))
+        except (RecordError, perf_result.ResultError) as error:
+            written[metric] = f"not recorded: {error}"
+            print(f"result-v1 {metric}: not recorded: {error}", flush=True)
+    return written
 
 
 def cleanup():
@@ -217,8 +259,8 @@ def main():
     CLI_ENV["CMUX_SOCKET_PATH"] = SOCKET
     time.sleep(2)  # test harness: first launch settles
     if opts.activate:
-        subprocess.run(["osascript", "-e", f'tell application id "{BUNDLE_ID}" to activate'], capture_output=True, timeout=30)
-        time.sleep(1)  # test harness: activation settles
+        activated = launcher.activate(timeout=10)  # returns once a window of the app is key
+        print("activate:", json.dumps(activated), flush=True)
     rows = []
     for engine in opts.engines.split(","):
         if not open_page(engine):
@@ -233,6 +275,12 @@ def main():
                 stop_load()
     result = {"tag": TAG, "host": os.uname().nodename, "cpus": os.cpu_count(), "summary": summary(rows), "runs": rows}
     print("\nSUMMARY", json.dumps(result["summary"], indent=1), flush=True)
+    engines = opts.engines.split(",")
+    if len(engines) == 1 and engines[0] in ("chromium", "webkit"):
+        result["results"] = record_results(launcher, engines[0], rows)
+    else:
+        print("result-v1: not written: a run of both engines has no one engine (pass --engines chromium or webkit)",
+              flush=True)
     if opts.json:
         os.makedirs(os.path.dirname(os.path.abspath(opts.json)), exist_ok=True)
         open(opts.json, "w").write(json.dumps(result, indent=1))
