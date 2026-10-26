@@ -771,6 +771,11 @@ enum Command {
     ServerStats {
         include: Option<Vec<String>>,
     },
+    /// Wait and hold time of the registry and state locks per caller class
+    /// and request op (diagnostics/daemon_locks.rs; the plan's
+    /// `debug.daemon_locks`, p06-scheduler-226). Owner-only diagnostics,
+    /// never journaled.
+    DebugDaemonLocks,
     /// Start a trace recording in the daemon, the holder, every terminal host
     /// and acpmux (server/trace_control.rs). Owner only; no path parameter.
     TraceStart(trace_control::StartParams),
@@ -2626,10 +2631,11 @@ mod routes;
 use connection_frame::write_vt_state_command_json;
 use connection_frame::{
     auth_token, constant_time_eq, handle_connection_frame_at, handle_request_with_cancellation,
-    pairing_request, zeroize_string,
+    lock_caller_scope, pairing_request, zeroize_string,
 };
 #[cfg(test)]
 use connection_frame::{handle_connection_frame, handle_request};
+pub(crate) use request_spans::method_latency_stats;
 use request_head::RequestHead;
 use request_spans::{AsyncReply, RequestArrival, RequestMethod, RequestSpan, request_id_hash};
 

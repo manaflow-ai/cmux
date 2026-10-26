@@ -159,14 +159,21 @@ Turned on by `CMUX_NEXT_TRACE_FLOWS=<dir>` on the app, which `trace.py record --
 inherited `CMUX*` variable that is not a `CMUX_NEXT_*` launch knob, so the daemon launch passes it on as
 `CMUX_TRACE_FLOWS` (`DaemonDiagnosticKnobs`, also `CMUX_NEXT_TUI_DEBUG_SPANS` as `CMUX_TUI_DEBUG_SPANS`); the
 terminal hosts and the holder inherit it from the daemon. Each of these processes calls `cmux_flow_trace::init()` at start (daemon `serve`, the
-terminal host's `serve_terminal_host_process`, the holder's `serve`), which opens `<dir>/flows-<pid>.jsonl` and
-starts the writer thread, so no hop opens a file or starts a thread. A hop never allocates, locks or enters
-the kernel: off, it is one load of an unset `OnceLock` (test `cmux-flow-trace/tests/off.rs`); on, it reads the
-clock (commpage) and its thread id and pushes a plain record (the terminal id as at most 32 bytes) into a fixed
-ring of 8192 slots (test `tests/records.rs` counts the caller's allocations). The marks in the terminal host and
-in the daemon's local-PTY path run before the writer and runtime locks. The writer drains the ring every 50 ms
-while tracing is on, or when a hop finds it half full (the only wake a hop sends). A full ring drops records and
-counts them (`flow records dropped` in the summary). The app's hops are `key.flow` signpost events.
+terminal host's `serve_terminal_host_process`, the holder's `serve`), which starts the process's black box and a
+recording of the `key` category in `<dir>` (`<role>-<pid>.recording.cmxtrace`, "Release trace ring v1"), so no
+hop opens a file or starts a thread. When the recording cannot be a file in `<dir>` (the process's `main` put its
+black box elsewhere, the file cannot be mapped, or the platform has no ring files yet: unix only until task
+p09-observability-132), `init` stops the recording it started, prints one stderr line and leaves flows off. A hop
+never allocates, locks or enters the kernel: off, it is one relaxed load (test `cmux-flow-trace/tests/off.rs`);
+on, it is a ring write (test `tests/records.rs` counts the caller's allocations). Hops write only while a
+recording runs: `key` is a black-box category, but after `trace.stop` no hop goes to the black box. A hop is one
+ring record in category `key` with arg0 the terminal key (the first 8 id bytes, big-endian). A hop with a flow id
+is a flow step, Chrome's `TRACE_EVENT_FLAG_FLOW_IN | TRACE_EVENT_FLAG_FLOW_OUT`: a `f` record and then a `s`
+record with arg1 the flow id. Only the app's last hop ends the flow (`f` alone); a reader takes the `f` time as
+the hop's. A hop with no flow id is one `I` record with arg1 0. The marks in the terminal host and in the daemon's
+local-PTY path run before the runtime locks. The app's hops are `key.flow` signpost events. Until trace.py reads
+v1 rings (task p09-observability-023), `trace.py` stops with an error when `OUT/flows` holds only `.cmxtrace`
+files.
 
 | Hop | Process, thread | Carries |
 |---|---|---|
@@ -367,6 +374,27 @@ the tables of "Release trace ring v1"; the Swift `TraceRuntime.Role` and `TraceR
     below it. `task.host_input_write`: begin arg1 the payload bytes; end arg0 the bytes written to
     the PTY, end arg1 the outcome (0 written, 1 dropped for lack of input-queue room, 2 write
     failed).
+- Blocking calls and lane jobs (category `task`, closed by p02-threads-124; recording only, never the black
+  box). Off, a checked blocking call pays one acquiring load (the hook word `BlockingTraceHook`) and a lane item
+  one relaxed load at its post; Release keeps both.
+  - `task.blocking_call` (interned name) is one thread slice (B/E) per checked blocking call
+    (`blockingCall(kind, fileID, line)`, every seam of CmuxNextCompat/Threading, and
+    `cpuIntensiveCall(size:limit:)` with kind 12 at any size and on any thread), Chrome's `ScopedBlockingCall`
+    trace event (base/threading/scoped_blocking_call.cc). Begin arg0: the kind's code in bits 0-7
+    (`BlockingKind.traceCode`: 1 file-io, 2 socket-read, 3 socket-write, 4 sync-wait, 5 ipc-reply,
+    6 process-wait, 7 process-spawn, 8 lock-wait, 9 system-call, 10 sleep, 11 wrong-lane, 12 cpu-intensive,
+    13 fs-metadata, 14 sqlite, 15 process-reap, 16 system-query) and the call's `#line` above them. Begin
+    arg1: FNV-1a 64 of the call's `#fileID` (`Module/File.swift`). The end has no arguments; a written begin
+    always gets its end, also when the body throws or the category turns off meanwhile. Only the app's
+    `TraceRuntime.shared` routes them, while its `task` bit is on.
+  - `task.run` (catalog id 51) is one thread slice (B/E) per BackgroundWork lane item posted while `task` is
+    on, around the item's run on its slot thread (its hang scope included); Chrome's
+    `ThreadPool_RunTask` in `TaskTracker::RunTask` (base/task/thread_pool/task_tracker.cc). Begin arg0: the
+    lane in bits 8-15 (0 files, 1 system, 2 cpu, 0xFF a lane made without one) and the priority in bits 0-7
+    (0 idle, 1 best effort, 2 user visible, 3 user blocking). Begin arg1: the queue wait from the post to the
+    start in us; a `WorkSequence` item's post is its post to the sequence, so the wait includes the time behind
+    the items in front of it (Chrome stamps a sequenced task's queue time at its post,
+    base/task/thread_pool/sequence.cc). Whether an item records is decided at that post too. A `task.blocking_call` inside the item nests in its slice.
 - acpmux has no spans; only its sampled stacks show (requested through the cmux-4f lead from
   PL-acpmux).
 - Time Profiler samples only threads that run. Off-CPU time shows as gaps. Use `--system-trace` for

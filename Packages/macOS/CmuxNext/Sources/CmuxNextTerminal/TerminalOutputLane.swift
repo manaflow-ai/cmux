@@ -18,12 +18,12 @@ import os
 /// ``drained()`` waits for the backlog without blocking the main thread.
 /// ``close()`` fences the lane before `ghostty_surface_free`; queued work is
 /// skipped from then on, so the fence waits for at most one chunk.
-nonisolated final class TerminalOutputLane: @unchecked Sendable {
+nonisolated final class TerminalOutputLane: Sendable {
     let highWater: Int
     private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "terminal")
     private let queue: DispatchQueue
-    /// Touched only on `queue`.
-    private var surface: ghostty_surface_t?
+    /// Set once; work on `queue` reaches it only through ``liveSurface``.
+    private let surface: UncheckedPointer
     private let closing = Atomic<Bool>(false)
     /// The last READY restore succeeded. Written on `queue`; history after a
     /// failed READY is skipped until the next READY.
@@ -50,8 +50,8 @@ nonisolated final class TerminalOutputLane: @unchecked Sendable {
     private let probe: TypingLatencyProbe
     /// Watches each output chunk's parse on the lane, never the lane's queue wait; nil watches nothing.
     private let hangWatched: HangWatchedLane?
-    /// How long one chunk's `ghostty_surface_process_output` may take before the hang watcher reports
-    /// it: a 256 KiB chunk parses in about a millisecond, so 100 ms means the lane is stuck.
+    /// One chunk's `ghostty_surface_process_output` budget (a jank past it, a hang dump 2 s later):
+    /// a 256 KiB chunk parses in about a millisecond, so 100 ms means the lane is stuck.
     static let feedHangDeadline: Duration = .milliseconds(100)
     /// Parses one output chunk into the surface: `ghostty_surface_process_output`, or a test's recorder.
     typealias Parse = @Sendable (ghostty_surface_t, Data) -> Void
@@ -60,7 +60,7 @@ nonisolated final class TerminalOutputLane: @unchecked Sendable {
     init(surface: ghostty_surface_t, label: String, highWater: Int = 2 << 20, echoStage: TerminalEchoStage? = nil,
          keyFlows: TypingLatencyProbe.SurfaceKey? = nil, probe: TypingLatencyProbe = .shared,
          hangs: (any HangWatchScoping)? = nil, parse: @escaping Parse = { TerminalOutputLane.processOutput($0, $1) }) {
-        self.surface = surface
+        self.surface = UncheckedPointer(raw: surface)
         self.highWater = highWater
         self.echoStage = echoStage
         self.keyFlows = keyFlows
@@ -120,7 +120,7 @@ nonisolated final class TerminalOutputLane: @unchecked Sendable {
         backlog.withLock { $0.bytes += data.count }
         queue.async { [self] in
             defer { parsed(data.count) }
-            guard let surface, !closing.load(ordering: .relaxed) else { return }
+            guard let surface = liveSurface else { return }
             feed(surface, data)
             echoStage?.outputParsed(armedBefore: armedBefore)
             if let keyFlows { probe.mark(.outputParsed, surface: keyFlows) }
@@ -154,7 +154,7 @@ nonisolated final class TerminalOutputLane: @unchecked Sendable {
         backlog.withLock { $0.bytes += data.count }
         queue.async { [self] in
             defer { parsed(data.count) }
-            guard let surface, !closing.load(ordering: .relaxed) else { return }
+            guard let surface = liveSurface else { return }
             let ready = phase == GHOSTTY_SURFACE_SNAPSHOT_READY
             guard ready || readyRestored.load(ordering: .relaxed) else { return }
             let restored = data.withUnsafeBytes { buffer -> Bool in
@@ -183,7 +183,7 @@ nonisolated final class TerminalOutputLane: @unchecked Sendable {
             defer { parsed(data.count) }
             var result = Int32(GHOSTTY_SURFACE_LOCAL_HISTORY_ERROR.rawValue)
             defer { localHistoryResult.store(result, ordering: .releasing) }
-            guard let surface, !closing.load(ordering: .relaxed) else { return }
+            guard let surface = liveSurface else { return }
             result = data.withUnsafeBytes { bytes -> Int32 in
                 digest.withUnsafeBytes { check -> Int32 in
                     guard let base = bytes.bindMemory(to: UInt8.self).baseAddress,
@@ -210,7 +210,7 @@ nonisolated final class TerminalOutputLane: @unchecked Sendable {
         backlog.withLock { $0.bytes += data.count }
         queue.async { [self] in
             defer { parsed(data.count) }
-            guard let surface, !closing.load(ordering: .relaxed) else { return }
+            guard let surface = liveSurface else { return }
             let applied = data.withUnsafeBytes { buffer -> Bool in
                 guard let base = buffer.bindMemory(to: UInt8.self).baseAddress else { return false }
                 return ghostty_surface_apply_kitty_replay(surface, base, buffer.count)
@@ -238,7 +238,7 @@ nonisolated final class TerminalOutputLane: @unchecked Sendable {
     /// ``close()``.
     func perform(_ body: @escaping @Sendable (ghostty_surface_t) -> Void) {
         queue.async { [self] in
-            guard let surface, !closing.load(ordering: .relaxed) else { return }
+            guard let surface = liveSurface else { return }
             body(surface)
         }
     }
@@ -252,9 +252,15 @@ nonisolated final class TerminalOutputLane: @unchecked Sendable {
         }
     }
 
-    /// Skips queued work, waits for the chunk in flight, then drops the
-    /// surface so nothing else touches it. Call on the main actor
-    /// immediately before `ghostty_surface_free`.
+    /// The surface for work on `queue`; nil from ``close()`` on. Work queued after the close's fence
+    /// sees `closing` set (the queue orders it after the store), so nothing touches a freed surface.
+    private var liveSurface: ghostty_surface_t? {
+        closing.load(ordering: .relaxed) ? nil : surface.raw
+    }
+
+    /// Skips queued work and waits for the chunk in flight, so nothing
+    /// touches the surface afterwards. Call on the main actor immediately
+    /// before `ghostty_surface_free`.
     func close() {
         closing.store(true, ordering: .relaxed)
         echoStage?.close()
@@ -265,7 +271,7 @@ nonisolated final class TerminalOutputLane: @unchecked Sendable {
         waiters.forEach { $0.resume() }
         // The reviewed fence before ghostty_surface_free (BlockingAllowance.surfaceTeardown): queued chunks are
         // skipped once `closing` is set, so this waits for at most the one chunk being parsed.
-        allowBlocking(.surfaceTeardown) { queue.blockingSync { surface = nil } }
+        allowBlocking(.surfaceTeardown) { queue.blockingSync {} }
     }
 
     private func parsed(_ count: Int) {

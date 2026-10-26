@@ -88,15 +88,31 @@ public struct TerminalEnvironment: Sendable {
     /// login shell's `TERM`/`COLORTERM`/`TERM_PROGRAM` (those stay excluded).
     ///
     /// - `TERM=xterm-256color`, unless the `xterm-ghostty` terminfo entry is
-    ///   installed in a system terminfo directory (`hasInstalledGhosttyTerminfo`),
-    ///   then `xterm-ghostty`. The bundled entry never selects it: ssh targets,
+    ///   installed in a system terminfo directory (`installedTerminfo`, which
+    ///   the caller looked up on a lane: the app's `GhosttyLaunchProbe`),
+    ///   then ``installedTerm``. The bundled entry never selects it: ssh targets,
     ///   VMs and containers lack it, and `clear`/`htop` fail there with
     ///   "unknown terminal type". `TERMINFO` is not set.
     /// - `COLORTERM=truecolor`: 24-bit SGR is parsed and drawn losslessly.
     /// - `TERM_PROGRAM=ghostty`, `TERM_PROGRAM_VERSION`: feature detection
     ///   (neovim and others).
     /// - `GHOSTTY_RESOURCES_DIR`: themes and shell-integration lookups.
-    /// Whether `xterm-ghostty` is in a terminfo directory ncurses searches by default.
+    ///
+    /// It reads no file: the app builds it on the main thread at launch (p02-threads-006).
+    public func ghostty(resourcesDirectory: String?, version: String?, installedTerminfo: Bool = false) -> [String: String] {
+        var env = ["TERM": "xterm-256color", "COLORTERM": "truecolor", "TERM_PROGRAM": "ghostty"]
+        if let version, !version.isEmpty { env["TERM_PROGRAM_VERSION"] = version }
+        if installedTerminfo { env["TERM"] = Self.installedTerm }
+        if let resourcesDirectory, !resourcesDirectory.isEmpty { env["GHOSTTY_RESOURCES_DIR"] = resourcesDirectory }
+        return env
+    }
+
+    /// The `TERM` of a terminal when ``hasInstalledGhosttyTerminfo(home:fileExists:)`` is true.
+    public static let installedTerm = "xterm-ghostty"
+
+    /// Whether `xterm-ghostty` is in a terminfo directory ncurses searches by default. It checks 14 paths,
+    /// two in the home folder (which can be a network volume), so it is the body of a blocking-work lane
+    /// item, never main-thread work (the app's launch check is `GhosttyLaunchProbe`, on its files lane).
     public static func hasInstalledGhosttyTerminfo(
         home: String = NSHomeDirectory(),
         fileExists: (String) -> Bool = { FileManager.checked.fileExists(atPath: $0) }
@@ -104,24 +120,6 @@ public struct TerminalEnvironment: Sendable {
         let roots = [home + "/.terminfo", "/usr/share/terminfo", "/usr/lib/terminfo", "/etc/terminfo", "/lib/terminfo",
                      "/opt/homebrew/share/terminfo", "/usr/local/share/terminfo"]
         return roots.contains { fileExists($0 + "/78/xterm-ghostty") || fileExists($0 + "/x/xterm-ghostty") }
-    }
-
-    public func ghostty(
-        resourcesDirectory: String?,
-        version: String?,
-        fileExists: (String) -> Bool = { FileManager.checked.fileExists(atPath: $0) }
-    ) -> [String: String] {
-        ghostty(resourcesDirectory: resourcesDirectory, version: version,
-                terminfoInstalled: Self.hasInstalledGhosttyTerminfo(fileExists: fileExists))
-    }
-
-    /// The same identity on a terminfo answer already looked up
-    /// (``hasInstalledGhosttyTerminfo(home:fileExists:)``, off the main thread): no disk call.
-    public func ghostty(resourcesDirectory: String?, version: String?, terminfoInstalled: Bool) -> [String: String] {
-        var env = ["TERM": terminfoInstalled ? "xterm-ghostty" : "xterm-256color", "COLORTERM": "truecolor", "TERM_PROGRAM": "ghostty"]
-        if let version, !version.isEmpty { env["TERM_PROGRAM_VERSION"] = version }
-        if let resourcesDirectory, !resourcesDirectory.isEmpty { env["GHOSTTY_RESOURCES_DIR"] = resourcesDirectory }
-        return env
     }
 
     /// Shared per-launch provider for terminal `env`: the login environment

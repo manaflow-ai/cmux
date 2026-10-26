@@ -37,11 +37,18 @@ trk_occl_reads, trk_clip_builds, trk_clip_hits, trk_clip_ms, trk_posts, trk_skip
 frames (page_frames), of `debug.layers` divider catcher panel updates and child window reorders (catcher_updates, reorders), and
 the fork geometry posts per moving frame (posts_per_frame). A layout whose page never runs fails one row and is skipped.
 
+The summary is the median over rounds of each value (scripts/perf-lab/perf_stats.py through motion_bench_report.median).
+With --story ID (scripts/perf-lab/stories.d: pane-stress, pane-chromium) the run also writes cmux-perf-result/v1 into
+--out through BenchApp.record (motion_bench_report.pane_series): `panes.<action>.<layout>.frame` (every frame interval
+of the gesture, all rounds together), `.missed` and `.posts_per_frame` (one value per gesture), only the series the
+story declares and only of the layouts of its session whose window was key. The story's engine must be this run's
+(chromium with --browser, --content chromium or a Chromium STRESS session); a --story run that writes no series fails.
+
 Usage: pane-perf-terminal.py --tag <tag> --app PATH [--layouts 1x2,4x2,6x5] [--browser]
        [--actions split,close,column,zoom,drag,sidepanel,scroll,idle] [--rounds 3] [--scrollback 5000] [--stream]
-       [--record] [--json PATH] [--out DIR] [--gate] [--missed-budget N]
+       [--record] [--json PATH] [--out DIR] [--gate] [--missed-budget N] [--story ID]
 """
-import argparse, glob, json, os, pathlib, signal, subprocess, sys, tempfile, time
+import argparse, json, os, pathlib, subprocess, sys, time
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
@@ -67,12 +74,25 @@ parser.add_argument("--json")
 parser.add_argument("--out", default="/tmp")
 parser.add_argument("--gate", action="store_true", help="fail on the budget rows")
 parser.add_argument("--missed-budget", type=int, default=0)
+parser.add_argument("--story", help="the lab story (stories.d/<id>.json) to record result-v1 for; none: no result-v1")
 opts, _unknown = parser.parse_known_args()
 TAG, APP = opts.tag, os.path.abspath(opts.app.rstrip("/"))
 SOCKET = f"/tmp/cmux-debug-{TAG}.sock"
 CLI = os.path.join(APP, "Contents/Resources/bin/cmux")
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from bench_launch import BenchApp, LaunchError  # noqa: E402  the shared GUI launch (session check, failure report)
+import motion_bench_report  # noqa: E402  medians (perf_stats) and the result-v1 series
+
+# result-v1's engine: a Chromium page among the measured panes makes it chromium.
+ENGINE = "chromium" if opts.browser or opts.content == "chromium" or (
+    "stress" in opts.layouts.split(",") and opts.stress_selected == "chromium") else "none"
+STORY = None
+if opts.story:
+    try:
+        STORY = motion_bench_report.Story.load(opts.story, ENGINE)
+        STORY.check_sessions({motion_bench_report.layout_session(name) for name in opts.layouts.split(",")})
+    except motion_bench_report.StoryError as error:
+        parser.error(str(error))
 
 
 def load_stress():
@@ -115,6 +135,7 @@ ROWS, LAUNCHED = [], []
 BENCH = None  # the BenchApp of this run
 MEASURED = False  # the app came up and the layouts ran: without it the run fails, --gate or not
 UNMEASURED = []  # layouts asked for and not measured: any fails the run, --gate or not
+UNRECORDED = []  # --story: a run that wrote no result-v1 series fails, --gate or not
 PROBE = {}  # --browser: the probe page's tab id
 app = None
 PROBE_PAGE = """<!doctype html><meta charset="utf-8"><title>Pane probe</title>
@@ -397,7 +418,7 @@ def measure(label, name):
     error = perform(name)
     time.sleep(1.2)  # test harness: the springs land (rest is under 0.5 s) and the PTY owner answers
     trace = rpc("debug.window_transition", {"action": "stop"}) or {}
-    frames = rpc("debug.frames", {"action": "stop"}) or {}
+    frames = rpc("debug.frames", {"action": "stop", "raw": True}) or {}
     motion = rpc("debug.motion", {"action": "stop"}) or {}
     hangs = rpc("debug.hangs") or {}
     work = (motion.get("work") or {}).get("clock", {}) if isinstance(motion, dict) else {}
@@ -419,6 +440,7 @@ def measure(label, name):
         "grid_reports": trace.get("terminal_grid_reports"), "resizes_sent": trace.get("terminal_resizes_sent"),
         "hangs": len(hang_list) if isinstance(hang_list, list) else hangs.get("count"),
         "count250": hangs.get("count250") if isinstance(hangs, dict) else None,  # stalls >= 250 ms (perf-cron prints it)
+        "frame_intervals_ms": motion_bench_report.frame_intervals(frames),  # result-v1's raw frame samples
     }
     extra = ""
     if opts.browser:
@@ -675,11 +697,7 @@ def main():
     for name in labels:
         for step in sequence:
             runs = [r for r in report["runs"] if r["layout"] == name and r["action"] == step]
-
-            def med(key):
-                values = sorted(v for v in (r.get(key) for r in runs) if v is not None)
-                return values[len(values) // 2] if values else None
-            summary = {key: med(key) for key in ["frames_p50_ms", "frames_p95_ms", "frames_p99_ms", "frames_max_ms", "missed",
+            summary = {key: motion_bench_report.median(r.get(key) for r in runs) for key in ["frames_p50_ms", "frames_p95_ms", "frames_p99_ms", "frames_max_ms", "missed",
                                                  "moving_frames", "layout_p95_ms", "layout_max_ms", "grid_reports",
                                                  "resizes_sent", "commit_p95_ms", "commit_max_ms", "refresh_ms"] + browser_keys}
             report.setdefault("summary", []).append({"layout": name, "action": step, **summary})
@@ -696,6 +714,13 @@ def main():
         json.dump(report, open(opts.json, "w"), indent=1)
     MEASURED = bool(report["runs"])  # at least one action was measured
     report["unmeasured"] = UNMEASURED
+    if STORY and MEASURED:
+        series, skipped = motion_bench_report.pane_series(report["runs"], STORY)
+        report["result_v1"] = motion_bench_report.record(BENCH, series, skipped)
+        written = motion_bench_report.written_count(report["result_v1"])
+        row(f"result-v1 written under story {STORY.id}", ">= 1 series", f"{written} series", written > 0)
+        if not written:
+            UNRECORDED.append(STORY.id)
     if opts.json:
         json.dump(report, open(opts.json, "w"), indent=1)
 
@@ -727,9 +752,12 @@ finally:
     if opts.json and os.path.exists(opts.json):
         # The step log keeps the numbers even when a row failed (no artifact comes back then).
         print("REPORT-JSON " + json.dumps(json.load(open(opts.json)).get("summary") or []), flush=True)
-    print("\nRESULT", "PASS" if MEASURED and not UNMEASURED and ROWS and all(r[3] for r in ROWS) else "FAIL",
-          f"({sum(r[3] for r in ROWS)}/{len(ROWS)})" + (f"; not measured: {', '.join(UNMEASURED)}" if UNMEASURED else ""))
+    print("\nRESULT", "PASS" if MEASURED and not UNMEASURED and not UNRECORDED and ROWS and all(r[3] for r in ROWS) else "FAIL",
+          f"({sum(r[3] for r in ROWS)}/{len(ROWS)})" + (f"; not measured: {', '.join(UNMEASURED)}" if UNMEASURED else "")
+          + (f"; no result-v1 for story {', '.join(UNRECORDED)}" if UNRECORDED else ""))
     # Without --gate a row is information: the run passes when it measured (its artifact comes back). A run
-    # that measured nothing (the app never came up, an exception before the summary), or skipped a layout it
-    # was asked for (a refused STRESS shape, a Chromium page that never ran), fails either way.
-    sys.exit(0 if MEASURED and not UNMEASURED and ROWS and (all(r[3] for r in ROWS) or not opts.gate) else 1)
+    # that measured nothing (the app never came up, an exception before the summary), skipped a layout it
+    # was asked for (a refused STRESS shape, a Chromium page that never ran) or wrote no result-v1 for its
+    # --story fails either way.
+    sys.exit(0 if MEASURED and not UNMEASURED and not UNRECORDED and ROWS
+             and (all(r[3] for r in ROWS) or not opts.gate) else 1)

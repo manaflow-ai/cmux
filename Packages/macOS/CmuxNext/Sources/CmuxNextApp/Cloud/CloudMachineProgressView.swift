@@ -157,7 +157,7 @@ final class CloudMachineProgressView: NSView {
     private func tick() {
         renderElapsed()
         guard isShown, !creation.stage.isFinished else { return }
-        ticker.schedule(after: .seconds(1)) { @MainActor [weak self] in self?.tick() }
+        ticker.scheduleOnMain(after: .seconds(1)) { [weak self] in self?.tick() }
     }
 
     private func renderElapsed() {

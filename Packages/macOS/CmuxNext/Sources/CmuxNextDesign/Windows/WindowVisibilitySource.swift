@@ -38,8 +38,11 @@ import ObjectiveC
 
     /// The notices that change a window's own state.
     public static let notices: [Notification.Name] = [
+        // raw-observer-allow: the WindowEvents subscription recipe R-notif asks for (one observer per window and notice); only the notice's name matches
         NSWindow.didChangeOcclusionStateNotification,
+        // raw-observer-allow: the WindowEvents subscription recipe R-notif asks for (one observer per window and notice); only the notice's name matches
         NSWindow.didMiniaturizeNotification,
+        // raw-observer-allow: the WindowEvents subscription recipe R-notif asks for (one observer per window and notice); only the notice's name matches
         NSWindow.didDeminiaturizeNotification,
     ]
 

@@ -57,6 +57,8 @@ enum DebugCEF {
             object["tracker"] = trackerReport(services.cache.cef.trackerStats)
         }
         object["windows"] = windows(services.cache.cef.windowReport)
+        // Host mode with feature chromiumHostWidgets (p01-process-066): null without a widget host.
+        object["host_widgets"] = services.cache.cef.hostWidgets.map { .array($0.map(hostWidget)) } ?? .null
         if let duration = report.loadDuration { object["load_ms"] = .number(milliseconds(duration)) }
         if let duration = report.initializeDuration { object["initialize_ms"] = .number(milliseconds(duration)) }
         if let seconds = report.readyAfterLaunch { object["ready_after_launch_s"] = .number(seconds) }
@@ -133,6 +135,12 @@ enum DebugCEF {
         ])
     }
 
+    /// One widget the Chromium host shows in cmux: its kind, ids and where it is on screen.
+    private static func hostWidget(_ widget: CEFHostWidgetReport) -> JSONValue {
+        .object(["kind": .string(widget.kind), "widget": .number(Double(widget.widget)), "owner": .number(Double(widget.owner)),
+                 "context_id": .number(Double(widget.contextID)), "shown": .bool(widget.shown), "frame": rect(widget.screenFrame)])
+    }
+
     private static func rect(_ rect: CGRect) -> JSONValue {
         .array([rect.minX, rect.minY, rect.width, rect.height].map { .number(Double($0)) })
     }
@@ -179,6 +187,11 @@ enum DebugCEF {
             "hosting_widget_fallbacks": .number(Double(stats.hostingWidgetFallbacks)),
             "hosting_without_track_a": .number(Double(stats.hostingWithoutTrackA)),
             "geometry_skips": .number(Double(stats.geometrySkips)),
+            "page_window_widget_shows": .number(Double(stats.pageWindowWidgetShows)),
+            // Keyed by the fork's widget kind (CEFNativeWidget raw value): "2" autofill, "5" print preview.
+            "page_window_widget_shows_by_kind": .object(Dictionary(uniqueKeysWithValues: stats.pageWindowWidgetShowsByKind.map {
+                (String($0.key), JSONValue.number(Double($0.value)))
+            })),
         ])
     }
 

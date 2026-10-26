@@ -471,13 +471,6 @@ final class ShellWindow: NSWindow, OverlayPlaneHosting, BrowserWindowOcclusionPr
         return button
     }
 
-    override func performKeyEquivalent(with event: NSEvent) -> Bool {
-        // A panel over this window has the keys: no Ghostty keybind below (`KeyRouter.overlayHasKeys`).
-        if !isKeyWindow, let focus, KeyRouter.overlayHasKeys(focus.state) { return false }
-        if let keyRouter, let focus, keyRouter.routeContentKeyEquivalent(event, focus: focus.state) { return true }
-        return super.performKeyEquivalent(with: event)
-    }
-
     /// The Chromium fork adds each page window as a child ordered above
     /// everything, the overlay panel included. Lift the overlay (and the app
     /// panels above it) in the same call, before the window server shows a
@@ -552,6 +545,8 @@ final class ShellWindow: NSWindow, OverlayPlaneHosting, BrowserWindowOcclusionPr
     var editTeardown = (depth: 0, pending: false)
 
     override func makeFirstResponder(_ responder: NSResponder?) -> Bool {
+        // Only a modal of the overlay top layer takes the window's keyboard (`WindowOverlayHost.refusesFirstResponder`).
+        if WindowOverlayHost.existingHost(for: self)?.refusesFirstResponder(responder) == true { return false }
         if let controller = windowController as? WindowController, AgentPaneView.refusesSelfFocus(responder, inInputEvent: (NSApp as? CmuxApplication)?.isHandlingSendEvent() == true, focusModelApplies: controller.focus.isApplying, focusedPane: { controller.focus.currentState().pane }, pane: { if case .content(let pane) = FocusResponderClassifier.classify($0, in: controller) { pane } else { nil } }) { return false }
         let accepted = BenchSpans.measure("window.makeFirstResponder") { super.makeFirstResponder(responder) }
         if accepted { cursorRectHold?.firstResponderDidChange(in: self); BenchSpans.measure("focus.reportResponder") { reportResponder() } }

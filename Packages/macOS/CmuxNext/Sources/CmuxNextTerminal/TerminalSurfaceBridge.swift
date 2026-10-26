@@ -8,14 +8,17 @@ import GhosttyNextKit
 /// Retained for the surface's lifetime and released only after
 /// `ghostty_surface_free` returns, because free joins the IO thread that may
 /// still be inside `io_write_cb`.
-nonisolated final class SurfaceBridge: @unchecked Sendable {
+///
+/// Checked Sendable: Ghostty's IO thread reads only the immutable `input` and
+/// `linkFilter`; everything mutable is main-actor isolated.
+nonisolated final class SurfaceBridge: Sendable {
     let input: TerminalInputSink
     /// Main-actor only. Weak so a late callback after the view deinitializes
     /// is a no-op.
     @MainActor weak var view: TerminalSurfaceView?
     /// The font scale after each font size change (nil: the configured
     /// size), `TerminalFontScale.observe`.
-    @MainActor var onFontScaleChange: ((Double?) -> Void)?
+    @MainActor var onFontScaleChange: (@MainActor @Sendable (Double?) -> Void)?
     /// The last font scale Ghostty reported, nil at the configured size.
     @MainActor var fontScale: Double?
     /// True once Ghostty reported any font size change (a zoom, a reset or a set).
