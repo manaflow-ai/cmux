@@ -69,8 +69,24 @@ final class SettingsPageProvider: PageProvider {
     /// The gesture (``PageCallContext/gestureEvent``) that last turned a device's Full access on:
     /// one click or key turns on one setting.
     private var spentFullAccessGesture: TimeInterval?
-    /// The page's forms that hold typed values not saved yet (`cmux.settings.editing`).
-    var edits = SettingsPageEdits()
+    /// The forms of one page that hold typed values not saved yet (a custom density being edited, a
+    /// relay's fields), as the page reports them (`cmux.settings.editing`). While any does, the
+    /// page's tab keeps its view (``SettingsWindowService/keepReasons(for:)``): a page built again
+    /// would lose them (Chrome's kUserEdits, chrome/browser/performance_manager/policies/
+    /// cannot_discard_reason.h).
+    @MainActor
+    final class Edits {
+        /// The page's unsaved forms, by the page's own form names.
+        private(set) var forms: Set<String> = []
+        var hasUnsaved: Bool { !forms.isEmpty }
+
+        func set(_ form: String, unsaved: Bool) {
+            if unsaved { forms.insert(form) } else { forms.remove(form) }
+        }
+    }
+
+    /// This page's unsaved forms.
+    var edits = Edits()
     /// Results of recent writes by idempotency key (a retried key replays its first answer).
     private var replies: [(key: String, value: JSONValue)] = []
     private static let replayLimit = 64

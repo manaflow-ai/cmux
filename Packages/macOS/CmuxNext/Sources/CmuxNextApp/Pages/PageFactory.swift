@@ -111,7 +111,7 @@ struct PageFactory {
     /// The React Settings page (R82) on `route` (`#/settings/<section>?focus=<key>`). Its namespace
     /// goes to `SettingsPageProvider` (interim owner; the daemon relay once the config actor
     /// serves `settings.*`), `cmux.app.` to the native ops. `edits` follows the page's unsaved forms.
-    func settingsPage(route: String?, edits: SettingsPageEdits = SettingsPageEdits()) -> PageWebView? {
+    func settingsPage(route: String?, edits: SettingsPageProvider.Edits = SettingsPageProvider.Edits()) -> PageWebView? {
         guard let settings = services.settings else { return nil }
         let provider = SettingsPageProvider(settings: settings, domains: { [weak services] in
             ["themes": services?.themes.catalog.names ?? [], "font_families": SettingsPageDomains.fontFamilies, "sounds": SettingsPageDomains.sounds, "recent_fonts": services?.settings?.recentFonts.families ?? []]
