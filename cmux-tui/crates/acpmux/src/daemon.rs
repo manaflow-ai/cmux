@@ -9,6 +9,7 @@ use serde_json::Value;
 use std::sync::Arc;
 use std::time::Duration;
 
+pub(crate) mod exe_path;
 mod lock;
 #[cfg(unix)]
 mod open_file_limit;
@@ -42,6 +43,9 @@ pub struct DaemonOptions {
     pub dev_origins: Vec<String>,
     /// `--dev`: a development launch (see `dev_origins_permitted`).
     pub dev: bool,
+    /// `--allow-unstable-path`: start from a runner `_work` or temporary
+    /// folder even for the default home (`exe_path.rs`).
+    pub allow_unstable_path: bool,
 }
 
 /// The daemon's panic log, `$ACPMUX_HOME/panics.jsonl` (cmux-panic-log):
@@ -160,6 +164,8 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     // home folder: nothing the daemon or a child does relative to its cwd may
     // walk the user's folders (LAUNCH-NO-TCC-PROMPTS).
     let _ = std::env::set_current_dir(home());
+    // Before the lock: a refused start leaves the home to the daemon that should own it.
+    exe_path::check_start(opts.allow_unstable_path)?;
     let lock = home().join("daemon.lock");
     let _lock_file = match acquire_lock(&lock) {
         Ok(lock) => lock,
@@ -654,6 +660,7 @@ pub async fn start_keyed(fd: i32) -> Result<String> {
     use std::io::Read;
     use std::os::fd::FromRawFd;
     not_dumpable().context("make the launcher not dumpable before it reads the person key")?;
+    exe_path::check_start(false)?;
     let path = socket_path();
     if Client::connect(&path).await.is_ok() {
         return Err(anyhow!(
@@ -925,6 +932,8 @@ where
     F: Fn() -> Fut,
     Fut: std::future::Future<Output = Result<T>>,
 {
+    // The started daemon would refuse the same way; say why here, before spawning it.
+    exe_path::check_start(false)?;
     let deadline = tokio::time::Instant::now() + HANDOVER_BUDGET;
     loop {
         let ready = start_daemon().await?;

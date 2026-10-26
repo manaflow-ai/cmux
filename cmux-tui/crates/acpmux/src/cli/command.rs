@@ -528,6 +528,11 @@ pub enum Command {
         /// (or in a debug build). Release launchers never pass it.
         #[arg(long)]
         dev: bool,
+        /// Start even from an unstable path (a CI runner's `_work`, a temporary
+        /// folder) for the default home (`daemon/exe_path.rs`). Also
+        /// `ACPMUX_ALLOW_UNSTABLE_PATH=1`.
+        #[arg(long)]
+        allow_unstable_path: bool,
     },
 }
 
@@ -853,6 +858,11 @@ pub enum DaemonCmd {
         /// (or in a debug build). Release launchers never pass it.
         #[arg(long)]
         dev: bool,
+        /// Start even from an unstable path (a CI runner's `_work`, a temporary
+        /// folder) for the default home (`daemon/exe_path.rs`). Also
+        /// `ACPMUX_ALLOW_UNSTABLE_PATH=1`.
+        #[arg(long)]
+        allow_unstable_path: bool,
     },
     /// Daemon status, hosts, and the web URL (without its token).
     Status {
@@ -1048,6 +1058,7 @@ pub fn flatten(c: Command) -> Command {
                 person_key_fd,
                 allow_dev_origin,
                 dev,
+                allow_unstable_path,
             } => Command::DaemonRun {
                 listen,
                 token,
@@ -1057,6 +1068,7 @@ pub fn flatten(c: Command) -> Command {
                 person_key_fd,
                 allow_dev_origin,
                 dev,
+                allow_unstable_path,
             },
             DaemonCmd::Status { show_token } => Command::Status { show_token },
             DaemonCmd::Start { person_key_fd, show_token } => {
