@@ -11,9 +11,10 @@ import Darwin
 /// `downloading`, `downloadFailed`, `startFailed`, `shutDown`), where the
 /// runtime came from (`runtime`: Chromium on demand) and the WebKit
 /// fallbacks so far, where Chromium's browser process runs (`backend`:
-/// `inProcess` or `host`) and, in process only, the external pump's counters
-/// (`pump`), what the fork's page tracker read from host views (`tracker`)
-/// and the page windows over each DevTools tab (`devtools[].child_windows`).
+/// `inProcess` or `host`), what the fork's page tracker read from host views
+/// (`tracker`; in host mode only `tracker.hosted_pages`) and, in process only,
+/// the external pump's counters (`pump`) and the page windows over each
+/// DevTools tab (`devtools[].child_windows`).
 /// Helper processes are separate; measure them with `ps`.
 @MainActor
 enum DebugCEF {
@@ -51,11 +52,8 @@ enum DebugCEF {
         object["backend"] = .string(backend.rawValue)
         object["runtime"] = runtime(services.chromiumRuntime)
         object["devtools"] = .array(devTools(services, pageWindows: ChildPageGeometry.hasPageWindows(backend)))
-        // In host mode the pump and the page tracker run in the Chromium Host, not here.
-        if backend == .inProcess {
-            if let pump = services.cache.cef.pumpStats { object["pump"] = pumpReport(pump) }
-            object["tracker"] = trackerReport(services.cache.cef.trackerStats)
-        }
+        object.merge(engineCounters(backend: backend, pump: services.cache.cef.pumpStats,
+                                    tracker: services.cache.cef.trackerStats)) { $1 }
         object["windows"] = windows(services.cache.cef.windowReport)
         // Host mode with feature chromiumHostWidgets (p01-process-066): null without a widget host.
         object["host_widgets"] = services.cache.cef.hostWidgets.map { .array($0.map(hostWidget)) } ?? .null
@@ -143,6 +141,19 @@ enum DebugCEF {
 
     private static func rect(_ rect: CGRect) -> JSONValue {
         .array([rect.minX, rect.minY, rect.width, rect.height].map { .number(Double($0)) })
+    }
+
+    /// The engine's counters, by backend. In process: the external pump's (`pump`) and the fork's
+    /// page tracker's (`tracker`). In host mode the pump and the fork's tracker run in the Chromium
+    /// Host; this process still counts its hosted page views (`ChromiumHostPageView`), so `tracker`
+    /// has `hosted_pages` alone.
+    static func engineCounters(backend: BrowserBackend, pump: CEFPumpStats?, tracker: CEFTrackerStats) -> [String: JSONValue] {
+        guard backend == .inProcess else {
+            return ["tracker": .object(["hosted_pages": .number(Double(tracker.hostedPages))])]
+        }
+        var counters: [String: JSONValue] = ["tracker": trackerReport(tracker)]
+        if let pump { counters["pump"] = pumpReport(pump) }
+        return counters
     }
 
     /// Pump wakeups per second = the change of `work_runs` over an interval.

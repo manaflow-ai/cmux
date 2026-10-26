@@ -1,6 +1,8 @@
 import AppKit
 @testable import CmuxNextApp
 @testable import CmuxNextBrowser
+import CmuxNextFocusUI
+import CmuxNextSettings
 import CmuxNextWakeups
 import Foundation
 import Testing
@@ -36,6 +38,54 @@ import Testing
     @Test func childPageGeometryChecksPageWindowsOnlyInProcess() {
         #expect(ChildPageGeometry.hasPageWindows(.inProcess))
         #expect(!ChildPageGeometry.hasPageWindows(.host))
+    }
+
+    /// Host mode: a Chromium page that takes focus (Cmd-Opt-arrow, a tab select, Escape from the
+    /// omnibar) takes the keys from the terminal that had them, and is embedder-active; focus that
+    /// moves on to a terminal or an empty pane (`blurChildWindowPage`) makes it inactive again.
+    @Test func aHostModeChromiumPageTakesTheKeysAndGivesThemBack() throws {
+        let rig = try LiveHostRig()
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 200), styleMask: .borderless,
+                              backing: .buffered, defer: true)
+        let pane = NSView(frame: NSRect(x: 0, y: 0, width: 200, height: 200))
+        let terminal = KeyTaker(frame: NSRect(x: 200, y: 0, width: 200, height: 200))
+        window.contentView?.addSubview(pane)
+        window.contentView?.addSubview(terminal)
+        rig.host.present(rig.tab, in: pane)
+        #expect(window.makeFirstResponder(terminal))
+        let pages = ChildPageFocus(keys: AppKitKeyWindows()) { page, focused in (page as? any BrowserTab)?.setFocused(focused) }
+
+        ChromiumPageKeyboard(window: window, pages: pages).focus(rig.tab)
+
+        #expect(window.firstResponder === window, "the terminal keeps no keys and no caret")
+        #expect(EmbedderActiveSpy.calls.map(\.active) == [1])
+        #expect(pages.page === rig.tab, "tracked, so focus leaving it blurs it")
+
+        pages.blurPage()
+
+        #expect(EmbedderActiveSpy.calls.map(\.active) == [1, 0])
+        #expect(EmbedderActiveSpy.calls.allSatisfy { $0.browser == LiveHostRig.browser })
+    }
+
+    /// `debug.cef`: host mode has no pump and no fork tracker in this process, but this process
+    /// still counts its hosted page views (`tracker.hosted_pages`).
+    @Test func debugCEFReportsHostedPagesInBothBackendsAndThePumpOnlyInProcess() throws {
+        var tracker = CEFTrackerStats()
+        tracker.hostedPages = 2
+        tracker.clipReads = 5
+        let pump = CEFPumpStats()
+
+        let hosted = DebugCEF.engineCounters(backend: .host, pump: pump, tracker: tracker)
+        #expect(hosted["pump"] == nil)
+        let hostedTracker = try #require(hosted["tracker"])
+        #expect(hostedTracker["hosted_pages"] == .number(2))
+        #expect(hostedTracker["clip_reads"] == nil, "the fork's tracker runs in the Chromium Host")
+
+        let local = DebugCEF.engineCounters(backend: .inProcess, pump: pump, tracker: tracker)
+        #expect(local["pump"] != nil)
+        let localTracker = try #require(local["tracker"])
+        #expect(localTracker["hosted_pages"] == .number(2))
+        #expect(localTracker["clip_reads"] == .number(5))
     }
 
     @Test func theRuntimeServiceReportsTheBackendOfItsSource() throws {
@@ -76,6 +126,65 @@ import Testing
             try? FileManager.default.removeItem(at: root)
         }
     }
+
+    /// A host-mode pane whose tab has a live browser, against a shim that records embedder-active posts.
+    @MainActor final class LiveHostRig {
+        static let browser: Int32 = 1
+        let host: CEFPaneHost
+        let tab: CEFTab
+
+        init() throws {
+            EmbedderActiveSpy.reset()
+            let root = FileManager.default.temporaryDirectory.appending(path: "chromium-backend-focus-\(UUID().uuidString)", directoryHint: .isDirectory)
+            let runtime = CEFRuntime(shim: try CEFShimLibrary.resolving(EmbedderActiveSpy.symbol), storage: CEFProfileStorage(root: root))
+            let hostStart = CEFHostStart(supervisor: NeverAttachingSupervisor(), clock: ContinuousClock())
+            hostStart.mapsClientIDs = true
+            runtime.hostStart = hostStart
+            // A pane's scheduled work reads the runtime through an unowned reference: it outlives the test.
+            _ = Unmanaged.passRetained(runtime)
+            host = CEFPaneHost(key: CEFPaneKey(pane: BrowserPaneID(rawValue: UUID().uuidString), profile: .default), runtime: runtime)
+            host.endOfTurn = { $0() }
+            tab = CEFTab(id: .random(), profile: .default, host: host, runtime: runtime)
+            host.add(tab)
+            host.ensureCreated(tab)
+            let request = try #require(runtime.pendingWindows.keys.first { runtime.pendingWindows[$0] === host })
+            runtime.handle(.afterCreated(browser: Self.browser, request: request, window: 1))
+            #expect(tab.browserID == Self.browser)
+        }
+    }
+
+    /// Takes the keyboard the way a terminal surface does.
+    final class KeyTaker: NSView {
+        override var acceptsFirstResponder: Bool { true }
+    }
+}
+
+/// Stand-in shim for a live host-mode pane: `browser_set_embedder_active` records its calls,
+/// `create_window` succeeds, `fork_api_version` reports 30, every other function returns 0.
+private nonisolated enum EmbedderActiveSpy {
+    nonisolated(unsafe) static var calls: [(browser: Int32, active: Int32)] = []
+
+    static func reset() { calls = [] }
+
+    static func symbol(_ name: String) -> UnsafeMutableRawPointer? {
+        let lastReplyToken: CEFRemoteShim.LastReplyTokenFn = { 0 }
+        let embedderActive: @convention(c) (Int32, Int32) -> Int32 = { browser, active in
+            EmbedderActiveSpy.calls.append((browser, active))
+            return 1
+        }
+        let createWindow: @convention(c) (Int32, UnsafeMutableRawPointer?, Int32, Int32, UnsafePointer<CChar>?, UnsafePointer<CChar>?) -> Int32 = {
+            _, _, _, _, _, _ in 1
+        }
+        let forkAPIVersion: @convention(c) () -> Int32 = { 30 }
+        let nothing: @convention(c) () -> Int = { 0 }
+        return switch name {
+        case "cmux_remote_shim_last_reply_token": unsafeBitCast(lastReplyToken, to: UnsafeMutableRawPointer.self)
+        case "cmux_shim_browser_set_embedder_active": unsafeBitCast(embedderActive, to: UnsafeMutableRawPointer.self)
+        case "cmux_shim_create_window": unsafeBitCast(createWindow, to: UnsafeMutableRawPointer.self)
+        case "cmux_shim_fork_api_version": unsafeBitCast(forkAPIVersion, to: UnsafeMutableRawPointer.self)
+        default: unsafeBitCast(nothing, to: UnsafeMutableRawPointer.self)
+        }
+    }
 }
 
 /// Never attaches: these tests never start Chromium.
@@ -83,6 +192,8 @@ import Testing
     func attachment() async throws(ChromiumHostAttachError) -> ChromiumHostAttachment {
         throw .cannotStart("not started in this test")
     }
+
+    func observeHostEnds(_ ended: @escaping @MainActor () -> Void) {}
 }
 
 /// Stand-in shim: every symbol returns 0.
