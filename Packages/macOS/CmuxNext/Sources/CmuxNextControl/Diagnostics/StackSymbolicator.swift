@@ -12,9 +12,9 @@ import MachO
 public struct StackSymbolicator: Sendable {
     let map: AppSymbolMap?
 
-    /// - Parameter map: The app executable's names. Defaults to the running
-    ///   executable's map, nil in builds without one.
-    public init(map: AppSymbolMap? = AppSymbolMap.main) {
+    /// - Parameter map: The app executable's names (``AppSymbolMap/loadMain()``, read
+    ///   by the caller off the main thread), nil in builds without one.
+    public init(map: AppSymbolMap?) {
         self.map = map
     }
 

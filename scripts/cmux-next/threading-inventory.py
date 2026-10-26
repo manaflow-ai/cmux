@@ -7,7 +7,8 @@ p02-threads machine queues (plans/cmux-next/chrome-parity/p02-threads.md section
 the hook refuses. The rules model Chromium's blocking discipline: base/threading/scoped_blocking_call.h (a blocking
 call is marked and may not run on the UI thread) and base/threading/thread_restrictions.h (the reviewed allow list).
 
-Rules: main-blocking, raw-blocking, pool-blocking, raw-blocking-ext, maybe-main-blocking, task-priority, thread-doc, and the
+Rules: main-blocking, raw-blocking, pool-blocking, raw-blocking-ext, maybe-main-blocking, task-priority, thread-doc,
+once-blocking (p02-threads-122: a blocking call in a static, lazy or global initializer, MQ-22), and the
 inventory's own cpu-intensive (p02-threads-121: a raw JSON, property list, image, compression or regex call whose isolation,
 as the hit reports it, is main, instead of its size-gated seam; MQ-18). The hook gives a raw primitive that surely runs on
 main to main-blocking only (one refusal per line); the inventory lists each line under every rule it breaks, so
@@ -44,6 +45,7 @@ Each hit carries its call-graph context, read lexically from the source:
   threading-inventory.py --rule raw-blocking --paths Packages/macOS/CmuxNext/Sources/CmuxNextFiles/
   threading-inventory.py --rule raw-blocking-ext --group module --max-hits 25   # MQ-16
   threading-inventory.py --rule sync-inversion --jsonl                          # MQ-8
+  threading-inventory.py --rule once-blocking --jsonl                           # MQ-22
 
 Reads git objects only (ls-tree, cat-file): no network, no file in the repo or beside the scripts, not even bytecode
 caches. git_batch hands git its request through an unnamed temporary file in TMPDIR (a pipe hangs on some hosts),
@@ -303,6 +305,7 @@ RULES: dict[str, Callable[[list, collections.Counter], list]] = {
     "thread-doc": guardrails_rule("thread-doc"),
     "cpu-intensive": cpu_intensive,
     "sync-inversion": sync_inversion,
+    "once-blocking": guardrails_rule("once-blocking"),
 }
 # Rules that read the whole tree beside the judged files (sync-inversion: queue declarations and call sites).
 TREE_RULES = {"sync-inversion"}
@@ -314,6 +317,7 @@ LOCATORS = {
     "raw-blocking-ext": re.compile(g.RAW_BLOCKING_EXT.pattern + r"|(?<![\w$])\w+[?!]?\.(" + g.FILE_OPS + r")\("),
     "cpu-intensive": CPU_INTENSIVE,
     "sync-inversion": re.compile(SYNC_WAIT.pattern + "|" + GLOBAL_SYNC_WAIT.pattern),
+    "once-blocking": re.compile(g.MAIN_SCAN.pattern.pattern + "|" + g.RAW_BLOCKING_EXT.pattern),
 }
 DEFAULT_LOCATOR = g.MAIN_SCAN.pattern
 ALWAYS = g.ALWAYS_BLOCKING

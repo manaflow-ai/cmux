@@ -4025,6 +4025,114 @@ def undocumented_threads(changes: list[FileChange], moved: collections.Counter) 
     return changed_debt(changes, judge)
 
 
+# once-blocking (p02-threads-122): a blocking call in a static, lazy or global initializer. Swift runs such an
+# initializer once (swift_once), on whichever thread reads the value first, while every other first reader waits
+# on the once guard: its disk, kernel or process wait lands on an unknown thread, often the main thread, and no
+# seam can say which. Chromium keeps blocking work out of lazy singletons and static initializers for the same
+# reason (base/memory/singleton.h, base/lazy_instance.h, ScopedDisallowSingleton in
+# base/threading/thread_restrictions.h). The value is loaded on a lane at warm-up and injected, or its accessor
+# becomes async. An initializer is a `static`/`class`/`lazy` stored member's or a file-scope `let`/`var`'s value
+# expression, through the closures that run inside it: an immediately called `= { ... }()`, the inline calls
+# (`map {`, `flatMap {`, `withLock {`) and control flow. A literal blocks nothing; an instance member's
+# initializer, a static closure value that is not called (`static let load = { ... }`) and a computed property
+# run on every read, where the other blocking rules judge them.
+ASSIGNED_CLOSURE_OPENER = re.compile(r"(?<![=!<>])=\s*\{$")
+ONCE_DECLARATION = re.compile(r"^\s*(?:" + ATTRIBUTE + r"\s+)*(?P<modifiers>(?:\w+(?:\([^)]*\))?\s+)*?)"
+                              r"(?:let|var)\s+`?\w+`?\s*(?::[^=]*)?=(?!=)")
+ONCE_MODIFIER = re.compile(r"\b(static|class|lazy)\b")
+# A file that may hold one: a `static`, `lazy` or `class let/var` member, or a `let`/`var` at column 0 (file scope;
+# the repo's formatter indents every member). Only a prefilter: once_initializer decides.
+ONCE_HINT = re.compile(r"\b(?:static|lazy)\s|\bclass\s+(?:let|var)\b|^(?:[@\w][\w()@.]*\s+)*(?:let|var)\s", re.M)
+TYPE_BODY_OPENER = re.compile(r"(?:^|[\s)])(?:(?:distributed\s+)?actor|class|struct|enum|extension)\s+"
+                              r"(?!(?:func|var|let|subscript|init|deinit|override|static)\b)[A-Za-z_]")
+INVOKED_LINES = 400  # how far an assigned closure is followed to its `}()`
+
+
+def closure_invoked(codes: list[str], index: int, column: int) -> bool:
+    """Whether the closure whose `{` is at COLUMN of line INDEX is called where it closes (`}()`)."""
+    depth = 0
+    for j in range(index, min(len(codes), index + INVOKED_LINES)):
+        code = codes[j]
+        for pos in range(column if j == index else 0, len(code)):
+            if code[pos] == "{":
+                depth += 1
+            elif code[pos] == "}":
+                depth -= 1
+                if depth == 0:
+                    return code[pos + 1:].lstrip().startswith("(")
+    return False
+
+
+def once_statement(statement: str, holder: str) -> bool:
+    """Whether STATEMENT declares a value Swift initializes once, directly in HOLDER (`file`, `type` or `other`): a
+    `static`/`class`/`lazy` stored member of a type, or a `let`/`var` at file scope."""
+    match = ONCE_DECLARATION.match(statement) if holder != "other" else None
+    return bool(match and (holder == "file" or ONCE_MODIFIER.search(match.group("modifiers"))))
+
+
+def once_initializer(version: Version, index: int, column: int) -> bool:
+    """Whether COLUMN of line INDEX runs in a static, lazy or global initializer (once-blocking's reading): the
+    blocks around it, innermost first, are control flow, inline-call closures and immediately called `= { }()`
+    closures (each runs inside the statement that opens it) up to a type body or the file, whose statement there
+    declares a once-initialized value. Each block's answer is kept on VERSION, so a file's lines cost one walk."""
+    blocks, codes = blocks_of(version), codes_of(version)
+    kinds: dict[int, tuple[str, str]] = version.memo.setdefault("once_kinds", {})
+    answers: dict[int, bool] = version.memo.setdefault("once_blocks", {})
+
+    def kind(block: int) -> tuple[str, str]:
+        """(`file` | `type` | `inline` | `other`, the statement that opens BLOCK)."""
+        if block == -1:
+            return "file", ""
+        if block not in kinds:
+            line, at = blocks.opened[block]
+            opener = codes[line][:at + 1]
+            if TYPE_BODY_OPENER.search(opener) and not DECLARATION_KEYWORD.search(opener):
+                kinds[block] = ("type", "")  # its members' statements are read, not its own
+                return kinds[block]
+            header = statement_header(version.lines, line + 1, opener)[0]
+            if (CONTROL_OPENER.search(header) or INLINE_CLOSURE_CALL.search(opener)
+                  or (ASSIGNED_CLOSURE_OPENER.search(opener) and closure_invoked(codes, line, at))):
+                kinds[block] = ("inline", header)
+            else:
+                kinds[block] = ("other", header)  # a function, accessor or closure body: it runs on every call
+        return kinds[block]
+
+    def runs_once(block: int) -> bool:
+        """Whether code directly in BLOCK's body runs inside a once initializer (BLOCK is `inline`)."""
+        if block not in answers:
+            holder = blocks.parent[block]
+            holder_kind = kind(holder)[0]
+            statement = kind(block)[1]
+            answers[block] = runs_once(holder) if holder_kind == "inline" else once_statement(statement, holder_kind)
+        return answers[block]
+
+    block = blocks.at(index, column)
+    block_kind = kind(block)[0]
+    if block_kind == "inline":
+        return runs_once(block)
+    statement = statement_header(version.lines, index + 1, codes[index][:column])[0]
+    return once_statement(statement, block_kind)
+
+
+def may_initialize_once(version: Version) -> bool:
+    """Whether VERSION declares anything Swift initializes once (ONCE_HINT), so most files skip the walk."""
+    if "once_possible" not in version.memo:
+        version.memo["once_possible"] = ONCE_HINT.search("\n".join(codes_of(version))) is not None
+    return version.memo["once_possible"]
+
+
+def blocking_once(changes: list[FileChange], moved: collections.Counter) -> list[Added]:
+    """Added blocking calls (raw, seam or raw-blocking-ext) in a static, lazy or global initializer."""
+    def judge(version: Version, index: int, code: str) -> bool:
+        if index >= len(version.lines) or not may_initialize_once(version):
+            return False
+        columns = [m.start() for m in MAIN_SCAN.pattern.finditer(code)] if blocking_match(MAIN_SCAN, code) else []
+        if not columns and blocking_ext_match(version, index, code):
+            columns = [m.start() for m in RAW_BLOCKING_EXT.finditer(code)] or [len(code)]
+        return any(once_initializer(version, index, column) for column in columns)
+    return changed_debt(outside_seams(changes), judge)
+
+
 def load_blocking_context(texts: dict[tuple[str, str], str], head: str, repo: Path | None = None) -> None:
     """Keeps HEAD's threading doc and package manifest for the rules above (a missing doc fails thread-doc open),
     and, given REPO, names HEAD's tree for pool-blocking's actor index (repo_actor_index reads it on demand)."""
@@ -4090,6 +4198,14 @@ BLOCKING_RULES = (
          "mark the function `@concurrent` (or move the work into an actor) so it never runs on the caller's main thread",
          "// blocking-allow: <why every caller is off the main thread>",
          maybe_blocking_on_main),
+    Rule("once-blocking", "A blocking call (raw, seam or raw-blocking-ext) in a static, lazy or global initializer",
+         "Swift runs the initializer once, on whichever thread reads the value first, and every other first reader "
+         "waits for it: its disk, kernel or process wait lands on an unknown thread, often the main thread "
+         "(Chromium keeps blocking work out of lazy singletons: base/memory/singleton.h, base/lazy_instance.h)",
+         "load the value on a lane at warm-up (`work.run(.userVisible, mayBlock: .files) { ... }`) and inject it "
+         "where it is read, or make its accessor `async`; a literal value needs no load",
+         "// blocking-allow: <why no reader can be the main thread or wait on it>",
+         blocking_once),
     Rule("thread-doc", "A new thread, queue or blocking allowance that plans/cmux-next/threading-model.md does not list",
          "every thread and queue has an owner, a QoS, a bound and a back-pressure rule written down, and every "
          "main-thread blocking allowance is reviewed (Chrome's ScopedAllowBlocking friend list)",
