@@ -117,6 +117,8 @@ extension SettingsSchema {
         "appearance.focusIndicator",
         "focus.inactiveTabStyle",
         "ui.animationSpeed",
+        // How a dragged divider is drawn (looks only: snaps and the drop read the real pointer).
+        "input.resampleDrags", "input.resampleFrameAheadMs",
         "ui.animations.newTab",
         "ui.animations.newWorkspace",
         "ui.animations.bounce",
