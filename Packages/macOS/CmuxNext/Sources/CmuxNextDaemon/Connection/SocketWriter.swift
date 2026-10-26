@@ -38,7 +38,8 @@ final class SocketWriter: Sendable {
         // The option fails (EINVAL) once the peer is gone, so writes also
         // pass MSG_NOSIGNAL.
         var on: Int32 = 1
-        setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &on, socklen_t(MemoryLayout<Int32>.size))
+        // SAFETY: setsockopt reads the given size, MemoryLayout<Int32>.size, from `on`, an Int32 live for the call.
+        unsafe setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &on, socklen_t(MemoryLayout<Int32>.size))
     }
 
     /// Appends `bytes` after everything written before. Returns an error
@@ -100,12 +101,16 @@ final class SocketWriter: Sendable {
     }
 
     private static func writeAll(_ bytes: Data, fd: Int32) -> SocketWriteFailure? {
-        bytes.withUnsafeBytes { raw -> SocketWriteFailure? in
-            guard var pointer = raw.baseAddress else { return nil }
-            var remaining = raw.count
+        // SAFETY: `raw` is Data's contiguous storage, valid only inside this closure, which never lets a pointer out.
+        unsafe bytes.withUnsafeBytes { raw -> SocketWriteFailure? in
+            // SAFETY: as above.
+            guard var pointer = unsafe raw.baseAddress else { return nil }
+            var remaining = unsafe raw.count
             while remaining > 0 {
                 // concurrency-allow: runs only on this writer's private serial queue, never the main thread or the cooperative pool.
-                let written = Darwin.send(fd, pointer, remaining, MSG_NOSIGNAL)
+                // SAFETY: `pointer` + `remaining` always ends at the buffer's end: both start at its start and
+                // count, and each step moves `pointer` forward by the `written` bytes taken off `remaining`.
+                let written = unsafe Darwin.send(fd, pointer, remaining, MSG_NOSIGNAL)
                 if written < 0 {
                     let code = errno
                     if code == EINTR { continue }
@@ -115,7 +120,8 @@ final class SocketWriter: Sendable {
                 // retrying would loop without writing anything.
                 if written == 0 { return .noProgress }
                 remaining -= written
-                pointer += written
+                // SAFETY: as for send above; written <= remaining, so `pointer` stays inside the buffer or at its end.
+                unsafe pointer += written
             }
             return nil
         }
@@ -140,21 +146,27 @@ enum SocketWriteFailure: Error, Equatable, Sendable, CustomStringConvertible {
         case .closed: "socket closed"
         case .backlog(let queued): "cmux-tui is not reading its socket (\(queued) bytes queued)"
         case .noProgress: "write: no progress"
-        case .errno(let code): "write: \(String(cString: strerror(code)))"
+        case .errno(let code): "write: \(POSIXErrorText(code))"
         }
     }
 }
 
 extension DaemonWireStats.Role {
-    /// The class of this connection's ``SocketWriter`` queue, by what it carries
-    /// (threading-model.md, QoS table). Only the connections that carry typed keys run at
-    /// user-interactive, so a bulk loopback forward never shares the class of a keystroke.
+    /// The class of this connection's ``SocketWriter`` queue and of its reader thread, by what it carries
+    /// (threading-model.md, QoS table). Both directions serve the same waiter, so they share one class.
+    /// Only the terminal attach connection, which carries most typed keys (`TerminalAttachment.enqueueInput`)
+    /// and their echo, runs at user-interactive: control commands, replies and events (automation, sidebar
+    /// churn) and bulk loopback forwards never share a keystroke's class. Two key paths still use `control`
+    /// and so run at user-initiated: `send {terminal_id}` from `CreatingTerminalInput` before a new split is
+    /// attached (until p04-input-058 buffers it until attach), and `send-key` for a TUI's Command chords from
+    /// `TerminalHooks`. Chromium maps its default thread type to user-initiated and keeps user-interactive
+    /// for the threads input and display wait on (base/threading/platform_thread_apple.mm).
     var writerQoS: DispatchQoS {
         switch self {
-        case .control, .terminalAttach:
-            // qos-allow: key echo path: typed keys reach the daemon on these connections and the echo frame waits for them
+        case .terminalAttach:
+            // qos-allow: key echo path: typed keys reach the daemon on this connection and the echo frame waits for its bytes
             .userInteractive
-        case .pageRelay, .agentSessionAttach, .journalRead, .sessionEnding, .shutdown:
+        case .control, .pageRelay, .agentSessionAttach, .journalRead, .sessionEnding, .shutdown:
             // userBlocking: a person waits now for the result of a click, an open or quit.
             .userInitiated
         case .loopbackForward:
@@ -164,6 +176,17 @@ extension DaemonWireStats.Role {
         case .socketProbe:
             // bestEffort: a liveness probe nobody watches.
             .utility
+        }
+    }
+
+    /// The class of this connection's reader thread (`cmux-tui reader <path>`): the writer's, as a thread QoS.
+    var readerQoS: QualityOfService {
+        switch writerQoS.qosClass {
+        case .userInteractive: .userInteractive
+        case .userInitiated: .userInitiated
+        case .utility: .utility
+        case .background: .background
+        default: .default
         }
     }
 }

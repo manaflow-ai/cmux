@@ -40,7 +40,7 @@ public enum DaemonError: Error, Sendable, Equatable, CustomStringConvertible {
         case .connectionClosed(let reason): "cmux-tui connection closed: \(reason)"
         case .daemonShutdown: "cmux-tui daemon shut down"
         case .socketPathTooLong(let path): "socket path exceeds sun_path: \(path)"
-        case .connectFailed(let path, let code): "connect \(path) failed: \(String(cString: strerror(code)))"
+        case .connectFailed(let path, let code): "connect \(path) failed: \(POSIXErrorText(code))"
         case .command(let cmd, let message, let code, _, _): "\(cmd) failed: \(message)\(code.map { " [\($0)]" } ?? "")"
         case .malformedResponse(let detail): "malformed cmux-tui response: \(detail)"
         case .wrongApp(let app): "socket is served by \(app), not cmux-tui"

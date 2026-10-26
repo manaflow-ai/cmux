@@ -26,6 +26,11 @@
 //!   [`WorkConfig::keep_alive`] workers (default 0) and then exits; at or below that count it waits
 //!   with no timeout (thread_group_impl.cc `CanCleanupLockRequired`). An idle lane has no worker and
 //!   no timer.
+//! - **Sync primitives.** An item may block on I/O but not wait for other work: each runs under
+//!   [`crate::blocking::with_sync_primitives_disallowed`], so a checked receive, join or
+//!   condition-variable wait in it records a `lane-sync` site (never a panic), as Chrome's
+//!   task_tracker.cc runs a task without `WithBaseSyncPrimitives()` under
+//!   `ScopedDisallowBaseSyncPrimitives`.
 //! - **Shutdown.** As Chrome's task_tracker.cc: [`Work::shutdown`] drops every item that has not
 //!   started except [`Shutdown::BlockShutdown`] ones, refuses new ones the same way, and returns when
 //!   every block item and every started [`Shutdown::SkipOnShutdown`] item has finished. It never waits
@@ -801,7 +806,13 @@ impl LaneShared {
                     });
                 drop(state);
                 CURRENT_LANE.with(|current| *current.borrow_mut() = Some(Arc::clone(&self)));
-                let panicked = catch_unwind(AssertUnwindSafe(job.body)).is_err();
+                // Chrome's task_tracker.cc runs a task without WithBaseSyncPrimitives() under
+                // ScopedDisallowBaseSyncPrimitives: an item may block on I/O, and a wait for other work
+                // in it is a lane-sync site.
+                let body = job.body;
+                let panicked = crate::blocking::with_sync_primitives_disallowed(|| {
+                    catch_unwind(AssertUnwindSafe(body)).is_err()
+                });
                 CURRENT_LANE.with(|current| current.borrow_mut().take());
                 state = self.lock();
                 if let Some(end) = raisable.and_then(|id| state.raises.untrack(id)) {

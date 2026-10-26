@@ -36,17 +36,23 @@ nonisolated struct LineSplitter {
     /// Offsets (from `data.startIndex`) of every newline at or after
     /// `offset`, and the number of bytes searched for them.
     static func newlineOffsets(in data: Data, from offset: Int) -> (offsets: [Int], searched: Int) {
-        data.withUnsafeBytes { raw -> ([Int], Int) in
-            guard let base = raw.baseAddress, offset < raw.count else { return ([], 0) }
+        // SAFETY: `raw` is Data's contiguous storage, valid only inside this closure, which never lets a pointer out.
+        unsafe data.withUnsafeBytes { raw -> ([Int], Int) in
+            // SAFETY: as above; reads only the buffer's own base address and count.
+            guard let base = unsafe raw.baseAddress, unsafe offset < raw.count else { return ([], 0) }
             var offsets: [Int] = []
             var position = offset
-            while position < raw.count, let hit = memchr(base + position, 0x0A, raw.count - position) {
-                let found = base.distance(to: UnsafeRawPointer(hit))
+            // SAFETY: 0 <= position < raw.count, so memchr scans raw.count - position bytes from base + position,
+            // which ends at the buffer's end; a hit points inside that range, so its distance is an offset in it.
+            while unsafe position < raw.count, let hit = unsafe memchr(base + position, 0x0A, raw.count - position) {
+                let found = unsafe base.distance(to: UnsafeRawPointer(hit))
                 offsets.append(found)
                 position = found + 1
             }
             // memchr reads up to the newline it finds, or to the end.
-            return (offsets, raw.count - offset)
+            // SAFETY: reads only the buffer's count.
+            let searched = unsafe raw.count - offset
+            return (offsets, searched)
         }
     }
 }

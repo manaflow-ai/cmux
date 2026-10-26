@@ -73,6 +73,8 @@ public final class InputEventTap: InputObserving {
     public private(set) var lastPointer: InputEventRecord?
     /// Owner-set states that per-key work checks in O(1) instead of searching for (``Flags``).
     public private(set) var flags: Flags = []
+    /// The holders of each held flag (``holdFlag(_:)``).
+    private var flagHolds: [Flags: Int] = [:]
 
     /// A tap with no subscription.
     public init() {}
@@ -176,7 +178,8 @@ public final class InputEventTap: InputObserving {
 
     // MARK: Flags
 
-    /// States that per-key work checks in O(1), each set by its one owner.
+    /// States that per-key work checks in O(1), each set by its one owner (``setFlag(_:_:)``) or held
+    /// by several (``holdFlag(_:)``).
     public struct Flags: OptionSet, Hashable, Sendable {
         public let rawValue: UInt8
 
@@ -184,13 +187,26 @@ public final class InputEventTap: InputObserving {
 
         /// A window shows shortcut hints (its hint owner sets it while they show).
         public static let hintsShowing = Flags(rawValue: 1 << 0)
-        /// A find pill is open in some window (the find pill owner sets it while one is open).
+        /// A find pill's field has the keyboard in some window (each such pill holds it).
         public static let findPillOpen = Flags(rawValue: 1 << 1)
     }
 
     /// Sets or clears `flag` (called by the flag's owner).
     public func setFlag(_ flag: Flags, _ on: Bool) {
         if on { flags.insert(flag) } else { flags.remove(flag) }
+    }
+
+    /// Sets `flag` until every holder released it (``releaseFlag(_:)``): a flag several owners
+    /// share, such as one find pill per window, clears when the last lets go.
+    public func holdFlag(_ flag: Flags) {
+        flagHolds[flag, default: 0] += 1
+        flags.insert(flag)
+    }
+
+    /// Gives back one ``holdFlag(_:)`` of `flag`; the last clears it. A release with no hold does nothing.
+    public func releaseFlag(_ flag: Flags) {
+        guard let holds = flagHolds[flag] else { return }
+        if holds > 1 { flagHolds[flag] = holds - 1 } else { flagHolds[flag] = nil; flags.remove(flag) }
     }
 
     // MARK: Delivery
@@ -358,33 +374,5 @@ public final class InputEventTap: InputObserving {
         guard globalMonitors.contains(where: { $0.flag.isCancelled }) else { return }
         for monitor in globalMonitors where monitor.flag.isCancelled { monitor.remove() }
         globalMonitors.removeAll { $0.flag.isCancelled }
-    }
-}
-
-/// One other-app monitor of ``InputEventTap/globalObserve(_:_:)``: the seam adapter between AppKit's
-/// global monitor callback and the main actor.
-private final class GlobalMonitor {
-    let flag: InputSubscriptionFlag
-    private let handler: @MainActor (NSEvent) -> Void
-    private var token: Any?
-
-    /// Installs AppKit's global monitor for `mask`.
-    init(_ mask: NSEvent.EventTypeMask, flag: InputSubscriptionFlag, handler: @escaping @MainActor (NSEvent) -> Void) {
-        self.flag = flag
-        self.handler = handler
-        token = NSEvent.addGlobalMonitorForEvents(matching: mask) { [weak self] event in
-            MainActor.assumeIsolated { self?.deliver(event) } // main-proof: NSEvent.h: monitor handlers are called on the main thread
-        }
-    }
-
-    func deliver(_ event: NSEvent) {
-        guard !flag.isCancelled else { return remove() }
-        handler(event)
-    }
-
-    func remove() {
-        guard let token else { return }
-        self.token = nil
-        NSEvent.removeMonitor(token)
     }
 }
