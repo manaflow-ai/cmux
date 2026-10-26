@@ -1,6 +1,6 @@
 import Foundation
 
-/// One peer's row of `acpmux --json host update NAME --binary-dir DIR [--if-idle]` (`outcome`,
+/// One peer's row of `acpmux --json host update NAME --binary-dir DIR --keep-newer [--if-idle]` (`outcome`,
 /// `target`, `build`, `error`, `migratedFrom`, `reason`): the only place the app reads that JSON. Unknown
 /// fields (`peer`, `host`, `ok`, `version`, `status`) are ignored; an unknown outcome is a failure.
 nonisolated struct AcpmuxPeerUpdateReply: Decodable, Sendable, Equatable {
@@ -9,7 +9,8 @@ nonisolated struct AcpmuxPeerUpdateReply: Decodable, Sendable, Equatable {
         case updated
         /// It already did; nothing changed.
         case current
-        /// A turn or prompt runs there (`--if-idle`); nothing changed.
+        /// A turn or prompt runs there (`--if-idle`), or another update holds the host's lock
+        /// (`failed`, reason `updateRunning`); nothing changed.
         case busy
         /// `DIR/acpmux-<target>` is missing for the peer's platform; nothing changed.
         case needsBinary(target: String)
@@ -20,9 +21,10 @@ nonisolated struct AcpmuxPeerUpdateReply: Decodable, Sendable, Equatable {
         case cloudMachine
         /// The CLI's ssh probe of the peer failed (`failed` with reason `unreachable`, its first
         /// step): the peer dropped off the network after the app read its build; nothing changed.
-        /// Not final: asked again later. Every other `failed` reason (`unsupportedPlatform`,
-        /// `pushFailed`, `pushMismatch`, `restartFailed`, the hand-written unit's refusals, ...)
-        /// stays a failure: retrying the same build would fail the same way.
+        /// Not final: asked again later. Also `failed` with reason `updateRunning` (another update
+        /// holds the host's lock; nothing changed) reads as ``busy``. Every other `failed` reason
+        /// (`unsupportedPlatform`, `pushFailed`, `pushMismatch`, `restartFailed`, the hand-written
+        /// unit's refusals, ...) stays a failure: retrying the same build would fail the same way.
         case unreachable
         case failed
     }
@@ -68,6 +70,7 @@ nonisolated struct AcpmuxPeerUpdateReply: Decodable, Sendable, Equatable {
             switch (try? container.decodeIfPresent(String.self, forKey: .reason)) ?? nil {
             case "cloudMachine": outcome = .cloudMachine
             case "unreachable": outcome = .unreachable
+            case "updateRunning": outcome = .busy
             default: outcome = .failed
             }
         default: outcome = .failed

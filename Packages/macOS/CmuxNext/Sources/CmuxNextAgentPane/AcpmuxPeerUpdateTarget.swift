@@ -3,7 +3,7 @@ import Foundation
 import os
 
 /// An acpmux ssh peer of this app's daemon (`acpmux host add NAME ssh://host`) as a
-/// ``DaemonUpdateTarget``: `acpmux --json host update NAME --binary-dir DIR [--if-idle]` on the
+/// ``DaemonUpdateTarget``: `acpmux --json host update NAME --binary-dir DIR --keep-newer [--if-idle]` on the
 /// bundled CLI. By default the policy asks without `--if-idle`, which restarts the peer's daemon
 /// mid-turn; the new daemon resumes what it interrupted. With the policy's optional busy cap it
 /// asks with `--if-idle` first (the CLI then refuses a peer where any session runs a turn: `busy`)
