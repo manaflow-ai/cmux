@@ -91,7 +91,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NativeCaretAccessory.install()
         // Every window, shell or auxiliary, opens by one placement rule.
         WindowPlacement.noActivate = environment.noActivate
-        WindowPlacement.startsBehind = environment.relaunchBehind != nil
         WindowPlacement.testScreen = environment.testWindow?.screen
         // An agent launch must never come back by itself: without this, loginwindow reopens it at the
         // next login (without the agent's environment, so it activates and takes the tag's socket).

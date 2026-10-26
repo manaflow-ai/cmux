@@ -37,7 +37,7 @@ import os
 ///   request, from AppKit, CEF/Chromium, or app code, is dropped, so an agent
 ///   run never takes focus from the user's frontmost app. The startup of an update relaunch nobody
 ///   clicked refuses it too, for a few seconds (`InputVerificationService.endRelaunchBehind`).
-final class CmuxApplication: NSApplication, CEFAppProtocol {
+final class CmuxApplication: NSApplication, CEFAppProtocol, ActivationRefusing {
     private var handlingSendEvent = false
     /// Set in `CmuxNextApp.shared.main` before `run()`; an update relaunch's startup turns it
     /// off again when it ends (`InputVerificationService.endRelaunchBehind`).

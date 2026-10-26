@@ -1,5 +1,12 @@
 public import AppKit
 
+/// The app's NSApplication when it can refuse activation: while it does (an update relaunch's
+/// startup, `UpdateRelaunchFocus`), windows that open or come forward are ordered in without taking
+/// key, so the app the user is in keeps the keyboard.
+@MainActor public protocol ActivationRefusing: AnyObject {
+    var refusesActivation: Bool { get }
+}
+
 /// The one owner of window ordering, key-window changes and app activation.
 /// Under `CMUX_NEXT_NO_ACTIVATE=1` (``WindowPlacement/noActivate``) no path
 /// makes a window key or activates the app: a relaunch must never take the
@@ -69,7 +76,7 @@ public struct WindowActivation {
     /// Orders `window` in for `intent` by the rule.
     public static func show(_ window: NSWindow, _ intent: Intent) {
         let plan = plan(intent, noActivate: WindowPlacement.noActivate, testScreen: WindowPlacement.testScreen != nil,
-                        startsBehind: WindowPlacement.startsBehind)
+                        startsBehind: (NSApp as? ActivationRefusing)?.refusesActivation == true)
         if window.isMiniaturized, intent != .present { window.deminiaturize(nil) }
         switch plan.order {
         case .makeKeyAndOrderFront: window.makeKeyAndOrderFront(nil)
