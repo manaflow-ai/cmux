@@ -406,8 +406,9 @@ pub fn remove_worktree(folder: Dir<'_>, worktree: &Worktree) {
     // path (renamed in, a copy of its `.git` file), before or during the removal, is left alone.
     #[cfg(unix)]
     if let Some(held) = &worktree.root_held {
-        // Its own registration, read through the held folder before it is emptied.
-        let admin = held_gitdir(held);
+        // Its own registration, found through the held folder and held before anything is
+        // emptied: the one it names, in this repository, pointing back at it.
+        let registration = held_registration(folder, held, &worktree.root);
         if let Err(e) = empty_held(held) {
             tracing::warn!(root = %worktree.root.display(), "worktree not removed: {e}");
             return;
@@ -425,8 +426,13 @@ pub fn remove_worktree(folder: Dir<'_>, worktree: &Worktree) {
             tracing::warn!(root = %worktree.root.display(), "worktree registration kept: another folder is at its path");
             return;
         }
-        if let Some(admin) = admin {
-            remove_registration(folder, &admin, &worktree.root);
+        let Some(registration) = registration else {
+            tracing::warn!(root = %worktree.root.display(), "worktree registration kept: not found as its own");
+            return;
+        };
+        if let Err(e) = registration.remove() {
+            tracing::warn!(registration = %registration.path.display(), "worktree registration kept: {e}");
+            return;
         }
         if git(folder, &["branch", "-D", &worktree.branch]).is_ok() {
             let _ = git(
@@ -459,35 +465,80 @@ fn held_gitdir(dir: &std::fs::File) -> Option<PathBuf> {
     text.trim().strip_prefix("gitdir: ").map(PathBuf::from)
 }
 
-/// Removes the registration `admin` of the worktree that was at `root`, and nothing else: it must
-/// be in `folder`'s repository's `worktrees/` and point back at `root`.
+/// A worktree's own registration folder, held open with the `worktrees/` folder it is in.
 #[cfg(unix)]
-fn remove_registration(folder: Dir<'_>, admin: &Path, root: &Path) {
+struct HeldRegistration {
+    worktrees: std::fs::File,
+    name: std::ffi::CString,
+    dir: std::fs::File,
+    /// Where it was when it was found (for what is said about it).
+    path: PathBuf,
+}
+
+#[cfg(unix)]
+impl HeldRegistration {
+    /// Empties the folder held, then removes its name only if that is an empty folder: one that
+    /// took its place (another registration) is left alone.
+    fn remove(&self) -> std::io::Result<()> {
+        use std::os::fd::AsRawFd;
+        empty_held(&self.dir)?;
+        #[cfg(test)]
+        before_registration_removal(&self.path);
+        // SAFETY: `worktrees` is open for the call.
+        let removed = unsafe {
+            libc::unlinkat(self.worktrees.as_raw_fd(), self.name.as_ptr(), libc::AT_REMOVEDIR)
+        };
+        if removed != 0 {
+            return Err(std::io::Error::last_os_error());
+        }
+        Ok(())
+    }
+}
+
+/// The registration the `.git` file in the held worktree folder `held` names, opened through
+/// `folder`'s repository's `worktrees/` folder, when its `gitdir` points back at `root`.
+#[cfg(unix)]
+fn held_registration(
+    folder: Dir<'_>,
+    held: &std::fs::File,
+    root: &Path,
+) -> Option<HeldRegistration> {
+    use std::io::Read;
+    use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
+    use std::os::unix::ffi::OsStrExt;
+    let admin = held_gitdir(held)?;
     let common = ["rev-parse", "--path-format=absolute", "--git-common-dir"];
-    let Some(worktrees) = git(folder, &common)
-        .ok()
-        .and_then(|c| std::fs::canonicalize(c).ok())
-        .map(|c| c.join("worktrees"))
-    else {
-        return;
-    };
-    let Ok(admin) = std::fs::canonicalize(admin) else { return };
-    // Its root is gone by now: compared by its folder (resolved, as git may have spelled it
-    // through a link) and its name.
+    let worktrees = std::fs::canonicalize(git(folder, &common).ok()?).ok()?.join("worktrees");
+    let admin = std::fs::canonicalize(admin).ok()?;
+    if admin.parent() != Some(worktrees.as_path()) {
+        return None;
+    }
+    let path = admin.clone();
+    let name = std::ffi::CString::new(admin.file_name()?.as_bytes()).ok()?;
+    let worktrees = std::fs::File::open(&worktrees).ok()?;
+    let flags = libc::O_RDONLY | libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC;
+    // SAFETY: `worktrees` is open for the call; the descriptor opened is owned at once.
+    let fd = unsafe { libc::openat(worktrees.as_raw_fd(), name.as_ptr(), flags) };
+    if fd < 0 {
+        return None;
+    }
+    let dir = std::fs::File::from(unsafe { OwnedFd::from_raw_fd(fd) });
+    let flags = libc::O_RDONLY | libc::O_NOFOLLOW | libc::O_CLOEXEC;
+    let fd = unsafe { libc::openat(dir.as_raw_fd(), c"gitdir".as_ptr(), flags) };
+    if fd < 0 {
+        return None;
+    }
+    let mut gitdir = String::new();
+    std::fs::File::from(unsafe { OwnedFd::from_raw_fd(fd) }).read_to_string(&mut gitdir).ok()?;
+    // Compared by its folder (resolved, as git may have spelled it through a link) and name.
     let spelled = |p: &Path| {
         let parent = p.parent().and_then(|d| std::fs::canonicalize(d).ok());
         (parent, p.file_name().map(std::ffi::OsStr::to_owned))
     };
-    let points_back = std::fs::read_to_string(admin.join("gitdir")).is_ok_and(|g| {
-        let git = Path::new(g.trim());
-        git.file_name() == Some(std::ffi::OsStr::new(".git"))
-            && git.parent().is_some_and(|r| spelled(r) == spelled(root))
-    });
-    if admin.parent() == Some(worktrees.as_path()) && points_back {
-        #[cfg(test)]
-        before_registration_removal(&admin);
-        let _ = std::fs::remove_dir_all(&admin);
-    }
+    let git = Path::new(gitdir.trim());
+    let points_back = git.file_name() == Some(std::ffi::OsStr::new(".git"))
+        && git.parent().is_some_and(|r| spelled(r) == spelled(root));
+    points_back.then_some(HeldRegistration { worktrees, name, dir, path })
 }
 
 /// Removes everything in the open folder `dir` through its handle (`openat`/`unlinkat`, never a
