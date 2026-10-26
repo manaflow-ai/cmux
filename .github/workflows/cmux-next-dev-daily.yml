@@ -719,23 +719,18 @@ jobs:
           # attempt, so no run replaces bytes a feed already signed. Until the
           # feed names them, they are this attempt's alone: a run that ends
           # without writing the feed removes them (cmux_binaries_prune.py leaves
-          # this prefix alone). A write whose answer was lost may still have
-          # landed, so they go only once a fresh read of the feed shows it does
-          # not name this attempt's archive; a failed read keeps them.
-          uploaded=() written=false
+          # this prefix alone). A feed write that failed without a clear
+          # conflict may have landed, or may still land, so after one the
+          # uploads stay.
+          uploaded=() written=false unsure=false
           cleanup() {
             local status=$?  # the step's own status, kept: the trap never turns a failure green
-            if [[ "$written" != true && ${#uploaded[@]} -gt 0 ]]; then
-              local held
-              if ! held="$(python3 scripts/ci/r2_cas.py get --key "$key" --out tip-live-final.xml)"; then
-                echo "::warning::could not read the tip feed back; keeping this attempt's uploads"
-              elif [[ "$held" != absent ]] && grep -qF "cmux-NEXT-DEV-$TIP_BUILD-$TIP_RUN_TAG.dmg" tip-live-final.xml; then
-                echo "::warning::the tip feed names this attempt's archive, so its write landed; keeping the uploads"
-              else
-                for object in "${uploaded[@]}"; do
-                  python3 scripts/ci/r2_cas.py delete --key "$object" || echo "::warning::could not remove $object"
-                done
-              fi
+            if [[ "$unsure" == true ]]; then
+              echo "::warning::a tip feed write ended without a clear answer; keeping this attempt's uploads"
+            elif [[ "$written" != true ]]; then
+              for object in ${uploaded[@]+"${uploaded[@]}"}; do
+                python3 scripts/ci/r2_cas.py delete --key "$object" || echo "::warning::could not remove $object"
+              done
             fi
             exit "$status"
           }
@@ -762,11 +757,12 @@ jobs:
             if [[ "$etag" == absent ]]; then live=absent condition=(--if-absent); else live=tip-live-now.xml condition=(--if-match "$etag"); fi
             python3 scripts/ci/tip_feed.py merge "tip-out/$TIP_APPCAST" "$live" --build "$TIP_BUILD" --keep "$TIP_KEEP" --out tip-merged.xml
             python3 scripts/ci/tip_feed.py check tip-merged.xml --build "$TIP_BUILD"
-            rc=0
+            rc=0 unsure=true
             python3 scripts/ci/r2_cas.py put --key "$key" --file tip-merged.xml \
               --content-type application/xml --cache-control "no-cache, no-store, must-revalidate" "${condition[@]}" || rc=$?
             if (( rc == 0 )); then written=true; break; fi
             (( rc == 3 )) || exit "$rc"
+            unsure=false  # R2 refused the write: it never lands
             echo "::warning::another run wrote the tip feed first; reading it again (attempt $attempt)"
             (( attempt < 5 )) || { echo "the tip feed kept changing under build $TIP_BUILD" >&2; exit 1; }
           done
