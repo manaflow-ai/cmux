@@ -299,11 +299,22 @@ impl Hub {
         let legacy_root = dirs::home_dir()
             .map(|home| home.join(".cmux-harness").join("sessions"))
             .filter(|legacy| legacy != root);
-        let current_state_present =
-            std::fs::symlink_metadata(root.join(agent_id)).is_ok()
-                || std::fs::read_dir(root).into_iter().flatten().flatten().any(|entry| {
-                    entry.path().extension().and_then(|e| e.to_str()) == Some("jsonl")
-                });
+        let current_state_present = std::fs::symlink_metadata(root.join(agent_id)).is_ok()
+            || std::fs::read_dir(root).into_iter().flatten().flatten().any(|entry| {
+                let path = entry.path();
+                if path.extension().and_then(|e| e.to_str()) != Some("jsonl") {
+                    return false;
+                }
+                let Ok(bytes) = std::fs::read(path) else { return false };
+                let first = bytes.splitn(2, |b| *b == b'\n').next().unwrap_or_default();
+                serde_json::from_slice::<Value>(first).ok().and_then(|header| {
+                    header
+                        .get("id")
+                        .or_else(|| header.get("sessionId"))
+                        .and_then(Value::as_str)
+                        .map(|id| id == agent_id)
+                }) == Some(true)
+            });
         let (journal_root, pi_session_path, session_bytes) =
             match Self::harness_pi_session_optional(root, agent_id)? {
                 Some((path, bytes)) => (root.to_path_buf(), path, bytes),
@@ -443,18 +454,19 @@ impl Hub {
         if !replace_durable && Self::harness_pi_session_optional(root, agent_id)?.is_some() {
             return Err(anyhow::anyhow!("target already has a Pi session for this ACP id"));
         }
-        let pi_target = if replace_durable {
-            Self::harness_pi_session_optional(root, agent_id)?
-                .map(|(path, _)| path)
-                .unwrap_or_else(|| root.join(pi_filename))
-        } else {
-            root.join(pi_filename)
-        };
+        let existing_pi =
+            if replace_durable { Self::harness_pi_session_optional(root, agent_id)? } else { None };
+        let pi_target = existing_pi
+            .as_ref()
+            .map(|(path, _)| path.clone())
+            .unwrap_or_else(|| root.join(pi_filename));
         if let Ok(meta) = std::fs::symlink_metadata(&pi_target) {
             if meta.file_type().is_symlink() || !meta.file_type().is_file() {
                 return Err(anyhow::anyhow!("target Pi session is not a real file"));
             }
-            return Err(anyhow::anyhow!("target Pi session filename is already occupied"));
+            if existing_pi.is_none() {
+                return Err(anyhow::anyhow!("target Pi session filename is already occupied"));
+            }
         }
         let journal = journal_dir.join("journal.ndjson");
         let journal_tmp = journal_dir.join("journal.ndjson.importing");
@@ -475,6 +487,9 @@ impl Hub {
             serde_json::to_vec(&json!({
                 "agentId": agent_id,
                 "piFilename": pi_target.file_name().and_then(|n| n.to_str()).unwrap_or(""),
+                "journalDirWasPresent": journal_dir_was_present,
+                "hadJournal": std::fs::symlink_metadata(&journal).is_ok(),
+                "hadPi": std::fs::symlink_metadata(&pi_target).is_ok(),
             }))?,
         )?;
         std::fs::File::open(&durable_state)?.sync_all()?;
