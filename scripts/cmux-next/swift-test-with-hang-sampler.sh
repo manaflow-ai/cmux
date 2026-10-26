@@ -90,10 +90,14 @@ open_tests() {
   awk "$names_awk"'
     /^◇ Test .* started\.$/ && !/^◇ Test case passing / && !/^◇ Test run started\.$/ {
       name = name_of($0)
-      if (!(name in started)) { started[name] = 1; starts[++count] = name }
+      if (!(seen[name]++)) starts[++count] = name
+      started[name]++
     }
-    is_finish($0) { finished[name_of($0)] = 1 }
-    END { for (i = 1; i <= count; i++) if (!(starts[i] in finished)) print starts[i] }
+    is_finish($0) { finished[name_of($0)]++ }
+    # Counted, not a set: one log can hold the same test name twice (the isolated-suite step runs
+    # each suite in its own process into one log), and a set lets the first run finish for the
+    # second. A name is open while its starts outnumber its finishes.
+    END { for (i = 1; i <= count; i++) if (started[starts[i]] > finished[starts[i]]) print starts[i] }
   ' "$1"
 }
 # Samples this run's test processes, then ends them and the run.
@@ -219,14 +223,26 @@ report() {
         red[name] = 1; reds[++red_count] = name " " at
       }
     }
+    # Occurrences per name, not a set of names. One log can hold the same test name more than
+    # once -- the isolated-suite step runs each suite in its own process into one log -- and with
+    # a set the first run finishing covered the second run starting, so a truncation that only
+    # lost tests another block had already run and summarized read as a pass. Both counts here
+    # and the summary total below now count runs, so they stay comparable.
     /^◇ Test .* started\.$/ && !/^◇ Test case passing / && !/^◇ Test run started\.$/ {
       name = name_of($0)
-      if (!(name in started)) { started[name] = 1; starts[++start_count] = name }
+      if (!(seen_name[name]++)) names[++name_count] = name
+      started[name]++
+      start_count++
     }
     # is_finish and name_of come from names_awk above, the one definition the watchdog also uses:
     # a finish shape this misses fails a whole green run, and one the watchdog misses gets a
     # healthy run killed, so they must never be able to disagree.
-    is_finish($0) { finished[name_of($0)] = 1 }
+    #
+    # Counted per name rather than summed on its own: a parameterized test prints a finish for
+    # each case ("✔ Test case passing 1 argument ... passed after ...") whose start line the rule
+    # above deliberately skips, so finishes outnumber starts across the whole log. Per name those
+    # case finishes land under a name that never started, where they cannot hide anything.
+    is_finish($0) { finished[name_of($0)]++ }
     /^[^ ]+ Test run with [0-9]+ tests? / {
       has_summary = 1
       # "✔ Test run with 399 tests in 80 suites passed after ...". Taken out of the text rather
@@ -246,12 +262,20 @@ report() {
           for (i = 1; i <= red_count; i++) printf "- `%s`\n", reds[i] >> summary_file
         }
       }
+      # Once, for both branches below. open_count counts unfinished RUNS and open_list the names
+      # that hold them, so a name started twice and finished once reports the one run it lost.
+      for (i = 1; i <= name_count; i++) {
+        short = started[names[i]] - finished[names[i]]
+        if (short > 0) {
+          open_count += short
+          open_tests[++open_list] = short > 1 ? names[i] " (" short " of " started[names[i]] " runs)" : names[i]
+        }
+      }
       if (start_count > 0 && !has_summary) {
-        for (i = 1; i <= start_count; i++) if (!(starts[i] in finished)) open_tests[++open_count] = starts[i]
-        printf "::error title=cmux-next swift test ended early::no \"Test run with\" summary line (crash, kill or truncation); swift test exited %s, and SwiftPM prints no line when the test helper ends on SIGINT, SIGTERM or SIGKILL or exits by itself; %d tests started and never finished: %s\n", status, open_count, join(open_tests, open_count)
+        printf "::error title=cmux-next swift test ended early::no \"Test run with\" summary line (crash, kill or truncation); swift test exited %s, and SwiftPM prints no line when the test helper ends on SIGINT, SIGTERM or SIGKILL or exits by itself; %d tests started and never finished: %s\n", status, open_count, join(open_tests, open_list)
         if (summary_file != "") {
           printf "### No Swift Testing summary line: %d unfinished tests\n\n", open_count >> summary_file
-          for (i = 1; i <= open_count; i++) printf "- `%s`\n", open_tests[i] >> summary_file
+          for (i = 1; i <= open_list; i++) printf "- `%s`\n", open_tests[i] >> summary_file
         }
         exit 3
       }
@@ -263,21 +287,15 @@ report() {
       # started. Not equality: a skipped test prints no "started." line (so the summary runs
       # ahead of the starts -- 2 starts against "3 tests" on the green fixture, and a healthy
       # CmuxNextAppTests run measured 399 started, 399 finished, "399 tests in 80 suites").
-      #
-      # What it does NOT catch, so nobody reads it as more than it is: names are counted across
-      # the whole log, so a truncation in one target that only loses tests whose names another
-      # target already ran and summarized leaves all three counts intact and reads as a pass.
-      # Catching that needs the bookkeeping scoped per summary block, which this is not.
       if (has_summary && start_count > 0) {
-        for (i = 1; i <= start_count; i++) if (!(starts[i] in finished)) open_tests[++open_count] = starts[i]
         if (open_count > 0 || summary_tests < start_count) {
           if (open_count > 0)
-            printf "::error title=cmux-next swift test reported fewer tests than it ran::the summaries count %d tests in total but %d started and %d of those never finished; swift test exited %s. A summary line does not make a truncated run a result: %s\n", summary_tests, start_count, open_count, status, join(open_tests, open_count)
+            printf "::error title=cmux-next swift test reported fewer tests than it ran::the summaries count %d tests in total but %d started and %d of those never finished; swift test exited %s. A summary line does not make a truncated run a result: %s\n", summary_tests, start_count, open_count, status, join(open_tests, open_list)
           else
             printf "::error title=cmux-next swift test reported fewer tests than it ran::the summaries count %d tests in total but the log shows %d starting, and every one of those finished; swift test exited %s. A summary that undercounts the log is not a result.\n", summary_tests, start_count, status
           if (summary_file != "") {
             printf "### The run reported %d of %d tests (%d unfinished)\n\n", summary_tests, start_count, open_count >> summary_file
-            for (i = 1; i <= open_count; i++) printf "- `%s`\n", open_tests[i] >> summary_file
+            for (i = 1; i <= open_list; i++) printf "- `%s`\n", open_tests[i] >> summary_file
           }
           exit 3
         }

@@ -379,4 +379,62 @@ run cancelled 0
 [[ "$status" == 0 ]] || fail "a run with a cancelled test exited $status" "$out"
 [[ "$out" != *"::error"* ]] || fail "a run with a cancelled test printed an error" "$out"
 
+# One log can hold the same test name twice: the isolated-suite step runs each suite in its own
+# process and appends to one log. While the gate kept a SET of names, the first run finishing
+# covered the second run starting, so a truncation that only lost tests an earlier block had
+# already run and summarized left every count intact and read as a pass -- the one failure this
+# gate exists to prevent, reachable by the shape the step itself produces.
+cat > "$TMP/duplicatenames.out" <<'EOF'
+◇ Test duplicate() started.
+✔ Test duplicate() passed after 0.001 seconds.
+✔ Test run with 1 test in 1 suite passed after 0.002 seconds.
+◇ Test duplicate() started.
+◇ Test other() started.
+✔ Test other() passed after 0.001 seconds.
+✔ Test run with 1 test in 1 suite passed after 0.002 seconds.
+EOF
+run duplicatenames 0
+[[ "$status" != 0 ]] || fail "a second run of duplicate() that never finished exited 0" "$out"
+# The error line only: $out also holds the teed test log, where duplicate() appears either way.
+err=$(grep '^::error' <<<"$out")
+grep -q 'duplicate()' <<<"$err" || fail "the error does not name duplicate()" "$err"
+grep -q 'never finished' <<<"$err" || fail "the error does not say a test never finished" "$err"
+! grep -q 'other()' <<<"$err" || fail "the error named other(), which finished" "$err"
+
+# The other side of counting runs: the same name run twice, both finishing, is whole. A gate that
+# subtracted totals instead of counting per name would fail this.
+cat > "$TMP/duplicategreen.out" <<'EOF'
+◇ Test duplicate() started.
+✔ Test duplicate() passed after 0.001 seconds.
+✔ Test run with 1 test in 1 suite passed after 0.002 seconds.
+◇ Test duplicate() started.
+✔ Test duplicate() passed after 0.001 seconds.
+✔ Test run with 1 test in 1 suite passed after 0.002 seconds.
+EOF
+run duplicategreen 0
+[[ "$status" == 0 ]] || fail "the same test run twice, both finishing, exited $status" "$out"
+[[ "$out" != *"::error"* ]] || fail "the same test run twice, both finishing, printed an error" "$out"
+
+# A parameterized test prints a finish per case whose start line the gate deliberately skips, so
+# finishes outnumber starts across the whole log. Counting per name keeps those case finishes
+# under a name that never started, where they cannot cover a real unfinished test.
+cat > "$TMP/parameterized.out" <<'EOF'
+◇ Test paramTest(value:) started.
+◇ Test case passing 1 argument value → 1 to paramTest(value:) started.
+✔ Test case passing 1 argument value → 1 to paramTest(value:) passed after 0.001 seconds.
+◇ Test case passing 1 argument value → 2 to paramTest(value:) started.
+✔ Test case passing 1 argument value → 2 to paramTest(value:) passed after 0.001 seconds.
+✔ Test paramTest(value:) passed after 0.003 seconds.
+◇ Test lostAfterTheCases() started.
+✔ Test run with 2 tests in 1 suite passed after 0.004 seconds.
+EOF
+run parameterized 0
+[[ "$status" != 0 ]] || fail "a test lost after a parameterized test's cases exited 0" "$out"
+# The error line only: $out also holds the teed test log, where every one of these names appears.
+err=$(grep '^::error' <<<"$out")
+grep -q 'lostAfterTheCases()' <<<"$err" \
+  || fail "the error does not name lostAfterTheCases()" "$err"
+! grep -q 'paramTest' <<<"$err" \
+  || fail "the error named paramTest, whose cases all finished" "$err"
+
 echo "ok swift-test-summary"
