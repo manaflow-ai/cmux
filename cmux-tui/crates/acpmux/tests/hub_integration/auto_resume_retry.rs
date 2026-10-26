@@ -9,7 +9,12 @@ fn row(hub: &Hub, id: &str) -> Value {
     hub.session_summary(&hub.resolve(id).unwrap())
 }
 
-async fn prompt(c: &mut TestClient, id: &str, prompt_id: &str, text: &str) -> Result<Value, String> {
+async fn prompt(
+    c: &mut TestClient,
+    id: &str,
+    prompt_id: &str,
+    text: &str,
+) -> Result<Value, String> {
     c.request(
         method::SESSION_PROMPT,
         json!({"sessionId": id, "prompt": [{"type": "text", "text": text}], "_meta": {"acpmux": {"promptId": prompt_id}}}),
@@ -34,7 +39,8 @@ async fn retry_refuses_when_nothing_failed_and_while_a_turn_runs() {
     // A turn runs: busy.
     let mut other = connect(&hub).await;
     let sid = id.clone();
-    let running = tokio::spawn(async move { prompt(&mut other, &sid, "p-run", "until-cancel").await });
+    let running =
+        tokio::spawn(async move { prompt(&mut other, &sid, "p-run", "until-cancel").await });
     for _ in 0..400 {
         if hub.resolve(&id).unwrap().turn().is_some() {
             break;
@@ -78,7 +84,9 @@ async fn a_failed_turn_with_no_output_is_sent_again_as_the_same_prompt() {
                 assert_eq!(v["kind"], "turn", "{v}");
             }
             // The other click came while the first one's turn ran, or after it ended.
-            Err(e) => assert!(e.starts_with("retry.busy") || e.starts_with("retry.nothing_failed"), "{e}"),
+            Err(e) => {
+                assert!(e.starts_with("retry.busy") || e.starts_with("retry.nothing_failed"), "{e}")
+            }
         }
     }
     assert!(answered >= 1);

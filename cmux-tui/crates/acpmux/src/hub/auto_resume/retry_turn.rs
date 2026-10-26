@@ -43,7 +43,10 @@ fn busy() -> RpcError {
 }
 
 fn nothing_failed() -> RpcError {
-    refused("retry.nothing_failed", "the chat's last turn did not fail, so there is nothing to retry")
+    refused(
+        "retry.nothing_failed",
+        "the chat's last turn did not fail, so there is nothing to retry",
+    )
 }
 
 fn answer(prompt_id: String, turn_id: Option<String>) -> Value {
@@ -224,7 +227,9 @@ impl Hub {
         });
         let image = |id: &str| {
             let kept = self.prompt_image(&session.id, id).ok()?;
-            Some(json!({"type": "image", "mimeType": kept.get("mimeType")?, "data": kept.get("data")?}))
+            Some(
+                json!({"type": "image", "mimeType": kept.get("mimeType")?, "data": kept.get("data")?}),
+            )
         };
         prompt_blocks(&prompt?, image)
     }

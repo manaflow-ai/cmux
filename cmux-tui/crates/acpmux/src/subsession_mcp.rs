@@ -270,8 +270,12 @@ fn retry_params(args: &Value) -> Value {
 fn retried_text(r: &Value) -> String {
     let prompt = r["promptId"].as_str().unwrap_or_default();
     match r["turnId"].as_str() {
-        Some(turn) => format!("Retrying: prompt {prompt} started turn {turn}. Use wait_for_sessions to get its result."),
-        None => format!("Retrying: its waiting retry (prompt {prompt}) fires now. Use wait_for_sessions to get its result."),
+        Some(turn) => format!(
+            "Retrying: prompt {prompt} started turn {turn}. Use wait_for_sessions to get its result."
+        ),
+        None => format!(
+            "Retrying: its waiting retry (prompt {prompt}) fires now. Use wait_for_sessions to get its result."
+        ),
     }
 }
 
