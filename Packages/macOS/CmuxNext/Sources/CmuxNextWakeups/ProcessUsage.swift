@@ -49,13 +49,7 @@ public struct ProcessUsage: Sendable, Equatable {
 
     /// Samples `pid`; nil when it is gone or not ours. Blocking syscalls: call it off the main actor.
     public static func sample(_ pid: pid_t) -> ProcessUsage? {
-        var info = rusage_info_v6()
-        let status = withUnsafeMutablePointer(to: &info) { pointer in
-            pointer.withMemoryRebound(to: rusage_info_t?.self, capacity: 1) {
-                proc_pid_rusage(pid, RUSAGE_INFO_V6, $0)
-            }
-        }
-        guard status == 0 else { return nil }
+        guard let info = rusage(pid) else { return nil }
         let ticks = info.ri_user_time &+ info.ri_system_time
         var bsd = proc_bsdinfo()
         let bsdSize = Int32(MemoryLayout<proc_bsdinfo>.size)
@@ -65,6 +59,23 @@ public struct ProcessUsage: Sendable, Equatable {
                             interruptWakeups: info.ri_interrupt_wkups, packageIdleWakeups: info.ri_pkg_idle_wkups,
                             energyNanojoules: info.ri_energy_nj,
                             physFootprint: info.ri_phys_footprint, uptimeNanos: clock_gettime_nsec_np(CLOCK_UPTIME_RAW))
+    }
+
+    /// ``interruptWakeups`` of `pid` alone, from the same `proc_pid_rusage` read as ``sample(_:)``
+    /// without its path and parent lookups; nil when it is gone or not ours. One system call that copies
+    /// the kernel's counters (the idle histogram reads it on the main actor once per window).
+    public static func interruptWakeups(of pid: pid_t) -> UInt64? {
+        rusage(pid)?.ri_interrupt_wkups
+    }
+
+    private static func rusage(_ pid: pid_t) -> rusage_info_v6? {
+        var info = rusage_info_v6()
+        let status = withUnsafeMutablePointer(to: &info) { pointer in
+            pointer.withMemoryRebound(to: rusage_info_t?.self, capacity: 1) {
+                proc_pid_rusage(pid, RUSAGE_INFO_V6, $0)
+            }
+        }
+        return status == 0 ? info : nil
     }
 
     /// CPU share of one core between two samples of the same process (1.0 = 100%).
