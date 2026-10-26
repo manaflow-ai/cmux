@@ -76,12 +76,16 @@ const HEAD: &str = "lane report: turn ";
 /// A report's prompt id starts with this.
 const PROMPT_PREFIX: &str = "lane-report-";
 
-static PULL_URL: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"https://github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/pull/[0-9]+").unwrap() // crash-allow: constant pattern
+// Constant patterns; a report only loses its links if one ever failed to build.
+static PULL_URL: LazyLock<Option<Regex>> = LazyLock::new(|| {
+    Regex::new(r"https://github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/pull/[0-9]+").ok()
 });
-static FULL_SHA: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"\b[0-9a-f]{40}\b").unwrap() // crash-allow: constant pattern
-});
+static FULL_SHA: LazyLock<Option<Regex>> = LazyLock::new(|| Regex::new(r"\b[0-9a-f]{40}\b").ok());
+
+/// Each match of `re` in `text`.
+fn matches(re: &Option<Regex>, text: &str) -> Vec<String> {
+    re.iter().flat_map(|re| re.find_iter(text)).map(|m| m.as_str().to_owned()).collect()
+}
 
 /// One lane's link to its parent.
 #[derive(Debug, Clone, Default)]
@@ -366,9 +370,8 @@ impl Hub {
             .flatten()
             .filter_map(Value::as_str)
             .map(str::to_owned);
-        let named = PULL_URL.find_iter(&reply).map(|m| m.as_str().to_owned());
-        let prs = new_items(opened.chain(named), &[]);
-        let shas = new_items(FULL_SHA.find_iter(&reply).map(|m| m.as_str().to_owned()), &[]);
+        let prs = new_items(opened.chain(matches(&PULL_URL, &reply)), &[]);
+        let shas = new_items(matches(&FULL_SHA, &reply), &[]);
         let name = summary.get("name").and_then(Value::as_str).unwrap_or(&session.id);
         let state = state(&summary);
         Report {
