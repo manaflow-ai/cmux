@@ -54,6 +54,7 @@ fn newtab_agent_identity_cli_preserves_bound_session() {
     assert_success(&closed);
     fn has_session(value: &Value) -> bool {
         if let Some(agent) = value.get("agent_session").filter(|agent| agent["session"] == SESSION) {
+            assert_eq!(value["kind"], "conversation", "closed chat is not canonical: {value}");
             assert_eq!(agent["harness"], "codex", "{agent}");
             assert!(agent.get("host").is_none(), "closed history leaked agent host: {agent}");
             assert!(agent.get("host_name").is_none(), "closed history leaked agent host name: {agent}");
