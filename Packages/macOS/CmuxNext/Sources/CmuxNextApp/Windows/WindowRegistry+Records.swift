@@ -14,21 +14,53 @@ extension WindowRegistry {
     /// empty record from an older build or another client never shows.
     init(records: [WindowRecord]) {
         self.init()
-        let ordered = records.sorted { $0.order < $1.order }
-        var owned = Set<String>()
-        for record in ordered {
+        for window in Self.restored(records) {
+            appendRestored(Window(id: window.id, workspaceIDs: window.workspaceIDs, frame: window.frame?.rect, display: window.display))
+            // A window the user closed stays closed, with its workspaces (Cmd-Shift-T reopens it).
+            if window.isClosed { setRestored(window.id, open: false) }
+        }
+        // Front window most recent: `recency` is `restored(records)`'s order.
+        for window in windows.reversed() { activate(window.id) }
+        // With every window closed (the last one closed, then quit), the front one opens, as before.
+        if !windows.contains(where: \.isOpen), let front = recency.first { setRestored(front, open: true) }
+    }
+
+    /// A saved window as ``init(records:)`` restores it.
+    nonisolated struct Restored: Equatable, Sendable {
+        /// The window's id; its first record (front first) gives the rest.
+        let id: String
+        /// Its records' workspaces (the shown one for an older record that lists none), less those a window
+        /// further front took.
+        var workspaceIDs: [String]
+        let frame: WindowFrame?
+        let display: String?
+        /// Nil for the default profile.
+        let profile: ProfileID?
+        /// One of its records was closed by the user.
+        var isClosed: Bool
+    }
+
+    /// The windows `records` restore, front first: the order ``init(records:)`` gives `recency`. A workspace
+    /// listed by two records stays with the frontmost, a record left with none is dropped, and the records of one
+    /// id make one window. Pure, so the launch picks the window it shows first by this one rule, off the main
+    /// thread too (`LaunchSnapshotWindow.front(of:mirrors:)`).
+    nonisolated static func restored(_ records: [WindowRecord]) -> [Restored] {
+        var restored: [Restored] = [], index: [String: Int] = [:], owned = Set<String>()
+        for record in records.sorted(by: { $0.order < $1.order }) {
             var ids = record.workspaceKeys.map(\.rawValue)
             if ids.isEmpty, let shown = record.workspaceKey?.rawValue { ids = [shown] }
             ids = ids.filter { owned.insert($0).inserted }
             guard !ids.isEmpty else { continue }
-            appendRestored(Window(id: record.id, workspaceIDs: ids, frame: record.frame?.rect, display: record.display))
-            // A window the user closed stays closed, with its workspaces (Cmd-Shift-T reopens it).
-            if record.isClosed { setRestored(record.id, open: false) }
+            if let at = index[record.id] {
+                restored[at].workspaceIDs += ids
+                restored[at].isClosed = restored[at].isClosed || record.isClosed
+            } else {
+                index[record.id] = restored.count
+                restored.append(Restored(id: record.id, workspaceIDs: ids, frame: record.frame, display: record.display,
+                                         profile: record.profile, isClosed: record.isClosed))
+            }
         }
-        // Front window most recent.
-        for window in windows.reversed() { activate(window.id) }
-        // With every window closed (the last one closed, then quit), the front one opens, as before.
-        if !windows.contains(where: \.isOpen), let front = recency.first { setRestored(front, open: true) }
+        return restored
     }
 
     private mutating func appendRestored(_ window: Window) {

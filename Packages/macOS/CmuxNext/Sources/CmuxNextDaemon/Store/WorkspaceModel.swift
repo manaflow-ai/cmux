@@ -164,7 +164,8 @@ public final class WorkspaceModel: Identifiable {
         adoptUnread()
     }
 
-    nonisolated static func identity(_ s: WorkspaceSnapshot) -> String {
+    /// The ``id`` the store indexes workspace `s` by (`DaemonStore.workspace(id:)`).
+    public nonisolated static func identity(_ s: WorkspaceSnapshot) -> String {
         s.key?.rawValue ?? "handle:\(s.id.rawValue)"
     }
 
