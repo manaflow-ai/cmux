@@ -39,10 +39,15 @@ extension CEFRuntime {
         shim?.popupMenus.reply(browser, token, -1)
     }
 
-    /// The view that shows `browser`'s page: its pane's page view while the pane shows that tab.
-    private func popupMenuView(of browser: Int32) -> NSView? {
-        guard let host = tabsByBrowser[browser]?.host, host.visibleTab?.browserID == browser else { return nil }
-        return host.hostedPageView
+    /// The view that shows `browser`'s page: its pane's page view while the pane shows that tab, or, for
+    /// a DevTools browser, its tab's DevTools page view while that shows. DevTools browsers are not
+    /// tabs (``CEFDevToolsController``), so one is found through the tab whose DevTools it is; this
+    /// runs once per popup a person opens.
+    func popupMenuView(of browser: Int32) -> NSView? {
+        if let host = tabsByBrowser[browser]?.host {
+            return host.visibleTab?.browserID == browser ? host.hostedPageView : nil
+        }
+        return tabsByBrowser.values.lazy.compactMap { $0.devToolsController.hostedPopupMenuView(of: browser) }.first
     }
 }
 

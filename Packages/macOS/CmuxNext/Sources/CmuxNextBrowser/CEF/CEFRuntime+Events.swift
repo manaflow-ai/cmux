@@ -148,6 +148,7 @@ extension CEFRuntime {
             tabsByBrowser[browser]?.devToolsController.opened(browser: devTools, docked: docked)
         case .devToolsClosed(let browser, let devTools):
             tabsByBrowser[browser]?.devToolsController.closed(browser: devTools)
+            hostStart?.popupMenus?.ownerClosed(devTools)
         case .installPrompt(let browser, let promptID, let json):
             extensionPrompts.arrived(promptID: promptID, browser: browser, json: json)
         case .download(let event):

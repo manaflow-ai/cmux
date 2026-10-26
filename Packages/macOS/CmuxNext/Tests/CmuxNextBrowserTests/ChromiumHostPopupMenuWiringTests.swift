@@ -60,6 +60,51 @@ import Testing
         #expect(PopupSpy.replies.count == 1)
     }
 
+    /// A DevTools browser is no tab: its popups show over its tab's DevTools page view while that
+    /// DevTools is open and shown (in its window, or docked in a pane that shows the tab).
+    @Test func aDevToolsBrowsersPopupsShowOverItsDevToolsPage() {
+        let runtime = Self.idleRuntime()
+        // The pane and the tab read the runtime through unowned references, also as they go.
+        _ = Unmanaged.passRetained(runtime)
+        let host = CEFPaneHost(key: CEFPaneKey(pane: BrowserPaneID(rawValue: UUID().uuidString), profile: .default), runtime: runtime)
+        let tab = CEFTab(id: .random(), profile: .default, host: host, runtime: runtime)
+        runtime.tabsByBrowser[7] = tab
+        let controller = tab.devToolsController
+        let page = controller.hostedPage(for: tab)
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: [.titled], backing: .buffered, defer: true)
+        window.isReleasedWhenClosed = false
+        let content = NSView(frame: NSRect(x: 0, y: 0, width: 400, height: 300))
+        window.contentView = content
+        content.addSubview(page)
+
+        #expect(runtime.popupMenuView(of: 9) == nil, "no DevTools is open")
+        controller.devToolsBrowserID = 9
+        tab.devTools = BrowserDevToolsState(isOpen: true, dock: .window)
+        #expect(runtime.popupMenuView(of: 9) === page)
+        #expect(runtime.popupMenuView(of: 8) == nil, "another browser's DevTools page")
+        tab.devTools = BrowserDevToolsState(isOpen: true, dock: .bottom)
+        #expect(runtime.popupMenuView(of: 9) == nil, "docked in a pane that does not show the tab")
+        tab.devTools = BrowserDevToolsState(isOpen: true, dock: .window)
+        page.removeFromSuperview()
+        #expect(runtime.popupMenuView(of: 9) == nil, "a DevTools page in no window shows no popup")
+
+        content.addSubview(page)
+        let wire = PopupRecordingWire()
+        var seams = ChromiumHostPopupMenus.Seams()
+        seams.later = { $0() }
+        var shownIn: NSView?
+        seams.track = { run in
+            shownIn = run.view
+            return 1
+        }
+        let menus = ChromiumHostPopupMenus(wire: wire, pageView: { [weak runtime] in runtime?.popupMenuView(of: $0) }, seams: seams)
+        menus.show(browser: 9, token: 3, popup: ChromiumHostPopupMenu(bounds: CGRect(x: 0, y: 0, width: 100, height: 20),
+                                                                      items: [.init(label: "one"), .init(label: "two")]))
+        #expect(shownIn === page)
+        #expect(wire.replies.map { [Int64($0.0), $0.1, Int64($0.2)] } == [[9, 3, 1]])
+        withExtendedLifetime(window) {}
+    }
+
     /// The shim's wire sends the browser, the 64-bit token and the index as they are.
     @Test func theShimWireSendsTheReply() throws {
         PopupSpy.reset()

@@ -422,6 +422,7 @@ void cmux_shim_set_popup_menus(int enabled) {
   popup_menus_on() = on;
   if (!HasPopupMenuCalls()) return;
   for (const auto& [browser_id, browser] : browsers()) SetPopupMenuHandler(browser_id, on);
+  for (int browser_id : DevToolsBrowserIds()) SetPopupMenuHandler(browser_id, on);
 }
 
 void cmux_shim_browser_popup_menu_reply(int browser_id, int64_t token, int index) {

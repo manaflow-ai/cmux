@@ -218,6 +218,9 @@ void Emit(int kind,
 // A browser Chromium made gets the <select> popup handler while the host
 // takes popups (cmux_shim_set_popup_menus; shim_browser.mm, UI thread).
 void ApplyPopupMenus(int browser_id);
+// The live DevTools browsers' identifiers (shim_devtools.mm, UI thread): they
+// are not in browsers(), and their <select> popups go to the host too.
+std::vector<int> DevToolsBrowserIds();
 
 // The file chooser handler (shim_file_dialog.mm); CancelFileDialogs cancels
 // the pending choosers of a browser that closed or crashed (UI thread).
