@@ -107,8 +107,8 @@ for job, label in ((publish, "publish"), (tip, "tip")):
           f"{label} needs verify to succeed with verified 'true'")
 runner = workflow[workflow.index("\n  runner:\n"):workflow.index("\n  verify:\n")]
 check("python3 scripts/ci/e2e_runner_pool.py" in runner and "--queue-rounds" not in runner
-      and "glaeda-*) ;;" in runner and "environment:" not in runner,
-      "the placement job offers an owned Mac only when one is free now, and no other label")
+      and "glaeda-*) ;;" in runner and "environment: release" in runner,
+      "the placement job offers an owned Mac only when one is free now, with protected credentials")
 check(runner.count("github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && github.run_attempt == 1") == 3,
       "only main's own first attempt is offered an owned Mac")
 check("name: owned-pool-watch" in runner and "name: macos-pool-persistent-${{ github.run_id }}" in runner,
@@ -136,7 +136,8 @@ lease = publish.index("r2_cas.py lock")
 check(lease < publish.index("not_newer && exit 0") < publish.index("\n          write\n") and "r2_cas.py unlock" in publish,
       "publish checks and writes the release inside the R2 lease")
 publish_step = publish[publish.index("- name: Publish the rolling GitHub prerelease"):]
-check("timeout-minutes: 30" in publish_step.split("run: |")[0] and "--ttl 2100" in publish_step,
+check("timeout-minutes: 45" in publish_step.split("run: |")[0] and "--ttl 3000" in publish_step
+      and "(( wait > 900 - waited ))" in publish_step,
       "the publish lease outlives the publish step, so it is never taken from a run still writing")
 check("TIP_RUN_TAG: r${{ github.run_id }}-${{ github.run_attempt }}" in tip
       and 'cmux-NEXT-DEV-$TIP_BUILD.dmg' not in tip

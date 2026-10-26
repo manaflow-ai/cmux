@@ -619,6 +619,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_workflow_run_sources.py
 
+      - name: Validate the CLA quota re-run janitor
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_cla_quota_rerun.py
+
       - name: Validate shallow complexity comparison fetching
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_fetch_complexity_base.py
@@ -682,6 +686,10 @@ jobs:
       - name: Validate the nightly-next tick waits through GitHub API rate limits
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_gh_budget_wait.py
+
+      - name: Validate the nightly-next tick re-runs a cancelled tip
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_nightly_next_cancelled_tip.py
 
       - name: Validate CI queue janitor policy
         if: ${{ matrix.group == 'ci' }}
@@ -1280,6 +1288,10 @@ jobs:
       - name: Validate the Linux DEV signer (stock rcodesign, fake-rcodesign fixture)
         if: ${{ matrix.group == 'release-notary' }}
         run: python3 tests/test_rcodesign_sign_bundle_dev.py
+
+      - name: Validate that no Sparkle private key reaches a command line
+        if: ${{ matrix.group == 'release-notary' }}
+        run: python3 tests/test_sparkle_private_key_not_on_argv.py
 
       - name: Validate the Linux DEV app tools (archive, plist, Sparkle key, signed-app checks)
         if: ${{ matrix.group == 'release-notary' }}

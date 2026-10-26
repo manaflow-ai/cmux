@@ -5,11 +5,17 @@ import http.server
 import socket
 import importlib.util
 import json
+import subprocess
+import math
+import os
+import io
 from pathlib import Path
 import sys
 import tempfile
 import threading
 import unittest
+import unittest.mock
+import urllib.error
 from unittest.mock import patch
 from urllib.parse import parse_qs, urlsplit
 
@@ -18,6 +24,9 @@ spec = importlib.util.spec_from_file_location("publisher", ROOT / "scripts/ci/pu
 publisher = importlib.util.module_from_spec(spec)
 sys.modules[spec.name] = publisher
 spec.loader.exec_module(publisher)
+# The tests' faked waits go to a ledger of their own, never a real job's.
+_LEDGER_DIR = tempfile.TemporaryDirectory()
+publisher._LEDGER = Path(_LEDGER_DIR.name) / "waited"
 
 
 def remote(asset, asset_id=1):
@@ -134,10 +143,10 @@ class PublicationTests(unittest.TestCase):
     def test_payloads_finish_before_any_feed_changes(self):
         payloads = [self.asset(f"build-{index}.dmg") for index in range(5)]
         feeds = [self.asset("appcast-arm64.xml", True), self.asset("appcast.xml", True)]
-        self.client.overlap_event = threading.Event()
         self.publish(payloads, feeds)
         self.assertEqual([event[1] for event in self.client.events if event[0] == "rename"], [asset.path.name for asset in feeds])
-        self.assertEqual(self.client.peak, 2)
+        # One upload at a time: parallel uploads from one token burst into GitHub's secondary limit.
+        self.assertEqual(self.client.peak, 1)
 
     def test_rerun_reuses_verified_payloads_and_feeds(self):
         payload, feed = self.asset("build.dmg"), self.asset("appcast.xml", True)
@@ -165,6 +174,28 @@ class PublicationTests(unittest.TestCase):
             client.asset_digest(remote_asset)
             request = urlopen.call_args.args[0]
             self.assertEqual(request.full_url, "https://api.github.com/assets/1")
+
+    def test_a_rate_limited_digest_download_backs_off_and_retries(self):
+        client = publisher.GitHub("owner/repo", "fake-token")
+        remote_asset = {"name": "a.bin", "url": "https://api.github.com/assets/1", "size": 3}
+        refused = urllib.error.HTTPError("https://api.github.com/assets/1", 403, "Forbidden", {},
+                                         io.BytesIO(b'{"message": "API rate limit exceeded for installation."}'))
+        ok = unittest.mock.MagicMock()
+        ok.__enter__.return_value.read.side_effect = [b"abc", b""]
+        with patch("publisher.urllib.request.urlopen", side_effect=[refused, ok]), \
+                patch.object(publisher, "backoff") as backoff:
+            self.assertEqual(client.asset_digest(remote_asset), "sha256:" + hashlib.sha256(b"abc").hexdigest())
+        self.assertTrue(backoff.call_args.args[1].rate_limited)
+
+    def test_a_permission_403_on_the_digest_download_fails_at_once(self):
+        client = publisher.GitHub("owner/repo", "fake-token")
+        refused = urllib.error.HTTPError("https://api.github.com/assets/1", 403, "Forbidden", {},
+                                         io.BytesIO(b'{"message": "Resource not accessible by integration"}'))
+        with patch("publisher.urllib.request.urlopen", side_effect=[refused]), \
+                patch.object(publisher, "backoff") as backoff:
+            with self.assertRaises(publisher.RequestError):
+                client.asset_digest({"name": "a.bin", "url": "https://api.github.com/assets/1"})
+        backoff.assert_not_called()
 
     def test_failed_alias_rename_restores_the_current_asset(self):
         asset = self.asset("latest.dmg", True)
@@ -327,6 +358,8 @@ class TransportTests(unittest.TestCase):
         self.stored = {}
         self.drop_response = False
         self.status = 201
+        # Queued (code, headers, body) answers for uploads, before the normal 201.
+        self.responses = []
         owner = self
 
         class Handler(http.server.BaseHTTPRequestHandler):
@@ -344,6 +377,16 @@ class TransportTests(unittest.TestCase):
                 name = parse_qs(urlsplit(self.path).query)["name"][0]
                 data = self.rfile.read(int(self.headers["Content-Length"]))
                 owner.uploads.append((name, data, dict(self.headers)))
+                if owner.responses:
+                    code, headers, body = owner.responses.pop(0)
+                    encoded = json.dumps(body).encode()
+                    self.send_response(code)
+                    for header, value in headers.items():
+                        self.send_header(header, value)
+                    self.send_header("Content-Length", str(len(encoded)))
+                    self.end_headers()
+                    self.wfile.write(encoded)
+                    return
                 if owner.status != 201:
                     self.answer(owner.status, {"message": "failure"})
                     return
@@ -396,6 +439,192 @@ class TransportTests(unittest.TestCase):
             publisher.publish(self.client, 42, [[self.file()], [], [self.file("appcast.xml")]])
         self.assertEqual(raised.exception.status, 401)
         self.assertEqual(len(self.uploads), 1)
+
+    def rate_limited_publish(self, *responses):
+        """Publish one file after the queued answers; returns the waits slept."""
+        self.responses = list(responses)
+        publisher._rate_limit_deadline = None
+        publisher._secondary_waits = 0
+        publisher._waited_here = 0.0
+        publisher._ledger_at_start = None
+        self.addCleanup(setattr, publisher, "_waited_here", 0.0)
+        self.addCleanup(setattr, publisher, "_ledger_at_start", None)
+        self.addCleanup(setattr, publisher, "_rate_limit_deadline", None)
+        self.addCleanup(setattr, publisher, "_secondary_waits", 0)
+        waits = []
+        with patch.object(publisher, "_sleep", side_effect=waits.append):
+            publisher.publish(self.client, 42, [[self.file()], [], []])
+        return waits
+
+    def test_rate_limit_403_with_no_remaining_waits_until_the_reset(self):
+        reset = int(publisher.time.time()) + 120
+        waits = self.rate_limited_publish(
+            (403, {"x-ratelimit-remaining": "0", "x-ratelimit-reset": str(reset), "x-ratelimit-limit": "5000"},
+             {"message": "API rate limit exceeded for installation."}))
+        self.assertEqual(len(self.uploads), 2)
+        self.assertEqual(len(waits), 1)
+        self.assertGreater(waits[0], 100)
+        self.assertLessEqual(waits[0], 125)
+
+    def test_rate_limit_403_with_retry_after_waits_that_long(self):
+        waits = self.rate_limited_publish((403, {"retry-after": "30"}, {"message": "You have exceeded a secondary rate limit."}))
+        self.assertEqual(waits, [30.0])
+        self.assertEqual(len(self.uploads), 2)
+
+    def test_a_refusal_with_no_reset_backs_off_exponentially_within_the_budget(self):
+        # GitHub's secondary limit: no retry-after and no x-ratelimit headers (2026-10-26, run 40298250989).
+        refused = (403, {"x-github-request-id": "E60C:1"}, {"message": "API rate limit exceeded for installation."})
+        with patch.object(publisher, "RATE_LIMIT_BUDGET_SECONDS", 1800):
+            waits = self.rate_limited_publish(*[refused] * 5)
+        self.assertEqual(waits, [60.0, 120.0, 240.0, 300.0, 300.0])
+        self.assertEqual(len(self.uploads), 6)
+
+    def test_a_refusal_logs_every_header_and_the_rate_limit_snapshot(self):
+        refused = (403, {"x-github-request-id": "E60C:1", "x-oauth-scopes": ""}, {"message": "API rate limit exceeded"})
+        with patch("sys.stderr", new_callable=io.StringIO) as err:
+            self.rate_limited_publish(refused)
+        text = err.getvalue()
+        self.assertIn("Rate-limited POST response headers: ", text)
+        self.assertIn("x-github-request-id=E60C:1", text)
+        self.assertIn("/rate_limit at the refusal: ", text)
+        self.assertNotIn("fake-test-token", text)
+
+    def test_a_job_s_waits_share_one_ledger_with_gh_budget_wait(self):
+        # Every rate-limit wait of a job (this publisher, gh_budget_wait.sh) adds to one ledger and
+        # stops at GH_BUDGET_WAIT_MAX_SECONDS, so a job's steps never wait past its timeout together.
+        ledger = self.root / "ledger" / "waited"
+        ledger.parent.mkdir()
+        ledger.write_text("3590")
+        refused = (403, {}, {"message": "API rate limit exceeded"})
+        with patch.object(publisher, "_LEDGER", ledger), patch.dict(os.environ, {"GH_BUDGET_WAIT_MAX_SECONDS": "3600"}), \
+                patch.object(publisher, "RATE_LIMIT_BUDGET_SECONDS", 1800):
+            with self.assertRaisesRegex(RuntimeError, "did not reset within"):
+                self.rate_limited_publish(refused, refused)
+        self.assertEqual(int(ledger.read_text()), 3600)
+
+    def test_an_unusable_ledger_path_fails_closed(self):
+        # A ledger path that cannot be read (its directory is a file) counts as the hour spent.
+        refused = (403, {}, {"message": "API rate limit exceeded"})
+        unwritable = self.root / "file" / "waited"
+        (self.root / "file").write_text("not a directory")
+        with patch.object(publisher, "_LEDGER", unwritable), patch.object(publisher, "_waited_here", 0.0), \
+                patch.dict(os.environ, {"GH_BUDGET_WAIT_MAX_SECONDS": "100"}), \
+                patch.object(publisher, "RATE_LIMIT_BUDGET_SECONDS", 1800):
+            with self.assertRaisesRegex(RuntimeError, "did not reset within"):
+                self.rate_limited_publish(refused, refused, refused)
+            self.assertEqual(publisher._waited_here, 0.0)
+
+    def test_a_ledger_that_cannot_be_written_stops_the_wait(self):
+        # A wait the ledger cannot record would be invisible to the job's later steps: fail, don't wait.
+        ledger = self.root / "ro" / "waited"
+        ledger.parent.mkdir()
+        ledger.write_text("3590")
+        refused = (403, {}, {"message": "API rate limit exceeded"})
+        real_write = Path.write_text
+
+        def read_only(path, *args, **kwargs):
+            if path.parent == ledger.parent:
+                raise PermissionError("read-only")
+            return real_write(path, *args, **kwargs)
+
+        waits = []
+        with patch.object(publisher, "_LEDGER", ledger), patch.object(Path, "write_text", read_only), \
+                patch.dict(os.environ, {"GH_BUDGET_WAIT_MAX_SECONDS": "3600"}), \
+                patch.object(publisher, "RATE_LIMIT_BUDGET_SECONDS", 1800), \
+                patch.object(publisher, "_sleep", side_effect=waits.append):
+            self.responses = [refused] * 5
+            publisher._rate_limit_deadline = None
+            publisher._secondary_waits = 0
+            publisher._waited_here = 0.0
+            publisher._ledger_at_start = None
+            self.addCleanup(setattr, publisher, "_ledger_at_start", None)
+            self.addCleanup(setattr, publisher, "_waited_here", 0.0)
+            self.addCleanup(setattr, publisher, "_rate_limit_deadline", None)
+            with self.assertRaisesRegex(RuntimeError, "did not reset within"):
+                publisher.publish(self.client, 42, [[self.file()], [], []])
+        self.assertEqual(waits, [])
+        self.assertEqual(ledger.read_text(), "3590")
+
+    def test_an_unreadable_or_malformed_ledger_counts_as_spent(self):
+        ledger = self.root / "bad" / "waited"
+        ledger.parent.mkdir()
+        ledger.write_text("garbage")
+        refused = (403, {}, {"message": "API rate limit exceeded"})
+        with patch.object(publisher, "_LEDGER", ledger), patch.dict(os.environ, {"GH_BUDGET_WAIT_MAX_SECONDS": "3600"}):
+            with self.assertRaisesRegex(RuntimeError, "did not reset within"):
+                self.rate_limited_publish(refused)
+        for bad in ("", "-50", "nan", "inf", "1e9", "12.5"):
+            ledger.write_text(bad)
+            with patch.object(publisher, "_LEDGER", ledger), patch.dict(os.environ, {"GH_BUDGET_WAIT_MAX_SECONDS": "3600"}):
+                self.assertEqual(publisher._ledger_spent(), 3600.0, bad)
+        ledger.write_bytes(b"\xff\xfe12")  # not UTF-8
+        with patch.object(publisher, "_LEDGER", ledger), patch.dict(os.environ, {"GH_BUDGET_WAIT_MAX_SECONDS": "3600"}):
+            self.assertEqual(publisher._ledger_spent(), 3600.0)
+        missing = self.root / "none" / "waited"
+        with patch.object(publisher, "_LEDGER", missing):
+            self.assertEqual(publisher._ledger_spent(), 0.0)
+
+    def test_a_fractional_wait_is_recorded_rounded_up(self):
+        # 10.2 s waited must not be logged as 10: later steps would wait past the cap.
+        ledger = self.root / "frac" / "waited"
+        with patch.object(publisher, "_LEDGER", ledger), patch.dict(os.environ, {"GH_BUDGET_WAIT_MAX_SECONDS": "3600"}):
+            publisher._ledger_at_start = None
+            self.addCleanup(setattr, publisher, "_ledger_at_start", None)
+            waited_before = publisher._waited_here
+            self.addCleanup(setattr, publisher, "_waited_here", waited_before)
+            with publisher._rate_limit_lock:
+                publisher._record_job_wait(10.2)
+        self.assertEqual(ledger.read_text(), str(math.ceil(waited_before + 10.2)))
+
+    def test_the_budget_comes_from_the_environment(self):
+        script = Path(publisher.__file__)
+        out = subprocess.run([sys.executable, "-c", f"import runpy; m = runpy.run_path({str(script)!r}, run_name='x'); "
+                              "print(m['RATE_LIMIT_BUDGET_SECONDS'])"],
+                             env={**os.environ, "CMUX_RELEASE_RATE_LIMIT_SECONDS": "1800"},
+                             capture_output=True, text=True, check=True)
+        self.assertEqual(out.stdout.strip(), "1800")
+
+    def test_rate_limit_403_named_only_in_the_body_is_retried(self):
+        waits = self.rate_limited_publish((403, {}, {"message": "API rate limit exceeded for installation ID 1."}))
+        self.assertEqual(waits, [60.0])
+        self.assertEqual(len(self.uploads), 2)
+
+    def test_rate_limit_wait_is_capped_by_the_budget(self):
+        reset = int(publisher.time.time()) + 3600
+        waits = self.rate_limited_publish(
+            (403, {"x-ratelimit-remaining": "0", "x-ratelimit-reset": str(reset)}, {"message": "API rate limit exceeded"}))
+        self.assertEqual(len(waits), 1)
+        self.assertLessEqual(waits[0], publisher.RATE_LIMIT_BUDGET_SECONDS)
+
+    def test_rate_limit_that_outlasts_the_budget_fails(self):
+        publisher._rate_limit_deadline = publisher.time.monotonic() - 1
+        self.addCleanup(setattr, publisher, "_rate_limit_deadline", None)
+        self.responses = [(403, {"x-ratelimit-remaining": "0"}, {"message": "API rate limit exceeded"})]
+        with patch.object(publisher, "_sleep"):
+            with self.assertRaisesRegex(RuntimeError, "did not reset within"):
+                publisher.publish(self.client, 42, [[self.file()], [], []])
+        self.assertEqual(len(self.uploads), 1)
+
+    def test_permission_403_fails_at_once_and_names_github_s_message(self):
+        self.responses = [(403, {"x-ratelimit-remaining": "4999", "x-github-request-id": "ABC:1"},
+                           {"message": "Resource not accessible by integration"})]
+        with patch.object(publisher, "_sleep") as sleep:
+            with self.assertRaises(publisher.RequestError) as raised:
+                publisher.publish(self.client, 42, [[self.file()], [], [self.file("appcast.xml")]])
+        sleep.assert_not_called()
+        self.assertEqual(len(self.uploads), 1)
+        error = raised.exception
+        self.assertEqual(error.status, 403)
+        self.assertFalse(error.rate_limited)
+        self.assertIn("Resource not accessible by integration", str(error))
+        self.assertIn("x-ratelimit-remaining=4999", str(error))
+        self.assertIn("x-github-request-id=ABC:1", str(error))
+
+    def test_error_text_never_contains_the_token(self):
+        self.responses = [(403, {}, {"message": "bad token fake-test-token"})]
+        with self.assertRaises(publisher.RequestError) as raised:
+            publisher.publish(self.client, 42, [[self.file()], [], []])
+        self.assertNotIn("fake-test-token", str(raised.exception))
 
     def test_token_is_only_in_stdin_and_request_deadlines_are_bounded(self):
         asset = self.file()

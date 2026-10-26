@@ -264,6 +264,7 @@ jobs:
   runner:
     needs: sign
     if: needs.sign.outputs.signed == 'true'
+    environment: release
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     # Reads the queue janitor's pool snapshot (e2e_runner_pool.py's budget)
@@ -548,7 +549,7 @@ jobs:
       - name: Publish the rolling GitHub prerelease
         # The step's own bound, which the R2 lease below outlives; the budget
         # wait above runs before the lease is taken.
-        timeout-minutes: 30
+        timeout-minutes: 45
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
@@ -571,6 +572,43 @@ jobs:
           This channel is Developer ID signed and intentionally not notarized; download with curl or gh so macOS does not add quarantine.
           EOF
           )"
+          # The budget check above is not enough: other workflows spend the shared
+          # budget between it and these calls (run 40350641729's asset upload was
+          # refused a second after the check passed). A call refused for the rate
+          # limit waits for the reset and runs again: at most 3 tries, and at most
+          # 15 minutes of waiting in this step (one ledger file, subshells
+          # included), since the step holds the R2 lease while it waits.
+          # A refused request did nothing on GitHub's side, so retrying a one-request
+          # call (view, compare, upload --clobber, edit) is safe; any other failure
+          # fails as before. Each attempt's stdout is held back and only a
+          # successful attempt's is printed: gh api prints a refused response's body
+          # on stdout, which would otherwise precede the real answer in a capture.
+          waited_file="$RUNNER_TEMP/gh-budget-waited"
+          ghw() {
+            local try rc out err now reset wait waited
+            for try in 1 2 3; do
+              out="$(mktemp)"
+              err="$(mktemp)"
+              gh "$@" >"$out" 2>"$err" && { cat "$out"; cat "$err" >&2; rm -f "$out" "$err"; return 0; }
+              rc=$?
+              cat "$err" >&2
+              if (( try == 3 )) || ! grep -qiE 'rate limit exceeded|secondary rate limit|too many requests|HTTP 429' "$err" "$out"; then
+                rm -f "$out" "$err"
+                return "$rc"
+              fi
+              rm -f "$out" "$err"
+              waited="$(cat "$waited_file" 2>/dev/null || echo 0)"
+              now="$(date +%s)"
+              reset="$(gh api rate_limit --jq '.resources.core.reset' 2>/dev/null || echo 0)"
+              [[ "$reset" =~ ^[0-9]+$ ]] || reset=0
+              wait=$(( reset > now ? reset - now + 5 : 60 ))
+              (( wait > 900 - waited )) && wait=$(( 900 - waited ))
+              (( wait > 0 )) || return "$rc"
+              echo "::notice title=GitHub API budget::gh $1 $2 refused for the rate limit (try $try of 3); waiting ${wait}s for the reset" >&2
+              sleep "$wait"
+              echo $(( waited + wait )) > "$waited_file"
+            done
+          }
           # Never roll the channel back. The record names the newest commit any
           # run started publishing (before the record existed, the release
           # notes did). This run writes when its commit is newer, or is that
@@ -579,7 +617,7 @@ jobs:
           # branch wins. Any read or compare error fails the run.
           compare() {
             local status
-            status="$(gh api "repos/$GH_REPO/compare/$1...$2" --jq '.status')" || exit 1
+            status="$(ghw api "repos/$GH_REPO/compare/$1...$2" --jq '.status')" || exit 1
             case "$status" in
               ahead|behind|identical|diverged) echo "$status" ;;
               *) echo "compare $1...$2 gave '$status'" >&2; exit 1 ;;
@@ -599,7 +637,7 @@ jobs:
               return
             fi
             published=""
-            if ! body="$(gh api "repos/$GH_REPO/releases/tags/$RELEASE_TAG" --jq '.body // ""' 2>"$RUNNER_TEMP/release.err")"; then
+            if ! body="$(ghw api "repos/$GH_REPO/releases/tags/$RELEASE_TAG" --jq '.body // ""' 2>"$RUNNER_TEMP/release.err")"; then
               grep -q 'HTTP 404' "$RUNNER_TEMP/release.err" || { cat "$RUNNER_TEMP/release.err" >&2; exit 1; }
               return 0  # no release yet
             fi
@@ -611,7 +649,7 @@ jobs:
           # Whether the repository still has the commit: false only on GitHub's
           # "no such commit" (404 or 422); any other error fails the run.
           exists() {
-            gh api "repos/$GH_REPO/commits/$1" --jq '.sha' >/dev/null 2>"$RUNNER_TEMP/commit.err" && return 0
+            ghw api "repos/$GH_REPO/commits/$1" --jq '.sha' >/dev/null 2>"$RUNNER_TEMP/commit.err" && return 0
             grep -qE 'HTTP (404|422)' "$RUNNER_TEMP/commit.err" && return 1
             cat "$RUNNER_TEMP/commit.err" >&2; exit 1
           }
@@ -653,17 +691,21 @@ jobs:
           # The notes change last, so they never name a commit whose assets did
           # not upload.
           write() {
-            if ! gh release view "$RELEASE_TAG" --repo "$GH_REPO" >/dev/null 2>&1; then
+            # Create (once, when the release does not exist yet) makes several
+            # requests, so it is not replayed: a refusal fails the job and the
+            # dispatcher retries.
+            if ! ghw release view "$RELEASE_TAG" --repo "$GH_REPO" >/dev/null 2>&1; then
               gh release create "$RELEASE_TAG" --repo "$GH_REPO" --target "$GITHUB_SHA" --title 'cmux NEXT DEV' --notes "$notes" --prerelease --latest=false \
                 "$archive" "$archive.sha256"
             else
-              gh release upload "$RELEASE_TAG" --repo "$GH_REPO" "$archive" "$archive.sha256" --clobber
-              gh release edit "$RELEASE_TAG" --repo "$GH_REPO" --title 'cmux NEXT DEV' --notes "$notes" --prerelease --latest=false
+              ghw release upload "$RELEASE_TAG" --repo "$GH_REPO" "$archive" "$archive.sha256" --clobber
+              ghw release edit "$RELEASE_TAG" --repo "$GH_REPO" --title 'cmux NEXT DEV' --notes "$notes" --prerelease --latest=false
             fi
           }
-          # This step's timeout (30 minutes) ends every holder before its lease
-          # (35 minutes on R2's clock) runs out.
-          python3 scripts/ci/r2_cas.py lock --key "$LEASE_KEY" --owner "$LEASE_OWNER" --ttl 2100 --wait 1500 \
+          # This step's timeout (45 minutes: 25 waiting for the lease, 15 of
+          # rate-limit waits, the rest for the work) ends every holder before
+          # its lease (50 minutes on R2's clock) runs out.
+          python3 scripts/ci/r2_cas.py lock --key "$LEASE_KEY" --owner "$LEASE_OWNER" --ttl 3000 --wait 1500 \
             || { echo "another publisher held the lease for 25 minutes" >&2; exit 1; }
           trap 'python3 scripts/ci/r2_cas.py unlock --key "$LEASE_KEY" --owner "$LEASE_OWNER" || true' EXIT
           not_newer && exit 0
@@ -854,7 +896,10 @@ jobs:
           # The feed key must be the key the app inside this DMG trusts:
           # sparkle_generate_appcast.sh's sign_update fallback would otherwise
           # sign with a key installed tip apps reject.
-          signing_key="$(swift scripts/derive_sparkle_public_key.swift "$SPARKLE_PRIVATE_KEY")"
+          signing_key="$(
+            printf '%s' "$SPARKLE_PRIVATE_KEY" |
+              env -u SPARKLE_PRIVATE_KEY swift scripts/derive_sparkle_public_key.swift --stdin
+          )"
           mount="$(mktemp -d "$RUNNER_TEMP/tip-dmg.XXXXXX")"
           hdiutil attach -quiet -nobrowse -readonly -mountpoint "$mount" "tip-new/cmux-NEXT-DEV-$TIP_BUILD-$TIP_RUN_TAG.dmg"
           app_key="$(/usr/libexec/PlistBuddy -c 'Print :SUPublicEDKey' "$mount/cmux NEXT DEV.app/Contents/Info.plist")"
