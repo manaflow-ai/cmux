@@ -263,7 +263,7 @@ public final class FrameScheduler: NSObject {
     /// The frame-locked clients, every frame: the input stage first (the window's
     /// FrameInputCoalescer), so the frame clients see this frame's input. Clients activated during
     /// this frame tick next frame.
-    func deliverFrameLocked(_ tick: FrameTick) {
+    func deliverFrameLocked(_ tick: FrameTick) { // perf-hot: 0.5ms frame-tick (every frame)
         let ticking = clients.values.filter(\.isActive)
         for client in ticking where client.workClass == .input {
             fire(client, tick)
