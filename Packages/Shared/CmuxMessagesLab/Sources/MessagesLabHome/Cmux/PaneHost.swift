@@ -35,6 +35,7 @@ final class LayerHostView: NSView {
 ///   chrome       NSGlassEffectView field, glass "+" and emoji NSButtons
 ///   compose      placeholder, waveform, attachment chips (shared layers)
 ///   textView     the compose NSTextView
+///   composeChrome  cmux: send button, voice controls, "Listening…" (layers, one view)
 ///   above        pickers and editors over everything
 ///
 /// cmux (blocker: a Home tab shares the cmux-next window, so it cannot own
@@ -54,11 +55,15 @@ final class HostView: NSView {
     let scrollView: TranscriptScrollView = (ProcessInfo.processInfo.arguments.contains("--scroll-trace") || ProcessInfo.processInfo.arguments.contains("--probe-live-scroll"))
         ? TraceableTranscriptScrollView(frame: .zero) : TranscriptScrollView(frame: .zero)
     let fieldChrome = FieldChrome()
+    /// cmux: the compose bar's own controls as layers of one view (p03-rendering-074): the send
+    /// button, the voice input's mic, waveform and finish buttons, and "Listening…".
+    let composeChrome = ComposeChromeView(frame: .zero)
     /// cmux: the field's send button (the waveform's slot when the field has text; ComposeSendButton).
-    let sendButton = ComposeSendButton(frame: .zero)
-    /// cmux: the voice input's mic, waveform and finish buttons, and "Listening…" (ComposeVoiceControls.swift).
-    let voiceControls = ComposeVoiceControls(frame: .zero)
-    let listeningLine = ComposeListeningLine(frame: .zero)
+    var sendButton: ComposeSendButton { composeChrome.send }
+    /// cmux: the voice input's mic, waveform and finish buttons (ComposeVoiceControls.swift).
+    var voiceControls: ComposeVoiceControls { composeChrome.voice }
+    /// cmux: "Listening…" in the empty field while dictating.
+    var listeningLine: ComposeListeningLine { composeChrome.listening }
     /// The blurred, darkened transcript under the header controls.
     let headerBackdrop = HeaderBackdropView(frame: .zero)
     /// cmux: the in-pane header controls (HeaderBar's avatar and name pill).
@@ -119,10 +124,9 @@ final class HostView: NSView {
         // The field's clip, its scroll view and the text view (ComposeTextView, as Host.swift):
         // the text view is the scroll view's document, so the clip is what the pane holds.
         addSubview(demo.compose.textView.clip)
-        // cmux: above the text view's clip (the text leaves its slot free).
-        addSubview(sendButton)
-        addSubview(listeningLine)
-        addSubview(voiceControls)
+        // cmux: above the text view's clip (the text leaves its slot free): one view whose layers
+        // are the send button, the voice controls and "Listening…" (p03-rendering-074).
+        addSubview(composeChrome)
         addSubview(paneHeader)
         addSubview(above)
         // The in-pane header replaces the shared drawn header (fitted blur,
@@ -144,9 +148,13 @@ final class HostView: NSView {
         needsLayout = true
     }
 
+    /// How often the pane laid out (tests: a plain key in the field lays it out no more).
+    private(set) var layoutPasses = 0
+
     override func layout() {
         super.layout()
-        for v in [below, morphHost, composeHost, above] { v.frame = bounds }
+        layoutPasses += 1
+        for v in [below, morphHost, composeHost, composeChrome, above] where v.frame != bounds { v.frame = bounds }
         CATransaction.begin(); CATransaction.setDisableActions(true)
         if let demo, demo.frame != bounds {
             demo.frame = bounds

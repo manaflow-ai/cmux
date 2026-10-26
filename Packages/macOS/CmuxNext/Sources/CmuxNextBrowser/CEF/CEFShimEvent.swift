@@ -196,6 +196,7 @@ nonisolated enum CEFShimEvent: Equatable, Sendable {
         case 53: self = request != 0 ? .widgetGone(browser: browser, widget: ChromiumHostWidgetID(rawValue: request)) : .unknown(kind: kind)
         case 54: self = .pageView(browser: browser, .cursor(CEFPageCursor(type: a, scaleMilli: request, hotspot: b, pngBase64: s1)))
         case 55: self = .pageView(browser: browser, .dragOperation(a))
+        case 56: self = .pageView(browser: browser, .wheelAck(BrowserWheelAck(request: request, a: a, b: b)))
         case 57: self = .pageView(browser: browser, .tooltip(s1))
         default: self = .unknown(kind: kind)
         }

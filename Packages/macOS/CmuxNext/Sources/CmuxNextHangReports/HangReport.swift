@@ -67,6 +67,10 @@ public nonisolated struct HangReport: Codable, Sendable, Equatable {
         /// Whether a report in this schema carries ``HangReport/histograms``, ``HangReport/stability``,
         /// ``HangReport/blackbox`` and ``HangReport/launchSections`` (p09-observability-063).
         public var carriesFieldData: Bool { self == .v3 }
+        /// Whether a report in this schema has the hang watch's samples of other threads
+        /// (``HangSample/threadHang(_:durationMs:frames:)``: source `hangwatch`, kind `hang`, `"thread": {"name", "kind"}`;
+        /// p09-observability-068; the schema-3 decoder lists them: web/services/hangReports/wireSchema.ts `HangV3`).
+        public var carriesThreadHangs: Bool { self == .v3 }
     }
 
     /// The wire schema a report is written in by default (``WireSchema/deployed``).

@@ -1,4 +1,7 @@
 public import CmuxNextWakeups
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 
 /// A control request's wait for a main-actor condition that no keyed waiter covers: a tab's page reaching the
 /// cache after `cmux browser open` (cx-qncg), a hibernated tab coming back for an agent, a page with no keyed waits
@@ -21,7 +24,7 @@ public import CmuxNextWakeups
 public final class ControlConditionWait {
     private let work: MainWorkScheduler
     private let owner: String
-    private var continuation: CheckedContinuation<Bool, Never>?
+    private var continuation: OnceContinuation<Bool, OnceContinuationError>?
     private var observation: ServiceObservation<Bool>?
 
     /// One wait on `work`, named `owner` in the board and `debug.observations`.
@@ -39,15 +42,19 @@ public final class ControlConditionWait {
         guard continuation == nil else { return false }
         let (work, owner) = (self.work, self.owner)
         return await withTaskCancellationHandler {
-            await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
-                guard !Task.isCancelled else { return continuation.resume(returning: false) }
+            // A wait whose continuation is dropped unresumed reads as not met, as a cancelled one does.
+            (try? await withOnceContinuation { (continuation: OnceContinuation<Bool, OnceContinuationError>) in
+                guard !Task.isCancelled else {
+                    continuation.resume(returning: false)
+                    return
+                }
                 self.continuation = continuation
                 // Its first apply runs inside the initializer: a wait that apply resumes keeps no observation.
                 let observation = ServiceObservation(.automation, owner: owner, on: work, read: condition) { [weak self] met in
                     if met { self?.finish(true) }
                 }
                 if self.continuation == nil { observation.cancel() } else { self.observation = observation }
-            }
+            }) ?? false
         } onCancel: {
             work.postFromAnyThread(.automation, owner: owner) { self.finish(false) }
         }

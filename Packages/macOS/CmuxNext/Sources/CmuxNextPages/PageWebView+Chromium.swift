@@ -130,11 +130,13 @@ extension PageWebView {
         #endif
         chromiumStart = Task { [weak self] in
             let page: any PageChromiumPage
+            // Read in the task's turn, after the opening turn set it (``PageOpenRequest/chromiumWindow``).
+            let window = self?.chromiumWindow
             do {
                 #if DEBUG || CMUX_BENCH_HOOKS
                 ChatOpenTrace.shared.makingTracedPage = traced
                 #endif
-                page = try await hosting.makePage(descriptor, chatOpen: chatOpen)
+                page = try await hosting.makePage(descriptor, chatOpen: chatOpen, window: window)
             } catch {
                 // Cancelled: the page closed, was discarded, fell back or its browser ended meanwhile.
                 guard let self, !Task.isCancelled else { return }
@@ -142,12 +144,14 @@ extension PageWebView {
             }
             guard let self, !Task.isCancelled else { return page.close() }
             traceMark(.browserCreated)
-            await self.attachChromium(page, scripts: scripts, work: hosting.work, dialogs: hosting.dialogs)
+            await self.attachChromium(page, scripts: scripts, work: hosting.work, dialogs: hosting.dialogs, madeIn: window)
         }
     }
 
+    /// `madeIn`: the pane window the page was made in; a tab that moved to another pane meanwhile moves the page
+    /// there once it is the view's page.
     private func attachChromium(_ page: any PageChromiumPage, scripts: PageChromiumDocumentScripts, work: BackgroundWork,
-                                dialogs: CmuxDialogCenter) async {
+                                dialogs: CmuxDialogCenter, madeIn: PageChromiumWindow?) async {
         let handlers = Self.chromiumFireAndForget + chromiumMessageHandlers.keys.sorted()
         let bridge = ChromiumPageHostBridge(page: page, fireAndForget: handlers)
         // Hidden until the attach below tells it whether the page shows; then ``setEngineVisible(_:)`` does.
@@ -177,6 +181,7 @@ extension PageWebView {
             return await Self.apply(edit, token: self?.inputReadiness.editToken, expectedEpoch: expectedEpoch, in: page)
         }
         chromiumSession = session
+        if let chromiumWindow, chromiumWindow != madeIn { page.moveWindow(to: chromiumWindow) }
         scriptTarget.bridge = bridge
         bridge.evaluate(DesignSettings.shared.interfaceScaleScript)
         page.setZoom(pageZoom)
@@ -293,7 +298,8 @@ extension PageWebView {
     /// for the supervisor. A page that closed, fell back or was discarded has no start and no session,
     /// and a page that waits already ignores it.
     private func chromiumBrowserEnded() {
-        guard chromiumSession != nil || chromiumStart != nil else { return }
+        // A closed page waiting for its engine close asks no supervisor for a new browser.
+        guard !router.isEnded, chromiumSession != nil || chromiumStart != nil else { return }
         PageChromiumRecovery.browserEnded(self)
     }
 

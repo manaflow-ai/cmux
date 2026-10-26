@@ -10,7 +10,6 @@ import CmuxNextDesign
 final class TerminalSizedForChip: NSView {
     private let label = ThemedLabel(labelWithString: "")
     private let button: NSButton
-    private let stack = NSStackView()
     /// Called with ``TerminalSizedFor/takeOverSetsLatest`` of the shown notice.
     var onTakeOver: (@MainActor (Bool) -> Void)?
     private(set) var shown: TerminalSizedFor?
@@ -25,27 +24,14 @@ final class TerminalSizedForChip: NSView {
         label.font = .systemFont(ofSize: TypeScale.detail, weight: TypeScale.emphasis)
         label.ink = .secondary
         label.lineBreakMode = .byTruncatingTail
-        label.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         button.bezelStyle = .rounded
         button.controlSize = .small
         button.font = .systemFont(ofSize: TypeScale.caption, weight: TypeScale.emphasis)
         button.setAccessibilityLabel(title)
         button.target = self
         button.action = #selector(takeOver)
-        stack.setViews([label, button], in: .leading)
-        stack.orientation = .horizontal
-        stack.alignment = .centerY
-        stack.spacing = 8
-        stack.edgeInsets = NSEdgeInsets(top: 3, left: 12, bottom: 3, right: 4)
-        stack.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(stack)
-        NSLayoutConstraint.activate([
-            stack.leadingAnchor.constraint(equalTo: leadingAnchor),
-            stack.trailingAnchor.constraint(equalTo: trailingAnchor),
-            stack.topAnchor.constraint(equalTo: topAnchor),
-            stack.bottomAnchor.constraint(equalTo: bottomAnchor),
-            heightAnchor.constraint(greaterThanOrEqualToConstant: 24),
-        ])
+        addSubview(label)
+        addSubview(button)
         isHidden = true
         setAccessibilityElement(true)
         setAccessibilityRole(.group)
@@ -75,6 +61,34 @@ final class TerminalSizedForChip: NSView {
         }
     }
 
+    // MARK: Frame layout
+
+    /// The label then Take over, 8 pt apart and centered on a chip at least 24 pt tall, inset 12 pt
+    /// before the label and 4 pt after the button; a narrow chip truncates the label, never the button.
+    var chipLayout: ChipLayout {
+        ChipLayout(items: [ChipLayout.Item(label.intrinsicContentSize, flexible: true), ChipLayout.Item(button.intrinsicContentSize)],
+                   spacing: 8, insets: ChipLayout.Insets(top: 3, leading: 12, bottom: 3, trailing: 4), minHeight: 24)
+    }
+
+    /// The host frames the chip at this size, no wider than its room (`TerminalHostView.layoutOverlays`).
+    override var fittingSize: NSSize { chipLayout.preferredSize }
+
+    override var intrinsicContentSize: NSSize { chipLayout.preferredSize }
+
+    override func setFrameSize(_ newSize: NSSize) {
+        let oldSize = frame.size
+        super.setFrameSize(newSize)
+        if newSize != oldSize { needsLayout = true } // invalidate: a new size (the check above) re-frames the label and button
+    }
+
+    override func layout() {
+        super.layout()
+        let frames = chipLayout.frames(in: bounds.size, rightToLeft: userInterfaceLayoutDirection == .rightToLeft)
+        guard frames.count == 2 else { return }
+        label.setAlignmentFrame(frames[0])
+        button.setAlignmentFrame(frames[1])
+    }
+
     /// Only Take over is a target; the rest of the chip lets clicks reach the terminal.
     override func hitTest(_ point: NSPoint) -> NSView? {
         let hit = super.hitTest(point)
@@ -90,7 +104,11 @@ final class TerminalSizedForChip: NSView {
             return
         }
         let text = Self.text(for: sizedFor)
-        label.stringValue = text
+        if label.stringValue != text {
+            label.stringValue = text
+            invalidateIntrinsicContentSize()
+            needsLayout = true // invalidate: new text (the check above) at another width
+        }
         setAccessibilityLabel(text)
         if isHidden, let layer {
             let seconds = Motion.overlays.duration(.fadeIn)

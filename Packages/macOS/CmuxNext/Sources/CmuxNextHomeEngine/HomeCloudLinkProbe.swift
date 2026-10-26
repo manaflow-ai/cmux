@@ -1,5 +1,8 @@
 import Foundation
 import CmuxNextCompat
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 
 #if DEBUG
 /// What a `HomeCloudLink` started and tests wait for: the main-actor hops
@@ -22,7 +25,7 @@ nonisolated final class HomeCloudLinkProbe: Sendable {
 
     private struct Waiter {
         var ready: @Sendable (Counts) -> Bool
-        var continuation: CheckedContinuation<Void, Never>
+        var continuation: OnceContinuation<Void, OnceContinuationError>
     }
 
     private struct State {
@@ -50,28 +53,28 @@ nonisolated final class HomeCloudLinkProbe: Sendable {
             return state.nextID
         }
         await withTaskCancellationHandler {
-            await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            try? await withOnceContinuation { (continuation: OnceContinuation<Void, OnceContinuationError>) in
                 let done = state.withLock { state -> Bool in
                     if ready(state.counts) || Task.isCancelled { return true }
                     state.waiters[id] = Waiter(ready: ready, continuation: continuation)
                     return false
                 }
-                if done { continuation.resume() }
+                if done { continuation.resume(returning: ()) }
             }
         } onCancel: {
-            state.withLock { $0.waiters.removeValue(forKey: id) }?.continuation.resume()
+            state.withLock { $0.waiters.removeValue(forKey: id) }?.continuation.resume(returning: ())
         }
     }
 
     private func change(_ body: (inout Counts) -> Void) {
-        let woken = state.withLock { state -> [CheckedContinuation<Void, Never>] in
+        let woken = state.withLock { state -> [OnceContinuation<Void, OnceContinuationError>] in
             body(&state.counts)
             let counts = state.counts
             let ready = state.waiters.filter { $0.value.ready(counts) }
             for id in ready.keys { state.waiters[id] = nil }
             return ready.values.map(\.continuation)
         }
-        woken.forEach { $0.resume() }
+        woken.forEach { $0.resume(returning: ()) }
     }
 }
 #else
