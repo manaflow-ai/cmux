@@ -61,23 +61,29 @@ with markdown and changelog, which is weaker than one process per page.
 
 Chromium mechanism. Chrome computes the process lock from the real URL, not the effective URL
 (`content/browser/site_info.cc`, `MakeProcessLockComparisonKey`), and shares WebUI renderers through the TLD lock
-rule (`IsWebUIAndUsesTLDForProcessLockURL`: `chrome://foo.bar/` locks to `bar`). A fork spike (task 091) builds that
-rule and the effective-URL option side by side and records, for each group, the renderer count with two or more of
-its pages open, and any bad-message kill; its result goes in section 5.
+rule (`IsWebUIAndUsesTLDForProcessLockURL`: `chrome://foo.bar/` locks to `bar`). A fork spike (task 091,
+manaflow-ai/cef `cp/p13-webui-091` at `97674583`) builds that rule and the effective-URL option side by side and
+records, for each group, the renderer count with two or more of its pages open, and any bad-message kill; its result
+goes in section 5. It has not run.
 
-If the TLD rule wins, the last host label is the process lock, so only a shared group may own a last label. Pages of
+Task 011 builds the TLD rule before 091 has a result (section 5 says why that is open). With it, the last host label
+is the process lock, so only a shared group may own a last label. Pages of
 `privileged` and `viewer` get `<page>.<group>` (`settings.privileged`, `markdown.viewer`), and the agent page keeps
 `cmux.agent`. A `solo` or `secrets` page gets a single-label host of its own (`diff`, `editor`, `changelog`,
 `passwords`), never `<page>.solo` or `<page>.secrets`: those would lock every page of the class to one label and share
-one renderer. Hosts are built only in `PageDescriptor.origin`.
+one renderer. A one-label host never has a group's name (`viewer`, `agent`): it would get that group's lock. Hosts
+are built only in `PageDescriptor.origin`.
 
 A process lock only allows sharing; it does not cause it. Page tabs in different browsers or BrowsingInstances get
-new processes unless process-per-site picks the existing process for the site key. Chrome gets this for WebUI
-because `RenderProcessHostImpl::ShouldUseProcessPerSite` (`content/browser/renderer_host/render_process_host_impl.cc`)
-returns true for WebUI URLs. So every shared group (`agent`, `privileged`, `viewer`) needs process-per-site keyed on
-its group lock: register `cmux-page` as a WebUI scheme (`ContentBrowserClient::GetAdditionalWebUISchemes`) or add the
-same rule in the fork. The agent group caps it with `ProcessPerSiteUpToMainFrameThreshold` (cap 8). `secrets` never
-uses process-per-site.
+new processes unless the browser picks a live one. Chrome does that for top-chrome WebUI with
+`ChromeContentBrowserClient::ShouldTryToUseExistingProcessHost`: `RenderProcessHostImpl::GetExistingProcessHost`
+then takes a live renderer whose lock fits (`content/browser/renderer_host/render_process_host_impl.cc`). cmux-page
+cannot share through process-per-site: at 154.0.8037.98 `ProcessPerSiteUpToMainFrameThreshold` refuses every site
+that is not HTTP(S) (`render_frame_host_manager.cc`, `GetProcessReusePolicyForMainFrame`,
+`kSchemeIsNotHttpOrHttps`), and plain process-per-site has no cap. So every shared group (`agent`, `privileged`,
+`viewer`) uses existing-process reuse, and the fork applies the cap of 8 main frames in a content hook (below), with
+the rules of Chrome's process-per-site threshold (`IsBelowReuseResourceThresholds`). `secrets` and `solo` pages
+never look for a live renderer.
 
 The page bridge leaves DevTools: the host takes the sender's browser, frame and origin from the CEF frame that
 delivered the message, never from the payload.
@@ -85,17 +91,42 @@ delivered the message, never from the payload.
 WebKit mechanism. One non-persistent data store per group, every view in the host's process pool,
 `_setRelatedWebView:` per group, 8 pages per process, every SPI gated with `responds(to:)`.
 
-Fork implementation (task 011, API 31, manaflow-ai/cef `cp/p13-webui-011`, `f1004e52`, on spike 091's branch; not
-built yet). It is the TLD rule. `cmux_page_scheme_set_group(host, group)` registers each host before CefInitialize.
-With a group registered, `cmux-page` is a WebUI scheme. A registered `<page>.<group>` host named in PL-memory's
-`--cmux-page-scheme-process-per-site=<host>:<cap>` tries an existing renderer first
-(`ShouldTryToUseExistingProcessHost`). The content patch `cmux_page_process_groups` adds
-`ContentBrowserClient::ShouldUseExistingProcessHost`, asked only in `RenderProcessHostImpl::GetExistingProcessHost`.
-There the fork refuses a renderer that holds `cap` main frames or a page of another group. The cap is not in
-`IsSuitableHost`, so a navigating page never moves off a full renderer. Without a registered group, a host the switch
-names shares only with its own origin. A one-label host (`passwords`, `diff`) never shares. cmux-page never uses
-process-per-site. The 091 measured run and `ceftests --gtest_filter=CmuxPageProcessTest.*` on this ref decide
-whether it stays.
+Fork implementation, proposed (task 011, manaflow-ai/cef `cp/p13-webui-011` at `17a7f8ff`, on spike 091's branch).
+Nobody has built or run it: the mechanism comes from reading Chromium 154.0.8037.98, not from a measurement. Do not
+pin a dev dist from this ref, and do not start 012's pages10 check on it, until a fork build (`cmux-ci build cef`)
+passes `ceftests --gtest_filter=CmuxPageProcessTest.*` and `ceftests --cmux-page-groups-off
+--gtest_filter=CmuxPageProcessTest.*`. Record the renderer count per group and any kill in section 5.
+
+- `cmux_page_scheme_set_group(host, group)` registers each host before CefInitialize. It refuses a host whose
+  last label is not its group, a one-label host with a registered group's name, and a group with a registered
+  one-label host's name, so a one-label page never gets a group's lock.
+- With a group registered, `cmux-page` is a WebUI scheme (`GetAdditionalWebUISchemes`), so `<page>.<group>` locks
+  to `<group>` and a one-label host to itself. With no group registered it is not one.
+- An entry of PL-memory's `--cmux-page-scheme-process-per-site=<site>:<cap>[,...]` names a host (`cmux.agent:8`) or,
+  with groups, a group (`privileged:8`). A registered `<page>.<group>` host uses its own entry, else its group's,
+  and tries a live renderer first (`ShouldTryToUseExistingProcessHost`). Today 085 writes only `cmux.agent:8`, so
+  the privileged and viewer groups share only when 012 or 085 adds `privileged:8,viewer:8`, from the same
+  PageDescriptor table that names the groups.
+- The content patch `cmux_page_process_groups` adds `ContentBrowserClient::ShouldUseExistingProcessHost`, asked only
+  in `RenderProcessHostImpl::GetExistingProcessHost`. There the fork refuses a renderer that holds `cap` main frames,
+  a page of another group, or a frame with a DevTools agent, as Chrome's threshold does. Pages that still talk
+  through DevTools (until 013) therefore never share. The cap is not in `IsSuitableHost`, so a navigating page never
+  moves off a full renderer.
+- Without a registered group, a host the switch names shares only with its own host (085's agent page). A one-label
+  host (`passwords`, `diff`) never shares. cmux-page never uses process-per-site.
+- API number: none yet. This ref keeps `CMUX_CEF_API_VERSION` 27, because it has none of API 28-30. The fork train
+  (086) numbers the export on a line that has 28-30; no ref has that number yet. The app finds the export with
+  dlsym (012).
+- What the WebUI scheme changes, which the fork build must show to be harmless (`content/browser/loader/
+  navigation_url_loader_impl.cc` `Start`, `render_frame_host_impl.cc` subresource factories): a cmux-page
+  navigation skips the navigation interceptors (service worker, DevTools network), and its terminal loader is
+  `CreateWebUIURLLoaderFactory`, so the page loads only because CEF's `WillCreateURLLoaderFactory` proxy (the scheme
+  handler) answers first. The page's own subresources get the same WebUI factory behind that proxy. The test's
+  localStorage, same-origin fetch and postMessage on each page, and its check for renderer kills, cover these
+  changes.
+- An unregistered host whose last label is a group's name (`rogue.privileged`) gets that group's lock. The fork
+  never sends it to a live renderer, but content's other reuse paths compare only locks. The scheme handler serves
+  only the first-party hosts the app registered, so every host it serves must be registered.
 
 ### 3.3 Lifecycle: Active, Hidden, Frozen, Discarded
 
@@ -187,3 +218,17 @@ gate and no budget rows.
 Spikes write their results here: the process-lock mechanism (fork, task 091, with the renderer count per group),
 the preload park state (task 090), the WebKit suspend SPI (task 029) and the code cache (task 052). None has run
 yet.
+
+Process lock (091 and 011), status 2026-10-26:
+
+| Ref | What it holds | Built | Run | Result |
+| --- | --- | --- | --- | --- |
+| manaflow-ai/cef `cp/p13-webui-091` at `97674583` | Spike: `--cmux-page-process-lock=off`, `effective-url` (A) and `webui-scheme` (B); the A/B ceftests | No | No | None. Expected per mode (privileged/viewer/secrets/agent of 9): off 3/2/1/9, A 3/2/1/1, B 1/1/1/2 |
+| manaflow-ai/cef `cp/p13-webui-011` at `17a7f8ff` | B only, as the proposed mechanism (section 3.2); the spike modes are removed | No | No | None |
+
+The A/B comparison can run only on the 091 ref: 011 removed option A. 011 chose B by reading Chromium, not by a
+measurement. The reasons: A cannot share a process across origins (process-per-site keys on the whole SiteInfo,
+and the lock comes from the real URL), and process-per-site with Chrome's threshold refuses non-HTTP(S) sites. Run 091's three modes
+(`cmux-ci build cef` of `97674583`, then `ceftests --gtest_filter=CmuxPageProcessTest.*` with each
+`--cmux-page-process-lock` value) and 011's two runs, then write the renderer counts per group and any kill here.
+If B does not give 1 renderer for 3 origins with 0 kills, 011 and 012 change before 012 depends on the fork.
