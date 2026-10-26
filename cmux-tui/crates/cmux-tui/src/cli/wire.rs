@@ -115,6 +115,20 @@ fn run_once(global: &GlobalArgs, mut plan: RequestPlan, tries: &retry::Tries) ->
     // The caller's terminal belongs to the session its environment names; an
     // explicit route targets that session's current workspace.
     let caller_route = global.socket.is_none() && global.session.is_none();
+    // An agent's terminal with no place goes beside its chat (beside.rs).
+    #[cfg(unix)]
+    match super::beside::run_cli(
+        global,
+        &mut plan,
+        &mut request,
+        &mut reader,
+        caller_route,
+        &key_report,
+    ) {
+        Ok(Some(reencoded)) => encoded = reencoded,
+        Ok(None) => {}
+        Err(code) => return code,
+    }
     // A browser tab in a session a cmux app owns is the app's to render.
     #[cfg(unix)]
     if let Some(code) = super::frontend_browser::run_in_app(
@@ -201,7 +215,7 @@ fn run_once(global: &GlobalArgs, mut plan: RequestPlan, tries: &retry::Tries) ->
     code
 }
 
-fn encode_request(request: &Value) -> Result<Vec<u8>, i32> {
+pub(super) fn encode_request(request: &Value) -> Result<Vec<u8>, i32> {
     super::resolve::encode_request_bytes(request).map_err(|error| {
         eprintln!("cmux: {error}");
         2
@@ -577,6 +591,14 @@ fn run_response(
                             }
                         }
                         WireOperation::Raw { .. } => result,
+                    };
+                    // The app's Cloud machines join the daemon's machine list.
+                    #[cfg(unix)]
+                    let result = match &plan.operation {
+                        WireOperation::Typed(
+                            cmux_tui_core::resource::ResourceOperation::MachineList,
+                        ) => super::cloud_machines::merge(global, result),
+                        _ => result,
                     };
                     let result = agent_roster::with_terminals(reader, plan, result);
                     return super::agent_input_hint::print_result(global, plan, reader, result);

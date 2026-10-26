@@ -55,7 +55,7 @@ final class DaemonSidebarLayoutRemote: SidebarLayoutRemote {
 
     private var daemon: DaemonService { services.machines.local }
 
-    var isAvailable: Bool { daemon.connection != nil && daemon.supports(DaemonCapabilities.shared.sidebarLayout) }
+    var isAvailable: Bool { daemon.connection != nil && daemon.supports(DaemonCapabilities.sidebarLayout) }
     var changeToken: UInt64 { daemon.store.personal.revision }
 
     var legacyPins: [LegacyPins] {
@@ -76,7 +76,7 @@ final class DaemonSidebarLayoutRemote: SidebarLayoutRemote {
         let resolver = WorkspaceLayoutRefs(machines: services.machines)
         for ref in refs {
             guard let (workspace, daemon) = resolver.workspace(for: ref), workspace.pinned, let key = workspace.key,
-                  daemon.supports(DaemonCapabilities.shared.workspacePin) else { continue }
+                  daemon.supports(DaemonCapabilities.workspacePin) else { continue }
             daemon.send("clear-legacy-workspace-pin") { _ = try await $0.setWorkspaceMetadata(key, pinned: false) }
         }
     }

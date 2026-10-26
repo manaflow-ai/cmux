@@ -14,6 +14,6 @@ struct ShowcaseMachineNameTests {
     }
 
     @Test func aPersonsRunNamesThisMac() async {
-        #expect(await AgentTabStore.localMachineName(showcase: false) { "cosmic-gray" } == "cosmic-gray")
+        #expect(await AgentTabStore.localMachineName(showcase: false) { "build-box" } == "build-box")
     }
 }
