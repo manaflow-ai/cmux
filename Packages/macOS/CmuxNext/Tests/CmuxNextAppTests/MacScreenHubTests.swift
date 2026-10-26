@@ -37,14 +37,14 @@ private final class CallLog {
 private let hostID = "0b6c1a2e-3d4f-4a5b-8c9d-aabbccddeeff"
 
 @MainActor
-private func testHub() -> DeviceHub {
+func testHub() -> DeviceHub {
     let identity = DeviceIdentity(deviceID: UUID(), keys: TestDeviceKeys())
     let client = DeviceHubClient(baseURL: URL(string: "https://hub.invalid")!, identity: identity,
                                  tokens: DeviceHubAccountToken { throw DeviceHubError.notSignedIn })
     return DeviceHub(client: client, secrets: MemoryRelaySecretStore(), deviceName: "Test Mac")
 }
 
-private func ticket(_ id: String = "s1", role: SessionTicket.Role = .viewer, scope: SessionScope = .full,
+func ticket(_ id: String = "s1", role: SessionTicket.Role = .viewer, scope: SessionScope = .full,
                     peer: String = hostID) -> SessionTicket {
     SessionTicket(sessionId: id, ticket: "a.b.c", signalURL: URL(string: "wss://hub.invalid/v1/sessions/\(id)/ws")!, ice: [],
                   peer: .init(id: peer, name: "Studio", signingKey: "key"), role: role, scope: scope)

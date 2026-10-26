@@ -345,9 +345,9 @@ enum StandInHostError: Error {
     case readEnded(errno: Int32)
 }
 
-/// Every source the provider reads: an observable tab list (empty at first) whose reads it counts, no
-/// relay, and credentials naming the stand-in host's socket and this process (the listener, so the
-/// dialed socket's peer).
+/// Every source the provider reads: an observable tab list (empty at first) whose reads it counts, a
+/// DevTools relay that starts no tab unless a test sets ``relayReady``, and credentials naming the
+/// stand-in host's socket and this process (the listener, so the dialed socket's peer).
 @MainActor
 final class StandInSources: ProviderCredentialsSource, ProviderTabSource, ProviderAccessSource, ProviderDevToolsRelay,
     ProviderAgentMarking {
@@ -374,10 +374,44 @@ final class StandInSources: ProviderCredentialsSource, ProviderTabSource, Provid
         ProviderTabAccess(extensionHostAccess: false, userOverride: false, extensions: [])
     }
 
-    func prepareRelay(targetID: String) async -> Bool { false }
-    func startRelay(targetID: String, onMessage: @escaping (String) -> Void, onEnd: @escaping () -> Void) -> Bool { false }
-    func send(targetID: String, message: String) -> CEFDevToolsRawSend { .noBrowser }
-    func stopRelay(targetID: String) {}
+    /// Whether a tab's relay prepares and starts (false: no tab has a Chromium browser).
+    var relayReady = false
+    /// What a send to a started relay returns.
+    var sendResult = CEFDevToolsRawSend.sent
+    /// The raw messages handed to the browser, in order.
+    private(set) var relayed: [String] = []
+    /// The started relay's callbacks: a raw message from the browser, and the browser going away.
+    private(set) var fromBrowser: ((String) -> Void)?
+    private(set) var closedByBrowser: (() -> Void)?
+    private var startWaiter: CheckedContinuation<Void, Never>?
+
+    func prepareRelay(targetID: String) async -> Bool { relayReady }
+
+    func startRelay(targetID: String, onMessage: @escaping (String) -> Void, onEnd: @escaping () -> Void) -> Bool {
+        guard relayReady else { return false }
+        fromBrowser = onMessage
+        closedByBrowser = onEnd
+        startWaiter?.resume()
+        startWaiter = nil
+        return true
+    }
+
+    func send(targetID: String, message: String) -> CEFDevToolsRawSend {
+        guard relayReady, fromBrowser != nil else { return .noBrowser }
+        if sendResult == .sent { relayed.append(message) }
+        return sendResult
+    }
+
+    func stopRelay(targetID: String) {
+        fromBrowser = nil
+        closedByBrowser = nil
+    }
+
+    /// Waits until the provider started a relay.
+    func started() async {
+        if fromBrowser == nil { await withCheckedContinuation { startWaiter = $0 } }
+    }
+
     func agentWillDrive(targetID: String) {}
 }
 
