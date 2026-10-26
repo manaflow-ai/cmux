@@ -7,7 +7,8 @@ import Observation
 
 /// Hands managed device keys from the managed policy (the settings
 /// controller is the one reader) to their owners: `UpdateChannel` and
-/// `MinimumVersion` to the updater (P17-2), `RestrictToManagedTeam` with
+/// `MinimumVersion` to the updater (P17-2), `DisableRemoteFeatureFlags` to the
+/// updater's flags fetch before it starts (p12-perf-process-093), `RestrictToManagedTeam` with
 /// `ManagedTeam` to Cloud auth (P17-3).
 @MainActor
 struct ManagedPolicyBridge {
@@ -38,6 +39,7 @@ struct ManagedPolicyBridge {
     private func apply(_ policy: [String: JSONValue]) {
         updater.applyManagedPolicy(channel: policy["UpdateChannel"]?.stringValue,
                                    minimumVersion: policy["MinimumVersion"]?.stringValue)
+        updater.remoteFeatureFlagsPolicy = FlagsFetchPolicy(managedPolicy: policy)
         let team = policy["RestrictToManagedTeam"]?.boolValue == true ? policy["ManagedTeam"]?.stringValue : nil
         if auth.managedTeamID != team { auth.managedTeamID = team }
     }

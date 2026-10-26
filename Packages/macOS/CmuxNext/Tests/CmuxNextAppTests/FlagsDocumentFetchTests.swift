@@ -1,11 +1,14 @@
-import CmuxNextUpdater
+import CmuxNextSettings
+@testable import CmuxNextUpdater
+import CmuxNextWakeups
 import CryptoKit
 import Foundation
 import Testing
 
 /// The signed `notes/flags.json` fetch (p12-perf-process-093): a 304 does nothing,
-/// a tampered byte is rejected, a valid document reaches the receiver once, and it
-/// uses the release notes' own URL and content key.
+/// a tampered byte is rejected, a valid document reaches the receiver once, it
+/// uses the release notes' own URL and content key, and the updater runs it at
+/// start with Sparkle and automatic checks off.
 @Suite struct FlagsDocumentFetchTests {
     static let feed = "https://notes.test/nightly-next/appcast.xml"
 
@@ -18,17 +21,25 @@ import Testing
             self.files = files
         }
 
-        func fetch(_ url: URL, ifNoneMatch etag: String?) async throws -> ConditionalFetchResult {
+        func fetch(_ url: URL, ifNoneMatch etag: String?) async throws(ConditionalFetchError) -> ConditionalFetchResult {
             requested.append(url.path)
-            guard let file = files[url.lastPathComponent] else { throw ConditionalFetchError.http(status: 404) }
+            guard let file = files[url.lastPathComponent] else { throw .http(status: 404) }
             if let etag, etag == file.etag { return .notModified }
             return .fetched(file.data, etag: file.etag)
         }
     }
 
-    /// The feature store's stand-in: remembers every document handed to it.
+    /// A server that is unreachable (offline).
+    nonisolated struct Offline: ConditionalFetching {
+        func fetch(_ url: URL, ifNoneMatch etag: String?) async throws(ConditionalFetchError) -> ConditionalFetchResult {
+            throw .network(code: URLError.Code.notConnectedToInternet.rawValue)
+        }
+    }
+
+    /// The feature store's stand-in: remembers every document and outcome handed to it.
     actor Receiver: FlagsDocumentReceiving {
         private(set) var received: [VerifiedFlagsDocument] = []
+        private(set) var completed: [FlagsDocumentFetch.Outcome] = []
         private let initialETag: String?
 
         init(initialETag: String? = nil) {
@@ -37,6 +48,7 @@ import Testing
 
         func lastETag() async -> String? { received.last?.etag ?? initialETag }
         func receive(_ document: VerifiedFlagsDocument) async { received.append(document) }
+        func fetchCompleted(_ outcome: FlagsDocumentFetch.Outcome) async { completed.append(outcome) }
     }
 
     struct Fixture {
@@ -57,13 +69,13 @@ import Testing
                                   "flags.json.sig": (try signature(of: signedData ?? body), "\"s1\"")])
         }
 
-        func fetch(_ server: Server) throws -> FlagsDocumentFetch {
+        func fetch(_ server: any ConditionalFetching) throws -> FlagsDocumentFetch {
             let store = try #require(ReleaseNotesStore(feedURL: FlagsDocumentFetchTests.feed, cache: cache, publicKey: publicKey))
             return store.flagsDocument(fetcher: server)
         }
     }
 
-    static let enabled = FlagsFetchPolicy { false }
+    static let enabled = FlagsFetchPolicy.enabled
 
     @Test func validDocumentIsReceivedOnceThenNotModified() async throws {
         let fixture = Fixture()
@@ -84,13 +96,17 @@ import Testing
         #expect(await server.requested.filter { $0.hasSuffix(".sig") }.count == 1)
     }
 
-    @Test func notModifiedDoesNothing() async throws {
+    /// A 304 hands nothing on but still reports a successful fetch (Chrome's
+    /// variations_service.cc records a 304 as a successful fetch for safe mode).
+    @Test func notModifiedDoesNothingButCountsAsASuccessfulFetch() async throws {
         let fixture = Fixture()
         let server = try fixture.served()
         let receiver = Receiver(initialETag: "\"v1\"")
 
         #expect(try await fixture.fetch(server).run(into: receiver, policy: Self.enabled) == .notModified)
         #expect(await receiver.received.isEmpty)
+        #expect(await receiver.completed == [.notModified])
+        #expect(FlagsDocumentFetch.Outcome.notModified.attempt == .succeeded)
         #expect(await server.requested == ["/nightly-next/notes/flags.json"])
     }
 
@@ -103,6 +119,7 @@ import Testing
 
         #expect(try await fixture.fetch(server).run(into: receiver, policy: Self.enabled) == .rejected(.badSignature))
         #expect(await receiver.received.isEmpty)
+        #expect(await receiver.completed.map(\.attempt) == [.failed])
     }
 
     @Test func signatureByAnotherKeyIsRejected() async throws {
@@ -122,8 +139,18 @@ import Testing
         let receiver = Receiver()
 
         let outcome = try await fixture.fetch(server).run(into: receiver, policy: Self.enabled)
-        #expect(outcome == .rejected(.transport(String(describing: ConditionalFetchError.http(status: 404)))))
+        #expect(outcome == .rejected(.transport(.http(status: 404))))
+        #expect(outcome.attempt == .failed)
         #expect(await receiver.received.isEmpty)
+        #expect(await receiver.completed == [outcome])
+    }
+
+    /// Offline is a typed failure the receiver hears, so the fetch-failure streak counts it.
+    @Test func offlineIsATypedFetchFailure() async throws {
+        let receiver = Receiver()
+        let outcome = try await Fixture().fetch(Offline()).run(into: receiver, policy: Self.enabled)
+        #expect(outcome == .rejected(.transport(.network(code: URLError.Code.notConnectedToInternet.rawValue))))
+        #expect(await receiver.completed.map(\.attempt) == [.failed])
     }
 
     @Test func unpublishedDocumentIsNotAFailure() async throws {
@@ -133,16 +160,31 @@ import Testing
 
         #expect(try await fixture.fetch(server).run(into: receiver, policy: Self.enabled) == .notPublished)
         #expect(await receiver.received.isEmpty)
+        #expect(await receiver.completed.map(\.attempt) == [.succeeded])
     }
 
-    @Test func managedPolicyTurnsTheFetchOff() async throws {
+    /// The policy makes no request and tells the receiver, so a stored document does not apply either.
+    @Test func managedPolicyTurnsTheFetchOffAndTellsTheReceiver() async throws {
         let fixture = Fixture()
         let server = try fixture.served()
         let receiver = Receiver()
+        let policy = FlagsFetchPolicy(managedPolicy: [ManagedPreferences.disableRemoteFeatureFlagsKey: .bool(true)])
 
-        #expect(try await fixture.fetch(server).run(into: receiver, policy: FlagsFetchPolicy { true }) == .disabledByPolicy)
+        #expect(try await fixture.fetch(server).run(into: receiver, policy: policy) == .disabledByPolicy)
         #expect(await server.requested.isEmpty)
         #expect(await receiver.received.isEmpty)
+        #expect(await receiver.completed == [.disabledByPolicy])
+    }
+
+    /// `DisableRemoteFeatureFlags` is a published boolean policy key of the managed
+    /// domain (`com.manaflow.cmux`), so the reader reads it; only a forced `true` counts.
+    @Test func policyKeyIsReadFromTheManagedDomain() {
+        let key = ManagedPreferences.policyKeys.first { $0.name == "DisableRemoteFeatureFlags" }
+        #expect(key != nil)
+        #expect(FlagsFetchPolicy.key == "DisableRemoteFeatureFlags")
+        #expect(FlagsFetchPolicy(managedPolicy: ["DisableRemoteFeatureFlags": .bool(true)]).disablesRemoteFlags)
+        #expect(!FlagsFetchPolicy(managedPolicy: ["DisableRemoteFeatureFlags": .string("true")]).disablesRemoteFlags)
+        #expect(!FlagsFetchPolicy(managedPolicy: [:]).disablesRemoteFlags)
     }
 
     /// No second URL or key: the document sits in the release notes' folder and is
@@ -155,5 +197,63 @@ import Testing
         #expect(fetch.signatureURL == store.notesBase.appending(path: "flags.json.sig"))
         #expect(fetch.documentURL.absoluteString == "https://notes.test/nightly-next/notes/flags.json")
         #expect(store.publicKey == ContentSignature.publicKey)
+    }
+
+    // MARK: - The updater runs it at start
+
+    /// A build with no Sparkle driver, automatic checks off and `DisableAutoUpdate` forced.
+    @MainActor
+    static func updater(feed: String, receiver: Receiver, fetcher: any ConditionalFetching) -> UpdaterService {
+        let identity = UpdateBuildIdentity(bundleIdentifier: "com.cmuxterm.app.debug.flags-document", shortVersion: "1.0.0", build: "100",
+                                           minimumSystemVersion: nil, infoFeedURL: feed, hasPublicKey: false)
+        let defaults = UserDefaults(suiteName: "FlagsDocumentFetchTests.\(UUID().uuidString)")!
+        defaults.set(false, forKey: "SUEnableAutomaticChecks")
+        let updater = UpdaterService(identity: identity, policy: ManagedUpdatePolicy { true }, defaults: defaults,
+                                     enableSparkle: false, recordsUpdates: false, work: BackgroundWork(label: "test.flags-document"),
+                                     flagsReceiver: receiver, flagsFetcher: fetcher)
+        updater.announcementsFetch = false
+        return updater
+    }
+
+    @MainActor @Test func startFetchesWithSparkleAndAutomaticChecksOff() async throws {
+        let server = try Fixture().served()
+        let receiver = Receiver(initialETag: "\"v1\"")
+        let updater = Self.updater(feed: "https://files-next.cmux.com/nightly-next/appcast-arm64.xml", receiver: receiver, fetcher: server)
+        #expect(updater.controller == nil)
+
+        updater.start()
+        let task = try #require(updater.flagsFetchTask)
+        #expect(await task.value == .notModified)
+        #expect(await server.requested == ["/nightly-next/notes/flags.json"])
+        #expect(await receiver.completed == [.notModified])
+        #expect(updater.log.recent.contains { $0.contains("flags document: not modified") })
+        // Once a launch: another call returns the same run, with no second request.
+        #expect(await updater.fetchFlagsDocument()?.value == .notModified)
+        #expect(await server.requested.count == 1)
+    }
+
+    @MainActor @Test func startHonorsTheManagedPolicy() async throws {
+        let server = try Fixture().served()
+        let receiver = Receiver()
+        let updater = Self.updater(feed: "https://files-next.cmux.com/nightly-next/appcast-arm64.xml", receiver: receiver, fetcher: server)
+        updater.remoteFeatureFlagsPolicy = FlagsFetchPolicy(disablesRemoteFlags: true)
+
+        updater.start()
+        let task = try #require(updater.flagsFetchTask)
+        #expect(await task.value == .disabledByPolicy)
+        #expect(await server.requested.isEmpty)
+        #expect(await receiver.completed == [.disabledByPolicy])
+    }
+
+    @MainActor @Test func noHTTPSFeedFetchesNothing() async throws {
+        let server = try Fixture().served()
+        let receiver = Receiver()
+        let updater = Self.updater(feed: "http://notes.test/appcast.xml", receiver: receiver, fetcher: server)
+
+        updater.start()
+        #expect(updater.flagsFetchTask == nil)
+        #expect(updater.fetchFlagsDocument() == nil)
+        #expect(await server.requested.isEmpty)
+        #expect(updater.log.recent.contains { $0.contains("flags document: no https feed") })
     }
 }

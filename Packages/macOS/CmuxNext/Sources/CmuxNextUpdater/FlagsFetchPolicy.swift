@@ -1,28 +1,23 @@
-public import Foundation
+public import CmuxNextSettings
 
-/// The managed-policy key that turns the flags fetch off, read like `DisableAutoUpdate`
-/// (``ManagedUpdatePolicy``): forced in the app's domain or the release domain.
-nonisolated public struct FlagsFetchPolicy: Sendable {
-    public static let key = "DisableRemoteFeatureFlags"
+/// The managed policy `DisableRemoteFeatureFlags`, forced in the managed domain
+/// (`com.manaflow.cmux`): no signed feature document is fetched, and a stored one
+/// does not apply. The App reads it from `SettingsController.managedPolicy`, the
+/// one reader, and sets ``UpdaterService/remoteFeatureFlagsPolicy`` before
+/// ``UpdaterService/start()``. Chrome's matching policy is `ChromeVariations`
+/// (components/variations/service/variations_service.cc, `IsFetchingEnabled`).
+nonisolated public struct FlagsFetchPolicy: Sendable, Equatable {
+    public static let key = ManagedPreferences.disableRemoteFeatureFlagsKey
+    public static let enabled = FlagsFetchPolicy(disablesRemoteFlags: false)
 
-    private let isForcedTrue: @Sendable () -> Bool
+    public let disablesRemoteFlags: Bool
 
-    public init(isForcedTrue: @escaping @Sendable () -> Bool) {
-        self.isForcedTrue = isForcedTrue
+    public init(disablesRemoteFlags: Bool) {
+        self.disablesRemoteFlags = disablesRemoteFlags
     }
 
-    public static func live(bundleIdentifier: String? = Bundle.main.bundleIdentifier) -> FlagsFetchPolicy {
-        FlagsFetchPolicy {
-            if forced(in: .standard) { return true }
-            guard bundleIdentifier != ManagedUpdatePolicy.releaseDomain,
-                  let release = UserDefaults(suiteName: ManagedUpdatePolicy.releaseDomain) else { return false }
-            return forced(in: release)
-        }
-    }
-
-    public var disablesFetch: Bool { isForcedTrue() }
-
-    private static func forced(in defaults: UserDefaults) -> Bool {
-        defaults.objectIsForced(forKey: key) && defaults.bool(forKey: key)
+    /// From the forced managed values (`SettingsController.managedPolicy`); only a boolean true turns it on.
+    public init(managedPolicy: [String: JSONValue]) {
+        self.init(disablesRemoteFlags: managedPolicy[Self.key]?.boolValue == true)
     }
 }

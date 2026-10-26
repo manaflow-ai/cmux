@@ -67,6 +67,14 @@ public final class UpdaterService {
     @ObservationIgnored let stagedRefresh: StagedUpdateRefresh
     /// The tip app's 5-minute feed read while nothing waits (``TipUpdateCheck``).
     @ObservationIgnored let tipCheck: TipUpdateCheck
+    /// Where the signed feature document goes (``fetchFlagsDocument()``); nil fetches nothing.
+    @ObservationIgnored let flagsReceiver: (any FlagsDocumentReceiving)?
+    /// The flags document's transport; nil uses ``URLSessionConditionalFetcher``.
+    @ObservationIgnored let flagsFetcher: (any ConditionalFetching)?
+    /// The launch's one flags fetch, once ``start()`` began it.
+    @ObservationIgnored var flagsFetchTask: Task<FlagsDocumentFetch.Outcome, Never>?
+    /// `DisableRemoteFeatureFlags` from the managed policy (set by the App before ``start()``).
+    @ObservationIgnored public var remoteFeatureFlagsPolicy = FlagsFetchPolicy.enabled
     /// Opens the changelog page (set by the App; the What's New page's link).
     @ObservationIgnored public var openChangelog: (() -> Bool)?
     /// Opens the changelog page for the releases after `from` up to `to`
@@ -197,6 +205,9 @@ public final class UpdaterService {
     /// - Parameter recordsUpdates: false neither writes nor reads the update
     ///   record What's New shows after an update (tests, demos).
     /// - Parameter work: the process's one set of lanes (`AppServices.work`); a test passes its own.
+    /// - Parameter flagsReceiver: where ``start()``'s signed feature document fetch hands a verified
+    ///   document (the features' remote store); nil fetches nothing.
+    /// - Parameter flagsFetcher: that fetch's transport (a test's fake); nil uses ``URLSessionConditionalFetcher``.
     public init(identity: UpdateBuildIdentity = .main(),
                 policy: ManagedUpdatePolicy = .live(),
                 prober: UpdateProber = UpdateProber(),
@@ -206,8 +217,12 @@ public final class UpdaterService {
                 recordsUpdates: Bool = true,
                 now: @escaping () -> Date = Date.init,
                 clock: any Clock<Duration> = ContinuousClock(),
-                work: BackgroundWork) {
+                work: BackgroundWork,
+                flagsReceiver: (any FlagsDocumentReceiving)? = nil,
+                flagsFetcher: (any ConditionalFetching)? = nil) {
         self.now = now
+        self.flagsReceiver = flagsReceiver
+        self.flagsFetcher = flagsFetcher
         self.work = work
         cardTimer = DemandTimer(owner: "UpdaterService.card", clock: clock)
         installTimer = DemandTimer(owner: "UpdaterService.install", clock: clock)
@@ -280,6 +295,8 @@ public final class UpdaterService {
         started = true
         observeFlowPhase()
         refreshAnnouncements()
+        // Before the Sparkle guard: kill switches arrive with Sparkle or automatic checks off.
+        fetchFlagsDocument()
         refreshTip()
         refreshUpdateSnooze()
         tipCheck.refresh(self)

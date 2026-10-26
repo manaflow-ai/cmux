@@ -17,17 +17,23 @@ extension UpdaterService {
     }
 
     /// Fetches the signed feature document beside ``releaseNotes`` (`notes/flags.json`)
-    /// and hands a verified copy to `receiver`, off the main actor; it applies at the
-    /// next launch (p12-perf-process-093). The App calls it once a launch, next to
-    /// ``start()``'s release-notes fetch. Kill switches must arrive with automatic
-    /// update checks off, so neither `updates.checkAutomatically` nor Sparkle gates
-    /// it; only ``FlagsFetchPolicy/key`` does. Nil without notes (no https feed).
+    /// and hands a verified copy to `flagsReceiver`, off the main actor; it applies at
+    /// the next launch (p12-perf-process-093). ``start()`` runs it once a launch, next
+    /// to its announcements fetch from the same notes folder. Kill switches must
+    /// arrive with automatic update checks off, so neither `updates.checkAutomatically`,
+    /// `DisableAutoUpdate` nor Sparkle gates it; only ``remoteFeatureFlagsPolicy`` does.
+    /// Nil without a receiver or without notes (no https feed); later calls return the launch's task.
     @discardableResult
-    public func fetchFlagsDocument(into receiver: any FlagsDocumentReceiving,
-                                   policy: FlagsFetchPolicy? = nil,
-                                   fetcher: any ConditionalFetching = URLSessionConditionalFetcher()) -> Task<FlagsDocumentFetch.Outcome, Never>? {
-        guard let fetch = releaseNotes?.flagsDocument(fetcher: fetcher) else { return nil }
-        return Self.runFlagsFetch(fetch, into: receiver, policy: policy ?? .live(bundleIdentifier: identity.bundleIdentifier), log: log)
+    func fetchFlagsDocument() -> Task<FlagsDocumentFetch.Outcome, Never>? {
+        if let flagsFetchTask { return flagsFetchTask }
+        guard let flagsReceiver else { return nil }
+        guard let fetch = releaseNotes?.flagsDocument(fetcher: flagsFetcher ?? URLSessionConditionalFetcher()) else {
+            log.append("flags document: no https feed")
+            return nil
+        }
+        let task = Self.runFlagsFetch(fetch, into: flagsReceiver, policy: remoteFeatureFlagsPolicy, log: log)
+        flagsFetchTask = task
+        return task
     }
 
     /// The fetch's task, started off the main actor: nothing in it touches the updater.
@@ -40,7 +46,7 @@ extension UpdaterService {
         }
     }
 
-    /// The notes the changelog page lists:``releaseNotes``, except that a DEV
+    /// The notes the changelog page lists: ``releaseNotes``, except that a DEV
     /// build (its bundle names the stable feed, or none, and the stable feed
     /// publishes no notes) lists the cmux-next nightly notes, built
     /// from the same branch: its page shows the newest real notes, not "No

@@ -24,7 +24,7 @@ pub struct PolicyKey {
 }
 
 /// Every policy key, in documentation order.
-pub const POLICY_KEYS: [PolicyKey; 8] = [
+pub const POLICY_KEYS: [PolicyKey; 9] = [
     PolicyKey {
         name: "EnrollmentToken",
         ty: PolicyType::String,
@@ -72,6 +72,11 @@ pub const POLICY_KEYS: [PolicyKey; 8] = [
         ty: PolicyType::Boolean,
         help: "Turn off automatic updates (also honored in the legacy com.cmuxterm.app domain).",
     },
+    PolicyKey {
+        name: "DisableRemoteFeatureFlags",
+        ty: PolicyType::Boolean,
+        help: "Turn off remote feature flags: cmux neither fetches the signed feature document published with its release notes nor applies a stored one.",
+    },
 ];
 
 /// Keys whose values never leave the owner except through `policy` reads
@@ -90,6 +95,7 @@ pub struct Policy {
     pub minimum_version: Option<String>,
     pub allowed_sign_in_methods: Option<Vec<String>>,
     pub disable_auto_update: Option<bool>,
+    pub disable_remote_feature_flags: Option<bool>,
     pub raw: BTreeMap<String, Value>,
 }
 
@@ -131,6 +137,7 @@ impl Policy {
             minimum_version: string(check("MinimumVersion")),
             allowed_sign_in_methods: strings(check("AllowedSignInMethods")),
             disable_auto_update: boolean(check("DisableAutoUpdate")),
+            disable_remote_feature_flags: boolean(check("DisableRemoteFeatureFlags")),
             raw,
         }
     }
@@ -168,5 +175,24 @@ fn type_ok(ty: PolicyType, value: &Value) -> bool {
         PolicyType::StringArray(_) => {
             value.as_array().is_some_and(|items| items.iter().all(Value::is_string))
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn disable_remote_feature_flags_is_a_boolean_policy_key() {
+        let mut diagnostics = Vec::new();
+        let raw = BTreeMap::from([("DisableRemoteFeatureFlags".to_string(), json!(true))]);
+        let policy = Policy::from_raw(raw, &mut diagnostics);
+        assert_eq!(policy.disable_remote_feature_flags, Some(true));
+        assert!(diagnostics.is_empty());
+
+        let raw = BTreeMap::from([("DisableRemoteFeatureFlags".to_string(), json!("true"))]);
+        let policy = Policy::from_raw(raw, &mut diagnostics);
+        assert_eq!(policy.disable_remote_feature_flags, None);
+        assert_eq!(diagnostics.len(), 1);
     }
 }
