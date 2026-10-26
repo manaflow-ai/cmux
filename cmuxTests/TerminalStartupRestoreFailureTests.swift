@@ -797,6 +797,99 @@ struct TerminalStartupRestoreFailureTests {
         )
     }
 
+    @Test("An unavailable index queues a hook checkpoint only once", arguments: [false, true])
+    func unavailableIndexQueuesHookCheckpointOnce(inDock: Bool) throws {
+        let defaults = try makeAutoResumeDefaults()
+        defer { defaults.store.removePersistentDomain(forName: defaults.name) }
+        let sessionID = "deferred-hook-\(UUID().uuidString)"
+        let panels = [UUID(), UUID()].map { id in
+            var panel = Self.hookBindingPanel(
+                id: id,
+                sessionID: sessionID,
+                workingDirectory: "/tmp/deferred-hook"
+            )
+            panel.terminal?.isRemoteTerminal = true
+            return panel
+        }
+        let layout = SessionWorkspaceLayoutSnapshot.pane(SessionPaneLayoutSnapshot(
+            panelIds: panels.map(\.id),
+            selectedPanelId: panels[0].id
+        ))
+        let batch = SurfaceResumeRunPromptBatch.shared
+        batch.reset()
+        batch.beginRestorePass()
+        defer { batch.reset() }
+
+        func check(_ restored: [TerminalPanel], deferredIDs: Set<UUID>) throws {
+            #expect(restored.count == 2)
+            let first = try #require(restored.first)
+            let duplicate = try #require(restored.last)
+            #expect(first.surface.debugInitialInputForTesting()?.contains(sessionID) == true)
+            #expect(deferredIDs == [first.id])
+            #expect(duplicate.surface.debugInitialInputForTesting() == nil)
+            if case .failed(let reason, let recoveryInput) = duplicate.restoreRecovery.state {
+                #expect(reason == "duplicate-restore-owner")
+                #expect(recoveryInput?.contains(sessionID) == true)
+                if !inDock {
+                    #expect(recoveryInput?.contains("cmux restore") == false)
+                }
+            } else {
+                Issue.record("a deferred duplicate must stay manually recoverable")
+            }
+        }
+
+        if inDock {
+            let dock = DockSplitStore(
+                workspaceId: UUID(),
+                baseDirectoryProvider: { nil },
+                agentSessionAutoResumeDefaults: defaults.store,
+                restorableAgentIndexProvider: { .unavailable }
+            )
+            defer { dock.closeAllPanels() }
+            let remap = dock.restoreSessionSnapshot(SessionSplitContainerSnapshot(
+                focusedPanelId: panels[0].id,
+                layout: layout,
+                panels: panels
+            ))
+            let restored = try panels.map { panel in
+                let id = try #require(remap[panel.id])
+                return try #require(dock.panels[id] as? TerminalPanel)
+            }
+            try check(restored, deferredIDs: Set(dock.deferredAgentResumeRestoresByPanelId.keys))
+        } else {
+            let workspace = Workspace(
+                agentSessionAutoResumeDefaults: defaults.store,
+                restorableAgentIndexProvider: { .unavailable }
+            )
+            defer { workspace.teardownAllPanels() }
+            workspace.remoteConfiguration = WorkspaceRemoteConfiguration(
+                destination: "restore-test.invalid",
+                port: nil,
+                identityFile: nil,
+                sshOptions: [],
+                localProxyPort: nil,
+                relayPort: 64_000,
+                relayID: "restore-test",
+                relayToken: String(repeating: "a", count: 64),
+                localSocketPath: "/tmp/restore-test-\(UUID().uuidString).sock",
+                terminalStartupCommand: "ssh restore-test.invalid"
+            )
+            var snapshot = workspace.sessionSnapshot(includeScrollback: false)
+            snapshot.panels = panels
+            snapshot.layout = layout
+            snapshot.focusedPanelId = panels[0].id
+            let remap = workspace.restoreSessionSnapshot(
+                snapshot,
+                startupRestoreCommitOwner: .workspaceTopology
+            )
+            let restored = try panels.map { panel in
+                let id = try #require(remap[panel.id])
+                return try #require(workspace.terminalPanel(for: id))
+            }
+            try check(restored, deferredIDs: Set(workspace.deferredAgentResumeRestoresByPanelId.keys))
+        }
+    }
+
     private func makeAutoResumeDefaults() throws -> (store: UserDefaults, name: String) {
         let name = "cmux-terminal-startup-failure-\(UUID().uuidString)"
         let store = try #require(UserDefaults(suiteName: name))
