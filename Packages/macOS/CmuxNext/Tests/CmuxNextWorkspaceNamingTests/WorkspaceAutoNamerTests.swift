@@ -32,7 +32,8 @@ struct WorkspaceAutoNamerTests {
         var includesWorkspace = true
         var attempts: [String] = []
         var onAttempt: ((String) -> Void)?
-        var queued: [(name: String, maySend: @MainActor @Sendable () -> Bool)] = []
+        var queued: [(name: String, maySend: @MainActor @Sendable () -> Bool,
+                      onFailure: @MainActor @Sendable () -> Void)] = []
 
         init(name: String = "workspace-7", source: WorkspaceNameSource = .auto,
              revision: UInt64 = 0, tabs: [TabSnapshot] = [WorkspaceAutoNamerTests.chat()]) {
@@ -91,7 +92,7 @@ struct WorkspaceAutoNamerTests {
                         isNewTabPage = false
                         return true
                     }
-                    if defersSend { queued.append((name, maySend)); return true }
+                    if defersSend { queued.append((name, maySend, onFailure)); return true }
                     guard maySend() else { return false }
                     if acceptsThenFails { acceptedFailures.append(onFailure); return true }
                     sent.append(name)
@@ -216,6 +217,36 @@ struct WorkspaceAutoNamerTests {
         fixture.defersSend = false
         fixture.namer.apply(fixture.namer.pending())
         #expect(fixture.sent == ["Chat one"])
+    }
+
+    @Test func anOldAttemptCannotOwnAReusedCandidateAfterFocusReturns() throws {
+        let fixture = Fixture(name: "Old title", tabs: [Self.chat(), Self.chat(2, session: "s2")])
+        fixture.title("Chat A")
+        fixture.title("Chat B", session: "s2")
+        fixture.defersSend = true
+
+        let first = fixture.namer.pending()
+        #expect(first.first?.name == "Chat A")
+        fixture.namer.apply(first)
+        let attemptA1 = try #require(fixture.queued.removeFirst())
+
+        fixture.selectedTab = try #require(fixture.workspace.screens.first?.panes.first?.tabs.last?.id)
+        let second = fixture.namer.pending()
+        #expect(second.first?.name == "Chat B")
+        fixture.namer.apply(second)
+        _ = try #require(fixture.queued.removeFirst())
+
+        fixture.selectedTab = nil
+        let third = fixture.namer.pending()
+        #expect(third.first?.name == "Chat A")
+        fixture.namer.apply(third)
+        let attemptA2 = try #require(fixture.queued.removeFirst())
+
+        #expect(!attemptA1.maySend(), "the old A1 callback cannot send after A2 owns the candidate")
+        #expect(attemptA2.maySend(), "the newest A2 callback remains sendable")
+        attemptA1.onFailure()
+        #expect(fixture.namer.pending().isEmpty,
+                "A1 completion cannot clear the newer A2 submission")
     }
 
     @Test func aFailedAcceptedSendReleasesOnlyItsOlderCandidate() {

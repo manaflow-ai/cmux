@@ -28,14 +28,14 @@ final class CaptureSceneRegistry {
     }
 
     /// The stable scene names exposed to capture scripts and CI.
-    func list() -> JSONValue {
+    func list() -> CmuxNextSettings.JSONValue {
         .array(Self.definitions.map { definition in
             .object(["name": .string(definition.name), "description": .string(definition.description)])
         })
     }
 
     /// Seeds one dense real scene, waits for the agent page to paint, and snapshots the app window.
-    func render(_ params: [String: JSONValue]) async -> JSONValue {
+    func render(_ params: [String: CmuxNextSettings.JSONValue]) async -> CmuxNextSettings.JSONValue {
         let name = params["scene"]?.stringValue ?? "main-showcase"
         guard let definition = Self.definitions.first(where: { $0.name == name }) else {
             return .object([
@@ -138,7 +138,7 @@ final class CaptureSceneRegistry {
         }
         result["scene"] = .string(definition.name)
         result["description"] = .string(definition.description)
-        result["settled_ms"] = settled.map(JSONValue.number) ?? .null
+        result["settled_ms"] = settled.map(CmuxNextSettings.JSONValue.number) ?? .null
         result["frames"] = frameStats
         result["workspaces"] = .number(Double(services.showcase.workspaces.count))
         result["daemon_workspaces"] = .number(Double(services.daemon.store.workspaces.count))
@@ -154,7 +154,7 @@ final class CaptureSceneRegistry {
         return .object(result)
     }
 
-    private func applySceneAction(_ name: String) async -> JSONValue {
+    private func applySceneAction(_ name: String) async -> CmuxNextSettings.JSONValue {
         // Keep each scene independent when render-scenes.sh reuses one app.
         // The tile scene opts into the real tray look; the other scenes use the
         // ordinary quiet rows so a previous scene cannot leak its appearance.
@@ -200,17 +200,17 @@ final class CaptureSceneRegistry {
     /// every Chromium agent page. The snapshot does not say which page is the agent's; the
     /// readiness check before it already proved the agent page has a transcript and a composer,
     /// so this only refuses a still in which no page drew at all.
-    static func pageComposited(_ snapshot: [String: JSONValue]) -> Bool {
+    static func pageComposited(_ snapshot: [String: CmuxNextSettings.JSONValue]) -> Bool {
         (snapshot["webviews_composited"]?.intValue ?? 0) + (snapshot["chromium_pages_composited"]?.intValue ?? 0) > 0
     }
 
-    private func readinessIsComplete(_ readiness: JSONValue) -> Bool {
+    private func readinessIsComplete(_ readiness: CmuxNextSettings.JSONValue) -> Bool {
         guard case .object(let report) = readiness else { return false }
         return (report["body_text_length"]?.intValue ?? 0) > 0 && (report["transcript_rows"]?.intValue ?? 0) > 0
             && report["composer_visible"]?.boolValue == true
     }
 
-    private func waitForSceneAnimation() async -> JSONValue {
+    private func waitForSceneAnimation() async -> CmuxNextSettings.JSONValue {
         await DebugAgentPane.handle(["action": .string("readiness"), "wait_animations": .bool(true)], services)
     }
 
@@ -240,8 +240,8 @@ extension CaptureSceneRegistry {
     private static let firstAutoName = "First chat title"
     private static let generatedAutoName = "Updated chat title"
 
-    func renderWorkspaceAutoName(_ params: [String: JSONValue], definition: CaptureSceneDefinition,
-                                 windowID: String) async -> JSONValue {
+    func renderWorkspaceAutoName(_ params: [String: CmuxNextSettings.JSONValue], definition: CaptureSceneDefinition,
+                                 windowID: String) async -> CmuxNextSettings.JSONValue {
         guard let connection = services.daemon.connection,
               let controller = services.windows.controller(for: windowID) else {
             return .object(["error": .string("auto-name scene has no daemon or window"), "scene": .string(definition.name)])
@@ -279,13 +279,13 @@ extension CaptureSceneRegistry {
             let (settled, frameStats) = await autoNameSettled {
                 self.autoNameReady(workspace: workspace, tabID: created.key, windowID: windowID, expected: expected)
             }
-            var report: [String: JSONValue] = [
+            var report: [String: CmuxNextSettings.JSONValue] = [
                 "scene": .string(definition.name), "description": .string(definition.description),
                 "workspace": .string(workspace.id), "tab": .string(created.key),
                 "first_name": .string(Self.firstAutoName), "first_name_revision": .number(Double(firstRevision)),
                 "workspace_name": .string(workspace.name), "workspace_name_source": .string(workspace.nameSource.rawValue),
                 "workspace_name_revision": .number(Double(workspace.nameRevision)),
-                "generated_title": generatedTitle.map(JSONValue.string) ?? .null,
+                "generated_title": generatedTitle.map(CmuxNextSettings.JSONValue.string) ?? .null,
                 "expected_name": .string(expected), "frames": frameStats,
             ]
             guard let settled else {
@@ -309,7 +309,7 @@ extension CaptureSceneRegistry {
     }
 
     /// A frame-based condition wait: no sleeps or socket polling.
-    private func autoNameSettled(_ ready: @escaping () -> Bool) async -> (Double?, JSONValue) {
+    private func autoNameSettled(_ ready: @escaping () -> Bool) async -> (Double?, CmuxNextSettings.JSONValue) {
         frames.start()
         let settled = await frames.settled(until: ready, start: ContinuousClock.now, window: 100, deadline: 10_000)
         return (settled, frames.stop())
