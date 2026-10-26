@@ -225,6 +225,10 @@ class PullRequestTiers(unittest.TestCase):
         result = tiers([f"{PACKAGE}/Tests/CmuxNextAppTests/CloudAPIClientRunTests.swift"])
         self.assertEqual(result["swift_priority_filter"], r"^(CloudAPIClientRunTests)\.")
 
+    def test_changed_swift_source_prioritizes_its_matching_suite(self):
+        result = tiers([f"{PACKAGE}/Sources/CmuxNextApp/CloudStartSessionAsks.swift"])
+        self.assertEqual(result["swift_priority_filter"], r"^(CloudStartSessionAsksTests)\.")
+
     def test_ui_pr_runs_its_own_tests_without_the_daemon(self):
         result = tiers(PR_17470)
         self.assertEqual(result["swift_targets"], "CmuxNextAppTests")

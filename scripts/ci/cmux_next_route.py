@@ -222,6 +222,9 @@ class Route:
     daemon: bool = False
     vendored_pin: bool = False
     tests: set[str] = field(default_factory=set)
+    # Suites named by changed Swift files get a first, narrow invocation so a
+    # later broad target run cannot hide the PR's own signal.
+    priority_suites: set[str] = field(default_factory=set)
     swift_canary_targets: set[str] = field(default_factory=set)
     reasons: list[str] = field(default_factory=list)
 
@@ -281,6 +284,21 @@ def owning_target(graph: dict, path: str) -> str | None:
     return best
 
 
+def priority_suites(root: Path, graph: dict, changed: list[str]) -> set[str]:
+    """Find test suites whose Swift source or test file changed in this diff."""
+    test_dirs = [root / target["path"] for target in graph["targets"].values()
+                 if target["kind"] == "test" and target.get("path")]
+    names: set[str] = set()
+    for path in changed:
+        if not path.startswith(PACKAGE) or not path.endswith(".swift"):
+            continue
+        stem = Path(path).stem
+        candidate = stem if stem.endswith("Tests") else stem + "Tests"
+        if any((directory / f"{candidate}.swift").is_file() for directory in test_dirs):
+            names.add(candidate)
+    return names
+
+
 def route(root: Path, event: str, changed: list[str] | None, labels: set[str]) -> Route:
     result = Route()
     # Release-only optimizer crashes (cx-ebm.59.5) are invisible to the Debug tiers, so a PR that
@@ -307,6 +325,7 @@ def route(root: Path, event: str, changed: list[str] | None, labels: set[str]) -
 
     graph = load_graph(root)
     tests = {name for name, target in graph["targets"].items() if target["kind"] == "test"}
+    result.priority_suites = priority_suites(root, graph, changed)
     read = lambda path: any(matches(path, r) for name in tests for r in graph["targets"][name].get("reads", []))  # noqa: E731
     # The fast tiers: a web nit or a CI change lands in minutes. ci-web's bundle --check stands in for
     # the app compile; actionlint, the CI tests and the routing replay check CI changes. A file a Mac
@@ -414,6 +433,11 @@ def swift_filter(result: Route) -> str:
     return "^(" + "|".join(sorted(result.tests)) + ")\\." if result.tests else ""
 
 
+def swift_priority_filter(result: Route) -> str:
+    """A regex matching only suites named by changed Swift files."""
+    return "^(" + "|".join(sorted(result.priority_suites)) + ")\\." if result.priority_suites else ""
+
+
 def canary_swift_path(path: str) -> bool:
     return path.endswith(".swift") and any(path.startswith(prefix) for prefix in CANARY_SWIFT_PREFIXES)
 
@@ -451,6 +475,7 @@ def outputs(result: Route) -> dict[str, str]:
         "full": flag(result.full),
         "vendored_pin": flag(result.vendored_pin),
         "swift_filter": swift_filter(result),
+        "swift_priority_filter": swift_priority_filter(result),
         "swift_targets": "all" if result.full else " ".join(sorted(result.tests)),
         "swift_canary_targets": " ".join(sorted(result.swift_canary_targets)),
     }
