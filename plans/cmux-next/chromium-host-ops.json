@@ -593,6 +593,412 @@
       "reason": "The page's own drag came back over the page (task 050)."
     },
     {
+      "name": "cmux_shim_set_color_chooser_handler",
+      "class": "local",
+      "args": [
+        {
+          "name": "fn",
+          "type": "void (*)(void* context, int event, int browser_id, int64_t token, unsigned int color, const void* data)",
+          "function_pointer": true
+        },
+        {
+          "name": "context",
+          "type": "void*"
+        }
+      ],
+      "returns": "int",
+      "result_used_by": [],
+      "mirror_key": null,
+      "refresh_events": [],
+      "pending_keys": [],
+      "reply_event": null,
+      "reason": "Function-pointer arg. The client keeps fn and calls it on main with the COLOR_CHOOSER_OPEN, _SET_COLOR and _END events the host pushes; the host installs its own fork handler (host_dispatch.mm), so only the handler on/off crosses the wire (task 228)."
+    },
+    {
+      "name": "cmux_shim_color_chooser_choose",
+      "class": "post",
+      "args": [
+        {
+          "name": "token",
+          "type": "int64_t"
+        },
+        {
+          "name": "color",
+          "type": "unsigned int"
+        }
+      ],
+      "returns": "int",
+      "result_used_by": [],
+      "mirror_key": null,
+      "refresh_events": [],
+      "pending_keys": [],
+      "reply_event": null,
+      "reason": "The user's color in an open chooser, sent at each change as NSColorPanel's live updates (task 228). The token is the host's, from the open push."
+    },
+    {
+      "name": "cmux_shim_color_chooser_end",
+      "class": "post",
+      "args": [
+        {
+          "name": "token",
+          "type": "int64_t"
+        }
+      ],
+      "returns": "int",
+      "result_used_by": [],
+      "mirror_key": null,
+      "refresh_events": [],
+      "pending_keys": [],
+      "reply_event": null,
+      "reason": "The user closed the chooser (task 228)."
+    },
+    {
+      "name": "cmux_shim_set_device_chooser_handler",
+      "class": "local",
+      "args": [
+        {
+          "name": "fn",
+          "type": "void (*)(void* context, int event, int browser_id, int64_t token, const void* data)",
+          "function_pointer": true
+        },
+        {
+          "name": "context",
+          "type": "void*"
+        }
+      ],
+      "returns": "int",
+      "result_used_by": [],
+      "mirror_key": null,
+      "refresh_events": [],
+      "pending_keys": [],
+      "reply_event": null,
+      "reason": "Function-pointer arg. The client keeps fn and calls it on main with the DEVICE_CHOOSER_UPDATE and _CLOSE events the host pushes; the host installs its own fork handler (host_dispatch.mm), so only the handler on/off crosses the wire (task 228)."
+    },
+    {
+      "name": "cmux_shim_device_chooser_answer",
+      "class": "post",
+      "args": [
+        {
+          "name": "token",
+          "type": "int64_t"
+        },
+        {
+          "name": "action",
+          "type": "int"
+        },
+        {
+          "name": "choices",
+          "type": "const cmux_shim_device_choice*"
+        },
+        {
+          "name": "choice_count",
+          "type": "int"
+        }
+      ],
+      "returns": "int",
+      "result_used_by": [],
+      "mirror_key": null,
+      "refresh_events": [],
+      "pending_keys": [],
+      "reply_event": null,
+      "reason": "Select, cancel, close or rescan of an open chooser (task 228); the rows go as int64 records."
+    },
+    {
+      "name": "cmux_shim_set_desktop_media_handler",
+      "class": "local",
+      "args": [
+        {
+          "name": "fn",
+          "type": "void (*)(void* context, int event, int browser_id, int64_t token, const void* data)",
+          "function_pointer": true
+        },
+        {
+          "name": "context",
+          "type": "void*"
+        }
+      ],
+      "returns": "int",
+      "result_used_by": [],
+      "mirror_key": null,
+      "refresh_events": [],
+      "pending_keys": [],
+      "reply_event": null,
+      "reason": "Function-pointer arg. The client keeps fn and calls it on main with the DESKTOP_MEDIA_OPEN and _CLOSE events the host pushes; the host installs its own fork handler (host_dispatch.mm), so only the handler on/off crosses the wire (task 228)."
+    },
+    {
+      "name": "cmux_shim_desktop_media_answer",
+      "class": "post",
+      "args": [
+        {
+          "name": "token",
+          "type": "int64_t"
+        },
+        {
+          "name": "source_type",
+          "type": "int"
+        },
+        {
+          "name": "native_id",
+          "type": "int64_t"
+        },
+        {
+          "name": "tab_browser_id",
+          "type": "int"
+        },
+        {
+          "name": "audio",
+          "type": "int"
+        }
+      ],
+      "returns": "int",
+      "result_used_by": [],
+      "mirror_key": null,
+      "refresh_events": [],
+      "pending_keys": [],
+      "reply_event": null,
+      "reason": "The picked screen, window or tab, or a cancel (task 228). tab_browser_id is a browser argument, so the host maps cmux's tab id to Chromium's; display and window ids are the same in both processes."
+    },
+    {
+      "name": "cmux_shim_set_lock_handler",
+      "class": "local",
+      "args": [
+        {
+          "name": "fn",
+          "type": "void (*)(void* context, int event, int browser_id, int escape_locked)",
+          "function_pointer": true
+        },
+        {
+          "name": "context",
+          "type": "void*"
+        }
+      ],
+      "returns": "int",
+      "result_used_by": [],
+      "mirror_key": null,
+      "refresh_events": [],
+      "pending_keys": [],
+      "reply_event": null,
+      "reason": "Function-pointer arg. The client keeps fn and calls it on main with the POINTER_LOCK_REQUESTED, POINTER_UNLOCKED, KEYBOARD_LOCK_REQUESTED and KEYBOARD_UNLOCKED events the host pushes; the host installs its own fork handler (host_dispatch.mm), so only the handler on/off crosses the wire (task 229)."
+    },
+    {
+      "name": "cmux_shim_browser_pointer_lock_answer",
+      "class": "post",
+      "args": [
+        {
+          "name": "browser_id",
+          "type": "int"
+        },
+        {
+          "name": "allowed",
+          "type": "int"
+        }
+      ],
+      "returns": "int",
+      "result_used_by": [],
+      "mirror_key": null,
+      "refresh_events": [],
+      "pending_keys": [],
+      "reply_event": null,
+      "reason": "cmux's answer to a pointer lock request, after it hid and froze its own cursor (task 229)."
+    },
+    {
+      "name": "cmux_shim_browser_keyboard_lock_answer",
+      "class": "post",
+      "args": [
+        {
+          "name": "browser_id",
+          "type": "int"
+        },
+        {
+          "name": "allowed",
+          "type": "int"
+        }
+      ],
+      "returns": "int",
+      "result_used_by": [],
+      "mirror_key": null,
+      "refresh_events": [],
+      "pending_keys": [],
+      "reply_event": null,
+      "reason": "cmux's answer to a keyboard lock request (task 229)."
+    },
+    {
+      "name": "cmux_shim_browser_exit_pointer_lock",
+      "class": "post",
+      "args": [
+        {
+          "name": "browser_id",
+          "type": "int"
+        },
+        {
+          "name": "by_user",
+          "type": "int"
+        }
+      ],
+      "returns": "int",
+      "result_used_by": [],
+      "mirror_key": null,
+      "refresh_events": [],
+      "pending_keys": [],
+      "reply_event": null,
+      "reason": "Escape or a focus change ends the lock; by_user starts Chrome's cooldown (task 229)."
+    },
+    {
+      "name": "cmux_shim_browser_exit_keyboard_lock",
+      "class": "post",
+      "args": [
+        {
+          "name": "browser_id",
+          "type": "int"
+        }
+      ],
+      "returns": "int",
+      "result_used_by": [],
+      "mirror_key": null,
+      "refresh_events": [],
+      "pending_keys": [],
+      "reply_event": null,
+      "reason": "Ends the page's keyboard lock (task 229)."
+    },
+    {
+      "name": "cmux_shim_browser_send_locked_mouse_move",
+      "class": "post",
+      "args": [
+        {
+          "name": "browser_id",
+          "type": "int"
+        },
+        {
+          "name": "dx",
+          "type": "double"
+        },
+        {
+          "name": "dy",
+          "type": "double"
+        },
+        {
+          "name": "modifiers",
+          "type": "int"
+        }
+      ],
+      "returns": "int",
+      "result_used_by": [],
+      "mirror_key": null,
+      "refresh_events": [],
+      "pending_keys": [],
+      "reply_event": null,
+      "reason": "Input: raw movement while locked, with the held buttons' bits, goes on the input ring with the other mouse input (tasks 041, 042 and 229).",
+      "channel": "input"
+    },
+    {
+      "name": "cmux_shim_browser_set_page_display",
+      "class": "view",
+      "args": [
+        {
+          "name": "browser_id",
+          "type": "int"
+        },
+        {
+          "name": "display_id",
+          "type": "unsigned int"
+        },
+        {
+          "name": "screen_x",
+          "type": "double"
+        },
+        {
+          "name": "screen_y",
+          "type": "double"
+        }
+      ],
+      "returns": "int",
+      "result_used_by": [],
+      "mirror_key": null,
+      "refresh_events": [],
+      "pending_keys": [],
+      "reply_event": null,
+      "reason": "Page-window placement: ChromiumHostPageView sends it when its window moves or changes display; only the display id and screen points cross (task 221)."
+    },
+    {
+      "name": "cmux_shim_tab_entry_page_state",
+      "class": "async",
+      "args": [
+        {
+          "name": "browser_id",
+          "type": "int"
+        },
+        {
+          "name": "index",
+          "type": "int"
+        }
+      ],
+      "returns": "char*",
+      "result_used_by": [],
+      "mirror_key": null,
+      "refresh_events": [],
+      "pending_keys": [],
+      "reply_event": "wire:REPLY",
+      "reason": "One entry's encoded page state, read at idle after the watch reports it (task 093); in host mode host_mirror.mm reads it in the host and pushes it to the daemon record instead."
+    },
+    {
+      "name": "cmux_shim_tab_page_state_watch",
+      "class": "local",
+      "args": [
+        {
+          "name": "browser_id",
+          "type": "int"
+        },
+        {
+          "name": "fn",
+          "type": "void (*)(void* context, int browser_id, int index)",
+          "function_pointer": true
+        },
+        {
+          "name": "context",
+          "type": "void*"
+        }
+      ],
+      "returns": "int",
+      "result_used_by": [],
+      "mirror_key": null,
+      "refresh_events": [],
+      "pending_keys": [],
+      "reply_event": null,
+      "reason": "Function-pointer arg. The client keeps fn per browser and calls it on main from the host's page state push (task 093); only the watch on/off crosses the wire."
+    },
+    {
+      "name": "cmux_shim_tab_restore_entries",
+      "class": "post",
+      "args": [
+        {
+          "name": "browser_id",
+          "type": "int"
+        },
+        {
+          "name": "entries",
+          "type": "const cmux_shim_restore_entry*"
+        },
+        {
+          "name": "count",
+          "type": "int"
+        },
+        {
+          "name": "current",
+          "type": "int"
+        }
+      ],
+      "returns": "int",
+      "result_used_by": [],
+      "mirror_key": null,
+      "refresh_events": [],
+      "pending_keys": [
+        "tab.navigation_entries[browser_id]",
+        "tab.navigation_state[browser_id]"
+      ],
+      "reply_event": null,
+      "reason": "Returns 1 when sent: a caller checks fork_api_version (mirror) >= 31 for support and loads the URL itself without it, as tab_restore_navigation's callers do (task 093)."
+    },
+    {
       "name": "cmux_shim_set_new_tab_page_url",
       "class": "preinit",
       "args": [
