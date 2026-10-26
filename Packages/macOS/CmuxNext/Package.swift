@@ -1393,7 +1393,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             name: "CmuxNextDaemonTests",
             // CmuxNextCompat: the tests import it directly (Mutex); undeclared, an incremental build kept a
             // test object compiled against its older interface (an undefined Mutex.withLock symbol at link).
-            dependencies: ["CmuxNextCompat", "CmuxNextDaemon"],
+            dependencies: ["CmuxNextCompat", "CmuxNextDaemon", "CmuxNextWakeupsTestSupport"],
             swiftSettings: daemonSwiftSettings
         ),
         // Links libghostty (GhosttyNextKit, whose macOS archive has the lib
