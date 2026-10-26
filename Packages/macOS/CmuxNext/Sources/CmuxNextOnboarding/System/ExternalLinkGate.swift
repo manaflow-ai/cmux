@@ -40,10 +40,11 @@ public final class ExternalLinkGate {
     /// after the person pressed Connect; Cancel, Escape or a closed window runs nothing.
     public func openSSH(_ target: SSHLinkTarget, run: @MainActor () -> Void) async {
         let key = target.trustKey
-        let trusted = allowedHosts().contains { SSHLinkTarget.trustKey($0) == key }
+        var trusted = allowedHosts().contains { SSHLinkTarget.trustKey($0) == key }
         // The known hosts are read before the question, never after: a peer list that answers
         // late cannot turn a Connect the person did not press into a run.
-        guard trusted || (await knownHosts()).contains(where: { SSHLinkTarget.trustKey($0) == key }) else {
+        if !trusted { trusted = await knownHosts().contains { SSHLinkTarget.trustKey($0) == key } }
+        guard trusted else {
             switch await askSSH(target) {
             case .cancel: return
             case .connect(let always):
