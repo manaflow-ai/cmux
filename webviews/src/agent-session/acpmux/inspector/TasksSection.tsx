@@ -18,7 +18,7 @@ import { rowIconSize } from "../icons/iconSize";
 import { openCommand } from "../processTerminal";
 import { useNow } from "../subagents/SubagentGroup";
 import type { SummaryWakeup } from "../summary/sessionSummary";
-import { arrivalKey, splitCommands, type BackgroundCommand } from "./processes";
+import { arrivalKey, sendLabel, splitCommands, type BackgroundCommand } from "./processes";
 
 const ROW_ICON = rowIconSize(12);
 
@@ -92,7 +92,7 @@ export function TasksSection({
           }}
         >
           <Icon name="terminal" size={ROW_ICON} row />
-          <span className="acpmux-chat-inspector-task__command">{command.command}</span>
+          <span className="acpmux-chat-inspector-task__command">{sendLabel(t, command) ?? command.command}</span>
           {time !== undefined && <span className="acpmux-chat-inspector-task__time">{time}</span>}
           {state !== undefined && <span className="acpmux-chat-inspector-task__state">{state}</span>}
         </button>

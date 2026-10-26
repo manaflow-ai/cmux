@@ -303,6 +303,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/mcp/reconnect",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/subagent_stop",
       "params": true,
       "result": true

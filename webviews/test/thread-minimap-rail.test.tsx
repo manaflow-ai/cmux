@@ -1,10 +1,10 @@
 // The thread minimap as the Codex desktop app's prompt rail (minimap-ref SPEC): it shows from four
-// prompts with room left of the column; hover magnifies like the Dock and opens a preview card on
-// Codex's timing; every row is a tab stop whose focus opens the card at once; a click or Return
-// jumps; a drag scrubs; bookmarks show as a dot past the tick, toggle from the dot, the card and
-// the prompt's own row, and the Previous and Next Bookmarked Prompt actions step through them.
-// Scroll motion and the landing highlight run under Reduce Motion here (instant); the browser test
-// (thread-minimap-motion.test.ts) checks their curves.
+// prompts at any pane width (a narrow one: thread-minimap-narrow.test.tsx); hover magnifies like
+// the Dock and opens a preview card on Codex's timing; every row is a tab stop whose focus opens
+// the card at once; a click or Return jumps; a drag scrubs; bookmarks show as a dot past the tick,
+// toggle from the dot, the card and the prompt's own row, and the Previous and Next Bookmarked
+// Prompt actions step through them. Scroll motion and the landing highlight run under Reduce
+// Motion here (instant); the browser test (thread-minimap-motion.test.ts) checks their curves.
 import { afterAll, afterEach, expect, jest, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
@@ -161,12 +161,12 @@ const landing = (index: number) => {
   return Math.max(0, Math.min(16 + rowTop(`user-${index + 1}`) - 35, total - VIEWPORT));
 };
 
-test("the rail shows from four prompts, and only with 48 px of room left of the column", async () => {
+test("the rail shows from four prompts, at any pane width", async () => {
   for (const [prompts, width, shown] of [
     [3, 1040, false],
     [4, 1040, true],
-    // An 800 px pane starts the column 40 px in: no room.
-    [6, 800, false],
+    // An 800 px pane starts the column 40 px in: the narrow rail (thread-minimap-narrow.test.tsx).
+    [6, 800, true],
     [6, 1040, true],
   ] as const) {
     paneWidth = width;

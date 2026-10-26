@@ -171,6 +171,20 @@ fn client_and_read_only_pairings_are_devices_that_use_or_watch_this_one() {
 }
 
 #[test]
+fn a_phone_pairing_is_a_phone_row_with_the_setting() {
+    let mut src = sources();
+    src.pairing["devices"].as_array_mut().unwrap().push(json!({
+        "id": "dv_phone", "name": "phone-6a7b", "role": "phone", "created_at": "2026-10-24T00:00:00Z",
+        "revoked_at": null, "connections": 1, "full_access": true,
+    }));
+    let listing = model::merge(&src, tailscale_up(), &nodes());
+    let phone = device(&listing, "paired:dv_phone");
+    assert_eq!((phone.kind, phone.full_access), (Kind::Phone, Some(true)));
+    assert_eq!(phone.roles, vec![Role::UsesThis]);
+    assert_eq!(phone.state, State::Connected);
+}
+
+#[test]
 fn revoked_records_are_not_devices() {
     let listing = listing();
     assert!(

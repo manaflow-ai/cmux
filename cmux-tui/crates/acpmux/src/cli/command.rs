@@ -205,6 +205,11 @@ pub enum Command {
         /// order it corrects. Prints how many it replaced. A prompt whose turn started stays.
         #[arg(long, value_name = "KEY")]
         supersede: Option<String>,
+        /// Send this file with the message (repeatable): an image reaches the agent and its
+        /// transcript as an image, any other file as a link to its copy. Saved owner-only on the
+        /// session's machine, a peer's too. At most 8 MiB a file, 10 MiB and 16 files a message.
+        #[arg(long, value_name = "FILE")]
+        attach: Vec<PathBuf>,
     },
     /// Append a report to a human basket without waking any agent session.
     /// The target must be `reports:<person>`; the sender is the attached local

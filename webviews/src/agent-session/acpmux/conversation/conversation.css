@@ -3900,6 +3900,38 @@ article.acpmux-row:empty {
 .cv-user__take-back:disabled {
   opacity: 0.5;
 }
+/* Send now worked (PendingSteer.tsx): Send now and the X fade, then fold their width to nothing.
+   The action row keeps its one line, so nothing above or below moves; the timer that removes them
+   reads the same fold duration (fold.ts foldMs), 0 under Reduce Motion or with animation off. */
+.cv-user__pending--leaving {
+  overflow: hidden;
+  pointer-events: none;
+  max-width: 0;
+  opacity: 0;
+}
+.cv-user__pending--leaving .cv-user__send-now:disabled,
+.cv-user__pending--leaving .cv-user__take-back:disabled {
+  opacity: 1;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .cv-user__pending--leaving {
+    animation: cv-user-pending-leave var(--cv-fold-duration) var(--cv-actions-ease) forwards;
+  }
+}
+@keyframes cv-user-pending-leave {
+  from {
+    max-width: var(--cv-pending-width);
+    opacity: 1;
+  }
+  45% {
+    max-width: var(--cv-pending-width);
+    opacity: 0;
+  }
+  to {
+    max-width: 0;
+    opacity: 0;
+  }
+}
 /* Reply on another agent's message (IncomingMessageCard.tsx): the editor under the opened
    message and its Details, and a quiet line once sent or when it was not. */
 .cv-message__note {
@@ -3947,6 +3979,15 @@ article.acpmux-row:empty {
 .cv-received__reply:hover,
 .cv-received__reply:focus-visible {
   color: var(--cv-text);
+}
+/* Another agent's message the agent has not read yet (QueuedMessageCard.tsx): one quiet caption at
+   the line's end, always shown, still. No spinner, no dot, no motion. */
+.cv-received__queued {
+  flex: none;
+  color: var(--cv-text-dim);
+  font-size: var(--text-caption);
+  line-height: var(--cv-meta-row);
+  white-space: nowrap;
 }
 /* The running turn's line while the chat waits on the person (waitingOn.ts): full text color, so it
    reads as a call to act, not the muted "Thinking" it replaces. It holds still: no mark, no clock. */
