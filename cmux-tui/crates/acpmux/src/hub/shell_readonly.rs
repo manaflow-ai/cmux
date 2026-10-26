@@ -795,7 +795,6 @@ mod tests {
             "git tag -l 'v1*'",
             "git status # ; rm -rf x",
             "sort -u x | uniq -c",
-            "uniq -c -- -in",
             "echo \"a b\" 'c'",
             "date +%s",
             "date -u",
@@ -887,6 +886,24 @@ mod tests {
             "pwd\rx",
             "pwd\u{0b}x",
             "date 102612002026",
+            // Codex review at a29dca90.
+            "git -C repo[1] status",
+            "git -C 'repo[1]' status",
+            "git -C ~/x status",
+            "git -C~ status",
+            "git status --help",
+            "git log --hel",
+            "git for-each-ref --format='%(signature:grade)' refs/heads/main",
+            "file -S -z payload.lrz",
+            "file x",
+            "tree -a",
+            "/usr/bin/uniq /dev/null -out",
+            "uniq -c -- -in",
+            "uniq -f 1 x",
+            "date -f '-%Y%m%d%H%M' -- -202610261200",
+            "date -d now",
+            "rg --hostname-bin=sh foo",
+            "rg --hostname-b sh foo",
         ] {
             assert!(!is_read_only(script), "{script}");
         }
@@ -1113,6 +1130,11 @@ mod tests {
             "BASH_FUNC_pwd%%",
             "BASH_FUNC_git()",
             "ZDOTDIR",
+            "LD_DEBUG_OUTPUT",
+            "LD_PROFILE",
+            "DYLD_PRINT_TO_FILE",
+            "MALLOC_TRACE",
+            "MANPAGER",
         ] {
             let mut env = system_env();
             env.insert(key.to_owned(), "/tmp/x".to_owned());
@@ -1143,24 +1165,43 @@ mod tests {
             "[filter \"x\"]\n\tclean = /tmp/hook\n",
             "[core]\n\tfsmonitor = /tmp/hook\n",
             "[log]\n\tshowSignature = true\n",
+            "[help]\n\tformat = man\n[man]\n\tviewer = probe\n[man \"probe\"]\n\tcmd = touch /tmp/marker\n",
+            "[core]\n\tpager = touch /tmp/marker\n",
+            "[pager]\n\tlog = touch /tmp/marker\n",
+            "[pretty]\n\tverify = format:%G?\n",
+            "[format]\n\tpretty = format:%G?\n",
+            "[lfs]\n\tstandalonetransferagent = probe\n",
+            "[interactive]\n\tdiffFilter = /tmp/hook\n",
         ] {
             std::fs::write(home.join(".gitconfig"), config).unwrap();
             assert!(!reads("git diff"), "{config}");
             assert!(reads("pwd"), "{config}");
         }
-        // The person's own settings that run nothing still pass.
-        std::fs::write(home.join(".gitconfig"), "[alias]\n\tst = status\n[core]\n\teditor = vim\n")
-            .unwrap();
+        // The person's own settings that no read runs still pass: aliases, an editor, credential
+        // and signing helpers (no read talks to a remote or checks a signature), includes (their
+        // keys are listed and checked too).
+        let identity = home.join("identity.gitconfig");
+        std::fs::write(&identity, "[user]\n\tname = t\n").unwrap();
+        std::fs::write(
+            home.join(".gitconfig"),
+            format!(
+                "[alias]\n\tst = status\n[core]\n\teditor = vim\n[credential]\n\thelper = osxkeychain\n\
+                 [gpg]\n\tformat = ssh\n[commit]\n\tgpgsign = true\n[safe]\n\tdirectory = *\n\
+                 [include]\n\tpath = {}\n",
+                identity.display()
+            ),
+        )
+        .unwrap();
         assert!(reads("git diff"));
-        // git-lfs's own filter passes only when PATH finds git-lfs in a system directory.
+        // An included file is checked like the file that includes it.
+        std::fs::write(&identity, "[diff]\n\texternal = /tmp/hook\n").unwrap();
+        assert!(!reads("git diff"));
+        // git-lfs's filter runs git-lfs, which reads `.lfsconfig` and can fetch: it asks.
         std::fs::write(
             home.join(".gitconfig"),
             "[filter \"lfs\"]\n\tclean = git-lfs clean -- %f\n\tprocess = git-lfs filter-process\n\trequired = true\n",
         )
         .unwrap();
-        assert_eq!(reads("git diff"), resolve("git-lfs", &env).is_some());
-        std::fs::write(home.join(".gitconfig"), "[filter \"lfs\"]\n\tclean = /tmp/hook %f\n")
-            .unwrap();
         assert!(!reads("git diff"));
         for d in [dir, home] {
             std::fs::remove_dir_all(d).unwrap();
