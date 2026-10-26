@@ -6,9 +6,10 @@ extension PageWebView {
     /// From now on the router's envelopes wait for `frame` and go to the page as one script per
     /// frame, and while the view is hidden its events wait in the router by each stream's
     /// ``PageFrozenDelivery`` (the latest state per subscription, a bounded FIFO with a gap for a
-    /// delta stream), sent as one batch when it shows. Built-in commands and host calls never wait
-    /// a frame. ``WebUIHost/open(_:)`` calls it for every page it opens while the feature is on.
-    package func deliverOnFrames(_ frame: @escaping PageScriptFrame) {
+    /// delta stream), sent as one batch in the turn it shows. Built-in commands, host calls and the
+    /// view's own page scripts never wait a frame. ``WebUIHost/open(_:)`` calls it for every page it
+    /// opens while the feature is on.
+    package func deliverOnFrames(_ frame: PageScriptFrame) {
         let scripts = scripts
         scripts.deliverOnFrames(frame)
         router.deliverNow = { scripts.flush() }

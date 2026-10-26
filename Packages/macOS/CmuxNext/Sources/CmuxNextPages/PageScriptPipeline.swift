@@ -1,4 +1,5 @@
 public import CmuxNextSettings
+import CmuxNextWakeups
 import Foundation
 
 /// Delivers the router's envelopes to one page in send order, and renders large ones off the main
@@ -18,7 +19,10 @@ import Foundation
 /// with input and IPC aligned to the begin-frame (third_party/blink/renderer/platform/scheduler/
 /// main_thread/main_thread_scheduler_impl.cc). A gate does not wait for the frame: what is queued
 /// ahead of it goes at once, so a reply keeps its turn; ``flush()`` does the same for a built-in
-/// command, a host call or a script the view runs itself.
+/// command, a host call, a script the view runs itself (``PageWebView/callPageScript(_:arguments:)``,
+/// ``PageWebView/callPageFunction(_:arguments:)``) or a hidden page's release as it shows. The frame
+/// runs in the class of the highest cause that asked for it since it was asked
+/// (``PageScriptFrame``).
 @MainActor
 final class PageScriptPipeline {
     /// Above this size an envelope (or a frame's run of them) is rendered off the main actor.
@@ -88,8 +92,12 @@ final class PageScriptPipeline {
     private var drain: Task<Void, Never>?
     /// The frame envelopes wait for; nil sends each one as it comes (``deliverOnFrames(_:)``).
     private var frame: PageScriptFrame?
-    /// A frame callback was asked for and has not run: later sends ride on it.
-    private var frameRequested = false
+    /// The highest cause a frame callback was asked for with since the last one ran; nil while none
+    /// is pending. Later sends ride on it, unless their cause runs sooner (``requestFrame()``).
+    private var requestedCause: ObservationCause?
+    /// Names the pending request: the first of its callbacks to run drains, the others find a new
+    /// request (or none) and do nothing.
+    private var frameRequest: UInt64 = 0
     /// The queue head is advanced before an off-actor render awaits. Keep the run's drop actions
     /// here so reset reports them before later queued envelopes, even though they are no longer in
     /// `queue[head...]`.
@@ -116,7 +124,7 @@ final class PageScriptPipeline {
     }
 
     /// From now on envelopes wait for `frame`, and each frame's run goes to the page as one script.
-    func deliverOnFrames(_ frame: @escaping PageScriptFrame) {
+    func deliverOnFrames(_ frame: PageScriptFrame) {
         self.frame = frame
         if drain == nil, head < queue.count { requestFrame() }
     }
@@ -196,17 +204,26 @@ final class PageScriptPipeline {
         }
     }
 
-    /// Asks the frame for one ``drainInline()``; every send until it runs shares it.
+    /// Asks the frame for one ``drainInline()`` with the current cause; every send until it runs
+    /// shares it. A send whose cause runs sooner than the pending request's (a person's or the
+    /// frontend's after a program's) asks again with its cause, and the first callback to run drains.
     private func requestFrame() {
-        guard !frameRequested, let frame else { return }
-        frameRequested = true
-        frame { [weak self] in
-            guard let self else { return }
-            frameRequested = false
-            // A drain a gate started meanwhile takes the queue in order.
-            guard drain == nil else { return }
-            drainInline()
-        }
+        guard let frame else { return }
+        let cause = frame.currentCause()
+        if let requestedCause, cause <= requestedCause || cause < .frontend { return }
+        requestedCause = cause
+        let request = frameRequest
+        frame.schedule(cause) { [weak self] in self?.frameDue(request) }
+    }
+
+    /// A frame callback of `request` ran: the first one drains what waits.
+    private func frameDue(_ request: UInt64) {
+        guard request == frameRequest else { return }
+        frameRequest &+= 1
+        requestedCause = nil
+        // A drain a gate started meanwhile takes the queue in order.
+        guard drain == nil else { return }
+        drainInline()
     }
 
     /// Evaluates the queued runs in this turn, one script each, while each fits ``inlineBudget``;

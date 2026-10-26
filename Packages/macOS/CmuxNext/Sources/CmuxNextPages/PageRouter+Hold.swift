@@ -40,6 +40,9 @@ extension PageRouter {
         holdReasons.remove(reason)
         guard holdReasons.isEmpty, held.isHeld else { return }
         emit(held.release())
+        // The batch reaches the page in this turn, not on a later frame: a page that shows draws its
+        // latest state in its first frame.
+        deliverNow?()
     }
 
     /// A pooled router's new document: the lifecycle hold followed the old claim (the new owner's

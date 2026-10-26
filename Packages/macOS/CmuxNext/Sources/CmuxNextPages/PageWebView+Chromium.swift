@@ -326,6 +326,8 @@ extension PageWebView {
     /// - Returns: The returned value as Foundation JSON (`String`, `NSNumber`, arrays, dictionaries).
     public func callPageFunction(_ body: String, arguments: [String: Any] = [:]) async -> Any? {
         guard !awaitsFirstShow else { return nil } // no document yet; WebKit would launch its process for it
+        // The router envelopes waiting for the frame were sent before it.
+        scripts.flush()
         guard let page = chromiumSession?.page else {
             // No engine view yet: a Chromium page on its way has no document to call.
             return try? await webKitPieces?.view.callAsyncJavaScript(body, arguments: arguments, contentWorld: .page)

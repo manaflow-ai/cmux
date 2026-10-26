@@ -3,6 +3,7 @@ import CmuxNextCompat
 @testable import CmuxNextPages
 import CmuxNextPagesTestSupport
 import CmuxNextSettings
+import CmuxNextWakeups
 import Foundation
 import Testing
 
@@ -15,13 +16,18 @@ struct PageScriptPipelineBatchTests {
     /// The test's display frame: each requested flush waits here until ``tick()``.
     final class Frames {
         private(set) var requests = 0
+        /// The cause of each request, in order.
+        private(set) var causes: [ObservationCause] = []
+        /// The cause of the change being made now.
+        var cause = ObservationCause.program
         private var pending: [@MainActor () -> Void] = []
 
         var frame: PageScriptFrame {
-            { [self] flush in
+            PageScriptFrame(currentCause: { [self] in cause }, schedule: { [self] cause, flush in
                 requests += 1
+                causes.append(cause)
                 pending.append(flush)
-            }
+            })
         }
 
         var waiting: Int { pending.count }
@@ -97,6 +103,46 @@ struct PageScriptPipelineBatchTests {
         #expect(page.scripts.count == 1)
         #expect(page.envelopes(0) == sent)
         #expect(page.scripts[0].contains("__cmuxPageReceiveMany"))
+    }
+
+    // MARK: The frame's cause
+
+    /// A program's send asked for the frame first; the person's send in the same frame asks again
+    /// with its cause, so the frame does not run in the program's budgeted class. One drain runs.
+    @Test func aPersonsSendAfterAProgramsInTheSameFrameAsksAgainWithItsCause() {
+        let page = Page()
+        let frames = Frames()
+        let pipeline = makePipeline(page, frames)
+        frames.cause = .program
+        pipeline.send(Self.event(0))
+        frames.cause = .person
+        pipeline.send(Self.event(1))
+        // A lower cause rides on the request it finds.
+        frames.cause = .automation
+        pipeline.send(Self.event(2))
+        #expect(frames.causes == [.program, .person])
+        frames.tick()
+        #expect(page.scripts.count == 1)
+        #expect(page.envelopes(0) == [Self.event(0), Self.event(1), Self.event(2)])
+        // The next frame starts from the next send's cause.
+        frames.cause = .program
+        pipeline.send(Self.event(3))
+        #expect(frames.causes == [.program, .person, .program])
+    }
+
+    /// The same mix through the app's queue (`pages.scripts`, budgeted `visible`): the person's send
+    /// puts the frame on the unbudgeted path, so it does not wait for the class budget.
+    @Test func aPersonsSendAfterAProgramsTakesTheUnbudgetedPath() {
+        let work = MainWorkScheduler.testing(ledger: WakeupLedger()) { _ in StillLink() }
+        let queue = FrameBatchQueue(owner: "pages.scripts", budgeted: .visible, on: work)
+        let page = Page()
+        let pipeline = PageScriptPipeline { script in page.evaluate(script) }
+        pipeline.deliverOnFrames(queue.pageScriptFrame(causes: work.causes))
+        pipeline.send(Self.event(0))
+        #expect(queue.unbudgetedCount == 0)
+        work.causes.withCause(.person) { pipeline.send(Self.event(1)) }
+        #expect(queue.unbudgetedCount == 1, "the person's change asked for the frame")
+        #expect(page.scripts.isEmpty)
     }
 
     @Test func withoutFramesEachEnvelopeIsItsOwnEvaluate() {
@@ -230,6 +276,8 @@ struct PageScriptPipelineBatchTests {
         #expect(frames.requests == 0)
         #expect(page.scripts.isEmpty)
         router.releaseDelivery(.hidden)
+        // In the show's turn, not on a later frame.
+        #expect(page.scripts.count == 1)
         frames.tick()
         #expect(page.scripts.count == 1)
         let delivered = page.envelopes(0)
@@ -248,7 +296,6 @@ struct PageScriptPipelineBatchTests {
         router.holdDelivery(.hidden)
         provider.emit("cmux.held.log", 0..<10)
         router.releaseDelivery(.hidden)
-        frames.tick()
         #expect(page.scripts.count == 1)
         let events = page.envelopes(0).first?["events"]?.arrayValue ?? []
         #expect(events.compactMap { $0["data"]?["n"]?.doubleValue } == [6, 7, 8, 9])
@@ -271,7 +318,6 @@ struct PageScriptPipelineBatchTests {
         #expect(router.deliveryHeld)
         router.releaseDelivery(.hidden)
         #expect(!router.deliveryHeld)
-        frames.tick()
         #expect(page.envelopes(0).first?["data"]?["n"] == .number(2))
     }
 
@@ -318,6 +364,36 @@ struct PageScriptPipelineBatchTests {
         #expect(!view.router.deliveryHeld)
     }
 
+    /// A page script the view runs itself goes after the envelopes sent before it: they reach the
+    /// page first, in the call's turn, not on the next frame.
+    @Test func aPageScriptGoesAfterTheEnvelopesSentBeforeIt() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("frames-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try Data("<!doctype html><title>Page</title>".utf8).write(to: root.appendingPathComponent("index.html"))
+        let hosting = FakeChromiumHosting()
+        let descriptor = PageDescriptor(id: "test.frames", resource: "frames", processGroup: .solo, namespaces: [])
+        let view = try #require(PageWebView(descriptor: descriptor, root: root, routes: [], route: "#/start", chromium: hosting))
+        defer { view.close() }
+        view.chromiumClock = PageTestClock.never
+        await view.chromiumStart?.value
+        let page = try #require(hosting.made.first)
+        let frames = Frames()
+        view.deliverOnFrames(frames.frame)
+        let log = OrderLog()
+        view.scriptTarget.bridge = OrderBridge(log: log)
+        page.rendererEvaluate = { _ in
+            log.entries.append("call")
+            return "1"
+        }
+        view.scripts.send(Self.event(0))
+        #expect(log.entries.isEmpty)
+        _ = try await view.callPageScript("return 1;")
+        view.scripts.send(Self.event(1))
+        _ = await view.callPageFunction("return 1;")
+        #expect(log.entries == ["envelope", "call", "envelope", "call"])
+    }
+
     @Test func aPageOpenedWithoutFramesNeverHolds() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("frames-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
@@ -330,4 +406,27 @@ struct PageScriptPipelineBatchTests {
         #expect(!view.deliversOnFrames)
         #expect(!view.router.deliveryHeld)
     }
+}
+
+/// A link that never fires: the queue's frames are not run.
+@MainActor private final class StillLink: FrameLink {
+    var isPaused = false
+    func invalidate() {}
+}
+
+/// The order a page saw scripts in: ``OrderBridge``'s envelopes and the view's own calls.
+@MainActor private final class OrderLog {
+    var entries: [String] = []
+}
+
+/// A bridge that logs each router script it runs as `envelope`.
+@MainActor private final class OrderBridge: PageHostBridge {
+    let engine = PageHostEngine.cef
+    let log: OrderLog
+
+    init(log: OrderLog) { self.log = log }
+
+    func install(_ handler: @escaping PageHostHandler) {}
+    func evaluate(_ script: String) { log.entries.append("envelope") }
+    func uninstall() {}
 }
