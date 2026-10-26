@@ -309,6 +309,28 @@ public final class MacScreenPages {
         systemShortcuts.update()
     }
 
+    /// Tab `key`'s view was released and the tab stays (`memoryDiscardInternalPages`): its session
+    /// ends now, as at ``tabClosed(_:)``, and its record stays for the view its next show makes. A
+    /// tab that streamed, or whose stream ended for being hidden, asks again for the same scope
+    /// when shown, as a hidden pane does (``MacScreenPane/resume()``).
+    public func viewDiscarded(_ key: String) {
+        guard let tab = tabs.removeValue(forKey: key) else { return }
+        records[key] = tab.record
+        if let device = tab.record.deviceID, let hub = tab.pane?.model.hub,
+           let scope = hub.phase.streamingScope ?? hub.resumeScope {
+            pendingScopes[device] = scope
+            confirmed[key] = tab.record
+        }
+        tab.clear()
+        systemShortcuts.update()
+    }
+
+    /// Whether tab `key` asked a Mac for its screen and waits on the answer (the other Mac's
+    /// approval): ending the tab's view would withdraw the request.
+    public func isRequesting(_ key: String) -> Bool {
+        tabs[key]?.pane?.model.hub?.phase.isPending == true
+    }
+
     /// The tab `key` (debug and tests).
     public func tab(_ key: String) -> MacScreenTab? { tabs[key] }
 

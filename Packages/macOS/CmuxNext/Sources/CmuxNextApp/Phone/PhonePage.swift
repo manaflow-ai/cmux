@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextHibernation
 import CmuxNextPhone
 
 extension InternalPageID {
@@ -23,8 +24,13 @@ final class PhonePageTab: InternalPageProvider {
     var symbol: String { "iphone" }
 
     func makeView(for key: String, in window: WindowController?) -> NSView {
-        let device = routes[key] ?? nextDevice
-        nextDevice = nil
+        let device: PhoneDeviceID?
+        if let known = routes[key] {
+            device = known
+        } else {
+            device = nextDevice
+            nextDevice = nil
+        }
         let view = PhoneTabView(service: phones, device: device)
         views[key] = view
         return view
@@ -39,6 +45,26 @@ final class PhonePageTab: InternalPageProvider {
     func tabClosed(_ key: String) {
         views.removeValue(forKey: key)?.close()
         routes.removeValue(forKey: key)
+    }
+
+    // MARK: Discard (`memoryDiscardInternalPages`, p07-memory-028)
+
+    /// Released at hide: its frames stop while it is hidden (``PhoneTabView``), so a hidden view
+    /// shows nothing live, and the next one reads the phone again.
+    static let hiddenPolicy = ContentDiscardPolicy.afterHidden(.zero)
+
+    func discardPolicy(for key: String) -> ContentDiscardPolicy { Self.hiddenPolicy }
+
+    /// Notes typed for the running recording and not sent live only in the view.
+    func keepReasons(for key: String) -> [CannotDiscardReason] {
+        views[key]?.hasUnsentNotes == true ? [.unsavedEdits] : []
+    }
+
+    /// The view's watches and stream end; the tab keeps the phone it showed.
+    func viewDiscarded(_ key: String) {
+        guard let view = views.removeValue(forKey: key) else { return }
+        if let id = view.route.flatMap({ PhoneDeviceID($0) }) { routes[key] = id }
+        view.close()
     }
 
     /// Some open phone tab (the page keeps one per window).

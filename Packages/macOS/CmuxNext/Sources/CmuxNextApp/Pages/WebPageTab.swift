@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextHibernation
 import CmuxNextIcons
 import CmuxNextPages
 
@@ -12,14 +13,18 @@ final class WebPageTab: InternalPageProvider {
     let icon: IconName?
     /// Read once, when the tab registers: page titles do not change while the app runs.
     let title: String
+    /// When a hidden tab's page goes (`memoryDiscardInternalPages`); its next show makes a new one.
+    let hiddenPolicy: ContentDiscardPolicy
     private let make: () -> PageWebView?
     private var pages: [String: PageWebView] = [:]
 
-    init(_ page: InternalPageID, symbol: String, icon: IconName? = nil, title: String, make: @escaping () -> PageWebView?) {
+    init(_ page: InternalPageID, symbol: String, icon: IconName? = nil, title: String,
+         hiddenPolicy: ContentDiscardPolicy = .standard, make: @escaping () -> PageWebView?) {
         self.page = page
         self.symbol = symbol
         self.icon = icon
         self.title = title
+        self.hiddenPolicy = hiddenPolicy
         self.make = make
     }
 
@@ -30,4 +35,12 @@ final class WebPageTab: InternalPageProvider {
     }
 
     func tabClosed(_ key: String) { pages.removeValue(forKey: key)?.close() }
+
+    func discardPolicy(for key: String) -> ContentDiscardPolicy { hiddenPolicy }
+
+    /// The tab stays and its page goes (the page store ends its bridge).
+    func viewDiscarded(_ key: String) { pages[key] = nil }
+
+    /// Whether tab `key` has a page now (tests).
+    func hasPage(_ key: String) -> Bool { pages[key] != nil }
 }

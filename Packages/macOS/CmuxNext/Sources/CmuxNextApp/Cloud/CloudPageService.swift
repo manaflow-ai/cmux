@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextHibernation
 import CmuxNextIcons
 import CmuxNextPages
 
@@ -14,6 +15,8 @@ extension InternalPageID {
 @MainActor
 final class CloudPageService: InternalPageProvider {
     private weak var services: AppServices?
+    /// Each tab's `cmux.cloud.` provider while its page lives, for its keep reasons.
+    private var providers: [String: CloudPageProvider] = [:]
 
     init(services: AppServices) { self.services = services }
 
@@ -33,7 +36,40 @@ final class CloudPageService: InternalPageProvider {
     var icon: IconName? { .cloud }
 
     func makeView(for key: String, in window: WindowController?) -> NSView {
-        guard let services, let page = PageFactory(services: services).cloudWebPage() else { return NSView() }
+        guard let services else { return NSView() }
+        let factory = PageFactory(services: services)
+        let cloud = factory.cloudPageProvider()
+        guard let page = factory.cloudWebPage(cloud) else { return NSView() }
+        providers[key] = cloud
         return page
     }
+
+    func tabClosed(_ key: String) { providers[key] = nil }
+
+    // MARK: Discard (`memoryDiscardInternalPages`, p07-memory-028)
+
+    /// Ten minutes hidden, as a browser tab (Chrome's proactive_discarding_policy.cc): the page
+    /// reads the machines again when it is made.
+    func discardPolicy(for key: String) -> ContentDiscardPolicy { .standard }
+
+    /// A create (or any change the person approved) that has not answered keeps the page: only it
+    /// shows the result, and its watch stream turns the answer into the new machine's row.
+    func keepReasons(for key: String) -> [CannotDiscardReason] {
+        (providers[key]?.confirmedCallsInFlight ?? 0) > 0 ? [.inProgress] : []
+    }
+
+    /// The route the page was asked to show (the storefront's `/get`), so the next page opens on it.
+    func saveViewState(for key: String, content: NSView) async -> ContentViewState {
+        guard let route = (content as? PageWebView)?.route else { return ContentViewState() }
+        return ContentViewState(values: [Self.routeValue: route])
+    }
+
+    func restoreViewState(_ state: ContentViewState, for key: String, content: NSView) {
+        guard let route = state.values[Self.routeValue], let page = content as? PageWebView else { return }
+        page.open(route: route)
+    }
+
+    func viewDiscarded(_ key: String) { providers[key] = nil }
+
+    static let routeValue = "route"
 }

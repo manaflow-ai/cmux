@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextHibernation
 import CmuxNextPages
 
 extension PageDescriptor {
@@ -30,9 +31,14 @@ final class MobilePairingPageService: InternalPageProvider {
     }
 
     private weak var services: AppServices?
+    /// Each tab's `cmux.mobilePairing.` provider while its page lives: it holds the code shown.
+    private var providers: [String: MobilePairingPageProvider] = [:]
+    /// The wall clock the codes' expiry is read on (tests set it).
+    private let now: () -> Date
 
-    init(services: AppServices) {
+    init(services: AppServices, now: @escaping () -> Date = { Date() }) {
         self.services = services
+        self.now = now
     }
 
     /// Opens the page in the active window; automation (`focus` false) opens it without moving focus.
@@ -54,6 +60,28 @@ final class MobilePairingPageService: InternalPageProvider {
                       PageRoute(prefix: "cmux.app.", provider: native)]
         guard let page = services.webUI.open(PageOpenRequest(descriptor: .mobilePairing, routes: routes)) else { return NSView() }
         native.anchor = { [weak page] in page }
+        providers[key] = provider
         return page
     }
+
+    func tabClosed(_ key: String) { providers[key] = nil }
+
+    // MARK: Discard (`memoryDiscardInternalPages`, p07-memory-028)
+
+    /// Ten minutes hidden, as a browser tab (Chrome's proactive_discarding_policy.cc), the life of
+    /// the code it shows (``MobilePairingPageProvider/ticketLifetime``).
+    func discardPolicy(for key: String) -> ContentDiscardPolicy { .standard }
+
+    /// Pairing keeps the page: while the code it showed still works a phone may be scanning it, and a
+    /// new page would show another code. The page reads the status again when it is made.
+    func keepReasons(for key: String) -> [CannotDiscardReason] {
+        Self.keepReasons(codeExpiresAt: providers[key]?.codeExpiresAt, now: now())
+    }
+
+    static func keepReasons(codeExpiresAt: Date?, now: Date) -> [CannotDiscardReason] {
+        guard let codeExpiresAt, codeExpiresAt > now else { return [] }
+        return [.inProgress]
+    }
+
+    func viewDiscarded(_ key: String) { providers[key] = nil }
 }

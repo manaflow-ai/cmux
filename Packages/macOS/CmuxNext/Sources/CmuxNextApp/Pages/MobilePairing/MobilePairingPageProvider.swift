@@ -31,6 +31,9 @@ final class MobilePairingPageProvider: PageProvider {
         self.services = services
     }
 
+    /// When the attach code the page shows stops working; nil before the page showed one.
+    var codeExpiresAt: Date? { ticket?.expiresAt }
+
     func call(_ op: String, params: JSONValue, context: PageCallContext) async throws -> JSONValue {
         guard let services else { throw PageError.closed }
         switch op {

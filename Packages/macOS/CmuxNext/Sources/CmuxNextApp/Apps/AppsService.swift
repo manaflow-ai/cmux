@@ -3,6 +3,7 @@ import CmuxNextActions
 import CmuxNextApps
 import CmuxNextControl
 import CmuxNextDaemonService
+import CmuxNextHibernation
 import CmuxNextIcons
 import CmuxNextPages
 import CmuxNextSettings
@@ -32,6 +33,8 @@ final class AppsService {
     private var appPages: [String: AppPanePage] = [:]
     /// The App Store page (React, apps-web-DESIGN.md) per tab key.
     private var webStorePages: [String: PageWebView] = [:]
+    /// The route of each App Store tab whose page was discarded, for the page its next show makes.
+    private var discardedRoutes: [String: String] = [:]
     /// The route of the show running now, for the page it makes (``makeView(for:in:)``).
     private var pendingRoute: String?
     private var machineCatalog: MachineCatalogPublisher?
@@ -176,15 +179,30 @@ extension AppsService: InternalPageProvider {
     /// The React App Store page; it opens on the route of the show that made it. Missing page
     /// resources (a build without the web bundles) show an empty view, never a second store.
     func makeView(for key: String, in window: WindowController?) -> NSView {
-        guard let page = PageFactory(services: services).appsWebPage(route: pendingRoute ?? Self.storeRoute(appID: nil, tab: nil)) else {
-            return NSView()
-        }
+        let discarded = discardedRoutes.removeValue(forKey: key)
+        let route = pendingRoute ?? discarded ?? Self.storeRoute(appID: nil, tab: nil)
+        guard let page = PageFactory(services: services).appsWebPage(route: route) else { return NSView() }
         webStorePages[key] = page
         return page
     }
 
     func tabClosed(_ key: String) {
+        discardedRoutes[key] = nil
         webStorePages.removeValue(forKey: key)?.close()
+    }
+
+    // MARK: Discard (`memoryDiscardInternalPages`, p07-memory-028)
+
+    /// Ten minutes hidden, as a browser tab (Chrome's proactive_discarding_policy.cc). Installs,
+    /// updates and grants run on the daemon's app supervisor, not in the page, so nothing the page
+    /// started keeps it.
+    func discardPolicy(for key: String) -> ContentDiscardPolicy { .standard }
+
+    /// The tab stays and its page goes (the page store ends its bridge); the next page of the tab
+    /// opens on the listing or section it showed.
+    func viewDiscarded(_ key: String) {
+        guard let route = webStorePages.removeValue(forKey: key)?.route else { return }
+        discardedRoutes[key] = route
     }
 
     /// The page keeps its own history (its fragment).
