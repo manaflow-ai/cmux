@@ -2,8 +2,9 @@ public import CmuxHomeCore
 public import CoreGraphics
 public import Foundation
 
-/// One attachment of a send from the host's composer.
-public struct HomeOutgoingAttachment: @unchecked Sendable {
+/// One attachment of a send from the host's composer. Checked Sendable: every
+/// field is (the Core Graphics overlay makes `CGImage` Sendable).
+public struct HomeOutgoingAttachment: Sendable {
     public var ref: AttachmentRef
     /// The prepared local files (`HomeStore.prepareAttachment`): the bubble
     /// shows them before the upload ends, and the send uploads them.
@@ -11,7 +12,7 @@ public struct HomeOutgoingAttachment: @unchecked Sendable {
     /// The draft thumbnail's frame in viewport points: the morph starts there.
     public var origin: CGRect?
     /// The host's decoded preview: the bubble shows it at once, before any
-    /// fetch. `CGImage` is immutable, so sharing it across actors is safe.
+    /// fetch.
     public var preview: CGImage?
 
     public init(ref: AttachmentRef, files: LocalAttachmentFiles? = nil, origin: CGRect? = nil, preview: CGImage? = nil) {
