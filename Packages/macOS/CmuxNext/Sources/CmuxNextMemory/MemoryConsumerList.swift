@@ -21,6 +21,10 @@ public final class MemoryConsumerList<Record: MemoryConsumerListRecord> {
     /// Makes an empty list.
     public init() {}
 
+    // A generic main-actor class's isolated deinit crashes the Release optimizer (#23050); the
+    // records need no main-actor cleanup.
+    nonisolated deinit {}
+
     /// Adds `record` after dropping released records.
     ///
     /// - Parameter record: A new registration's record.
