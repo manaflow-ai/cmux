@@ -100,6 +100,29 @@ struct ChildPageFocusKeyChangeTests {
         #expect(world.focusCalls.count == 1)
     }
 
+    /// A focus effect can be reduced again while CEF is still granting the outer page. The
+    /// reentrant grant must keep the outer transition protected until it returns; otherwise a
+    /// didBecomeKey callback can blur the page that just won and add another key-window change.
+    @Test func aNestedGrantKeepsTheOuterTransitionProtected() {
+        let world = World()
+        var depth = 0
+        var returnedDuringGrant: Bool?
+        world.duringGrant = { [weak world] in
+            guard let world, depth == 0 else { return }
+            depth = 1
+            world.focus.focus(world.b)
+            world.keys.makeKey(world.cmux)
+            returnedDuringGrant = world.focus.keysReturned(to: world.cmux)
+            depth = 0
+        }
+
+        world.focus.focus(world.a)
+        #expect(returnedDuringGrant == false)
+        #expect(world.focus.page === world.b)
+        #expect(world.focusCalls.map { "\($0.0)\($0.1)" } == ["atrue", "afalse", "btrue"])
+        #expect(world.keys.changes == ["pageA", "pageB", "cmux"])
+    }
+
     @Test func reclaimMakesNoKeyChangeWhenTheCmuxWindowIsKey() {
         let world = World()
         world.keys.makeKey(world.cmux)
