@@ -203,6 +203,26 @@ struct HomeChiefDefaultTests {
         #expect(page.followedChief == nil, "the person opened one: the page follows nothing now")
     }
 
+    /// Auto's own sequence: the person opens the Hosted Chief while this Mac's brain runs, that
+    /// brain dies (so Hosted is preferred, and nothing opens because they are already there), and
+    /// its restart must not take them back to this Mac's Chief. The page follows only what it
+    /// opened itself, so a Chief it left them alone for is not one it may replace later (review of
+    /// #23984, finding 1).
+    @Test func aPreferredChiefThePageDidNotOpenIsNotFollowed() async throws {
+        let services = Self.services()
+        let home = services.home
+        home.setCloudChiefs(HomeCloudChiefs(hosted: Self.hosted, placed: Self.placed))
+        let rows = Self.cloudLedRows
+        let hosted = CmuxHomeCore.ConversationID("conv_hosted")
+        // They opened the Hosted Chief themselves, so the page follows nothing.
+        let died = TopHomePageView.followUp(chief: "conv_hosted", shown: hosted, followed: nil, composing: false,
+                                            rows: rows, home: home)
+        #expect(died == .init(open: nil, followed: nil), "nothing opens: they are already there")
+        // The brain is back, so this Mac's Chief is preferred again; they stay where they are.
+        #expect(TopHomePageView.followUp(chief: "conv_local", shown: hosted, followed: died.followed, composing: false,
+                                         rows: rows, home: home) == .init(open: nil, followed: nil))
+    }
+
     /// The Engine row is watched, not only the preferred Chief's id: before the cloud read lands
     /// and with this Mac's Chief not listed, there is no Chief to open either side of the change,
     /// so a page that watched the id alone would never reconcile what it had opened by itself
@@ -240,6 +260,21 @@ struct HomeChiefDefaultTests {
                 "the arriving Chief is followed from now on, but nothing closes New Message for it")
         #expect(TopHomePageView.followUp(chief: "conv_local", shown: hosted, followed: "conv_hosted", composing: false,
                                          rows: Self.cloudLedRows, home: home).open?.rawValue == "conv_local")
+    }
+
+    /// Two readers of this Mac's brain liveness (a brain that started or died, and the Chief tab
+    /// check) each suspend across the other's whole read, and the older answer must never land on
+    /// top of the newer one: that would leave Auto on the wrong Chief for the rest of the launch
+    /// (review of #23984, finding 2).
+    @Test func anOlderLivenessReadNeverOverwritesANewerOne() {
+        // The tab check's read is #1 and suspends; the brain change's #2 starts and publishes.
+        #expect(HomeService.publishes(read: 2, published: 0), "the newer read publishes")
+        // Read #1 resumes with its stale answer: it is older than what is published, so it does not.
+        #expect(!HomeService.publishes(read: 1, published: 2))
+        // The next read of either caller is newer than anything published, so it does.
+        #expect(HomeService.publishes(read: 3, published: 2))
+        // And a read never publishes twice (``readLocalChiefRunning`` sets `published` to its own).
+        #expect(!HomeService.publishes(read: 3, published: 3))
     }
 
     @Test func theEngineSettingForcesEitherChief() async throws {

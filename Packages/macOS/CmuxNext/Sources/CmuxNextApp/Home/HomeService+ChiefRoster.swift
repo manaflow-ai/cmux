@@ -116,10 +116,8 @@ extension HomeService {
         // task-owner: one lock read and tab check per brain start or death
         chiefHostChange = Task { [weak self] in
             guard let self else { return }
-            let running = await Self.localChiefRuns(chief.home)
             // A newer start or death is already reading: its answer is the current one, never this.
-            guard !Task.isCancelled else { return }
-            if localChiefRunning != running { localChiefRunning = running }
+            guard await readLocalChiefRunning(), !Task.isCancelled else { return }
             refreshChiefTab()
         }
     }
@@ -127,9 +125,29 @@ extension HomeService {
     /// Reads again, off the main actor, whether this Mac's optchat-chief runs (it holds the Chief
     /// home's lock: ``ChiefHostStop/runningHostPID(home:isChiefHost:)``); the Chief tab check runs this first.
     func refreshLocalChiefRunning() async {
-        let running = await Self.localChiefRuns(chief.home)
-        if localChiefRunning != running { localChiefRunning = running }
+        _ = await readLocalChiefRunning()
     }
+
+    /// Reads whether this Mac's brain runs, off the main actor, and publishes it only when no later
+    /// read has. Two callers read it: a brain that started or died, and the Chief tab check. Either
+    /// can suspend across the other's whole read, and the older answer must never land on top of
+    /// the newer one, which would leave Auto on the wrong Chief for the rest of the launch.
+    /// - Returns: whether this read's answer is the current one.
+    @discardableResult
+    private func readLocalChiefRunning() async -> Bool {
+        chiefRunningReads += 1
+        let read = chiefRunningReads
+        let running = await Self.localChiefRuns(chief.home)
+        guard Self.publishes(read: read, published: chiefRunningPublished) else { return false }
+        chiefRunningPublished = read
+        if localChiefRunning != running { localChiefRunning = running }
+        return true
+    }
+
+    /// Whether the read numbered `read` may publish its answer, given that `published` is the
+    /// newest read that already has. Only a read newer than that one may: an older read resuming
+    /// after it would put a stale answer back.
+    static func publishes(read: Int, published: Int) -> Bool { read > published }
 
     @concurrent nonisolated static func localChiefRuns(_ home: ChiefHome) async -> Bool {
         ChiefHostStop.runningHostPID(home: home) != nil

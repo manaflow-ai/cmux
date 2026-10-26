@@ -93,6 +93,10 @@ final class HomeService {
     var cloudChief: CloudChief? { prefersLocalChief ? nil : tabChiefs.shown(choice: hostedChief.choice) }
     /// This Mac's optchat-chief held the Chief home's lock at the last Chief tab check (HomeService+ChiefDefault).
     var localChiefRunning = false
+    /// How many reads of that lock have started, and the newest one that published its answer, so
+    /// an older read never lands on top of a newer one (``readLocalChiefRunning``).
+    @ObservationIgnored var chiefRunningReads = 0
+    @ObservationIgnored var chiefRunningPublished = 0
     /// The cloud Chiefs the Chief tab may show: without the Hosted Chief while
     /// this Mac's history is still being copied into it (the local Chief stays).
     var tabChiefs: HomeCloudChiefs { hostedChief.pending ? HomeCloudChiefs(hosted: nil, placed: cloudChiefs.placed) : cloudChiefs }

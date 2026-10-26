@@ -338,7 +338,12 @@ final class TopHomePageView: NSView {
             }
             return ChiefFollowUp(open: next, followed: next.rawValue)
         }
-        return ChiefFollowUp(open: mine ? ConversationID(chief) : nil, followed: chief)
+        // Following only what it actually opened: a Chief it left the person alone for is not
+        // theirs to be taken off later. Auto makes that sequence ordinary — the person opens the
+        // Hosted Chief while this Mac's brain runs, that brain dies so Hosted becomes preferred
+        // (nothing opens, they are already there), and its restart must not move them.
+        guard mine else { return ChiefFollowUp(open: nil, followed: followed) }
+        return ChiefFollowUp(open: ConversationID(chief), followed: chief)
     }
 
     /// What the page shows once there is no Chief conversation at all: the first conversation the
