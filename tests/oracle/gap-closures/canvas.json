@@ -1,0 +1,22 @@
+{
+ "_doc": "Gap closures of the canvas family (p15-oracle-083), applied to scripts/cmux-next/every-action-gaps.json by p15-oracle-087. Every id needed the canvasLayout context. The fixture (scripts/cmux-next/oracle/action_fixtures/canvas.py) splits the base pane into A | (B / (C | D)) with D focused, then runs toggleCanvasLayout. Each closed id says what it changes on that canvas, so its sample runs a handler and is not refused. canvasRevealFocusedPane needs the same context but stays in `excluded` (the SKIPS pattern `reveal`), not here.",
+ "family": "canvas",
+ "fixture": "scripts/cmux-next/oracle/action_fixtures/canvas.py",
+ "context": "canvasLayout",
+ "closed": {
+  "canvasAlignBottom": "B moves down to the bottom edge A and D share",
+  "canvasAlignLeft": "B, C and D move to A's left edge",
+  "canvasAlignRight": "A and C move to the right edge B and D share",
+  "canvasAlignTop": "C and D move up to the top edge A and B share",
+  "canvasDistributeHorizontally": "of B and C (same left edge), the second packs right of the first at the 16 pt canvas gap",
+  "canvasDistributeVertically": "of A and B (both at the top), the second packs below the first at the 16 pt canvas gap",
+  "canvasEqualizeHeights": "A takes the height of D, the focused pane (B and C have it already)",
+  "canvasEqualizeWidths": "A and B take the width of D, the focused pane (C has it already)",
+  "canvasOverview": "fits the four panes in the viewport (a second run returns to the camera before it)",
+  "canvasTidy": "B, whose center is above A's, starts its own row",
+  "canvasZoomIn": "zoom 1 to 1.25 about the viewport center",
+  "canvasZoomOut": "zoom 1 to 0.8 about the viewport center",
+  "canvasZoomReset": "PREPARE runs canvasZoomIn first: a fresh canvas is at zoom 1, where Actual Size refuses"
+ },
+ "reasoned": {}
+}
