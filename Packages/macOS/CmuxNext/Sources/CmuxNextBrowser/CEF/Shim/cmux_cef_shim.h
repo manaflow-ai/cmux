@@ -344,6 +344,48 @@ CMUX_SHIM_EXPORT int cmux_shim_browser_drag_source_ended(int browser_id, double 
 // page's data; continue with the DragTarget* calls.
 CMUX_SHIM_EXPORT int cmux_shim_browser_drag_target_enter_source(int browser_id, int x, int y,
                                                                 int allowed_operations, int modifiers);
+// Fork API 31: IME of a detached page (task p01-process-170). The four calls
+// Chrome's RenderWidgetHostViewCocoa makes on its RenderWidgetHostNSViewHost,
+// for the embedder's NSTextInputClient; they go to the widget that has the
+// text input (an out-of-process iframe too). Offsets are UTF-16 code units
+// (NSRange); -1, -1 is no replacement range (NSNotFound). Each returns 1 when
+// sent, 0 when the fork is older than API 31, the page is not detached or
+// an argument is invalid. UI thread only, in input order.
+//
+// One underline of the composition (Chrome's ExtractUnderlines): [start, end)
+// in the composition text, thick 1 for the selected clause, colors
+// 0xAARRGGBB (0: the page's text color). The fork's cmux_ime_span_t.
+typedef struct {
+  int start;
+  int end;
+  int thick;
+  unsigned int underline_color;
+  unsigned int background_color;
+} cmux_shim_ime_span;
+// setMarkedText:selectedRange:replacementRange:. No spans (NULL, 0) is one
+// thin underline over the whole text; empty text cancels the composition.
+CMUX_SHIM_EXPORT int cmux_shim_browser_ime_set_composition(int browser_id, const char* text,
+                                                           const cmux_shim_ime_span* spans, int span_count,
+                                                           int replacement_start, int replacement_end,
+                                                           int selection_start, int selection_end);
+// insertText:replacementRange:: commits text over the composition, or over
+// [replacement_start, replacement_end).
+CMUX_SHIM_EXPORT int cmux_shim_browser_ime_commit_text(int browser_id, const char* text, int replacement_start,
+                                                       int replacement_end);
+// unmarkText: commits the composition as it is.
+CMUX_SHIM_EXPORT int cmux_shim_browser_ime_finish_composing(int browser_id);
+// Cancels the composition (Chrome's ImeCancelCompositionFromCocoa).
+CMUX_SHIM_EXPORT int cmux_shim_browser_ime_cancel(int browser_id);
+// Watches the page's composition bounds for firstRectForCharacterRange:.
+// `bounds` points at the fork's cmux_composition_bounds_t (include/cef_cmux.h:
+// size, kind 1 range changed or 2 cancelled (discard the marked text), the
+// composition range, one rect x, y, width, height per character in the page
+// view's points, top left origin), valid only during the call. fn NULL stops
+// the watch. Returns 0 when the fork is older than API 31.
+CMUX_SHIM_EXPORT int cmux_shim_browser_composition_bounds_watch(int browser_id,
+                                                                void (*fn)(void* context, int browser_id,
+                                                                           const void* bounds),
+                                                                void* context);
 // The page chrome://newtab shows when no extension overrides the New Tab
 // page (fork API 12); NULL or "" keeps Chromium's. Any time, also before
 // cmux_shim_initialize. The ADDRESS event reports "chrome://newtab/" for a

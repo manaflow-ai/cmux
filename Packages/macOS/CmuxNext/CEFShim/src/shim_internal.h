@@ -117,10 +117,21 @@ struct ForkApi {
   void (*set_drag_source_handler)(void (*)(void*, int, const void*), void*) = nullptr;
   int (*browser_drag_source_ended)(int, double, double, double, double, int) = nullptr;
   int (*browser_drag_target_enter_source)(int, int, int, int, int) = nullptr;
+  // API version 31: IME of a detached page and its composition bounds
+  // (shim_helper_host.mm; cmux_shim_ime_span is laid out as the fork's
+  // cmux_ime_span_t). Used only when `version` >= kDetachedImeForkApi.
+  int (*browser_ime_set_composition)(int, const char*, const cmux_shim_ime_span*, int, int, int, int, int) = nullptr;
+  int (*browser_ime_commit_text)(int, const char*, int, int) = nullptr;
+  int (*browser_ime_finish_composing)(int) = nullptr;
+  int (*browser_ime_cancel)(int) = nullptr;
+  int (*browser_composition_bounds_watch)(int, void (*)(void*, int, const void*), void*) = nullptr;
   // No API number yet (p13-webui-017; the fork train numbers it): its
   // presence says the fork honors CMUX_EXTRA_INFO_NO_RENDERER.
   int (*tab_renderer_state)(int) = nullptr;
 };
+
+// The fork API that has the detached-page IME calls (task p01-process-170).
+inline constexpr int kDetachedImeForkApi = 31;
 
 struct Host {
   void* ctx = nullptr;

@@ -343,6 +343,11 @@ static void BindForkApi(const char* framework_binary) {
   CMUX_BIND(set_drag_source_handler, "cmux_set_drag_source_handler");
   CMUX_BIND(browser_drag_source_ended, "cmux_browser_drag_source_ended");
   CMUX_BIND(browser_drag_target_enter_source, "cmux_browser_drag_target_enter_source");
+  CMUX_BIND(browser_ime_set_composition, "cmux_browser_ime_set_composition");
+  CMUX_BIND(browser_ime_commit_text, "cmux_browser_ime_commit_text");
+  CMUX_BIND(browser_ime_finish_composing, "cmux_browser_ime_finish_composing");
+  CMUX_BIND(browser_ime_cancel, "cmux_browser_ime_cancel");
+  CMUX_BIND(browser_composition_bounds_watch, "cmux_browser_composition_bounds_watch");
   CMUX_BIND(tab_renderer_state, "cmux_tab_renderer_state");
 #undef CMUX_BIND
 }

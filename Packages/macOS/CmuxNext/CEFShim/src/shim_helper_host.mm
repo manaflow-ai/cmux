@@ -1,12 +1,19 @@
 // Fork API 30 wrappers: the helper-app browser process
 // (plans/cmux-next/cef-helper-app-DESIGN.md 3.3 and 6). Detached hosting and
 // its key state, input on the user-input queue, wheel phases, the text input
-// watch, the remote accessibility token and page drags. Each returns 0 (or
+// watch, the remote accessibility token and page drags; fork API 31: the
+// detached page's IME and composition bounds. Each returns 0 (or
 // does nothing) when the fork lacks the call. UI thread only unless noted.
 
 #include "shim_internal.h"
 
 using namespace cmux_shim;
+
+// Fork API 31 (task p01-process-170): IME of a detached page, used from the
+// release that declares API 31 (task 178), as cef_cmux.h's history says.
+static bool HasDetachedIme() {
+  return fork_api().version >= kDetachedImeForkApi;
+}
 
 extern "C" {
 
@@ -59,6 +66,36 @@ int cmux_shim_browser_drag_source_ended(int browser_id, double x, double y, doub
 int cmux_shim_browser_drag_target_enter_source(int browser_id, int x, int y, int allowed_operations, int modifiers) {
   if (!fork_api().browser_drag_target_enter_source) return 0;
   return fork_api().browser_drag_target_enter_source(browser_id, x, y, allowed_operations, modifiers);
+}
+
+int cmux_shim_browser_ime_set_composition(int browser_id, const char* text, const cmux_shim_ime_span* spans,
+                                          int span_count, int replacement_start, int replacement_end,
+                                          int selection_start, int selection_end) {
+  if (!HasDetachedIme() || !fork_api().browser_ime_set_composition) return 0;
+  return fork_api().browser_ime_set_composition(browser_id, text, spans, span_count, replacement_start,
+                                                replacement_end, selection_start, selection_end);
+}
+
+int cmux_shim_browser_ime_commit_text(int browser_id, const char* text, int replacement_start, int replacement_end) {
+  if (!HasDetachedIme() || !fork_api().browser_ime_commit_text) return 0;
+  return fork_api().browser_ime_commit_text(browser_id, text, replacement_start, replacement_end);
+}
+
+int cmux_shim_browser_ime_finish_composing(int browser_id) {
+  if (!HasDetachedIme() || !fork_api().browser_ime_finish_composing) return 0;
+  return fork_api().browser_ime_finish_composing(browser_id);
+}
+
+int cmux_shim_browser_ime_cancel(int browser_id) {
+  if (!HasDetachedIme() || !fork_api().browser_ime_cancel) return 0;
+  return fork_api().browser_ime_cancel(browser_id);
+}
+
+int cmux_shim_browser_composition_bounds_watch(int browser_id,
+                                               void (*fn)(void* context, int browser_id, const void* bounds),
+                                               void* context) {
+  if (!HasDetachedIme() || !fork_api().browser_composition_bounds_watch) return 0;
+  return fork_api().browser_composition_bounds_watch(browser_id, fn, context);
 }
 
 }  // extern "C"
