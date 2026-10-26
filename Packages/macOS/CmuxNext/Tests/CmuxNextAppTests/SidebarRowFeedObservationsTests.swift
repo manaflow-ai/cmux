@@ -4,8 +4,9 @@ import Observation
 import Testing
 
 /// The sidebar rows record into `debug.observations` (p06-scheduler-029): the rows armed now, and per status
-/// change one re-read and, when the row changed, one apply. Without the feed recording, the ledger reads 0 for
-/// every sidebar size and the bench's budget check passes with nothing measured.
+/// change one re-read and, when the row changed, one apply; a change of the pass's inputs re-reads every row.
+/// Without the feed recording, the ledger reads 0 for every sidebar size and the bench's budget check
+/// (`sidebar-stress-bench.py` observations: armed rows and evaluations per change) passes with nothing measured.
 @MainActor @Suite struct SidebarRowFeedObservationsTests {
     @Observable final class Status {
         var text = "idle"
@@ -23,13 +24,16 @@ import Testing
 
     static let machine = SidebarMachine(id: .local, name: "This Mac", kind: .local)
 
-    static func pass(_ feed: SidebarRowFeed, _ ids: [WorkspaceID], status: [WorkspaceID: Status]) -> [SidebarSection] {
-        feed.beginPass(inputs: 0)
+    /// `inputs` stand for the pass's by-value inputs (the unread visibility): a row maps its title with them.
+    static func pass(_ feed: SidebarRowFeed, _ ids: [WorkspaceID], status: [WorkspaceID: Status],
+                     inputs: Int = 0) -> [SidebarSection] {
+        feed.beginPass(inputs: inputs)
         let rows = ids.map { id in
             feed.row(id, machine: .local) { [status] in
                 let source = status[id]
                 _ = source?.other
-                return SidebarWorkspace(id: id, machineID: .local, title: id.rawValue, status: source?.text ?? "")
+                return SidebarWorkspace(id: id, machineID: .local, title: "\(id.rawValue) \(inputs)",
+                                        status: source?.text ?? "")
             }
         }
         return [SidebarSection(kind: .machine(machine), nodes: rows.map { .workspace($0) })]
@@ -68,5 +72,23 @@ import Testing
         #expect(ledger.snapshot().first?.armed == 5)
         feed.reset()
         #expect(ledger.snapshot().first?.armed == 0)
+    }
+
+    @Test func inputsChangeIsOneEvaluationPerRow() throws {
+        let ledger = ObservationLedger()
+        let feed = SidebarRowFeed(schedule: { _ in }, observations: ledger.owner("SidebarRows"))
+        let ids = (0..<40).map { WorkspaceID("w\($0)") }
+        _ = feed.fill(Self.pass(feed, ids, status: [:]))
+        let first = try #require(ledger.snapshot(resetting: true).first)
+        #expect(first.evaluations == 0 && first.applies == 0, "a new row's first map is an arm only")
+
+        _ = feed.fill(Self.pass(feed, ids, status: [:], inputs: 1))
+        let remapped = try #require(ledger.snapshot(resetting: true).first)
+        #expect(remapped.evaluations == 40 && remapped.applies == 40, "every row is re-read, and each one changed")
+        #expect(remapped.armed == 40 && remapped.arms == 40, "each row is armed again once")
+
+        _ = feed.fill(Self.pass(feed, ids, status: [:], inputs: 1))
+        let same = try #require(ledger.snapshot().first)
+        #expect(same.evaluations == 0, "the same inputs re-read no row")
     }
 }

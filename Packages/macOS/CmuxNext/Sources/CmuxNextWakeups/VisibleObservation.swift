@@ -92,7 +92,7 @@ public final class VisibleObservation<Value> {
         self.apply = apply
         isEqual = Self.equality()
         taskOwner = work.taskOwner(owner)
-        counts = work.observations.owner(owner)
+        counts = work.observationOwner(owner)
         let value = node.isVisible ? track() : read()
         if isEqual != nil { last = value }
         apply(value)

@@ -20,8 +20,8 @@ Per size it measures:
   drag          a row dragged over the list (`debug.mouse` down, then one dragged event per RPC):
                 main-thread time per mouse-move (Time Profiler) and frame intervals
   observations  `debug.observations` before and after one workspace status change, tickers paused: armed
-                observations app-wide and the evaluations, applies and hosting bodies the one change cost
-                (budget: armed sidebar rows <= on screen + one screen, 1 change -> <= 2 evaluations)
+                observations app-wide and the evaluations, applies and hosting bodies the one change cost;
+                `budget` checks armed SidebarRows <= on screen + one screen and 1 change -> <= 2 evaluations
 Traces go to OUT/traces/*.trace; OUT/results.json holds every number and the top main-thread frames.
 
 Usage (nx-remote --needs gui --app-from-fleet cmux --tag T --ref SHA):
@@ -459,7 +459,9 @@ def scenario_observations():
 
     The `bench` status entry is set and settled before the baseline, so the measured change only edits the text of a
     pill the row already shows (the same kind of change at every size), and it is cleared after, so the later
-    scenarios and sizes start from the same row. An error, not zeros, when nothing was measured."""
+    scenarios and sizes start from the same row. The changed row reads that status, so a change that no observer
+    re-read is an error, not a 0 that meets the budget. Body counts are null until some owner records a hosting body
+    (the recorder is p06-scheduler-214's): a 0 from no recorder is not "0 hidden bodies"."""
     if not made["workspaces"]:
         return {"error": "no workspace to change"}
     first = made["workspaces"][0]
@@ -485,17 +487,33 @@ def scenario_observations():
         after = rpc("debug.observations")
         if not isinstance(after, dict) or "error" in after:
             return {"error": f"debug.observations after the change: {after}"}
+        on_screen = sum(1 for r in workspace_rows() if r.get("in_list"))
     finally:
         done = cli("workspace", target, "status", "clear", "bench")
         if done.returncode != 0:
             note(f"observations: status clear bench -> {done.returncode}")
-    if not before.get("owners") and not after.get("owners"):
-        return {"error": "no observation owners recorded: this build's observers do not feed the ledger"}
     totals = after.get("totals") or {}
-    owners = [o for o in after.get("owners") or [] if o.get("evaluations") or o.get("applies") or o.get("body_evaluations")]
-    return {"armed_before": (before.get("totals") or {}).get("armed"), "armed_after": totals.get("armed"),
-            "per_change": {key: totals.get(key) for key in ("evaluations", "applies", "body_evaluations", "hidden_body_evaluations")},
-            "owners": [o.get("owner") for o in after.get("owners") or []], "busy_owners": owners}
+    if not totals.get("evaluations"):
+        return {"error": "the status change re-read no observation: its row's observer does not feed the ledger",
+                "owners": [o.get("owner") for o in after.get("owners") or []]}
+    bodies_recorded = any(o.get("body_evaluations") for snap in (before, after) for o in snap.get("owners") or [])
+    per_change = {key: totals.get(key) for key in ("evaluations", "applies")}
+    for key in ("body_evaluations", "hidden_body_evaluations"):
+        per_change[key] = totals.get(key) if bodies_recorded else None
+    rows = next((o for o in after.get("owners") or [] if o.get("owner") == "SidebarRows"), {})
+    armed_rows = rows.get("armed")
+    budget = {"on_screen_rows": on_screen, "armed_rows": armed_rows,
+              "armed_rows_ok": armed_rows <= 2 * on_screen if armed_rows is not None and on_screen else None,
+              "evaluations_ok": per_change["evaluations"] <= 2}
+    busy = [o for o in after.get("owners") or [] if o.get("evaluations") or o.get("applies") or o.get("body_evaluations")]
+    result = {"armed_before": (before.get("totals") or {}).get("armed"), "armed_after": totals.get("armed"),
+              "per_change": per_change, "budget": budget,
+              "owners": [o.get("owner") for o in after.get("owners") or []], "busy_owners": busy}
+    if not bodies_recorded:
+        result["body_note"] = "no hosting body recorder: no owner recorded a body evaluation"
+    if budget["armed_rows_ok"] is False or not budget["evaluations_ok"]:
+        note(f"observations: over budget {budget}")
+    return result
 
 
 def scenario_switch(pid, size, count=24):

@@ -6,9 +6,10 @@ import CmuxNextCompat
 /// visible and hidden. `debug.observations` reads ``snapshot(matching:resetting:)``; a bench reads it before and after
 /// one change and diffs the counts.
 ///
-/// The recording path takes no lock: an observer interns its owner once, when it is built
-/// (``owner(_:)`` takes the ledger's lock), and keeps the returned ``Owner``; each event after that
-/// is one relaxed atomic add on that handle. Chrome counts the same way: a histogram sample is a
+/// The recording path takes no lock: each owner name is interned once (``owner(_:)`` takes the
+/// ledger's lock; observers made per node on main go through ``MainWorkScheduler/observationOwner(_:)``,
+/// which caches the handle, so only a name's first instance takes it), and each event after that is
+/// one relaxed atomic add on the returned ``Owner``. Chrome counts the same way: a histogram sample is a
 /// lock-free atomic accumulate (`base/metrics/histogram_samples.h`, `AtomicSingleSample`), and only
 /// the reader walks the registry (`base/metrics/statistics_recorder.cc`).
 ///

@@ -121,6 +121,18 @@ import Testing
         #expect(try counts().armed == 0, "a cancelled observation is disarmed")
     }
 
+    /// Observations of one owner share the scheduler's cached handle: the ledger's lock is taken for the name's
+    /// first instance only, and every instance counts under the one owner.
+    @Test func observationsOfOneOwnerShareOneCachedLedgerOwner() throws {
+        let harness = Harness(own: .visible)
+        let first = harness.watch(), second = harness.watch()
+        #expect(harness.work.observationOwner("test.watch") === harness.work.observationOwner("test.watch"))
+        #expect(harness.work.observationOwner("test.watch") === harness.work.observations.owner("test.watch"))
+        let entries = harness.work.observations.snapshot(matching: "test.watch")
+        #expect(entries.count == 1 && entries.first?.armed == 2)
+        harness.stop(first, second)
+    }
+
     @Test func anAutomationChangeFlushesInTheAutomationClass() {
         let harness = Harness(own: .visible)
         var classes: [MainWorkClass?] = []
