@@ -39,8 +39,9 @@ import PackageDescription
 //   CmuxNextMetrics -> Compat, Trace (the field-histogram catalog HistogramID and Metrics.record)
 //   CmuxNextDesignTokens -> Compat, Wakeups, CmuxTheme, CCmuxAppFFI (Design's values without views: tunables,
 //     motion tokens, theme specs, settings enums; CmuxNextDesign re-exports it)
-//   CmuxNextFeatures -> Compat, swift-atomics (base::FeatureList: the feature registry and the immutable
-//     resolved snapshot the App builds once; plans/cmux-next/chrome-parity/p12-perf-process.md section 3.9)
+//   CmuxNextFeatures -> Compat, Wakeups, swift-atomics (base::FeatureList: the feature registry and the immutable
+//     resolved snapshot the App builds once, and the signed remote document's store, whose file I/O runs on
+//     BackgroundWork's files lane; plans/cmux-next/chrome-parity/p12-perf-process.md section 3.9)
 //   CmuxNextMemory -> Compat only (the memory coordinator, budgets from RAM and the memory report; the consumer
 //     protocol and traits live in Compat so any module registers a consumer with no new edge; p07-memory.md)
 //   CmuxNextInputCore -> Compat, swift-atomics (input latency: event kinds, stages, open-slot table, closed-slot
@@ -1503,6 +1504,8 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             name: "CmuxNextFeatures",
             dependencies: [
                 "CmuxNextCompat",
+                // BackgroundWork: the remote flags store's file reads and writes (FeatureRemoteStore).
+                "CmuxNextWakeups",
                 .product(name: "Atomics", package: "swift-atomics"),
             ],
             swiftSettings: daemonSwiftSettings
@@ -1512,6 +1515,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             dependencies: [
                 "CmuxNextCompat",
                 "CmuxNextFeatures",
+                "CmuxNextWakeups",
                 .product(name: "Atomics", package: "swift-atomics"),
             ],
             swiftSettings: daemonSwiftSettings
