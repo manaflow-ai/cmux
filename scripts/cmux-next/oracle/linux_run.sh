@@ -15,19 +15,26 @@
 #       two runs through diff.py. DIR/linux-run.json holds both build receipts (exact SHAs, every
 #       gitlink) and the comparison. --clean also removes both target dirs. Exits with oracle.py's code.
 #   linux_run.sh clean [--targets] [--all]
-#       Removes source trees no build holds; --targets also the target dirs; --all all of ORACLE_WT_ROOT.
+#       Removes source trees no build holds; --targets also the target dirs no build or run holds;
+#       --all all of ORACLE_WT_ROOT when nothing holds a lock.
 #
 # Everything a REF build writes is under ORACLE_WT_ROOT (default /tmp/oracle-wt):
 #   src/<key>     the tree of one build: a `git clone --shared` of this checkout at the SHA, so the
 #                 checkout's .git never gets worktree or submodule entries. Removed when the build
-#                 ends, also on failure, SIGINT and SIGTERM (--keep-src keeps it).
+#                 ends, also on failure, SIGINT and SIGTERM (--keep-src keeps it). Only the job that
+#                 holds the key's lock exclusively and clones the tree owns it.
 #   target/<key>  CARGO_TARGET_DIR of one (sha, profile, features, zig) plus build.json, the cache
-#                 record (a matching binary hash is a hit). A build removes target dirs no build
-#                 has used for ORACLE_WT_TARGET_TTL_MIN minutes (default 360).
-#   ref/ghostty-next.git  the shared submodule --reference: a bare repo that borrows the
-#                 checkout's submodule objects through alternates and fetches a missing gitlink.
+#                 record (a matching binary hash is a hit). Each build also removes the target dirs
+#                 no build has used for ORACLE_WT_TARGET_TTL_MIN minutes (default 360) and the
+#                 source trees no build holds (left by a job that died without its EXIT trap).
+#   ref/ghostty-next.git  the shared submodule --reference: a self-contained bare mirror (no
+#                 alternates) that fetches a missing gitlink from the checkout's submodule when it
+#                 has it, else from the .gitmodules URL. Trees borrow from it; it borrows from nothing.
 #   cache/zig     ZIG_GLOBAL_CACHE_DIR shared by all builds (content-addressed packages).
-#   locks/        one flock per build key and one for the reference.
+#   locks/        one flock per build key and one for the reference. A build holds its key
+#                 exclusively; a cache hit and a `diff` run that uses the binary hold it shared, so
+#                 `clean` and `diff --clean` never remove a binary in use. `build` hands its binary
+#                 out without a lock: only the TTL protects it.
 # diff output goes to --out (default /tmp/oracle/runs/linux-<time>-<pid>), never into the checkout.
 # This is depot_tools' model: one bare git cache per repo (git_cache.py) that every gclient checkout
 # borrows objects from (gclient_scm.py, --reference), and a checkout per revision for bisects.
@@ -57,6 +64,8 @@ usage() { sed -n '2,19p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' >&2; exit 2;
 # Git in our own trees: no hooks from the caller's config; local paths allowed as submodule URLs.
 g() { git -c core.hooksPath=/dev/null -c advice.detachedHead=false -c protocol.file.allow=always "$@"; }
 
+# EPOCHREALTIME uses the locale's decimal point; awk wants a dot.
+now() { printf '%s\n' "${EPOCHREALTIME/,/.}"; }
 ms_between() { awk -v a="$1" -v b="$2" 'BEGIN { printf "%d", (b - a) * 1000 + 0.5 }'; }
 
 check_root() {
@@ -225,28 +234,34 @@ PY
 )"
 py() { python3 -I -c "$PY" "$@"; }
 
-# Makes the shared bare reference hold GITLINK and prints its path: it borrows the checkout's
-# submodule objects through alternates, and fetches GITLINK from URL only when they lack it.
+# Makes the shared bare reference hold GITLINK and prints its path. The reference is a
+# self-contained mirror (depot_tools git_cache.py): trees borrow from it and it borrows from no
+# checkout, because a checkout or its worktree can go away while the mirror still points at it.
+# A missing gitlink comes from the checkout's submodule store when it has it (a local fetch
+# copies every object the mirror lacks), else from URL.
 ensure_reference() {
   local repo=$1 gitlink=$2 url=$3
-  local ref="$ROOT/ref/$SUBMODULE.git" alternates lock_fd dir
+  local ref="$ROOT/ref/$SUBMODULE.git" lock_fd source=$url store
   mkdir -p "$ROOT/ref" "$ROOT/locks"
   exec {lock_fd}>"$ROOT/locks/ref.lock"
   flock "$lock_fd"
   [[ -d "$ref/objects" ]] || g init --quiet --bare "$ref"
-  alternates="$ref/objects/info/alternates"
-  mkdir -p "$ref/objects/info"
-  touch "$alternates"
-  # Append only: a running build may already borrow through an entry.
-  for dir in "$(git -C "$repo" rev-parse --path-format=absolute --git-common-dir)/modules/$SUBMODULE/objects" \
-             "$(git -C "$repo" rev-parse --path-format=absolute --git-dir)/modules/$SUBMODULE/objects"; do
-    if [[ -d "$dir" ]] && ! grep -qxF "$dir" "$alternates"; then
-      printf '%s\n' "$dir" >>"$alternates"
-    fi
-  done
+  if [[ -e "$ref/objects/info/alternates" ]]; then
+    # A mirror made before it was self-contained: copy in what it borrows, then stop borrowing.
+    { g --git-dir="$ref" repack --quiet -a -d && rm -f "$ref/objects/info/alternates"; } \
+      || die "$ref borrows objects that are gone; run: linux_run.sh clean --all"
+  fi
   if ! g --git-dir="$ref" cat-file -e "$gitlink^{commit}" 2>/dev/null; then
-    log "fetching $SUBMODULE $gitlink from $url into $ref"
-    g --git-dir="$ref" fetch --quiet --no-tags "$url" "$gitlink" || die "cannot fetch $SUBMODULE $gitlink from $url"
+    for store in "$(git -C "$repo" rev-parse --path-format=absolute --git-dir)/modules/$SUBMODULE" \
+                 "$(git -C "$repo" rev-parse --path-format=absolute --git-common-dir)/modules/$SUBMODULE"; do
+      if [[ -d "$store" ]] && git --git-dir="$store" cat-file -e "$gitlink^{commit}" 2>/dev/null; then
+        source=$store
+        break
+      fi
+    done
+    log "fetching $SUBMODULE $gitlink from $source into $ref"
+    g -c gc.auto=0 --git-dir="$ref" fetch --quiet --no-tags "$source" "$gitlink" \
+      || die "cannot fetch $SUBMODULE $gitlink from $source"
   fi
   # A ref makes the gitlink reachable, so a submodule clone from the reference carries it.
   g --git-dir="$ref" update-ref "refs/heads/oracle/$gitlink" "$gitlink"
@@ -289,12 +304,38 @@ stop_cargo() {
   kill -KILL -- "-$CARGO_PID" 2>/dev/null || true
 }
 
+# flock FLAGS FD in a child this shell waits for, so a TERM is handled while the lock is busy;
+# the child locks the shared open file, so the lock stays with this shell after the child exits.
+LOCK_PID=""
+take_lock() {
+  flock "$@" &
+  LOCK_PID=$!
+  wait "$LOCK_PID"
+  LOCK_PID=""
+}
+
+stop_lock_wait() {
+  [[ -z "$LOCK_PID" ]] || kill -TERM "$LOCK_PID" 2>/dev/null || true
+}
+
 # The EXIT trap of a build job: stops cargo, then removes the job's source tree (none in place).
 # A second signal (a process-group TERM plus the forwarded one) must not cut the cleanup short.
 end_job() {
   trap '' INT TERM
+  stop_lock_wait
   stop_cargo
   [[ -z "$JOB_TREE" ]] || rm -rf "$JOB_TREE"
+}
+
+# Ends the build job with BINARY on stdout when TARGET holds a valid build of KEY.
+exit_on_cache_hit() {
+  local target=$1 key=$2 binary=$3 sha=$4 ref=$5 receipt_copy=$6
+  py cache-hit "$target/build.json" "$BUILD_SCHEMA" "$key" "$binary" || return 0
+  log "cache hit for $sha: $binary"
+  touch "$target"
+  [[ -z "$receipt_copy" ]] || py mark-cached "$target/build.json" "$receipt_copy" "$ref"
+  printf '%s\n' "$binary"
+  exit 0
 }
 
 # Builds one SHA and prints the binary on stdout. Run it only as a background job: the job owns
@@ -309,7 +350,7 @@ build_job() {
   local t0 t1 t2 t3 t4 leaf_ms=""
   zig="$(zig_version)"
   pdir="$(profile_dir "$PROFILE")"
-  t0=$EPOCHREALTIME
+  t0="$(now)"
 
   if [[ "$mode" == tree ]]; then
     key="$(build_key "$sha" "$zig")"
@@ -317,25 +358,27 @@ build_job() {
     target="$ROOT/target/$key"
     ZIG_CACHE="$ROOT/cache/zig"
     mkdir -p "$ROOT/src" "$ROOT/target" "$ROOT/locks" "$ZIG_CACHE"
-    [[ "$KEEP_SRC" == 1 ]] || JOB_TREE="$src"
     trap end_job EXIT
     trap 'exit 143' TERM
-    exec {lock_fd}>"$ROOT/locks/$key.lock"
-    flock "$lock_fd"
     binary="$target/$pdir/cmux-tui"
-    if ((LEAF_REBUILD == 0)) && py cache-hit "$target/build.json" "$BUILD_SCHEMA" "$key" "$binary"; then
-      log "cache hit for $sha: $binary"
-      touch "$target"
-      [[ -z "$receipt_copy" ]] || py mark-cached "$target/build.json" "$receipt_copy" "$ref"
-      printf '%s\n' "$binary"
-      exit 0
+    exec {lock_fd}>"$ROOT/locks/$key.lock"
+    # A cache hit only reads, so it shares the key with diff runs that use the binary.
+    if ((LEAF_REBUILD == 0)); then
+      take_lock -s "$lock_fd"
+      exit_on_cache_hit "$target" "$key" "$binary" "$sha" "$ref" "$receipt_copy"
+      flock -u "$lock_fd"
     fi
+    take_lock "$lock_fd"
+    # Another job of this key may have built it while this one waited.
+    ((LEAF_REBUILD)) || exit_on_cache_hit "$target" "$key" "$binary" "$sha" "$ref" "$receipt_copy"
+    # Only the job that holds the key exclusively owns its tree, so only it may remove it.
+    [[ "$KEEP_SRC" == 1 ]] || JOB_TREE="$src"
     rm -f "$target/build.json"
     rm -rf "$src"
     log "cloning $sha into $src"
     g clone --quiet --shared --no-checkout "$repo" "$src"
     g -C "$src" checkout --quiet --detach "$sha"
-    t1=$EPOCHREALTIME
+    t1="$(now)"
 
     local gitlink url
     gitlink="$(g -C "$src" ls-tree "$sha" -- "$SUBMODULE" | awk '$2 == "commit" { print $3 }')"
@@ -355,7 +398,7 @@ build_job() {
     trap 'exit 143' TERM
     [[ -f "$src/$SUBMODULE/build.zig" ]] \
       || die "$SUBMODULE is not checked out in $src (git submodule update --init $SUBMODULE)"
-    t1=$EPOCHREALTIME
+    t1="$(now)"
     mkdir -p "$target"
     target="$(cd "$target" && pwd -P)"
     binary="$target/$pdir/cmux-tui"
@@ -371,7 +414,7 @@ build_job() {
     *) grep -q "^\[profile\.$PROFILE\]" "$src/cmux-tui/Cargo.toml" \
          || die "$sha has no [profile.$PROFILE] in cmux-tui/Cargo.toml (it predates p15-oracle-201)" ;;
   esac
-  t2=$EPOCHREALTIME
+  t2="$(now)"
 
   local state=cold log_file="$target/build.log" cargo_v rustc_v
   [[ -e "$binary" ]] && state=warm
@@ -380,12 +423,12 @@ build_job() {
   cargo_v="$(cd "$src/cmux-tui" && cargo -V)"
   rustc_v="$(cd "$src/cmux-tui" && rustc -V)"
   run_cargo "$src" "$target" "$jobs" "$log_file"
-  t3=$EPOCHREALTIME
+  t3="$(now)"
   log "$state build of $sha in $(ms_between "$t2" "$t3") ms"
   if ((LEAF_REBUILD)); then
     touch "$src/cmux-tui/crates/cmux-tui/src/main.rs"
     run_cargo "$src" "$target" "$jobs" "$log_file"
-    t4=$EPOCHREALTIME
+    t4="$(now)"
     leaf_ms="$(ms_between "$t3" "$t4")"
     log "leaf rebuild of $sha in $leaf_ms ms"
   fi
@@ -397,20 +440,33 @@ build_job() {
     checkedOut="$checked_out" reference="$reference" cargo="$cargo_v" rustc="$rustc_v" zig="$zig" \
     jobs="$jobs" target="$target" state="$state" log="$log_file" \
     cloneMs="$(ms_between "$t0" "$t1")" submoduleMs="$(ms_between "$t1" "$t2")" \
-    buildMs="$(ms_between "$t2" "$t3")" leafRebuildMs="$leaf_ms" totalMs="$(ms_between "$t0" "$EPOCHREALTIME")"
+    buildMs="$(ms_between "$t2" "$t3")" leafRebuildMs="$leaf_ms" totalMs="$(ms_between "$t0" "$(now)")"
   [[ -z "$receipt_copy" ]] || cp "$receipt" "$receipt_copy"
   log "receipt $receipt"
   printf '%s\n' "$binary"
   exit 0
 }
 
-# Signals to this script go to every build job as TERM; each job's EXIT trap then cleans up.
+# A signal to this script goes to every build job as TERM (each job's EXIT trap cleans up) and to
+# oracle.py's process group as itself, so oracle.py and its drivers stop in either phase.
 BUILD_PIDS=()
+ORACLE_PID=""
 forward_signal() {
+  local signal=$1 code=$2
   trap '' INT TERM
+  stop_lock_wait
   ((${#BUILD_PIDS[@]} == 0)) || kill -TERM "${BUILD_PIDS[@]}" 2>/dev/null || true
+  [[ -z "$ORACLE_PID" ]] || kill "-$signal" -- "-$ORACLE_PID" 2>/dev/null || true
   wait
-  exit "$1"
+  stop_oracle
+  exit "$code"
+}
+
+# Ends whatever oracle.py left in its process group (a driver or daemon it did not reap).
+stop_oracle() {
+  [[ -n "$ORACLE_PID" ]] || return 0
+  kill -KILL -- "-$ORACLE_PID" 2>/dev/null || true
+  ORACLE_PID=""
 }
 
 # Waits for every job in BUILD_PIDS; returns the highest exit status.
@@ -425,7 +481,7 @@ await_builds() {
   return "$worst"
 }
 
-# Removes DIR when no build holds the lock of its key.
+# Removes DIR when no build or run holds the lock of its key.
 remove_unlocked() {
   local dir=$1 lock_fd
   mkdir -p "$ROOT/locks"
@@ -439,14 +495,36 @@ remove_unlocked() {
   exec {lock_fd}>&-
 }
 
-# Removes target dirs unused for TARGET_TTL_MIN minutes (a build or a cache hit touches its dir).
-# Age, not a count: a binary another run handed out minutes ago is never removed under it.
-prune_targets() {
-  [[ -d "$ROOT/target" ]] || return 0
-  local dir
-  while IFS= read -r -d '' dir; do
-    remove_unlocked "$dir"
-  done < <(find "$ROOT/target" -mindepth 1 -maxdepth 1 -type d -mmin "+$TARGET_TTL_MIN" -print0)
+# Removes target dirs unused for TARGET_TTL_MIN minutes (a build or a cache hit touches its dir),
+# and source trees as old: a live build holds its tree's lock, so an unlocked one was left by a
+# job that died without its EXIT trap or kept by --keep-src. Age, not a count: a binary another
+# run handed out minutes ago is never removed under it.
+prune() {
+  local parent dir
+  for parent in "$ROOT/target" "$ROOT/src"; do
+    [[ -d "$parent" ]] || continue
+    while IFS= read -r -d '' dir; do
+      remove_unlocked "$dir"
+    done < <(find "$parent" -mindepth 1 -maxdepth 1 -type d -mmin "+$TARGET_TTL_MIN" -print0)
+  done
+}
+
+# Opens the lock of the build in TARGET shared and keeps it until this script exits, so no
+# clean removes the binary while oracle.py runs it; then checks the binary is still the build's.
+hold_build() {
+  local target=$1 binary=$2 key lock_fd
+  key="$(basename "$target")"
+  exec {lock_fd}>"$ROOT/locks/$key.lock"
+  take_lock -s "$lock_fd"
+  HELD_FDS+=("$lock_fd")
+  py cache-hit "$target/build.json" "$BUILD_SCHEMA" "$key" "$binary" \
+    || { log "$target was removed or rebuilt after its build (a clean ran); run again"; exit 1; }
+}
+HELD_FDS=()
+release_builds() {
+  local fd
+  for fd in "${HELD_FDS[@]}"; do exec {fd}>&-; done
+  HELD_FDS=()
 }
 
 parse_options() {
@@ -495,7 +573,7 @@ cmd_build() {
   BUILD_PIDS=($!)
   local status=0
   await_builds || status=$?
-  [[ "$mode" != tree ]] || prune_targets
+  [[ "$mode" != tree ]] || prune
   return "$status"
 }
 
@@ -513,10 +591,12 @@ cmd_diff() {
   case "$out" in /*) ;; *) out="$PWD/$out" ;; esac
   case "$out/" in "$repo"/*) die "--out $out: run output stays outside the checkout" ;; esac
   mkdir -p "$out"
+  # Nothing from an earlier run in the same --out may reach this run's receipt.
+  rm -f "$out/linux-run.json" "$out/comparison.json" "$out"/build-{base,head}.{json,path}
 
   local t0 t1 t2 side sha ref jobs status=0
   local -a sides=(base head)
-  t0=$EPOCHREALTIME
+  t0="$(now)"
   if [[ "$(build_key "$base_sha" "$zig")" == "$(build_key "$head_sha" "$zig")" ]]; then
     log "base and head are one build ($base_sha)"
     sides=(base)
@@ -526,14 +606,13 @@ cmd_diff() {
   fi
   for side in "${sides[@]}"; do
     if [[ "$side" == base ]]; then sha=$base_sha ref=$base_ref; else sha=$head_sha ref=$head_ref; fi
-    rm -f "$out/build-$side.json"
     build_job tree "$repo" "$ref" "$sha" "$jobs" "$out/build-$side.json" "" \
       >"$out/build-$side.path" 2>"$out/build-$side.log" &
     BUILD_PIDS+=($!)
     log "building $side $sha (log: $out/build-$side.log)"
   done
   await_builds || status=$?
-  prune_targets
+  prune
   if ((status)); then
     for side in "${sides[@]}"; do
       [[ -s "$out/build-$side.json" ]] || { tail -n 40 "$out/build-$side.log" >&2; log "$side build failed"; }
@@ -547,21 +626,31 @@ cmd_diff() {
   local base_bin head_bin
   base_bin="$(tail -n 1 "$out/build-base.path")"
   head_bin="$(tail -n 1 "$out/build-head.path")"
-  t1=$EPOCHREALTIME
+  hold_build "$(dirname "$(dirname "$base_bin")")" "$base_bin"
+  [[ "$head_bin" == "$base_bin" ]] || hold_build "$(dirname "$(dirname "$head_bin")")" "$head_bin"
+  t1="$(now)"
 
-  # oracle.py stays in the foreground, so a Ctrl-C reaches it and its drivers tear down.
+  # oracle.py leads its own process group, as cargo does, so forward_signal reaches it and its
+  # drivers in this phase too; it does not inherit the held lock fds.
   local -a oracle_argv=(python3 -I "$HERE/oracle.py" diff --base "$base_sha" --head "$head_sha"
     --base-binary "$base_bin" --head-binary "$head_bin" --out "$out" "${PASSTHROUGH[@]}")
   log "${oracle_argv[*]}"
-  "${oracle_argv[@]}" || status=$?
-  t2=$EPOCHREALTIME
+  (
+    release_builds
+    exec setsid -w "${oracle_argv[@]}"
+  ) &
+  ORACLE_PID=$!
+  wait "$ORACLE_PID" || status=$?
+  stop_oracle
+  t2="$(now)"
 
   py run-receipt "$out/linux-run.json" schema="$RUN_SCHEMA" \
     baseReceipt="$out/build-base.json" headReceipt="$out/build-head.json" \
     baseRef="$base_ref" headRef="$head_ref" argv="$(py argv-json "${oracle_argv[@]}")" exit="$status" \
     comparison="$out/comparison.json" buildMs="$(ms_between "$t0" "$t1")" \
-    oracleMs="$(ms_between "$t1" "$t2")" totalMs="$(ms_between "$t0" "$EPOCHREALTIME")"
-  log "receipt $out/linux-run.json (oracle exit $status, $(ms_between "$t0" "$EPOCHREALTIME") ms)"
+    oracleMs="$(ms_between "$t1" "$t2")" totalMs="$(ms_between "$t0" "$(now)")"
+  log "receipt $out/linux-run.json (oracle exit $status, $(ms_between "$t0" "$(now)") ms)"
+  release_builds
   if ((CLEAN)); then
     remove_unlocked "$(dirname "$(dirname "$base_bin")")"
     [[ "$head_bin" == "$base_bin" ]] || remove_unlocked "$(dirname "$(dirname "$head_bin")")"
@@ -602,8 +691,8 @@ main() {
   (($#)) || usage
   [[ "$(uname -s)" == Linux ]] || die "the oracle daemon build runs on Linux only"
   check_root
-  trap 'forward_signal 130' INT
-  trap 'forward_signal 143' TERM
+  trap 'forward_signal INT 130' INT
+  trap 'forward_signal TERM 143' TERM
   local command=$1
   shift
   case "$command" in
