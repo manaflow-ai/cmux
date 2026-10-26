@@ -25,10 +25,16 @@ final class LaunchSettle {
     /// The launch load-in: the pane region comes in on the first terminal
     /// frame, and everything shows if the daemon is unavailable.
     private let reveal: LaunchReveal
+    /// The restore's and the visible panes' startup refs (p08-startup task 013); nil until the root makes a scheduler.
+    let paneRefs: VisiblePaneRefs?
+    private var sawTerminalContent = false
 
-    /// - Parameter reveal: The app's launch load-in (`AppServices.launchReveal`).
-    init(reveal: LaunchReveal) {
+    /// - Parameters:
+    ///   - reveal: The app's launch load-in (`AppServices.launchReveal`).
+    ///   - paneRefs: The startup refs a terminal's content and an unavailable daemon release.
+    init(reveal: LaunchReveal, paneRefs: VisiblePaneRefs? = nil) {
         self.reveal = reveal
+        self.paneRefs = paneRefs
     }
 
     /// Runs `work` once the launch settled and no agent page waits behind
@@ -68,18 +74,8 @@ final class LaunchSettle {
     /// daemon becoming unavailable.
     func install(daemon: DaemonService) {
         reveal.whenReady(.pane) { [weak self] in self?.settle() }
-        TerminalTimings.onContentApplied = { [weak self] in
-            TerminalTimings.onContentApplied = nil
-            DebugTimings.markLaunch("first_terminal_content_applied")
-            // Ghostty presents on its own layer in this commit.
-            CATransaction.setCompletionBlock {
-                MainActor.assumeIsolated { // main-proof: CATransaction.h: the completion block is called on the main thread
-                    DebugTimings.markLaunch("first_terminal_frame")
-                    self?.reveal.markReady(.pane)
-                    self?.settle()
-                }
-            }
-        }
+        TerminalTimings.onContentApplied = { [weak self] in self?.terminalContentApplied() }
+        paneRefs?.watchUnavailable { daemon.startup.isUnavailable }
         // task-owner: ends when the daemon is unavailable or the launch settled (cancelled in settle)
         unavailableWatch = Task { [weak self] in
             for await unavailable in ObservationStream({ daemon.startup.isUnavailable }) where unavailable {
@@ -87,6 +83,24 @@ final class LaunchSettle {
                 self?.reveal.markAllReady()
                 self?.settle()
                 return
+            }
+        }
+    }
+
+    /// A terminal was handed content: a content signal for the visible pane refs while they hold
+    /// startup; the first one also settles the launch once the frame showing it is committed.
+    private func terminalContentApplied() {
+        paneRefs?.noteChange()
+        if paneRefs?.isHolding != true { TerminalTimings.onContentApplied = nil }
+        guard !sawTerminalContent else { return }
+        sawTerminalContent = true
+        DebugTimings.markLaunch("first_terminal_content_applied")
+        // Ghostty presents on its own layer in this commit.
+        CATransaction.setCompletionBlock { [weak self] in
+            MainActor.assumeIsolated { // main-proof: CATransaction.h: the completion block is called on the main thread
+                DebugTimings.markLaunch("first_terminal_frame")
+                self?.reveal.markReady(.pane)
+                self?.settle()
             }
         }
     }

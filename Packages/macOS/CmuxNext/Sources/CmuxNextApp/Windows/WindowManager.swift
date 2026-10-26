@@ -88,6 +88,8 @@ final class WindowManager {
     /// Runs once, when the launch's session restore finished (the saved windows are back, the
     /// launch window adopted or closed): the startup phase's restore reference.
     var onRestored: (() -> Void)?
+    /// The restore's and the visible panes' startup refs, released at the end of the restore (p08-startup task 013).
+    var launchPaneRefs: VisiblePaneRefs?
     /// A window installed workspace content (links opened at launch wait for it).
     var onContentDidAppear: ((WindowController) -> Void)?
     /// One-shot work for a workspace a reveal is still mounting, by window
@@ -256,10 +258,31 @@ final class WindowManager {
         let restoredHook = onRestored
         onRestored = nil
         restoredHook?()
+        finishLaunchRestore()
         // Classic cmux's session comes over once, after restore so the restored
         // registry never overwrites where its workspaces land.
         let onboarding = AppOnboardingServices(owner: services.onboarding)
         Task { await onboarding.migrateClassicAtLaunch(firstWorkspace: firstWorkspace) }
+    }
+
+    /// The end of the launch restore: its startup ref ends, and each visible pane holds startup until
+    /// its content shows (`VisiblePaneRefs`, p08-startup task 013).
+    private func finishLaunchRestore() {
+        guard let refs = launchPaneRefs else { return }
+        services.cache.presentationChanges.subscribe("visible-pane-refs") { [weak refs] in refs?.noteChange() }
+        refs.restoreFinished(showsWindow: controllers.contains { $0.window?.isVisible == true }) { [weak self] in self?.launchVisiblePanes() ?? [] }
+    }
+
+    /// The mounted, not hidden panes of each visible window's shown workspace; a window whose panes
+    /// are not mounted yet stands in as one pane, so the restore never ends with no visible pane.
+    func launchVisiblePanes() -> [VisiblePaneRefs.Pane] {
+        _ = (services.paneMounts.generation, services.cache.pageInstalls.revision)
+        return controllers.filter { $0.window?.isVisible == true }.flatMap { controller -> [VisiblePaneRefs.Pane] in
+            guard let content = controller.content, !content.isParked else { return [] }
+            let mounted = content.panes.values.filter { $0.view.window == nil || !$0.view.isHiddenOrHasHiddenAncestor }
+            if mounted.isEmpty, !content.handles.panes.isEmpty { return [VisiblePaneRefs.Pane(key: "window:\(controller.state.id)", state: .loading)] }
+            return mounted.map { VisiblePaneRefs.Pane(key: $0.paneKey, state: $0.launchState) }
+        }
     }
 
     /// The front window's visible page, for the startup phase's visible-page reference
@@ -273,8 +296,7 @@ final class WindowManager {
         guard let key = controller.focus.state.pane, let pane = content.paneController(key: key) else { return .waiting }
         let selected = pane.stripModel.selectedID
         switch pane.currentContent {
-        case .browser(let entry)?:
-            return StartupReferences.VisiblePage(page: entry.tab.state, loadsNothing: entry.tab is DeferredBrowserTab || entry.tab is HibernatedBrowserTab)
+        case .browser(let entry)?: return StartupReferences.VisiblePage(entry)
         case nil: return selected == nil ? .idle : .waiting
         case _?: return .idle
         }
@@ -434,13 +456,5 @@ final class WindowManager {
                 return WindowRegistry.Changes()
             }
         }
-    }
-}
-
-extension StartupReferences.VisiblePage {
-    /// A shown page: idle once a load ended in it (finished, stopped or failed) or its process
-    /// ended, or when it is a stand-in that loads nothing until the person starts it.
-    init(page state: BrowserTabState, loadsNothing: Bool) {
-        self = loadsNothing || state.hasEndedLoad || state.processExit != nil ? .idle : .waiting
     }
 }

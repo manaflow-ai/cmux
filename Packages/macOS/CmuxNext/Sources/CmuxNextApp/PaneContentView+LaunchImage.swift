@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextBrowser
 import CmuxNextLaunch
 
 extension LaunchImageHold {
@@ -39,5 +40,34 @@ extension PaneContentView {
         let cleared = onLaunchImageCleared
         onLaunchImageCleared = nil
         cleared?()
+    }
+}
+
+extension PaneController {
+    /// The startup pane ref's content signal (`VisiblePaneRefs`): a terminal's first content, a page's
+    /// first load ended, an agent page's first paint (task 105 makes each loaded-idle).
+    var launchState: VisiblePaneRefs.PaneState {
+        guard stripModel.selectedID != nil else { return .loadedIdle }
+        let loaded: Bool = switch currentContent {
+        case nil: false
+        case .terminal(let entry)?: !showsLiveTerminal || entry.session.diagnostics.hasContent
+        case .browser(let entry)?: StartupReferences.VisiblePage(entry) == .idle
+        case .agent(let view)?: view.model.hasPainted
+        case .page?, .placeholder?, .notice?, .conversation?: true
+        }
+        return loaded ? .loadedIdle : .loading
+    }
+}
+
+extension StartupReferences.VisiblePage {
+    /// A shown page: idle once a load ended in it (finished, stopped or failed) or its process
+    /// ended, or when it is a stand-in that loads nothing until the person starts it.
+    init(page state: BrowserTabState, loadsNothing: Bool) {
+        self = loadsNothing || state.hasEndedLoad || state.processExit != nil ? .idle : .waiting
+    }
+
+    /// A shown browser tab's page.
+    init(_ entry: BrowserEntry) {
+        self.init(page: entry.tab.state, loadsNothing: entry.tab is DeferredBrowserTab || entry.tab is HibernatedBrowserTab)
     }
 }

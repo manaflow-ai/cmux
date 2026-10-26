@@ -62,6 +62,9 @@ public final class StartupInProgressRef {
         /// The launch's ``StartupPhase`` settled by its references (first snapshot, restore done,
         /// visible page idle).
         case launchPhaseSettled
+        /// The session restore ended with each visible pane holding its own ref (`VisiblePaneRefs`), so
+        /// it is never the last release.
+        case restoreFinished
 
         public var description: String { rawValue }
     }
