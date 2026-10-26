@@ -74,8 +74,9 @@ import Testing
         #expect(LayoutTunables.motionRenderServer.defaultValue == false)
         #expect(LayoutTunables.motionRenderServer.key == "motion.renderServer")
         #expect(LayoutTunables.all.contains { $0.key == "motion.renderServer" })
-        #expect(ScreenContentView.renderServerMotions.isEmpty && LayoutRootView.renderServerMotions.isEmpty,
-                "a kind registers in the task that moves it, behind the switch")
+        // A kind registers in the task that moves it, behind the switch: the split (p03-rendering-022a).
+        #expect(ScreenContentView.renderServerMotions.map(\.kind) == [.splitClose])
+        #expect(LayoutRootView.renderServerMotions.isEmpty)
     }
 
     @Test func offACloseCallsNoVariantAndMovesExactlyAsBefore() {
