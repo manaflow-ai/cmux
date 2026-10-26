@@ -47,6 +47,30 @@ _pause = time.sleep  # the pause between writes, kept apart from the rate-limit 
 _rate_limit_lock = threading.Lock()
 _rate_limit_deadline: float | None = None
 _secondary_waits = 0
+# One job waits at most GH_BUDGET_WAIT_MAX_SECONDS (an hour) for rate limits in all: the
+# publisher and scripts/ci/gh_budget_wait.sh share this ledger of seconds already waited,
+# so the steps of one job never add up to more than the job's timeout leaves room for.
+_LEDGER = Path(os.environ.get("RUNNER_TEMP") or tempfile.gettempdir()) / "gh-budget-wait" / "waited"
+
+
+def _job_wait_left() -> float:
+    try:
+        spent = float(_LEDGER.read_text().strip() or 0)
+    except (OSError, ValueError):
+        spent = 0.0
+    return float(os.environ.get("GH_BUDGET_WAIT_MAX_SECONDS") or 3600) - spent
+
+
+def _record_job_wait(seconds: float) -> None:
+    try:
+        _LEDGER.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            spent = float(_LEDGER.read_text().strip() or 0)
+        except (OSError, ValueError):
+            spent = 0.0
+        _LEDGER.write_text(str(int(spent + seconds)))
+    except OSError:
+        pass
 _write_lock = threading.Lock()
 _last_write: float | None = None
 
@@ -115,7 +139,7 @@ def backoff(attempt: int, error: RequestError | None = None) -> None:
         now = time.monotonic()
         if _rate_limit_deadline is None:
             _rate_limit_deadline = now + RATE_LIMIT_BUDGET_SECONDS
-        left = _rate_limit_deadline - now
+        left = min(_rate_limit_deadline - now, _job_wait_left())
         if error.wait is None:
             wanted = min(SECONDARY_FIRST_WAIT_SECONDS * 2 ** _secondary_waits, SECONDARY_MAX_WAIT_SECONDS)
             _secondary_waits += 1
@@ -126,6 +150,7 @@ def backoff(attempt: int, error: RequestError | None = None) -> None:
     wait = min(max(wanted, 1.0), left)
     print(f"GitHub rate limit ({error}); waiting {wait:.0f} s", file=sys.stderr, flush=True)
     _sleep(wait)
+    _record_job_wait(wait)
 
 
 @dataclass(frozen=True)

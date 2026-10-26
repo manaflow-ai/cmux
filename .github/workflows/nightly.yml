@@ -5533,6 +5533,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           # A refused upload backs off within 30 minutes (publish-release-assets.py), not 10:
           # run 40298250989's built nightly was lost to 10 minutes of refusals (2026-10-26).
+          # Every wait in this job (notes, assets, archive, gh) shares one hour
+          # (GH_BUDGET_WAIT_MAX_SECONDS), so the job's 120 minutes keep 60 for the work.
           CMUX_RELEASE_RATE_LIMIT_SECONDS: "1800"
         run: |
           set -euo pipefail
@@ -5586,6 +5588,7 @@ jobs:
         if: needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.track == 'nightly-next' && vars.CMUX_NEXT_PUBLISH_SOURCE_ARCHIVE == '1' && steps.recheck.outputs.already_published != 'true' && steps.gate.outputs.refused != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
+          CMUX_RELEASE_RATE_LIMIT_SECONDS: "1800"
           HEAD_SHA: ${{ steps.source.outputs.build_sha }}
         run: |
           set -euo pipefail
@@ -7307,6 +7310,7 @@ jobs:
           sparse-checkout: |
             scripts/ci/nightly_next_ring.py
             scripts/ci/nightly-next-guard.py
+            scripts/ci/publish-release-assets.py
           sparse-checkout-cone-mode: false
 
       - name: Download delta results
@@ -7375,7 +7379,11 @@ jobs:
             feeds+=(--feed "$feed")
           done
           [ "${#feeds[@]}" -gt 0 ]
-          python3 scripts/ci/publish-release-assets.py \
+          # The workflow commit's publisher (its rate-limit backoff and serial uploads) when the
+          # tooling checkout has it; the build's own otherwise (the main track has no tooling checkout).
+          publisher=.publish-tooling/scripts/ci/publish-release-assets.py
+          [ -f "$publisher" ] || publisher=scripts/ci/publish-release-assets.py
+          python3 "$publisher" \
             --repo "$GITHUB_REPOSITORY" --tag "$CHANNEL_RELEASE_TAG" \
             "${deltas[@]}" --replace-feeds "${feeds[@]}"
           echo "publish=true" >> "$GITHUB_OUTPUT"

@@ -21,6 +21,9 @@ spec = importlib.util.spec_from_file_location("publisher", ROOT / "scripts/ci/pu
 publisher = importlib.util.module_from_spec(spec)
 sys.modules[spec.name] = publisher
 spec.loader.exec_module(publisher)
+# The tests' faked waits go to a ledger of their own, never a real job's.
+_LEDGER_DIR = tempfile.TemporaryDirectory()
+publisher._LEDGER = Path(_LEDGER_DIR.name) / "waited"
 
 
 def remote(asset, asset_id=1):
@@ -456,6 +459,19 @@ class TransportTests(unittest.TestCase):
         self.assertIn("x-github-request-id=E60C:1", text)
         self.assertIn("/rate_limit at the refusal: ", text)
         self.assertNotIn("fake-test-token", text)
+
+    def test_a_job_s_waits_share_one_ledger_with_gh_budget_wait(self):
+        # Every rate-limit wait of a job (this publisher, gh_budget_wait.sh) adds to one ledger and
+        # stops at GH_BUDGET_WAIT_MAX_SECONDS, so a job's steps never wait past its timeout together.
+        ledger = self.root / "ledger" / "waited"
+        ledger.parent.mkdir()
+        ledger.write_text("3590")
+        refused = (403, {}, {"message": "API rate limit exceeded"})
+        with patch.object(publisher, "_LEDGER", ledger), patch.dict(os.environ, {"GH_BUDGET_WAIT_MAX_SECONDS": "3600"}), \
+                patch.object(publisher, "RATE_LIMIT_BUDGET_SECONDS", 1800):
+            with self.assertRaisesRegex(RuntimeError, "did not reset within"):
+                self.rate_limited_publish(refused, refused)
+        self.assertEqual(int(ledger.read_text()), 3600)
 
     def test_the_budget_comes_from_the_environment(self):
         script = Path(publisher.__file__)
