@@ -7,13 +7,15 @@ extension LineTransport {
         Result { () throws(BadMessage) -> FrameReader.Message? in try reader.next() }
     }
 
-    /// Routes one line by its fields, on the reader thread. ``LineRouteScan`` reads them from the bytes, so
-    /// a reply or an event is parsed once, by its reader. Only a line the scan cannot read is decoded as an
-    /// ``Envelope`` here, and a reply that is not `ok:true`, once, for its error fields.
-    func route(_ line: Data, decoder: WireDecoder, onEvent: CausedEventHandler) {
+    /// Routes one line by its fields, on the reader thread. ``LineRouteScan`` reads them from the reader's
+    /// bytes, so a reply or an event is parsed once, by its reader. Only a line the scan cannot read is decoded
+    /// as an ``Envelope`` here, and a reply that is not `ok:true`, once, for its error fields.
+    func route<Line: RandomAccessCollection<UInt8>>(_ bytes: Line, decoder: WireDecoder, onEvent: CausedEventHandler)
+    where Line.Index == Int {
+        let line = Data(bytes)
         let envelope: Envelope
         var decoded = false
-        if let scanned = LineRouteScan(line) {
+        if let scanned = LineRouteScan(bytes) {
             envelope = scanned.envelope
         } else if let full = try? decoder.decode(Envelope.self, from: line) {
             envelope = full

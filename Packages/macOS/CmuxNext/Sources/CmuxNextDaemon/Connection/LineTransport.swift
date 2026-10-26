@@ -115,7 +115,7 @@ final class LineTransport: Sendable {
 
     /// The socket's SO_SNDBUF and SO_RCVBUF as the kernel reports them; nil once it closed.
     var socketBuffers: (send: Int, receive: Int)? {
-        socket.withLock { $0.fd >= 0 ? Self.bufferSizes($0.fd) : nil }
+        socket.withLock { socket -> (send: Int, receive: Int)? in socket.fd >= 0 ? Self.bufferSizes(socket.fd) : nil }
     }
 
     private static func connect(_ path: String) throws(DaemonError) -> Int32 {
@@ -365,7 +365,7 @@ final class LineTransport: Sendable {
                 // An empty line carries nothing; a frame cannot come before frames are negotiated.
                 if case .json(let bytes) = message, !bytes.isEmpty {
                     outputStream?.outputCopied(2 * bytes.count)  // out of the reader as the line, then into its Data
-                    handle(Data(bytes), decoder: decoder, onEvent: onEvent)
+                    handle(bytes, decoder: decoder, onEvent: onEvent)
                 }
                 next = Self.nextMessage(&reader)
             }
@@ -393,8 +393,9 @@ final class LineTransport: Sendable {
 
     /// Routes one line inside a hang scope of ``lineHangDeadline`` (Chrome watches each IO-thread task
     /// the same way, base/threading/hang_watcher.cc).
-    private func handle(_ line: Data, decoder: WireDecoder, onEvent: CausedEventHandler) {
-        guard let hangWatched else { return route(line, decoder: decoder, onEvent: onEvent) }
-        hangWatched.run { route(line, decoder: decoder, onEvent: onEvent) }
+    private func handle<Line: RandomAccessCollection<UInt8>>(_ bytes: Line, decoder: WireDecoder, onEvent: CausedEventHandler)
+    where Line.Index == Int {
+        guard let hangWatched else { return route(bytes, decoder: decoder, onEvent: onEvent) }
+        hangWatched.run { route(bytes, decoder: decoder, onEvent: onEvent) }
     }
 }
