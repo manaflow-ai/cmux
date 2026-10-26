@@ -65,7 +65,20 @@ import Testing
         #expect(!services.linkOpener.open(from: pane) { _, _ in false })
     }
 
+
+    /// A scratch editor page root: the test lane has no built web bundles, and without a root the
+    /// editor tab makes no page and so no provider (the built page wins when bundled).
+    static let editorPageRoot: URL? = {
+        let directory = FileManager.default.temporaryDirectory.appending(path: "editor-page-\(UUID().uuidString)")
+        guard (try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)) != nil,
+              (try? Data("<html><body></body></html>".utf8).write(to: directory.appending(path: "index.html"))) != nil
+        else { return nil }
+        return directory
+    }()
+
     @Test func aReplyLineReachesTheEditorConfigAndASecondOpenReusesTheTab() async throws {
+        let root = try #require(Self.editorPageRoot, "no scratch page root")
+        PageID.registerBundledRoot(root, for: FilePageKind.editor.descriptor.id)
         let (services, pane) = try Self.pane()
         defer { pane.teardown() }
         services.linkOpener.placement = { .samePane }
