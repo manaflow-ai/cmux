@@ -238,6 +238,12 @@ pub(crate) const SSH_PROGRAM_ENV: &str = "CMUX_VM_SSH";
 /// session before it is killed.
 const SSH_EXIT_GRACE: std::time::Duration = std::time::Duration::from_secs(2);
 
+/// How long the revoke at the end of `ssh` may take. Once ssh ran, SIGINT and
+/// SIGTERM no longer end this process by default, so the revoke must not wait
+/// for the full API timeout; past this bound the exact revoke command is
+/// printed instead.
+pub(crate) const REVOKE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
+
 pub(crate) async fn ssh(
     client: &Client,
     args: SshArgs,
@@ -271,7 +277,16 @@ pub(crate) async fn ssh(
     // an error, a signal, or (best effort) an unwinding panic.
     let mut guard = SessionGuard::new(client, id.as_str(), &session_id, args.keep_session);
     let result = connect(&session, &args, ssh_program, &mut guard).await;
-    if !guard.revoke().await {
+    // A second SIGINT, SIGTERM or SIGHUP while the final revoke runs abandons
+    // it at once (it is bounded by REVOKE_TIMEOUT either way).
+    let revoked = tokio::select! {
+        revoked = guard.revoke() => revoked,
+        () = interrupted() => {
+            guard.abandon();
+            false
+        }
+    };
+    if !revoked {
         error::report_warning(
             &format!(
                 "could not revoke client session {session_id}; run `cmux-vm session revoke {} {session_id} --yes`",
@@ -352,6 +367,30 @@ async fn connect(
                 format!("cmux-vm ssh was ended by signal {signal}; {outcome}"),
             ))
         }
+    }
+}
+
+/// Resolves on the next SIGINT, SIGTERM or SIGHUP (never when listening fails).
+async fn interrupted() {
+    #[cfg(unix)]
+    {
+        use tokio::signal::unix::{SignalKind, signal};
+        let (Ok(mut interrupt), Ok(mut terminate), Ok(mut hangup)) = (
+            signal(SignalKind::interrupt()),
+            signal(SignalKind::terminate()),
+            signal(SignalKind::hangup()),
+        ) else {
+            return std::future::pending().await;
+        };
+        tokio::select! {
+            _ = interrupt.recv() => {}
+            _ = terminate.recv() => {}
+            _ = hangup.recv() => {}
+        }
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = tokio::signal::ctrl_c().await;
     }
 }
 
@@ -441,6 +480,8 @@ pub(crate) struct SessionGuard<'a> {
     /// `Some(true)` once revoked or kept (`--keep-session`), `Some(false)`
     /// once a revoke failed; `None` while the session is live.
     outcome: Option<bool>,
+    /// The bound on one revoke request.
+    timeout: std::time::Duration,
 }
 
 impl<'a> SessionGuard<'a> {
@@ -450,24 +491,39 @@ impl<'a> SessionGuard<'a> {
             vm_id: vm_id.to_owned(),
             session_id: session_id.to_owned(),
             outcome: keep.then_some(true),
+            timeout: REVOKE_TIMEOUT,
         }
     }
 
+    /// The same guard with another bound on the revoke request.
+    #[cfg(test)]
+    pub(crate) fn with_timeout(mut self, timeout: std::time::Duration) -> Self {
+        self.timeout = timeout;
+        self
+    }
+
     /// Revokes the session once; later calls repeat the first answer. False
-    /// when the revoke failed.
+    /// when the revoke failed or took longer than the guard's timeout.
     pub(crate) async fn revoke(&mut self) -> bool {
         if let Some(outcome) = self.outcome {
             return outcome;
         }
-        let outcome = call(self.client.agents_revoke_client_session(
+        let request = call(self.client.agents_revoke_client_session(
             &self.vm_id,
             &self.session_id,
             None,
-        ))
-        .await
-        .is_ok();
+        ));
+        let outcome = matches!(tokio::time::timeout(self.timeout, request).await, Ok(Ok(_)));
         self.outcome = Some(outcome);
         outcome
+    }
+
+    /// Gives up on revoking (the caller prints the revoke command), so `Drop`
+    /// does not try again.
+    pub(crate) fn abandon(&mut self) {
+        if self.outcome.is_none() {
+            self.outcome = Some(false);
+        }
     }
 }
 
@@ -482,7 +538,10 @@ impl Drop for SessionGuard<'_> {
             .agents_revoke_client_session(&self.vm_id, &self.session_id, None);
         let revoked = match tokio::runtime::Handle::try_current() {
             Ok(handle) if handle.runtime_flavor() == tokio::runtime::RuntimeFlavor::MultiThread => {
-                tokio::task::block_in_place(|| handle.block_on(revoke).is_ok())
+                let timeout = self.timeout;
+                tokio::task::block_in_place(|| {
+                    handle.block_on(async { matches!(tokio::time::timeout(timeout, revoke).await, Ok(Ok(_))) })
+                })
             }
             _ => false,
         };
@@ -798,6 +857,45 @@ impl Printer<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    const GUARD_VM: &str = "vm_0123456789abcdefghjkmnpqrs";
+    const GUARD_SESSION: &str = "vcs_0123456789abcdefghjkmnpqrs";
+
+    async fn revoke_server(delay: std::time::Duration) -> wiremock::MockServer {
+        use wiremock::matchers::{method, path};
+        let server = wiremock::MockServer::start().await;
+        wiremock::Mock::given(method("DELETE"))
+            .and(path(format!("/v1/vms/{GUARD_VM}/client-sessions/{GUARD_SESSION}")))
+            .respond_with(wiremock::ResponseTemplate::new(204).set_delay(delay))
+            .mount(&server)
+            .await;
+        server
+    }
+
+    #[tokio::test]
+    async fn a_slow_revoke_gives_up_at_the_guard_timeout_and_is_not_retried() {
+        let server = revoke_server(std::time::Duration::from_secs(30)).await;
+        let client = cmux_vm_client::authenticated_raw_client(&server.uri(), "cmuxvm_sk_test", None, "test").unwrap();
+        let mut guard = SessionGuard::new(&client, GUARD_VM, GUARD_SESSION, false)
+            .with_timeout(std::time::Duration::from_millis(200));
+        let started = std::time::Instant::now();
+        assert!(!guard.revoke().await);
+        assert!(started.elapsed() < std::time::Duration::from_secs(5), "{:?}", started.elapsed());
+        // The answer is remembered: a second call (or Drop) sends nothing more.
+        assert!(!guard.revoke().await);
+        assert_eq!(server.received_requests().await.unwrap().len(), 1);
+        drop(guard);
+        assert_eq!(server.received_requests().await.unwrap().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn a_prompt_revoke_within_the_timeout_succeeds() {
+        let server = revoke_server(std::time::Duration::ZERO).await;
+        let client = cmux_vm_client::authenticated_raw_client(&server.uri(), "cmuxvm_sk_test", None, "test").unwrap();
+        let mut guard = SessionGuard::new(&client, GUARD_VM, GUARD_SESSION, false);
+        assert_eq!(guard.timeout, REVOKE_TIMEOUT);
+        assert!(guard.revoke().await);
+    }
 
     #[test]
     fn ids_need_their_prefix_and_a_plain_suffix() {

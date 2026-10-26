@@ -220,7 +220,7 @@ export class DomainsGroupDefinition extends HttpApiGroup.make("domains")
   .add(HttpApiEndpoint.post("createDomainVerification", "/v1/domain-verifications")
     .setHeaders(GroupTeamHeaders).setPayload(CreateDomainVerificationRequest).addSuccess(DomainVerification, { status: 201 })
     .addError(BadRequest).addError(Forbidden).addError(Conflict).addError(QuotaExceeded).addError(ServiceUnavailable)
-    .annotateContext(describe("Start proving you control a domain", "domain:write", `Reserves the domain for your team while the challenge is pending (another team's request is 409; an unverified reservation lapses 7 days after your team's first request, and another request does not extend it). Names under the managed zone cannot be verified. ${CONFINED}`)))
+    .annotateContext(describe("Start proving you control a domain", "domain:write", `Reserves the domain for your team while the challenge is pending (another team's request is 409). An unverified reservation lapses 7 days after your team's first request: another request, or withdrawing every challenge and starting again, does not extend it. After it lapses any other team may reserve it at once, while your team gets 409 for another 7 days. Names under the managed zone cannot be verified. ${CONFINED}`)))
   .add(HttpApiEndpoint.get("listDomainVerifications", "/v1/domain-verifications")
     .setHeaders(GroupTeamHeaders).setUrlParams(ListDomainVerificationsParams).addSuccess(DomainVerificationList)
     .addError(Forbidden).addError(QuotaExceeded).addError(ServiceUnavailable)
@@ -236,7 +236,7 @@ export class DomainsGroupDefinition extends HttpApiGroup.make("domains")
   .add(HttpApiEndpoint.del("deleteDomainVerification", "/v1/domain-verifications/:verificationId")
     .setHeaders(GroupTeamHeaders).setPath(VerificationPath).addSuccess(HttpApiSchema.NoContent)
     .addError(Forbidden).addError(NotFound).addError(Conflict).addError(QuotaExceeded).addError(ServiceUnavailable)
-    .annotateContext(describe("Withdraw a pending domain verification", "domain:write", "A completed verification is a permanent record (409); release the domain instead."))) {}
+    .annotateContext(describe("Withdraw a pending domain verification", "domain:write", "A completed verification is a permanent record (409); release the domain instead. Withdrawing does not release or reset the reservation: it still lapses 7 days after your team's first request."))) {}
 
 export class TlsRulesGroupDefinition extends HttpApiGroup.make("tlsRules")
   .add(HttpApiEndpoint.get("listTlsRules", "/v1/tls-rules")

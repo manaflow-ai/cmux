@@ -80,7 +80,12 @@ export type DomainClaim =
   /** This tenant already verified it. */
   | { readonly kind: "verified"; readonly row: DomainRow }
   /** Another tenant holds it. */
-  | { readonly kind: "taken" };
+  | { readonly kind: "taken" }
+  /**
+   * This tenant's own unverified reservation lapsed and its cooldown has not passed: the previous holder may not
+   * re-claim the domain until `cooldownBefore` (any other tenant may take it at once).
+   */
+  | { readonly kind: "cooldown"; readonly row: DomainRow };
 
 export type DomainRelease =
   /** Released, with the verification records it removed (their pending provider challenges are stale). */
@@ -97,11 +102,17 @@ export interface DomainOwner {
 export interface DomainStoreService {
   /**
    * Reserves `domain` for the tenant unless another tenant verified it or holds a reservation newer than
-   * `staleBefore`. The tenant's own pending reservation is returned unchanged (never refreshed).
+   * `staleBefore`. The tenant's own pending reservation is returned unchanged (never refreshed) while it is newer
+   * than `staleBefore`; once it lapsed the tenant gets `cooldown` until it is older than `cooldownBefore`, and only
+   * then a fresh reservation. Withdrawing every challenge never drops a reservation, so a reservation always
+   * lapses seven days after its first claim.
    */
-  readonly claimDomain: (tenant: TenantId, domain: string, candidate: DomainId, createdBy: string, at: Date, staleBefore: Date) => Effect.Effect<DomainClaim, StoreError>;
-  /** Drops the tenant's pending reservation of `domain` when it has no verification left for it. */
-  readonly releasePendingClaim: (tenant: TenantId, domain: string) => Effect.Effect<void, StoreError>;
+  readonly claimDomain: (tenant: TenantId, domain: string, candidate: DomainId, createdBy: string, at: Date, staleBefore: Date, cooldownBefore: Date) => Effect.Effect<DomainClaim, StoreError>;
+  /**
+   * Backs out the reservation row `id` that the failing request itself created (a fresh claim or a takeover),
+   * only while it is still pending and has no verification. Never used for an older reservation.
+   */
+  readonly backOutFreshClaim: (tenant: TenantId, id: DomainId) => Effect.Effect<void, StoreError>;
   /** Marks the tenant's reservation verified; null when the reservation is no longer the tenant's. */
   readonly markDomainVerified: (tenant: TenantId, domain: string, at: Date) => Effect.Effect<DomainRow | null, StoreError>;
   readonly listDomains: (tenant: TenantId) => Effect.Effect<ReadonlyArray<DomainRow>, StoreError>;
@@ -229,28 +240,32 @@ export const sqlDomainStore = (sql: SqlClientService): DomainStoreService => {
     sql.query(operation, text, params).pipe(Effect.flatMap(decode(Owners, operation)), Effect.map((rows) => rows.map((row) => ({ domain: row.domain, tenantId: row.tenant_id }))));
 
   return {
-    claimDomain: (tenant, domain, candidate, createdBy, at, staleBefore) => Effect.gen(function* () {
-      // One statement decides the reservation: a fresh insert, or a takeover of another tenant's lapsed pending
-      // row (which gets a new id). The tenant's own pending row is never refreshed, so a reservation lapses seven
-      // days after its first claim however often it is re-claimed. Verified rows never move.
+    claimDomain: (tenant, domain, candidate, createdBy, at, staleBefore, cooldownBefore) => Effect.gen(function* () {
+      // One statement decides the reservation: a fresh insert, a takeover of another tenant's lapsed pending row,
+      // or the tenant's own reservation renewed only after its lapse and cooldown (both get a new id). The tenant's
+      // own row is otherwise never refreshed, so a reservation lapses seven days after its first claim however
+      // often it is re-claimed or its challenges withdrawn. Verified rows never move.
       const claimed = yield* domains("domains.claim",
         `INSERT INTO cmux_vm.domains AS d (${DOMAIN_COLUMNS}) VALUES ($1, $2, $3, $4, $5, NULL)
          ON CONFLICT (domain) DO UPDATE SET
            id = EXCLUDED.id, tenant_id = EXCLUDED.tenant_id, created_by = EXCLUDED.created_by, created_at = EXCLUDED.created_at
-         WHERE d.verified_at IS NULL AND d.tenant_id <> EXCLUDED.tenant_id AND d.created_at < $6::timestamptz
+         WHERE d.verified_at IS NULL AND (
+           (d.tenant_id <> EXCLUDED.tenant_id AND d.created_at < $6::timestamptz)
+           OR (d.tenant_id = EXCLUDED.tenant_id AND d.created_at < $7::timestamptz))
          RETURNING ${DOMAIN_COLUMNS}`,
-        [candidate, tenant, domain, createdBy, at.toISOString(), staleBefore.toISOString()]);
+        [candidate, tenant, domain, createdBy, at.toISOString(), staleBefore.toISOString(), cooldownBefore.toISOString()]);
       const row = claimed[0] ?? (yield* domains("domains.claimed", `SELECT ${DOMAIN_COLUMNS} FROM cmux_vm.domains WHERE domain = $1`, [domain]))[0];
       if (row === undefined || row.tenantId !== tenant) return { kind: "taken" } as const;
       if (row.verifiedAt !== null) return { kind: "verified", row } as const;
+      if (claimed[0] === undefined && row.createdAt < staleBefore) return { kind: "cooldown", row } as const;
       // Other tenants' pending challenges for this domain can no longer verify it: forget them.
       const displaced = yield* verifications("domains.displace",
         `DELETE FROM cmux_vm.domain_verifications WHERE domain = $1 AND tenant_id <> $2 AND verified_at IS NULL RETURNING ${VERIFICATION_COLUMNS}`, [domain, tenant]);
       return { kind: "claimed", row, displaced } as const;
     }),
-    releasePendingClaim: (tenant, domain) => sql.query("domains.release",
-      `DELETE FROM cmux_vm.domains WHERE tenant_id = $1 AND domain = $2 AND verified_at IS NULL
-       AND NOT EXISTS (SELECT 1 FROM cmux_vm.domain_verifications v WHERE v.tenant_id = $1 AND v.domain = $2)`, [tenant, domain]).pipe(Effect.asVoid),
+    backOutFreshClaim: (tenant, id) => sql.query("domains.backOut",
+      `DELETE FROM cmux_vm.domains d WHERE d.tenant_id = $1 AND d.id = $2 AND d.verified_at IS NULL
+       AND NOT EXISTS (SELECT 1 FROM cmux_vm.domain_verifications v WHERE v.tenant_id = $1 AND v.domain = d.domain)`, [tenant, id]).pipe(Effect.asVoid),
     markDomainVerified: (tenant, domain, at) => domains("domains.verify",
       `UPDATE cmux_vm.domains SET verified_at = COALESCE(verified_at, $3::timestamptz) WHERE tenant_id = $1 AND domain = $2 RETURNING ${DOMAIN_COLUMNS}`,
       [tenant, domain, at.toISOString()]).pipe(Effect.map((rows) => rows[0] ?? null)),

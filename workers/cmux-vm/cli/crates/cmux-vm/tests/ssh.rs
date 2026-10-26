@@ -121,4 +121,33 @@ async fn the_session_is_revoked_on_every_way_out_and_interrupts_belong_to_ssh() 
         );
         server.verify().await;
     }
+
+    // The final revoke hangs: cmux-vm gives up after its bound (10 s, far
+    // below the 120 s API timeout) and prints the exact revoke command.
+    let server = MockServer::start().await;
+    let session = json!({
+        "id": SESSION, "vmId": VM_ID, "token": "secret-session-token",
+        "linuxUser": "dev", "ssh": {"host": "ssh.example", "user": "p1+dev"},
+        "createdAt": "2026-10-25T00:00:00Z"
+    });
+    Mock::given(method("POST"))
+        .and(path(format!("/v1/vms/{VM_ID}/client-session")))
+        .respond_with(ResponseTemplate::new(201).set_body_json(&session))
+        .mount(&server)
+        .await;
+    Mock::given(method("DELETE"))
+        .and(path(format!("/v1/vms/{VM_ID}/client-sessions/{SESSION}")))
+        .respond_with(ResponseTemplate::new(204).set_delay(std::time::Duration::from_secs(60)))
+        .mount(&server)
+        .await;
+    let started = std::time::Instant::now();
+    let out = ssh(&server, &fake_ssh("slow-revoke", "exit 0")).await;
+    let elapsed = started.elapsed();
+    assert!(elapsed < std::time::Duration::from_secs(30), "{elapsed:?}");
+    assert_eq!(out.code, exit::OK, "{}", out.stderr);
+    assert!(
+        out.stderr.contains(&format!("cmux-vm session revoke {VM_ID} {SESSION} --yes")),
+        "{}",
+        out.stderr
+    );
 }

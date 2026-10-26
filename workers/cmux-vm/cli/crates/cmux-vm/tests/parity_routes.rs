@@ -519,24 +519,29 @@ async fn a_commit_already_running_after_a_lost_answer_is_polled_until_it_settles
 
 #[tokio::test]
 async fn a_lost_commit_answer_then_upload_not_found_is_success_only_when_the_file_is_there() {
-    for (stat, expected) in [
-        // The commit finished: the target is the uploaded file.
-        (
-            Some(
-                json!({"kind": "file", "size": 10, "mode": 420, "mtime": null, "owner": "root", "group": "root"}),
-            ),
-            exit::OK,
-        ),
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs();
+    let stat_of = |size: u64, mtime: Value| {
+        Some(json!({"kind": "file", "size": size, "mode": 420, "mtime": mtime, "owner": "root", "group": "root"}))
+    };
+    // (stat of the target, its content when read back, expected exit code)
+    let cases: [(Option<Value>, Option<&[u8]>, i32); 6] = [
+        // The commit finished: modified after the upload began; nothing is read back.
+        (stat_of(10, json!(now)), None, exit::OK),
+        // An older file of the same size is there: not the upload.
+        (stat_of(10, json!(1_000_000_000)), None, exit::UNEXPECTED),
+        // No modification time: the content is read back and matches.
+        (stat_of(10, Value::Null), Some(b"0123456789"), exit::OK),
+        // No modification time and a same-size file with other content.
+        (stat_of(10, Value::Null), Some(b"abcdefghij"), exit::UNEXPECTED),
         // The upload expired: an older, different file is there.
-        (
-            Some(
-                json!({"kind": "file", "size": 3, "mode": 420, "mtime": null, "owner": "root", "group": "root"}),
-            ),
-            exit::UNEXPECTED,
-        ),
+        (stat_of(3, Value::Null), None, exit::UNEXPECTED),
         // The upload expired and nothing was ever written.
-        (None, exit::UNEXPECTED),
-    ] {
+        (None, None, exit::UNEXPECTED),
+    ];
+    for (stat, content, expected) in cases {
         let server = MockServer::start().await;
         let (local, upload) = mount_sent_upload(&server, "routes-commit-lost").await;
         Mock::given(method("POST"))
@@ -569,6 +574,15 @@ async fn a_lost_commit_answer_then_upload_not_found_is_success_only_when_the_fil
             .expect(1)
             .mount(&server)
             .await;
+        Mock::given(method("GET"))
+            .and(path(format!("/v1/vms/{VM_ID}/files/content")))
+            .and(query_param("path", "/root/big.bin"))
+            .respond_with(
+                ResponseTemplate::new(200).set_body_bytes(content.unwrap_or_default().to_vec()),
+            )
+            .expect(u64::from(content.is_some()))
+            .mount(&server)
+            .await;
         Mock::given(method("DELETE"))
             .and(path(upload.clone()))
             .respond_with(ResponseTemplate::new(404))
@@ -583,6 +597,7 @@ async fn a_lost_commit_answer_then_upload_not_found_is_success_only_when_the_fil
                 out.stderr
             );
         }
+        server.verify().await;
     }
 }
 

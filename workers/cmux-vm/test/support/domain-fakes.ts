@@ -54,7 +54,7 @@ export function makeMemoryDomainStore(vmLive: VmLive = () => true) {
   const liveRule = (row: TlsRuleRow) => row.vmIds.every((vmId) => vmLive(row.tenantId, vmId));
   const under = (row: TlsRuleRow, domain: string) => row.domain === domain || below(row.domain, domain);
   const store: DomainStoreService = {
-    claimDomain: (tenant, domain, candidate, createdBy, at, staleBefore) => Effect.sync(() => {
+    claimDomain: (tenant, domain, candidate, createdBy, at, staleBefore, cooldownBefore) => Effect.sync(() => {
       const current = domains.find((row) => row.domain === domain);
       if (current === undefined) {
         const row: DomainRow = { id: candidate, tenantId: tenant, domain, createdBy, createdAt: at, verifiedAt: null };
@@ -63,16 +63,21 @@ export function makeMemoryDomainStore(vmLive: VmLive = () => true) {
       }
       if (current.verifiedAt !== null) return current.tenantId === tenant ? { kind: "verified", row: current } as const : { kind: "taken" } as const;
       if (current.tenantId !== tenant && current.createdAt >= staleBefore) return { kind: "taken" } as const;
-      // The tenant's own reservation is never refreshed; another tenant's lapsed one is taken over with a new id.
-      const row: DomainRow = current.tenantId === tenant ? current : { ...current, id: candidate, tenantId: tenant, createdBy, createdAt: at };
+      const own = current.tenantId === tenant;
+      // The tenant's own lapsed reservation cannot be re-claimed until its cooldown passed.
+      if (own && current.createdAt < staleBefore && current.createdAt >= cooldownBefore) return { kind: "cooldown", row: current } as const;
+      // The tenant's own live reservation is never refreshed; another tenant's lapsed one (or the tenant's own past
+      // its cooldown) is taken over with a new id.
+      const row: DomainRow = own && current.createdAt >= staleBefore ? current : { ...current, id: candidate, tenantId: tenant, createdBy, createdAt: at };
       domains[domains.indexOf(current)] = row;
       const displaced = verifications.filter((candidateRow) => candidateRow.domain === domain && candidateRow.tenantId !== tenant && candidateRow.verifiedAt === null);
       remove(verifications, (candidateRow) => !displaced.includes(candidateRow));
       return { kind: "claimed", row, displaced } as const;
     }),
-    releasePendingClaim: (tenant, domain) => Effect.sync(() => {
-      if (verifications.some((row) => row.tenantId === tenant && row.domain === domain)) return;
-      remove(domains, (row) => !(row.tenantId === tenant && row.domain === domain && row.verifiedAt === null));
+    backOutFreshClaim: (tenant, id) => Effect.sync(() => {
+      const current = domains.find((row) => row.tenantId === tenant && row.id === id && row.verifiedAt === null);
+      if (current === undefined || verifications.some((row) => row.tenantId === tenant && row.domain === current.domain)) return;
+      remove(domains, (row) => row !== current);
     }),
     markDomainVerified: (tenant, domain, at) => Effect.sync(() => {
       const current = domains.find((row) => row.tenantId === tenant && row.domain === domain);

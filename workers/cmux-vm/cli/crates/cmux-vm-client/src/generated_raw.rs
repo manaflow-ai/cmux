@@ -21412,7 +21412,7 @@ impl Client {
     }
     /**Start proving you control a domain
 
-    Start proving you control a domain. Requires the domain:write scope. Reserves the domain for your team while the challenge is pending (another team's request is 409; an unverified reservation lapses 7 days after your team's first request, and another request does not extend it). Names under the managed zone cannot be verified. Service keys, agent keys and resource-allowlisted keys cannot create these resources; allowlisted keys see only the ids they list.
+    Start proving you control a domain. Requires the domain:write scope. Reserves the domain for your team while the challenge is pending (another team's request is 409). An unverified reservation lapses 7 days after your team's first request: another request, or withdrawing every challenge and starting again, does not extend it. After it lapses any other team may reserve it at once, while your team gets 409 for another 7 days. Names under the managed zone cannot be verified. Service keys, agent keys and resource-allowlisted keys cannot create these resources; allowlisted keys see only the ids they list.
 
     Sends a `POST` request to `/v1/domain-verifications`
 
@@ -21509,7 +21509,7 @@ impl Client {
     }
     /**Withdraw a pending domain verification
 
-    Withdraw a pending domain verification. Requires the domain:write scope. A completed verification is a permanent record (409); release the domain instead.
+    Withdraw a pending domain verification. Requires the domain:write scope. A completed verification is a permanent record (409); release the domain instead. Withdrawing does not release or reset the reservation: it still lapses 7 days after your team's first request.
 
     Sends a `DELETE` request to `/v1/domain-verifications/{verificationId}`
 

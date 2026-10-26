@@ -596,6 +596,15 @@ async fn resumable_upload(
 ) -> Result<u64, CliError> {
     let digest = sha256_hex(&mut file)?;
     let size = i64::try_from(length).map_err(|_| CliError::usage("the file is too large"))?;
+    // Before begin: a commit of this upload cannot have happened earlier.
+    let begun_at = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| i64::try_from(d.as_secs()).unwrap_or(i64::MAX));
+    let expected = Uploaded {
+        length,
+        sha256: digest.clone(),
+        begun_at,
+    };
     let body: types::BeginFileUploadRequest = request_body(json!({
         "path": path.as_str(),
         "size": size,
@@ -607,7 +616,7 @@ async fn resumable_upload(
     let upload_id = begun.upload_id.clone();
     let send = async {
         send_chunks(client, transfer, id, &upload_id, &mut file, length, begun).await?;
-        commit_upload(client, &transfer.stream, id, path, &upload_id, length).await
+        commit_upload(client, &transfer.stream, id, path, &upload_id, &expected).await
     };
     let result = tokio::select! {
         result = send => result,
@@ -792,7 +801,7 @@ async fn commit_upload(
     id: &str,
     path: &types::GuestPath,
     upload_id: &str,
-    length: u64,
+    expected: &Uploaded,
 ) -> Result<(), CliError> {
     let mut polls = 0;
     loop {
@@ -820,7 +829,7 @@ async fn commit_upload(
             match call(client.files_get_file_upload(id, upload_id, None)).await {
                 Ok(_) => break,
                 Err(gone) if gone.exit_code() == exit::NOT_FOUND => {
-                    return verify_committed(client, id, path, length).await;
+                    return verify_committed(client, stream, id, path, expected).await;
                 }
                 Err(other)
                     if matches!(
@@ -836,39 +845,120 @@ async fn commit_upload(
     }
 }
 
+/// What a resumable upload sent, to recognise its commit afterwards.
+pub(crate) struct Uploaded {
+    pub(crate) length: u64,
+    /// Lowercase hex SHA-256 of the whole file.
+    pub(crate) sha256: String,
+    /// Local clock, epoch seconds, taken before the upload began.
+    pub(crate) begun_at: i64,
+}
+
+/// How far the VM's clock may run behind this machine's when a commit is
+/// recognised by its modification time.
+pub(crate) const COMMIT_MTIME_SKEW_SECS: i64 = 120;
+
+/// Without a modification time, the largest target read back to compare its
+/// SHA-256 with the upload's.
+pub(crate) const COMMIT_READBACK_LIMIT: u64 = 64 * 1024 * 1024;
+
+/// What a stat of the target says about a commit whose answer was lost.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum CommitEvidence {
+    /// A regular file of the uploaded size, modified after the upload began.
+    Committed,
+    /// Missing, another kind or size, or not modified since before the upload
+    /// began: an older file, so the upload expired or was lost.
+    Lost,
+    /// The right size but no modification time: compare the content.
+    ReadBack,
+    /// The right size, no modification time, and too large to read back.
+    Unconfirmed,
+}
+
+/// Judges a stat of the target. Size alone cannot tell the upload from an
+/// older file of the same size, so the modification time must postdate the
+/// upload's begin (less [`COMMIT_MTIME_SKEW_SECS`]); without one, the content
+/// decides.
+pub(crate) fn commit_evidence(stat: &Value, expected: &Uploaded) -> CommitEvidence {
+    if !committed_stat_matches(stat, expected.length) {
+        return CommitEvidence::Lost;
+    }
+    match stat["mtime"].as_i64() {
+        Some(mtime) if mtime >= expected.begun_at.saturating_sub(COMMIT_MTIME_SKEW_SECS) => {
+            CommitEvidence::Committed
+        }
+        Some(_) => CommitEvidence::Lost,
+        None if expected.length <= COMMIT_READBACK_LIMIT => CommitEvidence::ReadBack,
+        None => CommitEvidence::Unconfirmed,
+    }
+}
+
 /// After "upload not found" following a commit whose answer was lost: the
-/// commit finished only if the target is now a file of exactly the uploaded
-/// size (the server renames the whole verified file into place, never a
-/// partial one). A missing or different file means the upload expired or was
-/// lost before the commit ran.
+/// commit finished only if the target is now the uploaded file (the server
+/// renames the whole verified file into place, never a partial one): a
+/// regular file of exactly the uploaded size, modified after the upload began
+/// or, when the VM reports no modification time, with the uploaded SHA-256. A
+/// missing or different file means the upload expired or was lost before the
+/// commit ran; a large file without a modification time cannot be confirmed.
 async fn verify_committed(
     client: &Client,
+    stream: &Client,
     id: &str,
     path: &types::GuestPath,
-    length: u64,
+    expected: &Uploaded,
 ) -> Result<(), CliError> {
+    let shown = path.as_str().escape_debug().to_string();
     let lost = || {
         CliError::unexpected(format!(
-            "the upload to {} ended without a confirmed commit (it expired or was lost) and the file there is not the uploaded one; upload it again",
-            path.as_str().escape_debug()
+            "the upload to {shown} ended without a confirmed commit (it expired or was lost) and the file there is not the uploaded one; upload it again"
         ))
     };
-    match fetch_body(client.files_stat_file(id, path, None)).await {
-        Ok(body) => {
-            let stat = decode(&body)?;
-            if committed_stat_matches(&stat, length) {
+    let stat = match fetch_body(client.files_stat_file(id, path, None)).await {
+        Ok(body) => decode(&body)?,
+        Err(error) if error.exit_code() == exit::NOT_FOUND => return Err(lost()),
+        Err(error) => return Err(error),
+    };
+    match commit_evidence(&stat, expected) {
+        CommitEvidence::Committed => Ok(()),
+        CommitEvidence::Lost => Err(lost()),
+        CommitEvidence::Unconfirmed => Err(CliError::unexpected(format!(
+            "the upload to {shown} ended without a confirmed commit and the VM reports no modification time, so the file there could not be confirmed as the uploaded one; upload it again"
+        ))),
+        CommitEvidence::ReadBack => {
+            let body = match call(stream.files_read_file(id, path, None, None)).await {
+                Ok(body) => body,
+                Err(error) if error.exit_code() == exit::NOT_FOUND => return Err(lost()),
+                Err(error) => return Err(error),
+            };
+            let mut body = body.into_inner();
+            let mut context = ring::digest::Context::new(&ring::digest::SHA256);
+            let mut read = 0_u64;
+            while let Some(chunk) = body.next().await {
+                let chunk = chunk.map_err(cut_off)?;
+                read += chunk.len() as u64;
+                if read > expected.length {
+                    return Err(lost());
+                }
+                context.update(&chunk);
+            }
+            let digest: String = context
+                .finish()
+                .as_ref()
+                .iter()
+                .map(|b| format!("{b:02x}"))
+                .collect();
+            if read == expected.length && digest == expected.sha256 {
                 Ok(())
             } else {
                 Err(lost())
             }
         }
-        Err(error) if error.exit_code() == exit::NOT_FOUND => Err(lost()),
-        Err(error) => Err(error),
     }
 }
 
-/// Whether a file stat shows the committed upload: a regular file of exactly
-/// `length` bytes.
+/// Whether a file stat shows the committed upload's shape: a regular file of
+/// exactly `length` bytes (necessary, not sufficient: see [`commit_evidence`]).
 pub(crate) fn committed_stat_matches(stat: &Value, length: u64) -> bool {
     stat["kind"].as_str() == Some("file") && stat["size"].as_u64() == Some(length)
 }
@@ -1254,6 +1344,42 @@ mod tests {
         assert_eq!(retry_delay(0, Some(Duration::from_secs(61)), 1.0), None);
         let jittered = jitter();
         assert!((0.0..1.0).contains(&jittered));
+    }
+
+    #[test]
+    fn a_same_size_file_counts_as_the_commit_only_when_modified_after_the_upload_began() {
+        let expected = Uploaded {
+            length: 10,
+            sha256: "00".repeat(32),
+            begun_at: 1_800_000_000,
+        };
+        let stat = |size: u64, mtime: Value| json!({"kind": "file", "size": size, "mtime": mtime});
+        assert_eq!(commit_evidence(&stat(10, json!(1_800_000_005)), &expected), CommitEvidence::Committed);
+        // A VM clock a little behind this machine's still counts.
+        assert_eq!(
+            commit_evidence(&stat(10, json!(1_800_000_000 - COMMIT_MTIME_SKEW_SECS)), &expected),
+            CommitEvidence::Committed
+        );
+        // An older file of the same size is not the upload.
+        assert_eq!(
+            commit_evidence(&stat(10, json!(1_800_000_000 - COMMIT_MTIME_SKEW_SECS - 1)), &expected),
+            CommitEvidence::Lost
+        );
+        assert_eq!(commit_evidence(&stat(9, json!(1_800_000_005)), &expected), CommitEvidence::Lost);
+        // No modification time: the content decides, up to the read-back bound.
+        assert_eq!(commit_evidence(&stat(10, Value::Null), &expected), CommitEvidence::ReadBack);
+        let large = Uploaded {
+            length: COMMIT_READBACK_LIMIT + 1,
+            ..expected
+        };
+        assert_eq!(
+            commit_evidence(&stat(COMMIT_READBACK_LIMIT + 1, Value::Null), &large),
+            CommitEvidence::Unconfirmed
+        );
+        assert_eq!(
+            commit_evidence(&stat(COMMIT_READBACK_LIMIT + 1, json!(1_800_000_005)), &large),
+            CommitEvidence::Committed
+        );
     }
 
     #[test]

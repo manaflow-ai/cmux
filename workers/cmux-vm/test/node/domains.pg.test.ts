@@ -52,7 +52,7 @@ const verified = async (tenant: TenantId, domain: string) => {
 };
 
 const claim = (tenant: TenantId, domain: string, at: Date) =>
-  store((s) => s.claimDomain(tenant, domain, newDomainId(), "user:test", at, new Date(at.getTime() - 7 * DAY)));
+  store((s) => s.claimDomain(tenant, domain, newDomainId(), "user:test", at, new Date(at.getTime() - 7 * DAY), new Date(at.getTime() - 14 * DAY)));
 
 describe("domain reservations", () => {
   it("hold one domain for one tenant until verified; a re-claim by the holder changes nothing", async () => {
@@ -105,21 +105,65 @@ describe("domain reservations", () => {
     expect(await store((s) => s.markDomainVerified(A, "lapsed.test", new Date()))).toBeNull();
   });
 
-  it("release a pending reservation only when no verification of the tenant remains", async () => {
+  it("back out only the fresh reservation row a request created, and only while it has no verification", async () => {
     const now = new Date();
-    await claim(A, "release.test", now);
+    const first = await claim(A, "release.test", now);
+    if (first.kind !== "claimed") throw new Error("unexpected");
     await store((s) => s.insertVerification({
       id: newDomainVerificationId(), tenantId: A, domain: "release.test", upstreamId: UpstreamId.make("dv-1"),
       recordName: "_challenge.release.test", code: "code", createdBy: "user:test", createdAt: now, verifiedAt: null,
     }, 20));
-    await store((s) => s.releasePendingClaim(A, "release.test"));
+    await store((s) => s.backOutFreshClaim(A, first.row.id));
     expect((await claim(B, "release.test", now)).kind).toBe("taken");
     const [verification] = await store((s) => s.listVerifications(A, "pending"));
     if (verification === undefined) throw new Error("no verification");
     expect(await store((s) => s.deletePendingVerification(B, verification.id))).toBe(false);
     expect(await store((s) => s.deletePendingVerification(A, verification.id))).toBe(true);
-    await store((s) => s.releasePendingClaim(A, "release.test"));
+    // Another tenant cannot back out A's row; A's own back-out of its fresh row frees the domain.
+    await store((s) => s.backOutFreshClaim(B, first.row.id));
+    expect((await claim(B, "release.test", now)).kind).toBe("taken");
+    await store((s) => s.backOutFreshClaim(A, first.row.id));
     expect((await claim(B, "release.test", now)).kind).toBe("claimed");
+  });
+
+  it("withdrawing every challenge and claiming again never extends the hold past the first claim's lapse", async () => {
+    const t0 = new Date(Date.now() - 20 * DAY);
+    const first = await claim(A, "cycle.test", t0);
+    if (first.kind !== "claimed") throw new Error("unexpected");
+    // Every six days A withdraws its challenge and asks again: the reservation keeps its first-claim time.
+    for (const day of [6, 12]) {
+      const verificationId = newDomainVerificationId();
+      await store((s) => s.insertVerification({
+        id: verificationId, tenantId: A, domain: "cycle.test", upstreamId: UpstreamId.make(`dv-${day}`),
+        recordName: "_challenge.cycle.test", code: "code", createdBy: "user:test", createdAt: new Date(t0.getTime() + day * DAY), verifiedAt: null,
+      }, 20));
+      expect(await store((s) => s.deletePendingVerification(A, verificationId))).toBe(true);
+      const again = await claim(A, "cycle.test", new Date(t0.getTime() + (day + 0.5) * DAY));
+      if (day === 6) {
+        if (again.kind !== "claimed") throw new Error("unexpected");
+        expect(again.row.id).toBe(first.row.id);
+        expect(again.row.createdAt.getTime()).toBe(t0.getTime());
+      } else {
+        // Day 12.5: lapsed on day 7, so A is in its cooldown.
+        expect(again.kind).toBe("cooldown");
+      }
+    }
+    // On day 8 another tenant takes it at once.
+    expect((await claim(B, "cycle.test", new Date(t0.getTime() + 8 * DAY))).kind).toBe("claimed");
+  });
+
+  it("refuse the previous holder during the cooldown after a lapse, then give it a fresh reservation", async () => {
+    const t0 = new Date(Date.now() - 30 * DAY);
+    const first = await claim(A, "cool.test", t0);
+    if (first.kind !== "claimed") throw new Error("unexpected");
+    expect((await claim(A, "cool.test", new Date(t0.getTime() + 8 * DAY))).kind).toBe("cooldown");
+    expect((await claim(A, "cool.test", new Date(t0.getTime() + 13 * DAY))).kind).toBe("cooldown");
+    const renewedAt = new Date(t0.getTime() + 15 * DAY);
+    const renewed = await claim(A, "cool.test", renewedAt);
+    if (renewed.kind !== "claimed") throw new Error("unexpected");
+    expect(renewed.row.id).not.toBe(first.row.id);
+    expect(renewed.row.createdAt.getTime()).toBe(renewedAt.getTime());
+    expect((await claim(B, "cool.test", new Date(renewedAt.getTime() + DAY))).kind).toBe("taken");
   });
 
   it("answer who verified a name and what lies below it", async () => {

@@ -45,8 +45,11 @@ import { keyHasScope } from "./key-has-scope.ts";
 import { tenantOwnsVm, upstreamIdOf } from "./tenant-owns-resource.ts";
 import { headersOf } from "./vm-network.ts";
 
-/** How long an unverified reservation keeps other tenants out. */
+/** How long an unverified reservation keeps other tenants out, counted from its first claim. */
 export const RESERVATION_DAYS = 7;
+/** After its reservation lapses, how long the previous holder may not claim the domain again. */
+export const RECLAIM_COOLDOWN_DAYS = 7;
+const DAY_MS = 24 * 60 * 60 * 1000;
 
 // ---------------------------------------------------------------- domains
 
@@ -86,7 +89,8 @@ const mintStale = <C>(caller: Named<C, Principal>, removed: ReadonlyArray<Verifi
 /**
  * Reserves `raw` for the caller's tenant. Names under the managed zone are
  * never verifiable. Another tenant's verified domain, or its reservation newer
- * than seven days, is a conflict.
+ * than seven days, is a conflict; so is the caller's own lapsed reservation
+ * during its re-claim cooldown.
  */
 export const reserveDomain = <C>(caller: Named<C, Principal>, raw: string, candidate: DomainRow["id"], at: Date) =>
   Effect.gen(function* () {
@@ -97,11 +101,17 @@ export const reserveDomain = <C>(caller: Named<C, Principal>, raw: string, candi
     if (policy.managedZone !== null && (isUnder(domain, policy.managedZone) || isUnder(policy.managedZone, domain))) {
       return yield* Effect.fail(badRequest("Names under the managed zone need no verification and cannot be verified"));
     }
-    const staleBefore = new Date(at.getTime() - RESERVATION_DAYS * 24 * 60 * 60 * 1000);
-    const claim = yield* (yield* DomainStore).claimDomain(caller.value.tenantId, domain, candidate, actorRef(caller.value.actor), at, staleBefore);
+    const staleBefore = new Date(at.getTime() - RESERVATION_DAYS * DAY_MS);
+    const cooldownBefore = new Date(at.getTime() - (RESERVATION_DAYS + RECLAIM_COOLDOWN_DAYS) * DAY_MS);
+    const claim = yield* (yield* DomainStore).claimDomain(caller.value.tenantId, domain, candidate, actorRef(caller.value.actor), at, staleBefore, cooldownBefore);
     if (claim.kind === "taken") return yield* Effect.fail(conflict("This domain is reserved by another team"));
     if (claim.kind === "verified") return yield* Effect.fail(conflict("Your team already verified this domain"));
-    return { row: claim.row, domain: mintVerifiable(caller, domain), stale: mintStale(caller, claim.displaced) };
+    if (claim.kind === "cooldown") {
+      const until = new Date(claim.row.createdAt.getTime() + (RESERVATION_DAYS + RECLAIM_COOLDOWN_DAYS) * DAY_MS);
+      return yield* Effect.fail(conflict(`Your team's reservation of this domain lapsed; your team can reserve it again after ${until.toISOString()}`));
+    }
+    // `fresh`: this request created the reservation row (a new claim or a takeover), so a failure may back it out.
+    return { row: claim.row, fresh: claim.row.id === candidate, domain: mintVerifiable(caller, domain), stale: mintStale(caller, claim.displaced) };
   });
 
 /**

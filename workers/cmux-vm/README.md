@@ -581,7 +581,10 @@ listed ids and cannot create.
 
 - A domain is reserved by the first tenant to create a verification for it;
   another tenant gets 409 until it is released, or for an unverified
-  reservation until it lapses after seven days. Verify checks only that
+  reservation until it lapses seven days after the first claim. Re-claiming or
+  withdrawing every challenge never drops or extends it, and after the lapse
+  the previous holder gets 409 for another seven days while any other tenant
+  may take the domain at once. Verify checks only that
   challenge's own TXT record. Names under the managed zone cannot be verified.
 - An ingress rule (source `public: true`) lands on one of the caller's VMs
   (vm:network) and may name a managed hostname of the caller

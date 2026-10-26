@@ -224,7 +224,8 @@ const createDomainVerification = (domain: string) => withCaller("domain:write", 
     const reserved = yield* reserveDomain(caller, domain, newDomainId(), at);
     // Another team's lapsed reservation was taken over: its pending challenges can no longer verify anything.
     yield* upstream.withdrawStaleChallenges(reserved.stale);
-    const release = store.releasePendingClaim(caller.value.tenantId, reserved.row.domain).pipe(Effect.ignore);
+    // Only a reservation this request created is backed out on failure; an older one keeps its first-claim lapse.
+    const release = reserved.fresh ? store.backOutFreshClaim(caller.value.tenantId, reserved.row.id).pipe(Effect.ignore) : Effect.void;
     const challenge = yield* upstream.createVerification(reserved.domain).pipe(
       Effect.tapError(() => release),
       Effect.catchAll(upstreamDown("createVerification")),
@@ -298,8 +299,9 @@ const deleteDomainVerification = (raw: string) => withCaller("domain:write", "wr
     const result = yield* (yield* UpstreamDomains).deleteVerification(owned.owns).pipe(Effect.catchAll(upstreamDown("deleteVerification")));
     if (result === "verified") return yield* Effect.fail(conflict("This challenge already verified; call verify to record it"));
     const store = yield* DomainStore;
+    // The reservation stays: it lapses seven days after the team's first claim, so withdrawing and re-creating a
+    // challenge can never extend the hold.
     yield* store.deletePendingVerification(caller.value.tenantId, owned.row.id);
-    yield* store.releasePendingClaim(caller.value.tenantId, owned.row.domain);
   })))));
 
 export const domainsHandlers = HttpApiBuilder.group(CmuxVmApi, "domains", (handlers) => handlers

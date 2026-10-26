@@ -155,6 +155,71 @@ describe("changing the Linux user", () => {
     expect(minted.ssh.user).toBe(`${upstreamId}+bob`);
   });
 
+  it("re-applies the recorded user before the next token when a grant write failed after it applied", async () => {
+    const key = await h.addKey(TENANT_A, EXEC);
+    const { vmId, upstreamId } = h.addVm(TENANT_A);
+    const session = await open(key, vmId);
+    const original = h.upstream.fetch;
+    // The provider applies the grant but the answer is lost (500): the provider now says "cmux".
+    h.upstream.fetch = async (request: Request) => {
+      const response = await original(request);
+      return request.method === "PATCH" && /permissions\/vm/u.test(new URL(request.url).pathname) ? new Response("lost", { status: 500 }) : response;
+    };
+    const response = await h.request(`${sessionPath(vmId, session.id)}/linux-user`, bearer(key), { method: "PUT", body: { linuxUser: "cmux" } });
+    h.upstream.fetch = original;
+    expect(response.status).toBe(503);
+    expect(h.clientSessions.find((row) => row.id === session.id)?.linuxUser).toBe("ubuntu");
+    expect(h.upstream.identityGrants(session.token)).toEqual([{ vmId: upstreamId, allowedLinuxUsers: ["cmux"] }]);
+    // The next credential closes the drift first: the grant is the recorded user again.
+    const minted = await (await h.request(`${sessionPath(vmId, session.id)}/tokens`, bearer(key), { method: "POST" })).json<TokenBody>();
+    expect(minted).toMatchObject({ linuxUser: "ubuntu", ssh: { user: `${upstreamId}+ubuntu` } });
+    expect(h.upstream.identityGrants(session.token)).toEqual([{ vmId: upstreamId, allowedLinuxUsers: ["ubuntu"] }]);
+  });
+
+  it("re-applies the recorded user before the next token when a change was cut off between recording and granting", async () => {
+    const key = await h.addKey(TENANT_A, EXEC);
+    const { vmId, upstreamId } = h.addVm(TENANT_A);
+    const session = await open(key, vmId);
+    // A change recorded "cmux" and its request ended before the grant write.
+    const index = h.clientSessions.findIndex((row) => row.id === session.id);
+    const row = h.clientSessions[index];
+    if (row === undefined) throw new Error("no session");
+    h.clientSessions[index] = { ...row, linuxUser: "cmux" };
+    expect(h.upstream.identityGrants(session.token)).toEqual([{ vmId: upstreamId, allowedLinuxUsers: ["ubuntu"] }]);
+    const minted = await (await h.request(`${sessionPath(vmId, session.id)}/tokens`, bearer(key), { method: "POST" })).json<TokenBody>();
+    expect(minted).toMatchObject({ linuxUser: "cmux", ssh: { user: `${upstreamId}+cmux` } });
+    expect(h.upstream.identityGrants(minted.token)).toEqual([{ vmId: upstreamId, allowedLinuxUsers: ["cmux"] }]);
+  });
+
+  it("a change that loses the record never writes the provider grant", async () => {
+    const key = await h.addKey(TENANT_A, EXEC);
+    const { vmId, upstreamId } = h.addVm(TENANT_A);
+    const session = await open(key, vmId);
+    const before = h.upstream.callsTo("PATCH", /permissions\/vm/).length;
+    // Another change records "bob" right after this request read the session.
+    let raced = false;
+    const index = h.clientSessions.findIndex((row) => row.id === session.id);
+    const stored = h.clientSessions[index];
+    if (stored === undefined) throw new Error("no session");
+    const findSession = h.clientSessions.find.bind(h.clientSessions);
+    Object.assign(h.clientSessions, {
+      find: (predicate: Parameters<typeof findSession>[0]) => {
+        const found = findSession(predicate);
+        if (!raced && found?.id === session.id) {
+          raced = true;
+          h.clientSessions[index] = { ...stored, linuxUser: "bob" };
+        }
+        return found;
+      },
+    });
+    const response = await h.request(`${sessionPath(vmId, session.id)}/linux-user`, bearer(key), { method: "PUT", body: { linuxUser: "cmux" } });
+    Reflect.deleteProperty(h.clientSessions, "find");
+    expect(raced).toBe(true);
+    expect(response.status).toBe(409);
+    expect(h.upstream.callsTo("PATCH", /permissions\/vm/)).toHaveLength(before);
+    expect(h.upstream.identityGrants(session.token)).toEqual([{ vmId: upstreamId, allowedLinuxUsers: ["ubuntu"] }]);
+  });
+
   it("is 404 for a revoked session", async () => {
     const key = await h.addKey(TENANT_A, EXEC);
     const { vmId } = h.addVm(TENANT_A);

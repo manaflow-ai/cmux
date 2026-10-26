@@ -40,6 +40,27 @@ const liveSession = (tenantId: string, vmId: VmId, rawId: string) =>
   });
 
 const DEFAULT_LIMIT = 100;
+/** Grant writes one request makes while chasing concurrent changes before it gives up with 503. */
+const CONVERGE_ATTEMPTS = 3;
+
+/**
+ * Makes the provider grant of session `rawId` equal to the Linux user recorded here, and returns the row whose
+ * user the grant now holds. The table is the source of truth: a change records first and grants second, so a
+ * request cancelled between the two, or a grant write that failed after it applied, leaves the provider behind or
+ * ahead; every path that hands out a credential calls this first (idempotent: it rewrites the same one user), so
+ * such drift is closed before the credential is used. Re-reads after each write so a concurrent change is followed.
+ */
+const convergeGrant = <E, R>(tenantId: string, vmId: VmId, rawId: string, grant: (row: ClientSessionRow) => Effect.Effect<unknown, E, R>) =>
+  Effect.gen(function* () {
+    let current = yield* liveSession(tenantId, vmId, rawId);
+    for (let attempt = 0; attempt < CONVERGE_ATTEMPTS; attempt += 1) {
+      yield* grant(current);
+      const after = yield* liveSession(tenantId, vmId, rawId);
+      if (after.linuxUser === current.linuxUser) return after;
+      current = after;
+    }
+    return yield* Effect.fail(unavailable());
+  });
 
 export const clientSessionsHandlers = HttpApiBuilder.group(CmuxVmApi, "clientSessions", (handlers) =>
   handlers
@@ -79,28 +100,24 @@ export const clientSessionsHandlers = HttpApiBuilder.group(CmuxVmApi, "clientSes
             const row = yield* liveSession(caller.value.tenantId, vm.value, path.sessionId);
             const upstream = yield* UpstreamClient;
             const agents = yield* AgentStore;
-            const grant = (linuxUser: string) =>
-              upstream.setClientSessionLinuxUser(vm, proofs, row.upstreamIdentityId, linuxUser).pipe(Effect.mapError(upstreamFailure));
-            yield* grant(payload.linuxUser);
-            // Compare-and-set from the user this request read, so two changes cannot leave the table and the grant apart.
+            const grant = (target: ClientSessionRow) =>
+              upstream.setClientSessionLinuxUser(vm, proofs, target.upstreamIdentityId, target.linuxUser).pipe(Effect.mapError(upstreamFailure));
+            // Record first (compare-and-set from the user this request read), then grant. A loser never touches the
+            // provider; a request cut off between the two leaves the table ahead, which the next credential closes.
             const won = yield* agents
               .setClientSessionLinuxUser(tenantId, row.id, row.linuxUser, payload.linuxUser)
               .pipe(Effect.mapError(() => unavailable()));
-            // Whether or not this change won, the provider grant ends equal to the recorded user: a change racing this
-            // one may have written the grant after or before ours. Every request re-reads after its last grant write.
-            let applied = payload.linuxUser;
-            let settled = false;
-            for (let attempt = 0; attempt < 3 && !settled; attempt += 1) {
-              const current = yield* liveSession(caller.value.tenantId, vm.value, path.sessionId);
-              if (current.linuxUser === applied) settled = true;
-              else {
-                yield* grant(current.linuxUser);
-                applied = current.linuxUser;
-              }
-            }
-            if (!settled) return yield* Effect.fail(unavailable());
             if (!won) return yield* Effect.fail(conflict("The session's Linux user changed while this request ran; read it and retry"));
-            return summaryOf(row, payload.linuxUser);
+            const granted = yield* convergeGrant(caller.value.tenantId, vm.value, path.sessionId, grant).pipe(
+              Effect.tapError(() =>
+                // The change did not reach the provider: put the recorded user back unless another change moved it
+                // since. Should this fail too, the next credential re-applies whatever is recorded.
+                agents.setClientSessionLinuxUser(tenantId, row.id, payload.linuxUser, row.linuxUser).pipe(Effect.ignore),
+              ),
+            );
+            // A later change recorded after this one: the grant follows it, and this caller is told to re-read.
+            if (granted.linuxUser !== payload.linuxUser) return yield* Effect.fail(conflict("The session's Linux user changed while this request ran; read it and retry"));
+            return summaryOf(granted);
           }),
         ),
       ),
@@ -121,8 +138,10 @@ export const clientSessionsHandlers = HttpApiBuilder.group(CmuxVmApi, "clientSes
         auditableVmId(path.vmId),
         withOwnedVm(path.vmId, "vm:exec", "exec", (caller, vm, proofs) =>
           Effect.gen(function* () {
-            const row = yield* liveSession(caller.value.tenantId, vm.value, path.sessionId);
             const upstream = yield* UpstreamClient;
+            // The grant must equal the recorded user before a token for it is handed out.
+            const row = yield* convergeGrant(caller.value.tenantId, vm.value, path.sessionId, (target) =>
+              upstream.setClientSessionLinuxUser(vm, proofs, target.upstreamIdentityId, target.linuxUser).pipe(Effect.mapError(upstreamFailure)));
             const grant = yield* upstream.mintClientSessionToken(vm, proofs, row.upstreamIdentityId).pipe(Effect.mapError(upstreamFailure));
             const createdAt = new Date(yield* Clock.currentTimeMillis);
             return new ClientSessionToken({

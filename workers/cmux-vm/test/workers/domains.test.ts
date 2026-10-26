@@ -212,13 +212,14 @@ describe("domain verification", () => {
     expect((await send(t, keyA, "POST", "/v1/domain-verifications", { domain: "shared.test" })).status).toBe(409);
   });
 
-  it("withdraws a pending challenge and releases the reservation", async () => {
+  it("withdraws a pending challenge but keeps the reservation until it lapses", async () => {
     const t = await harness();
     const keyA = await t.addKey(TENANT_A, ALL_SCOPES);
     const keyB = await t.addKey(TENANT_B, ALL_SCOPES);
     const pending = await (await send(t, keyA, "POST", "/v1/domain-verifications", { domain: "free.test" })).json<Verification>();
     expect((await send(t, keyA, "DELETE", `/v1/domain-verifications/${pending.id}`)).status).toBe(204);
-    expect((await send(t, keyB, "POST", "/v1/domain-verifications", { domain: "free.test" })).status).toBe(201);
+    expect(t.domains.rows.verifications.find((row) => row.id === pending.id)).toBeUndefined();
+    expect((await send(t, keyB, "POST", "/v1/domain-verifications", { domain: "free.test" })).status).toBe(409);
   });
 
   it("refuses names under the managed zone and malformed names", async () => {
@@ -479,10 +480,49 @@ describe("review fixes (https://github.com/manaflow-ai/cmux/pull/25367)", () => 
     const keyB = await t.addKey(TENANT_B, ALL_SCOPES);
     expect((await send(t, keyA, "POST", "/v1/domain-verifications", { domain: "held.test" })).status).toBe(201);
     lapse(t, "held.test", 8);
-    // A asks again: that does not renew the reservation.
-    expect((await send(t, keyA, "POST", "/v1/domain-verifications", { domain: "held.test" })).status).toBe(201);
+    // A asks again: that does not renew the reservation (A is in its re-claim cooldown).
+    expect((await send(t, keyA, "POST", "/v1/domain-verifications", { domain: "held.test" })).status).toBe(409);
     expect((await send(t, keyB, "POST", "/v1/domain-verifications", { domain: "held.test" })).status).toBe(201);
     expect(t.domains.rows.verifications.filter((row) => row.domain === "held.test").map((row) => row.tenantId)).toEqual([TENANT_B]);
+  });
+
+  it("cycling withdraw and create never extends an unverified hold past the first claim's lapse", async () => {
+    const t = await harness();
+    const keyA = await t.addKey(TENANT_A, ALL_SCOPES);
+    const keyB = await t.addKey(TENANT_B, ALL_SCOPES);
+    const first = await (await send(t, keyA, "POST", "/v1/domain-verifications", { domain: "cycle.test" })).json<Verification>();
+    const reservation = t.domains.rows.domains.find((row) => row.domain === "cycle.test");
+    // Six days later A withdraws its only challenge and starts again.
+    lapse(t, "cycle.test", 6);
+    expect((await send(t, keyA, "DELETE", `/v1/domain-verifications/${first.id}`)).status).toBe(204);
+    expect((await send(t, keyB, "POST", "/v1/domain-verifications", { domain: "cycle.test" })).status).toBe(409);
+    const second = await send(t, keyA, "POST", "/v1/domain-verifications", { domain: "cycle.test" });
+    expect(second.status).toBe(201);
+    const held = t.domains.rows.domains.find((row) => row.domain === "cycle.test");
+    expect(held?.id).toBe(reservation?.id);
+    expect(Date.now() - (held?.createdAt.getTime() ?? 0)).toBeGreaterThanOrEqual(6 * 24 * 3600 * 1000 - 60_000);
+    // Two more days: the first claim lapsed. A withdraws again and is refused during its cooldown; B takes it.
+    lapse(t, "cycle.test", 8);
+    expect((await send(t, keyA, "DELETE", `/v1/domain-verifications/${(await second.json<Verification>()).id}`)).status).toBe(204);
+    expect((await send(t, keyA, "POST", "/v1/domain-verifications", { domain: "cycle.test" })).status).toBe(409);
+    expect((await send(t, keyB, "POST", "/v1/domain-verifications", { domain: "cycle.test" })).status).toBe(201);
+    expect(t.domains.rows.domains.find((row) => row.domain === "cycle.test")?.tenantId).toBe(TENANT_B);
+  });
+
+  it("after a lapse another team claims at once while the previous holder gets 409 for the cooldown, then may claim afresh", async () => {
+    const t = await harness();
+    const keyA = await t.addKey(TENANT_A, ALL_SCOPES);
+    const keyB = await t.addKey(TENANT_B, ALL_SCOPES);
+    expect((await send(t, keyA, "POST", "/v1/domain-verifications", { domain: "cool.test" })).status).toBe(201);
+    lapse(t, "cool.test", 13);
+    const refused = await send(t, keyA, "POST", "/v1/domain-verifications", { domain: "cool.test" });
+    expect(refused.status).toBe(409);
+    expect(JSON.stringify(await refused.json())).toMatch(/lapsed/u);
+    // Past the cooldown A gets a fresh seven-day reservation, which keeps B out again.
+    lapse(t, "cool.test", 15);
+    expect((await send(t, keyA, "POST", "/v1/domain-verifications", { domain: "cool.test" })).status).toBe(201);
+    expect(Date.now() - (t.domains.rows.domains.find((row) => row.domain === "cool.test")?.createdAt.getTime() ?? 0)).toBeLessThan(60_000);
+    expect((await send(t, keyB, "POST", "/v1/domain-verifications", { domain: "cool.test" })).status).toBe(409);
   });
 
   it("a release withdraws the domain's pending challenges at the provider", async () => {
