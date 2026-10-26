@@ -23,6 +23,7 @@ dependencies = [
  "cmux-server-core",
  "cmux-trace",
  "cmux-unix-socket",
+ "cmux-wake",
  "cmux-worktree-care",
  "crossterm",
  "dirs",
@@ -749,15 +750,16 @@ dependencies = [
 name = "cmux-flow-trace"
 version = "0.1.0"
 dependencies = [
- "libc",
+ "cmux-trace",
 ]
 
 [[package]]
 name = "cmux-git"
 version = "0.1.0"
 dependencies = [
+ "cmux-process",
+ "cmux-threads",
  "libc",
- "wait-timeout",
 ]
 
 [[package]]
@@ -854,6 +856,7 @@ version = "0.1.0"
 name = "cmux-memory"
 version = "0.1.0"
 dependencies = [
+ "cmux-threads",
  "libc",
 ]
 
@@ -894,6 +897,7 @@ dependencies = [
 name = "cmux-process"
 version = "0.1.0"
 dependencies = [
+ "cmux-threads",
  "libc",
  "wait-timeout",
 ]
@@ -1059,8 +1063,10 @@ dependencies = [
  "cmux-blocking",
  "cmux-build-identity",
  "cmux-config",
+ "cmux-features",
  "cmux-holder",
  "cmux-host",
+ "cmux-ipc",
  "cmux-link",
  "cmux-lock-rank",
  "cmux-panic-log",
@@ -1153,6 +1159,7 @@ dependencies = [
  "cmux-git",
  "cmux-history",
  "cmux-holder",
+ "cmux-ipc",
  "cmux-kitty-media",
  "cmux-layout-reducer",
  "cmux-link",
@@ -1175,6 +1182,7 @@ dependencies = [
  "cmux-tui-remote-access",
  "cmux-tui-util",
  "cmux-unix-socket",
+ "cmux-wake",
  "flate2",
  "fs4",
  "getrandom 0.3.4",
@@ -1326,6 +1334,14 @@ dependencies = [
 name = "cmux-unix-socket"
 version = "0.1.0"
 dependencies = [
+ "libc",
+]
+
+[[package]]
+name = "cmux-wake"
+version = "0.1.0"
+dependencies = [
+ "cmux-threads",
  "libc",
 ]
 
@@ -2078,6 +2094,7 @@ version = "0.1.0"
 dependencies = [
  "base64",
  "cmux-memory",
+ "flate2",
  "ghostty-vt-sys",
  "png",
 ]

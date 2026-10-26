@@ -69,7 +69,7 @@ final class InternalPageView: NSView {
         didSet {
             guard toolbarPosition != oldValue else { return }
             barEdge.activate(toolbarPosition)
-            needsLayout = true
+            needsLayout = true // invalidate: the bar moved to the other edge (the guard above).
         }
     }
     /// The constraints that put `topBar` above or below the content; one set is active.
@@ -234,7 +234,7 @@ final class InternalPageView: NSView {
     private func whenLaidOut(_ body: @escaping () -> Void) {
         guard bounds.isEmpty else { return body() }
         afterLayout = body
-        needsLayout = true
+        needsLayout = true // invalidate: `body` waits for the first layout with a size.
     }
 
     override func layout() {

@@ -21,7 +21,7 @@ final class FakeDiagrams: HomeDiagramRendering, @unchecked Sendable {
         images += 1
         guard let natural = layout(mermaid: source, maxWidth: maxWidth) else { return nil }
         let w = Int(natural.width * scale), h = Int(natural.height * scale)
-        guard let ctx = CGContext(data: nil, width: w, height: h, bitsPerComponent: 8, bytesPerRow: 0,
+        guard let ctx = CGContext.ownedBitmap(width: w, height: h, bitsPerComponent: 8, bytesPerRow: 0,
                                   space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
         else { return nil }
         ctx.setFillColor(CGColor(srgbRed: 1, green: 0, blue: 0, alpha: 1))
@@ -105,7 +105,7 @@ final class FakeDiagrams: HomeDiagramRendering, @unchecked Sendable {
         #expect(fake.images == 0, "measuring draws no pixels")
 
         let scale = 2
-        let ctx = try #require(CGContext(data: nil, width: Int(size.width) * scale, height: Int(size.height) * scale, bitsPerComponent: 8,
+        let ctx = try #require(CGContext.ownedBitmap(width: Int(size.width) * scale, height: Int(size.height) * scale, bitsPerComponent: 8,
                                          bytesPerRow: 0, space: CGColorSpace(name: CGColorSpace.sRGB)!,
                                          bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
         ctx.scaleBy(x: CGFloat(scale), y: CGFloat(scale))

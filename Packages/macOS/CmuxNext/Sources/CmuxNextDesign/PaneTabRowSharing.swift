@@ -34,6 +34,8 @@ extension PaneTabRowSharing {
     public func offerTabRow(height: CGFloat, trailingInset: CGFloat, in pane: NSView) {
         onTabRowToolsChange = { [weak self, weak pane] in
             guard let pane, let view = self as? NSView, view.isDescendant(of: pane) else { return }
+            // The pane that offered the row narrows its strip by the tools' new width.
+            // invalidate: the tools' width changed (the protocol calls this on a change only).
             pane.needsLayout = true
         }
         setTabRow(height: height, trailingInset: height > 0 ? trailingInset : 0)

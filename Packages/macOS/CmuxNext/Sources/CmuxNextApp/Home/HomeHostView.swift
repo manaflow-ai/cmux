@@ -270,9 +270,11 @@ final class HomeHostView: NSView {
             guard let self else { return }
             transcript.isHidden = !line.available
             message.isHidden = line.available || !line.explained
+            // `layout()` sizes the message to its text (hidden too); a change of anything else moves nothing.
+            let reworded = message.stringValue != line.why
             message.stringValue = line.why
             transcript.showConversationNotice(line.notice)
-            needsLayout = true
+            if reworded { needsLayout = true } // invalidate: the message's text changed.
             // H17: offline the user can type; tapbacks are off and a send waits as "sending".
             transcript.isSendEnabled = line.online
         })

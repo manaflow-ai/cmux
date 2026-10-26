@@ -1,7 +1,6 @@
 import AppKit
-import CmuxNextCompat
 import CmuxNextOnboarding
-import Observation
+import CmuxNextWakeups
 
 /// The onboarding step's view of Computer Use Setup (`ComputerUseSetup`):
 /// the same grants the Settings card and the palette action show, pushed
@@ -10,9 +9,13 @@ import Observation
 @MainActor
 final class AppComputerUsePermissionSource: ComputerUsePermissionSource {
     private let setup: ComputerUseSetup
+    private let mainWork: MainWorkScheduler
 
-    init(setup: ComputerUseSetup) {
+    /// - Parameter mainWork: The app's main-thread scheduler: a change of the grants reaches the step as one
+    ///   `visible` task on it.
+    init(setup: ComputerUseSetup, mainWork: MainWorkScheduler) {
         self.setup = setup
+        self.mainWork = mainWork
     }
 
     var helperAppURL: URL? { setup.helperAppURL }
@@ -20,17 +23,16 @@ final class AppComputerUsePermissionSource: ComputerUsePermissionSource {
     var helperAppIcon: NSImage? { setup.helperAppIcon }
 
     func permissions() -> AsyncStream<ComputerUsePermissions> {
-        let setup = setup
+        let setup = setup, mainWork = mainWork
         setup.recheck()
         let (stream, continuation) = AsyncStream<ComputerUsePermissions>.makeStream(bufferingPolicy: .bufferingNewest(1))
-        // task-owner: follows the setup's grants until the step's stream ends (onTermination cancels).
-        let task = Task { @MainActor in
-            for await value in ObservationStream({ setup.stepPermissions }) {
-                continuation.yield(value)
-            }
-            continuation.finish()
+        // `visible`: the step draws the grants; the current ones go out now. The stream's end releases the follower.
+        let grants = ServiceObservation(.visible, owner: "Onboarding.computerUsePermissions", on: mainWork) {
+            setup.stepPermissions
+        } apply: { continuation.yield($0) }
+        continuation.onTermination = { _ in
+            mainWork.postFromAnyThread(.visible, owner: "Onboarding.computerUsePermissions.end") { grants.cancel() }
         }
-        continuation.onTermination = { _ in task.cancel() }
         return stream
     }
 
