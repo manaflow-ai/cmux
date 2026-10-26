@@ -28,6 +28,7 @@ import { TerminalSquare } from "./icons";
 import { BackgroundHint } from "./BackgroundHint";
 import { useTranscriptDisclosure } from "./transcriptDisclosure";
 import { formatDuration } from "./turns";
+import { useSubsessionInfo } from "../subagents/subsessions";
 import { WAITING_LABEL, WaitingOnContext } from "./waitingOn";
 
 export const workingLabel = (t: Translate, at: number, now: number) =>
@@ -99,13 +100,17 @@ export function WorkingFor({ row, now = Date.now }: { row: AcpmuxRow; now?: () =
   const until = held ? row.at + row.durationMs! : time;
   // While the call's group is open, its own row under the line names it (turns.ts `ownRow`).
   const [groupOpen] = useTranscriptDisclosure(row.doingGroup ?? "", row.doingGroupOpen === true);
-  const doing = row.doingGroup && groupOpen ? undefined : row.doing;
+  const shown = row.doingGroup && groupOpen ? undefined : row.doing;
+  // A send in flight names who it goes to, not its command (acpmuxSends.ts, turns.ts `sendingTo`).
+  const sendName = useSubsessionInfo(row.doingSendSession)?.name ?? row.doingSendTo;
+  const sending = shown !== undefined && sendName !== undefined;
+  const doing = sending ? t("send.sending", { target: sendName }) : shown;
   const parts = counts ? workingParts(t, counts) : [];
   return (
     // Find counts and visits transcript rows only (chatFind.ts findMatches skips this row), so the
     // line is not painted either: the call it names is matched on its own tool row.
     <div className={row.below ? "cv-worked is-below" : "cv-worked has-divider"} data-find-skip>
-      {!waiting && doing && row.doingCommand && (
+      {!waiting && doing && row.doingCommand && !sending && (
         <span className="cv-worked__glyph" aria-hidden="true">
           <TerminalSquare />
         </span>

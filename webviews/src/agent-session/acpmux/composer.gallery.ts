@@ -9,6 +9,35 @@ import type { PlayContext } from "../../gallery/play";
 import type { AcpmuxSnapshot } from "./model";
 import type { SessionPullRequest } from "./sessionList";
 import { composerStatePlays } from "./composerStatePlays";
+import { SCREEN_RECORDING_POSTER_JPEG } from "../../gallery/fixtures/videoPoster";
+
+/// A screen recording on the Desktop, as the host's `video.info` reads it (AgentPaneVideoInfo.swift).
+const VIDEO_PATH = "/Users/dev/Desktop/Screen Recording 2026-10-25 at 10.42.13.mov";
+const VIDEO_INFO = {
+  durationMs: 42_400,
+  width: 1920,
+  height: 1080,
+  poster: `data:image/jpeg;base64,${SCREEN_RECORDING_POSTER_JPEG}`,
+  frames: [5300, 15900, 26500, 37100].map((atMs) => ({ atMs, data: SCREEN_RECORDING_POSTER_JPEG })),
+};
+
+/// Drops a screenshot and the screen recording on the composer, as Finder does (Leo's capture).
+function dropScreenshotAndVideo(ctx: PlayContext) {
+  const view = ctx.document.defaultView!;
+  const png = Uint8Array.from(
+    atob("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="),
+    (char) => char.charCodeAt(0),
+  );
+  const files = [
+    new view.File([png], "Screenshot.png", { type: "image/png" }),
+    new view.File([new Uint8Array([0, 0, 0, 0x14, 0x66, 0x74, 0x79, 0x70])], VIDEO_PATH.split("/").pop()!, {
+      type: "video/quicktime",
+    }),
+  ];
+  const drop = new view.Event("drop", { bubbles: true, cancelable: true });
+  Object.defineProperty(drop, "dataTransfer", { value: { files, types: ["Files"] } });
+  ctx.find({ selector: ".acpmux-md" }).dispatchEvent(drop);
+}
 
 // Claude desktop's box (Leo 2026-10-20): no Send until there is a draft, then Send comes in after the
 // mic, which moves one slot left. The plays that start a draft from an empty prompt measure that move.
@@ -674,6 +703,30 @@ export default agentPaneEntry({
         await ctx.waitFor(() => ctx.document.querySelector('[role="menu"]'));
       },
     },
+    // Austin (dogfood 2026-10-20): typing "1. " drew the list number with its left edge cut off.
+    // The marker hangs left of the item, and the editor scrolls, so it clips at the editor's edge.
+    "ordered-list-draft": {
+      note: "A numbered draft up to 10: every number draws whole inside the prompt, none cut at its left edge.",
+      ready: { draft: Array.from({ length: 10 }, (_, i) => `${i + 1}. Step ${i + 1}`).join("\n") },
+      snapshot: chat(finished),
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelectorAll(".acpmux-md ol > li").length === 10);
+        const editor = ctx.find({ selector: ".acpmux-md" });
+        const item = ctx.find({ selector: ".acpmux-md ol > li:last-child" });
+        // The widest marker ("10.", in the tabular digits markers use) plus WebKit's gap before the
+        // text must fit between the editor's clipping edge and the item's text.
+        const probe = ctx.document.createElement("span");
+        probe.textContent = "10.";
+        probe.style.position = "absolute";
+        probe.style.fontVariantNumeric = "tabular-nums";
+        editor.parentElement!.append(probe);
+        const fontSize = parseFloat(ctx.document.defaultView!.getComputedStyle(editor).fontSize);
+        const marker = probe.getBoundingClientRect().width + 1.2 * fontSize;
+        probe.remove();
+        const room = item.getBoundingClientRect().left - editor.getBoundingClientRect().left;
+        if (room < marker) throw new Error(`the list number needs ${marker}px but the prompt leaves ${room}px`);
+      },
+    },
     // Leo (dogfood 2026-10-08, 22-composer-image-chip.png): a pasted image draws as a cropped
     // thumbnail above the prompt, with a small × that shows on hover; a click opens the viewer.
     "image-attached": {
@@ -934,6 +987,41 @@ export default agentPaneEntry({
           throw new Error("a folder dropped in a chat on this Mac must link, not be refused");
       },
     },
+    "video-dropped": {
+      note: 'Leo, 2026-10-25: "also why dont we have previews of videos we should". A screen recording dropped from the Desktop beside a screenshot, in a chat on this Mac: the host knows its path (chat.attach.dropped) and reads its poster and length off its main thread (video.info), so its chip is the poster in the image\'s tile with a play glyph and "0:42"; a click plays it in Quick Look. Before, it was a bare file name.',
+      snapshot: chat(finished),
+      native: {
+        "chat.attach.dropped": {
+          items: [
+            { path: "/Users/dev/Desktop/Screenshot.png", folder: false },
+            { path: VIDEO_PATH, folder: false },
+          ],
+        },
+        "video.info": VIDEO_INFO,
+      },
+      play: async (ctx) => {
+        dropScreenshotAndVideo(ctx);
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-attachment-video img"));
+      },
+    },
+    "video-reading": {
+      note: "A dropped screen recording while the host still reads its poster: its tile spins in the shape it will have, its × removes it, and a send waits for it a few seconds at most (composer/videoAttachments.ts).",
+      snapshot: chat(finished),
+      native: {
+        "chat.attach.dropped": {
+          items: [
+            { path: "/Users/dev/Desktop/Screenshot.png", folder: false },
+            { path: VIDEO_PATH, folder: false },
+          ],
+        },
+        "video.info": VIDEO_INFO,
+      },
+      nativeDelayMs: { "video.info": 3_600_000 },
+      play: async (ctx) => {
+        dropScreenshotAndVideo(ctx);
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-attachment-image.acpmux-attachment-pending"));
+      },
+    },
     "attachment-loading": {
       note: "Leo, 2026-10-24: \"why don't you put a spinner on the attachment rather than this placeholder that doesn't do anything... I can't even cancel these\". A pasted screenshot is its chip as soon as its preview is made (in a worker), whatever its original's upload does; a file still uploading spins, and its × cancels it.",
       snapshot: chat(finished),
@@ -1116,7 +1204,7 @@ export default agentPaneEntry({
       }),
     },
     "queued-from-agent": {
-      note: "Another agent's message waiting behind the turn: its received line (the sender's mark, its name as a chip that opens its chat, the message as a card under it, cut to eight lines when longer), its actions (Steer, the trash can, ⋯) at the line's end; the person's prompt below is unchanged.",
+      note: "Another agent's message waiting behind the turn: no queue row; it is its received card in the transcript after the turn, Read after this turn, its actions (Steer, Edit message, Delete) in its ⋯ menu (QueuedMessageCard.tsx). The person's prompt is the queue's one row, unchanged.",
       snapshot: chat(working, {
         isWorking: true,
         queue: [
@@ -1130,7 +1218,7 @@ export default agentPaneEntry({
       }),
     },
     "queued-from-agent-open": {
-      note: "Play: the queued agent's message opened: the message as a glass card under its line, as Markdown, the queue as tall as it.",
+      note: "Play: the waiting agent's message opened in the transcript: its glass card under its line, as Markdown.",
       snapshot: chat(working, {
         isWorking: true,
         queue: [
@@ -1143,19 +1231,14 @@ export default agentPaneEntry({
         ],
       }),
       play: async (ctx) => {
-        await ctx.click({ selector: '.acpmux-queued[data-prompt-id="q1"] .cv-received__toggle' });
-        // Whole: the list fits its height to the opened card, not just a sliver of it.
-        await ctx.waitFor(() => {
-          const body = ctx.document.querySelector(".acpmux-queued .cv-received__body");
-          const list = ctx.document.querySelector(".acpmux-composer-queue");
-          return Boolean(
-            body && list && body.getBoundingClientRect().bottom <= list.getBoundingClientRect().bottom + 1,
-          );
-        });
+        await ctx.click({ selector: '[data-queued-message="q1"] .cv-received__toggle' });
+        await ctx.waitFor(() =>
+          ctx.document.querySelector('[data-queued-message="q1"] .cv-received__toggle[aria-expanded="true"]'),
+        );
       },
     },
     "queued-from-agent-lane-report": {
-      note: "Leo's lane report reference queued behind a running turn: sender header, rendered Markdown table and links, with the long body folded to eight lines.",
+      note: "Leo's lane report reference waiting behind a running turn: its received card in the transcript, sender header, rendered Markdown table and links, the long body folded to eight lines.",
       snapshot: chat(working, {
         isWorking: true,
         queue: [

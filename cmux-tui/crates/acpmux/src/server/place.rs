@@ -128,9 +128,10 @@ mod tests {
     }
 
     /// The sub-session's `auto` is the engine's verdict on this machine:
-    /// placed with `new --host auto`'s words, or refused with the host's reason.
+    /// placed with `new --host auto`'s words, past its room with a warning, or
+    /// refused when its role forbids the work.
     #[test]
-    fn a_sub_session_is_placed_here_only_when_the_engine_finds_room() {
+    fn a_sub_session_is_placed_here_unless_its_role_forbids_the_work() {
         let reg = json!({"machines": {"box": {"lanes": {"build": false, "reserved_gb": 8,
             "per_lane_gb": 4, "free_gb_floor": 20, "disk_per_lane_gb": 5, "max_lanes": 6}}}});
         let v = crate::placement::place(&here(health(40, 2)), Some(&reg), Work::Agent);
@@ -150,14 +151,18 @@ mod tests {
             e.message
         );
         assert_eq!(e.data.as_ref().unwrap()["reason"], "subsessions.no_room");
-        // Out of RAM: (10 - 8) / 4 is under one lane.
-        let v = crate::placement::place(&here(health(10, 0)), Some(&reg), Work::Agent);
-        let e = placed_here(&v).unwrap_err();
-        assert!(
-            e.message.contains("not placed on box: no room: RAM is the limit"),
-            "{}",
-            e.message
-        );
+        // Out of RAM ((10 - 8) / 4 is under one lane) or at its lane cap: it
+        // starts here all the same, and says so. Load and caps only warn.
+        for (ram, live, limit) in [(10, 0, "RAM"), (40, 6, "lanes")] {
+            let v = crate::placement::place(&here(health(ram, live)), Some(&reg), Work::Agent);
+            let placed = placed_here(&v).unwrap();
+            assert!(
+                placed.starts_with("placed on box: ")
+                    && placed.contains(&format!("no room: {limit} is the limit"))
+                    && placed.contains("only warn"),
+                "{placed}"
+            );
+        }
         // Not a lane host.
         let v = crate::placement::place(
             &here(health(40, 0)),

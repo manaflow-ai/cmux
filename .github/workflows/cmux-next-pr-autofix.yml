@@ -9,7 +9,7 @@ name: cmux-next PR autofix
 #
 # The action exports (plans/cmux-next/action-surfaces.json, actions.md,
 # links.json) and the settings exports (schemas/settings/settings-schema.json,
-# its source stamp, docs/mdm) need a Mac swift test: when the pull request
+# docs/mdm) need a Mac swift test: when the pull request
 # changes their inputs (autofix-areas.sh: actions, settings), action-exports
 # regenerates them on a Mac (scripts/cmux-next/regenerate-action-exports.sh,
 # regenerate-settings-exports.sh) and repair copies them in before it rewrites
@@ -262,9 +262,9 @@ jobs:
             echo "exports=true" >> "$GITHUB_OUTPUT"
           fi
 
-      # The settings exports and their source stamp, as cmux-next-base-autofix.yml
-      # regenerates them after a merge. The script copies each export before its
-      # final stamp check, so it writes into a folder of its own, and the files
+      # The settings exports, as cmux-next-base-autofix.yml regenerates them after
+      # a merge. The script copies each export before its final freshness check
+      # (each export rewritten by this run), so it writes into a folder of its own, and the files
       # join the action-exports artifact only when the whole regeneration
       # succeeded: a failed one hands repair nothing half-made.
       - name: Regenerate the settings exports
