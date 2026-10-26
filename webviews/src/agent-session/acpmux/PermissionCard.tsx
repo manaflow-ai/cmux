@@ -107,7 +107,9 @@ export function PermissionCard({
   waiting = 0,
 }: {
   permission: AcpmuxPermission;
-  onAnswer(optionId: string): void;
+  /// Sends the answer. A promise that rejects means acpmux refused it (already answered elsewhere,
+  /// withdrawn, a policy change): the card says so and its keys answer again.
+  onAnswer(optionId: string): void | Promise<unknown>;
   /// Denies with `optionId`, then gives the agent `text` (empty: only denies). False when acpmux
   /// refused the deny: the field stays, with what was typed.
   onDenyWithFeedback?(optionId: string, text: string): Promise<boolean>;
@@ -199,11 +201,20 @@ export function PermissionCard({
   // snapshot clears the ask, so the keyboard answers each ask once. A click always answers (an
   // answer acpmux never heard can be given again).
   const answered = useRef<string | undefined>(undefined);
+  /// The ask whose last answer acpmux refused: the card says so until the next answer.
+  const [refused, setRefused] = useState<string>();
   // After an answer the keyboard goes back to the composer, so a stray key never answers the next
   // ask in line.
   const answer = (option: PermissionOption) => {
-    onAnswer(option.id);
+    const permissionId = permission.permissionId;
+    setRefused(undefined);
+    const sent = onAnswer(option.id);
     focusComposer?.();
+    // A refusal is never silent, and never leaves the keys spent on an ask still waiting.
+    sent?.catch(() => {
+      if (answered.current === permissionId) answered.current = undefined;
+      setRefused(permissionId);
+    });
   };
   const answerByKey = (option: PermissionOption) => {
     if (answered.current === permission.permissionId) return;
@@ -377,6 +388,11 @@ export function PermissionCard({
             );
           })}
         </div>
+      )}
+      {!writing && refused === permission.permissionId && (
+        <p className="acpmux-permission-refused" role="alert">
+          {t("permission.error.refused")}
+        </p>
       )}
       {!writing && scopeLine && (
         <p className="acpmux-permission-scope" data-scope-kind={permission.scope?.kind} title={scopeLine}>
