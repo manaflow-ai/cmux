@@ -4,11 +4,13 @@
 //! terminal and no daemon for a while. It leaves the daemon's session
 //! first, and ignores the hang-up, interrupt and termination signals a
 //! daemon's exit or a cleanup script would send: only an explicit CLOSE
-//! ends a terminal.
+//! ends a terminal. Each panic is a line in `holder-panics.jsonl` beside
+//! the socket (`cmux_holder::install_panic_log`).
 
 #[cfg(unix)]
 fn main() -> std::process::ExitCode {
     let args = std::env::args().skip(1).collect::<Vec<_>>();
+    cmux_holder::install_panic_log(&args);
     match cmux_holder::serve(&args) {
         Ok(()) => std::process::ExitCode::SUCCESS,
         Err(error) => {

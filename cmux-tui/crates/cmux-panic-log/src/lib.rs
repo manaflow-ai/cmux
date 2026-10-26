@@ -14,9 +14,20 @@
 //! `message`, `location` (`file:line:col`), `thread`, `at_ms`, `test`
 //! (true for a debug test panic, which the app never sends) and
 //! `backtrace` (at most [`MAX_BACKTRACE_BYTES`]).
+//!
+//! The `json` feature (default) builds lines with serde_json. The `minimal`
+//! feature writes the same line format with std alone ([`minimal`]), for a
+//! process whose dependencies stay std and libc (the holder).
 
+#[cfg(feature = "minimal")]
+pub mod minimal;
+
+#[cfg(any(feature = "json", feature = "minimal"))]
 use std::io::Write;
-use std::path::{Path, PathBuf};
+#[cfg(any(feature = "json", feature = "minimal"))]
+use std::path::Path;
+#[cfg(feature = "json")]
+use std::path::PathBuf;
 
 /// Largest backtrace kept per line.
 pub const MAX_BACKTRACE_BYTES: usize = 16 * 1024;
@@ -24,10 +35,12 @@ pub const MAX_BACKTRACE_BYTES: usize = 16 * 1024;
 pub const MAX_LOG_BYTES: u64 = 1024 * 1024;
 
 /// Fields every line carries besides the panic itself (process, pid, version).
+#[cfg(feature = "json")]
 pub type Fields = serde_json::Map<String, serde_json::Value>;
 
 /// Install a hook that appends each panic to `path`, then runs the previous
 /// hook. `is_test_thread` marks lines from a debug test trigger (`"test": true`).
+#[cfg(feature = "json")]
 pub fn install(path: PathBuf, fields: Fields, is_test_thread: fn(&str) -> bool) {
     install_with_opener(move || open_append(&path), fields, is_test_thread);
 }
@@ -35,6 +48,7 @@ pub fn install(path: PathBuf, fields: Fields, is_test_thread: fn(&str) -> bool) 
 /// Install the hook with a caller-owned secure opener. A daemon whose state
 /// has an ownership/DACL policy can enforce it on the exact handle written by
 /// the panic hook instead of validating a pathname separately.
+#[cfg(feature = "json")]
 pub fn install_with_opener(
     opener: impl Fn() -> std::io::Result<std::fs::File> + Send + Sync + 'static,
     fields: Fields,
@@ -42,6 +56,60 @@ pub fn install_with_opener(
 ) {
     let previous = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
+        let panic = Panic::capture(info, is_test_thread);
+        let line = record(
+            &fields,
+            &panic.message,
+            &panic.location,
+            &panic.thread,
+            panic.test,
+            panic.backtrace,
+        );
+        append_line(&opener, format!("{line}\n").as_bytes());
+        previous(info);
+    }));
+}
+
+/// One log line's JSON: `fields` plus the panic's own keys (which win).
+#[cfg(feature = "json")]
+pub fn record(
+    fields: &Fields,
+    message: &str,
+    location: &str,
+    thread: &str,
+    test: bool,
+    mut backtrace: String,
+) -> serde_json::Value {
+    truncate_backtrace(&mut backtrace);
+    let mut line = fields.clone();
+    line.insert("message".into(), message.into());
+    line.insert("location".into(), location.into());
+    line.insert("thread".into(), thread.into());
+    line.insert("at_ms".into(), serde_json::json!(now_ms()));
+    line.insert("test".into(), test.into());
+    line.insert("backtrace".into(), backtrace.into());
+    serde_json::Value::Object(line)
+}
+
+/// Append `record` as one line, unless the log is full. Never panics.
+#[cfg(feature = "json")]
+pub fn append(path: &Path, record: &serde_json::Value) {
+    append_line(&|| open_append(path), format!("{record}\n").as_bytes());
+}
+
+/// The panic's own keys of a line, read inside the hook.
+#[cfg(any(feature = "json", feature = "minimal"))]
+struct Panic {
+    message: String,
+    location: String,
+    thread: String,
+    test: bool,
+    backtrace: String,
+}
+
+#[cfg(any(feature = "json", feature = "minimal"))]
+impl Panic {
+    fn capture(info: &std::panic::PanicHookInfo<'_>, is_test_thread: fn(&str) -> bool) -> Self {
         let thread = std::thread::current().name().unwrap_or("unnamed").to_string();
         let message = info
             .payload()
@@ -52,20 +120,13 @@ pub fn install_with_opener(
         let location = info.location().map(ToString::to_string).unwrap_or_default();
         let backtrace = std::backtrace::Backtrace::force_capture().to_string();
         let test = is_test_thread(&thread);
-        append_opened(&opener, &record(&fields, &message, &location, &thread, test, backtrace));
-        previous(info);
-    }));
+        Self { message, location, thread, test, backtrace }
+    }
 }
 
-/// One log line's JSON: `fields` plus the panic's own keys (which win).
-pub fn record(
-    fields: &Fields,
-    message: &str,
-    location: &str,
-    thread: &str,
-    test: bool,
-    mut backtrace: String,
-) -> serde_json::Value {
+/// Cut `backtrace` to [`MAX_BACKTRACE_BYTES`] on a char boundary.
+#[cfg(any(feature = "json", feature = "minimal"))]
+fn truncate_backtrace(backtrace: &mut String) {
     if backtrace.len() > MAX_BACKTRACE_BYTES {
         let mut end = MAX_BACKTRACE_BYTES;
         while !backtrace.is_char_boundary(end) {
@@ -73,25 +134,18 @@ pub fn record(
         }
         backtrace.truncate(end);
     }
-    let at_ms = std::time::SystemTime::now()
+}
+
+/// Milliseconds since the Unix epoch: a line's `at_ms`.
+#[cfg(any(feature = "json", feature = "minimal"))]
+fn now_ms() -> u128 {
+    std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|elapsed| elapsed.as_millis())
-        .unwrap_or_default();
-    let mut line = fields.clone();
-    line.insert("message".into(), message.into());
-    line.insert("location".into(), location.into());
-    line.insert("thread".into(), thread.into());
-    line.insert("at_ms".into(), serde_json::json!(at_ms));
-    line.insert("test".into(), test.into());
-    line.insert("backtrace".into(), backtrace.into());
-    serde_json::Value::Object(line)
+        .unwrap_or_default()
 }
 
-/// Append `record` as one line, unless the log is full. Never panics.
-pub fn append(path: &Path, record: &serde_json::Value) {
-    append_opened(&|| open_append(path), record);
-}
-
+#[cfg(any(feature = "json", feature = "minimal"))]
 fn open_append(path: &Path) -> std::io::Result<std::fs::File> {
     let mut options = std::fs::OpenOptions::new();
     options.create(true).append(true);
@@ -122,12 +176,14 @@ fn open_append(path: &Path) -> std::io::Result<std::fs::File> {
     Ok(file)
 }
 
-fn append_opened(opener: &impl Fn() -> std::io::Result<std::fs::File>, record: &serde_json::Value) {
+/// Append one whole line (newline included), unless the log is full.
+#[cfg(any(feature = "json", feature = "minimal"))]
+fn append_line(opener: &impl Fn() -> std::io::Result<std::fs::File>, line: &[u8]) {
     if let Ok(mut file) = opener() {
         if file.metadata().is_ok_and(|meta| meta.len() >= MAX_LOG_BYTES) {
             return;
         }
         // One write per line, so concurrent panics never interleave a line.
-        let _ = file.write_all(format!("{record}\n").as_bytes());
+        let _ = file.write_all(line);
     }
 }

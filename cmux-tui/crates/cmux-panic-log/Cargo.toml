@@ -10,7 +10,17 @@ description = "The panic log of cmux's background processes: one JSON line per p
 [lints]
 workspace = true
 
+[features]
+default = ["json", "minimal"]
+# The serde_json writer: `Fields`, `install`, `record`, `append`.
+json = ["dep:serde_json"]
+# The std-only writer (`minimal`) for processes that must stay std and libc (the holder).
+minimal = []
+
 [dependencies]
+serde_json = { workspace = true, optional = true }
+
+[dev-dependencies]
 serde_json.workspace = true
 
 [target.'cfg(unix)'.dependencies]

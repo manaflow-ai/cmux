@@ -195,6 +195,33 @@ pub fn parse_version_line(line: &str) -> Option<(u16, u16)> {
 /// only when it can take it exclusively.
 pub const IN_USE_LOCK: &str = "in-use.lock";
 
+/// The panic log's name, beside the socket: in the private
+/// `/tmp/cmux-hd-<uid>` directory of the daemon's holders, which the app
+/// reads (`RustPanicSource.holder`).
+pub const PANIC_LOG: &str = "holder-panics.jsonl";
+
+/// The panic log of a holder run with `args`: [`PANIC_LOG`] in the
+/// directory of its `--socket`, `None` without one.
+pub fn panic_log_path(args: &[String]) -> Option<PathBuf> {
+    let socket = args.iter().position(|arg| arg == "--socket").and_then(|at| args.get(at + 1))?;
+    let directory = std::path::Path::new(socket).parent()?;
+    (!directory.as_os_str().is_empty()).then(|| directory.join(PANIC_LOG))
+}
+
+/// Install the holder's panic hook for a run with `args` (stderr is
+/// `/dev/null`): each panic is one JSON line in [`panic_log_path`], written by
+/// cmux-panic-log's std-only writer. It opens no descriptor until a panic.
+pub fn install_panic_log(args: &[String]) {
+    let Some(path) = panic_log_path(args) else { return };
+    let mut fields = cmux_panic_log::minimal::Fields::new();
+    fields.insert("process", "cmux-holder");
+    fields.insert("holder_pid", std::process::id());
+    fields.insert("wire", version_line());
+    fields.insert("os", std::env::consts::OS);
+    fields.insert("arch", std::env::consts::ARCH);
+    cmux_panic_log::minimal::install(path, fields, |_| false);
+}
+
 /// Run a holder process: `--socket PATH` (and `--idle-exit-ms N`, the idle
 /// exit; default [`holder::IDLE_EXIT`]), the owner token as 64 hex
 /// characters on stdin, `ready` on stdout once it listens. `--version`
