@@ -293,6 +293,28 @@ test("a search for a running model whose provider is unavailable lands an availa
   expect(landed).toEqual(["openrouter/deepseek/deepseek-v4-pro"]);
 });
 
+test("Starred lands an available provider when the running one is unavailable", async () => {
+  const catalog = [
+    {
+      ...openCode[0]!,
+      models: openCode[0]!.models.map((model) =>
+        model.id === "opencode/deepseek-v4-pro" ? { ...model, unavailable: "Not on this plan" } : model,
+      ),
+    },
+  ];
+  dom.window.localStorage.setItem(
+    "cmux.model-picker.favorites",
+    JSON.stringify(["opencode/deepseek-v4-pro", "openrouter/deepseek/deepseek-v4-pro"]),
+  );
+  await mount("opencode/deepseek-v4-pro", { catalog, fixed: false });
+  const starred = menus()[0]!.querySelector<HTMLButtonElement>('.acpmux-quick-rail-tab[aria-label="Starred"]')!;
+  await act(async () => starred.click());
+  const rows = modelRows(menus()[0]!);
+  expect(rows.map(nameOf)).toEqual(["DeepSeek V4 Pro"]);
+  expect(rows[0]!.hasAttribute("data-disabled")).toBe(false);
+  expect(detailOf(rows[0]!)).toBe("OpenRouter");
+});
+
 test("a New Tab row of a model lands an available provider when the first one is unavailable", async () => {
   const catalog = [
     {
