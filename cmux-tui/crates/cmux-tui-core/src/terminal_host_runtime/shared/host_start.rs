@@ -193,7 +193,7 @@ pub(crate) fn start_host_runtime(
                 &mut kitty_media,
                 &mut kitty_scratch,
             );
-            if read == PtyRead::End {
+            if read.ends() {
                 break;
             }
         }
@@ -259,20 +259,34 @@ pub(crate) fn start_host_runtime(
 /// Bytes per PTY read, and the most one Output frame carries.
 const PTY_READ_BYTES: usize = 64 * 1024;
 
-/// What one [`read_pty_once`] did.
+/// What one [`read_pty_once`] did; its value is the `task.host_pty_read` end's arg1.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[repr(u8)]
 pub(crate) enum PtyRead {
     /// Output was read and published.
-    Published,
+    Published = 0,
     /// Nothing to read yet (interrupted, or would block): wait again.
-    Retry,
-    /// End of file, a read error, or the parser is gone: the reader ends.
-    End,
+    Retry = 1,
+    /// End of file: the reader ends.
+    Eof = 2,
+    /// A read error: the reader ends.
+    Failed = 3,
+    /// Output was read but the parser is gone: the reader ends.
+    ParserGone = 4,
+}
+
+impl PtyRead {
+    /// Whether the reader stops after this read.
+    pub(crate) fn ends(self) -> bool {
+        !matches!(self, PtyRead::Published | PtyRead::Retry)
+    }
 }
 
 /// One item of the `terminal-host-pty` thread, after its readiness wait: a read of the PTY and
 /// its publication, as one `task.host_pty_read` slice (terminal hash; its end carries the bytes
-/// read). Chrome's task scope covers the run, not the wait (`ThreadControllerImpl::RunTask`).
+/// read and the [`PtyRead`] outcome). Chrome's task scope covers the run, not the wait
+/// (`TaskAnnotator::RunTask` in base/task/common/task_annotator.cc, called from
+/// `ThreadControllerWithMessagePumpImpl::DoWork`).
 pub(crate) fn read_pty_once(
     host: &HostShared,
     reader: &mut (impl Read + ?Sized),
@@ -285,27 +299,27 @@ pub(crate) fn read_pty_once(
         "task.host_pty_read",
         cmux_trace::terminal_hash(host.terminal_id.as_bytes())
     );
-    let count = match reader.read(buffer) {
-        Ok(0) => return PtyRead::End,
-        Ok(count) => count,
+    let (count, outcome) = match reader.read(buffer) {
+        Ok(0) => (0, PtyRead::Eof),
+        Ok(count) => {
+            cmux_flow_trace::hop_id("host.pty.read", 0, host.terminal_id.as_bytes());
+            let read = buffer.get(..count).unwrap_or(&*buffer);
+            let published =
+                publish_pty_output(host, kitty_media.rewrite_borrowed(read, kitty_scratch));
+            (count, if published { PtyRead::Published } else { PtyRead::ParserGone })
+        }
         Err(error)
             if matches!(
                 error.kind(),
                 std::io::ErrorKind::Interrupted | std::io::ErrorKind::WouldBlock
             ) =>
         {
-            return PtyRead::Retry;
+            (0, PtyRead::Retry)
         }
-        Err(_) => return PtyRead::End,
+        Err(_) => (0, PtyRead::Failed),
     };
-    scope.set_end_args(count, 0u64);
-    cmux_flow_trace::hop_id("host.pty.read", 0, host.terminal_id.as_bytes());
-    let read = buffer.get(..count).unwrap_or(&*buffer);
-    if publish_pty_output(host, kitty_media.rewrite_borrowed(read, kitty_scratch)) {
-        PtyRead::Published
-    } else {
-        PtyRead::End
-    }
+    scope.set_end_args(count, outcome as u8);
+    outcome
 }
 
 /// Publishes PTY output to viewers and the parser in frames of at most one

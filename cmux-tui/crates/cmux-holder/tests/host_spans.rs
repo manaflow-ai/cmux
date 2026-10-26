@@ -152,24 +152,25 @@ fn host_spans_holder_records_its_turns_and_pty_bytes_only_while_recording() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-/// The holder links std and libc only: its own dependencies are libc and the std+libc trace
-/// crates, and theirs are libc alone.
+/// The holder links std and libc only: its resolved normal dependency graph, on every target and
+/// with the features the workspace turns on, is the holder, libc and the std+libc trace crates.
 #[test]
 fn host_spans_holder_dependencies_stay_std_and_libc() {
-    let crates = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
-    let dependencies = |name: &str| -> Vec<String> {
-        let manifest = std::fs::read_to_string(crates.join(name).join("Cargo.toml")).unwrap();
-        let section = manifest.split("\n[dependencies]\n").nth(1).unwrap_or("");
-        section
-            .lines()
-            .take_while(|line| !line.starts_with('['))
-            .filter(|line| !line.trim().is_empty() && !line.starts_with('#'))
-            .filter_map(|line| line.split(['.', ' ', '=']).next())
-            .map(str::to_owned)
-            .collect()
-    };
-    assert_eq!(dependencies("cmux-holder"), ["cmux-flow-trace", "cmux-trace", "libc"]);
-    for trace in ["cmux-flow-trace", "cmux-trace"] {
-        assert_eq!(dependencies(trace), ["libc"], "{trace} links more than libc");
-    }
+    let cargo = std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into());
+    let output = std::process::Command::new(cargo)
+        .current_dir(env!("CARGO_MANIFEST_DIR"))
+        .args(["tree", "-p", "cmux-holder", "-e", "normal", "--target", "all"])
+        .args(["--prefix", "none", "--format", "{p}", "--offline", "--locked"])
+        .output()
+        .expect("cargo tree runs");
+    assert!(output.status.success(), "cargo tree: {}", String::from_utf8_lossy(&output.stderr));
+    let packages: std::collections::BTreeSet<String> = String::from_utf8(output.stdout)
+        .unwrap()
+        .lines()
+        .filter_map(|line| line.split_whitespace().next())
+        .map(str::to_owned)
+        .collect();
+    let expected = ["cmux-flow-trace", "cmux-holder", "cmux-trace", "libc"];
+    let expected = std::collections::BTreeSet::from(expected.map(str::to_owned));
+    assert_eq!(packages, expected, "the holder links more than libc");
 }

@@ -93,6 +93,25 @@ pub(crate) struct HostShared {
     pub(crate) fail_next_resize_publication: AtomicBool,
 }
 
+/// What one [`HostShared::write_input`] did with its payload: the `task.host_input_write` end's
+/// arg1 (its arg0 is the bytes that reached the PTY).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[repr(u8)]
+pub(crate) enum InputWrite {
+    /// Written to the PTY whole.
+    Written = 0,
+    /// Interactive wheel or motion input the child's input queue had no room for: not written.
+    Dropped = 1,
+    /// The write failed.
+    Failed = 2,
+}
+
+impl InputWrite {
+    fn bytes_written(self, payload: &[u8]) -> usize {
+        if self == InputWrite::Written { payload.len() } else { 0 }
+    }
+}
+
 impl HostShared {
     pub(crate) fn mark_launch_owner_stream_ready(&self) {
         let _gate = self.launch_owner_stream_gate.0.lock().recover_poison();
@@ -368,7 +387,7 @@ impl HostShared {
         cmux_flow_trace::hop_id("host.pty.write", 0, self.terminal_id.as_bytes());
         let delivered = {
             // Declared before the writer guard, so its end is written after the lock is released.
-            let _write = cmux_trace::trace_scope!(
+            let mut write = cmux_trace::trace_scope!(
                 task,
                 "task.host_input_write",
                 cmux_trace::terminal_hash(self.terminal_id.as_bytes()),
@@ -381,7 +400,15 @@ impl HostShared {
                 let master = self.master.lock().recover_poison();
                 crate::pty_input_room::admits(&**master, payload)
             };
-            !admitted || writer.write_all(payload).and_then(|()| writer.flush()).is_ok()
+            let outcome = if !admitted {
+                InputWrite::Dropped
+            } else if writer.write_all(payload).and_then(|()| writer.flush()).is_ok() {
+                InputWrite::Written
+            } else {
+                InputWrite::Failed
+            };
+            write.set_end_args(outcome.bytes_written(payload), outcome as u8);
+            outcome != InputWrite::Failed
         };
         // Interactive input has always been best-effort. Only a nonzero
         // request id asks the authoritative host to certify delivery.
