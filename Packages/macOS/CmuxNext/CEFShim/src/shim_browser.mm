@@ -34,6 +34,27 @@ int cmux_shim_create_window(int request, void* parent_view, int width, int heigh
   return CefBrowserHost::CreateBrowser(info, MakeClient(request), url ? url : "", settings, nullptr, context) ? 1 : 0;
 }
 
+int cmux_shim_placeholder_supported(void) {
+  return fork_api().tab_renderer_state ? 1 : 0;
+}
+
+int cmux_shim_create_placeholder_window(int request, void* parent_view, int width, int height,
+                                        const char* profile_cache_path) {
+  if (!parent_view || stopping() || !cmux_shim_placeholder_supported()) {
+    return 0;
+  }
+  CefWindowInfo info;
+  info.SetAsChild((__bridge CefWindowHandle)(__bridge NSView*)parent_view, CefRect(0, 0, width, height));
+  info.runtime_style = CEF_RUNTIME_STYLE_CHROME;
+  CefBrowserSettings settings;
+  settings.background_color = BackgroundColor();
+  // CMUX_EXTRA_INFO_NO_RENDERER (include/cef_cmux.h): honored with an empty URL only.
+  CefRefPtr<CefDictionaryValue> extra_info = CefDictionaryValue::Create();
+  extra_info->SetBool("cmux_no_renderer", true);
+  CefRefPtr<CefRequestContext> context = RequestContextFor(profile_cache_path ? profile_cache_path : "");
+  return CefBrowserHost::CreateBrowser(info, MakeClient(request), "", settings, extra_info, context) ? 1 : 0;
+}
+
 int cmux_shim_tab_add(int window_browser_id, const char* url, int index, int activate) {
   if (stopping()) return 0;
   return fork_api().tab_add ? fork_api().tab_add(window_browser_id, url ? url : "", index, activate) : 0;
