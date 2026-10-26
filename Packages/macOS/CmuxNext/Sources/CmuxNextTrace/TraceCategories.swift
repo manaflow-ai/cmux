@@ -87,6 +87,21 @@ public struct TraceCategories: OptionSet, Sendable, Hashable {
 
     /// Every category of the table.
     public static let all: TraceCategories = blackBox.union(recordingAdds)
+
+    /// The categories that time a person's typing (rule 5 of plans/cmux-next/chrome-parity/p09-observability.md,
+    /// task 128): off while secure keyboard entry or a Ghostty password prompt is on, in the black box and in a
+    /// local recording. Chrome turns on `EnableSecureEventInput` for a focused password field the same way
+    /// (ui/base/cocoa/secure_password_input.mm).
+    public static let keyTiming: TraceCategories = .key
+
+    /// The categories no upload carries (``TraceBlackBoxUpload``): key timing and the per-input events.
+    public static let neverUploaded: TraceCategories = [.key, .input]
+
+    /// The set that records: this one without ``keyTiming`` while the keystroke-timing gate is closed.
+    @inlinable
+    public func gated(keyTimingSuppressed: Bool) -> TraceCategories {
+        keyTimingSuppressed ? subtracting(.keyTiming) : self
+    }
 }
 
 extension TraceRuntime {
@@ -103,7 +118,8 @@ extension TraceRuntime {
         categoryMask & categories.rawValue != 0
     }
 
-    /// Replaces the categories that record (launch defaults, `trace.start`, `trace.stop`, the secure-input gate).
+    /// Replaces the categories asked for (launch defaults, `trace.start`, `trace.stop`); ``TraceCategories/keyTiming``
+    /// still records only while the keystroke-timing gate is open (``setKeyTimingSuppressed(_:)``).
     public func setCategories(_ categories: TraceCategories) {
         setCategoryMask(categories.rawValue)
     }

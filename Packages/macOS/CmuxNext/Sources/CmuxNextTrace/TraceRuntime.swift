@@ -38,6 +38,11 @@ public final class TraceRuntime: Sendable {
     /// One bit per category (`SignpostCategory.traceBit`, ``TraceCategories``); a trace point records only
     /// while its bit is set. Usable from inline code so a trace point in another module inlines the check.
     @usableFromInline let categoryFlags = Atomic<UInt64>(0)
+    /// The categories last asked for (launch defaults, `trace.start`, `trace.stop`), before the keystroke-timing
+    /// gate; ``categoryFlags`` is this word without ``TraceCategories/keyTiming`` while the gate is closed.
+    private let requestedFlags = Atomic<UInt64>(0)
+    /// Whether the keystroke-timing gate is closed: secure keyboard entry or a Ghostty password prompt is on.
+    private let keyTimingGateClosed = Atomic<Bool>(false)
     /// The records the `write` methods let through their category gate while no ring is attached, so a
     /// test's runtime with no ring can see the gate.
     let stubRecordCount = Atomic<UInt64>(0)
@@ -107,11 +112,44 @@ public final class TraceRuntime: Sendable {
     @inlinable
     public var categoryMask: UInt64 { categoryFlags.load(ordering: .relaxed) }
 
-    /// Replaces the category flags (launch defaults, `trace.start`, `trace.stop`, the secure-input gate) and
-    /// mirrors them into the attached ring's header `categories` (trace.md "Header": mirrored on each change).
+    /// Replaces the requested category flags (launch defaults, `trace.start`, `trace.stop`) and mirrors what
+    /// records into the attached ring's header `categories` (trace.md "Header": mirrored on each change). The
+    /// key category stays off while the keystroke-timing gate is closed (``setKeyTimingSuppressed(_:)``).
     public func setCategoryMask(_ mask: UInt64) {
-        categoryFlags.store(mask, ordering: .relaxed)
-        attachedRing?._withUnsafeGuaranteedRef { $0.mirrorCategories(mask) }
+        requestedFlags.store(mask, ordering: .sequentiallyConsistent)
+        publishCategories()
+    }
+
+    /// The category flags last asked for, before the keystroke-timing gate.
+    public var requestedCategoryMask: UInt64 { requestedFlags.load(ordering: .sequentiallyConsistent) }
+
+    /// Closes (`true`) or opens the keystroke-timing gate (plans/cmux-next/chrome-parity/p09-observability.md
+    /// rule 5, task 128): while it is closed no record of ``TraceCategories/keyTiming`` is written, in the
+    /// black box or a recording, whatever `trace.start` asked for. Secure keyboard entry turns it on and off.
+    public func setKeyTimingSuppressed(_ suppressed: Bool) {
+        keyTimingGateClosed.store(suppressed, ordering: .sequentiallyConsistent)
+        publishCategories()
+    }
+
+    /// Whether the keystroke-timing gate is closed.
+    public var isKeyTimingSuppressed: Bool { keyTimingGateClosed.load(ordering: .sequentiallyConsistent) }
+
+    /// Stores the flags for the current request and gate, again until neither changed under the store: the
+    /// gate turns on the main thread and a recording starts on any thread, so the last store of racing writers
+    /// matches the last change, with no lock on either side.
+    private func publishCategories() {
+        // wakeup-allow: never waits; it stores again only when another writer changed the request or the gate between its loads and its store.
+        while true {
+            let requested = requestedFlags.load(ordering: .sequentiallyConsistent)
+            let suppressed = keyTimingGateClosed.load(ordering: .sequentiallyConsistent)
+            let mask = TraceCategories(rawValue: requested).gated(keyTimingSuppressed: suppressed).rawValue
+            categoryFlags.store(mask, ordering: .sequentiallyConsistent)
+            if requestedFlags.load(ordering: .sequentiallyConsistent) == requested,
+               keyTimingGateClosed.load(ordering: .sequentiallyConsistent) == suppressed {
+                attachedRing?._withUnsafeGuaranteedRef { $0.mirrorCategories(mask) }
+                return
+            }
+        }
     }
 
     /// Whether category bit `bit` records: one relaxed load and one branch, the cost of a trace point
@@ -321,7 +359,8 @@ extension TraceRuntime {
         public var categoryMask: UInt64
         /// The recording ring's size in records (capped by role).
         public var recordCapacity: Int
-        /// Whether per-key records and key flows are on (off by default; never while secure input is on).
+        /// Whether per-key records and key flows are on (off by default; never while secure input is on:
+        /// ``TraceRuntime/isKeyTimingSuppressed``).
         public var keys: Bool
 
         /// A request.
