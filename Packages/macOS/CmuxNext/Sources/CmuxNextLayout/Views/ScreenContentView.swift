@@ -310,7 +310,7 @@ final class ScreenContentView: NSView {
             } else {
                 view = DividerHandleView(kind: kind, axis: target.axis)
                 view.onDrag = { [weak self] event in self?.handleDrag(kind: kind, event: event) }
-                view.onPointerChange = { [weak self] in self?.refreshDividerHover() }
+                view.onPointerChange = { [weak self] event in self?.refreshDividerHover(at: event) }
                 addSubview(view)
                 dividerViews[kind] = view
             }
