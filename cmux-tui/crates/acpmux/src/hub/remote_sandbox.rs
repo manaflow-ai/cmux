@@ -210,12 +210,11 @@ async fn claude_credential(
     }
     if !cfg!(target_os = "macos") || !keychain_login_allowed() {
         #[cfg(target_os = "linux")]
-        if keychain_login_allowed() {
-            if let Some(token) =
+        if keychain_login_allowed()
+            && let Some(token) =
                 linux_credential_file(&dirs::home_dir().ok_or("no home directory")?)?
-            {
-                return Ok(Some(("CLAUDE_CODE_OAUTH_TOKEN", token)));
-            }
+        {
+            return Ok(Some(("CLAUDE_CODE_OAUTH_TOKEN", token)));
         }
         return Ok(None);
     }
@@ -682,19 +681,17 @@ fn linux_keeper_args_with_exe(
         out.push(value.to_string_lossy().into_owned());
     }
     out.extend(["--proxy-port".into(), "8118".into()]);
-    if let Some((port, loopback)) = bound.api_port {
-        if loopback {
-            let host = bound
-                .endpoint
-                .as_ref()
-                .and_then(|e| e.url.split("//").nth(1))
-                .and_then(|authority| authority.split(['/', '?', '#']).next())
-                .unwrap_or_default();
-            if host.starts_with('[') || host == "::1" {
-                return Err("IPv6 loopback API routes are unavailable until the keeper handshake carries the family".into());
-            }
-            out.extend(["--api-port".into(), port.to_string(), "--api-loopback-v4".into()]);
+    if let Some((port, true)) = bound.api_port {
+        let host = bound
+            .endpoint
+            .as_ref()
+            .and_then(|e| e.url.split("//").nth(1))
+            .and_then(|authority| authority.split(['/', '?', '#']).next())
+            .unwrap_or_default();
+        if host.starts_with('[') || host == "::1" {
+            return Err("IPv6 loopback API routes are unavailable until the keeper handshake carries the family".into());
         }
+        out.extend(["--api-port".into(), port.to_string(), "--api-loopback-v4".into()]);
     }
     out.push("--".into());
     out.push("/usr/bin/env".into());
@@ -783,7 +780,12 @@ pub(super) async fn canary(exec: &Path, bound: &Bound, linux: bool) -> Result<()
         .collect::<Vec<_>>();
     #[cfg(target_os = "linux")]
     let (program, args) = if linux {
-        linux_keeper_args_with_exe(bound, "/bin/bash".into(), canary_args, exec)?
+        linux_keeper_args_with_exe(
+            bound,
+            "/bin/bash".into(),
+            canary_args.into_iter().skip(1).collect(),
+            exec,
+        )?
     } else {
         (
             exec.to_string_lossy().into_owned(),
@@ -1009,7 +1011,7 @@ impl Hub {
                 }
                 #[cfg(not(target_os = "linux"))]
                 {
-                    unreachable!()
+                    return Err("the Linux sandbox is unavailable on this platform".into());
                 }
             } else {
                 wrap(&exec, &bound, profile, program, args)?

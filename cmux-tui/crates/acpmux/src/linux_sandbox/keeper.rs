@@ -190,13 +190,10 @@ fn stat_fd(fd: RawFd) -> Result<(u64, u64)> {
     Ok((stat.st_dev as u64, stat.st_ino as u64))
 }
 fn listener_in_keeper_namespace(fd: RawFd) -> Result<bool> {
-    let mut netns: RawFd = -1;
-    // SAFETY: ioctl writes one descriptor to this valid output pointer.
-    if unsafe { libc::ioctl(fd, SIOCGSKNS as _, &mut netns) } < 0 {
-        return Err(io::Error::last_os_error().to_string());
-    }
+    // SAFETY: fd is a live socket; SIOCGSKNS returns a descriptor, not an output buffer.
+    let netns = unsafe { libc::ioctl(fd, SIOCGSKNS as _, 0) };
     if netns < 0 {
-        return Err("SIOCGSKNS returned an invalid descriptor".into());
+        return Err(io::Error::last_os_error().to_string());
     }
     // SAFETY: successful SIOCGSKNS returns a new owned descriptor.
     let netns = unsafe { OwnedFd::from_raw_fd(netns) };
