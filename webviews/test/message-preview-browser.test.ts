@@ -133,8 +133,10 @@ await requireBrowserLane("message-preview-browser.test.ts", async () => {
       const text = row.locator(direction === "received" ? ".cv-received__text" : ".cv-message__text");
       if (direction === "sent") await toggle.click();
       await row.locator(".cv-codeblock button").first().waitFor({ state: "attached" });
-      await page.waitForFunction((selector) => document.querySelector<HTMLElement>(selector)?.style.maxHeight === "0px",
-        direction === "received" ? ".cv-received__text" : ".cv-message__text");
+      await page.waitForFunction(
+        (selector) => document.querySelector<HTMLElement>(selector)?.style.maxHeight === "0px",
+        direction === "received" ? ".cv-received__text" : ".cv-message__text",
+      );
       await toggle.focus();
       let reached = false;
       for (let step = 0; step < 12; step++) {
@@ -143,11 +145,13 @@ await requireBrowserLane("message-preview-browser.test.ts", async () => {
         if (reached) break;
       }
       expect(reached).toBe(true);
-      expect(await text.evaluate((box) => {
-        const control = document.activeElement!.getBoundingClientRect();
-        const clip = box.getBoundingClientRect();
-        return control.top >= clip.top && control.bottom <= clip.bottom;
-      })).toBe(true);
+      expect(
+        await text.evaluate((box) => {
+          const control = document.activeElement!.getBoundingClientRect();
+          const clip = box.getBoundingClientRect();
+          return control.top >= clip.top && control.bottom <= clip.bottom;
+        }),
+      ).toBe(true);
       expect(await text.evaluate((box) => box.style.maxHeight)).toBe("");
     });
   }

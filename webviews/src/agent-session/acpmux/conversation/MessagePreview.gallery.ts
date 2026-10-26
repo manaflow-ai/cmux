@@ -39,9 +39,14 @@ export default agentPaneEntry({
       note: "A tall code card is kept whole. Tab into its controls reveals the full message.",
       snapshot: chat([
         received(codeReport, 2),
-        activity([tool("SendMessage", "other", "completed", {
-          inputSummary: JSON.stringify({ to: "preview-lane", message: codeReport }),
-        })], 1),
+        activity(
+          [
+            tool("SendMessage", "other", "completed", {
+              inputSummary: JSON.stringify({ to: "preview-lane", message: codeReport }),
+            }),
+          ],
+          1,
+        ),
       ]),
     },
     "one-line": {

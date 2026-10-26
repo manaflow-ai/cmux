@@ -237,6 +237,7 @@ export function IncomingMessageLine({
           ref={textBox}
           className="cv-received__text"
           style={cut && cutAt !== undefined ? { maxHeight: cutAt } : undefined}
+          onFocusCapture={cut ? () => show(true) : undefined}
         >
           {text ? (
             <Markdown

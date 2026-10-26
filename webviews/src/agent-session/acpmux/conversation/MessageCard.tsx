@@ -134,6 +134,7 @@ function MessageText({ item, text, messageAt }: { item: AcpmuxActivity; text: st
         ref={ref}
         className={`cv-message__text${cut ? " is-cut" : ""}`}
         style={cut ? { maxHeight: cutAt } : undefined}
+        onFocusCapture={cut ? () => setExpanded(true) : undefined}
       >
         <Markdown messageAt={messageAt}>{text}</Markdown>
       </div>
