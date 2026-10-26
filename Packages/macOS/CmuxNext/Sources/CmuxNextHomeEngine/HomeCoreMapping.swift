@@ -8,11 +8,12 @@ import Foundation
 /// Home core's types (CmuxHomeCore, plans/cmux-next/home-mac.md). Pure; the
 /// owner's ids and seqs pass through unchanged.
 public nonisolated enum HomeCoreMapping {
+    // crash-allow: its options are set once in the initializer, then only `date(from:)` reads it; ISO8601DateFormatter is thread-safe.
     nonisolated(unsafe) private static let dates: ISO8601DateFormatter = {
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         return formatter
-    }()  // ISO8601DateFormatter is thread safe.
+    }()
 
     static func date(_ text: String?) -> Date? {
         guard let text else { return nil }

@@ -225,7 +225,7 @@ final class WindowManager {
         let restoredRegistry = WindowRegistry(records: document.windows)
         if !restoredRegistry.windows.isEmpty {
             previousLaunch = PreviousLaunch(windowIDs: restoredRegistry.recency.filter { restoredRegistry.window($0)?.isOpen == true },
-                                            restoredAtMs: UInt64(max(0, Date().timeIntervalSince1970 * 1000)))
+                                            restoredAtMs: UInt64(max(0, Date().timeIntervalSince1970 * 1000))) // wall-clock: compared with the daemon's closedAtMs, Unix ms
         }
         let adopted = adoptLaunchWindow(restoredRegistry, records: document.windows)
         for record in document.windows where states[record.id] == nil { states[record.id] = WindowState(record: record) }
@@ -375,6 +375,7 @@ final class WindowManager {
             keepsOrder = restacks
             WindowActivation.show(window, restacks ? .bringForward : behind ? .presentBehind : .present)
             keepsOrder = kept
+            DebugTimings.markLaunch("window_display") // first on screen: Chrome's RecordBrowserWindowDisplay (BrowserView::Show)
         }
         onPresent?(controller)
         enterRestoredFullScreens()
@@ -419,6 +420,14 @@ final class WindowManager {
         isTerminating = true
         membershipObservation?.cancel()
         // Chromium stops later, as the last quit step (QuitCompletion).
+    }
+
+    /// Quit: each open window's sidebar change still waiting for its idle task reaches the snapshot
+    /// store (`SidebarSnapshotRecorder.flushNow`), before the store's flush.
+    func flushSidebarSnapshots() async {
+        for controller in controllers {
+            await controller.sidebar.flushSnapshot()
+        }
     }
 
     /// Copies each open window's frame and display into the registry.

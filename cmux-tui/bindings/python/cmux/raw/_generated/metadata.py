@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = '10db015791ceaa255896dc9d4d23a3130e79ac68fe8fc6297f20d8fae16e6169'
+IR_SHA256 = '6f30c3bf72c6bbdc5d0b28f9221b6a582f1cc82ede99888633ff61589fdadc36'
 
 
 @dataclass(frozen=True)
@@ -204,6 +204,42 @@ COMMANDS = {
             'expected_machine_id': CommandFieldMetadata(None, None),
             'expected_session_id': CommandFieldMetadata(None, None),
             'idempotency_key': CommandFieldMetadata(None, None),
+        },
+    ),
+    'agent-inventory': CommandMetadata(
+        'agent-inventory',
+        'local-admin',
+        12,
+        'agent-inventory-v1',
+        ('local-admin',),
+        None,
+        {
+            'expected_machine_id': CommandFieldMetadata(None, 'agent-inventory-owner-v1'),
+        },
+    ),
+    'agent-inventory-refresh': CommandMetadata(
+        'agent-inventory-refresh',
+        'local-admin',
+        12,
+        'agent-inventory-refresh-v1',
+        ('local-admin',),
+        None,
+        {
+            'expected_machine_id': CommandFieldMetadata(None, None),
+        },
+    ),
+    'agent-inventory-watch': CommandMetadata(
+        'agent-inventory-watch',
+        'local-admin',
+        12,
+        'agent-inventory-watch-v1',
+        ('local-admin',),
+        None,
+        {
+            'admission_receipt': CommandFieldMetadata(None, 'agent-inventory-watch-admission-v1'),
+            'enabled': CommandFieldMetadata(None, None),
+            'expected_machine_id': CommandFieldMetadata(None, None),
+            'expected_watch_id': CommandFieldMetadata(None, 'agent-inventory-watch-fence-v1'),
         },
     ),
     'agent-session-attach': CommandMetadata(
@@ -1983,6 +2019,16 @@ COMMANDS = {
             'group': CommandFieldMetadata(None, None),
             'index': CommandFieldMetadata(None, None),
             'name': CommandFieldMetadata(None, None),
+        },
+    ),
+    'debug-daemon-locks': CommandMetadata(
+        'debug-daemon-locks',
+        'local-admin',
+        12,
+        None,
+        ('local-admin',),
+        None,
+        {
         },
     ),
     'delete-bookmark': CommandMetadata(

@@ -87,6 +87,7 @@ final class SidebarBridge {
         // The list, the space bar and the rail hover once per frame (`pointerFrameHover`).
         container.sidebarView.hoverFrameInput = services.hoverFrameInput
         container.railView.hoverFrameInput = services.hoverFrameInput
+        container.sidebarView.onHoverRow = { [weak self] row in self?.noteRowHover(row) } // `intentPrewarmHover`
         if services.features.isEnabled(.sidebarRowsNearViewport) { container.sidebarView.rowFeed = rowFeed }
         container.sidebarView.customization = services.sidebarCustomization
         // The workspace card's history (u3320), read from the workspace's daemon and the acpmux
@@ -281,6 +282,13 @@ final class SidebarBridge {
     func recordSnapshot() {
         guard let state else { return }
         snapshotRecorder.record(model, window: state.id, services: services)
+    }
+
+    /// Quit: a sidebar change still waiting for its idle task reaches the snapshot store now, before
+    /// the store's flush writes the file.
+    func flushSnapshot() async {
+        guard let state, let pending = snapshotRecorder.flushNow(model, window: state.id, services: services) else { return }
+        await services.sidebarSnapshots.record(pending.snapshot, window: state.id, sequence: pending.sequence)
     }
 
     private func markReadyForReveal() {

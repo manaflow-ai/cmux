@@ -73,6 +73,8 @@ enum PaletteText {
         ceil(field.attributedStringValue.size().width) + Metrics.space2
     }
 
+    // memory: fixed keys are SF Symbol names from the command catalog and scope chips times the two
+    // Design icon sizes, cleared at 1,024; a symbol image holds vectors and one small drawn rep.
     /// Configured SF Symbol images, made once per name and size: rows are
     /// reconfigured on every open and scroll, and each lookup plus
     /// configuration costs a millisecond or more in the symbol catalog.

@@ -69,7 +69,10 @@ import Testing
 
     @Test func movesFoldIntoTheWaitingMoveAtTheTail() {
         var outbox = ChromiumHostInputOutbox()
-        for x in 0..<1_000 { #expect(outbox.push(Self.move(Int32(x)))) }
+        for x in 0..<1_000 {
+            let took = outbox.push(Self.move(Int32(x)))
+            #expect(took)
+        }
         #expect(outbox.waitingCount == 1)
         #expect(outbox.coalescibleCount == 1)
         #expect(outbox.coalesced == 999)
@@ -80,23 +83,31 @@ import Testing
     @Test func aDiscreteFrameKeepsTheMovesOnEitherSideOfIt() {
         var outbox = ChromiumHostInputOutbox()
         for frame in [Self.move(1), Self.move(2), Self.click(), Self.move(3), Self.move(4), Self.key(7)] {
-            #expect(outbox.push(frame))
+            let took1 = outbox.push(frame)
+            #expect(took1)
         }
         #expect(Self.drain(&outbox) == [Self.move(2), Self.click(), Self.move(4), Self.key(7)])
     }
 
     @Test func aMoveWithOtherButtonsDoesNotFold() {
         var outbox = ChromiumHostInputOutbox()
-        #expect(outbox.push(Self.move(1)))
-        #expect(outbox.push(Self.move(2, buttons: 1)))
+        let took2 = outbox.push(Self.move(1))
+        #expect(took2)
+        let took3 = outbox.push(Self.move(2, buttons: 1))
+        #expect(took3)
         #expect(Self.drain(&outbox) == [Self.move(1), Self.move(2, buttons: 1)])
     }
 
     @Test func wheelDeltasAddUpPerModifiersAndSaturate() {
         var outbox = ChromiumHostInputOutbox()
-        for _ in 0..<3 { #expect(outbox.push(Self.wheel(dy: -4))) }
-        #expect(outbox.push(Self.wheel(dy: 1, flags: 1 << 20)))
-        #expect(outbox.push(Self.wheel(dy: .max, flags: 1 << 20)))
+        for _ in 0..<3 {
+            let took = outbox.push(Self.wheel(dy: -4))
+            #expect(took)
+        }
+        let took5 = outbox.push(Self.wheel(dy: 1, flags: 1 << 20))
+        #expect(took5)
+        let took6 = outbox.push(Self.wheel(dy: .max, flags: 1 << 20))
+        #expect(took6)
         let frames = Self.drain(&outbox)
         #expect(frames.map { $0.v[3] } == [-12, .max])
         #expect(frames.map(\.flags) == [0, 1 << 20])
@@ -104,7 +115,8 @@ import Testing
 
     @Test func aPartlyWrittenFrameFinishesFirstAndTakesNoFold() {
         var outbox = ChromiumHostInputOutbox()
-        #expect(outbox.push(Self.move(1)))
+        let took7 = outbox.push(Self.move(1))
+        #expect(took7)
         var bytes: [UInt8] = []
         // The socket takes 10 bytes, then is full.
         var room = 10
@@ -118,8 +130,10 @@ import Testing
         #expect(blocked == .blocked)
         #expect(outbox.hasUnwritten)
         // The partly written move is in flight: a newer move queues after it.
-        #expect(outbox.push(Self.move(2)))
-        #expect(outbox.push(Self.key(1)))
+        let took8 = outbox.push(Self.move(2))
+        #expect(took8)
+        let took9 = outbox.push(Self.key(1))
+        #expect(took9)
         let drained = outbox.flush { chunk in
             bytes.append(contentsOf: chunk)
             return .wrote(chunk.count)
@@ -130,10 +144,16 @@ import Testing
 
     @Test func theDiscreteQueueIsBoundedAndMovesStillFold() {
         var outbox = ChromiumHostInputOutbox()
-        for seq in 0..<UInt32(ChromiumHostInputOutbox.discreteLimit) { #expect(outbox.push(Self.key(seq))) }
-        #expect(!outbox.push(Self.key(UInt32.max)))
-        #expect(outbox.push(Self.move(1)))
-        #expect(outbox.push(Self.move(2)))
+        for seq in 0..<UInt32(ChromiumHostInputOutbox.discreteLimit) {
+            let took = outbox.push(Self.key(seq))
+            #expect(took)
+        }
+        let took11 = outbox.push(Self.key(UInt32.max))
+        #expect(!took11)
+        let took12 = outbox.push(Self.move(1))
+        #expect(took12)
+        let took13 = outbox.push(Self.move(2))
+        #expect(took13)
         #expect(outbox.waitingCount == ChromiumHostInputOutbox.discreteLimit + 1)
         let frames = Self.drain(&outbox)
         #expect(frames.prefix(ChromiumHostInputOutbox.discreteLimit).map(\.seq) == Array(0..<UInt32(ChromiumHostInputOutbox.discreteLimit)))
@@ -143,9 +163,12 @@ import Testing
     @Test func interleavedMovesWheelsAndGeometryEachKeepOneSlot() {
         var outbox = ChromiumHostInputOutbox()
         for x in 0..<1_000 {
-            #expect(outbox.push(Self.move(Int32(x))))
-            #expect(outbox.push(Self.wheel(dy: 1)))
-            #expect(outbox.push(Self.geometry(Int32(x))))
+            let took14 = outbox.push(Self.move(Int32(x)))
+            #expect(took14)
+            let took15 = outbox.push(Self.wheel(dy: 1))
+            #expect(took15)
+            let took16 = outbox.push(Self.geometry(Int32(x)))
+            #expect(took16)
         }
         #expect(outbox.waitingCount == 3)
         #expect(outbox.coalescibleCount == 3)
@@ -155,7 +178,8 @@ import Testing
     @Test func aDiscreteFrameStartsNewSlots() {
         var outbox = ChromiumHostInputOutbox()
         for frame in [Self.move(1), Self.wheel(dy: 1), Self.move(2), Self.key(1), Self.wheel(dy: 2), Self.move(3), Self.wheel(dy: 3)] {
-            #expect(outbox.push(frame))
+            let took17 = outbox.push(frame)
+            #expect(took17)
         }
         #expect(Self.drain(&outbox) == [Self.move(2), Self.wheel(dy: 1), Self.key(1), Self.wheel(dy: 5), Self.move(3)])
     }
@@ -168,14 +192,19 @@ import Testing
         #expect(Int(pushed) == ChromiumHostInputOutbox.byteLimit / size)
         #expect(outbox.waitingBytes <= ChromiumHostInputOutbox.byteLimit)
         // Folding adds no bytes: moves still fit.
-        #expect(outbox.push(Self.move(1)))
-        #expect(outbox.push(Self.move(2)))
+        let took18 = outbox.push(Self.move(1))
+        #expect(took18)
+        let took19 = outbox.push(Self.move(2))
+        #expect(took19)
         #expect(outbox.coalescibleCount == 1)
     }
 
     @Test func oneFlushIsOneWrite() {
         var outbox = ChromiumHostInputOutbox()
-        for seq in 0..<UInt32(100) { #expect(outbox.push(Self.key(seq))) }
+        for seq in 0..<UInt32(100) {
+            let took = outbox.push(Self.key(seq))
+            #expect(took)
+        }
         var writes = 0
         let result = outbox.flush { chunk in
             writes += 1
@@ -189,8 +218,12 @@ import Testing
     @Test func aSlotStillFoldsAfterTheWrittenBytesAreDropped() {
         var outbox = ChromiumHostInputOutbox()
         let keys = (0..<UInt32(2_000)).map(Self.key)
-        for frame in keys { #expect(outbox.push(frame)) }
-        #expect(outbox.push(Self.move(1)))
+        for frame in keys {
+            let took = outbox.push(frame)
+            #expect(took)
+        }
+        let took22 = outbox.push(Self.move(1))
+        #expect(took22)
         // The socket takes 100,000 bytes, most of what waits: the written bytes are dropped.
         var bytes: [UInt8] = []
         let blocked = outbox.flush { chunk in
@@ -198,8 +231,10 @@ import Testing
             return .wrote(100_000)
         }
         #expect(blocked == .blocked)
-        #expect(outbox.push(Self.move(2)))
-        #expect(outbox.push(Self.key(9_999)))
+        let took23 = outbox.push(Self.move(2))
+        #expect(took23)
+        let took24 = outbox.push(Self.key(9_999))
+        #expect(took24)
         #expect(outbox.coalesced == 1)
         let drained = outbox.flush { chunk in
             bytes.append(contentsOf: chunk)

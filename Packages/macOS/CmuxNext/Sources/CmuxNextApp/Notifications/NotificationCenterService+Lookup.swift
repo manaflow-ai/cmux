@@ -112,6 +112,7 @@ extension NotificationCenterService {
     static func handoffSince(_ install: String) -> UInt64 {
         let key = "feed.handoff.since.\(install)"
         if let stored = UserDefaults.standard.object(forKey: key) as? NSNumber { return stored.uint64Value }
+        // wall-clock: kept in UserDefaults and compared with items' Unix ms.
         let now = UInt64(Date().timeIntervalSince1970 * 1000)
         UserDefaults.standard.set(NSNumber(value: now), forKey: key)
         return now

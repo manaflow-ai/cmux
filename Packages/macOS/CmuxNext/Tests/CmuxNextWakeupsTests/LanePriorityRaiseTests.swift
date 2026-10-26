@@ -182,7 +182,7 @@ import Testing
         let started = Signal(), finished = Signal(), release = DispatchSemaphore(value: 0), overrides = OverrideLog()
         let lane = LaneScheduler(label: "test.raise-plain", policy: .shared(width: 1), mayBlock: true,
                                  qosOverride: overrides.hook)
-        let job = LaneJob(id: 1, shutdown: .skipOnShutdown, work: {
+        let job = LaneJob(id: 1, shutdown: .skipOnShutdown, work: { _ in
             started.send()
             release.wait()
         }, abandoned: {}, done: { finished.send() })
@@ -199,7 +199,7 @@ import Testing
         let runs = RunOrder()
         let lane = LaneScheduler(label: "test.raise-fence", policy: .shared(width: 1), mayBlock: true)
         lane.fence()
-        let job = LaneJob(id: 1, shutdown: .skipOnShutdown, work: { runs.record("fenced") }, abandoned: {}, done: {})
+        let job = LaneJob(id: 1, shutdown: .skipOnShutdown, work: { _ in runs.record("fenced") }, abandoned: {}, done: {})
         _ = lane.submit(job, at: .bestEffort, posted: true, unless: { false })
         lane.raise(1, to: .idle, awaited: true)
         await runs.ran.wait(1)

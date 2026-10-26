@@ -125,7 +125,7 @@ if opts.split > 1:
         # Split Right, then Split Down: each opens a New Tab page in the new pane (NewTabPage.split).
         rpc("debug.key", {"key": "d", "modifiers": ["command"] + (["shift"] if index else [])})
         time.sleep(1.0)  # test harness wait: the split's pane shows
-    # The spare follows the focused pane's size once that settles (NewTabSparePool.fitSettle).
+    # The spare follows the focused pane's size once that settles (NewTabPreload.fitSettle).
     time.sleep(1.0)  # test harness wait
 for run in range(opts.runs):
     for key in opts.keys.split(","):

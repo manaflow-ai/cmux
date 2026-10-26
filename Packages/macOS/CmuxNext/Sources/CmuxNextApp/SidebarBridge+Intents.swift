@@ -1,6 +1,7 @@
 import CmuxNextActions
 import CmuxNextBridge
 import CmuxNextDaemon
+import CmuxNextInput
 import CmuxNextSettings
 import CmuxNextSidebar
 
@@ -115,7 +116,7 @@ extension SidebarBridge {
         case .installUpdate, .setAutomaticUpdates, .openUpdateLink, .openUpdateChanges, .noticeAction, .dismissNotice, .openWhatsNew, .dismissUpdated,
              .hideNowPlayingCard, .addItems:
             SidebarCardFeed.handle(intent, services: services)
-        case .nowPlaying(let command): services.cache.pageRequests.sidebarSources.perform(command)
+        case .nowPlaying(let command): services.nowPlayingSources.perform(command)
         case .toggleWorkspaceAudio(let id):
             // The row's speaker runs the workspace menu's, palette's and CLI's action, on its row alone.
             var invocation = ActionInvocation(target: ActionTargetRef(kind: .workspace, id: id.rawValue), origin: .user)
@@ -181,6 +182,23 @@ extension SidebarBridge {
         rows.show(sections)
         model.profiles = SidebarSpaceBar.profiles(services.machines.local)
         groupFlow.openPendingEditor()
+    }
+
+    /// The pointer moved onto sidebar row `row` (nil: off every row): the hover-dwell prewarm
+    /// (`intentPrewarmHover`) follows the page the row stands for, a tab row's tab or a workspace row's
+    /// front tab. The sidebar switches on press, so the switch's show is the commit that ends the dwell.
+    func noteRowHover(_ row: SidebarRowKey?) {
+        guard let prewarm = services.cache.hibernation?.intentPrewarm?.service else { return }
+        switch row {
+        case let .tab(_, tab)?:
+            prewarm.pointerHovered(tab.rawValue)
+        case let .workspace(id)?:
+            guard let workspace = services.workspace(id: id.rawValue) else { return prewarm.pointerHovered(nil) }
+            let selection = state?.selection
+            prewarm.pointerHovered(SidebarMapping.shared.frontTab(workspace) { pane in selection?.selection(in: pane.id) }?.id)
+        default:
+            prewarm.pointerHovered(nil)
+        }
     }
 
     /// Sends one command, shown at once through the store's intent log when

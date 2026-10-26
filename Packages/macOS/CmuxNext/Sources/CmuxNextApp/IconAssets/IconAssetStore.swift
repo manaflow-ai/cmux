@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import CmuxNextDaemon
 import Foundation
 import CoreGraphics
@@ -95,7 +96,8 @@ nonisolated enum IconAssetKind: String {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.timeoutIntervalForRequest = 15
         configuration.timeoutIntervalForResource = 30
-        let session = URLSession(configuration: configuration, delegate: HTTPSOnlyRedirects(), delegateQueue: nil)
+        let session = URLSession(configuration: configuration, delegate: HTTPSOnlyRedirects(),
+                                 delegateQueue: .sessionDelegate("com.cmuxterm.next.icon-assets.download", qos: .userInitiated))
         // Cancels a body still arriving when the read stops early (too large, cancelled).
         defer { session.invalidateAndCancel() }
         let (bytes, response) = try await session.bytes(from: url)

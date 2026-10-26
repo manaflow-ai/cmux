@@ -1,4 +1,4 @@
-// swift-tools-version: 6.0
+// swift-tools-version: 6.2
 
 import PackageDescription
 
@@ -10,6 +10,13 @@ import PackageDescription
 // Foundation alone, so the Linux libFuzzer wrappers (p10-stability-182) can reuse
 // each suite's `oneInput(_:)` body. These are seeded property tests, not
 // coverage-guided FuzzTest.
+
+// The p10 compile-time safety settings (scripts/cmux-next/stability-settings.json); the
+// lander (scripts/cmux-next/apply-stability-settings.py) owns this literal.
+let stabilitySwiftSettings: [SwiftSetting] = [
+    .strictMemorySafety(),
+]
+
 let package = Package(
     name: "CmuxFuzzSupport",
     platforms: [
@@ -25,12 +32,12 @@ let package = Package(
             swiftSettings: [
                 .swiftLanguageMode(.v6),
                 .enableUpcomingFeature("ExistentialAny"),
-            ]
+            ] + stabilitySwiftSettings
         ),
         .testTarget(
             name: "CmuxFuzzSupportTests",
             dependencies: ["CmuxFuzzSupport"],
-            swiftSettings: [.swiftLanguageMode(.v6)]
+            swiftSettings: [.swiftLanguageMode(.v6)] + stabilitySwiftSettings
         ),
     ]
 )

@@ -273,7 +273,7 @@ import Testing
         f.startup.post(.afterStartup, "Launch.cleanup", on: .lane(.files, .bestEffort)) {
             report.yield("Launch.cleanup main=\(Thread.isMainThread)")
         }
-        // The files lane is serial per priority: had the afterStartup post been submitted, it would run first.
+        // The fixture's files lane is serial per priority: had the afterStartup post been submitted, it would run first.
         f.startup.post(.critical, "Settings.read", on: .lane(.files, .bestEffort)) {
             report.yield("Settings.read main=\(Thread.isMainThread)")
         }
@@ -316,6 +316,27 @@ import Testing
         #expect(onMain == false)
     }
 
+    /// A post on a sequence runs after the sequence's earlier posts, off main, although the files lane runs two
+    /// best-effort items at once: the managed-status writes, each a whole file, never land out of order.
+    @Test func aSequencePostRunsAfterTheSequencesEarlierPosts() async {
+        let f = StartupFixture()
+        f.complete()
+        // Its own work with the app's widths: two best-effort slots.
+        let writes = BackgroundWork(label: "test.startup-sequence").sequence("test.status-writes")
+        let (seen, report) = AsyncStream.makeStream(of: String.self)
+        f.startup.post(.afterStartup, "Status.write", on: .sequence(writes, .bestEffort)) {
+            // A slow write: outside the sequence, the next one would land first on the other slot.
+            _ = DispatchSemaphore(value: 0).wait(timeout: .now() + .milliseconds(50))
+            report.yield("first main=\(Thread.isMainThread)")
+        }
+        f.startup.post(.afterStartup, "Status.write", on: .sequence(writes, .bestEffort)) { report.yield("second") }
+        var reports = seen.makeAsyncIterator()
+        let first = await reports.next()
+        let second = await reports.next()
+        #expect(first == "first main=false")
+        #expect(second == "second")
+    }
+
     @Test func afterBeginQuitNothingRunsAndTheFailsafeIsCancelled() async throws {
         let f = StartupFixture()
         f.startup.post(.afterStartup, "Updater.start", on: .main) { [ran = f.ran] in ran.names.append("Updater.start") }
@@ -346,7 +367,7 @@ import Testing
         f.complete()
         let (lane, report) = AsyncStream.makeStream(of: String.self)
         let release = DispatchSemaphore(value: 0)
-        // The files lane is serial per priority: this item holds it, so the items after it queue behind it.
+        // The fixture's files lane is serial per priority: this item holds it, so the items after it queue behind it.
         f.background.post(.bestEffort, mayBlock: .files) {
             report.yield("blocker")
             // concurrency-allow: a files-lane thread in a test, released below right after beginQuit.
@@ -397,7 +418,9 @@ private final class StartupFixture {
     init(phase: StartupPhase = .settled()) {
         let input = StartupTestInput()
         self.input = input
-        scheduler = StartupTestScheduler(phase: phase, input: input, criticalAllowlist: ["Theme.apply", "Settings.read"])
+        // One files slot per priority, so an item that holds it queues the posts behind it.
+        scheduler = StartupTestScheduler(phase: phase, input: input, criticalAllowlist: ["Theme.apply", "Settings.read"],
+                                         background: BackgroundWork(filesWidths: .serial, label: "test.startup"))
     }
 
     /// One display frame, 17 ms after the last.

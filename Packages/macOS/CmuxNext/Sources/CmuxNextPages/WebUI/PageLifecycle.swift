@@ -21,28 +21,34 @@ package protocol PageLifecycleTarget {
     /// The page shows again running (it was hidden or frozen, not discarded): the picture kept at its
     /// hide is out of date.
     func dropHideSnapshot()
-    /// Hidden to frozen: no task, timer or frame runs; the page keeps its memory.
-    func freeze()
+    /// Hidden to frozen: no task, timer or frame runs; the page keeps its memory. Returns false when
+    /// the page refused (it shows, or its engine did not freeze it): it stays hidden.
+    func freeze() -> Bool
     /// Back to running, in the turn of the show and before the page is visible: after a freeze it
     /// resumes, after a discard it loads again behind its picture. Does nothing on a running page.
     func thaw()
     /// Hidden or frozen to discarded: the document goes, the shell keeps route, state and picture.
     /// Makes no call into the page: it uses only what the page gave when it hid, so a frozen page is
     /// discarded on time.
-    func discard()
+    ///
+    /// - Returns: False when the page refused (it shows after all): it keeps its state, and a later
+    ///   pass tries again.
+    func discard() -> Bool
 }
 
 /// A ``PageWebView`` as the lifecycle drives it. A hide keeps the page's last frame, encoded
 /// (``PageWebView/keepHideSnapshot(encoder:)``), so a discard has nothing left to ask or encode.
-/// Freeze and thaw are no-ops until p13-webui-028 (Chromium SetPageFrozen, WebKit hidden in its
-/// window); ending the engine page at the discard is p13-webui-030.
+/// Freeze and thaw are the view's (``PageWebView/freezePage()``: Chromium SetPageFrozen, WebKit
+/// hidden in its window); the discard ends the document and thaw brings a discarded page back behind
+/// that picture (PageWebView+Discard.swift).
 package struct PageWebViewLifecycle: PageLifecycleTarget {
     package private(set) weak var view: PageWebView?
     private let encoder: PageSnapshotEncoder
 
     /// - Parameters:
     ///   - view: The page.
-    ///   - encoder: Encodes its hide-time frame as it comes (the app's one, on its lanes).
+    ///   - encoder: Encodes its hide-time frame as it comes, and decodes it for the cover a discarded
+    ///     page shows when it comes back (the app's one, on its lanes).
     package init(_ view: PageWebView, encoder: PageSnapshotEncoder) {
         self.view = view
         self.encoder = encoder
@@ -54,12 +60,15 @@ package struct PageWebViewLifecycle: PageLifecycleTarget {
 
     /// Loading while its document loads (``PageLoadState``: Chrome's kLoading reads the
     /// page's loading state, which also ends while the page is hidden), focused while it holds its
-    /// window's first responder, and the reasons of ``PageKeepReasons``: its document's
+    /// window's first responder, the reasons of ``PageKeepReasons``: its document's
     /// `cmux.page.keepAlive` and the host's holds (a confirmation sheet, a menu or popup, a drop it
-    /// reads, Web Inspector, dictation), each of which tells the lifecycle when it starts or ends.
+    /// reads, Web Inspector, dictation), each of which tells the lifecycle when it starts or ends, and
+    /// preload while it is the pool's parked spare (the pool owns its life; a claimed pooled host is a
+    /// page like any other).
     package var lifecycleKeepReasons: Set<PageLifecyclePlanner.KeepReason> {
         guard let view else { return [] }
         var reasons = view.keepReasons.current
+        if view.isParkedSpare { reasons.insert(.preload) }
         if view.loadState.isLoading { reasons.insert(.loading) }
         if let responder = view.window?.firstResponder as? NSView, responder.isDescendant(of: view) { reasons.insert(.focused) }
         return reasons
@@ -72,10 +81,14 @@ package struct PageWebViewLifecycle: PageLifecycleTarget {
 
     package func keepHideSnapshot() { view?.keepHideSnapshot(encoder: encoder) }
     package func dropHideSnapshot() { view?.hideState.drop() }
-    package func freeze() {}
-    package func thaw() {}
-    /// Nothing until p13-webui-030 ends the engine page: the picture and the state are kept already.
-    package func discard() {}
+    package func freeze() -> Bool { view?.freezePage() ?? false }
+    /// Thaws a frozen page, or brings a discarded one back; each step does nothing on a page in the
+    /// other state.
+    package func thaw() {
+        view?.thawPage()
+        view?.restoreDiscardedPage()
+    }
+    package func discard() -> Bool { view?.discardPage(decoder: encoder) ?? false }
 }
 
 /// The page lifecycle controller (plans/cmux-next/chrome-parity/p13-webui.md 3.C): it takes each
@@ -135,7 +148,7 @@ package final class PageLifecycle {
 
     /// - Parameters:
     ///   - planner: The pure plan, with its times.
-    ///   - conditions: The memory pressure, Low Power Mode and `browser.hibernation` until the first
+    ///   - conditions: The memory pressure, Energy Saver and `browser.hibernation` until the first
     ///     ``setConditions(_:)``.
     ///   - deadlines: The app's one deadline scheduler (`AppServices.mainDeadlines`); a test passes one
     ///     on a fake wake-up timer and uptime.
@@ -203,7 +216,7 @@ package final class PageLifecycle {
         hiddenKeys.insert(key)
         if hides { page.keepHideSnapshot() }
         guard entry.state != .discarded else { return }
-        let window = Duration.seconds(planner.timing.visibleWindow(lowPowerMode: conditions.lowPowerMode))
+        let window = Duration.seconds(planner.timing.visibleWindow(energySaver: conditions.energySaver))
         if let previous = mostRecentlyHidden, previous != key, let hiddenAt = entries[previous]?.hiddenAt {
             arm(at: max(now, hiddenAt + window))
         } else if mostRecentlyHidden == nil, hiddenKeys.count > 1 {
@@ -251,7 +264,7 @@ package final class PageLifecycle {
         if dropped, hiddenKeys.contains(key) { arm(at: uptime()) }
     }
 
-    /// The memory pressure, Low Power Mode, or `browser.hibernation` and its companions changed (the
+    /// The memory pressure, Energy Saver, or `browser.hibernation` and its companions changed (the
     /// app's browser hibernation passes on what it follows): a pass looks again. When pressure turns
     /// critical, the event's discard is the app's one urgent pass over tabs, chats and pages
     /// (``urgentCandidates()``, ``discardNow(_:)``), so this pass waits one urgent pace interval and
@@ -296,33 +309,47 @@ package final class PageLifecycle {
         let now = uptime()
         let plan = planner.plan(hiddenPages(at: now), conditions: conditions)
         mostRecentlyHidden = nil
+        var refused = false
         for decision in plan.decisions.values {
-            perform(decision)
+            if !perform(decision) { refused = true }
             if decision.keptBy.contains(.mostRecentlyUsed) { mostRecentlyHidden = decision.key }
         }
         if let next = plan.nextCheck { arm(at: now + .seconds(next)) }
+        // A refused discard is due still: the next pass tries again at the discard pace, as Chrome's
+        // discarder takes a tab it could not discard on its next pass.
+        if refused { arm(at: now + .seconds(planner.timing.pace(at: conditions.pressure).interval)) }
         didRunPass?()
     }
 
     /// Moves one page toward the planned state. A pass only moves pages down (hidden, frozen,
     /// discarded); it thaws a frozen page only for a reason that appeared since
     /// (``PageLifecyclePlanner/KeepReason/thawsFrozenPage``: loading, focus, a setting), never for time
-    /// alone: the most recently used one, or a longer recently visible window after Low Power Mode ends.
-    private func perform(_ decision: PageLifecyclePlanner.Decision) {
-        guard var entry = entries[decision.key], entry.state != decision.state else { return }
+    /// alone: the most recently used one, or a longer recently visible window after Energy Saver ends.
+    ///
+    /// - Returns: False when the page refused its discard: it keeps the state it was in.
+    private func perform(_ decision: PageLifecyclePlanner.Decision) -> Bool {
+        guard var entry = entries[decision.key], entry.state != decision.state else { return true }
         switch (entry.state, decision.state) {
         case (.hidden, .frozen):
-            entry.target.freeze()
+            guard entry.target.freeze() else {
+                // Refused (its engine page is still starting, or still counts it visible): asked
+                // again after one recently visible window, as BrowserHibernation asks a refused
+                // page again after freezeSeconds. The plan's own deadline may be the discard, or none.
+                let retry = planner.timing.visibleWindow(energySaver: conditions.energySaver)
+                arm(at: uptime() + .seconds(retry))
+                return true
+            }
         case (.hidden, .discarded), (.frozen, .discarded):
-            entry.target.discard()
+            guard entry.target.discard() else { return false }
         case (.frozen, .hidden):
-            guard decision.keptBy.contains(where: \.thawsFrozenPage) else { return }
+            guard decision.keptBy.contains(where: \.thawsFrozenPage) else { return true }
             entry.target.thaw()
         default:
-            return
+            return true
         }
         entry.state = decision.state
         entries[decision.key] = entry
+        return true
     }
 
     // MARK: Helpers

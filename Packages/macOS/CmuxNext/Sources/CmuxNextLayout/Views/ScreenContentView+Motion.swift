@@ -298,26 +298,7 @@ extension ScreenContentView {
         // A page in its own window under a zooming pane leaves out what that pane covers
         // (`ChildWindowPageFallback`): it re-reads its clip when the panes over it moved.
         if changed, zoomMotion.pane != nil || !covered.isEmpty { context.stripClipsDidChange() }
-        var dividersChanged = force
-        for (kind, frame) in dividerFrames {
-            guard let view = dividerViews[kind] else { continue }
-            let scrolls = self.scrolls(kind)
-            let placed = shownRect(frame.rect, of: kind, strip: strip, scale: scale)
-            let shownArea = areaWindow(of: kind), clips: [CGRect?] = [uncovered, shownArea]
-            guard force || view.frame != placed || view.alphaValue != frame.alpha.value || view.placedClips != clips else { continue }
-            dividersChanged = true
-            if view.frame != placed { view.frame = placed }
-            if view.alphaValue != frame.alpha.value { view.alphaValue = frame.alpha.value }
-            view.placedClips = clips
-            // A strip divider under a docked column must not take its clicks, nor one scrolled out of its area.
-            let hidden = (scrolls && !geometry.dock.isEmpty && view.frame.intersection(uncovered).width < 0.5)
-                || shownArea.map { !$0.contains(CGPoint(x: view.frame.midX, y: view.frame.midY)) } == true
-            if view.isHidden != hidden { view.isHidden = hidden }
-            // Shown, its cursor and click catcher still stop at a dock and at its area's window.
-            var pointerClip: CGRect? = scrolls && !geometry.dock.isEmpty ? uncovered : nil
-            if let area = shownArea { pointerClip = pointerClip.map { $0.intersection(area) } ?? area }
-            view.cursorClip = pointerClip
-        }
+        let dividersChanged = ScreenDividers(screen: self).place(strip: strip, scale: scale, uncovered: uncovered, force: force)
         updateScrollbar()
         // A pan with the finger down is layout motion too (hasMotion leaves user gestures out): motion-time content
         // (divider catcher panels, page windows) waits for the landing. The landing frame's advanceFrame clears it.

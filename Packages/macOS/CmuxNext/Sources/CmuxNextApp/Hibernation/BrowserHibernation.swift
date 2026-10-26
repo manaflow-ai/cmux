@@ -6,6 +6,8 @@ import CmuxNextControl
 import CmuxNextDesign
 import CmuxNextEnergy
 import CmuxNextHibernation
+import CmuxNextInput
+import CmuxNextMemory
 import CmuxNextPages
 import CmuxNextSettings
 import CmuxNextWakeups
@@ -27,8 +29,10 @@ import os
 ///
 /// The tabs beside each pane's shown tab (`browser.keepNeighborTabsAwake`, one on each side by default)
 /// never freeze or hibernate, and wake as soon as they become neighbors, so Ctrl-Tab, Cmd-Shift-[ ] and
-/// the next click show a live page. A hovered tab wakes too. Memory pressure and Low Power Mode turn
-/// this off (plans/cmux-next/neighbor-tabs-DESIGN.md).
+/// the next click show a live page. A hovered tab wakes too. Memory pressure and Energy Saver turn
+/// this off (plans/cmux-next/neighbor-tabs-DESIGN.md), as Chrome's battery saver spends no work on
+/// pages nobody sees (chrome/browser/performance_manager/user_tuning/battery_saver_mode_manager.cc).
+/// The saver does not shorten the freeze delay.
 ///
 /// Which page goes first is a ranking (`ContentDiscardPlanner.idleness`): how long it has been hidden, how
 /// often the person showed it in the last hour, and under memory pressure how much memory it holds. A few
@@ -55,8 +59,8 @@ final class BrowserHibernation {
     static let agentGrace: Double = 30
     /// History and snapshot captured by the probe, used by the `release` effect.
     private var prepared: [String: (state: BrowserRestoreState, snapshot: HibernationSnapshots.Picture?)] = [:]
-    /// Hibernated pages' pictures (`HibernationTunables.compressedSnapshots`), and their wakes (`debug.surfaces`).
-    let snapshots = HibernationSnapshots()
+    /// Hibernated pages' pictures, sized by the cache's `ImageCacheShares`, and their wakes (`debug.surfaces`).
+    let snapshots: HibernationSnapshots
     var wakeLog = HibernationWakes()
     /// A navigation that woke a hibernated page, applied once it is back; at most one per page.
     var pendingWakes: [String: HibernatedBrowserTab.Wake] = [:]
@@ -124,7 +128,9 @@ final class BrowserHibernation {
     /// Seconds a hovered tab stays awake after the hover, as for an agent's call.
     static let hoverGrace: Double = 30
     /// Pages woken early (neighbors and hovers): `debug.surfaces` and the bench read it.
-    private(set) var prewarmedCount = 0
+    var prewarmedCount = 0
+    /// The hover-dwell prewarm with this hibernation as its weak warmer, and its power feed (`intentPrewarmHover`).
+    var intentPrewarm: (service: IntentPrewarmService<String>, power: MainActorHandlerRegistration<EnergyInputs>)?
     /// The longest a woken page's last frame stands in for it before it paints (Chrome has no
     /// picture; a page that paints later than this shows itself loading rather than look frozen).
     static let standInCap: Duration = .milliseconds(500)
@@ -132,8 +138,12 @@ final class BrowserHibernation {
     var standInClock: any Clock<Duration> = ContinuousClock()
     /// Wakes with a picture whose page could show no stand-in (`debug.surfaces`).
     var uncoveredWakes = 0
-    private let lowPower: LowPowerMode
-    private var lowPowerObservation: LowPowerModeObservation?
+    /// The app's Energy Saver policy (`MainWorkScheduler.energy`).
+    private let energy: EnergyPolicySource
+    private var energyObservation: MainActorEnergyObservation?
+    /// Pages spend less, as of the policy's last change: Energy Saver, or Low Power Mode while the
+    /// `energySaver` feature is off (``EnergyPolicy/pageSaver``).
+    private(set) var energySaver: Bool
     /// The app's windows going off screen and back (`occludedWindowDiscard`); nil when off.
     private var windowOcclusion: WindowOcclusionChecker?
     /// The page's freeze control (a seam for tests; Chromium pages only in the app).
@@ -175,23 +185,30 @@ final class BrowserHibernation {
     private(set) var nextCheck: Double?
 
     /// - Parameters:
-    ///   - lowPower: The app's Low Power Mode (its energy monitor's); the default, fixed off, is for tests.
+    ///   - energy: The app's Energy Saver policy (`MainWorkScheduler.energy`); the default, fixed off, is for tests.
     ///   - audible: The pages' sound history (`recentlyAudibleProtection`); nil turns the recently audible protection off.
     /// - Parameter deadlines: The app's main-thread deadline scheduler: the frozen pages' one-shot
     ///   reading is a `background` deadline on it (nobody sees a reading).
     init(cache: TabContentCache, memory: any MemoryConsumerRegistry, deadlines: MainDeadlineScheduler,
-         lowPower: LowPowerMode = LowPowerMode(enabled: false), audible: AudibleHistory? = nil) {
+         energy: EnergyPolicySource = EnergyPolicySource(), audible: AudibleHistory? = nil) {
         self.cache = cache
         growthDeadline = MainDeadline(owner: "BrowserFrozenGrowth", workClass: .background, scheduler: deadlines)
-        self.lowPower = lowPower
+        snapshots = HibernationSnapshots(fullCapacityBytes: cache.imageCaches.hibernationSnapshotBytes)
+        self.energy = energy
+        energySaver = energy.policy.pageSaver
         self.memory = memory
         self.audible = audible
         audible?.onEnded = { [weak self] key in self?.soundDidEnd(key) }
+        snapshots.neighbors = { [weak self] in self?.pictureNeighbors ?? [] }
     }
 
-    /// Tabs on each side of a shown tab that stay awake now: the setting, or 0 under memory pressure or in Low Power Mode.
+    /// The tabs one step beside each pane's shown tab, at any pressure and setting: their pictures stay
+    /// under every memory limit (`HibernationSnapshots`), since Ctrl-Tab and Cmd-Shift-[ ] show them next.
+    private var pictureNeighbors: Set<String> { neighbors.awake(radius: 1) }
+
+    /// Tabs on each side of a shown tab that stay awake now: the setting, or 0 under memory pressure or Energy Saver.
     var neighborRadius: Int {
-        NeighborTabs.radius(setting: setting.neighborRadius, pressure: pressure, lowPower: lowPower.isEnabled)
+        NeighborTabs.radius(setting: setting.neighborRadius, pressure: pressure, energySaver: energySaver)
     }
 
     /// Registers with the memory coordinator as one lossy consumer (event-driven, no polling): the
@@ -201,7 +218,8 @@ final class BrowserHibernation {
         guard memoryRegistration == nil else { return }
         memoryRegistration = MemoryConsumerRegistration(
             name: Self.memoryConsumerName, traits: Self.memoryTraits, consumer: self, registry: memory)
-        lowPowerObservation = lowPower.observe { [weak self] _ in self?.updateFollowers(); self?.refreshNeighbors() }
+        energyObservation = MainActorEnergyObservation(energy) { [weak self] policy in self?.energySaverDidChange(policy.pageSaver) }
+        energySaverDidChange(energy.policy.pageSaver)
         // Pages mounted before the hibernation existed (a restored session) are followed too.
         for (key, entry) in cache?.browsers ?? [:] { pageDidMount(key, entry.tab) }
     }
@@ -212,8 +230,8 @@ final class BrowserHibernation {
         settingsObservation?.cancel()
         memoryRegistration?.cancel()
         memoryRegistration = nil
-        lowPowerObservation?.cancel()
-        lowPowerObservation = nil
+        energyObservation?.cancel()
+        energyObservation = nil
         deadline.cancel()
         nextCheck = nil
         freezeDeadline.cancel()
@@ -253,11 +271,20 @@ final class BrowserHibernation {
         replan()
     }
 
-    /// Hands the setting, pressure and Low Power Mode to the hidden pages that follow them: agent chats, and
+    /// Hands the setting, pressure and Energy Saver to the hidden pages that follow them: agent chats, and
     /// every cmux page's lifecycle (`pageLifecycle`; the cache holds none while it is off).
     private func updateFollowers() {
         agentPages?.update(setting: setting, pressure: pressure)
-        cache?.pageLifecycle?.setConditions(.init(setting: setting, pressure: pressure, lowPowerMode: lowPower.isEnabled))
+        cache?.pageLifecycle?.setConditions(.init(setting: setting, pressure: pressure, energySaver: energySaver))
+    }
+
+    /// Energy Saver turned on or off: the neighbors and the cmux pages follow. Other policy changes
+    /// (power source, sleep) change nothing here.
+    private func energySaverDidChange(_ saver: Bool) {
+        guard saver != energySaver else { return }
+        energySaver = saver
+        updateFollowers()
+        refreshNeighbors()
     }
 
     /// Takes a new pressure level; `replans` false leaves the pass to the caller (the coordinator's
@@ -299,6 +326,7 @@ final class BrowserHibernation {
     }
 
     func tabDidShow(_ key: String) {
+        intentPrewarm?.service.committed(key)
         if frozen.contains(key) { coldShows += 1 }
         thaw(key)
         freezeKeptAt[key] = nil
@@ -342,6 +370,7 @@ final class BrowserHibernation {
     }
 
     func forget(_ key: String) {
+        intentPrewarm?.service.forget(key)
         agentPages?.forget(key)
         cache?.dormantTabs.set(key, false)
         hiddenAt[key] = nil
@@ -417,6 +446,7 @@ final class BrowserHibernation {
     /// only once the pointer stays `hoverDwell`, so a sweep across the strip
     /// reloads nothing. Either stays awake `hoverGrace` seconds after.
     func noteHover(_ key: String?) {
+        intentPrewarm?.service.pointerHovered(key) // the strip's hover dwell (`intentPrewarmHover`)
         hoverDwell.cancel()
         guard let key, neighborRadius > 0, let cache, cache.browsers[key] != nil,
               cache.lifecycle.phase(key) != .mountedVisible else { return }
@@ -424,7 +454,7 @@ final class BrowserHibernation {
         thaw(key, prewarm: true)
         if cache.lifecycle.phase(key) == .hibernated {
             // Justified delay: a dwell, not a poll; the next hover change cancels it.
-            hoverDwell.schedule(after: Self.hoverDwellDelay) { @MainActor [weak self] in self?.warm(key) }
+            hoverDwell.scheduleOnMain(after: Self.hoverDwellDelay) { [weak self] in self?.warm(key) }
         }
         replan()
     }
@@ -450,18 +480,6 @@ final class BrowserHibernation {
         }
         for key in joined { warm(key) }
         if replans { replan() }
-    }
-
-    /// Wakes a hidden page early: thaws a frozen one, restores a hibernated one
-    /// in the background (the lifecycle keeps it hidden until selected).
-    private func warm(_ key: String) {
-        guard let cache else { return }
-        thaw(key, prewarm: true)
-        if cache.lifecycle.phase(key) == .hibernated {
-            cache.applyLifecycle(cache.lifecycle.send(.wake(key)))
-            prewarmedCount += 1
-            cache.trace(key, "prewarmed (restore)")
-        }
     }
 
     /// Seconds until the hover grace of `key` ends; nil when it is not hovered (or it ended).
@@ -494,7 +512,7 @@ final class BrowserHibernation {
         }
         nextCheck = [plan.nextCheck, graceEnds].compactMap(\.self).min()
         if let next = nextCheck {
-            deadline.schedule(after: .milliseconds(Int64(next * 1000) + 50)) { @MainActor [weak self] in self?.replan() }
+            deadline.scheduleOnMain(after: .milliseconds(Int64(next * 1000) + 50)) { [weak self] in self?.replan() }
         } else {
             deadline.cancel()
         }
@@ -595,7 +613,7 @@ final class BrowserHibernation {
         let plan = HibernationPlanner.freezePlan(setting, candidates: candidates)
         for key in plan.due { freeze(key) }
         if let next = [plan.nextCheck, recheck].compactMap(\.self).min() {
-            freezeDeadline.schedule(after: .milliseconds(Int64(next * 1000) + 50)) { @MainActor [weak self] in self?.replan() }
+            freezeDeadline.scheduleOnMain(after: .milliseconds(Int64(next * 1000) + 50)) { [weak self] in self?.replan() }
         } else {
             freezeDeadline.cancel()
         }
@@ -647,7 +665,7 @@ final class BrowserHibernation {
     }
 
     /// Thaws a frozen page (shown, driven by an agent, about to hibernate, or woken early as a neighbor or hovered tab: `prewarm`).
-    private func thaw(_ key: String, prewarm: Bool = false) {
+    func thaw(_ key: String, prewarm: Bool = false) {
         guard frozen.remove(key) != nil else { return }
         untrackGrowth(key)
         if let tab = cache?.browsers[key]?.tab { freezer(tab)?.setFrozen(false) }
