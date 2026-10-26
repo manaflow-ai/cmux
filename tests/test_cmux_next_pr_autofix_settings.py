@@ -27,7 +27,6 @@ BASE = yaml.safe_load((ROOT / ".github/workflows/cmux-next-base-autofix.yml").re
 SETTINGS_EXPORTS = (
     "docs/mdm/com.manaflow.cmux.json",
     "schemas/settings/settings-schema.json",
-    "schemas/settings-export/settings-schema.sources.sha256",
 )
 
 
@@ -146,21 +145,21 @@ class SettingsOnlyArtifactLeavesTheActionFollowers(unittest.TestCase):
 class FleetBundleHandsBackEveryExport(unittest.TestCase):
     """2026-10-25: a lane ran regenerate-settings-exports.sh as a fleet step for #24923. A step returns one
     --artifact file, so each run handed back one docs/mdm file, and nothing wrote the docs settings reference
-    or the defaults snapshot. An OUT ending in .patch (the controller takes one relative OUT) gets them after
-    the stamp check and packs every regenerated file into that one patch; a folder OUT gets what the bots
-    expect and nothing more."""
+    or the defaults snapshot. An OUT ending in .patch (the controller takes one relative OUT) packs every
+    regenerated file into that one patch; a folder OUT gets what the bots expect and nothing more."""
 
     EXPORTS = (
         "docs/mdm/com.manaflow.cmux.json", "docs/mdm/com.manaflow.cmux.plist", "docs/mdm/com.manaflow.cmux.intune.plist",
         "docs/mdm/cmux-example.mobileconfig", "docs/mdm/managed-preferences.md",
-        "schemas/settings/settings-schema.json", "schemas/settings-export/settings-schema.sources.sha256",
+        "schemas/settings/settings-schema.json",
     )
     FOLLOWERS = ("web/data/next-docs/settings-reference.generated.json", "schemas/defaults/cmux-next.json")
 
-    def repo(self, stamp_ok: bool = True) -> tuple[Path, dict[str, str]]:
+    def repo(self, rewrites: bool = True) -> tuple[Path, dict[str, str]]:
         work = Path(tempfile.mkdtemp())
         repo, bin_dir = work / "repo", work / "bin"
-        for rel in ("scripts/cmux-next/regenerate-settings-exports.sh", "scripts/cmux-next/lib/fleet-only.sh"):
+        for rel in ("scripts/cmux-next/regenerate-settings-exports.sh", "scripts/cmux-next/lib/fleet-only.sh",
+                    "scripts/cmux-next/settings-exports.txt"):
             (repo / rel).parent.mkdir(parents=True, exist_ok=True)
             (repo / rel).write_bytes((ROOT / rel).read_bytes())
             (repo / rel).chmod(0o755)
@@ -168,8 +167,7 @@ class FleetBundleHandsBackEveryExport(unittest.TestCase):
             "scripts/cmux-next/compile-string-catalogs.sh": "#!/usr/bin/env bash\nexit 0\n",
             "scripts/ci/defaults_guard.py": (
                 "import sys\nfrom pathlib import Path\n"
-                "if sys.argv[1] == 'snapshot': Path('schemas/defaults/cmux-next.json').write_text('new\\n')\n"
-                f"if sys.argv[1] == 'check-stamp': sys.exit({0 if stamp_ok else 1})\n"),
+                "if sys.argv[1] == 'snapshot': Path('schemas/defaults/cmux-next.json').write_text('new\\n')\n"),
             "web/scripts/export-next-docs.ts": "",
             "Packages/macOS/CmuxNext/Package.swift": "",
         }
@@ -186,7 +184,8 @@ class FleetBundleHandsBackEveryExport(unittest.TestCase):
             "#!/usr/bin/env bash\n"
             'if [[ " $* " == *" --show-bin-path "* ]]; then echo /nonexistent; exit 0; fi\n'
             '[[ "$1" == test ]] || exit 0\n'
-            "for f in " + " ".join(self.EXPORTS) + '; do echo new > "../../../$f"; done\n')
+            "for f in " + " ".join(self.EXPORTS if rewrites else self.EXPORTS[1:])
+            + '; do echo new > "../../../$f"; done\n')
         (bin_dir / "bun").write_text(
             '#!/usr/bin/env bash\necho "$*" > "$(git rev-parse --show-toplevel)/../bun-args"\n'
             "echo new > web/data/next-docs/settings-reference.generated.json\n")
@@ -228,10 +227,13 @@ class FleetBundleHandsBackEveryExport(unittest.TestCase):
         self.assertEqual(sorted(str(p.relative_to(repo / ".out")) for p in (repo / ".out").rglob("*") if p.is_file()),
                          sorted(self.EXPORTS))
 
-    def test_a_stale_stamp_writes_no_bundle(self):
-        repo, env = self.repo(stamp_ok=False)
+    def test_an_export_the_tests_did_not_rewrite_writes_no_bundle(self):
+        """The stamp is gone, so a failed regeneration is caught by the marker instead: an export test
+        that failed before it wrote leaves the old copy, which is not a fresh export."""
+        repo, env = self.repo(rewrites=False)
         result = self.run_script(repo, env, "settings-exports.patch")
         self.assertNotEqual(result.returncode, 0)
+        self.assertIn("did not rewrite", result.stdout + result.stderr)
         self.assertFalse((repo / "settings-exports.patch").exists())
 
 

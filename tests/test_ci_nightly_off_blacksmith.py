@@ -99,7 +99,7 @@ class NightlyOffBlacksmithTests(unittest.TestCase):
         runs_on = re.search(r"^    runs-on: (.+)$", job, re.MULTILINE).group(1)
         self.assertIn("vars.CI_SIDE_LANE_RUNNER", runs_on)
         self.assertIn("vars.MACOS_RUNNER_26", runs_on)
-        self.assertIn("blacksmith-12vcpu-macos-26", runs_on)
+        self.assertIn("blacksmith-6vcpu-macos-26", runs_on)
 
     def test_secret_bearing_nightlies_use_the_trusted_owned_pool(self) -> None:
         text = (WORKFLOWS / "nightly.yml").read_text(encoding="utf-8")
@@ -110,16 +110,21 @@ class NightlyOffBlacksmithTests(unittest.TestCase):
             with self.subTest(job=name):
                 self.assertNotIn("vars.CI_SEED_TRUSTED_POOL", match.group(1))
                 self.assertIn("vars.MACOS_RUNNER_26", match.group(1))
-                self.assertIn("blacksmith-12vcpu-macos-26", match.group(1))
+                self.assertIn("blacksmith-6vcpu-macos-26", match.group(1))
                 self.assertNotIn("vars.CI_SIDE_LANE_RUNNER", match.group(1))
 
     def test_secret_free_prepare_fallback_does_not_requeue_a_retry_on_the_side_pool(self) -> None:
         text = (WORKFLOWS / "nightly.yml").read_text(encoding="utf-8")
-        job = text[text.index("\n  prepare-nightly-variant:"):]
+        job = text[text.index("\n  prepare-nightly-variant-primary:"):]
         runs_on = re.search(r"^    runs-on: (.+)$", job, re.MULTILINE).group(1)
         self.assertIn("github.run_attempt == 1", runs_on)
         self.assertIn("vars.CI_SIDE_LANE_RUNNER", runs_on)
-        self.assertIn("blacksmith-12vcpu-macos-26", runs_on)
+        self.assertIn("blacksmith-6vcpu-macos-26", runs_on)
+        # The fallback leg after a failed primary prepares on Blacksmith, never the side pool.
+        job = text[text.index("\n  prepare-nightly-variant-fallback:"):]
+        runs_on = re.search(r"^    runs-on: (.+)$", job, re.MULTILINE).group(1)
+        self.assertNotIn("vars.CI_SIDE_LANE_RUNNER", runs_on)
+        self.assertIn("blacksmith-6vcpu-macos-26", runs_on)
 
 
     def test_promotion_requests_never_wait_on_blacksmith(self) -> None:

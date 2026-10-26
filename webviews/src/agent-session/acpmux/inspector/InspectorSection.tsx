@@ -10,6 +10,31 @@ import { rowIconSize } from "../icons/iconSize";
 
 const ROW_ICON = rowIconSize(12);
 
+/// The shared whole-row fold used by every expandable list in Session Info. Keeping the button
+/// here makes its keyboard semantics and visual contract available to new sections (Sources, etc.).
+export function InspectorFold({
+  open,
+  onToggle,
+  className,
+  children,
+}: {
+  open: boolean;
+  onToggle: () => void;
+  className?: string;
+  children: ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      className={["acpmux-chat-inspector-fold", className].filter(Boolean).join(" ")}
+      aria-expanded={open}
+      onClick={onToggle}
+    >
+      {children}
+    </button>
+  );
+}
+
 export function InspectorSection({
   id,
   title,
