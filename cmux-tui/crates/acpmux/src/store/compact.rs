@@ -2,25 +2,30 @@
 //! only a running chat needs, every kept record's `seq` unchanged, so the chat still lists, opens
 //! and resumes from it.
 //!
-//! What goes: the harness's raw lines (`claude.*` and `codex.*` from the agent), which the ACP
-//! records beside them repeat; and inside tool call records, every string longer than [`LONG`]
-//! bytes (a command's output, a file's text, an edit's diff), cut to its first [`KEPT`] bytes and a
-//! note of what was cut. Everything else stays as written: the prompts and the agent's messages (a
+//! What goes: in the harness's raw lines (`claude.*`, `codex.*`) and in tool call records, every
+//! string longer than [`LONG`] bytes (a command's output, a file's text, an edit's diff, a model's
+//! text the ACP records beside them repeat), cut to its first [`KEPT`] bytes and a note of what was
+//! cut; and Claude's raw `stream_event` lines that time no request, which the tap no longer logs
+//! (`hub/tap.rs` `times_request`). Every other record, and every field a reader takes from a raw
+//! line (OptChat's request timing and usage, `fold.rs`; a subagent's heartbeat, `sub_watch.rs`; an
+//! API retry, `transcript.rs`), stays as written: the prompts and the agent's messages (a
 //! rehydrated agent is told them, `hub/transcript.rs`), the turn, queue and status records the log
 //! load reads, and `session.json`.
 //!
 //! Each segment is rewritten beside itself (`NNNNNN.ndjson.compact`) with no lock held
 //! ([`LocalStore::stage_compaction`]) and renamed over it once nothing was appended since
 //! ([`LocalStore::commit_compaction`], under the chat's append lock), so a segment on disk is
-//! always either the old one or the compacted one. `events/compacted.json` records the pass; a log
-//! with it is never taken for a purged chat's (`has_records`).
+//! always either the old one or the compacted one, with the same records in the same order.
+//! `events/compacted.json` records the pass in two steps: written before the first rename, so a
+//! log that may hold nothing is never taken for a purged chat's (`has_records`), and marked
+//! complete after the last, so a pass a crash cut short is done again (`compacted_seq`).
 
 use super::*;
 use std::borrow::Cow;
 
 /// The record of a log's compaction, beside its segments.
 pub const MARKER: &str = "compacted.json";
-/// A tool call string longer than this is cut.
+/// A string longer than this, in a raw line or a tool call record, is cut.
 const LONG: usize = 2048;
 /// How much of a cut string is kept.
 const KEPT: usize = 512;
@@ -31,9 +36,9 @@ const KEPT: usize = 512;
 pub struct Compaction {
     pub bytes_before: u64,
     pub bytes_after: u64,
-    /// Raw harness lines dropped.
+    /// Raw stream lines dropped.
     pub dropped: u64,
-    /// Tool call records whose long strings were cut.
+    /// Records whose long strings were cut.
     pub trimmed: u64,
 }
 
@@ -44,6 +49,9 @@ struct Marker {
     /// more since.
     last_seq: u64,
     at: u64,
+    /// Every compacted segment is in place.
+    #[serde(default)]
+    complete: bool,
     #[serde(flatten)]
     stats: Compaction,
 }
@@ -87,10 +95,10 @@ impl LocalStore {
         self.dir(id).join("events").join(MARKER)
     }
 
-    /// The last `seq` of the log when it was last compacted.
+    /// The last `seq` of the log when its last compaction completed.
     pub(super) fn compacted_seq(&self, id: &str) -> Option<u64> {
         let text = std::fs::read(self.marker(id)).ok()?;
-        serde_json::from_slice::<Marker>(&text).ok().map(|m| m.last_seq)
+        serde_json::from_slice::<Marker>(&text).ok().filter(|m| m.complete).map(|m| m.last_seq)
     }
 
     /// Reads the log and, unless `mode` is a dry run, writes its compacted segments beside it.
@@ -116,6 +124,7 @@ impl LocalStore {
         }
         let mut staged = Staged { stats: Compaction::default(), last_seq: 0, segments: Vec::new() };
         let mut line = Vec::new();
+        let mut timing = Timing::default();
         for (_, path) in segments {
             let file = crate::config::private_state_file(&path)?;
             let len = file.metadata()?.len();
@@ -141,7 +150,7 @@ impl LocalStore {
                 if let Some(seq) = record_seq(&line) {
                     staged.last_seq = staged.last_seq.max(seq);
                 }
-                if let Some(record) = compact_line(&line, &mut staged.stats) {
+                if let Some(record) = compact_line(&line, &mut timing, &mut staged.stats) {
                     staged.stats.bytes_after += record.len() as u64;
                     if let Some(out) = out.as_mut() {
                         out.write_all(&record)?;
@@ -179,8 +188,14 @@ impl LocalStore {
             return Ok(false);
         }
         // The record goes first: a crash between two renames leaves a log that may hold nothing,
-        // and the record keeps it from passing for a purged chat's.
-        let marker = Marker { last_seq: staged.last_seq, at: now_ms(), stats: staged.stats };
+        // and the record keeps it from passing for a purged chat's. Until it says complete, a
+        // later pass compacts the log again.
+        let mut marker = Marker {
+            last_seq: staged.last_seq,
+            at: now_ms(),
+            complete: false,
+            stats: staged.stats,
+        };
         write_atomic(&self.marker(id), &serde_json::to_vec_pretty(&marker)?)?;
         // Its next append opens the compacted segment, not the old one's descriptor.
         self.close_log(id);
@@ -192,21 +207,54 @@ impl LocalStore {
             }
         }
         sync_directory(&self.dir(id).join("events"))?;
+        marker.complete = true;
+        write_atomic(&self.marker(id), &serde_json::to_vec_pretty(&marker)?)?;
         Ok(true)
     }
 }
 
+/// Which of Claude's raw `stream_event` lines a request's timing reads, as the tap keeps them
+/// (`hub/tap.rs` `times_request`): the main agent's `message_start`, and the first
+/// `content_block_delta` after one.
+#[derive(Default)]
+struct Timing {
+    awaiting_first_delta: bool,
+}
+
+impl Timing {
+    fn keeps(&mut self, msg: &Value) -> bool {
+        if msg.get("parent_tool_use_id").is_some_and(|p| !p.is_null()) {
+            return false;
+        }
+        match msg.pointer("/event/type").and_then(Value::as_str) {
+            Some("message_start") => {
+                self.awaiting_first_delta = true;
+                true
+            }
+            Some("content_block_delta") => std::mem::take(&mut self.awaiting_first_delta),
+            _ => false,
+        }
+    }
+}
+
 /// One log line as compaction keeps it, or None when it goes.
-fn compact_line<'a>(line: &'a [u8], stats: &mut Compaction) -> Option<Cow<'a, [u8]>> {
-    let kind = record_kind(line);
-    if record_dir(line) == Some(b"in")
-        && kind.is_some_and(|k| k.starts_with(b"claude.") || k.starts_with(b"codex."))
-    {
-        stats.dropped += 1;
-        return None;
+fn compact_line<'a>(
+    line: &'a [u8],
+    timing: &mut Timing,
+    stats: &mut Compaction,
+) -> Option<Cow<'a, [u8]>> {
+    let kind = record_kind(line).unwrap_or_default();
+    let raw = kind.starts_with(b"claude.") || kind.starts_with(b"codex.");
+    if kind == b"claude.stream_event" && record_dir(line) == Some(b"in") {
+        let keep =
+            serde_json::from_slice::<EventRecord>(line).map_or(true, |r| timing.keeps(&r.msg));
+        if !keep {
+            stats.dropped += 1;
+            return None;
+        }
     }
     if line.len() > LONG
-        && kind.is_some_and(|k| k.starts_with(b"tool_call"))
+        && (raw || kind.starts_with(b"tool_call"))
         && let Ok(mut record) = serde_json::from_slice::<EventRecord>(line)
         && cut_long_strings(&mut record.msg)
         && let Ok(mut out) = serde_json::to_vec(&record)

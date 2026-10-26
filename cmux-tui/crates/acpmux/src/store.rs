@@ -831,10 +831,11 @@ fn record_dir(line: &[u8]) -> Option<&[u8]> {
 /// file's length when it has none), found by a binary search on line headers: the records of a
 /// segment are appended in `seq` order. A line whose header does not read (an older field
 /// order) ends the search at the file's length, which reads the segment from its end as before.
-fn offset_of_seq(path: &Path, before: u64) -> Result<u64> {
+/// The caller reads back from the offset through the same `file`: log retention may rename a
+/// compacted segment over the path meanwhile (`store/compact.rs`).
+fn offset_of_seq(file: &mut File, before: u64) -> Result<u64> {
     use std::io::{Seek, SeekFrom};
     const PROBE: usize = 64 * 1024;
-    let mut file = crate::config::private_state_file(path)?;
     let len = file.seek(SeekFrom::End(0))?;
     let mut buf = vec![0u8; PROBE];
     // A segment whose last record is before `before` (every older segment of a page) needs no
@@ -893,18 +894,17 @@ fn offset_of_seq(path: &Path, before: u64) -> Result<u64> {
 /// Visits `path`'s lines newest first, reading 64 KiB blocks from the end, until `visit`
 /// returns false: a tail costs its own bytes, not the segment's.
 fn for_each_line_rev(path: &Path, visit: &mut dyn FnMut(&[u8]) -> bool) -> Result<()> {
-    for_each_line_rev_from(path, u64::MAX, visit)
+    for_each_line_rev_from(&mut crate::config::private_state_file(path)?, u64::MAX, visit)
 }
 
-/// `for_each_line_rev` over the bytes before offset `end` (a line start, or past the end).
+/// `for_each_line_rev` over the bytes of `file` before offset `end` (a line start, or past the end).
 fn for_each_line_rev_from(
-    path: &Path,
+    file: &mut File,
     end: u64,
     visit: &mut dyn FnMut(&[u8]) -> bool,
 ) -> Result<()> {
     use std::io::{Seek, SeekFrom};
     const BLOCK: u64 = 64 * 1024;
-    let mut file = crate::config::private_state_file(path)?;
     let mut end = file.seek(SeekFrom::End(0))?.min(end);
     // The blocks of a line whose start is in an earlier block, newest first: each block is read
     // and scanned once, so a line of many megabytes costs its length, not its length squared.
@@ -1212,8 +1212,9 @@ impl Store for LocalStore {
                 continue;
             }
             let mut done = false;
-            let end = offset_of_seq(&path, before)?;
-            for_each_line_rev_from(&path, end, &mut |line| {
+            let mut file = crate::config::private_state_file(&path)?;
+            let end = offset_of_seq(&mut file, before)?;
+            for_each_line_rev_from(&mut file, end, &mut |line| {
                 match record_seq(line) {
                     Some(seq) if seq >= before => return true,
                     Some(seq) if seq <= after => {

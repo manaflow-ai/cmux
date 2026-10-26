@@ -31,18 +31,54 @@ fn record(seq: u64, dir: &str, kind: &str, msg: Value) -> EventRecord {
     EventRecord { seq, at: seq, dir: dir.into(), kind: kind.into(), msg, host_seq: None }
 }
 
-/// A chat's log as a working agent leaves it: its prompt, the harness's raw lines, a tool call
-/// with a long output, the agent's answer.
+/// A chat's log as a working agent leaves it: its prompt, the harness's raw lines (a request's
+/// stream, its message with usage, a retry, a tool result), a tool call with a long output, the
+/// agent's answer.
 fn chat(store: &LocalStore, id: &str) -> Vec<EventRecord> {
     let output = "line of build output\n".repeat(600);
     let update = |kind: &str, update: Value| json!({"jsonrpc": "2.0", "method": "session/update", "params": {"sessionId": "a", "update": {"sessionUpdate": kind, "toolCallId": "t1", "status": "completed", "title": "Run the build", "content": update}}});
+    let stream = |event: Value, parent: Value| json!({"type": "stream_event", "event": event, "parent_tool_use_id": parent, "session_id": "s"});
+    let delta = json!({"type": "content_block_delta", "delta": {"text": "x"}});
     let records = vec![
         record(1, "mux", "created", json!({"name": "old chat"})),
         record(2, "mux", "user_message", json!({"text": "remember pelican", "promptId": "p1"})),
-        record(3, "in", "claude.stream_event", json!({"event": {"delta": "x".repeat(4000)}})),
-        record(4, "in", "tool_call", update("tool_call", json!([]))),
         record(
-            5,
+            3,
+            "out",
+            "claude.stdin",
+            json!({"type": "user", "message": {"content": "p".repeat(3000)}}),
+        ),
+        // The request's start and first token stay; the rest of its stream and a subagent's go.
+        record(
+            4,
+            "in",
+            "claude.stream_event",
+            stream(json!({"type": "message_start", "message": {"id": "m1"}}), Value::Null),
+        ),
+        record(5, "in", "claude.stream_event", stream(delta.clone(), Value::Null)),
+        record(6, "in", "claude.stream_event", stream(delta.clone(), Value::Null)),
+        record(7, "in", "claude.stream_event", stream(delta, json!("toolu_sub"))),
+        record(
+            8,
+            "in",
+            "claude.assistant",
+            json!({"type": "assistant", "parent_tool_use_id": null, "message": {"id": "m1", "model": "opus", "usage": {"input_tokens": 7, "output_tokens": 9}, "content": [{"type": "text", "text": "z".repeat(4000)}]}}),
+        ),
+        record(
+            9,
+            "in",
+            "claude.system.api_retry",
+            json!({"type": "system", "subtype": "api_retry", "attempt": 2, "max_retries": 10, "error": "overloaded"}),
+        ),
+        record(
+            10,
+            "in",
+            "claude.user",
+            json!({"type": "user", "isReplay": false, "tool_use_result": {"file": {"filePath": "/x", "content": "f".repeat(5000)}}}),
+        ),
+        record(11, "in", "tool_call", update("tool_call", json!([]))),
+        record(
+            12,
             "in",
             "tool_call_update",
             update(
@@ -50,14 +86,14 @@ fn chat(store: &LocalStore, id: &str) -> Vec<EventRecord> {
                 json!([{"type": "content", "content": {"type": "text", "text": output}}]),
             ),
         ),
-        record(6, "in", "codex.response", json!({"text": "y".repeat(3000)})),
+        record(13, "in", "codex.response", json!({"text": "y".repeat(3000)})),
         record(
-            7,
+            14,
             "in",
             "agent_message_chunk",
             json!({"params": {"update": {"content": {"text": "echo: pelican ".repeat(400)}}}}),
         ),
-        record(8, "mux", "status", json!({"status": "closed"})),
+        record(15, "mux", "status", json!({"status": "closed"})),
     ];
     closed(store, id);
     for r in &records {
@@ -82,24 +118,44 @@ fn bytes(store: &LocalStore, id: &str) -> Vec<(PathBuf, Vec<u8>)> {
 }
 
 #[test]
-fn compaction_drops_raw_harness_lines_and_cuts_tool_output_only() {
+fn compaction_cuts_long_strings_and_keeps_every_field_a_reader_takes() {
     let (_home, store) = Home::new();
     let before = chat(&store, "c1");
     let staged =
         store.stage_compaction("c1", CompactMode::Write { archive: None }).unwrap().unwrap();
     let stats = staged.stats;
     assert!(store.commit_compaction("c1", staged).unwrap());
-    assert_eq!((stats.dropped, stats.trimmed), (2, 1), "{stats:?}");
+    assert_eq!((stats.dropped, stats.trimmed), (2, 5), "{stats:?}");
     assert!(stats.bytes_after * 3 < stats.bytes_before, "{stats:?}");
 
     let after = log(&store, "c1");
     let seqs: Vec<u64> = after.iter().map(|r| r.seq).collect();
-    assert_eq!(seqs, [1, 2, 4, 5, 7, 8], "every record but the raw lines stays, its seq kept");
-    // The prompt, the answer and the chat's own records are as they were.
-    for r in after.iter().filter(|r| r.seq != 5) {
-        assert_eq!(Some(r), before.iter().find(|b| b.seq == r.seq));
+    assert_eq!(
+        seqs,
+        [1, 2, 3, 4, 5, 8, 9, 10, 11, 12, 13, 14, 15],
+        "only stream lines no request timing reads go; every seq is kept"
+    );
+    let get = |seq: u64| after.iter().find(|r| r.seq == seq).unwrap();
+    let was = |seq: u64| before.iter().find(|r| r.seq == seq).unwrap();
+    // The prompt, the answer, the timing lines, the retry and the chat's own records are as
+    // they were.
+    for seq in [1, 2, 4, 5, 9, 11, 14, 15] {
+        assert_eq!(get(seq), was(seq), "{seq}");
     }
-    let update = &after[3].msg["params"]["update"];
+    // A raw message keeps what OptChat reads (`fold.rs`): its id, model and usage.
+    let message = &get(8).msg["message"];
+    assert_eq!(
+        (&message["id"], &message["model"], &message["usage"]),
+        (
+            &was(8).msg["message"]["id"],
+            &was(8).msg["message"]["model"],
+            &was(8).msg["message"]["usage"]
+        )
+    );
+    assert_eq!(get(8).msg["parent_tool_use_id"], Value::Null);
+    assert_eq!(get(10).msg["isReplay"], false);
+    assert_eq!(get(10).msg["tool_use_result"]["file"]["filePath"], "/x");
+    let update = &get(12).msg["params"]["update"];
     assert_eq!(update["status"], "completed", "{update}");
     assert_eq!(update["title"], "Run the build");
     let text = update["content"][0]["content"]["text"].as_str().unwrap();
@@ -107,15 +163,16 @@ fn compaction_drops_raw_harness_lines_and_cuts_tool_output_only() {
         text.starts_with("line of build output") && text.ends_with("removed by log retention]")
     );
     assert!(text.len() < 700, "{}", text.len());
-    assert_eq!(store.compacted_seq("c1"), Some(8));
+    assert_eq!(store.compacted_seq("c1"), Some(15));
 }
 
 #[test]
 fn a_compacted_closed_chat_is_never_taken_for_a_purged_one() {
     let (_home, store) = Home::new();
-    // A log of raw harness lines only: nothing of it stays.
+    // A log of a subagent's stream only: nothing of it stays.
     closed(&store, "raw");
-    store.append("raw", &record(1, "in", "claude.system", json!({"subtype": "init"}))).unwrap();
+    let line = json!({"event": {"type": "content_block_delta"}, "parent_tool_use_id": "toolu_1"});
+    store.append("raw", &record(1, "in", "claude.stream_event", line)).unwrap();
     store.close_log("raw");
     let staged =
         store.stage_compaction("raw", CompactMode::Write { archive: None }).unwrap().unwrap();
@@ -143,7 +200,7 @@ fn a_log_written_since_it_was_read_is_left_whole() {
     chat(&store, "c1");
     let staged =
         store.stage_compaction("c1", CompactMode::Write { archive: None }).unwrap().unwrap();
-    store.append("c1", &record(9, "mux", "status", json!({"status": "idle"}))).unwrap();
+    store.append("c1", &record(16, "mux", "status", json!({"status": "idle"}))).unwrap();
     store.close_log("c1");
     let files: Vec<_> = bytes(&store, "c1")
         .into_iter()
@@ -151,7 +208,7 @@ fn a_log_written_since_it_was_read_is_left_whole() {
         .collect();
     assert!(!store.commit_compaction("c1", staged).unwrap());
     assert!(bytes(&store, "c1") == files, "the log as it was, and no compacted copy beside it");
-    assert_eq!(log(&store, "c1").len(), 9);
+    assert_eq!(log(&store, "c1").len(), 16);
 }
 
 #[test]
@@ -169,6 +226,21 @@ fn archive_mode_keeps_the_old_segments() {
     }
     assert!(archive.join("c1/session.json").exists());
     // Appends after it go to the compacted log.
-    store.append("c1", &record(9, "mux", "status", json!({"status": "idle"}))).unwrap();
-    assert_eq!(log(&store, "c1").last().map(|r| r.seq), Some(9));
+    store.append("c1", &record(16, "mux", "status", json!({"status": "idle"}))).unwrap();
+    assert_eq!(log(&store, "c1").last().map(|r| r.seq), Some(16));
+}
+
+#[test]
+fn a_compaction_a_crash_cut_short_is_done_again_and_still_lists() {
+    let (_home, store) = Home::new();
+    chat(&store, "c1");
+    // What a crash between the record and the renames leaves: the record, not yet complete.
+    let marker = json!({"lastSeq": 15, "at": 1, "complete": false, "bytesBefore": 0, "bytesAfter": 0, "dropped": 0, "trimmed": 0});
+    std::fs::write(store.marker("c1"), marker.to_string()).unwrap();
+    assert_eq!(store.compacted_seq("c1"), None, "a later pass compacts it again");
+    let staged =
+        store.stage_compaction("c1", CompactMode::Write { archive: None }).unwrap().unwrap();
+    assert!(store.commit_compaction("c1", staged).unwrap());
+    assert_eq!(store.compacted_seq("c1"), Some(15));
+    assert_eq!(store.list().unwrap().len(), 1);
 }
