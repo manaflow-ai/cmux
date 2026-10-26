@@ -9,13 +9,14 @@ import Testing
 /// `ChromiumHostPageView` in host mode (the in-process `CEFHostView` otherwise), the page view shows
 /// the context id of the host's REPLY, the fork's layer hosting of a page window over the host view
 /// runs only in process, a remote machine's proxy waits for the host's REPLY before the window is
-/// asked for (fail closed, with a deadline), and a refused move or attach closes its tab. REPLYs are
-/// resolved in the host start's reply table, the one the remote shim's reply callback resolves.
+/// asked for (fail closed, with a deadline on the main deadline queue), and a refused move or attach
+/// closes its tab. REPLYs are resolved in the host start's reply table, the one the remote shim's
+/// reply callback resolves.
 @MainActor @Suite(.serialized, .timeLimit(.minutes(1))) struct CEFPaneHostHostModeSitesTests {
     // MARK: Page parent
 
-    @Test func inProcessTheWindowsParentIsTheHostView() throws {
-        let (runtime, root) = try Self.runtime(hostMode: false)
+    @Test func inProcessTheWindowsParentIsTheHostView() async throws {
+        let (runtime, root) = try await Self.runtime(hostMode: false)
         defer { try? FileManager.default.removeItem(at: root) }
         let (host, tab) = Self.pane(runtime)
 
@@ -25,8 +26,8 @@ import Testing
         #expect(host.hostedPageView == nil, "no page view in process: the fork's page window shows the page")
     }
 
-    @Test func hostModeTheWindowsParentIsThePanesPageViewToken() throws {
-        let (runtime, root) = try Self.runtime(hostMode: true)
+    @Test func hostModeTheWindowsParentIsThePanesPageViewToken() async throws {
+        let (runtime, root) = try await Self.runtime(hostMode: true)
         defer { try? FileManager.default.removeItem(at: root) }
         let (host, tab) = Self.pane(runtime)
 
@@ -53,8 +54,8 @@ import Testing
     /// Host mode: the window's page shows in the pane's page view, so the fork's layer hosting of a
     /// page window over the host view gets no fork; in process it does (fork API 27).
     @Test(arguments: [false, true])
-    func onlyAnInProcessPageWindowIsForkLayerHosted(hostMode: Bool) throws {
-        let (runtime, root) = try Self.runtime(hostMode: hostMode)
+    func onlyAnInProcessPageWindowIsForkLayerHosted(hostMode: Bool) async throws {
+        let (runtime, root) = try await Self.runtime(hostMode: hostMode)
         defer { try? FileManager.default.removeItem(at: root) }
         let (host, tab) = Self.pane(runtime)
         host.ensureCreated(tab)
@@ -72,42 +73,42 @@ import Testing
 
     /// Host mode: the pane's window asks the host for its page context once, and the page view
     /// shows the id of the host's REPLY.
-    @Test func hostModeThePageViewShowsTheContextOfTheHostsReply() throws {
-        let (runtime, root) = try Self.runtime(hostMode: true)
+    @Test func hostModeThePageViewShowsTheContextOfTheHostsReply() async throws {
+        let (runtime, root) = try await Self.runtime(hostMode: true)
         defer { try? FileManager.default.removeItem(at: root) }
-        let route = try #require(runtime.hostReplies)
+        let replies = try #require(runtime.hostStart?.replies)
         let (host, _) = try Self.livePane(runtime)
         let page = try #require(host.hostedPageView)
 
         #expect(PaneSpy.layerHosting.map(\.browser) == [Self.firstBrowser])
         #expect(PaneSpy.layerHosting.map(\.enabled) == [1])
         #expect(page.contextID == 0, "a context showed before the host answered")
-        route.replies.resolve(PaneSpy.layerHostingTokens[0], fields: Self.int32(Int32(bitPattern: 0x8000_0042)))
+        replies.resolve(PaneSpy.layerHostingTokens[0], fields: Self.int32(Int32(bitPattern: 0x8000_0042)))
 
         #expect(page.contextID == 0x8000_0042)
-        #expect(route.replies.count == 0)
+        #expect(replies.count == 0)
     }
 
     /// A refused context (0) shows none; a REPLY for a window the pane no longer has shows nothing.
-    @Test func hostModeARefusedOrStaleContextShowsNothing() throws {
-        let (runtime, root) = try Self.runtime(hostMode: true)
+    @Test func hostModeARefusedOrStaleContextShowsNothing() async throws {
+        let (runtime, root) = try await Self.runtime(hostMode: true)
         defer { try? FileManager.default.removeItem(at: root) }
-        let route = try #require(runtime.hostReplies)
+        let replies = try #require(runtime.hostStart?.replies)
         let (host, _) = try Self.livePane(runtime)
         let page = try #require(host.hostedPageView)
 
-        route.replies.resolve(PaneSpy.layerHostingTokens[0], fields: Self.int32(0))
+        replies.resolve(PaneSpy.layerHostingTokens[0], fields: Self.int32(0))
         #expect(page.contextID == 0)
 
         let (closing, closingTab) = try Self.livePane(runtime, browser: Self.firstBrowser + 10)
         let closingPage = try #require(closing.hostedPageView)
         closing.removed(closingTab)
-        route.replies.resolve(PaneSpy.layerHostingTokens[1], fields: Self.int32(77))
+        replies.resolve(PaneSpy.layerHostingTokens[1], fields: Self.int32(77))
         #expect(closingPage.contextID == 0, "a closed pane's page view showed a context")
     }
 
-    @Test func aClosedPanesPageViewShowsNoContext() throws {
-        let (runtime, root) = try Self.runtime(hostMode: true)
+    @Test func aClosedPanesPageViewShowsNoContext() async throws {
+        let (runtime, root) = try await Self.runtime(hostMode: true)
         defer { try? FileManager.default.removeItem(at: root) }
         let (host, tab) = Self.pane(runtime)
         host.ensureCreated(tab)
@@ -122,8 +123,8 @@ import Testing
 
     // MARK: Remote machine proxy
 
-    @Test func inProcessAStoredMachineProxyOpensTheWindow() throws {
-        let (runtime, root) = try Self.runtime(hostMode: false)
+    @Test func inProcessAStoredMachineProxyOpensTheWindow() async throws {
+        let (runtime, root) = try await Self.runtime(hostMode: false)
         defer { try? FileManager.default.removeItem(at: root) }
         let (host, tab) = Self.pane(runtime, proxyPort: 9_000)
         PaneSpy.proxyState = 1
@@ -137,8 +138,8 @@ import Testing
 
     /// State 0 (nothing stored) and -1 (Chromium refused the preference): no window, fail closed.
     @Test(arguments: [Int32(0), Int32(-1)])
-    func inProcessAnUnstoredMachineProxyFailsTheTab(state: Int32) throws {
-        let (runtime, root) = try Self.runtime(hostMode: false)
+    func inProcessAnUnstoredMachineProxyFailsTheTab(state: Int32) async throws {
+        let (runtime, root) = try await Self.runtime(hostMode: false)
         defer { try? FileManager.default.removeItem(at: root) }
         let (host, tab) = Self.pane(runtime, proxyPort: 9_000)
         PaneSpy.proxyState = state
@@ -150,8 +151,8 @@ import Testing
         #expect(Self.showsFailure(tab))
     }
 
-    @Test func aMachineProxyOnPortZeroIsNeverSent() throws {
-        let (runtime, root) = try Self.runtime(hostMode: false)
+    @Test func aMachineProxyOnPortZeroIsNeverSent() async throws {
+        let (runtime, root) = try await Self.runtime(hostMode: false)
         defer { try? FileManager.default.removeItem(at: root) }
         let (host, tab) = Self.pane(runtime, proxyPort: 0)
         PaneSpy.proxyState = 2
@@ -163,10 +164,10 @@ import Testing
         #expect(Self.showsFailure(tab))
     }
 
-    @Test func hostModeTheWindowWaitsForTheMachineProxysReply() throws {
-        let (runtime, root) = try Self.runtime(hostMode: true)
+    @Test func hostModeTheWindowWaitsForTheMachineProxysReply() async throws {
+        let (runtime, root) = try await Self.runtime(hostMode: true)
         defer { try? FileManager.default.removeItem(at: root) }
-        let route = try #require(runtime.hostReplies)
+        let replies = try #require(runtime.hostStart?.replies)
         let (host, tab) = Self.pane(runtime, proxyPort: 9_000)
 
         host.ensureCreated(tab)
@@ -177,7 +178,7 @@ import Testing
         #expect(runtime.pendingWindows.isEmpty, "the window was asked for before the host stored the proxy")
         #expect(!Self.showsFailure(tab))
 
-        route.replies.resolve(PaneSpy.tokens[0], fields: Self.int32(1))
+        replies.resolve(PaneSpy.tokens[0], fields: Self.int32(1))
 
         #expect(runtime.pendingWindows.count == 1)
         #expect(PaneSpy.windowParents.count == 1)
@@ -185,14 +186,14 @@ import Testing
         #expect(host.machineProxyWaits.isEmpty)
     }
 
-    @Test func hostModeARefusedMachineProxyFailsTheTab() throws {
-        let (runtime, root) = try Self.runtime(hostMode: true)
+    @Test func hostModeARefusedMachineProxyFailsTheTab() async throws {
+        let (runtime, root) = try await Self.runtime(hostMode: true)
         defer { try? FileManager.default.removeItem(at: root) }
-        let route = try #require(runtime.hostReplies)
+        let replies = try #require(runtime.hostStart?.replies)
         let (host, tab) = Self.pane(runtime, proxyPort: 9_000)
         host.ensureCreated(tab)
 
-        route.replies.resolve(PaneSpy.tokens[0], fields: Self.int32(-1))
+        replies.resolve(PaneSpy.tokens[0], fields: Self.int32(-1))
 
         #expect(runtime.pendingWindows.isEmpty)
         #expect(Self.showsFailure(tab))
@@ -200,30 +201,28 @@ import Testing
 
     /// A host that never answers fails the tab at the reply deadline, not never.
     @Test func hostModeAMachineProxyWithNoReplyFailsAtTheDeadline() async throws {
-        let clock = ManualClock()
-        let (runtime, root) = try Self.runtime(hostMode: true, clock: clock)
+        let (runtime, root) = try await Self.runtime(hostMode: true)
         defer { try? FileManager.default.removeItem(at: root) }
+        let rig = HostRepliesHarness.deadlines(of: runtime)
         let (host, tab) = Self.pane(runtime, proxyPort: 9_000)
         host.ensureCreated(tab)
-        try await clock.waitForSleeper()
+        rig.advance(by: CEFRuntime.siteReplyTimeout - .milliseconds(1))
         #expect(!Self.showsFailure(tab))
 
-        clock.advance(by: CEFRuntime.siteReplyTimeout)
-        for _ in 0..<1_000 where !Self.showsFailure(tab) { await Task.yield() }
+        rig.advance(by: .seconds(2))
 
         #expect(Self.showsFailure(tab))
         #expect(runtime.pendingWindows.isEmpty)
         #expect(host.machineProxyWaits.isEmpty)
     }
 
-    @Test func hostModeAMachineProxyFailsClosedWhenTheHostGoes() throws {
-        let (runtime, root) = try Self.runtime(hostMode: true)
+    @Test func hostModeAMachineProxyFailsClosedWhenTheHostGoes() async throws {
+        let (runtime, root) = try await Self.runtime(hostMode: true)
         defer { try? FileManager.default.removeItem(at: root) }
-        let route = try #require(runtime.hostReplies)
         let (host, tab) = Self.pane(runtime, proxyPort: 9_000)
         host.ensureCreated(tab)
 
-        route.hostGone()
+        runtime.hostGone()
 
         #expect(runtime.pendingWindows.isEmpty)
         #expect(Self.showsFailure(tab))
@@ -232,8 +231,8 @@ import Testing
 
     // MARK: Moves and attaches
 
-    @Test func aPopupMovesIntoItsOwnWindow() throws {
-        let (runtime, root) = try Self.runtime(hostMode: false)
+    @Test func aPopupMovesIntoItsOwnWindow() async throws {
+        let (runtime, root) = try await Self.runtime(hostMode: false)
         defer { try? FileManager.default.removeItem(at: root) }
         let (host, _) = try Self.livePane(runtime)
         let popup = Self.waitingPopup(in: host, runtime)
@@ -248,8 +247,8 @@ import Testing
 
     /// A move the fork refuses leaves the popup in its opener's window: it closes rather than take
     /// over the opener's pane.
-    @Test func aPopupWhoseMoveTheForkRefusesCloses() throws {
-        let (runtime, root) = try Self.runtime(hostMode: false)
+    @Test func aPopupWhoseMoveTheForkRefusesCloses() async throws {
+        let (runtime, root) = try await Self.runtime(hostMode: false)
         defer { try? FileManager.default.removeItem(at: root) }
         let (host, _) = try Self.livePane(runtime)
         let popup = Self.waitingPopup(in: host, runtime)
@@ -263,8 +262,8 @@ import Testing
 
     /// A fork without `cmux_tab_move_to_window` (API < 3): the popup closes rather than take over its
     /// opener's pane, and no move is sent.
-    @Test func aPopupOnAForkThatCannotMoveCloses() throws {
-        let (runtime, root) = try Self.runtime(hostMode: false)
+    @Test func aPopupOnAForkThatCannotMoveCloses() async throws {
+        let (runtime, root) = try await Self.runtime(hostMode: false)
         defer { try? FileManager.default.removeItem(at: root) }
         let (host, _) = try Self.livePane(runtime)
         let popup = Self.waitingPopup(in: host, runtime)
@@ -277,8 +276,8 @@ import Testing
     }
 
     @Test(arguments: [false, true])
-    func aPopupWindowAttachesOverThePageParent(hostMode: Bool) throws {
-        let (runtime, root) = try Self.runtime(hostMode: hostMode)
+    func aPopupWindowAttachesOverThePageParent(hostMode: Bool) async throws {
+        let (runtime, root) = try await Self.runtime(hostMode: hostMode)
         defer { try? FileManager.default.removeItem(at: root) }
         let (host, tab, content) = try Self.popupPane(runtime)
 
@@ -293,8 +292,8 @@ import Testing
     }
 
     /// An attach the fork refuses closes the tab, so no hidden window stays behind.
-    @Test func aPopupWindowThatDoesNotAttachClosesItsTab() throws {
-        let (runtime, root) = try Self.runtime(hostMode: false)
+    @Test func aPopupWindowThatDoesNotAttachClosesItsTab() async throws {
+        let (runtime, root) = try await Self.runtime(hostMode: false)
         defer { try? FileManager.default.removeItem(at: root) }
         let (host, tab, content) = try Self.popupPane(runtime)
         PaneSpy.attachResult = 0
@@ -326,17 +325,16 @@ import Testing
     }
 
     /// A runtime that outlives the test (a pane's scheduled work reads it through an unowned
-    /// reference); in host mode with a host that maps minted ids and a reply route over the host
-    /// start's table, whose deadlines run on `clock`.
-    private static func runtime(hostMode: Bool, clock: any Clock<Duration> = ContinuousClock()) throws -> (CEFRuntime, URL) {
+    /// reference); in host mode attached to the spy, with a host that maps minted ids, whose REPLYs
+    /// resolve in the host start's table.
+    private static func runtime(hostMode: Bool) async throws -> (CEFRuntime, URL) {
         PaneSpy.reset()
         let root = FileManager.default.temporaryDirectory.appending(path: "cef-pane-sites-\(UUID().uuidString)", directoryHint: .isDirectory)
         let runtime = CEFRuntime(shim: try CEFShimLibrary.resolving(PaneSpy.symbol), storage: CEFProfileStorage(root: root))
         if hostMode {
-            let hostStart = CEFHostStart(supervisor: NoHost(), clock: clock)
+            let hostStart = try await HostRepliesHarness.attachedHost(over: { PaneSpy.symbol($0) })
             hostStart.mapsClientIDs = true
             runtime.hostStart = hostStart
-            runtime.hostReplies = try CEFHostReplyRoute(symbol: PaneSpy.symbol, replies: hostStart.replies)
         }
         _ = Unmanaged.passRetained(runtime)
         return (runtime, root)
@@ -390,13 +388,6 @@ import Testing
     }
 }
 
-/// Never attaches: these tests drive panes against the spy shim and never start Chromium.
-@MainActor private final class NoHost: ChromiumHostSupervising {
-    func attachment() async throws(ChromiumHostAttachError) -> ChromiumHostAttachment {
-        throw .cannotStart("not started in this test")
-    }
-}
-
 /// Stand-in shim functions. `create_window` and `popup_window_attach` record their parent view,
 /// `set_context_proxy` its port, `tab_move_to_window` its browsers; `context_proxy_state` and
 /// `browser_set_layer_hosting` make the next reply token current, as the remote shim does for an
@@ -432,7 +423,7 @@ private nonisolated enum PaneSpy {
     }
 
     static func symbol(_ name: String) -> UnsafeMutableRawPointer? {
-        let lastReplyToken: CEFHostReplyRoute.LastReplyTokenFn = { PaneSpy.lastToken }
+        let lastReplyToken: CEFRemoteShim.LastReplyTokenFn = { PaneSpy.lastToken }
         let createWindow: @convention(c) (Int32, UnsafeMutableRawPointer?, Int32, Int32, UnsafePointer<CChar>?, UnsafePointer<CChar>?) -> Int32 = {
             _, parent, _, _, _, _ in
             PaneSpy.windowParents.append(parent)

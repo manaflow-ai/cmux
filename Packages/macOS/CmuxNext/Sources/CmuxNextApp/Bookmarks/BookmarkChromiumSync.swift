@@ -144,8 +144,9 @@ final class BookmarkChromiumSync {
             return
         }
         waiting[store] = nil
-        if bridge.sync(store: store, treeJSON: Self.json(service.tree(profile))) < 0 {
-            logger.error("chrome.bookmarks sync refused for a store of \(profile, privacy: .public)")
+        // The reason tells a refusal (the store is forgotten) from no answer in time (it stays).
+        bridge.sync(store: store, treeJSON: Self.json(service.tree(profile))) { [logger] failure in
+            logger.error("chrome.bookmarks sync not applied (\(String(describing: failure), privacy: .public)) for a store of \(profile, privacy: .public)")
         }
     }
 
