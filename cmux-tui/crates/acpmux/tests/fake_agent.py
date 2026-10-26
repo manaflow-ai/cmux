@@ -591,6 +591,29 @@ def handle_prompt(rid, params):
         update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": f"chose {chosen}"}})
         send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
         return
+    # "guard: CMD" asks to run Bash CMD as Claude Code's own guard does in bypassPermissions
+    # (a can_use_tool its classifier may not approve), here with the lasting allow listed first.
+    if text.startswith("guard:"):
+        cmd = text[6:].strip()
+        res = request(
+            "session/request_permission",
+            {
+                "sessionId": sid,
+                "toolCall": {"toolCallId": "g1", "title": cmd, "kind": "execute", "status": "pending",
+                             "rawInput": {"command": cmd},
+                             "_meta": {"claude": {"tool": "Bash", "interactive": False,
+                                                  "description": "Dangerous rm operation on statically-unresolvable target"}}},
+                "options": [
+                    {"optionId": "always", "name": "Allow for this session", "kind": "allow_always"},
+                    {"optionId": "once", "name": "Allow", "kind": "allow_once"},
+                    {"optionId": "no", "name": "Reject", "kind": "reject_once"},
+                ],
+            },
+        )
+        chosen = (res or {}).get("outcome", {}).get("optionId", (res or {}).get("outcome", {}).get("outcome"))
+        update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": f"chose {chosen}"}})
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
     if text.startswith("ask:"):
         res = request(
             "session/request_permission",
