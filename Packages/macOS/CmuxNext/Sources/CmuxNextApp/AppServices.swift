@@ -518,7 +518,7 @@ final class AppServices {
     var remoteLocalhost: RemoteLocalhostService { madeRemoteLocalhost ?? RemoteLocalhostService.made(for: self) }  // on first use
     var madeRemoteLocalhost: RemoteLocalhostService?
     /// Which machines run browser tabs there, and their runtimes (cx-2cob slice 2).
-    private(set) lazy var machineBrowserHosts = MachineBrowserHosts(machines: machines) { [weak self] in self?.remoteLocalhost }
+    private(set) lazy var machineBrowserHosts = MachineBrowserHosts(machines: machines, mainWork: mainWork) { [weak self] in self?.remoteLocalhost }
     var chromiumLikelyObservations: [Task<Void, Never>] = []
     /// Follows the default engine for the pages spare window (`startChromiumWarmup`, feature `pagesSpareWindow`).
     var pagesSpareWatch: ServiceObservation<Bool>?

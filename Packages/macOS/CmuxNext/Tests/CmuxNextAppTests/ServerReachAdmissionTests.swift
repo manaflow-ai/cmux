@@ -2,7 +2,9 @@ import CmuxNextDaemonService
 @testable import CmuxNextDaemon
 import CmuxNextRemote
 import CmuxNextWakeups
+import AppKit
 import Foundation
+import Observation
 import Testing
 @testable import CmuxNextApp
 
@@ -15,13 +17,25 @@ struct ServerReachAdmissionTests {
         let root = URL(fileURLWithPath: "/private/tmp/cn-server-admit-" + String(UUID().uuidString.prefix(8)))
         let home = DaemonService()
         let machines: MachineRegistry
-        var user: String? = "fixture-user"
+        /// The app's scheduler, run by hand: `rig.frame()` runs the posted flushes.
+        let rig = MainDeadlineRig()
+        var mainWork: MainWorkScheduler { rig.deadlines.work }
+        /// The service's own notice center: a post here is the app becoming active.
+        let center = NotificationCenter()
+        lazy var appEvents = AppEvents(center: center)
+        let account = Account()
+        var user: String? {
+            get { account.user }
+            set { account.user = newValue }
+        }
         var fail = false
         var install = "inst_before001"
         var listed = true
         var calls: [String] = []
         var removed: [DaemonService] = []
-        lazy var service = ServerReachService(machines: machines, mainWork: MainWorkScheduler(budget: MainFrameBudget()), call: { [unowned self] path, body in
+        lazy var service = ServerReachService(machines: machines, mainWork: mainWork, appEvents: appEvents, call: { [weak self] path, body in
+            // Weak: a read the service started (start, activation) may run after the test ended.
+            guard let self else { throw FeedServiceError.signedOut }
             #expect(path == "v1/read")
             let op = body["op"] as? String ?? ""
             calls.append(op)
@@ -36,8 +50,10 @@ struct ServerReachAdmissionTests {
                 return ["value": ["hosts": hosts]]
             default: throw FeedServiceError.badReply
             }
-        }, signedInUser: { [unowned self] in user }, paths: .init(root: root.appendingPathComponent("links")),
-            binary: nil, local: { [unowned self] in .init(hostNames: ["fixture-server"], brainSocket: socket) })
+        }, signedInUser: { [weak self] in self?.user }, paths: .init(root: root.appendingPathComponent("links")),
+            binary: nil, local: { [weak self] in
+                self.map { ServerReachPlan.LocalServer(hostNames: ["fixture-server"], brainSocket: $0.socket) }
+            })
 
         init() {
             machines = MachineRegistry(local: home)
@@ -61,6 +77,48 @@ struct ServerReachAdmissionTests {
             service.stop()
             for server in machines.servers { _ = machines.removeServer(server.machineID) }
         }
+    }
+
+    /// The signed-in user, observable as the app's CloudAuth is.
+    @MainActor @Observable final class Account {
+        var user: String? = "fixture-user"
+    }
+
+    // MARK: Scheduler sweep (p06-scheduler-313): service observations and the activation notice
+
+    @Test func signingOutClosesTheServersOnTheFlushNotInTheChangesTurn() throws {
+        let h = Harness(); defer { h.stop() }
+        h.service.start()
+        let saved = try h.restore()
+        h.user = nil
+        #expect(h.machines.servers.first === saved, "the sign-out applied in its own turn, before the scheduler ran it")
+        h.rig.frame()
+        // A service observation: the servers close whether or not any window shows them.
+        #expect(h.machines.servers.isEmpty, "a sign-out left the account's servers in the sidebar")
+    }
+
+    @Test func theActivationNoticeReadsTheDirectory() async throws {
+        let h = Harness(); defer { h.stop() }
+        h.user = nil
+        h.service.start()
+        // Signed in again; that change's flush waits for a frame this test never runs.
+        h.user = "fixture-user"
+        #expect(h.calls.isEmpty)
+        h.center.post(name: NSApplication.didBecomeActiveNotification, object: nil)
+        while h.calls.count < 2 { await Task.yield() }
+        #expect(Array(h.calls.prefix(2)) == ["chief.list", "team.hosts.list"], "the activation read \(h.calls)")
+    }
+
+    @Test func stopEndsTheWatchesAndTheActivationSubscription() throws {
+        let h = Harness(); defer { h.stop() }
+        h.service.start()
+        _ = try h.restore()
+        h.service.stop()
+        #expect(!h.appEvents.isObserving(NSApplication.didBecomeActiveNotification), "stop kept the activation observer")
+        h.user = nil
+        h.rig.frame()
+        // A sign-out the service still followed would have removed the (closed) server.
+        #expect(!h.machines.servers.isEmpty, "a stopped service still followed the sign-out")
     }
 
     @Test func savedRoutesKeepOfflineReconnectAndTemporaryPolicyReadmission() throws {

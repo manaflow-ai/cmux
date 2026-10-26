@@ -1,6 +1,7 @@
 import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextRemoteLocalhostService
+import CmuxNextWakeups
 import Foundation
 
 /// Which machines run browser tabs there (cx-2cob slice 2): the last
@@ -15,17 +16,27 @@ final class MachineBrowserHosts {
     /// The last status by machine, for the daemon connection it came from.
     private var known: [String: (connection: ObjectIdentifier, status: BrowserRuntimeStatus?)] = [:]
     private var probing: Set<String> = []
-    private var observation: Task<Void, Never>?
+    /// The app's main-thread scheduler: each status answer is a task on it.
+    private let mainWork: MainWorkScheduler
+    /// The remote machines' connections: a new one is checked once (a service observation: the placement rule asks
+    /// whether or not anything shows).
+    private var observation: ServiceObservation<[MachineLink]>?
 
-    init(machines: MachineRegistry, localhost: @escaping @MainActor () -> RemoteLocalhostService?) {
+    /// One remote machine's daemon and whether it has a connection now.
+    private nonisolated struct MachineLink: Equatable, Sendable {
+        let machine: String
+        let connected: Bool
+    }
+
+    init(machines: MachineRegistry, mainWork: MainWorkScheduler, localhost: @escaping @MainActor () -> RemoteLocalhostService?) {
         self.machines = machines
+        self.mainWork = mainWork
         self.localhost = localhost
         #if DEBUG
-        // task-owner: lives as long as the app; event-driven (Observation): a machine's new connection is checked once.
-        observation = Task { [weak self, machines] in
-            for await links in ObservationStream({ machines.daemons.filter { !$0.isLocal }.map { ($0.machineID, $0.connection != nil) } }) {
-                for (machine, connected) in links where connected && self?.installed(machine) == nil { self?.refresh(machine) }
-            }
+        observation = ServiceObservation(.visible, owner: "MachineBrowserHosts.links", on: mainWork) {
+            machines.daemons.filter { !$0.isLocal }.map { MachineLink(machine: $0.machineID, connected: $0.connection != nil) }
+        } apply: { [weak self] links in
+            for link in links where link.connected && self?.installed(link.machine) == nil { self?.refresh(link.machine) }
         }
         #endif
     }
@@ -52,11 +63,14 @@ final class MachineBrowserHosts {
         guard let connection = connection(of: machine), let client = localhost()?.loopbackClient(machine: machine),
               !probing.contains(machine) else { return }
         probing.insert(machine)
-        // task-owner: one status read; ends with its answer.
-        Task { [weak self] in
+        let mainWork = mainWork
+        // task-owner: one status read off the main thread; ends with its answer, one visible task (the placement rule reads it).
+        Task { @concurrent [weak self] in
             let status = try? await client.browserRuntimeStatus()
-            self?.probing.remove(machine)
-            self?.known[machine] = (connection, status)
+            mainWork.postFromAnyThread(.visible, owner: "MachineBrowserHosts.status") { [weak self] in
+                self?.probing.remove(machine)
+                self?.known[machine] = (connection, status)
+            }
         }
     }
 
@@ -78,8 +92,8 @@ final class MachineBrowserHosts {
     /// The tab of `runtime` closed: the machine stops its browser.
     func stop(_ machine: String, runtime: UInt64) {
         guard let client = localhost()?.loopbackClient(machine: machine) else { return }
-        // task-owner: one stop request; ends with its answer.
-        Task { await client.stopBrowserRuntime(runtime) }
+        // task-owner: one stop request; ends with its answer. Nothing in it runs on the main thread.
+        Task { @concurrent in await client.stopBrowserRuntime(runtime) }
     }
 
     private func connection(of machine: String) -> ObjectIdentifier? {

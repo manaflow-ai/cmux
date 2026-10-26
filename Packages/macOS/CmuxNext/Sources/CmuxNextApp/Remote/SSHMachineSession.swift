@@ -46,12 +46,17 @@ final class SSHMachineSession {
     @ObservationIgnored var offersInstall = false
     @ObservationIgnored var onStatusChange: ((SSHMachineSession, SSHConnectionMachine.Status) -> Void)?
     @ObservationIgnored private var statusTask: Task<Void, Never>?
-    @ObservationIgnored private var startupTask: Task<Void, Never>?
+    /// Follows the daemon's first-connect state for the session's life (a service observation: the sidebar header
+    /// reads `daemonFailure` whether or not it shows now); cancelled in close().
+    @ObservationIgnored private var startupWatch: ServiceObservation<DaemonStartupState>?
+    /// The app's main-thread scheduler: the link output's answer is a task on it.
+    @ObservationIgnored private let mainWork: MainWorkScheduler
 
     /// - Parameter mainWork: The app's main-thread scheduler (the local daemon's), for the machine's event batches.
     init(host: SSHHost, binary: URL, paths: SSHPaths, environment: @escaping @Sendable () async -> [String: String],
          machineID: String? = nil, mainWork: MainWorkScheduler) {
         self.host = host
+        self.mainWork = mainWork
         self.machineID = machineID ?? host.machineID
         daemon = DaemonService(machineID: self.machineID, echoesPlacementShift: SidebarMirror.isLinked, mainWork: mainWork)
         // The actor reports each status change; only the latest matters.
@@ -61,31 +66,40 @@ final class SSHMachineSession {
         statusTask = Task { [weak self] in
             for await status in statuses { self?.linkStatusChanged(status) }
         }
-        let daemon = daemon, link = link
-        // task-owner: follows the daemon's first-connect state for the session's life; cancelled in close()
-        startupTask = Task { [weak self] in
-            for await startup in ObservationStream({ daemon.startup }) {
-                guard case .unavailable(let error) = startup else {
-                    self?.startupError = nil
-                    self?.daemonFailure = nil
-                    continue
-                }
-                self?.startupError = error
-                await self?.updateDaemonFailure(link: link)
-            }
+        let daemon = daemon
+        startupWatch = ServiceObservation(.visible, owner: "SSHMachine.startup", on: mainWork) {
+            daemon.startup
+        } apply: { [weak self] startup in
+            self?.startupChanged(startup)
         }
     }
 
+    private func startupChanged(_ startup: DaemonStartupState) {
+        guard case .unavailable(let error) = startup else {
+            startupError = nil
+            daemonFailure = nil
+            return
+        }
+        startupError = error
+        updateDaemonFailure()
+    }
+
     /// The daemon failure text, once both the daemon gave up and the link
-    /// came up.
-    private func updateDaemonFailure(link: SSHMachineLink) async {
+    /// came up. The link's output is read off the main thread; the text is one visible task.
+    private func updateDaemonFailure() {
         guard let error = startupError, linkReached else {
             daemonFailure = nil
             return
         }
-        let output = await link.output()
-        guard startupError == error, linkReached else { return }
-        daemonFailure = Self.failureText(error.description, output: output)
+        let link = link, mainWork = mainWork
+        // task-owner: one actor hop to read the link's output; a newer failure or a gone session drops the answer
+        Task { @concurrent [weak self] in
+            let output = await link.output()
+            mainWork.postFromAnyThread(.visible, owner: "SSHMachine.daemonFailure") { [weak self] in
+                guard let self, startupError == error, linkReached else { return }
+                daemonFailure = Self.failureText(error.description, output: output)
+            }
+        }
     }
 
     /// The daemon's error, then the link's output when it adds to it.
@@ -98,7 +112,8 @@ final class SSHMachineSession {
     func close() {
         disconnect(keepAutoConnect: true)
         statusTask?.cancel()
-        startupTask?.cancel()
+        startupWatch?.cancel()
+        startupWatch = nil
     }
 
     private func linkStatusChanged(_ status: SSHConnectionMachine.Status) {
@@ -108,9 +123,7 @@ final class SSHMachineSession {
         case .connected:
             if !linkReached {
                 linkReached = true
-                let link = link
-                // task-owner: one actor hop to read the link's output
-                Task { [weak self] in await self?.updateDaemonFailure(link: link) }
+                updateDaemonFailure()
             }
         case .connecting, .reconnecting, .failed: break
         case .offline, .authFailed, .hostKeyUntrusted, .unreachable, .needsInstall, .installing, .installFailed:

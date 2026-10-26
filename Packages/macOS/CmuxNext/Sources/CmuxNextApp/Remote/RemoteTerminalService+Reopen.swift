@@ -36,6 +36,7 @@ extension RemoteTerminalService {
               open: @escaping @MainActor () async throws -> SurfaceID) {
         let (name, pinned, surface, id) = (tab.name.flatMap { $0.isEmpty ? nil : $0 }, tab.pinned, tab.surface, tab.id)
         let terminal = tab.kind == .pty || tab.kind == .remoteTerminal
+        // main-hop-allow: the action's tracked work awaits the main-actor opener (`open`) and the daemons' actors; forget, release and the move's completion run in its reply's job
         services.registry.track(Task { [weak self] in
             do {
                 let created = try await open()

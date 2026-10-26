@@ -30,6 +30,8 @@ final class ServerReachService {
     private let machines: MachineRegistry
     /// The app's main-thread scheduler (from the composition root): every server's event batches run on it.
     private let mainWork: MainWorkScheduler
+    /// The app's notices (`AppServices.appEvents`): activation wakes the servers.
+    private let appEvents: AppEvents
     private let call: Call
     /// The signed-in user's id, or nil when signed out (observed).
     private let signedInUser: @MainActor () -> String?
@@ -47,7 +49,14 @@ final class ServerReachService {
     private var linkWatchers: [any ServerFileWatching] = []
     private var watchedLinkFiles: [String] = []
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.server-reach")
-    private var observers: [Task<Void, Never>] = []
+    /// Sign-in and sign-out, the registry's records, the home daemon's identity: service observations
+    /// (their side effects connect and close servers whether or not anything shows), and the activation notice.
+    private var userWatch: ServiceObservation<String?>?
+    private var recordsWatch: ServiceObservation<[SessionRecord]>?
+    private var identityWatch: ServiceObservation<Bool>?
+    private var activation: EventSubscription?
+    /// The signed-in user the last sign-in change saw; nil before the first and while signed out.
+    private var lastUser: String?
     private var reading: Task<Void, Never>?
     /// Another read was asked for while one ran: run once more after it.
     private var readAgain = false
@@ -57,7 +66,8 @@ final class ServerReachService {
     /// Set while an administrator turned remote hosts off: no server connects.
     private(set) var policyDisabled = false
 
-    init(machines: MachineRegistry, mainWork: MainWorkScheduler, call: @escaping Call, signedInUser: @escaping @MainActor () -> String?, paths: SSHPaths,
+    init(machines: MachineRegistry, mainWork: MainWorkScheduler, appEvents: AppEvents, call: @escaping Call,
+         signedInUser: @escaping @MainActor () -> String?, paths: SSHPaths,
          binary: URL?, local: @escaping @MainActor () -> ServerReachPlan.LocalServer? = { nil },
          linkPeers: @escaping @MainActor () async -> ServerReachPlan.LinkPeers? = { nil }, cli: URL? = nil,
          linkSetupFile: String? = nil, makeWatcher: @escaping LocalServerSource.MakeWatcher = LocalServerSource.fileWatcher) {
@@ -66,6 +76,7 @@ final class ServerReachService {
         self.cli = cli
         self.machines = machines
         self.mainWork = mainWork
+        self.appEvents = appEvents
         self.call = call
         self.signedInUser = signedInUser
         self.paths = paths
@@ -74,46 +85,52 @@ final class ServerReachService {
         self.linkPeers = linkPeers
     }
 
+    /// Follows the account, the registry and the home daemon's identity (each applies its current value now), and
+    /// the app's activation.
     func start() {
         let machines = machines, signedInUser = signedInUser
-        observers.append(Task { [weak self] in
-            var previous: String?
-            for await user in ObservationStream({ signedInUser() }) {
-                guard let self else { return }
-                // Servers belong to the account: any change of user closes them.
-                if previous != nil, user != previous {
-                    self.closeAll()
-                }
-                previous = user
-                if user != nil {
-                    self.restore(self.currentRecords())
-                    self.refresh()
-                }
-            }
-        })
-        observers.append(Task { [weak self] in
-            for await _ in NotificationCenter.default.notifications(named: NSApplication.didBecomeActiveNotification) {
-                self?.refresh()
-                guard let self, !self.policyDisabled else { continue }
-                for server in self.machines.servers where server.autoConnect { server.wake() }
-            }
-        })
-        observers.append(Task { [weak self] in
-            for await records in ObservationStream({ () -> [SessionRecord] in
-                let store = machines.local.store
-                return store.personal.isLoaded && !store.isProvisional ? store.personal.sessions : []
-            }) {
-                self?.restore(records)
-            }
-        })
+        lastUser = nil
+        userWatch = ServiceObservation(.visible, owner: "ServerReach.user", on: mainWork) {
+            signedInUser()
+        } apply: { [weak self] user in
+            self?.signedInUserChanged(user)
+        }
+        activation = appEvents.subscribe(NSApplication.didBecomeActiveNotification, owner: "ServerReach.activation") { [weak self] in
+            self?.appBecameActive()
+        }
+        recordsWatch = ServiceObservation(.visible, owner: "ServerReach.records", on: mainWork) { () -> [SessionRecord] in
+            let store = machines.local.store
+            return store.personal.isLoaded && !store.isProvisional ? store.personal.sessions : []
+        } apply: { [weak self] records in
+            self?.restore(records)
+        }
         // A server on this Mac connects only once the home daemon's identity
         // is known, so the admit check can refuse a route back to it.
-        observers.append(Task { [weak self] in
-            for await known in ObservationStream({ machines.local.identity != nil }) where known {
-                guard let self, !self.policyDisabled else { continue }
-                for server in self.machines.servers where server.autoConnect { server.connect() }
-            }
-        })
+        identityWatch = ServiceObservation(.visible, owner: "ServerReach.identity", on: mainWork) {
+            machines.local.identity != nil
+        } apply: { [weak self] known in
+            guard known, let self, !self.policyDisabled else { return }
+            for server in self.machines.servers where server.autoConnect { server.connect() }
+        }
+    }
+
+    /// Servers belong to the account: any change of user closes them; a signed-in user's are restored and read.
+    private func signedInUserChanged(_ user: String?) {
+        if lastUser != nil, user != lastUser {
+            closeAll()
+        }
+        lastUser = user
+        if user != nil {
+            restore(currentRecords())
+            refresh()
+        }
+    }
+
+    /// The app became active: read again and wake the servers set to connect.
+    private func appBecameActive() {
+        refresh()
+        guard !policyDisabled else { return }
+        for server in machines.servers where server.autoConnect { server.wake() }
     }
 
     /// Turning remote hosts off disconnects every server (they stay listed
@@ -134,8 +151,14 @@ final class ServerReachService {
 
     func stop() {
         watchLink([])
-        for observer in observers { observer.cancel() }
-        observers.removeAll()
+        userWatch?.cancel()
+        userWatch = nil
+        recordsWatch?.cancel()
+        recordsWatch = nil
+        identityWatch?.cancel()
+        identityWatch = nil
+        activation?.cancel()
+        activation = nil
         reading?.cancel()
         for server in machines.servers { server.close() }
     }
@@ -148,14 +171,21 @@ final class ServerReachService {
             readAgain = true
             return
         }
-        reading = Task { [weak self] in
+        let mainWork = mainWork
+        // The task is off the main thread; `read()`'s steps are main-actor (the feed's call, the plan's apply), and
+        // its end is one visible task.
+        reading = Task { @concurrent [weak self] in
             await self?.read()
-            guard let self else { return }
-            reading = nil
-            if readAgain {
-                readAgain = false
-                refresh()
-            }
+            mainWork.postFromAnyThread(.visible, owner: "ServerReach.readFinished") { [weak self] in self?.readFinished() }
+        }
+    }
+
+    /// A read ended: runs the read asked for meanwhile.
+    private func readFinished() {
+        reading = nil
+        if readAgain {
+            readAgain = false
+            refresh()
         }
     }
 
@@ -225,10 +255,11 @@ final class ServerReachService {
         guard files != watchedLinkFiles else { return }
         for watcher in linkWatchers { watcher.stop() }
         watchedLinkFiles = files
+        let mainWork = mainWork
         linkWatchers = files.map { file in
             let watcher = makeWatcher(URL(fileURLWithPath: file)) { [weak self] in
-                // task-owner: one main-actor hop per file event; refresh coalesces reads
-                Task { @MainActor in self?.refresh() }
+                // `cmux link` changed the pairing file: one automation task per file event; refresh coalesces reads.
+                mainWork.postFromAnyThread(.automation, owner: "ServerReach.linkFile") { [weak self] in self?.refresh() }
             }
             watcher.start()
             return watcher

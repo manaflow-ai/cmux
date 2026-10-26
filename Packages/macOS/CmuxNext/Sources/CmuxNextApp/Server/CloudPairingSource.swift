@@ -1,6 +1,7 @@
 import CmuxNextCloud
 import CmuxNextHostedChief
 import CmuxNextServer
+import CmuxNextWakeups
 import Foundation
 
 /// "Add Server…" on a signed-in Mac (plans/cmux-next/server.md 6.2 steps 3-4):
@@ -19,6 +20,8 @@ final class CloudPairingSource: ServerSource {
     private let account: @MainActor () -> String?
     /// The user's Chief moved to a server (Home re-checks its Chief tab).
     private let chiefPlaced: @MainActor () -> Void
+    /// The app's main-thread scheduler: each request's end is a task on it.
+    private let mainWork: MainWorkScheduler
     private var sink: (@MainActor (ServerSourceEvent) -> Void)?
     private var work: [String: Task<Void, Never>] = [:]
 
@@ -26,9 +29,10 @@ final class CloudPairingSource: ServerSource {
     /// as the signed-in user. Phase 1 pairs into the Worker's team for the
     /// session (the personal team, server.md 6.2 step 4), read from the
     /// Worker: the app's Stack team id is not a Worker team id.
-    static func app(feed: FeedService, auth: CloudAuth, chiefPlaced: @escaping @MainActor () -> Void = {}) -> CloudPairingSource {
+    static func app(feed: FeedService, auth: CloudAuth, mainWork: MainWorkScheduler,
+                    chiefPlaced: @escaping @MainActor () -> Void = {}) -> CloudPairingSource {
         CloudPairingSource(
-            inner: LocalServerSource.app(),
+            inner: LocalServerSource.app(mainWork: mainWork),
             call: { [weak feed] path, body in
                 guard let feed else { throw FeedServiceError.signedOut }
                 return try await feed.call(path, body)
@@ -37,12 +41,14 @@ final class CloudPairingSource: ServerSource {
                 guard let auth, auth.isSignedIn else { return nil }
                 return auth.user?.displayName ?? auth.user?.primaryEmail ?? ""
             },
-            chiefPlaced: chiefPlaced
+            chiefPlaced: chiefPlaced,
+            mainWork: mainWork
         )
     }
 
     init(inner: any ServerSource, call: @escaping Call, account: @escaping @MainActor () -> String?,
-         chiefPlaced: @escaping @MainActor () -> Void = {}) {
+         chiefPlaced: @escaping @MainActor () -> Void = {}, mainWork: MainWorkScheduler) {
+        self.mainWork = mainWork
         self.inner = inner
         self.call = call
         self.account = account
@@ -75,11 +81,14 @@ final class CloudPairingSource: ServerSource {
         inner.stop()
     }
 
-    private func run(_ key: String, _ body: @escaping @MainActor () async -> Void) {
+    /// Runs one request: the task itself is off the main thread; `body`'s steps are main-actor (the feed's
+    /// call, the sink), and the request's end is one userBlocking task (the panel's open or a person's click).
+    private func run(_ key: String, _ body: @escaping @MainActor @Sendable () async -> Void) {
+        let mainWork = mainWork
         // task-owner: CloudPairingSource, one request per intent; cancelled by stop().
-        work[key] = Task { @MainActor [weak self] in
+        work[key] = Task { @concurrent [weak self] in
             await body()
-            self?.work[key] = nil
+            mainWork.postFromAnyThread(.userBlocking, owner: "CloudPairingSource.done") { [weak self] in self?.work[key] = nil }
         }
     }
 

@@ -14,6 +14,7 @@ extension ServerReachService {
         return ServerReachService(
             machines: services.machines,
             mainWork: services.mainWork,
+            appEvents: services.appEvents,
             call: { [weak services] path, body in
                 guard let feed = services?.feed else { throw FeedServiceError.signedOut }
                 return try await feed.call(path, body)
@@ -44,7 +45,7 @@ extension ServerMenuBarController {
     static func app(services: AppServices) -> ServerMenuBarController {
         ServerMenuBarController(makeSource: { [weak services] in
             guard let services else { return nil }
-            return CloudPairingSource.app(feed: services.feed, auth: services.cloud.auth,
+            return CloudPairingSource.app(feed: services.feed, auth: services.cloud.auth, mainWork: services.mainWork,
                                    chiefPlaced: { [weak services] in services?.home.refreshChiefTab() })
         })
     }

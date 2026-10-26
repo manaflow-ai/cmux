@@ -16,6 +16,7 @@ enum PhoneHandlers {
         func work(_ id: ActionID, _ body: @escaping @MainActor (ActionInvocation, PhoneService) async throws -> Void) {
             registry.bind(id, run: { invocation in
                 let phones = services.phones
+                // main-hop-allow: the action's tracked work awaits the main-actor PhoneService (its simctl and devicectl runs are off main); a capturing caller (CLI, MCP) awaits it and a refusal shows in its reply's job
                 registry.track(Task { @MainActor in
                     do {
                         try await body(invocation, phones)
@@ -43,6 +44,7 @@ enum PhoneHandlers {
             registry.bind(id, run: { invocation in
                 let phones = services.phones
                 // task-owner: the action run; a capturing caller awaits it through the registry.
+                // main-hop-allow: the action's tracked work awaits the main-actor PhoneService (its simctl and devicectl runs are off main); a capturing caller (CLI, MCP) awaits it and a refusal shows in its reply's job
                 registry.track(result: Task { @MainActor in
                     do {
                         return .success(try await body(invocation, phones))
@@ -167,6 +169,7 @@ enum PhoneHandlers {
                 guard let device = focusedPhone(invocation, context) else { return }
                 let phones = services.phones
                 // task-owner: the action run; a capturing caller (CLI, MCP) awaits it through the registry.
+                // main-hop-allow: the action's tracked work awaits the main-actor PhoneService (its simctl and devicectl runs are off main); a capturing caller (CLI, MCP) awaits it and a refusal shows in its reply's job
                 registry.track(Task { @MainActor in
                     do {
                         try await body(device, phones)
