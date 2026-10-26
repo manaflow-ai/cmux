@@ -908,6 +908,7 @@ enum CommandPaletteSettingsToggleCommands {
                 defaultsKey: AutomationCatalogSection().agentAutoResume.userDefaultsKey
             ),
             claudeAccountAutoSwitchDescriptor(sectionTitle: automation),
+            sessionPriorityDescriptor(sectionTitle: automation),
             CommandPaletteSettingToggleDescriptor(
                 commandId: commandIdPrefix + "cursorIntegration",
                 settingsKey: "automation.cursorIntegration",

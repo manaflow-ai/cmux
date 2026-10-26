@@ -209,6 +209,15 @@ enum SettingsSearchIndex {
                 String(localized: "settings.automation.claudeAccountAutoSwitch.subtitle", defaultValue: "When a Claude account hits its usage limit, continue the conversation on the next account in agents.claudeAccounts.")
             ].joined(separator: " ")
         ),
+        setting(
+            .automation,
+            "session-priority",
+            String(localized: "settings.automation.sessionPriority", defaultValue: "Prioritize Claude Sessions by Sidebar Order"),
+            [
+                "automation.sessionPriority effort priority urgent slow difficulty sidebar order matrix",
+                String(localized: "settings.automation.sessionPriority.subtitle", defaultValue: "Run Claude sessions in higher sidebar workspaces with more effort, and sessions further down with less.")
+            ].joined(separator: " ")
+        ),
         setting(.automation, "agent-messages", String(localized: "settings.automation.agentMessages", defaultValue: "Agent Messages"), "agentMessages.enabled agent message inbox communication mute disable off send deliver"),
         setting(.automation, "chief", String(localized: "settings.automation.chief", defaultValue: "Chief"), "chief.enabled home agent assistant imessage messages hide show disable off"),
         setting(.automation, "chief-harness", String(localized: "settings.automation.chief.harness", defaultValue: "Chief Harness"), "chief.harness home agent claude code codex provider"),
@@ -399,6 +408,9 @@ enum SettingsSearchIndex {
         "automation.suppressSubagentNotifications": settingID(for: .automation, idSuffix: "subagent-notifications"),
         "automation.agentAutoResume": settingID(for: .automation, idSuffix: "agent-error-auto-resume"),
         "automation.claudeAccountAutoSwitch": settingID(for: .automation, idSuffix: "claude-account-auto-switch"),
+        "automation.sessionPriority.enabled": settingID(for: .automation, idSuffix: "session-priority"),
+        "automation.sessionPriority.urgentCount": settingID(for: .automation, idSuffix: "session-priority"),
+        "automation.sessionPriority.matrix": settingID(for: .automation, idSuffix: "session-priority"),
         "agentMessages.enabled": settingID(for: .automation, idSuffix: "agent-messages"),
         "chief.enabled": settingID(for: .automation, idSuffix: "chief"),
         "chief.harness": settingID(for: .automation, idSuffix: "chief-harness"),

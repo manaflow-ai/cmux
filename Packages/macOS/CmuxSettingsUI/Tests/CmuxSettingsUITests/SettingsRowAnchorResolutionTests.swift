@@ -65,6 +65,7 @@ struct SettingsRowAnchorResolutionTests {
         "app.workspaceInheritWorkingDirectory",
         "agentMessages.enabled",
         "chief.effort",
+        "chief.dangerouslySkipPermissions",
         "chief.enabled",
         "chief.harness",
         "chief.model",
