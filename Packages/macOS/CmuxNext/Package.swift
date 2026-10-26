@@ -1464,7 +1464,8 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         ),
         .testTarget(
             name: "CmuxNextWakeupsTests",
-            // Trace: the black-box file steps' tests read the ring. Signposts: the frame.tick and present tests (037). Metrics: the key.echo_frame tests (054).
+            // Trace: the black-box file steps' tests read the ring. Signposts: the frame.tick and present tests (037).
+            // Metrics: the key.echo_frame tests (054) and the frame sequences' histograms (057).
             dependencies: ["CmuxNextCompat", "CmuxNextMetrics", "CmuxNextSignposts", "CmuxNextTrace", "CmuxNextWakeups", "CmuxNextWakeupsTestSupport"],
             swiftSettings: daemonSwiftSettings
         ),
