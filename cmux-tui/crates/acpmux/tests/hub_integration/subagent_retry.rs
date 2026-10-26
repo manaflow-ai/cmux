@@ -353,3 +353,44 @@ async fn failures_past_the_limit_are_forgotten_after_a_stop_or_giving_up() {
     tokio::time::sleep(Duration::from_millis(200)).await;
     assert_eq!(forgotten(&hub, &id), 1, "given up");
 }
+
+/// A forgotten agent (the translator no longer names it) that fails again after its resume is
+/// retried again, and given up after the attempts, as a remembered one is.
+#[tokio::test]
+async fn a_forgotten_agent_that_keeps_failing_is_given_up_after_the_attempts() {
+    let env = BTreeMap::from([
+        ("FAKE_CLAUDE_FORGET_AGENTS".to_owned(), "1".to_owned()),
+        ("FAKE_CLAUDE_RESUME_FAILS".to_owned(), "1".to_owned()),
+    ]);
+    let (hub, _c, id) = chat_env("agent-503", vec![20, 20], env).await;
+    let got = until(&hub, &id, |o| o.iter().any(|o| o == "exhausted")).await;
+    assert_eq!(got, ["scheduled", "fired", "scheduled", "fired", "exhausted"]);
+    let last = entries_of(&hub, &id, &retried(&hub, &id)).last().cloned().unwrap();
+    assert_eq!((&last["state"], &last["retryable"]), (&json!("failed"), &json!(true)), "{last}");
+}
+
+/// A forgotten agent that completes after its resume ends completed, and nothing more fires.
+#[tokio::test]
+async fn a_forgotten_agent_that_completes_after_its_resume_ends_completed() {
+    let env = BTreeMap::from([
+        ("FAKE_CLAUDE_FORGET_AGENTS".to_owned(), "1".to_owned()),
+        ("FAKE_CLAUDE_RESUME_COMPLETES".to_owned(), "1".to_owned()),
+    ]);
+    let (hub, _c, id) = chat_env("agent-503", vec![50], env).await;
+    until(&hub, &id, |o| o.iter().any(|o| o == "fired")).await;
+    let subagent = retried(&hub, &id);
+    for _ in 0..200 {
+        if entries_of(&hub, &id, &subagent).last().is_some_and(|e| e["state"] == "completed") {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    let last = entries_of(&hub, &id, &subagent).last().cloned().unwrap();
+    assert_eq!(
+        (&last["state"], &last["retryable"]),
+        (&json!("completed"), &json!(false)),
+        "{last}"
+    );
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert_eq!(outcomes(&hub, &id), ["scheduled", "fired"]);
+}

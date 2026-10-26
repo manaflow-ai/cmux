@@ -310,6 +310,8 @@ impl Hub {
             drop(guard);
             return Err(e);
         }
+        // A subagent retry waits out Claude Code's own turn (`subagent_retry.rs`).
+        self.hold_retry_start(session, &prompt_id).await;
         // A continuation Stop overtook since it fired is refused here (`auto_resume.rs`).
         let turn = TurnInfo::prompted(client, &text, &turn_id, &prompt_id, control);
         if let Err(e) = self.start_turn(session, after_turn.as_deref(), turn) {
