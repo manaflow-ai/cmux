@@ -229,7 +229,7 @@ final class AppServices {
     /// The command palette on demand (p08-startup-023): launch builds none; it is built after the first frame
     /// (`postBuild`) or by the first palette key, in that key's turn. Handlers add pages to `palettes.sources`.
     private(set) lazy var palettes = PaletteOnDemand(registry: registry, sources: { [weak self] in self.map { PaletteSourcesBridge.make(services: $0) } ?? PaletteSources() }) { [registry, mainWork, weak self] sources in
-        PaletteController(registry: registry, sources: sources, usage: self.map { DaemonPaletteUsageStore(services: $0) }, mainWork: mainWork, hoverFrameInput: self?.hoverFrameInput)
+        PaletteController(registry: registry, sources: sources, usage: self.map { DaemonPaletteUsageStore(services: $0, mainWork: mainWork) }, mainWork: mainWork, hoverFrameInput: self?.hoverFrameInput)
     }
     var palette: PaletteController { palettes.controller }
     private(set) lazy var previews: TabPreviewSource = TabPreviewSource(cache: cache)  // built by the first tab card
@@ -274,7 +274,7 @@ final class AppServices {
         self?.revealTab(tab, intent: .raise) ?? false
     }
     /// The session vault (past agent sessions); tests may set one over a fixed source.
-    lazy var vault: SessionVault = SessionVault(source: AgentHistorySource(services: self))
+    lazy var vault: SessionVault = SessionVault(source: AgentHistorySource(services: self), work: work)
     /// `cmux://vault`: Open Vault as Pane.
     private(set) lazy var vaultPages: VaultPageService = VaultPageService(vault: vault, registry: registry)
     /// Where each window's right sidebar remembers its state (tests set a suite of their own).
@@ -462,7 +462,7 @@ final class AppServices {
     private(set) lazy var pageScriptFrame: PageScriptFrame? = features.isEnabled(.pageScriptFrames)
         ? FrameBatchQueue(owner: "pages.scripts", budgeted: .visible, on: mainWork).pageScriptFrame(causes: mainWork.causes) : nil
     /// The one icon picker (R94): Set Icon of workspaces, screens, spaces, browser profiles.
-    private(set) lazy var iconPicker = IconPickerService(services: self, webUI: webUI)
+    private(set) lazy var iconPicker = IconPickerService(services: self, webUI: webUI, mainWork: mainWork)
     /// cmux.json command `actions`, registered as `cmuxConfig.<name>`.
     private(set) lazy var configActions: ConfigActionsController = ConfigActionsController(context: AppActionContext(services: self))  // built by its start
     /// System-wide hot keys for catalog actions marked `isGlobalHotKey`.
@@ -593,7 +593,7 @@ final class AppServices {
     /// Sized browser popups (OAuth, payment), each in its own Chrome-style popup window.
     let popups: BrowserPopupWindows
     /// The link-hint session (`f`, `F`) on a focused Chromium page.
-    let linkHints = LinkHintController()
+    let linkHints: LinkHintController
     /// Toggle React Grab on a page; the library is fetched once per run (`ReactGrabScriptLoader`).
     let reactGrab = ReactGrab(scripts: ReactGrabScriptLoader())
     /// Click by Hint over the whole window (`hints.show`, Cmd-J).
@@ -697,6 +697,7 @@ final class AppServices {
         self.appearance = appearance
         let work = work ?? BackgroundWork(hangs: hangWatch, inputTurns: mainWork.budget.board)
         self.work = work
+        linkHints = LinkHintController(work: work)
         builtInAdBlockerFolder = AppServices.preloadBuiltInAdBlockerFolder(on: work)
         self.energyMonitor = energyMonitor
         // First: the black-box ring is attached to TraceRuntime.shared, so every trace point records from here
@@ -721,6 +722,7 @@ final class AppServices {
         #endif
         DaemonService.launchMark = { DebugTimings.markLaunch($0) }  // before any daemon service starts
         self.mainWork = mainWork
+        IconAssetImages.shared.attach(mainWork: mainWork)  // before any view maps an asset icon
         // Its scroll events are timed to their frame (`key.scroll_frame`) by their latency slots (``inputLatency``).
         inputDispatch = InputDispatchContext(discreteInput: { [mainWork] in mainWork.noteDiscreteInput(expectsFrame: $0) },
                                              discreteDispatch: { [mainWork] in mainWork.noteDiscreteDispatch(began: $0) })

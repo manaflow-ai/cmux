@@ -174,10 +174,19 @@ final class TerminalClipboardReadService {
     }
 
     private func scope(for tab: TabModel?) -> CmuxDialogScope {
-        if let tab, let view = services?.cache.existingTerminal(tab.id)?.session.view, view.window != nil, !view.isHiddenOrHasHiddenAncestor {
-            return .tab(view)
+        let cache = services?.cache
+        guard let tab, let cache, let view = cache.existingTerminal(tab.id)?.session.view else {
+            return Self.scope(tabView: nil, tabNode: nil, activeWindow: services?.windows.active?.window)
         }
-        if let window = services?.windows.active?.window { return .window(window) }
+        return Self.scope(tabView: view, tabNode: cache.node(for: tab.id), activeWindow: services?.windows.active?.window)
+    }
+
+    /// The dialog's scope: the tab's view while its node is shown (p06 recipe R-vis, no walk up the views), else the
+    /// active window, else the app. An occluded window (covered, or cmux behind another app) still shows the tab: only a
+    /// hidden node (an unselected tab, a parked workspace, a miniaturized window) moves the prompt off it.
+    static func scope(tabView view: NSView?, tabNode node: VisibilityNode?, activeWindow: NSWindow?) -> CmuxDialogScope {
+        if let view, view.window != nil, let node, node.effective > .hidden { return .tab(view) }
+        if let activeWindow { return .window(activeWindow) }
         return .app
     }
 }

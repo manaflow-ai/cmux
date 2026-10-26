@@ -20,7 +20,8 @@ extension AppServices {
             },
             makeWindow: { QuickComposerPanel() },
             openInWindow: { [weak self] session in self?.openQuickChat(session: session) ?? false },
-            startInBackground: { [weak self] start in await self?.startQuickChatInBackground(start) ?? false }, context: { [weak self] in await FloatingChatContext.focused(in: self) }
+            startInBackground: { [weak self] start in await self?.startQuickChatInBackground(start) ?? false }, context: { [weak self] in await FloatingChatContext.focused(in: self) },
+            mainWork: mainWork
         )
     }
 
