@@ -36,6 +36,9 @@ const TOKEN_SHAPES = [
   /(\bbasic\s+)[A-Za-z0-9+/]{8,}=*/gi,
   /(?<![A-Za-z0-9])eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}/g,
   /(\bbearer\s+)[A-Za-z0-9._~+/-]{8,}=*/gi,
+  // Credentials in query strings and connection strings: Azure SAS `sig=`, `AccountKey=`,
+  // `SharedAccessKey=`, `SharedAccessSignature=`, and npm's `_auth=`.
+  /(\b(?:sig|AccountKey|SharedAccessKey|SharedAccessSignature|_auth)=)[^&\s;"',]+/gi,
   // `PASSWORD="…"`, `api_key: …`, `"clientSecret": "…"`, `MY_TOKEN=…`: a secret-named key, then its
   // value; a quoted value the output cut off before its closing quote runs to the end.
   /(\b[A-Za-z0-9_]*(?:token|password|passwd|pwd|secret|api[_-]?key|apikey|access[_-]?key|private[_-]?key|authorization|credential)[A-Za-z0-9_]*["']?\s*[:=]\s*)(?:"(?:[^"\\]|\\.)*(?:"|$)|'(?:[^'\\]|\\.)*(?:'|$)|[^\s"',;}]{2,})/gi,
@@ -186,19 +189,16 @@ function receiptOutcome(
 
 /**
  * Seconds the VM existed: each VM row created under the sandbox's key, from its creation to its
- * destruction, or to now while it is still up (the cost is then provisional). Without a VM row,
- * from the attempt's start to its finish plus the measured boot; unknown, never zero, when either
- * end is missing (a create that failed after the provider made a VM still ran a while).
+ * destruction, or to now while it is still up (the cost is then provisional). Without a VM row the
+ * lifetime is unknown: the attempt's own timings say when the task ran, not when its VM went away.
  */
-function vmSecondsFor(snapshot: RunSnapshotRow, outcome: SandboxRunOutcome | null, finishedAt: Date | null, nowMs: number): number | null {
+function vmSecondsFor(snapshot: RunSnapshotRow): number | null {
   const vms = snapshot.sandboxVms ?? [];
-  if (vms.length > 0) {
-    const ms = vms.reduce((sum, vm) => sum + Math.max(0, (vm.destroyedAt?.getTime() ?? nowMs) - vm.createdAt.getTime()), 0);
-    return Math.round(ms / 1000);
-  }
-  const ran = between(snapshot.attempts[0]?.startedAt, finishedAt);
-  if (ran === null) return null;
-  return Math.round((ran + (outcome?.bootMs ?? 0)) / 1000);
+  // No VM row to measure (none was made, or its row is gone): the lifetime is unknown, not zero.
+  if (vms.length === 0) return null;
+  const nowMs = Date.now();
+  const ms = vms.reduce((sum, vm) => sum + Math.max(0, (vm.destroyedAt?.getTime() ?? nowMs) - vm.createdAt.getTime()), 0);
+  return Math.round(ms / 1000);
 }
 
 function receiptCost(provider: ProviderId, imageId: string, vmSeconds: number | null, final: boolean): SandboxRunReceipt["cost"] {
@@ -227,6 +227,6 @@ function receiptTimingsAndCost(
       totalMs: between(run.createdAt, finishedAt),
     },
     // Final once no VM is left: until then the VM time (and its cost) is still counting.
-    cost: receiptCost(provider, imageId, vmSecondsFor(snapshot, outcome, finishedAt, Date.now()), !sandboxCleanupPending(snapshot)),
+    cost: receiptCost(provider, imageId, vmSecondsFor(snapshot), !sandboxCleanupPending(snapshot)),
   };
 }

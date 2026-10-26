@@ -75,7 +75,8 @@ describe("sandbox receipt", () => {
   }
 
   test("a finished sandboxed run has a receipt with status, reply, timings, cost and cleanup", () => {
-    const receipt = sandboxReceiptFor(snapshot());
+    const vm = { createdAt: new Date("2026-10-25T10:00:00.000Z"), destroyedAt: new Date("2026-10-25T10:02:00.000Z"), live: false };
+    const receipt = sandboxReceiptFor({ ...snapshot(), sandboxVms: [vm] } as RunSnapshotRow);
     expect(receipt).toMatchObject({
       schema: "cmux.run.receipt/v1",
       runId: "run-1",
@@ -128,6 +129,10 @@ describe("sandbox receipt", () => {
       expect(sandboxReply(`token ${token} end`)).toBe("token [redacted] end");
     }
     expect(sandboxReply("on vm1 now", ["vm1"])).toBe("on [redacted] now");
+    // Cloud and registry credentials in query and connection strings.
+    expect(sandboxReply("https://acct.blob.core.windows.net/c/f?sv=2022&sig=AbCdEf%2Bsecret123&se=2026")).not.toContain("AbCdEf");
+    expect(sandboxReply("DefaultEndpointsProtocol=https;AccountName=a;AccountKey=c2VjcmV0a2V5MTIz==;EndpointSuffix=x")).not.toContain("c2VjcmV0a2V5MTIz");
+    expect(sandboxReply("//registry.npmjs.org/:_auth=dXNlcjpwYXNz")).not.toContain("dXNlcjpwYXNz");
     // Ordinary words that share a prefix stay.
     expect(sandboxReply("use a key-management-service and npm_install docs")).toBe("use a key-management-service and npm_install docs");
     // After `_`, which `\b` never matches after.
@@ -135,12 +140,13 @@ describe("sandbox receipt", () => {
     expect(sandboxReply("dump_ghp_abcdefghijklmnopqrstuvwxyz0123.txt")).toBe("dump_[redacted].txt");
   });
 
-  test("VM time runs from the attempt's start plus its boot, not from the Run's queueing", () => {
-    // createdAt 10:00:00, startedAt 10:00:30, finishedAt 10:02:00, boot 30 s: 90 s run + 30 s boot.
-    expect(sandboxReceiptFor(snapshot())?.cost.vmSeconds).toBe(120);
-    const queued = snapshot();
-    const late = { ...queued, run: { ...queued.run, createdAt: new Date("2026-10-25T09:00:00.000Z") } } as RunSnapshotRow;
-    expect(sandboxReceiptFor(late)?.cost.vmSeconds).toBe(120);
+  test("VM time is the VM rows' own lifetime, not the Run's queueing or the attempt's run; unknown without a row", () => {
+    const vm = { createdAt: new Date("2026-10-25T10:00:10.000Z"), destroyedAt: new Date("2026-10-25T10:02:10.000Z"), live: false };
+    const late = snapshot();
+    const queuedLong = { ...late, run: { ...late.run, createdAt: new Date("2026-10-25T09:00:00.000Z") }, sandboxVms: [vm] } as RunSnapshotRow;
+    expect(sandboxReceiptFor(queuedLong)?.cost.vmSeconds).toBe(120);
+    // The row is gone (or none was made): the attempt's timings say nothing about when the VM went away.
+    expect(sandboxReceiptFor({ ...late, sandboxVms: [] } as RunSnapshotRow)?.cost).toMatchObject({ vmSeconds: null, estimateUsd: null });
   });
 
   test("an artifact media type is a bare type/subtype or octet-stream", () => {
