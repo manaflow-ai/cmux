@@ -46,6 +46,9 @@ export class CloudHome {
   private readonly subscriptions = new Map<string, Promise<boolean>>();
   /** The last presence send of each conversation (the next one waits for it). */
   private readonly presenceSends = new Map<string, Promise<boolean>>();
+  /** Conversations the person views through this connection (the last `presence` said so): never
+   *  evicted, since the daemon ends a connection's viewing when it unsubscribes. */
+  private readonly viewing = new Set<string>();
 
   constructor(
     private readonly daemon: DaemonSocket,
@@ -335,6 +338,8 @@ export class CloudHome {
    *  at a time per conversation, in order, so a quick open and switch never ends as viewing.
    *  Resolves whether it went out; a refusal or a lost connection is not an error. */
   presence(id: string, viewing: boolean): Promise<boolean> {
+    if (viewing) this.viewing.add(id);
+    else this.viewing.delete(id);
     const send = async (): Promise<boolean> => {
       if (viewing) {
         if (!this.subscriptions.has(id)) this.subscribe(id);
@@ -371,8 +376,10 @@ export class CloudHome {
     }
     this.subscribed.push(id);
     while (this.subscribed.length > MAX_SUBSCRIPTIONS) {
-      const oldest = this.subscribed.shift()!;
-      // The daemon ends this connection's viewing of it with the unsubscribe.
+      // The least recent one the person does not view: an unsubscribe would end the viewing.
+      const at = this.subscribed.findIndex((other) => !this.viewing.has(other));
+      if (at < 0) break;
+      const oldest = this.subscribed.splice(at, 1)[0]!;
       this.subscriptions.delete(oldest);
       void this.daemon.request("cloud-conversation-unsubscribe", { conversation: oldest }).catch(() => undefined);
     }
