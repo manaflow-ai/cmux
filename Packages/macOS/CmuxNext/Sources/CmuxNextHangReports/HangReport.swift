@@ -69,7 +69,7 @@ public nonisolated struct HangReport: Codable, Sendable, Equatable {
         public var carriesFieldData: Bool { self == .v3 }
         /// Whether a report in this schema has the hang watch's samples of other threads
         /// (``HangSample/threadHang(_:durationMs:frames:)``: source `hangwatch`, kind `hang`, `"thread": {"name", "kind"}`;
-        /// p09-observability-068; the schema-3 decoder must list them before a build sends schema 3).
+        /// p09-observability-068; the schema-3 decoder lists them: web/services/hangReports/wireSchema.ts `HangV3`).
         public var carriesThreadHangs: Bool { self == .v3 }
     }
 

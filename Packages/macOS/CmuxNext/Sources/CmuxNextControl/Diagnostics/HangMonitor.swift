@@ -23,9 +23,10 @@ import os
 ///   names the thread in the crash keys' hung threads (``CrashKeySlots/noteHung(_:)``) until its scope ends,
 ///   so a crash meanwhile says which threads were hung. Each hang dump also writes a `hang.thread_hung`
 ///   instant into the trace ring (p09-observability-068), and goes out as a ``ThreadHang``
-///   (``MainThreadWatchdog/onThreadHang``: the crash report tagged `hang.thread`, the hang-report entry and
-///   the last-hang bundle) at most once per registration name per `hangReportInterval`, as the main thread's
-///   hangs are, so a lane that hangs again and again sends one report, not one per scope.
+///   (``MainThreadWatchdog/onThreadHang``: the crash report tagged `hang.thread` and the hang-report entry;
+///   ``MainThreadWatchdog/onLastHang``: the local last-hang bundle) at most once per registration name per
+///   `hangReportInterval`, as the main thread's hangs are, so a lane that hangs again and again sends one
+///   report, not one per scope.
 struct HangMonitor {
     /// What ``MainThreadWatchdog/attach(hangWatch:crashKeys:trace:)`` connected.
     struct Source: Sendable {
@@ -47,7 +48,8 @@ struct HangMonitor {
     let logger: Logger?
     let crashKeys: CrashKeySlots?
     let trace: TraceRuntime?
-    /// Where each hang dump goes out (the watchdog's ``MainThreadWatchdog/onThreadHang``), rate-limited by ``intervalNanos``.
+    /// Where each hang dump goes out (the watchdog's ``MainThreadWatchdog/onThreadHang`` and
+    /// ``MainThreadWatchdog/onLastHang``), rate-limited by ``intervalNanos``.
     let deliver: @Sendable (ThreadHang) -> Void
     /// The least time between two deliveries for one registration name (the watchdog's `hangReportInterval`).
     let intervalNanos: UInt64
@@ -146,21 +148,43 @@ struct HangMonitor {
 }
 
 extension MainThreadWatchdog {
+    /// Where a delivered thread hang goes: the reports' sink and the last-hang bundle's.
+    struct ThreadHangSinks: Sendable {
+        var report: (@Sendable (ThreadHang) -> Void)?
+        var lastHang: (@Sendable (LastHangCause) -> Void)?
+    }
+
     /// Receives each watched thread's hang dump (``ThreadHang``, ``attach(hangWatch:crashKeys:trace:)``) on the
     /// watchdog thread, at most once per registration name per `hangReportInterval`: the app sends it to crash
     /// reporting and hang reports. It must not wait for the main thread or the hung thread.
     ///
-    /// Lock carve-out: as ``onHang``'s sink, `threadHangSink` is set once at launch and read on the watchdog thread
-    /// once per delivered thread hang; it is never held across the call.
+    /// Lock carve-out: as ``onHang``'s sink, `threadHangSinks` is set once at launch and read on the watchdog thread
+    /// once per delivered thread hang; it is never held across a call.
     public var onThreadHang: (@Sendable (ThreadHang) -> Void)? {
-        get { threadHangSink.withLock { $0 } }
-        set { threadHangSink.withLock { $0 = newValue } }
+        get { threadHangSinks.withLock { $0.report } }
+        set { threadHangSinks.withLock { $0.report = newValue } }
+    }
+
+    /// Starts the local last-hang bundle (task p09-observability-125 sets it) for each thread hang that goes out,
+    /// on the watchdog thread and apart from ``onThreadHang``: hang-report consent and crash reporting do not gate
+    /// it. It must not wait for the main thread or the hung thread.
+    public var onLastHang: (@Sendable (LastHangCause) -> Void)? {
+        get { threadHangSinks.withLock { $0.lastHang } }
+        set { threadHangSinks.withLock { $0.lastHang = newValue } }
+    }
+
+    /// Hands one rate-limited thread hang to both sinks, read once and called outside the lock.
+    func deliverThreadHang(_ hang: ThreadHang) {
+        let sinks = threadHangSinks.withLock { $0 }
+        sinks.report?(hang)
+        sinks.lastHang?(.threadHang(hang))
     }
 
     /// Watches `hangWatch`'s scopes on this watchdog's thread (the composition root passes
     /// `TraceRuntime.shared.hangWatch` and its ``CrashKeySlots``): each scope past its budget goes into
     /// ``threadJanks`` and, still open 2 s later, into ``threadHangs``, named in `crashKeys`' hung threads
-    /// while it stays open, with a `hang.thread_hung` instant in `trace`'s ring and out through ``onThreadHang``.
+    /// while it stays open, with a `hang.thread_hung` instant in `trace`'s ring and out through ``onThreadHang``
+    /// and ``onLastHang``.
     /// The same `crashKeys` give stall and hang records the main thread's phase (``phaseLabel(cefState:)``).
     /// Once: a later call, or a slot table another monitor watches, is ignored. With no kqueue the watchdog
     /// thread does not run, so nothing is attached.
@@ -180,6 +204,6 @@ extension MainThreadWatchdog {
     func hangMonitor() -> HangMonitor? {
         guard hangWatchAttached.load(ordering: .acquiring), let source = hangWatchSink.withLock({ $0 }) else { return nil }
         return HangMonitor(source: source, log: threadHangs, janks: threadJanks, logger: configuration.logStalls ? logger : nil,
-                           intervalNanos: hangIntervalNanos, deliver: { [weak self] hang in self?.onThreadHang?(hang) })
+                           intervalNanos: hangIntervalNanos, deliver: { [weak self] hang in self?.deliverThreadHang(hang) })
     }
 }

@@ -115,8 +115,8 @@ public final class MainThreadWatchdog: Sendable {
     /// Hang-watch scopes on other threads past their budget (kind `jank`, no stack): apart from
     /// ``threadHangs``, so a busy lane's janks never push the rarer hang dumps out.
     public let threadJanks = HangLog(capacity: 128)
-    /// What ``attach(hangWatch:crashKeys:trace:)`` connected (read once, after the flag), and ``onThreadHang``'s sink (HangMonitor.swift).
-    let hangWatchSink = Mutex<HangMonitor.Source?>(nil), threadHangSink = Mutex<(@Sendable (ThreadHang) -> Void)?>(nil)
+    /// What ``attach(hangWatch:crashKeys:trace:)`` connected (read once, after the flag), and the sinks of ``onThreadHang`` and ``onLastHang`` (HangMonitor.swift).
+    let hangWatchSink = Mutex<HangMonitor.Source?>(nil), threadHangSinks = Mutex(ThreadHangSinks())
     let hangWatchAttached = Atomic<Bool>(false)
     private let thresholdNanos: UInt64
     /// `CLOCK_UPTIME_RAW` nanoseconds; tests inject a clock that moves only

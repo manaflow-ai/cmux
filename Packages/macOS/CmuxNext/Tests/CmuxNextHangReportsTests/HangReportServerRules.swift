@@ -47,7 +47,8 @@ struct HangReportServerRules {
     static let blockingContexts = Set(BlockingContext.allCases.map(\.rawValue))
     /// Schema 3's `hangs[].task` (p06-scheduler-203): on a watchdog hang only, the owner and class.
     static let taskKeys: Set<String> = ["owner", "class"]
-    /// Schema 3's `hangs[].thread` (p09-observability-068): exactly on a hang-watch hang, the registration's name and kind.
+    /// Schema 3's `hangs[].thread` (p09-observability-068, wireSchema.ts `HangV3.thread` and `isPairedThread`): exactly
+    /// on a hang-watch hang, the registration's name and kind.
     static let threadKeys: Set<String> = ["name", "kind"]
 
     /// Every way `body` breaks the rules of the schema it names; empty when the server would take it.

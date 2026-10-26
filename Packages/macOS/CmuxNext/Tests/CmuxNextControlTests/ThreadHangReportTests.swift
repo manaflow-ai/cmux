@@ -9,8 +9,8 @@ import Testing
 /// A watched thread's hang goes out (p09-observability-068, Chrome's `HangWatcher::RecordHang` in
 /// base/threading/hang_watcher.cc): the monitor samples the hung thread by its Mach port, writes a
 /// `hang.thread_hung` instant into the ring and hands one ``ThreadHang`` with the registration's name and the
-/// thread's frames to ``MainThreadWatchdog/onThreadHang``, at most once per registration name per report
-/// interval. The threads block in `read(2)` inside their scope; each hang dump writes the byte that frees them,
+/// thread's frames to ``MainThreadWatchdog/onThreadHang`` and the last-hang trigger
+/// (``MainThreadWatchdog/onLastHang``), at most once per registration name per report interval. The threads block in `read(2)` inside their scope; each hang dump writes the byte that frees them,
 /// so the tests wait on the monitor's reports, not on a clock.
 @Suite(.serialized, .timeLimit(.minutes(1))) struct ThreadHangReportTests {
     #if DEBUG
@@ -45,6 +45,25 @@ import Testing
         #expect(instant.categoryBit == SignpostName.hangThreadHung.traceCategory.traceBit)
         #expect([instant.arg0] == tid.values, "arg0 is the hung thread's id")
         #expect(instant.arg1 >= 300, "arg1 is how far past the budget, in ms")
+        #expect(fixture.lastHangs.values == [.threadHang(hang)], "one thread hang starts one last-hang bundle")
+    }
+
+    /// The last-hang bundle is local: it starts with no report sink (hang reports and crash reporting off).
+    @Test func aThreadHangStartsTheLastHangBundleWithNoReportSink() async throws {
+        let pipe = try BlockingPipe()
+        defer { pipe.close() }
+        let fixture = Fixture(interval: .seconds(300), unblock: pipe, reports: false)
+        defer { fixture.watchdog.stop() }
+        await onThread(named: "thread-hang-local") {
+            let thread = fixture.watch.registerThread(.io, name: "test.local")
+            fixture.watch.watch(thread, deadline: .milliseconds(100)) { _ = cmux_thread_hang_test_blocked_in_read(pipe.readEnd) }
+            fixture.watch.unregister(thread)
+        }
+        #expect(fixture.deliveries.values.isEmpty)
+        let causes = fixture.lastHangs.values
+        #expect(causes.count == 1)
+        guard case .threadHang(let hang)? = causes.first else { Issue.record("no thread hang: \(causes)"); return }
+        #expect(hang.name == "test.local")
     }
 
     /// A registration that hangs twice within the interval is reported once (both hangs stay in the local log and
@@ -68,6 +87,7 @@ import Testing
         #expect(fixture.ring.values.filter { $0.name == SignpostName.hangThreadHung.rawValue }.count == 3)
         #expect(fixture.deliveries.values.map(\.name) == ["test.twice", "test.other"])
         #expect(fixture.deliveries.values.last?.kind == .lane)
+        #expect(fixture.lastHangs.values == fixture.deliveries.values.map { .threadHang($0) }, "the bundle's trigger is rate-limited alike")
     }
 
     /// The limit is the interval, not once per launch: with no interval each hang goes out.
@@ -101,28 +121,31 @@ import Testing
         }
         #expect(fixture.watchdog.threadJanks.summary.count == 1)
         #expect(fixture.deliveries.values.isEmpty)
+        #expect(fixture.lastHangs.values.isEmpty)
         #expect(fixture.ring.values.isEmpty)
     }
 }
 
 /// A running watchdog (its thread as at launch, the main run loop asleep) that watches a fresh slot table with a
-/// 300 ms hang tier, records each delivered ``ThreadHang`` and each ring record, and, after each hang dump, writes
-/// the byte that frees the blocked thread.
+/// 300 ms hang tier, records each delivered ``ThreadHang`` (with no report sink when `reports` is false), each
+/// last-hang cause and each ring record, and, after each hang dump, writes the byte that frees the blocked thread.
 private struct Fixture {
     let watchdog: MainThreadWatchdog
     let watch: HangWatch
     let deliveries = Recorded<ThreadHang>()
+    let lastHangs = Recorded<LastHangCause>()
     let ring = Recorded<TraceRuntime.StubRecord>()
 
-    init(interval: Duration, unblock: BlockingPipe?) {
+    init(interval: Duration, unblock: BlockingPipe?, reports: Bool = true) {
         watchdog = MainThreadWatchdog(configuration: .init(threshold: .milliseconds(50), sampleStacks: false, logStalls: false,
                                                            hangReportInterval: interval))
         watch = HangWatch(hangAfterBudget: .milliseconds(300))
         let ring = ring
         let runtime = TraceRuntime(role: .app, clock: TraceClock(), stubRecorder: { ring.append($0) })
         runtime.setCategoryMask(UInt64(1) << UInt64(SignpostName.hangThreadHung.traceCategory.traceBit))
-        let deliveries = deliveries
-        watchdog.onThreadHang = { deliveries.append($0) }
+        let (deliveries, lastHangs) = (deliveries, lastHangs)
+        if reports { watchdog.onThreadHang = { deliveries.append($0) } }
+        watchdog.onLastHang = { lastHangs.append($0) }
         var source = HangMonitor.Source(watch: watch, crashKeys: nil, trace: runtime)
         #if DEBUG
         source.afterHangForTesting = { _ in unblock?.release() }
