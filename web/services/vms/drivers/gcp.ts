@@ -286,7 +286,7 @@ export class GcpProvider implements VMProvider {
   }
 
   private requireCredential(credential: ProviderCredential | undefined): ProviderCredential {
-    if (!credential || credential.provider !== "gcp" || credential.accessToken.byteLength === 0) {
+    if (!credential || credential.provider !== "gcp" || credential.accessToken.byteLength === 0 || credential.accessToken.wiped) {
       throw new ProviderError("gcp", "a short-lived local GCP access token is required");
     }
     if (!Number.isFinite(credential.expiresAtUnix) || credential.expiresAtUnix <= Math.floor(this.now() / 1000)) {

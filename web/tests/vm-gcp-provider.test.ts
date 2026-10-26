@@ -1,9 +1,10 @@
 import { describe, expect, test } from "bun:test";
+import * as Effect from "effect/Effect";
 
 import { vmCreateDisabledReason } from "../services/vms/config";
 import { GcpProvider } from "../services/vms/drivers/gcp";
 import { SecretBytes, type ProviderCredential } from "../services/vms/drivers/types";
-import { gcpCredentialFromRequest, wipeProviderCredential } from "../services/vms/routeInput";
+import { gcpCredentialFromRequest, wipeProviderCredential, withRequestProviderCredential } from "../services/vms/routeInput";
 
 const now = 1_735_689_600_000;
 
@@ -43,7 +44,64 @@ describe("GCP Labs provider", () => {
     expect(JSON.stringify(parsed)).not.toContain("local-token");
     expect(String(parsed?.accessToken)).toBe("[redacted]");
     wipeProviderCredential(parsed);
-    expect(parsed?.accessToken.utf8()).toBe("");
+    expect(parsed?.accessToken.wiped).toBe(true);
+    expect(parsed?.accessToken.utf8()).not.toContain("local-token");
+    expect(parsed?.accessToken.utf8()).toMatch(/^\0+$/);
+  });
+
+  test("holds the credential for the whole workflow and wipes it when the workflow ends", async () => {
+    const request = new Request("https://cmux.test", {
+      headers: {
+        "x-cmux-gcp-access-token": "local-token",
+        "x-cmux-gcp-ssh-private-key": "PRIVATE KEY",
+      },
+    });
+    let seen: ProviderCredential | undefined;
+    const ok = await Effect.runPromise(withRequestProviderCredential(request, true, (credential) => Effect.sync(() => {
+      seen = credential;
+      expect(credential?.accessToken.wiped).toBe(false);
+      return credential?.accessToken.utf8();
+    })));
+    expect(ok).toBe("local-token");
+    expect(seen?.accessToken.wiped).toBe(true);
+    expect(seen?.sshPrivateKeyPem?.wiped).toBe(true);
+
+    let failed: ProviderCredential | undefined;
+    await expect(Effect.runPromise(withRequestProviderCredential(request, true, (credential) => {
+      failed = credential;
+      return Effect.fail(new Error("provider failed"));
+    }))).rejects.toThrow(/provider failed/);
+    expect(failed?.accessToken.wiped).toBe(true);
+
+    const skipped = await Effect.runPromise(withRequestProviderCredential(request, false, (credential) => Effect.succeed(credential)));
+    expect(skipped).toBeUndefined();
+  });
+
+  test("refuses a wiped token before touching Compute Engine", async () => {
+    let requests = 0;
+    const provider = new GcpProvider({ fetch: async () => { requests += 1; return json({}); }, now: () => now });
+    const wiped = credential();
+    wipeProviderCredential(wiped);
+    await expect(provider.pause("manaflow-437420/us-west1-b/cmux-abc", wiped)).rejects.toThrow(/access token is required/);
+    expect(requests).toBe(0);
+  });
+
+  test("create fails closed without a resolved private network or SSH key pair", async () => {
+    let requests = 0;
+    const provider = new GcpProvider({ fetch: async () => { requests += 1; return json({}); }, now: () => now });
+    await expect(provider.create({
+      image: "projects/manaflow-437420/global/images/cmux-linux",
+      providerCredential: credential({
+        sshPublicKey: "ssh-ed25519 AAAA test",
+        sshPrivateKeyPem: new SecretBytes(new TextEncoder().encode("PRIVATE KEY")),
+      }),
+    })).rejects.toThrow(/private network/);
+    await expect(provider.create({
+      image: "projects/manaflow-437420/global/images/cmux-linux",
+      network: { id: "projects/manaflow-437420/global/networks/cmux-vms" },
+      providerCredential: credential(),
+    })).rejects.toThrow(/SSH public\/private key pair/);
+    expect(requests).toBe(0);
   });
 
   test("creates, stops, connects, and deletes without persisting the token", async () => {
@@ -76,6 +134,9 @@ describe("GCP Labs provider", () => {
     expect(JSON.stringify(created)).not.toContain("gcp-test-token");
     expect(String(calls[0]?.init.headers)).not.toContain("gcp-test-token");
     expect(calls[0]?.init.headers).toMatchObject({ authorization: "Bearer gcp-test-token" });
+    const insert = JSON.parse(String(calls[0]?.init.body)) as { networkInterfaces: Record<string, unknown>[] };
+    expect(insert.networkInterfaces).toEqual([{ network: "projects/manaflow-437420/global/networks/cmux-vms" }]);
+    expect(String(calls[0]?.init.body)).not.toContain("PRIVATE KEY");
 
     await expect(provider.openSSH(created.providerVmId, local)).rejects.toThrow(/private-network follow-up/);
     await provider.pause(created.providerVmId, local);

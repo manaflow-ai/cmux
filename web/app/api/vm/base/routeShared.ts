@@ -36,7 +36,7 @@ import {
   resetBaseVm,
 } from "../../../../services/vms/workflows";
 import { enforceVmAllocationRateLimit } from "../../../../services/vms/allocationRateLimit";
-import { gcpCredentialFromRequest, gcpProviderMetadataFromRequest, wipeProviderCredential } from "../../../../services/vms/routeInput";
+import { gcpProviderMetadataFromRequest, withRequestProviderCredential } from "../../../../services/vms/routeInput";
 
 type BaseOperation = "open" | "reset";
 
@@ -117,7 +117,6 @@ export async function runBaseRoute(input: {
     throw err;
   }
 
-  const providerCredential = provider === "gcp" ? gcpCredentialFromRequest(input.request) : undefined;
   const providerMetadata = provider === "gcp" ? gcpProviderMetadataFromRequest(input.request) : undefined;
   const programInput = {
     userId: user.id,
@@ -126,7 +125,6 @@ export async function runBaseRoute(input: {
     billingPlanId: entitlements.planId,
     maxActiveVms: entitlements.maxActiveVms,
     provider,
-    providerCredential,
     providerMetadata,
     image: imageSelection.image,
     imageVersion: imageSelection.imageVersion,
@@ -140,14 +138,15 @@ export async function runBaseRoute(input: {
     timing: input.timing,
   };
   const run = await runVmRoute(
-    input.operation === "reset"
-      ? resetBaseVm({ ...programInput, reason: parsed.body.reason })
-      : openBaseVm(programInput),
+    withRequestProviderCredential(input.request, provider === "gcp", (providerCredential) =>
+      input.operation === "reset"
+        ? resetBaseVm({ ...programInput, providerCredential, reason: parsed.body.reason })
+        : openBaseVm({ ...programInput, providerCredential })),
     {
       request: input.request,
       onError: baseWorkflowErrorResponders(input.operation, entitlements.planId),
     },
-  ).finally(() => wipeProviderCredential(providerCredential));
+  );
   if (!run.ok) return run.response;
   const entry = run.value;
 

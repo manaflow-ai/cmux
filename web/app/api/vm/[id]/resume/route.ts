@@ -7,7 +7,7 @@ import { setSpanAttributes } from "../../../../../services/telemetry";
 import { runVmRoute } from "../../../../../services/vms/routeWorkflow";
 import { resumeVm } from "../../../../../services/vms/workflows";
 import { vmModelPlaneRevoker } from "../../../../../services/vms/modelPlaneGateway";
-import { gcpCredentialFromRequest, wipeProviderCredential } from "../../../../../services/vms/routeInput";
+import { withRequestProviderCredential } from "../../../../../services/vms/routeInput";
 
 // Wake a parked machine (`cmux vm resume <id>`) through the same suspended-resume
 // path every open and exec uses, so plan limits and the free window apply. A
@@ -31,8 +31,7 @@ export async function POST(
       const account = resolveVmRouteAccountScope(user, request);
       if (!account.ok) return account.response;
       setSpanAttributes(span, { "cmux.vm.id": id });
-      const providerCredential = gcpCredentialFromRequest(request);
-      const run = await runVmRoute(resumeVm({
+      const run = await runVmRoute(withRequestProviderCredential(request, true, (providerCredential) => resumeVm({
         userId: user.id,
         billingTeamId: account.entitlements.billingTeamId,
         teamIds: user.teamIds,
@@ -41,7 +40,7 @@ export async function POST(
         callerPlanId: account.entitlements.planId,
         modelPlane: vmModelPlaneRevoker(),
         providerCredential,
-      }), { request, deadline: { operation: "resume" } }).finally(() => wipeProviderCredential(providerCredential));
+      })), { request, deadline: { operation: "resume" } });
       if (!run.ok) return run.response;
       return jsonResponse({ id: run.value.id, status: run.value.status });
     },

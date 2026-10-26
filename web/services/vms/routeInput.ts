@@ -1,3 +1,4 @@
+import * as Effect from "effect/Effect";
 import { isProviderId, SecretBytes, type ProviderCredential, type ProviderId } from "./drivers/types";
 import { jsonResponse, vmErrorResponse } from "./routeHelpers";
 
@@ -159,6 +160,25 @@ export function gcpCredentialFromRequest(request: Request): ProviderCredential |
 export function wipeProviderCredential(credential: ProviderCredential | undefined): void {
   credential?.accessToken.wipe();
   credential?.sshPrivateKeyPem?.wipe();
+}
+
+/**
+ * Runs `program` with the request's GCP handoff credential and wipes it when
+ * the program itself ends: success, failure or interruption. The wipe is tied
+ * to the workflow, not the route's answer, so a create or resume that keeps
+ * running after an answer deadline (and its rollback) still holds a live
+ * token, and nothing is allocated when the program never runs.
+ */
+export function withRequestProviderCredential<A, E, R>(
+  request: Request,
+  parse: boolean,
+  program: (credential: ProviderCredential | undefined) => Effect.Effect<A, E, R>,
+): Effect.Effect<A, E, R> {
+  return Effect.acquireUseRelease(
+    Effect.sync(() => (parse ? gcpCredentialFromRequest(request) : undefined)),
+    program,
+    (credential) => Effect.sync(() => wipeProviderCredential(credential)),
+  );
 }
 
 /** Non-secret GCP placement knobs handed off by the local Labs UI. */

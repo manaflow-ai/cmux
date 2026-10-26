@@ -420,6 +420,7 @@ const REDACTED = "[redacted]";
  */
 export class SecretBytes {
   #bytes: Uint8Array;
+  #wiped = false;
 
   constructor(bytes: Uint8Array) {
     this.#bytes = bytes;
@@ -442,6 +443,12 @@ export class SecretBytes {
   /** Overwrites the bytes with zeros (the caller's buffer, which this object does not copy). */
   wipe(): void {
     this.#bytes.fill(0);
+    this.#wiped = true;
+  }
+
+  /** True once {@link wipe} has run; a wiped secret must never be sent. */
+  get wiped(): boolean {
+    return this.#wiped;
   }
 
   toJSON(): string {
