@@ -10,7 +10,8 @@ own paths, when the inputs that change build lines have no capture yet.
 
   hybrid_ref_capture.py key REPO
       Prints the REF key: sha256 over Package.resolved, every file of cmux.xcodeproj but
-      xcuserdata, the macOS xcconfigs, the DEV build settings (HYBRID_REF_SETTINGS: the
+      xcuserdata, the macOS xcconfigs, the local package manifests, the compile recipe
+      (KEY_PATHS), the DEV build settings (HYBRID_REF_SETTINGS: the
       compile step's CMUX_NEXT_*) and the toolchain (xcodebuild -version, the SDK build). Most landings share one.
 
   hybrid_ref_capture.py capture --log LOG --workspace WS --derived-data DD --sha SHA
@@ -49,6 +50,12 @@ SCHEMA = 1
 # cmux-ci artifact-put takes at most 512 MiB a file.
 PART_BYTES = 480 * 1024 * 1024
 RESOLVED = "cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved"
+# What sets a build line: the project, the macOS xcconfigs, the local package manifests (a target or
+# dependency added there changes the plan) and the compile recipe with its hardcoded settings.
+KEY_PATHS = ("cmux.xcodeproj", "*.xcconfig", "Packages/macOS/**/Package.swift", "Packages/Shared/**/Package.swift",
+             "vendor/**/Package.swift", "scripts/cmux-next/check-cmux-scheme-compile.sh",
+             "scripts/cmux-next/compile-dev-release.sh", "scripts/cmux-next/lib/compilation-cache.sh")
+KEY_SKIP = re.compile(r"(^|/)xcuserdata/|^ios/")
 # The compile step's settings that change a build line (check-cmux-scheme-compile.sh reads them);
 # the capture steps get them as HYBRID_REF_SETTINGS.
 SETTINGS = ("CMUX_NEXT_CONFIGURATION", "CMUX_NEXT_PRODUCT_NAME", "CMUX_NEXT_BUNDLE_ID",
@@ -59,7 +66,7 @@ SETTINGS = ("CMUX_NEXT_CONFIGURATION", "CMUX_NEXT_PRODUCT_NAME", "CMUX_NEXT_BUND
 BROWSER_SOURCES = "Packages/macOS/CmuxNext/Sources/CmuxNextBrowserImport/Resources/browser-sources.json"
 BROWSER_SOURCES_COMPILED_OUT = "scripts/cmux-next/lib/browser-sources-compiled-out.json"
 WS_EXCLUDE = re.compile(r"(^|/)(\.git|target|node_modules|\.build|DerivedData)(/|$)")
-DD_EXCLUDE = re.compile(r"(^|/)(CompilationCache\.noindex|Logs|SourcePackages/repositories)(/|$)"
+DD_EXCLUDE = re.compile(r"(^|/)(\.git|CompilationCache\.noindex|Logs|SourcePackages/repositories)(/|$)"
                         r"|\.(o|app|dSYM)(/|$)|(^|/)Chromium Embedded Framework\.framework(/|$)")
 DRIVER = re.compile(r"^SwiftDriver (\S+) normal (\S+) ")
 
@@ -87,8 +94,8 @@ def key(repo: Path, environ=os.environ, toolchain: str | None = None) -> str:
     def add(label: str, data: bytes) -> None:
         h.update(label.encode() + b"\0" + hashlib.sha256(data).hexdigest().encode() + b"\n")
 
-    files = run(["git", "-C", str(repo), "ls-files", "-z", "--", "cmux.xcodeproj", "*.xcconfig"]).split("\0")
-    for name in sorted(f for f in files if f and "xcuserdata/" not in f and not f.startswith("ios/")):
+    files = run(["git", "-C", str(repo), "ls-files", "-z", "--", *KEY_PATHS]).split("\0")
+    for name in sorted(f for f in files if f and not KEY_SKIP.search(f)):
         add(name, (repo / name).read_bytes())
     for name, value in settings(environ).items():
         add("env:" + name, value.encode())

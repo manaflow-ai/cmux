@@ -67,6 +67,8 @@ def make_repo(root: Path) -> Path:
         "Sources/a.swift": "let a = 1\n", cap.BROWSER_SOURCES: '{"real": true}\n',
         cap.BROWSER_SOURCES_COMPILED_OUT: (ROOT / cap.BROWSER_SOURCES_COMPILED_OUT).read_text(),
         "web/node_modules/x/index.js": "x\n", "cmux-tui/target/debug/big": "x\n",
+        "Packages/macOS/CmuxNext/Package.swift": "// pkg\n", "Packages/iOS/Mobile/Package.swift": "// ios\n",
+        "scripts/cmux-next/check-cmux-scheme-compile.sh": "# recipe\n",
     }.items():
         path = repo / rel
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -88,7 +90,8 @@ def make_dd(root: Path) -> Path:
                 "Build/Products/Release/CmuxNextApp.swiftmodule/arm64.swiftmodule",
                 "CompilationCache.noindex/cas/blob", "Logs/Build/x.xcactivitylog",
                 "SourcePackages/checkouts/swift-atomics/Package.swift",
-                "SourcePackages/repositories/swift-atomics-1/HEAD"):
+                "SourcePackages/repositories/swift-atomics-1/HEAD",
+                "SourcePackages/checkouts/swift-atomics/.git/objects/pack/p.pack"):
         path = dd / rel
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(rel + "\n")
@@ -110,13 +113,15 @@ class Key(unittest.TestCase):
             self.assertEqual(base, cap.key(repo, dict(env), TOOLCHAIN))
             (repo / "Sources/a.swift").write_text("let a = 2\n")
             (repo / "ios/Config/Release.xcconfig").write_text("B = 2\n")
-            self.assertEqual(base, cap.key(repo, env, TOOLCHAIN), "a source file or an iOS xcconfig")
+            (repo / "Packages/iOS/Mobile/Package.swift").write_text("// ios 2\n")
+            self.assertEqual(base, cap.key(repo, env, TOOLCHAIN), "a source file, an iOS xcconfig or an iOS package")
             other = {"HYBRID_REF_SETTINGS": env["HYBRID_REF_SETTINGS"].replace("singlefile", "wholemodule")}
             self.assertNotEqual(base, cap.key(repo, other, TOOLCHAIN))
             with self.assertRaises(SystemExit):
                 cap.key(repo, {"HYBRID_REF_SETTINGS": "CMUX_NEXT_TYPO=1"}, TOOLCHAIN)
             self.assertNotEqual(base, cap.key(repo, env, TOOLCHAIN.replace("17F113", "17F114")))
-            for rel in (cap.RESOLVED, "cmux.xcodeproj/project.pbxproj", "config/Release.xcconfig"):
+            for rel in (cap.RESOLVED, "cmux.xcodeproj/project.pbxproj", "config/Release.xcconfig",
+                        "Packages/macOS/CmuxNext/Package.swift", "scripts/cmux-next/check-cmux-scheme-compile.sh"):
                 before = (repo / rel).read_text()
                 (repo / rel).write_text(before + " ")
                 self.assertNotEqual(base, cap.key(repo, env, TOOLCHAIN), rel)
@@ -179,7 +184,7 @@ class Capture(unittest.TestCase):
         self.assertIn("Build/Products/Release/CmuxNextApp.swiftmodule/arm64.swiftmodule", dd)
         self.assertIn("SourcePackages/checkouts/swift-atomics/Package.swift", dd)
         self.assertIn("Build/Intermediates.noindex/empty", dd)
-        for gone in ("a.o", "CompilationCache.noindex", "Logs/", "repositories", ".app/"):
+        for gone in ("a.o", "CompilationCache.noindex", "Logs/", "repositories", ".app/", ".git/"):
             self.assertFalse([n for n in dd if gone in n], gone)
         self.assertEqual({n.split("/")[0] for n in names(packs / "xcbuilddata.tgz")}, {"XCBuildData"})
         ws = names(packs / "ws-src.tgz")
@@ -241,7 +246,14 @@ class Workflow(unittest.TestCase):
         self.assertTrue(decide["if"].startswith("vars.CMUX_NEXT_HYBRID_REF_CAPTURE == '1' &&"))
         for step in (decide, capture):
             self.assertTrue(step["continue-on-error"])
-            self.assertLessEqual(step["timeout-minutes"], 20)
+        self.assertLessEqual(decide["timeout-minutes"], 1)
+        self.assertLessEqual(capture["timeout-minutes"], 10)
+        self.assertLessEqual(30 + capture["timeout-minutes"], self.job["timeout-minutes"] - 15,
+                             "a capture that starts by minute 30 ends well inside the job's limit")
+        self.assertIn("$(date +%s) - STARTED > 30 * 60", capture["run"])
+        self.assertIn("select(.expired == false and .created_at >= ", decide["run"], "an expired capture does not count")
+        upload = next(s for s in self.job["steps"] if s.get("name") == "Upload the REF capture manifest")
+        self.assertEqual(upload["with"]["retention-days"], 14, "the manifest lives as long as the store keeps the packs")
         self.assertIn("steps.hybrid-ref.outputs.capture == 'true'", capture["if"])
         self.assertIn("outputs.build_mode == 'host'", capture["if"])
         self.assertIn("steps.compile-cmux-next-dev-release.outcome == 'success'", capture["if"])
