@@ -799,6 +799,27 @@ mod tests {
     }
 
     #[test]
+    fn a_steer_dropped_before_its_answer_is_not_counted_forever() {
+        let turns = StdMutex::new(TurnKinds::default());
+        // The steer's request is dropped (its client went away) before the agent answers: it
+        // may have gone in, so the turn running reports, and only that one.
+        let count = SteerCount::new(&turns, "c");
+        turns.lock().unwrap().report_only.insert(("c".into(), 1));
+        drop(count);
+        let mut k = turns.lock().unwrap();
+        assert!(k.in_flight.is_empty(), "a dropped steer stays on its way");
+        assert!(!k.end("c", 1));
+        k.report_only.insert(("c".into(), 2));
+        assert!(k.end("c", 2), "every later report turn reports");
+        drop(k);
+        // Answered, it counts as the answer says.
+        SteerCount::new(&turns, "c").done(false);
+        let mut k = turns.lock().unwrap();
+        k.report_only.insert(("c".into(), 3));
+        assert!(k.end("c", 3));
+    }
+
+    #[test]
     fn a_steer_counted_before_a_report_turn_started_still_makes_it_report() {
         let mut k = TurnKinds::default();
         // A task's steer is counted while turn 1 is the count, then the agent takes it into turn
