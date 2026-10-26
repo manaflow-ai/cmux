@@ -101,11 +101,21 @@ class RigCleanupTests(unittest.TestCase):
         self.assertEqual(rec["owner_pid"], sleeper.pid)
         self.assertEqual(rec["owner_start"], rig_cleanup.process_start(sleeper.pid))
 
+    def sleeper(self):
+        p = subprocess.Popen(["sleep", "30"])
+        self.addCleanup(p.wait)
+        self.addCleanup(p.kill)
+        return p
+
     def test_end_stops_the_bundle_then_removes_the_dirs_and_their_records(self):
-        c, fake = self.cleanup_with({self.gone_pid(): self.app_home, self.gone_pid(): self.chief_home})
+        daemons = [self.sleeper(), self.sleeper()]
+        c, fake = self.cleanup_with({daemons[0].pid: self.app_home, daemons[1].pid: self.chief_home})
         c.register_rig()
         c.register_daemons()
         self.assertEqual(len(self.records()), 3)
+        for p in daemons:  # the teardown's shutdown ends them
+            p.kill()
+            p.wait()
         c.end()
         self.assertEqual(fake.ended, 1)
         for d in (self.app_home, self.chief_home, self.rig):
@@ -148,6 +158,70 @@ class RigCleanupTests(unittest.TestCase):
                      self.app_home + "x", self.app_home + "/sub", os.path.dirname(self.chief_home),
                      os.path.join(self.home, ".acpmux", "builds", "com.cmuxterm.app.debug.cmux")):
             self.assertFalse(homes.fullmatch(path), path)
+
+    def test_a_live_owners_record_is_never_taken_over(self):
+        sleeper = subprocess.Popen(["sleep", "30"])
+        self.addCleanup(sleeper.wait)
+        self.addCleanup(sleeper.kill)
+        rig_cleanup.register(self.rig, sleeper.pid, rig_cleanup.process_start(sleeper.pid))
+        c, _ = self.cleanup_with({})
+        with self.assertRaises(SystemExit):
+            c.register_rig()
+        self.assertEqual(self.records()[self.rig][1]["owner_pid"], sleeper.pid)
+        # A dead owner's record is replaced.
+        rig_cleanup.unregister(self.rig)
+        rig_cleanup.register(self.rig, self.gone_pid(), 1)
+        c.register_rig()
+        self.assertEqual(self.records()[self.rig][1]["owner_pid"], os.getpid())
+
+    def test_no_record_without_a_start_time(self):
+        with self.assertRaises(ValueError):
+            rig_cleanup.register(self.app_home, 12345, None)
+        self.assertEqual(self.records(), {})
+        c, _ = self.cleanup_with({self.gone_pid(): self.app_home})
+        c.register_daemons()  # a daemon that already exited has no start time: nothing is written
+        self.assertEqual(self.records(), {})
+
+    def test_a_home_another_run_registered_since_is_kept(self):
+        c, _ = self.cleanup_with({self.gone_pid(): self.app_home})
+        c.homes[self.app_home] = (self.gone_pid(), 1)
+        rig_cleanup.register(self.app_home, os.getpid(), rig_cleanup.process_start(os.getpid()))
+        c.end(remove_rig=False)
+        self.assertTrue(os.path.isdir(self.app_home))
+        self.assertIn(self.app_home, self.records())
+
+    def test_teardown_sends_daemon_shutdown_only_to_this_builds_homes(self):
+        made = {}
+
+        class Teardown:
+            def __init__(self, app, **kwargs):
+                made.update(kwargs, app=app)
+
+        module = types.SimpleNamespace(TagTeardown=Teardown, procargs=lambda pid: None)
+        with mock.patch.object(rig_cleanup, "_teardown_module", return_value=module):
+            rig_cleanup.RigCleanup(self.rig, self.app, BUNDLE_ID).teardown
+        ok = made["acpmux_home_ok"]
+        self.assertTrue(ok(self.app_home))
+        self.assertTrue(ok(self.chief_home))
+        self.assertFalse(ok(os.path.join(self.home, ".acpmux")))
+        self.assertFalse(ok(os.path.join(self.home, ".acpmux", "builds", "com.cmuxterm.app.debug.other")))
+
+    def test_tag_teardown_skips_the_shutdown_of_a_refused_home(self):
+        import sys
+        sys.path.insert(0, os.path.join(rig_cleanup.REPO, "scripts", "cmux-next"))
+        import tag_teardown
+        acpmux = os.path.join(self.app, "Contents/Resources/bin/acpmux")
+        lines, runs = [], []
+        t = tag_teardown.TagTeardown(self.app, log=lines.append, acpmux_home_ok=lambda home: home == self.app_home)
+        envs = {1: {"ACPMUX_HOME": self.app_home}, 2: {"ACPMUX_HOME": os.path.join(self.home, ".acpmux")}}
+        with mock.patch.object(t, "processes", side_effect=[[(1, acpmux + " daemon run"), (2, acpmux + " daemon run")]]
+                               + [[]] * 10), \
+                mock.patch.object(t, "_environment", side_effect=lambda pid: envs[pid]), \
+                mock.patch.object(t, "_run", side_effect=lambda argv, env=None, timeout=30: runs.append(env["ACPMUX_HOME"]) or "exit 0"), \
+                mock.patch.object(tag_teardown.time, "sleep"):
+            t.end()
+        self.assertEqual(runs, [self.app_home])
+        self.assertTrue(any("not a home of this tag" in line for line in lines))
 
 
 if __name__ == "__main__":

@@ -282,13 +282,17 @@ def main():  # noqa: C901 - one live scenario
         time.sleep(2)
         capture("disconnected")
     finally:
-        appearance(udid, "light")
         try:
             # The app, then its acpmux daemons, Chief host and headless cmux-tui, which
-            # outlive it (rig_cleanup.py); leftovers only by exact PID.
+            # outlive it (rig_cleanup.py); leftovers only by exact PID. First, so a
+            # simulator failure below never leaves them running.
             mac.teardown()
         except Exception as e:  # noqa: BLE001
             log(f"teardown: {e}")
+        try:
+            appearance(udid, "light")
+        except Exception as e:  # noqa: BLE001
+            log(f"appearance: {e}")
         json.dump(result, open(os.path.join(out, "results.json"), "w"), indent=2)
         log(f"wrote {out}/results.json")
 

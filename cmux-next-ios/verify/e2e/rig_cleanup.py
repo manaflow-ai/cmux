@@ -25,6 +25,7 @@ ${CMUX_CLEANUP_REGISTRY:-${XDG_STATE_HOME:-~/.local/state}/cleanup-registry}, na
 <tool>-<first 16 hex of sha256(path)>.json, written atomically.
 """
 import calendar
+import fcntl
 import hashlib
 import json
 import os
@@ -88,11 +89,46 @@ def same_process(pid, start):
     return now is None or start is None or abs(now - start) <= 2
 
 
+class RegistryLock:
+    """The registry's flock (`<registry>/.lock`), the one its reapers hold from a record's liveness check until the
+    path and record are gone."""
+
+    def __init__(self, directory=None):
+        self.directory = directory or registry_dir()
+
+    def __enter__(self):
+        os.makedirs(self.directory, mode=0o700, exist_ok=True)
+        self.fd = os.open(os.path.join(self.directory, ".lock"), os.O_RDWR | os.O_CREAT, 0o600)
+        fcntl.flock(self.fd, fcntl.LOCK_EX)
+        return self
+
+    def __exit__(self, *_exc):
+        fcntl.flock(self.fd, fcntl.LOCK_UN)
+        os.close(self.fd)
+
+
+class Held(Exception):
+    """Another live owner's record names the path."""
+
+
 def register(path, owner_pid, owner_start, kind="job", owner_pgid=0, directory=None):
-    """Write the record of PATH, owned by OWNER_PID (started at OWNER_START). Returns the canonical path."""
+    """Write the record of PATH, owned by OWNER_PID (started at OWNER_START, a number), under the registry lock.
+    Raises Held when another owner that still runs holds the path's record, ValueError without a start time.
+    Returns the canonical path."""
+    if not isinstance(owner_start, (int, float)):
+        raise ValueError(f"no start time for owner pid {owner_pid}")
     path = canonical(path)
     directory = directory or registry_dir()
-    os.makedirs(directory, mode=0o700, exist_ok=True)
+    with RegistryLock(directory):
+        held = read_record(path, directory)
+        if held and (held.get("owner_pid"), held.get("owner_start")) != (owner_pid, owner_start) \
+                and isinstance(held.get("owner_pid"), int) and same_process(held["owner_pid"], held.get("owner_start")):
+            raise Held(f"{path} is held by live owner pid {held['owner_pid']}")
+        _write(path, owner_pid, owner_start, kind, owner_pgid, directory)
+    return path
+
+
+def _write(path, owner_pid, owner_start, kind, owner_pgid, directory):
     record = {"schema": SCHEMA, "tool": TOOL, "kind": kind, "path": path, "host": os.uname().nodename,
               "created": int(time.time()), "owner_pid": owner_pid, "owner_start": owner_start,
               "cleanup": "trap", "max_age_hours": MAX_AGE_HOURS}
@@ -106,14 +142,33 @@ def register(path, owner_pid, owner_start, kind="job", owner_pgid=0, directory=N
     finally:
         if os.path.exists(tmp):
             os.unlink(tmp)
-    return path
 
 
 def unregister(path, directory=None):
-    try:
-        os.unlink(record_file(canonical(path), directory))
-    except FileNotFoundError:
-        pass
+    with RegistryLock(directory):
+        try:
+            os.unlink(record_file(canonical(path), directory))
+        except FileNotFoundError:
+            pass
+
+
+def remove_recorded(path, owner_pid, owner_start, directory=None):
+    """Under the registry lock: when PATH's record still names this owner and the owner is gone, remove PATH and
+    then its record. True when both are gone."""
+    with RegistryLock(directory):
+        held = read_record(path, directory)
+        if held and (held.get("owner_pid"), held.get("owner_start")) != (owner_pid, owner_start):
+            return False  # another run registered it since
+        if same_process(owner_pid, owner_start):
+            return False
+        shutil.rmtree(path, ignore_errors=True)
+        if os.path.exists(path):
+            return False
+        try:
+            os.unlink(record_file(canonical(path), directory))
+        except FileNotFoundError:
+            pass
+        return True
 
 
 def read_record(path, directory=None):
@@ -166,7 +221,10 @@ class RigCleanup:
     @property
     def teardown(self):
         if self._teardown is None:
-            self._teardown = _teardown_module().TagTeardown(self.app, log=lambda line: self.log(line))
+            homes = build_homes(self.bundle_id)
+            self._teardown = _teardown_module().TagTeardown(
+                self.app, log=lambda line: self.log(line),
+                acpmux_home_ok=lambda home: bool(homes.fullmatch(canonical(home))))
         return self._teardown
 
     def install(self):
@@ -174,9 +232,17 @@ class RigCleanup:
         self.teardown.install()
 
     def register_rig(self):
-        """The rig dir's record, owned by this script; written before the dir is made."""
+        """The rig dir's record, owned by this script; written before the dir is made. Refuses (SystemExit) while
+        another live run of this rig holds it; a record that cannot be written is logged and the run goes on."""
         pid = os.getpid()
-        register(self.rig, pid, process_start(pid), owner_pgid=os.getpgrp(), directory=self.directory)
+        self.rig_owner = (pid, process_start(pid))
+        try:
+            register(self.rig, *self.rig_owner, owner_pgid=os.getpgrp(), directory=self.directory)
+        except Held as held:
+            raise SystemExit(f"refusing to start: {held} (another run of this rig)")
+        except (OSError, ValueError) as error:
+            self.rig_owner = None
+            self.log(f"teardown: the rig dir's cleanup record was not written: {error}")
 
     def _daemons(self):
         """(pid, ACPMUX_HOME) of each `acpmux daemon run` of the rig's bundle now."""
@@ -201,9 +267,13 @@ class RigCleanup:
                 self.log(f"teardown: acpmux {pid} runs in {home}, not a home of {self.bundle_id}; not recorded")
                 continue
             start = process_start(pid)
-            if self.homes.get(home) != (pid, start):
+            if start is None or self.homes.get(home) == (pid, start):
+                continue  # gone already, or recorded
+            try:
                 register(home, pid, start, directory=self.directory)
                 self.homes[home] = (pid, start)
+            except (Held, OSError, ValueError) as error:
+                self.log(f"teardown: acpmux home {home} not recorded: {error}")
         return dict(self.homes)
 
     def end(self, remove_rig=True):
@@ -223,18 +293,24 @@ class RigCleanup:
                 continue
             if not homes.fullmatch(home):
                 continue
-            shutil.rmtree(home, ignore_errors=True)
-            if os.path.exists(home):
-                self.log(f"teardown: {home} could not be removed; its record is kept")
-                continue
-            unregister(home, self.directory)
-            self.log(f"teardown: removed acpmux home {home}")
+            if remove_recorded(home, pid, start, self.directory):
+                self.log(f"teardown: removed acpmux home {home}")
+            else:
+                self.log(f"teardown: {home} kept with its record (re-registered, or not removable)")
         if remove_rig:
             left = self.teardown.processes()
             if left:
                 self.log(f"teardown: {len(left)} processes of the bundle still run; the rig dir and its record are kept")
-            else:
-                shutil.rmtree(self.rig, ignore_errors=True)
-                if not os.path.exists(self.rig):
-                    unregister(self.rig, self.directory)
-                    self.log(f"teardown: removed rig dir {self.rig}")
+            elif getattr(self, "rig_owner", None):
+                with RegistryLock(self.directory):
+                    held = read_record(self.rig, self.directory)
+                    if held and (held.get("owner_pid"), held.get("owner_start")) != self.rig_owner:
+                        self.log(f"teardown: another run holds {self.rig}; kept")
+                        return
+                    shutil.rmtree(self.rig, ignore_errors=True)
+                    if not os.path.exists(self.rig):
+                        try:
+                            os.unlink(record_file(self.rig, self.directory))
+                        except FileNotFoundError:
+                            pass
+                        self.log(f"teardown: removed rig dir {self.rig}")

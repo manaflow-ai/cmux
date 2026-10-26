@@ -202,7 +202,6 @@ class Mac:
     def prepare(self):
         if self.cleanup:
             self.cleanup.register_rig()  # the record goes in before the dir
-            self.cleanup.install()  # SIGTERM and SIGHUP run the script's `finally`
         os.makedirs(os.path.join(self.rig, "mac"), exist_ok=True)
         os.makedirs(os.path.dirname(self.config), exist_ok=True)
         os.makedirs(os.path.dirname(self.creds), mode=0o700, exist_ok=True)
@@ -276,6 +275,10 @@ class Mac:
         return [int(x) for x in r.stdout.split()]
 
     def launch(self, timeout=90):
+        """Start the app. With cleanup, SIGTERM and SIGHUP raise SystemExit from here on, so the script's
+        `finally` (around launch) runs teardown()."""
+        if self.cleanup:
+            self.cleanup.install()
         t0 = time.time()
         if not self.main_pids():
             # CMUX_MOBILE_E2E_RB_HOST: a cmux-remote-browser-host.app (with its own CEF) the rig
