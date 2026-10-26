@@ -37,9 +37,14 @@ public nonisolated struct MemoryDiagnosticsReport: Sendable {
     }
 
     /// `value` when it is a plain token, else ``redacted``.
-    public func opaque(_ value: String) -> String {
-        let isToken = !value.isEmpty && value.utf8.count <= 64 && value.utf8.allSatisfy(Self.isTokenByte)
-        return isToken ? value : Self.redacted
+    public func opaque(_ value: String) -> String { Self.opaqueToken(value) }
+
+    /// `value` when it is a plain token (at most 64 of `A-Z a-z 0-9 - _ . :`), else ``redacted``: the
+    /// one redaction of every release memory diagnostic (`debug.memory`, `debug.discards`), so an ID
+    /// or a name that carries a URL, a title or a path never leaves the app.
+    public static func opaqueToken(_ value: String) -> String {
+        let isToken = !value.isEmpty && value.utf8.count <= 64 && value.utf8.allSatisfy(isTokenByte)
+        return isToken ? value : redacted
     }
 
     private static func isTokenByte(_ byte: UInt8) -> Bool {

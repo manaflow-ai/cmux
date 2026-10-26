@@ -146,7 +146,7 @@ final class AppControl {
             // Energy Saver's policy and inputs (`cmux energy status`, MCP `energy_status`).
             EnergyReport.statusMethod(services: services),
         ])
-        router.register(DebugHibernationControl.methods(services)) // debug.memory serves release builds too
+        router.register(DebugHibernationControl.methods(services)) // debug.memory and debug.discards serve release builds too
     }
 
     func startSnapshotPublisher(_ services: AppServices, on router: ControlRouter) {
