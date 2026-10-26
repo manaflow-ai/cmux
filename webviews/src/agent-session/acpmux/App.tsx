@@ -847,7 +847,7 @@ const changesSource: ChangesSource = {
 // The composer's Hide and Show (composerChrome.tsx) persist through the host, which pushes the
 // setting back to every page and on the next launch.
 registerComposerHost((method, show) => void callNative(method, { show }).catch(() => undefined));
-registerAttachmentViewHost((view) => void callNative("pane.setAttachmentView", { view }).catch(() => undefined));
+registerAttachmentViewHost((view) => callNative("pane.setAttachmentView", { view }));
 registerChatDisplayHost((key, value) => void callNative("pane.setDisplay", { key, value }).catch(() => undefined));
 /// A folder's `git.status` from the native host, named by the folder: a new chat has no session to
 /// name it by (the header's worktree pill, cx-lyqio.3b).

@@ -80,13 +80,27 @@ export function readComposerSettings(value: unknown): ComposerSettings {
 
 let current = DEFAULT_COMPOSER;
 const listeners = new Set<() => void>();
+let confirmedAttachmentView = current.attachmentView;
+let attachmentWrite = 0;
+let confirmedWrite = 0;
+let pendingWrite = 0;
 
-/// The host's whole value, or a page change to some settings (the rest stay as they are).
-export function setComposerSettings(value: unknown) {
-  const next = readComposerSettings({ ...current, ...(value && typeof value === "object" ? value : {}) });
+function publishComposerSettings(value: unknown) {
+  const next = readComposerSettings({ ...current, ...(value && typeof value === "object" ? value : undefined) });
   if (KEYS.every((key) => next[key] === current[key])) return;
   current = next;
   for (const listener of listeners) listener();
+}
+
+/// The host's whole value, or a page change to some settings (the rest stay as they are).
+export function setComposerSettings(value: unknown) {
+  if (value && typeof value === "object" && "attachmentView" in value) {
+    confirmedAttachmentView = readComposerSettings(value).attachmentView;
+    // A host push is authoritative, including over replies from older writes.
+    confirmedWrite = ++attachmentWrite;
+    pendingWrite = 0;
+  }
+  publishComposerSettings(value);
 }
 
 export function useComposerSettings(): ComposerSettings {
@@ -117,18 +131,39 @@ export function registerComposerHost(write: ComposerHost | undefined) {
 }
 
 /// The host's write of `agentPane.attachmentView` (`pane.setAttachmentView {view}`).
-let attachmentViewHost: ((view: AttachmentView) => void) | undefined;
+let attachmentViewHost: ((view: AttachmentView) => unknown) | undefined;
 
 /// App's route to the host; a page with none (a gallery, a test) keeps its choice in the page.
-export function registerAttachmentViewHost(write: ((view: AttachmentView) => void) | undefined) {
+export function registerAttachmentViewHost(write: ((view: AttachmentView) => unknown) | undefined) {
   attachmentViewHost = write;
 }
 
 /// Shows attachments inline or in a strip in every composer and sent message, and asks the host to
 /// persist it. Only the look changes; no draft or message is touched.
 export function setAttachmentView(view: AttachmentView) {
-  setComposerSettings({ attachmentView: view });
-  attachmentViewHost?.(view);
+  if (!attachmentViewHost) {
+    setComposerSettings({ attachmentView: view });
+    return;
+  }
+  const write = ++attachmentWrite;
+  pendingWrite = write;
+  publishComposerSettings({ attachmentView: view });
+  const settle = (accepted: boolean) => {
+    if (accepted && write > confirmedWrite) {
+      confirmedAttachmentView = view;
+      confirmedWrite = write;
+    }
+    if (pendingWrite === write) pendingWrite = 0;
+    if (!pendingWrite) publishComposerSettings({ attachmentView: confirmedAttachmentView });
+  };
+  try {
+    void Promise.resolve(attachmentViewHost(view)).then(
+      () => settle(true),
+      () => settle(false),
+    );
+  } catch {
+    settle(false);
+  }
 }
 
 /// Shows or hides a composer control in every composer, and asks the host to persist it.
