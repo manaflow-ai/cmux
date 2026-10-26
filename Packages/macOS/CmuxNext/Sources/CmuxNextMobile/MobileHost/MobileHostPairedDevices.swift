@@ -1,4 +1,5 @@
 public import Foundation
+import CmuxNextCompat
 import CryptoKit
 import os
 
@@ -178,7 +179,14 @@ public struct MobileHostPairedDevicesFile: Sendable {
 
     /// One serial queue for every list's reads and writes: they leave the caller's thread (the
     /// seal is a Keychain item, and the iPhone host calls from the main actor) and keep its order.
-    private static let queue = DispatchQueue(label: "com.cmuxterm.mobile.paired-devices")
+    /// Registered in plans/cmux-next/threading-model.md.
+    private static let queue = DispatchQueue(label: "com.cmuxterm.mobile.paired-devices", qos: .utility)
+
+    /// The digests of lists a removal replaced in this run, per file: never trusted again in this
+    /// process, also when the Keychain refused to forget them and that list's exact bytes are put
+    /// back. Only the Keychain outlives the process, so across a relaunch a Keychain that refuses
+    /// every write of the app's own item keeps such a list trusted (logged as a fault).
+    private static let withdrawn = Mutex<[String: Set<Data>]>([:])
 
     /// `load` on the queue, after every save queued before it.
     public func loadInBackground(userID: String) async -> MobileHostPairedDevices {
@@ -200,23 +208,30 @@ public struct MobileHostPairedDevicesFile: Sendable {
 
     private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "mobile.pairing")
 
-    /// A save that takes trust away (a phone revoked or unpaired, a sign-out): the old digest goes
-    /// before this returns, after every save queued before it, so from then on no older list counts,
-    /// a crash or quit included; the new list is then written and recorded on the queue. The
-    /// Keychain call never shows UI. A Keychain that keeps the digest is handled by `save`.
+    /// A save that takes trust away (a phone revoked or unpaired, a sign-out). It never waits on
+    /// the caller's thread: on the queue, after every save queued before it, the list it replaces
+    /// stops counting in this run, then `save` takes the old digest away before it writes the new
+    /// list and records it. The caller's own list is the one in force from the call on. `done`
+    /// (tests) gets whether the new list was written and recorded.
     public func saveRemovingTrust(_ devices: MobileHostPairedDevices, then done: (@Sendable (Bool) -> Void)? = nil) {
-        if !Self.queue.sync(execute: { seal.clearDigest() }) {
-            Self.logger.error("iPhone pairing: the old digest could not be cleared before a removal")
+        Self.queue.async {
+            if let old = seal.digest() { Self.withdrawn.withLock { $0[file.path, default: []].insert(old) } }
+            do {
+                try self.save(devices)
+                done?(true)
+            } catch {
+                Self.logger.error("paired phones not saved: \(String(describing: error), privacy: .public)")
+                done?(false)
+            }
         }
-        saveInBackground(devices)
-        Self.queue.async { done?(true) }
     }
 
-    /// App quit: waits, up to `limit`, for the saves already queued.
+    /// App quit only (`applicationWillTerminate`, under its reviewed blocking allowance): waits, up
+    /// to `limit`, for the saves already queued, a removal's among them.
     public static func flush(within limit: TimeInterval = 2) {
         let done = DispatchSemaphore(value: 0)
         queue.async { done.signal() }
-        if done.wait(timeout: .now() + limit) == .timedOut {
+        if done.blockingWait(timeout: .now() + limit) == .timedOut {
             logger.error("iPhone pairing: queued saves did not finish before quit")
         }
     }
@@ -228,7 +243,8 @@ public struct MobileHostPairedDevicesFile: Sendable {
     /// phone: each pairs again, which the person approves.
     public func load(userID: String) -> MobileHostPairedDevices {
         guard let data = try? Data(contentsOf: file) else { return MobileHostPairedDevices(userID: userID) }
-        guard let sealed = seal.digest(), sealed == MobileHostPairingSeal.digest(data) else {
+        guard let sealed = seal.digest(), sealed == MobileHostPairingSeal.digest(data),
+              !Self.withdrawn.withLock({ $0[file.path]?.contains(sealed) ?? false }) else {
             Self.logger.error("iPhone pairing: paired-devices.json is not the list this app saved; no phone is trusted until it pairs again")
             return MobileHostPairedDevices(userID: userID)
         }
@@ -248,10 +264,21 @@ public struct MobileHostPairedDevicesFile: Sendable {
         // older list put back. The new list is written even when the Keychain keeps the old digest:
         // it does not match it, so the list before it (perhaps with a phone just removed) stops
         // counting too; only that list's exact bytes put back would match again.
-        if !seal.clearDigest() { Self.logger.error("iPhone pairing: the old digest could not be cleared") }
+        // A refused clear is tried once more before the write, and again after a refused record.
+        if !seal.clearDigest(), !seal.clearDigest() {
+            Self.logger.error("iPhone pairing: the old digest could not be cleared")
+        }
         try data.write(to: file, options: .atomic)
         try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: file.path)
-        guard seal.setDigest(MobileHostPairingSeal.digest(data)) else { throw MobileHostPairingSealError.keychainRefused }
+        let digest = MobileHostPairingSeal.digest(data)
+        guard seal.setDigest(digest) else {
+            if !seal.clearDigest() {
+                Self.logger.fault("iPhone pairing: the Keychain refuses every write of the pairing seal; until it takes one, a list this app saved before can count again after a relaunch")
+            }
+            throw MobileHostPairingSealError.keychainRefused
+        }
+        // The list just recorded is the one in force, even if a removal had replaced the same bytes.
+        Self.withdrawn.withLock { _ = $0[file.path]?.remove(digest) }
     }
 }
 
@@ -281,13 +308,16 @@ public struct MobileHostPairedLoad: Sendable {
     }
 
     /// Read `generation` of `userID`'s list answered `list`: nil when a newer read began since,
-    /// else the list without the phones forgotten meanwhile, and whether that removed any.
+    /// else the list without the phones forgotten meanwhile, and whether any phone was forgotten
+    /// (then the list is saved as a removal, even when it never had that phone: an empty or
+    /// untrusted read leaves the old digest, which must still go).
     public mutating func finish(_ generation: Int, userID: String, list: MobileHostPairedDevices) -> (list: MobileHostPairedDevices, forgot: Bool)? {
         guard generation == self.generation, self.userID == userID else { return nil }
         self.userID = nil
         var trimmed = list
         for id in forgotten { trimmed.remove(id) }
+        let forgot = !forgotten.isEmpty
         forgotten = []
-        return (trimmed, trimmed != list)
+        return (trimmed, forgot)
     }
 }

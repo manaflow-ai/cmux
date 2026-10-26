@@ -225,8 +225,8 @@ extension IPhoneHostService {
         showPairDialog()
     }
 
-    /// `removingTrust`: the save takes a phone away, so the old digest goes before it returns
-    /// (``MobileHostPairedDevicesFile/saveRemovingTrust(_:)``).
+    /// `removingTrust`: the save takes a phone away, so the list it replaces stops counting
+    /// (``MobileHostPairedDevicesFile/saveRemovingTrust(_:then:)``).
     private func savePaired(_ list: MobileHostPairedDevices, removingTrust: Bool = false) {
         paired = list
         // Off the main actor, in order (the seal is a Keychain item); a failure is logged there.
@@ -253,8 +253,12 @@ extension IPhoneHostService {
     private func pushPaired() {
         let list = paired ?? MobileHostPairedDevices(userID: "")
         let supervisor = supervisor
-        // task-owner: one hop to the supervisor actor; setDevices is idempotent
-        Task { await supervisor.setDevices(list) }
+        let previous = devicesUpdate
+        // task-owner: stored in `devicesUpdate`; each update waits for the one before it, in order
+        devicesUpdate = Task {
+            await previous?.value
+            await supervisor.setDevices(list)
+        }
         guard let directory = dependencies?.stateDirectory,
               let macDevice = try? MobileHostDeviceIdentity(directory: directory).deviceID() else { return }
         approverSync?.update(list.approversParams(macDevice: macDevice))

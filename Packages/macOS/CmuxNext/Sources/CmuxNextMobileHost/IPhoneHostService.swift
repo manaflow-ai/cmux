@@ -126,6 +126,9 @@ public final class IPhoneHostService {
     @ObservationIgnored var dependencies: Dependencies?
     @ObservationIgnored private var listing: Task<Void, Never>?
     @ObservationIgnored let supervisor = MobileHostSupervisor()
+    /// The newest paired-list update to the supervisor; each waits for the one before it, and a
+    /// hostd start waits for the newest, so hostd never starts with a list trust was withdrawn from.
+    @ObservationIgnored var devicesUpdate: Task<Void, Never>?
     /// Pairing requests waiting for the person, and the anti-flood state (Settings > Mobile lists them).
     internal(set) var prompts = MobileHostPairPrompts()
     /// The open "Allow … to connect?" dialog: its dialog id and the request it shows.
@@ -351,7 +354,8 @@ public final class IPhoneHostService {
         refreshPhones()
     }
 
-    /// App quit: hostd ends with the app (closing its stdin ends it too).
+    /// App quit: hostd ends with the app (closing its stdin ends it too). Called only from
+    /// `applicationWillTerminate`.
     public func stop() {
         running = nil
         following?.cancel()
@@ -361,8 +365,9 @@ public final class IPhoneHostService {
         followingFolders?.cancel()
         followingPicks?.cancel()
         approverSync?.stop()
-        // The paired list's queued saves (a removal's new list among them) finish before the app ends.
-        MobileHostPairedDevicesFile.flush()
+        // The paired list's queued saves (a removal's new list among them) finish before the app
+        // ends: a bounded wait during termination, the threading model's `terminate` allowance.
+        allowBlocking(.terminate) { MobileHostPairedDevicesFile.flush() }
         quietAttention()
         let supervisor = supervisor
         // task-owner: teardown hop; the supervisor's stop is idempotent
@@ -411,6 +416,8 @@ public final class IPhoneHostService {
                 guard !Task.isCancelled, self?.running == key else { return }
                 let launch = Self.launch(dependencies, executable: executable, account: want, deviceID: deviceID,
                                          deviceName: name, daemonSocket: socket, chief: chief)
+                // The paired list hostd gets at its start is the newest one sent (a sign-out's empty one included).
+                await self?.devicesUpdate?.value
                 await supervisor.start(.init(
                     launch: launch, accessToken: dependencies.accessToken, acpmux: dependencies.acpmux,
                     log: dependencies.stateDirectory.appendingPathComponent("cmux-mobile-host.log", isDirectory: false),
