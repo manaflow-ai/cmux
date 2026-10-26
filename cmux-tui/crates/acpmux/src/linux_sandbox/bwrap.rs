@@ -4,10 +4,12 @@
 #![allow(dead_code)] // Staged API: G1/G2 supply the production callers.
 
 use std::collections::BTreeSet;
+use std::ffi::{CString, OsStr, OsString};
 use std::fmt;
 use std::fs;
 use std::io::{self, Read};
-use std::os::fd::AsRawFd;
+use std::os::fd::{AsRawFd, FromRawFd, OwnedFd, RawFd};
+use std::os::unix::ffi::{OsStrExt, OsStringExt};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::Duration;
@@ -36,22 +38,34 @@ pub(crate) const LINUX_READ_DENIES: &[&str] = &[
     ".claude/.credentials.json",
 ];
 
-/// Pure argv construction, including the command prefix after `--`.
+/// The argv and source descriptors needed to invoke bubblewrap.
+///
+/// Callers must keep the descriptors alive until bwrap has started and clear
+/// `FD_CLOEXEC` before spawning it (G1 does this in `pre_exec`).
+pub(crate) type BwrapPlan = (Vec<String>, Vec<OwnedFd>);
+
+/// Build bubblewrap argv and open every bind source with `openat2`.
 /// The loop ends after four writable roots. HOME is rebuilt first.
 fn bwrap_args(
     paths: &Paths,
-    home_view: &[String],
+    home_view: BwrapPlan,
     cmd_prefix: &[String],
-) -> Result<Vec<String>, String> {
+) -> Result<BwrapPlan, String> {
+    let (home_args, mut fds) = home_view;
     let mut out: Vec<String> = "--new-session --die-with-parent --unshare-user --unshare-pid --unshare-ipc --unshare-net --unshare-uts --unshare-cgroup-try --disable-userns --ro-bind / / --dev /dev --proc /proc"
         .split_whitespace().map(str::to_owned).collect();
-    out.extend_from_slice(home_view);
+    out.extend(home_args);
     for path in [&paths.cwd, &paths.tmp, &paths.claude_tmp_project, &paths.claude_project] {
-        let path = path_arg(path)?;
-        out.extend(["--bind".into(), path.clone(), path]);
+        let path_text = path_arg(path)?;
+        let fd = open_bind_source(path)?;
+        out.extend(["--bind-fd".into(), fd.as_raw_fd().to_string(), path_text]);
+        fds.push(fd);
     }
-    let memory = path_arg(&paths.claude_project.join("memory"))?;
-    out.extend(["--ro-bind".into(), memory.clone(), memory]);
+    let memory_path = paths.claude_project.join("memory");
+    let memory = path_arg(&memory_path)?;
+    let fd = open_bind_source(&memory_path)?;
+    out.extend(["--ro-bind-fd".into(), fd.as_raw_fd().to_string(), memory]);
+    fds.push(fd);
     out.extend([
         "--chdir".into(),
         path_arg(&paths.cwd)?,
@@ -60,7 +74,7 @@ fn bwrap_args(
         "--".into(),
     ]);
     out.extend_from_slice(cmd_prefix);
-    Ok(out)
+    Ok((out, fds))
 }
 
 /// Fail closed on invalid caller data; lossy conversion could mask a
@@ -73,6 +87,67 @@ fn path_arg(path: &Path) -> Result<String, String> {
         return Err(format!("sandbox path contains ..: {}", path.display()));
     }
     path.to_str().map(str::to_owned).ok_or_else(|| "sandbox paths must be UTF-8".to_owned())
+}
+
+/// Open a bind source without following a final or magic link, then verify
+/// that the kernel's fd view still names the expected canonical path.
+fn open_bind_source(path: &Path) -> Result<OwnedFd, String> {
+    let text = path_arg(path)?;
+    let canonical = fs::canonicalize(path)
+        .map_err(|e| format!("cannot canonicalize bind source {text}: {e}"))?;
+    let c_path = CString::new(text.as_bytes()).map_err(|_| format!("path contains NUL: {text}"))?;
+    let how = OpenHow {
+        flags: (libc::O_PATH | libc::O_CLOEXEC) as u64,
+        mode: 0,
+        resolve: (RESOLVE_NO_SYMLINKS | RESOLVE_NO_MAGICLINKS) as u64,
+    };
+    // SAFETY: the path and open_how point to live NUL-terminated/read-only data.
+    let raw = unsafe {
+        libc::syscall(
+            libc::SYS_openat2,
+            libc::AT_FDCWD,
+            c_path.as_ptr(),
+            &how,
+            std::mem::size_of::<OpenHow>(),
+        )
+    } as RawFd;
+    if raw < 0 {
+        return Err(format!("cannot open bind source {text}: {}", io::Error::last_os_error()));
+    }
+    // SAFETY: openat2 returned a new owned descriptor.
+    let fd = unsafe { OwnedFd::from_raw_fd(raw) };
+    let actual = fs::read_link(format!("/proc/self/fd/{raw}"))
+        .map_err(|e| format!("cannot inspect bind source {text}: {e}"))?;
+    if actual != canonical {
+        return Err(format!("bind source changed: expected {}, got {}", canonical.display(), actual.display()));
+    }
+    Ok(fd)
+}
+
+#[repr(C)]
+struct OpenHow {
+    flags: u64,
+    mode: u64,
+    resolve: u64,
+}
+
+const RESOLVE_NO_MAGICLINKS: u32 = 0x02;
+const RESOLVE_NO_SYMLINKS: u32 = 0x04;
+
+/// Read a symlink through its already-open parent directory, avoiding a
+/// pathname race between the directory snapshot and the emitted `--symlink`.
+fn read_link_at(parent: RawFd, name: &OsStr) -> Result<OsString, String> {
+    let c_name = CString::new(name.as_bytes()).map_err(|_| "symlink name contains NUL".to_owned())?;
+    let mut bytes = vec![0_u8; libc::PATH_MAX as usize];
+    // SAFETY: the fd and C string are valid; the output buffer is writable.
+    let len = unsafe {
+        libc::readlinkat(parent, c_name.as_ptr(), bytes.as_mut_ptr().cast(), bytes.len())
+    };
+    if len < 0 {
+        return Err(format!("cannot read symlink {}: {}", name.to_string_lossy(), io::Error::last_os_error()));
+    }
+    bytes.truncate(len as usize);
+    Ok(OsString::from_vec(bytes))
 }
 
 /// Resolve existing symlinks even when a final component is absent. The
@@ -95,28 +170,84 @@ fn resolve_missing(path: &Path) -> Result<PathBuf, String> {
     }
 }
 
-/// Both lexical and canonical names stay denied. Iteration ends after the
-/// explicit HOME-relative profile paths (resolved by rules) and Linux extras.
-fn denied_paths(home: &Path, read_denies: &[PathBuf]) -> Result<BTreeSet<PathBuf>, String> {
-    let mut denied = BTreeSet::new();
+/// Both lexical and canonical HOME names stay denied. Existing paths outside
+/// HOME are returned for direct masks; absent paths under an unwritable
+/// ancestor are skipped because this uid cannot create them later.
+fn denied_paths(
+    home: &Path,
+    read_denies: &[PathBuf],
+) -> Result<(BTreeSet<PathBuf>, Vec<PathBuf>), String> {
+    let mut inside = BTreeSet::new();
+    let mut outside = BTreeSet::new();
     for path in read_denies.iter().cloned().chain(LINUX_READ_DENIES.iter().map(|p| home.join(p))) {
         path_arg(&path)?;
-        for name in [path.clone(), resolve_missing(&path)?] {
-            if name == home || !name.starts_with(home) {
+        let resolved = resolve_missing(&path)?;
+        if path.starts_with(home) {
+            if !resolved.starts_with(home) {
                 return Err(format!(
                     "denied path {} resolves outside HOME: {}",
                     path.display(),
-                    name.display()
+                    resolved.display()
                 ));
             }
-            denied.insert(name);
+            inside.insert(path);
+            if resolved != home {
+                inside.insert(resolved);
+            }
+            continue;
+        }
+        if resolved.starts_with(home) {
+            inside.insert(resolved);
+            continue;
+        }
+        match fs::symlink_metadata(&path) {
+            Ok(_) => {
+                outside.insert(path);
+            }
+            Err(e) if e.kind() == io::ErrorKind::NotFound => {
+                let ancestor = first_existing_ancestor(&path);
+                if !is_writable_by_uid(&ancestor)? {
+                    continue;
+                }
+                return Err(format!(
+                    "denied path {} is absent under writable ancestor {}",
+                    path.display(),
+                    ancestor.display()
+                ));
+            }
+            Err(e) => return Err(format!("cannot inspect {}: {e}", path.display())),
         }
     }
-    Ok(denied)
+    Ok((inside, outside.into_iter().collect()))
+}
+
+fn first_existing_ancestor(path: &Path) -> PathBuf {
+    let mut ancestor = path.to_owned();
+    while !ancestor.exists() {
+        if !ancestor.pop() {
+            return PathBuf::from("/");
+        }
+    }
+    ancestor
+}
+
+fn is_writable_by_uid(path: &Path) -> Result<bool, String> {
+    let text = path_arg(path)?;
+    let c_path = CString::new(text.as_bytes()).map_err(|_| format!("path contains NUL: {text}"))?;
+    // SAFETY: c_path is a valid NUL-terminated path.
+    let result = unsafe { libc::access(c_path.as_ptr(), libc::W_OK) };
+    if result == 0 {
+        return Ok(true);
+    }
+    let error = io::Error::last_os_error();
+    match error.raw_os_error() {
+        Some(code) if matches!(code, libc::EACCES | libc::ENOENT | libc::EROFS) => Ok(false),
+        _ => Err(format!("cannot inspect write access to {text}: {error}")),
+    }
 }
 
 /// Rebuild denied ancestors; new host entries remain invisible (stricter than Seatbelt).
-fn home_view(home: &Path, denied: &BTreeSet<PathBuf>) -> Result<Vec<String>, String> {
+fn home_view(home: &Path, denied: &BTreeSet<PathBuf>) -> Result<BwrapPlan, String> {
     // Keep the built-in Linux deny set local to this rebuild as a second
     // boundary: callers cannot accidentally omit Claude's credential.
     let mut denied_owned = denied.clone();
@@ -141,8 +272,14 @@ fn home_view(home: &Path, denied: &BTreeSet<PathBuf>) -> Result<Vec<String>, Str
         }
     }
     let mut out = Vec::new();
+    let mut fds = Vec::new();
     for dir in &dirs {
         out.extend(["--tmpfs".into(), path_arg(dir)?]);
+        let parent_fd = match open_bind_source(dir) {
+            Ok(fd) => fd,
+            Err(_error) if !dir.exists() => continue,
+            Err(error) => return Err(error),
+        };
         let children = match fs::read_dir(dir) {
             Ok(entries) => {
                 entries.map(|e| e.map(|e| e.path())).collect::<io::Result<BTreeSet<_>>>()
@@ -151,17 +288,23 @@ fn home_view(home: &Path, denied: &BTreeSet<PathBuf>) -> Result<Vec<String>, Str
             Err(e) => Err(e),
         }
         .map_err(|e| format!("cannot snapshot {}: {e}", dir.display()))?;
+        if children.len() > 512 {
+            return Err(format!("HOME rebuild directory {} has more than 512 entries", dir.display()));
+        }
         for child in children {
             if denied.iter().any(|d| child.starts_with(d)) || dirs.contains(&child) {
                 continue;
             }
             let meta = fs::symlink_metadata(&child).map_err(|e| e.to_string())?;
             if meta.is_symlink() {
-                let target = fs::read_link(&child).map_err(|e| e.to_string())?;
+                let target = read_link_at(parent_fd.as_raw_fd(), &child.file_name())?;
                 let target = target.to_str().ok_or("symlink target must be UTF-8")?;
                 out.extend(["--symlink".into(), target.into(), path_arg(&child)?]);
             } else {
-                out.extend(["--ro-bind".into(), path_arg(&child)?, path_arg(&child)?]);
+                let child_text = path_arg(&child)?;
+                let fd = open_bind_source(&child)?;
+                out.extend(["--ro-bind-fd".into(), fd.as_raw_fd().to_string(), child_text]);
+                fds.push(fd);
             }
         }
     }
@@ -169,75 +312,34 @@ fn home_view(home: &Path, denied: &BTreeSet<PathBuf>) -> Result<Vec<String>, Str
     for dir in dirs.iter().rev() {
         out.extend(["--remount-ro".into(), path_arg(dir)?]);
     }
+    Ok((out, fds))
+}
+
+/// Mask existing denied paths outside HOME. Missing paths under an unwritable
+/// ancestor are omitted by `denied_paths`; no host path is followed here.
+fn outside_view(paths: &[PathBuf]) -> Result<Vec<String>, String> {
+    let mut out = Vec::new();
+    for path in paths {
+        let text = path_arg(path)?;
+        let meta = fs::symlink_metadata(path)
+            .map_err(|e| format!("cannot inspect outside denied path {text}: {e}"))?;
+        if meta.is_dir() {
+            out.extend(["--tmpfs".into(), text.clone(), "--remount-ro".into(), text]);
+        } else {
+            out.extend(["--ro-bind".into(), "/dev/null".into(), text]);
+        }
+    }
     Ok(out)
 }
 
-/// Pure mountinfo comparison: input paths are already inspected/canonicalized
-/// by plan. Same-device overlapping filesystem roots conservatively refuse.
-/// Malformed tables also refuse. Loops end at the supplied paths/entries.
-pub(crate) fn mount_aliases(protected: &[PathBuf], mountinfo: &str) -> Vec<String> {
-    let decode = |s: &str| {
-        PathBuf::from(
-            s.replace("\\040", " ")
-                .replace("\\011", "\t")
-                .replace("\\012", "\n")
-                .replace("\\134", "\\"),
-        )
-    };
-    let mut mounts = Vec::new();
-    for line in mountinfo.lines() {
-        let Some((fields, _)) = line.split_once(" - ") else {
-            return vec!["invalid mountinfo".into()];
-        };
-        let fields: Vec<_> = fields.split_whitespace().collect();
-        let [_, _, device, root, point, _, ..] = fields.as_slice() else {
-            return vec!["invalid mountinfo".into()];
-        };
-        let (root, point) = (decode(root), decode(point));
-        if path_arg(&root).is_err() || path_arg(&point).is_err() {
-            return vec!["invalid mountinfo path".into()];
-        }
-        mounts.push((*device, root, point));
-    }
-    let mut aliases = BTreeSet::new();
-    for path in protected {
-        let Some((index, (device, root, point))) = mounts
-            .iter()
-            .enumerate()
-            .filter(|(_, m)| path.starts_with(&m.2))
-            .max_by_key(|(_, m)| m.2.components().count())
-        else {
-            return vec![format!("no containing mount for {}", path.display())];
-        };
-        let Ok(rest) = path.strip_prefix(point) else {
-            return vec!["invalid containing mount".into()];
-        };
-        let relative = root.join(rest);
-        for (other, (dev, root, point)) in mounts.iter().enumerate() {
-            if other != index
-                && dev == device
-                && (root.starts_with(&relative) || relative.starts_with(root))
-            {
-                aliases.insert(format!(
-                    "{} is also visible at {}",
-                    path.display(),
-                    point.display()
-                ));
-            }
-        }
-    }
-    aliases.into_iter().collect()
-}
-
-/// Caller supplies fresh /proc/self/mountinfo and explicit HOME-denied paths
-/// from rules::read_denies; Linux additions are included here. No spawn is
-/// wired yet. Loops end after the fixed roots and collected protected names.
+/// Caller supplies explicit denied paths from `rules::read_denies`; Linux
+/// additions are included here. The returned descriptors must be inherited by
+/// bwrap with CLOEXEC cleared. No spawn is wired yet.
 pub(crate) fn plan(
     paths: &Paths,
     read_denies: &[PathBuf],
-    mountinfo: &str,
     cmd_prefix: &[String],
-) -> Result<Vec<String>, String> {
+) -> Result<BwrapPlan, String> {
     let memory = paths.claude_project.join("memory");
     let writable = [&paths.cwd, &paths.tmp, &paths.claude_tmp_project, &paths.claude_project];
     for path in [&paths.home, &memory].into_iter().chain(writable) {
@@ -246,27 +348,17 @@ pub(crate) fn plan(
             return Err(format!("noncanonical sandbox path: {}", path.display()));
         }
     }
-    let denied = denied_paths(&paths.home, read_denies)?;
+    let (denied, outside) = denied_paths(&paths.home, read_denies)?;
     // A later writable bind must never reintroduce a denied subtree.
     for root in writable {
         if denied.iter().any(|d| root.starts_with(d) || d.starts_with(root)) {
             return Err(format!("writable root overlaps read denial: {}", root.display()));
         }
     }
-    let mut protected = vec![memory];
-    for path in &denied {
-        match fs::metadata(path) {
-            Ok(_) => (),
-            Err(e) if e.kind() == io::ErrorKind::NotFound => (),
-            Err(e) => return Err(format!("cannot inspect {}: {e}", path.display())),
-        }
-        protected.push(path.clone()); // Include absent names: ancestor aliases can expose later files.
-    }
-    let aliases = mount_aliases(&protected, mountinfo);
-    if !aliases.is_empty() {
-        return Err(aliases.join("; "));
-    }
-    bwrap_args(paths, &home_view(&paths.home, &denied)?, cmd_prefix)
+    let mut home = home_view(&paths.home, &denied)?;
+    let outside = outside_view(&outside)?;
+    home.0.splice(0..0, outside);
+    bwrap_args(paths, home, cmd_prefix)
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -281,7 +373,7 @@ impl fmt::Display for Unavailable {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(match self {
             Self::NotInstalled => "bwrap not installed (Debian/Ubuntu: apt install bubblewrap)",
-            Self::TooOld => "bwrap older than 0.8 (missing --disable-userns)",
+            Self::TooOld => "bwrap older than 0.9 (missing --disable-userns/--bind-fd/--ro-bind-fd)",
             Self::UserNamespacesRestricted => "unprivileged user namespaces are restricted (kernel.apparmor_restrict_unprivileged_userns=1) and /usr/bin/bwrap has no AppArmor profile; install it: Ubuntu's apparmor package ships /etc/apparmor.d/bwrap-userns-restrict",
             Self::Other(stderr) => stderr,
         })
@@ -295,7 +387,9 @@ fn classify(status: Option<i32>, stderr: &str) -> Result<(), Unavailable> {
     }
     let stderr = stderr.trim();
     let lower = stderr.to_ascii_lowercase();
-    if lower.contains("--disable-userns")
+    if (lower.contains("--disable-userns")
+        || lower.contains("--bind-fd")
+        || lower.contains("--ro-bind-fd"))
         && (lower.contains("unknown option") || lower.contains("unrecognized option"))
     {
         return Err(Unavailable::TooOld);
@@ -321,7 +415,7 @@ fn classify(status: Option<i32>, stderr: &str) -> Result<(), Unavailable> {
 /// inherited stderr writer cannot hold the probe open after its child exits.
 pub(crate) fn probe(bwrap: &Path) -> Result<(), Unavailable> {
     let mut child = Command::new(bwrap)
-        .args("--unshare-user --unshare-net --disable-userns --ro-bind / / true".split_whitespace())
+        .args("--unshare-user --unshare-net --disable-userns --ro-bind / / --bind-fd 0 /dev/null --ro-bind-fd 0 /dev/null true".split_whitespace())
         .env_clear()
         .env("PATH", "/usr/bin:/bin")
         .current_dir("/")
@@ -414,6 +508,14 @@ mod tests {
             && matches!(reason, Unavailable::NotInstalled | Unavailable::UserNamespacesRestricted)
     }
 
+    fn clear_fd_cloexec(fds: &[OwnedFd]) {
+        for fd in fds {
+            // SAFETY: each descriptor is owned by this test and remains alive
+            // through child creation.
+            assert_eq!(unsafe { libc::fcntl(fd.as_raw_fd(), libc::F_SETFD, 0) }, 0);
+        }
+    }
+
     fn real_probe() -> bool {
         match probe(Path::new("/usr/bin/bwrap")) {
             Ok(()) => true,
@@ -428,38 +530,6 @@ mod tests {
         }
     }
 
-    /// Stops after the canned mount table has been checked for each path.
-    #[test]
-    fn regression_mount_aliases_and_plan_refusal() {
-        let f = Fixture::new();
-        let p = f.create_paths();
-        let resolved_claude = resolve_missing(&p.home.join(".claude")).unwrap();
-        assert_eq!(resolved_claude, fs::canonicalize(p.home.join(".claude")).unwrap());
-        assert!(!resolved_claude.to_string_lossy().ends_with('/'));
-        let memory = p.claude_project.join("memory");
-        let info = format!(
-            "1 0 8:1 / / rw - ext4 /dev/root rw\n2 1 8:1 {} /alias rw - ext4 /dev/root rw\n",
-            memory.display(),
-        );
-        assert_eq!(
-            mount_aliases(std::slice::from_ref(&memory), &info),
-            vec![format!("{} is also visible at /alias", memory.display())]
-        );
-        assert!(plan(&p, &[], &info, &strings(&["true"])).unwrap_err().contains("also visible"));
-        let info = "1 0 8:1 / / rw - ext4 root rw\n2 1 8:1 /home /mnt/home rw - ext4 root rw\n";
-        assert_eq!(
-            mount_aliases(&["/home/u/.ssh".into()], info),
-            vec!["/home/u/.ssh is also visible at /mnt/home"]
-        );
-        let info = "1 0 0:32 /@home /home rw - btrfs root rw\n2 0 0:32 /@other /other rw - btrfs root rw\n";
-        assert!(mount_aliases(&["/home/u/.ssh".into()], info).is_empty());
-        let info = "1 0 8:1 / / rw - ext4 root rw\n2 1 8:1 /home/u/.ssh/aws /alias\\040space rw - ext4 root rw\n";
-        assert_eq!(
-            mount_aliases(&["/home/u/.ssh".into()], info),
-            vec!["/home/u/.ssh is also visible at /alias space"]
-        );
-    }
-
     #[test]
     fn regression_home_rebuild_omits_absent_and_nested_denies() {
         use std::os::unix::fs::symlink;
@@ -469,8 +539,12 @@ mod tests {
         symlink(".ssh/aws", p.home.join(".aws")).unwrap();
         symlink("absent-target", p.home.join("ordinary-link")).unwrap();
         fs::write(p.home.join(".claude/settings.json"), "{}").unwrap();
-        let denied = denied_paths(&p.home, &[p.home.join(".ssh"), p.home.join(".aws")]).unwrap();
-        let view = home_view(&p.home, &denied).unwrap();
+        let resolved_claude = resolve_missing(&p.home.join(".claude")).unwrap();
+        assert_eq!(resolved_claude, fs::canonicalize(p.home.join(".claude")).unwrap());
+        assert!(!resolved_claude.to_string_lossy().ends_with('/'));
+        let (denied, outside) = denied_paths(&p.home, &[p.home.join(".ssh"), p.home.join(".aws")]).unwrap();
+        assert!(outside.is_empty());
+        let (view, _fds) = home_view(&p.home, &denied).unwrap();
         let home = p.home.to_str().unwrap();
         let claude = p.home.join(".claude").to_str().unwrap().to_owned();
         assert!(view.windows(2).any(|w| w == ["--tmpfs", home]), "view={view:?} denied={denied:?}");
@@ -496,9 +570,9 @@ mod tests {
             mounts.iter().collect::<BTreeSet<_>>().len(),
             "view={view:?} denied={denied:?}"
         );
-        let args = plan(&p, &[], "1 0 8:1 / / rw - ext4 root rw\n", &strings(&["true"])).unwrap();
+        let (args, _fds) = plan(&p, &[], &strings(&["true"])).unwrap();
         let rebuilt = args.iter().position(|s| s == "--tmpfs").unwrap();
-        let writable = args.iter().position(|s| s == "--bind").unwrap();
+        let writable = args.iter().position(|s| s == "--bind-fd").unwrap();
         assert!(
             rebuilt < writable,
             "HOME must be rebuilt before writable roots return: view={args:?} denied={denied:?}"
@@ -516,29 +590,59 @@ mod tests {
     }
 
     #[test]
+    fn production_read_denies_allow_a_linux_plan() {
+        let f = Fixture::new();
+        let p = f.create_paths();
+        let params = [
+            ("CWD".into(), p.cwd.clone()),
+            ("TMPDIR".into(), p.tmp.clone()),
+            ("HOME".into(), p.home.clone()),
+            ("CLAUDE_TMP_PROJECT".into(), p.claude_tmp_project.clone()),
+            ("CLAUDE_PROJECT".into(), p.claude_project.clone()),
+        ]
+        .into_iter()
+        .collect();
+        let policy = crate::linux_sandbox::rules::WritePolicy::from_profile(
+            crate::hub::remote_sandbox::PROFILE,
+            &params,
+        )
+        .unwrap();
+        let (args, _fds) = plan(&p, &policy.read_denies(), &strings(&["true"])).unwrap();
+        assert!(args.windows(2).any(|w| w == ["--tmpfs", p.home.to_str().unwrap()]));
+    }
+
+    #[test]
     fn argv_exact_mount_order_and_only_four_writable_host_binds() {
-        // None of these paths exists: argv construction must be pure.
-        let p = Paths {
-            cwd: "/home/person/session with spaces".into(),
-            tmp: "/tmp/acpmux-spawn".into(),
-            home: "/home/person".into(),
-            claude_tmp_project: "/tmp/claude-1000/session".into(),
-            claude_project: "/home/person/.claude/projects/session".into(),
-        };
-        let view = strings(&["--tmpfs", "/home/person", "--remount-ro", "/home/person"]);
+        let f = Fixture::new();
+        let p = f.create_paths();
+        let view = strings(&["--tmpfs", p.home.to_str().unwrap(), "--remount-ro", p.home.to_str().unwrap()]);
         let command = strings(&["/usr/bin/acpmux", "__remote-sandbox-init", "--", "a b", "--bind"]);
-        let args = bwrap_args(&p, &view, &command).unwrap();
+        let (args, fds) = bwrap_args(&p, (view, Vec::new()), &command).unwrap();
+        assert_eq!(fds.len(), 5);
         let mut expected: Vec<String> = "--new-session --die-with-parent --unshare-user --unshare-pid --unshare-ipc --unshare-net --unshare-uts --unshare-cgroup-try --disable-userns --ro-bind / / --dev /dev --proc /proc".split_whitespace().map(str::to_owned).collect();
-        expected.extend("--tmpfs|/home/person|--remount-ro|/home/person|--bind|/home/person/session with spaces|/home/person/session with spaces|--bind|/tmp/acpmux-spawn|/tmp/acpmux-spawn|--bind|/tmp/claude-1000/session|/tmp/claude-1000/session|--bind|/home/person/.claude/projects/session|/home/person/.claude/projects/session|--ro-bind|/home/person/.claude/projects/session/memory|/home/person/.claude/projects/session/memory|--chdir|/home/person/session with spaces|--cap-drop|ALL|--".split('|').map(str::to_owned));
+        expected.extend(["--tmpfs", p.home.to_str().unwrap(), "--remount-ro", p.home.to_str().unwrap()].into_iter().map(str::to_owned));
+        for path in [&p.cwd, &p.tmp, &p.claude_tmp_project, &p.claude_project] {
+            expected.extend(["--bind-fd", "fd", path.to_str().unwrap()].into_iter().map(str::to_owned));
+        }
+        expected.extend(["--ro-bind-fd", "fd", p.claude_project.join("memory").to_str().unwrap()].into_iter().map(str::to_owned));
+        expected.extend(["--chdir", p.cwd.to_str().unwrap(), "--cap-drop", "ALL", "--"].into_iter().map(str::to_owned));
         expected.extend(command);
-        assert_eq!(args, expected);
+        let mut normalized = args.clone();
+        for index in 1..normalized.len() {
+            if matches!(normalized[index - 1].as_str(), "--bind-fd" | "--ro-bind-fd") {
+                normalized[index] = "fd".into();
+            }
+        }
+        assert_eq!(normalized, expected);
+        assert!(args.windows(2).filter(|w| w[0] == "--bind-fd").count() == 4);
+        assert!(args.windows(2).any(|w| w[0] == "--ro-bind-fd"));
         use std::os::unix::ffi::OsStringExt;
-        let mut p = p;
-        p.cwd = std::ffi::OsString::from_vec(b"/invalid-\xff".to_vec()).into();
-        assert_eq!(
-            bwrap_args(&p, &[], &strings(&["true"])),
-            Err("sandbox paths must be UTF-8".to_owned())
-        );
+        let mut invalid = p;
+        invalid.cwd = std::ffi::OsString::from_vec(b"/invalid-\xff".to_vec()).into();
+        assert!(matches!(
+            bwrap_args(&invalid, (Vec::new(), Vec::new()), &strings(&["true"])),
+            Err(error) if error == "sandbox paths must be UTF-8"
+        ));
     }
 
     /// The canned-case loop stops at the end of this fixed table.
@@ -576,7 +680,7 @@ mod tests {
                 Unavailable::NotInstalled,
                 "bwrap not installed (Debian/Ubuntu: apt install bubblewrap)",
             ),
-            (Unavailable::TooOld, "bwrap older than 0.8 (missing --disable-userns)"),
+            (Unavailable::TooOld, "bwrap older than 0.9 (missing --disable-userns/--bind-fd/--ro-bind-fd)"),
             (
                 Unavailable::UserNamespacesRestricted,
                 "unprivileged user namespaces are restricted (kernel.apparmor_restrict_unprivileged_userns=1) and /usr/bin/bwrap has no AppArmor profile; install it: Ubuntu's apparmor package ships /etc/apparmor.d/bwrap-userns-restrict",
@@ -609,13 +713,13 @@ mod tests {
         let script = "echo ready; read -r go; if [ -e \"$1\" ]; then echo 'late credential visible' >&2; exit 49; fi";
         let command =
             strings(&["/bin/sh", "-c", script, "late-secret", credential.to_str().unwrap()]);
-        let args = plan(
+        let (args, fds) = plan(
             &p,
             &[p.home.join(".ssh"), p.home.join(".aws")],
-            &fs::read_to_string("/proc/self/mountinfo").unwrap(),
             &command,
         )
         .unwrap();
+        clear_fd_cloexec(&fds);
         let mut child = tokio::process::Command::new("/usr/bin/bwrap")
             .args(args)
             .stdin(Stdio::piped())
@@ -763,13 +867,13 @@ case "$bad_ipv6_route" in '') ;; *) fail 48 "non-loopback IPv6 route: observed=<
             .map(|path| path.to_str().unwrap().to_owned()),
         );
         command.extend([FILE_MARKER.to_owned(), DIRECTORY_MARKER.to_owned()]);
-        let args = plan(
+        let (args, fds) = plan(
             &p,
             &[secrets, secret],
-            &fs::read_to_string("/proc/self/mountinfo").unwrap(),
             &command,
         )
         .unwrap();
+        clear_fd_cloexec(&fds);
         let mut child = tokio::process::Command::new(bwrap);
         child
             .args(args)
