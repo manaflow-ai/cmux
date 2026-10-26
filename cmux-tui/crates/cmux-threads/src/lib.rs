@@ -16,6 +16,9 @@
 //! [`blocking::snapshot`]) and [`checked`] has checked forms of the blocking
 //! std primitives.
 //!
+//! [`hang`] watches scopes with a deadline on threads of the processes
+//! that have no daemon request watchdog (Chrome's HangWatcher).
+//!
 //! [`lock_wait`] times contended lock acquisitions: a failed try on a thread
 //! that disallows blocking is a `lock-wait` violation, and a wait over the
 //! 2 ms budget is recorded with the holder's thread name.
@@ -29,6 +32,7 @@
 
 pub mod blocking;
 pub mod checked;
+pub mod hang;
 pub mod lock_wait;
 pub mod process;
 pub mod qos;
@@ -45,6 +49,7 @@ pub use blocking::{
 pub use blocking::{
     OwnDescriptorToken, own_fd_read, own_fd_write, own_fd_write_all, register_own_descriptor,
 };
+pub use hang::{HangRecord, HangScope, HangSink, HangSite, HangSnapshot, HangWatcher};
 pub use lock_wait::{
     LOCK_WAIT_BUDGET, LockHolder, LockWait, LockWaitSnapshot, lock_waits, note_thread_lock_wait,
     set_holder_tracking, thread_lock_wait_nanos,
