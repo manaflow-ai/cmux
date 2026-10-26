@@ -2368,8 +2368,12 @@ AWAITABLE = ("wait", "unregister")
 # The checked seams: fine off the main thread, a violation on it.
 SEAM_BLOCKING = re.compile(
     r"\bFileManager\.checked\.|\bblockingContentsOf(File)?:|\.blockingResourceValues\(|\.blocking(ReadToEnd|Read|Write|"
-    r"AvailableData|ReadDataToEndOfFile|Wait|WaitUntilExit|Sync|Run)\b|\bblocking(Read|Recv|Write|Send|XPCSendWithReply|"
-    r"PosixSpawn)\("
+    r"AvailableData|ReadDataToEndOfFile|Wait|WaitUntilExit|Sync|Run|ForReading|ForWriting|ForUpdating|SeekToEnd|Seek|"
+    r"Synchronize|CanEvaluatePolicy)\b|\bblocking(Read|Recv|Write|Send|XPCSendWithReply|PosixSpawn"
+    # POSIX files, waitpid, ImageIO file I/O, SQLite, kernel and directory queries (p02-threads-127)
+    r"|Open|Pread|Pwrite|Fsync|Flock|Rename|Unlink|Stat|Lstat|Realpath|Access|Mkdir|Rmdir|Waitpid|Sysctl|SysctlByName"
+    r"|ProcPidInfo|Getpwuid|Getpwnam|ImageSource|ImageDestination|ImageDestinationFinalize"
+    r"|SQLiteOpen|SQLitePrepare|SQLiteStep|SQLiteExec|SQLiteClose)\("
     # the system-call seams (p02-threads-003)
     r"|\bblocking(SecItem(CopyMatching|Add|Update|Delete)|SecTrustEvaluate|SecStaticCodeCheckValidity|SecCodeCopy\w+"
     r"|AX(CopyAttributeValue|SetAttributeValue|PerformAction)|Getaddrinfo|WindowList(CopyWindowInfo|CreateImage\w*)"
