@@ -1496,7 +1496,7 @@ mod stream;
 mod subsessions;
 pub(crate) mod trust_gate;
 mod view;
-mod wait;
+pub(crate) mod wait;
 #[cfg(windows)]
 mod windows_socket;
 use requests::handle_notification;
