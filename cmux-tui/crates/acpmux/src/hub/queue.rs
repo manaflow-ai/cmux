@@ -189,9 +189,9 @@ impl Hub {
                 // Prompts a failed turn holds (`pause_queue`) do not hold up a new one.
                 let held = session.queue().iter().filter(|q| q.held).count() as u64;
                 let waiting = session.turn().is_some() || session.queued() > held;
-                // It never queues: busy when the queue's own test, or a prompt waiting in it read
-                // under its lock, says it would. The turn lock is tried below.
-                if p.no_queue && (waiting || queue_waits(session)) {
+                // It never queues: busy when the queue's own test says it would wait. The turn
+                // lock is tried below, and the queue read again under it.
+                if p.no_queue && waiting {
                     return Err(Err(super::auto_resume::retry_turn::busy()));
                 }
                 let position = session.queued.fetch_add(1, Ordering::SeqCst) + 1;
@@ -211,10 +211,14 @@ impl Hub {
             Some(withdraw) => (withdraw, None),
             None => {
                 let guard = if p.no_queue {
-                    // A prompt about to start holds the lock with no turn shown yet.
-                    match session.turn_lock.try_lock() {
-                        Ok(guard) => guard,
-                        Err(_) => {
+                    // A prompt about to start holds the lock with no turn shown yet. Held, a
+                    // turn or a prompt waiting in the queue (read under its lock: the count may
+                    // not show one yet) still makes it busy; a prompt that comes later waits
+                    // behind it.
+                    let guard = session.turn_lock.try_lock().ok();
+                    match guard.filter(|_| session.turn().is_none() && !queue_waits(session)) {
+                        Some(guard) => guard,
+                        None => {
                             session.queued.fetch_sub(1, Ordering::SeqCst);
                             return Err(Err(super::auto_resume::retry_turn::busy()));
                         }

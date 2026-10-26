@@ -209,7 +209,9 @@ impl Hub {
     /// `None` when it needs none (not a family prompt, not a sub-session, an offered chat, or
     /// a parent this daemon no longer has).
     fn run_gate(&self, session: &Session, provenance: Option<&Value>) -> Option<(String, u32)> {
-        if !super::subsession_guard::is_family_prompt(provenance) {
+        let family = super::subsession_guard::is_family_prompt(provenance)
+            || super::subsession_guard::is_family_retry(provenance);
+        if !family {
             return None;
         }
         let link = session.meta().subsession.filter(|l| !l.offered)?;

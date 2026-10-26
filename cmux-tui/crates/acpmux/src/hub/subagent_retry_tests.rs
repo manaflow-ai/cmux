@@ -493,3 +493,60 @@ async fn a_person_retry_is_busy_behind_a_queued_prompt_the_count_misses() {
     hub.retry_subagent(&session, "s/t1", by_person()).await.unwrap();
     assert_eq!(prompts(&hub, &session).len(), 1);
 }
+
+/// Another chat on `hub`, and the connection that keeps it.
+async fn another_chat(hub: &Arc<Hub>) -> (Arc<Session>, mpsc::Sender<String>) {
+    let (out_tx, mut out_rx) = mpsc::channel(64);
+    let (in_tx, in_rx) = mpsc::channel(8);
+    tokio::spawn(crate::server::serve_connection_with(
+        hub.clone(),
+        in_rx,
+        out_tx,
+        crate::server::Origin::Local,
+    ));
+    let new = json!({"cwd": std::env::temp_dir(), "mcpServers": []});
+    in_tx.send(Message::request(2, method::SESSION_NEW, new).to_line()).await.unwrap();
+    loop {
+        let reply: Value = serde_json::from_str(&out_rx.recv().await.unwrap()).unwrap();
+        if reply["id"] == 2 {
+            let session = hub.resolve(reply["result"]["sessionId"].as_str().unwrap()).unwrap();
+            return (session, in_tx);
+        }
+    }
+}
+
+/// A sub-session's subagent retry, asked for by its parent, takes one of the parent's run slots
+/// as its family prompts do: with them all taken it is `retry.busy`, never queued, and goes once
+/// one frees.
+#[tokio::test]
+async fn a_sub_session_retry_is_busy_while_its_parents_run_slots_are_full() {
+    let (hub, session, _conn) = chat(vec![60_000]).await;
+    let (parent, _parent_conn) = another_chat(&hub).await;
+    let (sibling, _sibling_conn) = another_chat(&hub).await;
+    parent.meta.lock().unwrap().subsession_limits.max_running = Some(1);
+    for child in [&session, &sibling] {
+        child.meta.lock().unwrap().subsession = Some(crate::store::SubsessionLink {
+            started_by: parent.id.clone(),
+            short_name: child.id.clone(),
+            depth: 1,
+            offered: false,
+        });
+    }
+    let family = json!({"kind": crate::hub::subsessions::PROVENANCE_KIND, "from": parent.id});
+    let slot = hub.take_run_slot(&sibling, Some(&family)).unwrap().expect("the one slot");
+    hub.observe_subagents(&session, &[failed("s/t1")]);
+    settle().await;
+    let by = || crate::hub::auto_resume::retry_turn::RetryBy {
+        from: Some(parent.id.clone()),
+        ..by_person()
+    };
+    let refused = hub.retry_subagent(&session, "s/t1", by()).await.unwrap_err();
+    assert_eq!(refused.data.unwrap()["reason"], "retry.busy");
+    assert!(session.queue().is_empty(), "never queued for a slot");
+    assert!(prompts(&hub, &session).is_empty());
+    settle().await;
+    assert_eq!(wait_of(&hub, &session, "s/t1"), (0, Some((1, false))), "the wait is given back");
+    drop(slot);
+    let v = hub.retry_subagent(&session, "s/t1", by()).await.unwrap();
+    assert_eq!(v["kind"], "subagent", "{v}");
+}
