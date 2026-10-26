@@ -85,13 +85,13 @@ grep -qx "PRODUCT_BUNDLE_IDENTIFIER=com.cmuxterm.app.debug.${TAG//-/.}" "$ARGS" 
 echo "PASS: --config release passes no sanitizer and keeps the tag"
 
 run_reload --tag "$TAG" --build-only --config msan
-(( STATUS != 0 )) && [[ "$OUTPUT" == *"debug, release, bench, asan, tsan or ubsan"* ]] \
+(( STATUS != 0 )) && [[ "$OUTPUT" == *"debug, release, bench, bench-checks, asan, tsan or ubsan"* ]] \
   || fail "an unknown config was not refused with the config list: $OUTPUT"
 run_reload --tag "$TAG" --build-only --config asan --bundle-id com.cmuxterm.app.debug.other
 (( STATUS != 0 )) && [[ "$OUTPUT" == *"drop --bundle-id and --name"* ]] || fail "--config asan accepted --bundle-id: $OUTPUT"
 run_reload --tag "$TAG" --build-only --config tsan --swift-frontend-workaround
 (( STATUS != 0 )) && [[ "$OUTPUT" == *"keeps debug symbols"* ]] || fail "--config tsan accepted the symbol-dropping workaround: $OUTPUT"
-echo "PASS: the config list is debug|release|bench|asan|tsan|ubsan; a sanitizer config refuses a custom id or no symbols"
+echo "PASS: the config list is debug|release|bench|bench-checks|asan|tsan|ubsan; a sanitizer config refuses a custom id or no symbols"
 
 # check-no-bench-hooks.sh on fake bundles.
 make_app() {

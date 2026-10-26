@@ -667,15 +667,18 @@ FEATURES = ({"perfLabKillProbe": {"state": "off", "source": "remote"},
              "tabSwitchFastPath": {"state": "on", "source": "default"}}, "fh-1", "off")
 
 
-def record_bundle(folder: str, tag: str, commit=None, marker=False, debug_dylib=False, main=None) -> str:
+def record_bundle(folder: str, tag: str, commit=None, marker=False, debug_dylib=False, main=None,
+                  stamped=None) -> str:
     """A `cmux DEV <tag>.app` with an Info.plist and a main executable that may carry the bench-hooks marker, or
-    `main` as its executable's text (a script the launch can start)."""
+    `main` as its executable's text (a script the launch can start). `stamped` is its reload.sh --config name."""
     import plistlib
     app = os.path.join(os.path.realpath(folder), f"cmux DEV {tag}.app")
     os.makedirs(os.path.join(app, "Contents/MacOS"))
     info = {"CFBundleIdentifier": f"com.cmuxterm.app.debug.{tag}", "CFBundleExecutable": "cmux DEV"}
     if commit:
         info["CMUXCommit"] = commit
+    if stamped:
+        info[bl.BUILD_CONFIG_KEY] = stamped
     with open(os.path.join(app, "Contents/Info.plist"), "wb") as f:
         plistlib.dump(info, f)
     executable = os.path.join(app, "Contents/MacOS/cmux DEV")
@@ -834,6 +837,21 @@ class RecordTests(unittest.TestCase):
             config("lie", "bench", debug_dylib=True)
         with self.assertRaises(bl.RecordError):
             config("lie2", "release", marker=True)
+
+    def test_a_tagged_bench_build_names_its_own_config(self):
+        # p12-perf-process-147: bench and bench-checks executables look alike; reload.sh stamps the config.
+        def config(want, stated=None, **kwargs):
+            app = record_bundle(os.path.join(self.folder, f"{want}-{stated}"), "cfg", commit="b" * 40, **kwargs)
+            return bl.build_config(app, os.path.join(app, "Contents/MacOS/cmux DEV"), stated)
+        self.assertEqual(config("bench", marker=True, stamped="bench"), "bench")
+        self.assertEqual(config("checks", marker=True, stamped="bench-checks"), "bench-checks")
+        self.assertEqual(config("agree", "bench-checks", marker=True, stamped="bench-checks"), "bench-checks")
+        self.assertEqual(config("release", stamped="release"), "release")
+        for want, stated, kwargs in (("disagree", "bench", {"marker": True, "stamped": "bench-checks"}),
+                                     ("stamp-lies", None, {"marker": True, "stamped": "release"}),
+                                     ("stamp-lies2", None, {"stamped": "bench"})):
+            with self.assertRaises(bl.RecordError, msg=want):
+                config(want, stated, **kwargs)
 
     def test_the_build_sha_is_the_bundles_or_the_fleet_steps_never_this_checkouts_head(self):
         app = record_bundle(self.folder, "sha")
