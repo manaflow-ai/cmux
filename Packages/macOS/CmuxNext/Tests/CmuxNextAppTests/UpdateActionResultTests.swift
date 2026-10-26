@@ -51,7 +51,7 @@ import Testing
             let descriptor = try #require(ActionCatalog.all.first { $0.id == id })
             #expect(descriptor.waitsForResult, "\(id) answers before its result")
         }
-        #expect(UpdateHandlers.installAnswerLimit < ActionDescriptor.resultDeadline)
+        #expect(UpdaterService.installAnswerLimit < ActionDescriptor.resultDeadline)
     }
 
     @Test func aCheckAnswersTheRunningAndNewestBuilds() async throws {
@@ -72,34 +72,48 @@ import Testing
 
     @Test func anInstallSettlesOnlyWhenItInstallsOrEnds() throws {
         let updater = Self.updater(Self.newer)
-        let installing = try #require(UpdateHandlers.installSettled(.installing, moved: false, updater: updater)).get()
+        guard case .answered(let installing)? = updater.installSettled(.installing, moved: false) else {
+            Issue.record("installing was not the answer")
+            return
+        }
         #expect(installing["state"] == .string("installing"))
         #expect(installing["pending"] == .bool(false))
         for phase: UpdateIndicatorPhase in [.checking, .downloading(UpdateTransfer(stage: .downloading, fraction: 0.5)),
                                             .available(version: "300"), .ready(version: "300")] {
-            #expect(UpdateHandlers.installSettled(phase, moved: true, updater: updater) == nil, "\(phase) answered before the install")
+            #expect(updater.installSettled(phase, moved: true) == nil, "\(phase) answered before the install")
         }
         // The phase the action returned in (an earlier check's note, the idle start) is not the answer.
-        #expect(UpdateHandlers.installSettled(.note(.upToDate), moved: false, updater: updater) == nil)
-        #expect(UpdateHandlers.installSettled(.hidden, moved: false, updater: updater) == nil)
-        guard case .failure(let upToDate)? = UpdateHandlers.installSettled(.note(.upToDate), moved: true, updater: updater) else {
+        #expect(updater.installSettled(.note(.upToDate), moved: false) == nil)
+        #expect(updater.installSettled(.hidden, moved: false) == nil)
+        guard case .refused(let upToDate)? = updater.installSettled(.note(.upToDate), moved: true) else {
             Issue.record("up to date was not the run's error")
             return
         }
-        #expect(upToDate.refusal == .unavailable)
-        #expect(upToDate.message.contains("100"))
-        guard case .failure(let ended)? = UpdateHandlers.installSettled(.hidden, moved: true, updater: updater) else {
+        #expect(upToDate.contains("100"))
+        guard case .refused? = updater.installSettled(.hidden, moved: true) else {
             Issue.record("a check that ended with nothing was not the run's error")
             return
         }
-        #expect(ended.refusal == .unavailable)
+    }
+
+    /// A refusal reaches the CLI as `unavailable` with its reason; a failure as the run's error.
+    @Test func anAnswerMapsToTheActionsResult() async throws {
+        guard case .failure(let refused) = await UpdateHandlers.result(Task { .refused("why") }).value else {
+            Issue.record("a refusal answered success")
+            return
+        }
+        #expect(refused.refusal == .unavailable)
+        #expect(refused.message == "why")
+        let fields = try await UpdateHandlers.result(Task { .answered(["pending": .bool(true), "progress": .double(0.5)]) }).value.get()
+        #expect(fields["pending"] == .bool(true))
+        #expect(fields["progress"] == .double(0.5))
     }
 
     /// An install still in progress at the limit answers the state it reached, never silence.
     @Test func anInstallStillRunningAnswersItsState() async throws {
         let updater = Self.updater(Self.newer)
         updater.debugIndicatorPhase = .downloading(UpdateTransfer(stage: .downloading, fraction: 0.25))
-        let fields = try await UpdateHandlers.installResult(updater, after: updater.settledFlowMoves(), limit: .milliseconds(50)).value.get()
+        let fields = try await UpdateHandlers.result(updater.installAnswer(after: updater.settledFlowMoves(), limit: .milliseconds(50))).value.get()
         #expect(fields["pending"] == .bool(true))
         #expect(fields["state"] == .string("downloading"))
     }
@@ -109,7 +123,7 @@ import Testing
     @Test func aRepeatedFailureIsTheRunsErrorAtTheLimit() async throws {
         let updater = Self.updater(Self.newer)
         updater.debugIndicatorPhase = .note(.checkFailed)
-        let result = await UpdateHandlers.installResult(updater, after: updater.settledFlowMoves(), limit: .milliseconds(50)).value
+        let result = await UpdateHandlers.result(updater.installAnswer(after: updater.settledFlowMoves(), limit: .milliseconds(50))).value
         guard case .failure(let failure) = result else {
             Issue.record("a repeated failure answered \(result)")
             return
@@ -120,7 +134,7 @@ import Testing
     /// Nothing happened by the limit (idle, never moved): the run's error, not a pending success.
     @Test func anInstallThatNeverStartedIsTheRunsError() async throws {
         let updater = Self.updater(Self.newer)
-        let result = await UpdateHandlers.installResult(updater, after: updater.settledFlowMoves(), limit: .milliseconds(50)).value
+        let result = await UpdateHandlers.result(updater.installAnswer(after: updater.settledFlowMoves(), limit: .milliseconds(50))).value
         guard case .failure = result else {
             Issue.record("an install that never started answered \(result)")
             return
@@ -131,7 +145,7 @@ import Testing
     @Test func anInstallFollowsTheGateFromTheRequestOn() async throws {
         let updater = Self.updater(Self.newer)
         updater.debugIndicatorPhase = .note(.upToDate)
-        let result = UpdateHandlers.installResult(updater, after: updater.settledFlowMoves(), limit: .seconds(10))
+        let result = UpdateHandlers.result(updater.installAnswer(after: updater.settledFlowMoves(), limit: .seconds(10)))
         await Task.yield()
         updater.debugIndicatorPhase = .downloading(UpdateTransfer(stage: .downloading, fraction: 0.5))
         await Task.yield()
@@ -147,7 +161,7 @@ import Testing
         let updater = Self.updater(Self.newer)
         let baseline = updater.settledFlowMoves()
         updater.debugIndicatorPhase = .note(.checkFailed)
-        guard case .failure(let failure) = await UpdateHandlers.installResult(updater, after: baseline, limit: .seconds(10)).value else {
+        guard case .failure(let failure) = await UpdateHandlers.result(updater.installAnswer(after: baseline, limit: .seconds(10))).value else {
             Issue.record("a failed install answered success")
             return
         }
@@ -178,7 +192,7 @@ import Testing
     }
 
     @Test func aDownloadingStateCarriesItsProgress() {
-        let fields = UpdateHandlers.state(.downloading(UpdateTransfer(stage: .downloading, fraction: 0.25)), pending: true)
+        let fields = UpdaterService.state(.downloading(UpdateTransfer(stage: .downloading, fraction: 0.25)), pending: true)
         #expect(fields["state"] == .string("downloading"))
         #expect(fields["progress"] == .double(0.25))
     }
