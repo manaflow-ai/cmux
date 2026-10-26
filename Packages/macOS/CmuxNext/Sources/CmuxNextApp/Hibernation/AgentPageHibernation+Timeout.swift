@@ -131,14 +131,4 @@ extension AgentPageHibernation {
     func isDue(_ key: String, _ view: AgentPaneView, in tabs: AgentTabStore) -> Bool {
         hiddenAt[key] != nil && tabs.existingView(key) === view && keepsPage(key) == nil
     }
-
-    /// The page as last drawn; nil when it does not answer in time (it then shows its loading
-    /// state when it comes back).
-    static func frame(_ view: AgentPaneView) async -> (image: CGImage, size: NSSize, appearance: NSAppearance.Name?)? {
-        let appearance = view.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua])
-        let frame = try? await ControlDeadline.shared.run(method: "hibernation.agentSnapshot", deadline: .now + .seconds(2)) { @MainActor in
-            await view.pageImage().flatMap { image in image.cgImage(forProposedRect: nil, context: nil, hints: nil).map { ($0, image.size, appearance) } }
-        }
-        return frame.flatMap { $0 }
-    }
 }
