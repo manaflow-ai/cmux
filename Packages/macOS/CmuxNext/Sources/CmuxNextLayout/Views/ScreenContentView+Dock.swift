@@ -178,7 +178,7 @@ extension ScreenContentView {
     /// Clips the strip container to the strip's range (`clip`, `PaneArrival.stripClip`, which follows
     /// a dock the CPU grows in; the whole screen without docked columns): one frame for every strip pane,
     /// set only when the range moved. A dock on the render server springs the container's bounds instead
-    /// (``springStripContainer(from:on:landed:)``), which leaves it at the rest range this places. A zoom
+    /// (``springStripContainer(from:velocity:on:landed:)``), which leaves it at the rest range this places. A zoom
     /// keeps the range it found (the zoomed layout has no docks, and the panes it covers stay as they
     /// were) and, when the zooming pane is in the container, lifts the container to the screen's bounds.
     /// Returns true when the container's frame moved.

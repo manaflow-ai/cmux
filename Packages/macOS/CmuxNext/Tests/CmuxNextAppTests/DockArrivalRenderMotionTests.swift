@@ -27,6 +27,14 @@ struct DockArrivalRenderMotionTests {
         LayoutColumn(id: "dock", width: 0.3, root: .leaf("chat"), dock: DockColumn(edge: .right, mode: .docked)),
     ])
 
+    /// The docked layout with the strip's two columns traded: a structural change that adds and removes no pane,
+    /// as a second press or the daemon's echo while the dock still grows in.
+    static let traded = ScreenLayout.columns([
+        LayoutColumn(id: "c2", width: 0.5, root: .leaf("p2")),
+        LayoutColumn(id: "c1", width: 0.5, root: .leaf("p1")),
+        LayoutColumn(id: "dock", width: 0.3, root: .leaf("chat"), dock: DockColumn(edge: .right, mode: .docked)),
+    ])
+
     /// The strip's rest range beside the docks.
     static func restRange(_ fixture: Screen) throws -> CGRect {
         try #require(PaneArrival.stripClip(fixture.screen.geometry, docks: []), "the docked layout has no strip range")
@@ -79,6 +87,57 @@ struct DockArrivalRenderMotionTests {
             let mid = (minX: (before.minX + p2.frame.minX) / 2, width: (before.width + p2.frame.width) / 2)
             #expect(abs(middle.minX - mid.minX) <= 1 && abs(middle.width - mid.width) <= 1,
                     "p2 shows at x \(middle.minX) w \(middle.width) half way, not \(mid)")
+        }
+    }
+
+    /// `PaneArrival.stripClip` runs at plan apply only: CPU presentations while the dock grows on the render
+    /// server (what a wheel notch or a scrollbar frame runs) and the landing compute no strip range.
+    @Test func theStripRangeIsComputedAtPlanApplyOnly() async throws {
+        try await Render.withMotion {
+            let fixture = Screen(Self.strip, focused: "p2")
+            defer { fixture.close() }
+            try #require(fixture.window.screen != nil, "the window is on no screen: nothing animates")
+            fixture.apply(Self.docked)
+            let screen = fixture.screen
+            let planned = screen.stripRangesComputed
+            #expect(screen.renderSpringsInFlight > 0, "the new dock is not on the render server")
+            for _ in 0..<5 { screen.applyPresentation() }
+            #expect(screen.stripRangesComputed == planned,
+                    "CPU presentations during the dock's spring computed \(screen.stripRangesComputed - planned) strip ranges")
+            #expect(await fixture.landed(), "the new dock did not land in 5 s")
+            #expect(screen.stripRangesComputed == planned,
+                    "the dock's spring computed \(screen.stripRangesComputed - planned) strip ranges before it landed")
+        }
+    }
+
+    /// A structural change while the dock still grows in takes the springs back and restarts them from what
+    /// shows: the strip's clip restarts too, from the range beside the dock where it shows and at its speed, so
+    /// the strip still reaches the dock's moving edge and no background shows between them.
+    @Test func aChangeWhileTheDockGrowsKeepsTheClipAtTheDocksEdge() async throws {
+        try await Render.withMotion {
+            let fixture = Screen(Self.strip, focused: "p2")
+            defer { fixture.close() }
+            try #require(fixture.window.screen != nil, "the window is on no screen: nothing animates")
+            let clock = try #require(fixture.root.layer)
+            Render.freeze(clock)
+            fixture.apply(Self.docked)
+            let screen = fixture.screen
+            let early = Render.time(toProgress: 0.3, Motion.panes.spring(screen.motionState.frameSpring))
+            Render.seek(clock, to: early)
+            fixture.apply(Self.traded)
+            #expect(!screen.hasMotion, "the change left a CPU spring to step")
+            #expect(screen.renderSpringsInFlight > 0, "the change is not on the render server")
+            let dock = try #require(fixture.host("chat").layer), clip = try #require(screen.stripContainer.layer)
+            #expect(!(clip.animationKeys() ?? []).isEmpty, "the strip's clip stopped springing with the dock still growing in")
+            for time in [early, early + 0.03, early + 0.1, early + 0.2] {
+                let shownDock = try Render.presented(dock, at: time, root: clock)
+                let shownClip = try Render.presented(clip, at: time, root: clock)
+                // How far each edge still is from its rest: the strip's edge rides the dock's.
+                let dockShort = shownDock.minX - dock.frame.minX, clipShort = shownClip.maxX - clip.frame.maxX
+                #expect(abs(dockShort - clipShort) <= 1,
+                        "at \(time) s the dock's edge is \(dockShort) pt from its rest, the strip's clip \(clipShort) pt")
+                if time == early { #expect(dockShort > 20, "the dock is not still growing in when the change lands") }
+            }
         }
     }
 

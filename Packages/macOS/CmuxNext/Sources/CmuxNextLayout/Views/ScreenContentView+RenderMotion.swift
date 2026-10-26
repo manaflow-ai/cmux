@@ -24,8 +24,12 @@ extension ScreenContentView {
     struct RenderTracks {
         var panes: [PaneID: RenderSpringTrack] = [:]
         var dividers: [DividerHandleView.Kind: RenderSpringTrack] = [:]
-        /// The strip container's bounds spring with a dock growing in (``springStripContainer(from:on:landed:)``).
+        /// The strip container's bounds spring with a dock growing in (``springStripContainer(from:velocity:on:landed:)``).
         var strip = false
+        /// The panes still growing in when the render server took them (``ScreenContentView/arriving``): their
+        /// frames rest in the model, so the CPU's next presentation drops them from `arriving`, and a take-back
+        /// puts them back, so a dock growing in still moves the strip's range from where it shows.
+        var arriving: Set<PaneID> = []
         /// This change turn took the springs back to the CPU frames (``takeRenderSpringsBack()``): the render
         /// server may take the motion again at the turn's end (``springSplitOnRenderServer()``).
         var tookBack = false
@@ -65,6 +69,8 @@ extension ScreenContentView {
             if let layer = dividerViews[kind]?.layer { Self.stopMoveSprings(layer) }
         }
         if renderTracks.strip { stopStripContainerSpring() }
+        // Still arriving, as on the CPU path, until each frame really lands.
+        arriving.formUnion(renderTracks.arriving)
         renderTracks = RenderTracks(tookBack: true)
     }
 
@@ -96,13 +102,16 @@ extension ScreenContentView {
     /// ``takeRenderSpringsBack()``: the next split, the daemon's echo of the last one): its pane and divider
     /// springs go to the render server from what shows, at their velocities, and their CPU springs rest. A
     /// new dock column grows in the same way (p03-rendering-028): its pane from its screen edge, and the
-    /// strip's clip, the strip container's bounds, from the range beside the docks where they showed
-    /// (``springStripContainer(from:on:landed:)``). A close is ``springCloseOnRenderServer()``'s; a zoom (027)
-    /// stays on the CPU step. Returns whether it took the motion.
+    /// strip's clip, the strip container's bounds, from the range beside the docks where they showed, at
+    /// their speed (``springStripContainer(from:velocity:on:landed:)``). A close is
+    /// ``springCloseOnRenderServer()``'s; a zoom (027) stays on the CPU step. Returns whether it took the motion.
     func springSplitOnRenderServer() -> Bool { // perf-hot: 4ms motion-frame
         guard !arriving.isEmpty || renderTracks.tookBack, zoomMotion.pane == nil, !scrollRidesFrames else { return false }
-        // The strip's range beside the docks where they show now, before their springs rest: plan apply only.
-        let stripFrom = PaneArrival.stripClip(geometry, docks: growingDocks)
+        // The strip's range beside the docks where they show now and its speed, before their springs rest:
+        // plan apply only.
+        let docks = growingDocks
+        let stripFrom = docks.isEmpty ? nil : stripRange(in: geometry, beside: docks)
+        let stripVelocity = PaneArrival.stripClipVelocity(geometry, docks: docks)
         let strip = stripShift, scale = self.scale
         let panes = SplitMotion.renderMoves(paneFrames.filter { entry in context.hosts[entry.key].map { holds($0) } ?? false }) { pane, rect in
             shownRect(rect, of: pane, strip: strip, scale: scale)
@@ -113,7 +122,8 @@ extension ScreenContentView {
         guard !panes.isEmpty || !dividers.isEmpty else { return false }
         for pane in panes.keys { paneFrames[pane]?.snap() }
         for kind in dividers.keys { dividerFrames[kind]?.snap() }
-        springMoves(panes: panes, dividers: dividers, strip: stripFrom)
+        renderTracks.arriving.formUnion(arriving)
+        springMoves(panes: panes, dividers: dividers, strip: stripFrom, stripVelocity: stripVelocity)
         return true
     }
 
@@ -179,10 +189,10 @@ extension ScreenContentView {
 
     /// Springs `panes` and `dividers` from where they show to their rest frames on the change's frame
     /// spring token, and the strip container's range from `strip` (where it showed beside docks still
-    /// short of their rest) to its rest; records each spring (``renderTracks``); the layout motion ends
-    /// when the last one lands (``renderSpringLanded()``).
+    /// short of their rest, moving at `stripVelocity`) to its rest; records each spring (``renderTracks``);
+    /// the layout motion ends when the last one lands (``renderSpringLanded()``).
     private func springMoves(panes: [PaneID: SplitMotion.RenderMove], dividers: [DividerHandleView.Kind: SplitMotion.RenderMove],
-                             strip: CGRect? = nil) {
+                             strip: CGRect? = nil, stripVelocity: RectComponents = .zero) {
         let spring = Motion.panes.renderSpring(motionState.frameSpring)
         let laysOut = window != nil && bounds.width >= 1 && bounds.height >= 1
         let begin = renderClockTime, parameters = spring.parameters
@@ -194,7 +204,7 @@ extension ScreenContentView {
         context.userMotionStepped()
         // The clip first: the strip's hosts then spring inside the container at its rest range.
         renderSpringsInFlight += 1
-        if springStripContainer(from: strip, on: spring, landed: landed) { renderTracks.strip = true }
+        if springStripContainer(from: strip, velocity: stripVelocity, on: spring, landed: landed) { renderTracks.strip = true }
         for (pane, move) in panes {
             guard let host = context.hosts[pane] else { continue }
             renderSpringsInFlight += 1

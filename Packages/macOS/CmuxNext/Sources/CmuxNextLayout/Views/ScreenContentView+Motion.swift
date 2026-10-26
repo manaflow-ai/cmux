@@ -199,7 +199,10 @@ extension ScreenContentView {
         // Every presentation shows the latest pan: no pan event waits after it.
         panPresentationPending = false
         let strip = stripShift, restStrip = geometry.viewShift(offset: isUserScrolling ? scroll.value : scroll.target)
-        let uncovered = uncoveredRect, clip = PaneArrival.stripClip(geometry, docks: growingDocks), zooming = zoomMotion.pane
+        // Only a dock the CPU grows in moves the strip's range: with none, the range is the rest one.
+        let docks = growingDocks
+        let uncovered = uncoveredRect, clip = docks.isEmpty ? restStripRange : stripRange(in: geometry, beside: docks)
+        let zooming = zoomMotion.pane
         var placedHosts: [PaneHostView] = []
         var changed = force
         let scale = self.scale
