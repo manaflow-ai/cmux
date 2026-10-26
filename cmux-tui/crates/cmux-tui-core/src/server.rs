@@ -2605,6 +2605,9 @@ use render_service::{OutboundByteBudget, RenderGraphicBase64Cache};
 mod message_writer;
 use message_writer::{MessageSink, MessageWriter, OutboundStream};
 
+mod request_watchdog;
+pub(crate) use request_watchdog::RequestWatchdog;
+
 mod connection_scheduler;
 #[cfg(test)]
 use connection_scheduler::ConnectionSurfaceState;

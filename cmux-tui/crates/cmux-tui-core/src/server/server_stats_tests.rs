@@ -51,3 +51,20 @@ fn server_stats_include_reports_resource_projection_spans() {
     assert!(section["projected_changes"]["max"].as_u64().unwrap_or(0) >= 1, "{section}");
     assert!(section["written_changes"]["max"].as_u64().unwrap_or(0) >= 1, "{section}");
 }
+
+#[test]
+fn server_stats_include_reports_slow_requests() {
+    let mux = Mux::new_for_test("server-stats-slow-requests", crate::SurfaceOptions::default());
+    let client = mux.control_clients.register(ClientTransport::Unix, writer());
+
+    let plain = stats(&mux, client, json!({"cmd":"server-stats"}));
+    assert!(plain.get("slow_requests").is_none(), "{plain}");
+
+    let full = stats(&mux, client, json!({"cmd":"server-stats","include":["slow_requests"]}));
+    let section = &full["slow_requests"];
+    assert_eq!(section["threshold_ms"], json!(250), "{full}");
+    assert_eq!(section["total"], json!(0), "{full}");
+    assert_eq!(section["unwatched"], json!(0), "{full}");
+    assert!(section["watchdog_wakeups"].is_u64(), "{full}");
+    assert_eq!(section["recent"], json!([]), "{full}");
+}

@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "723fa14ae06654ab0c2fd018a406c8353af7e7edb0f60ba05ee761541bdeb6f2";
+pub const ir_sha256 = "3fe9d3350739bb6bb3f3a9ed13859e2c749f39ae0d698866533d6f2452e2c196";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -1919,13 +1919,30 @@ pub const ServerStatsResult = struct {
     registry_lock: ServerStatsRegistryLock,
     resource_projection: ?ServerStatsResourceProjection = null,
     schema: u32,
+    slow_requests: ?ServerStatsSlowRequests = null,
     uptime_ms: u64,
     write_path: ?ServerStatsWritePath = null,
 
     pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
         "resource_projection",
+        "slow_requests",
         "write_path",
     };
+};
+
+pub const ServerStatsSlowRequest = struct {
+    busy_ms: u64,
+    client: u64,
+    method: []const u8,
+    started_ms: u64,
+};
+
+pub const ServerStatsSlowRequests = struct {
+    recent: []const ServerStatsSlowRequest,
+    threshold_ms: u64,
+    total: u64,
+    unwatched: u64,
+    watchdog_wakeups: u64,
 };
 
 pub const ServerStatsWritePath = struct {
