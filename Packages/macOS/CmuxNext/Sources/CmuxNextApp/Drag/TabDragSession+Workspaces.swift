@@ -41,8 +41,10 @@ extension TabDragSession {
 
     // MARK: Hit testing
 
-    func updateWorkspaces(_ point: CGPoint, drag: Drag) {
-        guard case let .workspaces(ids, group) = drag.source.item else { return }
+    /// The workspace drop target at `point`; returns the window under it.
+    @discardableResult
+    func updateWorkspaces(_ point: CGPoint, drag: Drag) -> WindowController? {
+        guard case let .workspaces(ids, group) = drag.source.item else { return nil }
         let controller = window(at: point)
         var sidebarHit: WorkspaceDropTarget?
         var highlight: CGRect?
@@ -85,6 +87,7 @@ extension TabDragSession {
         drag.workspaceHighlight = drag.workspaceOutcome == .cancel ? nil : highlight
         present(drag)
         wake(drag)
+        return controller
     }
 
     // MARK: Commit

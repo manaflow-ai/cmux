@@ -377,6 +377,7 @@ final class AppServices {
     /// mouse-down is reported to ``mainWork`` (`noteDiscreteInput(expectsFrame:)`), and the span of its dispatch
     /// (`noteDiscreteDispatch(began:)`).
     let inputDispatch: InputDispatchContext
+    let frameInput: FrameInputCoalescers  // each window's continuous input, once per frame (the application's; a test's own)
     let inputTap: InputEventTap  // the one input tap (AppDelegate's; a test's own); owners subscribe, never add event monitors (p04-input.md 3 (A))
     private var mouseDownSubscription: InputSubscription?  // a click after dispatch (start)
     private(set) lazy var keyRouter: KeyRouter = KeyRouter(registry: registry, inputDispatch: inputDispatch)  // first read in init (no IUO)
@@ -533,20 +534,22 @@ final class AppServices {
     ///   until `startEnergy`, which only `AppDelegate` calls), or a test's over fixed inputs.
     /// - Parameter launchStartup: The launch's scheduler (`AppDelegate` passes `LaunchOrder.startup`); nil (tests)
     ///   makes the right sidebar's icons on main when its first panel is built.
+    /// - Parameter frameInput: Every window's continuous input coalescer (`AppDelegate` passes the application's,
+    ///   which flushes them before each discrete event); tests get their own.
     init(environment: AppEnvironment, launchReveal: LaunchReveal = LaunchReveal(), agentPaneEnvironment: [String: String]? = nil,
          work: BackgroundWork? = nil, mainWork: MainWorkScheduler = MainWorkScheduler(budget: MainFrameBudget()),
          launchImages: AgentPaneLaunchImages = AgentPaneLaunchImages(directory: nil), relaunchWake: AgentPaneRelaunchWake = AgentPaneRelaunchWake(file: nil),
          wireStats: DaemonWireStats? = nil, hangWatch: (any HangWatchScoping)? = TraceRuntime.shared.hangWatch,
          energyMonitor: EnergyMonitor = EnergyMonitor(), inputTap: InputEventTap = InputEventTap(),
          launchImageHold: LaunchImageHold = LaunchImageHold(), launchStartup: StartupScheduler? = nil,
-         crashKeys: CrashKeySlots? = nil) {
+         crashKeys: CrashKeySlots? = nil, frameInput: FrameInputCoalescers = FrameInputCoalescers()) {
         let work = work ?? BackgroundWork(hangs: hangWatch)
         self.work = work
         self.energyMonitor = energyMonitor
         // First: the black-box ring is attached to TraceRuntime.shared, so every trace point records from here
         // on; the ring file opens on `.files`, never on main.
         traceBlackBox = environment.marksRun ? TraceBlackBoxFileSteps.startApp(bundleID: environment.launch.bundleID, work: work) : nil
-        (self.wireStats, self.inputTap) = (wireStats, inputTap)
+        (self.wireStats, self.inputTap, self.frameInput) = (wireStats, inputTap, frameInput)
         hoverCards = HoverCardCoordinator(input: inputTap, changes: overlayChanges)
         _ = CmuxDialogCenter.shared.observe { [overlayChanges] _ in overlayChanges.signal() } // an app dialog's host has no window
         (self.launchImages, self.relaunchWake, self.launchImageHold) = (launchImages, relaunchWake, launchImageHold)

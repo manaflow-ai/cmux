@@ -69,6 +69,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// The one input tap (p04-input.md 3 (A)), made in `main`: pending input, control and services
     /// observe it; `main` installs it on the application before `run()`.
     let inputTap: InputEventTap
+    /// The application's frame input coalescers (`CmuxApplication.frameInput`), handed to services.
+    private let frameInput: FrameInputCoalescers
     private let mouseSideButtons: MouseSideButtons
     /// OSC 52 clipboard reads on the local daemon (`TerminalClipboardReadService`).
     var daemonPrompts: DaemonPrompts?
@@ -81,7 +83,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app")
 
     init(environment: AppEnvironment, daemonPrestart: DaemonPrestart?, wireStats: DaemonWireStats?,
-         startupTrace: StartupTrace? = nil, order: LaunchOrder, inputTap: InputEventTap, settingsRead: SettingsController.PendingLaunchRead,
+         startupTrace: StartupTrace? = nil, order: LaunchOrder, inputTap: InputEventTap, frameInput: FrameInputCoalescers,
+         settingsRead: SettingsController.PendingLaunchRead,
          launchReads: (work: BackgroundWork, images: AgentPaneLaunchImages, wake: AgentPaneRelaunchWake), launchCleanup: LaunchCleanup = LaunchCleanup()) {
         (self.environment, self.launchReads, self.settingsRead) = (environment, launchReads, settingsRead)
         (self.daemonPrestart, self.startupTrace) = (daemonPrestart, startupTrace)
@@ -96,7 +99,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let paneRefs = VisiblePaneRefs(startup: order.startup, phase: startup)
         (launchReveal, launchSettle) = (reveal, LaunchSettle(reveal: reveal, paneRefs: paneRefs))
         startupReferences = StartupReferences(startup: startup, reveal: reveal, paneRefs: paneRefs)
-        (self.mainWork, self.inputTap) = (order.mainWork, inputTap)
+        (self.mainWork, self.inputTap, self.frameInput) = (order.mainWork, inputTap, frameInput)
         control = AppControl(mainWork: order.mainWork, input: inputTap)
         mouseSideButtons = MouseSideButtons(input: inputTap)
         super.init()
@@ -154,7 +157,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         DebugTimings.markLaunch("dfl.theme")
         let services = AppServices(environment: environment, launchReveal: launchReveal, work: launchReads.work, mainWork: mainWork,
                                    launchImages: launchReads.images, relaunchWake: launchReads.wake, wireStats: wireStats, inputTap: inputTap,
-                                   launchImageHold: launchImageHold, launchStartup: order.startup, crashKeys: control.crashKeys)
+                                   launchImageHold: launchImageHold, launchStartup: order.startup, crashKeys: control.crashKeys,
+                                   frameInput: frameInput)
         AppProcessRoot.shared.adopt(services)
         self.services = services
         controlSocket = AppControl.beginBind(features: services.features, settingsRead: settingsRead, launch: environment.launch,

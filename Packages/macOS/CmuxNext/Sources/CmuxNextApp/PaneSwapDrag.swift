@@ -3,6 +3,7 @@ import CmuxNextBridge
 import CmuxNextInput
 import CmuxNextLayout
 import CmuxNextTabs
+import CmuxNextWakeups
 
 /// Drag a pane by its tab bar onto another pane to swap them (cx-8bv1j, iTerm's pane drag). The
 /// press starts on empty strip space; tabs, chips and + keep their own presses. In the window's top
@@ -20,12 +21,17 @@ final class PaneSwapDrag: NSObject, NSGestureRecognizerDelegate {
     private let input: InputEventTap
     /// The drag's Escape intercept; nil while no drag runs.
     private var escape: InputSubscription?
+    /// Each window's input coalescer: the drag's moves preview once per frame of the strip's window.
+    private let frames: FrameInputCoalescers
+    /// Pane hit tests and previews run (tests: at most two per frame, the drag's start and the frame's latest move).
+    private(set) var previews = 0
 
-    init(strip: TabStripView, pane: LayoutPaneID, input: InputEventTap, layout: @escaping () -> LayoutRootView?,
-         swap: @escaping (LayoutPaneID, LayoutPaneID) -> Void) {
+    init(strip: TabStripView, pane: LayoutPaneID, input: InputEventTap, frames: FrameInputCoalescers,
+         layout: @escaping () -> LayoutRootView?, swap: @escaping (LayoutPaneID, LayoutPaneID) -> Void) {
         self.strip = strip
         self.pane = pane
         self.input = input
+        self.frames = frames
         self.layout = layout
         self.swap = swap
         super.init()
@@ -41,7 +47,7 @@ final class PaneSwapDrag: NSObject, NSGestureRecognizerDelegate {
     /// A pane's drag: a drop sends `swap-pane` to its daemon.
     convenience init(pane: PaneController) {
         self.init(strip: pane.view.stripView, pane: pane.layoutPaneID, input: pane.services.inputTap,
-                  layout: { [weak pane] in pane?.workspace?.layoutView },
+                  frames: pane.services.frameInput, layout: { [weak pane] in pane?.workspace?.layoutView },
                   swap: { [weak pane] from, to in
                       guard let pane, let content = pane.workspace, let from = content.handles.panes[from],
                             let to = content.handles.panes[to] else { return }
@@ -83,23 +89,48 @@ final class PaneSwapDrag: NSObject, NSGestureRecognizerDelegate {
             if recognizer.state != .began, recognizer.state != .changed { end(nil) }
             return
         }
-        let target = layout.visiblePane(at: recognizer.location(in: layout)).flatMap { $0.pane == pane ? nil : $0 }
+        let point = recognizer.location(in: nil)
         switch recognizer.state {
-        case .began, .changed:
+        case .began:
             guard armed else { return }
-            if recognizer.state == .began { watchEscape(recognizer) }
-            if let target {
-                layout.showPaneDragTarget(target.pane, locationInWindow: layout.convert(recognizer.location(in: layout), to: nil))
-            } else {
-                layout.hideTabDragHighlight()
+            watchEscape(recognizer)
+            preview(atWindow: point)
+        case .changed:
+            guard armed, let window = layout.window else { return }
+            // The preview follows the frame's latest move, once per frame (Chromium's rAF-aligned moves,
+            // `third_party/blink/renderer/platform/widget/input/main_thread_event_queue.cc`).
+            let sample = FrameInputSample(location: point, delta: .zero, timestamp: ProcessInfo.processInfo.systemUptime)
+            frames.coalescer(for: window).post(.drag, owner: Self.movesOwner, sample: sample) { [weak self] latest, _, _ in
+                self?.preview(atWindow: latest.location)
             }
         case .ended:
-            // Escape disarmed it: the release swaps nothing.
+            // At the real release point. Escape disarmed it: the release swaps nothing.
+            let target = otherPane(atWindow: point, in: layout)
             let swaps = armed
             end(layout)
-            if swaps, let target { swap(pane, target.pane) }
+            if swaps, let target { swap(pane, target) }
         default:
             end(layout)
+        }
+    }
+
+    /// The coalescer owner of a pane drag's moves.
+    static let movesOwner = "PaneSwapDrag.moves"
+
+    /// The pane under `point` (window coordinates) when it is not the dragged one.
+    private func otherPane(atWindow point: CGPoint, in layout: LayoutRootView) -> LayoutPaneID? {
+        layout.visiblePane(at: layout.convert(point, from: nil)).flatMap { $0.pane == pane ? nil : $0.pane }
+    }
+
+    /// Previews the drop at `point` (window coordinates): the pane under it shows the join fill. A
+    /// drag that ended (released, Escape) before its frame shows nothing.
+    private func preview(atWindow point: CGPoint) {
+        guard armed, let layout = layout() else { return }
+        previews += 1
+        if let target = otherPane(atWindow: point, in: layout) {
+            layout.showPaneDragTarget(target, locationInWindow: point)
+        } else {
+            layout.hideTabDragHighlight()
         }
     }
 

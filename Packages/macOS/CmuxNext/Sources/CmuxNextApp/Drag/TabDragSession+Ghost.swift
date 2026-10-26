@@ -3,6 +3,7 @@ import CmuxNextBridge
 import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextInput
+import CmuxNextLayout
 import CmuxNextTabs
 import QuartzCore
 
@@ -39,15 +40,15 @@ extension TabDragSession {
     func tick(_ current: Drag, elapsed dt: Double) -> Bool { // perf-hot: 2ms drag-frame (every frame of a drag)
         guard current === drag || current === landing else { return false }
         var moving = current.motion.step(dt)
-        if current === drag, autoscroll(current, dt: dt) {
-            update(current.point)
-            moving = true
-        }
-        // A pointer resting on a pane edge or a sidebar slot sends no events: hit-test again once it arms.
-        if current === drag, let deadline = (current.winner?.provider as? LayoutTabDropTarget)?.dwellDeadline
-            ?? (current.winner?.provider as? SidebarTabDropTarget)?.dwellDeadline {
-            if CACurrentMediaTime() >= deadline { update(current.point) }
-            moving = true
+        if current === drag {
+            let scrolled = autoscroll(current, dt: dt)
+            // A pointer resting on a pane edge or a sidebar slot sends no events: hit-test again once it arms.
+            let dwell = (current.winner?.provider as? LayoutTabDropTarget)?.dwellDeadline
+                ?? (current.winner?.provider as? SidebarTabDropTarget)?.dwellDeadline
+            let armed = dwell.map { CACurrentMediaTime() >= $0 } ?? false
+            // Content moved under the pointer or a dwell armed: one hit test for the frame, whichever asked.
+            if scrolled || armed { retarget(current.point, drag: current) }
+            moving = moving || scrolled || dwell != nil
         }
         current.ghost.render(current.motion)
         guard !moving else { return true }
@@ -55,13 +56,22 @@ extension TabDragSession {
         return false
     }
 
-    /// Auto-scrolls the columns screen under the pointer. Strips and the
-    /// sidebar auto-scroll themselves while they hold a drag.
+    /// Auto-scrolls the columns screen under the pointer, as the last hit test resolved it: a frame
+    /// picks no window. Strips and the sidebar auto-scroll themselves while they hold a drag.
     func autoscroll(_ drag: Drag, dt: Double) -> Bool {
-        guard let controller = window(at: drag.point), let layout = controller.content(atScreen: drag.point)?.layoutView, let window = layout.window else {
-            return false
+        guard let target = drag.autoscroll, let layout = drag.autoscrollLayout else { return false }
+        return layout.stepTabDragAutoscroll(target, dt: dt)
+    }
+
+    /// Resolves the edge auto-scroll at `point` in `controller` (the window under it), for the frames
+    /// until the next hit test.
+    func resolveAutoscroll(_ drag: Drag, at point: CGPoint, in controller: WindowController?) {
+        let layout = controller?.content(atScreen: point)?.layoutView
+        let target = layout.flatMap { layout in
+            layout.window.flatMap { layout.tabDragAutoscroll(locationInWindow: $0.convertPoint(fromScreen: point)) }
         }
-        return layout.autoscrollTabDrag(locationInWindow: window.convertPoint(fromScreen: drag.point), dt: dt)
+        drag.autoscroll = target
+        drag.autoscrollLayout = target == nil ? nil : layout
     }
 
     // MARK: Finish

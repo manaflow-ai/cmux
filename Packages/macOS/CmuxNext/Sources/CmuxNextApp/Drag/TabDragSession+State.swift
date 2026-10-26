@@ -4,6 +4,7 @@ import CmuxNextBridge
 import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextInput
+import CmuxNextLayout
 import CmuxNextTabs
 import QuartzCore
 
@@ -65,6 +66,14 @@ extension TabDragSession {
         var presentation: Presentation = .none
         /// The drag's input tap intercept; cancelled when the drag ends.
         var input: InputSubscription?
+        /// The ghost window's input coalescer: the drag's moves run once per ghost frame.
+        let moves: FrameInputCoalescer
+        /// Hit tests run during this drag (debug.tab_drag and tests: at most two per frame).
+        var hitTests = 0
+        /// The edge auto-scroll the pointer asks for and the layout it scrolls, resolved at each hit test;
+        /// nil outside every edge band.
+        var autoscroll: TabDragAutoscroll?
+        weak var autoscrollLayout: LayoutRootView?
         var link: FrameClient?
         /// Every surface that answered during this drag, told once at the end.
         var touched: [ObjectIdentifier: any TabDropTargetProviding] = [:]
@@ -88,12 +97,14 @@ extension TabDragSession {
         /// The layout previewing a merge of the dragged workspace.
         weak var workspaceLayout: LayoutTabDropTarget?
 
-        init(source: Source, lifecycle: TabDragLifecycle, ghost: TabDragGhostPanel, motion: TabDragGhostMotion, point: CGPoint) {
+        init(source: Source, lifecycle: TabDragLifecycle, ghost: TabDragGhostPanel, motion: TabDragGhostMotion, point: CGPoint,
+             moves: FrameInputCoalescer) {
             self.source = source
             self.lifecycle = lifecycle
             self.ghost = ghost
             self.motion = motion
             self.point = point
+            self.moves = moves
         }
 
         /// Records a pointer position for the release velocity.

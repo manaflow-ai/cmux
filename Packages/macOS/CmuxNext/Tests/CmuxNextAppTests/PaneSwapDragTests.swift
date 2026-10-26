@@ -28,10 +28,12 @@ struct PaneSwapDragTests {
         let root: LayoutRootView
         /// The drags' input tap: Escape reaches a drag through it.
         let tap = InputEventTap()
+        /// The drags' frames: a drag's moves preview when the test ticks.
+        let frames = DragFrames()
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1000, height: 600), styleMask: [.borderless],
                               backing: .buffered, defer: false)
         private(set) var swaps: [(PaneID, PaneID)] = []
-        private var drags: [PaneSwapDrag] = []
+        private(set) var drags: [PaneID: PaneSwapDrag] = [:]
 
         init() {
             root = LayoutRootView(model: model, contentProvider: provider, mainWork: MainWorkScheduler(budget: MainFrameBudget()))
@@ -40,8 +42,8 @@ struct PaneSwapDragTests {
             window.orderFrontRegardless()
             root.layoutSubtreeIfNeeded()
             for (pane, strip) in provider.strips {
-                drags.append(PaneSwapDrag(strip: strip, pane: pane, input: tap, layout: { [root] in root },
-                                          swap: { [unowned self] in swaps.append(($0, $1)) }))
+                drags[pane] = PaneSwapDrag(strip: strip, pane: pane, input: tap, frames: frames.coalescers, layout: { [root] in root },
+                                           swap: { [unowned self] in swaps.append(($0, $1)) })
             }
         }
 
@@ -67,14 +69,16 @@ struct PaneSwapDragTests {
             send(.leftMouseUp, end)
         }
 
-        /// Presses at `start` and drags to `end` without releasing; `release()` ends it.
-        func hold(from start: CGPoint, to end: CGPoint) {
+        /// Presses at `start` and drags to `end` without releasing; `release()` ends it. With `frame`,
+        /// a display frame follows the moves (the preview follows the frame's latest move).
+        func hold(from start: CGPoint, to end: CGPoint, frame: Bool = true) {
             send(.leftMouseDown, start)
             for step in 1...8 {
                 let t = CGFloat(step) / 8
                 send(.leftMouseDragged, CGPoint(x: start.x + (end.x - start.x) * t, y: start.y + (end.y - start.y) * t))
             }
             lastHeld = end
+            if frame { frames.tick() }
         }
 
         private var lastHeld: CGPoint = .zero
@@ -154,7 +158,8 @@ struct PaneSwapDragTests {
         window.orderFrontRegardless()
         defer { window.orderOut(nil) }
         strip.layoutSubtreeIfNeeded()
-        let drag = PaneSwapDrag(strip: strip, pane: "p1", input: InputEventTap(), layout: { nil }, swap: { _, _ in })
+        let drag = PaneSwapDrag(strip: strip, pane: "p1", input: InputEventTap(), frames: FrameInputCoalescers(), layout: { nil },
+                                swap: { _, _ in })
         defer { withExtendedLifetime(drag) {} }
         let cell = try #require(strip.cells[TabID("b")])
         let point = strip.convert(strip.convert(CGPoint(x: cell.frame.midX, y: cell.frame.midY), from: strip.tabsClip), to: nil)
@@ -181,5 +186,36 @@ struct PaneSwapDragTests {
         #expect(shown.width > pane.width / 2)
         #expect(shown.height > pane.height / 2)
         #expect(window.swaps.map { [$0.0, $0.1] } == [["p1", "p2"]])
+    }
+
+    /// A frame of moves previews at most twice (the drag's start at once, then the frame's latest
+    /// move at the frame), and the preview is where the pointer is at that frame (p04-input-032).
+    @Test func aFrameOfMovesPreviewsAtMostTwice() throws {
+        let window = Window()
+        defer { window.window.orderOut(nil) }
+        let drag = try #require(window.drags["p1"])
+        window.hold(from: try window.emptyStripPoint("p1"), to: try window.center("p2"), frame: false)
+        #expect(drag.previews <= 1, "moves previewed before their frame: \(drag.previews)")
+        #expect(window.frames.coalescer.hasPending, "the moves did not wait for their frame")
+        window.frames.tick()
+        #expect(drag.previews <= 2, "one frame previewed \(drag.previews) times")
+        let pane = try #require(window.root.frame(of: "p2"))
+        #expect(window.root.highlight.destinationRect.width > pane.width / 2, "the frame did not preview the pane under the pointer")
+        window.release()
+        #expect(window.swaps.map { [$0.0, $0.1] } == [["p1", "p2"]])
+    }
+
+    /// A release before the frame of its moves swaps with the pane under the release, and the stale
+    /// moves preview nothing after it.
+    @Test func theReleaseSwapsAtItsOwnPointAndTheStaleMovesNeverRun() throws {
+        let window = Window()
+        defer { window.window.orderOut(nil) }
+        let drag = try #require(window.drags["p1"])
+        window.hold(from: try window.emptyStripPoint("p1"), to: try window.center("p2"), frame: false)
+        let previews = drag.previews
+        window.release()
+        #expect(window.swaps.map { [$0.0, $0.1] } == [["p1", "p2"]])
+        window.frames.tick()
+        #expect(drag.previews == previews, "a stale move previewed after the drop")
     }
 }

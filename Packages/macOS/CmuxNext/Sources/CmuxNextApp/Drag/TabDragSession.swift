@@ -97,7 +97,9 @@ final class TabDragSession: NSObject {
             pane.syncStripFromStore()
             Self.endPresentation(item, in: pane)
         })
-        let drag = Drag(source: source, lifecycle: lifecycle, ghost: ghost, motion: motion, point: point)
+        // Its moves wait for the ghost's frame: the ghost window's coalescer ticks before the ghost does.
+        let drag = Drag(source: source, lifecycle: lifecycle, ghost: ghost, motion: motion, point: point,
+                        moves: services.frameInput.coalescer(for: ghost.panel))
         // The drag's events, for the drag only: an intercept in the drag order (after the key router, before
         // AppKit dispatches), in every window, since the ghost crosses them. Chrome's Mac tab drag does the
         // same with a local monitor that lives for the move loop and ends it at the release or Escape
@@ -168,9 +170,11 @@ final class TabDragSession: NSObject {
     func handle(_ event: NSEvent) -> InputEventTap.InterceptResult {
         switch event.type {
         case .leftMouseDragged:
-            update(Self.screenPoint(of: event))
+            move(to: Self.screenPoint(of: event), timestamp: event.timestamp)
             return .consume
         case .leftMouseUp:
+            // At the real release point: a move still waiting for its frame is stale (the app flushed it
+            // before this release; a drag that ended ignores it).
             update(Self.screenPoint(of: event))
             drag?.filesAway = event.modifierFlags.contains(.option)
             finish(commit: true)
@@ -188,6 +192,24 @@ final class TabDragSession: NSObject {
         }
     }
 
+    /// The coalescer owner of a drag's moves.
+    static let movesOwner = "TabDragSession.moves"
+
+    /// One pointer move of the drag. Every move feeds the release velocity; the ghost, the hit test
+    /// and the autoscroll target follow the frame's latest move, once per frame (Chromium aligns
+    /// continuous input to the frame: `third_party/blink/renderer/platform/widget/input/main_thread_event_queue.cc`,
+    /// `DispatchRafAlignedInput`).
+    func move(to point: CGPoint, timestamp: TimeInterval) {
+        guard let drag else { return }
+        drag.samplePointer(point, at: CACurrentMediaTime())
+        let sample = FrameInputSample(location: point, delta: .zero, timestamp: timestamp)
+        drag.moves.post(.drag, owner: Self.movesOwner, sample: sample) { [weak self, weak drag] latest, _, _ in
+            // The drag ended (released, cancelled) before its frame: nothing to show.
+            guard let self, let drag, self.drag === drag else { return }
+            self.retarget(latest.location, drag: drag)
+        }
+    }
+
     /// The event's own location, so events posted to this process (tests,
     /// automation) work without moving the real cursor.
     static func screenPoint(of event: NSEvent) -> CGPoint {
@@ -197,11 +219,30 @@ final class TabDragSession: NSObject {
 
     // MARK: Hit testing
 
+    /// The pointer is at `point` now: a sample for the release velocity, then a hit test there.
     func update(_ point: CGPoint) {
         guard let drag else { return }
-        drag.point = point
         drag.samplePointer(point, at: CACurrentMediaTime())
-        if case .workspaces = drag.source.item { return updateWorkspaces(point, drag: drag) }
+        retarget(point, drag: drag)
+    }
+
+    /// One hit test of `drag` at `point`: the drop target, the ghost's target and the autoscroll
+    /// target there. At most once per frame for the frame's moves, plus once in the frame tick when
+    /// content moved under a resting pointer.
+    func retarget(_ point: CGPoint, drag: Drag) { // perf-hot: 2ms drag-frame (every frame of a drag)
+        drag.point = point
+        drag.hitTests += 1
+        let window: WindowController?
+        if case .workspaces = drag.source.item {
+            window = updateWorkspaces(point, drag: drag)
+        } else {
+            window = retargetTab(point, drag: drag)
+        }
+        resolveAutoscroll(drag, at: point, in: window)
+    }
+
+    /// The tab or group drop target at `point`; returns the window under it.
+    private func retargetTab(_ point: CGPoint, drag: Drag) -> WindowController? {
         let context = liveContext(drag)
         let hit = hitTest(point, drag: drag, context: context)
         // The layout adapter's preview is ended by `outline`, so a move from
@@ -216,6 +257,7 @@ final class TabDragSession: NSObject {
         TabDragOutline.update(drag) { self.adapters(for: $0, drag: drag).layout }
         present(drag)
         wake(drag)
+        return hit.window
     }
 
     struct Hit {
