@@ -32,8 +32,8 @@ final class LineTransport: Sendable {
     /// The event name a `cmux.protocol/2` stream line is routed under
     /// (`DaemonEvent.decode`); the connection opens one stream, `session.events`.
     static let streamEvent = "cmux.protocol/2 stream"
-    /// How long the reader may take to handle one line (decode and route it) before the hang watcher
-    /// reports it: a line is a few microseconds, so 100 ms means the reader thread is stuck.
+    /// The reader's budget for one line (decode and route it): a jank past it, a hang dump 2 s later.
+    /// A line is a few microseconds, so 100 ms means the reader thread is stuck.
     static let lineHangDeadline: Duration = .milliseconds(100)
 
     /// A request waiting for its reply, and when it was sent while a recorder times replies (nil

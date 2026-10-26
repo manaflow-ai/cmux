@@ -228,6 +228,11 @@
       "what": "one hover target change in the sidebar or a tab strip with intentPrewarmHover on: a compare, the dwell timer's cancel and re-arm, and the warmer's isCold lookup",
       "bench": "scripts/cmux-next/bench_hibernation.py (wake after hover vs click), then swift test --filter IntentPrewarmServiceTests",
       "owner": "PL-switch"
+    },
+    "lane-item": {
+      "what": "one BackgroundWork lane item's stats on its slot thread, in every build (LaneScheduler.runOnSlot, LaneStats.record): three CLOCK_UPTIME_RAW reads (submit, start, end; onRan and the block-shutdown check reuse them) and four relaxed atomic adds around the item's body",
+      "bench": "CMUX_LANE_ITEM_BENCH=1 swift test -c release --filter LaneStatsBench (ns per clock read, per record, per item: three reads plus the record), on macOS 26 and 27; distributions under STRESS: debug.work (RUN-13)",
+      "owner": "Performance Lead"
     }
   }
 }

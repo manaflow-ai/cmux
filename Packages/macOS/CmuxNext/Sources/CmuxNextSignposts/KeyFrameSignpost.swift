@@ -24,8 +24,8 @@ public import Foundation
 /// (ui/base/cocoa/secure_password_input.mm `ScopedPasswordInputEnabler`) and Ghostty for a terminal's password
 /// prompt, and while it is on no key timing is recorded, here, in the key flows or in the ring.
 ///
-/// The app holds one for its life (`CmuxApplication`); when it is released, its observer removes itself at its
-/// next callout.
+/// The app holds one for its life (CmuxNextInput's `InputFrameSignposts`, which begins a key's interval when its input
+/// latency slot opens); when it is released, its observer removes itself at its next callout.
 ///
 /// ```swift
 /// keyFrames.begin(target: .view, eventTimestamp: event.timestamp)
