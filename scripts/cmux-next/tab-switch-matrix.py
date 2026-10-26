@@ -17,15 +17,18 @@ one pane holds that many tabs of that kind (plus the workspace's first terminal)
 
 Kinds: terminal, chromium, webkit, markdown, file (code editor page), chat (New Tab page / agent pane).
 
-Percentiles (p50, p90, p95, p99) come from scripts/perf-lab/perf_stats.py (linear interpolation). Each
-scenario's raw per-switch samples go to --out as cmux-perf-result/v1 through BenchApp.record (story --story):
+Percentiles (p50, p90, p95, p99) come from scripts/perf-lab/perf_stats.py (linear interpolation). With --story
+<id>, each scenario's raw per-switch samples go to --out as cmux-perf-result/v1 through BenchApp.record:
   tab_switch.<kind>.<count>.{e2e,apply,commit}           Ctrl-Tab (the perf-budgets tab_switch row)
   tab_switch.<kind>.<count>.<input>.{e2e,apply,commit}   cmd_shift_bracket and click
   tab_switch.<kind>.<count>.content_frame                Ctrl-Tab, the page's own first frame (page kinds)
+Only the series that stories.d/<id>.json declares are recorded, all under that story's engine (one engine per
+story run); the others are reported as not recorded. Without --story nothing is recorded.
 
 Usage: tab-switch-matrix.py --tag <tag> --app PATH [--kinds terminal,chromium,...] [--counts 2,10,30,60]
        [--switches 60] [--interval 0.12] [--idle 5] [--json PATH] [--out DIR] [--budget-ms 16.7]
        [--story tab-switch] [--session light]
+Importing the module reads no arguments: configure() does, then main().
 """
 import argparse, json, os, re, signal, socket, subprocess, sys, tempfile, time
 
@@ -50,26 +53,58 @@ parser.add_argument("--budget-ms", type=float, default=16.7, help="end-to-end p9
 parser.add_argument("--json", help="write the report here")
 parser.add_argument("--out", default="/tmp")
 parser.add_argument("--profile", default="", help="kind:count scenarios (comma list) whose Ctrl-Tab phase runs under a Time Profiler")
-parser.add_argument("--story", default="tab-switch", help="result-v1 story of the recorded series")
+parser.add_argument("--story", help="the lab story (stories.d/<id>.json) to record result-v1 for; none: no result-v1")
 parser.add_argument("--session", choices=["light", "stress"], default="light", help="result-v1 session")
-opts, _unknown = parser.parse_known_args()
-TAG, APP = opts.tag, os.path.abspath(opts.app.rstrip("/"))
-BUNDLE_ID = bundle_id(APP) or f"com.cmuxterm.app.debug.{TAG}"
-SOCKET = f"/tmp/cmux-debug-{TAG}.sock"
-CLI = os.path.join(APP, "Contents/Resources/bin/cmux")
-SCRATCH = tempfile.mkdtemp(prefix=f"tsmatrix-{TAG}-")
-open(os.path.join(SCRATCH, "ghostty"), "w").close()
-CONFIG = os.path.join(SCRATCH, "cmux.json")
-open(CONFIG, "w").write("{}\n")
+# Set by configure() from the command line (main); unset while a test imports the module.
+opts = TAG = APP = BUNDLE_ID = SOCKET = CLI = SCRATCH = CONFIG = None
+STORY = None  # the Story that --story names, or None (nothing is recorded)
 STAGES = ["input", "focus", "strip", "withdraw", "content", "reveal", "stripSync", "view", "present", "record", "apply", "commit"]
 COLORS = ["#c0392b", "#27ae60", "#2980b9", "#8e44ad", "#d35400", "#16a085", "#2c3e50", "#f39c12", "#7f8c8d", "#e84393"]
 ROWS, LAUNCHED = [], []
 PAGE_TABS = []
 INPUTS = ("ctrl_tab", "cmd_shift_bracket", "click")
 RECORDED_STAGES = ("e2e", "apply", "commit")
-ENGINES = {"chromium": "chromium", "webkit": "webkit"}  # every other tab kind draws no browser page
 app = None
 bench = None  # the BenchApp that launched `app`: it writes the result-v1 files
+
+
+class Story:
+    """A lab story's result-v1 contract (stories.d/<id>.json): every result of one run and story carries the story's
+    one engine (perf-lab ingest groups by run and story and refuses a mixed engine), and a run records only the
+    metrics that the story declares."""
+
+    def __init__(self, story_id, engine, patterns):
+        self.id, self.engine, self.patterns = story_id, engine, [re.compile(p) for p in patterns]
+
+    @classmethod
+    def load(cls, story_id, directory=os.path.join(PERF_LAB, "stories.d")):
+        """Raises SystemExit with the reason when the story file is missing or has no engine or metrics."""
+        path = os.path.join(directory, f"{story_id}.json")
+        try:
+            with open(path) as handle:
+                story = json.load(handle)
+            return cls(story_id, story["engine"], [metric["name"] for metric in story["metrics"]])
+        except (OSError, ValueError, KeyError, TypeError) as error:
+            raise SystemExit(f"tab-switch-matrix: --story {story_id}: {path} is not a story file ({error!r})")
+
+    def declares(self, metric):
+        return any(pattern.fullmatch(metric) for pattern in self.patterns)
+
+
+def configure(argv=None):
+    """Reads the command line and makes the scratch config folder (the empty Ghostty config and cmux.json)."""
+    global opts, TAG, APP, BUNDLE_ID, SOCKET, CLI, SCRATCH, CONFIG, STORY
+    opts, _unknown = parser.parse_known_args(argv)
+    TAG, APP = opts.tag, os.path.abspath(opts.app.rstrip("/"))
+    BUNDLE_ID = bundle_id(APP) or f"com.cmuxterm.app.debug.{TAG}"
+    SOCKET = f"/tmp/cmux-debug-{TAG}.sock"
+    CLI = os.path.join(APP, "Contents/Resources/bin/cmux")
+    STORY = Story.load(opts.story) if opts.story else None
+    SCRATCH = tempfile.mkdtemp(prefix=f"tsmatrix-{TAG}-")
+    open(os.path.join(SCRATCH, "ghostty"), "w").close()
+    CONFIG = os.path.join(SCRATCH, "cmux.json")
+    with open(CONFIG, "w") as handle:
+        handle.write("{}\n")
 
 
 def run(*args, timeout=30):
@@ -389,7 +424,7 @@ def scenario(kind, count, baseline):
         e2e = (line.get("e2e") or line.get("commit") or {}).get("p90")
         if e2e is not None:
             row(f"{name}: {input_kind} e2e p90", f"<= {opts.budget_ms} ms", f"{e2e}", e2e <= opts.budget_ms)
-    result["results"] = record_scenario(result)
+    result["results"] = record_scenario(result, bench, STORY)
     run("workspace", ws, "close")
     time.sleep(2.0)  # test harness: the workspace's content goes
     return result
@@ -413,16 +448,21 @@ def scenario_series(result):
     return series
 
 
-def record_scenario(result):
-    """Writes the scenario's series as result-v1 (BenchApp.record); returns {metric: path or "not recorded: why"}."""
+def record_scenario(result, recorder, story):
+    """Writes the scenario's series that `story` (a Story, or None: nothing) declares as result-v1 under the story's
+    engine (`recorder` is the BenchApp); returns {metric: path or "not recorded: why"}."""
     written = {}
+    if story is None:
+        return written
     for metric, samples in scenario_series(result):
+        if not story.declares(metric):
+            written[metric] = f"not recorded: story {story.id} declares no such metric"
+            continue
         if not samples:
             written[metric] = "not recorded: no samples"
             continue
         try:
-            written[metric] = str(bench.record(opts.story, metric, "ms", samples, better="lower",
-                                               engine=ENGINES.get(result["kind"], "none")))
+            written[metric] = str(recorder.record(story.id, metric, "ms", samples, better="lower", engine=story.engine))
         except (RecordError, perf_result.ResultError) as error:
             written[metric] = f"not recorded: {error}"
         print(f"  result-v1 {metric}: {written[metric]}", flush=True)
@@ -499,9 +539,11 @@ def main():
                       f"per-tab {s['per_tab']['footprint_mb']} MB {s['per_tab']['cpu_percent']}%", flush=True)
 
 
-try:
-    main()
-finally:
-    cleanup()
-    print("\nRESULT", "PASS" if ROWS and all(r[3] for r in ROWS) else "FAIL", f"({sum(r[3] for r in ROWS)}/{len(ROWS)})")
-    sys.exit(0 if ROWS and all(r[3] for r in ROWS) else 1)
+if __name__ == "__main__":
+    configure()
+    try:
+        main()
+    finally:
+        cleanup()
+        print("\nRESULT", "PASS" if ROWS and all(r[3] for r in ROWS) else "FAIL", f"({sum(r[3] for r in ROWS)}/{len(ROWS)})")
+        sys.exit(0 if ROWS and all(r[3] for r in ROWS) else 1)

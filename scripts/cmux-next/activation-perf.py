@@ -19,9 +19,14 @@ call graph lands in OUT/activation-sample.txt).
 
 The app launches through bench_launch.BenchApp (the bench env, a fresh saved session, the GUI-session check,
 the tag teardown). Percentiles (p50, p95, p99) come from scripts/perf-lab/perf_stats.py. Each phase's raw
-per-activation samples go to OUT as cmux-perf-result/v1 through BenchApp.record (story --story):
-activation.<phase>.{observers,round_trip,drain,total} ms and activation.<phase>.resyncs (count), phase light,
-heavy_app_only or heavy.
+per-activation samples go to OUT as cmux-perf-result/v1 through BenchApp.record:
+activation.<phase>.{observers,round_trip,drain,total} ms and activation.<phase>.resyncs (count). A phase records
+under its session's story, session and engine (PHASES), so each story's results ingest as one run:
+  light                     story activation,        session light,  engine none (no browser tab open)
+  heavy_app_only, heavy     story activation-stress, session stress, engine chromium (the heavy session)
+An activation whose reply carried an error is left out of every series and counted (`failed` in its summary).
+--phases light|heavy measures one session only (the lab stories); the default measures both. The lab runner's
+--session names the phases when --phases is not given (light: light, stress: heavy).
 
 Run on a GUI fleet host, never a laptop:
   nx-remote --needs gui --app-from-fleet cmux --tag T --ref SHA -- \\
@@ -43,8 +48,12 @@ MAX_RESYNCS = 64  # a 1440x900 window shows at most ~40 sidebar rows and ~20 str
 # result-v1 series of each phase's rows: (metric suffix, row key, unit). `total` is round trip + drain.
 RECORDED = (("observers", "observers_ms", "ms"), ("round_trip", "round_trip_ms", "ms"), ("drain", "drain_ms", "ms"),
             ("total", None, "ms"), ("resyncs", "resyncs", "count"))
-# The engine of each phase's session: only the heavy session holds Chromium tabs.
-PHASE_ENGINES = {"light": "none", "heavy_app_only": "chromium", "heavy": "chromium"}
+# (story, session, engine) of each phase's result-v1 series. The heavy session holds Chromium tabs; the light one none.
+PHASES = {"light": ("activation", "light", "none"),
+          "heavy_app_only": ("activation-stress", "stress", "chromium"),
+          "heavy": ("activation-stress", "stress", "chromium")}
+# The phases that the lab runner's --session names.
+SESSION_PHASES = {"light": "light", "stress": "heavy"}
 
 
 def wait(predicate, seconds, step=0.25):
@@ -160,8 +169,14 @@ def cycles(app, count, pid=None, sample_out=None, settle=0.4, window_notices=Tru
     return rows, hangs
 
 
+def succeeded(rows):
+    """The rows whose debug.app_activation reply carried no error: a failed activation's times measure no activation."""
+    return [r for r in rows if not r.get("error")]
+
+
 def values_of(rows, key):
-    """The numeric `key` of each row; `total` (key None) is round trip + drain."""
+    """The numeric `key` of each successful row; `total` (key None) is round trip + drain."""
+    rows = succeeded(rows)
     if key is None:
         return [r["round_trip_ms"] + r["drain_ms"] for r in rows]
     return [r[key] for r in rows if isinstance(r.get(key), (int, float))]
@@ -173,7 +188,7 @@ def summarize(rows, hangs):
         return {"p50": pct(values, 0.5), "p95": pct(values, 0.95), "p99": pct(values, 0.99),
                 "max": max(values) if values else None}
     total = values_of(rows, None)
-    return {"cycles": len(rows), "observers_ms": stat("observers_ms"), "round_trip_ms": stat("round_trip_ms"),
+    return {"cycles": len(rows), "failed": len(rows) - len(succeeded(rows)), "observers_ms": stat("observers_ms"), "round_trip_ms": stat("round_trip_ms"),
             "drain_ms": stat("drain_ms"), "total_ms": {"p50": pct(total, 0.5), "p95": pct(total, 0.95), "p99": pct(total, 0.99)},
             "resyncs": stat("resyncs"), "hangs": hangs.get("count", hangs.get("total")),
             "worst_hangs": (hangs.get("hangs") or hangs.get("items") or [])[:3],
@@ -185,11 +200,11 @@ class App:
     env, a fresh saved session, the GUI-session check and the tag teardown. Other benches (burst-bench,
     action-signposts-bench, perf-stress-session) use the same surface: launch, stop, rpc, cli, process, socket, out."""
 
-    def __init__(self, bundle, out, hang_ms, perf_session="light"):
+    def __init__(self, bundle, out, hang_ms):
         self.out = out
         self.bench = BenchApp(bundle, out=out, env={"CMUX_NEXT_HANG_THRESHOLD_MS": str(hang_ms)},
                               config={"appearance": {"backgroundOpacity": 1}}, window=(40, 40, 1440, 900),
-                              screen="last", log_name="app.log", perf_session=perf_session)
+                              screen="last", log_name="app.log")
         self.bundle, self.tag, self.scratch = self.bench.app, self.bench.tag, self.bench.scratch
         self.cli_path = self.bench.cli
         self.config = os.path.join(self.scratch, "cmux.json")  # BenchApp.environment() writes it at launch
@@ -213,7 +228,9 @@ class App:
     def stop(self):
         self.bench.stop()
 
-    def record(self, story, metric, unit, samples, better, engine):
+    def record(self, story, metric, unit, samples, better, engine, session):
+        """BenchApp.record under `session`, result-v1's session of this series (the phases differ)."""
+        self.bench.perf_session = session
         return self.bench.record(story, metric, unit, samples, better=better, engine=engine)
 
     def rpc(self, method, params=None, timeout=60):
@@ -227,11 +244,22 @@ class App:
 
 
 def run(app, opts, pid=None):
-    """Light cycles, then the heavy session and its cycles; returns the report."""
+    """Light cycles, then the heavy session and its cycles; returns the report. `opts.phases` light or heavy measures
+    only that session (default all: both)."""
+    phases = getattr(opts, "phases", None) or "all"
+    report = {"failures": []}
+    if phases in ("all", "light"):
+        light_rows, light_hangs = cycles(app, opts.cycles)
+        report["light"], report["light_rows"] = summarize(light_rows, light_hangs), light_rows
+        print(f"activation-perf: light {json.dumps(report['light'])}", flush=True)
+    if phases in ("all", "heavy"):
+        report.update(run_heavy(app, opts, pid))
+    return report
+
+
+def run_heavy(app, opts, pid):
+    """The heavy session, its app-only activations, then its Cmd-Tab activations; the heavy part of the report."""
     session = Session(app, getattr(app, "scratch", tempfile.mkdtemp()))
-    light_rows, light_hangs = cycles(app, opts.cycles)
-    light = summarize(light_rows, light_hangs)
-    print(f"activation-perf: light {json.dumps(light)}", flush=True)
     sizes = session.build(opts.workspaces, opts.browser, opts.chats, opts.hibernate)
     print(f"activation-perf: session {json.dumps(sizes)}", flush=True)
     # App notices only (builds before the window_notices parameter post only these): the mode that
@@ -248,29 +276,32 @@ def run(app, opts, pid=None):
     if worst is not None and worst > opts.max_resyncs:
         failures.append(f"an activation resynced {worst} status indicators in the heavy session (budget {opts.max_resyncs}: "
                         f"the indicators on screen, not every row and tab)")
-    return {"light": light, "session": sizes, "heavy_app_only": heavy_app, "heavy": heavy, "rows": heavy_rows,
-            "light_rows": light_rows, "heavy_app_only_rows": app_rows, "failures": failures}
+    return {"session": sizes, "heavy_app_only": heavy_app, "heavy": heavy, "rows": heavy_rows,
+            "heavy_app_only_rows": app_rows, "failures": failures}
 
 
 def phase_series(report):
-    """(metric, raw samples, unit, engine) of each phase in a ``run`` report."""
+    """(metric, raw samples, unit, story, session, engine) of each phase that a ``run`` report measured."""
     series = []
     for phase, rows in (("light", report.get("light_rows")), ("heavy_app_only", report.get("heavy_app_only_rows")),
                         ("heavy", report.get("rows"))):
+        if rows is None:
+            continue
         for name, key, unit in RECORDED:
-            series.append((f"activation.{phase}.{name}", values_of(rows or [], key), unit, PHASE_ENGINES[phase]))
+            series.append((f"activation.{phase}.{name}", values_of(rows, key), unit, *PHASES[phase]))
     return series
 
 
-def record(app, story, report):
+def record(app, report):
     """Writes the phases' series as result-v1 (App.record); returns {metric: path or "not recorded: why"}."""
     written = {}
-    for metric, samples, unit, engine in phase_series(report):
+    for metric, samples, unit, story, session, engine in phase_series(report):
         if not samples:
             written[metric] = "not recorded: no samples"
             continue
         try:
-            written[metric] = str(app.record(story, metric, unit, samples, better="lower", engine=engine))
+            written[metric] = str(app.record(story, metric, unit, samples, better="lower", engine=engine,
+                                             session=session))
         except (RecordError, perf_result.ResultError) as error:
             written[metric] = f"not recorded: {error}"
         print(f"activation-perf: result-v1 {metric}: {written[metric]}", flush=True)
@@ -293,18 +324,24 @@ def main():
     parser.add_argument("--hang-ms", type=int, default=30)
     parser.add_argument("--sample", action="store_true", help="sample the main thread during the heavy cycles")
     parser.add_argument("--gate", action="store_true", help="exit 1 when a blocking budget breaks")
-    parser.add_argument("--story", default="activation", help="result-v1 story of the recorded series")
-    parser.add_argument("--session", choices=["light", "stress"], default="light", help="result-v1 session")
+    parser.add_argument("--phases", choices=["all", "light", "heavy"],
+                        help="the sessions to measure: light, heavy (app-only and Cmd-Tab activations) or all (default)")
+    parser.add_argument("--session", choices=sorted(SESSION_PHASES),
+                        help="the lab runner's result-v1 session: names the phases when --phases is not given")
     parser.add_argument("--tag", help="the app's tag (the lab runner passes it; the bundle names its own tag)")
     add_arguments(parser)
     opts = parser.parse_args()
+    if opts.session and opts.phases and opts.phases != SESSION_PHASES[opts.session]:
+        parser.error(f"--session {opts.session} is the session of --phases {SESSION_PHASES[opts.session]}, "
+                     f"not {opts.phases}")
+    opts.phases = opts.phases or SESSION_PHASES.get(opts.session, "all")
     os.makedirs(opts.out, exist_ok=True)
-    app = App(os.path.abspath(opts.app), opts.out, opts.hang_ms, perf_session=opts.session)
+    app = App(os.path.abspath(opts.app), opts.out, opts.hang_ms)
     report = {}
     try:
         app.launch()
         report = run(app, opts, pid=app.process.pid)
-        report["results"] = record(app, opts.story, report)
+        report["results"] = record(app, report)
     finally:
         app.stop()
         with open(os.path.join(opts.out, "activation-perf.json"), "w") as f:

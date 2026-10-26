@@ -2,7 +2,7 @@
   "id": "tab-switch",
   "tier": "T1",
   "description": "Tab switch, WebKit arm (F12): Ctrl-Tab, Cmd-Shift-] and strip clicks among 10 WebKit tabs, input to the committed frame (debug.tab_switch). The Chromium arm is the switch story (perf-budgets tab_switch family), judged by the same budget row.",
-  "command": ["scripts/cmux-next/tab-switch-matrix.py", "--kinds", "webkit", "--counts", "10", "--switches", "30"],
+  "command": ["scripts/cmux-next/tab-switch-matrix.py", "--kinds", "webkit", "--counts", "10", "--switches", "30", "--story", "tab-switch"],
   "session": "light",
   "engine": "webkit",
   "config": "bench",

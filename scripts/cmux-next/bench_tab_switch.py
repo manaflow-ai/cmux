@@ -363,7 +363,7 @@ def main():
     finally:
         if not args.keep_running:
             bench_app.stop()  # debug.quit, then the tag's daemons and terminals (tag_teardown.py)
-            report["teardown"] = {"by": "tag_teardown", "processes_left": len(bench_app.teardown.processes())}
+            report["teardown"] = "bench_launch"  # as bench_idle.py: tag_teardown logs its own counts
     out = os.path.join(out_dir, f"{args.sha}-tabswitch-{args.label}.json")
     with open(out, "w") as handle:
         json.dump(report, handle, indent=2)

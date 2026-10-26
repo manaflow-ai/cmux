@@ -5,11 +5,13 @@
         {
           "index": 0,
           "seconds": {
-            "T1": 12000,
+            "T1": 12960,
             "T2": 960
           },
           "stories": {
             "T1": [
+              "activation",
+              "activation-stress",
               "blocking-hangs",
               "chat-anim",
               "daemon-ops",
@@ -26,7 +28,9 @@
               "perf-gate",
               "sidebar",
               "switch",
-              "tab-switch"
+              "tab-switch",
+              "tab-switch-repeat",
+              "tab-switch-stages"
             ],
             "T2": [
               "launch-after-reboot",
@@ -65,22 +69,24 @@
           "index": 0,
           "seconds": {
             "T0": 330,
-            "T1": 6000
+            "T1": 6540
           },
           "stories": {
             "T0": [
               "new-surfaces"
             ],
             "T1": [
+              "activation",
+              "activation-stress",
               "blocking-hangs",
               "daemon-ops",
               "launch-cold",
               "launch-cold-realistic",
               "motion",
-              "new-surfaces-matrix",
               "omnibar",
               "pane-stress",
-              "switch"
+              "switch",
+              "tab-switch-stages"
             ]
           }
         },
@@ -88,7 +94,7 @@
           "index": 1,
           "seconds": {
             "T0": 120,
-            "T1": 6000
+            "T1": 6420
           },
           "stories": {
             "T0": [
@@ -100,9 +106,11 @@
               "launch-warm-realistic",
               "memory-hidden",
               "memory-hidden-webkit",
+              "new-surfaces-matrix",
               "perf-gate",
               "sidebar",
-              "tab-switch"
+              "tab-switch",
+              "tab-switch-repeat"
             ]
           }
         }

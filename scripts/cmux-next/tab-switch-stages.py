@@ -18,22 +18,20 @@ plus confirm_ms: the daemon stored the selection (window record write), asynchro
 The budget: a warm switch commits in the first frame (late_vsyncs 0) and apply p90 <= 8 ms.
 
 Percentiles (p50, p90, p95, p99) come from scripts/perf-lab/perf_stats.py (linear interpolation). The warm
-switches' raw samples go to --out as cmux-perf-result/v1 through BenchApp.record (story --story), per input
-(ctrl_tab, ctrl_shift_tab, click) and tab kind: tab_switch_stages.<input>.<kind>.{apply,commit,e2e} (e2e = input +
-commit, as tab-switch-matrix.py), and tab_switch_stages.<input>.confirm (the daemon store, async).
+switches' raw samples go to --out as cmux-perf-result/v1 through BenchApp.record (story tab-switch-stages), per
+input (ctrl_tab, ctrl_shift_tab, click) and tab kind: tab_switch_stages.<input>.<kind>.{apply,commit,e2e} (e2e =
+input + commit, as tab-switch-matrix.py), and tab_switch_stages.<input>.confirm (the daemon store, async). Every
+series carries the story's one engine, chromium (ingest refuses a run whose results differ on the engine); the tab
+kind is in the metric name.
 
 Usage: tab-switch-stages.py --tag <tag> --app PATH [--rounds 12] [--interval 0.25] [--out DIR] [--json PATH]
-       [--story tab-switch-stages] [--session light]
+       [--session light]
+Importing the module reads no arguments: configure() does, then main().
 """
 import argparse, json, os, re, signal, socket, statistics, subprocess, sys, tempfile, time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from bench_launch import BenchApp, PERF_LAB, RecordError, bundle_id, load_by_path  # noqa: E402
-
-# `--matrix`: every tab kind at 2/10/30/60 tabs with CPU and memory (tab-switch-matrix.py), through the
-# same fleet entry (scripts/measure/tab-switch.sh passes its arguments here).
-if "--matrix" in sys.argv:
-    os.execv(sys.executable, [sys.executable, os.path.join(os.path.dirname(os.path.abspath(__file__)), "tab-switch-matrix.py"), *sys.argv[1:]])
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
@@ -43,27 +41,36 @@ parser.add_argument("--interval", type=float, default=0.25, help="seconds betwee
 parser.add_argument("--apply-budget-ms", type=float, default=8.0)
 parser.add_argument("--out", default="/tmp")
 parser.add_argument("--json", help="write the samples here")
-parser.add_argument("--story", default="tab-switch-stages", help="result-v1 story of the recorded series")
 parser.add_argument("--session", choices=["light", "stress"], default="light", help="result-v1 session")
-opts = parser.parse_args()
 perf_stats = load_by_path("perf_stats", os.path.join(PERF_LAB, "perf_stats.py"))
 perf_result = load_by_path("perf_result", os.path.join(PERF_LAB, "perf_result.py"))
 pct = perf_stats.pct
-TAG, APP = opts.tag, os.path.abspath(opts.app.rstrip("/"))
-BUNDLE_ID = bundle_id(APP) or f"com.cmuxterm.app.debug.{TAG}"
-SOCKET = f"/tmp/cmux-debug-{TAG}.sock"
-CLI = os.path.join(APP, "Contents/Resources/bin/cmux")
-SCRATCH = tempfile.mkdtemp(prefix=f"tabswitch-{TAG}-")
-open(os.path.join(SCRATCH, "ghostty"), "w").close()
-CONFIG = os.path.join(SCRATCH, "cmux.json")
-open(CONFIG, "w").write("{}\n")
-ENV = {"HOME": os.environ["HOME"], "PATH": "/usr/bin:/bin", "TMPDIR": os.environ.get("TMPDIR", "/tmp"),
-       "CMUX_SOCKET_PATH": SOCKET, "CMUX_QUIET": "1"}
+# Set by configure() from the command line (main); unset while a test imports the module.
+opts = TAG = APP = BUNDLE_ID = SOCKET = CLI = SCRATCH = CONFIG = None
+ENV = {}
 STAGES = ["input", "focus", "strip", "withdraw", "content", "reveal", "stripSync", "view", "present", "record", "apply", "commit"]
 ROWS, LAUNCHED = [], []
 RECORDED_STAGES = ("apply", "commit", "e2e")
-ENGINES = {"chromium": "chromium", "webkit": "webkit"}  # every other tab kind draws no browser page
+# result-v1 story and engine of every recorded series (stories.d/tab-switch-stages.json): one engine per story run.
+STORY, ENGINE = "tab-switch-stages", "chromium"
 app = None
+
+
+def configure(argv=None):
+    """Reads the command line and makes the scratch config folder (the empty Ghostty config and cmux.json)."""
+    global opts, TAG, APP, BUNDLE_ID, SOCKET, CLI, SCRATCH, CONFIG
+    opts = parser.parse_args(argv)
+    TAG, APP = opts.tag, os.path.abspath(opts.app.rstrip("/"))
+    BUNDLE_ID = bundle_id(APP) or f"com.cmuxterm.app.debug.{TAG}"
+    SOCKET = f"/tmp/cmux-debug-{TAG}.sock"
+    CLI = os.path.join(APP, "Contents/Resources/bin/cmux")
+    SCRATCH = tempfile.mkdtemp(prefix=f"tabswitch-{TAG}-")
+    open(os.path.join(SCRATCH, "ghostty"), "w").close()
+    CONFIG = os.path.join(SCRATCH, "cmux.json")
+    with open(CONFIG, "w") as handle:
+        handle.write("{}\n")
+    ENV.update({"HOME": os.environ["HOME"], "PATH": "/usr/bin:/bin", "TMPDIR": os.environ.get("TMPDIR", "/tmp"),
+                "CMUX_SOCKET_PATH": SOCKET, "CMUX_QUIET": "1"})
 
 
 def run(*args, timeout=30):
@@ -190,7 +197,7 @@ def measure(label, step, count):
 
 
 def input_series(input_id, part):
-    """(metric, raw samples, engine) of one measured input: each warm kind's stages, and the daemon confirms."""
+    """(metric, raw samples) of one measured input: each warm kind's stages, and the daemon confirms."""
     series = []
     for kind in sorted({s.get("kind", "?") for s in part["switches"]} - {"cold"}):
         rows = [s for s in part["switches"] if s.get("kind", "?") == kind]
@@ -200,21 +207,22 @@ def input_series(input_id, part):
                 values = [r["input_ms"] + r["commit_ms"] for r in rows if "input_ms" in r and "commit_ms" in r]
             else:
                 values = [r[stage + "_ms"] for r in rows if stage + "_ms" in r]
-            series.append((f"tab_switch_stages.{input_id}.{name}.{stage}", values, ENGINES.get(kind, "none")))
-    series.append((f"tab_switch_stages.{input_id}.confirm", part["confirms_ms"], "none"))
+            series.append((f"tab_switch_stages.{input_id}.{name}.{stage}", values))
+    series.append((f"tab_switch_stages.{input_id}.confirm", part["confirms_ms"]))
     return series
 
 
 def record(launcher, report):
-    """Writes every measured input's series as result-v1 (BenchApp.record); returns {metric: path or "not recorded: why"}."""
+    """Writes every measured input's series as result-v1 (BenchApp.record), all in STORY under its ENGINE; returns
+    {metric: path or "not recorded: why"}."""
     written = {}
     for key, input_id in (("keys_forward", "ctrl_tab"), ("keys_back", "ctrl_shift_tab"), ("clicks", "click")):
-        for metric, samples, engine in input_series(input_id, report[key]):
+        for metric, samples in input_series(input_id, report[key]):
             if not samples:
                 written[metric] = "not recorded: no samples"
                 continue
             try:
-                written[metric] = str(launcher.record(opts.story, metric, "ms", samples, better="lower", engine=engine))
+                written[metric] = str(launcher.record(STORY, metric, "ms", samples, better="lower", engine=ENGINE))
             except (RecordError, perf_result.ResultError) as error:
                 written[metric] = f"not recorded: {error}"
             print(f"result-v1 {metric}: {written[metric]}", flush=True)
@@ -320,9 +328,16 @@ def main():
         print("wrote", opts.json, flush=True)
 
 
-try:
-    main()
-finally:
-    cleanup()
-    print("\nRESULT", "PASS" if ROWS and all(r[3] for r in ROWS) else "FAIL", f"({sum(r[3] for r in ROWS)}/{len(ROWS)})")
-    sys.exit(0 if ROWS and all(r[3] for r in ROWS) else 1)
+if __name__ == "__main__":
+    # `--matrix`: every tab kind at 2/10/30/60 tabs with CPU and memory (tab-switch-matrix.py), through the
+    # same fleet entry (scripts/measure/tab-switch.sh passes its arguments here).
+    if "--matrix" in sys.argv:
+        os.execv(sys.executable, [sys.executable, os.path.join(os.path.dirname(os.path.abspath(__file__)), "tab-switch-matrix.py"),
+                                  *sys.argv[1:]])
+    configure()
+    try:
+        main()
+    finally:
+        cleanup()
+        print("\nRESULT", "PASS" if ROWS and all(r[3] for r in ROWS) else "FAIL", f"({sum(r[3] for r in ROWS)}/{len(ROWS)})")
+        sys.exit(0 if ROWS and all(r[3] for r in ROWS) else 1)
