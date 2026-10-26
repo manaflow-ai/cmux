@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextAgentPane
 import CmuxNextBrowser
 import CmuxNextControl
+import CmuxNextOracle
 import CmuxNextPages
 import CmuxNextResources
 import CmuxNextSettings
@@ -172,6 +173,49 @@ enum DebugPages {
             members["claim"] = ["path": .string(claim.path.rawValue), "ms": .number(claim.milliseconds)]
         }
         return members
+    }
+}
+
+/// The oracle's `webviews` facet (p15-oracle-215): each loaded page a person can reach (in a tab or a window, never
+/// a parked spare) answers `cmux.page.oracle.state`, placed by the page or agent tab whose view holds it.
+extension AppServices {
+    func oracleWebviews() async throws(OracleFacetError) -> OracleWebviewsFacet.Reading {
+        let places = oraclePagePlaces(), spare = newTabSpares.spare?.view
+        var reading = OracleWebviewsFacet.Reading()
+        for page in webUI.registry.pages() {
+            var holder: NSView? = page
+            while let view = holder, places[ObjectIdentifier(view)] == nil { holder = view.superview }
+            let place = holder.flatMap { places[ObjectIdentifier($0)] }
+            let inSpare = spare.map { page.isDescendant(of: $0) } ?? false
+            guard place != nil || page.window != nil, !inSpare else { continue }
+            let answer: PageWebView.OracleStateAnswer?
+            do throws(PageError) { answer = try await page.oracleState() } catch {
+                throw OracleFacetError("page \(page.pageID): \(error.code) \(error.message)")
+            }
+            switch answer {
+            case .state(let state)?:
+                reading.pages.append(try OracleWebviewsFacet.Page(page: page.pageID, tab: place?.tab, pane: place?.pane,
+                                                                  answer: state.foundationObject))
+            case .unserved?: reading.unserved.append(page.pageID)
+            case .gone?, nil: continue
+            }
+        }
+        return reading
+    }
+
+    /// The view of each page tab and made agent tab, by its tab and pane (no lookup makes a view or starts acpmux).
+    private func oraclePagePlaces() -> [ObjectIdentifier: (tab: String, pane: String)] {
+        var places: [ObjectIdentifier: (tab: String, pane: String)] = [:]
+        for (workspace, _) in machines.allWorkspaces {
+            for pane in workspace.screens.flatMap(\.panes) {
+                for tab in pane.tabs.map(\.id) + pages.tabIDs(in: pane.id) {
+                    var view: NSView? = pages.existingView(tab)
+                    if view == nil { view = madeAgentTabs?.existingView(tab) }
+                    if let view { places[ObjectIdentifier(view)] = (tab, pane.id) }
+                }
+            }
+        }
+        return places
     }
 }
 #endif

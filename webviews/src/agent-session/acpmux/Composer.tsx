@@ -85,6 +85,7 @@ import { folder, promptSuggestion, type LivePullRequest, type PromptSuggestion }
 import { useHeaderState } from "./header/headerState";
 import { queuePauseReason } from "./queuePause";
 import { stopTurnFromAction } from "./stopTurnAction";
+import { contributeOracleState } from "../../protocol/oracle-state";
 
 /// Composer copy. English defaults until the host passes localized labels, as the rest of the pane does today.
 /// How long after a send the Stop button that replaces Send ignores clicks.
@@ -406,6 +407,9 @@ export function Composer({
     },
     [prompt],
   );
+  // The prompt's text reaches the refactor oracle only as its SHA-256, in developer builds only
+  // (protocol/oracle-state.ts).
+  useEffect(() => contributeOracleState(() => ({ draft: field.current?.value() ?? textRef.current })), []);
   // The editor can stay mounted while a turn streams. Keep the callbacks it calls stable so the
   // memoized Milkdown field does not reconcile for every inbound snapshot; the refs are refreshed
   // below after the current render has computed the live steer/queue behavior.
