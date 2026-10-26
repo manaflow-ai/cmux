@@ -1153,10 +1153,6 @@ pub(super) fn failure(code: &str, message: &str, output: OutputMode, exit_code: 
     )
 }
 
-fn positional<const N: usize>(args: &[String], usage: &str) -> Result<[String; N], UsageError> {
-    <[String; N]>::try_from(args.to_vec()).map_err(|_| UsageError::new(usage))
-}
-
 /// `--key value` / `--key=value` options (repeatable) and boolean flags.
 struct Options {
     values: Vec<(String, String)>,

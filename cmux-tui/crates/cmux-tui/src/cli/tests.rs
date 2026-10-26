@@ -228,7 +228,7 @@ mod remote_cli_docs {
         let missing = action_names()
             .into_iter()
             .filter_map(|name| name.strip_prefix("cloud ").map(str::to_owned))
-            .filter(|name| !super::super::CLOUD_HELP.contains(name))
+            .filter(|name| !CLOUD_HELP.contains(name))
             .collect::<Vec<_>>();
         assert!(missing.is_empty(), "cloud help omitted catalog actions: {missing:?}");
     }
@@ -236,13 +236,13 @@ mod remote_cli_docs {
     #[test]
     fn cloud_exec_without_command_returns_actionable_usage() {
         let args = strings(&["cloud", "exec", "--target", "machine:builder"]);
-        assert!(super::super::app::parse(&args).is_err());
+        assert!(app::parse(&args).is_err());
         let args =
             strings(&["cloud", "exec", "--target", "machine:builder", "--arg", "command=uname -a"]);
-        assert!(super::super::app::parse(&args).is_ok());
-        assert!(super::super::CLOUD_HELP.contains("cloud <action>"));
-        assert!(super::super::AGENT_HELP.contains("agent open-tab"));
-        assert!(super::super::AGENT_HELP.contains("agent open <session id> [--name NAME] [--key UUID] [--cwd DIR] [--host HOST] [--group GROUP] [--focus]"));
+        assert!(app::parse(&args).is_ok());
+        assert!(CLOUD_HELP.contains("cloud <action>"));
+        assert!(AGENT_HELP.contains("agent open-tab"));
+        assert!(AGENT_HELP.contains("agent open <session id> [--name NAME] [--key UUID] [--cwd DIR] [--host HOST] [--group GROUP] [--focus]"));
     }
 
     #[test]
