@@ -222,12 +222,24 @@ extension CEFRuntime {
             tab.automaticDownloads.userGesture()
             tab.pageUserInput?(ProcessInfo.processInfo.systemUptime)
         }
-        windowRequests.linkClicks.startRecordingClicks { [weak self] in self?.windowRequests.clickTargets() ?? [] }
-        swipeNavigation.start()
+        startInput()
         tabsByBrowser[browser] = tab
         tab.attach(browser: browser)
         accessibility.attached(browser)
         signInCallbacks.attached(tab)
+    }
+
+    /// Link clicks and swipes start hearing the app's input tap (once; later calls do nothing).
+    private func startInput() {
+        guard let input else {
+            if !reportedMissingInput {
+                reportedMissingInput = true
+                logger.fault("a Chromium tab registered with no input tap: link clicks and swipes are not heard")
+            }
+            return
+        }
+        windowRequests.linkClicks.startRecordingClicks(input: input) { [weak self] in self?.windowRequests.clickTargets() ?? [] }
+        swipeNavigation.start(input: input)
     }
 
     private func browserClosed(_ browser: Int32) {

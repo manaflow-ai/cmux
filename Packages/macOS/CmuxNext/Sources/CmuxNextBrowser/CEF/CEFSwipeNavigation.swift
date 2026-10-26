@@ -1,9 +1,11 @@
 import AppKit
 import CmuxNextDesign
+import CmuxNextInput
+import CmuxNextInputCore
 
 /// A two-finger horizontal swipe over a Chromium page goes Back or Forward, as in Safari and
-/// Chrome (plans/cmux-next/history.md 4.2). A local monitor sees each scroll event before
-/// Chromium does. `BrowserSwipeGesture` decides from the page's own answer
+/// Chrome (plans/cmux-next/history.md 4.2). A scroll intercept on the app's input tap sees each
+/// scroll event over a page before Chromium does. `BrowserSwipeGesture` decides from the page's own answer
 /// (`BrowserSwipeProbe`) whether the gesture is a swipe. The page keeps every gesture it would
 /// scroll, and every gesture a script takes. Once the gesture is a swipe, `trackSwipeEvent`
 /// follows the fingers and the indicator (`BrowserSwipeIndicator`) follows its amount. Letting
@@ -17,10 +19,16 @@ import CmuxNextDesign
 /// page's host view asks the layout around it (`isScrollGestureTakenByEnclosingView`, the one
 /// owner decision) instead of testing the modifier keys here. A gesture the layout passes to the
 /// page swipes like any other, as a WebKit page does with the same gesture.
+///
+/// The intercept runs only while a gesture over a page is under way or the pointer is in a page
+/// window (``isListening(gestureOver:lastPointer:)``, two field reads): a scroll anywhere else in the
+/// app costs no target search. Chrome likewise starts its history swipe from the scroll events its
+/// page view receives (`chrome/browser/renderer_host/chrome_render_widget_host_view_mac_history_swiper.mm`),
+/// not from every scroll of the app.
 @MainActor
 final class CEFSwipeNavigation {
     private weak var runtime: CEFRuntime?
-    private var monitor: Any?
+    private var subscription: InputSubscription?
     private var gesture = BrowserSwipeGesture()
     private let pageProbe = BrowserSwipeProbe()
     /// The page the current gesture began over.
@@ -36,43 +44,62 @@ final class CEFSwipeNavigation {
         self.runtime = runtime
     }
 
-    func start() {
-        guard monitor == nil else { return }
-        // AppKit calls a local monitor on the main thread (the module's isolation), like
-        // `CEFLinkClickTracker`; an NSEvent cannot leave `MainActor.assumeIsolated`.
-        monitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { [weak self] event in
-            guard let self else { return event }
-            return self.handle(event)
+    /// Starts hearing scrolls from `input`, the app's input tap.
+    func start(input: InputEventTap) {
+        guard subscription == nil else { return }
+        subscription = input.subscribe(class: .scroll, phase: .intercept(order: .standard),
+                                       while: { [weak self, weak input] in
+                                           CEFSwipeNavigation.isListening(gestureOver: self?.tab != nil, lastPointer: input?.lastPointer)
+                                       }) { [weak self] event in
+            self?.handle(event) ?? .pass
         }
     }
 
-    private func handle(_ event: NSEvent) -> NSEvent? {
+    /// Whether scrolls are heard now.
+    var isStarted: Bool { subscription != nil }
+
+    /// Whether the intercept handles the scroll the tap is delivering: a gesture that began over a
+    /// page goes on (its events follow the fingers out of the page), and a new one can begin only in
+    /// a Chromium page window, a child window over its cmux window (`lastPointer`, the event being
+    /// delivered: its window is not its owner window). `CEFLinkClicks.browser` finds no page in any
+    /// other window, so nothing that could swipe is skipped.
+    nonisolated static func isListening(gestureOver: Bool, lastPointer: InputEventRecord?) -> Bool {
+        if gestureOver { return true }
+        guard let pointer = lastPointer, pointer.type == .scrollWheel else { return false }
+        return pointer.windowNumber > 0 && pointer.windowNumber != pointer.ownerWindowNumber
+    }
+
+    func handle(_ event: NSEvent) -> InputEventTap.InterceptResult {
         // Momentum after a gesture never starts a swipe; a mouse wheel has no phases.
-        guard event.momentumPhase.isEmpty, let phase = Self.scrollPhase(event.phase) else { return event }
+        guard event.momentumPhase.isEmpty, let phase = Self.scrollPhase(event.phase) else { return .pass }
         if phase == .began {
             guard NavigationTunables.swipeNavigation.value, NSEvent.isSwipeTrackingFromScrollEventsEnabled,
                   let target = target(of: event) else {
                 gesture.cancel()
                 tab = nil
-                return event
+                return .pass
             }
             tab = target.tab
             hostView = target.host
             point = target.point
         } else if tab == nil {
-            return event
+            return .pass
         }
         // Asked on began and moving events (`BrowserSwipeGesture.scroll`): a superview walk, no allocation.
         // On began it is true when the layout decided at the touch, so a Command gesture never probes the page.
         let takenByLayout = (phase == .began || phase == .changed) && hostView?.isScrollGestureTakenByEnclosingView == true
-        switch gesture.scroll(phase, deltaX: event.scrollingDeltaX, deltaY: event.scrollingDeltaY, takenByLayout: takenByLayout) {
+        let step = gesture.scroll(phase, deltaX: event.scrollingDeltaX, deltaY: event.scrollingDeltaY, takenByLayout: takenByLayout)
+        // The gesture is over: the intercept goes back to hearing only page windows (a running swipe
+        // keeps its own tab).
+        if phase == .ended { tab = nil }
+        switch step {
         case .none:
-            return event
+            return .pass
         case .probe:
             probe()
-            return event
+            return .pass
         case .track(let direction):
-            return track(event, direction: direction) ? nil : event
+            return track(event, direction: direction) ? .consume : .pass
         }
     }
 

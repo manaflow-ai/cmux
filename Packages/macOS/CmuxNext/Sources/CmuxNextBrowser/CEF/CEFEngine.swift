@@ -1,4 +1,5 @@
 import CmuxNextCompat
+public import CmuxNextInput
 public import Foundation
 
 /// The Chromium engine: the patched CEF fork (manaflow-ai/cef, Chrome style
@@ -39,12 +40,14 @@ public final class CEFEngine: BrowserEngine {
     ///   - signInCallbacks: The App's sign-in tabs.
     ///   - lifecycleTrace: Receives content lifecycle events; disabled by default.
     ///   - contextMenus: Presents menus when no tab delegate handles the request.
+    ///   - input: The app's input tap, which page link clicks and swipes hear; nil for an engine that
+    ///     gives none (a test's).
     public convenience init(layout: CEFRuntimeLayout? = CEFRuntimeLayout.locate(),
                             stores: BrowserSharedStores, signInCallbacks: CEFSignInCallbacks,
                             lifecycleTrace: BrowserLifecycleTrace = .shared,
-                            contextMenus: BrowserContextMenuBuilder = .shared) {
+                            contextMenus: BrowserContextMenuBuilder = .shared, input: InputEventTap? = nil) {
         self.init(source: CEFRuntimeSource(layout: layout), stores: stores, signInCallbacks: signInCallbacks,
-                  lifecycleTrace: lifecycleTrace, contextMenus: contextMenus)
+                  lifecycleTrace: lifecycleTrace, contextMenus: contextMenus, input: input)
     }
 
     /// Creates an engine whose runtime may arrive later (Chromium on demand).
@@ -55,15 +58,18 @@ public final class CEFEngine: BrowserEngine {
     ///   - signInCallbacks: The App's sign-in tabs; the runtime sends the shim's callbacks there.
     ///   - lifecycleTrace: Receives content lifecycle events; disabled by default.
     ///   - contextMenus: Presents menus when no tab delegate handles the request.
+    ///   - input: The app's input tap, which page link clicks and swipes hear (the process-wide
+    ///     runtime keeps the first one given); nil for an engine that gives none (a test's).
     public init(source: CEFRuntimeSource,
                 stores: BrowserSharedStores, signInCallbacks: CEFSignInCallbacks,
                 lifecycleTrace: BrowserLifecycleTrace = .shared,
-                contextMenus: BrowserContextMenuBuilder = .shared) {
+                contextMenus: BrowserContextMenuBuilder = .shared, input: InputEventTap? = nil) {
         runtimeSource = source
         self.stores = stores
         self.signInCallbacks = signInCallbacks
         self.lifecycleTrace = lifecycleTrace
         self.contextMenus = contextMenus
+        if let input { CEFRuntime.shared.attachInput(input) }
     }
 
     public var availability: BrowserEngineAvailability {
