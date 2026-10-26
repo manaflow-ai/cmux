@@ -36,6 +36,52 @@ fn disallowed_tools(meta: Option<&Value>) -> Result<Vec<String>, RpcError> {
     }
 }
 
+/// A create's admission ask (`hub/admission.rs`): `_meta.acpmux.forceAdmit`
+/// (`acpmux new --force-admit`), and whether the person asks here (proven, or
+/// this host's app pane; a peer's `via: app` is its client's word, not proof).
+pub(super) fn ask<'a>(conn: &Conn, params: &Value, who: &'a str) -> crate::hub::admission::Ask<'a> {
+    let can_force = can_force(conn.origin);
+    let force = can_force && force_asked(params);
+    let person = conn.is_person() || conn.origin == Origin::LocalApp;
+    // A Web client, here or through a peer, learns no host name or path.
+    let web =
+        super::remote_guard::control_of(conn.origin, conn.auth, params) == crate::hub::Control::Web;
+    let name = create_name(params);
+    crate::hub::admission::Ask { force, can_force, person, who, local: !web, name }
+}
+
+/// The create's name, as `session/new` and `session/fork` read it.
+fn create_name(params: &Value) -> Option<String> {
+    mux_meta(params)
+        .and_then(|m| m.get("name"))
+        .and_then(Value::as_str)
+        .or_else(|| params.get("name").and_then(Value::as_str))
+        .map(str::to_owned)
+}
+
+/// `_meta.acpmux.forceAdmit` is true.
+pub(super) fn force_asked(params: &Value) -> bool {
+    mux_meta(params)
+        .and_then(|m| m.get(crate::hub::admission::FORCE_FIELD))
+        .and_then(Value::as_bool)
+        == Some(true)
+}
+
+/// Whether this connection's `forceAdmit` is honoured: this host's unix socket
+/// or app, as for `--policy` and `--mode`; a Web client's or a peer's is not.
+pub(super) fn can_force(origin: Origin) -> bool {
+    !origin.web_class()
+}
+
+/// Who asks, for the admission log: the proven caller session, else the
+/// connection's origin and id.
+pub(super) fn who(conn: &Conn) -> String {
+    match conn.caller() {
+        Some(session) => format!("session {session}"),
+        None => format!("{:?} connection {}", conn.origin, conn.id),
+    }
+}
+
 /// Subscribe the connection to a session and, when that is new, count it
 /// as attached (remote sessions are not counted; their host does that).
 pub(super) fn attach(hub: &Hub, conn: &Conn, id: &str) {
@@ -428,8 +474,15 @@ async fn dispatch_brief(
         .pointer("/host_pressure/warning")
         .and_then(Value::as_str)
         .map(str::to_owned);
+    // Another host only when it has room: an overloaded pick is no better a place (`placement.rs`).
     let suggestion = match &pressure {
-        Some(_) => auto_host(hub, &brief).await.ok().flatten(),
+        Some(_) => {
+            let v = super::place::pick(hub, super::place::brief_work(&brief)).await;
+            let flag = |k: &str| v.get(k).and_then(Value::as_bool) == Some(true);
+            (!flag("overloaded") && !flag("local"))
+                .then(|| v.get("pick").and_then(Value::as_str).map(str::to_owned))
+                .flatten()
+        }
         None => None,
     }
     .filter(|host| row.get("host").and_then(Value::as_str) != Some(host));
@@ -776,6 +829,14 @@ async fn dispatch_request(
             let lane_parent = super::lane_parent(hub, conn, &params);
             let (asked_policy, agent) =
                 (policy.is_some(), conn.caller().filter(|_| !conn.is_person()));
+            // A new session needs room on this host (`hub/admission.rs`); an adopt that
+            // never forks is not checked. Before the worktree, so a refusal makes none;
+            // counted until the create ends.
+            let who = who(conn);
+            let admitted = match &adopt {
+                Some(a) if a.if_live != crate::adopt::IfLive::Fork => None,
+                _ => Some(hub.admit_new(ask(conn, &params, &who)).await?),
+            };
             // After the request checks above, so a request they refuse makes no worktree.
             let worktree = super::new_worktree::ensure(conn.origin, meta, &mut cwd).await?;
             let req = crate::hub::NewRequest {
@@ -798,7 +859,10 @@ async fn dispatch_request(
                 disallowed_tools,
                 checked_cwd: None,
             };
-            let s = hub.new_session(req).await?;
+            let s = match &admitted {
+                Some(admitted) => admitted.run(hub.new_session(req)).await?,
+                None => hub.new_session(req).await?,
+            };
             if let Some(tags) = meta.and_then(|m| m.get("tags")).and_then(Value::as_object)
                 && !tags.is_empty()
             {
@@ -838,6 +902,10 @@ async fn dispatch_request(
             let mut summary = hub.session_summary(&s);
             if let Some(w) = worktree {
                 summary.set("worktree", w);
+            }
+            // Started past the lane cap: the caller hears it (`hub/admission.rs`).
+            if let Some(w) = admitted.as_ref().and_then(|a| a.warning.clone()) {
+                summary.set("admission", w);
             }
             Ok(json!({
                 "sessionId": s.id,
@@ -1051,11 +1119,17 @@ async fn dispatch_request(
             let env = crate::session_env::parse(mux_meta(&params))?;
             let workspace_id = crate::session_env::workspace_id(mux_meta(&params), &env)?;
             let through = super::fork_through::through(&params);
-            let new = hub.fork(&s, name, cwd, env, workspace_id, through).await?;
+            let who = who(conn);
+            let admitted = hub.admit_new(ask(conn, &params, &who)).await?;
+            let new = admitted.run(hub.fork(&s, name, cwd, env, workspace_id, through)).await?;
             attach(hub, conn, &new.id);
             let meta = new.meta();
+            let mut summary = hub.session_summary(&new);
+            if let Some(w) = admitted.warning.clone() {
+                summary.set("admission", w);
+            }
             Ok(
-                json!({"sessionId": new.id, "modes": meta.modes, "configOptions": meta.config_options, "_meta": {"acpmux": hub.session_summary(&new)}}),
+                json!({"sessionId": new.id, "modes": meta.modes, "configOptions": meta.config_options, "_meta": {"acpmux": summary}}),
             )
         }
         method::SESSION_SET_MODE => {
@@ -1346,15 +1420,16 @@ async fn dispatch_request(
             let s = hub.resolve(session_key(&params)?)?;
             // After a restart the chat logs are read after the ready line; until
             // then the queue, the turn and the status are the session list's. Info
-            // waits for them (#22916), unless a caller that reads only what the
+            // waits for this chat's (#22916; read now if the background pass has not
+            // reached it, `hub/log_load.rs`), unless a caller that reads only what the
             // session list holds (its id, env, policy, rules, modes) asks with
             // `waitLogs: false`: it answers at once, with `logsLoading`.
             if params.get("waitLogs").and_then(Value::as_bool) != Some(false) {
-                hub.wait_logs().await;
+                hub.session_log(&s).await;
             }
             let mut detail = hub.session_detail(&s);
             if let Some(obj) = detail.as_object_mut() {
-                obj.insert("logsLoading".into(), json!(!hub.logs_loaded()));
+                obj.insert("logsLoading".into(), json!(!hub.session_log_loaded(&s)));
             }
             // The session env reaches the unix socket only: no summary or
             // event carries it, so a key added to the allowlist later never
@@ -1473,8 +1548,8 @@ async fn dispatch_request(
         method::MUX_ATTACH => {
             let s = hub.resolve(session_key(&params)?)?;
             // A restart reads the chat logs after its ready line: the queue, turn and status
-            // shown here come from them (`Hub::load_logs`).
-            hub.wait_logs().await;
+            // shown here come from this chat's (`hub/log_load.rs`).
+            hub.session_log(&s).await;
             let filter = crate::hub::EventFilter::parse(params.get("kinds"))?;
             let event_stream = params.get("eventStream").and_then(Value::as_bool).unwrap_or(false);
             let hidden = params.get("visible") == Some(&Value::Bool(false));
@@ -1541,7 +1616,7 @@ async fn dispatch_request(
         method::MUX_QUEUE_EDIT => {
             let s = hub.resolve(session_key(&params)?)?;
             // The queue a restart rebuilds from the logs.
-            hub.wait_logs().await;
+            hub.session_log(&s).await;
             let control = super::remote_guard::control_of(conn.origin, conn.auth, &params);
             // A peer read the prompt masked (`peer_text.rs`): it may move or send one
             // with a secret, not rewrite it.
@@ -1559,7 +1634,7 @@ async fn dispatch_request(
         }
         method::MUX_QUEUE_REMOVE => {
             let s = hub.resolve(session_key(&params)?)?;
-            hub.wait_logs().await;
+            hub.session_log(&s).await;
             let prompt_id = str_param(&params, "promptId")
                 .ok_or_else(|| RpcError::invalid_params("promptId is required"))?;
             // Again after the wait, right before the change (`full_access_hold`).
@@ -1735,5 +1810,33 @@ mod dispatch_policy_tests {
             true
         ));
         assert!(peer_approve_all_allowed(Some("ask"), None, false));
+    }
+}
+
+#[cfg(test)]
+mod admission_force_tests {
+    use super::*;
+
+    #[test]
+    fn force_admit_is_honoured_only_from_this_machine() {
+        let forced = json!({"_meta": {"acpmux": {"forceAdmit": true}}});
+        assert!(force_asked(&forced));
+        assert!(!force_asked(&json!({})));
+        assert!(can_force(Origin::Local), "the unix socket");
+        assert!(can_force(Origin::LocalApp), "the app");
+        assert!(!can_force(Origin::Web), "a Web client");
+        assert!(!can_force(Origin::Peer), "a peer");
+    }
+
+    #[test]
+    fn the_admission_name_is_the_one_the_create_takes() {
+        let name = |p: Value| create_name(&p);
+        assert_eq!(name(json!({"name": "top"})).as_deref(), Some("top"));
+        let both = json!({"name": "top", "_meta": {"acpmux": {"name": "meta"}}});
+        assert_eq!(name(both).as_deref(), Some("meta"));
+        // A `_meta` name that is not a string falls back to the top-level one, as the create does.
+        let null = json!({"name": "top", "_meta": {"acpmux": {"name": null}}});
+        assert_eq!(name(null).as_deref(), Some("top"));
+        assert_eq!(name(json!({})), None);
     }
 }

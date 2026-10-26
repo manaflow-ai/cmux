@@ -37,22 +37,12 @@ const sharedChat = (presence: ChatPresence | undefined, shared = true): AcpmuxSn
   ...(presence && { presence }),
 });
 
-/// A running turn with two prompts waiting: the first a teammate's when `shared`.
-const queuedChat = (shared: boolean): AcpmuxSnapshot => ({
-  ...sharedChat(shared ? { viewing: [ANA], typing: [] } : undefined, shared),
-  isWorking: true,
-  queue: [
-    { id: "q-ana", prompt: "Then retry on 429 too", ...(shared && { author: ANA }) },
-    { id: "q-me", prompt: "And update the README" },
-  ],
-});
-
 export default agentPaneEntry({
   id: "agent-pane.shared-chat",
   title: "Agent pane: shared chat",
   area: "Agent pane",
   keywords: ["multiplayer", "presence", "typing", "author", "teammate", "answered by"],
-  covers: ["agent-session/acpmux/multiplayer/Faces.tsx", "agent-session/acpmux/ComposerQueue.tsx"],
+  covers: ["agent-session/acpmux/multiplayer/Faces.tsx"],
   height: 760,
   variants: {
     shared: {
@@ -66,14 +56,6 @@ export default agentPaneEntry({
     alone: {
       note: "Before: the same chat with nobody else; no faces, no authors, no typing line.",
       snapshot: sharedChat(undefined, false),
-    },
-    queued: {
-      note: "A turn runs; Ana's prompt waits in the queue under her name, with no actions (only she may change it), the reader's own below it with Steer, Delete and More.",
-      snapshot: queuedChat(true),
-    },
-    "queued-alone": {
-      note: "Before: the same queue with no teammate; both rows are the reader's, with their actions.",
-      snapshot: queuedChat(false),
     },
   },
 });
