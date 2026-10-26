@@ -5,8 +5,8 @@
         {
           "index": 0,
           "seconds": {
-            "T1": 19300,
-            "T2": 31440
+            "T1": 19720,
+            "T2": 31920
           },
           "stories": {
             "T1": [
@@ -17,6 +17,7 @@
               "agent-stream",
               "agent-stream-webkit",
               "app-split",
+              "bench-parity",
               "blocking-hangs",
               "chat-anim",
               "command-pan",
@@ -87,6 +88,7 @@
               "cli-storm-stress",
               "column-resize-live",
               "command-pan-stress",
+              "control-publish",
               "daemon-spawn",
               "devtools-resize-live",
               "launch-after-reboot",
@@ -99,6 +101,7 @@
               "sidebar-churn-typing",
               "sidebar-drag-live",
               "sidebar-drag-stress",
+              "stalls",
               "terminal-resize-stress",
               "typing-flood-stress"
             ]
@@ -115,7 +118,7 @@
         {
           "index": 0,
           "seconds": {
-            "T2": 31440
+            "T2": 31920
           },
           "stories": {
             "T2": [
@@ -144,6 +147,7 @@
               "cli-storm-stress",
               "column-resize-live",
               "command-pan-stress",
+              "control-publish",
               "daemon-spawn",
               "devtools-resize-live",
               "launch-after-reboot",
@@ -156,6 +160,7 @@
               "sidebar-churn-typing",
               "sidebar-drag-live",
               "sidebar-drag-stress",
+              "stalls",
               "terminal-resize-stress",
               "typing-flood-stress"
             ]
@@ -172,7 +177,7 @@
           "index": 0,
           "seconds": {
             "T0": 330,
-            "T1": 9610
+            "T1": 10030
           },
           "stories": {
             "T0": [
@@ -182,6 +187,7 @@
               "activation-stress",
               "agent-engine-webkit",
               "app-split",
+              "bench-parity",
               "blocking-hangs",
               "command-pan",
               "daemon-ops",
