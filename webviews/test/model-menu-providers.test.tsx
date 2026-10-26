@@ -250,6 +250,29 @@ test("the Provider row names the running provider and switches the running model
   expect(landed).toEqual(["openrouter/deepseek/deepseek-v4-pro"]);
 });
 
+test("the Provider row reaches every available provider when the running one is unavailable", async () => {
+  const catalog = [
+    {
+      ...openCode[0]!,
+      models: openCode[0]!.models.map((model) =>
+        model.id === "opencode/deepseek-v4-pro" ? { ...model, unavailable: "Not on this plan" } : model,
+      ),
+    },
+  ];
+  const { landed } = await mount("opencode/deepseek-v4-pro", { catalog });
+  const provider = [...menus()[0]!.querySelectorAll<HTMLElement>('[role="menuitem"]')].find((item) =>
+    item.textContent?.startsWith("Provider"),
+  )!;
+  expect(provider).toBeDefined();
+  expect(provider.querySelector(".acpmux-quick-value")?.textContent).toBe("OpenCode");
+  await act(async () => provider.click());
+  await act(async () => await new Promise((resolve) => setTimeout(resolve, 0)));
+  const sub = menus().at(-1)!;
+  expect(modelRows(sub).map(nameOf)).toEqual(["OpenCode", "OpenRouter", "DeepSeek"]);
+  await act(async () => modelRows(sub)[2]!.click());
+  expect(landed).toEqual(["deepseek/deepseek-v4-pro"]);
+});
+
 test("a chat on another provider's row of a model checks that model's one row and names that provider", async () => {
   await mount("deepseek/deepseek-v4-pro");
   const pro = modelRows(menus()[0]!).find((row) => nameOf(row) === "DeepSeek V4 Pro")!;
