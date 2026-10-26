@@ -22,7 +22,9 @@ public import Darwin
 /// `-DCMUX_BLOCKING_CHECKS` will record it and continue, and send it to the opt-in hang reports once
 /// their sink is installed.
 ///
-/// Off the main thread it is one `pthread_main_np()` call and one branch, with no clock read. On the main thread
+/// Off the main thread it is one `pthread_main_np()` call, one thread-local read and two branches, with no clock read:
+/// in a job of BackgroundWork's `.cpu` lane, which must not block, the call records a ``BlockingKind/wrongLane``
+/// site (``BlockingContext/cpuLane``). On the main thread
 /// a repeat of a known site is one table probe, two clock reads around `body` and three atomic adds; an allowed
 /// call is not timed.
 ///
@@ -42,7 +44,10 @@ public func blockingCall<Result, Failure: Error>(
     _ kind: BlockingKind, fileID: StaticString = #fileID, line: UInt = #line, _ body: () throws(Failure) -> Result
 ) throws(Failure) -> Result {
     #if DEBUG || CMUX_BLOCKING_CHECKS
-    guard pthread_main_np() != 0 else { return try body() }
+    guard pthread_main_np() != 0 else {
+        BlockingContext.checkOffMain(kind, fileID: fileID, line: line)
+        return try body()
+    }
     return try BlockingViolationTable.mainThreadBlockingCall(kind, fileID: fileID, line: line, body)
     #else
     return try body()
@@ -53,8 +58,9 @@ public func blockingCall<Result, Failure: Error>(
 /// time. No seam uses it; a seam runs its primitive through ``blockingCall(_:fileID:line:_:)``. It stays as the
 /// bare check that scripts/measure/blocking-checks.sh benches and finds compiled out of Release.
 ///
-/// Off the main thread the check is one `pthread_main_np()` call and one branch; a repeat of a
-/// known call site on the main thread is one table probe and one atomic add.
+/// Off the main thread the check is one `pthread_main_np()` call, one thread-local read and two branches (a
+/// ``BlockingContext/cpuLane`` job records a ``BlockingKind/wrongLane`` site); a repeat of a known call site on the
+/// main thread is one table probe and one atomic add.
 ///
 /// - Parameters:
 ///   - kind: What the call waits on.
@@ -65,6 +71,8 @@ public func assertBlockingAllowed(_ kind: BlockingKind, fileID: StaticString = #
     #if DEBUG || CMUX_BLOCKING_CHECKS
     if pthread_main_np() != 0 {
         BlockingViolationTable.mainThreadBlocked(kind, fileID: fileID, line: line)
+    } else {
+        BlockingContext.checkOffMain(kind, fileID: fileID, line: line)
     }
     #endif
 }

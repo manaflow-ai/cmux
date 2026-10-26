@@ -16,7 +16,7 @@ internal import os
 /// globals. Only the checks in this module read ``shared``; other modules hold a ``BlockingDetector``. Tests
 /// bind their own table with ``scoped``.
 ///
-/// Threads. Every violation happens on the main thread, so the main thread is the only writer of the
+/// Threads. Every violation but a wrong-lane one happens on the main thread, so the main thread is the only writer of the
 /// call-site index, the open allowance, the open timed call, the pending ring and the sites' counts and wall
 /// times: the violation path takes no lock and calls nothing it does not own. It probes the index; for a new
 /// site it writes one ring slot, then records the site in the index, and signals a user-data dispatch source.
@@ -25,7 +25,9 @@ internal import os
 /// drain queue
 /// (`com.cmuxterm.app.next.blocking-drain`, utility) empties the ring: it resolves the stack to image UUID +
 /// offset frames, publishes the site, writes the Debug log line and calls the sink, so the sink never runs on
-/// the thread that blocked or inside that thread's locks.
+/// the thread that blocked or inside that thread's locks. A wrong-lane violation (a seam in a `.cpu` lane job,
+/// ``BlockingContext/cpuLane``) happens on a lane thread: it counts in ``BlockingWrongLaneSites`` and a new site
+/// goes to the drain queue the same way.
 @usableFromInline
 final class BlockingViolationTable: Sendable {
     /// The process's table.
@@ -60,6 +62,8 @@ final class BlockingViolationTable: Sendable {
     nonisolated(unsafe) private let maxNanos: UnsafeMutablePointer<UnsafeAtomic<UInt64>.Storage> // crash-allow: fixed allocation of atomics; every access is an atomic operation
     private let ring: BlockingPendingRing
     private let overflowCount = UnsafeAtomic<Int>.create(0)
+    /// The ``BlockingKind/wrongLane`` sites: seams in `.cpu` lane jobs, recorded off the main thread.
+    private let wrongLane = BlockingWrongLaneSites(limit: BlockingViolationTable.siteLimit)
 
     private let drainQueue = DispatchQueue(label: "com.cmuxterm.app.next.blocking-drain", qos: .utility)
     nonisolated(unsafe) private let wake: any DispatchSourceUserDataAdd // crash-allow: dispatch sources are thread-safe; the main thread only adds data
@@ -215,6 +219,25 @@ final class BlockingViolationTable: Sendable {
         UnsafeAtomic<Int>(at: counts + site).wrappingIncrement(ordering: .relaxed)
     }
 
+    // MARK: the wrong-lane path (lane threads)
+
+    /// A blocking seam (`kind`) ran in a job of BackgroundWork's `.cpu` lane (``BlockingContext/cpuLane``), which
+    /// must not block: the site counts as ``BlockingKind/wrongLane``. A new site is logged and sent to the sink on the
+    /// drain queue, as a main-thread site is. Recorded only, never a trap: the job runs on its own lane thread, and
+    /// the fix is to move it to `.files` or `.system`.
+    @usableFromInline @inline(never)
+    static func blockedInWrongLane(_ kind: BlockingKind, fileID: StaticString, line: UInt) {
+        active.wrongLaneBlocked(kind, fileID: fileID, line: line)
+    }
+
+    private func wrongLaneBlocked(_ kind: BlockingKind, fileID: StaticString, line: UInt) {
+        guard wrongLane.record(fileID: fileID, line: line) else { return }
+        var pending = BlockingPendingCall(kind: .wrongLane, site: -1, fileID: fileID, line: line)
+        pending.captureStack()
+        let call = pending
+        drainQueue.async { [self] in reportWrongLane(call, seam: kind) }
+    }
+
     // MARK: allowance (main thread)
 
     /// Opens `reason` for the synchronous body of ``allowBlocking(_:_:)`` and returns what to pass to
@@ -261,6 +284,16 @@ final class BlockingViolationTable: Sendable {
         }
     }
 
+    private func reportWrongLane(_ pending: BlockingPendingCall, seam kind: BlockingKind) {
+        #if DEBUG
+        let location = "\(pending.fileID):\(pending.line)"
+        logger.error("blocking \(kind.rawValue, privacy: .public) in a .cpu lane job at \(location, privacy: .public): the .cpu lane must not block; run the job on .files or .system (plans/cmux-next/threading-model.md)")
+        #endif
+        guard let sink = sink.withLock({ $0 }) else { return }
+        var resolver = BlockingFrameResolver()
+        sink.record(BlockingViolation(kind: .wrongLane, frames: resolver.frames(pending.stack)))
+    }
+
     /// Waits until the drain has handled every site recorded before the call (tests).
     func flush() async {
         await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
@@ -283,10 +316,10 @@ final class BlockingViolationTable: Sendable {
                          count: UnsafeAtomic<Int>(at: counts + site.id).load(ordering: .relaxed),
                          totalNanos: UnsafeAtomic<UInt64>(at: totalNanos + site.id).load(ordering: .relaxed),
                          maxNanos: UnsafeAtomic<UInt64>(at: maxNanos + site.id).load(ordering: .relaxed))
-        }
+        } + wrongLane.sites
     }
 
-    var overflow: Int { overflowCount.load(ordering: .relaxed) }
+    var overflow: Int { overflowCount.load(ordering: .relaxed) + wrongLane.overflow }
 
     func resetCounts() {
         for slot in 0..<Self.siteLimit {
@@ -294,6 +327,7 @@ final class BlockingViolationTable: Sendable {
             UnsafeAtomic<UInt64>(at: totalNanos + slot).store(0, ordering: .relaxed)
             UnsafeAtomic<UInt64>(at: maxNanos + slot).store(0, ordering: .relaxed)
         }
+        wrongLane.resetCounts()
     }
 }
 #endif

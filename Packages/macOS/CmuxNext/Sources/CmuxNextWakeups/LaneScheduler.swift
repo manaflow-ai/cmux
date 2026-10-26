@@ -8,6 +8,10 @@ import Dispatch
 /// ``WorkPriority``, so each priority is serial and a best-effort write never sits in front of a
 /// user-blocking read. A `shared` lane (system, cpu) has `width` slots for every priority and starts the
 /// highest-priority pending item first.
+///
+/// Each item runs with its thread marked as the lane's ``BlockingContext`` (Chrome's `TaskTracker::RunTask` runs a
+/// task without `MayBlock` inside `ScopedDisallowBlocking`): in Debug and bench builds a blocking seam in a
+/// ``BlockingContext/cpuLane`` item records a ``BlockingKind/wrongLane`` site.
 final class LaneScheduler: Sendable {
     enum Policy: Sendable {
         case perPriority
@@ -27,12 +31,15 @@ final class LaneScheduler: Sendable {
     }
 
     let policy: Policy
+    /// What the blocking detector judges a seam in one of this lane's items by.
+    let context: BlockingContext
     private let slots: [DispatchQueue]
     // concurrency-allow: a short non-blocking critical section over the pending lists, taken from lane threads, cancel handlers and submitters that must not await (lock carve-out).
     private let state: Mutex<State>
 
-    init(label: String, policy: Policy) {
+    init(label: String, policy: Policy, context: BlockingContext) {
         self.policy = policy
+        self.context = context
         let names: [String] = switch policy {
         case .perPriority: WorkPriority.allCases.map { "\(label).\($0)" }
         case .shared(let width): (0..<max(1, width)).map { "\(label).\($0)" }
@@ -120,7 +127,7 @@ final class LaneScheduler: Sendable {
     private func launch(_ starts: [Start]) {
         for start in starts {
             slots[start.slot].async(qos: start.priority.qos, flags: .enforceQoS) { [self] in
-                start.job.execute()
+                context.whileCurrent { start.job.execute() }
                 finish(start.job.id, slot: start.slot)
             }
         }

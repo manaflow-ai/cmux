@@ -64,9 +64,10 @@ public final class BackgroundWork: Sendable {
         self.onQueued = onQueued
         lanes = BlockingLane.allCases.map { lane in
             switch lane {
-            case .files: LaneScheduler(label: "\(label).\(lane)", policy: .perPriority)
-            case .system: LaneScheduler(label: "\(label).\(lane)", policy: .shared(width: Self.systemWidth))
-            case .cpu: LaneScheduler(label: "\(label).\(lane)", policy: .shared(width: max(1, cpuWidth)))
+            case .files: LaneScheduler(label: "\(label).\(lane)", policy: .perPriority, context: .lane)
+            case .system: LaneScheduler(label: "\(label).\(lane)", policy: .shared(width: Self.systemWidth), context: .lane)
+            // The .cpu lane is sized to the cores: a blocking seam in one of its items is a wrong-lane violation.
+            case .cpu: LaneScheduler(label: "\(label).\(lane)", policy: .shared(width: max(1, cpuWidth)), context: .cpuLane)
             }
         }
     }
