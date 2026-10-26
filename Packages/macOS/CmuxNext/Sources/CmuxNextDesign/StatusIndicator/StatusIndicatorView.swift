@@ -8,13 +8,12 @@ public import CmuxNextWakeups
 /// config live, resolves colors in its theme scope, and animates only while
 /// its ``visibilityNode`` is visible and Reduce Motion is off.
 ///
-/// The node sits under its host's node (``hostVisibility``: a row's, a tab's) or else its window's
-/// (``WindowVisibilitySource``), and its own state is AppKit's hidden state for the view (recipe
-/// R-hide, plans/cmux-next/chrome-parity/p06-scheduler.md). A hidden app, a miniaturized or
-/// occluded window, a parked workspace and a hidden ancestor all reach it as one flip; the view
-/// observes no window and walks no ancestors. Chromium paces a hidden WebContents the same way, from
-/// the one visibility its owner sets (`content/public/browser/visibility.h`,
-/// `WebContentsImpl::UpdateWebContentsVisibility`).
+/// The node sits under its window's node (``WindowVisibilitySource``), and its own state is AppKit's
+/// hidden state for the view (recipe R-hide, plans/cmux-next/chrome-parity/p06-scheduler.md). A
+/// hidden app, a miniaturized or occluded window, a parked workspace and a hidden ancestor all reach
+/// it as one flip; the view observes no window and walks no ancestors. Chromium paces a hidden
+/// WebContents the same way, from the one visibility its owner sets
+/// (`content/public/browser/visibility.h`, `WebContentsImpl::UpdateWebContentsVisibility`).
 public final class StatusIndicatorView: NSView, StatusIndicatorConfigClient {
     public let indicator = StatusIndicatorLayer()
     public private(set) var state: StatusIndicatorState = .idle
@@ -24,12 +23,6 @@ public final class StatusIndicatorView: NSView, StatusIndicatorConfigClient {
 
     /// This indicator in the visibility tree. Its loop runs only while the node is visible.
     public let visibilityNode: VisibilityNode
-
-    /// The node this indicator sits under: its row's or its tab's. Nil puts it under its window's
-    /// node. It must not be ``visibilityNode`` or a node below it.
-    public var hostVisibility: VisibilityNode? {
-        didSet { if hostVisibility !== oldValue { placeInTree() } }
-    }
 
     /// Draws at the host's size whatever `appearance.statusIndicator.scale` says (chrome spinners
     /// sized to their slot); the color still follows the setting.
@@ -170,10 +163,10 @@ public final class StatusIndicatorView: NSView, StatusIndicatorConfigClient {
         refresh()
     }
 
-    /// Puts ``visibilityNode`` under the host's node or the window's, or under the hidden root while
-    /// the view is in no window.
+    /// Puts ``visibilityNode`` under the window's node, or under the hidden root while the view is in
+    /// no window.
     private func placeInTree() {
-        let parent = window.map { hostVisibility ?? WindowVisibilitySource.of($0).node } ?? offWindow
+        let parent = window.map { WindowVisibilitySource.of($0).node } ?? offWindow
         do {
             try visibilityNode.attach(to: parent)
         } catch {
