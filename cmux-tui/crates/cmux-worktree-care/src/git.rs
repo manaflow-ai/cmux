@@ -33,8 +33,10 @@ pub(crate) fn read(dir: &Path, overrides: &[Override], args: &[&str]) -> Result<
 /// never into `objects` (the repository's object folder, read as an
 /// alternate): `git merge-tree --write-tree` must write the trees it
 /// prints, and in the shared object folder they piled up as loose objects.
-/// `Ok(None)` when git ran and exited unsuccessfully (an answer, such as a
-/// conflict), an error when it could not run or finish.
+/// `Ok(None)` when git exited unsuccessfully and said nothing on stderr
+/// (merge-tree's conflict, with `--no-messages`); an error when it could
+/// not run or finish, or said why it failed (a missing object, a full
+/// disk): no answer, so asked again next time.
 pub(crate) fn read_scratch_objects(
     dir: &Path,
     overrides: &[Override],
@@ -45,13 +47,15 @@ pub(crate) fn read_scratch_objects(
     let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let scratch =
         std::env::temp_dir().join(format!("cmux-care-objects-{}-{n}", std::process::id()));
+    // A crashed run's folder under a reused pid starts empty again.
+    let _ = std::fs::remove_dir_all(&scratch);
     std::fs::create_dir_all(&scratch).map_err(|e| format!("{}: {e}", scratch.display()))?;
     let output =
         run_git_scratch_objects_within(dir, overrides, args, MAX_OUTPUT, READ, objects, &scratch);
     let _ = std::fs::remove_dir_all(&scratch);
     let output = match output {
         Ok(output) => output,
-        Err(GitFailure::Exit(_)) => return Ok(None),
+        Err(GitFailure::Exit(stderr)) if stderr.is_empty() => return Ok(None),
         Err(failure) => return Err(reason(failure)),
     };
     if output.truncated {

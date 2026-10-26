@@ -98,11 +98,42 @@ pub fn run_git_scratch_objects_within(
     objects: &Path,
     scratch: &Path,
 ) -> Result<GitOutput, GitFailure> {
+    let alternate = alternate_entry(objects);
     let env = [
         ("GIT_OBJECT_DIRECTORY", scratch.as_os_str()),
-        ("GIT_ALTERNATE_OBJECT_DIRECTORIES", objects.as_os_str()),
+        ("GIT_ALTERNATE_OBJECT_DIRECTORIES", alternate.as_os_str()),
     ];
     run(directory, overrides, arguments, max_stdout, deadline, None, &env)
+}
+
+/// `path` as one entry of `GIT_ALTERNATE_OBJECT_DIRECTORIES`, a
+/// colon-separated list: C-quoted (git's `unquote_c_style`) when a `:`, a
+/// quote, a backslash or a control character would otherwise split or bend
+/// it.
+#[cfg(unix)]
+pub(crate) fn alternate_entry(path: &Path) -> std::ffi::OsString {
+    use std::os::unix::ffi::{OsStrExt, OsStringExt};
+    let bytes = path.as_os_str().as_bytes();
+    let plain = !bytes.starts_with(b"\"")
+        && !bytes.iter().any(|b| matches!(b, b':' | b'\\') || *b < 0x20 || *b == 0x7f);
+    if plain {
+        return path.as_os_str().to_os_string();
+    }
+    let mut quoted = vec![b'"'];
+    for &byte in bytes {
+        match byte {
+            b'"' | b'\\' => quoted.extend([b'\\', byte]),
+            0..0x20 | 0x7f => quoted.extend(format!("\\{byte:03o}").into_bytes()),
+            _ => quoted.push(byte),
+        }
+    }
+    quoted.push(b'"');
+    std::ffi::OsString::from_vec(quoted)
+}
+
+#[cfg(not(unix))]
+pub(crate) fn alternate_entry(path: &Path) -> std::ffi::OsString {
+    path.as_os_str().to_os_string()
 }
 
 /// [`run_git_within`] for NUL-terminated output that keeps only the records
@@ -410,6 +441,14 @@ fn drain(mut reader: impl Read, limit: usize) -> (Vec<u8>, bool) {
 #[cfg(test)]
 mod background_tests {
     use super::*;
+
+    #[cfg(unix)]
+    #[test]
+    fn an_alternate_with_a_colon_or_quote_is_c_quoted() {
+        assert_eq!(alternate_entry(Path::new("/r/.git/objects")), "/r/.git/objects");
+        assert_eq!(alternate_entry(Path::new("/r:copy/objects")), "\"/r:copy/objects\"");
+        assert_eq!(alternate_entry(Path::new("/a\"b\\c\nd")), "\"/a\\\"b\\\\c\\012d\"");
+    }
 
     #[test]
     fn background_holds_for_the_guard_and_this_thread_only() {

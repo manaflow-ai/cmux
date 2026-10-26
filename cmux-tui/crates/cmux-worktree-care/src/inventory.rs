@@ -495,27 +495,42 @@ enum Finish {
     Squashed,
 }
 
-/// [`finished`]'s answer for a (HEAD, base) pair of commits. Both are
-/// content-addressed, so a pair's answer never changes, and a pass asks
-/// again about every worktree while most HEADs and bases have not moved
-/// since the last: on a machine with hundreds of worktrees of a big
-/// repository, a `merge-tree` each kept git busy for half an hour a pass.
-type Answers = HashMap<(String, String), Option<Finish>>;
+/// [`finished`]'s answer for a worktree's (HEAD, base) pair of commits.
+/// Both are content-addressed, so in one worktree a pair's answer does not
+/// change, and a pass asks again about every worktree while most HEADs and
+/// bases have not moved since the last: on a machine with hundreds of
+/// worktrees of a big repository, a `merge-tree` each kept git busy for
+/// half an hour a pass. Keyed by the worktree too (its config may merge
+/// differently), and never used in a repository with replacement refs or
+/// grafts, which change history without changing ids.
+type Answers = HashMap<(PathBuf, String, String), Option<Finish>>;
 static FINISHED: LazyLock<Mutex<Answers>> = LazyLock::new(Mutex::default);
 /// The most pairs [`FINISHED`] keeps; past it, it starts over.
 const MAX_REMEMBERED: usize = 16_384;
 
-fn remembered(head: &str, base: &str) -> Option<Option<Finish>> {
-    let memo = FINISHED.lock().unwrap_or_else(|e| e.into_inner());
-    memo.get(&(head.to_string(), base.to_string())).copied()
+fn key(root: &Path, head: &str, base: &str) -> (PathBuf, String, String) {
+    (root.to_path_buf(), head.to_string(), base.to_string())
 }
 
-fn remember(head: &str, base: &str, answer: Option<Finish>) {
+fn remembered(root: &Path, head: &str, base: &str) -> Option<Option<Finish>> {
+    let memo = FINISHED.lock().unwrap_or_else(|e| e.into_inner());
+    memo.get(&key(root, head, base)).copied()
+}
+
+fn remember(root: &Path, head: &str, base: &str, answer: Option<Finish>) {
     let mut memo = FINISHED.lock().unwrap_or_else(|e| e.into_inner());
     if memo.len() >= MAX_REMEMBERED {
         memo.clear();
     }
-    memo.insert((head.to_string(), base.to_string()), answer);
+    memo.insert(key(root, head, base), answer);
+}
+
+/// Whether history in this repository can differ from what its ids say:
+/// replacement refs or a grafts file. Unreadable counts as yes.
+fn rewritten_history(root: &Path, objects: &Path, overrides: &[Override]) -> bool {
+    objects.parent().is_some_and(|common| common.join("info/grafts").exists())
+        || git::read(root, overrides, &["for-each-ref", "--count=1", "refs/replace/"])
+            .map_or(true, |out| !out.is_empty())
 }
 
 /// Evidence that HEAD's work is on a base branch: HEAD is in it, or merging
@@ -542,6 +557,7 @@ fn finished(
             if base.starts_with("refs/") { base.clone() } else { format!("refs/remotes/{base}") };
         bases.push(reference);
     }
+    let memo = !rewritten_history(root, objects, overrides);
     let mut seen = HashSet::new();
     for base in bases.into_iter().filter(|b| seen.insert(b.clone())) {
         let Some(base_commit) = git::try_line(
@@ -551,14 +567,16 @@ fn finished(
         ) else {
             continue;
         };
-        let answer = match remembered(head, &base_commit) {
+        let answer = match memo.then(|| remembered(root, head, &base_commit)).flatten() {
             Some(answer) => answer,
             None => {
                 let Some(answer) = finish(root, head, &base_commit, objects, overrides) else {
                     // Unreadable: asked again next time.
                     continue;
                 };
-                remember(head, &base_commit, answer);
+                if memo {
+                    remember(root, head, &base_commit, answer);
+                }
                 answer
             }
         };
@@ -591,8 +609,8 @@ fn finish(
         overrides,
         &["rev-parse", "--verify", "--quiet", &format!("{base}^{{tree}}")],
     )?;
-    // A conflict exits 1 (`Ok(None)`): never the base's tree. A run that
-    // could not finish is no answer, so it is not remembered.
+    // A conflict (`Ok(None)`) is never the base's tree. A run that could
+    // not finish, or failed saying why, is no answer: not remembered.
     let merged = git::read_scratch_objects(
         root,
         overrides,
