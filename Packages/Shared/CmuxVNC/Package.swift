@@ -20,7 +20,8 @@ let package = Package(
         .library(name: "CmuxVNCDemoServer", targets: ["CmuxVNCDemoServer"]),
     ],
     dependencies: [
-        // OnceContinuation, the continuation that resumes exactly once (p10-stability-089).
+        // OnceContinuation, the continuation that resumes exactly once (p10-stability-089), and for the
+        // demo server's start (p10-stability-171).
         .package(path: "../CmuxSafeConcurrency"),
         // Test-only: the seeded fuzz suites (p10-stability-023).
         .package(path: "../CmuxFuzzSupport"),
