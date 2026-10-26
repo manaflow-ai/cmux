@@ -3,7 +3,8 @@
 //! by default a message goes into the child's running turn (read at its next
 //! tool step, as Claude Code reads a person's mid-turn message), and to a
 //! child whose agent cannot take one mid-turn it queues; either way the
-//! answer says which, with the queue's length. While the child works,
+//! answer says which, with the queue's length. A child's message to its
+//! working parent steers the same way. While the child works,
 //! `get_session` says what it does right now: its plan step and latest tool.
 //!
 //! Stand-in agents (fake_agent.py): `fake` takes no prompt mid-turn, `steer`
@@ -160,16 +161,29 @@ async fn a_parent_reaches_a_working_child_and_reads_what_it_does() {
     assert_eq!(row["state"], "working", "{row}");
     assert_eq!(row["doing"], "Fix the queue · Run cargo test", "{row}");
 
-    // A message queues behind its running turn by default, and says where it waits.
-    let sent = p.ok(SEND, json!({"sessionId": s, "text": "echo after"})).await;
+    // A message goes into its running turn by default, read at the agent's next tool step.
+    let sent = p.ok(SEND, json!({"sessionId": s, "text": "also check the docs"})).await;
+    assert_eq!(sent["delivery"], "next_step", "{sent}");
+    assert_eq!(sent["queued"], false, "{sent}");
+    assert_eq!(sent["steering"], true, "{sent}");
+    // after_turn queues it behind the running turn instead, and says where it waits.
+    let sent =
+        p.ok(SEND, json!({"sessionId": s, "text": "echo after", "deliver": "after_turn"})).await;
     assert_eq!(sent["delivery"], "queued", "{sent}");
     assert_eq!(sent["position"], 1, "{sent}");
     assert_eq!(sent["queueLength"], 1, "{sent}");
-    assert_eq!(sent["steering"], true, "{sent}");
-    // next_step puts it into the running turn instead.
-    let sent = p
-        .ok(SEND, json!({"sessionId": s, "text": "also check the docs", "deliver": "next_step"}))
-        .await;
+    let row = p.ok(GET, json!({"sessionId": s})).await;
+    assert_eq!(row["queued"], 1, "{row}");
+    // A sub-session's message to its working parent steers too: a steer never cancels
+    // the parent's tool call, and the parent reads it at its next tool step.
+    let mut ps = Client::as_session(&hub, &s).await;
+    let g =
+        ps.ok(START, json!({"prompt": "echo grandchild", "name": "grandchild"})).await["sessionId"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+    let mut pg = Client::as_session(&hub, &g).await;
+    let sent = pg.ok(SEND, json!({"sessionId": s, "text": "echo report"})).await;
     assert_eq!(sent["delivery"], "next_step", "{sent}");
     assert_eq!(sent["queued"], false, "{sent}");
     let row = p.ok(GET, json!({"sessionId": s})).await;
