@@ -37,8 +37,8 @@
 //!   report's provenance (`prompt_provenance.rs` takes only `agent_message` from a client), so
 //!   no prompt passes for one.
 //! - At most [`MAX_REPORTS`] reports a lane in [`WINDOW_MS`]: past it the newest is held and
-//!   goes at a turn end under the cap, whatever the runaway pair guard (`agent_pairs.rs`)
-//!   decides.
+//!   goes when the window frees a place (or at a turn end under the cap), whatever the runaway
+//!   pair guard (`agent_pairs.rs`) decides.
 //! - It goes into the parent as a hub-set prompt with provenance `{kind:
 //!   "lane_report", from, fromName, to, turn, state}` (never taken from a client), as another
 //!   agent's message (`digest.rs`: the person's prompts go first, a busy parent takes several in
@@ -99,6 +99,8 @@ struct Link {
     sent: Vec<u64>,
     /// The newest report not delivered yet, made when its turn ended.
     ready: Option<Report>,
+    /// A timer will send `ready`, held at the cap, when the window frees a place.
+    wake: bool,
 }
 
 /// The links by lane id.
@@ -204,7 +206,10 @@ fn last_reply(events: &[Value]) -> Option<String> {
 
 /// A report's reply from its transcript read.
 fn reply_of(read: Result<Option<String>>) -> String {
-    read.ok().flatten().unwrap_or_default()
+    match read {
+        Ok(reply) => reply.unwrap_or_default(),
+        Err(e) => format!("(its transcript did not read: {e})"),
+    }
 }
 
 /// `found` without what `seen` has, each once, in order.
@@ -330,12 +335,33 @@ impl Hub {
     }
 
     /// Delivers `lane`'s queued report. One the same as the last is dropped; past the cap it is
-    /// held (a newer turn's replaces it) and goes at a turn end under the cap; one the parent
+    /// held (a newer turn's replaces it) and goes when the window frees a place; one the parent
     /// refused stays queued and goes at the next turn end.
     async fn lane_deliver_ready(self: &Arc<Self>, lane: &str) {
         let now = now_ms();
-        let Some(due) = self.lane_take_due(lane, now) else { return };
+        let Some(due) = self.lane_take_due(lane, now) else {
+            self.lane_wake_held(lane, now);
+            return;
+        };
         self.lane_hand_over(lane, due, now).await;
+    }
+
+    /// A report held at the cap goes when the window frees a place, though the lane may end no
+    /// other turn. One timer a lane; it stops after its one send (a retired link sends nothing).
+    fn lane_wake_held(self: &Arc<Self>, lane: &str, now: u64) {
+        let wait = self.lane_links(|links| {
+            let l = links.get_mut(lane).filter(|l| !l.wake)?;
+            let wait = held_for(l, now)?;
+            l.wake = true;
+            Some(wait)
+        });
+        let Some(wait) = wait else { return };
+        let (hub, lane) = (self.clone(), lane.to_owned());
+        tokio::spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_millis(wait)).await;
+            hub.lane_links(|links| links.get_mut(&lane).map(|l| l.wake = false));
+            hub.lane_send(&lane);
+        });
     }
 
     /// `lane`'s parent and the report due to it now, with its key ([`due_report`]).
@@ -531,6 +557,16 @@ fn due_report(l: &mut Link, now: u64) -> Option<(Report, String)> {
     let mut report = ready.clone();
     report.prs = new_items(report.prs, &l.prs);
     Some((report, ready.key()))
+}
+
+/// How long `l`'s queued report waits for the cap to free a place: none when nothing is held.
+fn held_for(l: &Link, now: u64) -> Option<u64> {
+    l.ready.as_ref()?;
+    if l.sent.len() < MAX_REPORTS {
+        return None;
+    }
+    let oldest = l.sent.iter().min()?;
+    Some((oldest + WINDOW_MS).saturating_sub(now).max(1))
 }
 
 /// Records on `l` that `report` (from `due_report`, queued with `key`) reached the parent at `now`.
