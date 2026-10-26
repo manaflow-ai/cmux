@@ -56,9 +56,9 @@ public final class AgentPaneView: NSView {
     let savePanel = AgentPaneSavePanel()
     /// The app's made-ahead open panel (Add Files, Attach); nil: no file picker (tests).
     private let openPanel: MadeAheadOpenPanel?
-    /// The page view the page host opened, and the provider that answers its calls and carries the
-    /// host's pushes.
-    let page: PageWebView
+    /// The page view the page host opened (the app's page lifecycle drives it, p13-webui-038), and the
+    /// provider that answers its calls and carries the host's pushes.
+    package let page: PageWebView
     let pageEvents: AgentPageProvider
     let warmup: AgentPageWarmup? // the app's agent page WebKit warm-up (init's `warmup`)
     /// Whether the page can take typing yet (the key dispatcher queues keys until then).

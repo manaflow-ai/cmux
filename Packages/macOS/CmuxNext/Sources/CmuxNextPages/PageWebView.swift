@@ -181,7 +181,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     var crashReloads = PageCrashReloads()
     let claimState = PageClaimState()
     /// The picture and state kept from the page's last hide (PageWebView+Snapshot.swift).
-    let hideState = PageHideState()
+    package let hideState = PageHideState()
     #if DEBUG || CMUX_BENCH_HOOKS
     /// What `debug.webui` knows of this page (PageWebView+Debug.swift).
     var censusState = PageCensusState()
