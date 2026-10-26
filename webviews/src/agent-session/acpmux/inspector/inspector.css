@@ -293,7 +293,6 @@ button.acpmux-chat-inspector-port:hover,
 .acpmux-chat-inspector .acpmux-summary-link:hover:not(:disabled),
 .acpmux-chat-inspector .acpmux-summary-link:active:not(:disabled),
 .acpmux-chat-inspector .acpmux-summary-more:hover,
-.acpmux-chat-inspector-subagents__more:hover,
 .acpmux-chat-inspector .acpmux-summary-agent[aria-current="true"],
 .acpmux-chat-inspector .acpmux-summary-subagent-rows button.cv-subagent:hover {
   background: var(--acpmux-inspector-row-hover);
@@ -532,6 +531,7 @@ button.acpmux-chat-inspector-port:hover,
 }
 /* Changes: a pull request per row, its menu at the end. */
 .acpmux-chat-inspector-pr {
+  position: relative;
   display: flex;
   align-items: flex-start;
   gap: 4px;
@@ -550,6 +550,22 @@ button.acpmux-chat-inspector-port:hover,
   color: inherit;
   text-decoration: none;
   cursor: default;
+}
+/* The row lights as a whole, so its gap and padding are the link's too (a click there was dead,
+   #24116's audit). The ⋯ button, positioned and later in the row, paints above it. */
+.acpmux-chat-inspector-pr__link::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+}
+/* The link's own content paints above that overlay, so the glyph's and the check dot's titles and
+   the line counts' by-kind tooltip still get the pointer; a click there bubbles to the link. */
+.acpmux-chat-inspector-pr__link > * {
+  position: relative;
+}
+.acpmux-chat-inspector-pr__more {
+  position: relative;
 }
 .acpmux-chat-inspector-pr__link:focus-visible {
   outline: 1.5px solid var(--agent-text);
@@ -785,6 +801,7 @@ button.acpmux-chat-inspector-port:focus-visible {
   display: flex;
   align-items: center;
   gap: 6px;
+  width: 100%;
   height: 26px;
   padding: 0 8px;
   border: 0;
@@ -793,15 +810,13 @@ button.acpmux-chat-inspector-port:focus-visible {
   color: var(--agent-muted);
   font: inherit;
   font-size: var(--text-detail);
+  text-align: left;
+  appearance: none;
   cursor: default;
 }
-.acpmux-chat-inspector-fold:hover {
-  color: var(--agent-text);
-}
-.acpmux-chat-inspector-fold:focus-visible {
-  outline: 1.5px solid var(--agent-text);
-  outline-offset: -1.5px;
-}
+/* No hover fill (Leo: plain text, no hover pill) and no focus rule of its own: keyboard focus takes
+   the agent pane's soft pill (agent-session/shared/styles.css), the wider ring under Increase
+   Contrast (pages/shared/desktop.css). test/chat-inspector-fold-rows.test.ts. */
 /* Subagents (SubagentsSection.tsx): the running ones' lines, "Show more" under them, then the one
    row of the ended ones, which opens into their lines. */
 .acpmux-chat-inspector-subagents__more {

@@ -46,6 +46,12 @@ export interface ComboboxProps {
   /** A row's content (a name over a path); default: the suggestion text. The row still submits
    * and completes its suggestion string. */
   renderItem?(value: string): ReactNode;
+  /** A rich row's accessible name; its identity remains the stable suggestion string. */
+  itemLabel?(value: string): string;
+  /** The committed choice, distinct from the transient keyboard highlight. */
+  isItemCurrent?(value: string): boolean;
+  /** Readable Tab completion for suggestions identified by an opaque key. */
+  completionText?(value: string): string;
   /** The highlighted suggestion changed; undefined when none is. `by` says whether the arrow keys
    * ("keyboard") or the pointer ("pointer") moved it, so a caller can treat a passing pointer as
    * less deliberate than a key press. */
@@ -72,6 +78,9 @@ export function Combobox({
   onCommand,
   rootClassName,
   renderItem,
+  itemLabel,
+  isItemCurrent,
+  completionText,
   onHighlight,
 }: ComboboxProps) {
   const container = usePortalContainer();
@@ -102,6 +111,8 @@ export function Combobox({
   // (every row the pointer crosses) must not re-render the whole list. Base UI marks the row
   // itself (data-highlighted).
   const highlightedRef = useRef<string | undefined>(undefined);
+  const completionRef = useRef<{ text: string; key: string } | undefined>(undefined);
+  const pressActivatedRef = useRef<string | undefined>(undefined);
   const listRef = useRef<HTMLDivElement>(null);
   const keep = inline && keepHeight;
   const [tallest, setTallest] = useState(0);
@@ -118,6 +129,8 @@ export function Combobox({
     return () => window.removeEventListener("resize", reset);
   }, [keep]);
   const held = keep && tallest > 0;
+  const enabledSuggestions = suggestions.filter((item) => !isItemDisabled?.(item));
+  const disabledSuggestions = suggestions.filter((item) => isItemDisabled?.(item));
   const update = (next: string) => {
     setValue(next);
     onQuery(next);
@@ -131,21 +144,35 @@ export function Combobox({
       event.preventDefault();
       event.preventBaseUIHandler?.();
       const highlighted = highlightedRef.current;
-      const next = highlighted && suggestions.includes(highlighted) ? highlighted : typed;
+      const completed = completionRef.current;
+      const completedKey =
+        completed?.text === typed && completed.key && enabledSuggestions.includes(completed.key)
+          ? completed.key
+          : undefined;
+      const matchingCurrent =
+        completed?.text === typed ? enabledSuggestions.find((item) => completionText?.(item) === typed) : undefined;
+      const next =
+        highlighted && enabledSuggestions.includes(highlighted)
+          ? highlighted
+          : (completedKey ?? matchingCurrent ?? typed);
       if (!isItemDisabled?.(next)) onSubmit(next);
     } else if (event.key === "Escape") {
       event.preventDefault();
       event.stopPropagation();
       event.preventBaseUIHandler?.();
       onCancel();
-    } else if (event.key === "Tab" && !event.shiftKey && suggestions.length) {
+    } else if (event.key === "Tab" && !event.shiftKey && enabledSuggestions.length) {
+      const highlighted = highlightedRef.current;
+      const next = highlighted && enabledSuggestions.includes(highlighted) ? highlighted : enabledSuggestions[0]!;
+      const completed = completionText?.(next) ?? next;
+      // A completed field is a normal Tab stop: keyboard users can reach actions beside the list.
+      if (typed === completed) return;
       event.preventDefault();
       event.preventBaseUIHandler?.();
-      update(highlightedRef.current ?? suggestions[0]);
+      completionRef.current = { text: completed, key: next };
+      update(completed);
     }
   };
-  const enabledSuggestions = suggestions.filter((item) => !isItemDisabled?.(item));
-  const disabledSuggestions = suggestions.filter((item) => isItemDisabled?.(item));
   const renderItemContent = (item: string) => (renderItem ? renderItem(item) : item);
   const list = (
     <Autocomplete.List
@@ -161,9 +188,28 @@ export function Combobox({
           <Autocomplete.Item
             key={item}
             value={item}
+            aria-label={itemLabel?.(item)}
+            aria-current={isItemCurrent?.(item) ? true : undefined}
             className={cx("ui-combobox-item", itemClassName)}
             render={<li />}
-            onClick={() => onSubmit(item)}
+            onMouseDown={(event) => {
+              if (event.button !== 0) {
+                pressActivatedRef.current = undefined;
+                return;
+              }
+              if (isItemDisabled?.(item)) return;
+              event.preventDefault();
+              pressActivatedRef.current = item;
+              onSubmit(item);
+            }}
+            onClick={(event) => {
+              // A real mouse click follows the primary press and must not submit twice. Keyboard and
+              // synthetic detail=0 clicks remain independent even if a press was cancelled outside.
+              const pressed = pressActivatedRef.current;
+              pressActivatedRef.current = undefined;
+              if (pressed === item && event.detail > 0) return;
+              if (event.detail === 0 && !isItemDisabled?.(item)) onSubmit(item);
+            }}
           >
             {renderItemContent(item)}
           </Autocomplete.Item>
@@ -176,6 +222,8 @@ export function Combobox({
           // oxlint-disable-next-line jsx-a11y/no-noninteractive-element-to-interactive-role, jsx-a11y/prefer-tag-over-role
           role="option"
           aria-disabled="true"
+          aria-label={itemLabel?.(item)}
+          aria-current={isItemCurrent?.(item) ? true : undefined}
           aria-selected="false"
           data-disabled
           className={cx("ui-combobox-item", itemClassName)}
@@ -190,7 +238,10 @@ export function Combobox({
       items={enabledSuggestions as string[]}
       filter={null}
       value={value}
-      onValueChange={(next) => update(next)}
+      onValueChange={(next) => {
+        if (completionRef.current?.text !== next) completionRef.current = undefined;
+        update(next);
+      }}
       open={inline || enabledSuggestions.length > 0}
       inline={inline}
       autoHighlight={autoHighlight}

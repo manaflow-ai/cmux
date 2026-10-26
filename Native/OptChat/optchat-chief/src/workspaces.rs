@@ -976,13 +976,34 @@ pub struct DaemonWorkspaces {
     /// workspace group <g> add` sends), not the daemon's older shared groups, which the app
     /// does not show for that session (a423).
     pub personal: bool,
+    /// The daemon to use while nothing listens at `daemon`: the host's own session daemon,
+    /// for an app link (`state/app-daemon.sock`) that dangles because no cmux app opened
+    /// this Chief home (a scratch Chief the `cmux chief` CLI started). None: `daemon` only.
+    pub fallback: Option<PathBuf>,
 }
 
 impl DaemonWorkspaces {
-    fn client(&self) -> Result<cmux::raw::Client, String> {
+    /// The daemon to use now and whether it is the user's session (personal groups):
+    /// `daemon` while something listens there, else `fallback` (the host's own session).
+    /// Checked per call: an app that opens Home later points the link at its daemon.
+    fn target(&self) -> (&Path, bool) {
+        match &self.fallback {
+            Some(own) if std::os::unix::net::UnixStream::connect(&self.daemon).is_err() => {
+                (own.as_path(), false)
+            }
+            _ => (self.daemon.as_path(), self.personal),
+        }
+    }
+
+    fn client(&self, daemon: &Path) -> Result<cmux::raw::Client, String> {
         use cmux::raw::{Client, ClientConfig};
-        Client::connect(ClientConfig::from_socket_path(&self.daemon))
+        Client::connect(ClientConfig::from_socket_path(daemon))
             .map_err(|e| format!("the session daemon: {e}"))
+    }
+
+    /// The daemons that may hold workspace `key`: `daemon`, then `fallback`.
+    fn holders(&self) -> impl Iterator<Item = &Path> {
+        std::iter::once(self.daemon.as_path()).chain(self.fallback.as_deref())
     }
 }
 
@@ -1000,7 +1021,8 @@ impl Workspaces for DaemonWorkspaces {
             NewConversationTabRequest, Optional,
         };
         const TABS: &str = "agent-session-tabs-v1";
-        let mut client = self.client()?;
+        let (daemon, personal) = self.target();
+        let mut client = self.client(daemon)?;
         // Refused before any write: a workspace without its chat tab helps no one.
         let capabilities = client
             .identify_server()
@@ -1033,8 +1055,8 @@ impl Workspaces for DaemonWorkspaces {
                 .map_err(|e| format!("create-workspace: {e}"))?
                 .workspace;
             // Best effort: a sidebar group never fails the subagent's start.
-            let grouped = if self.personal {
-                place_in_personal_group(&self.daemon, &key, group)
+            let grouped = if personal {
+                place_in_personal_group(daemon, &key, group)
             } else if groups {
                 group_workspace(&mut client, Some(workspace), &key, group)
             } else {
@@ -1076,25 +1098,47 @@ impl Workspaces for DaemonWorkspaces {
             Ok::<(), String>(())
         })();
         client.close();
+        // A workspace made before a later step failed (create-terminal's "failed to spawn
+        // PTY command", a622-a627) is closed, not left as an empty row with no chat.
+        if let Err(e) = &result
+            && !e.starts_with("create-workspace")
+            && let Err(close) = close_by_key(daemon, &key)
+        {
+            eprintln!("optchat: subagent workspace {key} stays after {e}: {close}");
+        }
         result.map(|()| key)
     }
 
     fn close(&self, key: &str) -> Result<(), String> {
-        close_by_key(&self.daemon, key)
+        let mut first = None;
+        for daemon in self.holders() {
+            match close_by_key(daemon, key) {
+                Ok(()) => return Ok(()),
+                Err(e) => first = first.or(Some(e)),
+            }
+        }
+        Err(first.unwrap_or_default())
     }
 
     fn rename(&self, key: &str, name: &str) -> Result<(), String> {
-        rename_by_key(&self.daemon, key, name)
+        let mut first = None;
+        for daemon in self.holders() {
+            match rename_by_key(daemon, key, name) {
+                Ok(()) => return Ok(()),
+                Err(e) => first = first.or(Some(e)),
+            }
+        }
+        Err(first.unwrap_or_default())
     }
 
     fn locate(&self, key: &str) -> Option<WorkspaceRef> {
-        locate_by_key(&self.daemon, key)
+        self.holders().find_map(|daemon| locate_by_key(daemon, key))
     }
 
     fn place(&self) -> String {
         // The app's daemon (tabs on `chief:<home id>`, the Chief home's acpmux): the user's
         // own session, beside the workspaces the user made (a423).
-        if self.host.starts_with("chief:") {
+        if self.host.starts_with("chief:") && self.target().1 {
             return "your cmux session on this Mac, beside your own workspaces".to_owned();
         }
         format!(
