@@ -571,8 +571,9 @@ final class CEFRuntime {
                                         refreshInterval: pumpInput.refreshInterval, frameTarget: pumpInput.frameTarget)
         }
         let owner = CEFInProcessPump(
-            shim: shim, wakeUps: wakeUps, gate: pumpGate, makeTimer: makePumpTimer, inputPolicy: policy, logger: logger,
-            work: { [weak self] in CEFStartSteps.shared.pump(windowPending: self?.pendingWindows.isEmpty == false) { self?.pumpWork() } }
+            shim: shim, wakeUps: wakeUps, gate: pumpGate, makeTimer: makePumpTimer, inputPolicy: policy, crashKeys: crashKeys,
+            logger: logger,
+            work: { [weak self] in CEFStartSteps.shared.pump(windowPending: self?.pendingWindows.isEmpty == false) { self?.shim?.doWork() } }
         )
         inProcessPump = owner
         owner.pump.start()
