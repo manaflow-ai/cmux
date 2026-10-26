@@ -1,5 +1,6 @@
 import CmuxNextActions
 import CmuxNextAgentPane
+import CmuxNextCompat
 import Foundation
 
 /// An agent's ask to start a Cloud session, as a card in its own chat (``AgentToolCards``): the
