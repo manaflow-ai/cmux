@@ -2854,7 +2854,7 @@
                         "minimum": 0
                       },
                       "frame": {
-                        "description": "window frame as fractions of its screen's visible frame",
+                        "description": "window frame as fractions of its screen's visible frame (of the whole screen for a full-screen window), origin top left; a window on no screen fails the snapshot",
                         "x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/windows/list/*/frame"},
                         "type": "object",
                         "additionalProperties": false,

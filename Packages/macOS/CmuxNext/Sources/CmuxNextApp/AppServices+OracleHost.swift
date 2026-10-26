@@ -49,6 +49,8 @@ extension AppServices: OracleHost {
             OracleOverlaysFacet(hash: Self.oracleSHA256, changes: { [overlayChanges] in overlayChanges.subscribe() }) { [weak self] in
                 self?.oracleOverlays()
             },
+            // The windows front to back, key and main, and each window's state and frame as screen fractions.
+            windows.oracleWindowsFacet(events: appEvents),
         ])
     }
 
