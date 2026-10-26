@@ -246,10 +246,10 @@ public final class FindPillView: NSView {
     ///   - canStep: The chevrons work; nil keeps them enabled exactly when `text` is not empty and
     ///     something matched.
     public func showCount(_ text: String, noMatches: Bool, canStep: Bool? = nil) {
-        if countLabel.stringValue != text {
-            countLabel.stringValue = text
-            superview?.needsLayout = true // hosts frame the pill to its fitting width
-        }
+        // The label's new intrinsic width reaches the pill and a host that pins it through the
+        // constraints; a host that frames the pill to its fitting width is told by its owner
+        // (TerminalFindBarView), never by the pill.
+        if countLabel.stringValue != text { countLabel.stringValue = text }
         showsNoMatches = noMatches
         let enabled = canStep ?? (!text.isEmpty && !noMatches)
         for button in stepButtons where button.isEnabled != enabled { button.isEnabled = enabled }

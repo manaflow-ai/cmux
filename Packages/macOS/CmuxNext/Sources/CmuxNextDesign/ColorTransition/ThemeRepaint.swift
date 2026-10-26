@@ -164,7 +164,9 @@ enum ThemeRepaint {
         for pass in passes {
             for view in pass.views {
                 view.viewDidChangeEffectiveAppearance()
+                // invalidate: the view's theme scope changed (a repaint request); its colors resolve again.
                 view.needsDisplay = true
+                // invalidate: the request asked for layout (a view whose layout() sets colors).
                 if pass.layout { view.needsLayout = true }
             }
         }

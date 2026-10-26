@@ -113,7 +113,7 @@ struct WireFuzzTransportCase {
         var expected = Expected()
         var control = controlStreams
         var sawShutdown = false
-        // An unterminated last line stays in the splitter.
+        // An unterminated last line stays in the reader.
         let read = terminated ? lines[...] : lines.dropLast()
         for line in read {
             if !line.bytes.isEmpty { expected.linesRead += 1 }
@@ -375,7 +375,7 @@ final class WireFuzzPeer: Sendable {
                 newlines += buffer.prefix(count).filter { $0 == 0x0A }.count
             }
             // A chunk that ends a line is written only after the reader routed every line before it, so the
-            // reader's read(2) stops at that chunk's end and a cut line waits in its splitter for the next one.
+            // reader's read(2) stops at that chunk's end and a cut line waits in its reader for the next one.
             var waited = 0
             var paced = true
             for (chunk, ended) in zip(chunks, linesEnded) {

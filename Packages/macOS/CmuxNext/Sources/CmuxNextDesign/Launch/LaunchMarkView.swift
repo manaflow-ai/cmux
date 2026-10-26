@@ -74,7 +74,7 @@ public final class LaunchMarkView: NSView {
 
     public override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
-        needsDisplay = true
+        needsDisplay = true // invalidate: the appearance changed; the colors resolve again.
     }
 
     /// Resolves the mark in with `style` (`Motion.revealLaunchMark`).

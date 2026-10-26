@@ -22,6 +22,6 @@ public final class HairlineView: NSView {
 
     public override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
-        needsDisplay = true
+        needsDisplay = true // invalidate: the appearance changed; the separator color resolves again.
     }
 }

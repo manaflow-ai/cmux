@@ -40,6 +40,7 @@ open class ChromeLabel: NSView {
     open var attributedStringValue: NSAttributedString {
         get { LabelText.styled(content, font: font, color: textColor) }
         set {
+            guard !hasRunAttributes || !newValue.isEqual(to: content) else { return } // the same runs: nothing to measure
             content = newValue.copy() as? NSAttributedString ?? newValue
             hasRunAttributes = true
             textDidChange()
@@ -91,8 +92,8 @@ open class ChromeLabel: NSView {
     /// The width a wrapping label measures its height at; 0: its current width.
     open var preferredMaxLayoutWidth: CGFloat = 0 { didSet { if preferredMaxLayoutWidth != oldValue { textDidChange() } } }
 
-    open var drawsBackground = false { didSet { needsDisplay = true } }
-    open var backgroundColor: NSColor? { didSet { needsDisplay = true } }
+    open var drawsBackground = false { didSet { if drawsBackground != oldValue { needsDisplay = true } } }
+    open var backgroundColor: NSColor? { didSet { if backgroundColor != oldValue { needsDisplay = true } } }
 
     /// Select and copy (a mouse down starts a selection).
     open var isSelectable = false {
@@ -252,14 +253,14 @@ open class ChromeLabel: NSView {
         guard changed else { return }
         if widthChanged, shape.isMultiline, preferredMaxLayoutWidth <= 0, maximumNumberOfLines != 1 { invalidateIntrinsicContentSize() }
         endSelection()
-        needsDisplay = true
+        needsDisplay = true // invalidate: the size changed (the guard above); the lines lay out again.
     }
 
     private func textDidChange() {
         measured.removeAll()
         endSelection()
         invalidateIntrinsicContentSize()
-        needsDisplay = true
+        needsDisplay = true // invalidate: the text or its shape changed (the setter's check).
     }
 
     // MARK: Drawing
@@ -327,7 +328,7 @@ open class ChromeLabel: NSView {
         super.viewDidChangeBackingProperties()
         measured.removeAll()
         invalidateIntrinsicContentSize()
-        needsDisplay = true
+        needsDisplay = true // invalidate: the scale changed; the glyphs measure and rasterize again.
     }
 
     /// The glyph coverage, upright, in the text color's stem weight, at the backing scale.
@@ -373,7 +374,7 @@ open class ChromeLabel: NSView {
         view.didResign = { [weak self] in self?.endSelection(resigned: true) }
         addSubview(view)
         selection = view
-        needsDisplay = true
+        needsDisplay = true // invalidate: the selection view draws the text now; the label draws none.
         guard window.makeFirstResponder(view) else {
             endSelection(resigned: true)
             return nil
@@ -387,7 +388,7 @@ open class ChromeLabel: NSView {
         guard let view = selection else { return }
         selection = nil
         view.didResign = nil
-        needsDisplay = true
+        needsDisplay = true // invalidate: the selection ended (the guard above); the label draws its text again.
         guard resigned else {
             if window?.firstResponder === view { window?.makeFirstResponder(nil) }
             view.removeFromSuperview()
