@@ -70,21 +70,6 @@ let cefDevToolsKeyCallback: CEFShimLibrary.KeyFn = { context, browser, nsEvent i
 }
 
 extension CEFRuntime {
-    /// The runtime behind a callback context (an unretained pointer; the
-    /// runtime lives for the rest of the process once started).
-    static func from(_ address: UInt) -> CEFRuntime? {
-        // SAFETY: a nonzero address is the context `start` gave the shim: the shared runtime, unretained, which
-        // lives for the rest of the process once started. The read does not change its count.
-        unsafe UnsafeMutableRawPointer(bitPattern: address).map { unsafe Unmanaged<CEFRuntime>.fromOpaque($0).takeUnretainedValue() }
-    }
-
-    /// The pump's cross-thread gate behind a callback context, from any thread (a `nonisolated let`
-    /// of the runtime, which lives for the rest of the process once started).
-    nonisolated static func pumpGate(at address: UInt) -> CEFPumpCrossThreadGate? {
-        // SAFETY: as for `from(_:)`; only the runtime's `nonisolated let` gate is read.
-        unsafe UnsafeMutableRawPointer(bitPattern: address).map { unsafe Unmanaged<CEFRuntime>.fromOpaque($0).takeUnretainedValue().pumpGate }
-    }
-
     func dispatch(_ event: CEFShimEvent) {
         switch event {
         case .contextInitialized:
@@ -130,7 +115,7 @@ extension CEFRuntime {
             }
         case .reply(_, let id, let value, let json):
             let reply = CEFSiteReply(value: value, json: json)
-            if !siteReplies.resolve(id, with: .success(reply)), siteReplyBrowsers[id] != nil {
+            if !builtInLoader.answer(reply: id, value: value), !siteReplies.resolve(id, with: .success(reply)), siteReplyBrowsers[id] != nil {
                 earlySiteReplies[id] = reply
             }
         case .tab(let kind, let browser, let window, let value):

@@ -8,7 +8,7 @@ import Foundation
 // Chromium mode (`browser.defaultEngine` is `chromium`, ``PageEnginePolicy``): the page shows in a
 // Chromium page from ``PageWebView/chromiumHosting``, over the same router, theme and scripts. It
 // has no WebKit view: a page that fails in Chromium builds its WebKit engine and reopens there in
-// the same turn (``fallBackToWebKit(_:detail:)``, PageWebKitEngine.swift).
+// the same turn (``fallBackToWebKit(_:detail:)``); one whose browser ended waits (PageChromiumRecovery.swift).
 extension PageWebView {
     /// The handlers the page scripts post to without a reply, in Chromium mode.
     static let chromiumFireAndForget = [
@@ -81,16 +81,19 @@ extension PageWebView {
     /// Tells a Chromium page whether it shows (a hidden one stops drawing), the router's hidden hold
     /// (``holdDeliveryWhileHidden(visible:)``), and the census. A frozen
     /// page thaws before it shows, whichever path showed it (``thawPage()``); a page whose renderer died
-    /// while hidden reloads as it shows (``PageCrashRecovery/engineVisibilityChanged(_:page:)``).
+    /// while hidden reloads as it shows (``PageCrashRecovery/engineVisibilityChanged(_:page:)``); a page
+    /// that hangs shows its "Page unresponsive" card only while it shows (``PageHangNotice``).
     func setEngineVisible(_ visible: Bool) {
         engineVisible = visible
         if visible { thawPage() }
         chromiumSession?.page.setVisible(visible)
+        chromiumSession?.hang.visibilityChanged(visible)
         holdDeliveryWhileHidden(visible: visible)
         crash.engineVisibilityChanged(visible, page: self)
         #if DEBUG || CMUX_BENCH_HOOKS
         noteCensusVisibility(visible)
         #endif
+        if visible { chromiumRecovery?.pageShown() }
     }
 
     /// Loads `url` (a document of this page) in whichever engine shows it; a Chromium page on its way
@@ -114,7 +117,8 @@ extension PageWebView {
 
     /// Starts the Chromium page and loads the document at ``route`` in it (as it stands once the page
     /// exists, so an ``open(route:)`` meanwhile wins); falls back to WebKit when that fails or the
-    /// page does not reach the host in time.
+    /// page does not reach the host in time. A browser that ends with its Chromium Host while the page
+    /// is made or set up waits for the supervisor instead (``PageChromiumRecovery``).
     func startChromium(hosting: any PageChromiumHosting) {
         traceMark(.chromiumStart)
         webKitPieces?.view.isHidden = true
@@ -132,22 +136,25 @@ extension PageWebView {
                 #endif
                 page = try await hosting.makePage(descriptor, chatOpen: chatOpen)
             } catch {
-                self?.fallBackToWebKit(.chromiumFailed, detail: "\(error)")
-                return
+                // Cancelled: the page closed, was discarded, fell back or its browser ended meanwhile.
+                guard let self, !Task.isCancelled else { return }
+                return self.chromiumStartFailed(error, detail: "\(error)")
             }
-            guard let self, self.chromiumStart?.isCancelled == false else {
-                page.close()
-                return
-            }
+            guard let self, !Task.isCancelled else { return page.close() }
             traceMark(.browserCreated)
-            await self.attachChromium(page, scripts: scripts, work: hosting.work)
+            await self.attachChromium(page, scripts: scripts, work: hosting.work, dialogs: hosting.dialogs)
         }
     }
 
-    private func attachChromium(_ page: any PageChromiumPage, scripts: PageChromiumDocumentScripts, work: BackgroundWork) async {
+    private func attachChromium(_ page: any PageChromiumPage, scripts: PageChromiumDocumentScripts, work: BackgroundWork,
+                                dialogs: CmuxDialogCenter) async {
         let handlers = Self.chromiumFireAndForget + chromiumMessageHandlers.keys.sorted()
         let bridge = ChromiumPageHostBridge(page: page, fireAndForget: handlers)
-        let session = PageChromiumSession(page: page, bridge: bridge, work: work, clock: chromiumClock)
+        // Hidden until the attach below tells it whether the page shows; then ``setEngineVisible(_:)`` does.
+        let hang = PageHangNotice(center: dialogs, anchor: self, visible: false) { [weak page] terminate in
+            page?.answerUnresponsive(terminate: terminate)
+        }
+        let session = PageChromiumSession(page: page, bridge: bridge, work: work, clock: chromiumClock, hang: hang)
         page.onEvent = { [weak self] event in self?.chromiumEvent(event) }
         page.resources = { [weak self] url in await self?.chromiumResource(url) ?? .notFound }
         do {
@@ -157,13 +164,10 @@ extension PageWebView {
             }
         } catch {
             session.end()
-            fallBackToWebKit(.chromiumFailed, detail: "setup: \(error)")
-            return
+            guard !Task.isCancelled else { return }
+            return chromiumStartFailed(error, detail: "setup: \(error)")
         }
-        guard chromiumStart?.isCancelled == false else {
-            session.end()
-            return
-        }
+        guard !Task.isCancelled else { return session.end() }
         traceMark(.setupDone)
         bridge.install { [weak self] message in await self?.receive(message) }
         bridge.onMessage = { [weak self] name, body in self?.chromiumMessage(name, body: body) }
@@ -182,7 +186,9 @@ extension PageWebView {
         page.contentView.autoresizingMask = [.width, .height]
         addSubview(page.contentView)
         applyNativeRects()
-        page.setVisible(window != nil && !isHiddenOrHasHiddenAncestor)
+        let shown = window != nil && !isHiddenOrHasHiddenAncestor
+        page.setVisible(shown)
+        session.hang.visibilityChanged(shown)
         traceMark(.navigationStart)
         page.load(descriptor.url(route: route))
         let wait = chromiumDeadline
@@ -196,11 +202,19 @@ extension PageWebView {
            responder === self || responder === webKitPieces?.view { focusPage() }
     }
 
+    /// The page was not made or set up: a browser that ended with its Chromium Host waits for the
+    /// supervisor, shown or hidden; any other failure reopens the page in WebKit now.
+    private func chromiumStartFailed(_ error: any Error, detail: String) {
+        if error as? PageChromiumStartError == .browserEnded { return PageChromiumRecovery.browserEnded(self) }
+        fallBackToWebKit(.chromiumFailed, detail: detail)
+    }
+
     /// Chromium failed for this page: it builds its WebKit engine and reopens there, in this turn, at
-    /// the route it showed.
+    /// the route it showed; a wait for the supervisor ends.
     func fallBackToWebKit(_ reason: PageWebKitReason, detail: String) {
         chromiumStart?.cancel()
         chromiumStart = nil
+        chromiumRecovery = nil
         logger.error("page \(self.descriptor.id, privacy: .public) reopens in WebKit: \(detail, privacy: .public)")
         chromiumSession?.end()
         chromiumSession = nil
@@ -220,7 +234,8 @@ extension PageWebView {
         carryFreezeToWebKit()
     }
 
-    /// Ends Chromium mode for good (the page closed).
+    /// Ends the Chromium page (the page closed, was discarded or its browser ended). A wait for the
+    /// supervisor stays: a discarded page still reopens as its answer says when it shows.
     func endChromium() {
         chromiumStart?.cancel()
         chromiumStart = nil
@@ -233,6 +248,8 @@ extension PageWebView {
     // MARK: Events
 
     private func chromiumEvent(_ event: PageChromiumEvent) {
+        // Before the session check: a browser can end while its page is set up, before the session.
+        if event == .ended { return chromiumBrowserEnded() }
         guard let chromiumSession else { return }
         switch event {
         case .devTools(let json):
@@ -253,9 +270,14 @@ extension PageWebView {
         case .finished:
             documentFinished()
         case .crashed:
+            chromiumSession.hang.end()
             contentProcessTerminated()
+        case .unresponsive:
+            chromiumSession.hang.unresponsiveChanged(true)
+        case .responsive:
+            chromiumSession.hang.unresponsiveChanged(false)
         case .ended:
-            fallBackToWebKit(.chromiumFailed, detail: "the Chromium browser ended")
+            chromiumBrowserEnded()
         case .openRequested(let url):
             openOutside(url, modifiers: [])
         case .filesDragged(let urls):
@@ -265,6 +287,14 @@ extension PageWebView {
         case .contextMenu(let request):
             showChromiumMenu(request)
         }
+    }
+
+    /// The page's browser ended, shown, set up or still made (``PageChromiumEvent/ended``): it waits
+    /// for the supervisor. A page that closed, fell back or was discarded has no start and no session,
+    /// and a page that waits already ignores it.
+    private func chromiumBrowserEnded() {
+        guard chromiumSession != nil || chromiumStart != nil else { return }
+        PageChromiumRecovery.browserEnded(self)
     }
 
     private func chromiumMessage(_ name: String, body: Any) {

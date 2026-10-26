@@ -253,8 +253,9 @@ enum DebugKey {
         return WindowOverlayLayer.contentChildWindows(of: window).first { devTools.devToolsContains(window: $0) }
     }
 
-    /// The Chromium page window over `pane`'s selected Chromium tab, or over its agent chat when
-    /// the chat shows in Chromium (the `agent.chromium` spike).
+    /// The Chromium page window over `pane`'s selected Chromium tab, over its agent chat when
+    /// the chat shows in Chromium (the `agent.chromium` spike), or over its cmux page tab when the
+    /// page shows in Chromium (``TabContent/childWindowTab``).
     static func pageWindow(of pane: String, in controller: WindowController) -> NSWindow? {
         guard let window = controller.window, let paneController = controller.content?.paneController(key: pane) else { return nil }
         let content: NSView
@@ -265,6 +266,8 @@ enum DebugKey {
         } else if let key = paneController.currentTabKey, let chat = controller.services.agentTabs.existingView(key),
                   chat.engineName == "cef" {
             content = chat
+        } else if let tab = paneController.currentContent?.childWindowTab {
+            content = tab.contentView
         } else {
             return nil
         }

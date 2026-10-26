@@ -39,7 +39,7 @@ struct AgentPageHibernationLifecycleTests {
             turns.localHost = AgentPageHibernationLifecycleTests.thisMac
             turns.watching = true
             let tree = DaemonStore()
-            hibernation = AgentPageHibernation(tabs: { [tabs] in tabs })
+            hibernation = AgentPageHibernation(tabs: { [tabs] in tabs }, deadlines: MainDeadlineScheduler(work: MainWorkScheduler(budget: MainFrameBudget())))
             let uptime = LifecycleRigUptime()
             self.uptime = uptime
             let queue = MainWakeUpQueue(energy: EnergyPolicySource(), ledger: WakeupLedger(uptime: { 0 }),

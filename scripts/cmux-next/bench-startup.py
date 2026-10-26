@@ -167,6 +167,10 @@ MARKS = [
     ("dfl.first_window_hooks", "dfl: first window hooks"),
     ("dfl.home_history", "dfl: home, bookmarks, history"),
     ("window_display", "first window ordered on screen"),
+    # p08-startup-059: the front window's saved picture as the first frame (savedWindowPicture), or why not.
+    ("launch_picture_shown", "first window shown as its saved picture"),
+    ("launch_picture_mismatch", "saved picture's meta did not match the window (today's path)"),
+    ("launch_picture_removed", "saved picture left the live window"),
     ("launch_snapshot_shown", "cached layout window made"),
     ("dfl.windows", "dfl: windows restored"),
     ("did_finish_launching_end", "applicationDidFinishLaunching end"),

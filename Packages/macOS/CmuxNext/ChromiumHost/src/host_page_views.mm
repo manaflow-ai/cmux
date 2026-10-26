@@ -77,7 +77,7 @@ void* HostPageViews::Open(uint64_t token) {
   [view release];
   // Never ordered in: the page window under the view is detached once its
   // layers are hosted (HostContext::HandleLayerHosting), and cmux gives the
-  // page its visibility (set_embedder_visibility), so no window of the host
+  // page its visibility (set_page_visibility), so no window of the host
   // is ever on screen. The window only carries the page's place and screen
   // (Place), as Chrome's browser process keeps a window's bounds in
   // NativeWidgetMacNSWindowHost while the app shim shows the window
@@ -91,6 +91,20 @@ void HostPageViews::Place(uint64_t token, const PageGeometry& geometry) {
   if (found == windows_.end()) return;
   NSWindow* page_window = (__bridge NSWindow*)found->second;
   [page_window setFrame:NSMakeRect(geometry.screen_x, geometry.screen_y, geometry.width, geometry.height) display:NO];
+}
+
+// The page window follows its parent view, as in cmux the fork's page window
+// follows CEFHostView: its tracker re-reads the view on the parent view
+// geometry post (CEFHostView.postGeometryChange). Only on change (task 053).
+void HostPageViews::Resize(uint64_t token, int32_t width, int32_t height) {
+  auto found = windows_.find(token);
+  if (found == windows_.end()) return;
+  NSWindow* page_window = (__bridge NSWindow*)found->second;
+  const NSSize size = NSMakeSize(width, height);
+  if (NSEqualSizes(page_window.contentView.frame.size, size)) return;
+  [page_window setContentSize:size];
+  [NSNotificationCenter.defaultCenter postNotificationName:@"CmuxParentViewGeometryDidChange"
+                                                    object:page_window.contentView];
 }
 
 void HostPageViews::Close(uint64_t token) {

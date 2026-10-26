@@ -53,7 +53,7 @@ extension AppActionContext {
             guard let active = activeWindow else { throw ActionFailure.invalidTarget(RefusalStrings.noWindowOpen) }
             return active
         }
-        guard let controller = services.windows.controllers.first(where: { $0.state.id == ref.id }) else {
+        guard let controller = services.windows.controllerBuildingIfWaiting(for: ref.id) else { // a named target acts in it
             throw ActionFailure.notFound(RefusalStrings.noWindow(ref.id))
         }
         return controller

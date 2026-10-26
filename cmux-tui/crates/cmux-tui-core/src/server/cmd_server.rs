@@ -46,6 +46,25 @@ pub(super) fn daemon_locks(mux: &Arc<Mux>, client: u64) -> anyhow::Result<Value>
     Ok(serde_json::to_value(server_stats::daemon_locks(mux))?)
 }
 
+/// `server-threads`: every registered daemon thread with its declared,
+/// desired and kernel QoS and scheduler priority, the work lanes, and the
+/// process's task role (server/server_stats.rs).
+pub(super) fn server_threads(mux: &Arc<Mux>, client: u64) -> anyhow::Result<Value> {
+    if !mux.control_clients.is_unix(client) {
+        return Err(server_stats::ThreadDiagnosticsRefused::NotLocal.into());
+    }
+    Ok(serde_json::to_value(server_stats::server_threads(mux))?)
+}
+
+/// `server-blocking`: the blocking calls made on threads that disallow
+/// blocking, by call site (server/server_stats.rs).
+pub(super) fn server_blocking(mux: &Arc<Mux>, client: u64) -> anyhow::Result<Value> {
+    if !mux.control_clients.is_unix(client) {
+        return Err(server_stats::ThreadDiagnosticsRefused::NotLocal.into());
+    }
+    Ok(serde_json::to_value(server_stats::server_blocking(mux))?)
+}
+
 /// `trace-start`, `trace-stop` and `trace-status` (server/trace_control.rs):
 /// owner only, refused before `call` reads a parameter.
 pub(super) fn trace_control(

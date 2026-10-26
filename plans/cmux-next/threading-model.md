@@ -362,6 +362,15 @@ person's input. `p06_queue.py` counts them (queues Q1, Q1b, Q1c, Q7); the hook's
 `DispatchQueue.main.async`, and its `main-hop` rule (task 014, landed) refuses the rest. The classes, the posting forms and the
 recipes are in [main-thread-budget.md](main-thread-budget.md).
 
+cmux pages (chrome-parity p13-webui) add no thread or queue: every page deadline is a `MainDeadline` on the one
+main wake-up queue, with no polling and at most one armed entry per owner. `webui.lifecycle` (`PageLifecycle`,
+background class): the next planner pass over hidden pages only, armed for the earliest freeze or discard, none
+with no hidden page. `webui.preload.refit` (`PagePreloadSlot`, background): the one quiet deadline after a size
+change of the parked page; each later refit pushes it back. `webui.preload.cover` (`PagePreloadSlot`, visible):
+the limit of a claim's cover when the page shows no live frame. `NewTabPreload.warm` and `NewTabPreload.fit`
+(background): the New Tab preload after quiet input and its follow of the pane's size. Chromium's spare windows
+are built in `ChromiumWarmup`'s idle task (`MainWorkScheduler.postIdle`, 500 ms `maxDelay`), never in a key's turn.
+
 In the daemon (p06 tasks 030, 034 and 035, spec'd), a request's cause (`EventCause`: frontend, program,
 automation; from `RequestOrigin`) decides lock admission and QoS: automation yields the state and registry locks
 to a waiting frontend caller and is admitted at least every 4 ms; lock takers stay USER_INITIATED, and automation
@@ -622,7 +631,10 @@ QoS with them, and ThreadsControlTests fails when a label or QoS here and there 
   `com.cmuxterm.app.next.blocking-drain` (utility), `com.cmux.host-pressure` (utility),
   `debug.window_record` (user-initiated),
   `com.cmuxterm.app.next.hang-reports.store` (utility; the `HangReportStore` actor's executor: its small pending,
-  outbox and send-log file reads and writes block this queue, never a pool thread)
+  outbox and send-log file reads and writes block this queue, never a pool thread),
+  `com.cmuxterm.app.next.hang-reports.field-data` (utility; the `HangReportFieldSources` actor's executor, schema 3
+  only: earlier launches' metrics files mapped and deleted, and the black-box ring files read, at most once per
+  report and per hang or slow key frame; never a pool thread)
 - Memory: `com.cmuxterm.app.next.memory.release-sink` (utility)
 - Trace and hang watch (Rust thread names, p09-observability; the app adds no thread): `mux-hang-watch`,
   `cmux-trace-open`

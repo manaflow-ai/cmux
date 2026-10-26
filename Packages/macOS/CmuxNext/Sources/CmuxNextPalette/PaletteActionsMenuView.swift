@@ -34,6 +34,12 @@ final class PaletteActionsMenuView: NSView {
     private let separator = NSView()
     private var rowViews: [PaletteMenuRow] = []
     private var tracking: NSTrackingArea?
+    /// A press on a row: the selection follows a drag and the release runs the row it ends on.
+    private lazy var press = PalettePress(in: content, rows: { [weak self] in self?.rowViews ?? [] }, select: { [weak self] index in
+        self?.onHover?(index)
+    }, release: { [weak self] index in
+        self?.onRun?(index)
+    })
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -81,7 +87,6 @@ final class PaletteActionsMenuView: NSView {
         rowViews = state.visibleCommands.enumerated().map { index, command in
             let keycaps: [String]? = index == 0 && state.filter.isEmpty ? ["↩"] : (command.id == alternateID ? ["⌘", "↩"] : nil)
             let row = PaletteMenuRow(command: command, keycaps: keycaps, isSelected: index == state.selectedIndex)
-            row.onPress = { [weak self] event in self?.track(event) }
             row.onCross = { [weak self] event in self?.hoverMoves.crossed(event) }
             row.onMove = { [weak self] event in self?.hoverMoves.moved(event) }
             content.addSubview(row)
@@ -170,16 +175,31 @@ final class PaletteActionsMenuView: NSView {
         onHover?(index)
     }
 
-    /// A press on a row: the selection follows a drag and the release runs the row it ends on.
-    private func track(_ event: NSEvent) {
+    // A press on a row is the menu's own: its selection rebuilds the rows while it is held.
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        let hit = super.hitTest(point)
+        return press.isOnRow(hit) ? self : hit
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        guard press.index(at: event) != nil else { return super.mouseDown(with: event) }
         hoverMoves.flush() // the frame's pending hover lands before the press
-        PalettePress.track(event, in: content, row: { point in
-            self.rowViews.firstIndex { $0.frame.contains(point) }
-        }, select: { index in
-            self.onHover?(index)
-        }, release: { index in
-            self.onRun?(index)
-        })
+        press.began(event)
+    }
+
+    override func mouseDragged(with event: NSEvent) {
+        guard press.isPressed else { return super.mouseDragged(with: event) }
+        press.dragged(event)
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        guard press.isPressed else { return super.mouseUp(with: event) }
+        press.ended(event)
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if window == nil { press.cancel() }
     }
 
     private func applyColors() {
@@ -190,9 +210,8 @@ final class PaletteActionsMenuView: NSView {
     }
 }
 
-/// One command row in the Actions menu.
+/// One command row in the Actions menu; its panel takes the presses on it (``PalettePress``).
 final class PaletteMenuRow: NSView {
-    var onPress: ((NSEvent) -> Void)?
     /// The pointer entered or left the row: a position like a move, for the menu's frame-aligned hover.
     var onCross: ((NSEvent) -> Void)?
     /// A pointer move over the row, for the menu's frame-aligned hover.
@@ -220,10 +239,6 @@ final class PaletteMenuRow: NSView {
     required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
 
     nonisolated override var isFlipped: Bool { true }
-
-    override func mouseDown(with event: NSEvent) {
-        onPress?(event)
-    }
 
     override func updateTrackingAreas() {
         super.updateTrackingAreas()

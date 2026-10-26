@@ -76,6 +76,17 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
     /// Fork API 34: `cmux_shim_browser_set_embedder_visibility` (a `cmux_shim_embedder_visibility_t`; 1 when the
     /// fork took it). Nil on a shim without the export (task p03-rendering-058).
     let browserSetEmbedderVisibility: (@convention(c) (Int32, Int32) -> Int32)?
+    /// Fork API 31: `cmux_shim_browser_set_page_visibility` (a ``ChromiumHostPageVisibility``), what cmux shows
+    /// of a detached page's window; host mode only (task p01-process-220).
+    let browserSetPageVisibility: @convention(c) (Int32, Int32) -> Int32
+    /// Fork API 37: `cmux_shim_tab_set_visibility(browser, visibility, capture)` (a `cmux_shim_tab_visibility_t`
+    /// and a `cmux_shim_tab_capture_t`): the tab's visibility tree node caps its WebContents' visibility
+    /// (``CEFTab/followVisibility(of:capture:)``). A post in host mode, so no caller reads its answer. Nil on a
+    /// shim without the export (task p06-scheduler-212).
+    let tabSetVisibility: (@convention(c) (Int32, Int32, Int32) -> Int32)?
+    /// Fork API 31: `cmux_shim_browser_set_page_display(browser, display_id, screen_x, screen_y)`, the display a
+    /// detached page window takes its scale, color space and refresh rate from (task 221); 0 when the fork lacks it.
+    let browserSetPageDisplay: @convention(c) (Int32, UInt32, Double, Double) -> Int32
     let initialize: @convention(c) (
         UnsafePointer<CChar>?, UnsafePointer<CChar>?, UnsafePointer<CChar>?, UnsafePointer<CChar>?,
         UnsafePointer<CChar>?, Int32, UnsafePointer<CChar>?, UnsafePointer<CChar>?,
@@ -164,6 +175,11 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
     let extSetPinned: (Int32, String?, Int32) -> Int32
     let extOpenOptions: (Int32, String?) -> Int32
     let extLoadUnpacked: (Int32, String?) -> Int32
+    /// 1 when the fork has `cmux_ext_load_command_line_async` (p13-webui-055); a mirror read in host mode.
+    let extLoadLaterSupported: @convention(c) () -> Int32
+    /// `--load-extension`'s load into a persistent context key's profile (context key, reply id, folder),
+    /// answered by a CMUX_SHIM_REPLY under the reply id (``CEFBuiltInExtensionLoads``).
+    let extLoadCommandLine: (String?, Int32, String?) -> Int32
     let extCommands: (Int32) -> String?
     let extCommandRun: (Int32, String?, String?) -> Int32
     let tabMoveToWindow: @convention(c) (Int32, Int32, Int32) -> Int32

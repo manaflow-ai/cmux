@@ -29,7 +29,10 @@
 //                                              pushes for the browser start or stop;
 //                                              answered with the fork's result
 //                                              (host_text_input.h)
-//   kOpTextInputStats                           no fields: answered with the text
+//   kOpPageResize                               a page view's size and its fence seq
+//                                              (host_resize.h); a fenced one is
+//                                              answered with i32 joined
+//   kOpTextInputStats                          no fields: answered with the text
 //                                              input push counters (host_text_input.h)
 //   kOpGeometryStats                            no fields: answered with GeometryStats as
 //                                              i64 frames, applied, unchanged, unplaced
@@ -39,11 +42,20 @@
 //                                              layers it hosts, and answers 0 (a refused
 //                                              hosting) when the fork refuses to detach it
 //                                              (HandleLayerHosting)
+//   kOpBrowserSetPageVisibility                 the generated case; the host also keeps
+//                                              the value (KeepPageVisibility) and applies
+//                                              it when it detaches the page window
 //   kOpBrowserAccessibilityToken                the generated case; for a browser cmux
 //                                              minted whose creation has not come, held
 //                                              and run once its AFTER_CREATED went out
 //                                              (task 049) and after the ack of the op whose
 //                                              call created it
+//   kOpBrowserSetPageDisplay                    the generated case (the fork places the
+//                                              detached page window on cmux's display, so
+//                                              its begin-frames, scale and color space are
+//                                              that display's, task 221); held as
+//                                              kOpBrowserAccessibilityToken is, the newest
+//                                              one only
 // Every preinit op comes before kOpInitialize (the remote shim queues them,
 // task 014); everything else after it.
 //
@@ -66,6 +78,7 @@
 #include <cstdint>
 #include <deque>
 #include <functional>
+#include <list>
 #include <optional>
 #include <string>
 #include <unordered_map>
@@ -77,6 +90,7 @@
 #include "chromium_host_tlv.h"
 #include "chromium_host_wire.h"
 #include "host_mirror.h"
+#include "host_resize.h"
 #include "host_text_input.h"
 
 namespace cmux_host {
@@ -148,6 +162,12 @@ class PageViews {
   // `token`'s view takes `geometry`. HostContext calls it only for an open
   // view and only when the geometry differs from the last one it placed.
   virtual void Place(uint64_t token, const PageGeometry& geometry) = 0;
+  // An open view's size in points (kOpPageResize); nothing when it is that size.
+  virtual void Resize(uint64_t token, int32_t width, int32_t height) {
+    (void)token;
+    (void)width;
+    (void)height;
+  }
 };
 
 // Each view fills a click-through window of the host that is never ordered
@@ -163,6 +183,7 @@ class HostPageViews final : public PageViews {
   void* Open(uint64_t token) override;
   void Close(uint64_t token) override;
   void Place(uint64_t token, const PageGeometry& geometry) override;
+  void Resize(uint64_t token, int32_t width, int32_t height) override;
 
  private:
   std::unordered_map<uint64_t, void*> windows_;  // NSWindow*, retained
@@ -255,6 +276,10 @@ class HostContext {
 
   const TextInputPushes& text_input() const { return text_input_; }
 
+  // Where kOpPageResize's fences go (browser_host_main.mm, before Attach);
+  // nullptr resizes with no fence.
+  void SetPageResizes(PageResizes* resizes) { resizes_ = resizes; }
+
  private:
   enum class State { kPreinit, kInitializing, kRunning, kEnded };
   struct HeldEvent {
@@ -281,17 +306,25 @@ class HostContext {
   // first. Answers the context id; when the fork refuses to detach, hosting
   // goes off again and the answer is 0, as for a refused hosting.
   bool HandleLayerHosting(const control::Message& message);
+  // kOpBrowserSetPageVisibility, before its generated case: keeps cmux's
+  // value for the browser, since the fork takes none until the page window
+  // is detached (task p01-process-220). False past kMaxPageVisibilities.
+  bool KeepPageVisibility(const control::Message& message);
   // Keeps `geometry` as `client_id`'s newest until its creation; past
   // kMaxPendingBinds held ids it is dropped (unplaced).
   void HoldGeometry(int32_t client_id, const PageGeometry& geometry);
   // `chromium_id`'s page view takes `geometry` when it changed.
   void PlaceBrowser(int chromium_id, const PageGeometry& geometry);
+  bool HandlePageResize(const control::Message& message);
+  // Keeps `token`'s size for the next op that opens its view (view_sizes_).
+  void RememberViewSize(uint64_t token, int32_t width, int32_t height);
   // Watches `chromium_id`'s text input in the fork: its result (0 refused).
   int ArmTextInputWatch(int chromium_id);
   // True while `client_id` is a minted id whose creation event has not come.
   bool AwaitsCreation(int32_t client_id) const;
-  // Holds a page accessibility request of a browser not created yet (true), to run after its
-  // creation event (RunHeldForCreation); false: run it now. A peer past the bound is bad.
+  // Holds a page accessibility request or page display of a browser not created yet (true), to
+  // run after its creation event (RunHeldForCreation); false: run it now. A newer page display
+  // replaces the held one; a peer past the bound is bad.
   bool HoldForCreation(control::Message& message);
   void RunHeldForCreation(int32_t client_id);
   void ReplyResult(uint32_t token, int32_t result);
@@ -360,14 +393,28 @@ class HostContext {
   std::unordered_set<uint64_t> open_views_;
   std::unordered_map<int, uint64_t> view_of_browser_;
   std::unordered_map<int, uint64_t> devtools_view_of_browser_;
+  // The last kOpPageResize size of each page view token, open, not open yet
+  // or closed: an op that opens the view, again too, gives it this size. cmux
+  // keeps a token for its pane while the pane's browsers come and go, and
+  // sends a size only when it changes, so a closed view's size stays. At most
+  // kMaxSizedViews: a new token's size takes the place of the least recently
+  // resized view that is not open (kMaxPageViews at most are).
+  struct ViewSize {
+    int32_t width = 0;
+    int32_t height = 0;
+    std::list<uint64_t>::iterator order;
+  };
+  std::unordered_map<uint64_t, ViewSize> view_sizes_;
+  std::list<uint64_t> view_size_order_;  // least recently resized first
 
   // Browsers cmux watches the text input of, by Chromium id.
   TextInputPushes text_input_;
+  PageResizes* resizes_ = nullptr;
   // Text input watches of minted ids whose creation has not come, by the
   // minted id: the watch tokens Bind arms and answers. Bounded with
   // pending_binds_ (AwaitsCreation).
   std::unordered_map<int32_t, std::vector<uint32_t>> text_input_awaiting_;
-  // Page accessibility requests of minted ids whose creation has not come, by the minted id.
+  // Page accessibility requests and page displays of minted ids whose creation has not come, by the minted id.
   // Bounded with pending_binds_ and kMaxHeldPerBrowser (host_dispatch.mm).
   std::unordered_map<int32_t, std::vector<control::Message>> held_for_creation_;
 
@@ -377,6 +424,9 @@ class HostContext {
   // placed at the creation, dropped at a refused create or a close. Bounded
   // by kMaxPendingBinds (HoldGeometry).
   std::unordered_map<int32_t, PageGeometry> geometry_awaiting_;
+  // cmux's last page visibility (cmux_shim_page_visibility_t) by client id,
+  // applied again when HandleLayerHosting detaches that browser's page window.
+  std::unordered_map<int32_t, int32_t> page_visibility_;
   GeometryStats geometry_stats_;
 };
 

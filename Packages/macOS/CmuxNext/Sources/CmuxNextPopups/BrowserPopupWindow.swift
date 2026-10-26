@@ -2,6 +2,7 @@ public import AppKit
 public import CmuxNextBrowser
 import CmuxNextCompat
 import CmuxNextDesign
+public import CmuxNextInput
 public import CmuxNextWakeups
 
 /// The window of one popup page (`window.open` with window features: OAuth
@@ -27,7 +28,7 @@ public import CmuxNextWakeups
 /// - Fullscreen hides the location bar (`PopupBrowserSupportsWindowFeature`).
 /// - Escape stops a load and never closes the window
 ///   (`IDC_CLOSE_FIND_OR_STOP`); Cmd-W and `window.close()` close it.
-public final class BrowserPopupWindow: NSWindow {
+public final class BrowserPopupWindow: NSWindow, InputTapHosting {
     /// The toolbar under the title bar: the location bar, with the 1 pt
     /// separator to the page inside it so the page gets the size it asked for.
     static let toolbarHeight: CGFloat = 34
@@ -55,6 +56,9 @@ public final class BrowserPopupWindow: NSWindow {
     public var addressBar: AddressBarView { locationBar.addressBar }
     /// Connects the omnibar to the page (URL, security, page info, loads).
     public let omnibar: OmnibarTabBinding
+    /// The app's input tap: the omnibar and find pill read the event in dispatch from it, as they do
+    /// in a main window (a click that focuses the omnibar selects the whole address).
+    public let inputTap: InputEventTap?
     private var observation: Task<Void, Never>?
     private let separator = NSBox()
     private var toolbarHeightConstraint: NSLayoutConstraint?
@@ -71,9 +75,11 @@ public final class BrowserPopupWindow: NSWindow {
     ///     can be selected and copied but not edited (navigating away would
     ///     lose the sign-in).
     ///   - mainWork: The app's one main-thread scheduler; the location bar follows the page on it.
+    ///   - inputTap: The app's one input tap (``InputTapHosting``).
     public init(page: any BrowserTab, frame: CGRect, suggestionEngine: OmniboxSuggestionEngine = OmniboxSuggestionEngine(),
-                readOnlyAddress: Bool = false, mainWork: MainWorkScheduler) {
+                readOnlyAddress: Bool = false, mainWork: MainWorkScheduler, inputTap: InputEventTap?) {
         self.page = page
+        self.inputTap = inputTap
         locationBar = OmnibarToolbarView(suggestionEngine: suggestionEngine, mainWork: mainWork)
         locationBar.addressBar.isReadOnly = readOnlyAddress
         locationBar.addressBar.setAccessibilityIdentifier(Self.omnibarIdentifier)

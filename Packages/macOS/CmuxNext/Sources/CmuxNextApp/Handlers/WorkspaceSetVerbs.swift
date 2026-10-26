@@ -44,7 +44,7 @@ enum WorkspaceSetVerbs {
         let group = try context.group(invocation)
         let members = try WorkspaceGroupHandlers.members(invocation, context)
         guard !members.isEmpty else { throw ActionFailure.invalidTarget(RefusalStrings.noWorkspaceToActOn) }
-        let bridge = try WorkspaceVerbHandlers.sidebar(showing: members[0], context), name = group.name
+        let bridge = try WorkspaceVerbHandlers.sidebar(showing: members[0], context, builds: true), name = group.name
         let copies = Copies(expected: members.count)
         let finish: @MainActor @Sendable (String?) -> Void = { id in
             guard let ids = copies.add(id), !ids.isEmpty else { return }

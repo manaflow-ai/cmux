@@ -122,7 +122,7 @@ nonisolated enum CEFShimEvent: Equatable, Sendable {
     case widgetContext(ChromiumHostWidgetContext)
     /// That widget closed (WIDGET_GONE).
     case widgetGone(browser: Int32, widget: ChromiumHostWidgetID)
-    /// The page's cursor changed or it answered a drag (CURSOR, DRAG_OPERATION; host mode).
+    /// The page's cursor or tooltip changed, or it answered a drag (CURSOR, TOOLTIP, DRAG_OPERATION; host mode).
     case pageView(browser: Int32, CEFPageViewEvent)
     case unknown(kind: Int32)
 
@@ -196,6 +196,7 @@ nonisolated enum CEFShimEvent: Equatable, Sendable {
         case 53: self = request != 0 ? .widgetGone(browser: browser, widget: ChromiumHostWidgetID(rawValue: request)) : .unknown(kind: kind)
         case 54: self = .pageView(browser: browser, .cursor(CEFPageCursor(type: a, scaleMilli: request, hotspot: b, pngBase64: s1)))
         case 55: self = .pageView(browser: browser, .dragOperation(a))
+        case 57: self = .pageView(browser: browser, .tooltip(s1))
         default: self = .unknown(kind: kind)
         }
     }

@@ -3,6 +3,8 @@
 
 #import <AppKit/AppKit.h>
 
+#include <cstdint>
+
 #include "include/cef_parser.h"
 #include "include/cef_values.h"
 #include "renderer_end.h"
@@ -48,6 +50,12 @@ std::vector<int> FrameRendererClientIDs(CefRefPtr<CefBrowser> browser) {
     if (id > 0) clients.push_back(id);
   }
   return clients;
+}
+
+// The fork's answer to one built-in extension load (cmux_ext_load_command_line_async, UI thread):
+// a CMUX_SHIM_REPLY under the reply id cmux_shim_ext_load_command_line passed as the context.
+void BuiltInLoadAnswered(void* context, int loaded) {
+  Emit(CMUX_SHIM_REPLY, 0, static_cast<int>(reinterpret_cast<intptr_t>(context)), loaded == 1 ? 1 : 0, 0);
 }
 
 }  // namespace
@@ -227,6 +235,20 @@ int cmux_shim_browser_set_embedder_visibility(int browser_id, int visibility) {
   return fork_api().browser_set_embedder_visibility(browser_id, visibility);
 }
 
+// The fork's call is Chromium's WasHidden / WasOccluded for the detached page
+// window (its widget's Hide and ShowInactive, its NSWindow's occluded state);
+// CefBrowserHost::WasHidden does nothing for a Chrome-style browser.
+int cmux_shim_browser_set_page_visibility(int browser_id, int visibility) {
+  if (visibility < CMUX_SHIM_PAGE_VISIBLE || visibility > CMUX_SHIM_PAGE_OCCLUDED) return 0;
+  if (!fork_api().browser_set_page_visibility) return 0;
+  return fork_api().browser_set_page_visibility(browser_id, visibility);
+}
+
+int cmux_shim_tab_set_visibility(int browser_id, int visibility, int capture) {
+  if (!fork_api().tab_set_visibility) return 0;
+  return fork_api().tab_set_visibility(browser_id, visibility, capture);
+}
+
 int cmux_shim_print(int browser_id) {
   CefRefPtr<CefBrowserHost> host = HostOf(browser_id);
   if (!host) return 0;
@@ -334,6 +356,22 @@ int cmux_shim_ext_open_options(int browser_id, const char* extension_id) {
 
 int cmux_shim_ext_load_unpacked(int browser_id, const char* path) {
   return fork_api().ext_load_unpacked && path ? fork_api().ext_load_unpacked(browser_id, path) : 0;
+}
+
+int cmux_shim_ext_load_later_supported(void) {
+  return fork_api().ext_load_command_line_async ? 1 : 0;
+}
+
+int cmux_shim_ext_load_command_line(const char* profile_cache_path, int reply, const char* path) {
+  if (!fork_api().ext_load_command_line_async || !profile_cache_path || !*profile_cache_path ||
+      IsOffTheRecordKey(profile_cache_path) || !path || !*path) {
+    return 0;
+  }
+  // The fork finds the profile by its context's cache path: make the context first.
+  if (!RequestContextFor(profile_cache_path)) return 0;
+  // The reply id rides in the fork's context pointer; the fork answers once, from a posted task.
+  return fork_api().ext_load_command_line_async(profile_cache_path, path, &BuiltInLoadAnswered,
+                                                reinterpret_cast<void*>(static_cast<intptr_t>(reply)));
 }
 
 char* cmux_shim_ext_commands(int browser_id) {
