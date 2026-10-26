@@ -4,7 +4,7 @@
 
 use std::io::{Read, Write};
 use std::os::fd::{AsRawFd, FromRawFd, RawFd};
-use std::os::unix::process::CommandExt;
+use std::os::unix::process::{CommandExt, ExitStatusExt};
 use std::process::{Child, Command, Stdio};
 use std::time::Duration;
 
@@ -49,7 +49,7 @@ fn spawn(args: &[&str], fd: RawFd) -> Child {
 fn spawn_with_extra(args: &[&str], fd: RawFd, extra_fd: Option<RawFd>) -> Child {
     let exe = env!("CARGO_BIN_EXE_acpmux");
     let mut command = Command::new(exe);
-    command.args(args).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
+    command.args(args).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped());
     command.env("NO_PROXY", "*").env("no_proxy", "*");
     if let Some(extra_fd) = extra_fd {
         command.env("INHERITED_FD", extra_fd.to_string());
@@ -154,7 +154,8 @@ fn helper_hands_off_listener_sets_env_and_closes_leaked_fds() {
             py,
             "-c",
             r#"import errno,json,os,socket
-assert 'NO_PROXY' not in os.environ and 'no_proxy' not in os.environ
+assert os.environ['NO_PROXY'] == '127.0.0.1,localhost,::1'
+assert os.environ['no_proxy'] == '127.0.0.1,localhost,::1'
 try:
     socket.socket(socket.AF_UNIX,socket.SOCK_STREAM)
     raise AssertionError('AF_UNIX allowed')
@@ -170,6 +171,10 @@ for fd in map(int, os.listdir('/proc/self/fd')):
         assert error.errno == errno.EBADF, error
     else:
         raise AssertionError('leaked fd: ' + str(fd))
+# Exercise a proxy-aware request to the handed-off API listener.
+import urllib.request
+api = int(input())
+assert urllib.request.urlopen('http://127.0.0.1:%d/' % api, timeout=5).read() == b'api'
 keys = ['HTTPS_PROXY','HTTP_PROXY','ALL_PROXY','https_proxy','http_proxy','all_proxy']
 print(json.dumps({key: os.environ[key] for key in keys}))"#,
         ],
@@ -186,10 +191,21 @@ print(json.dumps({key: os.environ[key] for key in keys}))"#,
     assert_eq!(address.port(), proxy);
     let _connection = std::net::TcpStream::connect(address).expect("proxy listener");
     let api_listener = &fds[1];
-    let _api_connection =
-        std::net::TcpStream::connect(api_listener.local_addr().unwrap()).expect("api listener");
     assert_eq!(api_listener.local_addr().unwrap().port(), api);
+    writeln!(child.stdin.take().unwrap(), "{api}").unwrap();
     ack(&parent);
+    // Poll bounds the accept wait even if the child fails before connecting.
+    let mut ready = libc::pollfd { fd: api_listener.as_raw_fd(), events: libc::POLLIN, revents: 0 };
+    assert_eq!(unsafe { libc::poll(&mut ready, 1, 10_000) }, 1, "API request did not arrive");
+    let (mut connection, _) = api_listener.accept().unwrap();
+    connection.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+    connection.set_write_timeout(Some(Duration::from_secs(5))).unwrap();
+    let mut request = [0; 4096];
+    assert!(connection.read(&mut request).unwrap() > 0);
+    connection
+        .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 3\r\nConnection: close\r\n\r\napi")
+        .unwrap();
+    drop(connection);
     let status = child.wait().expect("wait helper");
     assert!(
         status.success(),
@@ -285,4 +301,28 @@ fn helper_closes_inherited_unix_socket_before_exec() {
     drop(parent);
     drop(extra_peer);
     assert!(child.wait().expect("wait helper").success());
+}
+
+#[test]
+fn helper_restores_sigpipe_before_exec() {
+    let (parent, child_end) = socketpair();
+    let fd = child_end.as_raw_fd();
+    let mut child = spawn(
+        &[
+            "__remote-sandbox-init",
+            "--handoff-fd",
+            &fd.to_string(),
+            "--proxy-port",
+            "0",
+            "--",
+            "/bin/sh",
+            "-c",
+            "kill -PIPE $$; exit 42",
+        ],
+        fd,
+    );
+    drop(child_end);
+    let _ = recv_handoff(&parent);
+    ack(&parent);
+    assert_eq!(child.wait().expect("wait helper").signal(), Some(libc::SIGPIPE));
 }
