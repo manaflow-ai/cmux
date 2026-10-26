@@ -17,6 +17,7 @@ let package = Package(
     dependencies: [
         .package(path: "../CMUXMobileCore"),
         .package(path: "../CmuxFuzzSupport"),
+        .package(path: "../CmuxSafeConcurrency"),
         .package(
             url: "https://github.com/manaflow-ai/iroh-ffi.git",
             exact: "1.2.0-cmux.1.ios17"
@@ -27,6 +28,7 @@ let package = Package(
             name: "CmuxIrohTransport",
             dependencies: [
                 "CMUXMobileCore",
+                .product(name: "CmuxSafeConcurrency", package: "CmuxSafeConcurrency"),
                 .product(name: "IrohLib", package: "iroh-ffi"),
             ],
             swiftSettings: [

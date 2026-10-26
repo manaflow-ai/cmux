@@ -21,6 +21,7 @@ import CmuxNextHibernation
 import CmuxNextHome
 import CmuxNextMemory
 import CmuxNextPages
+import CmuxNextResources
 import CmuxNextSidebar
 import CmuxNextTerminal
 import CmuxNextWakeups
@@ -226,6 +227,11 @@ struct AppMemoryConsumers {
             (pages?.existingView(key)?.content as? PageWebView).map { PageWebViewLifecycle($0, encoder: encoder) }
         }
         services.webUI.lifecycle = lifecycle
+        // Crash budgets per renderer: Chromium groups pages only with `pageProcessGroups` (FirstPartyPageSchemes).
+        services.webUI.crashGroups = PageCrashGroups(chromiumSharesByGroup: services.features.isEnabled(.pageProcessGroups)) { page in
+            guard let chromium = page.chromiumPage else { return WebContentProcess.identifier(of: page.webKitView).map { .webKit(pid: $0) } }
+            return (chromium as? CEFPageChromiumPage)?.soleRendererClientID.map { .chromium(client: $0) }
+        }
         services.cache.pageLifecycle = lifecycle
     }
 
