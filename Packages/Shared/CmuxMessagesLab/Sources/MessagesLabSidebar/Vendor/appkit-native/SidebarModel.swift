@@ -229,7 +229,7 @@ enum SidebarStrings {
 
 /// Geometry of the list and the pinned grid, in points. Each value names its source in
 /// appkit-native/SIDEBAR.md ("public-source" or "to verify against a real reference").
-struct SidebarMetrics: Equatable {
+struct SidebarMetrics: Equatable, Sendable { // cmux: Sendable (Swift 6), in the render context
     // Width. The host owns the width, its storage and its reset; the list reads only the
     // width it gets and reports these two (SidebarController.minimumWidth / preferredWidth).
     static let preferredWidth: CGFloat = 320
@@ -330,7 +330,7 @@ struct SidebarMetrics: Equatable {
 
 /// Colors resolved for one appearance and window state (CGColors: the background renderer
 /// reads them off the main thread).
-struct SidebarPalette: Equatable {
+struct SidebarPalette: Equatable, Sendable { // cmux: checked Sendable (Swift 6), CGColors and a flag
     var dark: Bool
     var name: CGColor
     var secondary: CGColor
