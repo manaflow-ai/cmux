@@ -95,23 +95,12 @@ extension SidebarDocStore {
         return pendingChief.isEmpty == false || records.items[id.rawValue] == nil ? drawnRecords.items[id.rawValue] != nil : false
     }
 
-    /// The Chief's add sent under `key` is settled: echoed, refused, dropped or answered by a load.
-    /// Whether one was pending.
+    /// The Chief's changes sent under `keys` are settled: echoed, refused, dropped or answered by a load. Whether one
+    /// was pending.
     @discardableResult
-    func settlePendingChief(_ key: String) -> Bool {
+    func settlePendingChief(_ keys: Set<String>) -> Bool {
         let count = pendingChief.count
-        pendingChief.removeAll { $0.key == key }
+        pendingChief.removeAll { keys.contains($0.key) }
         return pendingChief.count != count
-    }
-
-    /// An echoed batch settles the Chief's add sent under its key: the first `sidebar_doc` marker's, else the batch's
-    /// own (as the mirror reads it).
-    @discardableResult
-    func settlePendingChief(batch data: Data) -> Bool {
-        guard let batch = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return false }
-        let markers = (batch["changes"] as? [[String: Any]] ?? []).filter { $0["resource"] as? String == "sidebar_doc" }
-        let key = markers.lazy.compactMap { ($0["value"] as? [String: Any])?["idempotency_key"] as? String }.first
-            ?? batch["idempotency_key"] as? String
-        return key.map { settlePendingChief($0) } ?? false
     }
 }

@@ -118,8 +118,6 @@ public final class SidebarDocStore {
         loading = true
         // The load answers the changes unanswered before it was asked for (a later one asks for another load).
         let answering = unanswered
-        // It answers the Chief's adds sent before it too: the mirror drops a replayed one the document already holds.
-        let chiefAnswered = Set(pendingChief.map(\.key))
         // task-owner: one sidebar.get; settles the load
         Task { [weak self] in
             defer {
@@ -127,7 +125,7 @@ public final class SidebarDocStore {
                 if self?.refetchAgain == true { self?.refetchAgain = false; self?.refresh() }
             }
             guard let data = try? await remote.get(), let records = try? SidebarDocRecords(document: data), let self,
-                  mirror.load(data) else {
+                  let dropped = mirror.load(data) else {
                 // Unanswered changes wait for a load: ask again (a bounded number of times; a reconnect loads anyway).
                 if let self, !answering.isEmpty, self.failedLoads < Self.unsettledAsks {
                     self.failedLoads += 1
@@ -138,7 +136,9 @@ public final class SidebarDocStore {
             self.failedLoads = 0
             // The document has each unanswered change or never will: it shows as loaded (no replay on top).
             for key in answering { mirror.reject(key) }
-            self.pendingChief.removeAll { chiefAnswered.contains($0.key) }
+            // A Chief change the load answered or the mirror dropped (it no longer applies) is settled; one it
+            // replays stays pending.
+            self.settlePendingChief(answering.union(dropped))
             self.unanswered.subtract(answering)
             self.records = records
             self.groupFolds = records.items.compactMapValues(\.body.groupCollapsed)
@@ -157,15 +157,20 @@ public final class SidebarDocStore {
             if loading, mirror != nil, earlyBatches.count < 512 { earlyBatches.append(data) }
             return
         }
-        // The reducer judges the revision chain: a skipped one refetches.
-        switch mirror.apply(batch: data) {
-        case .stale:
-            // Already in the confirmed document: its change is no longer pending.
-            if !pendingChief.isEmpty, settlePendingChief(batch: data) { bump() }
-            return
+        // The reducer judges the revision chain: a skipped one refetches. While a Chief change waits, the mirror also
+        // names the intents the batch settled or dropped.
+        let outcome: SidebarMirror.BatchOutcome
+        if pendingChief.isEmpty {
+            outcome = mirror.apply(batch: data)
+        } else {
+            let (applied, dropped) = mirror.applyDropping(batch: data)
+            outcome = applied
+            if settlePendingChief(Set(dropped)) { bump() }
+        }
+        switch outcome {
+        case .stale: return
         case .refetch: return refresh()
         case .applied(let revision):
-            if !pendingChief.isEmpty { settlePendingChief(batch: data) }
             let folds = records.apply(batch: data)
             if let revision { records.revision = revision }
             guard let folds else {
@@ -393,7 +398,7 @@ public final class SidebarDocStore {
 
     private func drop(_ key: String, redraws: Bool = true) {
         mirror?.reject(key)
-        settlePendingChief(key)
+        settlePendingChief([key])
         if redraws { bump() }
     }
 
