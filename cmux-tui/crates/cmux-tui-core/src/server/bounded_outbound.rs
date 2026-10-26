@@ -411,6 +411,36 @@ impl BoundedOutbound {
         }
     }
 
+    /// Waits until a queued, unwritten line satisfies `matches`.
+    #[cfg(test)]
+    pub(super) fn wait_until_queued(
+        &self,
+        matches: impl Fn(&str) -> bool,
+        timeout: Duration,
+    ) -> bool {
+        let deadline = std::time::Instant::now() + timeout;
+        let mut state = self.state.lock().recover_poison();
+        loop {
+            let queued = state.initial.iter().map(|message| &message.text).chain(
+                state.control.iter().filter_map(|item| match item {
+                    ControlOutbound::Text(text) => Some(text),
+                    ControlOutbound::Flush(_) => None,
+                }),
+            );
+            if queued
+                .chain(state.regular.iter().map(|message| &message.text))
+                .any(|text| matches(text))
+            {
+                return true;
+            }
+            let remaining = deadline.saturating_duration_since(std::time::Instant::now());
+            if remaining.is_zero() {
+                return false;
+            }
+            state = self.changed.wait_timeout(state, remaining).recover_poison().0;
+        }
+    }
+
     pub(super) fn recv(&self) -> Option<OutboundItem> {
         let mut state = self.state.lock().recover_poison();
         loop {
