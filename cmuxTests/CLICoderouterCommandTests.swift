@@ -236,6 +236,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         socketName: String,
         standardInput: String? = nil,
         extraEnvironment: [String: String] = [:],
+        underTerminal: Bool = false,
         waitForSocket: Bool = true,
         handler: @escaping (String, [String: Any]) -> String?
     ) throws -> (result: ProcessRunResult, state: MockSocketServerState) {
@@ -294,11 +295,21 @@ extension CLINotifyProcessIntegrationRegressionTests {
             environment[key] = value
         }
 
+        // `underTerminal` runs the CLI on a pseudo-terminal, the only way to reach
+        // its interactive prompts. `script` turns a closed stdin into an EOF that
+        // can overtake typed input, so the shell keeps the pipe open until the
+        // CLI exits and `standardInput` is typed through it.
+        let doneSignal = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-coderouter-terminal-\(UUID().uuidString)").path
+        defer { unlink(doneSignal) }
+        if underTerminal {
+            environment["CMUX_TEST_TERMINAL_INPUT"] = standardInput ?? ""
+        }
         let result = runProcess(
-            executablePath: cliPath,
-            arguments: arguments,
+            executablePath: underTerminal ? "/bin/sh" : cliPath,
+            arguments: underTerminal ? ["-c", Self.terminalRunner, "sh", doneSignal, cliPath] + arguments : arguments,
             environment: environment,
-            standardInput: standardInput,
+            standardInput: underTerminal ? nil : standardInput,
             timeout: 5
         )
         if let serverHandled {
@@ -306,6 +317,14 @@ extension CLINotifyProcessIntegrationRegressionTests {
         }
         return (result, state)
     }
+
+    /// `sh -c` body: `$1` is a path for the done signal, the rest is the command.
+    private static let terminalRunner = #"""
+        done="$1"; shift
+        mkfifo "$done" || exit 125
+        { printf '%s' "$CMUX_TEST_TERMINAL_INPUT"; read _ < "$done"; } |
+            { /usr/bin/script -q /dev/null "$@"; status=$?; echo > "$done"; exit "$status"; }
+        """#
 
     /// The mock responds with `__ID__` so the handler closure does not need the
     /// request id; `runCoderouterCLI` substitutes it.
@@ -377,6 +396,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertEqual(receivedParams["kind"] as? String, "anthropic_oauth")
         XCTAssertEqual(receivedParams["token"] as? String, Self.sampleOAuthToken)
         XCTAssertEqual(receivedParams["label"] as? String, "work")
+        XCTAssertEqual(receivedParams["visibility"] as? String, "team")
         XCTAssertEqual(receivedParams["teamId"] as? String, "team_explicit")
         XCTAssertEqual(
             result.stdout,
@@ -391,6 +411,78 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertFalse(result.stdout.contains(Self.sampleOAuthToken), "the secret must never be printed")
         XCTAssertFalse(result.stderr.contains(Self.sampleOAuthToken), "the secret must never be printed")
         XCTAssertEqual(state.commands.filter { $0.contains(#""method":"coderouter.claude_upstream.add""#) }.count, 1)
+    }
+
+    /// Runs `claude add oauth-token` on a terminal with no `--label`, the token
+    /// in the environment, and `claudeJSON` as the Claude Code config, typing
+    /// `typed` at any prompt. Returns the label CodeRouter received.
+    private func addOAuthTokenInteractively(
+        claudeJSON: String?,
+        typed: String,
+        socketName: String
+    ) throws -> (result: ProcessRunResult, label: String?) {
+        let home = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-coderouter-label-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: home) }
+        if let claudeJSON {
+            try claudeJSON.write(to: home.appendingPathComponent(".claude.json"), atomically: true, encoding: .utf8)
+        }
+
+        nonisolated(unsafe) var receivedLabel: String?
+        let (result, _) = try runCoderouterCLI(
+            ["coderouter", "claude", "add", "oauth-token"],
+            socketName: socketName,
+            standardInput: typed,
+            extraEnvironment: [
+                "HOME": home.path,
+                "CLAUDE_CONFIG_DIR": "",
+                "CLAUDE_CODE_OAUTH_TOKEN": Self.sampleOAuthToken,
+            ],
+            underTerminal: true
+        ) { method, params in
+            guard method == "coderouter.claude_upstream.add" else { return nil }
+            receivedLabel = params["label"] as? String
+            return self.okResponse([
+                "teamId": "team_local",
+                "account": Self.account(id: Self.accountA, kind: "anthropic_oauth", identifier: "sk-ant-oat01-...HIJ"),
+                "accountsTotal": 1,
+            ])
+        }
+        XCTAssertFalse(result.timedOut, result.stdout)
+        XCTAssertEqual(result.status, 0, result.stdout)
+        return (result, receivedLabel)
+    }
+
+    private static let loggedInClaudeJSON = #"{"oauthAccount":{"emailAddress":"dev@example.com","organizationName":"Example"}}"#
+
+    func testCoderouterClaudeAddOAuthTokenOffersTheClaudeCodeLoginEmailAsLabel() throws {
+        let (result, label) = try addOAuthTokenInteractively(
+            claudeJSON: Self.loggedInClaudeJSON,
+            typed: "\n",
+            socketName: "coderouter-add-label-default"
+        )
+        XCTAssertTrue(result.stdout.contains("Label (Enter for dev@example.com): "), result.stdout)
+        XCTAssertEqual(label, "dev@example.com")
+    }
+
+    func testCoderouterClaudeAddOAuthTokenKeepsATypedLabelOverTheLoginEmail() throws {
+        let (_, label) = try addOAuthTokenInteractively(
+            claudeJSON: Self.loggedInClaudeJSON,
+            typed: "personal\n",
+            socketName: "coderouter-add-label-typed"
+        )
+        XCTAssertEqual(label, "personal")
+    }
+
+    func testCoderouterClaudeAddOAuthTokenSkipsTheLabelPromptWithoutAClaudeCodeLogin() throws {
+        let (result, label) = try addOAuthTokenInteractively(
+            claudeJSON: nil,
+            typed: "",
+            socketName: "coderouter-add-label-none"
+        )
+        XCTAssertFalse(result.stdout.contains("Label"), result.stdout)
+        XCTAssertNil(label)
     }
 
     func testCoderouterClaudeSetIsAnAliasForAddAndReadsTheEnvironment() throws {

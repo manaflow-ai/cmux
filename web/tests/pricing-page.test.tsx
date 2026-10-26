@@ -37,10 +37,11 @@ const proUser = {
   id: "user-pro",
   isAnonymous: false,
   primaryEmail: "pro@example.com",
-  clientReadOnlyMetadata: { cmuxPlan: "pro" },
+  clientReadOnlyMetadata: { cmuxPlan: "pro" } as Record<string, string>,
   update: mock(async () => undefined),
 };
-const getUser = mock(async () => proUser);
+let currentUser: typeof proUser | null = proUser;
+const getUser = mock(async () => currentUser);
 const redirect = mock((href: unknown) => {
   throw Object.assign(new Error("redirect"), { href });
 });
@@ -166,7 +167,7 @@ describe("localized pricing page", () => {
     }
   });
 
-  test("offers yearly billing on Pro only", async () => {
+  test("offers yearly billing on Pro and Max", async () => {
     const element = await PricingPage({ params: Promise.resolve({ locale: "en" }), searchParams: Promise.resolve({ interval: "year" }) });
     const html = (await renderSettled(element));
     expect(html).toContain("$50");
@@ -174,7 +175,7 @@ describe("localized pricing page", () => {
     expect(html).not.toMatch(/billed yearly, save/);
     expect(html).toContain("$40");
     expect(html).toMatch(/interval(=|%3D|%253D)year/);
-    expect(html).not.toMatch(/plan=(go|max|team)[^"]*interval=year/);
+    expect(html).not.toMatch(/plan=(go|team)[^"]*interval=year/);
   });
 
   test("publishes pricing only in its fully authored English and Japanese catalogs", () => {
@@ -254,8 +255,10 @@ describe("localized pricing page", () => {
   beforeEach(() => {
     process.env.CMUX_VAULT_ENABLED = "0";
     stackConfigured = false;
+    currentUser = proUser;
     stripeSubscriptionRows = [];
     getUser.mockClear();
+    getUser.mockImplementation(async () => currentUser);
     proUser.update.mockClear();
   });
 
@@ -276,6 +279,9 @@ describe("localized pricing page", () => {
     expect(html).toContain("/mo");
     expect(html).toContain("/user/mo");
     expect(html).toContain("$60/user/mo");
+    expect(html).toMatch(/>\$50</);
+    expect(html).not.toMatch(/>\$40</);
+    expect(html).not.toMatch(/plan%253Dpro[^"]*interval%253Dyear/);
     expect(html).toContain('href="/handler/sign-in?after_auth_return_to=');
     expect(html).toContain("plan%253Dpro");
     expect(html).toContain("plan%253Dteam");
@@ -296,25 +302,24 @@ describe("localized pricing page", () => {
     expect(html).not.toContain("cmux Vault");
   });
 
-  test("sells Max at $200/mo on a monthly-only checkout link, between Pro and Team", async () => {
+  test("sells Max monthly or yearly with the annual discount, between Pro and Team", async () => {
     const element = await PricingPage({
       params: Promise.resolve({ locale: "en" }),
       searchParams: Promise.resolve({ interval: "year" }),
     });
     const html = (await renderSettled(element));
 
-    // The annual selector must not touch Max: no interval on its checkout
-    // link and no "billed yearly" label on its card or table column.
+    // The annual selector applies to Max as well as Pro.
     expect(html).toContain(
       "plan%253Dmax%2526cmux_external_browser",
     );
     expect(html).toContain(
       "plan%253Dmax%2526cmux_external_browser",
     );
-    expect(html).not.toMatch(/plan%253Dmax[^\"]*interval%253D/);
+    expect(html).toMatch(/plan%253Dmax[^\"]*interval%253Dyear/);
     expect(html).toContain("$200");
-    expect(html).toContain("$200 /mo");
-    expect(html).not.toContain("$200/mo, billed yearly");
+    expect(html).toContain("$160");
+    expect(html).toContain("Yearly");
     expect(html).toContain("Up to 5 Cloud VMs sharing 80 vCPUs and 160 GB RAM");
     expect(html).toContain("Get Go");
     expect(html).toContain("2 vCPU, 4 GiB RAM, and 16 GiB disk");
@@ -369,10 +374,48 @@ describe("localized pricing page", () => {
     const card = Array.from(html.matchAll(/aria-labelledby="individual-pricing-category"[\s\S]*?<\/section>/g), (match) => match[0]).find((section) => section.includes("Manage billing")) ?? "";
     expect(card.match(/Current plan/g)).toHaveLength(1);
     expect(card.includes("Manage billing")).toBe(true);
-    // A Pro subscriber can still upgrade: the Max card keeps its checkout
-    // link (the server routes an active Pro subscription to the portal).
-    expect(html).toContain("/api/billing/portal?flow=switch_plan&amp;plan=max");
+    // The checkout endpoint routes an active Pro subscription to the portal
+    // upgrade flow while also handling granted Pro users without a customer.
+    expect(card).toContain("/api/billing/checkout?plan=max");
+    expect(html).not.toContain("/api/billing/portal?flow=switch_plan");
     expect(html).toMatch(/plan=max[^"]*"[^>]*><span>Get Max/);
+  });
+
+  test("routes a granted Pro user's Max CTA through checkout", async () => {
+    stackConfigured = true;
+    currentUser = { ...proUser, clientReadOnlyMetadata: { cmuxVmPlan: "pro" } };
+
+    const html = await renderSettled(
+      await PricingPage({ params: Promise.resolve({ locale: "en" }) }),
+    );
+    const card = Array.from(
+      html.matchAll(/aria-labelledby="individual-pricing-category"[\s\S]*?<\/section>/g),
+      (match) => match[0],
+    ).find((section) => section.includes("Current plan")) ?? "";
+    expect(card).toContain("Current plan");
+    // A grant has no Stripe customer, so there is no billing portal to open.
+    expect(card).not.toContain('href="/api/billing/portal"');
+    expect(card).toMatch(/href="[^"]*\/api\/billing\/checkout\?plan=max[^"]*"[^>]*><span>Get Max/);
+    expect(card).not.toContain("/api/billing/portal?flow=switch_plan");
+  });
+
+  test("a past-due Pro subscriber is sent to fix the payment, not offered Max", async () => {
+    stackConfigured = true;
+    stripeSubscriptionRows = [{ id: "sub_123", plan: "pro", status: "past_due" }];
+
+    const html = await renderSettled(
+      await PricingPage({ params: Promise.resolve({ locale: "en" }) }),
+    );
+
+    // The personalized card set, not the signed-out streaming fallback.
+    const card = Array.from(
+      html.matchAll(/aria-labelledby="individual-pricing-category"[\s\S]*?<\/section>/g),
+      (match) => match[0],
+    ).find((section) => section.includes("Current plan")) ?? "";
+    expect(card).toContain("Current plan");
+    expect(card).not.toContain("Get Max");
+    expect(card).not.toContain("plan=max");
+    expect(card.match(/href="\/api\/billing\/portal"/g)?.length ?? 0).toBeGreaterThanOrEqual(2);
   });
 
   test("an App Store subscriber who also pays Stripe keeps Stripe's Manage billing", async () => {

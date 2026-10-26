@@ -21,6 +21,7 @@ final class CloudWorkspaceCreationSidebarProvider: SurfaceProvider {
     var usesReceipt = false
     var adoptsReservation = true
     var includesStarter = true
+    var terminalHasRemoteViews = true
     var terminalError: Error?
     var terminalCreates = 0
     var terminalRequests: [UUID] = []
@@ -42,8 +43,9 @@ final class CloudWorkspaceCreationSidebarProvider: SurfaceProvider {
     func terminal(in workspace: SurfaceRemoteWorkspace) -> SurfaceResource {
         SurfaceResource(id: .init(machine: machine, kind: .terminal, key: "term_" + workspace.id), title: "shell",
             detail: nil, lifecycle: .launching, agent: nil, remoteWorkspace: workspace,
-            remoteViews: [.init(tabID: "tab_" + workspace.id, workspace: workspace,
-                                screenID: "screen_" + workspace.id, paneID: "pane_" + workspace.id)], port: nil, url: nil)
+            remoteViews: terminalHasRemoteViews ? [.init(tabID: "tab_" + workspace.id, workspace: workspace,
+                                                        screenID: "screen_" + workspace.id, paneID: "pane_" + workspace.id)] : [],
+            port: nil, url: nil)
     }
 
     func createRemoteWorkspace(name: String?) async throws -> SurfaceRemoteWorkspace {

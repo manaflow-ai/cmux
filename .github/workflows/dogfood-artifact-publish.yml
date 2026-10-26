@@ -16,7 +16,12 @@ jobs:
     # not discard a successful exact-head Dogfood build; the trusted gate below
     # requires that job and its matching GitHub artifact explicitly. A run the
     # event lists no pull request for has nothing to publish, so it never starts.
-    if: ${{ github.event.workflow_run.event == 'pull_request' && github.event.workflow_run.conclusion != 'cancelled' && toJSON(github.event.workflow_run.pull_requests) != '[]' }}
+    # The event names the pull request's base, so a run the script would skip
+    # for its base (CI on a feat-cmux-next pull request, cmux-next on any
+    # other) never starts either and spends no API call. CI_QUOTA_HOLD=1
+    # pauses this publish while the installation's GITHUB_TOKEN budget is
+    # reserved for the nightly (tests/test_ci_quota_hold_gate.py).
+    if: ${{ vars.CI_QUOTA_HOLD != '1' && github.event.workflow_run.event == 'pull_request' && github.event.workflow_run.conclusion != 'cancelled' && toJSON(github.event.workflow_run.pull_requests) != '[]' && (github.event.workflow_run.name == 'CI' && github.event.workflow_run.pull_requests[0].base.ref != 'feat-cmux-next' || github.event.workflow_run.name == 'cmux-next' && github.event.workflow_run.pull_requests[0].base.ref == 'feat-cmux-next') }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     environment: artifacts
     permissions:
@@ -38,6 +43,10 @@ jobs:
       - name: Find the trusted org-member dogfood artifact
         id: pr
         env:
+          # This job runs in the artifacts environment, whose trust boundary
+          # intentionally contains only R2 credentials. Keep GitHub API calls
+          # on its explicitly scoped workflow token; the capture job below has
+          # no artifact secrets and may use cmux-bot's separate budget.
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           RUN_ID: ${{ github.event.workflow_run.id }}
@@ -196,6 +205,8 @@ jobs:
           DIGEST: ${{ steps.artifact.outputs.digest }}
           DOWNLOAD_URL: ${{ steps.signed-url.outputs.url }}
           BUILD_TIME: ${{ steps.pr.outputs.build_time }}
+          SOURCE_RUN_URL: ${{ github.event.workflow_run.html_url }}
+          SOURCE_RUN_ID: ${{ github.event.workflow_run.id }}
           MARKER: '<!-- cmux-fleet-dogfood-artifact -->'
         run: |
           set -euo pipefail
@@ -212,7 +223,12 @@ jobs:
               f"SHA-256: `{os.environ['DIGEST']}`\n"
               f"Tag: `{os.environ['TAG']}`\n\n"
               f"Build time: `{os.environ['BUILD_TIME']}`\n\n"
-              "The download URL expires after 15 minutes."
+              "The download URL expires after 15 minutes. "
+              # The comment outlives the signed link; the CI artifact it came
+              # from stays downloadable until it expires (retention-days: 2).
+              f"For 2 days after the build, [the CI run]({os.environ['SOURCE_RUN_URL']}) still has it: "
+              f"`gh run download {os.environ['SOURCE_RUN_ID']} -R {os.environ['GH_REPO']} "
+              f"-n dogfood-app-{os.environ['PR']}-{os.environ['HEAD_SHA']}`"
           )
           Path(os.environ['BODY_PATH']).write_text(body + "\n", encoding="utf-8")
           PY
@@ -247,13 +263,27 @@ jobs:
       contents: read
       pull-requests: write
     env:
-      GH_TOKEN: ${{ github.token }}
       GH_REPO: ${{ github.repository }}
       PR: ${{ needs.publish.outputs.pr }}
       HEAD_SHA: ${{ needs.publish.outputs.sha }}
       CAPTURE_HOST_TOOL: ${{ vars.CMUX_NEXT_CAPTURE_HOST_TOOL || 'capture-host' }}
       CUA_SSH: ${{ vars.CMUX_NEXT_CUA_SSH || 'cua-ssh' }}
     steps:
+      - name: Mint the cmux-bot token
+        id: cmux-bot-token
+        if: vars.CMUX_BOT_APP_ID != ''
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.CMUX_BOT_APP_ID }}
+          private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
+          permission-actions: write
+          permission-checks: read
+          permission-contents: read
+          permission-issues: write
+          permission-pull-requests: write
+
       - name: Checkout capture workflow scripts
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -265,6 +295,8 @@ jobs:
         run: ./scripts/select-ci-xcode.sh
 
       - name: Download the published head archive
+        env:
+          GH_TOKEN: ${{ steps.cmux-bot-token.outputs.token || github.token }}
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/capture/head"
@@ -276,6 +308,8 @@ jobs:
 
       - name: Find the exact base cmux-next artifact
         id: base
+        env:
+          GH_TOKEN: ${{ steps.cmux-bot-token.outputs.token || github.token }}
         run: |
           set -euo pipefail
           base_sha="$(gh api "repos/$GH_REPO/pulls/$PR" --jq '.base.sha')"
@@ -322,6 +356,7 @@ jobs:
 
       - name: Post before/after capture link
         env:
+          GH_TOKEN: ${{ steps.cmux-bot-token.outputs.token || github.token }}
           MARKER: '<!-- cmux-next-before-after-capture -->'
           RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
           BUILD_TIME: ${{ needs.publish.outputs.build_time }}

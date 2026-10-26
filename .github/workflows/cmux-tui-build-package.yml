@@ -195,7 +195,8 @@ jobs:
           persist-credentials: false
 
       - name: Init ghostty submodule
-        run: git submodule update --init --depth 1 ghostty
+        shell: bash
+        run: bash scripts/ci/init-submodule.sh ghostty
 
       - name: Install Linux build dependencies
         if: runner.os == 'Linux'
@@ -426,7 +427,8 @@ jobs:
           persist-credentials: false
 
       - name: Init ghostty submodule
-        run: git submodule update --init --depth 1 ghostty
+        shell: bash
+        run: bash scripts/ci/init-submodule.sh ghostty
 
       - name: Resolve Ghostty Zig version
         id: ghostty-zig-version

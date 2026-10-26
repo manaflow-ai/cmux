@@ -157,9 +157,12 @@ jobs:
           printf '%s' "$IOS_DISTRIBUTION_CERTIFICATE_BASE64" | base64 --decode > "$CERT_PATH"
           security delete-keychain "$KEYCHAIN_NAME" >/dev/null 2>&1 || true
           security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_NAME"
-          security set-keychain-settings -lut 21600 "$KEYCHAIN_NAME"
+          # xcodebuild signs at the end of a long archive, so the idle lock is
+          # the job timeout. The keychain is deleted right after the archive step.
+          security set-keychain-settings -lut 5400 "$KEYCHAIN_NAME"
           security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_NAME"
           security import "$CERT_PATH" -k "$KEYCHAIN_NAME" -P "$IOS_DISTRIBUTION_CERTIFICATE_PASSWORD" -T /usr/bin/codesign -T /usr/bin/security
+          rm -f "$CERT_PATH"
           security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_NAME"
           security list-keychains -d user -s "$KEYCHAIN_NAME"
           IOS_DISTRIBUTION_IDENTITY="$(
@@ -177,7 +180,9 @@ jobs:
         env:
           IOS_APPSTORE_PROVISIONING_PROFILE_BASE64: ${{ secrets.IOS_APPSTORE_PROVISIONING_PROFILE_BASE64 }}
           IOS_APPSTORE_EXTENSION_PROVISIONING_PROFILE_BASE64: ${{ secrets.IOS_APPSTORE_EXTENSION_PROVISIONING_PROFILE_BASE64 }}
-          IOS_APPSTORE_ENABLE_CLOUD_VPN: "1"
+          # The public App Store binary must not contain the unapproved system
+          # VPN API. Beta/internal lanes keep that feature separately.
+          IOS_APPSTORE_ENABLE_CLOUD_VPN: "0"
           IOS_PROD_PROVISIONING_PROFILE_BASE64: ${{ secrets.IOS_PROD_PROVISIONING_PROFILE_BASE64 }}
           IOS_BETA_PROVISIONING_PROFILE_BASE64: ${{ secrets.IOS_BETA_PROVISIONING_PROFILE_BASE64 }}
           APPLE_RELEASE_PROVISIONING_PROFILE_BASE64: ${{ secrets.APPLE_RELEASE_PROVISIONING_PROFILE_BASE64 }}
@@ -314,6 +319,12 @@ jobs:
           ./ios/scripts/upload-app-store.sh "${ARGS[@]}"
           FINAL_BN="$(cat "$CMUX_BUILD_NUMBER_OUT_FILE")"
           echo "final_build_number=$FINAL_BN" >> "$GITHUB_OUTPUT"
+
+      # The archive step made the last signature. Later steps (caches, notes,
+      # dSYM uploads) run without the distribution identity.
+      - name: Delete iOS signing keychain after the archive
+        if: always()
+        run: security delete-keychain ios-app-store.keychain >/dev/null 2>&1 || true
 
       - name: Validate App Store readiness
         env:

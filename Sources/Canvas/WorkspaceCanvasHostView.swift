@@ -116,11 +116,13 @@ struct WorkspaceCanvasHostView: View {
         case .project: return "folder"
         case .extensionBrowser: return "puzzlepiece.extension"
         case .workspaceTodo: return "checklist"
+        case .coderouterGuide: return "questionmark.circle"
         case .notifications: return "bell"
         case .cloudVMLoading: return "cloud.fill"
         case .mobilePairing: return "iphone"
         case .accountSignIn: return "person.crop.circle"
         case .cloudVPNSetup: return "network"
+        case .chief: return ChiefPanel.iconSystemName
         }
     }
 
@@ -269,8 +271,34 @@ private struct CanvasRootRepresentable: NSViewRepresentable {
             ),
             themeProvider: {
                 let background = GhosttyBackgroundTheme.currentColor()
-                return CanvasTheme(canvasBackground: background, paneBackground: background)
-            }
+                // When the window root paints a see-through backdrop, as in
+                // split mode, opaque canvas fills would hide it. Read the same
+                // backdrop plan the window applies so Reduce Transparency and
+                // window glass resolve identically in both layout modes.
+                let windowChrome = AppWindowChromeComposition()
+                let showsWindowBackdrop = windowChrome
+                    .appearanceSnapshotFromUserDefaults(app: GhosttyApp.shared)
+                    .showsWindowBackdrop(
+                        glassEffectAvailable: windowChrome.glassEffect.isAvailable,
+                        windowBackgroundPolicy: windowChrome.windowBackgroundPolicy
+                    )
+                return CanvasTheme(
+                    canvasBackground: background,
+                    paneBackground: background,
+                    showsWindowBackdrop: showsWindowBackdrop
+                )
+            },
+            // The signals split mode's window backdrop refreshes on: a Ghostty
+            // background or opacity change (including a config reload) and a
+            // Display accessibility change such as Reduce Transparency.
+            themeChangeSignals: [
+                CanvasThemeChangeSignal(name: .ghosttyDefaultBackgroundDidChange),
+                CanvasThemeChangeSignal(name: .ghosttyConfigDidReload),
+                CanvasThemeChangeSignal(
+                    name: DisplayAccessibilityOptions.didChangeNotification,
+                    center: NSWorkspace.shared.notificationCenter
+                ),
+            ]
         )
     }
 

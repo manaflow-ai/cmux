@@ -116,11 +116,35 @@ struct RemotePasteFileTransferPolicyTests {
         #expect(FileManager.default.fileExists(atPath: otherFile.path))
     }
 
+    /// Executes finalization with system utilities and verifies the uploaded bytes and private mode.
+    @Test("finalization succeeds with system chmod and makes uploaded files private", arguments: ["png", "txt"])
+    func finalizeUploadedFileWithSystemShell(fileExtension: String) throws {
+        let policy = RemotePasteFileTransferPolicy()
+        // Exercise shell quoting as well as BSD/GNU chmod argument parsing.
+        let home = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux paste home '\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: home) }
+        try runShell(policy.maintenanceScript(), home: home)
+
+        let remotePath = policy.remotePath(for: URL(fileURLWithPath: "/tmp/upload.\(fileExtension)"))
+        let file = home.appendingPathComponent(String(remotePath.dropFirst(2)))
+        let contents = Data("uploaded contents".utf8)
+        try contents.write(to: file)
+        try FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: file.path)
+
+        try runShell(policy.finalizeScript(for: remotePath), home: home)
+
+        #expect(try Data(contentsOf: file) == contents)
+        #expect(try FileManager.default.attributesOfItem(atPath: file.path)[.posixPermissions] as? NSNumber == 0o600)
+    }
+
+    /// Runs a generated remote script in an isolated home using only system utilities.
     private func runShell(_ script: String, home: URL) throws {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/bin/sh")
         process.arguments = ["-c", script]
-        process.environment = ["HOME": home.path]
+        // Do not let Homebrew coreutils or a user's chmod shim mask BSD behavior.
+        process.environment = ["HOME": home.path, "PATH": "/bin:/usr/bin"]
         try process.run()
         process.waitUntilExit()
         #expect(process.terminationStatus == 0)

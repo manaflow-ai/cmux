@@ -35,6 +35,7 @@ ANNOTATING_MODULES = (
     "tests/test_ci_main_regression_bisect.py",
     "tests/test_ci_parallel_artifact_transport.py",
     "tests/test_ci_pr_media.py",
+    "tests/test_ci_pr_media_privacy.py",
     "tests/test_ci_prune_pr_media.py",
     "tests/test_ci_ui_tests_dispatch.py",
     "tests/test_ios_upload_batching.py",

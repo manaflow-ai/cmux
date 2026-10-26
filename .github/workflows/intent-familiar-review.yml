@@ -1,0 +1,93 @@
+name: Familiar intent review warning
+
+# This is advisory. It runs from the trusted base copy so a pull request cannot
+# change the warning policy, and it never fails a check or requests changes.
+#
+# Lives on main: GitHub takes a pull_request_target workflow from the default
+# branch whatever the pull request's base, so the feat-cmux-next copy never ran.
+# The checker is still the feat-cmux-next base's: it is checked out at the pull
+# request's base commit below, never from main. This copy is the one that runs,
+# so change it here.
+on:
+  pull_request_target:
+    branches: [feat-cmux-next]
+    types: [opened, reopened, synchronize, ready_for_review]
+
+permissions: {}
+
+concurrency:
+  group: familiar-intent-review-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  warn:
+    # pull_request_target runs for outside authors too: an ephemeral runner only.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["ubuntu-24.04","blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: pull_request_target with a pull-request-write token; CI_TRUSTED_RUNNER picks Blacksmith (default) or GitHub-hosted
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: write # the advisory comment
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          persist-credentials: false
+          sparse-checkout: |
+            scripts/ci/intent_familiar_warning.py
+
+      - name: Read the pull-request patch
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          FILES_JSON: ${{ runner.temp }}/intent-files.json
+          BODY_FILE: ${{ runner.temp }}/intent-body.md
+        with:
+          script: |
+            const fs = require('fs');
+            const { owner, repo } = context.repo;
+            const files = await github.paginate(github.rest.pulls.listFiles, {
+              owner,
+              repo,
+              pull_number: context.payload.pull_request.number,
+              per_page: 100,
+            });
+            fs.writeFileSync(process.env.FILES_JSON, JSON.stringify(files.map(file => ({
+              filename: file.filename,
+              patch: file.patch || '',
+            }))));
+            fs.writeFileSync(process.env.BODY_FILE, context.payload.pull_request.body || '');
+
+      - name: Detect familiar intent changes
+        id: detect
+        env:
+          FILES_JSON: ${{ runner.temp }}/intent-files.json
+          BODY_FILE: ${{ runner.temp }}/intent-body.md
+          RESULT_JSON: ${{ runner.temp }}/intent-result.json
+        run: |
+          python3 scripts/ci/intent_familiar_warning.py \
+            --body-file "$BODY_FILE" \
+            --files-json "$FILES_JSON" \
+            --output "$RESULT_JSON"
+
+      - name: Warn CodeRabbit and cubic reviewers
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          RESULT_JSON: ${{ runner.temp }}/intent-result.json
+        with:
+          script: |
+            const fs = require('fs');
+            const result = JSON.parse(fs.readFileSync(process.env.RESULT_JSON, 'utf8'));
+            if (!result.warnings || result.warnings.length === 0) return;
+            const marker = '<!-- cmux-familiar-intent-warning -->';
+            const mentions = [...new Set(result.warnings.map(item => `@${item.owner}`))].join(' ');
+            const paths = [...new Set(result.warnings.map(item => `\`${item.path}\``))].join(', ');
+            const body = `${marker}\n⚠️ **CodeRabbit/cubic familiar-intent warning** ${mentions}\n\nThis PR changes a hunk marked \`@intent ... stability=familiar\` in ${paths}. If the familiar behavior changes on purpose, an optional \`Intent-Delta:\` line in the description (preserved, modified, retired or new) records it. This is advisory and does not block the PR.`;
+            const { owner, repo } = context.repo;
+            const comments = await github.paginate(github.rest.issues.listComments, {
+              owner, repo, issue_number: context.payload.pull_request.number, per_page: 100,
+            });
+            const prior = comments.find(comment => comment.body && comment.body.includes(marker));
+            if (prior) {
+              await github.rest.issues.updateComment({ owner, repo, comment_id: prior.id, body });
+            } else {
+              await github.rest.issues.createComment({ owner, repo, issue_number: context.payload.pull_request.number, body });
+            }

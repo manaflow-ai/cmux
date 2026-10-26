@@ -47,7 +47,8 @@ extension MachinesPanelViewModel {
         _ usage: CloudMachinesUsage?, machines: [MachineSnapshot], hiding machineIDs: Set<String>
     ) -> CloudMachinesUsage? {
         guard let usage, !machineIDs.isEmpty else { return usage }
-        let hiddenCount = machines.count(where: { machineIDs.contains($0.id) })
+        // Only machines that held an active slot leave the count; a paused one never was in it.
+        let hiddenCount = machines.count(where: { machineIDs.contains($0.id) && $0.usesResourcePool })
         guard hiddenCount > 0 else { return usage }
         return CloudMachinesUsage(
             activeCount: max(0, usage.activeCount - hiddenCount),

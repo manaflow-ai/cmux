@@ -92,7 +92,10 @@ enum KeyboardShortcutSettings {
         case quit
         // Titlebar / primary UI
         case toggleSidebar
+        case focusSidebar
+        case showWindowHints
         case newTab
+        case newLocalWorkspace
         case newBrowserWorkspace
         case newCloudWorkspace
         case newCloudMachine
@@ -102,11 +105,13 @@ enum KeyboardShortcutSettings {
         case goToWorkspace
         case commandPalette
         case agentInbox
+        case openChief
         case commandPaletteNext
         case commandPalettePrevious
         case sendFeedback
         case showNotifications
         case jumpToUnread
+        case jumpToLastPrompt
         case toggleUnread
         case markOldestUnreadAndJumpNext
         case markAllNotificationsRead
@@ -163,9 +168,8 @@ enum KeyboardShortcutSettings {
         case focusUp
         case focusDown
         case focusPreviousPane
-        case focusNextPane
-        case splitRight
-        case splitDown, toggleSplitZoom, newPaneAutoLayout
+        case focusNextPane, focusPaneByNumber
+        case splitRight, splitDown, toggleSplitZoom, newPaneAutoLayout
         case increaseWorkspaceTerminalFontSize
         case decreaseWorkspaceTerminalFontSize
         case resetWorkspaceTerminalFontSize
@@ -248,7 +252,10 @@ enum KeyboardShortcutSettings {
             case .toggleFullScreen: return String(localized: "command.toggleFullScreen.title", defaultValue: "Toggle Full Screen")
             case .quit: return String(localized: "menu.quitCmux", defaultValue: "Quit cmux")
             case .toggleSidebar: return String(localized: "shortcut.toggleLeftSidebar.label", defaultValue: "Toggle Left Sidebar")
+            case .focusSidebar: return String(localized: "shortcut.focusSidebar.label", defaultValue: "Focus Sidebar")
+            case .showWindowHints: return String(localized: "shortcut.showWindowHints.label", defaultValue: "Click by Hint")
             case .newTab: return String(localized: "shortcut.newWorkspace.label", defaultValue: "New Workspace")
+            case .newLocalWorkspace: return String(localized: "shortcut.newLocalWorkspace.label", defaultValue: "New Local Workspace")
             case .newBrowserWorkspace: return String(localized: "shortcut.newBrowserWorkspace.label", defaultValue: "New Browser Workspace")
             case .newCloudWorkspace: return String(localized: "shortcut.newCloudWorkspace.label", defaultValue: "New Cloud Workspace")
             case .newCloudMachine: return String(localized: "shortcut.newCloudMachine.label", defaultValue: "New Cloud Machine")
@@ -258,11 +265,13 @@ enum KeyboardShortcutSettings {
             case .goToWorkspace: return String(localized: "menu.file.goToWorkspace", defaultValue: "Go to Workspace…")
             case .commandPalette: return String(localized: "menu.file.commandPalette", defaultValue: "Command Palette…")
             case .agentInbox: return String(localized: "shortcut.agentInbox.label", defaultValue: "Show Agent Inbox")
+            case .openChief: return String(localized: "shortcut.openChief.label", defaultValue: "Open Chief")
             case .commandPaletteNext: return String(localized: "shortcut.commandPaletteNext.label", defaultValue: "Command Palette: Next")
             case .commandPalettePrevious: return String(localized: "shortcut.commandPalettePrevious.label", defaultValue: "Command Palette: Previous")
             case .sendFeedback: return String(localized: "sidebar.help.sendFeedback", defaultValue: "Send Feedback")
             case .showNotifications: return String(localized: "shortcut.showNotifications.label", defaultValue: "Show Notifications")
             case .jumpToUnread: return String(localized: "shortcut.jumpToUnread.label", defaultValue: "Jump to Latest Unread")
+            case .jumpToLastPrompt: return String(localized: "shortcut.jumpToLastPrompt.label", defaultValue: "Jump to Last Prompt")
             case .toggleUnread: return String(localized: "shortcut.toggleUnread.label", defaultValue: "Toggle Unread")
             case .markOldestUnreadAndJumpNext:
                 return String(localized: "shortcut.markOldestUnreadAndJumpNext.label", defaultValue: "Mark as Oldest Unread and Jump to Next Latest Unread")
@@ -328,6 +337,7 @@ enum KeyboardShortcutSettings {
             case .focusDown: return String(localized: "shortcut.focusPaneDown.label", defaultValue: "Focus Pane Down")
             case .focusPreviousPane: return String(localized: "shortcut.focusPreviousPane.label", defaultValue: "Focus Previous Pane")
             case .focusNextPane: return String(localized: "shortcut.focusNextPane.label", defaultValue: "Focus Next Pane")
+            case .focusPaneByNumber: return String(localized: "shortcut.focusPaneByNumber.label", defaultValue: "Focus Pane 1…9")
             case .splitRight: return String(localized: "shortcut.splitRight.label", defaultValue: "Split Right")
             case .splitDown: return String(localized: "shortcut.splitDown.label", defaultValue: "Split Down")
             case .newPaneAutoLayout: return String(localized: "shortcut.newPaneAutoLayout.label", defaultValue: "New Pane (Auto Layout)")
@@ -442,18 +452,31 @@ enum KeyboardShortcutSettings {
                 return StoredShortcut(key: "q", command: true, shift: false, option: false, control: false)
             case .toggleSidebar:
                 return StoredShortcut(key: "b", command: true, shift: false, option: false, control: false)
+            // Unbound by default (added without a call; people bind it).
+            case .focusSidebar:
+                return .unbound
+            case .showWindowHints:
+                return StoredShortcut(key: "j", command: true, shift: false, option: false, control: false)
             case .newTab:
                 return StoredShortcut(key: "n", command: true, shift: false, option: false, control: false)
+            case .newLocalWorkspace:
+                // Control+Option+Cmd+N: the local-workspace escape hatch, next to
+                // New Workspace (Cmd+N), New Window (Cmd+Shift+N), and New Browser
+                // Workspace (Option+Cmd+N). Control+Cmd+N belongs to New Pane (Auto
+                // Layout); this one is unused by cmux defaults and is not an
+                // AppKit-reserved keystroke.
+                return StoredShortcut(key: "n", command: true, shift: false, option: true, control: true)
             case .newBrowserWorkspace:
                 // Option+Cmd+N: sits next to New Workspace (Cmd+N) and New Window (Cmd+Shift+N)
                 // without colliding with any cmux default or an AppKit-reserved keystroke.
                 return StoredShortcut(key: "n", command: true, shift: false, option: true, control: false)
             case .newCloudWorkspace:
-                // Shift+Cmd+Y: free in cmux and in AppKit's standard menus, so the
-                // plus menu, File menu, and palette can all advertise it.
-                return StoredShortcut(key: "y", command: true, shift: true, option: false, control: false)
-            case .newCloudMachine:
+                // Cmd+Y creates a Cloud workspace on the last usable Cloud
+                // context, falling back to the New Cloud Machine flow.
                 return StoredShortcut(key: "y", command: true, shift: false, option: false, control: false)
+            case .newCloudMachine:
+                // Shift+Cmd+Y always opens the New Cloud Machine flow.
+                return StoredShortcut(key: "y", command: true, shift: true, option: false, control: false)
             case .saveLayoutTemplate:
                 return StoredShortcut(key: "s", command: true, shift: false, option: false, control: true)
             case .openFolder:
@@ -466,6 +489,8 @@ enum KeyboardShortcutSettings {
                 return StoredShortcut(key: "p", command: true, shift: true, option: false, control: false)
             case .agentInbox:
                 return StoredShortcut(key: "i", command: true, shift: true, option: false, control: false)
+            case .openChief:
+                return StoredShortcut(key: "c", command: true, shift: true, option: false, control: false)
             case .commandPaletteNext:
                 return StoredShortcut(key: "n", command: false, shift: false, option: false, control: true)
             case .commandPalettePrevious:
@@ -476,6 +501,8 @@ enum KeyboardShortcutSettings {
                 return StoredShortcut(key: "i", command: true, shift: false, option: false, control: false)
             case .jumpToUnread:
                 return StoredShortcut(key: "u", command: true, shift: true, option: false, control: false)
+            case .jumpToLastPrompt:
+                return StoredShortcut(key: "b", command: true, shift: true, option: false, control: false)
             case .toggleUnread:
                 return StoredShortcut(key: "u", command: true, shift: false, option: true, control: false)
             case .markOldestUnreadAndJumpNext:
@@ -564,8 +591,9 @@ enum KeyboardShortcutSettings {
             // now that ⌘[ / ⌘] reach global focus history.
             case .focusPreviousPane, .focusNextPane:
                 return .unbound
-            case .splitRight:
-                return StoredShortcut(key: "d", command: true, shift: false, option: false, control: false)
+            // Unbound by default (added without a call; people bind it).
+            case .focusPaneByNumber: return .unbound
+            case .splitRight: return StoredShortcut(key: "d", command: true, shift: false, option: false, control: false)
             case .splitDown: return StoredShortcut(key: "d", command: true, shift: true, option: false, control: false)
             case .newPaneAutoLayout: return StoredShortcut(key: "n", command: true, shift: false, option: false, control: true)
             case .toggleSplitZoom: return StoredShortcut(key: "\r", command: true, shift: true, option: false, control: false)
@@ -849,7 +877,7 @@ enum KeyboardShortcutSettings {
                 )
             case .globalSearch:
                 return .accepted(shortcut)
-            case .selectSurfaceByNumber, .selectWorkspaceByNumber:
+            case .selectSurfaceByNumber, .selectWorkspaceByNumber, .focusPaneByNumber:
                 return resolvedNumberedDigitShortcut(shortcut)
             default:
                 return .accepted(shortcut)

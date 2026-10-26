@@ -177,6 +177,36 @@ import Testing
         #expect(scrubbed.data?["url"] as? String == "https://x.com/?password=<redacted-secret>")
     }
 
+    /// Sentry fills `event.breadcrumbs` with the scope's own breadcrumb
+    /// instances, so concurrent captures share them. Rewriting one in place
+    /// let a second capture read a released string (CMUXTERM-MACOS-3YAE).
+    @Test func scrubbingAnEventLeavesSharedBreadcrumbsUntouched() throws {
+        let message = "ran in /Users/dev/proj with token=abcdef0123456789zz"
+        let data: [String: Any] = ["url": "https://x.com/?password=hunter2hunter2hunter2"]
+        let shared = Breadcrumb(level: .warning, category: "socket")
+        shared.message = message
+        shared.data = data
+        shared.type = "debug"
+        shared.origin = "cmux"
+        let timestamp = shared.timestamp
+        let event = Event()
+        event.breadcrumbs = [shared]
+
+        let scrubbed = scrubber.scrub(event)
+
+        #expect(shared.message == message)
+        #expect(shared.data?["url"] as? String == "https://x.com/?password=hunter2hunter2hunter2")
+        let crumb = try #require(scrubbed.breadcrumbs?.first)
+        #expect(crumb !== shared)
+        #expect(crumb.message == "ran in /Users/<redacted>/proj with token=<redacted-secret>")
+        #expect(crumb.data?["url"] as? String == "https://x.com/?password=<redacted-secret>")
+        #expect(crumb.level == .warning)
+        #expect(crumb.category == "socket")
+        #expect(crumb.type == "debug")
+        #expect(crumb.origin == "cmux")
+        #expect(crumb.timestamp == timestamp)
+    }
+
     @Test func preservesEventWithNothingSensitive() {
         let event = Event()
         event.message = SentryMessage(formatted: "Index out of range")

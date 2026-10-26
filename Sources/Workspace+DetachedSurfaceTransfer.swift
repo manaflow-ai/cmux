@@ -53,6 +53,9 @@ extension Workspace {
         /// sidebar keeps it. Unlike ``Workspace/panelGitBranches``, nothing
         /// re-reports a prompt after the move, so dropping it here loses it.
         var promptState: SidebarPanelPromptState? = nil
+        /// OSC 7501 records belong to the terminal, so they follow it across
+        /// workspace and Dock moves instead of waiting for the next report.
+        var programStatusStore: ProgramStatusRecordStore? = nil
         let restorableAgent: SessionRestorableAgentSnapshot?
         let restorableAgentResumeState: RestoredAgentResumeState?
         let restoredAgentCompletedGeneration: RestoredAgentCompletedGeneration?
@@ -117,6 +120,7 @@ extension Workspace {
                 manuallyUnread: manuallyUnread,
                 restoredUnreadIndicator: restoredUnreadIndicator,
                 promptState: promptState,
+                programStatusStore: programStatusStore,
                 restorableAgent: restorableAgent,
                 restorableAgentResumeState: restorableAgentResumeState,
                 restoredAgentCompletedGeneration: restoredAgentCompletedGeneration,

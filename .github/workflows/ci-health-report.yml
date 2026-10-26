@@ -89,8 +89,9 @@ jobs:
           # CI_PR_POOL_ORDER is the one list that may also name owned pools.
           CMUX_CI_RUNNER_VARIABLES: |
             CI_LIGHT_LANE_RUNNER=${{ vars.CI_LIGHT_LANE_RUNNER }}
-            CI_NIGHTLY_DECIDE_RUNNER=${{ vars.CI_NIGHTLY_DECIDE_RUNNER }}
             CI_NIGHTLY_TRUSTED_RUNNER=${{ vars.CI_NIGHTLY_TRUSTED_RUNNER }}
+            CI_NIGHTLY_NEXT_TRUSTED_POOL=${{ vars.CI_NIGHTLY_NEXT_TRUSTED_POOL }}
+            CI_NIGHTLY_NEXT_TRUSTED_RUNNER=${{ vars.CI_NIGHTLY_NEXT_TRUSTED_RUNNER }}
             CI_PR_POOL_ORDER=${{ vars.CI_PR_POOL_ORDER }}
             CI_SEED_TRUSTED_POOL=${{ vars.CI_SEED_TRUSTED_POOL }}
             CI_SIDE_LANE_RUNNER=${{ vars.CI_SIDE_LANE_RUNNER }}
@@ -108,5 +109,6 @@ jobs:
             MACOS_RUNNER_IOS=${{ vars.MACOS_RUNNER_IOS }}
             MACOS_RUNNER_PR=${{ vars.MACOS_RUNNER_PR }}
             MACOS_RUNNER_TESTS=${{ vars.MACOS_RUNNER_TESTS }}
+            NIGHTLY_NEXT_TRAIN_RUNNER=${{ vars.NIGHTLY_NEXT_TRAIN_RUNNER }}
             WINDOWS_RUNNER=${{ vars.WINDOWS_RUNNER }}
         run: python3 scripts/ci/ci_health_report.py

@@ -115,79 +115,49 @@ jobs:
       - name: Dispatch registry publishers
         run: |
           set -euo pipefail
-          started_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-          # Discovery only — NEVER wait for the publisher's conclusion here:
-          # each publisher's validate-version step waits for THIS run to
-          # conclude successfully, so a dispatcher that watches the
-          # publisher deadlocks the release (both sides poll each other;
-          # the publisher's shorter timeout loses). Broke 0.13.0; the
-          # publishers self-guard with their own validation + gated
-          # environments, and this run's summary links the runs.
-          record_publisher() {
+          # NEVER wait for the publisher's conclusion here: each publisher's
+          # validate-version step waits for THIS run to conclude successfully,
+          # so a dispatcher that watches the publisher deadlocks the release
+          # (both sides wait on each other; the publisher's shorter timeout
+          # loses). Broke 0.13.0; the publishers self-guard with their own
+          # validation + gated environments, and this run's summary links the
+          # runs. return_run_details makes each dispatch answer with the run it
+          # created, so nothing polls the run list for it.
+          dispatch_publisher() {
             local workflow="$1"
             local label="$2"
-            local run_id=""
-            local delay=2
-            while (( SECONDS < DISCOVERY_DEADLINE )); do
-              run_id="$(
-                gh run list --repo "$GITHUB_REPOSITORY" --workflow "$workflow" \
-                  --event workflow_dispatch --limit 50 --json databaseId,headSha,headBranch,status,conclusion,createdAt \
-                  --jq '.[] | select(.headBranch == env.TAG and .headSha == env.SOURCE_SHA and .createdAt >= env.STARTED_AT) | .databaseId' \
-                  | head -n 1
-              )"
-              run_id="${run_id//[[:space:]]/}"
-              if [[ -n "$run_id" ]]; then
-                break
-              fi
-              sleep "$delay"
-              (( delay = delay < 30 ? delay * 2 : 30 ))
-            done
-            if [[ -z "$run_id" ]]; then
-              # Discovery only decorates this run's summary. The publishers were
-              # already dispatched above and validate themselves, so failing here
-              # turns a completed dispatch into a red run -- and each publisher
-              # rejects an artifact run whose conclusion is not success, which
-              # makes a fully built, verified, attested release permanently
+            shift 2
+            local run_id
+            run_id="$(gh api -X POST "repos/$GITHUB_REPOSITORY/actions/workflows/$workflow/dispatches" \
+              -f ref="$TAG" "$@" -F return_run_details=true --jq '.workflow_run_id // ""')"
+            run_id="${run_id//[[:space:]]/}"
+            if [[ ! "$run_id" =~ ^[0-9]+$ ]]; then
+              # The run id only decorates this run's summary. The publisher was
+              # dispatched and validates itself, so failing here turns a
+              # completed dispatch into a red run -- and each publisher rejects
+              # an artifact run whose conclusion is not success, which makes a
+              # fully built, verified, attested release permanently
               # unpublishable through this path. Warn and finish instead.
-              echo "::warning::$label publisher run was not resolved before the discovery budget expired; it was dispatched and should appear in the Actions list for $workflow" >&2
-              echo "- $label publisher dispatched (run id not resolved in time)" >> "$GITHUB_STEP_SUMMARY"
+              echo "::warning::$label publisher was dispatched but the dispatch named no run; it should appear in the Actions list for $workflow" >&2
+              echo "- $label publisher dispatched (run id not returned)" >> "$GITHUB_STEP_SUMMARY"
               return 0
             fi
             echo "$label publisher run dispatched: $run_id"
             echo "- $label publisher run: https://github.com/$GITHUB_REPOSITORY/actions/runs/$run_id" >> "$GITHUB_STEP_SUMMARY"
           }
-          export TAG SOURCE_SHA STARTED_AT="$started_at"
-
-          if [[ "$PUBLISH_NPM" == "true" ]]; then
-            gh workflow run tui-publish-npm.yml --repo "$GITHUB_REPOSITORY" --ref "$TAG" \
-              -f version="$VERSION" \
-              -f artifact_run_id="$ARTIFACT_RUN_ID" \
-              -f confirm_tui_cmux=true
-          fi
-          if [[ "$PUBLISH_PYPI" == "true" ]]; then
-            gh workflow run tui-publish-pypi.yml --repo "$GITHUB_REPOSITORY" --ref "$TAG" \
-              -f version="$VERSION" \
-              -f artifact_run_id="$ARTIFACT_RUN_ID"
-          fi
           {
             echo "### Registry publishing"
             echo
             echo "- Verified artifact run: $ARTIFACT_RUN_ID"
-            if [[ "$PUBLISH_NPM" == "true" ]]; then
-              echo "- Dispatched npm publisher"
-            fi
-            if [[ "$PUBLISH_PYPI" == "true" ]]; then
-              echo "- Dispatched PyPI publisher"
-            fi
           } >> "$GITHUB_STEP_SUMMARY"
-          # Both publishers poll THIS run and give up after 120s (24 x 5s), then
-          # require its conclusion to be success. Everything below runs after the
-          # dispatches, so it has to finish inside that window with room to
-          # spare: one budget shared by both lookups, not 300s each.
-          DISCOVERY_DEADLINE=$((SECONDS + 45))
           if [[ "$PUBLISH_NPM" == "true" ]]; then
-            record_publisher tui-publish-npm.yml "npm"
+            dispatch_publisher tui-publish-npm.yml "npm" \
+              -f "inputs[version]=$VERSION" \
+              -f "inputs[artifact_run_id]=$ARTIFACT_RUN_ID" \
+              -f "inputs[confirm_tui_cmux]=true"
           fi
           if [[ "$PUBLISH_PYPI" == "true" ]]; then
-            record_publisher tui-publish-pypi.yml "PyPI"
+            dispatch_publisher tui-publish-pypi.yml "PyPI" \
+              -f "inputs[version]=$VERSION" \
+              -f "inputs[artifact_run_id]=$ARTIFACT_RUN_ID"
           fi

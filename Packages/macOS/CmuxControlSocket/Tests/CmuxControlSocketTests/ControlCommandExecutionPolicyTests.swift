@@ -46,6 +46,7 @@ struct ControlCommandExecutionPolicyTests {
             "auth.team.members", "auth.team.invite", "auth.team.invite_link",
             "auth.team.revoke_invite", "auth.team.remove_member", "auth.team.open_members",
             "auth.team.invitations", "auth.team.accept_invite", "auth.team.decline_invite",
+            "coderouter.handoff.complete",
             "feed.jump", "feed.push", "agent.hook.enqueue", "agent.hook.barrier",
             "agent.restore.admit", "agent.restore.release",
             "agent.message.send", "agent.message.list", "agent.message.claim",
@@ -55,7 +56,7 @@ struct ControlCommandExecutionPolicyTests {
             "workspace.remote.pty_bridge", "workspace.env", "sidebar.custom.reload",
             "sidebar.custom.open",
             "debug.sidebar.simulate_drag", "debug.mobile.transport.disconnect", "debug.mobile.transport.reconnect_loop",
-            "debug.window.screenshot", "mobile.attach_ticket.create",
+            "debug.window.screenshot", "debug.window_hints", "debug.global_search.query", "mobile.attach_ticket.create",
             "mobile.terminal.set_font", "mobile.task.models.list",
             "terminal.size_state", "terminal.size_policy.set", "terminal.size_to_me",
             "terminal.size_counts.set", "terminal.participant.disconnect",
@@ -80,6 +81,7 @@ struct ControlCommandExecutionPolicyTests {
             "browser.errors.list", "browser.state.save", "browser.state.load",
             "browser.addinitscript", "browser.addscript", "browser.addstyle",
             "browser.design_mode.set", "browser.design_mode.status",
+            "browser.geolocation.set", "browser.offline.set",
         ] {
             #expect(ControlCommandExecutionPolicy(forMethod: method).runsOnSocketWorker, "\(method)")
         }
@@ -89,6 +91,9 @@ struct ControlCommandExecutionPolicyTests {
             "agent.message.send", "agent.message.list", "agent.message.claim",
             "agent.message.ack",
             "agent.message.mark_read", "agent.message.poll", "agent.message.settings",
+            // Chief awaits its owner actor and the store's send; never inline on main.
+            "chief.open", "chief.send", "chief.status", "chief.conversations",
+            "chief.read", "chief.mark_read", "chief.stop", "chief.approve", "chief.answer", "chief.debug",
         ] {
             #expect(
                 ControlCommandExecutionPolicy(forMethod: method)
@@ -109,7 +114,7 @@ struct ControlCommandExecutionPolicyTests {
             "vmx.create", "",
             // Focus-intent verbs stay on the main lane until the mutations
             // tranche decides them deliberately.
-            "surface.focus", "workspace.select", "pane.focus", "window.focus",
+            "surface.focus", "surface.jump_to_last_prompt", "workspace.select", "pane.focus", "window.focus",
         ] {
             let policy = ControlCommandExecutionPolicy(forMethod: method)
             #expect(policy == .mainActor, "\(method)")
@@ -218,6 +223,17 @@ struct ControlCommandExecutionPolicyTests {
         #expect(ControlCommandExecutionPolicy(forMethod: "vm.create") == .socketWorker(mainThreadCallable: false))
     }
 
+    @Test func coderouterHandoffRunsOffMainAndIsNotMainThreadCallable() {
+        #expect(
+            ControlCommandExecutionPolicy(forMethod: "coderouter.handoff.complete")
+                == .socketWorker(mainThreadCallable: false)
+        )
+        #expect(
+            ControlCommandExecutionPolicy(forMethod: "coderouter.handoff")
+                == .socketWorker(mainThreadCallable: false)
+        )
+    }
+
     @Test func terminalReadsRunOnTheWorkerAndAreNotMainThreadCallable() {
         // Tranche C (issue #5757): the Ghostty capture is one v2MainSync hop,
         // the (possibly multi-MB) scrollback formatting runs on the worker.
@@ -226,6 +242,7 @@ struct ControlCommandExecutionPolicyTests {
         // stall the lane move removes, and no in-process caller needs it.
         #expect(ControlCommandExecutionPolicy(forMethod: "surface.read_text") == .socketWorker(mainThreadCallable: false))
         #expect(ControlCommandExecutionPolicy(forMethod: "surface.input_state") == .socketWorker(mainThreadCallable: false))
+        #expect(ControlCommandExecutionPolicy(forMethod: "surface.wait_text_change") == .socketWorker(mainThreadCallable: false))
         #expect(ControlCommandExecutionPolicy(forMethod: "surface.read_selection") == .socketWorker(mainThreadCallable: false))
         #expect(ControlCommandExecutionPolicy(forV1Command: "read_screen") == .socketWorker(mainThreadCallable: false))
     }

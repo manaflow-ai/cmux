@@ -221,6 +221,12 @@ extension CMUXCLI {
                     defaultValue: "vault fork requires --checkpoint <id> or --turn <n> (see cmux vault checkpoints)"
                 ))
             }
+            guard checkpointID == nil || turn == nil else {
+                throw CLIError(message: String(
+                    localized: "cli.vault.error.conflictingForkSelectors",
+                    defaultValue: "vault fork takes --checkpoint <id> or --turn <n>, not both"
+                ))
+            }
             var params: [String: Any] = ["agent": selector.agent, "session": selector.session]
             if let checkpointID { params["checkpoint"] = checkpointID }
             if let turn {

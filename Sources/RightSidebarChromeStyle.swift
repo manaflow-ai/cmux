@@ -135,6 +135,9 @@ struct RightSidebarChromePillModifier: ViewModifier {
     var isHovered: Bool
     var horizontalPadding: CGFloat = RightSidebarChromeMetrics.controlHorizontalPadding
     var geometryKeyPrefix: String?
+    /// False when one shared selection pill is drawn behind the controls
+    /// instead (the mode bar's sliding pill).
+    var drawsSelectionFill = true
     @Environment(\.cmuxGlobalFontMagnificationPercent) private var globalFontPercent
 
     func body(content: Content) -> some View {
@@ -171,13 +174,15 @@ struct RightSidebarChromePillModifier: ViewModifier {
 
     private var backgroundColor: Color {
         if isSelected {
-            return Color.primary.opacity(0.10)
+            return drawsSelectionFill ? Self.selectionFill : Color.clear
         }
         if isHovered {
             return Color.primary.opacity(0.05)
         }
         return Color.clear
     }
+
+    static let selectionFill = Color.primary.opacity(0.10)
 }
 
 struct RightSidebarChromeBottomBorderModifier: ViewModifier {
@@ -279,14 +284,16 @@ extension View {
         isSelected: Bool,
         isHovered: Bool,
         horizontalPadding: CGFloat = RightSidebarChromeMetrics.controlHorizontalPadding,
-        geometryKeyPrefix: String? = nil
+        geometryKeyPrefix: String? = nil,
+        drawsSelectionFill: Bool = true
     ) -> some View {
         modifier(
             RightSidebarChromePillModifier(
                 isSelected: isSelected,
                 isHovered: isHovered,
                 horizontalPadding: horizontalPadding,
-                geometryKeyPrefix: geometryKeyPrefix
+                geometryKeyPrefix: geometryKeyPrefix,
+                drawsSelectionFill: drawsSelectionFill
             )
         )
     }
@@ -367,6 +374,9 @@ struct ModeBarButton: View {
     var badgeCount: Int = 0
     let shortcutHint: StoredShortcut
     let showsShortcutHint: Bool
+    /// Shared by the mode bar's tabs so one selection pill slides between
+    /// them; nil draws the selected fill on this tab alone.
+    var selectionNamespace: Namespace.ID?
     let action: () -> Void
 
     @State private var isHovered: Bool = false
@@ -379,9 +389,15 @@ struct ModeBarButton: View {
     @State private var naturalLabelWidth: CGFloat = 0
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    /// The tab switch's one curve: smooth, short and without overshoot, so
-    /// tabs settle into their new widths instead of bouncing like a reorder.
-    static let switchAnimation = Animation.smooth(duration: 0.26)
+    /// The tab switch: the selection pill slides and the tabs settle into
+    /// their new widths on a spring without overshoot. Snappier than the
+    /// sidebar glide's 0.38: the pill moves a short way, and a slower spring
+    /// spends most of that move in its tail, which reads as lag.
+    static let switchAnimation = Animation.spring(response: 0.28, dampingFraction: 0.9)
+    /// Labels swap straight away, so the clicked tab reads as selected at
+    /// once while the pill is still on its way.
+    static let labelOutAnimation = Animation.easeOut(duration: 0.08)
+    static let labelInAnimation = Animation.easeOut(duration: 0.12)
 
     /// With its label hidden, the icon (and badge) moves into the middle of
     /// the label's empty slot, so it sits centered in the tab's highlight.
@@ -424,6 +440,10 @@ struct ModeBarButton: View {
                     .clipped()
                     .mask { ModeBarLabelEdgeFade(naturalWidth: naturalLabelWidth) }
                     .opacity(isDragged ? 1 : (labelFits ? 1 : 0))
+                    .animation(
+                        reduceMotion ? nil : (labelFits ? Self.labelInAnimation : Self.labelOutAnimation),
+                        value: labelFits
+                    )
                     .onGeometryChange(for: CGFloat.self) { proxy in
                         proxy.size.width
                     } action: { width in
@@ -437,8 +457,20 @@ struct ModeBarButton: View {
             .rightSidebarChromePill(
                 isSelected: isSelected,
                 isHovered: isHovered,
-                geometryKeyPrefix: "rightSidebarModeControl_\(item.id)"
+                geometryKeyPrefix: "rightSidebarModeControl_\(item.id)",
+                drawsSelectionFill: selectionNamespace == nil
             )
+            .background {
+                if isSelected, let selectionNamespace {
+                    RoundedRectangle(cornerRadius: RightSidebarChromeMetrics.buttonCornerRadius, style: .continuous)
+                        .fill(RightSidebarChromePillModifier.selectionFill)
+                        .matchedGeometryEffect(id: "modeBarSelection", in: selectionNamespace)
+                        // One pill that moves: the outgoing copy leaves at once
+                        // instead of fading, so two translucent fills never
+                        // overlap into a lighter band mid-switch.
+                        .transition(.identity)
+                }
+            }
             .overlay(alignment: .trailing) {
                 if showsShortcutHint {
                     ShortcutHintPill(shortcut: shortcutHint, fontSize: 9, emphasis: isSelected ? 1.15 : 0.95)
@@ -450,9 +482,10 @@ struct ModeBarButton: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        // The label's fade and the icon's glide to or from the middle follow
-        // the width on the same curve. They change a layout pass after the
-        // width, so they carry their own animation rather than the switch's.
+        // The icon's glide to or from the middle follows the width on the
+        // same curve. It changes a layout pass after the width, so it carries
+        // its own animation rather than the switch's; the label's fade has
+        // its own, above.
         .animation(reduceMotion ? nil : Self.switchAnimation, value: labelFits)
         .titlebarInteractiveControl()
         .onHover { isHovered = $0 }
