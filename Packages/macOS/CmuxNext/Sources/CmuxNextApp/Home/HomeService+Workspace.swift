@@ -94,9 +94,12 @@ extension HomeService {
 
     /// The signed-in user's cloud Chiefs (the Hosted Chief, made when this
     /// service runs Cloud Chief brains, and the placed one), or none: signed
-    /// out, or the read failed (logged; the last read stays).
+    /// out, or the read failed (logged; the last read stays). Unread (nil) until Cloud started: a launch-time
+    /// ensure builds no feed and reads no token; ``cloudDidStart()`` reads them then.
     func readCloudChiefs() async -> HomeCloudChiefs? {
-        guard services.cloud.auth.isSignedIn, case let feed = services.feed else { return HomeCloudChiefs() }
+        guard services.cloudAuth.isSignedIn else { return HomeCloudChiefs() }
+        guard services.cloudContext != nil else { return nil }
+        let feed = services.feed
         do {
             // An unknown probe keeps the last read: a Hosted Chief never drops out of the tab on one failed request.
             guard let brains = await hostedChief.brainsAvailable() else { return nil }
@@ -105,6 +108,13 @@ extension HomeService {
             logger.error("cloud chiefs: \(String(describing: error), privacy: .public)")
             return nil
         }
+    }
+
+    /// Cloud started (`AppServices.startCloudNow`): the Chief tab is checked again with the cloud Chiefs read.
+    func cloudDidStart() {
+        guard services.cloudAuth.isSignedIn, let connection = services.machines.local.connection,
+              services.machines.local.supports(DaemonCapability.workspaceKind.rawValue) else { return }
+        ensureHomeWorkspace(connection)
     }
 
     /// Re-checks the Chief tab now (a chief was just placed on a server).

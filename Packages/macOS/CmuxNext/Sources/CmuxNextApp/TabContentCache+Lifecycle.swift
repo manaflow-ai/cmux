@@ -1,6 +1,8 @@
 import AppKit
 import CmuxNextBridge
 import CmuxNextBrowser
+import CmuxNextHibernation
+import CmuxNextPages
 
 /// Presentation, warm set and the content lifecycle of `TabContentCache`
 /// (plans/cmux-next/tab-lifecycle.md).
@@ -21,8 +23,8 @@ extension TabContentCache {
 
     // MARK: Presentation
 
-    /// `presenter` shows `key` (its view is, or is about to be, in the
-    /// presenter's hierarchy). Takes the surface from any previous presenter.
+    /// `presenter` shows `key` (its view is, or is about to be, in the presenter's hierarchy).
+    /// Takes the surface from any previous presenter.
     func present(_ key: String, by presenter: any SurfacePresenter, presence: SurfacePresence) {
         let owner = ObjectIdentifier(presenter)
         presenters[owner] = WeakPresenter(value: presenter)
@@ -31,8 +33,7 @@ extension TabContentCache {
         if ledger.isRendering(key) { notePageScreen(key) }
     }
 
-    /// `presenter` stopped showing `key`. Ignored when another presenter
-    /// took it meanwhile (the tab moved there).
+    /// `presenter` stopped showing `key`. Ignored when another presenter took it meanwhile (the tab moved there).
     func withdraw(_ key: String, by presenter: any SurfacePresenter) {
         apply(ledger.withdraw(key, by: ObjectIdentifier(presenter)))
     }
@@ -98,18 +99,10 @@ extension TabContentCache {
     /// `key`'s content phase (`debug.surfaces`, hibernation, the tab strip).
     func phase(of key: String) -> ContentLifecycle<String>.Phase { lifecycle.phase(key) }
 
-    // MARK: Warm set
+    // MARK: Warm set (memory pressure: `WarmSetRelease`, below)
 
-    /// Applies a new warm set budget (memory pressure changed).
-    func setWarmBudget(_ budget: WarmSetBudget) {
-        guard budget != warmBudget else { return }
-        evictsAtOnce = budget.terminalCapacity < warmBudget.terminalCapacity
-        defer { evictsAtOnce = false }
-        warmBudget = budget
-        apply(ledger.setCapacity(budget.terminalCapacity))
-    }
-
-    func apply(_ effects: SurfaceLedger<String, ObjectIdentifier>.Effects) {
+    /// `evictsAtOnce`: a smaller warm budget evicts, so the closed surfaces keep no last picture.
+    func apply(_ effects: SurfaceLedger<String, ObjectIdentifier>.Effects, evictsAtOnce: Bool = false) {
         guard !effects.isEmpty else { return }
         for displaced in effects.displaced {
             presenters[displaced.owner]?.value?.surfaceWasDisplaced(displaced.key)
@@ -119,7 +112,7 @@ extension TabContentCache {
             applyLifecycle(lifecycle.send(render ? .show(key) : .hide(key)))
         }
         for key in effects.evicted {
-            if let entry = terminals.removeValue(forKey: key) { evict(entry, key: key) }
+            if let entry = terminals.removeValue(forKey: key) { evict(entry, key: key, atOnce: evictsAtOnce) }
             applyLifecycle(lifecycle.send(.released(key)))
         }
         for displaced in effects.displaced where presenters[displaced.owner]?.value == nil { presenters[displaced.owner] = nil } // O(changed); removePresenter drops the rest
@@ -127,8 +120,8 @@ extension TabContentCache {
     }
 
     /// A hidden terminal leaves the warm set: its last frame stays (no copy), then it closes.
-    private func evict(_ entry: TerminalEntry, key: String) {
-        lastFrames.evict(entry.session, key: key, capacity: warmBudget.terminalCapacity, atOnce: evictsAtOnce)
+    private func evict(_ entry: TerminalEntry, key: String, atOnce: Bool) {
+        lastFrames.evict(entry.session, key: key, atOnce: atOnce)
         entry.session.view.removeFromSuperview()
         entry.close()
     }
@@ -146,7 +139,7 @@ extension TabContentCache {
             switch effect {
             case .mount(let key, let token):
                 trace(key, "mount \(token)")
-                if hasContent(for: key) || pageDiscards?.adoptPage(key) == true { // a page tab's view: live
+                if hasContent(for: key) || contentOwners.contentAdopted(key) || adoptLifecyclePage(key) { // a page or conversation tab's view: live
                     applyLifecycle(lifecycle.send(.mounted(key, token)))
                 } else {
                     pendingMounts[key] = token
@@ -159,12 +152,20 @@ extension TabContentCache {
                 conceal(key, token: token)
             case .release(let key, let token):
                 trace(key, "hibernate \(token)")
-                if pageDiscards?.releasePage(key, token: token) != true { hibernation?.release(key, token: token) }
+                if !contentOwners.releaseContent(key, token: token) { hibernation?.release(key, token: token) }
             case .restore(let key, let token):
                 trace(key, "restore \(token)")
-                if pageDiscards?.restorePage(key, token: token) != true { hibernation?.restore(key, token: token) }
+                if !contentOwners.restoreContent(key, token: token) { hibernation?.restore(key, token: token) }
             }
         }
+    }
+
+    /// A page tab showing a cmux page under `pageLifecycle` is live once its view exists, so its reveal and
+    /// conceal reach the page lifecycle; its memory is that lifecycle's, never the warm set's.
+    private func adoptLifecyclePage(_ key: String) -> Bool {
+        guard pageLifecycle?.pageOfTab(key) != nil else { return false }
+        ledger.setRetained(key, false)
+        return true
     }
 
     /// Installs the page that replaces a tab's page (`swapPage`). The tab's
@@ -177,6 +178,7 @@ extension TabContentCache {
     }
 
     private func reveal(_ key: String) {
+        pageLifecycle?.tabDidShow(key) // first: a frozen page thaws in this turn, before its view shows
         if let entry = terminals[key] {
             entry.session.isRenderingSuspended = false
             entry.io.setVisible(true)
@@ -188,7 +190,7 @@ extension TabContentCache {
             entry.tab.setContentVisible(true)
             shownPages.insert(key)
         }
-        if pageDiscards?.pageDidShow(key) != true { hibernation?.tabDidShow(key) }
+        if !contentOwners.contentDidShow(key) { hibernation?.tabDidShow(key) }
         notePageScreen(key)
     }
 
@@ -207,10 +209,28 @@ extension TabContentCache {
             }
             entry.tab.setContentVisible(false)
         }
-        if pageDiscards?.pageDidHide(key, token: token) != true { hibernation?.tabDidHide(key) }
+        if !contentOwners.contentDidHide(key, token: token) { hibernation?.tabDidHide(key) }
+        pageLifecycle?.tabDidHide(key)
     }
 
     func trace(_ key: String, _ event: String) {
         InputJournal.shared.append(window: nil, .content(tab: key, event: event))
+    }
+}
+
+extension TabContentCache: WarmSetHost {
+    var warmCapacity: Int { ledger.capacity }
+    var warmHiddenCount: Int { ledger.hiddenCount }
+    var leastRecentlyHiddenAge: Duration? { ledger.leastRecentlyHiddenAge }
+    func warmBudgetDidChange(to capacity: Int) {
+        warmBudget = WarmSetBudget(terminalCapacity: capacity)
+        // Bounds the frames kept from now on; it drops no stored frame (the memory coordinator's
+        // critical release slices do, `memoryTerminalLastFrames`).
+        lastFrames.setCapacity(capacity)
+    }
+    func setWarmCapacity(_ capacity: Int) -> Int {
+        let effects = ledger.setCapacity(capacity)
+        apply(effects, evictsAtOnce: true) // only a smaller capacity evicts
+        return effects.evicted.count
     }
 }

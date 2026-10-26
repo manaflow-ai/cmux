@@ -37,7 +37,8 @@ final class AgentActivityPageService {
     }
 
     func makePage(key: String, engine: BrowserEngineKind, profile: BrowserProfileID) -> AgentActivityPageTab {
-        AgentActivityPageTab(id: BrowserTabID(rawValue: key), engine: engine, profile: profile, source: makeSource(), webUI: services.webUI)
+        AgentActivityPageTab(id: BrowserTabID(rawValue: key), engine: engine, profile: profile, source: makeSource(), webUI: services.webUI,
+                             deadlines: services.mainDeadlines)
     }
 
     /// Shows a lane's chat where ``AgentChatJump`` says it lives. Back returns

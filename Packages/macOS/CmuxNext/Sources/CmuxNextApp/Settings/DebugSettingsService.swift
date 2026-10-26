@@ -45,7 +45,8 @@ enum TunableCatalog {
 }
 
 /// Owns Debug Settings (DEV and NIGHTLY builds, `DevTools`): activates the
-/// tunable store at launch with this build's override file, and opens it
+/// tunable store at launch with this build's override file (also in a bench
+/// build that a bench script gives one, ``loadsTunables``), and opens it
 /// (palette "Open Debug Settings", `action.run openDebugSettings`,
 /// `debug.tunables`) as an internal page tab, or as its own window like
 /// Settings (`settings.presentation`). In Release and RC nothing here runs:
@@ -78,13 +79,15 @@ final class DebugSettingsService: InternalPageProvider {
         controller?.window ?? services.pages.window(showing: .debugSettings, windows: services.windows.controllers)?.window
     }
 
-    /// Registers the catalog and activates the store (dev tools only).
+    /// Registers the catalog and activates the store (dev tools, or a bench run's override file).
     func start() {
-        guard isAvailable else { return }
+        let environment = ProcessInfo.processInfo.environment
+        let launch = services.environment.launch
+        guard Self.loadsTunables(devTools: isAvailable, benchBuild: Self.isBenchBuild,
+                                 bundleID: launch.bundleID, environment: environment) else { return }
         let store = TunableStore.shared
         store.register(TunableCatalog.all)
-        let launch = services.environment.launch
-        let url = Self.fileURL(environment: ProcessInfo.processInfo.environment, tag: launch.tag,
+        let url = Self.fileURL(environment: environment, tag: launch.tag,
                                bundleID: launch.bundleID, build: launch.build)
         fileURL = url
         store.activate(file: url)
@@ -92,6 +95,27 @@ final class DebugSettingsService: InternalPageProvider {
         services.cloud.auth.signInWindow = { .init(rawValue: AccountTunables.signInWindow.value.rawValue) ?? .automatic }
         // The store loads the file off the main actor, after the first icons draw: the family is read here.
         IconPack.useOverlay(Self.launchIconFamily(url).overlay)
+    }
+
+    /// Whether launch activates the tunable store: with dev tools, or in a bench build
+    /// (`reload.sh --config bench`) of a development bundle whose bench script names its
+    /// override file (`CMUX_NEXT_DEBUG_TUNABLES_FILE`, as chromium-host-bench.py does). A bench
+    /// run's tunables then apply and `debug.tunables` can change them, while the Debug
+    /// Settings window and the `isDebugOnly` actions stay off (``DevTools``).
+    nonisolated static func loadsTunables(devTools: Bool, benchBuild: Bool, bundleID: String?,
+                                          environment: [String: String]) -> Bool {
+        if devTools { return true }
+        guard benchBuild, let bundle = bundleID, bundle.contains(".debug") || bundle.hasSuffix(".dev") else { return false }
+        return !(environment[fileOverrideKey]?.trimmingCharacters(in: .whitespaces) ?? "").isEmpty
+    }
+
+    /// Whether this compile is a bench build (`-DCMUX_BENCH_HOOKS`).
+    nonisolated static var isBenchBuild: Bool {
+        #if CMUX_BENCH_HOOKS
+        true
+        #else
+        false
+        #endif
     }
 
     /// Debug Settings `icons.family` as the override file holds it at launch (`pack` without one).

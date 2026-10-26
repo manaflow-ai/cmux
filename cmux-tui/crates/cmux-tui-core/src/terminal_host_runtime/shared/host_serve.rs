@@ -447,11 +447,11 @@ pub(crate) fn serve_client_with_snapshot_timeout(
         write_frame(&mut stream, &ready)?;
     }
 
-    let mut command_stream = stream.try_clone()?;
+    let command_stream = stream.try_clone()?;
     let command_host = host.clone();
-    thread::Builder::new().name("terminal-host-client-input".into()).spawn(move || {
+    let serve_input = move |command_stream: &mut crate::echo_thread::OwnHostStream<'_>| {
         let mut detached = false;
-        while let Ok(Some(frame)) = read_frame(&mut command_stream, MAX_FRAME_PAYLOAD) {
+        while let Ok(Some(frame)) = read_frame(command_stream, MAX_FRAME_PAYLOAD) {
             // Client-to-host messages define one flag (a negotiated
             // FLAG_INPUT_FLOW on interactive Input) and never participate
             // in the host live-stream sequence.
@@ -719,23 +719,29 @@ pub(crate) fn serve_client_with_snapshot_timeout(
             command_sender.close_and_wake_writer();
         }
         command_host.remove_client(client);
-    })?;
+    };
+    let client_input = "terminal-host-client-input";
+    crate::echo_thread::spawn_host_stream_reader(client_input, command_stream, serve_input)?;
     client_setup.disarm();
 
-    while let Ok(frame) = receiver.recv() {
-        if frame.kind == MessageKind::ResyncRequired && frame.sequence == 0 {
+    // The output loop is echo path: every PTY byte the client sees crosses
+    // it, so it writes its own socket only and blocks on nothing else.
+    crate::echo_thread::with_own_host_stream(&stream, |output| {
+        while let Ok(frame) = receiver.recv() {
+            if frame.kind == MessageKind::ResyncRequired && frame.sequence == 0 {
+                tap.release(&frame);
+                break;
+            }
+            let write_result = write_frame(output, &client_wire_frame(&frame, input_flow));
             tap.release(&frame);
-            break;
+            if write_result.is_err() {
+                break;
+            }
+            if frame.kind == MessageKind::Exit {
+                break;
+            }
         }
-        let write_result = write_frame(&mut stream, &client_wire_frame(&frame, input_flow));
-        tap.release(&frame);
-        if write_result.is_err() {
-            break;
-        }
-        if frame.kind == MessageKind::Exit {
-            break;
-        }
-    }
+    });
     host.remove_client(client);
     Ok(())
 }

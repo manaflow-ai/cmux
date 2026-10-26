@@ -45,9 +45,14 @@ final class LayoutViewContext {
     /// A user gesture moves the layout (a strip, row or scroll-area pan with the finger down): the root reads
     /// as in layout motion until the motion after it lands (`LayoutRootView.setLayoutInMotion`).
     var userMotionStepped: () -> Void = {}
-    /// A user gesture ended with nothing left to spring: the motion it started ends.
+    /// A user gesture ended, or a screen's render-server springs landed, with nothing left to spring: the motion
+    /// it started ends.
     var userMotionEnded: () -> Void = {}
-    /// A pane's strip clip changed (`PaneHostView.setStripClip`): Chromium pages re-read their clips.
+    /// A change turn handed a screen's springs to the render server: the window's `motion.run` begins
+    /// (`LayoutMotionTrace`); its landing ends it through ``userMotionEnded``.
+    var renderMotionBegan: () -> Void = {}
+    /// A pane's clip changed (the strip container's range, an area mask, a zooming pane over it):
+    /// Chromium pages re-read their clips.
     var stripClipsDidChange: () -> Void = {}
     /// Screens whose panes spring to a split's or a close's sizes now (`ScreenContentView.holdsGrids`).
     var gridHoldScreens: Set<ScreenID> = [] {

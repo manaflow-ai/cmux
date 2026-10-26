@@ -323,6 +323,8 @@ pub(crate) struct ClientRegistry {
     /// Connection-scoped browser hosts (`browser-runtime-v1`).
     #[cfg(unix)]
     pub(super) browser_runtimes: super::browser_runtime::BrowserRuntimes,
+    /// Chief engine-file writes queued by registry commits (chief_engine_mirror.rs).
+    pub(super) engine_mirror: super::chief_engine_mirror::EngineMirror,
     /// Size leases of connections with `size-lease-v1` (size_lease.rs).
     pub(super) size_leases: Arc<super::size_lease::SizeLeases>,
     /// Connection-scoped agent session attachments (`agent-session-attach-v1`).
@@ -391,6 +393,7 @@ impl ClientRegistry {
             loopback: loopback_forward::LoopbackForwarder::default(),
             #[cfg(unix)]
             browser_runtimes: Default::default(),
+            engine_mirror: Default::default(),
             size_leases: Default::default(),
             #[cfg(unix)]
             agent_sessions: Default::default(),
@@ -683,6 +686,7 @@ impl ClientRegistry {
                     || capability == crate::state::sidebar_doc_store::CAPABILITY
                     || capability == super::participant_avatars::PARTICIPANT_AVATARS_CAPABILITY
                     || capability == super::chief_registry_resource::CHIEF_EVENTS_CAPABILITY
+                    || capability == crate::event_cause::CAPABILITY
             }));
             record.writer.negotiate_conversation_tabs(record.capabilities.iter());
         }

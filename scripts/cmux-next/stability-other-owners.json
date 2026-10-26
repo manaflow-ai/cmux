@@ -1,0 +1,12 @@
+{
+  "about": "Sentry issues owned by another program. stability-health.py lists them in its other-owner row and does not count them against p10 done check 21. Every entry needs owner, eta and github_issue. An entry claims a Sentry issue only by identity: the Sentry issue links github_issue (Link GitHub Issue in Sentry), or its short id is in sentry_issues. Title or stack patterns are refused, because they also claim own stalls. Remove an entry when its owner lands the fix.",
+  "owners": [
+    {
+      "owner": "PL-cefhost",
+      "github_issue": 24913,
+      "eta": "the fork release at CEF API >= 30 and its pin (p01-process-178, cut by hour 12 of the chrome-parity push)",
+      "why": "10 s makeKeyWindow stall on macOS 14/15 needs CEF fork API 30 (p10-stability.md risk 13)",
+      "sentry_issues": []
+    }
+  ]
+}

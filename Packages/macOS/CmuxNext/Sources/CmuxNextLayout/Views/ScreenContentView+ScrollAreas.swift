@@ -43,6 +43,7 @@ extension ScreenContentView {
         for id in areaScrolls.keys where baseGeometry.scrollAreas[id] == nil { areaScrolls[id] = nil }
         for (id, area) in baseGeometry.scrollAreas {
             var scroll = areaScrolls[id] ?? ScrollAreaScroll()
+            if areaScrolls[id] == nil { scroll.state.pendingRestore = pendingScroll.areas.removeValue(forKey: id) }
             let effects = scroll.state.reduce(.sync(scroll.strip(area), focused: focused, source: source, animated: animated, reveals: reveals))
             areaScrolls[id] = scroll
             if effects.needsFrames { needsFrames = true }

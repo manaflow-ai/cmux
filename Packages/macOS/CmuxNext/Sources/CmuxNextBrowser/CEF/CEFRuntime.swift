@@ -23,7 +23,9 @@ final class CEFRuntime {
         case shutDown
     }
 
-    var state: State = .idle
+    var state: State = .idle { didSet { noteCrashKeyState() } }
+    /// The app's crash keys, which name Chromium's state (``attachCrashKeys(_:)``); nil names nothing.
+    var crashKeys: CrashKeySlots?
     private(set) var shim: CEFShimLibrary?
     private(set) var layout: CEFRuntimeLayout?
     private(set) var storage = CEFProfileStorage.forApplication(bundleIdentifier: Bundle.main.bundleIdentifier)
@@ -136,6 +138,9 @@ final class CEFRuntime {
     /// The managed preference domain Chromium reads Chrome enterprise policies
     /// from, asked at start (the App supplies it); nil reads none.
     var chromePolicyIDSetting: @MainActor () -> String? = { nil }
+    /// What the pump's input policy reads, from the engine made last (feature `cefPumpInputPolicy`,
+    /// ``CEFPumpInputPolicy``); read at start with ``input``. Nil: the pump never holds for input.
+    var pumpInput: CEFPumpInputSeams?
     /// True when this Chromium started with the built-in uBlock Origin.
     private(set) var builtInAdBlockerLoaded = false
     private var terminationObserver: (any NSObjectProtocol)?
@@ -410,12 +415,19 @@ final class CEFRuntime {
         self.shim = shim
         if case .inProcess(let loaded) = library {
             layout = loaded.layout
+            let forkAPI = shim.forkAPIVersion()
+            if forkAPI < CEFPumpSchedule.demandDrivenForkAPI {
+                logger.error("CEF fork API \(forkAPI) predates the demand-driven pump (\(CEFPumpSchedule.demandDrivenForkAPI)): work left after a time slice and delayed tasks posted during a pass wait for the next CEF request, so pages may stall")
+            }
             let pump = CEFMessagePump(
-                work: { [weak self] in CEFStartSteps.shared.pump(windowPending: self?.pendingWindows.isEmpty == false) { self?.shim?.doWork() } },
-                safetyNet: CEFPumpSchedule.safetyNet(forkAPIVersion: shim.forkAPIVersion()),
+                work: { [weak self] in CEFStartSteps.shared.pump(windowPending: self?.pendingWindows.isEmpty == false) { self?.pumpWork() } },
                 gate: pumpGate
             )
             self.pump = pump
+            if let pumpInput, let input {
+                pump.setInputPolicy(CEFPumpInputPolicy(pending: pumpInput.pending, dispatches: CEFPumpTapDispatches(tap: input),
+                                                       refreshInterval: pumpInput.refreshInterval, frameTarget: pumpInput.frameTarget))
+            }
             pump.start()
         }
 

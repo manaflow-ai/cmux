@@ -120,11 +120,11 @@ impl<T> SignaledMutex<T> {
         let site = std::panic::Location::caller();
         let waited_from = Instant::now();
         let blocker = self.stats.wait_started();
-        // Every release wakes a registered waiter; the epoch lock is held
-        // from the attempt to the wait, so none is missed between them.
-        let _waiter = self.gate.register_waiter();
+        // A release after the epoch read wakes the wait below, so none is
+        // missed between the attempt and the wait.
+        let watch = self.gate.watch_releases();
         loop {
-            let epoch = self.gate.release_epoch();
+            let seen = watch.epoch();
             match self.try_lock_at(site, waited_from, blocker) {
                 Ok(value) => return Ok(value),
                 Err(TryLockError::Poisoned(_)) => {
@@ -138,7 +138,7 @@ impl<T> SignaledMutex<T> {
                 self.stats.wait_failed(site, waited_from.elapsed(), blocker);
                 return Err(crate::JournalContention::MUTEX_DEADLINE.into());
             }
-            drop(self.gate.wait_release(epoch, remaining));
+            watch.wait(seen, remaining);
         }
     }
 }
@@ -189,7 +189,7 @@ impl<T> Drop for SignaledMutexGuard<'_, T> {
         // Clear holder attribution before the inner mutex is released (the
         // fields drop after this body), so a waiter that acquires next can
         // never have its holder record erased by this older unlock.
-        let held = self.value.acquired_at().map(|at| at.elapsed()).unwrap_or_default();
+        let held = self.value.end_hold().unwrap_or_default();
         self.owner.stats.released(self.site, held);
     }
 }

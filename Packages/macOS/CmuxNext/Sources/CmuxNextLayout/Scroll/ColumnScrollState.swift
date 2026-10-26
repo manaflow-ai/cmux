@@ -22,6 +22,9 @@ public nonisolated struct ColumnScrollState: Hashable, Sendable {
     public var remembered: [ColumnID: PaneID] = [:]
     /// A sync skipped its reveal (live resize drag); the next one reveals.
     public var revealDeferred = false
+    /// A remount's saved offset (`LayoutScreenScroll`, p07-memory-033): the first sync with a real
+    /// viewport lands on it instead of placing the focused column (`restoreCamera`).
+    public var pendingRestore: CGFloat?
 
     public struct Gesture: Hashable, Sendable {
         /// Unbanded offset accumulated from the deltas.

@@ -1,4 +1,4 @@
-import AppKit
+public import AppKit
 
 /// A page's picture, shown only while in a window: a hibernated tab's placeholder
 /// (`HibernatedBrowserTab`), and the stand-in over a woken page until it paints
@@ -8,7 +8,7 @@ import AppKit
 /// (`init(decoded:)`: a wake stand-in taking over from the shown placeholder) shows them from its
 /// first frame and keeps them for its short life: decoding again would leave it empty for the
 /// first frames, the blank frame the stand-in exists to remove.
-final class BrowserPictureView: NSImageView {
+public final class BrowserPictureView: NSImageView {
     private let picture: @MainActor () -> CGImage?
     /// Pixels decoded before the view was made; shown at once and never dropped.
     private let ready: CGImage?
@@ -16,7 +16,7 @@ final class BrowserPictureView: NSImageView {
     /// The decoded pixels the view shows now; nil while it is not in a window or still decoding.
     private(set) var decodedPicture: CGImage?
 
-    init(picture: @escaping @MainActor () -> CGImage?) {
+    public init(picture: @escaping @MainActor () -> CGImage?) {
         self.picture = picture
         ready = nil
         super.init(frame: .zero)
@@ -25,7 +25,7 @@ final class BrowserPictureView: NSImageView {
     }
 
     /// A view showing `decoded` (pixels already drawn into a bitmap) from its first frame, in or out of a window.
-    init(decoded: CGImage) {
+    public init(decoded: CGImage) {
         picture = { decoded }
         ready = decoded
         super.init(frame: .zero)
@@ -35,9 +35,9 @@ final class BrowserPictureView: NSImageView {
     }
 
     @available(*, unavailable)
-    required init?(coder: NSCoder) { nil }
+    public required init?(coder: NSCoder) { nil }
 
-    override func viewWillMove(toWindow newWindow: NSWindow?) {
+    public override func viewWillMove(toWindow newWindow: NSWindow?) {
         super.viewWillMove(toWindow: newWindow)
         guard ready == nil else { return }
         decoding?.cancel()

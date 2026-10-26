@@ -300,6 +300,7 @@ final class WindowManager {
     @discardableResult
     func makeController(for window: WindowRegistry.Window) -> WindowController {
         let state = state(for: window.id)
+        if state.machineID != MachineRegistry.localID { services.cloudNeeded() }  // a Cloud machine's window, restored ones too
         var frame = (window.frame ?? pendingFrames.removeValue(forKey: window.id)).map { WindowPlacementFallback.visible($0, display: window.display) }
         let placement = services.environment.testWindow
         if let placement, let placed = placement.windowFrame(ordinal: placedWindows, visibleFrames: NSScreen.screens.map(\.visibleFrame)) {
@@ -307,6 +308,8 @@ final class WindowManager {
             placedWindows += 1
         }
         let controller = WindowController(state: state, services: services, frame: frame)
+        controller.focus.overlayChanges = services.overlayChanges
+        if let window = controller.window { WindowOverlayHost.host(for: window).changes = services.overlayChanges }
         controller.sidebar.restore(width: state.sidebarWidth, hidden: state.sidebarHidden)
         if registry.value.isIncognito(window.id) { controller.showIncognitoBadge() }
         SidebarTabRowHandoff.install(on: controller, session: services.dragSession)

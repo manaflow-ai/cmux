@@ -78,7 +78,10 @@ pub(crate) fn serve_accepted(shared: &Arc<HostShared>, stream: HostStream) -> st
     // protocol threads use blocking framed reads, so normalize it here.
     stream.set_nonblocking(false)?;
     let host = shared.clone();
-    thread::Builder::new().name("terminal-host-client".into()).spawn(move || {
+    // Echo path class from the start; blocking is disallowed only for the
+    // output loop (serve_client), after the handshake's waits.
+    let qos = crate::echo_thread::ECHO_PATH_QOS;
+    cmux_threads::spawn("terminal-host-client", qos, move || {
         let _ = serve_client(host, stream);
     })?;
     Ok(())

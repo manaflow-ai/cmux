@@ -48,12 +48,14 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock, PoisonError, Weak, mpsc};
 use std::time::{Duration, Instant};
 
-use cmux_agent_pane_policy::build_identity::{BuildIdentity, NIGHTLY_BUNDLE_ID};
 use serde::Deserialize;
 
-use crate::chief_registry::{ChiefRecord, ChiefStore, DEFAULT_CHIEF};
+use crate::chief_registry::{ChiefRecord, ChiefStore, DEFAULT_CHIEF, Engine};
 use crate::conversation_store::ConversationEvent;
 use crate::mux::Mux;
+
+mod home_files;
+use home_files::{lock_held, remove_brain_home, remove_old_acpmux_homes, stop_lock_holder};
 
 /// The launch variable (see the module doc).
 pub const ENV: &str = "CMUX_TUI_CHIEF_BRAINS";
@@ -312,6 +314,9 @@ enum Signal {
         participant: String,
         on: bool,
     },
+    /// A committed change of a Chief's engine, sent before that record's
+    /// `Created` or `Updated`: written into its brain's engine file first.
+    Engine(String, Engine),
     /// A new Chief; `reply` hears what happened to its brain.
     Created(Box<ChiefRecord>, Option<mpsc::Sender<BrainStart>>),
     Updated(Box<ChiefRecord>),
@@ -390,19 +395,37 @@ impl BrainPending {
 const EARLY_MAX: usize = 256;
 
 impl Slot {
-    fn send(&self, signal: Signal) {
+    /// Whether the supervisor will hear `signal`: sent, or kept for its start.
+    fn send(&self, signal: Signal) -> bool {
         if self.stopped.load(std::sync::atomic::Ordering::Acquire) {
-            return;
+            return false;
         }
         let sender = self.sender.lock().unwrap_or_else(PoisonError::into_inner);
         if let Some(sender) = sender.as_ref() {
-            let _ = sender.send(signal);
-        } else if taken().is_some() {
-            let mut early = self.early.lock().unwrap_or_else(PoisonError::into_inner);
-            if early.len() < EARLY_MAX {
-                early.push(signal);
-            }
+            return sender.send(signal).is_ok();
         }
+        if taken().is_none() {
+            return false;
+        }
+        let mut early = self.early.lock().unwrap_or_else(PoisonError::into_inner);
+        if early.len() >= EARLY_MAX {
+            return false;
+        }
+        early.push(signal);
+        true
+    }
+
+    /// A committed write changed Chief `chief`'s engine. Call it before
+    /// [`Self::chief_written`]: the supervisor writes the engine file on its
+    /// own thread before it handles that record's signal, so a brain it
+    /// starts or restarts for the change reads the new engine (the file wins
+    /// over the record's env, [`record_engine_env`]). False when no
+    /// supervisor will write it (this daemon runs no brains, or it stopped):
+    /// the caller writes the file itself.
+    pub(crate) fn engine_changed(&self, chief: &str, engine: &Engine) -> bool {
+        let started = self.sender.lock().unwrap_or_else(PoisonError::into_inner).is_some();
+        (started || config().is_some())
+            && self.send(Signal::Engine(chief.to_owned(), engine.clone()))
     }
 
     /// A mux event: committed messages and typing go to the supervisor.
@@ -561,7 +584,7 @@ pub fn start(mux: &Arc<Mux>, socket: &Path) -> Option<ChiefBrains> {
 /// `OPTCHAT_CHIEF_*` values it reads before `MUX_HARNESS` and its defaults.
 /// The brain's own `engine.json` (`cmux chief engine`) still wins, so a
 /// switch made later is not undone at the next start.
-pub(crate) fn record_engine_env(engine: &crate::chief_registry::Engine) -> Vec<(String, String)> {
+pub(crate) fn record_engine_env(engine: &Engine) -> Vec<(String, String)> {
     [
         ("OPTCHAT_CHIEF_HARNESS", &engine.harness),
         ("OPTCHAT_CHIEF_MODEL", &engine.model),
@@ -746,6 +769,7 @@ impl Supervisor {
                     }
                 }
             }
+            Signal::Engine(chief, engine) => self.write_engine(&chief, &engine),
             Signal::Created(record, reply) => {
                 if !is_default(&record) {
                     self.wake(&record.id);
@@ -805,6 +829,18 @@ impl Supervisor {
             }
             Signal::Exited { chief, pid, success } => self.exited(&chief, pid, success),
             Signal::Shutdown(_) => {}
+        }
+    }
+
+    /// Writes a committed engine into Chief `chief`'s brain engine file, on
+    /// this thread, so the next brain this supervisor starts reads it.
+    fn write_engine(&self, chief: &str, engine: &Engine) {
+        let Some(path) = crate::server::chief_engine_file(chief, Some(&self.config.home), None)
+        else {
+            return;
+        };
+        if let Err(error) = crate::server::write_chief_engine_file(&path, engine) {
+            eprintln!("cmux-tui: Chief {chief} engine to {}: {error:#}", path.display());
         }
     }
 
@@ -1111,8 +1147,16 @@ impl Supervisor {
                         brain.process = None;
                     }
                 }
+                Ok(Signal::Engine(chief, engine)) => self.write_engine(&chief, &engine),
                 Ok(_) => {}
                 Err(_) => break,
+            }
+        }
+        // An engine committed before the stop is still written: the next
+        // daemon's brain reads it.
+        while let Ok(signal) = inbox.try_recv() {
+            if let Signal::Engine(chief, engine) = signal {
+                self.write_engine(&chief, &engine);
             }
         }
         for brain in self.brains.values() {
@@ -1144,141 +1188,14 @@ fn wait_exited(pid: u32) -> bool {
     }
 }
 
-/// Whether a process holds `lock` (`flock`, as optchat-chief's lock.rs
-/// takes it). A missing file means no brain.
-fn lock_held(lock: &Path) -> bool {
-    #[cfg(unix)]
-    {
-        use std::os::fd::AsRawFd;
-        let Ok(file) = std::fs::OpenOptions::new().read(true).open(lock) else { return false };
-        // SAFETY: flock on a descriptor this function owns; it is released
-        // when `file` drops.
-        unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) != 0 }
-    }
-    #[cfg(not(unix))]
-    {
-        let _ = lock;
-        false
-    }
-}
-
-/// Removes deleted Chief `chief`'s brain folder: a real folder only (never a link out of the
-/// Chief home), whose `chief-id` names that Chief (never another Chief's with the same id tail),
-/// and never while a brain still holds its lock (a stale holder that has not exited yet keeps
-/// it; the folder then stays).
-fn remove_brain_home(dir: &Path, chief: &str) {
-    let owner = std::fs::read_to_string(dir.join("chief-id")).unwrap_or_default();
-    if !std::fs::symlink_metadata(dir).is_ok_and(|m| m.is_dir())
-        || owner.trim() != chief
-        || lock_held(&dir.join("state/host.lock"))
-    {
-        return;
-    }
-    if let Err(error) = std::fs::remove_dir_all(dir) {
-        eprintln!("cmux-tui: removing {}: {error}", dir.display());
-    }
-}
-
-/// SIGTERM to the process that holds `lock` (a brain an earlier owner left),
-/// by the pid optchat-chief writes in it.
-fn stop_lock_holder(lock: &Path) {
-    #[cfg(unix)]
-    if lock_held(lock)
-        && let Some(pid) = std::fs::read_to_string(lock)
-            .ok()
-            .and_then(|text| text.split_whitespace().next()?.parse::<i32>().ok())
-            .filter(|pid| *pid > 1)
-    {
-        // SAFETY: kill and getpgid have no memory preconditions; the lock
-        // is held, so its recorded holder is alive. A group leader (as this
-        // supervisor starts brains) gets the signal for its whole group.
-        let target = if unsafe { libc::getpgid(pid) } == pid { -pid } else { pid };
-        // SAFETY: as above.
-        unsafe { libc::kill(target, libc::SIGTERM) };
-    }
-    #[cfg(not(unix))]
-    let _ = lock;
-}
-
-/// Removes the per-Chief acpmux homes `<home>/c/<tail>/a` that brains of
-/// earlier builds used (before one acpmux per Chief home): `acpmux daemon
-/// shutdown --end-agents` there first (that Chief's own daemon, not the shared one),
-/// then the folder. Only inside this build's Chief home `home`, never in
-/// the person's shared `~/.cmux/chief/default` (NIGHTLY's), and not while
-/// a brain an earlier owner left holds that Chief's lock (it still uses
-/// its acpmux; a later start removes it). Runs on the supervisor thread
-/// before the first brain starts.
-fn remove_old_acpmux_homes(home: &Path, acpmux_bin: Option<&Path>) {
-    // Without HOME the person's default home cannot be ruled out: keep all.
-    let Some(user) = std::env::var_os("HOME").filter(|h| !h.is_empty()) else { return };
-    // NIGHTLY's Chief home, named by the build identity resolver.
-    let nightly = BuildIdentity::new(Some(NIGHTLY_BUNDLE_ID), None);
-    let Ok(canonical) = std::fs::canonicalize(home) else { return };
-    // NIGHTLY's home under the inherited HOME and under the account's home
-    // (a job runner's HOME differs from it).
-    let defaults = [Some(PathBuf::from(user)), account_home().map(PathBuf::from)];
-    if defaults.into_iter().flatten().any(|user| {
-        std::fs::canonicalize(nightly.chief_home(&user, "default")).ok().as_deref()
-            == Some(canonical.as_path())
-    }) {
-        return;
-    }
-    let Ok(entries) = std::fs::read_dir(home.join("c")) else { return };
-    for entry in entries.flatten() {
-        let chief_dir = home.join("c").join(entry.file_name());
-        let old = chief_dir.join("a");
-        // A real folder only: never follow a link out of the Chief home.
-        let is_dir = std::fs::symlink_metadata(&chief_dir).is_ok_and(|m| m.is_dir())
-            && std::fs::symlink_metadata(&old).is_ok_and(|m| m.is_dir());
-        if !is_dir || lock_held(&chief_dir.join("state/host.lock")) {
-            continue;
-        }
-        let acpmux = acpmux_bin.map(Path::to_path_buf).unwrap_or_else(|| "acpmux".into());
-        let user = |key: &str| std::env::var(key).ok().filter(|v| !v.is_empty());
-        let stop = |end_flag: bool| {
-            let mut command = cmux_process::Command::new(&acpmux);
-            command.args(["daemon", "shutdown"]);
-            if end_flag {
-                command.arg("--end-agents");
-            }
-            command
-                .env_clear()
-                .env("ACPMUX_HOME", &old)
-                .stdin(cmux_process::Stdio::null())
-                .stdout(cmux_process::Stdio::null())
-                .stderr(cmux_process::Stdio::null());
-            for key in ["PATH", "HOME", "USER", "TMPDIR"] {
-                if let Some(value) = user(key) {
-                    command.env(key, value);
-                }
-            }
-            command.status().ok()
-        };
-        // On this thread only: `daemon shutdown --end-agents` ends that daemon's agents
-        // first (acpmux bounds its own grace), then the folder goes. An acpmux of a build
-        // before the flag refuses it (usage error, exit 2); its plain shutdown ends them.
-        // A stop that failed (no acpmux to ask, or no daemon there: acpmux exits 1) removes the
-        // folder only when no daemon holds its lock; a running one keeps it.
-        let stopped = match stop(true) {
-            Some(status) if status.code() == Some(2) => stop(false),
-            other => other,
-        };
-        if !stopped.is_some_and(|status| status.success()) && lock_held(&old.join("daemon.lock")) {
-            continue;
-        }
-        if let Err(error) = std::fs::remove_dir_all(&old) {
-            eprintln!("cmux-tui: removing {}: {error}", old.display());
-        }
-    }
-}
-
 fn is_default(record: &ChiefRecord) -> bool {
     record.is_default || record.id == DEFAULT_CHIEF
 }
 
 /// The live Chiefs of `mux`'s registry (opened on first use).
+#[track_caller]
 fn list_chiefs(mux: &Mux) -> Vec<ChiefRecord> {
-    let mut store = mux.chiefs().store.lock().unwrap_or_else(PoisonError::into_inner);
+    let mut store = mux.chiefs().lock_store().unwrap_or_else(PoisonError::into_inner);
     if store.is_none() {
         match ChiefStore::open(mux.session_state_directory().as_deref()) {
             Ok(opened) => *store = Some(opened),
@@ -1289,24 +1206,4 @@ fn list_chiefs(mux: &Mux) -> Vec<ChiefRecord> {
 }
 
 #[cfg(test)]
-mod record_engine_tests {
-    use super::record_engine_env;
-    use crate::chief_registry::Engine;
-
-    #[test]
-    fn a_record_harness_becomes_the_brains_starting_harness() {
-        let engine =
-            Engine { harness: Some("unii".into()), model: None, effort: Some("default".into()) };
-        assert_eq!(
-            record_engine_env(&engine),
-            vec![("OPTCHAT_CHIEF_HARNESS".to_owned(), "unii".to_owned())]
-        );
-        assert!(record_engine_env(&Engine::default()).is_empty());
-        let full = Engine {
-            harness: Some("codex".into()),
-            model: Some("gpt-5.5".into()),
-            effort: Some("high".into()),
-        };
-        assert_eq!(record_engine_env(&full).len(), 3);
-    }
-}
+mod engine_tests;

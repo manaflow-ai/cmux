@@ -1,10 +1,34 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 2c0de467283984b00853f5cc9c69cb792324c0a4130aa0bf7e27b02af1840955. */
+/* cmux-tui mux protocol 12, IR 11a9cf347282c5a7421a90d78952895e5faea132c36892257e8fa97fd44d6cd4. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
 export type JsonValue = null | boolean | number | bigint | string | JsonValue[] | { [key: string]: JsonValue };
 export type JsonObject = { [key: string]: JsonValue };
+
+export type AccessRequestKind = "file" | "secret";
+
+export type AccessRequestPending = {
+  "age_ms": bigint;
+  "kind": AccessRequestKind;
+  "name": (string) | null;
+  "path": (string) | null;
+  "reason": (string) | null;
+  "request_id": string;
+  "session": (string) | null;
+};
+
+export type AccessRequestStatus = ({ "state": "delivered" } & {
+  "path"?: string;
+  "state": "delivered";
+  "taken"?: true;
+  "value"?: string;
+}) | ({ "state": "denied" } & {
+  "reason": (string) | null;
+  "state": "denied";
+}) | ({ "state": "pending" } & {
+  "state": "pending";
+});
 
 export type ActivitySnapshot = {
   "attached_clients": number;
@@ -90,6 +114,19 @@ export type AgentRecord = {
 
 export type AgentReportSource = "socket" | "hook";
 
+/** Opaque JSON: The result acpmux answered for the call (permission_respond, acp.trust.get or acp.trust.set), passed through unchanged; acpmux owns its shape. */
+export type AgentSessionAcpmuxReply = JsonValue;
+
+export type AgentSessionAnsweredBy = {
+  /** The device the person answered on: 1 to 128 of [A-Za-z0-9_.:-]. */
+  "device": string;
+  /** The feed item the person answered: 1 to 128 of [A-Za-z0-9_.:-]. */
+  "feed_item": string;
+};
+
+/** Opaque JSON: acpmux's own _acpmux/attach or _acpmux/events page ({session, events, hasMore, lastSeq}; events only on agent-session-events), passed through unchanged except that a page over 8 MiB is cut and gets hasMore:true. acpmux owns the record shape. */
+export type AgentSessionPage = JsonValue;
+
 export type AgentSessionSource = {
   /** The agent kind the chat was started with. */
   "harness"?: (string) | null;
@@ -101,9 +138,26 @@ export type AgentSessionSource = {
   "session"?: (string) | null;
 };
 
+/** Opaque JSON: One acpmux session summary from _acpmux/sessions, as acpmux writes it (sessionId, startedBy, spawnedBy and the rest); acpmux owns its shape. */
+export type AgentSessionSummary = JsonValue;
+
 export type AgentSource = "plugin" | "detected" | "socket" | "hook";
 
 export type AgentState = "working" | "blocked" | "idle" | "done" | "unknown";
+
+export type AgentUpdateHarness = {
+  "id": string;
+  "latest"?: string;
+  "name"?: string;
+  "version"?: string;
+};
+
+export type AgentUpdateOutcome = {
+  "error"?: string;
+  "id": string;
+  "ok": boolean;
+  "version"?: string;
+};
 
 export type AppGrant = {
   "granted": boolean;
@@ -298,6 +352,28 @@ export type BrowserProviderUnregisterResult = {
   "removed": boolean;
 };
 
+export type BrowserRuntimeRow = {
+  "port": number;
+  "runtime": bigint;
+};
+
+export type BrowserRuntimeStartResult = {
+  "installed": string;
+  "port": number;
+  "runtime": bigint;
+  "secret": string;
+};
+
+export type BrowserRuntimeStatusResult = {
+  "installed": (string) | null;
+  "platform": string;
+  "runtimes": Array<BrowserRuntimeRow>;
+};
+
+export type BrowserRuntimeStopResult = {
+  "stopped": true;
+};
+
 export type CellPixelFailure = {
   "error": string;
   "surface": Id;
@@ -314,6 +390,23 @@ export type CellPixelSurface = {
   "height_px": number;
   "surface": Id;
   "width_px": number;
+};
+
+export type ClientHelloPageOperations = {
+  "confirm": Array<string>;
+  "gesture": Array<string>;
+  "read": Array<string>;
+};
+
+export type ClientHelloResult = {
+  "connection_id": string;
+  "install_id"?: string;
+  "nonce"?: string;
+  "page"?: string;
+  "page_events"?: Array<string>;
+  "page_operations"?: ClientHelloPageOperations;
+  "user_origin_allowed": boolean;
+  "verified"?: true;
 };
 
 export type ClientInfo = {
@@ -564,6 +657,8 @@ export type DetachReason = "network" | "disconnected-by" | "host-shutdown" | "su
 export type EmptyResult = {
 };
 
+export type EventCause = "frontend" | "automation";
+
 export type ExportLayoutResult = {
   "layout": Layout;
   "panes": Array<ExportedPane>;
@@ -619,6 +714,70 @@ export type FrontendProjection = {
   "schema_version": number;
   "scope": string;
   "subject_key": string;
+};
+
+export type FsEntry = {
+  "hidden"?: boolean;
+  "kind": FsEntryKind;
+  "mtime": (bigint) | null;
+  "name": string;
+  "revision"?: string;
+  "size": (bigint) | null;
+  "target_kind"?: FsEntryKind;
+};
+
+export type FsEntryKind = "file" | "dir" | "symlink" | "other";
+
+export type FsEntryResult = {
+  "entry": FsEntry;
+};
+
+export type FsFilter = {
+  "hidden"?: boolean;
+  "kinds"?: (Array<FsEntryKind>) | null;
+  "query"?: (string) | null;
+};
+
+export type FsPage = {
+  "cursor": (string) | null;
+  "entries": Array<FsEntry>;
+  "listing": string;
+  "revision": string;
+  "total": bigint;
+};
+
+export type FsReadResult = ({ "encoding": "base64" } & {
+  "bytes_base64": Base64;
+  "encoding": "base64";
+  "size": bigint;
+  "truncated": boolean;
+}) | ({ "encoding": "utf-8" } & {
+  "encoding": "utf-8";
+  "size": bigint;
+  "text": string;
+  "truncated": boolean;
+});
+
+export type FsSort = {
+  "dir"?: FsSortDirection;
+  "dirs_first"?: boolean;
+  "key"?: FsSortKey;
+};
+
+export type FsSortDirection = "asc" | "desc";
+
+export type FsSortKey = "name" | "modified" | "size" | "kind";
+
+export type FsStatResult = {
+  "hidden"?: boolean;
+  "kind": FsEntryKind;
+  "mode_display": string;
+  "mtime": (bigint) | null;
+  "name": string;
+  "owner_display": string;
+  "revision": string;
+  "size": (bigint) | null;
+  "target_kind"?: FsEntryKind;
 };
 
 export type GetCellPixelsResult = {
@@ -816,6 +975,64 @@ export type LivePane = {
   "short_id"?: string;
   "tabs": Array<Tab>;
 };
+
+export type LoopbackAuditRecord = {
+  "at_ms": bigint;
+  "bytes_from_target": bigint;
+  "bytes_to_target": bigint;
+  "client": bigint;
+  "duration_ms": bigint;
+  "host": string;
+  "outcome": string;
+  "port": number;
+  "stream": bigint;
+};
+
+export type LoopbackLimits = {
+  "daemon_window": bigint;
+  "frame_bytes": bigint;
+  "per_client": bigint;
+  "total": bigint;
+};
+
+export type LoopbackOpenResult = {
+  "address": string;
+  "stream": bigint;
+  "window": bigint;
+};
+
+export type LoopbackStatusResult = {
+  "audit": Array<LoopbackAuditRecord>;
+  "client_streams": bigint;
+  "enabled": boolean;
+  "limits": LoopbackLimits;
+  "open_streams": bigint;
+  "opened": bigint;
+  "refused": bigint;
+};
+
+export type MachineCatalogEntry = {
+  "capabilities"?: Array<string>;
+  "id": string;
+  "name": string;
+  "origin": MachineCatalogOrigin;
+  "platform"?: (MachineCatalogPlatform) | null;
+  "status": MachineCatalogStatus;
+};
+
+export type MachineCatalogOrigin = "cloud" | "ssh" | "server";
+
+export type MachineCatalogPlatform = {
+  "arch"?: (string) | null;
+  "os"?: (string) | null;
+};
+
+export type MachineCatalogPublishResult = {
+  "replayed": boolean;
+  "sequence": bigint;
+};
+
+export type MachineCatalogStatus = "running" | "connecting" | "unavailable" | "sleeping" | "stopped";
 
 export type MachineListeningTcpResult = {
   "stdout": string;
@@ -1217,6 +1434,20 @@ export type ServerStatsLockStall = {
   "waiter": string;
 };
 
+export type ServerStatsLockWait = {
+  "holder"?: string;
+  "lock": string;
+  "site": string;
+  "waited_us": bigint;
+  "waiter": string;
+};
+
+export type ServerStatsLockWaits = {
+  "dropped": bigint;
+  "long_waits": bigint;
+  "recent": Array<ServerStatsLockWait>;
+};
+
 export type ServerStatsRegistryLock = {
   "contended_acquisitions": bigint;
   "hold_us": ServerStatsHistogram;
@@ -1244,6 +1475,7 @@ export type ServerStatsRequestPathIo = {
   "host_wait": bigint;
   "journal_wait": bigint;
   "lock_hold_over_1ms"?: bigint;
+  "lock_waits"?: ServerStatsLockWaits;
   "network": bigint;
   "proc_scan": bigint;
   "process_spawn": bigint;

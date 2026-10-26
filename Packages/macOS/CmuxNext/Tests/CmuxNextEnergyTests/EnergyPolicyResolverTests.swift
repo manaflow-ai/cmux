@@ -132,6 +132,21 @@ nonisolated struct EnergyPolicyResolverTests {
         #expect(resolver.isOffForSession)
     }
 
+    /// The edge is the Mac's own power source (`macOnBattery`): a `debug.energy.simulate` battery that goes
+    /// away is no plug-in, and a real plug-in under a simulated battery still is.
+    @Test func onlyTheMacsOwnPlugInIsTheEdge() {
+        var resolver = EnergyPolicyResolver(isEnabled: true)
+        _ = resolver.update(setting: .auto, inputs: Self.plugged())
+        resolver.turnOffForNow()
+        let simulatedBattery = EnergyInputs(onBattery: true, macOnBattery: false, hasBattery: true, batteryPercent: 15)
+        #expect(resolver.update(setting: .auto, inputs: simulatedBattery) == nil)
+        #expect(resolver.update(setting: .auto, inputs: Self.plugged()) == nil)
+        #expect(resolver.isOffForSession, "a simulated battery that goes away is no plug-in")
+        #expect(resolver.update(setting: .auto, inputs: Self.battery(50)) == nil)
+        #expect(resolver.update(setting: .auto, inputs: simulatedBattery) == .battery)
+        #expect(!resolver.isOffForSession, "the Mac was plugged in under the simulated battery")
+    }
+
     @Test func turnOffForNowBeforeAnyInputsWaitsForAnEdge() {
         var resolver = EnergyPolicyResolver(isEnabled: true)
         resolver.turnOffForNow()

@@ -1,4 +1,4 @@
-#if DEBUG
+#if DEBUG || CMUX_BENCH_HOOKS
 // The Chromium host app ships in Debug builds only (embed-cef.sh), and so does its Swift side.
 public import AppKit
 import CmuxNextWakeups
@@ -227,6 +227,7 @@ public final class ChromiumHostSession {
     // MARK: Lifecycle
 
     private func start() {
+        fillPageBackground()
         let handle: ChromiumHostProcessHandle
         do {
             handle = try launcher.launch(executable: configuration.executable, arguments: configuration.arguments)
@@ -306,6 +307,7 @@ public final class ChromiumHostSession {
         tasks = []
         contextID = 0
         view.show(contextID: 0)
+        fillPageBackground()
         exits.append(exit.description)
         for waiter in pongs.values { waiter.resume(returning: nil) }
         pongs = [:]
@@ -346,6 +348,14 @@ public final class ChromiumHostSession {
         if connection.send(frame) { return true }
         launcher.kill(pid)
         return false
+    }
+
+    /// The page view shows the theme's page background (`PageBackground.themeARGB` of its pane) wherever
+    /// the host's pixels are not: while a host starts, restarts or has ended, instead of a hole onto
+    /// whatever is behind the pane. The host sends no page color on the wire yet, so the fill stays under
+    /// the page once its context shows.
+    private func fillPageBackground() {
+        view.backgroundFill = PageBackground.cgColor(argb: PageBackground.themeARGB(in: view))
     }
 
     private func resumeStatsWaiter(_ id: UInt32) {

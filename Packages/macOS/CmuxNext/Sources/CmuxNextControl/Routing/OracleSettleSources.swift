@@ -58,7 +58,7 @@ public struct OracleSettleSources: Sendable {
             },
             motionIdle: motionIdle,
             commit: commit,
-            pending: { [weak store] in Self.pending(intents: store?.pendingIntents ?? [], motion: motion()) })
+            pending: { [weak store] in Self.pending(intents: store?.pendingIntents.map { $0.intent } ?? [], motion: motion()) })
     }
 
     /// The pending list's details: `intent:<case>` per pending intent, then `motion:<trace>` per animator.

@@ -273,7 +273,7 @@ import Testing
         rig.advance(3_600)
         rig.discards.replan()
         await rig.discards.settled()
-        #expect(rig.cache.pageDiscards == nil)
+        #expect(rig.cache.contentOwners.isEmpty)
         #expect(rig.pages.discards == nil)
         #expect(!rig.discards.hasDeadline)
         #expect(rig.pages.existingView(rig.key) != nil)
@@ -366,7 +366,7 @@ import Testing
         }
 
         func makePage() -> NSView {
-            guard let page = PageWebView(descriptor: PageDescriptor(id: "test.discard", resource: "discard", namespaces: []),
+            guard let page = PageWebView(descriptor: PageDescriptor(id: "test.discard", resource: "discard", processGroup: .solo, namespaces: []),
                                          root: folder, routes: [], chromium: hosting) else { return NSView() }
             // The engine's no-message deadline never runs out here.
             page.chromiumClock = pageClock

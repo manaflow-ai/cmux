@@ -115,6 +115,7 @@ fn server_stats_request_path_io_round_trips_through_the_sdk() {
         assert_eq!(serde_json::to_value(&decoded).unwrap(), section, "{mode:?}");
         assert_eq!(decoded.lock_hold_over_1ms.is_some(), mode.records());
         assert_eq!(decoded.sites.len(), if mode.records() { 2 } else { 0 });
+        assert!(decoded.lock_waits.is_some(), "the section always carries lock_waits");
     }
 }
 
@@ -149,6 +150,7 @@ fn request_path_a_queued_request_runs_in_the_daemon_scope() {
     let pending = PendingSurfaceRequest {
         request,
         arrival: RequestArrival::now(),
+        cause: crate::event_cause::EventCause::Program,
         retained_bytes: 0,
         _bytes_permit: mux.surface_operation_admission.try_reserve_bytes(0).expect("permit"),
     };
