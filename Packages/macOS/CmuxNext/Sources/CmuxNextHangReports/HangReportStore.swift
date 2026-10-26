@@ -2,10 +2,12 @@ import CmuxNextCompat
 public import Foundation
 
 /// The hang report files in one folder (the app's `Application Support/<build>/HangReports`):
-/// the watchdog aggregate and the main-thread part saved for the next launch, the outbox of reports not yet accepted, the
-/// copy of the last report sent (View Hang Report), and the send log the daily cap reads.
+/// the watchdog aggregate and the main-thread part saved for the next launch, the outbox of reports
+/// not yet accepted, the copy of the last report sent (View Hang Report), and the send log the daily
+/// cap reads.
 ///
-/// Tests pass a temporary folder.
+/// Its methods read and write files, so the actor runs on a serial utility queue of its own, never
+/// on a cooperative pool thread. Tests pass a temporary folder.
 public actor HangReportStore {
     /// When reports were sent, for the daily cap and the 24-hour watchdog report.
     public struct SendLog: Codable, Sendable, Equatable {
@@ -28,6 +30,10 @@ public actor HangReportStore {
     /// The folder that holds every hang report file.
     public nonisolated let directory: URL
     private let manager = FileManager.default
+    /// The actor's executor: its file work blocks this queue, not the pool.
+    private nonisolated let queue = DispatchSerialQueue(label: "com.cmuxterm.app.next.hang-reports.store", qos: .utility)
+
+    public nonisolated var unownedExecutor: UnownedSerialExecutor { queue.asUnownedSerialExecutor() }
 
     /// Makes the value from its parts.
     public init(directory: URL) {
@@ -64,9 +70,7 @@ public actor HangReportStore {
 
     /// The value saved at `url`, removed from disk; nil when missing or unreadable.
     private func take<Value: Decodable>(_ type: Value.Type, from url: URL) -> Value? {
-        // blocking-allow: one small file read and delete per launch, at setEnabled(true); the store actor has no executor of its own yet
         defer { try? FileManager.checked.removeItem(at: url) }
-        // blocking-allow: as above
         guard let data = try? Data(blockingContentsOf: url) else { return nil }
         return try? JSONDecoder().decode(type, from: data)
     }
@@ -128,7 +132,6 @@ public actor HangReportStore {
     /// Deletes everything but the last report's copy (hang reports turned off).
     public func clearQueued() {
         removePending()
-        // blocking-allow: one delete when reports go off, beside the store's own deletes below
         try? FileManager.checked.removeItem(at: pendingMainThreadURL)
         try? manager.removeItem(at: outboxURL)
         try? manager.removeItem(at: previewURL)

@@ -1,3 +1,4 @@
+import AppKit
 public import CmuxNextInputCore
 public import CmuxNextWakeups
 public import Foundation
@@ -5,14 +6,12 @@ public import Foundation
 /// Feeds a ``MainThreadReportLedger`` the app's activation notices (through the app's one
 /// `AppEvents` adapter) and the person's keys, clicks and scrolls (through its one input tap);
 /// Chrome's `DesktopSessionDurationTracker` hears window activation and user events the same way.
-/// The app passes AppKit's notice names, so this package needs no AppKit. Input is
+/// Input is
 /// forwarded at most once a second: an input stamp at most a second old keeps a span to within a
 /// second of Chrome's.
 ///
 /// ```swift
-/// feed = MainThreadActivityFeed(ledger: ledger, input: inputTap, events: appEvents,
-///                               becameActive: NSApplication.didBecomeActiveNotification,
-///                               resignedActive: NSApplication.didResignActiveNotification, isActive: NSApp.isActive)
+/// feed = MainThreadActivityFeed(ledger: ledger, input: inputTap, events: appEvents, isActive: NSApp.isActive)
 /// ```
 @MainActor
 public final class MainThreadActivityFeed {
@@ -31,16 +30,15 @@ public final class MainThreadActivityFeed {
     ///   - ledger: The ledger the next report reads.
     ///   - input: The app's input tap.
     ///   - events: The app's `AppEvents` (one observer per notice for the whole app).
-    ///   - becameActive: `NSApplication.didBecomeActiveNotification`.
-    ///   - resignedActive: `NSApplication.didResignActiveNotification`.
     ///   - isActive: Whether the app is active now (a span starts at once).
-    public init(ledger: MainThreadReportLedger, input: any InputObserving, events: AppEvents, becameActive: Notification.Name,
-                resignedActive: Notification.Name, isActive: Bool) {
+    public init(ledger: MainThreadReportLedger, input: any InputObserving, events: AppEvents, isActive: Bool) {
         self.ledger = ledger
         if isActive { ledger.didBecomeActive() }
         activation = [
-            events.subscribe(becameActive, owner: "MainThreadActivityFeed") { ledger.didBecomeActive() },
-            events.subscribe(resignedActive, owner: "MainThreadActivityFeed") { ledger.didResignActive() },
+            // raw-observer-allow: subscribed through the app's AppEvents adapter, one observer per notice for the app
+            events.subscribe(NSApplication.didBecomeActiveNotification, owner: "MainThreadActivityFeed") { ledger.didBecomeActive() },
+            // raw-observer-allow: as above
+            events.subscribe(NSApplication.didResignActiveNotification, owner: "MainThreadActivityFeed") { ledger.didResignActive() },
         ]
         subscription = input.observe([.key, .button, .scroll]) { [weak self] record in
             self?.noteInput(timestamp: record.timestamp)

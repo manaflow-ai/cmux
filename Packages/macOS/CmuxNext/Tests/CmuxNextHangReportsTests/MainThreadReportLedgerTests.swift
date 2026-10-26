@@ -1,3 +1,4 @@
+import AppKit
 @testable import CmuxNextHangReports
 import CmuxNextCompat
 import CmuxNextInputCore
@@ -155,12 +156,10 @@ struct MainThreadReportLedgerTests {
         let ledger = inputs.ledger()
         let tap = FakeInputTap()
         let center = NotificationCenter()
-        let became = Notification.Name("test.becameActive"), resigned = Notification.Name("test.resignedActive")
-        let feed = MainThreadActivityFeed(ledger: ledger, input: tap, events: AppEvents(center: center), becameActive: became,
-                                          resignedActive: resigned, isActive: false)
+        let feed = MainThreadActivityFeed(ledger: ledger, input: tap, events: AppEvents(center: center), isActive: false)
         #expect(!ledger.isActive)
         #expect(tap.classes == [.key, .button, .scroll])
-        center.post(name: became, object: nil)
+        center.post(name: NSApplication.didBecomeActiveNotification, object: nil)
         #expect(ledger.isActive)
         tap.deliver(InputEventRecord(type: .keyDown, timestamp: 100))
         tap.deliver(InputEventRecord(type: .keyDown, timestamp: 100.5))   // within a second: not forwarded
@@ -168,7 +167,7 @@ struct MainThreadReportLedgerTests {
         #expect(ledger.take().input.activeSeconds == 100)                 // the span runs to the input at 100 s
         tap.deliver(InputEventRecord(type: .scrollWheel, timestamp: 101))
         #expect(ledger.take().input.activeSeconds == 101)
-        center.post(name: resigned, object: nil)
+        center.post(name: NSApplication.didResignActiveNotification, object: nil)
         #expect(!ledger.isActive)
         withExtendedLifetime(feed) {}
     }

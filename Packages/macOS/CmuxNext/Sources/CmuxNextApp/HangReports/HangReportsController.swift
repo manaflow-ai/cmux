@@ -76,34 +76,18 @@ final class HangReportsController {
         guard mayReport else { return HangReportsController(service: nil, managedDisables: managedDisables) }
         let endpoint = devOptIn ? environment[devEndpointKey] ?? URLSessionHangReportTransport.defaultEndpoint
             : URLSessionHangReportTransport.defaultEndpoint
-        let resolver = DyldImageResolver()
-        let builder = HangReportBuilder(classifier: ImageClassifier(appBundlePath: Bundle.main.bundlePath, forbiddenTerms: personalTermsOfThisMac),
-                                        resolver: resolver)
-        let collector = HangReportCollector(resolve: { builder.frames(addresses: $0) })
-        let mainThread = builder.wireSchema.carriesMainThread ? MainThreadReportLedger(histograms: { [watchdog] in
-            MainThreadReportLedger.Histograms(edgesNanos: MainTurnHistogram.edgesNanos, turnCounts: watchdog.turnHistogram.snapshot().counts,
-                                              inputQueueingCounts: watchdog.inputQueueHistogram.snapshot().counts)
-        }) : nil
-        let info = Bundle.main.infoDictionary ?? [:]
-        let os = ProcessInfo.processInfo.operatingSystemVersion
-        let service = HangReportService(
-            store: HangReportStore(directory: folder), transport: URLSessionHangReportTransport(endpoint: endpoint),
-            builder: builder, scanner: PrivacyLeakScanner(forbiddenTerms: personalTermsOfThisMac), identity: InstallIdentity(),
-            collector: collector,
-            environment: HangReportService.Environment(
-                app: HangReport.App(version: info["CFBundleShortVersionString"] as? String ?? "0",
-                                    build: info["CFBundleVersion"] as? String ?? "0",
-                                    channel: policy.channel?.rawValue ?? "dev"),
-                os: HangReport.OS(version: "\(os.majorVersion).\(os.minorVersion).\(os.patchVersion)"),
-                hardware: .current(), counts: counts,
-                // A managed block, or this Mac's consent record removed, while cmux runs: the next
-                // trigger turns reports off and drops what was recorded. UserDefaults is
-                // thread-safe; the record is read in the app's own domain.
-                stillAllowed: { [key = Self.consentKey] in !managedDisables() && UserDefaults.standard.object(forKey: key) is Date },
-                mainThread: mainThread))
-        let feed = mainThread.map {
-            MainThreadActivityFeed(ledger: $0, input: input, events: events, becameActive: NSApplication.didBecomeActiveNotification,
-                                   resignedActive: NSApplication.didResignActiveNotification, isActive: NSApp?.isActive ?? false)
+        // A managed block, or this Mac's consent record removed, while cmux runs: the next trigger
+        // turns reports off and drops what was recorded. UserDefaults is thread-safe; the record is
+        // read in the app's own domain.
+        let service = HangReportService.forThisApp(
+            folder: folder, endpoint: endpoint, channel: policy.channel?.rawValue ?? "dev", personalTerms: personalTermsOfThisMac,
+            counts: counts, stillAllowed: { [key = Self.consentKey] in !managedDisables() && UserDefaults.standard.object(forKey: key) is Date },
+            mainThreadHistograms: { [watchdog] in
+                MainThreadReportLedger.Histograms(edgesNanos: MainTurnHistogram.edgesNanos, turnCounts: watchdog.turnHistogram.snapshot().counts,
+                                                  inputQueueingCounts: watchdog.inputQueueHistogram.snapshot().counts)
+            })
+        let feed = service.mainThreadLedger.map {
+            MainThreadActivityFeed(ledger: $0, input: input, events: events, isActive: NSApp?.isActive ?? false)
         }
         return HangReportsController(service: service, managedDisables: managedDisables, activityFeed: feed)
     }

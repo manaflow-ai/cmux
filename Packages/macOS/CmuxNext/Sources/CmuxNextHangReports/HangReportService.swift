@@ -307,8 +307,9 @@ public actor HangReportService {
         builder.wireSchema.carriesInputLatency ? environment.inputLatency : nil
     }
 
-    /// ``Environment/mainThread`` when the builder's wire schema carries it, else nil.
-    private nonisolated var mainThreadLedger: MainThreadReportLedger? {
+    /// ``Environment/mainThread`` when the builder's wire schema carries it (the app feeds it with a
+    /// ``MainThreadActivityFeed``), else nil.
+    public nonisolated var mainThreadLedger: MainThreadReportLedger? {
         builder.wireSchema.carriesMainThread ? environment.mainThread : nil
     }
 
