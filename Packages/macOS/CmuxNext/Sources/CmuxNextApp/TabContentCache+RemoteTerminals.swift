@@ -21,14 +21,20 @@ extension TabContentCache {
             attachment: .unplaced(terminalResourceID: resource, generation: generation),
             initialSize: size ?? CellSize(cols: 80, rows: 24))
         let render = ledger.isRendering(key)
-        let io = DaemonTerminalIO(target: target, resizes: resizes, visible: render, policyBlocked: daemon.policyBlock.check, endpoint: { try await daemon.endpoint() })
-        let session = TerminalSession(io: io, ownsGeometry: true)
+        let io = DaemonTerminalIO(target: target, resizes: resizes, visible: render, policyBlocked: daemon.policyBlock.check,
+                                  hangWatch: daemon.hangWatch, endpoint: { try await daemon.endpoint() })
+        let session = TerminalSession(io: io, ownsGeometry: true, hangWatch: daemon.hangWatch, modifiers: terminalModifiers,
+                                      pointerFrames: terminalPointerFrames,
+                                      mainWork: mainWork, node: node(for: key), gpuResidency: gpuResidency)
+        // It lays out after a Ghostty config change only while its tab is visible (p06-scheduler-044).
+        session.view.followConfig(node(for: key), on: mainWork)
         // Its link state is the terminal's session's; it has no tab there.
         let entry = TerminalEntry(validity: validity, session: session, io: io, themeKey: TerminalThemeKey(machine: daemon.machineID, tab: tab),
                                   store: daemon.store, surface: TerminalAttachment.unresolvedSurface)
         terminals[key] = entry
         session.delegate = sessionDelegate
         session.isRenderingSuspended = !render
+        session.releasesGPUWhilePaused = ledger.isAway(key)
         contentDidMount(key)
         return entry
     }

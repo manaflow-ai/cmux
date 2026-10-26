@@ -141,7 +141,7 @@ public nonisolated final class AcpmuxPaneSessions: Sendable {
     /// answers a handoff request, the pane learns the handoff's source.
     public func observe(_ text: String) {
         guard state.withLock({ !$0.awaiting.isEmpty || !$0.awaitingHandoff.isEmpty }), text.contains("\"result\""),
-              let object = (try? JSONSerialization.jsonObject(with: Data(text.utf8))) as? [String: Any] else { return }
+              let object = (try? JSONSerialization.blockingJSONObject(with: Data(text.utf8))) as? [String: Any] else { return }
         observe(object)
     }
 

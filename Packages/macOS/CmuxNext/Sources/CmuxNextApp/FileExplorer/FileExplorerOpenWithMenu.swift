@@ -12,9 +12,15 @@ import CmuxNextFilesUI
 /// picks it), so the menu, the palette and the CLI share one path.
 final class FileExplorerOpenWithMenu: NSObject {
     private let registry: ActionRegistry
+    private let appIcon: @MainActor (URL, NSMenuItem) -> Void
 
-    init(registry: ActionRegistry) {
+    /// - Parameters:
+    ///   - registry: The registry whose `fileExplorerOpenWith` each row runs.
+    ///   - appIcon: Sets an app row's image to the app's icon, now or when it lands (`WorkspaceFileApps.showIcon`);
+    ///     no icons by default.
+    init(registry: ActionRegistry, appIcon: @escaping @MainActor (URL, NSMenuItem) -> Void = { _, _ in }) {
         self.registry = registry
+        self.appIcon = appIcon
     }
 
     /// Turns `menu`'s Open With row (the registry's `fileExplorerOpenWith`) into the apps
@@ -30,8 +36,8 @@ final class FileExplorerOpenWithMenu: NSObject {
         menu.insertItem(item, at: index)
     }
 
-    /// The Open With row for `row`'s item; its submenu fills when LaunchServices answers
-    /// (off the main thread, usually before the pointer reaches it).
+    /// The Open With row for `row`'s item; its submenu fills from the kept list at once, else when Launch
+    /// Services answers on the system lane (usually before the pointer reaches it).
     func item(for row: FileExplorerRow, apps: any FileAppsProviding, arguments: [String: ActionValue] = [:]) -> NSMenuItem {
         let item = NSMenuItem(title: FileExplorerStrings.openWithSubmenu, action: nil, keyEquivalent: "")
         let submenu = NSMenu(title: FileExplorerStrings.openWithSubmenu)
@@ -40,6 +46,10 @@ final class FileExplorerOpenWithMenu: NSObject {
         submenu.addItem(loading)
         item.submenu = submenu
         let name = row.name, isFolder = row.isFolder
+        if let kept = apps.keptOpenWithList(forFileNamed: name, isDirectory: isFolder) {
+            fill(submenu, with: kept, arguments: arguments)
+            return item
+        }
         // task-owner: one LaunchServices lookup; ends when the submenu is filled.
         Task { [weak self, weak submenu] in
             let list = await apps.openWithList(forFileNamed: name, isDirectory: isFolder)
@@ -56,11 +66,7 @@ final class FileExplorerOpenWithMenu: NSObject {
             let title = app.isDefault ? FileExplorerStrings.defaultApp(app.name) : app.name
             guard let row = registry.makeContextMenuItem(for: "fileExplorerOpenWith", in: .fileExplorerRow,
                                                          arguments: arguments.merging(["app": .string(app.url.path)]) { $1 }, title: title) else { continue }
-            if FileManager.default.fileExists(atPath: app.url.path) {
-                let icon = NSWorkspace.shared.icon(forFile: app.url.path)
-                icon.size = NSSize(width: 16, height: 16)
-                row.image = icon
-            }
+            appIcon(app.url, row)
             submenu.addItem(row)
             if index == 0, app.isDefault, list.apps.count > 1 { submenu.addItem(.separator()) }
         }

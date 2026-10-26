@@ -7,7 +7,7 @@ extension AppServices {
     /// priority (a tab, the palette or the CLI wanted Chromium now).
     func startChromiumRuntime() {
         let runtime = chromiumRuntime
-        runtime.start()
+        runtime.start(on: mainDeadlines)
         let browserTabs = cache.browserTabs
         let engineReason = browserTabs.cefUnavailable
         browserTabs.cefUnavailable = { [weak runtime] in

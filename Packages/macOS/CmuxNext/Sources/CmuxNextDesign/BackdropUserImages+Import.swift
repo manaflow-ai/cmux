@@ -42,9 +42,8 @@ nonisolated extension BackdropUserImages {
             guard (try? await asset.load(.isPlayable)) == true else { return false }
             return !((try? await asset.loadTracks(withMediaType: .video)) ?? []).isEmpty
         }
-        guard let source = CGImageSourceCreateWithURL(url as CFURL, nil), CGImageSourceGetCount(source) > 0 else { return false }
-        return CGImageSourceCreateThumbnailAtIndex(source, 0, [kCGImageSourceThumbnailMaxPixelSize: 64,
-                                                               kCGImageSourceCreateThumbnailFromImageAlways: true] as CFDictionary) != nil
+        guard let source = CheckedImageSource(blockingContentsOf: url), source.count > 0 else { return false }
+        return source.thumbnail(options: [kCGImageSourceThumbnailMaxPixelSize: 64, kCGImageSourceCreateThumbnailFromImageAlways: true]) != nil
     }
 
     /// Downloads the picture or movie at `link` (https only, redirects included) into a fresh
@@ -94,7 +93,7 @@ nonisolated extension BackdropUserImages {
     /// else the link's own extension when it names a movie. Anything else is not media.
     private nonisolated static func named(_ file: URL, link: URL, mimeType: String?) throws -> URL {
         var ext: String?
-        if let source = CGImageSourceCreateWithURL(file as CFURL, nil), let type = CGImageSourceGetType(source) as String? {
+        if let type = CheckedImageSource(blockingContentsOf: file)?.type {
             ext = UTType(type)?.preferredFilenameExtension
         } else if let mime = mimeType, let type = UTType(mimeType: mime), type.conforms(to: .movie) {
             ext = type.preferredFilenameExtension
@@ -157,7 +156,8 @@ private nonisolated final class LinkDownload: NSObject, URLSessionDataDelegate, 
         configuration.timeoutIntervalForRequest = 60
         configuration.timeoutIntervalForResource = 600
         configuration.urlCache = nil
-        let session = URLSession(configuration: configuration, delegate: self, delegateQueue: nil)
+        let session = URLSession(configuration: configuration, delegate: self,
+                                 delegateQueue: .sessionDelegate("com.cmuxterm.next.backdrop.import", qos: .utility))
         defer { session.finishTasksAndInvalidate() }
         return try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { continuation in

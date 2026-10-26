@@ -14,6 +14,10 @@ extension SidebarView {
             let bar = SidebarEditBar()
             bar.onAdd = { [weak self] in self?.model.send(.addItems) }
             bar.onDone = { [weak self] in self?.setEditingItems(false) }
+            bar.onMotionChange = { [weak self] in
+                guard let self else { return }
+                for region in bandRegions + list.blockRegions { region.restartWiggles() }
+            }
             addSubview(bar)
             editBar = bar
         } else {
@@ -38,12 +42,18 @@ extension SidebarView {
 final class SidebarEditBar: NSView {
     var onAdd: (() -> Void)?
     var onDone: (() -> Void)?
+    /// A motion setting changed (Reduce Motion, the sidebar's motion): the items' wiggles follow.
+    /// The bar lives exactly as long as edit mode, so it holds the mode's one subscription.
+    var onMotionChange: (() -> Void)?
     let add = ThemedBezelButton()
     let done = ThemedBezelButton()
+    private var motionWatch: AppearanceSignals.Subscription?
 
-    init() {
+    init(motionSignals: AppearanceSignals = DesignSettings.shared.signals) {
         super.init(frame: .zero)
+        motionWatch = motionSignals.subscribe([.motion], owner: "SidebarEditBar") { [weak self] in self?.onMotionChange?() }
         wantsLayer = true
+        layerContentsRedrawPolicy = .onSetNeedsDisplay // updateLayer sets colors only
         layer?.cornerCurve = .continuous
         layer?.cornerRadius = SidebarStyle.rowCornerRadius + Metrics.space1
         add.title = Strings.editAddItems

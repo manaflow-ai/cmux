@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextBrowser
 import CmuxNextChromiumRuntime
+import CmuxNextInputDiagnostics
 import CmuxNextSettings
 import Darwin
 
@@ -9,9 +10,12 @@ import Darwin
 /// engine, why Chromium is unavailable (`unavailable`: `notBundled`,
 /// `downloading`, `downloadFailed`, `startFailed`, `shutDown`), where the
 /// runtime came from (`runtime`: Chromium on demand) and the WebKit
-/// fallbacks so far, the external pump's counters (`pump`) and what the
-/// fork's page tracker read from host views (`tracker`). Helper
-/// processes are separate; measure them with `ps`.
+/// fallbacks so far, where Chromium's browser process runs (`backend`:
+/// `inProcess` or `host`), what the fork's page tracker read from host views
+/// (`tracker`; in host mode only `tracker.hosted_pages`) and, in process only,
+/// the external pump's counters (`pump`) and the page windows over each
+/// DevTools tab (`devtools[].child_windows`).
+/// Helper processes are separate; measure them with `ps`.
 @MainActor
 enum DebugCEF {
     static func report(_ services: AppServices) -> JSONValue {
@@ -23,6 +27,9 @@ enum DebugCEF {
             "trigger": report.trigger.map { .string($0) } ?? .null,
             "footprint_mb": .number(footprintMegabytes()),
             "spare_window": .string(services.cache.cef.spareWindowState),
+            "pages_spare_window": .string(services.cache.cef.pagesSpareWindowState),
+            // A window a spare would have served, built because none was ready (p13-webui-016).
+            "window_built_on_key_turn": .number(Double(services.cache.cef.windowsBuiltOnKeyTurn)),
             "engine_start_main_ms": .number(milliseconds(services.cache.cef.engineStartMainThreadTime)),
             "start_steps": .array(services.cache.cef.startMarks.map {
                 .object(["name": .string($0.name), "start_uptime_ns": .number(Double($0.startUptimeNanos)), "ms": .number($0.milliseconds)])
@@ -41,11 +48,15 @@ enum DebugCEF {
                 "notified": .bool(fallbacks.notified),
             ])
         }
+        let backend = services.chromiumRuntime.backend
+        object["backend"] = .string(backend.rawValue)
         object["runtime"] = runtime(services.chromiumRuntime)
-        object["devtools"] = .array(devTools(services))
-        if let pump = services.cache.cef.pumpStats { object["pump"] = pumpReport(pump) }
-        object["tracker"] = trackerReport(services.cache.cef.trackerStats)
+        object["devtools"] = .array(devTools(services, pageWindows: ChildPageGeometry.hasPageWindows(backend)))
+        object.merge(engineCounters(backend: backend, pump: services.cache.cef.pumpStats,
+                                    tracker: services.cache.cef.trackerStats)) { $1 }
         object["windows"] = windows(services.cache.cef.windowReport)
+        // Host mode with feature chromiumHostWidgets (p01-process-066): null without a widget host.
+        object["host_widgets"] = services.cache.cef.hostWidgets.map { .array($0.map(hostWidget)) } ?? .null
         if let duration = report.loadDuration { object["load_ms"] = .number(milliseconds(duration)) }
         if let duration = report.initializeDuration { object["initialize_ms"] = .number(milliseconds(duration)) }
         if let seconds = report.readyAfterLaunch { object["ready_after_launch_s"] = .number(seconds) }
@@ -53,10 +64,11 @@ enum DebugCEF {
     }
 
     /// Per shown Chromium tab: its DevTools state, the page and docked
-    /// DevTools areas and the Chromium child windows over the tab (screen
-    /// coordinates, AppKit origin), so a check can see that the DevTools
-    /// window sits exactly over its area.
-    private static func devTools(_ services: AppServices) -> [JSONValue] {
+    /// DevTools areas and, when Chromium's pages are child windows
+    /// (`pageWindows`, in process), the Chromium child windows over the tab
+    /// (screen coordinates, AppKit origin), so a check can see that the
+    /// DevTools window sits exactly over its area.
+    private static func devTools(_ services: AppServices, pageWindows: Bool) -> [JSONValue] {
         var out: [JSONValue] = []
         for controller in services.windows.controllers {
             guard let window = controller.window else { continue }
@@ -68,6 +80,8 @@ enum DebugCEF {
                     "url": tab.state.url.map { .string($0.absoluteString) } ?? .null,
                     "title": tab.state.title.map { .string($0) } ?? .null,
                     "open": .bool(state.isOpen), "dock": .string(state.dock.rawValue),
+                    // Host mode: the page's cursor over its page view (CSS name; null in process).
+                    "page_cursor": ChromiumHostPageView.first(in: tab.contentView)?.pageCursorName.map(JSONValue.string) ?? .null,
                 ]
                 if let panel = tab.sidePanelDiagnostic {
                     object["side_panel"] = .object(["title": .string(panel.title), "pinned": .bool(panel.pinned),
@@ -77,12 +91,14 @@ enum DebugCEF {
                 if let frames = tab.devToolsDiagnosticFrames {
                     object["page_frame"] = rect(frames.page)
                     object["devtools_frame"] = frames.devTools.map(rect) ?? .null
-                    let content = frames.devTools.map { frames.page.union($0) } ?? frames.page
-                    let children = WindowOverlayLayer.contentChildWindows(of: window).filter { $0.frame.intersects(content) }
-                    object["child_windows"] = .array(children.map { child in
-                        .object(["frame": rect(child.frame), "devtools": .bool(tab.devToolsContains(window: child)),
-                                 "key": .bool(child.isKeyWindow), "visible": .bool(child.isVisible)])
-                    })
+                    if pageWindows {
+                        let content = frames.devTools.map { frames.page.union($0) } ?? frames.page
+                        let children = WindowOverlayLayer.contentChildWindows(of: window).filter { $0.frame.intersects(content) }
+                        object["child_windows"] = .array(children.map { child in
+                            .object(["frame": rect(child.frame), "devtools": .bool(tab.devToolsContains(window: child)),
+                                     "key": .bool(child.isKeyWindow), "visible": .bool(child.isVisible)])
+                        })
+                    }
                 }
                 out.append(.object(object))
             }
@@ -114,27 +130,60 @@ enum DebugCEF {
             "guard_recent": .array(report.guardRecent.map { .string($0) }),
             "unplaced_tabs": .number(Double(report.unplacedTabs)),
             "fork_api": .number(Double(report.forkAPIVersion)),
+            "process_reuse_per_renderer_devtools": .bool(report.processReusePerRendererDevTools),
             "popup_windows": .array(report.popupWindows.map { .string($0) }),
         ])
+    }
+
+    /// One widget the Chromium host shows in cmux: its kind, ids and where it is on screen.
+    private static func hostWidget(_ widget: CEFHostWidgetReport) -> JSONValue {
+        .object(["kind": .string(widget.kind), "widget": .number(Double(widget.widget)), "owner": .number(Double(widget.owner)),
+                 "context_id": .number(Double(widget.contextID)), "shown": .bool(widget.shown), "frame": rect(widget.screenFrame)])
     }
 
     private static func rect(_ rect: CGRect) -> JSONValue {
         .array([rect.minX, rect.minY, rect.width, rect.height].map { .number(Double($0)) })
     }
 
+    /// The engine's counters, by backend. In process: the external pump's (`pump`) and the fork's
+    /// page tracker's (`tracker`). In host mode the pump and the fork's tracker run in the Chromium
+    /// Host; this process still counts its hosted page views (`ChromiumHostPageView`), so `tracker`
+    /// has `hosted_pages` alone.
+    static func engineCounters(backend: BrowserBackend, pump: CEFPumpStats?, tracker: CEFTrackerStats) -> [String: JSONValue] {
+        guard backend == .inProcess else {
+            return ["tracker": .object(["hosted_pages": .number(Double(tracker.hostedPages))])]
+        }
+        var counters: [String: JSONValue] = ["tracker": trackerReport(tracker)]
+        if let pump { counters["pump"] = pumpReport(pump) }
+        return counters
+    }
+
     /// Pump wakeups per second = the change of `work_runs` over an interval.
-    private static func pumpReport(_ stats: CEFPumpStats) -> JSONValue {
+    static func pumpReport(_ stats: CEFPumpStats) -> JSONValue {
         .object([
             "work_runs": .number(Double(stats.workRuns)),
             "immediate_requests": .number(Double(stats.immediateRequests)),
             "delayed_requests": .number(Double(stats.delayedRequests)),
             "reentrant_fires": .number(Double(stats.reentrantFires)),
             "long_work_runs": .number(Double(stats.longWorkRuns)),
-            "follow_up_runs": .number(Double(stats.followUpRuns)),
             "kept_cross_thread_requests": .number(Double(stats.keptCrossThreadRequests)),
             "work_ms": .number(stats.workSeconds * 1_000),
-            "fallback_ms": .number(stats.fallbackInterval * 1_000),
+            "passes_while_input_pending": .object(stats.passesWhileInputPending.byName.mapValues { .number(Double($0)) }),
+            "deferred_for_input": .number(Double(stats.deferredForInput)),
+            "pass_ms_p99": .number(stats.passMillisecondsP99),
+            "early_passes": .number(Double(stats.earlyPasses)),
         ])
+    }
+
+    /// `debug.input` section `pump`: the in-process pump's input policy counters (p04-input-024); none, and no
+    /// engine built, before a Chromium need built the engine (p08-startup-024).
+    static func pumpInputSource(_ chromium: ChromiumEngineSlot) -> DebugInputPumpSource {
+        DebugInputPumpSource(read: { [weak chromium] in
+            chromium?.built?.pumpStats.map {
+                DebugInputPump(passesWhileInputPending: $0.passesWhileInputPending.byName,
+                               deferredForInput: UInt64(clamping: $0.deferredForInput), passMillisecondsP99: $0.passMillisecondsP99)
+            }
+        }, reset: { [weak chromium] in chromium?.built?.resetPumpInputCounters() })
     }
 
     /// Per action = the change of each counter over it (scripts/cmux-next/pane-perf-terminal.py --browser).
@@ -148,7 +197,16 @@ enum DebugCEF {
             "geometry_posts": .number(Double(stats.geometryPosts)),
             "hosted_pages": .number(Double(stats.hostedPages)),
             "hosting_refused": .number(Double(stats.hostingRefused)),
+            "hosting_widget_fallbacks": .number(Double(stats.hostingWidgetFallbacks)),
+            "hosting_without_track_a": .number(Double(stats.hostingWithoutTrackA)),
+            "pages_attached": .number(Double(stats.pagesAttached)),
+            "attach_refused": .number(Double(stats.attachRefused)),
             "geometry_skips": .number(Double(stats.geometrySkips)),
+            "page_window_widget_shows": .number(Double(stats.pageWindowWidgetShows)),
+            // Keyed by the fork's widget kind (CEFNativeWidget raw value): "2" autofill, "5" print preview.
+            "page_window_widget_shows_by_kind": .object(Dictionary(uniqueKeysWithValues: stats.pageWindowWidgetShowsByKind.map {
+                (String($0.key), JSONValue.number(Double($0.value)))
+            })),
         ])
     }
 

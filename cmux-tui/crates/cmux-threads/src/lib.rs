@@ -16,25 +16,44 @@
 //! [`blocking::snapshot`]) and [`checked`] has checked forms of the blocking
 //! std primitives.
 //!
+//! [`lock_wait`] times contended lock acquisitions: a failed try on a thread
+//! that disallows blocking is a `lock-wait` violation, and a wait over the
+//! 2 ms budget is recorded with the holder's thread name.
+//!
 //! Blocking work runs on [`work`] lanes by kind, priority and shutdown
 //! behavior (Chrome's base/task/thread_pool).
+//!
+//! Child processes never run at an echo thread's QoS: a user child starts
+//! at Default and a helper runs at [`HELPER_CHILD`] (Utility) at most, see
+//! [`process`].
 
 pub mod blocking;
 pub mod checked;
+pub mod lock_wait;
+pub mod process;
 pub mod qos;
 pub mod registry;
 pub mod spawn;
 pub mod work;
 
 pub use blocking::{
-    AllowReason, BlockingKind, BlockingMode, BlockingSite, BlockingSnapshot, allow_blocking,
-    assert_blocking_allowed, disallow_blocking, scoped_blocking_call, with_blocking_disallowed,
+    AllowReason, BlockingCheck, BlockingKind, BlockingMode, BlockingSite, BlockingSnapshot,
+    allow_blocking, assert_blocking_allowed, disallow_blocking, scoped_blocking_call,
+    with_blocking_disallowed,
 };
 #[cfg(unix)]
 pub use blocking::{
     OwnDescriptorToken, own_fd_read, own_fd_write, own_fd_write_all, register_own_descriptor,
 };
-pub use qos::{LiveQos, QosChange, ThreadQos, current, refused_changes, set_current, with_qos};
+pub use lock_wait::{
+    LOCK_WAIT_BUDGET, LockHolder, LockWait, LockWaitSnapshot, lock_waits, note_thread_lock_wait,
+    set_holder_tracking, thread_lock_wait_nanos,
+};
+pub use process::HELPER_CHILD;
+pub use qos::{
+    LiveQos, QosChange, QosScope, ThreadQos, current, refused_changes, reversible, set_current,
+    with_qos,
+};
 pub use registry::{
     QosSlot, ThreadInfo, current_slot, deregister_current, register_current, snapshot,
 };

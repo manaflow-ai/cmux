@@ -105,7 +105,8 @@ final class AppBrowserHostTabs: ProviderTabSource, ProviderAccessSource, Automat
         if let memo = accessMemo[targetID], memo.extensions == extensions, memo.url == url {
             names = memo.names
         } else {
-            names = AgentExtensionAccess.fromDisk.blockers(extensions, url: url).map(\.name)
+            let access = AgentExtensionAccess.fromDisk(trustedBuiltInFolder: services.builtInAdBlockerFolder.value)
+            names = access.blockers(extensions, url: url).map(\.name)
             accessMemo[targetID] = (extensions, url, names)
         }
         return ProviderTabAccess(extensionHostAccess: !names.isEmpty, userOverride: override, extensions: names)
@@ -143,6 +144,7 @@ final class AppBrowserHostTabs: ProviderTabSource, ProviderAccessSource, Automat
     func openAutomationTab(url: URL?) async throws -> WebKitTab {
         guard let services else { throw AutomationTabError.unavailable }
         let tab = try await openSessionTab(.webkit, url: nil)
+        await services.cache.enginesReady()  // at launch, the page waits for the browser profiles (p08-startup-028)
         guard let page = services.cache.browser(for: tab)?.tab as? WebKitTab else {
             throw AutomationTabError.unavailable
         }

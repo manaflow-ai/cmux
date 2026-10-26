@@ -1,0 +1,19 @@
+{
+  "id": "sidebar-churn-typing",
+  "tier": "T2",
+  "description": "Terminal key to frame while the sidebar rearranges, light session (sidebar-churn-typing.py): 150 workspaces in 8 groups, idle, then a CLI churn at 10 ops/s (move to top, task status, group change, status pill); keys through debug.key.",
+  "command": ["scripts/cmux-next/sidebar-churn-typing.py", "--story", "sidebar-churn-typing", "--session", "light"],
+  "session": "light",
+  "engine": "none",
+  "config": "bench",
+  "metrics": [
+    {"name": "(idle|churn)\\.key_to_frame", "unit": "ms", "better": "lower"}
+  ],
+  "repeats": 1,
+  "seconds": 300,
+  "needs": ["debug:debug.key", "debug:debug.sidebar_perf", "debug:debug.hangs", "debug:debug.main_budget",
+            "debug:debug.frames", "debug:debug.mouse", "env:CMUX_NEXT_TYPING_PROBE"],
+  "hot_paths": ["terminal-key"],
+  "owner": "PL-typing",
+  "component": "Sidebar>Typing"
+}

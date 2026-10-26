@@ -53,6 +53,7 @@ public final class CmuxToastOverlayHost: CmuxToastHosting, CmuxToastReanchoring 
         let options = OverlayOptions(kind: .toast, anchor: anchor(for: toast, slot: slot, in: window),
                                      passesThroughClicks: false)
         let handle = WindowOverlayHost.host(for: window).present(toast, options: options)
+        handle.name = toast.toast.id
         handle.onDismiss = windowGone
         handles[ObjectIdentifier(toast)] = (handle, window, toast, slot)
         // This window's avoided views now move this host's toasts there (and no other window's).

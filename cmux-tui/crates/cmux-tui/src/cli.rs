@@ -85,6 +85,8 @@ mod surface;
 #[cfg(unix)]
 mod terminal_talk;
 mod topology_help;
+#[cfg(unix)]
+mod trace;
 mod wire;
 use surface::MACHINE_CATALOG_HELP;
 pub(super) use surface::{BIN, Surface};
@@ -347,6 +349,7 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         .or_else(|| chief::run_avatar_if_requested(args))
         .or_else(|| coderouter::run_if_requested(args))
         .or_else(|| billing::run_if_requested(args))
+        .or_else(|| trace::run_if_requested(args))
         .or_else(|| vm::run_if_requested(args))
         .or_else(|| apps_run::run_if_requested(args))
         .or_else(|| script::run_if_requested(args))

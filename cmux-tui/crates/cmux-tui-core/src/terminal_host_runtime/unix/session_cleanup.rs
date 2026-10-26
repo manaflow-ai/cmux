@@ -7,11 +7,11 @@
 //! against the same session before escalating.
 
 use crate::panic_free::RecoverPoison;
-use std::collections::HashSet;
-#[cfg(target_os = "linux")]
-use std::fs;
 #[cfg(not(target_os = "linux"))]
-use std::process::Command;
+use cmux_process::Command;
+#[cfg(target_os = "linux")]
+use cmux_threads::checked::fs as files;
+use std::collections::HashSet;
 use std::sync::Mutex;
 use std::sync::atomic::Ordering;
 
@@ -147,7 +147,7 @@ impl CapturedSession {
             if now >= deadline {
                 return false;
             }
-            std::thread::sleep(interval.min(deadline - now));
+            crate::request_path::sleep(interval.min(deadline - now));
         }
     }
 }
@@ -159,14 +159,14 @@ fn current_session() -> libc::pid_t {
 
 #[cfg(target_os = "linux")]
 fn session_groups(session: libc::pid_t) -> Result<Vec<libc::pid_t>, ()> {
-    let entries = fs::read_dir("/proc").map_err(|_| ())?;
+    let entries = files::read_dir("/proc").map_err(|_| ())?;
     let mut groups = HashSet::new();
     for entry in entries {
         let entry = entry.map_err(|_| ())?;
         let name = entry.file_name();
         let Some(name) = name.to_str() else { continue };
         let Ok(_pid) = name.parse::<libc::pid_t>() else { continue };
-        let stat = match fs::read_to_string(entry.path().join("stat")) {
+        let stat = match files::read_to_string(entry.path().join("stat")) {
             Ok(stat) => stat,
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
             Err(_) => return Err(()),
@@ -192,6 +192,7 @@ fn session_groups(session: libc::pid_t) -> Result<Vec<libc::pid_t>, ()> {
 fn session_groups(session: libc::pid_t) -> Result<Vec<libc::pid_t>, ()> {
     // Darwin ps does not expose a numeric session ID. Use it only to list
     // non-zombie PIDs, then query their session and group through libc.
+    crate::request_path::note(crate::request_path::BlockingKind::ProcScan);
     let output = Command::new("/bin/ps").args(["-axo", "pid=,stat="]).output().map_err(|_| ())?;
     if !output.status.success() {
         return Err(());

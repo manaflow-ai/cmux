@@ -1,0 +1,207 @@
+{
+  "schema": "cmux-stability-health/v1",
+  "generated_at": "2026-10-26T10:09:51+00:00",
+  "org": "manaflow",
+  "project_id": "4510796264636416",
+  "env": "nightly-next",
+  "days": 3,
+  "sessions": {
+    "sessions": 20000,
+    "users": 900,
+    "crash_free_sessions_pct": 99.95,
+    "crash_free_users_pct": 99.11,
+    "avg_duration_ms": 5400000.0,
+    "session_hours": 30000.0,
+    "by_status": {
+      "healthy": 19880,
+      "errored": 100,
+      "crashed": 10,
+      "abnormal": 10
+    }
+  },
+  "releases": [
+    {
+      "release": "cmux-next@0.70.0+900",
+      "sessions": 15000,
+      "users": 800,
+      "crash_free_sessions_pct": 99.96,
+      "crash_free_users_pct": 99.2
+    },
+    {
+      "release": "cmux-next@0.70.0+899",
+      "sessions": 5000,
+      "users": 300,
+      "crash_free_sessions_pct": 99.92,
+      "crash_free_users_pct": null
+    }
+  ],
+  "lag_spikes": {
+    "min_ms": 250,
+    "total": 300,
+    "by_bucket": {
+      "250-500ms": 200,
+      "500ms-1s": 60,
+      "1-2s": 30,
+      "2s+": 10
+    },
+    "per_1k_session_hours": 10.0,
+    "rate_limited": true,
+    "issues": 2,
+    "issues_without_github": []
+  },
+  "hangs": {
+    "min_seconds": 2,
+    "own_events": 3,
+    "other_owner_events": 7,
+    "own_per_1k_session_hours": 0.1,
+    "issues": [
+      {
+        "id": "1001",
+        "short_id": "CMUXTERM-MACOS-1",
+        "title": "MainThreadHang: main thread busy for 2 s and counting",
+        "culprit": "WorkspaceStore.apply(_:)",
+        "level": "error",
+        "events": 3,
+        "users": 5,
+        "first_seen": "2026-10-20T00:00:00Z",
+        "last_seen": "2026-10-25T00:00:00Z",
+        "permalink": "https://manaflow.sentry.io/issues/1001/",
+        "github": [],
+        "owner": null
+      },
+      {
+        "id": "1002",
+        "short_id": "CMUXTERM-MACOS-2",
+        "title": "MainThreadHang: main thread busy for 10 s and counting",
+        "culprit": "BrowserWindow.makeKey()",
+        "level": "error",
+        "events": 7,
+        "users": 5,
+        "first_seen": "2026-10-20T00:00:00Z",
+        "last_seen": "2026-10-25T00:00:00Z",
+        "permalink": "https://manaflow.sentry.io/issues/1002/",
+        "github": [
+          24913
+        ],
+        "owner": {
+          "owner": "PL-cefhost",
+          "eta": "2026-11-15",
+          "github_issue": 24913
+        }
+      }
+    ]
+  },
+  "unclean_exits": {
+    "by_outcome": {
+      "clean": 19000,
+      "crash-caught": 10,
+      "unclean-no-report": 8
+    },
+    "no_report": 8,
+    "no_report_pct_of_sessions": 0.04,
+    "no_report_per_1k_sessions": 0.4,
+    "abnormal_sessions": 10
+  },
+  "top_issues": [
+    {
+      "id": "1010",
+      "short_id": "CMUXTERM-MACOS-10",
+      "title": "EXC_BAD_ACCESS: TerminalSurface.draw",
+      "culprit": "",
+      "level": "error",
+      "events": 50,
+      "users": 5,
+      "first_seen": "2026-10-20T00:00:00Z",
+      "last_seen": "2026-10-25T00:00:00Z",
+      "permalink": "https://manaflow.sentry.io/issues/1010/",
+      "github": [
+        30001
+      ],
+      "owner": null
+    },
+    {
+      "id": "1011",
+      "short_id": "CMUXTERM-MACOS-11",
+      "title": "SIGABRT: CEF renderer",
+      "culprit": "",
+      "level": "error",
+      "events": 30,
+      "users": 5,
+      "first_seen": "2026-10-20T00:00:00Z",
+      "last_seen": "2026-10-25T00:00:00Z",
+      "permalink": "https://manaflow.sentry.io/issues/1011/",
+      "github": [
+        24913
+      ],
+      "owner": {
+        "owner": "PL-cefhost",
+        "eta": "2026-11-15",
+        "github_issue": 24913
+      }
+    },
+    {
+      "id": "1012",
+      "short_id": "CMUXTERM-MACOS-12",
+      "title": "NSInternalInconsistencyException",
+      "culprit": "",
+      "level": "error",
+      "events": 20,
+      "users": 5,
+      "first_seen": "2026-10-20T00:00:00Z",
+      "last_seen": "2026-10-25T00:00:00Z",
+      "permalink": "https://manaflow.sentry.io/issues/1012/",
+      "github": [],
+      "owner": null
+    }
+  ],
+  "other_owner": [
+    {
+      "owner": "PL-cefhost",
+      "eta": "2026-11-15",
+      "github_issue": 24913,
+      "hang_events": 7,
+      "issue_events": 30,
+      "issues": [
+        "CMUXTERM-MACOS-2",
+        "CMUXTERM-MACOS-11"
+      ]
+    }
+  ],
+  "checks": [
+    {
+      "name": "crash_free_sessions_pct",
+      "value": 99.95,
+      "op": ">=",
+      "target": 99.9,
+      "ok": true
+    },
+    {
+      "name": "unclean_no_report_pct",
+      "value": 0.04,
+      "op": "<=",
+      "target": 0.1,
+      "ok": true
+    },
+    {
+      "name": "own_hang_events",
+      "value": 3,
+      "op": "<=",
+      "target": 0,
+      "ok": false
+    },
+    {
+      "name": "lag_spikes_per_1k_session_hours",
+      "value": 10.0,
+      "op": "<=",
+      "target": 10.0,
+      "ok": true
+    },
+    {
+      "name": "lag_spike_issues_without_github",
+      "value": 0,
+      "op": "<=",
+      "target": 0,
+      "ok": true
+    }
+  ]
+}

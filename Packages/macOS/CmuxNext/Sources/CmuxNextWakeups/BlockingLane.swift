@@ -6,11 +6,15 @@
 /// lookup and a long parse never delays a file read.
 public enum BlockingLane: Int, Sendable, CaseIterable, CustomStringConvertible {
     /// Disk I/O: file reads and writes, directory listings, file-backed JSON or plist loads and saves.
-    /// Serial per ``WorkPriority``: at most one item of each priority at a time.
+    /// Slots of its own for each ``WorkPriority`` (``FilesLaneWidths``: 4 user-blocking, 3 user-visible, 2 best-effort,
+    /// 1 idle), so a slow read holds neither lower nor same-priority work behind it. Items that run at once are not
+    /// ordered: writes that must not reorder go through one ``BackgroundWork/sequence(_:mayBlock:)``.
     case files
     /// Synchronous system calls that wait on something outside the process: `getaddrinfo`, Security,
     /// Launch Services, AX. Concurrent up to ``BackgroundWork/systemWidth`` items, highest priority first:
-    /// such a call can hang for its own timeout, and one hung call must not hold every later one.
+    /// such a call can hang for its own timeout, and one hung call must not hold every later one. One slot
+    /// (``BackgroundWork/systemReserved``) runs only ``WorkPriority/userBlocking`` items, and host resolutions
+    /// take at most ``BackgroundWork/hostResolutionCap`` slots.
     case system
     /// CPU-bound work too long for the pool (a big parse, an index build): it does not block, but it
     /// must not fill the pool. Concurrent up to ``BackgroundWork/cpuWidth`` items, highest priority first.

@@ -1,8 +1,9 @@
 import CCmuxRdFFI
+import CmuxNextCompat
 public import CmuxNextRemoteView
 public import Foundation
 
-#if DEBUG
+#if DEBUG || CMUX_BENCH_HOOKS
 /// Why the client reducer refused a call.
 public nonisolated enum RbClientError: Error, Sendable, Hashable {
     /// The input is not a client input (the state did not change).
@@ -54,7 +55,7 @@ public nonisolated final class RbClient {
         }
         guard let outcome else { throw .malformedOutcome }
         let bytes = Data(bytes: outcome, count: length)
-        guard let decoded = try? Self.decoder.decode(RbClientOutcome.self, from: bytes) else { throw .malformedOutcome }
+        guard let decoded = try? Self.decoder.blockingDecode(RbClientOutcome.self, from: bytes) else { throw .malformedOutcome }
         return decoded
     }
 

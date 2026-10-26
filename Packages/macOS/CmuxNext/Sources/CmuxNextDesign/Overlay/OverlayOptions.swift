@@ -86,12 +86,11 @@ public final class OverlayHandle {
     let id: Int
     /// The clip of a `.pane` overlay (its pane minus the occluders).
     var clipView: OverlayClipView?
-    /// Clears the host's region cache when the content resizes on its own.
-    var frameObserver: (any NSObjectProtocol)?
-    /// The content's own `postsFrameChangedNotifications`, set back on dismiss.
-    var contentPostedFrameChanges = false
-    var options: OverlayOptions
+    public internal(set) var options: OverlayOptions
     let content: NSView
+    /// What automation calls this overlay (a toast's id, a dialog's spec id), set by its presenter; nil for
+    /// one with no such name.
+    public var name: String?
 
     init(id: Int, content: NSView, options: OverlayOptions, host: WindowOverlayHost) {
         self.id = id
@@ -111,6 +110,7 @@ public final class OverlayHandle {
         options.anchor = anchor
         options.modalRegion = modalRegion
         host?.layout(self)
+        host?.syncWindowButtons()
         host?.onBlockingChange?()
     }
 
@@ -121,6 +121,14 @@ public final class OverlayHandle {
         host?.layout(self)
     }
 
+    /// The content set its own frame size (a card sized to new rows): the host places it again and
+    /// takes or lets go of the mouse under a pointer that did not move. Chromium's bubble owner does the
+    /// same with `SizeToContents()` (ui/views/bubble/bubble_dialog_delegate.cc). A content sized by
+    /// Auto Layout needs no call: its holder's `layout()` reads it.
+    public func contentDidResize() {
+        host?.layout(self)
+    }
+
     /// From now on clicks pass through the overlay to what is below (it
     /// is fading out: the page under it gets the next click at once).
     public func stopTakingMouse() {
@@ -128,6 +136,7 @@ public final class OverlayHandle {
         options.passesThroughClicks = true
         host?.cachedRegions = nil
         host?.updateMouseRouting()
+        host?.changes?.signal()
     }
 
     public func dismiss() {

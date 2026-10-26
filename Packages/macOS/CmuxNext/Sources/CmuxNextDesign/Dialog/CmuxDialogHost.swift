@@ -106,6 +106,7 @@ public final class CmuxDialogOverlayHost: CmuxDialogHosting {
         if let handle = entry.handle, !handle.isDismissed, handle.host === host { return }
         detach(entry)
         let handle = host.present(entry.dialog, options: Self.options(for: scope))
+        handle.name = entry.dialog.spec.identifier
         // The window closed (its host dismissed every overlay): the dialog ends.
         handle.onDismiss = entry.scopeGone
         entry.handle = handle

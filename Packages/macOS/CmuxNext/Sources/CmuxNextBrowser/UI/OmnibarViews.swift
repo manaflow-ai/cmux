@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextDesign
+import CmuxNextWakeups
 import QuartzCore
 
 /// The omnibar's rounded background (`OmnibarGlassLook`): at rest the flat
@@ -27,8 +28,8 @@ final class OmnibarPillView: NSView {
     private(set) var look = OmnibarGlassLook.current { didSet { if oldValue != look { rebuildMaterial() } } }
     /// The glass under the bar, built while the look has a material.
     private var glass: GlassPanelView?
-    /// Ends with the view (the loop holds it weakly).
-    private var lookLoop: ObservationLoop?
+    /// Follows cmux.json's look (``followLook(on:)``); ends with the view.
+    private var lookWatch: FrameObservation<OmnibarGlassLook>?
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -40,10 +41,19 @@ final class OmnibarPillView: NSView {
         hover = PointerHover(self) { [weak self] hovering in
             self?.refresh(animated: true, fade: ChromeHover.fade(showing: hovering))
         }
-        lookLoop = ObservationLoop { [weak self] in
-            let next = OmnibarGlassLook.current
+    }
+
+    /// Follows the look in cmux.json from now on (the bar calls it once, with the app's scheduler).
+    func followLook(on work: MainWorkScheduler) {
+        lookWatch?.cancel()
+        // node-free: one app-wide look; the bar sits in a tab's chrome, a popup's toolbar or the Markdown bar, with no tab node
+        let watch = FrameObservation(owner: "browser.omnibar.look", delivery: .visible(nil), on: work) {
+            OmnibarGlassLook.current
+        } onChange: { [weak self] next in
             self?.look = next
         }
+        lookWatch = watch
+        look = watch.value
     }
 
     @available(*, unavailable)
@@ -138,7 +148,7 @@ final class OmnibarPillView: NSView {
             layer?.shadowOpacity = Float(elevation.alpha)
             layer?.shadowRadius = elevation.layerRadius
             layer?.shadowOffset = elevation.layerOffset()
-            layer?.shadowPath = CGPath(roundedRect: bounds, cornerWidth: radius, cornerHeight: radius, transform: nil)
+            layer?.shadowPath = CGPath.rounded(bounds, radius: radius)
         } else {
             layer?.shadowOpacity = 0
             layer?.shadowPath = nil
@@ -234,7 +244,7 @@ final class OmnibarCardTopView: NSView {
         // Extend the shadow shape past the seam toward the rows, so no line shows
         // between the two halves (the panel of rows casts no shadow of its own).
         let shape = CGRect(x: 0, y: opensUpward ? 0 : -40, width: bounds.width, height: bounds.height + 40)
-        card.shadowPath = CGPath(roundedRect: shape, cornerWidth: OmnibarStyle.cardCornerRadius, cornerHeight: OmnibarStyle.cardCornerRadius, transform: nil)
+        card.shadowPath = CGPath.rounded(shape, radius: OmnibarStyle.cardCornerRadius)
         CATransaction.commit()
     }
 

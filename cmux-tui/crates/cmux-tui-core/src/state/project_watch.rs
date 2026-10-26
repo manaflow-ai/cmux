@@ -5,6 +5,8 @@
 //! source whose list changed since the last import is committed, so an
 //! editor writing its state file without a new recent folder costs one read.
 
+use cmux_threads::checked::fs as files;
+use cmux_threads::checked::sync as waits;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{Receiver, channel};
@@ -38,6 +40,7 @@ fn note(message: &str) {
     eprintln!("cmux-tui: {message}");
 }
 
+#[track_caller]
 fn run(mux: &Weak<Mux>, layout: &Layout) {
     let (sender, events) = channel();
     let watcher = notify::recommended_watcher(move |event| {
@@ -89,7 +92,7 @@ fn fingerprint(dirs: &[PathBuf]) -> Vec<(PathBuf, Option<(u64, SystemTime)>)> {
                 .flat_map(move |name| [dir.join(name), dir.join(format!("{name}-wal"))])
         })
         .map(|path| {
-            let stamp = std::fs::metadata(&path)
+            let stamp = files::metadata(&path)
                 .ok()
                 .and_then(|meta| Some((meta.len(), meta.modified().ok()?)));
             (path, stamp)
@@ -101,7 +104,7 @@ fn fingerprint(dirs: &[PathBuf]) -> Vec<(PathBuf, Option<(u64, SystemTime)>)> {
 /// it. False when the watch ended.
 fn next_relevant(events: &Receiver<notify::Result<notify::Event>>) -> bool {
     loop {
-        let Ok(event) = events.recv() else { return false };
+        let Ok(event) = waits::recv(events) else { return false };
         if relevant(&event) {
             while events.try_recv().is_ok() {}
             return true;
@@ -126,6 +129,7 @@ fn is_source_path(path: &Path) -> bool {
 
 /// Rescans every source and commits the ones whose list changed. False when
 /// the daemon is gone.
+#[track_caller]
 fn import_changed(
     mux: &Weak<Mux>,
     layout: &Layout,

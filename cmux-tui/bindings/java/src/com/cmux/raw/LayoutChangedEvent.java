@@ -13,6 +13,8 @@ import java.util.Objects;
 /** Immutable layout-changed event. Protocol v6; streams: subscribe. */
 public final class LayoutChangedEvent implements WireValue, DeltaStreamEvent, ProtocolEvent, SubscribeEvent {
     private final Field<UInt64> activePane;
+    /** What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing. */
+    private final Field<EventCause> cause;
     private final Field<Layout> layout;
     private final UInt64 screen;
     private final Field<String> transaction;
@@ -21,6 +23,7 @@ public final class LayoutChangedEvent implements WireValue, DeltaStreamEvent, Pr
 
     private LayoutChangedEvent(Builder builder) {
         this.activePane = builder.activePane;
+        this.cause = builder.cause;
         this.layout = builder.layout;
         if (!builder.screenSet) throw new IllegalArgumentException("screen is required");
         this.screen = Wire.nonNull(builder.screen, "screen");
@@ -32,6 +35,7 @@ public final class LayoutChangedEvent implements WireValue, DeltaStreamEvent, Pr
     public static Builder builder() { return new Builder(); }
 
     public Field<UInt64> activePane() { return activePane; }
+    public Field<EventCause> cause() { return cause; }
     public Field<Layout> layout() { return layout; }
     public UInt64 screen() { return screen; }
     public Field<String> transaction() { return transaction; }
@@ -46,6 +50,10 @@ public final class LayoutChangedEvent implements WireValue, DeltaStreamEvent, Pr
         Object rawActivePane = Wire.optional(object, "active_pane");
         if (!Wire.isMissing(rawActivePane)) {
             builder.activePane(Wire.uint64(rawActivePane, "LayoutChangedEvent.active_pane"));
+        }
+        Object rawCause = Wire.optional(object, "cause");
+        if (!Wire.isMissing(rawCause)) {
+            builder.cause(EventCause.fromWire(rawCause));
         }
         Object rawLayout = Wire.optional(object, "layout");
         if (!Wire.isMissing(rawLayout)) {
@@ -73,6 +81,7 @@ public final class LayoutChangedEvent implements WireValue, DeltaStreamEvent, Pr
         LinkedHashMap<String, Object> object = new LinkedHashMap<>();
         object.put("event", "layout-changed");
         Wire.put(object, "active_pane", activePane);
+        Wire.put(object, "cause", cause);
         Wire.put(object, "layout", layout);
         Wire.put(object, "screen", screen);
         Wire.put(object, "transaction", transaction);
@@ -84,17 +93,18 @@ public final class LayoutChangedEvent implements WireValue, DeltaStreamEvent, Pr
     @Override
     public boolean equals(Object other) {
         if (!(other instanceof LayoutChangedEvent that)) return false;
-        return Objects.equals(activePane, that.activePane) && Objects.equals(layout, that.layout) && Objects.equals(screen, that.screen) && Objects.equals(transaction, that.transaction) && Objects.equals(workspace, that.workspace) && Objects.equals(zoomedPane, that.zoomedPane);
+        return Objects.equals(activePane, that.activePane) && Objects.equals(cause, that.cause) && Objects.equals(layout, that.layout) && Objects.equals(screen, that.screen) && Objects.equals(transaction, that.transaction) && Objects.equals(workspace, that.workspace) && Objects.equals(zoomedPane, that.zoomedPane);
     }
 
     @Override
-    public int hashCode() { return Objects.hash(activePane, layout, screen, transaction, workspace, zoomedPane); }
+    public int hashCode() { return Objects.hash(activePane, cause, layout, screen, transaction, workspace, zoomedPane); }
 
     @Override
     public String toString() { return "LayoutChangedEvent" + toWire(); }
 
     public static final class Builder {
         private Field<UInt64> activePane = Field.omitted();
+        private Field<EventCause> cause = Field.omitted();
         private Field<Layout> layout = Field.omitted();
         private UInt64 screen;
         private boolean screenSet;
@@ -104,6 +114,10 @@ public final class LayoutChangedEvent implements WireValue, DeltaStreamEvent, Pr
 
         public Builder activePane(UInt64 value) {
             this.activePane = Field.of(value);
+            return this;
+        }
+        public Builder cause(EventCause value) {
+            this.cause = Field.of(value);
             return this;
         }
         public Builder layout(Layout value) {

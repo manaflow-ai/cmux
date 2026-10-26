@@ -12,7 +12,7 @@ public import WebKit
 /// app built on macOS 13.3 or later.
 ///
 /// ```swift
-/// let inspector = WebKitInspector(webView: page.webKitView)
+/// let inspector = WebKitInspector(webView: webKit) // a target's WebKit engine
 /// inspector.show(.console)
 /// ```
 @MainActor
@@ -32,9 +32,8 @@ public struct WebKitInspector {
 
     /// Whether the inspector is shown.
     public var isVisible: Bool {
-        guard let inspector, inspector.responds(to: Selector(("isVisible"))) else { return false }
-        // crash-allow: guarded by responds(to: isVisible) above; KVC's "visible" getter search finds -isVisible, so no undefined-key exception
-        return inspector.value(forKey: "visible") as? Bool ?? false
+        prepare()
+        return Self.isVisible(of: webView)
     }
 
     /// Shows the inspector; with `panel`, on that tab when WebKit can
@@ -83,13 +82,32 @@ public struct WebKitInspector {
 
     private var inspector: NSObject? {
         prepare()
-        guard webView.responds(to: Selector(("_inspector"))) else { return nil }
-        return webView.perform(Selector(("_inspector")))?.takeUnretainedValue() as? NSObject
+        return Self.inspector(of: webView)
     }
 
+    /// Whether `webView`'s inspector is shown, read without making the web view inspectable
+    /// (``WebKitInspectorWatch`` reads this on view and window changes).
+    static func isVisible(of webView: WKWebView) -> Bool {
+        guard let inspector = Self.inspector(of: webView), inspector.responds(to: Selector(("isVisible"))) else { return false }
+        // crash-allow: guarded by responds(to: isVisible) above; KVC's "visible" getter search finds -isVisible, so no undefined-key exception
+        return inspector.value(forKey: "visible") as? Bool ?? false
+    }
+
+    /// The private `_WKInspector` of `webView`, or nil when this WebKit has none.
+    static func inspector(of webView: WKWebView) -> NSObject? {
+        guard webView.responds(to: Selector(("_inspector"))) else { return nil }
+        // crash-allow: guarded by responds(to: _inspector) above; KVC's getter search finds -_inspector, so no undefined-key exception
+        return webView.value(forKey: "_inspector") as? NSObject
+    }
+
+    /// Sends one of `_WKInspector`'s no-argument, void actions (show, close, attach, detach,
+    /// showConsole, showResources, toggleElementSelection, togglePageProfiling).
     private func call(_ name: String) {
         let selector = Selector((name))
         guard let inspector, inspector.responds(to: selector) else { return }
-        inspector.perform(selector)
+        // SAFETY: the selector is answered and takes no argument. Its return is void, so the
+        // Unmanaged result holds whatever the return register held; it is dropped unread and
+        // never retained or released.
+        _ = unsafe inspector.perform(selector)
     }
 }

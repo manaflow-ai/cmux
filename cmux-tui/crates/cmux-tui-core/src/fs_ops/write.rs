@@ -8,7 +8,8 @@
 //! [`PendingWrite::commit`] (a cancelled stream), the temporary file is
 //! unlinked, so no partial file ever appears at the target.
 
-use std::fs::File;
+use cmux_threads::checked::fs as files;
+use files::File;
 use std::io::Write as _;
 use std::os::fd::{AsFd, BorrowedFd, OwnedFd};
 
@@ -145,7 +146,8 @@ impl PendingWrite {
     /// Fsyncs, checks the mode once more, renames over the target and
     /// fsyncs the directory. Returns the new entry.
     pub fn commit(mut self) -> Result<Entry, FsError> {
-        self.file.sync_all()?;
+        crate::request_path::note(crate::request_path::BlockingKind::FsWrite);
+        files::sync_all(&self.file)?;
         let dir = self.dir.as_fd();
         self.mode.admits(current(dir, &self.name)?.as_ref())?;
         match self.mode {
@@ -201,7 +203,8 @@ pub fn append(roots: &Roots, path: &str, expected: &str, bytes: &[u8]) -> Result
         return Err(FsError::NoSpace);
     }
     let mut file = File::from(fd);
-    if let Err(error) = file.write_all(bytes).and_then(|()| file.sync_all()) {
+    crate::request_path::note(crate::request_path::BlockingKind::FsWrite);
+    if let Err(error) = file.write_all(bytes).and_then(|()| files::sync_all(&file)) {
         let _ = file.set_len(meta.size);
         return Err(error.into());
     }

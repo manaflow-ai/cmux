@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextDesign
+import CmuxNextWakeups
 import Observation
 import SwiftUI
 
@@ -63,11 +64,12 @@ extension FeedColors {
 /// when the panel is AppKit (plans/cmux-next/no-swiftui-DESIGN.md, Feed).
 struct ReportsBasketHost: NSViewRepresentable {
     let model: FeedModel
+    let mainWork: MainWorkScheduler
     let onReply: (@MainActor (ReportReply) async -> Bool)?
     @Environment(\.feedColors) private var colors
 
     func makeNSView(context: Context) -> ReportsBasketView {
-        let view = ReportsBasketView(model: model, onReply: onReply)
+        let view = ReportsBasketView(model: model, mainWork: mainWork, onReply: onReply)
         view.apply(colors.basket)
         return view
     }

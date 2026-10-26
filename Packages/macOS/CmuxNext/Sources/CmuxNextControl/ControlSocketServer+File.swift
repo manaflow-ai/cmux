@@ -1,3 +1,5 @@
+import CmuxNextCompat
+import CmuxNextDaemon
 import Darwin
 import Foundation
 import os
@@ -9,12 +11,14 @@ extension ControlSocketServer {
     /// The canonical state folder is also required to be a real directory
     /// owned by this user and is tightened on every launch. Override parents
     /// already present belong to their caller and are not changed.
-    static func makeStateDirectory(for path: String, protectExisting: Bool) throws {
+    static func makeStateDirectory(for path: String, protectExisting: Bool) throws(StartError) {
         let parent = (path as NSString).deletingLastPathComponent
         guard !parent.isEmpty else { return }
         var info = stat()
         var created = false
-        if lstat(parent, &info) != 0 {
+        // SAFETY: lstat reads the NUL-terminated copy of the path made for the call and writes one struct stat into
+        // `info`, a local.
+        if unsafe lstat(parent, &info) != 0 {
             guard errno == ENOENT else {
                 if protectExisting { throw StartError.system(call: "lstat", errno: errno) }
                 return
@@ -24,7 +28,8 @@ extension ControlSocketServer {
                 attributes: [.posixPermissions: 0o700]
             )
             created = true
-            guard lstat(parent, &info) == 0 else {
+            // SAFETY: as above.
+            guard unsafe lstat(parent, &info) == 0 else {
                 if protectExisting { throw StartError.system(call: "mkdir", errno: errno) }
                 return
             }
@@ -33,10 +38,13 @@ extension ControlSocketServer {
         guard info.st_mode & S_IFMT == S_IFDIR, info.st_uid == getuid() else {
             throw StartError.pathOccupied(parent)
         }
-        guard chmod(parent, 0o700) == 0 else {
+        // SAFETY: chmod reads the NUL-terminated copy of the path made for the call.
+        guard unsafe chmod(parent, 0o700) == 0 else {
             throw StartError.system(call: "chmod", errno: errno)
         }
-        guard lstat(parent, &info) == 0, info.st_mode & S_IFMT == S_IFDIR,
+        // SAFETY: lstat reads the NUL-terminated copy of the path made for the call and writes one struct stat into
+        // `info`, a local.
+        guard unsafe lstat(parent, &info) == 0, info.st_mode & S_IFMT == S_IFDIR,
               info.st_uid == getuid(), info.st_mode & 0o777 == 0o700 else {
             throw StartError.system(call: "chmod", errno: EPERM)
         }
@@ -49,7 +57,9 @@ extension ControlSocketServer {
     @discardableResult
     static func makeLink(_ link: String, to target: String) -> Bool {
         var info = stat()
-        if lstat(link, &info) == 0 {
+        // SAFETY: lstat reads the NUL-terminated copy of the path made for the call and writes one struct stat into
+        // `info`, a local.
+        if unsafe lstat(link, &info) == 0 {
             let isStaleSocket = info.st_mode & S_IFMT == S_IFSOCK && info.st_uid == getuid() && probe(link) == .refused
             guard isStaleSocket else {
                 if (try? FileManager.default.destinationOfSymbolicLink(atPath: link)) != target {
@@ -57,24 +67,160 @@ extension ControlSocketServer {
                 }
                 return true
             }
-            unlink(link)
+            // SAFETY: unlink reads the NUL-terminated copy of the path made for the call.
+            unsafe unlink(link)
         } else if errno != ENOENT {
             return true
         }
-        return symlink(target, link) == 0 || errno == EEXIST
+        // SAFETY: symlink reads the NUL-terminated copies of both paths made for the call.
+        return unsafe symlink(target, link) == 0 || errno == EEXIST
     }
 
     /// Removes `link` only while it is this server's symlink to `target`.
     static func unlinkLink(_ link: String, to target: String) {
         guard (try? FileManager.default.destinationOfSymbolicLink(atPath: link)) == target else { return }
-        unlink(link)
+        // SAFETY: unlink reads the NUL-terminated copy of the path made for the call.
+        unsafe unlink(link)
     }
 
+    /// Removes the socket file at `path` only while it is the one `identity` names: a socket another
+    /// instance bound there since is never removed.
     static func unlinkIfOwn(_ path: String, _ identity: (dev: dev_t, ino: ino_t)?) {
         var info = stat()
-        if let identity, lstat(path, &info) == 0, info.st_dev == identity.dev, info.st_ino == identity.ino {
-            unlink(path)
+        // SAFETY: lstat reads the NUL-terminated copy of the path made for the call and writes one struct stat into
+        // `info`, a local.
+        if let identity, unsafe lstat(path, &info) == 0, info.st_dev == identity.dev, info.st_ino == identity.ino {
+            // SAFETY: unlink reads the NUL-terminated copy of the path made for the call.
+            unsafe unlink(path)
         }
+    }
+
+    /// Binds the control socket at `path` and listens, without accepting (p08-startup-019). The app
+    /// calls it on a lane, so the owner check, the bind and the compatibility link never run on the
+    /// main thread; the server adopts the listener once its methods are registered (``start(adopting:)``).
+    ///
+    /// The rules of ``start()``: the state folder is made (and, with `protectStateDirectory`, checked
+    /// and tightened to 0700), the owner lock is taken (``lockOwner(_:)``: a live instance's path is
+    /// never taken, also while its listen queue is full), a stale socket is reclaimed
+    /// (``reclaimStalePath(_:)``), and the file gets `mode` in a private directory before it is renamed
+    /// into place. Then `compatibilityLink` is made (``makeLink(_:to:)``, which probes a socket at the
+    /// link). Clients wait in the kernel's backlog (`SOMAXCONN`) until the server accepts. Chrome binds
+    /// its process singleton socket before its UI exists in the same way
+    /// (chrome/browser/process_singleton_posix.cc, `ProcessSingleton::Create`).
+    ///
+    /// - Parameters:
+    ///   - path: The socket file.
+    ///   - protectStateDirectory: The parent is cmux's canonical state folder (checked, made 0700).
+    ///   - compatibilityLink: A symlink to `path` at the socket's old name, or nil.
+    ///   - accessMode: The mode whose file permissions the socket gets; a server adopts the listener
+    ///     only for the same permissions. Never `off` (nothing is bound then).
+    public static func bindListener(path: String, protectStateDirectory: Bool, compatibilityLink: String? = nil,
+                                    accessMode: ControlAccessMode = .automation) throws(StartError) -> ControlSocketListener {
+        try bindListener(path: path, protectStateDirectory: protectStateDirectory, compatibilityLink: compatibilityLink,
+                         mode: accessMode.filePermissions, backlog: SOMAXCONN, bind: { $1.bind($0) })
+    }
+
+    static func bindListener(path: String, protectStateDirectory: Bool, compatibilityLink: String?, mode: mode_t,
+                             backlog: Int32, bind: BindCall) throws(StartError) -> ControlSocketListener {
+        try makeStateDirectory(for: path, protectExisting: protectStateDirectory)
+        let lock = try lockOwner(path)
+        do throws(StartError) {
+            try reclaimStalePath(path)
+            let bound = try makeBoundDescriptor(path: path, mode: mode, backlog: backlog, bind: bind)
+            if let compatibilityLink { makeLink(compatibilityLink, to: path) }
+            return ControlSocketListener(path: path, descriptor: bound.descriptor, identity: bound.identity, mode: mode,
+                                         lock: lock, compatibilityLink: compatibilityLink)
+        } catch {
+            releaseOwner(lock, of: path)
+            throw error
+        }
+    }
+
+    /// Takes the owner lock of the socket at `path`: an exclusive `flock` on `<path>.lock`, held for
+    /// as long as this instance owns the path (``releaseOwner(_:of:)`` at stop; the kernel drops it
+    /// when the process ends, so a crash leaves no owner behind). A path another live instance holds
+    /// is `addressInUse` before any probe: a full AF_UNIX listen queue refuses a connect on Darwin
+    /// (`ECONNREFUSED`), which the probe alone reads as a stale socket. Chrome guards its process
+    /// singleton socket with an owner lock the same way (chrome/browser/process_singleton_posix.cc,
+    /// `SingletonLock`). A lock taken on a file its owner removed meanwhile is not the path's lock:
+    /// the file is opened again.
+    ///
+    /// - Returns: The lock's descriptor; -1 when the lock file cannot be used (another user's file,
+    ///   a link, an open error): then the probe alone decides, as it did before the lock.
+    static func lockOwner(_ path: String) throws(StartError) -> Int32 {
+        let lockPath = path + ".lock"
+        return try blockingCall(.fileIO) { () throws(StartError) -> Int32 in
+            for _ in 0..<3 {
+                // SAFETY: open reads the NUL-terminated copy of the path made for the call.
+                let descriptor = unsafe open(lockPath, O_RDONLY | O_CREAT | O_NOFOLLOW | O_CLOEXEC | O_NONBLOCK, 0o600)
+                guard descriptor >= 0 else { return -1 }
+                var info = stat()
+                // SAFETY: fstat writes one struct stat into `info`, a local live for the call.
+                guard unsafe fstat(descriptor, &info) == 0, info.st_mode & S_IFMT == S_IFREG, info.st_uid == getuid() else {
+                    close(descriptor)
+                    return -1
+                }
+                guard flock(descriptor, LOCK_EX | LOCK_NB) == 0 else {
+                    let code = errno
+                    close(descriptor)
+                    if code == EWOULDBLOCK { throw StartError.addressInUse(path) }
+                    return -1
+                }
+                var current = stat()
+                // SAFETY: lstat reads the path's NUL-terminated copy and writes one struct stat into `current`, a
+                // local.
+                if unsafe lstat(lockPath, &current) == 0, current.st_dev == info.st_dev, current.st_ino == info.st_ino { return descriptor }
+                close(descriptor)  // the previous owner removed this file as it let go
+            }
+            return -1
+        }
+    }
+
+    /// Releases an owner lock from ``lockOwner(_:)`` (-1: none): removes `<path>.lock` while it is
+    /// still the locked file, then unlocks. Removed before the unlock, so whoever locks the old file
+    /// after it sees that it is gone (``lockOwner(_:)`` opens the path again).
+    static func releaseOwner(_ lock: Int32, of path: String) {
+        guard lock >= 0 else { return }
+        let lockPath = path + ".lock"
+        blockingCall(.fileIO) {
+            var held = stat(), current = stat()
+            // SAFETY: fstat and lstat each write one struct stat into a local (`held`, `current`); lstat reads the
+            // path's NUL-terminated copy made for the call.
+            if unsafe fstat(lock, &held) == 0, unsafe lstat(lockPath, &current) == 0, held.st_dev == current.st_dev, held.st_ino == current.st_ino {
+                // SAFETY: unlink reads the NUL-terminated copy of the path made for the call.
+                unsafe unlink(lockPath)
+            }
+            close(lock)
+        }
+    }
+
+    /// A non-blocking socket bound at `path` with `mode` and listening (`backlog`), and the socket
+    /// file's identity. The caller owns the descriptor.
+    static func makeBoundDescriptor(path: String, mode: mode_t, backlog: Int32 = SOMAXCONN,
+                                    bind: BindCall) throws(StartError) -> (descriptor: Int32, identity: (dev: dev_t, ino: ino_t)?) {
+        let descriptor = socket(AF_UNIX, SOCK_STREAM, 0)
+        guard descriptor >= 0 else { throw StartError.system(call: "socket", errno: errno) }
+        var shouldClose = true
+        defer { if shouldClose { close(descriptor) } }
+        _ = fcntl(descriptor, F_SETFD, FD_CLOEXEC)
+
+        let capacity = UnixSocketAddress.pathCapacity
+        guard path.utf8.count < capacity else { throw StartError.pathTooLong(path) }
+        try bindSocket(descriptor, at: path, mode: mode, capacity: capacity, bind: bind)
+        guard listen(descriptor, backlog) == 0 else {
+            let code = errno
+            // SAFETY: unlink reads the NUL-terminated copy of the path made for the call.
+            unsafe unlink(path)
+            throw StartError.system(call: "listen", errno: code)
+        }
+        _ = fcntl(descriptor, F_SETFL, fcntl(descriptor, F_GETFL) | O_NONBLOCK)
+
+        var info = stat()
+        // SAFETY: lstat reads the NUL-terminated copy of the path made for the call and writes one struct stat into
+        // `info`, a local.
+        let identity = unsafe lstat(path, &info) == 0 ? (dev: info.st_dev, ino: info.st_ino) : nil
+        shouldClose = false
+        return (descriptor, identity)
     }
 
     /// Creates the socket file at `path` with `mode`, without touching the
@@ -85,48 +231,46 @@ extension ControlSocketServer {
     /// private path does not fit `sun_path`, binds at `path` and sets the
     /// mode at once: the file briefly has the umask's mode, which with the
     /// usual umask grants no one else the write access a connect needs.
-    func bindSocket(_ descriptor: Int32, at path: String, mode: mode_t, capacity: Int) throws {
+    static func bindSocket(_ descriptor: Int32, at path: String, mode: mode_t, capacity: Int, bind: BindCall) throws(StartError) {
         let parent = (path as NSString).deletingLastPathComponent
         var template = Array((parent.isEmpty ? "." : parent).utf8CString.dropLast()) + Array("/.cmuxsock.XXXXXX".utf8CString)
-        let staging: String? = template.withUnsafeMutableBufferPointer { buffer in
-            buffer.baseAddress.flatMap { mkdtemp($0) }.map { String(cString: $0) }
+        // SAFETY: mkdtemp rewrites the XXXXXX in place inside the NUL-terminated template, the array's own storage
+        // lent for the closure, and returns that pointer or nil; String(cString:) copies it before the closure ends.
+        let staging: String? = unsafe template.withUnsafeMutableBufferPointer { buffer in
+            unsafe buffer.baseAddress.flatMap { unsafe mkdtemp($0) }.map { unsafe String(cString: $0) }
         }
         if let staging {
-            defer { rmdir(staging) }
+            // SAFETY: rmdir reads the NUL-terminated copy of the path made for the call.
+            defer { unsafe rmdir(staging) }
             let staged = staging + "/s"
             if staged.utf8.count < capacity {
-                try bindAddress(descriptor, staged)
-                guard chmod(staged, mode) == 0 else {
+                try bindAddress(descriptor, staged, bind: bind)
+                // SAFETY: chmod reads the NUL-terminated copy of the path made for the call.
+                guard unsafe chmod(staged, mode) == 0 else {
                     let code = errno
-                    unlink(staged)
+                    // SAFETY: unlink reads the NUL-terminated copy of the path made for the call.
+                    unsafe unlink(staged)
                     throw StartError.system(call: "chmod", errno: code)
                 }
-                guard renamex_np(staged, path, UInt32(clamping: RENAME_EXCL)) == 0 else {
+                // SAFETY: renamex_np reads the NUL-terminated copies of both paths made for the call.
+                guard unsafe renamex_np(staged, path, UInt32(clamping: RENAME_EXCL)) == 0 else {
                     let code = errno
-                    unlink(staged)
+                    // SAFETY: unlink reads the NUL-terminated copy of the path made for the call.
+                    unsafe unlink(staged)
                     throw code == EEXIST ? StartError.addressInUse(path) : StartError.system(call: "rename", errno: code)
                 }
                 return try verifyMode(path, mode)
             }
         }
-        try bindAddress(descriptor, path)
-        chmod(path, mode)
+        try bindAddress(descriptor, path, bind: bind)
+        // SAFETY: chmod reads the NUL-terminated copy of the path made for the call.
+        unsafe chmod(path, mode)
         try verifyMode(path, mode)
     }
 
-    func bindAddress(_ descriptor: Int32, _ path: String) throws {
-        var address = sockaddr_un()
-        address.sun_family = sa_family_t(AF_UNIX)
-        withUnsafeMutableBytes(of: &address.sun_path) { sunPath in
-            var buffer = sunPath  // the same memory; `modify` is mutating on the view
-            buffer.copyBytes(from: path.utf8)
-            buffer.modify(checked: path.utf8.count) { $0 = 0 }
-        }
-        let bound = withUnsafePointer(to: &address) {
-            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
-                bindCall(descriptor, $0, socklen_t(MemoryLayout<sockaddr_un>.size))
-            }
-        }
+    static func bindAddress(_ descriptor: Int32, _ path: String, bind: BindCall) throws(StartError) {
+        guard let address = UnixSocketAddress(path: path) else { throw StartError.pathTooLong(path) }
+        let bound = bind(descriptor, address)
         guard bound == 0 else {
             let code = errno
             throw code == EADDRINUSE ? StartError.addressInUse(path) : StartError.system(call: "bind", errno: code)
@@ -134,11 +278,14 @@ extension ControlSocketServer {
     }
 
     /// The socket at `path` must have exactly `mode`; otherwise it is removed.
-    func verifyMode(_ path: String, _ mode: mode_t) throws {
+    static func verifyMode(_ path: String, _ mode: mode_t) throws(StartError) {
         var info = stat()
-        guard lstat(path, &info) == 0 else { throw StartError.system(call: "lstat", errno: errno) }
+        // SAFETY: lstat reads the NUL-terminated copy of the path made for the call and writes one struct stat into
+        // `info`, a local.
+        guard unsafe lstat(path, &info) == 0 else { throw StartError.system(call: "lstat", errno: errno) }
         guard info.st_mode & 0o777 == mode else {
-            unlink(path)
+            // SAFETY: unlink reads the NUL-terminated copy of the path made for the call.
+            unsafe unlink(path)
             throw StartError.system(call: "chmod", errno: EPERM)
         }
     }
@@ -147,12 +294,15 @@ extension ControlSocketServer {
     /// connect is refused (nothing listens). Refuses when a process accepts
     /// on it or the probe is inconclusive (a busy listener, a permission
     /// error), when it is not a socket, or when another user owns it.
-    static func reclaimStalePath(_ path: String) throws {
+    static func reclaimStalePath(_ path: String) throws(StartError) {
         var info = stat()
-        guard lstat(path, &info) == 0 else { return }
+        // SAFETY: lstat reads the NUL-terminated copy of the path made for the call and writes one struct stat into
+        // `info`, a local.
+        guard unsafe lstat(path, &info) == 0 else { return }
         guard info.st_mode & S_IFMT == S_IFSOCK, info.st_uid == getuid() else { throw StartError.pathOccupied(path) }
         guard probe(path) == .refused else { throw StartError.addressInUse(path) }
-        unlink(path)
+        // SAFETY: unlink reads the NUL-terminated copy of the path made for the call.
+        unsafe unlink(path)
     }
 
     enum ProbeResult: Equatable {
@@ -170,20 +320,10 @@ extension ControlSocketServer {
         // actor): a listener with a full backlog answers EAGAIN, not a wait.
         _ = fcntl(descriptor, F_SETFL, fcntl(descriptor, F_GETFL) | O_NONBLOCK)
         var noSigPipe: Int32 = 1  // the probe never writes; set anyway so no path can raise SIGPIPE
-        setsockopt(descriptor, SOL_SOCKET, SO_NOSIGPIPE, &noSigPipe, socklen_t(MemoryLayout<Int32>.size))
-        var address = sockaddr_un()
-        address.sun_family = sa_family_t(AF_UNIX)
-        guard path.utf8.count < MemoryLayout.size(ofValue: address.sun_path) else { return .inconclusive(ENAMETOOLONG) }
-        withUnsafeMutableBytes(of: &address.sun_path) { sunPath in
-            var buffer = sunPath  // the same memory; `modify` is mutating on the view
-            buffer.copyBytes(from: path.utf8)
-            buffer.modify(checked: path.utf8.count) { $0 = 0 }
-        }
-        let result = withUnsafePointer(to: &address) {
-            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
-                connect(descriptor, $0, socklen_t(MemoryLayout<sockaddr_un>.size))
-            }
-        }
+        // SAFETY: setsockopt reads the given size, MemoryLayout<Int32>.size, from `noSigPipe`, a local Int32.
+        unsafe setsockopt(descriptor, SOL_SOCKET, SO_NOSIGPIPE, &noSigPipe, socklen_t(MemoryLayout<Int32>.size))
+        guard let address = UnixSocketAddress(path: path) else { return .inconclusive(ENAMETOOLONG) }
+        let result = address.connect(descriptor)
         if result == 0 { return .accepted }
         let code = errno
         // EAGAIN (full backlog) is inconclusive: a live listener is busy.

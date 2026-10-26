@@ -114,7 +114,9 @@ final class PasswordsPageProvider: PageProvider {
                 onEvent(["revision": .number(Double(self.revision))])
             }
         }
-        return PageSubscription { stop(); gate.cancel() }
+        // Each event tells the page to re-read one profile, and the page re-reads only the profile it
+        // shows: a later event for another profile does not stand for a dropped one, so none may drop.
+        return PageSubscription(frozenDelivery: .ordered) { stop(); gate.cancel() }
     }
 
     // MARK: Reads

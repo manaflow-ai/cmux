@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextDesign
+import CmuxNextWakeups
 
 extension PageInfoController {
     /// Commands that change or open site state.
@@ -89,7 +90,8 @@ extension PageInfoController {
     /// the page navigates.
     func startObserving() {
         observation?.cancel()
-        observation = ObservationLoop { [weak self] in
+        // node-free: the bubble is open only over its page, and closes when the page navigates or hides
+        observation = ObservationLoop(owner: "browser.pageInfo", delivery: .visible(nil), on: mainWork) { [weak self] in
             guard let self, let tab = self.tab else { return }
             if tab.state.url != self.openedURL {
                 Task { @MainActor [weak self] in self?.close() }

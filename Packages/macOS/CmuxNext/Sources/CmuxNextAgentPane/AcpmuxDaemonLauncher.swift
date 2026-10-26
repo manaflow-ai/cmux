@@ -74,17 +74,19 @@ nonisolated enum AcpmuxDaemonLauncher {
     }
 
     /// Starts the daemon and waits for its ready line. `deadline` is a stall time: the wait ends
-    /// with an error only after that long with no write to the daemon's log, or at its exit.
-    @concurrent static func launch(_ environment: AcpmuxEnvironment, deadline: Duration = .seconds(20)) async throws -> AcpmuxWebEndpoint {
-        try await launch(environment, deadline: deadline, onSpawn: { _ in })
+    /// with an error only after that long with no write to the daemon's log, or at its exit. The launch
+    /// shell starts on `launcher` (the host's, user-blocking: the agent pane waits for its daemon).
+    @concurrent static func launch(_ environment: AcpmuxEnvironment, deadline: Duration = .seconds(20),
+                                   launcher: ChildProcessLauncher) async throws -> AcpmuxWebEndpoint {
+        try await launch(environment, deadline: deadline, launcher: launcher, onSpawn: { _ in })
     }
 
     /// `onSpawn` gets the launch shell's pid (tests check that it was reaped).
-    @concurrent static func launch(_ environment: AcpmuxEnvironment, deadline: Duration,
+    @concurrent static func launch(_ environment: AcpmuxEnvironment, deadline: Duration, launcher: ChildProcessLauncher,
                                    onSpawn: @Sendable (pid_t) -> Void) async throws -> AcpmuxWebEndpoint {
         // cmux NEXT's one-time adoption of its old acpmux home ends before any daemon starts (cx-is1kf.9).
         await AcpmuxEnvironment.adoptBuildHomes()
-        guard AcpmuxServerPeer.executableSignedByAppTeam(environment.executable) else {
+        guard AcpmuxServerPeer.executableSignedByAppTeam(environment.executable, team: SigningTeamInstall.process.team) else {
             throw Failure.untrustedExecutable(environment.executable.path)
         }
         logger.info("acpmux launch requested executable=\(environment.executable.path, privacy: .public) home=\(environment.home.path, privacy: .public) socket=\(environment.socketPath, privacy: .public) args=\(environment.daemonArguments.joined(separator: " "), privacy: .public)")
@@ -124,48 +126,17 @@ nonisolated enum AcpmuxDaemonLauncher {
             if keyPipe[0] >= 0 { Darwin.close(keyPipe[0]) }
             if keyPipe[1] >= 0 { Darwin.close(keyPipe[1]) }
         }
-        var actions: posix_spawn_file_actions_t?
-        var attributes: posix_spawnattr_t?
-        guard posix_spawn_file_actions_init(&actions) == 0,
-              posix_spawnattr_init(&attributes) == 0 else {
-            throw Failure.spawnFailed("unable to initialize acpmux spawn")
-        }
-        defer {
-            posix_spawn_file_actions_destroy(&actions)
-            posix_spawnattr_destroy(&attributes)
-        }
-        // The read end closes first: in a process with few descriptors open it can be the
-        // person key's descriptor, and closing it after the dup2 dropped the key (the daemon
-        // then closed its own I/O driver's descriptor in its place and panicked).
-        let actionStatus = posix_spawn_file_actions_addclose(&actions, outputPipe[0])
-        guard actionStatus == 0,
-              posix_spawn_file_actions_adddup2(&actions, outputPipe[1], STDOUT_FILENO) == 0,
-              (!environment.passesPersonKeyAtSpawn
-               || posix_spawn_file_actions_adddup2(&actions, keyPipe[0], personKeyDescriptor) == 0),
-              "/dev/null".withCString({ path in
-                  posix_spawn_file_actions_addopen(&actions, STDIN_FILENO, path, O_RDONLY, 0)
-              }) == 0,
-              "/dev/null".withCString({ path in
-                  posix_spawn_file_actions_addopen(&actions, STDERR_FILENO, path, O_WRONLY, 0)
-              }) == 0 else {
-            throw Failure.spawnFailed("unable to configure acpmux spawn")
-        }
-        let spawnFlags = Int16(POSIX_SPAWN_CLOEXEC_DEFAULT | POSIX_SPAWN_SETSID)
-        guard posix_spawnattr_setflags(&attributes, spawnFlags) == 0 else {
-            throw Failure.spawnFailed("unable to configure acpmux descriptor policy")
-        }
-
-        var processIdentifier: pid_t = 0
         // posix_spawn follows exec(2)'s argv contract. Foundation.Process accepts
         // arguments without argv[0], but the shell requires its executable name
         // in argv[0] before `-c` and the script.
         let spawnArguments = ["/bin/sh"] + arguments(for: environment)
-        let spawnStatus = try Self.withCStringArray(spawnArguments) { argv in
-            try Self.withCStringArray(variables.map { "\($0.key)=\($0.value)" }) { envp in
-                "/bin/sh".withCString { executable in
-                    posix_spawn(&processIdentifier, executable, &actions, &attributes, argv, envp)
-                }
-            }
+        let spawnVariables = variables.map { "\($0.key)=\($0.value)" }
+        let descriptors = SpawnDescriptors(outputRead: outputPipe[0], outputWrite: outputPipe[1],
+                                           keyRead: environment.passesPersonKeyAtSpawn ? keyPipe[0] : nil)
+        // On the launcher, never on the cooperative pool this function runs on.
+        let (spawnStatus, processIdentifier) = try await launcher.run { () throws -> (status: Int32, pid: pid_t) in
+            try Self.spawnShell(arguments: spawnArguments, variables: spawnVariables, descriptors: descriptors,
+                                priority: launcher.priority)
         }
         // The shell holds its own copy of the DEV key's read end now (or the spawn failed).
         if keyPipe[0] >= 0 {
@@ -189,6 +160,60 @@ nonisolated enum AcpmuxDaemonLauncher {
         }
         await Self.reap(processIdentifier)
         return try ready.get()
+    }
+
+    /// The pipe ends the launch shell gets: `outputRead` closes in it, `outputWrite` is its stdout, and
+    /// `keyRead` (an unsigned DEV daemon only) is its ``personKeyDescriptor``.
+    private struct SpawnDescriptors: Sendable {
+        let outputRead: Int32
+        let outputWrite: Int32
+        let keyRead: Int32?
+    }
+
+    /// Spawns `/bin/sh` with `arguments` (argv[0] first) and `variables` (`KEY=value`) at `priority`: stdin and
+    /// stderr /dev/null, its own session, and no descriptor of the app but `descriptors`. Blocking:
+    /// ``launch(_:deadline:launcher:onSpawn:)`` runs it on a ``ChildProcessLauncher``.
+    /// - Returns: `posix_spawn`'s status and the shell's pid.
+    private static func spawnShell(arguments: [String], variables: [String], descriptors: SpawnDescriptors,
+                                   priority: MayBlockPriority) throws -> (status: Int32, pid: pid_t) {
+        var actions: posix_spawn_file_actions_t?
+        var attributes: posix_spawnattr_t?
+        guard posix_spawn_file_actions_init(&actions) == 0,
+              posix_spawnattr_init(&attributes) == 0 else {
+            throw Failure.spawnFailed("unable to initialize acpmux spawn")
+        }
+        defer {
+            posix_spawn_file_actions_destroy(&actions)
+            posix_spawnattr_destroy(&attributes)
+        }
+        // The read end closes first: in a process with few descriptors open it can be the
+        // person key's descriptor, and closing it after the dup2 dropped the key (the daemon
+        // then closed its own I/O driver's descriptor in its place and panicked).
+        let actionStatus = posix_spawn_file_actions_addclose(&actions, descriptors.outputRead)
+        guard actionStatus == 0,
+              posix_spawn_file_actions_adddup2(&actions, descriptors.outputWrite, STDOUT_FILENO) == 0,
+              descriptors.keyRead.map({ posix_spawn_file_actions_adddup2(&actions, $0, personKeyDescriptor) == 0 }) ?? true,
+              "/dev/null".withCString({ path in
+                  posix_spawn_file_actions_addopen(&actions, STDIN_FILENO, path, O_RDONLY, 0)
+              }) == 0,
+              "/dev/null".withCString({ path in
+                  posix_spawn_file_actions_addopen(&actions, STDERR_FILENO, path, O_WRONLY, 0)
+              }) == 0 else {
+            throw Failure.spawnFailed("unable to configure acpmux spawn")
+        }
+        let spawnFlags = Int16(POSIX_SPAWN_CLOEXEC_DEFAULT | POSIX_SPAWN_SETSID)
+        guard posix_spawnattr_setflags(&attributes, spawnFlags) == 0 else {
+            throw Failure.spawnFailed("unable to configure acpmux descriptor policy")
+        }
+        var processIdentifier: pid_t = 0
+        let status = try withCStringArray(arguments) { argv in
+            try withCStringArray(variables) { envp in
+                "/bin/sh".withCString { executable in
+                    blockingPosixSpawn(&processIdentifier, executable, &actions, &attributes, argv, envp, priority: priority)
+                }
+            }
+        }
+        return (status, processIdentifier)
     }
 
     private static func readReadyLine(_ outputPipe: inout [Int32], environment: AcpmuxEnvironment,
@@ -233,55 +258,13 @@ nonisolated enum AcpmuxDaemonLauncher {
     /// `waitpid` right after the exit event, which the kernel can post before the
     /// status is collectable, and a 5 s bound a busy machine can pass (hosted runs
     /// 37835676794, 37845131094, 37847351675: three launches, three zombies).
-    ///
-    /// The exit source is armed before the second `waitpid`, so an exit that comes
-    /// between the first check and the arming is still seen: the shell is then a
-    /// zombie and the check after arming reaps it. A shell that never exited would
-    /// hold the launch; the script only backgrounds the daemon, in its own session
-    /// (no terminal can stop it), so it cannot.
+    /// ``ChildExitWatch`` reaps it: a blocking `waitpid` after the exit event, and a check once the source is
+    /// armed for a shell that exited before. A shell that never exited would hold the launch; the script only
+    /// backgrounds the daemon, in its own session (no terminal can stop it), so it cannot.
     private static func reap(_ pid: pid_t) async {
-        if collect(pid) { return }
         await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
-            let queue = DispatchQueue(label: "cmux.next.agent-pane.acpmux-launch-reap.\(pid)")
-            let source = DispatchSource.makeProcessSource(identifier: pid, eventMask: .exit, queue: queue)
-            let done = Mutex(false)
-            let finish: @Sendable () -> Void = {
-                guard done.withLock({ done in defer { done = true }; return !done }) else { return }
-                source.cancel()
-                continuation.resume()
-            }
-            source.setEventHandler {
-                // The exit event can come before the kernel makes the exit status
-                // collectable; this blocking wait then ends as soon as it is.
-                collectExited(pid)
-                finish()
-            }
-            source.resume()
-            queue.async { if collect(pid) { finish() } }
-        }
-    }
-
-    /// One non-blocking `waitpid`: true once the shell is reaped (or is no child of ours).
-    private static func collect(_ pid: pid_t) -> Bool {
-        var status: Int32 = 0
-        let result = waitpid(pid, &status, WNOHANG)
-        if result == pid { return true }
-        guard result == -1 else { return false }
-        let failure = errno
-        if failure == EINTR { return false }
-        if failure != ECHILD { logger.error("acpmux launch shell reap failed errno=\(failure, privacy: .public)") }
-        return true
-    }
-
-    /// A blocking `waitpid` for a shell whose exit event came: it returns at once.
-    private static func collectExited(_ pid: pid_t) {
-        var status: Int32 = 0
-        // concurrency-allow: on the reap queue after the shell's exit event; the status is collectable at once
-        while waitpid(pid, &status, 0) == -1 {
-            let failure = errno
-            if failure == EINTR { continue }
-            if failure != ECHILD { logger.error("acpmux launch shell reap failed errno=\(failure, privacy: .public)") }
-            return
+            ChildExitWatch(pid: pid, queue: DispatchQueue(label: "cmux.next.agent-pane.acpmux-launch-reap.\(pid)", qos: .userInitiated))
+                .start { _ in continuation.resume() }
         }
     }
 

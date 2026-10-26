@@ -11,6 +11,7 @@ impl Mux {
         database.parent().map(Path::to_path_buf)
     }
 
+    #[track_caller]
     pub(crate) fn launch_snapshot_frontend_projections(
         &self,
     ) -> anyhow::Result<Vec<FrontendProjection>> {

@@ -22,3 +22,8 @@ enum CEFThumbnail {
         return try CEFDevToolsResult.screenshot(json)
     }
 }
+
+extension CEFTab {
+    public func snapshot() async throws -> CGImage { try await CEFThumbnail.capture(self, CEFThumbnail.png) }
+    public func thumbnail() async throws -> CGImage { try await CEFThumbnail.capture(self, CEFThumbnail.params) }
+}

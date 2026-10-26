@@ -91,7 +91,7 @@ public struct FeedLocalListRequest: DaemonRequest {
     public struct Response: Decodable, Sendable, Equatable {
         public var items: [FeedLocalItem]
     }
-    public static let command = "feed-local-list"
+    public static let commandName: DaemonCommandName = "feed-local-list"
     public static let requiredCapability: String? = DaemonCapability.feedLocalOwner.rawValue
     public var state: FeedLocalItem.State?
     public var terminalId: String?
@@ -100,5 +100,9 @@ public struct FeedLocalListRequest: DaemonRequest {
         self.state = state
         self.terminalId = terminalId
         self.unread = unread
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case state, terminalId = "terminal_id", unread
     }
 }

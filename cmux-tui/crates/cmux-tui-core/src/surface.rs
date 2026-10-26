@@ -11,6 +11,7 @@ mod browser_ops;
 mod clear_history;
 mod color_overrides;
 mod construct;
+use construct::KittyQuota;
 mod directory;
 mod exit_state;
 mod frame_producer;
@@ -91,7 +92,7 @@ use render_tap::{RenderHub, RenderTap};
 use spawn::{LocalLaunch, LocalSpawn};
 pub(crate) use stream_progress::{TerminalStreamProgress, TerminalStreamSubscription};
 pub use terminal_runtime::PtyTerminalRuntime;
-pub(crate) use terminal_runtime::TerminalJournalGap;
+pub(crate) use terminal_runtime::{ColdFreeze, ScrollbackMemory, TerminalJournalGap, ThawWake};
 use terminal_runtime::{PtyChildStartupGuard, PtyRuntime, ReaderCompletion, ReaderCompletionGuard};
 #[cfg(test)]
 mod test_pty;
@@ -105,8 +106,12 @@ use test_pty::{
 };
 #[cfg(any(unix, windows))]
 mod clipboard_read;
+#[cfg(any(unix, windows))]
+mod host_trace;
 #[cfg(all(unix, test))]
 pub(crate) use clipboard_read::test_fixture::hosted_surface_for_clipboard_test;
+#[cfg(any(unix, windows))]
+pub(crate) use host_trace::HostTraceSent;
 #[cfg(any(unix, windows))]
 mod host_frames;
 #[cfg(any(unix, windows))]
@@ -172,16 +177,16 @@ use crate::browser::{
 use crate::terminal_host_protocol::PROTOCOL_VERSION;
 #[cfg(any(unix, windows))]
 use crate::terminal_host_protocol::{
-    CLEAR_HISTORY_ACK_OK, FLAG_COLORS_FOLLOW, Frame, MessageKind, decode_terminal_exit,
+    CLEAR_HISTORY_ACK_OK, FLAG_COLORS_FOLLOW, FLAG_INPUT_FLOW, Frame, MessageKind,
+    decode_terminal_exit, split_flow_trailer,
 };
 
-/// Default maximum retained scrollback backing storage per terminal, in bytes
-/// (about 15,000 rows at 80 columns). Ghostty's own default is 50 MB, but
-/// the daemon keeps every terminal's scrollback resident, so a busy terminal
-/// costs this much whether or not anyone scrolls it: ten printing terminals
-/// grew the daemon by 500 MB in a 24 h soak (cx-urd.4). `scrollback-limit-bytes`
-/// in the Ghostty config raises it.
-pub const DEFAULT_SCROLLBACK_LIMIT_BYTES: usize = 10_000_000;
+/// Default maximum retained scrollback backing storage per terminal, in bytes:
+/// the per-terminal cap of the daemon's memory budget
+/// ([`cmux_memory::budget::SCROLLBACK_BYTES_PER_TERMINAL`], 10 MB).
+/// `scrollback-limit-bytes` in the Ghostty config raises it.
+pub const DEFAULT_SCROLLBACK_LIMIT_BYTES: usize =
+    cmux_memory::budget::SCROLLBACK_BYTES_PER_TERMINAL;
 
 /// Result of encoding terminal mouse input against a previously observed
 /// pointer snapshot without blocking on terminal parsing.
@@ -282,11 +287,19 @@ pub struct AttachStream {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AttachFrame {
     Output(Vec<u8>),
+    /// [`Self::Output`] of the PTY owner's first read after a `send` with
+    /// key press `flow` (never 0) reached the PTY: its echo (p09-observability-018).
+    FlowOutput {
+        output: Vec<u8>,
+        flow: u64,
+    },
     /// One parser transition: consumers must apply `output` and replace the
     /// complete color state before rendering or notifying observers.
+    /// `flow` is the key press it echoes (0: none), as on [`Self::FlowOutput`].
     OutputWithColors {
         output: Vec<u8>,
         colors: Box<TerminalColors>,
+        flow: u64,
     },
     /// `pending_sequence` has the meaning documented on [`AttachStream`].
     Resized {
@@ -481,16 +494,6 @@ pub(crate) enum PtyLifetime {
     DaemonOwned,
 }
 
-/// When a new terminal surface takes its share of the Kitty image budget.
-#[derive(Clone, Copy)]
-#[cfg_attr(not(any(unix, windows)), allow(dead_code))]
-enum KittyQuota {
-    /// Before its host launches, waiting for other surfaces to shrink.
-    AtLaunch,
-    /// Once the surface commits (`Mux::reserve_kitty_image_surface_without_quota`).
-    AfterCommit,
-}
-
 /// A launched terminal host whose surface is not built yet
 /// ([`Surface::prelaunch_hosted`]).
 #[cfg(any(unix, windows))]
@@ -670,11 +673,12 @@ impl Surface {
         if let Ok(delay_ms) = std::env::var("CMUX_TUI_TEST_HOSTED_SPAWN_FAIL_AFTER_CONNECT")
             && let Ok(delay_ms) = delay_ms.parse::<u64>()
         {
-            std::thread::sleep(Duration::from_millis(delay_ms));
+            crate::request_path::sleep(Duration::from_millis(delay_ms));
             anyhow::bail!("injected hosted surface setup failure after attachment");
         }
         let control_responses = attachment.control_responses();
         let smart_renderer = attachment.is_smart_renderer();
+        let input_flow = attachment.input_flow;
         let snapshot = attachment.snapshot.clone();
         let applied_color_overrides = snapshot.colors.clone();
         let title_changed = Arc::new(AtomicBool::new(false));
@@ -772,7 +776,7 @@ impl Surface {
                 reader_completion: Arc::new(ReaderCompletion::default()),
                 reaper_thread: Mutex::new(None),
                 reaper_completion: Arc::new(ReaderCompletion::default()),
-                term: RankedMutex::new(LockRank::Terminal, "pty.term", Box::new(term)),
+                term: terminal_runtime::TerminalCell::new(Box::new(term)),
                 stream_progress: Box::new(TerminalStreamProgress::default()),
                 terminal_metadata: Mutex::new(terminal_metadata),
                 command_tracker: Mutex::new(Default::default()),
@@ -841,6 +845,7 @@ impl Surface {
                 taps: RankedMutex::new(LockRank::AttachTaps, "pty.taps", Vec::new()),
                 attach_colors_pending: AtomicBool::new(false),
                 attach_colors_force_pending: AtomicBool::new(false),
+                last_input_flow: Default::default(),
                 snapshot_position: Default::default(),
                 last_attach_colors: RankedMutex::new(
                     LockRank::Leaf,
@@ -882,6 +887,7 @@ impl Surface {
             sequence_boundary,
             protocol_version,
             smart_renderer,
+            input_flow,
             applied_color_overrides,
             applied_color_revision: initial_color_revision,
             applied_cursor_activity: initial_cursor_activity,
@@ -897,11 +903,10 @@ impl Surface {
             resync_backoff: TerminalHostReconnectBackoff::default(),
             connected_at: None,
         };
-        let reader_thread =
-            std::thread::Builder::new().name(format!("surface-{id}-host")).spawn({
-                let surface = surface.clone();
-                move || hosted_reader.run(surface, reader)
-            })?;
+        let reader_thread = crate::echo_thread::spawn(format!("surface-{id}-host"), {
+            let surface = surface.clone();
+            move || hosted_reader.run(surface, reader)
+        })?;
         *surface
             .as_pty()
             .expect("hosted PTY surface owns its reader")
@@ -942,7 +947,7 @@ impl Surface {
             let test_surface = surface.clone();
             let _ = std::thread::Builder::new().name("terminal-host-test-disconnect".into()).spawn(
                 move || {
-                    std::thread::sleep(delay);
+                    crate::request_path::sleep(delay);
                     if let Some(pty) = test_surface.as_pty()
                         && let PtyRuntime::Hosted(host) = &*pty.runtime.lock().unwrap()
                     {

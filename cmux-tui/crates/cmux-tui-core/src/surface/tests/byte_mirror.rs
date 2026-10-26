@@ -3,6 +3,33 @@
 
 use super::*;
 
+/// p09-observability-018: a slow viewer's merged output keeps the key
+/// press it echoes, and the echoes of two key presses never merge into one
+/// event (each `output` carries at most one `flow`).
+#[test]
+fn echo_flow_survives_output_merging_and_two_flows_never_merge() {
+    let budget = usize::MAX;
+    let mut frame = AttachFrame::Output(b"a".to_vec());
+    assert!(matches!(
+        frame.merge_adjacent_output(AttachFrame::with_flow(b"b".to_vec(), 42), budget),
+        AttachFrameMerge::Merged
+    ));
+    assert_eq!(frame, AttachFrame::FlowOutput { output: b"ab".to_vec(), flow: 42 });
+    assert!(matches!(
+        frame.merge_adjacent_output(AttachFrame::Output(b"c".to_vec()), budget),
+        AttachFrameMerge::Merged
+    ));
+    assert_eq!(frame, AttachFrame::FlowOutput { output: b"abc".to_vec(), flow: 42 });
+    let AttachFrameMerge::Unmerged(next) =
+        frame.merge_adjacent_output(AttachFrame::with_flow(b"d".to_vec(), 43), budget)
+    else {
+        panic!("two flows merged into one output event");
+    };
+    assert_eq!((next.flow(), next.output()), (43, Some(&b"d"[..])));
+    assert_eq!(frame.flow(), 42);
+    assert_eq!(AttachFrame::with_flow(b"e".to_vec(), 0), AttachFrame::Output(b"e".to_vec()));
+}
+
 #[test]
 fn adjacent_output_merge_respects_the_exact_retained_budget() {
     let mut bytes = Vec::with_capacity(1_024);
@@ -113,8 +140,9 @@ impl PinnedByteMirror {
     fn drain(&mut self) {
         while let Ok(frame) = self.attach.stream.try_recv() {
             match frame {
-                AttachFrame::Output(bytes) => self.term.vt_write(&bytes),
-                AttachFrame::OutputWithColors { output, .. } => self.term.vt_write(&output),
+                AttachFrame::Output(output)
+                | AttachFrame::FlowOutput { output, .. }
+                | AttachFrame::OutputWithColors { output, .. } => self.term.vt_write(&output),
                 AttachFrame::Resized { cols, rows, replay, pending_sequence, .. }
                 | AttachFrame::ResizedWithColors { cols, rows, replay, pending_sequence, .. } => {
                     self.term = Self::from_replay(

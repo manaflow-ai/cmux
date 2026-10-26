@@ -96,10 +96,12 @@ nonisolated final class RunMarkerFile: Sendable {
             return state.waiters
         }
         for waiter in waiters { waiter.continuation.resume(returning: true) }
-        // concurrency-allow: at exit only; waits for at most one in-flight write (no fsync) before two unlinks.
-        queue.sync {
-            unlink(url.path)
-            unlink(signalURL.path)
+        // At exit only (AppKit's applicationWillTerminate): waits for at most one in-flight write (no fsync).
+        allowBlocking(.terminate) {
+            queue.blockingSync {
+                unlink(url.path)
+                unlink(signalURL.path)
+            }
         }
     }
 

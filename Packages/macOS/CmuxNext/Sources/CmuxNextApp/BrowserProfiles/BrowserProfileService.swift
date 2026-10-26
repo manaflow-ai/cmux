@@ -1,6 +1,7 @@
 import CmuxNextBrowser
 import CmuxNextBrowserImport
 import CmuxNextDaemon
+import CmuxNextLaunch
 import Foundation
 import Observation
 import os
@@ -24,7 +25,9 @@ final class BrowserProfileService {
     /// The onboarding import's saved data (nil: no import migration).
     @ObservationIgnored private(set) var importStore: ImportedDataStore?
     @ObservationIgnored private var saving: Task<Void, Never>?
-    @ObservationIgnored private var loadWaiters: [CheckedContinuation<Void, Never>] = []
+    /// The file's launch read, signaled once it applied: `loaded()` and every browser tab's page at launch
+    /// wait for it (`TabContentCache.enginesAwait`, p08-startup-028).
+    @ObservationIgnored let loadRead = LaunchReadEvent("BrowserProfiles.loaded")
     @ObservationIgnored var homeRecordsObservation: Task<Void, Never>?
     @ObservationIgnored var recordProfileObservation: Task<Void, Never>?
     @ObservationIgnored var migratingRecords = false
@@ -48,6 +51,9 @@ final class BrowserProfileService {
         let file = BrowserProfileBookFile(url: directory.appending(path: "profiles.json"))
         self.file = file
         self.importStore = importStore
+        // Until the book applied, no engine makes a tab's page with a profile chosen from an empty book (a deleted
+        // profile's tab would reopen its store; p08-startup-028, Chrome opens a profile's windows from its loaded callback).
+        services.cache.enginesAwait = loadRead
         // task-owner: one-shot launch read of a small JSON file
         Task { [weak self] in
             let loaded = await file.load()
@@ -55,19 +61,18 @@ final class BrowserProfileService {
             book = loaded
             isLoaded = true
             refreshPresentation()
-            loadWaiters.forEach { $0.resume() }
-            loadWaiters.removeAll()
             cleanUpDeletedProfiles()
             observeHomeRecords()
             followRecordProfiles()
             migrateImports()
+            loadRead.signal()
         }
     }
 
     /// Waits until the file was read.
     func loaded() async {
         if isLoaded { return }
-        await withCheckedContinuation { loadWaiters.append($0) }
+        await withCheckedContinuation { done in loadRead.post { done.resume() } }
     }
 
     // MARK: Records

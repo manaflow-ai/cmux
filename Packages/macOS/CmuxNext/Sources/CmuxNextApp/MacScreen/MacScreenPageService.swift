@@ -5,6 +5,7 @@ import CmuxNextCloud
 import CmuxNextCompat
 import CmuxNextControl
 import typealias CmuxNextDaemon.SurfaceID
+import CmuxNextHibernation
 import CmuxNextIcons
 import CmuxNextMacScreen
 import CmuxNextSettings
@@ -94,6 +95,22 @@ final class MacScreenPageService: InternalPageProvider {
     func restore(_ route: String, for key: String) { pages.restore(route, for: key) }
     func title(forRoute route: String) -> String? { pages.title(forRoute: route) }
 
+    // MARK: Discard (`memoryDiscardInternalPages`, p07-memory-028)
+
+    /// Released when its stream stops: a hidden screen keeps its session for the pane's hidden
+    /// grace (switching tabs back and forth stays live), then ends it (``MacScreenPane/pause()``),
+    /// and nothing the view holds is worth keeping after that. Shown again, the tab asks the Mac
+    /// for the same scope.
+    static let hiddenPolicy = ContentDiscardPolicy.afterHidden(MacScreenPane.defaultHiddenGrace)
+
+    func discardPolicy(for key: String) -> ContentDiscardPolicy { Self.hiddenPolicy }
+
+    /// A request waiting on the other Mac's approval keeps the view: releasing it withdraws the request.
+    func keepReasons(for key: String) -> [CannotDiscardReason] { pages.isRequesting(key) ? [.inProgress] : [] }
+
+    /// The session ends and the tab keeps what it shows ("home" or the device).
+    func viewDiscarded(_ key: String) { pages.viewDiscarded(key) }
+
     /// Opens a Mac Screen tab showing `record` after `pane`'s selected tab: a
     /// store tab where the pane's daemon holds page tabs, else an app-only
     /// one. `focus` selects and focuses it; `byPerson`: a person asked for it
@@ -147,8 +164,9 @@ final class MacScreenPageService: InternalPageProvider {
 
 extension AppServices {
     static func makeMacScreenPages(_ services: AppServices) -> MacScreenPages {
-        let pages = MacScreenPages(store: .forApplication(bundleIdentifier: services.environment.launch.bundleID))
+        let pages = MacScreenPages(store: .forApplication(bundleIdentifier: services.environment.launch.bundleID), mainWork: services.mainWork)
         pages.useShortcuts(of: services.registry)
+        pages.pointerFrames = { [weak services] in services?.remotePointerFrames }
         pages.hubHost.indicatorMenuItem = { [weak registry = services.registry] in registry?.makeMenuItem(for: $0) }
         return pages
     }

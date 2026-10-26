@@ -210,8 +210,9 @@ nonisolated enum AcpmuxServerPeer {
     }
 
     /// A strict on-disk check before a Team-signed app launches its acpmux.
-    /// DEV is ad-hoc and has no team to require.
-    static func executableSignedByAppTeam(_ executable: URL, team: String? = ownTeam) -> Bool {
+    /// DEV is ad-hoc and has no team to require. `team` is this app's (``SigningTeamInstall/team``, read
+    /// on the system lane at launch).
+    static func executableSignedByAppTeam(_ executable: URL, team: String?) -> Bool {
         guard let team else { return true }
         guard let requirement = requirement(team: team) else { return false }
         var code: SecStaticCode?
@@ -248,19 +249,6 @@ nonisolated enum AcpmuxServerPeer {
         guard let app = parts.last(where: { $0.hasSuffix(".app") }) else { return path }
         return String(app.dropLast(".app".count))
     }
-
-    /// This app's team when it is Team-signed; nil for an ad-hoc DEV build.
-    static let ownTeam: String? = {
-        var code: SecCode?
-        guard SecCodeCopySelf([], &code) == errSecSuccess, let code else { return nil }
-        var staticCode: SecStaticCode?
-        guard SecCodeCopyStaticCode(code, [], &staticCode) == errSecSuccess, let staticCode else { return nil }
-        var info: CFDictionary?
-        guard SecCodeCopySigningInformation(staticCode, SecCSFlags(rawValue: kSecCSSigningInformation), &info)
-                == errSecSuccess, let info = info as? [String: Any] else { return nil }
-        let team = info[kSecCodeInfoTeamIdentifier as String] as? String
-        return team?.isEmpty == false ? team : nil
-    }()
 
     @discardableResult
     private static func checked(_ descriptor: Int32, socketPath: String, executable: URL,
@@ -351,7 +339,7 @@ nonisolated enum AcpmuxServerPeer {
         }
         try write(payload, to: descriptor, until: until)
         var buffer = Data()
-        while true {  // wakeup-allow: each pass waits in poll(2) for socket data; EOF, error or the deadline ends it
+        while true {  // wakeup-allow: bounded each pass waits in poll(2) for socket data; EOF, an error or the call's deadline ends it
             while let newline = buffer.firstIndex(of: 0x0A) {
                 let line = Data(buffer[buffer.startIndex..<newline])
                 buffer.removeSubrange(buffer.startIndex...newline)

@@ -17,7 +17,7 @@ import Observation
 /// clients read them); this page reads the same store.
 @MainActor
 final class TopHomePageView: NSView {
-    private weak var services: AppServices?
+    private(set) weak var services: AppServices?
     let list = HomeSidebarView()
     /// The sidebar's data (pins, search, the Messages-style model).
     let sidebar: HomeSidebarSource
@@ -27,15 +27,33 @@ final class TopHomePageView: NSView {
     private(set) var rows: [InboxRow] = []
     var lines: [HomeConversationLine] { rows.homeLines }
     private(set) var host: HomeHostView?
-    private(set) var shown: ConversationID?
+    /// The conversation of the transcript column, also while the New Message page covers it. Observed, as
+    /// ``isComposingNewMessage`` is (the page is not a model, so by hand).
+    private(set) var shown: ConversationID? {
+        get {
+            observation.access(self, keyPath: \.shown)
+            return shownConversation
+        }
+        set { observation.withMutation(of: self, keyPath: \.shown) { shownConversation = newValue } }
+    }
+    private var shownConversation: ConversationID?
+    private let observation = ObservationRegistrar()
     /// The New Message page (Messages' New Message: a page, not a sheet).
     /// Kept while hidden when the person typed something, with its row in the list.
     private(set) var newMessage: HomeNewMessageView?
-    /// The New Message page is the one on screen.
-    var isComposingNewMessage: Bool { newMessage.map { !$0.isHidden } ?? false }
+    /// The New Message page is the one on screen. Observed: each show and hide of the page goes through
+    /// ``composing(_:)``.
+    var isComposingNewMessage: Bool {
+        observation.access(self, keyPath: \.isComposingNewMessage)
+        return newMessage.map { !$0.isHidden } ?? false
+    }
+    /// The conversation the person sees: none on New Message (the list selects its row), else ``shown``.
+    var displayedConversation: ConversationID? { isComposingNewMessage ? nil : shown }
     /// A conversation the person started that the inbox does not list yet: opened (with the
     /// keyboard in its box) when it shows.
     private var opening: ConversationID?
+    /// A page built again after a discard: where its list was, applied once the rows are in.
+    var pendingListScroll: CGPoint?
     private var rowsObservation: Task<Void, Never>?
     private var selectionObservation: Task<Void, Never>?
     private var chiefObservation: Task<Void, Never>?
@@ -46,7 +64,7 @@ final class TopHomePageView: NSView {
     init(services: AppServices, windowKey: @escaping () -> String) {
         self.services = services
         sidebar = services.home.makeSidebarSource()
-        split = HomeSidebarSplitView(sidebar: list, content: transcriptColumn)
+        split = HomeSidebarSplitView(sidebar: list, content: transcriptColumn, mainWork: services.mainWork)
         super.init(frame: .zero)
         setAccessibilityIdentifier("cmux.topPage.home")
         split.windowKey = windowKey
@@ -55,8 +73,11 @@ final class TopHomePageView: NSView {
         addSubview(split)
         wireList(services)
         observe(services.home)
+        // At launch Home starts right after the first frame (its list shows the last launch's until then),
+        // and the team and Chiefs read, a Cloud read, waits for that frame too (p08-startup-027).
+        services.home.launchFeeds?.need()
         // task-owner: lives as long as this view; one read of the team and Chiefs
-        Task { await services.home.directory.refresh() }
+        Task { [feeds = services.home.launchFeeds] in await feeds?.afterFirstFrame(); await services.home.directory.refresh() }
     }
 
     @available(*, unavailable)
@@ -207,6 +228,7 @@ final class TopHomePageView: NSView {
                 // A conversation came or went (a lease arrived, a request was accepted): requests may have changed.
                 if Set(all.map(\.id)) != listed { listed = Set(all.map(\.id)); home.requests.refresh() }
                 list.update(sidebar.model())
+                applyPendingListScroll()
                 if shown == nil, !isComposingNewMessage, let first = defaultConversation(rows: rows, home: home) { show(first) }
                 // The cache's conversation of a Chief home made again (cx-ebm.55).
                 if shownIsGone(store), let chief = Self.chief(home) { replaceGone(with: ConversationID(chief), store: store) }
@@ -256,26 +278,11 @@ final class TopHomePageView: NSView {
         }
     }
 
-    /// The rows the list shows: an archived Chief's conversation is hidden
-    /// (its history stays with the owner, read-only).
-    static func visible(_ rows: [InboxRow], archivedChiefs: Set<String>, me: ParticipantID?) -> [InboxRow] {
-        guard !archivedChiefs.isEmpty else { return rows }
-        return rows.filter { row in
-            guard row.kind == .chief else { return true }
-            return !row.summary.participants.contains { $0.id != me && archivedChiefs.contains($0.id.rawValue) }
-        }
-    }
-
     /// The Chief's conversation (the chief placed on a server takes over a
     /// local one without history: `HomeChiefSource`), else the first listed conversation.
     private func defaultConversation(rows: [InboxRow], home: HomeService) -> ConversationID? {
         if let chief = Self.chief(home) { return ConversationID(chief) }
         return rows.homeLines.lazy.compactMap(\.conversation).first
-    }
-
-    static func chief(_ home: HomeService) -> String? {
-        let local = HomeChiefName.select(from: home.conversations)
-        return home.tabChiefs.chiefTab(local: local?.id, localHasHistory: (local?.lastSeq ?? 0) > 0, choice: home.hostedChief.choice)
     }
 
     /// The shown conversation is one the owner's own inbox does not have:
@@ -379,7 +386,7 @@ final class TopHomePageView: NSView {
             page.autoresizingMask = [.width, .height]
             transcriptColumn.addSubview(page)
         }
-        page.isHidden = false
+        composing { page.isHidden = false }
         host?.isHidden = true
         split.composing = true
         list.setDraftRow(HomeNewMessageDraft.rowTitle)
@@ -420,7 +427,7 @@ final class TopHomePageView: NSView {
         if page.isEmpty {
             endNewMessage()
         } else {
-            page.isHidden = true
+            composing { page.isHidden = true }
             host?.isHidden = false
             split.composing = false
         }
@@ -430,7 +437,7 @@ final class TopHomePageView: NSView {
     /// Drops the New Message draft, its page and its row.
     private func endNewMessage() {
         guard let page = newMessage else { return }
-        newMessage = nil
+        composing { newMessage = nil }
         page.stop()
         page.removeFromSuperview()
         host?.isHidden = false
@@ -438,66 +445,9 @@ final class TopHomePageView: NSView {
         list.setDraftRow(nil)
     }
 
-    // MARK: Sheets
-
-    func presentInvite(prefill: String) {
-        guard let services else { return }
-        let home = services.home
-        let pending = home.homeStore.rows.pendingInvites.map(\.contact)
-        let sheet = HomeInviteSheet(prefill: prefill, pending: pending)
-        sheet.onSend = { address in await home.invite(address) }
-        present(sheet)
-    }
-
-    /// Message Requests: Accept opens the conversation; Decline and Block stay silent to the sender.
-    func presentRequests() {
-        guard let services else { return }
-        let requests = services.home.requests
-        let sheet = HomeRequestsSheet(requests: requests.items)
-        sheet.onAnswer = { id, answer in await requests.answer(id, answer) }
-        present(sheet)
-        requests.refresh()
-    }
-
-    func presentNewChief() {
-        guard let services else { return }
-        let home = services.home
-        let sheet = HomeNewChiefSheet()
-        sheet.onCreate = { name, backend in await home.createChief(named: name, backend: backend) }
-        present(sheet)
-    }
-
-    /// The group info sheet for `id` (a DM or group): name, members, Add People, Hide Alerts and
-    /// Leave, each through `HomeService.groupActions` (Leave through its action, which asks first).
-    /// It follows the conversation while it shows.
-    func presentGroupInfo(_ id: ConversationID) {
-        guard let services, let window else { return }
-        let actions = services.home.groupActions
-        guard let info = actions.info(id) else { return services.registry.refuse(HomeGroupOutcome.unknownConversation.message ?? "") }
-        let registry = services.registry
-        let model = HomeGroupInfoModel(info: info, addable: actions.addable(to: id), actions: HomeGroupInfoActions(
-            rename: { await actions.rename(id, to: $0) },
-            add: { await actions.add($0, to: id, naming: $1) },
-            remove: { await actions.remove($0, from: id) },
-            setMuted: { actions.setMuted($0, id) },
-            leave: {
-                _ = registry.perform("home.leaveConversation",
-                                     invocation: ActionInvocation(arguments: ["conversation": .string(id.rawValue)], origin: .user))
-            },
-            inviteByEmail: { [weak self] in self?.presentInvite(prefill: "") },
-            setChiefReplies: { await actions.setChiefReplies($0, id) }))
-        let sheet = HomeGroupInfoSheet(model: model, colors: performWithTheme { HomeGroupInfoColors.resolve() })
-        // task-owner: lives while the sheet shows; event-driven (Observation): members, name and mute as the owner says
-        let watch = Task { [weak sheet] in
-            for await info in ObservationStream({ actions.info(id) }) {
-                guard let info else { sheet?.close(); return }
-                model.update(info: info, addable: actions.addable(to: id))
-            }
-        }
-        sheet.onClose = { watch.cancel() }
-        let panel = NSWindow(contentViewController: sheet)
-        panel.adoptThemeScope(of: self)
-        window.beginSheet(panel)
+    /// Shows or hides the New Message page: readers of ``isComposingNewMessage`` hear it.
+    private func composing(_ change: () -> Void) {
+        observation.withMutation(of: self, keyPath: \.isComposingNewMessage, change)
     }
 
     /// I left `id` while it showed: its neighbor in the list shows (else the default conversation).
@@ -507,18 +457,6 @@ final class TopHomePageView: NSView {
         guard let fallback, fallback != id else { return }
         show(fallback)
     }
-
-    private func present(_ sheet: HomeSheetController) {
-        sheet.onFinish = { [weak self] id in
-            guard let self, let id else { return }
-            // Opened now when listed; else once the inbox lists it.
-            openWhenListed(id)
-        }
-        guard let window else { return }
-        let panel = NSWindow(contentViewController: sheet)
-        // The sheet draws in this page's scope (a room's own theme), not the app's: its labels
-        // resolved before the sheet had a parent.
-        panel.adoptThemeScope(of: self)
-        window.beginSheet(panel)
-    }
 }
+
+extension TopHomePageView: Observable {}

@@ -14,6 +14,7 @@
 //! are deleted with them. Uploads in flight are per connection and never
 //! stored until their commit.
 
+use cmux_threads::checked::fs as files;
 use std::collections::HashMap;
 use std::fs;
 use std::io::{Read, Seek, SeekFrom, Write};
@@ -31,10 +32,13 @@ use sha2::{Digest, Sha256};
 
 use super::{ConversationStore, load_head, rejected};
 
+#[path = "conversation_attachment_closed.rs"]
+mod closed;
 #[path = "conversation_attachment_cloud.rs"]
 pub(crate) mod cloud;
 #[path = "conversation_attachment_links.rs"]
 pub(crate) mod links;
+pub(crate) use closed::ClosedUploads;
 
 /// The capability of the `conversation-attachment-*` commands.
 pub(crate) const LOCAL_ATTACHMENTS_CAPABILITY: &str = "local-attachments-v1";
@@ -229,13 +233,13 @@ impl Attachments {
         let blobs = match directory {
             Some(directory) => {
                 let root = directory.join(ATTACHMENTS_DIRECTORY);
-                fs::create_dir_all(root.join(".partial"))
+                files::create_dir_all(root.join(".partial"))
                     .with_context(|| format!("create {}", root.display()))?;
                 crate::platform::restrict_directory(&root)?;
                 // Partial files of an earlier run are never resumed.
-                if let Ok(entries) = fs::read_dir(root.join(".partial")) {
+                if let Ok(entries) = files::read_dir(root.join(".partial")) {
                     for entry in entries.flatten() {
-                        let _ = fs::remove_file(entry.path());
+                        let _ = files::remove_file(entry.path());
                     }
                 }
                 Blobs::Directory(root)
@@ -261,7 +265,7 @@ impl Attachments {
     fn remove_blob(&mut self, hash: &str) {
         match &mut self.blobs {
             Blobs::Directory(root) => {
-                let _ = fs::remove_file(root.join(hash));
+                let _ = files::remove_file(root.join(hash));
             }
             Blobs::Memory(map) => {
                 map.remove(hash);
@@ -272,7 +276,7 @@ impl Attachments {
     fn read_blob(&self, hash: &str, offset: u64, length: usize) -> anyhow::Result<Vec<u8>> {
         match &self.blobs {
             Blobs::Directory(root) => {
-                let mut file = fs::File::open(root.join(hash))
+                let mut file = files::open(root.join(hash))
                     .map_err(|_| refused(Reject::UnknownAttachment.code()))?;
                 file.seek(SeekFrom::Start(offset))?;
                 let mut data = Vec::with_capacity(length);
@@ -293,7 +297,8 @@ impl Attachments {
         Ok(match &self.blobs {
             Blobs::Directory(root) => {
                 let path = root.join(".partial").join(format!("{upload}-{piece:?}"));
-                let file = fs::OpenOptions::new().create_new(true).write(true).open(&path)?;
+                let file =
+                    files::open_with(fs::File::options().create_new(true).write(true), &path)?;
                 crate::platform::restrict_file(&path)?;
                 Sink::File { path, file }
             }
@@ -307,13 +312,14 @@ impl Attachments {
         let exists = self.has_blob(&piece.hash);
         match (piece.sink, &mut self.blobs) {
             (Sink::File { path, file }, Blobs::Directory(root)) => {
-                file.sync_all()?;
+                crate::request_path::note(crate::request_path::BlockingKind::FsWrite);
+                files::sync_all(&file)?;
                 drop(file);
                 if exists {
-                    let _ = fs::remove_file(&path);
+                    let _ = files::remove_file(&path);
                 } else {
                     let target = root.join(&piece.hash);
-                    fs::rename(&path, &target)?;
+                    files::rename(&path, &target)?;
                     crate::platform::sync_directory(root)?;
                 }
             }
@@ -329,7 +335,7 @@ impl Attachments {
         for piece in upload.pieces {
             if let Sink::File { path, file } = piece.sink {
                 drop(file);
-                let _ = fs::remove_file(path);
+                let _ = files::remove_file(path);
             }
         }
     }
@@ -348,19 +354,16 @@ impl Attachments {
         }
     }
 
-    /// Ends the uploads of a closed connection.
-    pub(crate) fn client_closed(&mut self, client: u64) {
+    /// Ends the uploads of a closed connection. Their partial files are the
+    /// caller's to remove once it released the store lock.
+    pub(crate) fn client_closed(&mut self, client: u64) -> ClosedUploads {
         let ids: Vec<String> = self
             .uploads
             .iter()
             .filter(|(_, upload)| upload.client == client)
             .map(|(id, _)| id.clone())
             .collect();
-        for id in ids {
-            if let Some(upload) = self.uploads.remove(&id) {
-                Self::drop_upload(upload);
-            }
-        }
+        ClosedUploads::new(ids.iter().filter_map(|id| self.uploads.remove(id)).collect())
     }
 }
 
@@ -851,9 +854,10 @@ impl ConversationStore {
         Ok(ReadReply { hash, mime_type, byte_count, offset, data, eof })
     }
 
-    /// Ends the uploads of a closed connection.
-    pub(crate) fn attachments_client_closed(&mut self, client: u64) {
-        self.attachments.client_closed(client);
+    /// Ends the uploads of a closed connection; the caller removes their
+    /// partial files after it releases the store lock.
+    pub(crate) fn attachments_client_closed(&mut self, client: u64) -> ClosedUploads {
+        self.attachments.client_closed(client)
     }
 
     fn add_uploader(
@@ -979,7 +983,7 @@ impl Attachments {
     fn drop_upload_piece(piece: PendingPiece) {
         if let Sink::File { path, file } = piece.sink {
             drop(file);
-            let _ = fs::remove_file(path);
+            let _ = files::remove_file(path);
         }
     }
 }

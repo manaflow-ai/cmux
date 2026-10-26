@@ -10,6 +10,7 @@ use crate::rpc::{Message, RpcError, method};
 use crate::session_identity::SessionReceipt;
 use anyhow::{Context, Result};
 use cmux_local_auth::{ListenerPolicy, Refusal};
+use cmux_panic_log::crash_keys::{self, Key};
 use futures_util::{SinkExt, StreamExt};
 use serde_json::{Value, json};
 use std::collections::HashMap;
@@ -1127,16 +1128,26 @@ async fn serve_connection_from(
                 // In order, before the request is spawned: a later request
                 // on this connection sees the person decided.
                 conn.bind_person(&hub, &m, &mut params);
+                // From the dispatch to the reply queued, on every path out of the task.
+                let slice = crate::trace_layer::RequestSlice::begin(&conn.id, &id, &m);
+                // A panic in the request names its method (cmux-panic-log crash keys):
+                // set on whichever worker polls it, for each poll.
+                let method_key = crash_keys::stable_key(&m);
                 let hub = hub.clone();
                 let conn = conn.clone();
-                tokio::spawn(async move {
-                    let _slot = slot;
-                    let result = chats::route(&hub, &conn, &m, params.unwrap_or(Value::Null)).await;
-                    conn.send(&match result {
-                        Ok(v) => Message::ok(id, v),
-                        Err(e) => Message::err(id, e),
-                    });
-                });
+                tokio::spawn(slice.wrap(crash_keys::keyed(
+                    Key::ActionId,
+                    method_key,
+                    async move {
+                        let _slot = slot;
+                        let result =
+                            chats::route(&hub, &conn, &m, params.unwrap_or(Value::Null)).await;
+                        conn.send(&match result {
+                            Ok(v) => Message::ok(id, v),
+                            Err(e) => Message::err(id, e),
+                        });
+                    },
+                )));
             }
             // A read-only machine's notifications (a cancel) change nothing.
             Message::Notification { .. } if conn.auth == ConnAuth::ReadOnlyDevice => {}

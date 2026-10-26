@@ -1,6 +1,9 @@
 #if DEBUG || CMUX_BENCH_HOOKS
 import AppKit
+import CmuxNextEnergy
+import CmuxNextResources
 import CmuxNextSettings
+import CmuxNextWakeups
 
 /// Describes the named DEBUG scenes available to the deterministic capture route.
 struct CaptureSceneDefinition: Sendable {
@@ -69,7 +72,8 @@ final class CaptureSceneRegistry {
                     && self.services.windows.controller(for: targetWindowID)?.sidebar.model.sections.flatMap(\.workspaces).contains { !$0.rowState.isPending } == true
                     && self.services.showcase.agentTabs.values.contains {
                     guard let view = self.services.agentTabs.existingView($0) else { return false }
-                    return view.webView.window != nil && !view.webView.isLoading
+                    // Shown and painted, in whichever engine shows the chat.
+                    return view.window != nil && view.page.hasPainted
                 }
             },
             start: start,
@@ -98,8 +102,11 @@ final class CaptureSceneRegistry {
         // Home is native: it settles on its own conditions, and neither the
         // agent pane's readiness nor its web view is part of its picture.
         let isHome = definition.name == Self.homeChiefScene || definition.name == Self.homeChiefLongDraftScene
+        // The Task Manager is native too: its page covers the agent pane.
+        let isTaskManager = definition.name == Self.taskManagerScene
+        let isNative = isHome || isTaskManager
         let readiness = await DebugAgentPane.handle(["action": .string("readiness")], services)
-        guard isHome || readinessIsComplete(readiness) else {
+        guard isNative || readinessIsComplete(readiness) else {
             return .object([
                 "error": .string("agent pane is blank or composer is hidden"),
                 "scene": .string(definition.name), "readiness": readiness, "turn": turn,
@@ -107,12 +114,20 @@ final class CaptureSceneRegistry {
         }
 
         let sceneAction = await applySceneAction(definition.name)
-        let actionReadiness = isHome
-            ? await showHomeChief(windowID: targetWindowID, longDraft: definition.name == Self.homeChiefLongDraftScene) : await waitForSceneAnimation()
+        let actionReadiness: JSONValue
+        if isHome {
+            actionReadiness = await showHomeChief(windowID: targetWindowID, longDraft: definition.name == Self.homeChiefLongDraftScene)
+        } else if isTaskManager {
+            actionReadiness = await showTaskManager(windowID: targetWindowID)
+        } else {
+            actionReadiness = await waitForSceneAnimation()
+        }
         guard case .object(let actionReadinessReport) = actionReadiness,
               actionReadinessReport["error"] == nil,
-              isHome || actionReadinessReport["animations_pending"]?.boolValue == false else {
-            return .object(["error": .string(isHome ? "Home scene did not settle" : "scene popover did not become opaque before capture"),
+              isNative || actionReadinessReport["animations_pending"]?.boolValue == false else {
+            let failure = isHome ? "Home scene did not settle"
+                : isTaskManager ? "Task Manager scene did not settle" : "scene popover did not become opaque before capture"
+            return .object(["error": .string(failure),
                             "scene": .string(definition.name), "readiness": actionReadiness,
                             "scene_action": sceneAction])
         }
@@ -123,7 +138,7 @@ final class CaptureSceneRegistry {
         if isHome { clearShowcaseAgent(windowID: targetWindowID) }
         guard case .object(var result) = snapshot else { return snapshot }
         result["click"] = click
-        guard isHome || (result["webviews_composited"]?.intValue ?? 0) > 0 else {
+        guard isNative || (result["webviews_composited"]?.intValue ?? 0) > 0 else {
             return .object([
                 "error": .string("agent web view was not composited"),
                 "scene": .string(definition.name), "readiness": readiness, "snapshot": snapshot,
@@ -154,6 +169,8 @@ final class CaptureSceneRegistry {
         _ = DebugTunables.handle(["action": .string("set"), "key": .string("sidebar.sections.look"),
                                    "value": .string(name == "sidebar-tiles" ? "tray" : "quiet")], services: services)
         _ = await DebugAgentPane.handle(["action": .string("close_menus")], services)
+        // The energy-saver scene's simulated Low Power Mode ends before any other scene draws.
+        if name != Self.energySaverScene, services.energyMonitor.isSimulated { services.energyMonitor.simulate(nil) }
         switch name {
         case "composer":
             return await DebugAgentPane.handle(["action": .string("open_menu"), "label": .string("Model")], services)
@@ -168,6 +185,8 @@ final class CaptureSceneRegistry {
             let hint = await DebugShortcutHintControl().handle(["modifier": .string("cmd")], services: services)
             let menu = await DebugAgentPane.handle(["action": .string("open_menu"), "label": .string("Mode")], services)
             return .object(["hint": hint, "menu": menu])
+        case Self.energySaverScene:
+            return await showEnergySaver()
         case "hints-ctrl-held":
             let hint = await DebugShortcutHintControl().handle(["modifier": .string("ctrl")], services: services)
             let menu = await DebugAgentPane.handle(["action": .string("open_menu"), "label": .string("Model")], services)
@@ -175,6 +194,77 @@ final class CaptureSceneRegistry {
         default:
             return .object(["scene": .string(name)])
         }
+    }
+
+    static let energySaverScene = "energy-saver"
+
+    /// `energy-saver` (p14-energy-026): Low Power Mode laid over the Mac's inputs through the app's one
+    /// energy monitor (`debug.energy.simulate`), so the policy driver turns the saver on as it would on
+    /// a real Mac; then the active sidebar's leaf card opens and the scene waits until both show.
+    private func showEnergySaver() async -> JSONValue {
+        guard services.energy.driver.isEnabled else {
+            return .object(["error": .string("feature energySaver is off: launch with CMUX_ENABLE_FEATURES=energySaver")])
+        }
+        guard let sidebar = services.windows.active?.sidebar.container.sidebarView else {
+            return .object(["error": .string("no active window")])
+        }
+        services.energyMonitor.simulate(EnergySimulation(lowPowerMode: true))
+        frames.start()
+        // The leaf shows once the policy reaches the sidebar; the card opens over it, as a hover would.
+        let leaf = await frames.settled(until: { sidebar.debugEnergyCardState()["shown"] == "true" },
+                                        start: .now, window: 0, deadline: 3_000)
+        if leaf != nil { _ = sidebar.debugShowEnergyCard() }
+        let settled = await frames.settled(
+            until: {
+                let state = sidebar.debugEnergyCardState()
+                return state["opaque"] == "true" && state["card"] == "true"
+            },
+            start: .now,
+            window: 100,
+            deadline: 3_000,
+        )
+        var report = sidebar.debugEnergyCardState().mapValues { JSONValue.string($0) }
+        report["energy_frames"] = frames.stop()
+        if settled == nil { report["error"] = .string("the Energy Saver leaf or its card did not show before the deadline") }
+        return .object(report)
+    }
+
+    static let taskManagerScene = "task-manager"
+
+    /// `task-manager`: opens the Task Manager in window `windowID` with `taskManagerMemorySaved` on,
+    /// over the app's sample plus ``TaskManagerFixtureSource/captureDiscarded``, then waits until its
+    /// page is in the window and lists those pages. An error names what never appeared.
+    private func showTaskManager(windowID: String) async -> JSONValue {
+        guard let controller = services.windows.controller(for: windowID) else {
+            return .object(["error": .string("capture window is gone")])
+        }
+        let taskManager = services.taskManager
+        guard taskManager.useCaptureFixture(TaskManagerFixtureSource(base: taskManager.source)) else {
+            return .object(["error": .string("a Task Manager page is open already; its model keeps the app's source")])
+        }
+        guard let page = services.pages.show(.taskManager, in: controller, focus: true) else {
+            return .object(["error": .string("Task Manager page did not open")])
+        }
+        frames.start()
+        let settled = await frames.settled(
+            until: {
+                // visibility-walk-allow: the capture waits for what AppKit shows before it snapshots the window; a node would mirror it a turn late
+                guard page.window != nil, !page.isHiddenOrHasHiddenAncestor, let model = taskManager.model else { return false }
+                return model.memorySaved && model.snapshot.discarded == TaskManagerFixtureSource.captureDiscarded
+            },
+            start: .now,
+            window: 100,
+            deadline: 5_000,
+        )
+        let snapshot = taskManager.model?.snapshot
+        var report: [String: JSONValue] = [
+            "task_manager_frames": frames.stop(),
+            "rows": .number(Double(snapshot?.rows.count ?? 0)),
+            "discarded": .number(Double(snapshot?.discarded.count ?? 0)),
+            "freed_bytes": .number(Double(snapshot?.freedBytes ?? 0)),
+        ]
+        if settled == nil { report["error"] = .string("Task Manager did not list the discarded pages before the deadline") }
+        return .object(report)
     }
 
     /// The agent pane drew the worked turn and shows its composer.
@@ -201,6 +291,11 @@ final class CaptureSceneRegistry {
         // A literal name: cmux-ci capture finds scenes by `CaptureSceneDefinition(name: "…")`.
         CaptureSceneDefinition(name: "home-chief-long-draft",
                                description: "The home-chief scene with a long draft that grows the field up into the first-run panel; the panel drops what does not fit and nothing it shows runs under the field."),
+        // A literal name: cmux-ci capture finds scenes by `CaptureSceneDefinition(name: "…")`.
+        CaptureSceneDefinition(name: "energy-saver",
+                               description: "Energy Saver on through simulated Low Power Mode (feature energySaver): the sidebar footer's leaf and its card with the reason and Turn Off for Now."),
+        CaptureSceneDefinition(name: "task-manager",
+                               description: "The Task Manager with taskManagerMemorySaved on: the app's processes, then two pages Memory Saver discarded (one saved about 182 MB, one with no measurement) and the Memory Saver freed footer."),
     ]
 }
 #endif

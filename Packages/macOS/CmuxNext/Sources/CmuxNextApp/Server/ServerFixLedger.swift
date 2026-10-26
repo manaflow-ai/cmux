@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import CmuxNextServerHelper
 import Foundation
 
@@ -49,7 +50,7 @@ nonisolated struct ServerFixLedger: Sendable {
     @concurrent func load() async -> Contents {
         guard FileManager.default.fileExists(atPath: url.path) else { return .fixes([]) }
         // concurrency-allow: @concurrent, off the main actor; a small file
-        guard let data = try? Data(contentsOf: url), let file = try? JSONDecoder().decode(File.self, from: data) else {
+        guard let data = try? Data(contentsOf: url), let file = try? JSONDecoder().blockingDecode(File.self, from: data) else {
             return .unknown
         }
         // An id this build does not know may be a fix it cannot name: fail safe.
@@ -65,6 +66,7 @@ nonisolated struct ServerFixLedger: Sendable {
         guard await load() != .unknown else { return }
         var file = try readKnown()
         if file.fixes[fix.rawValue] == nil {
+            // wall-clock: the ledger file keeps when each fix was applied, Unix ms.
             file.fixes[fix.rawValue] = Int64(Date().timeIntervalSince1970 * 1000)
         }
         try write(file)
@@ -87,7 +89,7 @@ nonisolated struct ServerFixLedger: Sendable {
     private func readKnown() throws -> File {
         guard FileManager.default.fileExists(atPath: url.path) else { return File() }
         // concurrency-allow: called only from the @concurrent members above
-        return try JSONDecoder().decode(File.self, from: Data(contentsOf: url))
+        return try JSONDecoder().blockingDecode(File.self, from: Data(contentsOf: url))
     }
 
     /// A new temp file created 0600 (`O_CREAT | O_EXCL`, so it is never

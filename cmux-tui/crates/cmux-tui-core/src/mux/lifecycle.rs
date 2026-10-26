@@ -2,11 +2,16 @@
 
 use super::*;
 
+/// How long shutdown waits for the work items it waits for: block items (one
+/// short save each) and started skip items (short disk reads).
+const WORK_SHUTDOWN_WAIT: Duration = Duration::from_secs(2);
+
 impl Mux {
     /// Drop per-surface metadata for a surface that has left the tree.
     /// `SurfaceId` is monotonic, so without this every closed tab would
     /// leak an entry forever and `list-agents` would keep reporting dead
     /// surfaces as live agents.
+    #[track_caller]
     pub(super) fn purge_surface_side_tables(&self, surface: SurfaceId) {
         let lifecycle = self.lock_client_sizing_lifecycle();
         let mut sizing = self.client_sizing.lock().unwrap();
@@ -51,6 +56,7 @@ impl Mux {
         self.close_placement_feed_items(surface);
     }
 
+    #[track_caller]
     pub(super) fn purge_terminal_side_tables(&self, terminal_id: &TerminalPublicId) {
         let pending_cleanup = {
             let mut registry = self.workspace_registry.lock().unwrap();
@@ -89,6 +95,7 @@ impl Mux {
         self.close_terminal_feed_items(terminal_id);
     }
 
+    #[track_caller]
     pub(super) fn purge_terminal_runtime_side_tables(&self, runtime: &Surface) {
         if let Some(runtime_id) = runtime.terminal_runtime_id() {
             self.reserved_in_process_terminals.lock().unwrap().remove(&runtime_id);
@@ -110,6 +117,7 @@ impl Mux {
         }
     }
 
+    #[track_caller]
     pub fn shutdown(&self) {
         let screen_checkpoint = self.wants_shutdown_checkpoint();
         self.shutting_down.store(true, Ordering::Release);
@@ -117,6 +125,16 @@ impl Mux {
         self.stop_journal_maintenance();
         self.begin_session_shutdown();
         self.terminal_respawns.wake_all();
+        self.browser_providers.wake_waiters();
+        // Block items (a Chief engine file save) and started skip items (a
+        // browser-runtime status read) finish; queued skip items and every
+        // continue item (an acpmux ask, a git item or a listening-port
+        // read, git_ops/sequence.rs) are not waited for (work.rs); a dropped
+        // queued item answers that the daemon is shutting down.
+        let work = self.work.shutdown_until(Instant::now() + WORK_SHUTDOWN_WAIT);
+        if work.unfinished > 0 {
+            eprintln!("cmux-tui: {} work items did not finish before shutdown", work.unfinished);
+        }
         // Hosts of closed terminals were already asked to exit; give them
         // their close deadline so this owner acknowledges their exits.
         if !self.wait_for_terminal_host_closes(
@@ -159,6 +177,7 @@ impl Mux {
 
     /// Stop the terminal readers and the journal writer; with
     /// `screen_checkpoint`, checkpoint the terminal screens in between.
+    #[track_caller]
     pub(super) fn finalize_terminal_journal(&self, context: &str, screen_checkpoint: bool) {
         if self.journal_ingress.is_closed() {
             self.output_store.shutdown(self);
@@ -288,6 +307,7 @@ impl Mux {
         self.shutting_down.store(true, Ordering::Release);
         self.begin_session_shutdown();
         self.terminal_respawns.wake_all();
+        self.browser_providers.wake_waiters();
         // The journal hook dispatcher waits on the shared journal.
         self.journal_kernel.wake_waiters();
         if let Some(waker) = self.daemon_shutdown_waker.lock().unwrap().as_ref() {

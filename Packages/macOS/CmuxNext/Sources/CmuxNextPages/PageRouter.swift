@@ -1,3 +1,4 @@
+package import CmuxNextHibernation
 public import CmuxNextSettings
 public import Foundation
 
@@ -22,10 +23,11 @@ public final class PageRouter {
     /// Runs at every ``close()`` (and so at ``reset()`` and rebind): the host drops envelopes it
     /// has not delivered yet, which belong to the subscriptions that just ended.
     public var didClose: (() -> Void)?
-    private var subscriptions: [UInt64: PageSubscription] = [:]
+    // Not private: PageRouter+Hold.swift reads the streams and writes `sequences` and `held`.
+    private(set) var subscriptions: [UInt64: PageSubscription] = [:]
     private var activeStreams: Set<UInt64> = []
-    private var streamProviders: [UInt64: (name: String, provider: any PageProvider)] = [:]
-    private var sequences: [UInt64: UInt64] = [:]
+    private(set) var streamProviders: [UInt64: (name: String, provider: any PageProvider)] = [:]
+    var sequences: [UInt64: UInt64] = [:]
     private var nextSubscription: UInt64 = 1
     private var nextCall: UInt64 = 1
     private var pendingCalls: [UInt64: CheckedContinuation<JSONValue, any Error>] = [:]
@@ -33,11 +35,28 @@ public final class PageRouter {
     /// navigation (`reset`) and by tab close (`close`) (app-op-routing.md "Op cancel").
     private var inFlight: [UInt64: PageCallInFlight] = [:]
     private var closed = false
+    /// The document the router serves: one more at every ``close()`` (a reload, a crash, a
+    /// navigation, a rebind). A call keeps the one it arrived in, so state it sets for its document
+    /// (``PageNativeOp/keepAlive``) never lands on the next one.
+    private var document: UInt64 = 0
     /// Built-in streams every page gets (``PageNativeOp/pageCommand``, ``PageNativeOp/pageConnection``):
     /// subscription id to stream name.
-    private var builtIn: [UInt64: String] = [:]
+    private(set) var builtIn: [UInt64: String] = [:]
     /// The owner link state the connection stream reports.
     public private(set) var connected = true
+    /// The page's lifecycle: thaws before a command or host call, hears an `.ordered` stream fill.
+    public weak var lifecycle: (any PageDeliveryLifecycle)?
+    /// Events kept while delivery is held, per subscription, by the stream's ``PageFrozenDelivery``.
+    var held = PageDeliveryHold()
+    #if DEBUG || CMUX_BENCH_HOOKS
+    /// Whether the page's view is hidden, as its ``PageWebView`` tells the engine (`debug.webui`).
+    public internal(set) var debugPageHidden = false
+    /// Events delivered while ``debugPageHidden``: one integer add per delivery (`debug.webui`).
+    public internal(set) var debugDeliveriesWhileHidden = 0
+    /// The page's oracle reading may have changed (``oracleStateChangedOp``, p15-oracle-215): the page
+    /// host's feed (``WebUIHost/oracleChanges``) wakes `debug.oracle.wait_for` on the `webviews` facet.
+    public var oracleStateChanged: (@MainActor () -> Void)?
+    #endif
 
     public init(descriptor: PageDescriptor, routes: [PageRoute]) {
         self.descriptor = descriptor
@@ -47,6 +66,8 @@ public final class PageRouter {
     /// Rebinds a pooled router to a new document and ends every operation owned by the old page.
     func rebind(descriptor: PageDescriptor, routes: [PageRoute]) {
         reset()
+        // The hold followed the old claim's visibility; the new owner's lifecycle holds it again.
+        held = PageDeliveryHold()
         self.descriptor = descriptor
         self.routes = routes.sorted { $0.prefix.count > $1.prefix.count }
     }
@@ -79,7 +100,10 @@ public final class PageRouter {
                     opid = text
                 }
                 let params = message["params"] ?? .object([:])
-                let value = try await cancellable(id: id, op: op) { [self] in try await call(op, params: params, opid: opid) }
+                let document = document
+                let value = try await cancellable(id: id, op: op) { [self] in
+                    try await call(op, params: params, opid: opid, document: document)
+                }
                 return ["t": "ok", "id": .number(Double(id)), "value": value]
             } catch let error as PageError {
                 return Self.error(id: id, error)
@@ -125,7 +149,25 @@ public final class PageRouter {
     /// menu, answered once it closes.
     public var contextMenu: (@MainActor ([String: Any]) async -> JSONValue)?
 
-    private func call(_ op: String, params: JSONValue, opid: String?) async throws -> JSONValue {
+    /// The page's `cmux.page.keepAlive`, checked: one of its own reasons, on or off (``PageKeepReasons``).
+    package var keepAlive: (@MainActor (PageLifecyclePlanner.KeepReason, Bool) -> Void)?
+
+    private func call(_ op: String, params: JSONValue, opid: String?, document: UInt64) async throws -> JSONValue {
+        #if DEBUG || CMUX_BENCH_HOOKS
+        if op == Self.oracleStateChangedOp {
+            guard !closed else { throw PageError.closed }
+            oracleStateChanged?()
+            return .object([:])
+        }
+        #endif
+        if op == PageNativeOp.keepAlive {
+            // Its document ended before the call ran (its task was cancelled, but a cancelled task
+            // still runs): the next document's reasons are its own.
+            guard !closed, document == self.document, !Task.isCancelled else { throw PageError.closed }
+            let request = try PageKeepReasons.pageRequest(params)
+            keepAlive?(request.reason, request.on)
+            return .object([:])
+        }
         if op == PageNativeOp.titleBarDoubleClick {
             guard !closed else { throw PageError.closed }
             titleBarDoubleClick?()
@@ -193,16 +235,20 @@ public final class PageRouter {
         } catch {
             activeStreams.remove(sub)
             streamProviders.removeValue(forKey: sub)
+            held.remove(sub)
             throw error
         }
         guard !closed else {
             subscription.cancel()
             activeStreams.remove(sub)
             streamProviders.removeValue(forKey: sub)
+            held.remove(sub)
             throw PageError.closed
         }
         activeStreams.remove(sub)
         subscriptions[sub] = subscription
+        // Events held while `subscribe` ran were kept whole; the stream's policy applies from now.
+        reportDropped(held.apply(subscription.frozenDelivery, to: sub), sub: sub)
         // Nothing held: later events go straight to the page. Otherwise they queue behind the held
         // ones until the flush, which runs after the reply.
         guard !early.isHolding || provider.eventsAfterSubscribeReply else {
@@ -229,17 +275,17 @@ public final class PageRouter {
         return (route.provider, params)
     }
 
+    /// One event of subscription `sub`: to the page now, or into the hold.
     private func deliver(sub: UInt64, _ data: JSONValue, publicationID: UInt64? = nil) {
         guard subscriptions[sub] != nil || builtIn[sub] != nil || activeStreams.contains(sub) else { return }
-        let seq = (sequences[sub] ?? 0) + 1
-        sequences[sub] = seq
-        let envelope: JSONValue = ["t": "ev", "sub": .number(Double(sub)), "seq": .number(Double(seq)), "data": data]
-        let stream = streamProviders[sub]
-        let dropped = { @MainActor in
-            guard let stream else { return }
-            stream.provider.eventDeliveryDropped(stream: stream.name, data: data, publicationID: publicationID)
-        }
-        if let sendWithDrop { sendWithDrop(envelope, dropped) } else { send?(envelope) }
+        guard held.isHeld else { return emit(sub: sub, data, publicationID: publicationID) }
+        let kept = held.keep(sub: sub, data, publicationID: publicationID, policy: frozenDelivery(of: sub))
+        reportDropped(kept.dropped, sub: sub)
+        guard kept.halfFull else { return }
+        // The page leaves Frozen (it stays hidden) and takes what was held; the hold goes on, so no
+        // `.ordered` stream keeps more than half of its provider's buffer.
+        lifecycle?.orderedDeliveryHalfFull()
+        emit(held.flush())
     }
 
     private func unsubscribe(_ sub: UInt64) {
@@ -248,20 +294,25 @@ public final class PageRouter {
         streamProviders.removeValue(forKey: sub)
         builtIn.removeValue(forKey: sub)
         sequences.removeValue(forKey: sub)
+        // The page ended the stream: what it held is not wanted, so it is not a delivery drop.
+        held.remove(sub)
     }
 
     // MARK: Built-in streams
 
-    /// Sends a dispatcher command to the page's command subscribers. False when the command is
-    /// not a page command or no subscriber listens.
+    /// Sends a dispatcher command to the page's command subscribers, past the hold and after a
+    /// thaw (Cmd-F focusSearch on a frozen page). False when the command is not a page command or
+    /// no subscriber listens.
     @discardableResult
     public func publishCommand(_ command: String, arguments: [String: JSONValue] = [:]) -> Bool {
         guard descriptor.commands.contains(command) else { return false }
         var data = arguments
         data["command"] = .string(command)
         let subs = builtIn.filter { $0.value == PageNativeOp.pageCommand }.keys.sorted()
-        for sub in subs { deliver(sub: sub, .object(data)) }
-        return !subs.isEmpty
+        guard !subs.isEmpty else { return false }
+        lifecycle?.thawForDelivery()
+        for sub in subs { emit(sub: sub, .object(data)) }
+        return true
     }
 
     /// Sends a popup event (`{type, id?}`) to the page's popup subscribers.
@@ -280,16 +331,35 @@ public final class PageRouter {
 
     // MARK: Host to page
 
-    /// Calls an op the page serves (`cmux.page.command`) and waits for its reply.
+    /// Calls an op the page serves (`cmux.page.command`) and waits for its reply. The call goes
+    /// past the hold, after a thaw, so a frozen page answers it.
     public func callPage(_ op: String, params: JSONValue) async throws -> JSONValue {
+        try await callPage(op, params: params) { _ in }
+    }
+
+    /// ``callPage(_:params:)`` that tells `started` the call's id once it is pending, so a caller
+    /// whose deadline passed can ``abandonCall(_:)`` it.
+    func callPage(_ op: String, params: JSONValue, started: (UInt64) -> Void) async throws -> JSONValue {
         guard !closed, let send else { throw PageError.closed }
         let id = nextCall
         nextCall += 1
+        lifecycle?.thawForDelivery()
         return try await withCheckedThrowingContinuation { continuation in
             pendingCalls[id] = continuation
+            started(id)
             send(["t": "call", "id": .number(Double(id)), "op": .string(op), "params": params])
         }
     }
+
+    /// Fails pending host call `id` with `CancellationError` and forgets it: its caller gave up (a
+    /// deadline passed), so a page that never replies keeps no continuation here and a late reply
+    /// resolves nothing. A finished or unknown id is a no-op.
+    func abandonCall(_ id: UInt64) {
+        pendingCalls.removeValue(forKey: id)?.resume(throwing: CancellationError())
+    }
+
+    /// Host calls still waiting for the page's reply.
+    var pendingHostCalls: Int { pendingCalls.count }
 
     private func resolve(id: UInt64, _ message: JSONValue) {
         guard let continuation = pendingCalls.removeValue(forKey: id) else { return }
@@ -302,9 +372,13 @@ public final class PageRouter {
     }
 
     /// The page went away (tab closed, reload): cancels every subscription and fails pending calls.
+    /// Held events never reached the page, so each reports a drop, as the pipeline's do. The hold
+    /// itself stays: a hidden page that reloads is still hidden.
     public func close() {
         closed = true
+        document += 1
         didClose?()
+        for stream in held.drain() { reportDropped(stream.events, sub: stream.sub) }
         for subscription in subscriptions.values { subscription.cancel() }
         subscriptions.removeAll()
         activeStreams.removeAll()
@@ -341,67 +415,5 @@ public final class PageRouter {
         ]
         if let details = error.details { envelope["details"] = details }
         return .object(envelope)
-    }
-}
-
-/// One page call in flight: its work's task and the continuation the router answers. The first of
-/// the work's end and a cancel answers it (once); a cancel also cancels the task.
-@MainActor
-final class PageCallInFlight {
-    let op: String
-    /// When the call arrived (`systemUptime`).
-    let started = ProcessInfo.processInfo.systemUptime
-    private var continuation: CheckedContinuation<JSONValue, any Error>?
-    private var task: Task<Void, Never>?
-    private var cancelled = false
-
-    init(op: String) {
-        self.op = op
-    }
-
-    func start(_ continuation: CheckedContinuation<JSONValue, any Error>, _ work: @escaping @MainActor () async throws -> JSONValue) {
-        self.continuation = continuation
-        guard !cancelled else { return finish(.failure(PageError.opCancelled)) }
-        // task-owner: one page call; ends with its work or the page's cancel (navigation, tab close)
-        task = Task { @MainActor [weak self] in
-            let result: Result<JSONValue, any Error>
-            do { result = .success(try await work()) } catch { result = .failure(error) }
-            self?.finish(result)
-        }
-    }
-
-    func cancel() {
-        cancelled = true
-        task?.cancel()
-        finish(.failure(PageError.opCancelled))
-    }
-
-    private func finish(_ result: Result<JSONValue, any Error>) {
-        guard let continuation else { return }
-        self.continuation = nil
-        continuation.resume(with: result)
-    }
-}
-
-/// Events a provider sends before its subscription is registered and answered: held in order,
-/// then released once, after which events go straight to the page.
-@MainActor
-final class PageEarlyEvents {
-    private var held: [JSONValue]? = []
-
-    /// Whether any event is held (the subscription is not released and something arrived).
-    var isHolding: Bool { !(held?.isEmpty ?? true) }
-
-    /// Holds `data` while the subscription is not released yet; false once it is.
-    func hold(_ data: JSONValue) -> Bool {
-        guard held != nil else { return false }
-        held?.append(data)
-        return true
-    }
-
-    /// The held events, oldest first; later events are not held.
-    func release() -> [JSONValue] {
-        defer { held = nil }
-        return held ?? []
     }
 }

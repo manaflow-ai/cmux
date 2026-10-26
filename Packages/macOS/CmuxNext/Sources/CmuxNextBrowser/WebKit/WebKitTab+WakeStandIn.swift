@@ -19,7 +19,7 @@ extension WebKitTab: BrowserWakeStandIn {
         standIn = view
         let timer = DemandTimer(owner: "WebKitTab.standIn", clock: clock)
         // Justified delay: the cap of a stand-in, not a poll; the paint or any removal cancels it.
-        timer.schedule(after: cap) { @MainActor [weak self, weak view] in
+        timer.scheduleOnMain(after: cap) { [weak self, weak view] in
             guard let self, let view, self.standIn === view else { return }
             self.removeStandIn()
         }
@@ -30,6 +30,7 @@ extension WebKitTab: BrowserWakeStandIn {
     /// The main frame painted content.
     func pageDidPaint() {
         removeStandIn()
+        firstContentFrame.contentShown()
     }
 
     func removeStandIn() {

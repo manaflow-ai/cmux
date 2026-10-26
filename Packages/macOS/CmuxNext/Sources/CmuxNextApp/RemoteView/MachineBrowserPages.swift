@@ -82,6 +82,7 @@ struct MachineBrowserPages {
                     page.phase = .failed(name, RemoteBrowserStrings.hostDidNotStart)
                     return
                 }
+                page.handOverWakeCover(to: tab)
                 cache.swapPage(key, with: tab)
             case .failure(.notInstalled):
                 page.phase = nil
@@ -126,9 +127,13 @@ struct MachineBrowserPages {
         return makePage(record, key: key, engine: .webkit, profile: profile)
     }
 
-    /// A new page's machine chip: none on a machine browser page (it runs there).
+    /// A new page's machine chip: none on a machine browser page (it runs there), also while it
+    /// hibernates (its streamed page closed; it wakes on the machine).
     func wireChip(_ entry: BrowserEntry, page: any BrowserTab, key: String) {
         var onMachine = page is MachineBrowserPageTab
+        if let asleep = page as? HibernatedBrowserTab, case let .appPage(saved) = asleep.restoreState {
+            onMachine = MachineBrowserRecord.matches(saved.url)
+        }
         #if DEBUG
         onMachine = onMachine || RemoteBrowserPages.runsOnMachine(key)
         #endif

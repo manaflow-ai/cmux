@@ -5,6 +5,7 @@
 //! file's owner set to the token user; `connect_same_user`: that owner is
 //! ours). Unix uses `/tmp/cmux-th-<uid>/<terminal_hex>.sock`.
 
+use cmux_threads::checked::fs as files;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -57,7 +58,7 @@ pub fn bind(dir: &Path, terminal_hex: &str) -> io::Result<(PathBuf, HostListener
                 format!("{refusal}: {}", path.display()),
             )
         })?;
-        std::fs::remove_file(&path)?;
+        files::remove_file(&path)?;
     }
     let listener = cmux::local_socket::listen(&path)?;
     Ok((path, listener))

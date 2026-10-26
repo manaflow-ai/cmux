@@ -155,7 +155,7 @@ public actor MobileHostSupervisor {
     /// Runs hostd until stopped; each exit waits out ``Backoff`` before the next start.
     private func superviseLoop(_ inputs: Inputs) async {
         var backoff = Backoff(initial: .seconds(1), maximum: .seconds(60))
-        // wakeup-allow: one turn per hostd exit (a process event), spaced by Backoff; it never polls
+        // wakeup-allow: backoff: one turn per hostd exit (a process event), spaced by Backoff; it never polls
         repeat {
             let started = now()
             let reason = await runOnce(inputs)
@@ -176,7 +176,7 @@ public actor MobileHostSupervisor {
             } catch {
                 return
             }
-        } while !Task.isCancelled // wakeup-allow: ends the restart loop above when stop() cancels it
+        } while !Task.isCancelled // wakeup-allow: backoff: ends the restart loop above when stop() cancels it
     }
 
     /// One hostd process from start to exit; returns why it ended.
@@ -185,7 +185,7 @@ public actor MobileHostSupervisor {
         publish { $0.reset(to: .connecting) }
         let child = MobileHostProcess()
         do {
-            try child.start(inputs.launch, environment: inputs.launch.environment(inherited: inputs.inherited), log: inputs.log)
+            try await child.start(inputs.launch, environment: inputs.launch.environment(inherited: inputs.inherited), log: inputs.log)
         } catch {
             return "cmux-mobile-host did not start: \(error.localizedDescription)"
         }

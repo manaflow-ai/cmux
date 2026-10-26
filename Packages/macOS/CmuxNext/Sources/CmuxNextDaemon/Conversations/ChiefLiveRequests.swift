@@ -5,7 +5,7 @@ import Foundation
 /// every running run. Home asks when it opens a conversation and after a gap.
 public struct ConversationLiveRequest: DaemonRequest {
     public typealias Response = ChiefLiveFrame
-    public static let command = "conversation-live"
+    public static let commandName: DaemonCommandName = "conversation-live"
     public static let requiredCapability: String? = DaemonCapability.chiefLive.rawValue
     public var conversation: String
 
@@ -19,7 +19,7 @@ public struct ConversationLiveRequest: DaemonRequest {
 /// answer comes later as a `cloud-conversation-live` event.
 public struct CloudConversationLiveRequest: DaemonRequest {
     public typealias Response = EmptyResponse
-    public static let command = "cloud-conversation-live"
+    public static let commandName: DaemonCommandName = "cloud-conversation-live"
     public static let requiredCapability: String? = DaemonCapability.cloudChiefLive.rawValue
     public var conversation: String
 
@@ -62,7 +62,7 @@ public struct ConversationRunRows: Decodable, Sendable, Hashable {
 /// `conversation-run {conversation, run}` (`conversation-runs-v1`): every step of a local run.
 public struct ConversationRunRequest: DaemonRequest {
     public typealias Response = ConversationRunRows
-    public static let command = "conversation-run"
+    public static let commandName: DaemonCommandName = "conversation-run"
     public static let requiredCapability: String? = DaemonCapability.conversationRuns.rawValue
     public var conversation: String
     public var run: String
@@ -73,12 +73,16 @@ public struct ConversationRunRequest: DaemonRequest {
         self.run = run
         self.afterRev = afterRev
     }
+
+    enum CodingKeys: String, CodingKey {
+        case conversation, run, afterRev = "after_rev"
+    }
 }
 
 /// `cloud-conversation-run {conversation, agent, run}` (`cloud-conversation-runs-v1`): a Cloud Chief's run.
 public struct CloudConversationRunRequest: DaemonRequest {
     public typealias Response = ConversationRunRows
-    public static let command = "cloud-conversation-run"
+    public static let commandName: DaemonCommandName = "cloud-conversation-run"
     public static let requiredCapability: String? = DaemonCapability.cloudConversationRuns.rawValue
     public var conversation: String
     public var agent: String
@@ -90,6 +94,10 @@ public struct CloudConversationRunRequest: DaemonRequest {
         self.agent = agent
         self.run = run
         self.afterSeq = afterSeq
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case conversation, agent, run, afterSeq = "after_seq"
     }
 }
 

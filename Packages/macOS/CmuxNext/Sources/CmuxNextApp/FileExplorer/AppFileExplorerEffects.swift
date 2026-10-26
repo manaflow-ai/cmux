@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextCompat
 import CmuxNextFilesUI
+import CmuxNextPages
 
 /// The App's ``FileExplorerEffects``: cmux viewers through the link opener
 /// (beside the active window's focused pane), the rest through NSWorkspace's
@@ -37,27 +38,13 @@ final class AppFileExplorerEffects: FileExplorerEffects {
     }
 
     func open(_ item: URL, withApp app: String) async throws {
-        guard let appURL = Self.application(named: app) else { throw FileExplorerError.noSuchApp(app) }
-        let configuration = NSWorkspace.OpenConfiguration()
-        configuration.activates = true
-        do {
-            _ = try await NSWorkspace.shared.open([item], withApplicationAt: appURL, configuration: configuration)
-        } catch {
+        // A bundle id, an `.app` path or an app name, resolved by Launch Services on the system lane.
+        guard let queries = services?.workspaceQueries,
+              let appURL = try await queries.value(LinkMenu.application(named: app), priority: .userBlocking) else {
+            throw FileExplorerError.noSuchApp(app)
+        }
+        guard await NSWorkspace.shared.openedInBackground([item], withApplicationAt: appURL) else {
             throw FileExplorerError.openFailed(item.lastPathComponent)
         }
-    }
-
-    /// An app by bundle id, `.app` path, or name in the Applications folders.
-    private static func application(named app: String) -> URL? {
-        let workspace = NSWorkspace.shared
-        if let byID = workspace.urlForApplication(withBundleIdentifier: app) { return byID }
-        let expanded = (app as NSString).expandingTildeInPath
-        if expanded.hasSuffix(".app"), FileManager.default.fileExists(atPath: expanded) { return URL(fileURLWithPath: expanded) }
-        let name = app.hasSuffix(".app") ? app : app + ".app"
-        for folder in ["/Applications", "/System/Applications", "/Applications/Utilities", NSHomeDirectory() + "/Applications"] {
-            let candidate = (folder as NSString).appendingPathComponent(name)
-            if FileManager.default.fileExists(atPath: candidate) { return URL(fileURLWithPath: candidate) }
-        }
-        return nil
     }
 }

@@ -7,7 +7,7 @@ public nonisolated struct AgentCLIProviderRegisterRequest: DaemonRequest {
     /// The daemon's registration result.
     public typealias Response = JSONValue
     /// The existing verified-app registration command.
-    public static let command = "apps-provider-register"
+    public static let commandName: DaemonCommandName = "apps-provider-register"
     /// The daemon knows the agent CLI app-provider family.
     public static let requiredCapability: String? = "agent-cli-app-provider-v1"
     /// Families this verified app connection serves.

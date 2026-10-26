@@ -1,5 +1,6 @@
 public import AppKit
 public import CmuxNextDesignTokens
+import CmuxNextWakeups
 
 /// The one thin scroller of cmux NEXT's native scroll views: the sidebar's list and pinned bands,
 /// the Priority view, every scrollable card (hover cards, the update card's popover) and the
@@ -70,7 +71,7 @@ public final class ThinScroller: NSScroller {
     let notificationCenter: NotificationCenter
     /// The pending fade-out after the last scroll; the next scroll cancels it.
     private(set) var restTask: Task<Void, Never>?
-    private var proximity: ThinScrollerProximity?
+    private(set) var proximity: ThinScrollerProximity?
     private var drawnExpanded = false
 
     override public convenience init(frame frameRect: NSRect) {
@@ -201,6 +202,13 @@ public final class ThinScroller: NSScroller {
         super.viewDidMoveToSuperview()
         guard let superview else { return }
         proximity = ThinScrollerProximity(scroller: self, host: superview, notificationCenter: notificationCenter)
+        proximity?.windowChanged(window)
+    }
+
+    /// Its proximity hovers on the new window's frames (``HoverFrameInputHosting``, `pointerFrameHover`).
+    override public func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        proximity?.windowChanged(window)
     }
 
     /// Never a track, also while the pointer is over the scroller.
@@ -224,8 +232,9 @@ public final class ThinScroller: NSScroller {
         // A bounded, cancellable delay that is the intended behavior (the knob's rest time after
         // the last scroll step); the next scroll cancels it. Its clock is injected.
         restTask = Task { [weak self] in
-            // wakeup-allow: one-shot injected fade deadline; the next scroll cancels it.
-            do { try await clock.sleep(for: Self.restDelay) } catch { return }
+            // wakeup-allow: deadline of the knob's rest after the last scroll step, injected clock; the next scroll cancels it;
+            // not a DemandTimer: main actor (timer-class asks MainDeadline, and this type has no MainDeadlineScheduler seam)
+            do { try await clock.sleep(for: Self.restDelay, tolerance: WakeLeeway.window(delay: Self.restDelay).tolerance) } catch { return }
             self?.update { $0.rested() }
         }
     }

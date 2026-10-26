@@ -1,0 +1,19 @@
+{
+  "id": "new-tab-daemon",
+  "tier": "T1",
+  "description": "Daemon new-tab reply (new-tab-daemon-bench.py): a headless daemon of the measured build answers new-tab with a caller-chosen terminal id; request to reply per tab, and the answered tabs that did not adopt the parked spare host.",
+  "command": ["scripts/cmux-next/new-tab-daemon-bench.py", "--runs", "20", "--shell", "login"],
+  "session": "light",
+  "engine": "none",
+  "config": "bench",
+  "metrics": [
+    {"name": "new_tab_daemon\\.login\\.reply", "unit": "ms", "better": "lower"},
+    {"name": "new_tab_daemon\\.login\\.reply\\.missed_runs", "unit": "count", "better": "lower"},
+    {"name": "new_tab_daemon\\.login\\.not_adopted", "unit": "count", "better": "lower"}
+  ],
+  "repeats": 3,
+  "seconds": 30,
+  "needs": [],
+  "owner": "PL-daemon",
+  "component": "Daemon>Requests"
+}

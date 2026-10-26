@@ -1,9 +1,9 @@
 public import Foundation
-@preconcurrency import Sparkle
 
 /// The slice of `SPUUpdater` that ``UpdateController`` drives.
 ///
-/// A seam, not an abstraction: production always passes a real `SPUUpdater`. It exists so the
+/// A seam, not an abstraction: production always passes a real `SPUUpdater` (its conformance is
+/// in `SparkleSeam.swift`). It exists so the
 /// controller's reaction pipeline (attempt coordinator, install watchdog, prompt dismissal)
 /// can be driven deterministically in tests by a fake — the real Sparkle install path only runs
 /// in release-channel builds, so accepted-install lifecycle regressions are otherwise invisible
@@ -23,5 +23,3 @@ protocol UpdaterHandle: AnyObject {
     func checkForUpdateInformation()
     func checkForUpdatesInBackground()
 }
-
-extension SPUUpdater: UpdaterHandle {}

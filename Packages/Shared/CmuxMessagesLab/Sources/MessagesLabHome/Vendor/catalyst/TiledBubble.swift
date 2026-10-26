@@ -142,10 +142,20 @@ final class TileCache {
             bytes -= e.1
             freed.append(e.0)
         }
-        Reclaimer.release(freed)
+        Reclaimer.release(bitmaps: freed)
     }
     var count: Int { map.count }
-    func removeAll() { Reclaimer.release(map.values.map(\.0)); map.removeAll(); bytes = 0 }
+    func removeAll() { Reclaimer.release(bitmaps: map.values.map(\.0)); map.removeAll(); bytes = 0 }
+    /// cmux: a hidden transcript released its rows (MessagesWindowView.releaseRows): the tiles of these long texts go
+    /// (freed off main).
+    func evict(lineages: Set<Int>) {
+        guard !lineages.isEmpty else { return }
+        let gone = map.filter { lineages.contains($0.key.lineage) }
+        guard !gone.isEmpty else { return }
+        for k in gone.keys { map.removeValue(forKey: k) } // dictionary write
+        bytes -= gone.values.reduce(0) { $0 + $1.1 }
+        Reclaimer.release(bitmaps: gone.values.map(\.0))
+    }
 }
 
 /// The long-text layers of one RowCell.
@@ -288,7 +298,7 @@ final class TiledBody {
             let key = "\(p.reactions)|\(p.myReaction ?? -1)|\(p.outgoing)|\(body.minX)|\(body.width)|\(spec.width)|\(s)|\(Fixture.paletteGeneration)"
             if key != badgeKey {
                 badgeKey = key
-                Reclaimer.release(badges.contents)
+                Reclaimer.release(badges.bitmapContents)
                 badges.contentsScale = s
                 let b = body
                 badges.contents = WideBitmap.make(size: badges.frame.size, scale: s, opaque: false) { ctx in
@@ -363,7 +373,7 @@ final class TiledBody {
         let font = HomeFonts.system(ofSize: Fixture.bodyFont.pointSize, weight: .semibold)
         let color = p.outgoing ? Fixture.outgoingText : Fixture.incomingLink // cmux: themed link tint
         let rule = (p.outgoing ? Fixture.outgoingText : Fixture.incomingText).withAlphaComponent(0.25)
-        Reclaimer.release(band.contents)
+        Reclaimer.release(band.bitmapContents)
         band.contentsScale = s
         band.contents = WideBitmap.make(size: bandRect.size, scale: s, opaque: false) { ctx in
             rule.setFill()

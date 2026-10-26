@@ -228,24 +228,14 @@ final class GroupHeaderRowView: SidebarRowView {
         needsLayout = true
     }
 
-    /// The Debug Settings look (`sidebar.groupHeader`, `sidebar.groupColors`, cx-7yywz) and line layout (its joined
-    /// corner, `sidebar.groupLineLayout`); a change lays the header out and paints it again.
+    /// The Debug Settings look (`sidebar.groupHeader`, `sidebar.groupColors`, cx-7yywz); the sidebar's look
+    /// watch lays the header out and paints it again when it or the line layout (its joined corner,
+    /// `sidebar.groupLineLayout`) changes (`sidebarLookChanged`).
     private var look: (style: SidebarGroupHeaderStyle, themed: Bool) {
-        let read = { _ = SidebarStyle.groupLineLayout; return (SidebarGroupHeaderStyle.tunable.value, SidebarGroupPalette.tunable.value == .theme) }
-        guard !observesLook else { return read() }
-        observesLook = true
-        return withObservationTracking(read) { [weak self] in
-            Task { @MainActor [weak self] in
-                self?.observesLook = false
-                self?.needsLayout = true
-                self?.needsDisplay = true
-            }
-        }
+        (SidebarGroupHeaderStyle.tunable.value, SidebarGroupPalette.tunable.value == .theme)
     }
 
-    /// One observation of the look is registered at a time.
-    private var observesLook = false
-
+    /// Layer colors only: `layerContentsRedrawPolicy` (.onSetNeedsDisplay, SidebarRowView) runs it on needsDisplay, never on a resize.
     override func updateLayer() {
         performWithTheme {
             // The solid bar in the group's color (Lawrence 2026-10-11); hover,
@@ -433,5 +423,12 @@ final class GroupHeaderRowView: SidebarRowView {
         // The fill still shows at once on entry; the + and more fade both ways (u2397).
         fadesNextHover = true
         needsLayout = true
+    }
+}
+
+extension GroupHeaderRowView: SidebarLookFollower {
+    func sidebarLookChanged() {
+        needsLayout = true
+        needsDisplay = true
     }
 }

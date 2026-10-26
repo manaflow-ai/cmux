@@ -1,11 +1,10 @@
 #if DEBUG || CMUX_BENCH_HOOKS
 public import AppKit
+import CmuxNextCompat
 public import WebKit
 
-/// `debug.agent_pane click` and `hover` (DEBUG builds), on whichever host shows the chat: the
-/// pane's own WebKit view, or the shared page host (`agent.pageHost`) in WebKit or Chromium. The
-/// pane's own `webView` holds no document on the page host, so these read and press the page the
-/// chat shows.
+/// `debug.agent_pane click` and `hover` (DEBUG builds), in whichever engine the page host shows
+/// the chat: these read and press the page the chat shows.
 extension AgentPaneView {
     /// Finds the element, scrolls it into view and returns its center in CSS pixels.
     private static let locateScript = """
@@ -45,7 +44,7 @@ extension AgentPaneView {
         do {
             let result = try await callPageScript(Self.locateScript, arguments: ["selector": selector, "text": text])
             guard let json = result as? String,
-                  let object = (try? JSONSerialization.jsonObject(with: Data(json.utf8))) as? [String: Any] else {
+                  let object = (try? JSONSerialization.blockingJSONObject(with: Data(json.utf8))) as? [String: Any] else {
                 return ["error": "the page returned no JSON"]
             }
             return object
@@ -55,25 +54,19 @@ extension AgentPaneView {
     }
 
     /// Whether the chat shows in Chromium (its clicks go through DevTools, ``debugPress(x:y:)``).
-    public var debugShowsChromium: Bool { page?.showsChromium == true }
+    public var debugShowsChromium: Bool { page.showsChromium }
 
-    /// The zoom the chat shows at: view points per page CSS pixel.
-    public var debugPageZoom: Double {
-        guard let page else { return webView.pageZoom * webView.magnification }
-        return page.showsChromium ? page.debugPageZoom : page.webKitView.pageZoom * page.webKitView.magnification
-    }
+    /// The zoom the chat shows at: view points per page CSS pixel, in either engine.
+    public var debugPageZoom: Double { page.pageZoom }
 
-    /// The WebKit view that shows the chat (the page host's or the pane's own), which AppKit
-    /// clicks go to; nil when the chat shows in Chromium.
-    public var debugPageWebView: WKWebView? {
-        guard let page else { return webView }
-        return page.showsChromium ? nil : page.webKitView
-    }
+    /// The WebKit view that shows the chat, which AppKit clicks go to; nil when the chat shows in
+    /// Chromium.
+    public var debugPageWebView: WKWebView? { page.webKitEngine }
 
     /// A trusted DevTools left click at `x`,`y` (CSS pixels) on a chat shown in Chromium; false
     /// otherwise (``PageWebView/debugPress(x:y:)``).
     public func debugPress(x: Double, y: Double) async -> Bool {
-        await page?.debugPress(x: x, y: y) ?? false
+        await page.debugPress(x: x, y: y)
     }
 }
 #endif

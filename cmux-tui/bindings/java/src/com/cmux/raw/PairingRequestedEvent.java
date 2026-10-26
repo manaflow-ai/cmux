@@ -12,12 +12,15 @@ import java.util.Objects;
 
 /** Immutable pairing-requested event. Protocol v7; streams: subscribe. */
 public final class PairingRequestedEvent implements WireValue, DeltaStreamEvent, ProtocolEvent, SubscribeEvent {
+    /** What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing. */
+    private final Field<EventCause> cause;
     private final String code;
     private final UInt64 expiresIn;
     private final String peer;
     private final UInt64 request;
 
     private PairingRequestedEvent(Builder builder) {
+        this.cause = builder.cause;
         if (!builder.codeSet) throw new IllegalArgumentException("code is required");
         this.code = Wire.nonNull(builder.code, "code");
         if (!builder.expiresInSet) throw new IllegalArgumentException("expires_in is required");
@@ -30,6 +33,7 @@ public final class PairingRequestedEvent implements WireValue, DeltaStreamEvent,
 
     public static Builder builder() { return new Builder(); }
 
+    public Field<EventCause> cause() { return cause; }
     public String code() { return code; }
     public UInt64 expiresIn() { return expiresIn; }
     public String peer() { return peer; }
@@ -40,6 +44,10 @@ public final class PairingRequestedEvent implements WireValue, DeltaStreamEvent,
         Map<String, Object> object = Wire.object(value, "PairingRequestedEvent");
         Builder builder = builder();
         ProtocolSupport.literal(Wire.required(object, "event"), "pairing-requested", "PairingRequestedEvent.event");
+        Object rawCause = Wire.optional(object, "cause");
+        if (!Wire.isMissing(rawCause)) {
+            builder.cause(EventCause.fromWire(rawCause));
+        }
         Object rawCode = Wire.required(object, "code");
         builder.code(Wire.string(rawCode, "PairingRequestedEvent.code"));
         Object rawExpiresIn = Wire.required(object, "expires_in");
@@ -55,6 +63,7 @@ public final class PairingRequestedEvent implements WireValue, DeltaStreamEvent,
     public Map<String, Object> toWire() {
         LinkedHashMap<String, Object> object = new LinkedHashMap<>();
         object.put("event", "pairing-requested");
+        Wire.put(object, "cause", cause);
         Wire.put(object, "code", code);
         Wire.put(object, "expires_in", expiresIn);
         Wire.put(object, "peer", peer);
@@ -65,16 +74,17 @@ public final class PairingRequestedEvent implements WireValue, DeltaStreamEvent,
     @Override
     public boolean equals(Object other) {
         if (!(other instanceof PairingRequestedEvent that)) return false;
-        return Objects.equals(code, that.code) && Objects.equals(expiresIn, that.expiresIn) && Objects.equals(peer, that.peer) && Objects.equals(request, that.request);
+        return Objects.equals(cause, that.cause) && Objects.equals(code, that.code) && Objects.equals(expiresIn, that.expiresIn) && Objects.equals(peer, that.peer) && Objects.equals(request, that.request);
     }
 
     @Override
-    public int hashCode() { return Objects.hash(code, expiresIn, peer, request); }
+    public int hashCode() { return Objects.hash(cause, code, expiresIn, peer, request); }
 
     @Override
     public String toString() { return "PairingRequestedEvent" + toWire(); }
 
     public static final class Builder {
+        private Field<EventCause> cause = Field.omitted();
         private String code;
         private boolean codeSet;
         private UInt64 expiresIn;
@@ -84,6 +94,10 @@ public final class PairingRequestedEvent implements WireValue, DeltaStreamEvent,
         private UInt64 request;
         private boolean requestSet;
 
+        public Builder cause(EventCause value) {
+            this.cause = Field.of(value);
+            return this;
+        }
         public Builder code(String value) {
             this.code = value;
             this.codeSet = true;

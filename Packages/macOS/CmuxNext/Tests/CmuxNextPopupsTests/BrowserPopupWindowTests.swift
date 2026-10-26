@@ -1,8 +1,10 @@
 import AppKit
 import CmuxNextBrowser
+import CmuxNextDesign
 @testable import CmuxNextPopups
 import Foundation
 import Testing
+import CmuxNextWakeups
 
 /// Popup windows follow Chrome's `TYPE_POPUP` window on macOS (user,
 /// 2026-10-13: "popup windows need parity with chrome"): an independent
@@ -78,7 +80,7 @@ import Testing
 
     private func open(_ url: String, request: BrowserPopupRequest = BrowserPopupRequest(size: CGSize(width: 480, height: 360)))
         -> (BrowserPopupWindows, MockBrowserTab, BrowserPopupWindow, NSWindow) {
-        let popups = BrowserPopupWindows()
+        let popups = BrowserPopupWindows(mainWork: MainWorkScheduler(budget: MainFrameBudget()))
         popups.ordersWindowsIn = false
         let tab = MockBrowserEngine(kind: .cef).makeMockTab(BrowserTabConfiguration(initialURL: URL(string: url)))
         let opener = makeOpener()
@@ -168,7 +170,7 @@ import Testing
 
     @Test func aSignInWindowsOmnibarIsReadOnly() async throws {
         let tab = MockBrowserEngine(kind: .cef).makeMockTab(BrowserTabConfiguration(initialURL: URL(string: "https://accounts.example.com/signin")))
-        let window = BrowserPopupWindow(page: tab, frame: CGRect(x: 0, y: 0, width: 480, height: 600), readOnlyAddress: true)
+        let window = BrowserPopupWindow(page: tab, frame: CGRect(x: 0, y: 0, width: 480, height: 600), readOnlyAddress: true, mainWork: MainWorkScheduler(budget: MainFrameBudget()))
         defer { window.close() }
         let bars = descendants(of: window.contentView).compactMap { $0 as? AddressBarView }
         #expect(bars.count == 1, "the same omnibar view, read-only")
@@ -203,9 +205,33 @@ import Testing
         #expect(editor.selectedRange() == NSRange(location: 0, length: (editor.string as NSString).length), "the whole address is selected")
     }
 
+    /// p06-scheduler-221: the fork re-adds the popup's page window above every child, the overlay
+    /// host's panel (omnibar suggestions, toasts) included. No per-event check puts the panel back, so
+    /// the popup's `addChildWindow` does it in the same call, as the main window's does.
+    @Test func aPageAddedToThePopupGoesBelowItsOverlayPanel() {
+        let tab = MockBrowserEngine(kind: .cef).makeMockTab(BrowserTabConfiguration(initialURL: URL(string: "https://accounts.example.com/signin")))
+        let window = BrowserPopupWindow(page: tab, frame: CGRect(x: 100, y: 100, width: 480, height: 600), mainWork: MainWorkScheduler(budget: MainFrameBudget()))
+        window.orderFrontRegardless()
+        let host = WindowOverlayHost.host(for: window)
+        host.setPlanesWantPanel(true)
+        let page = NSWindow(contentRect: CGRect(x: 100, y: 100, width: 480, height: 500), styleMask: [.borderless], backing: .buffered, defer: false)
+        page.isReleasedWhenClosed = false
+        defer {
+            window.removeChildWindow(page)
+            page.orderOut(nil)
+            window.close()
+        }
+        #expect(host.isPanelAttached)
+
+        window.addChildWindow(page, ordered: .above)
+
+        #expect(page.parent === window)
+        #expect(host.isAbovePages, "the popup's page covers its overlays")
+    }
+
     @Test func aSignInWindowTakesCmdL() {
         let tab = MockBrowserEngine(kind: .cef).makeMockTab(BrowserTabConfiguration(initialURL: URL(string: "https://accounts.example.com/signin")))
-        let window = BrowserPopupWindow(page: tab, frame: CGRect(x: 0, y: 0, width: 480, height: 600), readOnlyAddress: true)
+        let window = BrowserPopupWindow(page: tab, frame: CGRect(x: 0, y: 0, width: 480, height: 600), readOnlyAddress: true, mainWork: MainWorkScheduler(budget: MainFrameBudget()))
         defer { window.close() }
         window.focusAddressBar()
         #expect(window.addressBar.isEditing, "the address can still be selected and copied")

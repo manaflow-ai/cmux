@@ -105,11 +105,14 @@ def step_ref_id(value: str) -> str:
 
 
 def crash_kinds(step: dict[str, Any], rules: Rules) -> list[str]:
-    """The child kinds a step ends on purpose: a kill's process, and the debug URLs in its args."""
+    """The child kinds a step ends on purpose: a kill's process, the process a call `ends`, and the debug URLs in
+    its args."""
     kinds: list[str] = []
     target = step.get("target")
     if step.get("op") == "kill" and isinstance(target, dict) and isinstance(target.get("process"), str):
         kinds.append(target["process"])
+    if isinstance(step.get("ends"), str):
+        kinds.append(step["ends"])
     for _, text in strings(step.get("args"), ""):
         for kind, pattern in rules.crash_urls.items():
             if pattern.search(text) and kind not in kinds:
@@ -173,6 +176,53 @@ def check_case(case: Any, rules: Rules) -> list[Finding]:
             findings.append(Finding("/allow_crashes", rules.crash_scope["countError"].format(
                 pointer="/allow_crashes", count=count, kind=kind, max=allowed)))
     return findings
+
+
+def error_details_mismatch(expected: Any, actual: Any, pointer: str = "") -> str | None:
+    """case-v1 expect.errorDetails against a typed error's details (its $step: references already resolved):
+    every expected key is present with an equal value, objects compared key by key, other values exactly. The
+    first difference as `<pointer>: ...`, or None. The drivers that read a reply's details call this."""
+    if isinstance(expected, dict):
+        if not isinstance(actual, dict):
+            return f"{pointer or '/'}: expected an object, got {json.dumps(actual)[:120]}"
+        for key, value in expected.items():
+            where = join(pointer, key)
+            if key not in actual:
+                return f"{where}: missing"
+            problem = error_details_mismatch(value, actual[key], where)
+            if problem:
+                return problem
+        return None
+    if not json_equal(expected, actual):
+        return f"{pointer or '/'}: expected {json.dumps(expected)[:120]}, got {json.dumps(actual)[:120]}"
+    return None
+
+
+def json_equal(a: Any, b: Any) -> bool:
+    """Equal as JSON values: Python's == says True == 1 == 1.0, but a boolean, an integer and a number with a
+    fraction are three different wire values, so the types must match too (containers element by element)."""
+    if type(a) is not type(b):
+        return False
+    if isinstance(a, dict):
+        return a.keys() == b.keys() and all(json_equal(value, b[key]) for key, value in a.items())
+    if isinstance(a, list):
+        return len(a) == len(b) and all(json_equal(x, y) for x, y in zip(a, b))
+    return a == b
+
+
+ERROR_DETAILS_VECTORS: tuple[tuple[Any, Any, str | None], ...] = (
+    ({"extra": {"code": "a"}}, {"operation": "o", "extra": {"code": "a", "tab_id": "t"}}, None),
+    ({"extra": {"code": "a"}}, {"extra": {"code": "b"}}, '/extra/code: expected "a", got "b"'),
+    ({"extra": {"code": "a"}}, {"operation": "o"}, "/extra: missing"),
+    ({"extra": {"code": "a"}}, None, "/: expected an object, got null"),
+    ({"ids": ["a"]}, {"ids": ["a", "b"]}, '/ids: expected ["a"], got ["a", "b"]'),
+    ({"n": 1}, {"n": True}, "/n: expected 1, got true"),
+    ({"n": True}, {"n": 1}, "/n: expected true, got 1"),
+    ({"n": 1}, {"n": 1.0}, "/n: expected 1, got 1.0"),
+    ({"ids": [0]}, {"ids": [False]}, "/ids: expected [0], got [false]"),
+    ({"ids": [{"n": 1}]}, {"ids": [{"n": 1.0}]}, '/ids: expected [{"n": 1}], got [{"n": 1.0}]'),
+    ({"n": 1, "ok": False}, {"n": 1, "ok": False}, None),
+)
 
 
 def apply_patch(document: Any, patch: list[dict[str, Any]]) -> Any:
@@ -251,8 +301,14 @@ def selftest(schema: dict[str, Any], rules: Rules) -> int:
         if not ok:
             failures += 1
             print(f"FAIL {mutation['name']} ({layer}): {got}")
-    total = len(table["mutations"]) + len(bases)
-    print(f"selftest: {total - failures}/{total} pass ({len(bases)} example cases, {len(table['mutations'])} mutations)")
+    for expected, actual, want in ERROR_DETAILS_VECTORS:
+        got = error_details_mismatch(expected, actual)
+        if got != want:
+            failures += 1
+            print(f"FAIL errorDetails {json.dumps(expected)} against {json.dumps(actual)}: {got!r}, not {want!r}")
+    total = len(table["mutations"]) + len(bases) + len(ERROR_DETAILS_VECTORS)
+    print(f"selftest: {total - failures}/{total} pass ({len(bases)} example cases, {len(table['mutations'])} mutations, "
+          f"{len(ERROR_DETAILS_VECTORS)} errorDetails vectors)")
     return 1 if failures else 0
 
 

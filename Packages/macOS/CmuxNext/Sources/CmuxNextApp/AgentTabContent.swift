@@ -1,6 +1,7 @@
 import CmuxNextActions
 import AppKit
 import CmuxNextAgentPane
+import CmuxNextPages
 import CmuxNextWakeups
 import Foundation
 
@@ -17,15 +18,17 @@ struct AgentTabContent {
 
     func content(_ key: String) -> TabContent? {
         let services = pane.services
-        let focused = pane.workspace?.focus.state.pane
-        let deferred = services.agentTabs.deferAtLaunch(
-            key, reveal: services.launchReveal, focusedPane: focused, pane: pane.paneKey,
-            focusedDraws: focused.flatMap { key in pane.workspace?.panes.values.first { $0.paneKey == key } }?.showsLiveTerminal ?? false
-        ) { [weak pane] in
+        let focusedPane = pane.workspace?.focus.state.pane
+        let focused = focusedPane == pane.paneKey
+        let focusedTerminalDraws = focusedPane.flatMap { key in pane.workspace?.panes.values.first { $0.paneKey == key } }?.showsLiveTerminal ?? false
+        let deferred = services.agentTabs.deferAtLaunch(key, focused: focused, focusedTerminalDraws: focusedTerminalDraws,
+                                                        reveal: services.launchReveal, startup: services.launchStartup) { [weak pane] in
             if let pane, pane.currentTabKey == key { pane.showSelected() }
         }
         if deferred {
             drawLastPage(key, until: nil)
+            // The focused pane's picture is its first content: the pane region shows it in the first frame.
+            if focused, pane.view.launchImageView != nil { services.launchReveal.markReady(.pane) }
             return nil
         }
         guard let view = services.agentTabs.view(for: key) else {
@@ -49,8 +52,9 @@ struct AgentTabContent {
         }
         if !view.model.hasPainted { drawLastPage(key, until: view) }
         if view.model.newTab != nil { AgentPaneNewTabFrame.shared.capture(view, in: pane.view.contentHost) }
-        if view.model.newTab != nil { BenchSpans.mark(view.superview is NewTabSpareParking ? "newTab.show.parked" : "newTab.show") }
-        if view.model.hasPainted, view.superview is NewTabSpareParking { coverMove(of: view) }
+        if view.model.newTab != nil { BenchSpans.mark(view.superview is PagePreloadParkingView ? "newTab.show.parked" : "newTab.show") }
+        // A page the slot handed over with its cover keeps that cover until its first frame here (p13-webui-044).
+        if view.model.hasPainted, view.superview is PagePreloadParkingView, !services.newTabSpares.openingCovered(view) { coverMove(of: view) }
         AgentReplySites(services: services).wire(view.model.replyLinks)
         return .agent(view)
     }
@@ -66,7 +70,7 @@ struct AgentTabContent {
         // it shows in Chromium: that page draws over the frame as it comes in, both seen at once.
         let newTabFrame = { view?.model.newTab == nil || view?.pageDrawsOverCovers == true ? nil : AgentPaneNewTabFrame.shared.image(size: paneView.contentHost.bounds.size, appearance: Self.appearance(of: paneView)) }
         let image = { images.take(key, size: paneView.contentHost.bounds.size, appearance: Self.appearance(of: paneView)) ?? newTabFrame() }
-        if paneView.launchImageView == nil, let image = image() { paneView.showLaunchImage(image) }
+        if paneView.launchImageView == nil, let image = image() { paneView.showLaunchImage(image, hold: pane.services.launchImageHold) }
         guard paneView.launchImageView != nil, let view else { return }
         view.showsLoadingState = false
         paneView.onLaunchImageCleared = { [weak view] in
@@ -76,7 +80,8 @@ struct AgentTabContent {
         view.loadingView.whenRevealed { [weak paneView] in paneView?.clearLaunchImage() }
     }
 
-    /// A parked spare taken into this pane draws nothing until WebKit renders it in its new place
+    /// A preloaded page taken into this pane with no slot cover (parked rendering, taken before it parked, at another size,
+    /// or by Cmd-N before its pane's size was known) draws nothing until WebKit renders it in its new place
     /// (2-5 frames of an empty pane after Cmd-N, cx-21zkz): the New Tab frame shows under it, and
     /// the page stays clear, until its next frame there. Its own parked frame first, at the size it shows at.
     private func coverMove(of view: AgentPaneView) {
@@ -88,7 +93,7 @@ struct AgentTabContent {
         let image = size == .zero || paneView.launchImageView != nil || view.pageDrawsOverCovers ? nil : own ?? AgentPaneNewTabFrame.shared.image(size: size, appearance: appearance)
         BenchSpans.mark(image == nil ? "newTab.cover.none \(size) \(String(describing: appearance))" : own != nil ? "newTab.cover.own" : "newTab.cover")
         // The image's deadline shows the page too, should its frame never be reported.
-        if let image { paneView.showLaunchImage(image); paneView.onLaunchImageCleared = { [weak view] in view?.revealMovedPage() } }
+        if let image { paneView.showLaunchImage(image, hold: pane.services.launchImageHold); paneView.onLaunchImageCleared = { [weak view] in view?.revealMovedPage() } }
         view.hideMovedPage { [weak paneView] in
             BenchSpans.mark("newTab.cover.cleared")
             if image != nil { paneView?.clearLaunchImage() }

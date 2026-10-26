@@ -2,16 +2,129 @@
 # Verify the main-thread blocking detector's build configurations (plans/cmux-next/threading-model.md):
 #   1. Release (what users get): the detector is compiled out. No object of the CmuxNextApp scheme's Release
 #      build defines or references a detector symbol, and the inlinable check is a bare return.
-#   2. The Nightly configuration (Release + -DCMUX_BLOCKING_CHECKS, what nightly.yml will pass once its line
-#      lands; bench builds pass it today): it compiles, and the detector is in it (the flag reaches the
-#      package targets).
+#   2. The Nightly configuration (Release + -DCMUX_BLOCKING_CHECKS, what nightly.yml passes on the
+#      nightly-next track and `reload.sh --config bench-checks` passes): it compiles, and the detector is in it (the flag reaches
+#      the package targets).
 #   3. Nightly's tests and cost: CmuxNextCompat and its blocking tests in a scratch package built
 #      `-c release -DCMUX_BLOCKING_CHECKS` (no DEBUG): records, never traps, and a clean checked call
 #      costs < 50 ns (BlockingCheckCostTests).
 # Fleet: cmux-ci run --class exclusive --script scripts/measure/blocking-checks.sh --ref SHA
 #        --artifact artifacts/blocking-checks.tar.gz
 # Output: artifacts/blocking-checks/ (summary.txt, logs), and the tarball.
+#
+# App mode: scripts/measure/blocking-checks.sh --app PATH --expect nightly|release
+#   Reads a built app's main executable with nm (and its Contents/Resources/cmux-symbols.bin, the function
+#   names the release strip keeps) and needs no build. `nightly` exits 1 unless the detector is in the app
+#   (a nightly-next build; RUN-9), `release` exits 1 unless it is absent (RUN-11). Exits 2 when the app has
+#   no function names to read (stripped, no symbol map) or the arguments are wrong.
+#   Tests: bash scripts/measure/tests/blocking-checks-app.test.sh
 set -uo pipefail
+
+DETECTOR_SYMBOL='BlockingViolationTable|BlockingPendingRing|BlockingSiteIndex|BlockingRunLoopNesting|mainThreadBlocked|mainThreadWaitedForLock'
+
+usage() {
+  echo "usage: $0 [--app PATH --expect nightly|release]" >&2
+}
+
+# The function names of the cmux NEXT symbol map ($1, scripts/write-app-symbol-map.py's format), one per line.
+symbol_map_names() {
+  python3 -I - "$1" <<'PY'
+import struct, sys, zlib
+blob = open(sys.argv[1], "rb").read()
+if blob[:8] != b"CMXSYM1\0":
+    sys.exit(f"blocking-checks: {sys.argv[1]} is not an app symbol map")
+(count,) = struct.unpack_from("<I", blob, 8)
+at = 12
+for _ in range(count):
+    (size,) = struct.unpack_from("<I", blob, at + 16)
+    body = zlib.decompress(blob[at + 20:at + 20 + size], -15)
+    at += 20 + size
+    (symbols,) = struct.unpack_from("<I", body, 0)
+    pos = 4
+    for _ in range(symbols):  # skip the LEB128 offset deltas
+        while body[pos] & 0x80:
+            pos += 1
+        pos += 1
+    for name in body[pos:].split(b"\0"):
+        if name:
+            print(name.decode("utf-8", "replace"))
+PY
+}
+
+# App mode: is the detector in the app at $1? $2 is what the build should be: nightly (in) or release (out).
+check_app() {
+  local app="$1" expect="$2"
+  local nm_tool="${CMUX_NM_TOOL:-nm}" demangle_tool="${CMUX_SWIFT_DEMANGLE_TOOL:-swift}"
+  local demangle_args=(demangle --compact)
+  [[ -n "${CMUX_SWIFT_DEMANGLE_TOOL:-}" ]] && demangle_args=(--compact)
+  [[ -d "$app/Contents" ]] || { echo "blocking-checks: no app bundle at $app" >&2; return 2; }
+  local exe_name
+  exe_name="$(python3 -I -c 'import plistlib, sys; print(plistlib.load(open(sys.argv[1], "rb"))["CFBundleExecutable"])' \
+    "$app/Contents/Info.plist" 2>/dev/null)" || exe_name=""
+  local exe="$app/Contents/MacOS/$exe_name"
+  [[ -n "$exe_name" && -f "$exe" ]] || { echo "blocking-checks: no main executable in $app" >&2; return 2; }
+  local raw
+  raw="$(mktemp "${TMPDIR:-/tmp}/blocking-checks-app.XXXXXX")" || return 2
+  # nm's error fails the check: an executable nm cannot read must never look clean.
+  if ! "$nm_tool" "$exe" >"$raw"; then
+    rm -f -- "$raw"
+    echo "blocking-checks: nm could not read $exe" >&2
+    return 2
+  fi
+  # Function names nm sees, not counting the header symbol a stripped executable keeps.
+  local functions
+  functions="$(awk '($2 == "t" || $2 == "T") && $3 != "__mh_execute_header"' "$raw" | wc -l | tr -d ' ')"
+  local map="$app/Contents/Resources/cmux-symbols.bin" sources="nm ($functions function names)"
+  if [[ -f "$map" ]]; then
+    if ! symbol_map_names "$map" >>"$raw"; then
+      rm -f -- "$raw"
+      echo "blocking-checks: could not read the symbol map $map" >&2
+      return 2
+    fi
+    sources+=", cmux-symbols.bin"
+  elif [[ "$functions" -eq 0 ]]; then
+    rm -f -- "$raw"
+    echo "blocking-checks: $exe is stripped and $app has no Contents/Resources/cmux-symbols.bin: no function names to read" >&2
+    return 2
+  fi
+  local demangled status=0
+  if ! demangled="$("$demangle_tool" "${demangle_args[@]}" <"$raw")"; then
+    rm -f -- "$raw"
+    echo "blocking-checks: $demangle_tool ${demangle_args[*]} failed" >&2
+    return 2
+  fi
+  rm -f -- "$raw"
+  local hits count
+  hits="$(grep -E "$DETECTOR_SYMBOL" <<<"$demangled")"
+  count="$(grep -c . <<<"$hits")"
+  echo "blocking-checks: $exe_name: $count detector symbols (read from $sources)"
+  if [[ "$expect" == nightly && "$count" -eq 0 ]]; then
+    echo "FAIL: the detector is not in $app; the nightly-next build did not pass -DCMUX_BLOCKING_CHECKS" >&2
+    status=1
+  elif [[ "$expect" == release && "$count" -gt 0 ]]; then
+    echo "FAIL: the detector is compiled into $app, a Release build" >&2
+    printf '%s\n' "$hits" | head -20 >&2
+    status=1
+  fi
+  return "$status"
+}
+
+app="" expect=""
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --app|--expect)
+      [[ $# -ge 2 ]] || { usage; exit 2; }
+      if [[ "$1" == --app ]]; then app="$2"; else expect="$2"; fi
+      shift 2 ;;
+    -h|--help) usage; exit 0 ;;
+    *) usage; exit 2 ;;
+  esac
+done
+if [[ -n "$app" || -n "$expect" ]]; then
+  [[ -n "$app" && ( "$expect" == nightly || "$expect" == release ) ]] || { usage; exit 2; }
+  check_app "$app" "$expect"
+  exit $?
+fi
 
 ROOT="$(git rev-parse --show-toplevel)"
 cd "$ROOT"
@@ -41,8 +154,6 @@ note "xcode: $(xcodebuild -version | tr '\n' ' ')"
 note "commit: $(git rev-parse HEAD)"
 scratch="$(mktemp -d "${TMPDIR:-/tmp}/blocking-checks.XXXXXX")"
 trap 'rm -rf -- "$scratch"' EXIT
-
-DETECTOR_SYMBOL='BlockingViolationTable|BlockingPendingRing|BlockingSiteIndex|BlockingRunLoopNesting|mainThreadBlocked|mainThreadWaitedForLock'
 
 release_build() {  # $1: name, $2...: extra build settings
   local name="$1"; shift
@@ -114,20 +225,49 @@ cp -R Packages/macOS/CmuxNext/Sources/CmuxNextCompat "$pkg/Sources/"
 cp Packages/macOS/CmuxNext/Tests/CmuxNextCompatTests/BlockingCheck*.swift "$pkg/Tests/CmuxNextCompatTests/"
 revision="$(python3 -c "import json,sys;print(next(p['state']['revision'] for p in json.load(open(sys.argv[1]))['pins'] if p['identity']=='swift-atomics'))" Packages/macOS/CmuxNext/Package.resolved)"
 # The real package's settings, read from its manifest: CmuxNextCompat builds with daemonSwiftSettings and its
-# tests with uiSwiftSettings, as in Packages/macOS/CmuxNext/Package.swift.
-settings_swift="$(python3 - Packages/macOS/CmuxNext/Package.swift <<'PY'
-import re, sys
-text = open(sys.argv[1]).read()
-for name in ("uiSwiftSettings", "daemonSwiftSettings"):
-    block = re.search(r"^let " + name + r": \[SwiftSetting\] = \[.*?^\]$", text, re.S | re.M)
-    if not block:
-        sys.exit(f"blocking-checks: no `let {name}` in the manifest")
-    print(block.group(0))
-PY
-)" || { fail "nightly tests: could not read the package's Swift settings"; settings_swift=""; }
+# tests with uiSwiftSettings, as in Packages/macOS/CmuxNext/Package.swift. A `let NAME: [SwiftSetting]` statement
+# runs to the next column-0 line that does not continue it (`] + stabilitySwiftSettings` continues it), and the
+# settings constants it names come first, so the scratch manifest declares each one once.
 compat_settings="$(grep -A3 'name: "CmuxNextCompat",' Packages/macOS/CmuxNext/Package.swift | grep -o 'swiftSettings: [A-Za-z]*' | awk '{ print $NF }' | head -1)"
 tests_settings="$(grep -A3 'name: "CmuxNextCompatTests"' Packages/macOS/CmuxNext/Package.swift | grep -o 'swiftSettings: [A-Za-z]*' | awk '{ print $NF }' | head -1)"
 note "nightly tests: CmuxNextCompat uses ${compat_settings:-?}, its tests ${tests_settings:-?} (from the manifest)"
+settings_swift="$(python3 - Packages/macOS/CmuxNext/Package.swift "${compat_settings:-daemonSwiftSettings}" \
+  "${tests_settings:-uiSwiftSettings}" <<'PY'
+import re, sys
+lines = open(sys.argv[1]).read().split("\n")
+starts = {m.group(1): i for i, line in enumerate(lines) if (m := re.match(r"let (\w+): \[SwiftSetting\] = ", line))}
+
+
+def statement(name):
+    first = last = starts[name]
+    for index in range(first + 1, len(lines)):
+        line = lines[index]
+        if line.strip() and not line[0].isspace() and line[0] not in "])}+.":
+            break
+        if line.strip():
+            last = index
+    return "\n".join(lines[first:last + 1])
+
+
+emitted = []
+
+
+def emit(name, chain):
+    if name in emitted:
+        return
+    if name not in starts:
+        sys.exit(f"blocking-checks: {' -> '.join(chain + [name])}: no `let {name}: [SwiftSetting]` in the manifest")
+    for used in re.findall(r"\b\w+SwiftSettings\b", statement(name).split("=", 1)[1]):
+        if used not in chain + [name]:
+            emit(used, chain + [name])
+    emitted.append(name)
+
+
+for name in dict.fromkeys(sys.argv[2:]):
+    emit(name, [])
+print("\n".join(statement(name) for name in emitted))
+PY
+)" || { fail "nightly tests: could not read the package's Swift settings"; settings_swift=""; }
 cat >"$pkg/Package.swift" <<SWIFT
 // swift-tools-version: 6.2
 import PackageDescription
@@ -144,6 +284,10 @@ let package = Package(
     ]
 )
 SWIFT
+# The scratch manifest parses before the build, so a settings edit in the real manifest that this copy does not
+# follow fails here by name, not as a compile failure of the tests.
+swift package dump-package --package-path "$pkg" >"$OUT/nightly-tests-manifest.json" 2>"$OUT/nightly-tests-manifest.log" \
+  || fail "nightly tests: the scratch Package.swift does not parse (see nightly-tests-manifest.log)"
 flags=(-c release -Xswiftc -enable-testing -Xswiftc -DCMUX_BLOCKING_CHECKS)
 # The tests use the probe-free table seams (@testable); a Nightly-configuration test run proves the record-only
 # path, the clean-path cost (< 50 ns per checked call) and that a Nightly never traps.

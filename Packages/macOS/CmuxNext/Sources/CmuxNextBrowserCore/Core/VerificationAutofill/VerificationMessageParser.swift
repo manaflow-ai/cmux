@@ -1,3 +1,4 @@
+import CmuxNextCompat
 package import Foundation
 
 /// Reads a verification email's codes, origin-bound line and https links
@@ -56,10 +57,10 @@ public nonisolated struct VerificationMessageParser: Sendable {
 
     private static func hasCodeWord(_ line: String) -> Bool {
         let range = NSRange(line.startIndex..., in: line)
-        guard let codeWord, let notACodeWord, codeWord.firstMatch(in: line, range: range) != nil else { return false }
+        guard let codeWord, let notACodeWord, codeWord.blockingRegexFirstMatch(in: line, range: range) != nil else { return false }
         // A line whose only code words are excluded ones ("zip code 94107") has none.
-        let all = codeWord.numberOfMatches(in: line, range: range)
-        let excluded = notACodeWord.numberOfMatches(in: line, range: range)
+        let all = codeWord.blockingRegexNumberOfMatches(in: line, range: range)
+        let excluded = notACodeWord.blockingRegexNumberOfMatches(in: line, range: range)
         return all > excluded
     }
 
@@ -71,7 +72,7 @@ public nonisolated struct VerificationMessageParser: Sendable {
 
     private static func codes(in line: String) -> [String] {
         guard let candidate else { return [] }
-        return candidate.matches(in: line, range: NSRange(line.startIndex..., in: line)).compactMap { match in
+        return candidate.blockingRegexMatches(in: line).compactMap { match in
             guard let range = Range(match.range(at: 1), in: line) else { return nil }
             let code = String(line[range].filter { $0 != " " && $0 != "-" })
             return isYear(code) ? nil : code
@@ -90,7 +91,7 @@ public nonisolated struct VerificationMessageParser: Sendable {
     private static let originBound = try? NSRegularExpression(pattern: #"^@([A-Za-z0-9.-]+) #([A-Za-z0-9]{4,12})$"#)
 
     private static func originBoundCode(_ line: String) -> OriginBoundCode? {
-        guard let match = originBound?.firstMatch(in: line, range: NSRange(line.startIndex..., in: line)),
+        guard let match = originBound?.blockingRegexFirstMatch(in: line),
               let hostRange = Range(match.range(at: 1), in: line), let codeRange = Range(match.range(at: 2), in: line)
         else { return nil }
         return OriginBoundCode(host: String(line[hostRange]).lowercased(), code: String(line[codeRange]))
@@ -100,7 +101,7 @@ public nonisolated struct VerificationMessageParser: Sendable {
 
     private static func links(in text: String) -> [URL] {
         guard let detector = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue) else { return [] }
-        return detector.matches(in: text, range: NSRange(text.startIndex..., in: text)).compactMap(\.url)
+        return detector.blockingRegexMatches(in: text).compactMap(\.url)
     }
 
     /// https only, a host, no user info, the default port; each link once.

@@ -703,6 +703,7 @@ pub(crate) fn read_workspace(
     }))
 }
 
+#[track_caller]
 pub(crate) fn read_snapshot(connection: &Connection) -> anyhow::Result<PersonalSnapshot> {
     Ok(PersonalSnapshot {
         personal_revision: personal_revision(connection)?,
@@ -749,6 +750,7 @@ pub(crate) fn next_workspace_position(connection: &Connection) -> anyhow::Result
 
 /// Bump `personal_revision` and append the journal fact of one personal
 /// mutation, in the caller's transaction. Returns the new revision.
+#[track_caller]
 pub(crate) fn commit_personal(
     transaction: &Transaction<'_>,
     kind: &str,
@@ -768,6 +770,7 @@ pub(crate) fn commit_personal(
 
 /// Bump `personal_revision` alone: for a personal write that is part of
 /// another commit's fact (the create-time personal row of a workspace).
+#[track_caller]
 pub(crate) fn bump_personal_revision(transaction: &Transaction<'_>) -> anyhow::Result<u64> {
     let revision = personal_revision(transaction)?.saturating_add(1);
     transaction.execute(

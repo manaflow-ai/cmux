@@ -4,6 +4,7 @@ import CmuxNextCloud
 import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextFeed
+import CmuxNextWakeups
 import Foundation
 
 /// The app's feed (plans/cmux-next/feed.md): one `FeedModel` mirroring the
@@ -22,6 +23,8 @@ final class FeedService {
     private let github: GitHubFeedSource
     private let showcase: Bool
     private let auth: CloudAuth
+    /// The app's deadline placer, for each request's wait (``waitClosed(_:until:)``).
+    private let deadlines: MainDeadlineScheduler
     /// The app's acpmux, resolved once at startup (nil: a mock agent host or no acpmux binary).
     /// A report reply uses it as is: the reply path resolves nothing (no executable or signature
     /// check on the main thread).
@@ -51,8 +54,11 @@ final class FeedService {
         auth.configuration.ownerAPIBaseURL(environment: environment)
     }
 
-    init(auth: CloudAuth, showcase: Bool = false, acpmuxEnvironment: AcpmuxEnvironment? = nil) {
+    /// `energy` stretches the GitHub poll under Energy Saver; with `shown`, it books nothing while no window shows.
+    init(auth: CloudAuth, deadlines: MainDeadlineScheduler, energy: EnergyPolicySource, shown: ShownWindows?, showcase: Bool = false,
+         acpmuxEnvironment: AcpmuxEnvironment? = nil) {
         self.auth = auth
+        self.deadlines = deadlines
         self.showcase = showcase
         self.acpmuxEnvironment = acpmuxEnvironment
         apiBaseURL = Self.apiBaseURL(auth: auth)
@@ -62,7 +68,7 @@ final class FeedService {
         }
         var observe: (@MainActor (FeedSourceEvent) -> Void)?
         localOwner = LocalFeedSourceAdapter(primary: showcase ? MockFeedSource() : source)
-        github = GitHubFeedSource(owner: localOwner)
+        github = GitHubFeedSource(owner: localOwner, energy: energy, shown: shown)
         model = FeedModel(source: FeedTeeSource(localOwner) { observe?($0) })
         model.githubDetail = { [weak self] item in self?.githubDetail(for: item) }
         observe = { [weak self] in self?.observe($0) }
@@ -265,12 +271,9 @@ final class FeedService {
     /// Waits until the owner reports the item closed, or the deadline passes.
     func waitClosed(_ id: String, until deadline: ContinuousClock.Instant) async {
         if confirmed[id].map({ $0 != .open }) ?? false { return }
-        // task-owner: FeedService.waitClosed, one-shot request deadline; resumes this waiter only.
-        let timer = Task { [weak self] in
-            // wakeup-allow: one-shot deadline of one feed request (at most 120 s), cancelled when the item closes.
-            try? await ContinuousClock().sleep(until: deadline)
-            self?.expireWaiters(id)
-        }
+        // The request's deadline (at most 120 s): a CLI request waits on it; cancelled when the item closes first.
+        let timer = MainDeadline(owner: "FeedService.waitClosed", workClass: .automation, scheduler: deadlines)
+        timer.schedule(after: ContinuousClock.now.duration(to: deadline)) { [weak self] in self?.expireWaiters(id) }
         await withCheckedContinuation { waiters[id, default: []].append($0) }
         timer.cancel()
     }
@@ -293,7 +296,7 @@ final class FeedService {
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
         // The bearer never goes through the shared, caching session.
         let (data, _) = try await CloudAPIClient.noStoreTransport.data(for: request)
-        guard let reply = try JSONSerialization.jsonObject(with: data) as? [String: Any] else { throw FeedServiceError.badReply }
+        guard let reply = try JSONSerialization.blockingJSONObject(with: data) as? [String: Any] else { throw FeedServiceError.badReply }
         if let error = reply["error"] as? [String: Any] {
             throw FeedServiceError.owner(code: error["code"] as? String ?? "error", message: error["message"] as? String ?? "")
         }

@@ -1,9 +1,14 @@
+import CmuxNextCompat
 import CmuxNextCrashReporting
+import CmuxNextMetrics
+import CmuxNextTrace
+import CmuxNextWakeups
 import Darwin
 import Foundation
 import os
 
 /// Descriptor the fatal-signal handler writes the signal number into.
+// crash-allow: signal-handler state, an aligned Int32 with a constant initial value (an Atomic would run its lazy initializer in the handler); set on the main thread before installHandlers, then cleared once by the handler or a clean exit.
 nonisolated(unsafe) private var fatalSignalDescriptor: Int32 = -1
 
 /// Writes the signal number ("11\n") with one async-signal-safe write(2),
@@ -21,7 +26,8 @@ nonisolated(unsafe) private var fatalSignalDescriptor: Int32 = -1
 ///
 /// First `fatalSignalBegan` gives back Sentry's Mach exception ports (the
 /// fault that runs again must reach the system's handler) and starts the
-/// crash deadline (2026-10-20 freezes).
+/// crash deadline (2026-10-20 freezes). The crash keys (`run.crashkeys`)
+/// are written after the signal number.
 private let fatalSignalHandler: @convention(c) (Int32, UnsafeMutablePointer<__siginfo>?, UnsafeMutableRawPointer?) -> Void = { signal, info, context in
     CrashReporter.fatalSignalBegan()
     var bytes: (UInt8, UInt8, UInt8) = (UInt8(48 + (signal / 10) % 10), UInt8(48 + signal % 10), 10)
@@ -32,6 +38,8 @@ private let fatalSignalHandler: @convention(c) (Int32, UnsafeMutablePointer<__si
         // concurrency-allow: signal handler context (the process is ending), one 3-byte write to a local file.
         _ = withUnsafeBytes(of: &bytes) { Darwin.write(descriptor, $0.baseAddress, 3) }
     }
+    // After run.signal: a fault in here re-runs under SIG_DFL and still leaves the signal recorded.
+    CrashReporter.recordCrashKeys()
     _ = Darwin.signal(signal, SIG_DFL)
     let sentBySoftware = info.map { $0.pointee.si_code == SI_USER || $0.pointee.si_code == SI_QUEUE } ?? true
         || arrivedOnASystemCall(context)
@@ -83,9 +91,15 @@ final class AppRunMarker {
 
     /// How this launch follows the previous run.
     let recovery: LaunchRecovery
-
+    /// How the previous run ended when it did not quit as asked (stability.unclean_exit, task 109); nil after a
+    /// normal or requested quit, or on a first launch.
+    let previousExit: HistogramID.UncleanExit?
     private var signalFile: URL { directory.appending(path: "run.signal") }
     private var exceptionFile: URL { directory.appending(path: "run.exception") }
+    private var crashKeysFile: URL { directory.appending(path: "run.crashkeys") }
+    /// The previous run's `run.crashkeys`, moved aside at launch so this run's crash path gets an empty file;
+    /// read off the main thread (``readCrashKeys(_:)``).
+    var previousCrashKeysFile: URL { directory.appending(path: "run.crashkeys.previous") }
 
     /// The app's marker folder for `bundleID`.
     static func standardDirectory(bundleID: String?) -> URL {
@@ -95,19 +109,33 @@ final class AppRunMarker {
     }
 
     /// Reads the previous run's marker in `directory`, then marks this run
-    /// live and installs the fatal signal handlers.
-    init(directory root: URL, now: Date = Date()) {
+    /// live and installs the fatal signal handlers. `bootSession` is this
+    /// boot's id, stored in the marker (tests pass their own).
+    init(directory root: URL, now: Date = Date(), bootSession: String? = AppRunMarker.currentBootSession()) {
         self.directory = root
         file = RunMarkerFile(url: root.appending(path: "run.json"), signalURL: root.appending(path: "run.signal"))
         let previous = Self.readPrevious(marker: root.appending(path: "run.json"), signal: root.appending(path: "run.signal"),
                                          exception: root.appending(path: "run.exception"))
-        recovery = LaunchRecovery.decide(previous: previous)
-        marker = PreviousRun(pid: getpid(), launched: now, recovery: LaunchRecovery.watchesForLoop(previous: previous),
-                             survived: false, signal: nil)
+        previousExit = previous?.uncleanExit(bootSession: bootSession)
+        let recovered = previous?.forRecovery(bootSession: bootSession)
+        recovery = LaunchRecovery.decide(previous: recovered)
+        marker = PreviousRun(pid: getpid(), launched: now, recovery: LaunchRecovery.watchesForLoop(previous: recovered),
+                             survived: false, signal: nil, bootSession: bootSession)
         start()
     }
 
+    /// This boot's id, `kern.bootsessionuuid` as 32 hex digits; nil when the kernel does not give it.
+    nonisolated static func currentBootSession() -> String? {
+        let bytes = TraceBlackBox.ProcessFacts.current().bootSessionUUID
+        guard !bytes.isEmpty else { return nil }
+        return bytes.map { String(format: "%02x", $0) }.joined()
+    }
+
     private func start() {
+        // First, before any crash handler is installed (the uncaught-exception recorder below, the crash deadline,
+        // the fatal-signal handlers) and whether or not the files below open: the crash keys' block, which those
+        // handlers read (CrashKeys).
+        CrashReporter.prepareCrashKeysBlock()
         do {
             // concurrency-allow: once at launch; a stat when the folder exists (every launch after the first).
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -123,13 +151,24 @@ final class AppRunMarker {
         let descriptor = open(signalFile.path, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0o600)
         guard descriptor >= 0 else { return }
         fatalSignalDescriptor = descriptor
+        // The crash path writes this run's crash keys here (CrashKeys); the previous run's move aside, to be read
+        // off the main thread (CrashRecoveryService). No previous file: an older one aside is not this launch's.
+        // concurrency-allow: once at launch, as run.signal's open above; a rename in one folder, no fsync.
+        // blocking-allow: the crash path needs this run's file open before the handlers are installed, at launch
+        // on main like run.signal's open above; no seam runs earlier.
+        if rename(crashKeysFile.path, previousCrashKeysFile.path) != 0 { unlink(previousCrashKeysFile.path) }
+        // concurrency-allow: once at launch, as run.signal's open above; creates an empty file, no fsync.
+        // blocking-allow: as the rename above (the descriptor the crash path writes to, before its handlers).
+        let keysDescriptor = open(crashKeysFile.path, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0o600)
+        if keysDescriptor >= 0 { CrashReporter.prepareCrashKeysRecord(descriptor: keysDescriptor) }
         CrashReporter.installCrashDeadline()
         CrashReporter.installCrashWatcher(sampleFile: directory.appending(path: "crash-watcher-sample.txt").path)
         installHandlers()
         let window = LaunchRecovery.quickCrashWindow
         survivalTask = Task { [weak self] in
-            // wakeup-allow: one-shot quick-crash window after launch; fires once
-            do { try await Task.sleep(for: window) } catch { return }
+            // wakeup-allow: deadline the quick-crash window after launch; fires once, cancelled by a clean exit. It is
+            // armed inside AppServices.init, before the app's MainDeadlineScheduler can be read.
+            do { try await Task.sleep(for: window, tolerance: WakeLeeway.window(delay: window).tolerance) } catch { return }
             self?.markSurvived()
         }
     }
@@ -205,12 +244,18 @@ final class AppRunMarker {
         }
     }
 
+    /// The crash keys a run's crash path wrote (`url`: ``previousCrashKeysFile``); nil when that run ended with no
+    /// crash path (a normal quit, SIGKILL, power loss). Off the main thread.
+    nonisolated static func readCrashKeys(_ url: URL) -> CrashKeys? {
+        (try? String(blockingContentsOf: url, encoding: .utf8)).flatMap { CrashKeys(record: $0) }
+    }
+
     nonisolated static func readPrevious(marker: URL, signal: URL, exception: URL? = nil) -> PreviousRun? {
         // concurrency-allow: once at launch before the first window, a file of about 150 bytes in Application Support.
         guard let data = try? Data(contentsOf: marker) else { return nil }
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .secondsSince1970
-        guard var run = try? decoder.decode(PreviousRun.self, from: data) else { return nil }
+        guard var run = try? decoder.blockingDecode(PreviousRun.self, from: data) else { return nil }
         // concurrency-allow: once at launch before the first window, a file of at most 3 bytes.
         if let text = try? String(contentsOf: signal, encoding: .utf8),
            let first = text.split(whereSeparator: \.isNewline).first,
@@ -219,5 +264,28 @@ final class AppRunMarker {
         }
         if let exception { run.exception = UncaughtExceptionRecorder.read(exception) }
         return run
+    }
+}
+
+extension PreviousRun {
+    /// How this run ended, seen from a launch in boot `current`; nil when it quit as asked. A handler's record
+    /// is a crash whatever the boot: the fault ended the run before any restart did. No handler and another
+    /// boot is a system shutdown (power loss, a kernel panic, a forced restart); no handler in this boot is a
+    /// kill (`kill -9`, jetsam, Force Quit).
+    ///
+    /// Chrome's model: the clean-exit beacon (components/metrics/clean_exit_beacon.cc) says only that a run did
+    /// not end cleanly; an unclean exit while the system session ended is counted apart
+    /// (components/metrics/stability_metrics_provider.cc). Here the session is `kern.bootsessionuuid`.
+    nonisolated func uncleanExit(bootSession current: String?) -> HistogramID.UncleanExit? {
+        if endedAsAsked { return nil }
+        if crashed { return .crash }
+        if let bootSession, let current, bootSession != current { return .systemShutdown }
+        return .killed
+    }
+
+    /// The run `LaunchRecovery` decides on from boot `current`: none when the machine's restart ended it, which
+    /// is neither a crash nor a restart loop.
+    nonisolated func forRecovery(bootSession current: String?) -> PreviousRun? {
+        uncleanExit(bootSession: current) == .systemShutdown ? nil : self
     }
 }

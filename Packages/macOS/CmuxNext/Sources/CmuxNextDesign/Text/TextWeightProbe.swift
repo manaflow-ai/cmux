@@ -1,5 +1,6 @@
 #if DEBUG || CMUX_BENCH_HOOKS
 public import AppKit
+public import CmuxNextCompat
 import CmuxNextWakeups
 
 /// `debug.text_weight` (DEBUG; text-weight-e2e.py, cx-8w027.12): the glyph coverage of
@@ -12,8 +13,13 @@ import CmuxNextWakeups
 /// row's, so 1 is the stock weight.
 public struct TextWeightProbe {
     public let dark: Bool
+    /// The app's lanes: each read of the window server's image runs on their system lane.
+    public let lanes: any MayBlockRunner
 
-    public init(dark: Bool) { self.dark = dark }
+    public init(dark: Bool, lanes: any MayBlockRunner) {
+        self.dark = dark
+        self.lanes = lanes
+    }
 
     private static let text = "Workspace notes 0123 quick brown fox"
     private static let fonts: [(String, NSFont)] = [
@@ -90,7 +96,7 @@ public struct TextWeightProbe {
         var shown: CGImage?
         for _ in 0..<20 {
             await Self.frames(3, of: window)
-            let next = window.compositedSnapshot() // perf-gate-ok: debug.text_weight probe window
+            let next = await window.compositedImage(on: lanes) // perf-gate-ok: debug.text_weight probe window
             if let next, let previous = shown, Self.same(previous, next) { break }
             shown = next
         }

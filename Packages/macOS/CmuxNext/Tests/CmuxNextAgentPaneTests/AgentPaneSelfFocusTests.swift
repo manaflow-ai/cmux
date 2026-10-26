@@ -1,8 +1,10 @@
 import AppKit
+import CmuxNextPages
 import Foundation
 import Testing
 import WebKit
 @testable import CmuxNextAgentPane
+import CmuxNextWakeups
 
 /// An agent page cannot take the keyboard by itself (cx-3hw0i.2, `AgentPaneView.refusesSelfFocus`).
 /// A pane keeps a tab it does not show parked in place, hidden (PaneContentView+Parking): a chat or
@@ -18,26 +20,23 @@ struct AgentPaneSelfFocusTests {
     }
 
     /// An agent page inside `host`, as a pane's content host holds it.
-    private func page(in host: NSView) throws -> (AgentPaneView, URL) {
-        let directory = FileManager.default.temporaryDirectory.appending(path: "self-focus-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        let file = directory.appending(path: "index.html")
-        try Data("<html><body></body></html>".utf8).write(to: file)
-        let view = try #require(AgentPaneView(model: AgentPaneModel(host: NoHost()), source: .bundled(file)))
+    private func page(in host: NSView) throws -> AgentPaneView {
+        let file = try #require(AgentPageTestRoot.page)
+        let view = try #require(AgentPaneView(model: AgentPaneModel(host: NoHost()), work: BackgroundWork(label: "test.agent-pane"), source: .bundled(file), webUI: .agentPaneTestHost(), gestures: .testing()))
         host.addSubview(view)
-        return (view, directory)
+        return view
     }
 
     private func refuses(_ view: AgentPaneView, inInputEvent: Bool = false, focusModelApplies: Bool = false,
                          focusedPane: String? = "pane-a", shownIn pane: String? = "pane-a") -> Bool {
-        AgentPaneView.refusesSelfFocus(view.webView, inInputEvent: inInputEvent, focusModelApplies: focusModelApplies,
+        // The test host shows the chat in WebKit, whose view asks the window for the keyboard.
+        AgentPaneView.refusesSelfFocus(view.page.webKitEngine, inInputEvent: inInputEvent, focusModelApplies: focusModelApplies,
                                        focusedPane: { focusedPane }, pane: { _ in pane })
     }
 
     @Test func aHiddenPageInTheFocusedPaneCannotTakeTheKeyboard() throws {
         let host = NSView(frame: NSRect(x: 0, y: 0, width: 400, height: 300))
-        let (view, directory) = try page(in: host)
-        defer { try? FileManager.default.removeItem(at: directory) }
+        let view = try page(in: host)
         view.isHidden = true
         #expect(refuses(view), "a page parked hidden behind the focused pane's shown tab took the keyboard")
         #expect(refuses(view, shownIn: nil), "a hidden page no pane shows took the keyboard")
@@ -46,16 +45,14 @@ struct AgentPaneSelfFocusTests {
 
     @Test func aPageUnderAHiddenAncestorCannotTakeTheKeyboard() throws {
         let host = NSView(frame: NSRect(x: 0, y: 0, width: 400, height: 300))
-        let (view, directory) = try page(in: host)
-        defer { try? FileManager.default.removeItem(at: directory) }
+        let view = try page(in: host)
         host.isHidden = true
         #expect(refuses(view), "a page inside a hidden view took the keyboard")
     }
 
     @Test func theShownPageAndTheUsersOwnMovesStillGiveTheKeyboard() throws {
         let host = NSView(frame: NSRect(x: 0, y: 0, width: 400, height: 300))
-        let (view, directory) = try page(in: host)
-        defer { try? FileManager.default.removeItem(at: directory) }
+        let view = try page(in: host)
         #expect(!refuses(view), "the focused pane's shown page could not take the keyboard")
         #expect(refuses(view, shownIn: "pane-b"), "a page in another pane took the keyboard by itself")
         view.isHidden = true

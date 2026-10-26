@@ -70,7 +70,8 @@ public struct V2WireSigningCodec: Sendable {
     }
 
     func newProofNonce() -> String {
-        SymmetricKey(size: .bits128).withUnsafeBytes { base64URL(Data($0)) }
+        // SAFETY: the view covers the key's 16 bytes and Data copies them before it ends.
+        SymmetricKey(size: .bits128).withUnsafeBytes { unsafe base64URL(Data($0)) }
     }
 
     private func quoted(_ value: String) throws -> String {

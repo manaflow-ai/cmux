@@ -1,5 +1,6 @@
 public import CoreGraphics
 public import CmuxNextDesign
+import CmuxNextPages
 import CmuxNextSettings
 
 /// A chat's header tools in its pane's tab row (`ChromeTunables.tabRowTools`, header/tabRow.ts):
@@ -53,25 +54,24 @@ import CmuxNextSettings
     /// Offers `view`'s page the top `height` points of the pane, less `trailingInset` at the trailing
     /// end (0, or the setting off: no row), converted to CSS pixels; pushed only when it changed.
     public static func offer(points height: CGFloat, trailingInset: CGFloat, to view: AgentPaneView) {
-        let zoom = max(0.25, view.webView.pageZoom)
+        let zoom = CGFloat(max(0.25, view.page.pageZoom))
         let on = ChromeTunables.tabRowTools.value && height > 0
         let row = view.model.tabRow
         let next = (height: on ? height / zoom : 0, trailingInset: on ? max(0, trailingInset) / zoom : 0)
         let shares = on && row.toolsWidth > 0
         view.setTabRowCover(shares ? height : 0) // the pane lays the view under the strip only then
-        if let page = view.page {
-            // A Chromium chat is a window above the pane: it leaves the pane's tabs and toolbar uncovered.
-            // The holes are worked out from the row's top-left corner; the chat view is not flipped, so
-            // its top is maxY (at y 0 they cut the composer's footer out of the page instead).
-            let top = view.isFlipped ? view.bounds.minY : view.bounds.maxY - height
-            let holes = shares ? nativeHoles(width: view.bounds.width, height: height, trailingInset: max(0, trailingInset),
-                                             tools: row.sharedWidth(zoom: zoom) ?? 0) : []
-            page.nativeRects = holes.map { page.convert($0.offsetBy(dx: view.bounds.minX, dy: top), from: view) }
-        }
+        // A Chromium chat is a window above the pane: it leaves the pane's tabs and toolbar uncovered.
+        // The holes are worked out from the row's top-left corner; the chat view is not flipped, so
+        // its top is maxY (at y 0 they cut the composer's footer out of the page instead).
+        let top = view.isFlipped ? view.bounds.minY : view.bounds.maxY - height
+        let holes = shares ? nativeHoles(width: view.bounds.width, height: height, trailingInset: max(0, trailingInset),
+                                         tools: row.sharedWidth(zoom: zoom) ?? 0) : []
+        let page = view.page
+        page.nativeRects = holes.map { page.convert($0.offsetBy(dx: view.bounds.minX, dy: top), from: view) }
         guard row.offered.map({ $0 != next }) ?? (next.height > 0) else { return }
         row.offered = next
         let event = row.event
-        view.deliver([event], scripts: ["window.cmuxAcpmuxBridge?.applyTabRow?.(\(event.value.compactText));"])
+        view.deliver([event])
     }
 }
 
@@ -95,8 +95,8 @@ extension AgentPageEvent {
 
 /// A chat's header tools share its pane's tab row (the conformance is the App's, PaneContentView+Parking).
 extension PaneTabRowSharing where Self: AgentPaneView {
-    public var tabRowToolsWidth: CGFloat? { model.tabRow.sharedWidth(zoom: webView.pageZoom) }
-    public var tabRowToolsNeed: CGFloat? { model.tabRow.sharedNeed(zoom: webView.pageZoom) }
+    public var tabRowToolsWidth: CGFloat? { model.tabRow.sharedWidth(zoom: CGFloat(page.pageZoom)) }
+    public var tabRowToolsNeed: CGFloat? { model.tabRow.sharedNeed(zoom: CGFloat(page.pageZoom)) }
     public var onTabRowToolsChange: (() -> Void)? { get { model.tabRow.onChange } set { model.tabRow.onChange = newValue } }
     public func setTabRow(height: CGFloat, trailingInset: CGFloat) { AgentPaneTabRow.offer(points: height, trailingInset: trailingInset, to: self) }
 }

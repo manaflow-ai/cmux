@@ -1,6 +1,6 @@
 public import AppKit
 import CmuxNextDesign
-import Observation
+public import CmuxNextWakeups
 
 /// The Home page's two columns with a real divider: the resize cursor over a
 /// wide grab area, the sidebar between its minimum and half the window, a
@@ -33,11 +33,18 @@ public final class HomeSidebarSplitView: NSSplitView, NSSplitViewDelegate {
     private let list: HomeSidebarView
     /// Debug Settings (`HomeTunables.loneConversationRail`); tests give their own store.
     var tunables = TunableStore.shared {
-        didSet { followLoneConversationTunable() }
+        didSet { loneRailWatch = followLoneConversationTunable() }
     }
+    private let mainWork: MainWorkScheduler
+    /// Visible while the view is in a window and not hidden there (a parked tab): the Debug
+    /// Settings switch lays out again only then.
+    private let visibility = VisibilityNode(root: "home.split", own: .hidden)
+    private var loneRailWatch: FrameObservation<Bool>?
 
-    public init(sidebar: HomeSidebarView, content: NSView, widths: HomeSidebarWidth = HomeSidebarWidth()) {
+    /// - Parameter mainWork: the app's main-thread scheduler; a Debug Settings change lays out on its frames.
+    public init(sidebar: HomeSidebarView, content: NSView, widths: HomeSidebarWidth = HomeSidebarWidth(), mainWork: MainWorkScheduler) {
         self.widths = widths
+        self.mainWork = mainWork
         list = sidebar
         minimum = sidebar.minimumWidth
         standard = sidebar.preferredWidth
@@ -51,7 +58,7 @@ public final class HomeSidebarSplitView: NSSplitView, NSSplitViewDelegate {
         delegate = self
         setAccessibilityIdentifier("cmux.home.split")
         sidebar.onContentChange = { [weak self] in self?.needsLayout = true }
-        followLoneConversationTunable()
+        loneRailWatch = followLoneConversationTunable()
     }
 
     @available(*, unavailable)
@@ -161,15 +168,35 @@ public final class HomeSidebarSplitView: NSSplitView, NSSplitViewDelegate {
         return fold
     }
 
-    private func followLoneConversationTunable() {
-        withObservationTracking {
-            _ = HomeTunables.loneConversationRail.value(in: tunables)
-        } onChange: { [weak self] in
-            Task { @MainActor [weak self] in
-                self?.needsLayout = true
-                self?.followLoneConversationTunable()
-            }
+    /// The switch lays the list out again (`foldsLoneConversation` reads it at layout), at most once a frame.
+    private func followLoneConversationTunable() -> FrameObservation<Bool> {
+        FrameObservation(owner: "home.split.loneRail", delivery: .visible(visibility), on: mainWork) { [tunables] in
+            HomeTunables.loneConversationRail.value(in: tunables)
+        } onChange: { [weak self] _ in
+            self?.needsLayout = true
         }
+    }
+
+    override public func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        updateVisibility()
+        registerDropTypes()
+    }
+
+    override public func viewDidHide() {
+        super.viewDidHide()
+        updateVisibility()
+    }
+
+    override public func viewDidUnhide() {
+        super.viewDidUnhide()
+        updateVisibility()
+    }
+
+    /// In a window, and neither this view nor an ancestor hidden (a parked tab stays in its window
+    /// with `isHidden`; AppKit sends the hide and unhide to its descendants).
+    private func updateVisibility() {
+        visibility.set(window != nil && !isHiddenOrHasHiddenAncestor ? .visible : .hidden)
     }
 
     private func place(_ width: CGFloat) {

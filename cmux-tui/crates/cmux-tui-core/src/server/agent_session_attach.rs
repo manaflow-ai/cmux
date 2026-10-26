@@ -6,6 +6,8 @@
 //! close with a replay cursor when acpmux or the client falls behind.
 
 use crate::panic_free::JsonFields;
+use cmux_threads::checked::ipc_reply;
+use cmux_threads::checked::sync as waits;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
@@ -306,12 +308,12 @@ struct PermissionParams {
     /// Which device the person answered on: acpmux records it only with a
     /// proof that counts.
     #[serde(default)]
-    answered_by: Option<AnsweredBy>,
+    answered_by: Option<AgentSessionAnsweredBy>,
 }
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-struct AnsweredBy {
+struct AgentSessionAnsweredBy {
     device: String,
     feed_item: String,
 }
@@ -436,6 +438,15 @@ impl Refusal {
     }
 }
 
+/// The `cmd` names this module answers (server/routes.rs).
+/// `agent-session-observe` has its own exact route (agent_session_observe.rs).
+pub(in crate::server) const ROUTES: &[crate::server::routes::Route] =
+    &[crate::server::routes::Route {
+        names: &[crate::server::routes::RouteName::Prefix("agent-session-")],
+        stage: crate::server::FrameStage::AgentSession,
+        entry: |line| try_handle(line.mux, line.client, line.message, line.writer),
+    }];
+
 /// Handles an `agent-session-*` frame of a local connection; `None` for any
 /// other frame. Remote-relay connections never get here (they take
 /// `remote_relay::handle_frame` first).
@@ -445,13 +456,10 @@ pub(super) fn try_handle(
     message: &str,
     writer: &MessageWriter,
 ) -> Option<bool> {
-    if let Some(handled) = agent_session_observe::try_handle(mux, client, message, writer) {
-        return Some(handled);
-    }
     if !message.contains("\"agent-session-") {
         return None;
     }
-    let Ok(Value::Object(mut object)) = serde_json::from_str::<Value>(message) else {
+    let Ok(Value::Object(mut object)) = crate::line_parses::parse::<Value>(message) else {
         return None;
     };
     let cmd = match object.remove("cmd") {
@@ -505,7 +513,9 @@ fn start(
     params: serde_json::Map<String, Value>,
     writer: &MessageWriter,
 ) -> bool {
-    let Ok(params) = serde_json::from_value(Value::Object(params)) else {
+    let Ok(params) =
+        serde_json::from_value::<agent_session_start::StartParams>(Value::Object(params))
+    else {
         return refuse(writer, id, Refusal::BadRequest);
     };
     if !mux.control_clients.is_unix(client) || mux.is_remote_client(client) {
@@ -525,7 +535,9 @@ fn trust(
     params: serde_json::Map<String, Value>,
     writer: &MessageWriter,
 ) -> bool {
-    let Ok(params) = serde_json::from_value(Value::Object(params)) else {
+    let Ok(params) =
+        serde_json::from_value::<agent_session_trust::TrustParams>(Value::Object(params))
+    else {
         return refuse(writer, id, Refusal::BadRequest);
     };
     if !mux.control_clients.is_unix(client) || mux.is_remote_client(client) {
@@ -543,7 +555,7 @@ pub(super) fn routed_trust(
     client: u64,
     operation: &str,
     params: serde_json::Map<String, Value>,
-) -> Result<Value, crate::resource::ResourceError> {
+) -> Result<agent_session_trust::RoutedJob, crate::resource::ResourceError> {
     agent_session_trust::routed(mux, client, operation, params)
 }
 
@@ -938,7 +950,7 @@ fn prompt(attachment: &Attachment, prompt_id: String, text: String) -> Result<Va
         attachment.prompts.lock().unwrap_or_else(|e| e.into_inner()).remove(&prompt_id);
         return Err(Refusal::of(error));
     }
-    let accepted = receiver.recv_timeout(CALL_TIMEOUT);
+    let accepted = ipc_reply(|| waits::recv_timeout(&receiver, CALL_TIMEOUT));
     attachment.prompts.lock().unwrap_or_else(|e| e.into_inner()).remove(&prompt_id);
     match accepted {
         Ok(accepted) => Ok(json!({

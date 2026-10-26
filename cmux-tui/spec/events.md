@@ -142,6 +142,29 @@ addressable through the terminal registry until `terminal.close` tombstones
 it, but no placement or live runtime remains. Browser surfaces and
 unregistered compatibility PTYs are also reaped on exit.
 
+## Event cause
+
+A connection that echoes `event-cause-v1` in `set-client-info` before its
+`subscribe` gets an optional `cause` string on every subscribe event line. It
+says what set the event off, so a frontend can schedule its work (the person's
+changes first, automation last). It is a scheduling hint only: it grants
+nothing and the daemon never reads it for authorization. Other connections
+never see the field, so the event schemas are unchanged for them.
+
+| `cause` | Set off by |
+| --- | --- |
+| `frontend` | a request of the verified app connection (origin `user`) |
+| `automation` | a request of any other connection: an agent, the CLI, a script, a page relay or the app supervisor (origins `agent`, `page`, `app`) |
+| absent | the daemon or a program on its own: terminal output, an OSC title or status, hooks, reaps, timers |
+
+A request's `origin` claim can only lower its cause, as it only narrows its
+origin. Work a request hands to another thread keeps its cause: a
+terminal-creating command that commits on the terminal worker pool reports
+the cause of the request that queued it. When the subscriber coalesces two
+latest-state events (for example two `title-changed` of one surface), the
+kept event takes the higher cause, in the order `frontend`, absent,
+`automation`.
+
 ## Subscribe Events
 
 ### overflow
@@ -1384,6 +1407,33 @@ Example:
 {"event":"terminal-clipboard-read-cancelled","request_id":"6f1c2b9e-3d4a-4e5f-8a7b-1c2d3e4f5a6b"}
 ```
 
+### script-log
+
+| Field | Value |
+| --- | --- |
+| event | `script-log` |
+| status | implemented targeted control event |
+| since | protocol 12 |
+
+Payload:
+
+```text
+object{event:"script-log", level:string, message:string, request?:json, session?:string}
+```
+
+Meaning: One console line of a running script cell, sent only on the
+connection that runs it and before the cell's reply. `request` is the id of
+the `script-run` that wrote it; `session` names the REPL session
+(`script-repl-open`) whose cell wrote it; exactly one of the two is present.
+Lines past the cell's budget are dropped and counted in the reply's
+`dropped_log_lines`.
+
+Example:
+
+```json
+{"event":"script-log","level":"log","message":"hello","request":7}
+```
+
 ## Attach Events
 
 ### render-state
@@ -1533,10 +1583,10 @@ Example:
 Payload:
 
 ```text
-object{event:"output",surface:Id,data:Base64,colors?:TerminalColors}
+object{event:"output",surface:Id,data:Base64,colors?:TerminalColors,flow?:uint64}
 ```
 
-Meaning: Live PTY bytes applied after the `vt-state` snapshot. Chunks preserve byte order for the attached surface. Chunk boundaries are implementation details. Hosted output that atomically changes authored colors includes the complete `colors` value to apply with that chunk.
+Meaning: Live PTY bytes applied after the `vt-state` snapshot. Chunks preserve byte order for the attached surface. Chunk boundaries are implementation details. Hosted output that atomically changes authored colors includes the complete `colors` value to apply with that chunk. `flow` is present only on the output of the PTY owner's first read after the bytes of a `send` that carried a `flow` reached the PTY: it is that key press's id (the echo of the key), once per `send`. It is set whenever a `send` carried a `flow`, whether or not a trace is recording. Input that was dropped or failed sets none. A client that does not trace ignores it.
 
 Example:
 

@@ -2,6 +2,7 @@
 
 use super::*;
 use crate::panic_free::RecoverPoison;
+use cmux_threads::checked::sync as waits;
 
 impl HostShared {
     pub(crate) fn set_viewer_size(
@@ -118,7 +119,7 @@ impl HostShared {
             self.smart.close_failed_transition(source_cursor);
             anyhow::bail!("terminal parser worker stopped");
         }
-        let result = match response_receiver.recv() {
+        let result = match waits::recv(&response_receiver) {
             Ok(result) => result,
             Err(_) => {
                 restore_pty();

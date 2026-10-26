@@ -45,19 +45,21 @@ struct HangReportServiceTests {
         }
     }
 
-    private func service(_ transport: any HangReportTransport, counts: @escaping @Sendable () async -> CoarseCounts = { CoarseCounts(windows: 1, workspaces: 3, panes: 4, tabs: 9) },
-                         build: String = "70123", allowed: @escaping @Sendable () -> Bool = { true })
+    func service(_ transport: any HangReportTransport, counts: @escaping @Sendable () async -> CoarseCounts = { CoarseCounts(windows: 1, workspaces: 3, panes: 4, tabs: 9) },
+                 build: String = "70123", allowed: @escaping @Sendable () -> Bool = { true },
+                 wireSchema: HangReport.WireSchema = .v2, inputLatency: (any HangReportInputLatencySource)? = nil,
+                 mainThread: MainThreadReportLedger? = nil)
         -> HangReportService {
         let clock = clock
         let collector = HangReportCollector(resolve: { _ in [.other] }, schedule: { $0() })
         return HangReportService(
-            store: HangReportStore(directory: directory), transport: transport, builder: HangReportFixtures.builder(),
+            store: HangReportStore(directory: directory), transport: transport, builder: HangReportFixtures.builder(wireSchema: wireSchema),
             scanner: PrivacyLeakScanner(forbiddenTerms: HangReportFixtures.forbiddenTerms),
             identity: InstallIdentity(suiteName: suite, now: { clock.now }), collector: collector,
             environment: HangReportService.Environment(
                 app: HangReport.App(version: "0.70.0", build: build, channel: "nightly"), os: HangReport.OS(version: "15.7.4"),
                 hardware: HardwareClass(arch: "arm64", chip: "Apple M4 Pro", cores: 14, memoryGB: 48),
-                counts: counts, now: { clock.now }, stillAllowed: allowed))
+                counts: counts, now: { clock.now }, stillAllowed: allowed, inputLatency: inputLatency, mainThread: mainThread))
     }
 
     @Test func offSendsNothing() async {
@@ -258,6 +260,39 @@ struct HangReportServiceTests {
         await next.launched()
         #expect(transport.sent.isEmpty)
         #expect(await store.outbox(now: clock.now).isEmpty)
+    }
+
+    private static let launch = LaunchAggregate.Record(temperature: .warm, interrupted: false, firstFrame: .milliseconds(240),
+                                                       liveContent: nil, startupComplete: .milliseconds(420),
+                                                       reason: .visiblePaneLoadedIdle)
+
+    /// The server refuses unknown keys: a schema-2 build never puts `launches` on the wire, and a
+    /// launch alone does not spend the day's report on an empty body.
+    @Test func aSchemaTwoServiceSendsNoLaunches() async throws {
+        let transport = RecordingTransport()
+        let service = service(transport)
+        await service.setEnabled(true)
+        service.collector.noteLaunch(Self.launch)
+        await service.launched()
+        #expect(transport.sent.isEmpty)
+        await service.receive(HangReportFixtures.metricKitInput())
+        let body = try #require(transport.sent.first)
+        let json = try #require(try JSONSerialization.jsonObject(with: body) as? [String: Any])
+        #expect(json["schema"] as? Int == 2)
+        #expect(json["launches"] == nil)
+    }
+
+    /// Once the server accepts schema 3, a launch alone is worth a report.
+    @Test func aSchemaThreeServiceSendsLaunches() async throws {
+        let transport = RecordingTransport()
+        let service = service(transport, wireSchema: .v3)
+        await service.setEnabled(true)
+        service.collector.noteLaunch(Self.launch)
+        await service.launched()
+        let body = try #require(transport.sent.first)
+        let report = try JSONDecoder().decode(HangReport.self, from: body)
+        #expect(report.schema == 3)
+        #expect(report.launches?.completionReasons == [LaunchReasonCount(reason: .visiblePaneLoadedIdle, count: 1)])
     }
 
     @Test func viewBeforeAnySendIsAPreviewThatSendsNothing() async throws {

@@ -1,3 +1,4 @@
+import CmuxNextCompat
 package import Foundation
 package import ImageIO
 package import UniformTypeIdentifiers
@@ -19,19 +20,19 @@ package nonisolated struct IconAssetDecode {
     /// `data` scaled to at most `maxPixelSize` on its longer side, when it is one of `types`
     /// and its declared size is within ``maxSide`` and ``maxPixels``; nil otherwise.
     package static func thumbnail(_ data: Data, types: Set<String>, maxPixelSize: Int) -> CGImage? {
-        let options = [kCGImageSourceShouldCache: false] as CFDictionary
-        guard let source = CGImageSourceCreateWithData(data as CFData, options),
-              let type = CGImageSourceGetType(source) as String?, types.contains(type),
-              let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, options) as? [CFString: Any],
+        let options: [CFString: Any] = [kCGImageSourceShouldCache: false]
+        guard let source = CheckedImageSource(data, options: options),
+              let type = source.type, types.contains(type),
+              let properties = source.properties(at: 0, options: options),
               let width = properties[kCGImagePropertyPixelWidth] as? Int,
               let height = properties[kCGImagePropertyPixelHeight] as? Int,
               width > 0, height > 0, width <= maxSide, height <= maxSide, width * height <= maxPixels else { return nil }
-        return CGImageSourceCreateThumbnailAtIndex(source, 0, [
+        return source.thumbnail(options: [
             kCGImageSourceCreateThumbnailFromImageAlways: true,
             kCGImageSourceCreateThumbnailWithTransform: true,
             kCGImageSourceShouldCacheImmediately: false,
             kCGImageSourceThumbnailMaxPixelSize: maxPixelSize,
-        ] as CFDictionary)
+        ])
     }
 
     /// Whether `data` looks like SVG text: UTF-8 whose first non-space character is `<` (so a

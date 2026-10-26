@@ -41,6 +41,8 @@ public nonisolated struct HomeSidebarLaunchSnapshot: Codable, Equatable, Sendabl
     }
 }
 
+// memory: fixed at most two snapshots of one account's list (the one waiting to be written and the
+// last one written), a few KB of JSON each; a newer save replaces the waiting one.
 /// The launch snapshot's file: read synchronously before the Home list's first frame (a few KB of
 /// JSON, like `HomeCache.load`), written off the main actor after the list changes: one write at a
 /// time, the newest snapshot wins, an unchanged one is not written (no timer: the list's changes
@@ -80,7 +82,7 @@ public nonisolated final class HomeSidebarLaunchCache: Sendable {
     /// The last snapshot for `account`; nil when there is none, it is another account's, or another version's.
     public func load(account: String) -> HomeSidebarLaunchSnapshot? {
         guard let data = try? Data(contentsOf: url),
-              let snapshot = try? JSONDecoder().decode(HomeSidebarLaunchSnapshot.self, from: data),
+              let snapshot = try? JSONDecoder().blockingDecode(HomeSidebarLaunchSnapshot.self, from: data),
               snapshot.version == HomeSidebarLaunchSnapshot.currentVersion, snapshot.account == account else { return nil }
         state.withLock { $0.written = snapshot }
         return snapshot

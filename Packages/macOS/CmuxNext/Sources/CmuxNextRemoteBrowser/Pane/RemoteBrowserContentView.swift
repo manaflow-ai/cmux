@@ -1,8 +1,11 @@
 public import AppKit
 import CmuxNextDesign
+import CmuxNextInput
+public import CmuxNextInputCore
+public import CmuxNextWakeups
 package import CmuxNextRemoteView
 
-#if DEBUG
+#if DEBUG || CMUX_BENCH_HOOKS
 /// Receives the page view's keyboard and pointer events (the remote tab).
 @MainActor
 public protocol RemoteBrowserEventTarget: AnyObject {
@@ -10,14 +13,33 @@ public protocol RemoteBrowserEventTarget: AnyObject {
     func handleKeyEquivalent(_ event: NSEvent) -> Bool
     func handleKey(_ event: NSEvent)
     func handlePointer(_ event: NSEvent)
+    /// One frame delivery of merged moves, drags or mid-gesture scrolls (``RemoteBrowserContentView/pointerFrames``):
+    /// the latest point, or the summed scroll. `clickCount` is the press's for a drag, else 0.
+    func handlePointerFrame(_ input: PointerCoalescedInput, clickCount: Int)
 }
 
 /// The page area of a remote tab: decoded frames at 1:1 device pixels. The
 /// browser chrome around it (tab strip, omnibar, find) is the local cmux UI
 /// (RT11); only the page is remote. Its events go to `eventTarget`.
+///
+/// With ``pointerFrames`` (feature `pointerFrameRemoteInput`) moves, drags, mid-gesture scrolls and
+/// wheel notches go out at most twice per display frame: a frame interval's first event at once, the rest merged
+/// into one delivery at the window's frame (the latest point; scroll deltas summed per phase), as
+/// Chromium delivers rAF-aligned input (`third_party/blink/renderer/platform/widget/input/
+/// main_thread_event_queue.cc`). Buttons, enter, leave, keys and scroll phase edges flush what waits
+/// first (`ShouldFlushQueue`), so the page sees every event in the order it came.
 public final class RemoteBrowserContentView: NSView {
     package let video = RemoteVideoView()
     public weak var eventTarget: (any RemoteBrowserEventTarget)?
+
+    /// The windows' frame-aligned pointer input; nil sends every move and scroll at once.
+    public var pointerFrames: FrameInputCoalescers? {
+        didSet { if pointerFrames !== oldValue { dropFramePointer() } }
+    }
+    /// This view's consumer of its window's coalescer, made on the first move in a window.
+    private var framePointer: PointerFrameConsumer?
+    /// The click count of the last button press: a drag carries it, as AppKit's dragged events do.
+    private var pressClickCount = 0
 
     nonisolated public override var isFlipped: Bool { true }
     public override var acceptsFirstResponder: Bool { true }
@@ -57,6 +79,8 @@ public final class RemoteBrowserContentView: NSView {
 
     public override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
+        // The coalescer is the old window's: what waits there is for a window the view left.
+        dropFramePointer()
         onPlacementChange?()
     }
 
@@ -167,30 +191,83 @@ public final class RemoteBrowserContentView: NSView {
     /// Only while the page has keyboard focus: other views keep their chords.
     public override func performKeyEquivalent(with event: NSEvent) -> Bool {
         guard window?.firstResponder === self, let eventTarget else { return false }
+        flushPointer()
         return eventTarget.handleKeyEquivalent(event)
     }
 
-    public override func keyDown(with event: NSEvent) { eventTarget?.handleKey(event) }
-    public override func keyUp(with event: NSEvent) { eventTarget?.handleKey(event) }
-    public override func flagsChanged(with event: NSEvent) { eventTarget?.handleKey(event) }
+    public override func keyDown(with event: NSEvent) { key(event) }
+    public override func keyUp(with event: NSEvent) { key(event) }
+    public override func flagsChanged(with event: NSEvent) { key(event) }
 
     public override func mouseDown(with event: NSEvent) {
         window?.makeFirstResponder(self)
+        press(event)
+    }
+
+    public override func mouseUp(with event: NSEvent) { discrete(event) }
+    public override func mouseDragged(with event: NSEvent) { continuous(event) }
+    public override func mouseMoved(with event: NSEvent) { continuous(event) }
+    public override func mouseEntered(with event: NSEvent) { discrete(event) }
+    public override func mouseExited(with event: NSEvent) { discrete(event) }
+    public override func rightMouseDragged(with event: NSEvent) { continuous(event) }
+    public override func otherMouseDragged(with event: NSEvent) { continuous(event) }
+    /// Wheel and trackpad scrolls go to the page (`wheel`), phases and momentum included: a scroll in
+    /// the middle of its gesture, or a wheel notch, waits for the frame; a phase edge goes at once
+    /// after what waits.
+    public override func scrollWheel(with event: NSEvent) {
+        if event.isMergeableScroll { continuous(event) } else { discrete(event) }
+    }
+
+    public override func rightMouseDown(with event: NSEvent) { press(event) }
+    public override func rightMouseUp(with event: NSEvent) { discrete(event) }
+    public override func otherMouseDown(with event: NSEvent) { press(event) }
+    public override func otherMouseUp(with event: NSEvent) { discrete(event) }
+
+    // MARK: Frame-aligned pointer input
+
+    /// Delivers the moves and scrolls that wait for the frame now: a discrete event is about to go
+    /// to the page, and must not pass them.
+    func flushPointer() { framePointer?.flush() }
+
+    private func key(_ event: NSEvent) {
+        flushPointer()
+        eventTarget?.handleKey(event)
+    }
+
+    private func press(_ event: NSEvent) {
+        pressClickCount = event.clickCount
+        discrete(event)
+    }
+
+    private func discrete(_ event: NSEvent) {
+        flushPointer()
         eventTarget?.handlePointer(event)
     }
 
-    public override func mouseUp(with event: NSEvent) { eventTarget?.handlePointer(event) }
-    public override func mouseDragged(with event: NSEvent) { eventTarget?.handlePointer(event) }
-    public override func mouseMoved(with event: NSEvent) { eventTarget?.handlePointer(event) }
-    public override func mouseEntered(with event: NSEvent) { eventTarget?.handlePointer(event) }
-    public override func mouseExited(with event: NSEvent) { eventTarget?.handlePointer(event) }
-    public override func rightMouseDragged(with event: NSEvent) { eventTarget?.handlePointer(event) }
-    public override func otherMouseDragged(with event: NSEvent) { eventTarget?.handlePointer(event) }
-    /// Wheel and trackpad scrolls go to the page (`wheel`), phases and momentum included.
-    public override func scrollWheel(with event: NSEvent) { eventTarget?.handlePointer(event) }
-    public override func rightMouseDown(with event: NSEvent) { eventTarget?.handlePointer(event) }
-    public override func rightMouseUp(with event: NSEvent) { eventTarget?.handlePointer(event) }
-    public override func otherMouseDown(with event: NSEvent) { eventTarget?.handlePointer(event) }
-    public override func otherMouseUp(with event: NSEvent) { eventTarget?.handlePointer(event) }
+    /// A move, drag, mid-gesture scroll or wheel notch for the page; nothing without a target.
+    private func continuous(_ event: NSEvent) { // perf-hot: 2us pointer-coalesce (every move and scroll over a remote page)
+        guard eventTarget != nil else { return }
+        if let consumer = framePointerConsumer() {
+            consumer.post(event)
+        } else {
+            eventTarget?.handlePointer(event)
+        }
+    }
+
+    private func framePointerConsumer() -> PointerFrameConsumer? {
+        if let framePointer { return framePointer }
+        guard let pointerFrames, let window else { return nil }
+        let consumer = pointerFrames.coalescer(for: window).consumer(owner: "RemoteBrowserContentView") { [weak self] input in
+            guard let self else { return }
+            eventTarget?.handlePointerFrame(input, clickCount: input.kind == .drag ? pressClickCount : 0)
+        }
+        framePointer = consumer
+        return consumer
+    }
+
+    private func dropFramePointer() {
+        framePointer?.cancel()
+        framePointer = nil
+    }
 }
 #endif

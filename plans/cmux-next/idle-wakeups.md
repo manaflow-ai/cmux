@@ -26,8 +26,16 @@ These are the only allowed ways to wake up. `scripts/cmux-next/check-concurrency
 | `assignIfChanged`, `UpdateCycleDetector` | Observation updates that settle: a set of the same value does not notify; re-entrant update cycles are counted and logged in debug builds. |
 | `ExpectedActivity` | Input, animation-frame and terminal-output counters for the busy watchdog. |
 | `ProcessUsage` | `proc_pid_rusage` CPU time and wakeups per process (app, helpers, daemon, hosts). |
+| `MainDeadline` (MainDeadline.swift, `TimerAlignment` in TimerAlignment.swift, `MainDeadlineScheduler` in MainDeadlineScheduler.swift; p06-scheduler task 011, landed) | The main-thread deadline: `MainDeadline(owner:, workClass:, alignment:, scheduler:)`. Its wake is an entry of the main thread's one `MainWakeUpQueue` timer; its action runs through `mainWork.post` in its class. `.precise` only under 36 ms (longer falls back to flexible); `.flexible`, the default, is no sooner than the deadline, snapped up to the next 8 ms boundary (32 ms in Energy Saver) below 1 s and to the whole second above; `.whenHidden(node)` aligns to 1 s while the node is hidden, and a repeating or self-re-arming deadline whose node has been hidden 5 minutes shares one wake a minute per node (or one 1 s-aligned wake when the node had none in the last minute). No alignment within 30 s of media activity or while the node is captured. A deadline that a person or a request waits on is never `.whenHidden`. `MainDeadlineScheduler.nextFire` feeds the idle deadline. |
+| `Deadline` (Deadline.swift, task 011, landed) | The timeout of a race (an await against a deadline), on the injected clock; it throws `Deadline.Exceeded`. |
+| `MainWakeUpQueue`, `AlignedWakeups` (MainWakeUpQueue.swift, AlignedWakeups.swift, tasks 011 and 012, landed) | One `CFRunLoopTimer` for every main-thread deadline, re-armed and never re-created, with a heap ordered by latest time. `AlignedWakeups` places deadlines on its boundaries, so 50 hidden deadlines in one second are 1 wakeup and 20 visible flexible deadlines in one 8 ms bucket are 1 wakeup. `DemandTimer` stays for off-main deadlines; `schedule(after:tolerance:)` has a tolerance by default. |
+| `IdleScheduler` (IdleScheduler.swift, task 005, spec'd) | `mainWork.postIdle(owner:, maxDelay:) { deadline in }`. Long idle periods start after 50 ms of quiet (deadline at most 50 ms and never past the next `MainDeadline` fire); short periods use 2 ms or more left before vsync. An empty queue arms no timer (0 wakeups). Idle stops 10 s after the app or the task's node goes hidden. Use it for warmups, spare-window refills and snapshot writes instead of an idle poll. |
+| `CPUTimeBudgetPool` (CPUTimeBudgetPool.swift, task 210, spec'd) | Hidden-node work is charged to it: it refills 10 ms per second up to 100 ms, and a negative balance waits for the next aligned wake with budget. Media and capture are exempt. |
+| `VisibilityNode` (VisibilityNode.swift, task 020, landed) | The hidden state that `.whenHidden`, the wake-up budget, the CPU-time pool (task 210) and the frame clients read (`isVisible`, `hiddenSince`, `mediaActiveWithin(_:)`, `isCaptured`). Task 047 (spec'd) stops ticking a hidden node's frame client with `visibleOnly:`. |
 
 cmux-tui gets the same rules (section 6): blocking reads and condvar waits with no timeout, one-shot computed deadlines, one shared Backoff.
+
+How to choose (recipe R-timer, [main-thread-budget.md](main-thread-budget.md) section 11): first make the timer an event (a callback, a stream, a source the producer signals). Only if no event exists, use a `MainDeadline` with a class and an alignment on the main thread, or a `DemandTimer` with `tolerance:` off it. A sleep inside a race uses `Deadline`. `scripts/cmux-next/p06_queue.py` counts the open sites (queue Q6, escape `// timer-class-allow: <why>`). The pre-push guardrail `timer-class` (task 014, landed) refuses a new main-actor `DemandTimer` and new `Task.sleep` and `clock.sleep` loops with the same escape. `check-concurrency.sh`'s `// wakeup-allow:` stays the escape for timers and loops outside CmuxNextWakeups.
 
 ## 3. Diagnostics
 
@@ -39,7 +47,7 @@ cmux-tui gets the same rules (section 6): blocking reads and condvar waits with 
 
 | Incident | Root cause | Evidence |
 | --- | --- | --- |
-| App 1-3% CPU idle whenever a Chromium browser exists | **Proved.** CEFMessagePump re-armed its CFRunLoopTimer after every pass at `CEFPumpPolicy.busyFallback` (1/30 s) while any browser existed, even an idle, hidden or minimized page, and at 1 s forever once CEF started. Fixed by the CEF pump agent (23289d1437c): the pump runs when CEF asks (OnScheduleMessagePumpWork). Fork API 7 (cef-154.0.28-cmux.7, pinned in 190a3095b92) makes MessagePumpExternal demand-driven (it asks again when its slice ends with work left and reports its next delayed task), so with that pin the pump has no follow-ups at all (`SafetyNet.none`, gated on `cmux_cef_api_version() >= 7`). Older pins keep a finite chain of one-shot follow-ups after each pass (1/30, 2/30, 4/30, 8/30, 16/30 s, 1 s, then nothing). | Base bench: app 56-62 wakeups/s, 0.6-1.0% CPU with one static tab (terminals only: 0.35-1.35/s). Pump agent: old 28.8-31.4 pump wakeups/s at 0.58-1.33% app CPU; new 0.0-0.93/s after Chromium settles (2.7/s in the first minutes) at 0.02-0.27%; CEF started with no browser 0.27/s at 0.067%; DevTools open ~127/s (CEF asks); 120 fps page 8.8/s. With cmux.7 and `SafetyNet.none`: 0 follow-ups; idle static tab 1.3-2.2 pump wakeups/s, all CEF requests (Chromium's own delayed tasks, 1.1-2.2/s, which the old fork hid), 0.18-0.33% app CPU; 120 fps page 4.9/s. These cmux.7 numbers were taken at load average 270-320 and have no quiet re-measure. |
+| App 1-3% CPU idle whenever a Chromium browser exists | **Proved.** CEFMessagePump re-armed its CFRunLoopTimer after every pass at `CEFPumpPolicy.busyFallback` (1/30 s) while any browser existed, even an idle, hidden or minimized page, and at 1 s forever once CEF started. Fixed by the CEF pump agent (23289d1437c): the pump runs when CEF asks (OnScheduleMessagePumpWork). Fork API 7 (cef-154.0.28-cmux.7, pinned in 190a3095b92) makes MessagePumpExternal demand-driven (it asks again when its slice ends with work left and reports its next delayed task), so the pump has no follow-ups at all. The pump is demand-only for every fork; the follow-up chain for older pins (1/30 ... 1 s) is deleted, and an older fork gets one error log line from CEFRuntime (its leftover slice work and delayed tasks wait for the next CEF request). | Base bench: app 56-62 wakeups/s, 0.6-1.0% CPU with one static tab (terminals only: 0.35-1.35/s). Pump agent: old 28.8-31.4 pump wakeups/s at 0.58-1.33% app CPU; new 0.0-0.93/s after Chromium settles (2.7/s in the first minutes) at 0.02-0.27%; CEF started with no browser 0.27/s at 0.067%; DevTools open ~127/s (CEF asks); 120 fps page 8.8/s. With cmux.7 and no follow-ups: idle static tab 1.3-2.2 pump wakeups/s, all CEF requests (Chromium's own delayed tasks, 1.1-2.2/s, which the old fork hid), 0.18-0.33% app CPU; 120 fps page 4.9/s. These cmux.7 numbers were taken at load average 270-320 and have no quiet re-measure. |
 | Chromium Renderer 144-157% and GPU 15-70% after 20-26 min on idle pages | **Not proved.** Hidden tabs are not the cause: in base code a Chromium tab in another pane tab, another workspace, a terminal-selected pane and an offscreen strip column already reports `visibilityState: hidden`, rAF 0, timers ~0.3 Hz and 0% renderer/GPU (measured by the visibility agent). The observed pages were visible. DevTools blamed the page's own animation for one case (example.com now animates its text), and a fresh instance did not reproduce. Remaining candidates: a visible animating page (Chrome behaves the same), a Chromium bug after long uptime, GPU process contention on an overloaded machine (load average 308 during this work). The busy watchdog now records a helper busy for 10 s with no input. | Visibility agent measurements (section 7); no reproduction. |
 | Machine load from long-lived test apps and leaked daemons | Leftover tagged apps with Chromium pages keep helpers busy, and every leaked cmux-tui terminal host woke 50 times a second (terminal_host_runtime accept poll), so N leaked hosts cost 50 x N wakeups/s machine-wide. Fixed: host accept blocks (section 6); cleanup rules in AGENT-BRIEF.md; bench-idle ends its daemon's terminals. | cmux-tui audit; `uptime` load 300+ during this work. |
 
@@ -57,12 +65,12 @@ Status: **fixed** (this work), **ok** (event-driven, one-shot, or stops itself),
 | TabDragSession ghost link | App | drag motion | settled / landing | ok | fixed: FrameClient on the ghost panel |
 | DebugFrameProbe | App | `debug.frames start` | `stop` only | ran every frame forever if no `stop` | fixed: FrameClient + 10 min DemandTimer expiry |
 | ControlSocketServer accept | Control | listener readable | `stop()` | **spun at 100% on EMFILE/ENFILE** (1,070,431 accepts in 500 ms) | fixed: EAGAIN waits, other failures suspend the source with Backoff 50 ms-2 s (red/green ControlSocketAcceptTests) |
-| ControlSocketPathWatch | Control | kqueue write/rename/delete on the socket's directory (the quiet per-user state folder) and, only for the compatibility link, on /tmp | `stop()` | one `lstat` per directory change by any process (on /tmp that is every write there, coalesced by dispatch); no timer. A host /tmp cleaner that deletes the link (it sees no holder) gets it re-made. A restore that keeps failing re-triggers itself (its bind stages a directory beside the path), so after 3 failed restores in a row it ignores events and retries on a DemandTimer with Backoff 1-60 s until one works | reviewed (red/green ControlSocketPathRestoreTests) |
+| ControlSocketPathWatch | Control | kqueue write/rename/delete on the socket's directory (the quiet per-user state folder); the compatibility link is followed itself (row below) | `stop()` | one `lstat` per directory change by any process (on /tmp that is every write there, coalesced by dispatch); no timer. A host /tmp cleaner that deletes the link (it sees no holder) gets it re-made. A restore that keeps failing re-triggers itself (its bind stages a directory beside the path), so after 3 failed restores in a row it ignores events and retries on a DemandTimer with Backoff 1-60 s until one works | reviewed (red/green ControlSocketPathRestoreTests) |
 | ControlConnection read/write sources | Control | readable/writable | EOF, error, close | ok (EAGAIN keeps the source armed; backpressure suspends) | ok |
 | ControlConnection drain timer | Control | half-close | fires once / close | one-shot | reviewed |
 | Event stream heartbeat | Control | `events.stream` client | hangup | 15 s keepalive the client requested (`include_heartbeats`) | reviewed (protocol) |
 | ControlDeadline, ControlSnapshot barrier, MainActorWorkQueue item deadline | Control | request | answer | one-shot | reviewed |
-| MainThreadWatchdog thread | Control | main run loop awake | main asleep | wakes every 30-50 ms only while the main thread is awake; a nested run loop in a non-common mode would keep it waking | ok, noted |
+| MainThreadWatchdog thread | Control | a main turn longer than the sample delay | the turn ends | **two watchdog wakeups per main wake** (semaphore signal, then a 30 ms timed wait that expired after the turn) | fixed (2026-10-23): one kqueue, a one-shot EVFILT_TIMER armed per turn and deleted before the main thread sleeps; a short turn wakes no other thread (red/green MainThreadWatchdogTests.shortMainTurnsDoNotWakeTheWatchdogThread). Cost: 2 `kevent` syscalls on the main thread per main wake (arm on wake, delete before sleep; before: at most one semaphore signal, only while the watchdog was parked), so under STRESS the main thread makes 2 syscalls per turn and no cross-thread wake; not yet measured in the batch bench. Caveat kept: a nested run loop in a non-common mode gives no heartbeats, so the timer armed at the outer wake fires and the watchdog polls once per threshold until the nested loop ends |
 | LocalPTYTerminalIO read source | Terminal (debug PTY) | readable | exit source | **spun after the slave side hung up while the shell lived** | fixed: hangup cancels the read source (no test target in CmuxNextTerminal) |
 | ChromiumWarmup | App | Chromium likely | idle or 60 s | **polled every 250 ms** up to 240 times | fixed: DemandTimer re-armed for the rest of the quiet period; menu end notification |
 | WindowManager save debounce | App | window state change | fires once | one-shot | fixed: DemandTimer |
@@ -79,13 +87,18 @@ Status: **fixed** (this work), **ok** (event-driven, one-shot, or stops itself),
 | MobileIrxHost endpoint activation | Mobile | start | success | 5 s-300 s forever | fixed: 8 attempts, relay change cuts short |
 | UnixSocketLane empty read | Mobile | read | final/error | empty non-final delivery looped the splice pump | fixed: ends the stream |
 | ConfigFileWatcher | Settings | kqueue vnode on file and directory | stop | ok: already event-driven (no wait-for-file loop; it watches the nearest existing ancestor) | ok |
-| CEFMessagePump | Browser | CEF schedule + fixed fallback | never | **30 Hz / 1 Hz forever** | fixed by the pump agent (23289d1437c): demand-driven. With fork API 7 (cef cmux.7) it wakes only when CEF asks (`SafetyNet.none`); older pins keep a finite one-shot follow-up chain (CEFPumpTimer.swift, wakeup-allow) |
+| CEFMessagePump | Browser | CEF schedule + fixed fallback | never | **30 Hz / 1 Hz forever** | fixed by the pump agent (23289d1437c): demand-driven. It wakes only when CEF asks, for every fork; an older fork than API 7 (cef cmux.7) gets one error log line from CEFRuntime, no follow-up chain |
 | CEFReplyWaiters, CEF shutdown timeout | Browser | DevTools call / quit | reply | one-shot | reviewed |
 | Hover card, click-and-hold, double-click, spring-load, record write-back | Tabs, Sidebar, App | UI event | fires once / cancelled | one-shot, injected sleep | reviewed |
 | Agent pane render-rate re-apply | AgentPane | rate change (after a settled scroll) | fires twice, then stops | one-shot, injected sleep | reviewed |
 | GhosttyRuntime wakeup_cb | Terminal | libghostty | per tick | coalesced by an atomic flag | ok |
 | ~25 `for await` over `Observations` | App | model change | owner deinit | no self-writes found; Observations does not dedupe equal writes | ok; `assignIfChanged` for writers |
 | ControlSnapshotPublisher `withObservationTracking` | App | model change + every frame after a batch | never cancelled | stacked registrations multiply work under compat reads (not idle) | open |
+| ControlSnapshotPublisher model-change delay | App | model change | publish | **a display frame per frame for the 100 ms delay** (about 12 main wakeups per model change at 120 Hz) | fixed by PL-typing (561ee1c4cbf..04346918bc8): the control snapshot is lazy, no 100 ms interval; the merged waiter rule (a waiting reader or new waiter publishes at once, 0 wakeups with no reader) is PL-typing's next change, with PL-idle's 0-wakeup test |
+| ControlSocketPathWatch on /tmp | Control | any write in /tmp by any process | stop() | **one accept-queue wakeup and lstat per /tmp change Mac-wide** | fixed (2026-10-23): watches the link itself (O_EVTONLY, O_SYMLINK), its directory only as fallback; a directory watch moves back to the entry on the first event that finds one it can open, and every watch is made on its queue (no install race). Still on /tmp: only a socket-path override in /tmp (this app's own socket file cannot be opened; kept for the cleaner incident hq#1870), logged once. Another app's live socket at the link path (a classic cmux of the same channel or tag) no longer keeps a /tmp watch: the link's watch yields (watches nothing, the link is dropped for this run, logged once). `stopped`/log-once flags are Atomic<Bool>; the test counter is DEBUG-only (red/green ControlSocketPathWatchIdleTests, incl. aLinkPathHeldByAnotherLiveSocketWatchesNothingInTmp) |
+| HomeCache writes | Home | every owner event (typing, connection, recovery) | 250 ms later | **rewrote the whole cache with the same bytes** (358 KB/s idle on Home); then still woke the main actor 250 ms later and built and compared the full snapshot | fixed (2026-10-23): the mirror and the intent log count writes to what the cache holds (HomeChangeCount); only a moved count, a draft or a scroll anchor schedules a write, so typing, connection changes and recoveries start no Task and build no snapshot; no retained copy of the written snapshot; equal rows are not assigned (red/green HomeCacheIdleWriteTests.ephemeralOwnerEventsScheduleNoWrite). Review follow-up: an equal inbox refetch no longer moves the mirror's count (HomeMirrorEqualInboxTests); a real write is proportional to the change and off the main actor: HomeCache is an actor, the main actor hands it copy-on-write values, and the files are a small index plus one file per window, of which only the changed ones are rewritten (HomeCacheProportionalWriteTests). Second follow-up: the actor compared the encoded index bytes, and JSONEncoder writes keys and ConversationID-keyed dictionaries in hash order, so an equal state still rewrote home.json (the flaky aMessageInOneConversationRewritesOnlyItsWindow); it now compares the index value (sorted keys order only struct and String keys; the ConversationID-keyed dictionaries still encode in hash order, so the compare must stay a value compare) (red/green anEqualStateBuiltInAnotherOrderDoesNotRewriteTheIndex). Home disk B/s with agents active (light and STRESS) is not measured yet: the 358 KB/s row is not claimed until then |
+| Media observer page script (both engines, every frame of every page) | Browser | page load | never | **setInterval 1 s in every frame for the page's life**, idle or hidden | fixed (2026-10-23): the timer runs only while the frame's report plays or waits for the binding. Reports carry a per-document frame id and the tab keeps one per frame (BrowserMediaFrames), so one frame's null no longer erases another's paused report (what the 3 s re-send hid); pagehide drops the frame's report. Review follow-up: no DOM watch at all (the subtree MutationObserver kept while a paused report was live ran on every mutation of a busy page for hours): a removed paused element reports null at the next media event or show; a report waiting for the binding retries at most 10 looks, then at the next media event or show; a pagehide null that waits is retried too (red/green BrowserMediaObserverIdleTests, BrowserMediaFramesTests) |
+| Verification detector page script (both engines, top frame of https pages) | Browser | DOM change, 10 min after load | report / 10 min | **whole-page `innerText` (forced layout) up to 1/s on a hidden page; a missing binding retried at 4 Hz forever** | fixed (2026-10-23): a hidden page's changes are noted and checked once on show; a page found waiting before the binding exists keeps no timer and reads no text, and reports when CEFVerificationBridge calls its ready hook (once per document, at .finished, after that document's addBinding) or at the next show. There is no timed binding wait (an earlier 10 s cap was replaced by the ready hook). The 10-minute end disconnects the observer and the visibility listener (red/green VerificationDetectorHiddenTests, CEFVerificationBridgeCallsTests). Open: that background tabs of both engines really report `visibilityState: hidden` on macOS 14/15/26/27 is a runtime check for the batch run (JSC tests fake it) |
 | HostPressureMonitor read timer (cmuxterm-hq#2995) | HostPressure | 15 s timer (2 s leeway) for load, swap and acpmux's `host_pressure`, which have no event; memory pressure is a DispatchSource event | Runs only while the Debug toggle `hostPressure.enabled` (default off, cmux#22662) is on and at least one window can be seen. Each window's indicator unsubscribes when the toggle goes off or its window hides, minimizes, is fully occluded or closes (`HostPressureSampling`); the last unsubscribe, and app quit, call `stop()`, which cancels the source, timer and read. Cleanup: the indicator removes its window observers and cancels its toggle and level observations on leaving the window and in deinit | one timer for the app, not one per window: 4 wakeups a minute while a window with the toggle on is visible, 0 while off or hidden; one sysctl batch each; a missing acpmux verdict is retried every 20th read, not every read | reviewed |
 
 ### Polling sites removed
@@ -180,3 +193,80 @@ Open:
 - MainActorWorkQueue/ControlDeadline/ControlSnapshot deadlines and the UI one-shot delays still sleep in their own Tasks (reviewed `wakeup-allow`); moving them onto DemandTimer would put them in the ledger.
 - The bench's first Chromium tab can miss the 2 s control deadline on a loaded machine (cold CefInitialize); the bench waits for a renderer but that also failed twice.
 - UNVERIFIED: fully covered window, window on another Space, app hidden, audio in a hidden tab; cmux-tui remote, browser-proxy and Windows paths (compiled on CI only).
+
+## 9. Hidden main wakes (p14-energy-095)
+
+speed-of-sound-DESIGN.md sec. 5/7 measured the Release app's main thread at 107 wakes/s while the app was hidden,
+more than in view (cmux20). This section names who wakes it. No source changes here; the fixes are Q9 tasks
+(p14-energy-092 and the other Q9 slots), one per `HIDDEN-WAKE` owner of basis `callout-count`.
+
+### Method
+
+`scripts/cmux-next/idle-budget.py --sessions light-hidden,minimized` launches each session in the shipping
+measurement mode of p14-energy-100 (`bench_launch.shipping_env`: shipping occlusion draw, Sentry and hang reports
+on, no `CMUX_NEXT_NO_ACTIVATE`) and activates the app once. The mode needs p14-energy-100 on the measured commit:
+without it the app ignores `CMUX_NEXT_BENCH_SHIPPING_DRAW`. The session then hides the app (Show/Hide All Windows
+`hidden=true`; the action toggles, so it needs the activation) or minimizes its window (`minimizeWindow`), settles,
+and measures one window with no input.
+
+A hidden-wake session fails (`IDLE-BUDGET-SESSION-FAILED`) and prints no `HIDDEN-WAKE` line when:
+
+- the build has no sha (`bench_launch.build_sha`: Info.plist `CMUXCommit` or `CMUX_CI_SHA`), checked before the launch;
+- the hide or minimize action replies with an error;
+- `debug.window_list` at the start or the end of the window, or after the wake trace, shows a visible main window
+  (light-hidden) or a main window that is not miniaturized (minimized).
+
+When p14-energy-100's applied fields do not confirm the shipping app (not activated, `draws_when_occluded`, no
+Sentry thread, no main-thread watchdog), or when atos did not name a callback of a counted source (`atos failed: N
+callbacks unnamed`), the source lines are `HIDDEN-WAKE-UNCONFIRMED`, and no Q9 task comes from them.
+
+Right after the window (a 1 s quiet gap, then the trace, then the hidden-state check, then `/usr/bin/sample`, so the
+sample tool's suspensions never precede the trace), three bases count wakes and one names frames. A source can show
+under several bases, so each basis is its own list and they are never added:
+
+| Basis | What it reads | per_s |
+| --- | --- | --- |
+| `callout-count` | DTrace on the main thread for `--wake-trace` s (30), its span from `BEGIN` (after the probes are enabled) to `END`. A wake is a return from a run-loop wait that can block (`__CFRunLoopServiceMachPort` with a timeout other than 0). Each wake goes once to the first non-observer callout after it, keyed per item: a timer by callback and `CFRunLoopTimerRef`, a source by perform function and info, a block by its invoke, and each main-queue drain item by its dispatch function, block invoke or Swift job resume function | wakes/s over the trace span (the rows and `no-callout` add up to the traced wakes), with `calls_per_s` (callout entries/s) beside it. Owner (`owner_from`): `callback` when atos names it in an owner image; `timer` when the run-loop timer at the same address has a naming callout; `item-stack` from the item's own 997 Hz stacks (`multiplexed` when they show several owners: their shares are time, not rates); else `none` |
+| `unattributed` | with a trace, its wakes no callout claimed before the next wait (`CFRunLoopWakeUp` with no work, a wait timeout), on the same span; without a trace, the window's main wakes less the run-loop timer fires, both over the window | wakes/s no counted source covers |
+| `run-loop-timer` | the main run loop's `CFCopyDescription` at both ends of the window: each repeating timer's next fire date advances one interval per fire, by timer address; an `__NSFireTimer` timer is "unnamed NSTimer" (its callout names Foundation) | fires/s (upper bound under App Nap); a timer at one end only is `unpaired` with per_s null |
+| `ledger` | `debug.wakeups` owners (DemandTimer, FrameScheduler, Backoff), every owner | fires/s on any thread (`thread: any`) |
+| `sample-time` (`HIDDEN-WAKE-FRAME`) | 3 x `--sample` s (10) of `/usr/bin/sample`, added: below each outermost callout, the first frame in an owner image (images are OS by their `Binary Images:` path: /System, /usr/lib), wait frames dropped, OS-only samples to the first non-trampoline frame on their own path | null: samples measure time, not wakes; share of callout time only, no floor |
+
+DTrace's pid provider needs root (`sudo -n`) and a process it may trace; atos runs with the same right. When
+DTrace can not run, the `HIDDEN-WAKE-TOTAL` line has `trace.ok: false` with the reason, and the uncounted wakes are
+in `unattributed`. The `debug.hangs` main wakes around the dtrace run (`trace.rpc_main_wakes_per_s` over
+`trace.rpc_seconds`, which include dtrace's start and exit) are given beside the traced rate, never subtracted from
+it. Callback addresses are OS or owner by the sample report's `Binary Images:` ranges, so that decision never rests
+on atos.
+
+Observers (`__CFRUNLOOP_IS_CALLING_OUT_TO_AN_OBSERVER_CALLBACK_FUNCTION__`) run on every wake that another source
+causes, so they are listed (`HIDDEN-WAKE-OBSERVER`) and never counted as a cause. This is the split Chromium's
+`MessagePumpCFRunLoopBase` makes (base/message_loop/message_pump_apple.mm: a work source and a delayed-work timer
+wake the loop, observers only bracket it). The per-item key follows Chrome's TaskAnnotator, which keys each task by
+its own `posted_from` location (base/task/common/task_annotator.cc), not by the pump that runs it.
+
+Output for each hidden session: one `HIDDEN-WAKE {json}` line per source above 0.1/s and basis (`session`, `basis`,
+`owner`, `owner_from`, `kind`, `per_s`, `calls_per_s`, `item`, `top` frame), `HIDDEN-WAKE-FRAME` and
+`HIDDEN-WAKE-OBSERVER` lines, and one `HIDDEN-WAKE-TOTAL` line with the build `sha`, `host`, main wakes/s, the
+trace's state and span, `unattributed_per_s`, `unnamed`, `samples_taken`, `sources_by_basis`, `confirmed` and
+`problems`. The JSON report keeps them under
+`sessions.<session>.hidden_wake`.
+
+Run (Q9, a quiet fleet host, Release with bench hooks):
+
+    cmux-ci run --class exclusive --measurement --label measure --script scripts/measure/split-spring.sh \
+      --ref <sha> --arg=--suite=idle-budget --arg=--config=bench --arg=--sessions=light-hidden,minimized
+
+(No `--` before `--sessions`: idle-budget.py reads its options with argparse, which takes every word after
+`--` as a positional argument and would run the default sessions.)
+
+### Report
+
+Not measured yet, so p14-energy-095 is not done. It stays open until the Q9 run of the command above, on a
+Release build with bench hooks, fills this table: sha, host and every `HIDDEN-WAKE` line above 0.1/s for both
+sessions, with `confirmed: true`, `trace.ok: true` and `unnamed: 0`. Until then, the 107/s figure has no named owner.
+
+| Session | sha | host | main wakes/s | basis | owner | kind | per_s |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| light-hidden | | | | | | | |
+| minimized | | | | | | | |

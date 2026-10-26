@@ -1,5 +1,6 @@
 public import AppKit
 public import CmuxNextSettings
+public import CmuxNextWakeups
 public import Foundation
 
 /// Makes Chromium pages for the page host (``PageWebView``). The app implements it with its CEF
@@ -12,6 +13,9 @@ public protocol PageChromiumHosting: AnyObject {
     /// Whether Chromium can host a page now: false when the build has no Chromium or it failed to
     /// start.
     var isAvailable: Bool { get }
+    /// The app's lanes: what a page answers that costs CPU by its size (a `Page.captureScreenshot` reply, megabytes
+    /// of base64 image) is parsed and decoded on their `.cpu` lane, never on the main thread.
+    var work: BackgroundWork { get }
     /// Whether Chromium's `cmux-page://` scheme serves `page` (its bundled folder is registered).
     ///
     /// - Parameter page: The page to show.
@@ -22,14 +26,18 @@ public protocol PageChromiumHosting: AnyObject {
     /// (``ChromiumPageHostBridge/setupCalls(handlers:documentScripts:)``) and then call
     /// ``PageChromiumPage/load(_:)``. Async because Chromium starts on its first page.
     ///
-    /// - Parameter page: The page's descriptor (its origin and policy).
+    /// - Parameters:
+    ///   - page: The page's descriptor (its origin and policy).
+    ///   - chatOpen: The agent chat open the page shows (``PageWebView/chatOpen``): the stages of the Chromium window
+    ///     the page gets (its create, created and first contentful paint) go there too; nil for any other page.
     /// - Returns: The live page.
     /// - Throws: When Chromium cannot start or the browser is not created.
-    func makePage(_ page: PageDescriptor) async throws -> any PageChromiumPage
+    func makePage(_ page: PageDescriptor, chatOpen: ChatOpenStages?) async throws -> any PageChromiumPage
 }
 
 /// One Chromium page the page host shows. The page host drives it only through this protocol
-/// and the DevTools protocol (``devTools(_:params:)``), so a CEF tab or a fake in tests both fit.
+/// (scripts through ``evaluate(_:)``, the rest through the DevTools protocol,
+/// ``devTools(_:params:)``), so a CEF tab or a fake in tests both fit.
 @MainActor
 public protocol PageChromiumPage: AnyObject {
     /// The view to place where the page shows (Chromium's view tracks it).
@@ -46,14 +54,46 @@ public protocol PageChromiumPage: AnyObject {
     /// leaves these rects uncovered: the native view under them shows there and takes the mouse
     /// (a chat's pane tabs while the chat shares the tab row, ``PageWebView/nativeRects``).
     var occlusionRects: [CGRect] { get set }
+    /// Whether `window` is the Chromium window that draws this page now: a child of
+    /// ``contentView``'s window, over it. An event in that window is this page's input and no other
+    /// page's, even when another page's window sits at the same frame (a hidden tab of the same pane).
+    func isPageWindow(_ window: NSWindow) -> Bool
     /// Runs a DevTools protocol method and returns its JSON result.
     ///
     /// - Parameters:
-    ///   - method: The method (`Runtime.evaluate`).
+    ///   - method: The method (`Page.captureScreenshot`).
     ///   - params: Its params.
     /// - Returns: The method's JSON result.
     /// - Throws: When the page is gone or the method fails.
     func devTools(_ method: String, params: [String: any Sendable]) async throws -> String
+    /// Runs `script` in the page's main frame, in the page's own world, without a user gesture,
+    /// and returns its value by value, a promise's once it settles. A value that is not a promise
+    /// comes back as it is, so a synchronous script (the input-readiness edit) gets what a
+    /// `Runtime.evaluate` without `awaitPromise` gave. Chrome's WebUI runs its scripts in its page
+    /// with no DevTools agent (`WebUIImpl::ExecuteJavascript`, content/browser/webui/web_ui_impl.cc);
+    /// a CEF page answers through `CEFTab.evaluate`, which is the fork's `tabEvaluate` on renderer
+    /// paths (fork API 29) and a DevTools `Runtime.evaluate` on an older fork. Every conformer
+    /// chooses its path; ``devToolsEvaluate(_:)`` is the DevTools one.
+    ///
+    /// - Parameter script: An expression, or statements whose last value is the result.
+    /// - Returns: The value as `JSONSerialization` makes it (`NSNumber`, `String`, arrays,
+    ///   dictionaries), `NSNull` for null, nil for undefined where the engine tells it from null
+    ///   (`CEFTab.evaluate` gives null for both).
+    /// - Throws: ``PageScriptError/exception(_:)`` when the script throws,
+    ///   ``PageScriptError/noResult`` when the answer is not JSON, or the page's error when it is gone.
+    func evaluate(_ script: String) async throws -> Any?
+    /// Copies the page as it last drew, fitted inside `maxPixelSize` (never scaled up), with no DevTools
+    /// agent: the fork's surface copy (`cmux_tab_copy_surface`, p13-webui-077), as Chrome copies a tab
+    /// thumbnail (chrome/browser/ui/thumbnails/thumbnail_tab_helper.cc, `RenderWidgetHostView::CopyFromSurface`).
+    /// Chromium encodes the picture on its thread pool. The page lifecycle takes it in the turn the page
+    /// hides, before any freeze (``PageWebView/keepHideSnapshot(encoder:)``). Never `Page.captureScreenshot`: one
+    /// DevTools agent ends main-frame renderer reuse for the whole browser.
+    ///
+    /// - Parameters:
+    ///   - maxPixelSize: The largest picture, in pixels.
+    ///   - done: Runs once on the main actor with the picture, or nil when the page has no surface or the
+    ///     fork has no surface copy.
+    func copySurface(maxPixelSize: CGSize, done: @escaping @MainActor (PageEncodedSnapshot?) -> Void)
     /// Loads `url` in the page.
     func load(_ url: URL)
     /// Reloads the document.
@@ -64,12 +104,62 @@ public protocol PageChromiumPage: AnyObject {
     func setFocused(_ focused: Bool)
     /// Shows or hides and pauses the page.
     func setVisible(_ visible: Bool)
+    /// Freezes the hidden page (its timers, tasks and rendering stop; memory and state stay) or thaws
+    /// it, as Chrome's `WebContents::SetPageFrozen` (content/public/browser/web_contents.h), which
+    /// freezes hidden pages only: hide it (``setVisible(_:)`` false) before, and thaw it before it
+    /// shows again. The request leaves before this returns, so a call made after a thaw runs on a
+    /// live page.
+    ///
+    /// - Parameter frozen: True freezes, false thaws.
+    /// - Returns: False when nothing changed: the page is closed, or the engine still counts it visible.
+    @discardableResult
+    func setFrozen(_ frozen: Bool) -> Bool
     /// Makes the page see-through (true) or gives it its opaque page color back: where the document
     /// draws no background of its own, the view under the page shows, as under a WebKit page that
     /// draws no background.
     func setSeeThrough(_ seeThrough: Bool)
+    /// Discards the hidden page in place: its renderer and document go, the page keeps its browser,
+    /// window and history entry, and the engine reloads that entry when the page shows; a
+    /// ``load(_:)`` of the entry's URL before then adds no navigation (Chrome's `WebContents::Discard`,
+    /// content/public/browser/web_contents.h). Makes no call into the page.
+    ///
+    /// - Returns: False when the engine cannot (a fork before in-place discard, the Chromium Host,
+    ///   whose answer is not synchronous, or a page Chromium still counts visible): the host closes
+    ///   the page instead.
+    func discard() -> Bool
     /// Tears the page down. Idempotent.
     func close()
+}
+
+extension PageChromiumPage {
+    /// ``evaluate(_:)`` through a DevTools `Runtime.evaluate` (`awaitPromise`, `returnByValue`), for
+    /// a page with no renderer path. The reply is parsed off the main actor in one step.
+    ///
+    /// - Parameter script: The script.
+    /// - Returns: The value; `NSNull` for null, nil for undefined.
+    /// - Throws: ``PageScriptError`` for an exception or a reply that is not JSON, or the page's error.
+    public func devToolsEvaluate(_ script: String) async throws -> Any? {
+        let reply = try await devTools("Runtime.evaluate", params: ["expression": script, "awaitPromise": true, "returnByValue": true])
+        return try await ChromiumPageHostWire.value(devToolsReply: reply)
+    }
+}
+
+/// A picture of a page, encoded (PNG, alpha kept): what a page keeps of its last frame once it is
+/// discarded (``PageHideState``), copied by Chromium (``PageChromiumPage/copySurface(maxPixelSize:done:)``)
+/// or encoded from WebKit's frame by ``PageSnapshotEncoder``.
+public nonisolated struct PageEncodedSnapshot: Sendable, Equatable {
+    /// The encoded image.
+    public var data: Data
+    /// Its size in pixels.
+    public var pixelSize: CGSize
+
+    /// - Parameters:
+    ///   - data: The encoded image.
+    ///   - pixelSize: Its size in pixels.
+    public init(data: Data, pixelSize: CGSize) {
+        self.data = data
+        self.pixelSize = pixelSize
+    }
 }
 
 /// What a Chromium page reports to the page host.

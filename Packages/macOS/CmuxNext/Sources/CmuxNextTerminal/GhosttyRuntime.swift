@@ -1,6 +1,7 @@
 public import AppKit
 public import CmuxNextProcessEnvironment
 public import CmuxNextDesign
+import CmuxNextTrace
 import CmuxNextWakeups
 import GhosttyNextKit
 import os
@@ -31,8 +32,9 @@ public final class GhosttyRuntime {
     /// The user's config with one theme applied, per theme name, built on
     /// demand (`themeConfig(named:)`) and dropped on every config change.
     var themeConfigs: [String: GhosttyThemeConfig] = [:]
-    /// Bumps on every config change (reload, conditional theme switch).
-    public private(set) var configGeneration = 0
+    /// Bumps on every config change (reload, conditional theme switch), after the new config is in
+    /// place. Visible views observe it; hidden ones read it when they show.
+    public let configRevision = GhosttyConfigRevision()
 
     /// The light/dark scheme last given to Ghostty (the app's appearance).
     public private(set) var isDark = false
@@ -49,17 +51,34 @@ public final class GhosttyRuntime {
     /// handled.
     public var appActionHandler: ((TerminalHostAction) -> Bool)?
 
-    /// Fires after a config reload so hosts can re-read derived values such
-    /// as ``backgroundColor``.
+    /// Fires after a config change so hosts can re-read derived values such
+    /// as ``backgroundColor``, and after a soft reload so surfaces with their
+    /// own theme take it back.
     public var onConfigChange: (() -> Void)?
-    /// Posted on the main actor after every config change, for views that
-    /// derive geometry from it (`TerminalHostView`).
-    public static let configDidChange = Notification.Name("cmux.ghostty.configDidChange")
+    /// The services' handlers (``addConfigChangeHandler(_:)``), in the order added.
+    private var configChangeHandlers: [@MainActor () -> Void] = []
+
+    /// Runs `handler` after each config change, once ``configRevision`` counts it, after the
+    /// handlers added before it: for services that re-read the config whether or not a terminal
+    /// shows. A soft reload (`reload_config` with `soft`) changes no config and runs none.
+    /// Views observe ``configRevision``.
+    public func addConfigChangeHandler(_ handler: @escaping @MainActor () -> Void) {
+        configChangeHandlers.append(handler)
+    }
 
     static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "terminal")
 
     private let context = RuntimeCallbackContext()
     let hostKeybindCache = HostKeybindCache()
+    /// The input sources as the terminal key path reads them (switch keys, source kind, copy mode's
+    /// ASCII map); the app starts it with its runner, this runtime's observers keep it current.
+    public let inputSources = TerminalInputSources()
+    /// The terminals' key-to-echo stages and the process's contents gate; the app installs its input
+    /// latency tracker here (``TerminalEchoStages/install(_:)``, p04-input-094) before its first terminal.
+    public let echoStages = TerminalEchoStages(contentsGate: TerminalContentsGate())
+    /// The process's secure keyboard entry for its terminals (HIToolbox counts it per process); it holds the
+    /// app trace runtime's keystroke-timing gate closed while on (p09-observability-128).
+    public let secureInput = TerminalSecureInput(trace: .shared)
     private var observers: [any NSObjectProtocol] = []
     private var appearanceObservation: NSKeyValueObservation?
 
@@ -74,7 +93,7 @@ public final class GhosttyRuntime {
         // process that skips main (tests) prepares it here. Either way no
         // write may follow ghostty_init.
         let environmentGuard = ProcessEnvironmentGuard.process
-        if !environmentGuard.isFrozen { Self.prepareProcessEnvironment(environmentGuard: environmentGuard) }
+        if !environmentGuard.isFrozen { Self.prepareProcessEnvironment(resources: Self.resourcesDirectory(), environmentGuard: environmentGuard) }
         environmentGuard.freeze()
         defer { mark("app_new") }
         guard ghostty_init(UInt(CommandLine.argc), CommandLine.unsafeArgv) == 0 else {
@@ -141,9 +160,9 @@ public final class GhosttyRuntime {
         hostKeybindCache.binds = nil
         // Themed configs were built on the old files; rebuild on demand.
         themeConfigs.removeAll()
-        configGeneration += 1
         onConfigChange?()
-        NotificationCenter.default.post(name: Self.configDidChange, object: self)
+        configRevision.bump()
+        for handler in configChangeHandlers { handler() }
     }
 
     /// Test hook: when set, only this file (plus its `config-file` includes)
@@ -292,16 +311,20 @@ public final class GhosttyRuntime {
         let center = NotificationCenter.default
         observers.append(center.addObserver(forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main) { [weak self] _ in
             // main-proof: observer registered with queue: .main (OperationQueue.main runs on the main thread)
-            MainActor.assumeIsolated { self?.setAppFocused(true) }
+            MainActor.assumeIsolated {
+                self?.setAppFocused(true)
+                self?.inputSources.applicationDidBecomeActive()
+            }
         })
         observers.append(center.addObserver(forName: NSApplication.didResignActiveNotification, object: nil, queue: .main) { [weak self] _ in
             // main-proof: observer registered with queue: .main (OperationQueue.main runs on the main thread)
             MainActor.assumeIsolated { self?.setAppFocused(false) }
         })
-        // Ghostty caches the keyboard layout for key translation.
+        // Ghostty caches the keyboard layout for key translation, the key path the source's kind.
         observers.append(center.addObserver(forName: NSTextInputContext.keyboardSelectionDidChangeNotification, object: nil, queue: .main) { [weak self] _ in
             // main-proof: observer registered with queue: .main (OperationQueue.main runs on the main thread)
             MainActor.assumeIsolated {
+                self?.inputSources.selectedSourceChanged()
                 guard let app = self?.app else { return }
                 ghostty_app_keyboard_changed(app)
             }
@@ -342,37 +365,24 @@ public final class GhosttyRuntime {
         for view in colorSchemeSurfaces.allObjects { view.applyColorScheme(dark: isDark) }
     }
 
-    // MARK: Environment
+    // MARK: Environment (the lookups: GhosttyRuntime+Environment.swift)
 
-    /// Points libghostty at themes and terminfo before `ghostty_init`. Prefers
-    /// resources bundled in this app, then an inherited value, then
-    /// Ghostty.app. Manual-IO surfaces spawn no shell, so shell-integration
-    /// and TERM here only matter for `theme =` lookups and local debug PTYs.
-    /// The app calls it in `main` (`CmuxNextApp.prepareLaunchEnvironment`) before any
-    /// thread starts and the environment freeze; `init` calls it only when
-    /// nothing froze the environment (tests). libghostty keeps a slice of
+    /// Points libghostty at themes and terminfo before `ghostty_init`: sets
+    /// `GHOSTTY_RESOURCES_DIR` to `resources` (nil leaves an inherited value).
+    /// Manual-IO surfaces spawn no shell, so shell-integration and TERM here
+    /// only matter for `theme =` lookups and local debug PTYs. The app calls it
+    /// in `main` (`CmuxNextApp.prepareLaunchEnvironment`) with
+    /// ``bundledResourcesDirectory(bundleURL:resourceURL:)``, a path with no
+    /// disk call, before any thread starts and the environment freeze; `init`
+    /// calls it with ``resourcesDirectory(bundle:environment:fileExists:)`` only
+    /// when nothing froze the environment (tests). libghostty keeps a slice of
     /// `environ` from `ghostty_init`, so no write may follow it.
-    public nonisolated static func prepareProcessEnvironment(environmentGuard: ProcessEnvironmentGuard = .process) {
+    public nonisolated static func prepareProcessEnvironment(resources: String?, environmentGuard: ProcessEnvironmentGuard = .process) {
         environmentGuard.write("GhosttyRuntime.prepareProcessEnvironment") {
-            guard let resources = resourcesDirectory() else { return }
+            guard let resources else { return }
             if let current = getenv("GHOSTTY_RESOURCES_DIR"), String(cString: current) == resources { return }
             setenv("GHOSTTY_RESOURCES_DIR", resources, 1)
         }
-    }
-
-    /// The Ghostty resources directory (themes, shell integration; terminfo
-    /// is its sibling): this app's bundled copy, then an inherited
-    /// `GHOSTTY_RESOURCES_DIR`, then Ghostty.app. Nil when none has themes.
-    public nonisolated static func resourcesDirectory(
-        bundle: Bundle = .main,
-        environment: [String: String] = ProcessInfo.processInfo.environment
-    ) -> String? {
-        let fileManager = FileManager.default
-        let bundled = bundle.resourceURL?.appendingPathComponent("ghostty")
-        let inherited = environment["GHOSTTY_RESOURCES_DIR"]
-        let ghosttyApp = "/Applications/Ghostty.app/Contents/Resources/ghostty"
-        let candidates = [bundled?.path, inherited, ghosttyApp].compactMap { $0 }
-        return candidates.first { fileManager.fileExists(atPath: ($0 as NSString).appendingPathComponent("themes")) }
     }
 
     /// Version of the linked libghostty (`ghostty_info`), which Ghostty
@@ -385,9 +395,9 @@ public final class GhosttyRuntime {
     }
 }
 
-/// Runtime-level callback userdata. Collapses bursts of `wakeup_cb` (any
-/// thread) into one main-actor tick and points back at the runtime.
-nonisolated final class RuntimeCallbackContext: @unchecked Sendable {
+/// Runtime-level callback userdata. Collapses bursts of `wakeup_cb` (any thread, which touches
+/// only the atomic flag) into one main-actor tick and points back at the runtime (main-actor only).
+nonisolated final class RuntimeCallbackContext: Sendable {
     let pending = Atomic<Bool>(false)
     @MainActor weak var runtime: GhosttyRuntime?
 

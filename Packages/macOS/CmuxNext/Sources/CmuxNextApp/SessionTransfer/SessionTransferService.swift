@@ -277,7 +277,7 @@ final class SessionTransferService {
             return false
         }
         let bound = DemandTimer(owner: "SessionTransfer.conversationTab")
-        bound.schedule(after: Self.conversationTabLimit) { @MainActor in
+        bound.scheduleOnMain(after: Self.conversationTabLimit) {
             listed.cancel()
         }
         let found = await listed.value

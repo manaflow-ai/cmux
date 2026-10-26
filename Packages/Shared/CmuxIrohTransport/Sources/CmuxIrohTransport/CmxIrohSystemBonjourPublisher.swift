@@ -1,9 +1,9 @@
 import Darwin
-@preconcurrency import Dispatch
+import Dispatch
 import dnssd
 import Foundation
 
-private final class CmxIrohBonjourRegisterCallbackBox: @unchecked Sendable {
+private final class CmxIrohBonjourRegisterCallbackBox: Sendable {
     let handler: @Sendable (Int32) -> Void
 
     init(handler: @escaping @Sendable (Int32) -> Void) {
@@ -11,10 +11,18 @@ private final class CmxIrohBonjourRegisterCallbackBox: @unchecked Sendable {
     }
 }
 
+// Context ownership for both replies: register(_:) passes a box retained once
+// (+1) as each registration's DNS-SD context and keeps it in Registration (or
+// its failure path). The boxes are released only after DNSServiceRefDeallocate
+// ran on `queue`, the queue that delivers these replies, so a reply always sees
+// a live box.
 private let cmxIrohBonjourServiceRegisterCallback: DNSServiceRegisterReply = {
     _, _, errorCode, _, _, _, context in
-    guard let context else { return }
-    Unmanaged<CmxIrohBonjourRegisterCallbackBox>
+    // SAFETY: dnssd hands back the context pointer given to DNSServiceRegister.
+    guard let context = unsafe context else { return }
+    // SAFETY: the context is a live +1 box (context ownership above); the
+    // unretained read does not change its count.
+    unsafe Unmanaged<CmxIrohBonjourRegisterCallbackBox>
         .fromOpaque(context)
         .takeUnretainedValue()
         .handler(errorCode)
@@ -22,8 +30,11 @@ private let cmxIrohBonjourServiceRegisterCallback: DNSServiceRegisterReply = {
 
 private let cmxIrohBonjourRecordRegisterCallback: DNSServiceRegisterRecordReply = {
     _, _, _, errorCode, context in
-    guard let context else { return }
-    Unmanaged<CmxIrohBonjourRegisterCallbackBox>
+    // SAFETY: dnssd hands back the context pointer given to DNSServiceRegisterRecord.
+    guard let context = unsafe context else { return }
+    // SAFETY: the context is a live +1 box (context ownership above); the
+    // unretained read does not change its count.
+    unsafe Unmanaged<CmxIrohBonjourRegisterCallbackBox>
         .fromOpaque(context)
         .takeUnretainedValue()
         .handler(errorCode)
@@ -35,6 +46,9 @@ private let cmxIrohBonjourRecordRegisterCallback: DNSServiceRegisterRecordReply 
 /// computer name. Each service is interface-scoped and has matching A/AAAA
 /// records registered for its rotating opaque host target.
 public actor CmxIrohSystemBonjourPublisher: CmxIrohBonjourPublishing {
+    /// One advertisement's two live dnssd refs and the +1 contexts of their
+    /// replies. stopRegistrations() deallocates and releases each exactly once.
+    @safe
     private struct Registration {
         let serviceRef: DNSServiceRef
         let addressRef: DNSServiceRef
@@ -90,14 +104,19 @@ public actor CmxIrohSystemBonjourPublisher: CmxIrohBonjourPublishing {
         var addressRef: DNSServiceRef?
         var serviceRef: DNSServiceRef?
 
-        let addressCreateError = DNSServiceCreateConnection(&addressRef)
+        // SAFETY: DNSServiceCreateConnection stores one shared-connection ref in addressRef.
+        let addressCreateError = unsafe DNSServiceCreateConnection(&addressRef)
+        // SAFETY: reads the ref DNSServiceCreateConnection stored, if any.
         guard addressCreateError == kDNSServiceErr_NoError,
-              let addressRef else {
+              let addressRef = unsafe addressRef else {
             throw Self.error(addressCreateError)
         }
-        let addressQueueError = DNSServiceSetDispatchQueue(addressRef, queue)
+        // SAFETY: addressRef is the live ref created above.
+        let addressQueueError = unsafe DNSServiceSetDispatchQueue(addressRef, queue)
         guard addressQueueError == kDNSServiceErr_NoError else {
-            DNSServiceRefDeallocate(addressRef)
+            // SAFETY: the ref has no queue and no records, so nothing can call back;
+            // it is deallocated once here.
+            unsafe DNSServiceRefDeallocate(addressRef)
             throw Self.error(addressQueueError)
         }
 
@@ -114,26 +133,31 @@ public actor CmxIrohSystemBonjourPublisher: CmxIrohBonjourPublishing {
                     guard errorCode != kDNSServiceErr_NoError else { return }
                     Task { await self?.handle(errorCode) }
                 }
-                let context = Unmanaged.passRetained(callback).toOpaque()
-                callbackContexts.append(context)
-                let record = try Self.addressRecord(address)
+                // SAFETY: the +1 retain is the reply context; callbackContexts owns it from
+                // here and is released once, on failure below or by stopRegistrations().
+                let context = unsafe Unmanaged.passRetained(callback).toOpaque()
+                // SAFETY: callbackContexts takes over the +1 just made (above).
+                unsafe callbackContexts.append(context)
+                let recordType = Self.addressRecordType(address)
+                let recordData = address.addressBytes
                 var recordRef: DNSRecordRef?
-                let registerError = record.data.withUnsafeBytes { bytes in
-                    DNSServiceRegisterRecord(
-                        addressRef,
-                        &recordRef,
-                        DNSServiceFlags(kDNSServiceFlagsUnique),
-                        advertisement.interfaceIndex,
-                        advertisement.hostTarget,
-                        record.type,
-                        UInt16(clamping: kDNSServiceClass_IN),
-                        UInt16(clamping: bytes.count), // an A or AAAA address, 4 or 16 bytes
-                        bytes.baseAddress,
-                        60,
-                        cmxIrohBonjourRecordRegisterCallback,
-                        context
-                    )
-                }
+                // SAFETY: addressRef is live; dnssd copies the host target and the
+                // recordData bytes (an A or AAAA address, 4 or 16, the length passed)
+                // during the call; recordRef is owned by addressRef and freed with it.
+                let registerError = unsafe DNSServiceRegisterRecord(
+                    addressRef,
+                    &recordRef,
+                    DNSServiceFlags(kDNSServiceFlagsUnique),
+                    advertisement.interfaceIndex,
+                    advertisement.hostTarget,
+                    recordType,
+                    UInt16(clamping: kDNSServiceClass_IN),
+                    UInt16(clamping: recordData.count),
+                    recordData,
+                    60,
+                    cmxIrohBonjourRecordRegisterCallback,
+                    context
+                )
                 guard registerError == kDNSServiceErr_NoError else {
                     throw Self.error(registerError)
                 }
@@ -146,41 +170,53 @@ public actor CmxIrohSystemBonjourPublisher: CmxIrohBonjourPublishing {
             let callback = CmxIrohBonjourRegisterCallbackBox { [weak self] errorCode in
                 Task { await self?.handle(errorCode, serviceID: serviceID) }
             }
-            let context = Unmanaged.passRetained(callback).toOpaque()
-            callbackContexts.append(context)
-            let registerError = advertisement.txtRecord.withUnsafeBytes { bytes in
-                DNSServiceRegister(
-                    &serviceRef,
-                    DNSServiceFlags(kDNSServiceFlagsNoAutoRename),
-                    advertisement.interfaceIndex,
-                    advertisement.alias,
-                    CmxIrohLANAdvertisement.serviceType,
-                    CmxIrohLANAdvertisement.domain,
-                    advertisement.hostTarget,
-                    advertisement.port.bigEndian,
-                    UInt16(clamping: bytes.count), // CmxIrohLANTXTRecord bounds the record below 65,536
-                    bytes.baseAddress,
-                    cmxIrohBonjourServiceRegisterCallback,
-                    context
-                )
-            }
+            // SAFETY: as for the record contexts above.
+            let context = unsafe Unmanaged.passRetained(callback).toOpaque()
+            // SAFETY: callbackContexts takes over the +1 just made (above).
+            unsafe callbackContexts.append(context)
+            let txtRecord = [UInt8](advertisement.txtRecord)
+            // SAFETY: dnssd stores a ref in serviceRef and copies the strings and the
+            // txtRecord bytes (txtRecord.count, the length passed; CmxIrohLANTXTRecord
+            // bounds it below 65,536) during the call.
+            let registerError = unsafe DNSServiceRegister(
+                &serviceRef,
+                DNSServiceFlags(kDNSServiceFlagsNoAutoRename),
+                advertisement.interfaceIndex,
+                advertisement.alias,
+                CmxIrohLANAdvertisement.serviceType,
+                CmxIrohLANAdvertisement.domain,
+                advertisement.hostTarget,
+                advertisement.port.bigEndian,
+                UInt16(clamping: txtRecord.count),
+                txtRecord,
+                cmxIrohBonjourServiceRegisterCallback,
+                context
+            )
+            // SAFETY: reads the ref DNSServiceRegister stored, if any.
             guard registerError == kDNSServiceErr_NoError,
-                  let serviceRef else {
+                  let serviceRef = unsafe serviceRef else {
                 throw Self.error(registerError)
             }
-            let serviceQueueError = DNSServiceSetDispatchQueue(serviceRef, queue)
+            // SAFETY: serviceRef is the live ref registered above.
+            let serviceQueueError = unsafe DNSServiceSetDispatchQueue(serviceRef, queue)
             guard serviceQueueError == kDNSServiceErr_NoError else {
                 throw Self.error(serviceQueueError)
             }
-            return Registration(
+            // SAFETY: the registration takes over both live refs and every +1 context.
+            return unsafe Registration(
                 serviceRef: serviceRef,
                 addressRef: addressRef,
                 callbackContexts: callbackContexts
             )
         } catch {
-            queue.sync { DNSServiceRefDeallocate(addressRef) }
-            if let serviceRef { DNSServiceRefDeallocate(serviceRef) }
-            Self.release(callbackContexts)
+            // SAFETY: addressRef is live and runs replies on `queue`; deallocating it
+            // there means none of its replies runs after this.
+            queue.sync { unsafe DNSServiceRefDeallocate(addressRef) }
+            // SAFETY: a serviceRef here never got a queue, so it never called back; it is
+            // deallocated once.
+            if let serviceRef = unsafe serviceRef { unsafe DNSServiceRefDeallocate(serviceRef) }
+            // SAFETY: no ref that could read these contexts is left (above).
+            unsafe Self.release(callbackContexts)
             throw error
         }
     }
@@ -205,12 +241,16 @@ public actor CmxIrohSystemBonjourPublisher: CmxIrohBonjourPublishing {
         guard !previous.isEmpty else { return }
         queue.sync {
             for registration in previous {
-                DNSServiceRefDeallocate(registration.serviceRef)
-                DNSServiceRefDeallocate(registration.addressRef)
+                // SAFETY: each ref is live and was taken out of `registrations` once
+                // above; deallocating on the reply queue ends its replies.
+                unsafe DNSServiceRefDeallocate(registration.serviceRef)
+                // SAFETY: as for serviceRef.
+                unsafe DNSServiceRefDeallocate(registration.addressRef)
             }
         }
         for registration in previous {
-            Self.release(registration.callbackContexts)
+            // SAFETY: the refs that could read these contexts are gone (above).
+            unsafe Self.release(registration.callbackContexts)
         }
     }
 
@@ -222,22 +262,12 @@ public actor CmxIrohSystemBonjourPublisher: CmxIrohBonjourPublishing {
         observers.removeValue(forKey: id)
     }
 
-    private static func addressRecord(
-        _ address: CmxIrohLANSocketAddress
-    ) throws -> (type: UInt16, data: Data) {
+    /// The DNS record type for the address; its rdata is `addressBytes`, the
+    /// network-order address inet_pton parsed (4 bytes for A, 16 for AAAA).
+    private static func addressRecordType(_ address: CmxIrohLANSocketAddress) -> UInt16 {
         switch address.family {
-        case .ipv4:
-            var value = in_addr()
-            guard address.ipAddress.withCString({ inet_pton(AF_INET, $0, &value) }) == 1 else {
-                throw CmxIrohLANDiscoveryError.invalidSocketAddress
-            }
-            return (UInt16(clamping: kDNSServiceType_A), Data(bytes: &value, count: MemoryLayout.size(ofValue: value)))
-        case .ipv6:
-            var value = in6_addr()
-            guard address.ipAddress.withCString({ inet_pton(AF_INET6, $0, &value) }) == 1 else {
-                throw CmxIrohLANDiscoveryError.invalidSocketAddress
-            }
-            return (UInt16(clamping: kDNSServiceType_AAAA), Data(bytes: &value, count: MemoryLayout.size(ofValue: value)))
+        case .ipv4: UInt16(clamping: kDNSServiceType_A)
+        case .ipv6: UInt16(clamping: kDNSServiceType_AAAA)
         }
     }
 
@@ -245,9 +275,12 @@ public actor CmxIrohSystemBonjourPublisher: CmxIrohBonjourPublishing {
         code == kDNSServiceErr_PolicyDenied ? .policyDenied : .serviceFailure(code)
     }
 
+    /// Drops the +1 of each context; callers first end every ref that could read them.
     private static func release(_ contexts: [UnsafeMutableRawPointer]) {
-        for context in contexts {
-            Unmanaged<CmxIrohBonjourRegisterCallbackBox>.fromOpaque(context).release()
+        // SAFETY: each context is a +1 box released once (see the callers).
+        for context in unsafe contexts {
+            // SAFETY: as above.
+            unsafe Unmanaged<CmxIrohBonjourRegisterCallbackBox>.fromOpaque(context).release()
         }
     }
 }

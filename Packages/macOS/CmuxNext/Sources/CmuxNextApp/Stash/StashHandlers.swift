@@ -64,7 +64,7 @@ enum StashHandlers {
                 let remoteTabs = members.flatMap { RemoteTerminalService.remoteTabIDs(in: $0.0) }
                 save(invocation, services, workspaces: true, toastIn: window) { [weak services] in
                     let stashID = try await stash.stash(workspaces: ids, name: name)
-                    services?.remoteTerminals.stashed(remoteTabs)
+                    services?.madeRemoteTerminals?.stashed(remoteTabs)
                     return stashID
                 }
             })

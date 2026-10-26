@@ -15,7 +15,12 @@ public final class WebKitTab: NSObject, BrowserTab {
 
     public var state: BrowserTabState { machine.state }
     public private(set) var favicon: NSImage?
-    public private(set) var pendingPrompts: [BrowserPrompt] = []
+    public private(set) var pendingPrompts: [BrowserPrompt] = [] {
+        didSet { if pendingPrompts.count > oldValue.count { pageWaiters.notePromptsAdded(pendingPrompts) } }
+    }
+    /// Keyed waits on this page's phase and prompts (``BrowserPageWaiting``), resumed by the setters of
+    /// `machine` and `pendingPrompts`.
+    @ObservationIgnored let pageWaiters: PageWaiters
 
     @ObservationIgnored public weak var delegate: (any BrowserTabDelegate)?
     @ObservationIgnored public weak var keyRouter: (any BrowserKeyRouting)?
@@ -34,7 +39,12 @@ public final class WebKitTab: NSObject, BrowserTab {
     /// Web Inspector's visibility, for the toolbar's DevTools button.
     @ObservationIgnored public let inspectorWatch = WebKitInspectorWatch()
 
-    private var machine = BrowserTabStateMachine()
+    private var machine = BrowserTabStateMachine() {
+        didSet { if machine.state.phase != oldValue.state.phase { pageWaiters.notePhase(machine.state.phase) } }
+    }
+    /// The page plays unmuted media (`BrowserAudibleReporting`): `state.media?.isAudible`, kept
+    /// apart so its observers wake on the flip only, not on each load tick or title.
+    public private(set) var isAudible = false
     @ObservationIgnored private(set) weak var engine: WebKitEngine?
     /// Permission use and certificate failures of the current document (Page Info).
     @ObservationIgnored public let pageInfoActivity = PageInfoActivity()
@@ -67,6 +77,8 @@ public final class WebKitTab: NSObject, BrowserTab {
     @ObservationIgnored private var faviconTask: Task<Void, Never>?
     @ObservationIgnored private var findState = FindState()
     @ObservationIgnored private(set) var isClosed = false
+    /// The current document's first content frame (`WebKitFirstPaintHandler`, or its load end with nothing painted).
+    @ObservationIgnored let firstContentFrame = BrowserFirstContentFrame()
     /// The re-show that applies the last render-rate change, while it runs (WebKitEngine).
     @ObservationIgnored var rateReshow: Task<Void, Never>?
     /// Bounds how long the theme color stands in for a committed document
@@ -82,6 +94,7 @@ public final class WebKitTab: NSObject, BrowserTab {
         self.id = configuration.id
         self.profileID = configuration.profile
         self.engine = engine
+        pageWaiters = PageWaiters(deadlines: engine.waitDeadlines)
         let webView = WebKitWebView(frame: .zero, configuration: webViewConfiguration)
         self.webView = webView
         container = WebKitPageContainer(page: webView)
@@ -167,7 +180,8 @@ public final class WebKitTab: NSObject, BrowserTab {
     public func snapshot() async throws -> CGImage {
         guard !isClosed else { throw BrowserTabError.closed }
         let image = try await webView.takeSnapshot(configuration: nil)
-        guard let cgImage = image.cgImage(forProposedRect: nil, context: nil, hints: nil) else {
+        // SAFETY: a nil rect pointer: AppKit uses the image's own size and writes nothing back.
+        guard let cgImage = unsafe image.cgImage(forProposedRect: nil, context: nil, hints: nil) else {
             throw BrowserTabError.snapshotUnavailable
         }
         return cgImage
@@ -260,25 +274,21 @@ public final class WebKitTab: NSObject, BrowserTab {
     /// There is no public API for this; if WebKit removes it, the user can
     /// still use "Inspect Element" from the context menu.
     public func showDevTools() {
-        let selector = NSSelectorFromString("_inspector")
-        guard webView.responds(to: selector),
-              let inspector = webView.perform(selector)?.takeUnretainedValue() as? NSObject else { return }
-        let show = NSSelectorFromString("show")
-        if inspector.responds(to: show) {
-            inspector.perform(show)
-        }
+        WebKitInspector(webView: webView).show()
     }
 
     public func close() {
         guard !isClosed else { return }
         isClosed = true
         removeStandIn()
+        firstContentFrame.closed()
         faviconTask?.cancel()
         titleTimer.cancel()
         rateReshow?.cancel()
         pageBaseHold.cancel()
         for prompt in pendingPrompts { prompt.respond(prompt.dismissalResponse) }
         pendingPrompts.removeAll()
+        pageWaiters.pageEnded()
         observations.removeAll()
         webView.stopLoading()
         webView.configuration.userContentController.removeAllScriptMessageHandlers()
@@ -301,6 +311,8 @@ public final class WebKitTab: NSObject, BrowserTab {
         }
         let previousFavicon = machine.state.faviconURL
         machine.apply(event)
+        let audible = machine.state.media?.isAudible == true
+        if audible != isAudible { isAudible = audible }
         for observer in navigationObservers.values { observer(event) }
         if machine.state.faviconURL != previousFavicon {
             faviconURLDidChange()
@@ -315,7 +327,7 @@ public final class WebKitTab: NSObject, BrowserTab {
         case .apply(let update):
             apply(.titleChanged(update.title))
         case .later(let until):
-            titleTimer.scheduleIfIdle(after: .milliseconds(Int64(max(0, until - now) * 1000) + 1)) { @MainActor [weak self] in
+            titleTimer.scheduleOnMainIfIdle(after: .milliseconds(Int64(max(0, until - now) * 1000) + 1)) { [weak self] in
                 guard let self, !self.isClosed,
                       let update = self.titleCoalescer.fire(now: ProcessInfo.processInfo.systemUptime) else { return }
                 self.apply(.titleChanged(update.title))

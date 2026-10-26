@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import Foundation
 
 /// One profile (Touch ID) passkey: metadata only, never key material.
@@ -18,7 +19,7 @@ public nonisolated struct ChromiumPasskey: Sendable, Hashable {
     /// The fork's list JSON (`[{"rp_id","credential_id","user_name","user_display_name"}]`);
     /// nil when it is not a JSON array. Rows without a credential id are dropped.
     static func parse(_ json: String) -> [ChromiumPasskey]? {
-        guard let rows = (try? JSONSerialization.jsonObject(with: Data(json.utf8))) as? [[String: Any]] else { return nil }
+        guard let rows = (try? JSONSerialization.blockingJSONObject(with: Data(json.utf8))) as? [[String: Any]] else { return nil }
         return rows.compactMap { row in
             guard let id = row["credential_id"] as? String, !id.isEmpty else { return nil }
             return ChromiumPasskey(credentialID: id, relyingParty: row["rp_id"] as? String ?? "",

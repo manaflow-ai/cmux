@@ -62,9 +62,11 @@ extension CEFPaneHost {
     }
 
     /// The panel shows the popup: the hidden window is attached over this
-    /// host's view (never inside a Chromium event; this runs from the view
-    /// lifecycle). Returns true when this call handled `tab`. A window that
-    /// cannot attach closes its tab, so no hidden window stays behind.
+    /// host's page parent (`pageParent`; never inside a Chromium event, this
+    /// runs from the view lifecycle). Returns true when this call handled
+    /// `tab`. A window that cannot attach closes its tab, so no hidden window
+    /// stays behind. In host mode the attach is a post: its result says it
+    /// was sent (the window shows as a hosted widget with task 066).
     func attachPopupWindowIfNeeded(_ tab: CEFTab) -> Bool {
         guard let popupWindow, case .none = window, let shim = runtime.shim else { return false }
         guard let browser = tab.browserID, hostView.window != nil else {
@@ -74,18 +76,19 @@ extension CEFPaneHost {
         let size = hostView.bounds.size
         lifecycleTrace.record(tab.id, "popup-window-attach window=\(popupWindow) size=\(Int(size.width))x\(Int(size.height))")
         runtime.notePopupWindow("window=\(popupWindow) attach")
-        if shim.popupWindowAttach(popupWindow, Unmanaged.passUnretained(hostView).toOpaque(),
-                                  max(size.width, 1).clampedInt32, max(size.height, 1).clampedInt32) == 1 {
-            window = .live(window: popupWindow)
-            lastActivated = browser
-            _ = shim.tabActivate(browser)
-            hostView.postGeometryChange()
-            lifecycleTrace.record(tab.id, "popup-window-attached")
-            runtime.notePopupWindow("window=\(popupWindow) attached")
-        } else {
+        guard shim.popupWindowAttach(popupWindow, pageParent(), max(size.width, 1).clampedInt32, max(size.height, 1).clampedInt32) == 1 else {
             runtime.logger.error("CEF popup window \(popupWindow) did not attach; closing its tab")
             tab.close()
+            return true
         }
+        window = .live(window: popupWindow)
+        lastActivated = browser
+        _ = shim.tabActivate(browser)
+        // Host mode: the window's pixels are its widget context, shown filling this host's view.
+        runtime.widgetHost?.place(.popupWindow, owner: browser, in: hostView)
+        hostView.postGeometryChange()
+        lifecycleTrace.record(tab.id, "popup-window-attached")
+        runtime.notePopupWindow("window=\(popupWindow) attached")
         return true
     }
 }

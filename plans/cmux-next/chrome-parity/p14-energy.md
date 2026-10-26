@@ -238,10 +238,11 @@ not what the session asked for.
   are never aligned. A re-arm to the same date is skipped. A fire runs due entries until a 2 ms budget, then re-arms
   for now so input runs between (Chrome RunWork).
 - `DemandTimer` reads the action's `@isolated(any)` `.isolation`. A main-actor action goes to MainWakeUpQueue: no pool
-  thread. A new sync overload `schedule(after:_ action: @MainActor () -> Void)` runs inline in the callout; the async
-  path creates one `Task { @MainActor in }` inside the callout (the main thread is already awake, no extra kernel
-  wake). Other actions use `clock.sleep(for:tolerance:)`. Call sites do not change (a contingency queue exists if
-  `.isolation` is unusable at macOS 14).
+  thread. A new sync method `scheduleOnMain(after:tolerance:_ action: @MainActor () -> Void)` runs inline in the
+  callout; the async path creates one `Task { @MainActor in }` inside the callout (the main thread is already awake,
+  no extra kernel wake). Other actions use `clock.sleep(for:tolerance:)`. Async call sites do not change (a
+  contingency queue exists if `.isolation` is unusable at macOS 14); sync sites move to `scheduleOnMain` in 133.
+  Queue deadlines are uptime (no system sleep, like `TimeTicks`), and the injected clock times only the sleep path.
 - CEF pump: the queue owns the fire date of CEF's delayed requests, so Chromium's delayed tasks and cmux deadlines
   share wakes. CEF work runs as its own `CFRunLoopPerformBlock` after the cmux entries of the same fire, never inside
   the heap loop (nested run loops in a CEF pass can not delay cmux deadlines). Immediate and cross-thread "now"
@@ -546,9 +547,9 @@ repositories.
 | 011 | DelayPolicy and WakeLeeway | S | - | none |
 | 012 | DemandTimer delay policy and tolerance | S | 011 | none |
 | 013 | MainWakeUpQueue | M | 011 | none |
-| 014 | DemandTimer main-actor actions on MainWakeUpQueue; sync overload | M | 012, 013 | none |
+| 014 | DemandTimer main-actor actions on MainWakeUpQueue; sync overload | M | 012, 013, 024 | none |
 | 015 | Backoff leeway | S | 011 | none |
-| 016 | CEF delayed fire date on MainWakeUpQueue; CEF work outside the heap loop | M | 013 | none |
+| 016 | CEF delayed fire date on MainWakeUpQueue; CEF work outside the heap loop | M | 013, 024 | none |
 | 017 | Delete the pre-API-7 follow-up chain | S | 016 | none |
 | 018 | CEF pump ledger reasons | S | 016 | none |
 | 019a | Q1 sleeps: CmuxNextApp | M | 012, 015 | Q1 |
@@ -563,7 +564,7 @@ repositories.
 | 025 | Energy Saver session actions | S | 024 | none |
 | 026 | Energy Saver indicator and hover card | M | 025 | none |
 | 027 | Motion loops static under saver | S | 024 | none |
-| 028 | FrameScheduler opt-in ambient class | M | 023 | none |
+| 028 | FrameScheduler opt-in ambient class | M | 023, 024 | none |
 | 029 | Fork API cmux_cef_set_energy_saver with input exemption | M | - | fork |
 | 030 | Shim and Swift binding for the saver fork API | S | 029, 024, 136 | none |
 | 031 | Hibernation neighbor radius and WebKit render rate follow EnergyPolicy | S | 024 | none |
@@ -665,6 +666,7 @@ repositories.
 | 122 | Phone Access iroh endpoint only when usable | S | 102 | none |
 | 123 | debug.energy.simulate | S | 007, 022 | none |
 | 124 | Per-tab renderer attribution | M | 007 | fork |
+| 124a | Per-tab renderer attribution with the Chromium Host on | M | 124, p01-process-022 | none |
 | 125 | High-energy tab badge with Discard | M | 124 | none |
 | 126 | Visible ambient indicators step at <= 30 Hz | M | 060, 103 | Q3 |
 | 127 | Watchers driven by other apps pause or stretch | M | 102, 024 | none |
@@ -678,6 +680,7 @@ repositories.
 | 135 | D8 benches: Chromium composer typing and page scroll | S | 003 | none |
 | 136 | Fork bundle: one API bump, one build, one pin | M | 029, 037, 046, 048, 107, 124, Q8 fork items | fork |
 | 137 | Daemon reads the power source itself | S | 033 | none |
+| 138 | GlassModeWatch and BackdropVideoView follow EnergyPolicy | S | 024, p11-codebase-039 | none |
 
 ### Phase P0: measurement and budget
 
@@ -765,12 +768,17 @@ repositories.
 - Size M. Depends: 005, 113.
 
 #### p14-energy-007 debug.energy
-- Files: `Packages/macOS/CmuxNext/Sources/CmuxNextApp/Control/DebugEnergy.swift`,
+- Files: `Packages/macOS/CmuxNext/Sources/CmuxNextControl/Diagnostics/EnergyReport.swift`
+  (the report; the app-size guardrail refuses new App files),
+  `Packages/macOS/CmuxNext/Sources/CmuxNextApp/Control/DebugWakeups.swift` (the `EnergyReport(services:)` adapter),
   `Packages/macOS/CmuxNext/Sources/CmuxNextApp/Control/AppControl.swift`.
-- Change: returns `policy`, `inputs` (lowPowerMode, onBattery, hasBattery, batteryPercent, thermal, setting,
-  sessionOverride, suspended, screensAsleep, reason), `wake_queue` (entries, fires, coalesced fires, slices,
-  alignment), `ledger_top` (10 owners), `processes` (energy nJ, interrupt wakeups), `cef` (energy saver
-  applied|unsupported, pump earlyPasses). Process sampling off the main actor, as DebugWakeups.
+- Change: returns `policy` (isSaver, reason, wakeAlignmentMs, ambientMaxFPS, webFrameRate, pollStretch), `inputs`
+  (featureEnabled, lowPowerMode, onBattery, hasBattery, batteryPercent, thermal, setting, sessionOverride,
+  suspended, screensAsleep, reason), `wake_queue` (entries, fires, firesPerSecond, coalescedFires, alignmentMs;
+  the queue has no slices since the 013 fixer), `ledger_top` (10 owners), `processes` (energyNj, interruptWakeups,
+  packageIdleWakeups from the one ProcessUsage sample), `cef` (energySaver applied|unsupported, earlyPasses).
+  Top-level keys snake_case, fields camelCase (idle-budget.py reads `policy.isSaver`). Process sampling off the
+  main actor, as DebugWakeups.
 - Acceptance: registered next to debug.wakeups; top-level keys exactly policy, inputs, wake_queue, ledger_top,
   processes, cef; no main-actor await around sampling.
 - Test phase: `cmux-ci build cmux --ref SHA --tag energy-v1`; `CMUX_TAG=energy-v1 scripts/cmux-debug-cli.sh debug.energy`.
@@ -779,7 +787,8 @@ repositories.
 #### p14-energy-008 Idle wakeup histogram per launch
 - Files: `Packages/macOS/CmuxNext/Sources/CmuxNextWakeups/IdleEnergyStats.swift`,
   `Packages/macOS/CmuxNext/Tests/CmuxNextWakeupsTests/IdleEnergyStatsTests.swift`,
-  `Packages/macOS/CmuxNext/Sources/CmuxNextApp/Control/DebugEnergy.swift`.
+  `Packages/macOS/CmuxNext/Sources/CmuxNextControl/Diagnostics/EnergyReport.swift`,
+  `Packages/macOS/CmuxNext/Sources/CmuxNextApp/Control/DebugWakeups.swift`.
 - Change: no timer of its own; at each natural main wake after 60 s with no input, record the app's interrupt
   wakeups/s (rusage delta) into buckets 0, 0.1, 0.25, 0.5, 1, 2, 5, 10, 50+; keep p50/p95/p99 per launch; expose in
   debug.energy. The PL-telemetry sink can read it later.
@@ -918,7 +927,8 @@ repositories.
 
 #### p14-energy-123 debug.energy.simulate
 - Files: `Packages/macOS/CmuxNext/Sources/CmuxNextEnergy/EnergyMonitor.swift`,
-  `Packages/macOS/CmuxNext/Sources/CmuxNextApp/Control/DebugEnergy.swift`, `scripts/cmux-next/energy-test-phase.py`.
+  `Packages/macOS/CmuxNext/Sources/CmuxNextControl/Diagnostics/EnergyReport.swift`,
+  `Packages/macOS/CmuxNext/Sources/CmuxNextApp/Control/DebugWakeups.swift`, `scripts/cmux-next/energy-test-phase.py`.
 - Change: `debug.energy.simulate {on_battery, percent, thermal, low_power, suspended}` compiled only in Debug and
   `CMUX_BENCH_HOOKS` builds; overrides EnergyMonitor inputs; clearing restores real inputs. energy-test-phase runs D7
   auto with on_battery and 15%.
@@ -996,14 +1006,21 @@ repositories.
   `Packages/macOS/CmuxNext/Tests/CmuxNextWakeupsTests/DemandTimerMainQueueTests.swift`.
 - Change: read the `@isolated(any)` action's `.isolation`. When it is `MainActor.shared` and a MainWakeUpQueue is
   injected (AppServices passes the app's), insert into the queue; on fire create one `Task { @MainActor in await
-  action() }` inside the callout. Add `schedule(after:_ action: @escaping @MainActor () -> Void)` that runs inline in the
-  callout. Generation and claim semantics stay (593f5f97c61). Call sites do not change. If `.isolation` is unusable at
-  the macOS 14 target, stop and report: task 132 starts.
+  action() }` inside the callout. Add `scheduleOnMain(after:tolerance:_ action: @escaping @MainActor () -> Void)` that
+  runs inline in the callout. Generation and claim semantics stay (593f5f97c61). Async call sites do not change. If
+  `.isolation` is unusable at the macOS 14 target, stop and report: task 132 starts.
+- As landed (spec change): the sync variant is `scheduleOnMain`, not an overload of `schedule`. A trailing closure
+  with no `await` matches both, so an overload would silently turn a closure written off the main actor into
+  main-actor work. Sync sites therefore move by rename in 133, not by overload resolution. The `mainWork:` init takes
+  no `clock:`: a main-actor action runs on the queue's uptime, which stops while the Mac sleeps and which a
+  `ManualClock` does not drive. Tests of migrated owners fire the queue (`WakeUpQueueRig`); a deadline that must count
+  system sleep uses a nonisolated action. A dropped entry is freed with no timer or queue lock held, because its
+  action may own another timer.
 - Acceptance: a main-actor action at 100 ms runs with 0 pool-thread hops (a test seam counts `clock.sleep` calls == 0
   and the ledger shows one `MainWakeUpQueue.fire`); the sync overload runs inline (no Task); reset and cancel still
   win over a fire; a nonisolated action uses the Task path.
-- Test phase: `swift test --filter DemandTimer` on the fleet; idle-budget light ledger shows `MainWakeUpQueue.fire` and
-  no pool wake per DemandTimer fire.
+- Test phase: `swift test --filter DemandTimer` on the fleet. No production timer gets a queue here, so the
+  idle-budget light ledger (`MainWakeUpQueue.fire`, no pool wake per DemandTimer fire) is evidence for 019a-d and 133.
 - Size M. Depends: 012, 013.
 
 #### p14-energy-015 Backoff leeway
@@ -1131,6 +1148,16 @@ repositories.
 - Test phase: fork build through 136; `swift test --filter CEFPump`; split-spring --suite=cef-idle: earlyPasses 0 and
   pump wakes/s down in tabs-static (numbers in the commit).
 - Size M. Depends: 016. Queue fork.
+- Fork ref: manaflow-ai/cef `cp/p14-energy-046` (18f4828a, on 037's `cp/p14-energy-037`), with no API number (136
+  numbers it). cmux finds `cmux_set_on_schedule_delayed` by symbol (`cmux_shim_set_schedule_delayed` returns 1), so a
+  fork without it keeps the ms path.
+- TimerSlackMac is not tied to this API (046 review): with the handler set, the fork's MessagePumpExternal overrides
+  ScheduleDelayedWork and AdjustDelayedRunTime, so the UI thread arms no base timer and the flag changes only renderer,
+  GPU and utility processes and the browser's non-UI threads (page `setTimeout` may fire up to its leeway late). It is
+  the default-off feature `cefTimerSlack` (process `chromium`) until a run measures those wakes and page timer latency.
+- earlyPasses on the absolute path: a delayed pass is early when it began before the run time it serves, or when
+  Chromium reports that run time or an earlier one during the pass. A later run time is the next task, however close.
+  The 2 ms re-ask rule stays for the ms path only.
 
 #### p14-energy-132 Contingency: explicit onMain DemandTimer migration
 - Files: the Q14 hit files under `Packages/macOS/CmuxNext/Sources/**`, `Packages/macOS/CmuxNext/Sources/CmuxNextWakeups/DemandTimer.swift`.
@@ -1142,8 +1169,10 @@ repositories.
 
 #### p14-energy-133 Q13 sync DemandTimer actions use the sync overload
 - Files: the Q13 hit files under `Packages/macOS/CmuxNext/Sources/**`.
-- Change: a main-actor DemandTimer closure with no `await` moves to the sync overload (no Task per fire). Mechanical,
-  reviewed per module.
+- Change: a main-actor DemandTimer closure with no `await` moves from `schedule(after:)` to
+  `scheduleOnMain(after:tolerance:_:)` (no Task per fire), a rename at each site (014 landed a separate name, not an
+  overload). A site's tests that advance a `ManualClock` move to firing the queue. Mechanical, reviewed per module.
+  The light-ledger evidence for DemandTimer on the queue (`MainWakeUpQueue.fire`, no pool wake) comes from here.
 - Acceptance: `wakeup-audit.py --queue demand-sync` prints 0 lines; tests unchanged.
 - Test phase: full CmuxNext `swift test` on the fleet.
 - Size M. Depends: 014. Queue Q13.
@@ -1195,6 +1224,15 @@ repositories.
 - Acceptance: switching the source to saver re-aligns pending flexible entries to 32 ms and leaves precise entries.
 - Test phase: `swift test --filter "MainWakeUpQueueTests|EnergyPolicy"` on the fleet.
 - Size S. Depends: 013.
+- As landed (review fixes): only `EnergyPolicy`, `EnergyPolicySource` and `MainWakeUpQueue(energy:)`, with no
+  default source. As in Chrome, an entry keeps the leeway it was inserted with and the grid applies at wake time
+  (`AdjustDelayedRunTime`), so a switch snaps pending entries to 32 ms only up to their latest time. DemandTimer and
+  FrameScheduler do not change here. 012 owns DemandTimer's `policy:` and tolerance (precise asks 0), and 028 owns the
+  ambient rate class and its source (every FrameScheduler gets it, MainWorkScheduler's too). Still open for 012/014/024:
+  how the 188 `DemandTimer(` sites that use defaults get the app's source. A static setter
+  (`DemandTimer.setProcessDefaults`) breaks arch-ratchet `stateful_singletons`. So 014 adds a seam that the
+  composition root sets once (for example, the MainWakeUpQueue it injects carries the source), or 024 threads the queue
+  through the sites and its "+30 lines" acceptance changes.
 
 #### p14-energy-024 Composition root wiring
 - Files: `Packages/macOS/CmuxNext/Sources/CmuxNextApp/AppServices.swift`,
@@ -1205,6 +1243,16 @@ repositories.
 - Acceptance: no `static shared` energy state; AppServices grows <= 30 lines; the Host file has one-line forwards.
 - Test phase: `cmux-ci build cmux --ref SHA --tag energy-v1`; debug.energy shows inputs.
 - Size S. Depends: 022, 023.
+- As landed (review fixes): `MainWorkScheduler` owns the app's one `EnergyPolicySource` (`energy`) and
+  `MainWakeUpQueue` (`wakeUps`). The daemon, Cloud, SSH and server services already get the scheduler by init, so a
+  DemandTimer, CEF or FrameScheduler owner reaches both with no static setter and no second injection path. This
+  answers 023's open question. `EnergyPolicyDriver` (CmuxNextEnergy) is the source's one writer. It feeds the
+  `energy.saver` setting and each `EnergyMonitor` input change to `EnergyPolicyResolver`, as Chrome's
+  `BatterySaverModeManager` re-resolves on the pref and on the power state, and it publishes nothing until both are
+  known. KeepAwake keeps one `onBattery` writer, the monitor link. The consumers change in their own tasks, which
+  now say where they read the source: DemandTimer 012/014 (sites with no scheduler keep 8 ms until 019a-d and 133
+  move them), CEF 016, FrameScheduler 028 (`mainWork.frames`, `FrameScheduler.app`, per-window), BrowserHibernation
+  and WebKitEngine 031, DaemonService 033, GlassModeWatch and BackdropVideoView 138 (after p11-codebase-039).
 
 #### p14-energy-025 Energy Saver session actions
 - Files: `Packages/macOS/CmuxNext/Sources/CmuxNextActions/Catalog/EnergyActionCatalog.swift`,
@@ -1262,6 +1310,14 @@ repositories.
   and released after false; a sink with input in the last 1 s is not throttled; a renderer's leeway is 32 ms in saver.
 - Test phase: fork CI build (136); idle-budget energy-saver: anim page rAF <= 31/s; D8 Chromium scroll at 120 Hz.
 - Size M. Queue fork.
+- Fork ref: manaflow-ai/cef `cp/p14-energy-029` (11649d01, on 124's `cp/p14-energy-124`), with no API number (136
+  numbers it). Files follow the fork layout: `libcef/browser/cmux/cmux_energy_saver.{h,cc}`, the BUILD.gn entry, and
+  one call in `CefBrowserContentsDelegate::ObserveWebContents` that watches every CEF page. Throttling is per page
+  (`UpdateThrottlingFrameSinks` on the primary main frame; viz throttles the sinks embedded in it, so input in any
+  widget of a page releases the whole page). `cmux_battery_saver_embedder_owned.patch` gives Chrome's
+  `BatterySaverModeManager` no provider, so Chrome's battery saver never turns on and cmux's saver is the only writer of
+  the frame sink throttle, the wake-up leeway and the child process mode. Embedder test:
+  `scripts/test-cmux-embedder.sh energy-saver`, run with Chrome's battery saver pref set to always on.
 
 #### p14-energy-030 Shim and Swift binding for the saver fork API
 - Files: `Packages/macOS/CmuxNext/CEFShim/src/shim_process.mm`,
@@ -1279,7 +1335,11 @@ repositories.
 - Files: `Packages/macOS/CmuxNext/Sources/CmuxNextApp/Hibernation/BrowserHibernation.swift`,
   `Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/WebKit/WebKitEngine.swift`.
 - Change: replace LowPowerMode observation with EnergyPolicySource; in saver neighbor radius 0 and WebKit low render
-  rate. The freeze grace is not shortened (039 does Chrome's CPU rule).
+  rate. The freeze grace is not shortened (039 does Chrome's CPU rule). Until the `energySaver` feature is on by
+  default, the driver publishes macOS Low Power Mode as `EnergyPolicy.lowPowerFallback` while the feature is off,
+  and these consumers read `EnergyPolicy.pageSaver` (saver or fallback), so default builds keep Low Power Mode's
+  near-60 fps WebKit, neighbor radius 0 and short page lifecycle window (p14-energy-021). The resolver holds the
+  thermal reason until nominal or plug-in, so a Mac flapping between fair and serious makes one saver edge.
 - Acceptance: `rg -n 'LowPowerMode' Packages/macOS/CmuxNext/Sources/CmuxNextApp/Hibernation Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/WebKit`
   returns 0; existing hibernation tests pass with a saver case.
 - Test phase: `swift test --filter "Hibernation|WebKitRenderRate"` on the fleet.
@@ -1408,6 +1468,27 @@ repositories.
   cmux side compiles against old and new API.
 - Test phase: fork CI build; `cmux-ci build cmux --ref SHA`; idle-budget tabs-static and energy-saver.
 - Size M. Depends: 029, 037, 046, 048, 107, 124, Q8 fork items. Queue fork.
+- 037 notes (manaflow-ai/cef `cp/p14-energy-037`, 361b930f5db4 and 70565d658a58): the fork part clamps
+  `MaxTimeSlice` to 2 ms and keeps `MessagePumpExternal::Run`'s loop over `DoWork` until the slice ends. That
+  loop is the batch. Chrome's `MessagePumpCFRunLoopBase::RunWork` runs one `DoWork`, and on the browser UI
+  thread that `DoWork` is an 8 ms batch (`kRunTasksByBatches`, on by default on Mac; `BrowserUIThreadScheduler`
+  sets `SetCanRunTasksByBatches(true)`). An exit after the first `DoWork` would keep that 8 ms batch, or with
+  batching off make one embedder pass per task. Open for 136: one `DoWork` can itself run an 8 ms batch, so the
+  2 ms bound does not hold yet. Bound the UI thread's batch under the external pump (a fork patch to the batch
+  duration, or no batching on that thread only). Do not use `--disable-features=RunTasksByBatches`, because
+  child processes inherit it. cmux judges passes by the switch's 2 ms from fork API 26
+  (`CEFPumpSchedule.pumpTimeSliceSwitchForkAPI`, the first API built on 066b083f), so 136 needs no cmux gate for 037.
+
+#### p14-energy-138 GlassModeWatch and BackdropVideoView follow EnergyPolicy
+- Files: `.../CmuxNextApp/GlassModeWatch.swift`, `.../CmuxNextApp/AppServices+Glass.swift`,
+  `.../CmuxNextDesign/BackdropVideoView.swift`, `.../CmuxNextDesign/WindowMaterialView.swift`.
+- Change: the rest of 024's consumer list. `GlassModeWatch(energy:onChange:)` replaces its LowPowerMode input with
+  `mainWork.energy`. `BackdropVideoPlayers` is built by the composition root once p11-codebase-039 removes `.shared`,
+  and it pauses the video wallpaper under the saver instead of reading `ProcessInfo.isLowPowerModeEnabled`.
+- Acceptance: `rg isLowPowerModeEnabled` in BackdropVideoView == 0; glass and backdrop tests pass with a saver case;
+  Low Power Mode still applies through the saver's auto mode.
+- Test phase: `swift test --filter "GlassLens|BackdropVideo"` on the fleet.
+- Size S. Depends: 024, p11-codebase-039.
 
 #### p14-energy-137 Daemon reads the power source itself
 - Files: `cmux-tui/crates/cmux-tui-core/src/wake/power.rs`, `cmux-tui/crates/cmux-tui-core/src/wake/energy.rs`.
@@ -1497,6 +1578,32 @@ repositories.
   same run.
 - Test phase: fork CI (136); tabs-static role rows.
 - Size M. Depends: 106. Queue fork.
+- Status: open. The acceptance is not met yet: no tabs-static run has given role rows. The note below is an
+  unverified source reading, not evidence, and it does not close the task.
+- Unverified source finding (2026-10-26, Chromium 154.0.8037.58, manaflow-ai/cef `cmux/8037`): the source suggests that
+  no fork patch is needed. The task port is wired in content for every child, with no embedder seam:
+  `RenderProcessHostImpl::OnChannelConnected` calls `ChildProcessTaskPortProvider::OnChildProcessLaunched`, the helper
+  answers `GetTaskPort` with its own task (`content/child/child_thread_impl.cc`), and
+  `ChildProcessLauncherHelper::SetProcessPriorityOnLauncherThread` (`child_process_launcher_helper_mac.cc`) calls
+  `Process::SetPriority` with that provider (`CanSetPriority()` is true on Mac). cmux helpers run `CefExecuteProcess`
+  (`helper_main.mm`). CEF does not override `IsRendererProcessPriorityEnabled` and neither CEF nor `CEFSwitches` passes
+  `--disable-renderer-backgrounding`. `kUserVisibleProcessPriority` is off, so the Mac roles would be kBestEffort
+  (hidden) and kUserBlocking (shown). Visibility comes from the native view (Chrome style:
+  `ChromeBrowserHostImpl::WasHidden` is NOTIMPLEMENTED). `idle-wakeups.md` sec. 7 measured `document.visibilityState`
+  and wakeups of hidden tabs, not task roles or base priority, so it does not show that hidden renderers are
+  kBestEffort. Two known causes can leave a hidden renderer in the foreground: AMFI allow-everything on the host
+  (Chromium then logs "will not collect child process task ports"; check `nvram boot-args`), and a page that does not
+  report hidden (048).
+- What the bench now measures (idle-budget.py): in tabs-static only (`judge_shown_renderers`), the window's role read
+  judges hidden renderers best-effort and the renderers the census marks shown (Home, the shown tab) `not-background`.
+  After the window, the `reshow` step selects a hidden Chromium tab that was read best-effort (tab.focus), reads the
+  roles again until its renderer is `not-background` and the tab shown before is best-effort (10 s at most), and
+  prints `IDLE-BUDGET-OVER tabs-static cef-renderer role ... phase=reshow` for each renderer that does not change.
+- To close: one fleet run of `scripts/measure/split-spring.sh --suite=idle-budget --vdisplay=120 -- --sessions
+  tabs-static,minimized`, attached here with `nvram boot-args` from the same host. It must show the hidden renderer
+  pids with observed `suppressed` or `darwinbg`, the shown ones with observed `default`, the `IDLE-BUDGET-RESHOW` record
+  with the reshown tab back at `default`, and no role over. If a hidden renderer stays in the foreground with neither
+  known cause, or the reshown one does not come back, this task gets the fork patch.
 
 #### p14-energy-108 Built-in uBlock Origin idle cost
 - Files: `scripts/cmux-next/bundle-ublock.sh`, `scripts/cmux-next/fetch-ublock.sh`,
@@ -1512,14 +1619,30 @@ repositories.
 #### p14-energy-124 Per-tab renderer attribution
 - Files: `fork:include/cef_cmux.h`, `Packages/macOS/CmuxNext/CEFShim/src/shim_browser.mm`,
   `.../CmuxNextBrowser/CEF/CEFShimABI.swift`, `.../CmuxNextWakeups/ProcessUsage.swift`,
-  `.../CmuxNextControl/Diagnostics/BusyWatchdog.swift`, `.../CmuxNextApp/Control/DebugEnergy.swift`.
+  `.../CmuxNextControl/Diagnostics/BusyWatchdog.swift`, `.../CmuxNextControl/Diagnostics/EnergyReport.swift`,
+  `.../CmuxNextApp/Control/DebugWakeups.swift`.
 - Change: fork API `cmux_cef_browser_renderer_pid(browser_id)` (RenderProcessHost handle) into 136; ProcessUsage groups
   renderer CPU, wakeups and energy per tab; debug.energy lists tabs; a BusyWatchdog record names the tabs of a busy
   renderer.
 - Acceptance: shim test with a fake fork returns the pid; two tabs sharing one renderer both show its usage and the
   record names both.
 - Test phase: fork CI (136); `swift test --filter "ProcessUsage|BusyWatchdog"`; debug.energy on tabs-static.
+- Scope: in process. With the Chromium Host on, the renderers are the host's children: the remote shim answers no
+  pid and no tab lists a renderer until 124a. The busy watchdog reads a tab snapshot the App publishes (a tab's
+  mount and load-phase changes), never the main actor.
 - Size M. Depends: 007. Queue fork.
+
+#### p14-energy-124a Per-tab renderer attribution with the Chromium Host on
+- Files: `plans/cmux-next/chromium-host-ops.json`, `Packages/macOS/CmuxNext/ChromiumHost/client/remote_shim.mm`
+  (generated), `.../CmuxNextBrowser/CEF/CEFTab+Processes.swift`, `.../CmuxNextApp/Control/DebugWakeups.swift`.
+- Change: `cmux_shim_renderer_pid` becomes an async op the host answers with its shim's pid (the reply path of
+  p01-process-022, like `cmux_shim_renderer_client_ids`); `AppProcesses.sample` and `chromiumHelpers` list the
+  Chromium Host's children next to the app's, classified by `ChromiumHelperProcess`.
+- Acceptance: with the host on, two tabs on one renderer both show its usage in debug.energy `tabs` and a busy
+  renderer's record names both.
+- Test phase: `swift test --filter "ProcessUsage|BusyWatchdog|CEFTabRendererPID"`; debug.energy on tabs-static
+  with the host flag on.
+- Size M. Depends: 124, p01-process-022. Queue none.
 
 #### p14-energy-125 High-energy tab badge with Discard
 - Files: `Packages/macOS/CmuxNext/Sources/CmuxNextTabs/TabHoverCard+Energy.swift`,
@@ -1965,13 +2088,16 @@ repositories.
 
 #### p14-energy-117 acpmux freezes idle harnesses of hidden sessions
 - Files: `cmux-tui/crates/acpmux/src/hub/freeze.rs`, `cmux-tui/crates/acpmux/src/hub/idle.rs`,
-  `cmux-tui/crates/acpmux/src/config/pool.rs`, `cmux-tui/crates/acpmux/src/server/visibility.rs`.
+  `cmux-tui/crates/acpmux/src/config/pool.rs`, `cmux-tui/crates/acpmux/src/server/visibility.rs`,
+  `scripts/cmux-next/idle-budget.json`.
 - Change: op `_acpmux/visibility {session, visible}`. An attached-but-hidden session with no turn, no pending
   permission, no running background task or terminal tool for freezeAfterSeconds (300, 30 in saver) gets its harness
   process group SIGSTOPped; prompt, show, permission or inbound request does SIGCONT before anything is forwarded. In
   saver, pool.park and no new pool entries on battery. Status shows `frozen`. With PL-acpmux.
 - Acceptance: fake process controller + paused clock: hidden idle 300 s -> 1 stop; prompt -> cont before request bytes;
-  a running background task blocks the freeze; show thaws in the same turn.
+  a running background task blocks the freeze; show thaws in the same turn; idle-budget.json's agent-idle
+  `agent-harness.hidden_wakeups_max` goes from null (reported, IDLE-BUDGET-NOT-JUDGED since 103) to 0, so --gate
+  judges D14's hidden harness.
 - Test phase: `cargo test -p acpmux freeze`; agent-idle: hidden pane harness 0 wakeups.
 - Size M. Depends: 070, 103.
 

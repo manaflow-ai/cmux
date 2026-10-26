@@ -20,9 +20,9 @@
 
 use std::io::Write as _;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
 
 use anyhow::{Context as _, bail};
+use cmux_process::{Command, Stdio};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest as _, Sha256};
 

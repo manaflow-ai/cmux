@@ -1,3 +1,4 @@
+import CmuxNextCompat
 public import Foundation
 import os
 
@@ -28,14 +29,14 @@ public actor AgentSessionAttachClient {
             }
         }
 
-        var command: String {
+        var command: DaemonCommandName {
             switch self {
             case .attach: return "agent-session-attach"
             case .observe: return "agent-session-observe"
             }
         }
 
-        var clientInfoKind: String { command }
+        var clientInfoKind: String { command.wire }
         var clientInfoName: String {
             switch self {
             case .attach: return "cmux-next agent attach"
@@ -207,10 +208,10 @@ public actor AgentSessionAttachClient {
     }
 
     /// One verb on the tab; the result's `data` as JSON, or the daemon's refusal.
-    private func call(_ cmd: String, _ params: [String: any Sendable]) async throws -> Data {
+    private func call(_ cmd: DaemonCommandName, _ params: [String: any Sendable]) async throws -> Data {
         let transport = try await liveTransport()
         var object = params
-        object["cmd"] = cmd
+        object["cmd"] = cmd.wire
         object["surface"] = surface
         // Integers stay integers (the daemon reads u64 seqs and surface ids).
         let fields = try JSONSerialization.data(withJSONObject: object)
@@ -222,6 +223,7 @@ public actor AgentSessionAttachClient {
         } catch DaemonError.command(_, let message, let code, let details, _) {
             throw AgentSessionAttachError(code: code ?? "agent_session.refused", message: message, details: details)
         }
+        response.recorder?.decoded()  // Self.data(of:) parses the line
         return Self.data(of: response.line)
     }
 
@@ -244,12 +246,15 @@ public actor AgentSessionAttachClient {
 
     private func connect() async throws -> LineTransport {
         let endpoint = try await self.endpoint()
-        let transport = try LineTransport(path: endpoint.socketPath)
+        let transport = try LineTransport(path: endpoint.socketPath, role: .agentSessionAttach, stats: endpoint.wireStats)
         let handler = handler
         let surface = surface
+        let recorder = transport.recorder
         transport.start(
             onEvent: { name, line, _ in
-                guard name.hasPrefix("agent-session-"), Self.surface(of: line) == surface else { return }
+                guard name.hasPrefix("agent-session-") else { return }
+                recorder?.decoded()  // Self.surface(of:) parses the line
+                guard Self.surface(of: line) == surface else { return }
                 handler.current?(name, line)
                 if name == "agent-session-closed" { handler.set(nil) }
             },
@@ -317,7 +322,7 @@ public struct AgentSessionAttachError: Error, Sendable, Equatable {
 
 /// The current push handler, read on the transport's reader thread.
 private final class HandlerBox: Sendable {
-    private let lock = OSAllocatedUnfairLock<AgentSessionAttachClient.EventHandler?>(initialState: nil)
+    private let lock = Mutex<AgentSessionAttachClient.EventHandler?>(nil)
     var current: AgentSessionAttachClient.EventHandler? { lock.withLock { $0 } }
     func set(_ handler: AgentSessionAttachClient.EventHandler?) { lock.withLock { $0 = handler } }
 }

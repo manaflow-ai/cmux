@@ -71,6 +71,8 @@ pub(super) struct NegotiatedRevision {
     compat: &'static Compat,
     /// The client's revision when this daemon translates for it; 0 otherwise.
     peer: AtomicU32,
+    /// The revision the client declared; 0 before it declares one.
+    declared: AtomicU32,
     /// Request id (as JSON text) -> command, for response kinds.
     pending: Mutex<HashMap<String, String>>,
 }
@@ -94,7 +96,12 @@ struct Peek {
 impl NegotiatedRevision {
     /// A connection translating with `compat` (tests pass their own history).
     pub(super) fn with_compat(compat: &'static Compat) -> Self {
-        Self { compat, peer: AtomicU32::new(0), pending: Mutex::new(HashMap::new()) }
+        Self {
+            compat,
+            peer: AtomicU32::new(0),
+            declared: AtomicU32::new(0),
+            pending: Mutex::new(HashMap::new()),
+        }
     }
 
     /// Records the client's declared revision. Errors when this daemon can
@@ -123,7 +130,22 @@ impl NegotiatedRevision {
         })?;
         let peer = if negotiated.translator == Translator::Us { client_revision } else { 0 };
         self.peer.store(peer, Ordering::Release);
+        self.declared.store(client_revision, Ordering::Release);
         Ok(())
+    }
+
+    /// The client declared exactly this daemon's revision: no translation
+    /// either way, so binary frames may carry its payloads unchanged
+    /// (capabilities.rs, `IpcCapability`). False before a declaration.
+    pub(super) fn is_current(&self) -> bool {
+        self.declared.load(Ordering::Acquire) == self.compat.current()
+    }
+
+    /// Not yet declared, or declared as this daemon's revision: what the
+    /// client may still be granted at exactly this revision (`identify`).
+    pub(super) fn current_or_undeclared(&self) -> bool {
+        let declared = self.declared.load(Ordering::Acquire);
+        declared == 0 || declared == self.compat.current()
     }
 
     fn peer(&self) -> Option<u32> {
@@ -136,6 +158,7 @@ impl NegotiatedRevision {
     /// Upgrades one request line from the client's revision.
     pub(super) fn upgrade_request<'a>(&self, message: &'a str) -> Cow<'a, str> {
         let Some(peer) = self.peer() else { return Cow::Borrowed(message) };
+        crate::diagnostics::note_json_parse();
         let Ok(peek) = serde_json::from_str::<Peek>(message) else { return Cow::Borrowed(message) };
         let Some(cmd) = peek.cmd else { return Cow::Borrowed(message) };
         if let Some(id) = &peek.id {

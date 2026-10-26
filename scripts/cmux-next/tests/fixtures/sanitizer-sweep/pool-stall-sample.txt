@@ -1,0 +1,39 @@
+Sampling process 5150 for 5 seconds with 1 millisecond of run time between samples
+Sampling completed, processing symbols...
+Analysis of sampling swiftpm-testing-helper (pid 5150) every 1 millisecond
+Process:         swiftpm-testing-helper [5150]
+Path:            /Applications/Xcode_26.6.app/Contents/Developer/usr/libexec/swift/pm/swiftpm-testing-helper
+Load Address:    0x100000000
+Identifier:      swiftpm-testing-helper
+Code Type:       ARM64
+Platform:        macOS
+Parent Process:  swift-test [5100]
+
+Date/Time:       2026-10-26 09:00:00.000 -0700
+OS Version:      macOS 26.1 (25B78)
+
+Call graph:
+    4200 Thread_9900001   DispatchQueue_1: com.apple.main-thread  (serial)
+    + 4200 start  (in dyld) + 6076  [0x18e9a2b98]
+    +   4200 main  (in swiftpm-testing-helper) + 120  [0x100004078]
+    +     4200 swift_task_asyncMainDrainQueue  (in libswift_Concurrency.dylib) + 52  [0x2733d0000]
+    +       4200 dispatch_main  (in libdispatch.dylib) + 32  [0x18e7f9000]
+    +         4200 __workq_kernreturn  (in libsystem_kernel.dylib) + 8  [0x18ed02000]
+    4200 Thread_9900020   DispatchQueue_8: com.apple.root.default-qos.cooperative  (concurrent)
+    + 4200 start_wqthread  (in libsystem_pthread.dylib) + 8  [0x18ee00000]
+    +   4200 _pthread_wqthread  (in libsystem_pthread.dylib) + 292  [0x18ee01000]
+    +     4200 _dispatch_workloop_worker_thread  (in libdispatch.dylib) + 648  [0x18e7f2000]
+    +       4200 swift::runJobInEstablishedExecutorContext(swift::Job*)  (in libswift_Concurrency.dylib) + 252  [0x2733a0000]
+    +         4200 closure #1 in ThemeLoaderTests.loadsTheme()  (in CmuxThemePackageTests) + 96  [0x100230000]
+    +           4200 ThemeLoader.loadSync()  (in CmuxThemePackageTests) + 180  [0x100231000]
+    +             4200 OS_dispatch_semaphore.wait(timeout:)  (in libswiftDispatch.dylib) + 16  [0x2734f0000]
+    +               4200 _dispatch_semaphore_wait_slow  (in libdispatch.dylib) + 76  [0x18e7f3000]
+    +                 4200 semaphore_wait_trap  (in libsystem_kernel.dylib) + 8  [0x18ed03000]
+    4200 Thread_9900031
+    + 4200 start_wqthread  (in libsystem_pthread.dylib) + 8  [0x18ee00000]
+    +   4200 __workq_kernreturn  (in libsystem_kernel.dylib) + 8  [0x18ed02000]
+
+Total number in stack (recursive counted multiple, when >=5):
+
+Sort by top of stack, same collapsed (when >= 5):
+        semaphore_wait_trap  (in libsystem_kernel.dylib)        4200

@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import CmuxNextControl
 import CmuxNextCrashReporting
 import Foundation
@@ -32,7 +33,7 @@ nonisolated struct RecordedException: Codable, Equatable, Sendable {
 nonisolated enum UncaughtExceptionRecorder {
     /// Frames kept from the exception's call stack.
     static let frameLimit = 64
-    private static let file = OSAllocatedUnfairLock<URL?>(initialState: nil)
+    private static let file = Mutex<URL?>(nil)
 
     /// Sets the handler that writes into `url`. No other code in the app
     /// installs an uncaught-exception handler (CEF and Ghostty do not).
@@ -76,13 +77,13 @@ nonisolated enum UncaughtExceptionRecorder {
     static func frames(of exception: NSException) -> [String] {
         let addresses = exception.callStackReturnAddresses.prefix(frameLimit).map { $0.uintValue }
         guard !addresses.isEmpty else { return Array(exception.callStackSymbols.prefix(frameLimit)) }
-        return StackSymbolicator().frames(for: addresses).map(\.description)
+        return StackSymbolicator(map: AppSymbolMap.loadMain()).frames(for: addresses).map(\.description)
     }
 
     /// The record in `url`, or nil when there is none or it does not decode.
     static func read(_ url: URL) -> RecordedException? {
         // concurrency-allow: once at launch before the first window, a file of a few KB.
         guard let data = try? Data(contentsOf: url) else { return nil }
-        return try? JSONDecoder().decode(RecordedException.self, from: data)
+        return try? JSONDecoder().blockingDecode(RecordedException.self, from: data)
     }
 }

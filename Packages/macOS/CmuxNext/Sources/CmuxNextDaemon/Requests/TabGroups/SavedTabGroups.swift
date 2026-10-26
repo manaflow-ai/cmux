@@ -11,7 +11,7 @@ public struct ListSavedTabGroupsRequest: DaemonRequest {
         public var savedGroups: [SavedTabGroupSnapshot]
         enum CodingKeys: String, CodingKey { case savedGroups = "saved_groups" }
     }
-    public static let command = "list-saved-tab-groups"
+    public static let commandName: DaemonCommandName = "list-saved-tab-groups"
     public static let requiredCapability: String? = DaemonCapability.savedTabGroups.rawValue
     public init() {}
 }
@@ -22,7 +22,7 @@ public struct SaveTabGroupRequest: DaemonRequest {
         public var group: TabGroupID
         public var saved: SavedTabGroupID
     }
-    public static let command = "save-tab-group"
+    public static let commandName: DaemonCommandName = "save-tab-group"
     public static let requiredCapability: String? = DaemonCapability.savedTabGroups.rawValue
     public var group: TabGroupID
     public init(group: TabGroupID) { self.group = group }

@@ -1,7 +1,12 @@
 import AppKit
 import CmuxNextBrowser
+import CmuxNextCompat
 import WebKit
 import CmuxNextWakeups
+#if DEBUG || CMUX_BENCH_HOOKS
+import CmuxNextControl
+import CmuxNextOracle
+#endif
 
 /// The clickable controls hint mode labels (``WindowHintController``): the
 /// window's accessibility tree, walked in process, keeps each shown element
@@ -54,10 +59,7 @@ enum WindowHintTargets {
         while let next = stack.popLast(), visited < 5000, found.count < limit {
             visited += 1
             if let view = next as? NSView {
-                guard !view.isHiddenOrHasHiddenAncestor, view.alphaValue > 0.01 else { continue }
-                guard !(view is WKWebView) else { continue }
-                let name = NSStringFromClass(type(of: view))
-                guard !remoteViewNames.contains(where: name.contains) else { continue }
+                guard !view.isHiddenOrHasHiddenAncestor, view.alphaValue > 0.01, !isRemote(view) else { continue }
             }
             guard let element = next as? NSAccessibilityProtocol, !element.isAccessibilityHidden() else { continue }
             // Only controls report enabled; custom rows and tabs leave it unset.
@@ -74,6 +76,13 @@ enum WindowHintTargets {
             stack.append(contentsOf: (element.accessibilityChildren() ?? []).reversed())
         }
         return Found(targets: found, pages: webViews(in: content), bounds: bounds)
+    }
+
+    /// A web view: its tree lives in its page process (WebKit's, Chromium's).
+    static func isRemote(_ view: NSView) -> Bool {
+        if view is WKWebView { return true }
+        let name = NSStringFromClass(type(of: view))
+        return remoteViewNames.contains(where: name.contains)
     }
 
     /// The shown web views under `view`, in subview order (the spare New
@@ -101,7 +110,7 @@ enum WindowHintTargets {
                 }
             }
             // The deadline; resuming twice is guarded by the collection, which cancels it on finish.
-            collection.deadline.schedule(after: pageDeadline) { @MainActor in
+            collection.deadline.scheduleOnMain(after: pageDeadline) {
                 collection.finish()
             }
         }
@@ -114,7 +123,7 @@ enum WindowHintTargets {
             var x: Double, y: Double, left: Double, top: Double
             var text: String?
         }
-        guard let elements = try? JSONDecoder().decode([Element].self, from: Data(json.utf8)) else { return [] }
+        guard let elements = try? JSONDecoder().blockingDecode([Element].self, from: Data(json.utf8)) else { return [] }
         let zoom = page.pageZoom * page.magnification
         func point(_ x: Double, _ y: Double) -> NSPoint {
             let local = NSPoint(x: x * zoom, y: page.isFlipped ? y * zoom : page.bounds.height - y * zoom)
@@ -209,3 +218,37 @@ final class PageElement: Equatable {
         return true;
         """
 }
+
+#if DEBUG || CMUX_BENCH_HOOKS
+/// The oracle's `ax` facet (p15-oracle-216, ``OracleAccessibilityFacet``) over the shown tree hint mode walks.
+extension WindowHintTargets {
+    /// The `ax` walk: the roles hint mode labels, text areas and menu items, with hint mode's page rule.
+    static var oracleWalk: OracleAccessibilityWalk {
+        OracleAccessibilityWalk(roles: Set(clickable.union([.textArea, .menuItem]).map(\.rawValue))) { isRemote($0) }
+    }
+
+    /// The app's provider over `windows`' windows; the string tables are read on `work`'s files lane.
+    static func oracleAccessibilityFacet(windows: WindowManager, work: BackgroundWork) -> OracleAccessibilityFacet {
+        let walk = oracleWalk
+        return OracleAccessibilityFacet { [weak windows] () throws(OracleFacetError) -> [OracleAccessibilityFacet.Window] in
+            guard let windows else { throw OracleFacetError("the window manager is gone") }
+            var read: [OracleAccessibilityFacet.Window] = []
+            for controller in windows.controllers {
+                guard let window = controller.window else { continue }
+                read.append(.init(id: ControlWindowInfo.publicID(forKey: controller.state.id), nodes: try walk.nodes(in: window)))
+            }
+            return read
+        } index: { () async throws(OracleFacetError) -> OracleAccessibilityFacet.StringIndex in
+            do {
+                return try await work.run(.userBlocking, mayBlock: .files) {
+                    try OracleAccessibilityFacet.StringIndex(OracleAccessibilityFacet.StringTable.bundleTables())
+                }
+            } catch let error as OracleFacetError {
+                throw error
+            } catch {
+                throw OracleFacetError("the string tables could not be read: \(error)")
+            }
+        }
+    }
+}
+#endif

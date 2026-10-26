@@ -5,7 +5,7 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 publish.workspace = true
-description = "One small process that holds every PTY of an install: no VT, std and libc only (plus the std+libc flow marks)"
+description = "One small process that holds every PTY of an install: no VT, std and libc only (plus the std+libc flow marks, trace ring, cmux-ipc descriptor passing and cmux-memory budget constants)"
 
 [lints]
 workspace = true
@@ -16,8 +16,15 @@ path = "src/main.rs"
 
 [dependencies]
 cmux-flow-trace.workspace = true
+cmux-ipc.workspace = true
+# RING_BYTES and LINK_QUEUE_BYTES come from the daemon memory budget (std and libc only).
+cmux-memory.workspace = true
+# The trace ring a granted TRACE_START and TRACE_STOP drive (std and libc only).
+cmux-trace.workspace = true
 libc.workspace = true
 
 [dev-dependencies]
 # The spawn-race test only: the holder binary stays std and libc.
 cmux-process.workspace = true
+# The child-QoS test reads a child's priority with its probe.
+cmux-threads.workspace = true

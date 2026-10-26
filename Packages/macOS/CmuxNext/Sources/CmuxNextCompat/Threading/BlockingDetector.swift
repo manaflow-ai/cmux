@@ -1,9 +1,9 @@
 /// The handle to the main-thread blocking detector that other modules hold: the composition root makes
-/// it once with ``forProcess()`` and passes it to what installs the sink (the opt-in hang reports, once
-/// they are wired), the `debug.blocking` control method and the Debug menu.
+/// it once with ``forProcess()`` and passes it to what installs the sink (the app's hang reports wiring),
+/// the `debug.blocking` control method and the Debug menu.
 ///
-/// In Debug and bench builds (Nightly to come) it refers to the detector's process-wide table (see
-/// ``assertBlockingAllowed(_:fileID:line:)``); in Release it reads as empty and its calls do nothing.
+/// In Debug and bench-checks builds (Nightly to come) it refers to the detector's process-wide table (see
+/// ``blockingCall(_:fileID:line:_:)``); in Release it reads as empty and its calls do nothing.
 ///
 /// ```swift
 /// let blocking = BlockingDetector.forProcess()      // AppServices (the composition root) only
@@ -33,7 +33,7 @@ public struct BlockingDetector: Sendable {
         #endif
     }
 
-    /// Whether this build has the detector (Debug and bench builds; Nightly to come).
+    /// Whether this build has the detector (Debug and bench-checks builds; Nightly to come).
     public var isCompiledIn: Bool {
         #if DEBUG || CMUX_BLOCKING_CHECKS
         true
@@ -52,16 +52,27 @@ public struct BlockingDetector: Sendable {
         #endif
     }
 
+    /// What a violation on a shared pool thread does (``BlockingMode/record`` in every build but a Debug build
+    /// started with `CMUX_BLOCKING_TRAP_POOL=1`).
+    public var poolMode: BlockingMode {
+        #if DEBUG || CMUX_BLOCKING_CHECKS
+        table.poolMode
+        #else
+        .record
+        #endif
+    }
+
     /// Installs the sink that receives each new call site once, on the drain queue (the last call
-    /// wins; nil removes it).
+    /// wins; nil removes it). The sink first gets every site recorded before the call, so the
+    /// launch's sites before the composition root ran are not lost.
     public func install(sink: (any BlockingViolationSink)?) {
         #if DEBUG || CMUX_BLOCKING_CHECKS
         table.install(sink: sink)
         #endif
     }
 
-    /// The call sites that blocked the main thread and reached the drain queue, in the order they
-    /// first did, with their current counts.
+    /// The call sites that blocked the main thread, a shared pool thread or a `.cpu` lane item, or waited on a sync
+    /// primitive in a lane item, and reached the drain queue, in the order they first did, with their current counts.
     public var sites: [BlockingSite] {
         #if DEBUG || CMUX_BLOCKING_CHECKS
         table.sites
@@ -70,8 +81,9 @@ public struct BlockingDetector: Sendable {
         #endif
     }
 
-    /// Main-thread blocking calls not recorded as a site: the table was full (128 sites per launch), or 64
-    /// new sites were already waiting for the drain (such a site is recorded on a later call).
+    /// Blocking calls, on the main thread, the pool, a `.cpu` lane item or a lane item's sync primitive, not recorded
+    /// as a site (the sum of
+    /// ``overflow(in:)`` over the contexts).
     public var overflow: Int {
         #if DEBUG || CMUX_BLOCKING_CHECKS
         table.overflow
@@ -80,8 +92,22 @@ public struct BlockingDetector: Sendable {
         #endif
     }
 
-    /// Zeroes every site's count (between sweep steps); the sites stay known, so a site that blocks again
-    /// is counted, not sent to the sink again.
+    /// Blocking calls in `context` not recorded as a site: its table was full (128 sites per context per
+    /// launch), or 64 of its new sites were already waiting for the drain (such a site is recorded on a later
+    /// call). Always 0 for ``BlockingContext/lane`` and ``BlockingContext/dedicated``, which may block.
+    ///
+    /// - Parameter context: The context to read.
+    /// - Returns: Its unrecorded calls since launch.
+    public func overflow(in context: BlockingContext) -> Int {
+        #if DEBUG || CMUX_BLOCKING_CHECKS
+        table.overflow(in: context)
+        #else
+        0
+        #endif
+    }
+
+    /// Zeroes every site's count and wall times (between sweep steps); the sites stay known, so a site that
+    /// blocks again is counted, not sent to the sink again.
     public func resetCounts() {
         #if DEBUG || CMUX_BLOCKING_CHECKS
         table.resetCounts()

@@ -5,6 +5,7 @@ import Foundation
 import os
 public import Observation
 import CmuxNextCompat
+public import CmuxNextWakeups
 
 /// Stack Auth for cmux-next, composed from the kept `CmuxAuthRuntime`
 /// library exactly as the old app did (MacAuthComposition): the Keychain
@@ -62,7 +63,9 @@ public final class CloudAuth {
 
     /// `environment` nil reads this process's environment plus the captured auth launch keys.
     public init(configuration: CloudConfiguration, environment explicitEnvironment: [String: String]? = nil,
-                defaults: UserDefaults = .standard) {
+                defaults: UserDefaults = .standard, workspaceQueries: WorkspaceQueries? = nil) {
+        self.workspaceQueries = workspaceQueries
+        workspaceQueries?.prefetch([CloudSignInWindow.defaultBrowserQuery()], priority: .bestEffort)
         let environment = explicitEnvironment
             ?? Self.authEnvironment(process: ProcessInfo.processInfo.environment, launch: Self.launchEnvironment)
         self.configuration = configuration
@@ -119,27 +122,51 @@ public final class CloudAuth {
             makeSignInURL: { configuration.signInURL(callbackState: $0) },
             callbackScheme: { configuration.callbackScheme },
             openExternalURL: { url in
-                // Whether a browser opens it (a database lookup); the open runs off the main thread (cx-050n).
-                guard NSWorkspace.shared.urlForApplication(toOpen: url) != nil else { return false }
+                // An https page always has a browser (Safari is on the sealed system volume), so no Launch Services
+                // check waits on the main thread; the open runs off it (cx-050n).
                 NSWorkspace.shared.openInBackground(url)
                 return true
             }
         )
     }
 
-    /// Starts restoring the stored session (and dev auto sign-in).
+    /// Starts restoring the stored session (and dev auto sign-in); a second call does nothing.
+    /// The readers below call it first, so whoever reads first starts the restore and no reader
+    /// sees the primed state of a restore that never started (``AuthCoordinator/start()``).
     public func start() { coordinator.start() }
 
-    public func awaitRestored() async { await coordinator.awaitBootstrapped() }
+    /// Called when the person starts a sign-in or a sign-in callback arrives, before the flow runs:
+    /// the app starts Cloud there (`AppServices.startCloudNow`), so a sign-in never waits for the
+    /// launch's Cloud post.
+    @ObservationIgnored public var onSignIn: (@MainActor () -> Void)?
 
-    /// A coherent access/refresh pair for one API call.
+    public func awaitRestored() async {
+        start()
+        await coordinator.awaitBootstrapped()
+    }
+
+    /// A coherent access/refresh pair for one API call, after the session restore.
     public func tokens() async throws -> (access: String, refresh: String) {
+        start()
         let pair = try await coordinator.currentTokens()
         return (pair.accessToken, pair.refreshToken)
     }
 
     /// Where a sign-in opens; the App reads its Debug Settings tunable here.
     @ObservationIgnored public var signInWindow: @MainActor () -> CloudSignInWindow = { .automatic }
+
+    /// The app's Launch Services answers: the default browser a sign-in checks is read from what they keep, asked
+    /// on the system lane from init. Nil (tests) knows no default browser.
+    @ObservationIgnored private let workspaceQueries: WorkspaceQueries?
+
+    /// The default browser's bundle identifier as kept; nil when unknown (a miss asks for the next sign-in).
+    private func keptDefaultBrowser() -> String? {
+        guard let queries = workspaceQueries else { return nil }
+        let query = CloudSignInWindow.defaultBrowserQuery()
+        if let kept = queries.cached(query) { return kept }
+        queries.prefetch([query], priority: .userBlocking)
+        return nil
+    }
 
     /// Hosted browser sign-in; returns whether the app ended signed in.
     /// Every entry point (Settings, the palette, the sidebar, the Cloud page)
@@ -153,7 +180,8 @@ public final class CloudAuth {
     /// Account) asks the hosted page which account to use.
     @discardableResult
     public func beginSignIn(selectAccount: Bool = false) -> Task<Bool, Never> {
-        let inBrowser = signInWindow().opensDefaultBrowser(defaultBrowser: CloudSignInWindow.currentDefaultBrowser())
+        signInBegins()
+        let inBrowser = signInWindow().opensDefaultBrowser(defaultBrowser: keptDefaultBrowser())
         return browserSignIn.beginSignIn(selectAccount: selectAccount, inDefaultBrowser: inBrowser)
     }
 
@@ -181,7 +209,15 @@ public final class CloudAuth {
     /// Routes a `<scheme>://auth-callback` URL (browser fallback) to the flow.
     public func handleCallback(_ url: URL) async -> Bool {
         guard callbackRouter.isAuthCallbackURL(url) else { return false }
+        signInBegins()
         return await browserSignIn.handleCallbackURL(url)
+    }
+
+    /// A sign-in begins: the app's hook (it starts Cloud), then the restore, so the sign-in never
+    /// races a restore that starts after it.
+    private func signInBegins() {
+        onSignIn?()
+        start()
     }
 }
 

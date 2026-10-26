@@ -445,3 +445,226 @@ fn a_background_caller_starts_user_blocking_work_at_base_nice() {
     assert_eq!(caller_nice, base.max(10));
     assert_eq!(fg_nice, base, "UserBlocking ran at nice {fg_nice}, base {base}");
 }
+
+/// Items waiting inside `will_block` hold no slot: six of them on the System lane (its whole size)
+/// leave room for a UserVisible item. Out of `will_block` they count again.
+#[test]
+fn will_block_items_do_not_hold_their_slots() {
+    let work = work("t-willblock", 1, Duration::from_secs(30), 0);
+    let (leave, left) = channel::<()>();
+    let left = Arc::new(Mutex::new(left));
+    let (out_tx, out) = channel::<()>();
+    let mut gates = Vec::new();
+    for _ in 0..6 {
+        let (release, hold) = channel::<()>();
+        let (started_tx, started) = channel();
+        let (left, out_tx) = (Arc::clone(&left), out_tx.clone());
+        work.post(Priority::UserBlocking, Lane::System, Shutdown::SkipOnShutdown, move || {
+            will_block(|| {
+                started_tx.send(()).unwrap();
+                let _ = hold.recv();
+            });
+            out_tx.send(()).unwrap();
+            let _ = left.lock().unwrap().recv();
+        })
+        .unwrap();
+        started.recv_timeout(WAIT).unwrap();
+        gates.push(release);
+    }
+    let stats = lane_stats(&work, Lane::System);
+    assert_eq!((stats.running, stats.blocked), (6, 6));
+    let visible =
+        work.run(Priority::UserVisible, Lane::System, Shutdown::SkipOnShutdown, || "visible");
+    assert_eq!(visible.wait(), Ok("visible"));
+    drop(gates);
+    for _ in 0..6 {
+        out.recv_timeout(WAIT).unwrap();
+    }
+    let stats = lane_stats(&work, Lane::System);
+    assert_eq!((stats.running, stats.blocked), (6, 0), "out of will_block they count again");
+    let user_blocking =
+        work.run(Priority::UserBlocking, Lane::System, Shutdown::SkipOnShutdown, || "blocking");
+    assert_eq!(user_blocking.try_wait(), None, "the lane is full again");
+    drop(leave);
+    assert_eq!(user_blocking.wait(), Ok("blocking"));
+}
+
+/// Off a work item, and nested inside one, `will_block` only runs its body.
+#[test]
+fn will_block_off_a_worker_or_nested_counts_nothing() {
+    assert_eq!(will_block(|| 7), 7);
+    let work = work("t-willnest", 1, Duration::from_secs(30), 0);
+    let nested = work
+        .run(Priority::UserVisible, Lane::System, Shutdown::SkipOnShutdown, || {
+            will_block(|| will_block(|| CURRENT_LANE.with(|lane| lane.borrow().is_none())))
+        })
+        .wait();
+    assert_eq!(nested, Ok(true));
+    assert_eq!(lane_stats(&work, Lane::System).blocked, 0);
+}
+
+/// The calling worker's thread name and whether it runs at UserInitiated (Linux: the process's base
+/// nice value, which is nice 0 outside `nice -n`).
+fn worker_and_class() -> (String, bool) {
+    let name = std::thread::current().name().unwrap_or_default().to_owned();
+    #[cfg(target_os = "linux")]
+    let user_initiated = current_nice() == base_nice();
+    #[cfg(target_vendor = "apple")]
+    let user_initiated = crate::qos::current() == LiveQos::Class(ThreadQos::UserInitiated);
+    #[cfg(not(any(target_os = "linux", target_vendor = "apple")))]
+    let user_initiated = true;
+    (name, user_initiated)
+}
+
+/// Task 118: once shutdown starts, an Idle block item queued behind the lane's Idle limit runs at
+/// UserBlocking on a foreground worker, while the item that held the limit still runs.
+#[test]
+fn shutdown_runs_a_queued_idle_block_item_on_a_foreground_worker() {
+    let work = Arc::new(work("t-sq", 2, Duration::from_secs(30), 0));
+    // One running item fills Files for Idle (limit 1).
+    let gates =
+        started_gates(&work, 1, Priority::UserBlocking, Lane::Files, Shutdown::SkipOnShutdown);
+    let block = work.run(Priority::Idle, Lane::Files, Shutdown::BlockShutdown, worker_and_class);
+    assert_eq!(block.try_wait(), None);
+
+    let shutting = Arc::clone(&work);
+    let report = std::thread::spawn(move || shutting.shutdown());
+    // Without the raise it would wait for the gate, which only the end of this test releases.
+    let mut ran = None;
+    until("the raised block item to run while the gate holds", || {
+        ran = block.try_wait();
+        ran.is_some()
+    });
+    let (worker, user_initiated) = ran.unwrap().unwrap();
+    assert!(worker.ends_with("-files-fg"), "the block item ran on {worker}");
+    assert!(user_initiated, "the block item ran below UserInitiated");
+    // It ran while the gate still held the lane: shutdown waits for the started skip gate.
+    assert!(!report.is_finished());
+    drop(gates);
+    assert_eq!(report.join().unwrap(), ShutdownReport::default());
+    // It never ran on a lower worker, so no worker was raised.
+    let stats = lane_stats(&work, Lane::Files);
+    assert_eq!(stats.shutdown_raises + stats.shutdown_raise_refusals, 0);
+
+    // A block item posted after shutdown runs on a foreground worker too.
+    let late = work.run(Priority::Idle, Lane::Files, Shutdown::BlockShutdown, worker_and_class);
+    let (worker, user_initiated) = late.wait().unwrap();
+    assert!(worker.ends_with("-files-fg") && user_initiated, "the late block item ran on {worker}");
+}
+
+/// Task 118: a block item running on a BestEffort worker gets its worker raised exactly once; a
+/// running skip item on the same lane is not raised.
+#[test]
+fn shutdown_raises_the_worker_of_a_running_best_effort_block_item_once() {
+    let work = work("t-sr", 2, Duration::from_secs(30), 0);
+    // Files: Idle takes the first slot (its limit), BestEffort the second.
+    let skip = started_gates(&work, 1, Priority::Idle, Lane::Files, Shutdown::SkipOnShutdown);
+    let block = started_gates(&work, 1, Priority::BestEffort, Lane::Files, Shutdown::BlockShutdown);
+    let report = work.shutdown_until(Instant::now() + Duration::from_millis(20));
+    assert_eq!(report, ShutdownReport { dropped: 0, unfinished: 2 });
+    // A second shutdown raises nothing more.
+    let _ = work.shutdown_until(Instant::now() + Duration::from_millis(1));
+    let stats = lane_stats(&work, Lane::Files);
+    assert_eq!(stats.shutdown_raises + stats.shutdown_raise_refusals, 1, "{stats:?}");
+    // macOS always takes the override; Linux takes the raise only when nice 0 is allowed again.
+    if cfg!(target_vendor = "apple") || crate::qos::reversible(ThreadQos::Background) {
+        assert_eq!(stats.shutdown_raises, 1, "{stats:?}");
+    }
+    drop((skip, block));
+    assert_eq!(work.shutdown(), ShutdownReport::default());
+    let stats = lane_stats(&work, Lane::Files);
+    assert_eq!(stats.shutdown_raises + stats.shutdown_raise_refusals, 1, "{stats:?}");
+}
+
+/// What a counting [`boost::Booster`] saw: the workers it raised and the classes the raises ended at.
+#[derive(Default)]
+struct BoostLog {
+    raised: Vec<boost::Target>,
+    ended: Vec<ThreadQos>,
+}
+
+fn counting_booster(log: &Arc<Mutex<BoostLog>>) -> boost::Booster {
+    let log = Arc::clone(log);
+    boost::Booster::new(move |target| {
+        log.lock().unwrap().raised.push(target);
+        let log = Arc::clone(&log);
+        Some(Box::new(move |class| log.lock().unwrap().ended.push(class)))
+    })
+}
+
+/// Task 118, on every platform and user: the raise starts on the block item's own worker while it
+/// runs, and the worker ends it after the item with its own class's QoS (so the worker does not stay
+/// at UserInitiated for later items).
+#[test]
+fn shutdown_raise_starts_on_the_item_worker_and_ends_after_it_at_the_worker_class() {
+    let log = Arc::new(Mutex::new(BoostLog::default()));
+    let work =
+        Work::with_booster(config("t-sb", 2, Duration::from_secs(30), 0), counting_booster(&log))
+            .unwrap();
+    let (release, hold) = channel::<()>();
+    let (worker_tx, worker) = channel();
+    work.post(Priority::BestEffort, Lane::Files, Shutdown::BlockShutdown, move || {
+        worker_tx.send(boost::Target::current()).unwrap();
+        let _ = hold.recv();
+    })
+    .unwrap();
+    let worker = worker.recv_timeout(WAIT).unwrap();
+    let report = work.shutdown_until(Instant::now() + Duration::from_millis(20));
+    assert_eq!(report, ShutdownReport { dropped: 0, unfinished: 1 });
+    {
+        let log = log.lock().unwrap();
+        assert_eq!(log.raised, vec![worker], "the raise is not on the item's worker");
+        assert!(log.ended.is_empty(), "the raise ended before the item");
+    }
+    let stats = lane_stats(&work, Lane::Files);
+    assert_eq!((stats.shutdown_raises, stats.shutdown_raise_refusals), (1, 0), "{stats:?}");
+    drop(release);
+    // The worker ends the raise before the item stops holding shutdown.
+    assert_eq!(work.shutdown(), ShutdownReport::default());
+    let log = log.lock().unwrap();
+    assert_eq!(log.ended, vec![WorkerClass::BestEffort.qos()]);
+    assert_eq!(log.raised.len(), 1);
+}
+
+/// Task p02-threads-119: a checked receive in an item is one `lane-sync` site, recorded in record mode
+/// and never a panic; a checked file read in it and a checked receive on a dedicated thread record
+/// nothing.
+#[test]
+fn a_checked_receive_in_an_item_is_one_lane_sync_site() {
+    crate::blocking::set_mode(crate::blocking::BlockingMode::Record);
+    let work = work("t-ls", 2, Duration::from_secs(30), 0);
+    let (recv_line, fs_line) = work
+        .run(Priority::UserVisible, Lane::Files, Shutdown::SkipOnShutdown, || {
+            assert!(crate::blocking::is_sync_primitives_disallowed());
+            let (tx, rx) = channel();
+            tx.send(()).unwrap();
+            let recv_line = line!() + 1;
+            crate::checked::sync::recv(&rx).unwrap();
+            let fs_line = line!() + 1;
+            crate::blocking::assert_blocking_allowed(crate::blocking::BlockingKind::Fs);
+            (recv_line, fs_line)
+        })
+        .wait()
+        .unwrap();
+    let dedicated_line = std::thread::Builder::new()
+        .name("t-ls-dedicated".into())
+        .spawn(|| {
+            let (tx, rx) = channel();
+            tx.send(()).unwrap();
+            let line = line!() + 1;
+            crate::checked::sync::recv(&rx).unwrap();
+            line
+        })
+        .unwrap()
+        .join()
+        .unwrap();
+    let snapshot = crate::blocking::snapshot();
+    let site = snapshot.site(file!(), recv_line).expect("the item's receive is a site");
+    assert_eq!(site.count, 1);
+    assert!(site.lane_sync);
+    assert!(site.kinds.contains(crate::blocking::BlockingKind::Recv));
+    assert!(snapshot.site(file!(), fs_line).is_none(), "an item may read a file");
+    assert!(snapshot.site(file!(), dedicated_line).is_none(), "a dedicated thread may wait");
+    assert!(!crate::blocking::is_sync_primitives_disallowed(), "only the item's scope");
+    work.shutdown();
+}

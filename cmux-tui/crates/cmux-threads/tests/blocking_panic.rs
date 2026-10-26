@@ -66,3 +66,34 @@ fn ordinary_thread_never_panics() {
     assert!(!bytes.is_empty());
     assert_eq!(snapshot().site(file!(), line), None);
 }
+
+/// A contended lock on a thread that disallows blocking panics at the
+/// caller before it waits: no guard is held, so the lock is not poisoned.
+#[cfg(debug_assertions)]
+#[test]
+fn a_contended_lock_on_a_disallowed_thread_panics_before_the_wait() {
+    use std::sync::{Arc, Mutex};
+    set_mode(BlockingMode::Panic);
+    let shared = Arc::new((Mutex::new(7), cmux_threads::LockHolder::default()));
+    let held = shared.0.lock().expect("lock");
+    let (line_tx, line_rx) = std::sync::mpsc::channel();
+    let waiter = Arc::clone(&shared);
+    let result = std::thread::Builder::new()
+        .name("mux-conn-lock-test".into())
+        .spawn(move || {
+            disallow_blocking();
+            line_tx.send(line!() + 1).expect("send line");
+            let site = std::panic::Location::caller();
+            drop(waiter.1.lock_mutex("test.panic", site, &waiter.0));
+        })
+        .expect("spawn")
+        .join();
+    drop(held);
+    let payload = result.expect_err("the contended lock panics");
+    let message = payload.downcast_ref::<String>().cloned().unwrap_or_default();
+    let line = line_rx.recv().expect("line");
+    assert!(message.contains(&format!("{}:{line}:", file!())), "{message}");
+    assert!(message.contains("(lock-wait)"), "{message}");
+    assert_eq!(*shared.0.lock().expect("the lock is not poisoned"), 7);
+    assert_eq!(shared.1.waiting(), 0);
+}

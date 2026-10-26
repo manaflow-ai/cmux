@@ -130,6 +130,7 @@ pub(crate) fn start_host_runtime(
         clipboard,
         parser_progress: (Mutex::new(0), Condvar::new()),
         next_client: AtomicU64::new(1),
+        last_input_flow: Default::default(),
         dead: AtomicBool::new(false),
         launch_owner_claimed: AtomicBool::new(false),
         launch_owner_stream_ready: AtomicBool::new(false),
@@ -152,6 +153,7 @@ pub(crate) fn start_host_runtime(
         #[cfg(unix)]
         session_cleanup: session_cleanup::SessionCleanup::new(),
         adopted_session: child.adopted_session(),
+        trace_control: super::host_trace::HostTraceQueue::default(),
         #[cfg(test)]
         fail_next_resize_publication: AtomicBool::new(false),
     });
@@ -159,7 +161,7 @@ pub(crate) fn start_host_runtime(
     shared.clipboard.start_timer(&shared)?;
 
     let parser_host = shared.clone();
-    thread::Builder::new().name("terminal-host-parser".into()).spawn(move || {
+    crate::echo_thread::spawn("terminal-host-parser", move || {
         let guarded = parser_host.clone();
         let parse = move || {
             run_host_parser(parser_host, parser_command_receiver, initial_colors, signals);
@@ -171,7 +173,7 @@ pub(crate) fn start_host_runtime(
     })?;
 
     let reader_host = shared.clone();
-    thread::Builder::new().name("terminal-host-pty".into()).spawn(move || {
+    crate::echo_thread::spawn("terminal-host-pty", move || {
         reader_host.wait_for_launch_owner_stream_ready();
         let mut buffer = [0u8; PTY_READ_BYTES];
         // File-medium Kitty images are read here, next to the program, so
@@ -186,25 +188,14 @@ pub(crate) fn start_host_runtime(
             &reader_host.force_pty_drain,
             &mut forced_at,
         ) {
-            let count = match pty_reader.read(&mut buffer) {
-                Ok(0) => break,
-                Ok(count) => count,
-                Err(error)
-                    if matches!(
-                        error.kind(),
-                        std::io::ErrorKind::Interrupted | std::io::ErrorKind::WouldBlock
-                    ) =>
-                {
-                    continue;
-                }
-                Err(_) => break,
-            };
-            cmux_flow_trace::hop_id("host.pty.read", 0, reader_host.terminal_id.as_bytes());
-            let read = buffer.get(..count).unwrap_or(&buffer);
-            if !publish_pty_output(
+            let read = read_pty_once(
                 &reader_host,
-                kitty_media.rewrite_borrowed(read, &mut kitty_scratch),
-            ) {
+                &mut pty_reader,
+                &mut buffer,
+                &mut kitty_media,
+                &mut kitty_scratch,
+            );
+            if read.ends() {
                 break;
             }
         }
@@ -270,21 +261,107 @@ pub(crate) fn start_host_runtime(
 /// Bytes per PTY read, and the most one Output frame carries.
 const PTY_READ_BYTES: usize = 64 * 1024;
 
+/// What one [`read_pty_once`] did; its value is the `task.host_pty_read` end's arg1.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[repr(u8)]
+pub(crate) enum PtyRead {
+    /// Output was read and published.
+    Published = 0,
+    /// Nothing to read yet (interrupted, or would block): wait again.
+    Retry = 1,
+    /// End of file: the reader ends.
+    Eof = 2,
+    /// A read error: the reader ends.
+    Failed = 3,
+    /// Output was read but the parser is gone: the reader ends.
+    ParserGone = 4,
+}
+
+impl PtyRead {
+    /// Whether the reader stops after this read.
+    pub(crate) fn ends(self) -> bool {
+        !matches!(self, PtyRead::Published | PtyRead::Retry)
+    }
+}
+
+/// One item of the `terminal-host-pty` thread, after its readiness wait: a read of the PTY and
+/// its publication, as one `task.host_pty_read` slice (terminal hash; its end carries the bytes
+/// read and the [`PtyRead`] outcome). Chrome's task scope covers the run, not the wait
+/// (`TaskAnnotator::RunTask` in base/task/common/task_annotator.cc, called from
+/// `ThreadControllerWithMessagePumpImpl::DoWork`).
+pub(crate) fn read_pty_once(
+    host: &HostShared,
+    reader: &mut (impl Read + ?Sized),
+    buffer: &mut [u8],
+    kitty_media: &mut KittyMediaRewriter,
+    kitty_scratch: &mut Vec<u8>,
+) -> PtyRead {
+    let mut scope = cmux_trace::trace_scope!(
+        task,
+        "task.host_pty_read",
+        cmux_trace::terminal_hash(host.terminal_id.as_bytes())
+    );
+    let (count, outcome) = match reader.read(buffer) {
+        Ok(0) => (0, PtyRead::Eof),
+        Ok(count) => {
+            // The key press this read echoes goes with its output to the clients.
+            let flow = host.last_input_flow.take();
+            cmux_flow_trace::hop_id("host.pty.read", flow, host.terminal_id.as_bytes());
+            let read = buffer.get(..count).unwrap_or(&*buffer);
+            let published = publish_pty_output_flow(
+                host,
+                kitty_media.rewrite_borrowed(read, kitty_scratch),
+                flow,
+            );
+            (count, if published { PtyRead::Published } else { PtyRead::ParserGone })
+        }
+        Err(error)
+            if matches!(
+                error.kind(),
+                std::io::ErrorKind::Interrupted | std::io::ErrorKind::WouldBlock
+            ) =>
+        {
+            (0, PtyRead::Retry)
+        }
+        Err(_) => (0, PtyRead::Failed),
+    };
+    scope.set_end_args(count, outcome as u8);
+    outcome
+}
+
 /// Publishes PTY output to viewers and the parser in frames of at most one
 /// read; a rewritten Kitty image can be larger than the read it came from.
 /// False when the parser is gone.
 pub(crate) fn publish_pty_output(host: &HostShared, bytes: &[u8]) -> bool {
-    bytes.chunks(PTY_READ_BYTES).all(|piece| publish_pty_frame(host, piece.to_vec()))
+    publish_pty_output_flow(host, bytes, 0)
 }
 
-fn publish_pty_frame(host: &HostShared, bytes: Vec<u8>) -> bool {
+/// [`publish_pty_output`] of a read that echoes the key press `flow` (0:
+/// none): its first frame carries the flow ([`FLAG_INPUT_FLOW`]).
+pub(crate) fn publish_pty_output_flow(host: &HostShared, bytes: &[u8], flow: u64) -> bool {
+    let mut flow = flow;
+    bytes
+        .chunks(PTY_READ_BYTES)
+        .all(|piece| publish_pty_frame(host, piece.to_vec(), std::mem::take(&mut flow)))
+}
+
+fn publish_pty_frame(host: &HostShared, bytes: Vec<u8>, flow: u64) -> bool {
     let count = bytes.len();
     let _source_order = host.source_order_lock.lock().recover_poison();
     host.parser_budget.reserve(count);
+    // The smart stream's frame carries the flow; the writer of a client that
+    // did not negotiate it strips it (`client_wire_frame`).
+    let frame = if flow == 0 {
+        Frame::new(MessageKind::Output, bytes.clone())
+    } else {
+        let mut frame = Frame::new(MessageKind::Output, flow_trailer_payload(&bytes, flow));
+        frame.flags = FLAG_INPUT_FLOW;
+        frame
+    };
     // Publication deliberately precedes parser enqueue. The bounded queue
     // limits memory while letting a fast renderer consume source bytes
     // independently of parser throughput.
-    let source_cursor = host.smart.publish(Frame::new(MessageKind::Output, bytes.clone()));
+    let source_cursor = host.smart.publish(frame);
     enqueue_parser_output(
         &host.parser_commands,
         &host.parser_budget,

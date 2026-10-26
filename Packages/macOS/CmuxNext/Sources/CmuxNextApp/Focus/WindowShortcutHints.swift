@@ -6,6 +6,7 @@ import CmuxNextDesign
 import CmuxNextLayout
 import CmuxNextSidebar
 import CmuxNextTabs
+import CmuxNextWakeups
 import Observation
 
 /// Composes hint snapshots from this window and its actual binding table.
@@ -14,7 +15,8 @@ final class WindowShortcutHints {
     private weak var controller: WindowController?
     private let overlay = ShortcutHintOverlayView()
     private var monitor: WindowScopedShortcutHintModifierMonitor?
-    private var settingsTask: Task<Void, Never>?
+    /// Follows `ui.showModifierHoldHints`: on subscribes the hold watcher to the input tap, off unsubscribes it.
+    private var settingsWatch: ServiceObservation<Bool>?
     private var held: NSEvent.ModifierFlags?
 
     init(controller: WindowController) {
@@ -22,14 +24,17 @@ final class WindowShortcutHints {
         guard let window = controller.window else { return }
         controller.root.addSubview(overlay, positioned: .above, relativeTo: nil)
         overlay.setAccessibilityElement(false)
-        monitor = WindowScopedShortcutHintModifierMonitor(window: window, keepsHints: { [weak self] in self?.keepsHints(for: $0) ?? false }) { [weak self] flags in
+        monitor = WindowScopedShortcutHintModifierMonitor(window: window, tap: controller.services.inputTap,
+                                                          deadlines: controller.services.mainDeadlines, events: controller.services.appEvents,
+                                                          keepsHints: { [weak self] in self?.keepsHints(for: $0) ?? false }) { [weak self] flags in
             self?.held = flags
             self?.refresh()
         }
-        settingsTask = Task { [weak self] in
-            for await enabled in ObservationStream({ DesignSettings.shared.showModifierHoldHints }) {
-                self?.monitor?.setEnabled(enabled)
-            }
+        // A subscription change, not view work: it holds while the window is hidden too.
+        settingsWatch = ServiceObservation(.visible, owner: "ShortcutHints.enabled", on: controller.services.mainWork) {
+            DesignSettings.shared.showModifierHoldHints
+        } apply: { [weak self] enabled in
+            self?.monitor?.setEnabled(enabled)
         }
     }
 
@@ -126,14 +131,12 @@ final class WindowShortcutHints {
         }
     }
 
-    /// A key-down in this window: a pane-navigation key (by the resolved binding table, so a
-    /// rebound one counts and a removed one does not) keeps the chips up while the modifier is
-    /// held, and they follow focus once it settles; any other key hides them until release.
-    func keyDown(_ event: NSEvent) { monitor?.keyDown(keepsHints: keepsHints(for: event)) }
-
-    /// Whether `event` runs a pane-navigation action here.
+    /// Whether `event` runs a pane-navigation action here (by the resolved binding table, so a rebound
+    /// one counts and a removed one does not): it keeps the chips up while the modifier is held, and
+    /// they follow focus once it settles; any other key hides them until release. The monitor asks
+    /// only for a key-down while a modifier is held in this window.
     func keepsHints(for event: NSEvent) -> Bool {
-        // Typing (no Cmd, Ctrl or Option) never resolves the table: this runs on every key-down.
+        // A Shift-only key (no Cmd, Ctrl or Option) never resolves the table.
         guard event.type == .keyDown, KeyRouter.isChord(event.modifierFlags), let controller,
               let candidate = controller.services.keyRouter.candidate(for: event, focus: controller.focus.state) else { return false }
         return PaneNavigationHintPlan<LayoutPaneID>.keepsHintsUp.contains(candidate.id)
@@ -155,7 +158,7 @@ final class WindowShortcutHints {
 
     func stop() {
         monitor?.stop()
-        settingsTask?.cancel()
+        settingsWatch?.cancel()
         overlay.removeFromSuperview()
     }
 }

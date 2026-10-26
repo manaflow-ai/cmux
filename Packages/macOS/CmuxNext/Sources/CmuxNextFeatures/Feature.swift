@@ -43,7 +43,7 @@ public nonisolated struct Feature: Sendable, Hashable {
     }
 
     /// The process whose behavior the feature changes.
-    public enum Process: String, Sendable, CaseIterable {
+    public enum TargetProcess: String, Sendable, CaseIterable {
         case app
         case daemon
         case both
@@ -102,7 +102,7 @@ public nonisolated struct Feature: Sendable, Hashable {
     /// One sentence: what turning the feature on changes (Labs page, reports).
     public let description: String
     public let kind: Kind
-    public let process: Process
+    public let process: TargetProcess
     /// The Chromium `base::Feature` passed to CEF, for process `chromium` only.
     public let chromiumFeature: String?
     public let defaults: FeatureDefaults
@@ -125,7 +125,7 @@ public nonisolated struct Feature: Sendable, Hashable {
         owner: String,
         description: String,
         kind: Kind,
-        process: Process,
+        process: TargetProcess,
         chromiumFeature: String?,
         defaults: FeatureDefaults,
         expires: String?,
@@ -147,6 +147,16 @@ public nonisolated struct Feature: Sendable, Hashable {
         self.stories = stories
         self.sticky = sticky
         self.runtimeMutable = runtimeMutable
+    }
+
+    /// Duration param `name`'s value, to the microsecond: its declared default, since params have no
+    /// override source yet. Nil when the feature declares no duration param of that name.
+    public func durationParam(_ name: String) -> Duration? {
+        for param in params where param.name == name {
+            // Whole microseconds: `.seconds(0.2)` would carry the double's error into the attoseconds.
+            if case let .duration(seconds, _, _) = param.value { return .microseconds(Int64((seconds * 1_000_000).rounded())) }
+        }
+        return nil
     }
 }
 

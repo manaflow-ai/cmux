@@ -7,7 +7,7 @@ import Foundation
 /// included, on a URL bookmark, and an asset icon must already be stored there.
 public struct UpdateBookmarkRequest: DaemonRequest {
     public typealias Response = BookmarkResult
-    public static let command = "update-bookmark"
+    public static let commandName: DaemonCommandName = "update-bookmark"
     public static let requiredCapability: String? = DaemonCapability.bookmarks.rawValue
     public var bookmark: String
     public var title: String?
@@ -49,7 +49,7 @@ public struct UpdateBookmarkRequest: DaemonRequest {
 /// `move-bookmark`: `index` is the final position among the new siblings.
 public struct MoveBookmarkRequest: DaemonRequest {
     public typealias Response = BookmarkResult
-    public static let command = "move-bookmark"
+    public static let commandName: DaemonCommandName = "move-bookmark"
     public static let requiredCapability: String? = DaemonCapability.bookmarks.rawValue
     public var bookmark: String
     public var parent: String
@@ -76,7 +76,7 @@ public struct MoveBookmarkRequest: DaemonRequest {
 /// `delete-bookmark`: removes the node and its subtree.
 public struct DeleteBookmarkRequest: DaemonRequest {
     public typealias Response = BookmarkDeletion
-    public static let command = "delete-bookmark"
+    public static let commandName: DaemonCommandName = "delete-bookmark"
     public static let requiredCapability: String? = DaemonCapability.bookmarks.rawValue
     public var bookmark: String
     public var mutation: MutationIdentity?

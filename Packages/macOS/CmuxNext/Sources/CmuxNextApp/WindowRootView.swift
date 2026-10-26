@@ -5,6 +5,7 @@ import CmuxNextDesign
 import CmuxNextHistory
 import CmuxNextSidebar
 import CmuxNextTerminal
+import CmuxNextWakeups
 import Observation
 
 /// Window content: the sidebar flush on the leading edge (traffic lights sit
@@ -51,7 +52,7 @@ final class WindowRootView: NSView, WindowSurfacePainting {
     private var placementObservation: Task<Void, Never>?
     private var titleHeight: NSLayoutConstraint?
     private var tokenObservation: Task<Void, Never>?
-    private var displayOptionsObserver: MainActorObservation?
+    private var displayOptionsWatch: AppearanceSignals.Subscription?
     private(set) weak var content: NSView?
     /// Empties AppKit's titlebar drag region: the window moves only through
     /// `TitlebarDragPolicy` (`ShellWindow.sendEvent`).
@@ -108,13 +109,15 @@ final class WindowRootView: NSView, WindowSurfacePainting {
     ///   setting, read on every theme and display-options change.
     /// - Parameter applyWindowBlur: Sets the window's behind-window blur
     ///   radius (the backdrop's ``WindowBackdrop/windowBlurRadius``).
-    /// - Parameter revealClock: Times the collapsed band's close delay.
+    /// - Parameter revealDeadlines: Times the collapsed band's close delay (the app's ``MainDeadlineScheduler``).
+    /// - Parameter signals: Where display option changes come from (the composition root's ``AppearanceSignals``).
     init(sidebar: SidebarContainerView,
          reduceTransparency: @escaping @MainActor () -> Bool = { NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency },
          applyWindowBlur: @escaping @MainActor (NSWindow, Int) -> Void = { $0.setBackgroundBlurRadius($1) },
-         revealClock: any Clock<Duration> = ContinuousClock()) {
+         revealDeadlines: MainDeadlineScheduler = MainDeadlineScheduler(work: MainWorkScheduler(budget: MainFrameBudget())),
+         signals: AppearanceSignals = DesignSettings.shared.signals) {
         self.sidebar = sidebar
-        collapsedBand = CollapsedBandReveal(clock: revealClock)
+        collapsedBand = CollapsedBandReveal(deadlines: revealDeadlines)
         self.reduceTransparency = reduceTransparency
         self.applyWindowBlur = applyWindowBlur
         super.init(frame: NSRect(x: 0, y: 0, width: 1100, height: 720))
@@ -169,9 +172,7 @@ final class WindowRootView: NSView, WindowSurfacePainting {
         wireContentAreaMotion()
         applyMainPane()
         mainPaneObservation = observeMainPane()
-        // queue: .main: the workspace center may post off main; a selector
-        // into this main-actor view trapped there.
-        displayOptionsObserver = MainActorObservation(NSWorkspace.accessibilityDisplayOptionsDidChangeNotification, center: NSWorkspace.shared.notificationCenter) { [weak self] in
+        displayOptionsWatch = signals.subscribe([.displayOptions], owner: "WindowRootView") { [weak self] in
             self?.themeDidChange()
         }
         themeDidChange()
@@ -288,6 +289,9 @@ final class WindowRootView: NSView, WindowSurfacePainting {
 
     /// Called after `show(_:)` swaps the content (a top page or a workspace).
     var onContentChange: (() -> Void)?
+    /// Called when content other than a workspace left the window (in a swap, or later when a
+    /// paint hold lets its outgoing view go).
+    var onContentWithdrawn: (() -> Void)?
 
     /// Keeps the outgoing content until an unpainted top page paints.
     let paintHold = PanePaintHold(owner: "window.paint-hold")
@@ -349,7 +353,11 @@ final class WindowRootView: NSView, WindowSurfacePainting {
     /// while hidden); the keyboard leaves it (the focus model re-applies its target, as when a view
     /// leaves the window). Other content leaves the window.
     private func withdraw(_ view: NSView) {
-        guard view is WorkspaceContentView, view.superview === contentHost else { return view.removeFromSuperview() }
+        guard view is WorkspaceContentView, view.superview === contentHost else {
+            view.removeFromSuperview()
+            onContentWithdrawn?()
+            return
+        }
         if let window, let responder = window.firstResponder as? NSView, responder.isDescendant(of: view),
            !window.makeFirstResponder(nil) {
             // A field editor that refuses to resign while it validates: end the edit, then resign.
@@ -396,17 +404,6 @@ final class WindowRootView: NSView, WindowSurfacePainting {
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         themeDidChange()
-    }
-
-    /// Surface color plus window opacity: a translucent background
-    /// (`background-opacity`, `background-blur`, or cmux.json's
-    /// `appearance.backgroundOpacity` and `appearance.backgroundBlur`)
-    /// makes the whole window one material with the theme tint over it
-    /// (`WindowBackdrop`). Re-run on theme and Reduce Transparency changes.
-    func themeDidChange() {
-        paintBackground()
-        updateMainPaneShade()
-        if let window { applyBackdrop(to: window) }
     }
 
     // The window's own background, opacity and blur are in

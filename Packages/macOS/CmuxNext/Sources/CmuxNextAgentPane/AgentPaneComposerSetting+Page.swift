@@ -24,7 +24,7 @@ extension AgentPaneComposerSetting {
     @MainActor public func push(to view: AgentPaneView) {
         guard Self.lookChanging || self != view.model.composer else { return }
         view.model.composer = self
-        view.deliver([.composer(self)], scripts: [pageScript])
+        view.deliver([.composer(self)])
     }
 
     /// The page's value with the plain footer look, the model menu choice and the harness switch.
@@ -36,9 +36,6 @@ extension AgentPaneComposerSetting {
         value["escapeDoublePress"] = .bool(AgentPaneTunables.escapeStopDoublePress.value)
         return .object(value)
     }
-
-    /// The script that gives a loaded old-host page the composer's settings.
-    var pageScript: String { "window.cmuxAcpmuxComposer?.(\(pageValueWithLook.compactText));" }
 
     /// Debug Settings' plain footer look, model menu and harness switch as the pages last got them,
     /// and whether a change is being pushed (``push(to:)`` then sends every page the event again).

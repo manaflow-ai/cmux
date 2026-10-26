@@ -24,6 +24,7 @@ final class SidebarNowPlayingPlayButton: NSButton {
         isBordered = false
         imagePosition = .imageOnly
         wantsLayer = true
+        layerContentsRedrawPolicy = .onSetNeedsDisplay // repaints on a state change or a new size (setFrameSize)
         target = self
         action = #selector(pressed)
         refusesFirstResponder = true
@@ -40,8 +41,16 @@ final class SidebarNowPlayingPlayButton: NSButton {
 
     override var isHighlighted: Bool { didSet { if isHighlighted != oldValue { needsDisplay = true } } }
 
+    override func setFrameSize(_ newSize: NSSize) {
+        let changed = newSize != frame.size
+        super.setFrameSize(newSize)
+        // The disc's radius is layout's; the cell's image is AppKit's, so it repaints at the new size.
+        if changed { needsLayout = true; needsDisplay = true }
+    }
+
     override func layout() {
         super.layout()
+        layer?.cornerRadius = bounds.height / 2
         // The glyph is a bit under half the disc, nudged right for Play's triangle.
         let side = (bounds.height * 0.42).rounded()
         guard side > 0, side != renderedSide else { return }
@@ -52,7 +61,6 @@ final class SidebarNowPlayingPlayButton: NSButton {
     }
 
     override func updateLayer() {
-        layer?.cornerRadius = bounds.height / 2
         performWithTheme {
             layer?.backgroundColor = Palette.accentFill.cgColor
             contentTintColor = Palette.onAccent
@@ -103,29 +111,19 @@ final class SidebarNowPlayingLevels: NSView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError() }
 
-    /// The motion observers while the bars are in a window (``observeMotion(_:)``).
-    private var motionObservers: [(center: NotificationCenter, token: any NSObjectProtocol)] = []
+    /// The motion subscription while the bars are in a window (``observeMotion(_:)``).
+    private var motionWatch: AppearanceSignals.Subscription?
 
     /// Reduce Motion (the system's or cmux's own) or the animation speed changed mid-track: the
-    /// bars start or still at once. Block observers on the main queue while in a window, removed
-    /// when the view leaves it, so the view needs no deinit.
+    /// bars start or still at once. Subscribed while in a window, released when the view leaves it.
     private func observeMotion(_ on: Bool) {
-        guard on != !motionObservers.isEmpty else { return }
+        guard on != (motionWatch != nil) else { return }
         guard on else {
-            for observer in motionObservers { observer.center.removeObserver(observer.token) }
-            motionObservers = []
+            motionWatch = nil
             return
         }
-        let names: [(NotificationCenter, Notification.Name)] = [
-            (NotificationCenter.default, Motion.reduceMotionDidChange),
-            (NotificationCenter.default, Motion.speedDidChange),
-            (NSWorkspace.shared.notificationCenter, NSWorkspace.accessibilityDisplayOptionsDidChangeNotification),
-        ]
-        motionObservers = names.map { center, name in
-            (center, center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
-                // main-proof: the observer runs on the main queue (queue: .main)
-                MainActor.assumeIsolated { self?.update() }
-            })
+        motionWatch = DesignSettings.shared.signals.subscribe([.motion], owner: "SidebarNowPlayingControls") { [weak self] in
+            self?.update()
         }
     }
 

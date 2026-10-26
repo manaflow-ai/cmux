@@ -25,6 +25,7 @@ use crate::state::workspace_status_store as status;
 impl Mux {
     /// Remove every status entry `end` owns, in one commit. `None` when
     /// nothing was owned.
+    #[track_caller]
     pub(crate) fn clear_owned_workspace_status(
         &self,
         end: &OwnerEnd,
@@ -67,6 +68,7 @@ impl Mux {
 
 /// Start watching every owner a just-committed entry names. Called after a
 /// successful `workspace_status.set` and once at daemon start.
+#[track_caller]
 pub(crate) fn watch_owners(
     mux: &Arc<Mux>,
     terminal: Option<&str>,
@@ -94,6 +96,7 @@ pub(crate) fn watch_owners(
 
 /// Re-arm the watches of entries a previous daemon run left, and remove
 /// entries whose TTL passed while the daemon was down.
+#[track_caller]
 pub(crate) fn resume(mux: &Arc<Mux>) {
     let machine = mux.status_machine_id();
     match mux.read_registry_state(|connection| status_meta::live_owners(connection, &machine)) {
@@ -137,6 +140,7 @@ pub(crate) fn resume(mux: &Arc<Mux>) {
     }
 }
 
+#[track_caller]
 fn clear_now(mux: &Mux, end: &OwnerEnd) {
     if let Err(error) = mux.clear_owned_workspace_status(end) {
         eprintln!("cmux-tui: clearing owned status failed: {error}");
@@ -169,6 +173,7 @@ enum Watch {
 
 /// Run `wait` on its own thread once per `(mux, label)`, then clear `end`
 /// when the owner ended.
+#[track_caller]
 fn spawn_watch(
     mux: &Arc<Mux>,
     label: String,
@@ -198,6 +203,7 @@ fn spawn_watch(
 /// wait holds the daemon while it blocks; a terminal ends with its daemon.
 const TERMINAL_WAIT_SLICE: Duration = Duration::from_secs(30);
 
+#[track_caller]
 fn watch_terminal(mux: &Arc<Mux>, terminal: String) {
     let end = OwnerEnd::Terminal { terminal: terminal.clone() };
     spawn_watch(mux, format!("terminal:{terminal}"), end, move |weak| {
@@ -218,7 +224,7 @@ fn watch_terminal(mux: &Arc<Mux>, terminal: String) {
                 Err(error) => {
                     eprintln!("cmux-tui: watching terminal {id} failed: {error}; retrying");
                     drop(mux);
-                    std::thread::sleep(backoff);
+                    crate::request_path::sleep(backoff);
                     backoff = (backoff * 2).min(Duration::from_secs(60));
                 }
             }
@@ -238,6 +244,7 @@ fn is_gone(error: &anyhow::Error) -> bool {
 
 /// Watch a process owner through the kernel's exit notification. The wait
 /// holds no daemon reference.
+#[track_caller]
 fn watch_process(mux: &Arc<Mux>, process: OwnerProcess) {
     let end = OwnerEnd::Process {
         pid: process.pid,
@@ -373,6 +380,7 @@ fn schedule_expiry(mux: &Arc<Mux>) {
 
 /// Sleep until the earliest deadline of any live daemon, clear what expired,
 /// repeat. Woken early by `schedule_expiry`.
+#[track_caller]
 fn run_expiry() {
     let expiry = expiry();
     let mut failures: u32 = 0;

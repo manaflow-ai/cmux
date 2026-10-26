@@ -21,37 +21,19 @@ extension ThreadStackSampler {
     /// Each thread is suspended only while its frames are walked into a preallocated buffer
     /// (``sample(whileSuspended:)``), so no thread is stopped while this code allocates.
     static func sampleOtherThreads(excluding excluded: thread_act_t, maxFrames: Int = 48) -> [ThreadSample] {
-        var list: thread_act_array_t?
-        var count: mach_msg_type_number_t = 0
-        guard task_threads(mach_task_self_, &list, &count) == KERN_SUCCESS, let list else { return [] }
-        let threads = UnsafeBufferPointer(start: list, count: Int(truncatingIfNeeded: count))
-        defer {
-            for thread in threads { mach_port_deallocate(mach_task_self_, thread) }
-            vm_deallocate(mach_task_self_, vm_address_t(UInt(bitPattern: list)),
-                          vm_size_t(truncatingIfNeeded: threads.count * MemoryLayout<thread_act_t>.stride))
-        }
-        let current = pthread_mach_thread_np(pthread_self())
-        var samples: [ThreadSample] = []
-        for thread in threads where samples.count < otherThreadLimit {
-            guard thread != excluded, thread != current else { continue }
-            let name = threadName(thread)
-            let addresses = ThreadStackSampler(thread: thread, maxFrames: maxFrames).sample()
-            guard !addresses.isEmpty else { continue }
-            samples.append(ThreadSample(name: name, addresses: addresses))
-        }
-        return samples
-    }
-
-    /// The kernel's copy of the thread's name (`THREAD_EXTENDED_INFO`), with no pthread lock.
-    private static func threadName(_ thread: thread_act_t) -> String {
-        var info = thread_extended_info_data_t()
-        var count = mach_msg_type_number_t(MemoryLayout<thread_extended_info_data_t>.size / MemoryLayout<natural_t>.size)
-        let result = withUnsafeMutablePointer(to: &info) {
-            $0.withMemoryRebound(to: integer_t.self, capacity: Int(truncatingIfNeeded: count)) {
-                thread_info(thread, thread_flavor_t(THREAD_EXTENDED_INFO), $0, &count)
+        // SAFETY: pthread_self is the calling thread's own pthread, live while it runs; only its port is read.
+        let current = unsafe pthread_mach_thread_np(pthread_self())
+        // SAFETY: the ports are read only inside the closure, while withTaskThreads holds the list it releases after.
+        return unsafe MachThreads.withTaskThreads { threads in
+            var samples: [ThreadSample] = []
+            for thread in threads where samples.count < otherThreadLimit {
+                guard thread != excluded, thread != current else { continue }
+                let name = MachThreads.name(thread)
+                let addresses = ThreadStackSampler(thread: thread, maxFrames: maxFrames).sample()
+                guard !addresses.isEmpty else { continue }
+                samples.append(ThreadSample(name: name, addresses: addresses))
             }
+            return samples
         }
-        guard result == KERN_SUCCESS else { return "" }
-        return withUnsafeBytes(of: &info.pth_name) { String(decoding: $0.prefix { $0 != 0 }, as: UTF8.self) }
     }
 }

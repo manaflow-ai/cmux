@@ -27,16 +27,19 @@ final class SocketWriter: Sendable {
     private let queue: DispatchQueue
     private let state = Mutex(State())
 
-    init(fd: Int32, label: String, limit: Int = 64 << 20) {
+    /// - Parameter qos: The drain queue's class, chosen by the owner from what the connection
+    ///   carries (``DaemonWireStats/Role/writerQoS``).
+    init(fd: Int32, label: String, qos: DispatchQoS, limit: Int = 64 << 20) {
         self.fd = fd
         self.limit = limit
-        self.queue = DispatchQueue(label: label)
+        self.queue = DispatchQueue(label: label, qos: qos)
         // A write to a closed peer must fail with EPIPE, not raise SIGPIPE
         // (whose default action ends the process), whatever the caller set.
         // The option fails (EINVAL) once the peer is gone, so writes also
         // pass MSG_NOSIGNAL.
         var on: Int32 = 1
-        setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &on, socklen_t(MemoryLayout<Int32>.size))
+        // SAFETY: setsockopt reads the given size, MemoryLayout<Int32>.size, from `on`, an Int32 live for the call.
+        unsafe setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &on, socklen_t(MemoryLayout<Int32>.size))
     }
 
     /// Appends `bytes` after everything written before. Returns an error
@@ -57,6 +60,9 @@ final class SocketWriter: Sendable {
         return error
     }
 
+    /// The drain queue's QoS (tests).
+    var queueQoS: DispatchQoS { queue.qos }
+
     /// Bytes waiting for the socket (diagnostics, tests).
     var queuedBytes: Int { state.withLock { $0.pending.count } }
 
@@ -72,7 +78,7 @@ final class SocketWriter: Sendable {
     // MARK: - Private (serial queue)
 
     private func drain() {
-        // wakeup-allow: drains queued bytes and stops when the queue is empty, closed, or a write fails or makes no progress
+        // wakeup-allow: bounded: drains queued bytes and stops when the queue is empty, closed, or a write fails or makes no progress
         while true {
             let chunk = state.withLock { state -> Data? in
                 guard !state.closed, !state.pending.isEmpty else {
@@ -95,12 +101,16 @@ final class SocketWriter: Sendable {
     }
 
     private static func writeAll(_ bytes: Data, fd: Int32) -> SocketWriteFailure? {
-        bytes.withUnsafeBytes { raw -> SocketWriteFailure? in
-            guard var pointer = raw.baseAddress else { return nil }
-            var remaining = raw.count
+        // SAFETY: `raw` is Data's contiguous storage, valid only inside this closure, which never lets a pointer out.
+        unsafe bytes.withUnsafeBytes { raw -> SocketWriteFailure? in
+            // SAFETY: as above.
+            guard var pointer = unsafe raw.baseAddress else { return nil }
+            var remaining = unsafe raw.count
             while remaining > 0 {
                 // concurrency-allow: runs only on this writer's private serial queue, never the main thread or the cooperative pool.
-                let written = Darwin.send(fd, pointer, remaining, MSG_NOSIGNAL)
+                // SAFETY: `pointer` + `remaining` always ends at the buffer's end: both start at its start and
+                // count, and each step moves `pointer` forward by the `written` bytes taken off `remaining`.
+                let written = unsafe Darwin.send(fd, pointer, remaining, MSG_NOSIGNAL)
                 if written < 0 {
                     let code = errno
                     if code == EINTR { continue }
@@ -110,7 +120,8 @@ final class SocketWriter: Sendable {
                 // retrying would loop without writing anything.
                 if written == 0 { return .noProgress }
                 remaining -= written
-                pointer += written
+                // SAFETY: as for send above; written <= remaining, so `pointer` stays inside the buffer or at its end.
+                unsafe pointer += written
             }
             return nil
         }
@@ -135,7 +146,30 @@ enum SocketWriteFailure: Error, Equatable, Sendable, CustomStringConvertible {
         case .closed: "socket closed"
         case .backlog(let queued): "cmux-tui is not reading its socket (\(queued) bytes queued)"
         case .noProgress: "write: no progress"
-        case .errno(let code): "write: \(String(cString: strerror(code)))"
+        case .errno(let code): "write: \(POSIXErrorText(code))"
+        }
+    }
+}
+
+extension DaemonWireStats.Role {
+    /// The class of this connection's ``SocketWriter`` queue, by what it carries
+    /// (threading-model.md, QoS table). Only the connections that carry typed keys run at
+    /// user-interactive, so a bulk loopback forward never shares the class of a keystroke.
+    var writerQoS: DispatchQoS {
+        switch self {
+        case .control, .terminalAttach:
+            // qos-allow: key echo path: typed keys reach the daemon on these connections and the echo frame waits for them
+            .userInteractive
+        case .pageRelay, .agentSessionAttach, .journalRead, .sessionEnding, .shutdown:
+            // userBlocking: a person waits now for the result of a click, an open or quit.
+            .userInitiated
+        case .loopbackForward:
+            // Bulk forwarded page bytes: one class below the roles a person waits for, so a large stream never
+            // crowds them out (not the userVisible lane mapping, which is user-initiated; threading-model.md).
+            .default
+        case .socketProbe:
+            // bestEffort: a liveness probe nobody watches.
+            .utility
         }
     }
 }

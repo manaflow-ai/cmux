@@ -143,6 +143,7 @@ impl Mux {
     /// Mark (`true`) or unmark (`false`) one hosted terminal as `keep`.
     /// `terminal_id` is the stable host id. A kept terminal survives with
     /// zero placements until `terminal.close` or `close-terminal`.
+    #[track_caller]
     pub fn set_terminal_keep(&self, terminal_id: &str, keep: bool) -> anyhow::Result<()> {
         self.workspace_registry.lock().unwrap().set_terminal_keep(terminal_id, keep)?;
         if !keep {
@@ -152,6 +153,7 @@ impl Mux {
     }
 
     /// Whether one hosted terminal is marked `keep`.
+    #[track_caller]
     pub fn terminal_keep(&self, terminal_id: &str) -> anyhow::Result<bool> {
         self.workspace_registry.lock().unwrap().terminal_keep(terminal_id)
     }
@@ -164,6 +166,7 @@ impl Mux {
 
     /// Host ids of every live hosted terminal that has no tab placement and
     /// is not marked `keep`.
+    #[track_caller]
     pub(crate) fn reapable_terminals(&self) -> anyhow::Result<HashSet<String>> {
         let mut unplaced = {
             let state = self.state.lock().unwrap();
@@ -204,6 +207,7 @@ impl Mux {
     /// End one unplaced terminal. The placement and `keep` checks are
     /// repeated atomically with the close, so a terminal that gained a view
     /// or was kept since the caller looked is retained.
+    #[track_caller]
     pub(crate) fn reap_unplaced_terminal(&self, terminal_id: &str) -> anyhow::Result<ReapOutcome> {
         let (runtime_view, public_id) = {
             let state = self.state.lock().unwrap();
@@ -261,6 +265,7 @@ impl Mux {
     /// burst of closed tabs is reaped within the grace period plus the
     /// slowest single reap instead of their sum. Returns the host ids it
     /// ended.
+    #[track_caller]
     pub(crate) fn reap_unplaced_terminals(
         self: &Arc<Self>,
         schedule: &mut ReapSchedule,
@@ -324,6 +329,7 @@ impl Mux {
     /// `shutdown-daemon` with `end_terminals` for test teardown; a normal
     /// shutdown keeps hosts alive for the next owner. Returns the host ids
     /// it ended.
+    #[track_caller]
     pub fn end_all_terminals(&self) -> anyhow::Result<Vec<String>> {
         self.end_terminals(false)
     }
@@ -336,10 +342,12 @@ impl Mux {
     /// detaches it: the next owner shows the same screens, splits and tabs,
     /// each dead with `relaunch: {cwd}`, and a frontend starts a new shell
     /// there. Terminals without a tab end as in [`Self::end_all_terminals`].
+    #[track_caller]
     pub fn end_all_terminals_keeping_layout(&self) -> anyhow::Result<Vec<String>> {
         self.end_terminals(true)
     }
 
+    #[track_caller]
     fn end_terminals(&self, keep_layout: bool) -> anyhow::Result<Vec<String>> {
         // Reconnects of terminals that are about to end must not schedule a
         // session checkpoint (nx-scale S4); see mux/journal_retention.rs.
@@ -440,6 +448,7 @@ impl Mux {
     /// launch directory) and the terminal's title. Returns the host ids of
     /// those terminals.
     /// `on_show`: parked (`park-tabs`), started when first shown.
+    #[track_caller]
     fn record_kept_tabs(
         &self,
         terminals: &[RegistryTerminal],
@@ -494,6 +503,7 @@ impl Mux {
     /// [`Self::end_all_terminals_keeping_layout`] does for every terminal.
     /// Tabs that show no live terminal are skipped. Returns the surfaces whose
     /// terminal was parked.
+    #[track_caller]
     pub(crate) fn park_terminal_tabs(
         &self,
         surfaces: &[SurfaceId],
@@ -556,6 +566,7 @@ impl Mux {
     }
 
     /// Removes the keep-layout records of the tabs of `terminal_ids`.
+    #[track_caller]
     fn forget_kept_tabs_of(&self, terminal_ids: &[String]) -> anyhow::Result<()> {
         let tab_ids = {
             let registry = self.workspace_registry.lock().unwrap();
@@ -583,6 +594,7 @@ impl Mux {
     /// Asks the host of a terminal whose tabs the store keeps to exit. The
     /// host's own exit event records the terminal's outcome (a session-host
     /// fact); the store's records keep its tabs.
+    #[track_caller]
     fn end_terminal_keeping_tabs(&self, terminal: &RegistryTerminal) -> anyhow::Result<()> {
         let runtime = {
             let registry = self.workspace_registry.lock().unwrap_or_else(PoisonError::into_inner);
@@ -603,6 +615,7 @@ impl Mux {
 
     /// Whether the workspace store keeps any tab of `public_id`
     /// (`kept_tabs`). Callers hold the registry and state locks.
+    #[track_caller]
     pub(super) fn terminal_tabs_kept_locked(
         registry: &WorkspaceRegistry,
         state: &State,
@@ -675,7 +688,7 @@ fn end_surviving_terminal_hosts(root: &Path, deadline: Instant) -> Vec<String> {
         if survivors.is_empty() || Instant::now() >= deadline {
             return survivors;
         }
-        std::thread::sleep(Duration::from_millis(20));
+        crate::request_path::sleep(Duration::from_millis(20));
     }
 }
 
@@ -699,7 +712,7 @@ impl TerminalReaper {
     pub fn stop(mut self) {
         self.signal_stop();
         if let Some(thread) = self.thread.take() {
-            let _ = thread.join();
+            let _ = cmux_threads::checked::sync::join(thread);
         }
     }
 
@@ -717,6 +730,7 @@ impl Drop for TerminalReaper {
 
 /// Start the unplaced-terminal reaper for an owner with the mux's current
 /// grace period. It runs until stopped or the mux is gone.
+#[track_caller]
 pub fn start_terminal_reaper(mux: &Arc<Mux>) -> std::io::Result<TerminalReaper> {
     let stop = Arc::new(AtomicBool::new(false));
     let events = Arc::new(Mutex::new(mux.subscribe_terminal_reaper()));
@@ -737,11 +751,7 @@ pub fn start_terminal_reaper(mux: &Arc<Mux>) -> std::io::Result<TerminalReaper> 
             drop(mux);
             let wait =
                 schedule.next_deadline().map(|at| at.saturating_duration_since(Instant::now()));
-            let event = match wait {
-                Some(wait) => thread_events.recv_timeout(wait),
-                None => thread_events.recv().map_err(|_| RecvTimeoutError::Disconnected),
-            };
-            match event {
+            match thread_events.wait_event(wait) {
                 Ok(_) | Err(RecvTimeoutError::Timeout) => {
                     // Coalesce a burst of topology events into one scan. A
                     // disconnect surfaces at the next wait.

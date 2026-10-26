@@ -4,6 +4,7 @@ import AppKit
 import CmuxNextDesign
 @testable import CmuxNextTabs
 import Testing
+import CmuxNextWakeups
 
 /// Edge containers batch 1 (Leo 2026-10-12, "the browser pane's rounding"): a browser pane drew
 /// two boxes. The pane's tab strip and the browser toolbar floated above a second rounded,
@@ -21,14 +22,14 @@ import Testing
             window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: 600), styleMask: [.titled],
                               backing: .buffered, defer: false)
             window.isReleasedWhenClosed = false
-            pane = PaneContentView(stripModel: TabStripModel(tabs: [TabItem(id: TabID("browser"), title: "Example")]),
-                                   reveal: LaunchReveal(deadline: .zero))
+            pane = PaneContentView.testing(stripModel: TabStripModel(tabs: [TabItem(id: TabID("browser"), title: "Example")]),
+                                           reveal: LaunchReveal(deadline: .zero))
             pane.barOrder = .aboveToolbar
             pane.frame = window.contentLayoutRect
             window.contentView = pane
             window.orderFrontRegardless()
             page = WebKitEngine(fileInput: NoFileInput(), stores: .inMemory()).makeWebKitTab()
-            chrome = BrowserChromeView(tab: page)
+            chrome = BrowserChromeView(tab: page, mainWork: MainWorkScheduler(budget: MainFrameBudget()), node: nil)
             pane.show(chrome)
             // What the layout hands every pane: the density's pane corner radius.
             pane.setPaneContentCornerRadius(6)

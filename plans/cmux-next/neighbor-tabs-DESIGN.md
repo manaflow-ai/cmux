@@ -31,8 +31,10 @@ tab's next neighbor is the first tab.
 - Hover: when the pointer moves onto a hidden tab in a strip, a frozen page thaws
   at once. A hibernated page restores only after the pointer stays 150 ms, so a
   sweep across the strip reloads nothing. A hovered page stays awake 30 s.
-- Memory pressure (warning or critical) and Low Power Mode set `N` to 0, and the
-  normal freeze and hibernate rules apply again.
+- Memory pressure (warning or critical) and Energy Saver set `N` to 0, and the
+  normal freeze and hibernate rules apply again. While the `energySaver` feature is
+  off, macOS Low Power Mode does the same (`EnergyPolicy.pageSaver`), as it did before
+  the saver existed.
 
 ## Inputs
 
@@ -41,7 +43,8 @@ tab's next neighbor is the first tab.
   A pane off screen (parked workspace, away layout) reports no shown tab.
   `teardown` removes the pane.
 - `TabStripView.onHoverTab` reports hover changes.
-- `LowPowerMode.system` (CmuxNextDesign) and the memory pressure source.
+- The app's Energy Saver policy (`mainWork.energy`, written by `EnergyPolicyDriver` from AppServices'
+  `energyMonitor` and `energy.saver`; its `pageSaver`) and the memory pressure source.
 
 `NeighborTabs` is the pure part: per-pane order and selection to the awake set.
 
@@ -67,8 +70,9 @@ measures the power cost and the neighbor-vs-far switch times, with
 
 - `NeighborTabsTests`: the neighbor set after a switch, a reorder, a close, at the
   last and first tab, with radius 2, for small panes and for two panes; the radius
-  under pressure and Low Power Mode; setting parsing.
+  under pressure and Energy Saver; setting parsing.
 - `NeighborTabsWakeTests` (live WebKit pages, freeze seam): neighbors thaw before
   the switch; a switch to a neighbor is warm (no thaw at show) and a far switch is
   cold; hover thaws; a reorder thaws the new neighbor; a hibernated neighbor
-  restores in the background; pressure, Low Power Mode and 0 keep no neighbor awake.
+  restores in the background; pressure, Energy Saver and 0 keep no neighbor awake; the saver
+  reaches the cmux pages' lifecycle.

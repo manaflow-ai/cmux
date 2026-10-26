@@ -7,6 +7,7 @@ import CmuxNextDesign
 import CmuxNextPages
 import CmuxNextSidebar
 @testable import CmuxNextTabs
+import CmuxNextWakeups
 import Testing
 
 extension MainPaneGutterSuites {
@@ -35,8 +36,8 @@ extension MainPaneGutterSuites {
             init(content: NSView) { self.content = content }
 
             func makeContentView(for pane: PaneID) -> NSView {
-                let view = PaneContentView(stripModel: TabStripModel(tabs: [TabItem(id: TabID("tab"), title: "New Tab")]),
-                                           reveal: LaunchReveal(deadline: .zero))
+                let view = PaneContentView.testing(stripModel: TabStripModel(tabs: [TabItem(id: TabID("tab"), title: "New Tab")]),
+                                                   reveal: LaunchReveal(deadline: .zero))
                 view.show(content)
                 self.pane = view
                 return view
@@ -59,10 +60,10 @@ extension MainPaneGutterSuites {
                 provider = Provider(content: content)
                 let model = LayoutModel(screens: [LayoutScreen(id: "s", name: "s", layout: .splits(.leaf("p1")))],
                                         activeScreenID: "s", focusedPane: "p1")
-                layout = LayoutRootView(model: model, contentProvider: provider)
+                layout = LayoutRootView(model: model, contentProvider: provider, mainWork: MainWorkScheduler(budget: MainFrameBudget()))
                 let sidebarModel = SidebarModel()
                 if sidebarHidden { sidebarModel.presentation = .hidden }
-                root = WindowRootView(sidebar: SidebarContainerView(model: sidebarModel))
+                root = WindowRootView(sidebar: SidebarContainerView(model: sidebarModel, mainWork: MainWorkScheduler(budget: MainFrameBudget())))
                 window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1000, height: 640),
                                   styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
                                   backing: .buffered, defer: false)
@@ -175,10 +176,9 @@ extension MainPaneGutterSuites {
         }
 
         @Test func theNewTabPageHasOneSurfaceEdge() throws {
-            let file = try Self.page("<html><body></body></html>")
-            defer { try? FileManager.default.removeItem(at: file.deletingLastPathComponent()) }
+            let file = try #require(AgentPageAppTestRoot.page)
             let model = AgentPaneModel(host: NoHost(), newTab: AgentPaneNewTab(kind: .agent))
-            let newTab = try #require(AgentPaneView(model: model, source: .bundled(file)))
+            let newTab = try #require(AgentPaneView(model: model, work: BackgroundWork(label: "test.agent-pane"), source: .bundled(file), webUI: .agentTabsTestHost(), gestures: .testing()))
             let rig = Rig(content: newTab)
             defer { rig.tearDown() }
             try expectOneEdge(rig, content: newTab, "New Tab")
@@ -188,7 +188,7 @@ extension MainPaneGutterSuites {
         @Test func aPagePaneHasOneSurfaceEdge() throws {
             let file = try Self.page("<html><body></body></html>")
             defer { try? FileManager.default.removeItem(at: file.deletingLastPathComponent()) }
-            let descriptor = PageDescriptor(id: "test.one-edge", resource: "one-edge", namespaces: [])
+            let descriptor = PageDescriptor(id: "test.one-edge", resource: "one-edge", processGroup: .solo, namespaces: [])
             let page = try #require(PageWebView(descriptor: descriptor, root: file.deletingLastPathComponent(), routes: []))
             let rig = Rig(content: page)
             defer { rig.tearDown() }
@@ -197,10 +197,9 @@ extension MainPaneGutterSuites {
 
         /// A webview pane's edges are any other pane's: a plain view (a terminal's place) gets the same one.
         @Test func aWebviewPaneHasTheEdgesOfAnyOtherPane() throws {
-            let file = try Self.page("<html><body></body></html>")
-            defer { try? FileManager.default.removeItem(at: file.deletingLastPathComponent()) }
+            let file = try #require(AgentPageAppTestRoot.page)
             let newTab = try #require(AgentPaneView(model: AgentPaneModel(host: NoHost(), newTab: AgentPaneNewTab(kind: .agent)),
-                                                    source: .bundled(file)))
+                                                    work: BackgroundWork(label: "test.agent-pane"), source: .bundled(file), webUI: .agentTabsTestHost(), gestures: .testing()))
             let web = Rig(content: newTab)
             defer { web.tearDown() }
             let plain = NSView()

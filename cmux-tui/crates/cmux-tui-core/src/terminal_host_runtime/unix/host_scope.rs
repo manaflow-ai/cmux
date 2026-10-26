@@ -24,7 +24,8 @@
 #[path = "host_scope_watch.rs"]
 mod watch;
 
-use std::process::{Command, Stdio};
+use cmux_process::{Command, Stdio};
+use cmux_threads::checked::fs as files;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 /// The opt-in environment switch and its only accepted value.
@@ -73,7 +74,7 @@ pub(crate) fn busctl_args(pid: u32) -> Vec<String> {
 
 /// The parent PID of `pid` from `/proc/<pid>/stat` (Linux).
 fn parent_pid(pid: u32) -> Option<u32> {
-    let stat = std::fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
+    let stat = files::read_to_string(format!("/proc/{pid}/stat")).ok()?;
     // The command name may hold spaces or parentheses: parse after the last ')'.
     stat.rsplit_once(')')?.1.split_whitespace().nth(1)?.parse().ok()
 }
@@ -111,6 +112,7 @@ pub(crate) fn place_host(pid: u32) {
         HOST_SLICE,
         &scope_unit(pid),
     );
+    crate::request_path::note(crate::request_path::BlockingKind::ChildProcess);
     let result = command.stderr(Stdio::piped()).output();
     let failure = match result {
         Ok(output) if output.status.success() => {
@@ -121,7 +123,7 @@ pub(crate) fn place_host(pid: u32) {
             let waited = watch.and_then(|watch| watch.wait(PLACEMENT_WAIT));
             #[cfg(not(target_os = "linux"))]
             let waited: Result<(), &str> = Ok(());
-            let cgroup = std::fs::read_to_string(format!("/proc/{pid}/cgroup")).unwrap_or_default();
+            let cgroup = files::read_to_string(format!("/proc/{pid}/cgroup")).unwrap_or_default();
             if cgroup_names_scope(&cgroup, pid) {
                 return;
             }

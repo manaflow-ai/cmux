@@ -13,14 +13,15 @@ the same ids as plans/cmux-next/action-surfaces.json) that can run unattended, t
            key did not run it in this focus (`key_routed: false` in the row)
 
 Before each action the focused pane shows the tab kind the action needs (terminal, Chromium page, address bar,
-agent chat); after it, Escape twice, then the layout goes back: new windows, workspaces, panes, docked columns and
+agent chat) and enters any registry context a family fixture sets up (scripts/cmux-next/oracle/action_fixtures/
+<family>.py, shared with the oracle; the restore leaves it); after it, Escape twice, then the layout goes back: new windows, workspaces, panes, docked columns and
 tabs close, new workspace groups are ungrouped, removed tabs come back, each pane shows the tab it showed, toggles run
 again, changed settings are written back, focus returns. A docked column or group that stays fails a STRESS session.
 
 Per action (one row of the JSON table):
   turn_ms          the handler's main-thread time: the always-on action.perform signpost (CmuxNextSignposts,
                    ActionRegistry.performNow, the path every key, menu, palette and CLI action takes; the same
-                   interval a Release build records), read live from `log stream --signpost` (OUT/signposts.ndjson)
+                   interval a Release build records), read live from `log stream --signpost` (OUT/signposts.log)
   wait_ms          input sent to action.perform's begin (the main thread's queue; both on CLOCK_UPTIME_RAW: machTimestamp)
   commit_ms        input sent to the end of action.commit: the end of the Core Animation commit after the handler
                    (CommitBoundary), so input to committed frame
@@ -35,7 +36,8 @@ Per action (one row of the JSON table):
                    removed one, Cmd-I docked a chat (its CLI path made a chat tab), a focus move moved focus (each
                    directional move from a pane with a neighbor that way) (`ok`, `wrong`, `refused` for a typed
                    refusal, `n/a`)
-Each action runs --repeat times (default 3); the row keeps p50/p95/max over the repeats.
+Each action runs --repeat times (default 3); the row keeps n/p50/p95/p99/max over the repeats (perf-lab
+perf_stats.summary: linear interpolation between closest ranks, as perf-budgets.py).
 
 Non-catalog interactions (rows with kind `interaction`): typing in a terminal (the typing probe's key to
 frame), the agent composer and the omnibar; scrolling the terminal, a page, the sidebar; clicks on a pane, a tab
@@ -53,7 +55,13 @@ Measurement validity: the report states the display refresh, the idle missed-fra
 whether every Chromium tab is a real Chromium page (`debug.cef` shows no unavailable or fallback state).
 
 Outputs: OUT/every-action.json (all rows, both sessions, environment), OUT/every-action.md (ranked misses:
-over 10 ms p95 to commit, any dropped frame, over 4 ms on the key's turn, any error or wrong result).
+over 10 ms p95 to commit, over 4 ms on the key's turn, or a max over those with fewer than 20 samples, any dropped
+frame, any error or wrong result).
+With --story ID (one session, the story's), also cmux-perf-result/v1 files in OUT (BenchApp.record):
+`action.<id>.<session>.commit` (each sample's input to commit, ms, of every timed action row) and
+`actions.over_budget` (the count of rows with a commit miss; not for a failed session). The perf lab runs the sweep
+as T2 stories, one per shard and session: scripts/perf-lab/stories.d/action-sweep-<session>-<K>.json pass
+--sessions <session> --shard K/8 and their --story.
 
 Fleet (an owned mini's console; the allowlisted entry builds the tagged app at the ref):
   cmux-ci run --class exclusive --measurement --label measure [--label macos-26] \\
@@ -72,6 +80,12 @@ Pass --vdisplay-hold=SECONDS longer than the run (the helper ends itself after 1
 
 Usage: every-action-sweep.py --app APP --tag TAG --out DIR [--json PATH] [--sessions light,stress] [--repeat 3]
        [--only id,id] [--limit N] [--shard K/N] [--settle 0.5] [--no-interactions] [--keep]
+       [--story ID [--build-config bench|bench-checks|release]]
+       every-action-sweep.py --plan-only --catalog ACTION_LIST.json --out DIR [--json PATH] [--sessions ...] [--only ...]
+--plan-only launches nothing (Linux too): it writes what each session would do with each action of the catalog (an
+action.list reply; every run saves its live one as OUT/action-list.json): the skip and its kind, or the entrypoint,
+context, arguments, setup steps, expectation, toggle and undo. Diff two checkouts' plans to show a refactor of the
+sweep's setup changed nothing.
 A sharded run (--shard K/N) times the interactions in shard 1 only; merge the shards' JSON with
 --merge OUT/every-action.json SHARD.json... (writes the merged JSON and the ranked markdown). A SHARD may also be the
 step log of a failed step (the EVERY-ACTION-REPORT lines it printed).
@@ -89,14 +103,35 @@ A STRESS session of another shape (perf-stress-session's StressShapeError at the
 mid-session rebuild or tab restore) is such a failure: another layout is never measured as `stress`. So is an app that
 does not come back after a crash (bench_launch's LaunchError at a relaunch): the session is recorded with its rows and
 the next session runs on a fresh launch.
+
+Blocking sites (p02-threads 300, MQ-10; RUN-1 in plans/cmux-next/chrome-parity/p02-threads.md): --blocking-report=record
+launches with CMUX_BLOCKING_TRAP=0 and CMUX_BLOCKING_TRAP_POOL=0, reads `debug.blocking` (with reset) before each launch
+quits and saves each read to OUT/blocking/<session>-<launch>.json; the report's `blocking` section groups the sites by
+(fileID, kind, context), one task p02-threads-R-every-action-<Module> per module (OUT/blocking-tasks.json, the
+design-result task shape, with each #fileID resolved to its file under Packages/**/Sources/<Module>/). Quit-path sites
+are lifecycle-sweep's (RUN-12, p02-threads 307): a record run cannot read a table that ended with its launch.
+--blocking-report=trap launches with CMUX_BLOCKING_TRAP=1 and CMUX_BLOCKING_TRAP_POOL=1 and is RUN-1: the last launch
+quits before the verdict, and the run exits BLOCKING_EXIT (5) unless every launch was read in trap mode, with 0 traps
+(the detector's fatalError lines in OUT/app.log, or an exit or a quit on SIGTRAP), 0 sites and 0 overflow; each trap is
+filed as a site too. A record run never exits on its sites: they are its output.
+--merge joins the shards' blocking sections and writes blocking-tasks.json next to the merged JSON. On the fleet, add
+--arg=--blocking-report=record (then =trap) to the split-spring.sh command above, with --artifact
+artifacts/split-spring/blocking-tasks.json in a further step.
 """
-import argparse, base64, csv, signal, threading, glob, gzip, importlib.util, json, os, platform, re, socket, statistics, subprocess, sys, tempfile, time, traceback
+import argparse, base64, csv, functools, signal, threading, glob, gzip, hashlib, importlib.util, json, os, platform, re, socket, statistics, subprocess, sys, tempfile, time, traceback
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(os.path.dirname(HERE))
 sys.path.insert(0, HERE)
 from tag_teardown import TagTeardown  # noqa: E402
-from bench_launch import LaunchError, crash_reports, crash_summary, launch_app  # noqa: E402
+sys.path.append(os.path.join(HERE, "oracle"))
+import action_fixtures  # noqa: E402  (the per-family fixtures this sweep and the oracle share)
+from bench_launch import (BenchApp, LaunchError, PERF_LAB, RecordError, crash_reports, crash_summary,  # noqa: E402
+                          load_by_path)
+
+# One percentile definition and one result format for every perf script (p12-perf-process.md R8).
+perf_stats = load_by_path("perf_stats", os.path.join(PERF_LAB, "perf_stats.py"))
+perf_result = load_by_path("perf_result", os.path.join(PERF_LAB, "perf_result.py"))
 
 if len(sys.argv) > 2 and sys.argv[1] == "--merge":
     MERGE = (sys.argv[2], sys.argv[3:])
@@ -105,10 +140,14 @@ else:
     MERGE = None
 
 parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-parser.add_argument("--app", required=True)
-parser.add_argument("--tag", required=True)
+parser.add_argument("--app", help="the tagged app (required unless --plan-only)")
+parser.add_argument("--tag", help="the app's tag (required unless --plan-only)")
 parser.add_argument("--out", required=True)
 parser.add_argument("--json")
+parser.add_argument("--plan-only", action="store_true",
+                    help="no app: write each action's plan per session (OUT/every-action-plan.json, or --json) from --catalog")
+parser.add_argument("--catalog", help="an action.list reply ({\"actions\": [...]}) for --plan-only; every run writes the live "
+                                      "one to OUT/action-list.json")
 # Every session of a whole-catalog run: a coverage verdict needs both (an action light cannot set up STRESS may cover).
 SESSIONS = ("light", "stress")
 parser.add_argument("--sessions", default=",".join(SESSIONS))
@@ -120,10 +159,22 @@ parser.add_argument("--settle", type=float, default=0.5, help="seconds of frames
 parser.add_argument("--no-interactions", action="store_true")
 parser.add_argument("--write-gaps", action="store_true", help="rewrite every-action-gaps.json from this whole-catalog run")
 parser.add_argument("--keep", action="store_true", help="leave the app running")
+parser.add_argument("--blocking-report", choices=("record", "trap"),
+                    help="read debug.blocking at the end of each launch; trap also turns the detector's traps on (RUN-1)")
 parser.add_argument("--app-env", action="append", default=[], metavar="NAME=VALUE",
                     help="one more variable in the app's environment (repeatable), e.g. a measurement tool's "
                          "DYLD_INSERT_LIBRARIES (scripts/measure/blocking-probe.sh)")
+parser.add_argument("--story", help="also write cmux-perf-result/v1 files into --out under this perf-lab story id "
+                                    "(scripts/perf-lab/stories.d/action-sweep-*.json pass it)")
+parser.add_argument("--build-config", choices=["bench", "bench-checks", "release", "debug"],
+                    help="result-v1 build config of a bench-hooks bundle that does not stamp it (BenchApp.record)")
 opts = parser.parse_args()
+if opts.plan_only:
+    if not opts.catalog:
+        parser.error("--plan-only needs --catalog (an action.list reply, e.g. OUT/action-list.json of a run)")
+    opts.app, opts.tag = opts.app or "-", opts.tag or "plan-only"
+elif not (opts.app and opts.tag):
+    parser.error("--app and --tag are required (unless --plan-only)")
 
 OUT = os.path.abspath(opts.out)
 os.makedirs(OUT, exist_ok=True)
@@ -138,6 +189,12 @@ WINDOW = (40, 40, 1600, 1000)
 
 TARGET_COMMIT_MS = 10.0
 TARGET_TURN_MS = 4.0
+# Below this many samples a row's max is judged against its target as well as its p95 (over_target).
+SMALL_SAMPLE_N = 20
+# result-v1: each action's commit series refers to the budget above (stories.d R4: a reference, never a copy). The
+# sweep's browser context is a Chromium page (check_validity), so its results are the chromium engine's.
+COMMIT_TARGET_REF = perf_result.TargetRef(path="scripts/cmux-next/every-action-sweep.py", key="TARGET_COMMIT_MS")
+RESULT_ENGINE = "chromium"
 # How long a restore waits for the store to apply its own closes (an action's reply comes after the daemon's, the
 # topology after the store's event), as the rebuild's workspace close waits: a bound on a wait for a real change.
 STORE_APPLY_S = 5.0
@@ -148,6 +205,22 @@ FAILED_SESSION_EXIT = 3
 # baseline (GAPS): a new action must come with its fixture (zero-latency.md, "Native actions: the budget contract").
 NEW_GAP_EXIT = 4
 GAPS = os.path.join(HERE, "every-action-gaps.json")
+# The exit status of a --blocking-report=trap run (or a --merge of one) that is not RUN-1 clean: a trap, a site, an
+# overflow, a launch whose debug.blocking was not read, or an app that ran the detector in another mode.
+BLOCKING_EXIT = 5
+# The app's environment per --blocking-report mode (BlockingViolationTable reads CMUX_BLOCKING_TRAP once at launch; the
+# pool switch is task 005's). Record says 0 outright, so a Debug default flipped to trap (task 021) still records.
+BLOCKING_ENV = {"record": {"CMUX_BLOCKING_TRAP": "0", "CMUX_BLOCKING_TRAP_POOL": "0"},
+                "trap": {"CMUX_BLOCKING_TRAP": "1", "CMUX_BLOCKING_TRAP_POOL": "1"}}
+# The detector's trap messages (BlockingViolationTable.trap's fatalError, CmuxNextCompat/Threading), as the app's
+# stderr has them in OUT/app.log: "...: Fatal error: blocking <kind> on the main thread at <Module/File.swift>:<line>:
+# move it ..." (recordedSite) and "... on the cooperative pool or a GCD root queue at <Module/File.swift>:<line>: run it
+# ..." (recordedOffMainSite). "Fatal error:" keeps out the record mode's log line of the same words. The words between
+# "on" and "at" name the context.
+BLOCKING_TRAP_LINE = re.compile(r"Fatal error: blocking (?P<kind>[\w-]+) on (?P<where>[^:\n]+?) at (?P<file>[^\s:]+):(?P<line>\d+):")
+# The violation contexts debug.blocking reports (BlockingContext's raw values; lane and dedicated may block). RUN-1
+# (plans/cmux-next/chrome-parity/p02-threads.md section 5) fails on a site of any context or kind.
+BLOCKING_CONTEXTS = ("main", "pool", "cpu-lane")
 # Why a row was skipped (`skip_kind`), set where the skip is decided, never read back from the reason's words:
 #   gap       no fixture: plan() or argument_values() found a context the sweep does not set up, a target kind or
 #             argument it has no value for; or a context the sweep does set up did not hold (the base pane showed no tab of
@@ -168,9 +241,14 @@ REPORT_LINE = "EVERY-ACTION-REPORT"
 REPORT_LINE_CHARS = 4000
 
 
+# CACurrentMediaTime's and NSEvent timestamps' clock. Linux has none and no app to time: --plan-only and the
+# tests import the module there.
+UPTIME_CLOCK = getattr(time, "CLOCK_UPTIME_RAW", time.CLOCK_MONOTONIC)
+
+
 def uptime():
-    """CLOCK_UPTIME_RAW seconds: CACurrentMediaTime's and NSEvent timestamps' clock."""
-    return time.clock_gettime(time.CLOCK_UPTIME_RAW)
+    """UPTIME_CLOCK seconds."""
+    return time.clock_gettime(UPTIME_CLOCK)
 
 
 def note(text):
@@ -250,18 +328,12 @@ def wait(predicate, seconds, step=0.05):
     return None
 
 
-def pct(values, q):
-    values = sorted(v for v in values if isinstance(v, (int, float)))
-    if not values:
-        return None
-    return round(values[min(len(values) - 1, int(round((len(values) - 1) * q)))], 2)
-
-
 def stat(values):
-    values = [v for v in values if isinstance(v, (int, float))]
-    if not values:
+    """n, p50, p95, p99 and max of the numeric values (perf_stats.summary: linear interpolation), or None."""
+    summary = perf_stats.summary(values)
+    if not summary["n"]:
         return None
-    return {"n": len(values), "p50": pct(values, 0.5), "p95": pct(values, 0.95), "max": round(max(values), 2)}
+    return {"n": summary["n"], **{key: round(summary[key], 2) for key in ("p50", "p95", "p99", "max")}}
 
 
 def load(name, file):
@@ -282,13 +354,21 @@ def harness_frames(error, count=4):
 # The app.
 
 class App:
-    def __init__(self, teardown=None):
+    def __init__(self, teardown=None, make_bench=BenchApp):
         self.process = None
         self.pids = []
         # One teardown for every launch: remember() after each launch records the daemon and its state root while it
         # runs, so stop() still finds the hosts and holders of a daemon that died mid-session (no ancestry, no pid
         # anchor left), and a relaunch's stop() ends that launch's processes too.
         self.teardown = teardown or TagTeardown(opts.app, log=note)
+        # One BenchApp per launch (bench_launch.py: the launch path, and the features snapshot result-v1 needs); every
+        # result of this run names one perf_result.Run, whichever launch measured it.
+        self.make_bench = make_bench
+        self.bench = None
+        self.run = None
+        self.session = None  # the session main() runs next on this app; launch_session: the one the running launch is for
+        self.launch_session = None
+        self.launches = 0
 
     def launch(self):
         with open(CONFIG, "w") as f:
@@ -305,12 +385,15 @@ class App:
                "CMUX_NEXT_CONFIG_FILE": CONFIG, "CMUX_NEXT_GHOSTTY_CONFIG": GHOSTTY, "CMUX_NEXT_CHIEF_ISOLATED": "1",
                "CMUX_NEXT_CHIEF_HOME": os.path.join(SCRATCH, "chief"), "CMUX_NEXT_TYPING_PROBE": PROBE,
                "CMUX_NEXT_HANG_THRESHOLD_MS": "8", "ACPMUX_AGENT_LAUNCH": "deny"}
+        env.update(BLOCKING_ENV.get(opts.blocking_report, {}))
         for item in opts.app_env:
             name, equals, value = item.partition("=")
             if not equals or not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", name):
                 raise SystemExit(f"every-action: --app-env takes NAME=VALUE (got {item!r})")
             env[name] = value
         def started(process):
+            self.launches += 1
+            self.launch_session = self.session
             self.process = process
             self.pids.append(process.pid)
             SIGNPOSTS.pids.add(process.pid)
@@ -319,13 +402,21 @@ class App:
         # One launch path (bench_launch.py): the state-folder socket, the session check, and the reason (crash
         # report, main-thread sample, log tail) when the app does not come up; raises LaunchError (a SystemExit).
         global SOCKET
-        _, SOCKET = launch_app(opts.app, env, os.path.join(OUT, "app.log"), timeout=180, on_start=started)
+        bench = self.make_bench(opts.app, out=OUT, env=env, window=None, screen=None, log_name="app.log",
+                                teardown=False, build_config=opts.build_config)
+        bench.launch(timeout=180, on_start=started)
+        # Only a launch that came up describes results: after a failed relaunch the rows already measured keep the
+        # last good launch's build and features.
+        self.bench = bench
+        SOCKET = bench.socket
         self.teardown.remember()  # the daemon runs now: its pid and state root
         time.sleep(3)  # test script: launch work (restore, first pages) ends before the first measure
 
     def stop(self):
         try:
+            self.read_blocking()
             self.quit()
+            self.note_quit()
         finally:
             # The tag's headless cmux-tui session and acpmux outlive a quit (keep-on-quit): end them, so the next
             # session starts empty (a relaunch otherwise restores every workspace the last session left).
@@ -350,6 +441,40 @@ class App:
     def relaunch(self):
         self.stop()
         self.launch()
+
+    def record(self, session, metric, unit, samples, target_ref=None):
+        """One result-v1 file of story --story for `session` (BenchApp.record of the last launch: its build, host and
+        features). Raises RecordError (no launch answered features.list) or perf_result.ResultError."""
+        if self.bench is None:
+            raise RecordError("every-action: no launch to describe the result")
+        self.bench.perf_session = session
+        self.bench.run = self.run = self.run or perf_result.Run.start()
+        return self.bench.record(opts.story, metric, unit, samples, better="lower", engine=RESULT_ENGINE,
+                                 target_ref=target_ref)
+
+    def read_blocking(self):
+        """--blocking-report: this launch's `debug.blocking` (counts reset after the read), kept in BLOCKING_READS and
+        saved to OUT/blocking/<session>-<launch>.json; once per launch, before it ends (its table dies with it). A launch
+        that already exited is kept as unread, with its exit status."""
+        if not opts.blocking_report or self.process is None or any(r["pid"] == self.process.pid for r in BLOCKING_READS):
+            return
+        code = self.process.poll()
+        reply = rpc("debug.blocking", {"reset": True}, timeout=10) if code is None else {"error": f"the app exited ({code})"}
+        read = {"session": self.launch_session, "launch": self.launches, "pid": self.process.pid, "exit": code, "reply": reply}
+        BLOCKING_READS.append(read)
+        save_blocking_read(read)
+
+    def note_quit(self):
+        """--blocking-report: the ended launch's quit exit status on its read (`quit_exit`), so a trap while it quit
+        (SIGTRAP) counts in RUN-1. A record run cannot read the table after the quit: quit-path sites are
+        lifecycle-sweep's (RUN-12, p02-threads 307); a trap run sees them as traps."""
+        if not opts.blocking_report or self.process is None:
+            return
+        read = next((r for r in BLOCKING_READS if r["pid"] == self.process.pid), None)
+        if read is None or "quit_exit" in read:
+            return
+        read["quit_exit"] = self.process.poll()
+        save_blocking_read(read)
 
     def why_unresponsive(self, since):
         """Why the app stopped answering, before it is relaunched: it exited (code or signal, and the crash
@@ -587,6 +712,26 @@ PREPARE = {
     # A second screen, shown: it moves out and the base screen stays.
     "screen.moveToWorkspace": [("screen.new", {})],
 }
+# The per-family fixtures (oracle/action_fixtures/<family>.py): registry contexts CONTEXT_SETUP does not know
+# (Sweep.ready enters them, Sweep.restore leaves them) and more PREPARE steps. A family that does not load, or claims a
+# context or PREPARE id twice, stops the sweep here (FixtureError): its closed gaps never fall back silently. --merge
+# joins shard JSON already collected and runs no action, so it loads none: a broken family never blocks a merge.
+FAMILIES = action_fixtures.Families() if MERGE else action_fixtures.load_families()
+FAMILIES.check_contexts(CONTEXT_SETUP)
+PREPARE = FAMILIES.merged_prepare(PREPARE)
+
+
+class SweepDriver:
+    """The narrow seam a family's ContextFixture drives the app through (action_fixtures.Driver)."""
+
+    def run(self, action, args=None):
+        return act(action, args=args, focus=True)
+
+    def rpc(self, method, params=None):
+        return rpc(method, params)
+
+    def wait(self, predicate, seconds):
+        return wait(predicate, seconds)
 
 # Actions whose effect is state no restore sees (not a topology object, not a setting, not a TOGGLES re-run): the
 # inverse the restore runs after each sample, before anything else. The fits write the daemon tab record's
@@ -653,6 +798,11 @@ def checked(ident):
     return ident in EXPECT or ident in EXPECT_BY_ENTRY
 
 
+def toggles(ident):
+    """True when the restore runs `ident` again to put back what it turned on or off (TOGGLES, never a checked action)."""
+    return bool(re.search(TOGGLES, ident)) and not checked(ident)
+
+
 def neighbor(cell, other, direction):
     """True when `other` (a pane's [x, y, w, h], window points from the top left) lies beside `cell` toward
     `direction`: past its edge that way, overlapping it across."""
@@ -695,14 +845,15 @@ def skip(reason, kind):
     return {"skipped": reason, "skip_kind": kind}
 
 
-def argument_values(action, base):
-    """Values for required arguments, or (None, skip) with the typed skip (``skip``)."""
+def argument_values(action, base, fixtures=ARGUMENT_FIXTURES):
+    """Values for required arguments, or (None, skip) with the typed skip (``skip``). `fixtures` is ARGUMENT_FIXTURES
+    (--plan-only passes placeholders that read no app)."""
     values = {}
     for argument in action.get("arguments") or []:
         if not argument.get("required"):
             continue
         kind, name = argument.get("kind"), argument.get("name")
-        fixture = ARGUMENT_FIXTURES.get((action["id"], name))
+        fixture = fixtures.get((action["id"], name))
         if fixture:
             value, why = fixture(base)
             if value is None:
@@ -774,6 +925,7 @@ class Sweep:
         self.app, self.session, self.stress_module = app, session, stress_module
         self.rows, self.interactions = [], []
         self.base = {}
+        self.fixtures = ARGUMENT_FIXTURES  # argument_values()'s fixtures (plan_only() puts placeholders here)
         self.builder = None
         # The closed-history ids just before the measured input (mark_closed); restore() reopens only newer ones.
         self.closed_mark = None
@@ -790,6 +942,12 @@ class Sweep:
         # failure between the input and its restore leaves it set, and unfit() judges the session by it.
         self.pending = None
         self.recovered = []  # what the last unfit() put back (an undo, a setting): the harness row records it
+        self.driver = SweepDriver()
+        # This launch's family context fixtures (FAMILIES), and the keys of those entered since the last restore.
+        self.contexts, self.entered = FAMILIES.new_contexts(), []
+        # Action id -> the input-to-commit ms of each sample whose handler ran and was not refused (result-v1's raw
+        # samples; the row keeps only their summary).
+        self.commit_samples = {}
 
     # Session building.
 
@@ -952,6 +1110,7 @@ class Sweep:
                 if now is None:
                     drift.append("closed history unread after the input: no reopen")
                 closed = [i for i in now or [] if i not in mark]
+        drift += self.leave_contexts()
         drift += self.close_new(self.base["shape"])
         self.check_extras()
         lost = self.lost(self.base["shape"], shape(topology()))
@@ -1393,15 +1552,17 @@ class Sweep:
         reason, by = skip_reason(action, self.session)
         if reason:
             return None, {"skipped": reason, "skip_kind": "excluded", "excluded_by": by}
-        missing = [k for k in action.get("requires") or [] if k not in CONTEXT_SETUP]
+        requires = action.get("requires") or []
+        missing = [k for k in requires if k not in CONTEXT_SETUP and k not in FAMILIES.contexts]
         if missing:
             return None, {"skipped": f"needs context the sweep does not set up: {', '.join(missing)}", "skip_kind": "gap"}
         kinds = [CONTEXT_SETUP[k] for k in action.get("requires") or [] if CONTEXT_SETUP.get(k)]
         context = "omnibar" if "omnibar" in kinds else (kinds[0] if kinds else None)
-        args, skipped = argument_values(action, self.base)
+        args, skipped = argument_values(action, self.base, self.fixtures)
         if args is None:
             return None, skipped  # no value the action accepts: a missing fixture, or the session's state
-        return {"context": context, "args": args, "key": key_of(action) if not args else None}, None
+        families = [k for k in requires if k in FAMILIES.contexts]
+        return {"context": context, "families": families, "args": args, "key": key_of(action) if not args else None}, None
 
     def run_action(self, action):
         ident = action["id"]
@@ -1414,7 +1575,7 @@ class Sweep:
         row["entry"] = "key" if plan["key"] else "action"
         row["context"] = plan["context"]
         samples, errors, checks, drifts = [], [], [], []
-        toggled = bool(re.search(TOGGLES, ident)) and not checked(ident)
+        toggled = toggles(ident)
 
         def ready():
             """(start pane, None, None) when the session can take this sample now, else (None, why, skip_kind). Every
@@ -1426,6 +1587,9 @@ class Sweep:
                 fell_back = plan["context"] in ("chromium", "omnibar") and self.launches \
                     and self.launches[-1].get("chromium_ok") is False
                 return None, f"no {plan['context']} tab in the base pane", "state" if fell_back else "gap"
+            why = self.enter_contexts(plan["families"])
+            if why:
+                return None, why[:200], "gap"
             described = rpc("action.describe", {"action": ident})
             info = (described or {}).get("action") if isinstance(described, dict) else None
             if info and info.get("available") is False and not plan["args"]:
@@ -1509,12 +1673,18 @@ class Sweep:
             drifts.extend(self.restore(ident, toggled))
             if err and attempt == 0 and ("unavailable" in err or "not_found" in err or "refused" in err or "invalid" in err):
                 break
+        if stopped and self.entered:
+            drifts.extend(self.restore(ident, False))  # a context entered before the stop is left, its extras closed
         if stopped and not samples:
             row.update(skipped=stopped, skip_kind=stopped_kind)
+            if drifts:
+                row["drift"] = sorted(set(drifts))[:6]  # a skipped row keeps what its restores did not put back
             return row
         if stopped:
             row["cut_short"] = stopped  # later samples could not start; the ones that ran are the row
         row["samples"] = len(samples)
+        self.commit_samples[ident] = [s["commit_ms"] for s in samples if s["ran"] and not s["refused"]
+                                      and isinstance(s.get("commit_ms"), (int, float))]
         # Wall-clock windows of the measured inputs: the always-on action signposts are joined to them after the run.
         row["windows"] = [[round(s["window"][0], 6), round(s["window"][1], 6), s.get("wait_ms")] for s in samples]
         for key in ("turn_ms", "wait_ms", "commit_ms", "result_ms", "rpc_ms"):
@@ -1546,6 +1716,27 @@ class Sweep:
         if starts:
             row["from_pane"] = starts
         return row
+
+    def enter_contexts(self, keys):
+        """Enters each family context of `keys` (plan()'s `families`) in order: None, or why one did not hold. A key
+        already entered since the last restore is entered again (the fixture keeps what its first call made)."""
+        for key in keys:
+            if key not in self.entered:
+                self.entered.append(key)
+            why = self.contexts[key].enter(self.driver)
+            if why:
+                return f"{key} ({FAMILIES.owners[key]} fixture): {why}"
+        return None
+
+    def leave_contexts(self):
+        """Leaves every context entered since the last restore, the last first; returns the drift they report."""
+        entered, self.entered = self.entered, []
+        drift = []
+        for key in reversed(entered):
+            why = self.contexts[key].leave(self.driver)
+            if why:
+                drift.append(f"leave {key}: {why}"[:120])
+        return drift
 
     def focus_start(self, ident):
         """(start pane, None): for a directional focus move or swap, focuses a pane with a neighbor that way
@@ -1726,6 +1917,41 @@ class Sweep:
             out["check"] = "ok" if (topology().get("focus") or {}).get("pane") == other else "wrong"
             return out
         self.interaction("click.pane", click_pane)
+
+        def click_during_motion():
+            """A press while a split springs (p03-rendering-098): the base pane shrinks from its whole cell to its
+            left half, so a point just right of the middle is in the new pane's rest frame but drawn in the base
+            pane until the spring is 90 % of its way. The press must focus the pane drawn there. Only with
+            motion.renderServer on (else the row is skipped): the layout counts a press its intercept handled while
+            render-server springs ran (`presses_mid_spring`), apart from how it was hit tested, so a press that came
+            after the landing is `late`, not a result, and a press mid-spring that focused another pane is `wrong`
+            whatever `presented_hit_reads` (recorded) says."""
+            row = rpc("debug.tunables", {"action": "get", "key": "motion.renderServer"})
+            render_server = row.get("value") if isinstance(row, dict) and not error_of(row) else None
+            if render_server is not True:
+                return skip(f"motion.renderServer is {render_server!r}: the press is hit tested on the frames", "state")
+            base = self.base["pane"]
+            cell = next((p.get("cell") for p in self.pane_chrome(synced=True).get("panes") or [] if p.get("pane") == base), None)
+            if not cell:
+                return {"skipped": "no pane geometry (debug.pane_chrome)"}
+            x, y, w, h = cell
+
+            def counters():
+                reply = rpc("debug.layout_counters") or {}
+                return {key: reply.get(key) or 0 for key in ("presented_hit_reads", "presses_mid_spring")}
+            before = counters()
+
+            def body():
+                act("splitRight", target=f"pane:{base}", focus=True)
+                rpc("debug.mouse", {"action": "click", "x": x + w * 0.55, "y": y + h / 2})
+            out = self.frames_during(body)
+            after = counters()
+            out.update({key: after[key] - before[key] for key in after})
+            out["render_server"] = render_server
+            focused = (topology().get("focus") or {}).get("pane")
+            out["check"] = "ok" if focused == base else ("wrong" if out["presses_mid_spring"] > 0 else "late")
+            return out
+        self.interaction("click.during_motion", click_during_motion)
 
         def click_tab():
             other = self.second_tab()
@@ -1944,6 +2170,7 @@ class Sweep:
         self.pending = None
         if pending and pending.get("toggled"):
             return f"the restore of toggle {pending['id']} did not run (or its re-run failed)"
+        self.recovered += self.leave_contexts()
         self.recovered += [f"settings {name}" for name in self.restore_settings()]
         old = self.base.get("settings")
         if isinstance(old, dict) and self.settings() != old:
@@ -1968,6 +2195,7 @@ class Sweep:
         self.closed_mark, self.mark_problem = None, None
         self.notes, self.replaced = [], {}  # the old launch's notes and replaced tabs name its ids
         self.pending = None  # the new launch starts from the build: nothing of the old sample is left to undo
+        self.contexts, self.entered = FAMILIES.new_contexts(), []  # the old launch's contexts went with it
         self.build()
         validity = self.check_validity()
         validity["relaunch"] = why
@@ -2051,7 +2279,7 @@ def mach_timebase():
 
 class SignpostStream:
     """`log stream --signpost` of the app's action category, read live on a thread: the sweep waits for each
-    action's commit and reads its intervals. Rows also keep wall-clock windows; OUT/signposts.ndjson keeps the stream."""
+    action's commit and reads its intervals. Rows also keep wall-clock windows; OUT/signposts.log keeps the stream."""
     PREDICATE = 'subsystem == "com.cmuxterm.app.next" AND category == "action"'
 
     def __init__(self, path):
@@ -2141,7 +2369,17 @@ class SignpostStream:
         return found
 
 
-SIGNPOSTS = SignpostStream(os.path.join(OUT, "signposts.ndjson"))
+# Not .ndjson: the perf lab ingests every *.ndjson in OUT as result-v1 (ingest.py), and one bad file there rejects
+# every run beside it.
+SIGNPOSTS = SignpostStream(os.path.join(OUT, "signposts.log"))
+BLOCKING_READS = []  # App.read_blocking's reads, one per launch, in launch order
+
+
+def save_blocking_read(read):
+    """OUT/blocking/<session>-<launch>.json: one launch's read (and, once it quit, its quit exit status)."""
+    os.makedirs(os.path.join(OUT, "blocking"), exist_ok=True)
+    with open(os.path.join(OUT, "blocking", f"{read['session'] or 'launch'}-{read['launch']}.json"), "w") as f:
+        json.dump(read, f, indent=1, default=str)
 
 
 # ----------------------------------------------------------------------------------------------------------
@@ -2152,25 +2390,16 @@ def misses(row):
     not the action's: it is listed apart (markdown), never in the target table."""
     if row.get("skipped") or row.get("refused"):
         return []
-    why = []
-    commit = (row.get("commit_ms") or {}).get("p95")
-    result = (row.get("result_ms") or {}).get("p95") if isinstance(row.get("result_ms"), dict) else None
-    if isinstance(commit, (int, float)) and commit > TARGET_COMMIT_MS:
-        why.append(f"commit p95 {commit} ms")
-    if isinstance(result, (int, float)) and result > TARGET_COMMIT_MS:
-        why.append(f"result p95 {result} ms")
-    turn = (row.get("turn_ms") or {}).get("p95")
-    if isinstance(turn, (int, float)) and turn > TARGET_TURN_MS:
-        why.append(f"turn p95 {turn} ms")
+    why = [miss for miss in (commit_miss(row), over_target(row.get("result_ms"), TARGET_COMMIT_MS, "result"),
+                             over_target(row.get("turn_ms"), TARGET_TURN_MS, "turn")) if miss]
     frames = row.get("frames") or {}
     if frames.get("missed"):
         main = frames.get("main_max_ms") or 0
         cause = f"main thread {main} ms" if main > (frames.get("refresh_ms") or 16.67) else "main thread under a frame"
         why.append(f"{frames['missed']} missed frames at {frames.get('refresh_ms')} ms ({cause})")
-    for key in ("key_to_frame_ms",):
-        p95 = (row.get(key) or {}).get("p95")
-        if isinstance(p95, (int, float)) and p95 > TARGET_COMMIT_MS:
-            why.append(f"key to frame p95 {p95} ms")
+    key_to_frame = over_target(row.get("key_to_frame_ms"), TARGET_COMMIT_MS, "key to frame")
+    if key_to_frame:
+        why.append(key_to_frame)
     errors = [e for e in row.get("errors") or [] if not refusal(e)]
     if errors:
         why.append("error: " + "; ".join(errors)[:160])
@@ -2179,6 +2408,58 @@ def misses(row):
     if row.get("check") == "wrong":
         why.append("wrong result")
     return why
+
+
+def over_target(summary, target, label):
+    """Why a stat() summary is over `target`, or None. Under SMALL_SAMPLE_N samples the max is judged too: the
+    interpolated p95 of 3 repeats sits below the slowest, and one slow repeat stays a miss."""
+    if not isinstance(summary, dict):
+        return None
+    p95, peak, n = summary.get("p95"), summary.get("max"), summary.get("n")
+    if isinstance(p95, (int, float)) and p95 > target:
+        return f"{label} p95 {p95} ms"
+    if isinstance(peak, (int, float)) and peak > target and isinstance(n, int) and n < SMALL_SAMPLE_N:
+        return f"{label} max {peak} ms (n {n})"
+    return None
+
+
+def commit_miss(row):
+    """Why the row's input to commit is over TARGET_COMMIT_MS (over_target), or None."""
+    return over_target(row.get("commit_ms"), TARGET_COMMIT_MS, "commit")
+
+
+def over_budget(rows):
+    """How many timed rows (not skipped, not refused at every sample) have a commit miss (commit_miss): the rows
+    every-action.md lists with a `commit` miss."""
+    return sum(1 for row in rows if not row.get("skipped") and not row.get("refused") and commit_miss(row) is not None)
+
+
+def record_results(app, entry, commit_samples):
+    """The result-v1 files (--story) of one session's report entry: `action.<id>.<session>.commit`, the raw
+    input-to-commit samples of each timed action row, and `actions.over_budget` (``over_budget``), which a failed
+    session does not get (the actions after its failure have no row, so its count would read as fewer misses).
+    Returns {metric: path, or "not recorded: <why>"}. A launch that cannot describe a result (RecordError: no
+    features snapshot, build or host) stops the session's recording at its first series."""
+    session = entry["name"]
+    series = [(f"action.{row['id']}.{session}.commit", "ms", commit_samples.get(row["id"]), COMMIT_TARGET_REF)
+              for row in entry["rows"] if row.get("kind") == "action" and not row.get("skipped") and not row.get("refused")]
+    if not entry.get("failed"):
+        series.append(("actions.over_budget", "count", [over_budget(entry["rows"])], None))
+    written = {}
+    for metric, unit, samples, target_ref in series:
+        if not samples:
+            continue
+        try:
+            written[metric] = str(app.record(session, metric, unit, samples, target_ref=target_ref))
+        except RecordError as error:
+            written[metric] = f"not recorded: {error}"
+            break
+        except perf_result.ResultError as error:
+            written[metric] = f"not recorded: {error}"
+    missing = {metric: why for metric, why in written.items() if why.startswith("not recorded")}
+    note(f"every-action: {session}: {len(written) - len(missing)} result-v1 files for story {opts.story}"
+         + (f"; {len(missing)} not recorded: {json.dumps(missing)[:600]}" if missing else ""))
+    return written
 
 
 def expected_refusal(ident, error):
@@ -2249,7 +2530,9 @@ def display_of(report):
 
 def markdown(report):
     lines = [f"# every-action sweep: {report['env']['host']} macOS {report['env']['macos']} build {report['env']['sha'][:12]}", ""]
-    lines.append(f"Targets: commit p95 <= {TARGET_COMMIT_MS} ms, turn p95 <= {TARGET_TURN_MS} ms, 0 missed frames, no errors, right result.")
+    lines.append(f"Targets: commit p95 <= {TARGET_COMMIT_MS} ms, turn p95 <= {TARGET_TURN_MS} ms (and the max, under "
+                 f"{SMALL_SAMPLE_N} samples), 0 missed frames, no errors, right result. Percentiles interpolate between "
+                 f"closest ranks (perf_stats.py).")
     failed = report.get("failed_sessions") or []
     if failed:
         lines += ["", f"## FAILED: {len(failed)} session(s) did not finish", ""] + [failure_line(f) for f in failed]
@@ -2268,6 +2551,7 @@ def markdown(report):
         lines += ["", f"No coverage verdict: {checked['error']}"]
     elif report.get("coverage_skipped"):
         lines += ["", f"No coverage verdict: {report['coverage_skipped']}"]
+    lines += blocking_lines(report.get("blocking"))
     if not report["sessions"]:
         lines += ["", "No session finished."]
     for session in report["sessions"]:
@@ -2313,7 +2597,106 @@ def markdown(report):
     return "\n".join(lines) + "\n"
 
 
+def selected(actions):
+    """The actions of the catalog (sorted by id) this run offers: --only, then --shard, then --limit."""
+    only = {a for a in opts.only.split(",") if a}
+    if only:
+        actions = [a for a in actions if a["id"] in only]
+    if opts.shard:
+        actions = shard_actions(actions, opts.shard)
+    if opts.limit:
+        actions = actions[:opts.limit]
+    return actions
+
+
+# What --plan-only binds an argument to that only a live app knows: a target names the base field the run fills
+# (BASE_TARGETS), an argument fixture names itself (ARGUMENT_FIXTURES may read the app, history.open does).
+PLAN_BASE = {field: f"<base.{field}>" for field in BASE_TARGETS.values()}
+PLAN_FIXTURES = {key: (lambda base, key=key: (f"<fixture {key[0]}.{key[1]}>", None)) for key in ARGUMENT_FIXTURES}
+
+
+def plan_row(sweep, action):
+    """One action's plan in `sweep`'s session as run_action() takes it, read with no app: the --plan-only row. A run
+    can still skip a planned row for the session's state (no tab of the context's kind, no neighbor pane that way)."""
+    ident = action["id"]
+    plan, skipped = sweep.plan(action)
+    if not plan:
+        return {"id": ident, **skipped}
+    entries = ["key", "action"] if plan["key"] else ["action"]
+    row = {"id": ident, "entry": entries[0], "context": plan["context"], "args": plan["args"],
+           "key": list(plan["key"]) if plan["key"] else None,
+           "expect": {entry: expectation(ident, entry) for entry in entries if expectation(ident, entry)},
+           "prepare": [[step, args] for step, args in PREPARE.get(ident, ())], "toggled": toggles(ident)}
+    for name, value in (("families", plan["families"]), ("direction", DIRECTIONS.get(ident)),
+                        ("undo", list(UNDO[ident]) if ident in UNDO else None),
+                        ("expected_refusal", EXPECTED_REFUSALS.get(ident))):
+        if value:
+            row[name] = value
+    if sweep.session == "light" and re.match(WINDOW_CLOSERS, ident):
+        row["last"] = True  # runs after the interactions, then the app relaunches (Sweep.run)
+    return row
+
+
+def plan_only():
+    """--plan-only: each session's plan of every selected action of --catalog, with no app, as JSON with sorted keys,
+    so the plans of two checkouts diff line by line."""
+    try:
+        with open(opts.catalog) as f:
+            actions = sorted(json.load(f)["actions"], key=lambda a: a["id"])
+    except (OSError, ValueError, KeyError, TypeError) as error:
+        raise SystemExit(f"every-action: --catalog {opts.catalog} is not an action.list reply: {error!r}")
+    actions = selected(actions)
+    plan = {"actions": len(actions), "sessions": []}
+    for name in [s for s in opts.sessions.split(",") if s]:
+        sweep = Sweep(None, name, None)
+        sweep.base, sweep.fixtures = dict(PLAN_BASE), PLAN_FIXTURES
+        plan["sessions"].append({"name": name, "rows": [plan_row(sweep, action) for action in actions]})
+    path = opts.json or os.path.join(OUT, "every-action-plan.json")
+    with open(path, "w") as f:
+        json.dump(plan, f, indent=1, sort_keys=True)
+        f.write("\n")
+    note(f"every-action: wrote the plan of {len(actions)} actions to {path}")
+
+
+def action_shard(ident, count):
+    """The 0-based shard of action `ident` among `count`, from the id alone: adding or removing another action never
+    moves it, so its perf-lab series stays in one story and a bisect at an older commit measures it in the same shard.
+    Chrome binds a story to its shard by name the same way (tools/perf/core/shard_maps)."""
+    return int(hashlib.sha256(ident.encode()).hexdigest(), 16) % count
+
+
+def shard_actions(actions, spec):
+    """The actions of shard `spec` (`K/N` or `K1,K2/N`, 1-based): each action whose action_shard is one of the K.
+    The perf lab's action-sweep stories run K = 1..8 of 8, one story per shard and session."""
+    ks, n = spec.split("/")
+    picks = {int(k) - 1 for k in ks.split(",")}
+    return [a for a in actions if action_shard(a["id"], int(n)) in picks]
+
+
+def story_problem(story, sessions, shard, stories_dir=os.path.join(PERF_LAB, "stories.d")):
+    """Why --story cannot record this run, or None. A story has one session (stories.d R7), and its series hold only
+    that session's actions of its own shard; the story file's command says which."""
+    if len(sessions) != 1:
+        return f"--story {story} records one session, not {len(sessions)} ({','.join(sessions)}): run each session's story"
+    try:
+        with open(os.path.join(stories_dir, f"{story}.json")) as f:
+            spec = json.load(f)
+    except (OSError, ValueError) as error:
+        return f"--story {story}: no readable stories.d/{story}.json ({error})"
+    if spec.get("session") != sessions[0]:
+        return f"--story {story} is the {spec.get('session')} session's story, not {sessions[0]}'s"
+    command = spec.get("command") or []
+    wanted = command[command.index("--shard") + 1] if "--shard" in command[:-1] else ""
+    if wanted != (shard or ""):
+        return f"--story {story} measures shard {wanted or '(all)'}, not {shard or '(all)'}"
+    return None
+
+
 def main():
+    if opts.story:
+        problem = story_problem(opts.story, [s for s in opts.sessions.split(",") if s], opts.shard)
+        if problem:
+            raise SystemExit(f"every-action: {problem}")
     if opts.write_gaps and (opts.only or opts.limit or opts.shard or {s for s in opts.sessions.split(",") if s} != set(SESSIONS)):
         raise SystemExit("every-action: --write-gaps needs a whole-catalog run (no --only, --limit, --shard or --sessions): "
                          "a partial run would shrink the baseline")
@@ -2322,6 +2705,9 @@ def main():
     if not SIGNPOSTS.live:
         raise SystemExit(f"every-action: no signpost stream ({SIGNPOSTS.error})")
     app = App()
+    app_log = os.path.join(OUT, "app.log")
+    log_start = os.path.getsize(app_log) if os.path.exists(app_log) else 0  # app.log is appended to: this run's part
+    app.session = next((s for s in opts.sessions.split(",") if s), None)
     app.launch()
     identify = rpc("system.identify") or {}
     methods = set(identify.get("methods") or [])
@@ -2330,18 +2716,14 @@ def main():
            "app": opts.app, "tag": opts.tag, "signposts": SIGNPOSTS.live, "load": os.getloadavg()}
     note(f"every-action: env {json.dumps(env)}")
     listed = rpc("action.list") or {}
+    with open(os.path.join(OUT, "action-list.json"), "w") as f:
+        json.dump(listed, f, indent=1)  # the catalog this run planned from: --plan-only --catalog replays it
     actions = sorted(listed.get("actions") or [], key=lambda a: a["id"])
     DESTRUCTIVE.update(a["id"] for a in actions if a.get("destructive"))
     only = {a for a in opts.only.split(",") if a}
-    if only:
-        actions = [a for a in actions if a["id"] in only]
+    actions = selected(actions)
     if opts.shard:
-        ks, n = opts.shard.split("/")
-        picks = {int(k) - 1 for k in ks.split(",")}
-        actions = [a for index, a in enumerate(actions) if index % int(n) in picks]
         env["shard"] = opts.shard
-    if opts.limit:
-        actions = actions[:opts.limit]
     if only or opts.limit:
         env["partial"] = True  # no derived-coverage verdict: not every action was offered
     if {s for s in opts.sessions.split(",") if s} != set(SESSIONS):
@@ -2362,6 +2744,7 @@ def main():
             failure = None
             try:
                 if index:
+                    app.session = name
                     app.relaunch()  # each session starts from a fresh app: STRESS is exactly perf-stress-session's shape
                 sweep.run(actions)
             # The session failed: the other sessions still run, each from its own fresh launch, and the run exits
@@ -2381,9 +2764,26 @@ def main():
             if failure:
                 entry["failed"] = [failure]  # its rows cover only the actions before the failure
             report["sessions"].append(entry)
+            if opts.story:
+                record_results(app, entry, sweep.commit_samples)  # before the next relaunch: this launch's features
             with open(report_path, "w") as f:
                 json.dump(report, f, indent=1, default=str)
     finally:
+        stopped = False
+        if opts.blocking_report:
+            app.read_blocking()  # the last launch, before the report: its table ends with it
+            last_quit = "the last launch was kept running (--keep)"
+            if not opts.keep:
+                # Quit before the verdict, so a trap on the last quit is in app.log and in that read's quit_exit.
+                stopped = True
+                try:
+                    app.stop()
+                    last_quit = None
+                except Exception as error:  # the report still lands; the verdict names the unchecked quit
+                    last_quit = f"the last quit failed: {error}"
+            report["blocking"] = blocking_section(opts.blocking_report, BLOCKING_READS, blocking_traps(app_log, log_start),
+                                                  partial=bool(env.get("partial") or opts.shard), last_quit=last_quit)
+            write_blocking_tasks(report["blocking"], os.path.join(OUT, "blocking-tasks.json"))
         attach_crash_reports(report)
         with open(report_path, "w") as f:
             json.dump(report, f, indent=1, default=str)
@@ -2405,7 +2805,7 @@ def main():
             json.dump(report, f, indent=1, default=str)
         with open(os.path.join(OUT, "every-action.md"), "w") as f:
             f.write(markdown(report))
-        if not opts.keep:
+        if not opts.keep and not stopped:
             app.stop()
     if not opts.shard:
         report["coverage"] = coverage(report)
@@ -2424,9 +2824,11 @@ def main():
             f.write(markdown(report))
     note(f"every-action: wrote {report_path} and {os.path.join(OUT, 'every-action.md')}")
     if exit_status(report):
-        # Any failing exit (a failed session, a new gap) loses the step's --artifact files: the report goes to the log.
+        # Any failing exit (a failed session, an unclean trap run, a new gap) loses the step's --artifact files: the
+        # report goes to the log.
         report_to_log(report)
     fail_on_failed_sessions(report)
+    fail_on_blocking(report)
     fail_on_new_gaps(report)
 
 
@@ -2470,6 +2872,208 @@ COVERAGE_ORDER = ("gap", "harness", "no-run", "refused", "pattern", "policy", "s
 # The categories that count as a gap (no session measured the action's handler at work): everything but a reviewed
 # exclusion and a policy refusal.
 GAP_CATEGORIES = ("gap", "harness", "no-run", "refused", "state")
+
+
+def blocking_traps(log_path, start=0):
+    """The detector's traps in the app log from byte `start` on: one {kind, context, location} per BLOCKING_TRAP_LINE."""
+    try:
+        with open(log_path, errors="replace") as f:
+            f.seek(start)
+            text = f.read()
+    except OSError:
+        return []
+    return [{"kind": m["kind"], "context": "main" if m["where"].strip() == "the main thread" else
+             ("pool" if "pool" in m["where"] else m["where"].strip()), "location": f"{m['file']}:{m['line']}"}
+            for m in BLOCKING_TRAP_LINE.finditer(text)]
+
+
+def blocking_site_groups(reads, traps=()):
+    """The sites of every read debug.blocking reply, one group per (fileID, kind, context) (MQ-10): its lines, count,
+    and the sessions it was seen in. A site without `context` is main (the detector before task 005 checks only main).
+    A trap from app.log is a site of session "trap": the launch stopped there (or while it quit), so no read has it."""
+    groups = {}
+
+    def add(location, kind, context, count, session, max_ms=None):
+        location = str(location or "?")
+        file_id, _, line = location.rpartition(":")
+        file_id = file_id if line.isdigit() else location
+        key = (file_id, str(kind or "?"), str(context or "main"))
+        group = groups.setdefault(key, {"file_id": key[0], "kind": key[1], "context": key[2],
+                                        "module": key[0].split("/", 1)[0], "lines": set(), "count": 0,
+                                        "sessions": set(), "max_ms": None})
+        if line.isdigit():
+            group["lines"].add(int(line))
+        group["count"] += count
+        group["sessions"].add(session)
+        if isinstance(max_ms, (int, float)):
+            group["max_ms"] = max(group["max_ms"] or 0, max_ms)
+
+    for read in reads:
+        reply = read.get("reply")
+        if blocking_read_problem(reply, None):
+            continue
+        for site in reply.get("sites") or []:
+            add(site.get("location"), site.get("kind"), site.get("context"), int(site.get("count") or 0),
+                str(read.get("session")), site.get("max_ms"))
+    for trap in traps:
+        add(trap.get("location"), trap.get("kind"), trap.get("context"), 1, "trap")
+    return [dict(g, lines=sorted(g["lines"]), sessions=sorted(g["sessions"]))
+            for _, g in sorted(groups.items(), key=lambda kv: (kv[1]["module"], kv[0]))]
+
+
+@functools.lru_cache(maxsize=None)
+def swift_source_index(root=ROOT):
+    """(module folder, file name) -> the repo's paths Packages/**/Sources/<Module>/**/<File>.swift. A site's location
+    is Swift's #fileID, `Module/File.swift`, without the folders inside the module, in any package the detector
+    links (CmuxNext and the Shared packages). From `git ls-files`, or a walk of Packages without git."""
+    try:
+        listed = subprocess.run(["git", "-C", root, "ls-files", "-z", "--", "Packages/*.swift"], capture_output=True,
+                                timeout=60, check=True).stdout.decode(errors="replace").split("\0")
+    except (OSError, subprocess.SubprocessError):
+        listed = []
+        for folder, dirs, names in os.walk(os.path.join(root, "Packages")):
+            dirs[:] = [d for d in dirs if not d.startswith(".")]  # .build and other caches
+            listed += [os.path.relpath(os.path.join(folder, n), root) for n in names if n.endswith(".swift")]
+    index = {}
+    for path in listed:
+        parts = path.split("/")
+        if "Sources" in parts and parts.index("Sources") + 2 < len(parts):
+            index.setdefault((parts[parts.index("Sources") + 1], parts[-1]), []).append(path)
+    return index
+
+
+def blocking_source_paths(file_id, index):
+    """The repo files a #fileID `Module/File.swift` can be: one when it resolves, none or several when it does not."""
+    module, slash, name = file_id.partition("/")
+    return sorted(index.get((module, os.path.basename(name)), [])) if slash else []
+
+
+def blocking_task_id(module, sweep="every-action"):
+    """A site task's id, from its sweep and module only: a rerun after some modules were fixed, and lifecycle-sweep
+    (task 307) filing its own sites, never give a filed id to other work."""
+    return f"p02-threads-R-{sweep}-{module}"
+
+
+def blocking_tasks(groups, index=None, sweep="every-action"):
+    """One task per module of the site groups (MQ-10, blocking_task_id), in the design-result task shape, to fix with
+    the MQ-1 recipe (task 060) and rerun with traps. `files` are the real paths of the sites' #fileIDs
+    (swift_source_index); a fileID with no single match is `unresolved`, with its candidates, and the change says so."""
+    index = swift_source_index() if index is None else index
+    modules = {}
+    for group in groups:
+        modules.setdefault(group["module"], []).append(dict(group, paths=blocking_source_paths(group["file_id"], index)))
+    tasks = []
+    for module, items in sorted(modules.items()):
+        sites = [f"{g['file_id']}:{','.join(map(str, g['lines'])) or '?'} {g['kind']} ({g['context']}, {g['count']}x)"
+                 for g in items]
+        unresolved = {g["file_id"]: g["paths"] for g in items if len(g["paths"]) != 1}
+        change = ("MQ-1 recipe (task 060) for each site: the seam, and the call moved off its context (main, pool or "
+                  "the wrong lane) in the same commit. Sites: " + "; ".join(sites))
+        if unresolved:
+            change += (". Unresolved fileIDs (no single Packages/**/Sources/<Module>/**/<File>): "
+                       + "; ".join(f"{f} ({', '.join(c) if c else 'no file'})" for f, c in sorted(unresolved.items())))
+        tasks.append({"id": blocking_task_id(module, sweep), "title": f"runtime blocking sites in {module} ({len(items)} groups)",
+                      "files": sorted({p for g in items for p in g["paths"]}), "unresolved": unresolved,
+                      "change": change,
+                      "acceptance": "every-action-sweep.py --blocking-report=trap (RUN-1) reports none of these sites "
+                                    "and 0 traps; a red-first test per changed user-reachable path.",
+                      "test_phase": "T1; T2", "size": "S" if len(items) <= 3 else "M", "depends_on": ["p02-threads-300"],
+                      "machine_queue": "MQ-10", "sites": items})
+    return tasks
+
+
+def blocking_read_problem(reply, mode):
+    """Why a debug.blocking reply cannot count as a launch's sites, or None: an error, a build without the detector
+    (a bench build answers compiled_in false with no sites, which is not "no blocking"), or, when `mode` is "trap",
+    a detector whose main or pool mode is not trap (RUN-1 needs both)."""
+    if not isinstance(reply, dict):
+        return f"no reply ({reply!r})"
+    if error_of(reply):
+        return str(error_of(reply))
+    if reply.get("compiled_in") is not True:
+        return "the build has no blocking detector (compiled_in is not true)"
+    if mode == "trap" and (reply.get("mode"), reply.get("pool_mode")) != ("trap", "trap"):
+        return f"the detector ran in mode {reply.get('mode')!r}, pool_mode {reply.get('pool_mode')!r}, not trap"
+    return None
+
+
+def blocking_section(mode, reads, traps, partial=False, last_quit=None, index=None):
+    """The report's `blocking` section: the reads (`unread`: the launches whose reply cannot count), the traps, the
+    site groups and their tasks, and the RUN-1 verdict of a trap run (`run1`: problems, empty when clean). A record
+    run has no verdict (its sites are its output). `last_quit`: why the last launch's quit was not checked, or None."""
+    groups = blocking_site_groups(reads, traps)
+    overflow = sum(int((r.get("reply") or {}).get("overflow") or 0) for r in reads if isinstance(r.get("reply"), dict))
+    unread = [f"{r.get('session')} launch {r.get('launch')}: {why}" for r in reads
+              if (why := blocking_read_problem(r.get("reply"), mode))]
+    section = {"mode": mode, "reads": reads, "unread": unread, "traps": traps, "groups": groups,
+               "tasks": blocking_tasks(groups, index), "sites": sum(len(g["lines"]) or 1 for g in groups),
+               "overflow": overflow, "last_quit": last_quit,
+               "contexts": {c: sum(1 for g in groups if g["context"] == c) for c in
+                            sorted(set(BLOCKING_CONTEXTS) | {g["context"] for g in groups})},
+               "kinds": {k: sum(1 for g in groups if g["kind"] == k) for k in sorted({g["kind"] for g in groups})}}
+    if mode != "trap":
+        return section
+    problems = []
+    if not reads:
+        problems.append("no launch was read")
+    problems += [f"{r.get('session')} launch {r.get('launch')} exited on SIGTRAP" for r in reads
+                 if r.get("exit") == -signal.SIGTRAP]
+    problems += [f"{r.get('session')} launch {r.get('launch')} trapped while it quit (SIGTRAP)" for r in reads
+                 if r.get("quit_exit") == -signal.SIGTRAP and r.get("exit") != -signal.SIGTRAP]
+    if last_quit:
+        problems.append(f"{last_quit}: its quit is not checked")
+    problems += [f"not read: {why}" for why in unread]
+    if traps:
+        problems.append(f"{len(traps)} trap(s): " + ", ".join(f"{t['location']} {t['kind']}" for t in traps[:10]))
+    read_groups = [g for g in groups if g["sessions"] != ["trap"]]
+    if read_groups:
+        problems.append(f"{len(read_groups)} site group(s): "
+                        + ", ".join(f"{g['file_id']} {g['kind']}" for g in read_groups[:10]))
+    if overflow:
+        problems.append(f"overflow {overflow}")
+    section["run1"] = {"clean": not problems, "problems": problems, "whole_catalog": not partial}
+    return section
+
+
+def blocking_lines(section):
+    """every-action.md's blocking section."""
+    if not section:
+        return []
+    lines = ["", f"## Blocking sites ({section['mode']})", ""]
+    run1 = section.get("run1")
+    if run1:
+        verdict = "clean" if run1["clean"] else "NOT clean: " + "; ".join(run1["problems"])
+        lines += [f"RUN-1 ({'whole catalog' if run1['whole_catalog'] else 'partial run, not RUN-1'}): {verdict}", ""]
+    lines.append(f"{len(section['reads'])} launch(es) read, {len(section['groups'])} site group(s), {section['sites']} "
+                 f"site(s), {len(section['traps'])} trap(s), overflow {section['overflow']}; by context: "
+                 + ", ".join(f"{c} {n}" for c, n in section["contexts"].items())
+                 + "; by kind: " + (", ".join(f"{k} {n}" for k, n in section.get("kinds", {}).items()) or "none"))
+    if section["mode"] == "record":
+        lines += ["", "A record run reads each launch before it quits: quit-path sites are lifecycle-sweep's (RUN-12, "
+                      "p02-threads 307); a trap run reports them as traps."]
+    if section.get("unread"):
+        lines += ["", "Launches whose sites do not count:", ""] + [f"- {why}" for why in section["unread"]]
+    if section["groups"]:
+        lines += ["", "| task | module | fileID | lines | kind | context | count | sessions |", "|---|---|---|---|---|---|---|---|"]
+        for task in section["tasks"]:
+            for g in task["sites"]:
+                lines.append(f"| {task['id']} | {g['module']} | {g['file_id']} | {','.join(map(str, g['lines']))} | "
+                             f"{g['kind']} | {g['context']} | {g['count']} | {','.join(g['sessions'])} |")
+    unresolved = [(t["id"], f, c) for t in section["tasks"] for f, c in sorted(t.get("unresolved", {}).items())]
+    if unresolved:
+        lines += ["", "FileIDs with no single source file:", ""] + [
+            f"- {task} {f}: {', '.join(c) if c else 'no file'}" for task, f, c in unresolved]
+    if section["traps"]:
+        lines += ["", "Traps:", ""] + [f"- {t['location']} {t['kind']} ({t['context']})" for t in section["traps"]]
+    return lines
+
+
+def write_blocking_tasks(section, path):
+    """OUT/blocking-tasks.json: the section's tasks, for the orchestrator to file (MQ-10)."""
+    if section:
+        with open(path, "w") as f:
+            json.dump({"mode": section["mode"], "tasks": section["tasks"]}, f, indent=1)
+            f.write("\n")
 
 
 def covered_ids(report):
@@ -2588,9 +3192,12 @@ def write_gaps(report, path=None):
 
 
 def exit_status(report):
-    """The run's exit status: FAILED_SESSION_EXIT for a failed session, NEW_GAP_EXIT for a new gap, else 0."""
+    """The run's exit status: FAILED_SESSION_EXIT for a failed session, BLOCKING_EXIT for a trap run that is not RUN-1
+    clean, NEW_GAP_EXIT for a new gap, else 0."""
     if report.get("failed_sessions"):
         return FAILED_SESSION_EXIT
+    if blocking_unclean(report):
+        return BLOCKING_EXIT
     if (report.get("coverage") or {}).get("new"):
         return NEW_GAP_EXIT
     return 0
@@ -2602,6 +3209,20 @@ def fail_on_new_gaps(report):
     if checked.get("new"):
         note(f"every-action: COVERAGE: {len(checked['new'])} action(s) have no fixture: {', '.join(list(checked['new'])[:20])}")
         raise SystemExit(NEW_GAP_EXIT)
+
+
+def blocking_unclean(report):
+    """The RUN-1 problems of a --blocking-report=trap run, or []."""
+    run1 = (report.get("blocking") or {}).get("run1")
+    return [] if not run1 or run1["clean"] else run1["problems"]
+
+
+def fail_on_blocking(report):
+    """Exits BLOCKING_EXIT when a trap run is not RUN-1 clean (after the report is written)."""
+    problems = blocking_unclean(report)
+    if problems:
+        note(f"every-action: BLOCKING: RUN-1 not clean: {'; '.join(problems)[:2000]}")
+        raise SystemExit(BLOCKING_EXIT)
 
 
 def fail_on_failed_sessions(report):
@@ -2671,18 +3292,33 @@ def merge(out, paths):
     merged["env"]["partial"] = any(r["env"].get("partial") for r in reports) or bool(problem)
     merged["coverage"] = coverage(merged)
     merged["coverage_skipped"] = verdict_blocker(merged)
+    sections = [r["blocking"] for r in reports if r.get("blocking")]
+    if sections:
+        modes = sorted({b["mode"] for b in sections})
+        reads = [read for b in sections for read in b["reads"]]
+        if len(sections) < len(reports) or len(modes) > 1:
+            # A shard without a section, or of another mode, is a launch the trap verdict never read: it names it.
+            reads.append({"session": None, "launch": None, "pid": None, "exit": None,
+                          "reply": {"error": f"{len(reports) - len(sections)} shard(s) without a blocking section, modes {modes}"}})
+        merged["blocking"] = blocking_section("trap" if "trap" in modes else modes[0], reads,
+                                              [t for b in sections for t in b["traps"]], partial=merged["env"]["partial"],
+                                              last_quit="; ".join(b["last_quit"] for b in sections if b.get("last_quit")) or None)
+        write_blocking_tasks(merged["blocking"], os.path.join(os.path.dirname(os.path.abspath(out)), "blocking-tasks.json"))
     with open(out, "w") as f:
         json.dump(merged, f, indent=1, default=str)
     with open(os.path.splitext(out)[0] + ".md", "w") as f:
         f.write(markdown(merged))
     print(f"every-action: merged {len(paths)} shards into {out}")
     fail_on_failed_sessions(merged)
+    fail_on_blocking(merged)
     fail_on_new_gaps(merged)
 
 
 if __name__ == "__main__":
     if MERGE:
         merge(*MERGE)
+    elif opts.plan_only:
+        plan_only()
     else:
         # A cmux-ci timeout or cancel (SIGTERM, SIGHUP) raises SystemExit, so main()'s finally quits the app and ends
         # the tag's daemons (App.stop) instead of leaving them holding PTYs on the host.

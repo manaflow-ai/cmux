@@ -4,6 +4,7 @@ import CmuxNextCompat
 import CmuxNextControl
 import CmuxNextDaemon
 import CmuxNextTerminal
+import CmuxNextTrace
 import CmuxNextWakeups
 import Foundation
 import os
@@ -49,8 +50,10 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
     let events: AsyncStream<TerminalIOEvent>
     private let driver: TerminalAttachDriver<TerminalAttachment>
     private let creatingInput: CreatingTerminalInput?
-    /// The burst bench's grid echo and first-output marks (nil: none; a Release build compiles them out).
+    /// The burst marks of grid echoes and first outputs (nil: none), in every build while a recording runs.
     private let burstTrace: BurstTrace?
+    /// The daemon surface whose marks this view writes.
+    private let surface: UInt64
     /// The app's grid sender (`AppServices.resizes`): next frame, one in flight, a final grid now.
     private let resizes: ResizeCoordinator
     /// The id of the terminal still being created whose keys go to the daemon by id, nil otherwise.
@@ -60,16 +63,23 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
     ///   feature that reaches this terminal's machine: every disconnect shows
     ///   "Turned off by your organization" and the endpoint refuses re-attaches.
     /// `gate`: the view of a terminal not created yet attaches only once the gate names it.
+    /// `createIntent`: the `create.tab` intent id of the new tab this view shows (0: none, a restore): its first
+    /// attach writes that create's stages (`NewTerminalTrace.FirstAttach`).
     /// `burstTrace`: where the grids this view sends, their echoes and its first output after each echo
-    /// go while the burst bench records (`debug.burst`).
+    /// go while a recording runs (`debug.burst`, or a trace recording's `burst` category).
     /// `resizes`: the app's grid sender (``ResizeCoordinator``), from its composition root.
+    /// `hangWatch`: watches each line the attachment's reader handles (`DaemonService.hangWatch`).
+    /// `screenChanged`: told after each step this view maps (output, replay, grid, link status), so the oracle's
+    /// `terminals` facet waits wake (`AppServices.terminalScreenChanged`; nil in Release).
     init(target: Target, resizes: ResizeCoordinator, visible: Bool = true, gate: TerminalTargetGate? = nil,
-         creatingInput: CreatingTerminalInput? = nil,
+         createIntent: UInt64 = 0, creatingInput: CreatingTerminalInput? = nil,
          burstTrace: BurstTrace? = nil, policyBlocked: @escaping @Sendable () -> Bool = { false },
+         hangWatch: (any HangWatchScoping)? = nil, screenChanged: (@Sendable () -> Void)? = nil,
          endpoint: @escaping @Sendable () async throws -> DaemonEndpoint) {
         self.resizes = resizes
         let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.terminal")
         let surface = target.attachment.surface.rawValue
+        let firstAttach = NewTerminalTrace.FirstAttach(intent: createIntent)
         let driver = TerminalAttachDriver<TerminalAttachment>(
             initialSize: target.initialSize,
             visible: visible,
@@ -89,7 +99,8 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
                                                     snapshotVersion: Self.attachSnapshotVersion,
                                                     localHistory: Self.attachLocalHistory,
                                                     images: Self.attachImages,
-                                                    device: await Self.sizingDevice.value)
+                                                    device: await Self.sizingDevice.value,
+                                                    hangs: hangWatch, createIntent: firstAttach.take())
             },
             onFailure: { error in
                 logger.error("attach \(surface) failed: \(String(describing: error), privacy: .public)")
@@ -104,7 +115,6 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
             // without a live link, while hidden, or of the size it already holds.
             onGridSent: burstTrace.map { trace -> TerminalAttachDriver<TerminalAttachment>.GridSent in
                 { size, expectsEcho in
-                    guard trace.isArmed else { return }
                     trace.gridSent(surface: surface, cols: size.cols, rows: size.rows, expectsEcho: expectsEcho)
                 }
             }
@@ -112,10 +122,13 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
         self.driver = driver
         self.creatingInput = creatingInput
         self.burstTrace = burstTrace
+        self.surface = surface
         events = AsyncStream(unfolding: {
             await driver.nextStep().map { step in
                 let event = Self.event(for: step)
-                if let burstTrace, burstTrace.isArmed {
+                screenChanged?()
+                // Each mark checks for a recording itself; with none, it drops an ended one's echo matching.
+                if let burstTrace {
                     switch event {
                     case .output: burstTrace.output(surface: surface)
                     // The daemon applied a grid: its first output after this is at that size.
@@ -142,6 +155,7 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
 
     deinit {
         driver.close()
+        burstTrace?.forget(surface: surface)
     }
 
     // MARK: TerminalIO
@@ -176,11 +190,9 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
         driver.requestResync()
     }
 
-    func resize(cols: Int, rows: Int, pixelWidth: Int, pixelHeight: Int) async {
-        guard cols > 0, rows > 0 else { return }
-        let size = CellSize(cols: cols, rows: rows)
-        await MainActor.run { resizes.submit(self, size: size) }
-    }
+    /// Never sent: ``resizeOnMain(cols:rows:final:window:)`` takes every grid in the caller's turn (it always
+    /// returns true), so the session sends no grid through its ordered stream (`TerminalSession.surfaceDidReport`).
+    func resize(cols: Int, rows: Int, pixelWidth: Int, pixelHeight: Int) async {}
 
     // MARK: App control
 
@@ -275,6 +287,7 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
         case .replay(let replay): replayEvent(replay)
         case .snapshot(let frame): .snapshot(frame.data, phase: snapshotPhase(frame))
         case .output(let data): .output(data)
+        case .inputEcho(let flow): .inputEcho(flow: flow)
         case .exited: .exited
         case .status(let status): .status(Self.connection(status))
         case .sizing(let notice): .sizedFor(notice.map(Self.sizedFor))
@@ -284,7 +297,7 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
     /// This Mac in the terminal's shared sizing: views name it, and their attach joins
     /// `shared-sizing-v1` (size states for "Sized for", and the Mac's name on other devices).
     /// Read once, off the main actor (MacName).
-    static let sizingDevice = Task { TerminalSizingDevice(kind: "mac", name: await MacName().computerName()) }
+    static let sizingDevice = Task { @concurrent in TerminalSizingDevice(kind: "mac", name: await MacName().computerName()) }
 
     static func sizedFor(_ notice: TerminalSizeNotice) -> TerminalSizedFor {
         TerminalSizedFor(deviceName: notice.ownerName, deviceKind: notice.ownerKind, sameDevice: notice.sameDevice,

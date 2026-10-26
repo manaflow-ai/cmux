@@ -18,9 +18,10 @@ mod service;
 mod sink;
 mod terminal;
 
-pub(crate) use service::HolderService;
 #[cfg(not(test))]
 pub(crate) use service::prepare_in_background;
+pub(crate) use service::{HOLDER_LINK_HANG, holder_frame_name};
+pub(crate) use service::{HolderService, HolderTrace};
 pub(crate) use sink::HolderSink;
 pub(crate) use terminal::{HolderTerminal, holder_local_launch};
 
@@ -30,4 +31,11 @@ pub(crate) fn enabled() -> bool {
     *ENABLED.get_or_init(|| {
         std::env::var("CMUX_TUI_TERMINAL_HOST_MODEL").is_ok_and(|model| model == "holder")
     })
+}
+
+/// Stand-in holders for the tests of other modules (surface echo flows).
+#[cfg(test)]
+pub(crate) mod test_support {
+    pub(crate) use super::service::tests::{next_frame, stand_in_service, welcome_granting};
+    pub(crate) use super::terminal::tests::{nonblocking_pty, stand_in_terminal};
 }

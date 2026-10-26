@@ -26,7 +26,8 @@ public final class ControlRouter: Sendable {
         public var batchOpLimit: Int
         /// Whether `debug.*` methods may be registered: only in DEBUG builds
         /// (``ControlRouter/debugMethodsAllowed``). A release router drops
-        /// every `debug.*` registration, so no release build serves one.
+        /// every `debug.*` registration but the read-only diagnostics marked
+        /// ``ControlMethod/servingRelease()``.
         public var allowsDebugMethods: Bool
 
         public init(requestDeadline: Duration = .seconds(2), terminalStartDeadline: Duration = ControlRouter.terminalStartDeadline,
@@ -41,7 +42,8 @@ public final class ControlRouter: Sendable {
         }
     }
 
-    /// True in DEBUG builds only: release builds serve no `debug.*` method.
+    /// True in DEBUG builds only: release builds serve no `debug.*` method but the
+    /// ``ControlMethod/servingRelease()`` diagnostics.
     public static var debugMethodsAllowed: Bool {
         #if DEBUG || CMUX_BENCH_HOOKS
         true
@@ -52,6 +54,16 @@ public final class ControlRouter: Sendable {
 
     /// A `debug.*` method: diagnostics and automation for tagged DEV builds.
     public static func isDebugMethod(_ name: String) -> Bool { name.hasPrefix("debug.") }
+
+    /// The `debug.*` families a release router answers `not_allowed` instead of `method_not_found`: their
+    /// callers must tell "this build refuses the family" from "this build predates it" (the refactor
+    /// oracle's runner, p15-oracle.md section 5 item 15). Other `debug.*` names stay `method_not_found`,
+    /// which scripts such as render-idle-damage.py read as "no hooks in this build".
+    static let releaseRefusedDebugPrefixes = ["debug.oracle."]
+
+    static func isReleaseRefusedMethod(_ name: String) -> Bool {
+        releaseRefusedDebugPrefixes.contains { name.hasPrefix($0) }
+    }
 
     /// Default deadline for a request that starts a terminal: the daemon's
     /// own terminal start deadline (`DaemonConnection.defaultSpawnTimeout`)
@@ -125,11 +137,12 @@ public final class ControlRouter: Sendable {
     /// Adds methods. A later registration with the same name replaces the
     /// earlier one (the App or compat layer may refine a built-in). A
     /// `debug.*` method is dropped unless the configuration allows debug
-    /// methods (DEBUG builds), whichever code path registers it.
+    /// methods (DEBUG builds) or the method serves release builds
+    /// (``ControlMethod/servingRelease()``), whichever code path registers it.
     public func register(_ methods: [ControlMethod]) {
         let allowsDebug = configuration.allowsDebugMethods
         // Each method's owner is interned once here (registration), never per request.
-        let methods = methods.filter { allowsDebug || !Self.isDebugMethod($0.name) }.map { method in
+        let methods = methods.filter { allowsDebug || $0.servesRelease || !Self.isDebugMethod($0.name) }.map { method in
             var method = method
             method.owner = workQueue.owner(of: method.name)
             return method
@@ -255,12 +268,17 @@ public final class ControlRouter: Sendable {
 
     public func handle(_ request: ControlRequest, connection: ControlConnectionID = .inProcess) async -> Result<JSONValue, ControlError> {
         guard let method = method(named: request.method) else {
+            if !configuration.allowsDebugMethods, Self.isReleaseRefusedMethod(request.method) {
+                return .failure(Self.debugMethodNotAllowed(request.method))
+            }
             if let error = state.withLock({ $0.unknownMethod })?(request.method) { return .failure(error) }
             return .failure(Self.methodNotFound(request.method, appCLIPath: identity.appCLIPath))
         }
         // The snapshot as of now: built first when a work-queue frame changed main-actor state since the last
-        // publish (a lazy publish: frames with no reader build nothing).
-        var snapshot = await snapshots.fresh()
+        // publish (a lazy publish: frames with no reader build nothing), within the request deadline. A liveness
+        // diagnostic answers from the last published one, so it works while the main thread is stalled.
+        var snapshot = await method.readsLastPublished ? snapshots.current
+            : snapshots.fresh(deadline: .now + configuration.requestDeadline)
         let startsTerminal = method.startsTerminal(request, snapshot)
         let limit = method.limitOverride?(request, snapshot) ?? method.fixedLimit ?? (startsTerminal ? configuration.terminalStartDeadline : configuration.requestDeadline)
         let (deadline, engineStartMark) = (ContinuousClock.now + limit, MainThreadEngineStart.shared.total)
@@ -300,6 +318,15 @@ public final class ControlRouter: Sendable {
                                            "Unknown method %1$@. A cmux CLI that is older than this app (or from another cmux app) sends methods this app does not have; this app's CLI is %2$@",
                                            method, cli),
             data: ["method": .string(method), "app_cli_path": .string(cli)])
+    }
+
+    /// `not_allowed`: the answer of a release router to an unregistered ``releaseRefusedDebugPrefixes`` name
+    /// (that family is compiled only in DEV and bench builds, so a release router registers none of it).
+    static func debugMethodNotAllowed(_ method: String) -> ControlError {
+        ControlError(code: "not_allowed",
+                     message: ControlStrings.format("control.error.debugMethodNotAllowed",
+                                                    "%@ is a debug method; only DEV builds serve debug methods", method),
+                     data: ["method": .string(method)])
     }
 
     static func run(_ method: ControlMethod, _ call: ControlCall, queue: MainActorWorkQueue) async throws -> JSONValue {

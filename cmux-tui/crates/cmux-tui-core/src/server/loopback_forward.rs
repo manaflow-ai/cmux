@@ -708,7 +708,7 @@ struct LoopbackRequest {
 
 #[derive(Deserialize)]
 #[serde(tag = "cmd")]
-enum LoopbackCommand {
+pub(super) enum LoopbackCommand {
     #[serde(rename = "loopback-open")]
     Open {
         stream: u64,
@@ -729,6 +729,14 @@ enum LoopbackCommand {
     Status,
 }
 
+/// The `cmd` names this module answers (server/routes.rs).
+pub(in crate::server) const ROUTES: &[crate::server::routes::Route] =
+    &[crate::server::routes::Route {
+        names: &[crate::server::routes::RouteName::Prefix("loopback-")],
+        stage: crate::server::FrameStage::LoopbackForward,
+        entry: |line| try_handle(line.mux, line.client, line.message, line.writer),
+    }];
+
 /// Handles a `loopback-*` message on the connection's reader thread, apart
 /// from the per-connection surface queue, so forwarded bytes never use the
 /// daemon's surface-operation budget. Returns `None` for other messages.
@@ -744,7 +752,7 @@ pub(super) fn try_handle(
     if !message.contains("\"loopback-") {
         return None;
     }
-    let request = serde_json::from_str::<LoopbackRequest>(message).ok()?;
+    let request = crate::line_parses::parse::<LoopbackRequest>(message).ok()?;
     let forwarder = &mux.control_clients.loopback;
     let LoopbackRequest { id, command } = request;
     let allowed = mux.control_clients.is_unix(client)
@@ -886,6 +894,7 @@ fn connect_and_start(
     let mut failure = OpenError::Refused;
     let mut connected = None;
     for address in target.candidates(port) {
+        crate::request_path::note(crate::request_path::BlockingKind::Network);
         match TcpStream::connect_timeout(&address, CONNECT_TIMEOUT) {
             Ok(socket) => {
                 // Defense in depth: the peer must be a loopback address.

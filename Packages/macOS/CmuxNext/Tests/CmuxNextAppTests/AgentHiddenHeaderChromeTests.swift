@@ -3,6 +3,7 @@ import AppKit
 @testable import CmuxNextApp
 import CmuxNextDesign
 @testable import CmuxNextTabs
+import CmuxNextWakeups
 import Foundation
 import Testing
 
@@ -15,14 +16,10 @@ import Testing
     }
 
     @Test func hiddenAgentHeaderIsAChromeBand() throws {
-        let directory = FileManager.default.temporaryDirectory.appending(path: "hidden-header-(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: directory) }
-        let file = directory.appending(path: "index.html")
-        try Data("<html><body>Agent</body></html>".utf8).write(to: file)
-        let pane = PaneContentView(stripModel: TabStripModel(tabs: [TabItem(id: TabID("chat"), title: "Chat")]),
-                                   reveal: LaunchReveal(deadline: .zero))
-        let page = try #require(AgentPaneView(model: AgentPaneModel(host: NoHost()), source: .bundled(file)))
+        let file = try #require(AgentPageAppTestRoot.page)
+        let pane = PaneContentView.testing(stripModel: TabStripModel(tabs: [TabItem(id: TabID("chat"), title: "Chat")]),
+                                           reveal: LaunchReveal(deadline: .zero))
+        let page = try #require(AgentPaneView(model: AgentPaneModel(host: NoHost()), work: BackgroundWork(label: "test.agent-pane"), source: .bundled(file), webUI: .agentTabsTestHost(), gestures: .testing()))
         defer { page.close() }
         pane.hidesStrip = true
         pane.show(page)
