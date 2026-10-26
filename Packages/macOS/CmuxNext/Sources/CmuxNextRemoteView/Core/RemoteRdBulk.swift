@@ -8,6 +8,11 @@ public import Foundation
 /// past the host's credit (`bulk_credit` control messages). Send bulk only
 /// when welcome lists the `bulk` cap. No I/O, threads or timers inside; not
 /// thread-safe: one actor owns an instance, like `RemoteRdCore`.
+///
+/// Memory safety: `handle` is the core object `init` created and `deinit`
+/// frees once, so it is live in every method; one owner calls at a time,
+/// as the C ABI requires. Every call below relies on that.
+@safe
 public nonisolated final class RemoteRdBulkSender {
     /// Bytes of queued, unsent upload data one sender holds.
     public static let maxQueuedBytes = Int(CMUX_RD_BULK_MAX_QUEUED)
@@ -19,26 +24,32 @@ public nonisolated final class RemoteRdBulkSender {
     /// `intervalMicros`: the media frame interval (one chunk per interval).
     /// Nil for 0 or when the core cannot allocate.
     public init?(intervalMicros: UInt64) {
-        guard let handle = cmux_rd_bulk_sender_new(intervalMicros) else { return nil }
-        self.handle = handle
+        // SAFETY: the core returns a new sender or NULL; this instance owns it.
+        guard let handle = unsafe cmux_rd_bulk_sender_new(intervalMicros) else { return nil }
+        // SAFETY: stores the owned handle; deinit frees it.
+        unsafe self.handle = handle
     }
 
     deinit {
-        cmux_rd_bulk_sender_free(handle)
+        // SAFETY: frees the handle init created, exactly once; nothing uses it after.
+        unsafe cmux_rd_bulk_sender_free(handle)
     }
 
     /// Queues a transfer's bytes. Throws `.invalid` for a transfer id already
     /// queued, `.full` past `maxQueuedBytes`.
     public func queue(transfer: UInt64, data: Data) throws(RemoteRdCoreError) {
         let code = data.withUnsafeBytes { raw in
-            cmux_rd_bulk_sender_queue(handle, transfer, raw.baseAddress?.assumingMemoryBound(to: UInt8.self), raw.count)
+            // SAFETY: handle is live (see the type). The core copies raw.count bytes from
+            // raw's start, valid for this closure, and keeps no pointer.
+            unsafe cmux_rd_bulk_sender_queue(handle, transfer, raw.baseAddress?.assumingMemoryBound(to: UInt8.self), raw.count)
         }
         _ = try RemoteRdCoreError.check(code)
     }
 
     /// Applies the host's credit for a transfer (credit only grows).
     public func credit(transfer: UInt64, offset: UInt64) throws(RemoteRdCoreError) {
-        _ = try RemoteRdCoreError.check(cmux_rd_bulk_sender_on_credit(handle, transfer, offset))
+        // SAFETY: handle is live (see the type).
+        _ = try RemoteRdCoreError.check(unsafe cmux_rd_bulk_sender_on_credit(handle, transfer, offset))
     }
 
     /// Offers a control message payload (JSON). True when it was a
@@ -46,14 +57,17 @@ public nonisolated final class RemoteRdBulkSender {
     @discardableResult
     public func receive(control json: Data) throws(RemoteRdCoreError) -> Bool {
         let code = json.withUnsafeBytes { raw in
-            cmux_rd_bulk_sender_on_control(handle, raw.baseAddress?.assumingMemoryBound(to: UInt8.self), raw.count)
+            // SAFETY: handle is live (see the type). The core reads raw.count bytes from
+            // raw's start during the call only.
+            unsafe cmux_rd_bulk_sender_on_control(handle, raw.baseAddress?.assumingMemoryBound(to: UInt8.self), raw.count)
         }
         return try RemoteRdCoreError.check(code) == 1
     }
 
     /// Drops a queued transfer (the user cancelled it).
     public func cancel(transfer: UInt64) throws(RemoteRdCoreError) {
-        _ = try RemoteRdCoreError.check(cmux_rd_bulk_sender_cancel(handle, transfer))
+        // SAFETY: handle is live (see the type).
+        _ = try RemoteRdCoreError.check(unsafe cmux_rd_bulk_sender_cancel(handle, transfer))
     }
 
     /// The next chunk as a stream frame (type 3) ready for the carrier, or
@@ -63,7 +77,9 @@ public nonisolated final class RemoteRdBulkSender {
         var buffer = [UInt8](repeating: 0, count: Self.frameMax)
         var length = 0
         let code = buffer.withUnsafeMutableBufferPointer { out in
-            cmux_rd_bulk_sender_pop_frame(handle, nowMicros, mediaWaiting, out.baseAddress, out.count, &length)
+            // SAFETY: handle is live (see the type). The core writes at most out.count bytes
+            // to out and the length to the local `length`, both live for the call.
+            unsafe cmux_rd_bulk_sender_pop_frame(handle, nowMicros, mediaWaiting, out.baseAddress, out.count, &length)
         }
         guard try RemoteRdCoreError.check(code) == 1 else { return nil }
         return Data(buffer[0..<length])
@@ -72,17 +88,25 @@ public nonisolated final class RemoteRdBulkSender {
     /// When `popFrame` can give a chunk next (0 when one is pending); nil
     /// when idle or waiting for credit (arm no timer).
     public var nextDeadlineMicros: UInt64? {
-        let deadline = cmux_rd_bulk_sender_next_deadline_us(handle)
+        // SAFETY: handle is live (see the type).
+        let deadline = unsafe cmux_rd_bulk_sender_next_deadline_us(handle)
         return deadline == UInt64.max ? nil : deadline
     }
 
     /// Bytes of queued upload data not yet sent.
-    public var queuedBytes: UInt64 { cmux_rd_bulk_sender_queued_bytes(handle) }
+    public var queuedBytes: UInt64 {
+        // SAFETY: handle is live (see the type).
+        unsafe cmux_rd_bulk_sender_queued_bytes(handle)
+    }
 }
 
 /// The viewer's side of bulk downloads (rd change C5): each bulk payload is
 /// checked for order and credit, and the framed `bulk_credit` to send back
 /// comes out when one is due. Not thread-safe; one actor owns an instance.
+///
+/// Memory safety: as `RemoteRdBulkSender`, `handle` is live from `init` to
+/// `deinit` and one owner calls at a time.
+@safe
 public nonisolated final class RemoteRdBulkReceiver {
     /// One accepted chunk and the credit message to send back, if due.
     public struct Accepted: Sendable, Hashable {
@@ -101,12 +125,15 @@ public nonisolated final class RemoteRdBulkReceiver {
 
     /// Nil only when the core cannot allocate.
     public init?() {
-        guard let handle = cmux_rd_bulk_receiver_new() else { return nil }
-        self.handle = handle
+        // SAFETY: the core returns a new receiver or NULL; this instance owns it.
+        guard let handle = unsafe cmux_rd_bulk_receiver_new() else { return nil }
+        // SAFETY: stores the owned handle; deinit frees it.
+        unsafe self.handle = handle
     }
 
     deinit {
-        cmux_rd_bulk_receiver_free(handle)
+        // SAFETY: frees the handle init created, exactly once; nothing uses it after.
+        unsafe cmux_rd_bulk_receiver_free(handle)
     }
 
     /// Takes one bulk payload (a `.bulk` message of `RemoteRdCore`). Throws
@@ -120,13 +147,17 @@ public nonisolated final class RemoteRdBulkReceiver {
         var bytes = Data()
         let code = payload.withUnsafeBytes { raw in
             let code = credit.withUnsafeMutableBufferPointer { out in
-                cmux_rd_bulk_receiver_accept(
+                // SAFETY: handle is live (see the type). The core reads raw.count bytes from
+                // raw's start, writes at most out.count bytes to out, and fills the locals
+                // `chunk` and `creditLength`; every buffer outlives the call.
+                unsafe cmux_rd_bulk_receiver_accept(
                     handle, raw.baseAddress?.assumingMemoryBound(to: UInt8.self), raw.count,
                     &chunk, out.baseAddress, out.count, &creditLength
                 )
             }
-            // `chunk.bytes` points into `payload`: copy it while the buffer is live.
-            if code >= 0, let start = chunk.bytes { bytes = Data(bytes: start, count: chunk.len) }
+            // SAFETY: on success chunk.bytes points chunk.len bytes into `payload`
+            // (cmux_rd_ffi.h), whose view `raw` is still live here: copy them out now.
+            if code >= 0, let start = unsafe chunk.bytes { bytes = unsafe Data(bytes: start, count: chunk.len) }
             return code
         }
         _ = try RemoteRdCoreError.check(code)
@@ -138,6 +169,7 @@ public nonisolated final class RemoteRdBulkReceiver {
 
     /// Ends a transfer (complete or cancelled): later chunks are refused.
     public func finish(transfer: UInt64) throws(RemoteRdCoreError) {
-        _ = try RemoteRdCoreError.check(cmux_rd_bulk_receiver_finish(handle, transfer))
+        // SAFETY: handle is live (see the type).
+        _ = try RemoteRdCoreError.check(unsafe cmux_rd_bulk_receiver_finish(handle, transfer))
     }
 }
