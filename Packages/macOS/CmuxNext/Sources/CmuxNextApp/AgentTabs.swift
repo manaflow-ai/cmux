@@ -108,6 +108,8 @@ final class AgentTabStore {
     var launchDeferred: Set<String> = []
     /// The tabs' pages from the last quit, drawn at launch (`AgentPaneLaunchImages`).
     var launchImages = AgentPaneLaunchImages(directory: nil)
+    /// The app's blocking-work lanes (`AppServices.work`), for each pane view's file drags (`AgentPaneView.work`).
+    let work: any MayBlockRunner
     /// New chats' typed text from before they have a session, kept across a relaunch (cx-z5vd).
     var unsentDrafts = AgentUnsentDrafts(file: nil)
     /// "This chat runs on <machine>" for tabs whose session another Mac's acpmux runs.
@@ -123,10 +125,10 @@ final class AgentTabStore {
     /// Chats outside any pane (onboarding's first task), weakly held, so
     /// they get customization changes too.
     let standaloneViews = NSHashTable<AgentPaneView>.weakObjects()
-    /// Takes back a closed, untouched new tab page as the pool's spare
-    /// (NewTabSparePool.recycle); false when the pool already has one.
+    /// Takes back a closed, untouched new tab page for the preload slot
+    /// (NewTabPreload.recycle); false when a page waits already.
     var recycle: ((AgentPaneView) -> Bool)?
-    /// The prewarmed New Tab page, for a first page that has no view yet (NewTabSparePool).
+    /// The preloaded New Tab page, for a first page that has no view yet (NewTabPreload).
     var takeSpare: (() -> AgentPaneView?)?
     /// Closed pages leave the view tree at once; their teardown waits (R81).
     let retirer = AgentPageRetirer()
@@ -226,7 +228,7 @@ final class AgentTabStore {
     /// `settings`, when given, is followed for the page settings (``AgentPanePageSettings``); else from `AppServices.settings`.
     /// `input` is the app's input tap (`AppServices.inputTap`; a test's own); `mainWork`, the app's scheduler (`AppServices.mainWork`).
     /// `chatStores`, the chats' kept places and chips (``wired(to:)`` puts them beside the launch snapshot; tests keep none).
-    init(build: BuildIdentity?, registry: ActionRegistry, webUI: WebUIHost, input: InputEventTap, environment: [String: String] = ProcessInfo.processInfo.environment,
+    init(build: BuildIdentity?, registry: ActionRegistry, work: any MayBlockRunner, webUI: WebUIHost, input: InputEventTap, environment: [String: String] = ProcessInfo.processInfo.environment,
          showcase: Bool = false, linkScheme: String? = nil, settings: SettingsController? = nil,
          openPanel: MadeAheadOpenPanel? = nil, warmup: AgentPageWarmup? = nil, defaults: UserDefaults = .standard,
          mainWork: MainWorkScheduler = MainWorkScheduler(budget: MainFrameBudget()), chatStores: AgentPaneChatStores = .keepsNothing) {
@@ -239,6 +241,7 @@ final class AgentTabStore {
         }
         (self.openPanel, self.warmup, self.chatStores) = (openPanel, warmup, chatStores)
         self.webUI = webUI
+        self.work = work
         actionRegistry = registry
         self.linkScheme = linkScheme
         let (resolvedSource, resolvedHost) = AgentTabPaneSource.resolvePane(build: build, environment: environment, showcase: showcase)
@@ -410,7 +413,7 @@ final class AgentTabStore {
         return view
     }
 
-    /// A prewarmed new tab page (NewTabSparePool): loaded, rendered and
+    /// A preloaded new tab page (NewTabPreload): loaded, rendered and
     /// connected before any tab exists; ``open(in:of:session:seed:newTab:spare:linked:adopt:idempotencyKey:)`` adopts it.
     func makeSpare(_ page: AgentPaneNewTab) -> AgentPaneView? {
         guard let view = makeView(AgentPaneModel(host: host, newTab: page), shown: false) else { return nil }
@@ -517,7 +520,7 @@ final class AgentTabStore {
         if shown { pageShown() }
         AgentPaneNewTabFrame.shared.pageMade(model)
         model.linkScheme = linkScheme
-        guard let source, let view = AgentPaneView(model: model, source: source, renderRate: renderRate, webUI: webUI, openPanel: openPanel, warmup: warmup, gestures: gestureRouter,
+        guard let source, let view = AgentPaneView(model: model, work: work, source: source, renderRate: renderRate, webUI: webUI, openPanel: openPanel, warmup: warmup, gestures: gestureRouter,
                                                     chatStores: chatStores) else { return nil }
         DebugTimings.markLaunch("agent_pane.view_created")
         view.customization = customization.current

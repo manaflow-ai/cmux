@@ -534,6 +534,13 @@ CMUX_SHIM_EXPORT void cmux_shim_do_work(void);
 // cmux_set_on_schedule_delayed (p14-energy-046), 0 otherwise: delayed work
 // then stays on schedule. NULL goes back to schedule.
 CMUX_SHIM_EXPORT int cmux_shim_set_schedule_delayed(cmux_shim_schedule_delayed_fn schedule_delayed);
+// Energy Saver on (enabled 1) or off in Chromium (fork cmux_cef_set_energy_saver,
+// p14-energy-029): frame sinks at 30 Hz, except pages of exempt_scheme
+// (NULL = none) and sinks with input in the last second; wake-ups aligned to
+// 32 ms; battery saver mode in every child process. Main thread, after
+// cmux_shim_initialize. Returns 1 when the fork took it, 0 when the fork
+// lacks the call (nothing changes).
+CMUX_SHIM_EXPORT int cmux_shim_set_energy_saver(int enabled, const char* exempt_scheme);
 
 // Creates a Chrome-style browser whose Chromium window tracks parent_view
 // (NSView*). profile_cache_path selects a request context (NULL = global).
@@ -1049,6 +1056,36 @@ CMUX_SHIM_EXPORT int cmux_shim_page_scheme_add_first_party_dynamic(const char* i
 // Returns 1 when the request was waiting, 0 when it ended or was answered.
 CMUX_SHIM_EXPORT int cmux_shim_page_resource_respond(int token, int status, const char* mime, const void* body,
                                                      size_t length);
+
+// Chromium tracing through stock CEF (include/cef_trace.h, CEFShim/src/shim_tracing.mm; task
+// p09-observability-050). These are not cmux_shim_* exports, so the Chromium Host wire does not
+// generate them: the host calls them for its TRACE_START and TRACE_STOP frames. Call begin and end
+// on any thread after cmux_shim_initialize: each posts its work to the browser UI thread and
+// returns 1, then its callback runs exactly once. It runs on the UI thread, also with a failure
+// value that Chromium gives on another thread (the shim posts it back), except while CEF shuts
+// down: then the failure value can come on any thread. A return of 0 means nothing was posted (CEF
+// is not running, or a bad argument) and the callback never runs.
+typedef void (*cmux_cef_trace_started_fn)(void* ctx, int ok);
+typedef void (*cmux_cef_trace_written_fn)(void* ctx, const char* path);
+// Starts recording in every Chromium process. categories is Chromium's category filter
+// ("toplevel,cc,viz,gpu,input,benchmark,disabled-by-default-..."); NULL or "" uses CEF's default.
+// CEF's API has no buffer size, so Chromium's record-until-full default applies.
+// started: ok = 1 when every process records, 0 when CEF refused (a recording already runs).
+CMUX_SHIM_EXPORT int cmux_cef_begin_tracing(const char* categories, cmux_cef_trace_started_fn started, void* ctx);
+// Stops recording and writes the trace to path, an absolute path that ends in ".json" (0 for any
+// other path). The file is Chromium's legacy JSON trace format: CEF's public API has only the JSON
+// file endpoint (TracingController::CreateFileEndpoint), no Perfetto protobuf output.
+// written: path when Chromium finished the recording, NULL when no recording ran or Chromium could
+// not move its temporary file into place. The path does not prove the file: Chromium reports it also
+// when it could not create the file (no directory, no write access) and ignores write errors (a full
+// disk gives a cut file), so stat and parse it off the main thread before reporting success. After
+// NULL, CEF can refuse every later begin until the app relaunches (its collecting_trace_data_ stays
+// set). The string is valid only during the call.
+CMUX_SHIM_EXPORT int cmux_cef_end_tracing(const char* path, cmux_cef_trace_written_fn written, void* ctx);
+// Chromium's trace clock now, in microseconds (CefNowFromSystemTraceTime: base::TimeTicks, which
+// is mach_absolute_time on macOS, the CLOCK_UPTIME_RAW clock). Any thread, after cmux_shim_load.
+// The trace's "ts" values use this clock; sample it next to the caller's clock for the offset.
+CMUX_SHIM_EXPORT int64_t cmux_cef_now_trace_us(void);
 
 #ifdef __cplusplus
 }

@@ -61,22 +61,29 @@ extension PageWebView {
         scriptTarget.evaluate(script)
     }
 
-    /// Tells a Chromium page whether it shows (a hidden one stops drawing), and the census.
+    /// Tells a Chromium page whether it shows (a hidden one stops drawing), and the census. A frozen
+    /// page thaws before it shows, whichever path showed it (``thawPage()``); a page whose renderer died
+    /// while hidden reloads as it shows (``PageCrashRecovery/engineVisibilityChanged(_:page:)``).
     func setEngineVisible(_ visible: Bool) {
+        if visible { thawPage() }
         chromiumSession?.page.setVisible(visible)
+        crash.engineVisibilityChanged(visible, page: self)
         #if DEBUG || CMUX_BENCH_HOOKS
         noteCensusVisibility(visible)
         #endif
     }
 
-    /// Loads `url` (a document of this page) in whichever engine shows it.
+    /// Loads `url` (a document of this page) in whichever engine shows it; a page waiting to show after a
+    /// crash loads it as it shows (``PageCrashRecovery/mayLoad(_:)``).
     func loadDocument(_ url: URL) {
+        guard crash.mayLoad(url) else { return }
         traceOpenLoadStarted(.load)
         if let chromiumSession { chromiumSession.page.load(url) } else { webView.load(URLRequest(url: url)) }
     }
 
-    /// Reloads the document in whichever engine shows it.
+    /// Reloads the document in whichever engine shows it (after its show, for a page waiting after a crash).
     func reloadPage() {
+        guard crash.mayLoad(nil) else { return }
         traceOpenLoadStarted(.reload)
         if let chromiumSession { chromiumSession.page.reload() } else { webView.reload() }
     }
@@ -158,7 +165,7 @@ extension PageWebView {
         page.load(descriptor.url(route: route))
         let wait = chromiumDeadline
         // The page's first message cancels the deadline (onFirstMessage); ending the session too.
-        session.deadline.schedule(after: wait) { @MainActor [weak self, weak session] in
+        session.deadline.scheduleOnMain(after: wait) { [weak self, weak session] in
             guard let self, let session, self.chromiumSession === session else { return }
             self.fallBackToWebKit(.chromiumFailed, detail: "no message from the page within \(wait)")
         }
@@ -182,6 +189,7 @@ extension PageWebView {
         loaded = false
         traceOpenLoadStarted(.reload)
         webView.load(URLRequest(url: descriptor.url(route: route)))
+        carryFreezeToWebKit()
     }
 
     /// Ends Chromium mode for good (the page closed).
@@ -191,6 +199,7 @@ extension PageWebView {
         chromiumSession?.end()
         chromiumSession = nil
         inputReadiness.editor = nil
+        if case .chromium? = frozenEngine { frozenEngine = nil }
     }
 
     // MARK: Events

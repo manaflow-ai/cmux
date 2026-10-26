@@ -50,7 +50,8 @@ final class AppsService {
         transport = DaemonAppsTransport(daemon: services.daemon, inventoryRoutes: { [weak machines = services.machines] in
             machines?.agentInventoryWatchRoutes() ?? []
         })
-        client = AppsClient(transport: transport)
+        client = AppsClient(transport: transport, bundleImages: AppBundleImageCache())
+        AppMemoryConsumers(services: services).registerAppBundleImages(client.bundleImages)
     }
 
     /// Turning apps off (DisabledFeatures) makes the supervisor unreachable

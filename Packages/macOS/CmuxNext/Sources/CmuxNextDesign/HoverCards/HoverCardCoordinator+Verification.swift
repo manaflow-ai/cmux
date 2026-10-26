@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextCompat
 
 // The live checks of `HoverCardCoordinator` (`debug.desync`).
 extension HoverCardCoordinator {
@@ -7,7 +8,8 @@ extension HoverCardCoordinator {
     /// shows what the machine says.
     public func singleCardViolations() -> [String] {
         var bad: [String] = []
-        if HoverCardPanel.liveInstances > 1 { bad.append("\(HoverCardPanel.liveInstances) hover card windows exist") }
+        let windows = HoverCardPanel.liveInstances.load(ordering: .relaxed)
+        if windows > 1 { bad.append("\(windows) hover card windows exist") }
         let showing = panel?.isShowingCard == true
         if showing, machine.shownTarget == nil, owned == nil { bad.append("a card shows while the machine has none") }
         if owned != nil, machine.shownTarget != nil { bad.append("an owner's card and \(machine.shownTarget?.id.rawValue ?? "-") share the window") }
