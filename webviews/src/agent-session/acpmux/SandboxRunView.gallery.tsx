@@ -51,7 +51,6 @@ export default componentEntry<ComponentProps<typeof SandboxRunView>>({
           receipt: {
             status: "failed",
             timedOut: true,
-            error: "sandbox run timed out after 600 s",
             timings: { totalMs: 612_000, bootMs: null },
             cost: { vmSeconds: null, estimateUsd: null },
             cleanup: "pending",

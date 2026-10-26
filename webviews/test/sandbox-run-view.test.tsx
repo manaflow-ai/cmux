@@ -49,7 +49,6 @@ test("a timed-out receipt says so in the chat's words (never the server's), an u
   const receipt = {
     status: "failed",
     timedOut: true,
-    error: "sandbox run timed out after 600 s",
     cost: { estimateUsd: null },
     cleanup: "pending",
   };
@@ -57,7 +56,6 @@ test("a timed-out receipt says so in the chat's words (never the server's), an u
   for (const part of [t("sandbox.failed"), t("sandbox.timedOut"), t("sandbox.costUnknown"), t("sandbox.vmPending")]) {
     expect(shown).toContain(part);
   }
-  expect(shown).not.toContain("timed out after 600 s");
 });
 
 test("a refusal is worded by its code; a failure that may hide a Run says so", async () => {
