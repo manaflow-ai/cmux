@@ -27,12 +27,14 @@ extension ControlRouter {
                 let threadHangs = watchdog.threadHangs.records(after: call.params["thread_hangs_after"]?.intValue.map { UInt64(clamping: $0) } ?? 0)
                     .suffix(max(0, limit))
                 let threadHangCount = watchdog.threadHangs.summary.count
+                let turnHistogram = watchdog.turnHistogramJSON
                 if call.params["clear"]?.boolValue == true {
                     watchdog.log.clear()
                     watchdog.overBudget.clear()
                     watchdog.threadHangs.clear()
                     watchdog.resetLongFrames()
                     watchdog.resetStallCounts()
+                    watchdog.resetTurnHistograms()
                 }
                 return [
                     "installed": .bool(watchdog.isRunning),
@@ -50,6 +52,8 @@ extension ControlRouter {
                     "count250": JSONValue(stalls.count250),
                     // Cumulative main run-loop wakes (idle benches diff two reads; never cleared).
                     "main_wakes": JSONValue(Int(clamping: watchdog.mainRunLoopWakes)),
+                    // Main-turn and input-queueing histograms at Chrome's resolution (MainTurnHistogram), since launch or `clear`.
+                    "turn_histogram": turnHistogram,
                     "records": .array(records.map(\.json)),
                     "over_budget_count": JSONValue(overBudgetCount),
                     "over_budget": .array(overBudget.map(\.json)),
