@@ -175,7 +175,8 @@ import Testing
         let deadlines = MainDeadlineRig()
         let service = IntentPrewarmService<String>(
             warmer: rig.hibernation, memoryPressure: MemoryPressureEvents(source: ManualMemoryPressureSource()),
-            dwellTimer: MainDeadline(owner: "IntentPrewarm.hoverDwell", workClass: .background, scheduler: deadlines.deadlines))
+            dwellTimer: MainDeadline(owner: "IntentPrewarm.hoverDwell", workClass: .background, scheduler: deadlines.deadlines),
+            pressStart: MainDeadline(owner: "IntentPrewarm.pressStart", workClass: .background, scheduler: deadlines.deadlines))
         rig.hibernation.intentPrewarm = (service, rig.services.energyMonitor.follow { _ in })
 
         rig.hibernation.noteHover(keys[2])
