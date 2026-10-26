@@ -99,6 +99,10 @@ fn home(name: &str) -> PathBuf {
             // A profile that pins nothing whose harness's own settings start it in full access.
             "self-full": {"argv": ["python3", FAKE_AGENT], "env": {"FAKE_FULL_ACCESS": "1",
                           "FAKE_NEW_MODE": "full-access"}},
+            // A harness that declares no modes and reports bypassPermissions while its session
+            // starts (a `current_mode_update` before it answers `session/new`).
+            "self-reporter": {"argv": ["python3", FAKE_AGENT], "env": {"FAKE_NO_MODES": "1",
+                              "FAKE_STARTUP_MODE": "bypassPermissions"}},
             // A harness with a full-access mode whose mode changes take 1.5 s to answer.
             "slow-switcher": {"argv": ["python3", FAKE_AGENT], "env": {"FAKE_PLAN_MODE": "1",
                               "FAKE_FULL_ACCESS": "1", "FAKE_SET_MODE_DELAY_MS": "1500"}},
@@ -488,6 +492,26 @@ const PROBES: &[Case] = &[
                 assert!(
                     entry["probeError"].as_str().is_some_and(|e| e.contains("full access")),
                     "a probe of self-full, in full access under the off, was kept: {entry}"
+                );
+            })
+        },
+    ),
+    (
+        "review 41: a probe whose harness reports full access while it starts keeps nothing",
+        |name| {
+            Box::pin(async move {
+                let (_dir, _daemon, mut app) = daemon(name, true).await;
+                app.push(off()).await;
+                let listed = app.call("_acpmux/models", json!({"refresh": true})).await;
+                let entry = listed["result"]["harnesses"]
+                    .as_array()
+                    .and_then(|all| all.iter().find(|h| h["harness"] == "self-reporter"))
+                    .cloned()
+                    .unwrap_or_default();
+                assert!(
+                    entry["probeError"].as_str().is_some_and(|e| e.contains("full access")),
+                    "a probe of self-reporter, which reported bypassPermissions under the off, \
+                     was kept: {entry}"
                 );
             })
         },
