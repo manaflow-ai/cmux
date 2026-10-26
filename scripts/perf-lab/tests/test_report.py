@@ -77,12 +77,12 @@ class Fixture:
         self.db.close()
 
     def run(self, *, pos: int, at: datetime, samples, kind: str = "waterfall", metric: str = "terminal.key_to_frame",
-            target_ref: str | None = KEY_FRAME_REF, sha: str | None = None) -> None:
+            target_ref: str | None = KEY_FRAME_REF, sha: str | None = None, host: store.Host = HOST) -> None:
         self.count += 1
         run = store.Run(run_uuid=f"run-{self.count}", kind=kind, measure_version="m1", story=STORY, engine="none",
                         macos_major=26, macos_build="26.1", features_hash="f0", safe_mode="off", started_at=at,
                         tier="T0", session="light")
-        self.db.insert_run(run, build=store.Build(sha=sha or f"{pos:040x}", config="bench", commit_pos=pos), host=HOST,
+        self.db.insert_run(run, build=store.Build(sha=sha or f"{pos:040x}", config="bench", commit_pos=pos), host=host,
                            metrics=[store.Metric(name=metric, unit="ms", better="lower", samples=samples,
                                                  target_ref=target_ref)])
 
@@ -161,7 +161,7 @@ def build_fixture(directory: Path) -> Fixture:
 
 
 EXPECTED = """\
-### Weekly perf report, 2026-10-19 12:00 to 2026-10-26 12:00 UTC
+### Weekly perf report 2026-W44, 2026-10-19 12:00 to 2026-10-26 12:00 UTC
 
 #### Targets
 
@@ -242,11 +242,11 @@ class WeeklyReportTests(unittest.TestCase):
         self.fixture.close()
         self._tmp.cleanup()
 
-    def report(self, **overrides) -> str:
+    def report(self, *, now: datetime = NOW, **overrides) -> str:
         values = dict(db=str(self.fixture.path), root=self.directory, json=False, append=None, week=True)
         values.update(overrides)
         out = io.StringIO()
-        code = report.weekly_report(argparse.Namespace(**values), clock=lambda: NOW,
+        code = report.weekly_report(argparse.Namespace(**values), clock=lambda: now,
                                     targets_loader=lambda root: (TARGETS, ()), detector=NoChangePoints(),
                                     configs=monitor_all, out=out)
         self.assertEqual(code, 0)
@@ -262,7 +262,7 @@ class WeeklyReportTests(unittest.TestCase):
     def test_json_carries_the_same_numbers(self) -> None:
         found = json.loads(self.report(json=True))
         self.assertEqual(found["window"], {"start": "2026-10-19T12:00:00.000000+00:00",
-                                           "end": "2026-10-26T12:00:00.000000+00:00"})
+                                           "end": "2026-10-26T12:00:00.000000+00:00", "week": "2026-W44"})
         self.assertEqual([(t["row"], t["start"], t["end"], t["end_status"]) for t in found["targets"]],
                          [("key-frame.light", 9.0, 5.5, "pass"), ("key-frame.light", 11.91, 6.97, "pass"),
                           ("launch.cold", None, None, "no-data")])
@@ -292,9 +292,58 @@ class WeeklyReportTests(unittest.TestCase):
         self.assertTrue(rest.endswith("| 3 | 12.9 % | 7.4 % |\n\n## 6. Next\n"))
         self.assertEqual("### Weekly perf report" + rest.split("\n## 6. Next")[0].rstrip("\n") + "\n",
                          EXPECTED)
-        with self.assertRaisesRegex(report.ReportError, "already has"):
+        with self.assertRaisesRegex(report.ReportError, "already has the report of 2026-W44"):
             self.report(append=lead)
         self.assertEqual(lead.read_text(encoding="utf-8"), text)
+
+    def test_append_refuses_a_second_report_later_in_the_same_week(self) -> None:
+        lead = self.directory / "perf-lead.md"
+        lead.write_text(PERF_LEAD, encoding="utf-8")
+        self.report(append=lead)
+        text = lead.read_text(encoding="utf-8")
+        for later in (NOW + timedelta(minutes=7), NOW + timedelta(days=4, hours=3)):
+            with self.subTest(later=later), self.assertRaisesRegex(report.ReportError, "already has the report of"):
+                self.report(append=lead, now=later)
+        self.assertEqual(lead.read_text(encoding="utf-8"), text)
+        # The next ISO week gets its own report.
+        self.assertIn("added", self.report(append=lead, now=NOW + timedelta(days=7)))
+        self.assertEqual(lead.read_text(encoding="utf-8").count("### Weekly perf report "), 2)
+
+    def test_host_classes_that_rotate_in_the_week_keep_their_values(self) -> None:
+        # Host a reports until mid-week, host b before the week and again late in it, host c starts in the week.
+        # Each is hidden at a bound where a current sibling feeds the check, yet keeps its own value there.
+        directory = self.directory / "rotate"
+        directory.mkdir()
+        fixture = Fixture(directory)
+        self.addCleanup(fixture.close)
+        hosts = {name: store.Host(name=f"cmux-{name}", chip="Apple M4 Pro", memory_gb=memory, display_hz=120,
+                                  fingerprint=f"fp-{name}") for name, memory in (("a", 24), ("b", 48), ("c", 64))}
+        fixture.run(pos=100, at=NOW - timedelta(days=11), samples=[7.0], host=hosts["b"])
+        fixture.run(pos=110, at=NOW - timedelta(days=8), samples=[6.0], host=hosts["a"])
+        fixture.run(pos=120, at=NOW - timedelta(days=5), samples=[9.0], host=hosts["a"])
+        fixture.run(pos=130, at=NOW - timedelta(days=2), samples=[5.0], host=hosts["b"])
+        fixture.run(pos=140, at=NOW - timedelta(days=1), samples=[4.0], host=hosts["c"])
+        found = json.loads(self.report(json=True, db=str(fixture.path)))
+        rows = {t["series_name"].split(" on ")[1]: (t["start"], t["start_status"], t["end"], t["end_status"])
+                for t in found["targets"] if t["check"].endswith("p50 <= 8.30 ms")}
+        self.assertEqual(rows, {
+            hosts["a"].host_class: (6.0, "pass", 9.0, "stale"),
+            hosts["b"].host_class: (7.0, "stale", 5.0, "pass"),
+            hosts["c"].host_class: (None, "no-data", 4.0, "pass"),
+        })
+        markdown = self.report(db=str(fixture.path))
+        self.assertIn("Checks at the end of the week: 7 (pass 4, stale 2, no-data 1).", markdown)
+        self.assertIn("| 6 ms (pass) | 9 ms (stale) |", markdown)
+        self.assertIn("| 7 ms (stale) | 5 ms (pass) |", markdown)
+
+    def test_a_week_with_no_waterfall_host_says_so(self) -> None:
+        directory = self.directory / "empty"
+        directory.mkdir()
+        fixture = Fixture(directory)
+        self.addCleanup(fixture.close)
+        markdown = self.report(db=str(fixture.path))
+        self.assertIn("| >= 3 A/A runs per waterfall host | MISSED | no waterfall host in the week |", markdown)
+        self.assertNotIn("every host", markdown)
 
     def test_append_needs_a_results_section(self) -> None:
         lead = self.directory / "other.md"

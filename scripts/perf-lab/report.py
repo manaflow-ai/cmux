@@ -8,7 +8,8 @@ Sections, all over the 7 days that end at the report's clock:
 - Targets: one table row per (target row, check, claiming series), the check's statistic at the start of the week
   and at its end. A series feeds a row exactly as on the dashboard's target tiles (dashboard.build_tiles), and the
   value at a bound is the newest waterfall point that started at or before it. A row whose series is older than
-  dashboard.TILE_STALE_AFTER at a bound is stale there, never a pass or a miss.
+  dashboard.TILE_STALE_AFTER at a bound is stale there, never a pass or a miss; that holds for a series the tiles
+  hide at one bound because a current sibling feeds the check (host classes that rotate in the week).
 - Alert groups: every group opened or moved in the week or still open at its end, its state at the end of the
   week from the sheriff history, and the outcome counts.
 - Sheriff SLO: sheriff.Sheriff.slo over groups opened in the week.
@@ -16,7 +17,8 @@ Sections, all over the 7 days that end at the report's clock:
 
 Catapult's Speed Releasing page is the model for the targets table (`dashboard/dashboard/speed_releasing.py`:
 one row per test, its value at two revision ranges side by side). The report reads the store only; `--append`
-writes the report into section 5 (Results log) of perf-lead.md, before the next `## ` heading.
+writes the report into section 5 (Results log) of perf-lead.md, before the next `## ` heading, and refuses a
+second report of the same ISO week (the week of the window's end) there.
 
 Stdlib only; siblings load by file path, so it runs under `python3 -I`.
 """
@@ -79,8 +81,19 @@ class Window:
     end: datetime
 
     @property
+    def week(self) -> str:
+        """The ISO week of the window's end, for example 2026-W44: one weekly report per week in the log."""
+        year, week, _ = self.end.isocalendar()
+        return f"{year}-W{week:02d}"
+
+    @property
     def title(self) -> str:
-        return f"Weekly perf report, {self.start:%Y-%m-%d %H:%M} to {self.end:%Y-%m-%d %H:%M} UTC"
+        return f"{week_heading(self.week)} {self.start:%Y-%m-%d %H:%M} to {self.end:%Y-%m-%d %H:%M} UTC"
+
+
+def week_heading(week: str) -> str:
+    """The start of a weekly report's heading, the same for every report of that ISO week."""
+    return f"Weekly perf report {week},"
 
 
 @dataclass(frozen=True)
@@ -129,7 +142,8 @@ class WeeklyReport:
 
     def to_json(self) -> dict:
         found = asdict(self)
-        found["window"] = {"start": _stamp(self.window.start), "end": _stamp(self.window.end)}
+        found["window"] = {"start": _stamp(self.window.start), "end": _stamp(self.window.end),
+                           "week": self.window.week}
         return found
 
 
@@ -232,31 +246,46 @@ def target_lines(targets: Sequence, series: Sequence, reader: WeekReader, window
     keys = sorted({info.key for target in targets for row in target.rows for info in series
                    if dashboard.judged_checks(row, info)})
 
-    def tiles_at(bound: datetime) -> list:
+    def tiles_at(bound: datetime) -> tuple[list, dict[str, PointAt]]:
         points = reader.points_at(keys, bound)
         return dashboard.build_tiles(targets, series, {key: p.view for key, p in points.items()},
                                      lambda key, stat: points[key].stat(stat), set(),
-                                     fresh_since=bound - dashboard.TILE_STALE_AFTER)
+                                     fresh_since=bound - dashboard.TILE_STALE_AFTER), points
 
     def key(tile_row) -> tuple:
         return tile_row.row.id, tile_row.check, tile_row.series.key if tile_row.series else None
 
+    def hidden(shown_row, points: dict[str, PointAt], bound: datetime) -> tuple[float | None, str]:
+        """The value and status at a bound whose tiles hide this row's series (a current sibling feeds the
+        check): the series' own point at that bound, judged by the same staleness rule."""
+        point = points.get(shown_row.series.key) if shown_row.series else None
+        value = point.stat(shown_row.check.stat) if point else None
+        if value is None:
+            return None, "no-data"
+        if dashboard.parse_stamp(point.view.started_at) < bound - dashboard.TILE_STALE_AFTER:
+            return value, "stale"
+        check = shown_row.check
+        return value, "pass" if dashboard.catalog.OPS[check.op](value, check.value) else "miss"
+
+    (start_tiles, start_points), (end_tiles, end_points) = tiles_at(window.start), tiles_at(window.end)
     lines = []
-    for start_tile, end_tile in zip(tiles_at(window.start), tiles_at(window.end)):
+    for start_tile, end_tile in zip(start_tiles, end_tiles):
         at_start = {key(row): row for row in start_tile.rows}
         shown = [(at_start.pop(key(row), None), row) for row in end_tile.rows]
         shown += [(row, None) for row in at_start.values() if row.series is not None]
         for first, last in shown:
             either = last or first
             check = either.check
+            start, start_status = ((first.value, first.status) if first
+                                   else hidden(last, start_points, window.start))
+            end, end_status = (last.value, last.status) if last else hidden(first, end_points, window.end)
             lines.append(TargetLine(
                 target=end_tile.target.id, row=either.row.id,
                 check=f"`{check.metric}` {check.stat} {check.op} {dashboard.fmt_value(check.value, check.unit)}",
                 series=either.series.key if either.series else None,
                 series_name=_series_name(either.series.story, either.series.metric, either.series.host_class)
                 if either.series else None,
-                start=first.value if first else None, end=last.value if last else None, unit=check.unit,
-                start_status=first.status if first else "no-data", end_status=last.status if last else "no-data"))
+                start=start, end=end, unit=check.unit, start_status=start_status, end_status=end_status))
     return lines
 
 
@@ -379,7 +408,8 @@ def render_markdown(report: WeeklyReport) -> str:
         (f"p99 CV <= {_share_text(aa.DONE_P99_CV)} on >= {_share_text(aa.DONE_P99_SHARE)} of latency series",
          _ok(checks["p99_cv"]), f"{_share_text(noise['p99_cv_share_within'])} of {noise['latency_series_judged']}"),
         (f">= {aa.DONE_MIN_AA_RUNS_PER_HOST} A/A runs per waterfall host", _ok(checks["aa_runs_per_host"]),
-         ", ".join(noise["hosts_under_min_aa_runs"]) or "every host"),
+         (", ".join(noise["hosts_under_min_aa_runs"]) or "every host") if noise["waterfall_hosts"]
+         else "no waterfall host in the week"),
     ])
     out.append("")
     if report.noisy:
@@ -393,20 +423,22 @@ def render_markdown(report: WeeklyReport) -> str:
     return "\n".join(out).rstrip("\n") + "\n"
 
 
-def append_to_results(path: Path, markdown: str) -> None:
-    """Writes the report as the last subsection of section 5 (Results log); refuses a second copy of its heading."""
+def append_to_results(path: Path, markdown: str, week: str) -> None:
+    """Writes the report as the last subsection of section 5 (Results log); refuses it when section 5 already has
+    a report of the same ISO week."""
     try:
         lines = path.read_text(encoding="utf-8").splitlines()
     except FileNotFoundError:
         raise ReportError(f"{path}: no such file") from None
-    heading = markdown.splitlines()[0]
-    if heading in lines:
-        raise ReportError(f"{path} already has {heading!r}")
     section = next((index for index, line in enumerate(lines) if RESULTS_SECTION.match(line)), None)
     if section is None:
         raise ReportError(f"{path}: no '## 5.' Results log section")
     heading_at = next((index for index in range(section + 1, len(lines)) if TOP_HEADING.match(lines[index])),
                       len(lines))
+    same_week = f"### {week_heading(week)}"
+    already = next((line for line in lines[section + 1:heading_at] if line.startswith(same_week)), None)
+    if already is not None:
+        raise ReportError(f"{path} already has the report of {week}: {already!r}")
     end = heading_at
     while end > section + 1 and not lines[end - 1].strip():
         end -= 1
@@ -471,7 +503,7 @@ def weekly_report(args: argparse.Namespace, *, clock: Callable[[], datetime] = s
         return 0
     markdown = render_markdown(report)
     if args.append is not None:
-        append_to_results(args.append, markdown)
+        append_to_results(args.append, markdown, report.window.week)
         print(f"added {report.window.title!r} to {args.append}", file=out)
         return 0
     out.write(markdown)
