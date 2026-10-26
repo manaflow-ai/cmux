@@ -86,17 +86,18 @@ fi
 [ ! -f "$REPO/.web-bundles.key" ] || { echo "FAIL: a refused --from must not stamp the bundles current"; exit 1; }
 
 # A copy that fails after the checkout's build output was cleared must still leave the
-# committed notes in place, so the fallback build ships them.
-cp -R "$WORK/out" "$WORK/unreadable"
-mkdir -p "$WORK/unreadable/$PAGES/sub"
-printf 'x\n' > "$WORK/unreadable/$PAGES/sub/locked.js"
-chmod 000 "$WORK/unreadable/$PAGES/sub/locked.js"
+# committed notes in place, so the fallback build ships them. The failure is a directory in
+# the prebuilt tree where the checkout tracks a file: cp cannot replace a file with a
+# directory, for root too (unlike an unreadable file).
+cp -R "$WORK/out" "$WORK/conflict"
+mkdir -p "$WORK/conflict/$PAGES/conflict"
+printf 'x\n' > "$WORK/conflict/$PAGES/conflict/inner.js"
+printf 'tracked file\n' > "$REPO/$PAGES/conflict"
+git -C "$REPO" add -f "$PAGES/conflict"
 rm -f "$REPO/.web-bundles.key"
-if "$SCRIPT" --from "$WORK/unreadable" > "$WORK/log" 2>&1; then
-  chmod 644 "$WORK/unreadable/$PAGES/sub/locked.js"
-  if [ "$(id -u)" != 0 ]; then echo "FAIL: --from must fail when a file cannot be copied"; exit 1; fi
+if "$SCRIPT" --from "$WORK/conflict" > "$WORK/log" 2>&1; then
+  echo "FAIL: --from must fail when the prebuilt tree cannot be copied"; exit 1
 fi
-chmod 644 "$WORK/unreadable/$PAGES/sub/locked.js"
 for path in "$PANE" "$PAGES" "$ACTIVITY"; do
   grep -qx "generated: $path" "$REPO/$path/GENERATED.md" || { echo "FAIL: a failed copy must keep the committed $path/GENERATED.md"; exit 1; }
 done
