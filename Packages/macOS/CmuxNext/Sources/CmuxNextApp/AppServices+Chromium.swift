@@ -5,6 +5,7 @@ import CmuxNextCompat
 import CmuxNextCrashReporting
 import CmuxNextFeatures
 import CmuxNextSettings
+import CmuxNextWakeups
 import Observation
 
 // When Chromium is likely (ChromiumWarmup): Chromium tabs and the palette's Chromium
@@ -28,11 +29,13 @@ extension AppServices {
         if pagesSpare {
             // Pages follow the default engine: switched away from Chromium, the untaken pages spare
             // closes; switched back, the next idle moment builds it again. The current value is
-            // the one `start` already reads; only changes act.
-            let (_, engineChanges) = ObservationStream.current({ preference.defaultEngine == .chromium })
-            chromiumLikelyObservations.append(Task { [weak self] in
-                for await _ in engineChanges { self?.chromiumWarmup.pagesSpareChanged() }
-            })
+            // the one `start` already reads; only changes act (the first apply is that value).
+            var started = false
+            pagesSpareWatch = ServiceObservation(.background, owner: "ChromiumWarmup.pagesSpare", on: mainWork) {
+                preference.defaultEngine == .chromium
+            } apply: { [weak self] _ in
+                if started { self?.chromiumWarmup.pagesSpareChanged() } else { started = true }
+            }
         }
         chromiumLikelyObservations.append(Task { [weak self] in
             // A Chromium tab in any window, restored or created elsewhere. While Chromium is the

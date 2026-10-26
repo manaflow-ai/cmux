@@ -2,7 +2,7 @@
 // The Chromium host app ships in Debug and bench builds only (embed-cef.sh), and so does its Swift side.
 public import AppKit
 public import CmuxNextDesign
-import Observation
+public import CmuxNextWakeups
 
 /// The Chromium host app prototype as `debug.chromium_host` drives it
 /// (Debug and bench builds, `browserHost.helper` on): one
@@ -24,13 +24,19 @@ public final class ChromiumHostPrototype {
     /// The Debug Settings `browserHost.helper` is read from (off by default: every Chromium
     /// tab runs in process; only `debug.chromium_host` uses the host, and only with it on).
     private let tunables: TunableStore
+    /// The app's main-thread scheduler: the tunable's watch flushes on it.
+    private let work: MainWorkScheduler
+    /// Closes the host when the tunable goes off (``watchTunable()``).
+    private var tunableWatch: ServiceObservation<Bool>?
 
     /// - Parameters:
     ///   - makeConfiguration: the host app of this build, or nil when it has none.
     ///   - tunables: Debug Settings: the app's store, passed by the composition root (tests pass one of their own).
-    public init(makeConfiguration: @escaping () -> ChromiumHostConfiguration?, tunables: TunableStore) {
+    ///   - work: The app's one main-thread scheduler (tests pass one of their own).
+    public init(makeConfiguration: @escaping () -> ChromiumHostConfiguration?, tunables: TunableStore, work: MainWorkScheduler) {
         self.makeConfiguration = makeConfiguration
         self.tunables = tunables
+        self.work = work
     }
 
     /// The bundled host of this app (`Contents/MacOS/<App> Chromium Host`), its data under
@@ -102,13 +108,16 @@ public final class ChromiumHostPrototype {
         return report
     }
 
-    /// Closes the host when the tunable goes off; re-armed on every change of it.
+    /// Closes the host when the tunable goes off (at once when it is off already), through one
+    /// ServiceObservation of the tunable.
     /// Armed once, with the session (which this prototype keeps for its life).
     private func watchTunable() {
-        let on = withObservationTracking { BrowserHostTunables.helper.value(in: tunables) } onChange: {
-            Task { @MainActor [weak self] in self?.watchTunable() }
+        let tunables = tunables
+        tunableWatch = ServiceObservation(.automation, owner: "ChromiumHostPrototype.tunable", on: work) {
+            BrowserHostTunables.helper.value(in: tunables)
+        } apply: { [weak self] on in
+            if !on { _ = self?.close() }
         }
-        if !on { _ = close() }
     }
 
     /// SIGKILL to the host (the crash check).
