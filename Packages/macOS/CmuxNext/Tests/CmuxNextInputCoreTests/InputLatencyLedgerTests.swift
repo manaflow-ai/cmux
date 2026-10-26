@@ -5,7 +5,8 @@ import Testing
 /// The input latency ledger (p04-input-002): rows per kind x target x entrypoint x presentation
 /// source whose bucket counts add up, skipped stages that add no sample, Chrome's drop of non-key
 /// inputs with no frame update, lost slots counted, and cc's scroll jank formula
-/// (cc/metrics/scroll_jank_dropped_frame_tracker.cc). Run:
+/// (cc/metrics/scroll_jank_dropped_frame_tracker.cc), with a frame split across batches and a
+/// scroll update that changed nothing. Run:
 /// `swift test --filter InputLatencyLedgerTests`.
 struct InputLatencyLedgerTests {
     private static let ms: UInt64 = 1_000_000
@@ -120,6 +121,7 @@ struct InputLatencyLedgerTests {
             ]),
         ], vsyncNanos: Self.vsync))
         let row = try #require(ledger.rows.values.first)
+        #expect(row[.dispatchEnd].maxNanos == 1 * Self.ms)
         #expect(row[.daemonReceived].maxNanos == 1 * Self.ms)
         #expect(row[.echoSent].maxNanos == 2 * Self.ms)
         #expect(row[.contentSubmitted].maxNanos == 1 * Self.ms, "the time since the echo, not since dispatch")
@@ -127,6 +129,29 @@ struct InputLatencyLedgerTests {
         #expect(row[.presented].maxNanos == 4 * Self.ms)
         let sum = InputStage.allCases.reduce(UInt64(0)) { $0 + row[$1].sumNanos }
         #expect(sum == row.total.sumNanos, "the stage deltas add up to the total")
+    }
+
+    @Test func aCoalescedSlotsStagesAreMeasuredFromItsOldestEvent() throws {
+        // Five pointer events over 20 ms reach main 2 ms after the newest: arrivedMain is 22 ms.
+        let generated = 100 * Self.ms
+        var ledger = InputLatencyLedger()
+        ledger.fold(InputLatencyBatch(slots: [
+            Self.slot(.pointerMove, target: .layout, generated: generated, [
+                .lastGenerated: generated + 20 * Self.ms,
+                .arrivedMain: generated + 22 * Self.ms,
+                .dispatchEnd: generated + 23 * Self.ms,
+                .presented: generated + 30 * Self.ms,
+            ]),
+        ], vsyncNanos: Self.vsync))
+        let row = try #require(ledger.rows.values.first)
+        #expect(row[.arrivedMain].maxNanos == 22 * Self.ms, "Chrome's GenerationToBrowserMain runs from the oldest event")
+        #expect(row[.lastGenerated].count == 0, "the newest event's time is not a stage")
+        #expect(row[.dispatchEnd].maxNanos == 1 * Self.ms)
+        #expect(row[.presented].maxNanos == 7 * Self.ms)
+        let sum = InputStage.allCases.reduce(UInt64(0)) { $0 + row[$1].sumNanos }
+        #expect(sum == row.total.sumNanos, "the stage deltas add up to the total")
+        let reported = try #require(ledger.snapshot.rows.first)
+        #expect(!reported.stages.map(\.stage).contains("lastGenerated"))
     }
 
     // MARK: drops
@@ -167,22 +192,32 @@ struct InputLatencyLedgerTests {
         #expect(ledger.rows[InputLatencyLedger.Key(kind: .keyPress, target: .terminal, entrypoint: .person, presentationSource: .estimatedVsync)]?.count == 2)
     }
 
-    @Test func slotsLostBeforeTheLedgerAreCounted() throws {
+    @Test func slotsLostBeforeTheLedgerAreCountedOnce() throws {
         let ring = InputLatencyRing(capacity: 4)
-        for index in 0..<10 {
-            ring.append(Self.slot(.keyPress, generated: UInt64(index + 1) * Self.ms, [.presented: UInt64(index + 2) * Self.ms]))
-        }
-        let batch = InputLatencyBatch(slots: ring.takeBatch(), vsyncNanos: Self.vsync, droppedBefore: ring.droppedCount)
-        #expect(batch.slots.count == 4)
-        #expect(batch.droppedBefore == 6)
         var ledger = InputLatencyLedger()
-        ledger.fold(batch)
+        func appendAndFold(_ count: Int) -> InputLatencyBatch {
+            for index in 0..<count {
+                ring.append(Self.slot(.keyPress, generated: UInt64(index + 1) * Self.ms, [.presented: UInt64(index + 2) * Self.ms]))
+            }
+            let slots = ring.takeBatch()
+            let batch = InputLatencyBatch(slots: slots, vsyncNanos: Self.vsync, droppedTotal: ring.droppedCount)
+            ledger.fold(batch)
+            return batch
+        }
+        let first = appendAndFold(10)
+        #expect(first.slots.count == 4)
+        #expect(first.droppedTotal == 6)
+        // The ring's counter is cumulative: the second batch carries 6 + 3 and adds only its 3.
+        let second = appendAndFold(7)
+        #expect(second.droppedTotal == 9)
+        let third = appendAndFold(2)
+        #expect(third.droppedTotal == 9, "a batch with no new drop adds none")
         ledger.noteDropped(3)
-        #expect(ledger.slotsReceived == 4)
-        #expect(ledger.slotsDropped == 9, "the ring's six and a dropped hand-off batch's three")
+        #expect(ledger.slotsReceived == 10)
+        #expect(ledger.slotsDropped == 12, "the ring's nine and a dropped hand-off batch's three")
         let report = ledger.snapshot
-        #expect(report.slotsDropped == 9)
-        #expect(report.slotsReceived == 4)
+        #expect(report.slotsDropped == 12)
+        #expect(report.slotsReceived == 10)
     }
 
     // MARK: scroll jank
@@ -306,6 +341,50 @@ struct InputLatencyLedgerTests {
         #expect(perScroll.samples == [.init(value: 0, count: 1), .init(value: 10, count: 1)])
     }
 
+    @Test func oneFrameSplitAcrossTwoBatchesIsOneFrame() throws {
+        // Frame A at 1000 ms, then frame B 2.6 vsyncs later shows two updates, one per batch. The
+        // second batch's update is the older one and was waiting before A: B is janky.
+        let start: UInt64 = 1_000 * Self.ms
+        let late = start + Self.vsync * 26 / 10
+        var ledger = InputLatencyLedger()
+        ledger.fold(InputLatencyBatch(slots: [
+            Self.slot(.scrollBegin, target: .sidebar, updated: false, generated: start - 3 * Self.ms),
+            Self.slot(.scrollFirstUpdate, target: .sidebar, generated: start - 2 * Self.ms, [.presented: start]),
+            Self.slot(.scrollUpdate, target: .sidebar, generated: start + Self.ms, [.presented: late]),
+        ], vsyncNanos: Self.vsync))
+        ledger.fold(InputLatencyBatch(slots: [
+            Self.slot(.scrollUpdate, target: .sidebar, generated: start - Self.ms, [.presented: late]),
+        ], vsyncNanos: Self.vsync))
+        #expect(ledger.scrollJank.presentedFrames == 0, "the frame still gathering is counted on a later fold")
+        ledger.fold(InputLatencyBatch(slots: [
+            Self.slot(.scrollBegin, target: .sidebar, updated: false, generated: late + 100 * Self.ms),
+        ], vsyncNanos: Self.vsync))
+        let jank = ledger.scrollJank
+        #expect(jank.presentedFrames == 1, "both halves are one frame")
+        #expect(jank.skippedFrames == 1, "only the scroll's first frame is skipped")
+        #expect(jank.delayedFrames == 1, "judged by the older input from the second batch")
+        #expect(jank.histograms.values[.missedVsyncsSumPerScroll] == [2: 1])
+    }
+
+    @Test func aScrollUpdateThatChangedNoFrameAddsNoScrollFrame() throws {
+        // Scrolling against the end: the updates change nothing, yet their slots close with a
+        // presented time. Only the frames that changed count.
+        let start: UInt64 = 1_000 * Self.ms
+        var ledger = InputLatencyLedger()
+        ledger.fold(InputLatencyBatch(slots: [
+            Self.slot(.scrollFirstUpdate, target: .sidebar, generated: start - Self.ms, [.presented: start]),
+            Self.slot(.scrollUpdate, target: .sidebar, updated: false, generated: start, [.presented: start + Self.vsync]),
+            Self.slot(.scrollUpdate, target: .sidebar, updated: false, generated: start + Self.vsync, [.presented: start + 2 * Self.vsync]),
+            Self.slot(.scrollUpdate, target: .sidebar, generated: start + 2 * Self.vsync, [.presented: start + 3 * Self.vsync]),
+            Self.slot(.scrollBegin, target: .sidebar, updated: false, generated: start + 100 * Self.ms),
+        ], vsyncNanos: Self.vsync))
+        let jank = ledger.scrollJank
+        #expect(jank.presentedFrames == 1, "the two no-update slots add no frame")
+        #expect(jank.skippedFrames == 1)
+        #expect(jank.delayedFrames == 0, "the input came after the previous frame")
+        #expect(ledger.slotsWithoutFrameUpdate == 3)
+    }
+
     // MARK: report
 
     @Test func theReportEncodesWithItsFieldNames() throws {
@@ -313,7 +392,7 @@ struct InputLatencyLedgerTests {
         let generated = 5 * Self.ms
         ledger.fold(InputLatencyBatch(slots: [
             Self.slot(.keyPress, generated: generated, [.presented: generated + 7 * Self.ms]),
-        ], vsyncNanos: Self.vsync, droppedBefore: 2))
+        ], vsyncNanos: Self.vsync, droppedTotal: 2))
         let report = ledger.snapshot
         let data = try JSONEncoder().encode(report)
         let object = try #require(try JSONSerialization.jsonObject(with: data) as? [String: Any])

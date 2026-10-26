@@ -40,6 +40,15 @@ public struct ScrollJankTracker: Sendable, Equatable {
         public var delayedFramesPercentage: Int {
             presentedFrames > 0 ? 100 * delayedFrames / presentedFrames : 0
         }
+
+        /// Counts one presented frame that missed `missed` vsyncs when `janky`.
+        mutating func count(janky: Bool, missed: Int) {
+            presentedFrames += 1
+            guard janky else { return }
+            delayedFrames += 1
+            missedVsyncsSum += missed
+            missedVsyncsMax = max(missedVsyncsMax, missed)
+        }
     }
 
     /// The emitted values, per Chrome histogram name.
@@ -98,9 +107,9 @@ public struct ScrollJankTracker: Sendable, Equatable {
         let gap = presented - previousPresented
         let janky = gap > vsyncNanos + vsyncNanos / 2 && firstGenerated < previousPresented
         let missed = janky ? Int(clamping: (gap + vsyncNanos / 2) / vsyncNanos - 1) : 0
-        count(janky: janky, missed: missed, in: &fixedWindow)
+        fixedWindow.count(janky: janky, missed: missed)
         var scroll = perScroll ?? JankData()
-        count(janky: janky, missed: missed, in: &scroll)
+        scroll.count(janky: janky, missed: missed)
         perScroll = scroll
         presentedFrames &+= 1
         if janky { delayedFrames &+= 1 }
@@ -117,14 +126,6 @@ public struct ScrollJankTracker: Sendable, Equatable {
     public var currentWindow: JankData { fixedWindow }
     /// The counts of the scroll in progress, nil before the first scroll.
     public var currentScroll: JankData? { perScroll }
-
-    private func count(janky: Bool, missed: Int, in data: inout JankData) {
-        data.presentedFrames += 1
-        guard janky else { return }
-        data.delayedFrames += 1
-        data.missedVsyncsSum += missed
-        data.missedVsyncsMax = max(data.missedVsyncsMax, missed)
-    }
 }
 
 /// The values ``ScrollJankTracker`` emitted, one exact distribution per Chrome histogram.

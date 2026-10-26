@@ -10,13 +10,16 @@ internal import CmuxNextCompat
 /// batch (half a ring of slots), one bounded stream yield and one atomic add, the same hand-off as
 /// `ActionBudgetMonitor.batches()`; the folding runs on the reader. The stream holds
 /// ``defaultBufferedBatches`` batches for a slow reader; a batch that does not fit is dropped and
-/// its slots counted in the report's `slots_dropped`, so memory never grows. Values only: no UI
+/// its slots counted in the report's `slots_dropped` (its producer drops arrive with the next
+/// batch, as ``InputLatencyBatch/droppedTotal`` is cumulative), so memory never grows. Values only: no UI
 /// type reaches it.
 ///
 /// ```swift
 /// let reporter = InputLatencyReporter()
 /// Task.detached(priority: .utility) { await reporter.run() }
-/// reporter.submit(InputLatencyBatch(slots: ring.takeBatch(), vsyncNanos: 8_333_333))
+/// let slots = ring.takeBatch()
+/// reporter.submit(InputLatencyBatch(slots: slots, vsyncNanos: 8_333_333,
+///                                   droppedTotal: ring.droppedCount &+ table.droppedCount))
 /// let report = await reporter.snapshot()
 /// ```
 public final class InputLatencyReporter: Sendable {
@@ -54,16 +57,16 @@ public final class InputLatencyReporter: Sendable {
     /// Hands one batch to the reader without waiting.
     ///
     /// - Parameter batch: Slots the ring handed over, the refresh interval to judge scroll frames
-    ///   against, and the slots lost before them.
+    ///   against, and the producer's cumulative lost-slot count.
     public func submit(_ batch: InputLatencyBatch) {
         let result = continuation.yield(batch)
         if case .enqueued = result {
             accepted.wrappingAdd(1, ordering: .releasing)
         } else if case .dropped(let lost) = result {
             // The stream keeps the newest batches: `lost` is the oldest one, pushed out by `batch`.
-            handOffDropped.wrappingAdd(UInt64(truncatingIfNeeded: lost.slots.count) &+ lost.droppedBefore, ordering: .relaxed)
+            handOffDropped.wrappingAdd(UInt64(truncatingIfNeeded: lost.slots.count), ordering: .relaxed)
         } else {
-            handOffDropped.wrappingAdd(UInt64(truncatingIfNeeded: batch.slots.count) &+ batch.droppedBefore, ordering: .relaxed)
+            handOffDropped.wrappingAdd(UInt64(truncatingIfNeeded: batch.slots.count), ordering: .relaxed)
         }
     }
 
