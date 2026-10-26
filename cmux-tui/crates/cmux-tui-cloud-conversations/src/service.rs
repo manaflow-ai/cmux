@@ -209,6 +209,13 @@ struct Subscription {
     /// sent again after a reconnect (the owner turned it off when the old
     /// socket closed), and turned off when that client's connection closes.
     typing_by: Option<u64>,
+    /// The clients whose `cloud-conversation-presence` is viewing: the
+    /// person views while any does. Sent again after a reconnect, and off
+    /// when the last one closes or unsubscribes.
+    viewing: BTreeSet<u64>,
+    /// The live socket's last `conversation-presence` set (none while no
+    /// socket is live), replayed after a subscribe ([`CloudConversations::announce_state`]).
+    presence: Option<CloudEvent>,
 }
 
 /// One `cloud-subscription-state`: the state, its reason and the account of
@@ -814,6 +821,8 @@ impl CloudConversations {
                         state: initial,
                         outbox: Vec::new(),
                         typing_by: None,
+                        viewing: BTreeSet::new(),
+                        presence: None,
                     },
                 );
                 (true, reply)
@@ -894,20 +903,65 @@ impl CloudConversations {
         Ok(subscription.state.reply(&target))
     }
 
+    /// `cloud-conversation-presence` (`cloud-conversation-presence-v1`):
+    /// `client` views the conversation (`viewing`) or stopped, as the
+    /// owner's ephemeral `presence.set {conversation, viewing}` frame on the
+    /// shared socket; the person views while any client of this daemon
+    /// does, so only a change of that goes out. Like `typing`: while some
+    /// client subscribes the conversation (else `not_subscribed`), the
+    /// newest state replaces one not yet sent, it goes out again after a
+    /// reconnect while viewing, and off when the last viewing client
+    /// closes or unsubscribes.
+    pub fn presence(
+        &self,
+        client: u64,
+        conversation: &str,
+        viewing: bool,
+    ) -> Result<Value, CloudError> {
+        require_conversation(conversation)?;
+        let target = Target::Conversation(conversation.to_string());
+        let mut subscriptions =
+            self.inner.subscriptions.lock().unwrap_or_else(PoisonError::into_inner);
+        let Some(subscription) =
+            subscriptions.get_mut(&target).filter(|subscription| !subscription.clients.is_empty())
+        else {
+            return Err(CloudError::daemon_reject(
+                "not_subscribed",
+                "subscribe to the cloud conversation first",
+            ));
+        };
+        let was_viewing = !subscription.viewing.is_empty();
+        if viewing {
+            subscription.viewing.insert(client);
+        } else {
+            subscription.viewing.remove(&client);
+        }
+        let now_viewing = !subscription.viewing.is_empty();
+        if was_viewing != now_viewing {
+            queue_presence(subscription, conversation, viewing);
+        }
+        Ok(subscription.state.reply(&target))
+    }
+
     /// Emits `target`'s current socket state. The daemon calls it after it
     /// sent a subscribe reply: replies and events travel on different queues
     /// of a connection, so a change that raced the reply could otherwise
     /// arrive before it and leave the client on the reply's older state.
+    /// The live socket's last presence set follows, so a page that lost
+    /// events and subscribes again has the current set without a change.
     pub fn announce_state(&self, target: &Target) {
-        let event = self
+        let events = self
             .inner
             .subscriptions
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .get(target)
-            .map(|subscription| subscription.state.event(target));
-        if let Some(event) = event {
-            self.inner.emit(event);
+            .map(|subscription| (subscription.state.event(target), subscription.presence.clone()));
+        if let Some((state, presence)) = events {
+            self.inner.emit(state);
+            if let Some(presence) = presence {
+                self.inner.emit(presence);
+            }
         }
     }
 
@@ -917,11 +971,11 @@ impl CloudConversations {
         {
             let mut subscriptions =
                 self.inner.subscriptions.lock().unwrap_or_else(PoisonError::into_inner);
-            if let Some(subscription) = subscriptions.get_mut(target)
-                && subscription.clients.remove(&client)
-                && subscription.clients.is_empty()
-            {
-                subscription.idle_since = Some(Instant::now());
+            if let Some(subscription) = subscriptions.get_mut(target) {
+                if subscription.clients.remove(&client) && subscription.clients.is_empty() {
+                    subscription.idle_since = Some(Instant::now());
+                }
+                stop_viewing(subscription, target, client);
             }
         }
         self.inner.notify();
@@ -944,6 +998,7 @@ impl CloudConversations {
                     subscription.typing_by = None;
                     queue_typing(subscription, conversation, false);
                 }
+                stop_viewing(subscription, target, client);
             }
         }
         self.inner.notify();
@@ -1132,15 +1187,27 @@ impl Inner {
         }
     }
 
-    /// A socket of `target` went live: an indicator that is on goes out again
-    /// (the owner turned it off when the previous socket closed).
-    fn resend_typing(&self, target: &Target) {
+    /// A socket of `target` went live: an indicator that is on, and the
+    /// person's viewing, go out again (the owner ended them when the
+    /// previous socket closed).
+    fn resend_ephemeral(&self, target: &Target) {
         let Target::Conversation(conversation) = target else { return };
         let mut subscriptions = self.subscriptions.lock().unwrap_or_else(PoisonError::into_inner);
-        if let Some(subscription) = subscriptions.get_mut(target)
-            && subscription.typing_by.is_some()
-        {
+        let Some(subscription) = subscriptions.get_mut(target) else { return };
+        if subscription.typing_by.is_some() {
             queue_typing(subscription, conversation, true);
+        }
+        if !subscription.viewing.is_empty() {
+            queue_presence(subscription, conversation, true);
+        }
+    }
+
+    /// Keeps `target`'s last presence set for later subscribers (`None`: its
+    /// socket is no longer live).
+    fn keep_presence(&self, target: &Target, presence: Option<CloudEvent>) {
+        let mut subscriptions = self.subscriptions.lock().unwrap_or_else(PoisonError::into_inner);
+        if let Some(subscription) = subscriptions.get_mut(target) {
+            subscription.presence = presence;
         }
     }
 
@@ -1206,6 +1273,28 @@ fn queue_typing(subscription: &mut Subscription, conversation: &str, on: bool) {
         .push(json!({"t": "typing", "on": on, "conversation": conversation}).to_string());
 }
 
+/// Queues the owner's `presence.set` frame; the outbox holds at most one,
+/// the newest state.
+fn queue_presence(subscription: &mut Subscription, conversation: &str, viewing: bool) {
+    subscription.outbox.retain(|frame| {
+        !serde_json::from_str::<Value>(frame).is_ok_and(|frame| frame["t"] == "presence.set")
+    });
+    subscription.outbox.push(
+        json!({"t": "presence.set", "conversation": conversation, "viewing": viewing}).to_string(),
+    );
+}
+
+/// `client` no longer views `target`: the person stops viewing when it was
+/// the last (another subscriber may keep the socket open).
+fn stop_viewing(subscription: &mut Subscription, target: &Target, client: u64) {
+    if let Target::Conversation(conversation) = target
+        && subscription.viewing.remove(&client)
+        && subscription.viewing.is_empty()
+    {
+        queue_presence(subscription, conversation, false);
+    }
+}
+
 fn run_driver(inner: &Arc<Inner>, target: Target) {
     let mut stream = StreamState::new(target.clone(), inner.options.snapshot_backoff);
     let mut reporter = StateReporter { inner, target: target.clone(), last: None };
@@ -1246,6 +1335,11 @@ fn run_driver(inner: &Arc<Inner>, target: Target) {
                 // The owner's `off` for anyone still typing could only come
                 // on this socket.
                 for event in stream.typing_ended() {
+                    inner.emit(event.with_account(account));
+                }
+                // The owner sends who views again only to the next socket.
+                inner.keep_presence(&target, None);
+                if let Some(event) = stream.presence_ended() {
                     inner.emit(event.with_account(account));
                 }
                 ended
@@ -1328,9 +1422,9 @@ fn pump(
         if inner.stream_session().is_err() {
             return Ended::Reconnect;
         }
-        // A client's request on the socket (`run.live.get`, `typing`) goes out once
-        // the stream is live; a failed send drops the socket, and the
-        // owner's join snapshot answers instead.
+        // A client's request on the socket (`run.live.get`, `typing`,
+        // `presence.set`) goes out once the stream is live; a failed send
+        // drops the socket, and the owner's join snapshot answers instead.
         if stream.is_live() {
             for frame in inner.take_outbox(target) {
                 if wire.send(&frame).is_err() {
@@ -1364,10 +1458,16 @@ fn pump(
                                 return Ended::Dropped;
                             }
                         }
-                        StreamAction::Emit(event) => inner.emit(event.with_account(account)),
+                        StreamAction::Emit(event) => {
+                            let event = event.with_account(account);
+                            if matches!(event, CloudEvent::Presence { .. }) {
+                                inner.keep_presence(target, Some(event.clone()));
+                            }
+                            inner.emit(event);
+                        }
                         StreamAction::Live => {
                             reporter.report("live", None, account);
-                            inner.resend_typing(target);
+                            inner.resend_ephemeral(target);
                         }
                         StreamAction::Drop => return Ended::Dropped,
                         StreamAction::Forbidden => return Ended::Forbidden,
