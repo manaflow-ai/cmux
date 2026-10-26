@@ -392,7 +392,7 @@ public final class DaemonService {
         startupDeadlineTimer?.cancel()
         let timer = DemandTimer(owner: "DaemonService.startupDeadline", clock: startupClock)
         startupDeadlineTimer = timer
-        timer.schedule(after: startupDeadline) { @MainActor [weak self] in
+        timer.scheduleOnMain(after: startupDeadline) { [weak self] in
             guard let self, self.startup == .connecting else { return }
             self.startup = .unavailable(self.lastStartupError ?? .timedOut("first connection to cmux-tui"))
             self.resumeConnectionWaiters()

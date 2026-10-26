@@ -187,7 +187,10 @@ import Testing
     @Test func firstResponderSendsFocusToTheHost() {
         let page = makePage(.view)
         var focus: [Int32] = []
-        page.sink = { frame in if frame.kind == .focus { focus.append(frame.v[0]) } }
+        page.sink = { frame in
+            if frame.kind == .focus { focus.append(frame.v[0]) }
+            return nil
+        }
         let (window, _, _) = makeWindow(holding: page)
         defer { page.removeFromSuperview(); window.close() }
         #expect(window.makeFirstResponder(page))

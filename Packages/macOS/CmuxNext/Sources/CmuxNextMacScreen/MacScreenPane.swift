@@ -231,7 +231,7 @@ public final class MacScreenPane {
         guard visible else { return }
         visible = false
         view.input.releaseKeyboard()
-        hideTimer.schedule(after: hiddenGrace) { @MainActor [weak self] in
+        hideTimer.scheduleOnMain(after: hiddenGrace) { [weak self] in
             guard let self, !visible else { return }
             model.hub?.endForHiddenTab()
         }

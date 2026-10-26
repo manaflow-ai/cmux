@@ -46,16 +46,17 @@ nonisolated enum ChromiumHostOp: UInt16, CaseIterable, Sendable {
     case prefWatch = 161, bookmarksSync = 162, pageSchemeAdd = 163, pageSchemeAddFirstParty = 164
     case pageSchemeAddFirstPartyDynamic = 165, pageResourceRespond = 166, addDocumentScript = 167
     case addPageChannel = 168, tabEvaluate = 169, tabSetFrozen = 170, tabSendClick = 171, tabSetColorScheme = 172
-    case pageSchemeSetGroup = 173, tabDiscard = 174
+    case pageSchemeSetGroup = 173, tabDiscard = 174, widgetSetGeometry = 175, widgetDismiss = 176
+    case widgetSendInput = 177
 
     /// The SHA-256 of the cmux_cef_shim.h this table was generated from (`CEFShimABI`).
-    static let abiIdentity = "588fca8016b02a0fa991f93b679b0928e086af927e43015e338195629a536bf8"
+    static let abiIdentity = "0d2c75044b312d4ae1f34e63749b1f84dfbede0b271315abd8fa084cee2e5100"
     /// This generation's op ids, classes and wire types; both HELLOs carry it.
-    static let wireIdentity = "4806cead3339ffcc3f9f4a5b8a4a28c04040f0774e4052824878a111ed9931cc"
+    static let wireIdentity = "092e0dce86aacf8c4fc5c336474127f9bd009ca3ab02cb8f8e801adbe9391b33"
     /// Ops of fork API symbols the header does not declare yet (`r.optional` in CEFShimLibrary).
     static let optionalOps: Set<ChromiumHostOp> = [
         .addDocumentScript, .addPageChannel, .tabEvaluate, .tabSetFrozen, .tabSendClick, .tabSetColorScheme,
-        .pageSchemeSetGroup, .tabDiscard,
+        .pageSchemeSetGroup, .tabDiscard, .widgetSetGeometry, .widgetDismiss, .widgetSendInput,
     ]
     /// Host -> cmux control ops: a shim event, an async result, a mirror value, an ack.
     static let eventOp: UInt16 = 0x8001, replyOp: UInt16 = 0x8002
@@ -364,6 +365,9 @@ nonisolated enum ChromiumHostOp: UInt16, CaseIterable, Sendable {
         Row(.post, [.int32, .int32], [.int32]),
         Row(.preinit, [.string, .string], [.int32]),
         Row(.async, [.int32], [.int32]),
+        Row(.post, [.int32, .int32, .int32, .int32, .int32, .int32], []),
+        Row(.post, [.int32], []),
+        Row(.post, [.int32, .int32, .int32, .int32, .int32, .int32, .int32, .int32, .int64, .int64, .int32, .int32], []),
     ]
 
     private var row: Row { Self.rows[Int(rawValue) - 1] }
@@ -485,7 +489,7 @@ nonisolated enum ChromiumHostEventKind: Int32, CaseIterable, Sendable {
     case localFileHandoff = 38, bookmarksEvent = 39, externalURL = 40, permissionPrompt = 41
     case permissionDismissed = 42, passwordPrompt = 43, beforeUnloadDialog = 44, beforeUnloadDismissed = 45
     case pageResource = 46, pageDragEnter = 47, fileDialog = 48, pageMessage = 49, evaluateResult = 50
-    case createFailed = 51
+    case createFailed = 51, widgetContext = 52, widgetGone = 53
 
     /// The mirrors this event refreshes; the host pushes them before the event. `request` is the
     /// event's request (CMUX_SHIM_TAB_EVENT's sub-kind).
