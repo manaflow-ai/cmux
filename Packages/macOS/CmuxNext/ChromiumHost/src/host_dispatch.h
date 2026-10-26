@@ -153,7 +153,9 @@ class HostContext {
   void* PageView(uint64_t token);
   void Ack(uint32_t token);
   void Reply(uint32_t token, const TlvWriter& reply);
-  void BindMinted(uint16_t op, int32_t minted, int64_t result);
+  // `client_browser`: the op's browser argument as cmux named it (devtools_call keys the shim's
+  // message id by it; the generator passes it, task 019).
+  void BindMinted(uint16_t op, int32_t minted, int64_t result, int32_t client_browser);
   // `minted` names the browser of the next `event_kind` event with `request`
   // (create_window's AFTER_CREATED) when the call returned 1.
   void BindMintedOnEvent(uint16_t op, int32_t minted, int event_kind, int request, int64_t result);
@@ -212,7 +214,6 @@ class HostContext {
   // caused reaches cmux before its ack (read-your-writes, task 016b).
   bool dispatching_ = false;
   uint16_t dispatching_op_ = 0;
-  int32_t devtools_call_browser_ = 0;  // the client browser of the devtools_call being dispatched
   uint64_t dispatching_view_ = 0;      // the page view token the op being dispatched opened
   std::optional<std::string> dispatching_profile_;  // a create_window's profile_cache_path
   std::vector<HeldEvent> held_events_;

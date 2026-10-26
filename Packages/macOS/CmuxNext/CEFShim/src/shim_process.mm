@@ -211,6 +211,14 @@ CefRefPtr<CefRequestContext> RequestContextFor(const std::string& cache_path) {
   // gone (cmux_shim_release_context). Nothing of it is written to disk.
   if (!IsOffTheRecordKey(cache_path)) {
     CefString(&settings.cache_path) = cache_path;
+    // CEF refuses a cache path that does not exist. In the Chromium Host cmux leaves it to this
+    // first open of the context (task 019), as Chrome makes a profile's directory when it creates
+    // the profile (chrome/browser/profiles/profile_impl.cc, Profile::CreateProfile); in process
+    // cmux made it already, so this finds it.
+    [[NSFileManager defaultManager] createDirectoryAtPath:@(cache_path.c_str())
+                              withIntermediateDirectories:YES
+                                               attributes:nil
+                                                    error:nil];
   }
   // Not persisted: in Chrome style this flag also sets the profile's
   // "restore on startup" to the last session, and with tabbed windows

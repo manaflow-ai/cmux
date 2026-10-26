@@ -212,12 +212,6 @@ void HostContext::Dispatch(const control::Message& message) {
     delegate_.Quit();
     return;
   }
-  if (message.op == kOpDevtoolsCall) {
-    // Header order: the minted id, then the browser BindMinted answers for.
-    TlvReader peek(message.fields);
-    peek.I32();
-    devtools_call_browser_ = peek.I32();
-  }
   std::optional<std::string> profile;
   if (message.op == kOpCreateWindow) {
     // Header order: minted id, request, parent view, width, height, url,
@@ -410,7 +404,7 @@ void HostContext::Reply(uint32_t token, const TlvWriter& reply) {
   }
 }
 
-void HostContext::BindMinted(uint16_t op, int32_t minted, int64_t result) {
+void HostContext::BindMinted(uint16_t op, int32_t minted, int64_t result, int32_t client_browser) {
   switch (op) {
     case kOpTabAdd:
     case kOpTabDuplicate:
@@ -418,11 +412,11 @@ void HostContext::BindMinted(uint16_t op, int32_t minted, int64_t result) {
       break;
     case kOpDevtoolsCall:
       if (result > 0) {
-        devtools_ids_[DevToolsKey(Browser(devtools_call_browser_), static_cast<int32_t>(result))] = minted;
+        devtools_ids_[DevToolsKey(Browser(client_browser), static_cast<int32_t>(result))] = minted;
       } else {
         // The header's 0 for a refused call is a DEVTOOLS_RESULT with a = 0 in host mode.
         TlvWriter refused;
-        EncodeEvent(refused, CMUX_SHIM_DEVTOOLS_RESULT, devtools_call_browser_, minted, 0, 0, "", "");
+        EncodeEvent(refused, CMUX_SHIM_DEVTOOLS_RESULT, client_browser, minted, 0, 0, "", "");
         held_replies_.push_back(MessageOf(kOpEvent, false, 0, refused.Take()));
       }
       break;

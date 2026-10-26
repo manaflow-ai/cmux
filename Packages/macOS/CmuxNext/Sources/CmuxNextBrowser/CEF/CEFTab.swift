@@ -283,7 +283,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     // `CEFTab+LoadingBackground`.
 
     func creationFailed() {
-        isCreationPending = false
+        (browserID, isCreationPending) = (nil, false)
         agentRelay.resumeWaiters(false)
         let error = BrowserLoadError(domain: "CEF", code: -1, message: Strings.cefUnavailable, failingURL: pendingURL)
         let id = makeNavigationID()
