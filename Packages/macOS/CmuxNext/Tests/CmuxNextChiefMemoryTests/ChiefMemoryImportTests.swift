@@ -30,10 +30,13 @@ import Testing
         #expect(sources[2].title == "ChatGPT export: data-2026.zip")
     }
 
-    @Test func offerNamesEachProductOnce() throws {
+    @Test func offerNamesTwoProductsAndSummarizesMore() throws {
         let sources = MemorySource.parse(detected)
+        // Claude Code (twice: one product), ChatGPT: two names fit the row.
         let offer = try #require(MemorySource.offerTitle(sources, locale: Locale(identifier: "en_US")))
         #expect(offer == "Bring your memory from Claude Code and ChatGPT")
+        let codex = MemorySource(source: "codex", kind: .codex, count: 3, bytes: 1, path: "/c")
+        #expect(MemorySource.offerTitle(sources + [codex], locale: Locale(identifier: "en_US")) == "Bring your memory from other AI tools")
         #expect(MemorySource.offerTitle([]) == nil)
     }
 
