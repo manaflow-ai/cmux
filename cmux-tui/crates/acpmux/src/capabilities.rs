@@ -74,6 +74,9 @@ pub const CAPABILITIES: &[Capability] = &[
     // Metadata-only paths for a focused chat's config and state files. The
     // daemon serves this surface on its local Unix socket only.
     Capability { id: "session-files-v1", wire: &[method::MUX_SESSION_FILES] },
+    // Who has a shared chat open and who types in it (`hub/presence.rs`); the attach reply's
+    // `presence` comes with it.
+    Capability { id: "chat-presence-v1", wire: &[method::MUX_TYPING, method::MUX_PRESENCE] },
     // Edit or remove a queued prompt, and send a steer now (`hub/queue_edit.rs`).
     Capability { id: "queue-edit-v1", wire: &[method::MUX_QUEUE_EDIT, method::MUX_QUEUE_REMOVE] },
     // One answer for a group of permission asks, and revoking a chat's grants.
