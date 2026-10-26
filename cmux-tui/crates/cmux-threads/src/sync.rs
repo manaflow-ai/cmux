@@ -20,6 +20,10 @@
 //! Every blocking receive is also a checked [`BlockingKind::Recv`] wait, as
 //! [`crate::checked::sync::recv`] is.
 //!
+//! [`Mutex`], [`RwLock`] and [`Condvar`] are std's with their waits timed: a
+//! wait of 2 ms or more on a thread that may not wait records its site
+//! (task 227, see the `locks` module).
+//!
 //! Chromium makes a waiter run ahead of a lower-priority lock owner with
 //! priority-inheritance mutexes (base/synchronization/lock_impl_posix.cc);
 //! a channel has no owner the kernel can see, so the message names its
@@ -28,6 +32,17 @@
 use std::panic::Location;
 
 use crate::blocking::{BlockingKind, assert_blocking_allowed_at};
+
+#[path = "sync_locks.rs"]
+mod locks;
+
+pub use locks::{Condvar, Mutex, RwLock};
+/// std's guard and result types, named here so a site imports them beside
+/// the timed locks.
+pub use std::sync::{
+    LockResult, MutexGuard, PoisonError, RwLockReadGuard, RwLockWriteGuard, TryLockError,
+    TryLockResult, WaitTimeoutResult,
+};
 
 /// A value with the QoS of the thread that sent it.
 #[cfg(debug_assertions)]

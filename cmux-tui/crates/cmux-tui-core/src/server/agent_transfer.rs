@@ -70,10 +70,11 @@
 //! receives and 16 moves remembered (24 h each), 8 calls at once.
 
 use crate::panic_free::JsonFields;
+use cmux_threads::sync::{Mutex, RwLock};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, Instant};
 
 use serde::Deserialize;

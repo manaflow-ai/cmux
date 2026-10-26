@@ -377,6 +377,11 @@ pub(crate) fn note_priority_inversion(location: &'static Location<'static>) {
     note_violation(&SITES, report::site_report(), BlockingKind::PriorityInversion, location, false);
 }
 
+#[cfg(debug_assertions)]
+mod long_wait;
+#[cfg(debug_assertions)]
+pub(crate) use long_wait::{denies, note_long_wait};
+
 #[cfg(unix)]
 const NO_OWN_FD: std::os::fd::RawFd = -1;
 

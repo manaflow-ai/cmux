@@ -25,11 +25,12 @@
 //!   `loopback-closed {stream, error?}`. Data, EOF and close of one stream
 //!   travel in one ordered outbound stream.
 
+use cmux_threads::sync::{Condvar, Mutex, RwLock};
 use std::collections::{HashMap, VecDeque};
 use std::io::{Read, Write};
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, Shutdown, SocketAddr, TcpStream};
 use std::ops::RangeInclusive;
-use std::sync::{Arc, Condvar, Mutex, RwLock};
+use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use base64::Engine;

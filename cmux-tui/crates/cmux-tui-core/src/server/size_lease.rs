@@ -23,9 +23,9 @@
 //! releases a size reported after it.
 
 use super::*;
+use cmux_threads::sync::Condvar;
+use cmux_threads::sync::Mutex;
 use std::collections::HashMap;
-use std::sync::Condvar;
-use std::sync::Mutex;
 use std::sync::PoisonError;
 use std::sync::Weak;
 use std::time::Duration;

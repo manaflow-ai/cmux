@@ -32,6 +32,8 @@ use crate::panic_free::RecoverPoison;
 use crate::platform::transport;
 use cmux_ipc::FrameHeader;
 use cmux_threads::checked::sync as waits;
+use cmux_threads::sync::Condvar;
+use cmux_threads::sync::Mutex;
 use std::collections::HashMap;
 use std::collections::VecDeque;
 use std::io::Read;
@@ -39,8 +41,6 @@ use std::io::Write;
 use std::net::Shutdown;
 use std::net::TcpStream;
 use std::sync::Arc;
-use std::sync::Condvar;
-use std::sync::Mutex;
 use std::sync::atomic::Ordering;
 use std::time::Duration;
 

@@ -18,12 +18,17 @@
 //! {"id":1,"ok":true,"data":{"app":"cmux-tui","session":"main",...}}
 //! ```
 
+// std's Mutex, RwLock and Condvar wait untimed; cmux_threads::sync times
+// them (cmux-tui/clippy.toml, p02-threads.md task 227).
+#![cfg_attr(not(test), deny(clippy::disallowed_types))]
+
 #[cfg(test)]
 use crate::mux::DaemonHandoffRequest;
 #[cfg(test)]
 use crate::workspace_registry::TerminalLifecycle;
 #[cfg(test)]
 use base64::Engine;
+use cmux_threads::sync::Mutex;
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::io::Write;
 #[cfg(test)]
@@ -33,7 +38,7 @@ use std::net::TcpListener;
 use std::net::{Shutdown, TcpStream};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::{Arc, Mutex, Weak};
+use std::sync::{Arc, Weak};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
@@ -2452,8 +2457,8 @@ use connection_frame::{
 };
 #[cfg(test)]
 use connection_frame::{handle_connection_frame, handle_request};
-pub(crate) use request_spans::method_latency_stats;
 use request_head::RequestHead;
+pub(crate) use request_spans::method_latency_stats;
 use request_spans::{AsyncReply, RequestArrival, RequestMethod, RequestSpan, request_id_hash};
 
 /// One layout node. `split_ids`: the public ids of the splits

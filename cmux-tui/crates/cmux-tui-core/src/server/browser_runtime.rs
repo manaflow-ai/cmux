@@ -26,6 +26,7 @@
 //!   installed}` once the host listens, or an error with `error_code`.
 //! - `browser-runtime-stop {id, runtime}` answers `{stopped: true}`.
 
+use cmux_threads::sync::Mutex;
 use std::collections::HashMap;
 use std::fs;
 use std::io::{BufRead, BufReader, Read, Seek, SeekFrom, Write};
@@ -34,7 +35,6 @@ use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
 use std::path::{Path, PathBuf};
 use std::process::ChildStdin;
 use std::sync::Arc;
-use std::sync::Mutex;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
