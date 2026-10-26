@@ -262,26 +262,43 @@ def main_actor_lines(lines: list[str], default_main: bool) -> list[bool]:
     `Task.detached` or global-queue closure makes a scope off-main; an
     `@MainActor` declaration makes it main; otherwise the target default holds.
     """
-    result: list[bool] = []
-    stack: list[tuple[int, bool]] = []
+    return [main for main, _ in main_actor_scopes(lines, default_main)]
+
+
+# A type that takes its isolation from what it inherits: AppKit's views, view and window controllers, windows and
+# responders and SwiftUI's View, App and Scene are `@MainActor`, so their subclasses and conformers are main actor
+# in any target.
+UI_TYPE = re.compile(r"\b(class|struct|extension)\s+[\w.]+\s*(<[^{]*>)?\s*:[^{]*?"
+                     r"\b(NS\w*(View|ViewController|WindowController|Window|Responder)|View|App|Scene)\b")
+BRACES = re.compile(r"[{}]")
+
+
+def main_actor_scopes(lines: list[str], default_main: bool, ui_types: bool = False) -> list[tuple[bool, int]]:
+    """main_actor_lines(), each with the 1-based line that set its isolation (0: the target default).
+
+    With UI_TYPES, a type that inherits AppKit's or SwiftUI's isolation (UI_TYPE) is main actor too.
+    """
+    result: list[tuple[bool, int]] = []
+    stack: list[tuple[int, bool, int]] = []
     depth = 0
     pending: bool | None = None  # isolation of a declaration whose `{` has not opened yet
-    for raw in lines:
+    source = 0  # the line that set PENDING
+    for number, raw in enumerate(lines, 1):
         if COMMENT_ONLY.match(raw):
-            result.append(stack[-1][1] if stack else default_main)
+            result.append(stack[-1][1:] if stack else (default_main, 0))
             continue
         code = strip(raw)
         if OFF_MAIN.search(code):
-            pending = False
-        elif MAIN.search(code):
-            pending = True
-        main = stack[-1][1] if stack else default_main
-        result.append(main if pending is None else pending)
-        for char in code:
+            pending, source = False, number
+        elif MAIN.search(code) or (ui_types and ":" in code and UI_TYPE.search(code)):
+            pending, source = True, number
+        scope = stack[-1][1:] if stack else (default_main, 0)
+        result.append(scope if pending is None else (pending, source))
+        for char in BRACES.findall(code):
             if char == "{":
                 depth += 1
                 if pending is not None:
-                    stack.append((depth, pending))
+                    stack.append((depth, pending, source))
                     pending = None
             elif char == "}":
                 while stack and stack[-1][0] >= depth:
@@ -295,7 +312,35 @@ def main_actor_lines(lines: list[str], default_main: bool) -> list[bool]:
     return result
 
 
-ATTRIBUTE_ONLY = re.compile(r"^\s*((@\w+(\([^)]*\))?|nonisolated)\s*)+$")
+# The start of an unstructured Task (`Task {`, `Task(priority: .x) {`); `Task.detached` is off-main (OFF_MAIN).
+TASK_START = re.compile(r"\bTask\s*(\(priority:[^)]*\))?\s*\{")
+
+
+def main_inherited_tasks(lines: list[str], default_main: bool,
+                         scopes: list[tuple[bool, int]] | None = None) -> list[tuple[int, int]]:
+    """The Tasks that run on the main actor, as (0-based line, 1-based line that set its isolation, 0: the target
+    default): `Task { @MainActor in` anywhere, and a plain `Task {` whose scope is main actor (an annotation, a
+    uiSwiftSettings target's default, or a type that inherits AppKit's or SwiftUI's isolation).
+
+    The one definition for the pre-push guardrail main-hop (guardrails.py) and the arch ratchet's
+    main_inherited_tasks row (plans/cmux-next/chrome-parity/p06-scheduler.md, Q1 + Q1b): a Task in main-actor code
+    stays counted when its `@MainActor in` is deleted. Lexical, so a heuristic: a `@Sendable` closure between the
+    scope and the Task reads as the scope. SCOPES: main_actor_scopes(lines, default_main, ui_types=True), when the
+    caller has it already.
+    """
+    scopes = scopes if scopes is not None else main_actor_scopes(lines, default_main, ui_types=True)
+    found = []
+    for index, raw in enumerate(lines):
+        if COMMENT_ONLY.match(raw) or not TASK_START.search(code := strip(raw)):
+            continue
+        if MAIN_TASK.search(code):  # `nonisolated func f() { Task { @MainActor in ... } }`: the line's own scope is off
+            found.append((index, index + 1))
+        elif scopes[index][0]:
+            found.append((index, scopes[index][1]))
+    return found
+
+
+ATTRIBUTE_ONLY =re.compile(r"^\s*((@\w+(\([^)]*\))?|nonisolated)\s*)+$")
 DECL_KEYWORD = re.compile(r"\b(func|init|var|class|struct|enum|extension|actor)\b")
 
 

@@ -1957,6 +1957,254 @@ RULES += INPUT_RULES
 # ---------------------------------------------------------------- end of input-monitor (p04-input, PL-typing)
 
 
+# ---------------------------------------------------------------- main-thread classes (p06-scheduler)
+# Main-thread work has a class and an owner, and hidden things do no view work
+# (plans/cmux-next/chrome-parity/p06-scheduler.md, section F). Chrome posts every UI-thread task to a typed queue
+# (content/browser/scheduler/browser_task_queues.h: BrowserTaskType and its priority), tells hidden pages so
+# (content/public/browser/visibility.h, WebContentsImpl::UpdateWebContentsVisibility), aligns timers
+# (base/task/delay_policy.h: kFlexibleNoSooner) and registers observers on their owner (base/observer_list.h).
+# Six line rules judge what a push adds, per file as a count ratchet like main-async: an edit of a line that
+# already has the debt adds none. Local only, never CI (Lawrence 2026-10-23). CmuxNextWakeups holds the
+# primitives that implement the classes and is not judged. Each concern has one owner, so these rules do not
+# repeat: `DispatchQueue.main.async` (main-async), a sleep without `// wakeup-allow:` (check-concurrency.sh's
+# wakeup rule) and a monitor outside CmuxNextInput (input-monitor).
+# The block owns its lines from here to `RULES += MAIN_CLASS_RULES`.
+WAKEUPS = SOURCES + "CmuxNextWakeups/"
+main_actor_work = swift_scope.main_actor_scope  # check-main-actor-work.py: the main-actor scopes and Task predicate
+RAW_MAIN_HOP = re.compile(r"\bMainActor\.run\b|\bCFRunLoopPerformBlock\(|\bRunLoop\.main\.perform\b")
+MAIN_DELIVERY = re.compile(r"\bMainDelivery\(")
+
+
+def prefilter(*patterns: re.Pattern) -> re.Pattern:
+    """PATTERNS joined, each alternative without its leading `\\b` (so a superset): a rule with a context reads every
+    line of a changed file, and a leading `\\b` costs re its literal-prefix scan (5x slower); the rule's own check
+    holds the exact patterns."""
+    return re.compile("|".join(piece.removeprefix(r"\b") for p in patterns for piece in p.pattern.split("|")))
+
+
+MAIN_HOP_LINE = prefilter(main_actor_work.TASK_START, RAW_MAIN_HOP, MAIN_DELIVERY)
+CLASS_ARGUMENT = re.compile(r"\bclass:")
+STATEMENT_LINES = 4  # the lines one call's arguments are read across (`MainDelivery(\n    class: ...`)
+# `ObservationStream({`, its trailing-closure form and `.current({`; not `extension ObservationStream {`.
+VIEW_OBSERVATION = re.compile(r"(?<!extension )\bObservationStream(\s*[({]|\.current\()|\bwithObservationTracking\b")
+HIDDEN_WALK = re.compile(r"\bisHiddenOrHasHiddenAncestor\b")
+HIDE_OVERRIDE = re.compile(r"\boverride\s+func\s+viewDid(Hide|Unhide)\b")
+# The one body a hide override may have (recipe R-hide): call super and tell the view's VisibilityNode.
+HIDE_FORWARD = re.compile(r"^\s*(super\.viewDid(Hide|Unhide)\(\)|(self\.)?\w*[nN]ode\??\.set\(\.(hidden|visible)\))\s*$")
+BODY_LINES = 40  # the lines a hide override's body is read across
+DEMAND_TIMER = re.compile(r"\bDemandTimer\(")
+SLEEP = re.compile(r"\bTask\.sleep\(|\.sleep\((for|until):")
+WAKEUP_ALLOWED = re.compile(r"//\s*wakeup-allow:\s*\S")
+LOOP_OPENER = re.compile(r"^\s*(\}\s*)?(while|for|repeat)\b")
+BRANCH_OPENER = re.compile(r"^\s*(\}\s*)?(if|else|guard|switch|case|default|do|catch|defer)\b|^\s*\{$")
+SCOPE_STOP = re.compile(r"\b(func|init|deinit|subscript|class|struct|enum|actor|extension|protocol)\b")
+RAW_OBSERVER = re.compile(r"\baddObserver\(|\b(NSWindow|NSApplication)\.(did|will)[A-Za-z]+Notification\b"
+                          r"|\bNSWorkspace\.shared\.notificationCenter\b|\bnotifications\(named:"
+                          r"|\bDistributedNotificationCenter\b|\.observe\(\\\.|\bNSView\.(frame|bounds)DidChangeNotification\b"
+                          r"|\bdidUpdateNotification\b")  # queue Q4 of p06-scheduler.md section 6
+TAP_FILE = re.compile(r"^" + re.escape(INPUT_TAP_MODULE) + r"InputEventTap(\+\w+)?\.swift$")
+
+
+def allow_marker(rule: str) -> re.Pattern:
+    return re.compile(r"//\s*" + re.escape(rule) + r"-allow:\s*\S")
+
+
+# {id(side's lines): (those lines, the side's memo in its FileChange)}: matcher_rule makes a new Version per rule, so
+# main-hop and timer-class share one isolation reading per side through the FileChange (scoped_to registers it).
+SIDE_MEMO: dict[int, tuple[list[str], dict]] = {}
+
+
+def side_memo(version: Version) -> dict:
+    entry = SIDE_MEMO.get(id(version.lines))
+    return entry[1] if entry is not None and entry[0] is version.lines else version.memo
+
+
+def isolation(version: Version) -> list[tuple[bool, int]]:
+    """Each line of VERSION: (main-actor code, the 1-based line that made it so; 0: its target's default)."""
+    memo = side_memo(version)
+    if "isolation" not in memo:
+        memo["isolation"] = main_actor_work.main_actor_scopes(version.lines, version.main_default, ui_types=True)
+    return memo["isolation"]
+
+
+def main_tasks(version: Version) -> dict[int, int]:
+    """{0-based line: the 1-based line that set its isolation} of VERSION's Tasks that run on the main actor."""
+    memo = side_memo(version)
+    if "main_tasks" not in memo:
+        memo["main_tasks"] = dict(main_actor_work.main_inherited_tasks(version.lines, version.main_default,
+                                                                       isolation(version)))
+    return memo["main_tasks"]
+
+
+def call_arguments(lines: list[str], index: int, call: re.Pattern) -> tuple[str, list[int]]:
+    """The code between the parentheses of CALL on LINES[INDEX] (read over STATEMENT_LINES lines), and the 1-based
+    lines after INDEX it read."""
+    text = "\n".join(code_of(line) for line in lines[index:index + STATEMENT_LINES])
+    match = call.search(text)
+    depth = 0
+    for i in range(match.end() - 1, len(text)):
+        depth += {"(": 1, ")": -1}.get(text[i], 0)
+        if depth == 0:
+            return text[match.end():i], list(range(index + 2, index + 2 + text.count("\n", 0, i)))
+    return text[match.end():], list(range(index + 2, index + 1 + STATEMENT_LINES))
+
+
+def main_hop_debt(version: Version, index: int) -> tuple[bool, list[int]]:
+    """A raw main hop, a MainDelivery without a class, or a Task that runs on the main actor (the shared predicate:
+    annotated, or plain in main-actor code, so deleting `@MainActor in` keeps the debt)."""
+    code = code_of(version.lines[index])
+    if RAW_MAIN_HOP.search(code):
+        return True, []
+    if MAIN_DELIVERY.search(code):
+        arguments, read = call_arguments(version.lines, index, MAIN_DELIVERY)
+        if not CLASS_ARGUMENT.search(arguments):
+            return True, read
+    main_task = main_tasks(version).get(index)
+    source = main_task if main_task is not None else isolation(version)[index][1]
+    return main_task is not None, [source] if source else []
+
+
+def block_body(lines: list[str], index: int) -> tuple[str, int] | None:
+    """(the code inside the first block that opens on LINES[INDEX], the 0-based line that closes it), or None when it
+    does not close within BODY_LINES."""
+    depth, body = 0, []
+    for j in range(index, min(len(lines), index + BODY_LINES)):
+        for c in code_of(lines[j]):
+            if c == "{":
+                depth += 1
+                if depth == 1:
+                    continue
+            elif c == "}":
+                depth -= 1
+                if depth == 0:
+                    return "".join(body), j
+            if depth > 0:
+                body.append(c)
+        if depth > 0:
+            body.append("\n")
+    return None
+
+
+def visibility_walk_debt(version: Version, index: int) -> tuple[bool, list[int]]:
+    """An ancestor walk, or a hide override whose body does more than forward to the view's VisibilityNode (its body
+    lines are the context: an edit there re-judges it)."""
+    code = code_of(version.lines[index])
+    if HIDDEN_WALK.search(code):
+        return True, []
+    if not HIDE_OVERRIDE.search(code):
+        return False, []
+    body = block_body(version.lines, index)
+    if body is None:
+        return True, []
+    text, end = body
+    forwards = all(HIDE_FORWARD.match(s) for s in re.split(r"[\n;]", text) if s.strip())
+    return not forwards, list(range(index + 2, end + 2))
+
+
+def timer_class_debt(version: Version, index: int) -> tuple[bool, list[int]]:
+    """A DemandTimer made in main-actor code, or a sleep in a loop that check-concurrency.sh lets through (its
+    `// wakeup-allow:`): a periodic timer with no class or alignment."""
+    lines = version.lines
+    code = code_of(lines[index])
+    if DEMAND_TIMER.search(code):
+        main, source = isolation(version)[index]
+        return main, [source] if source else []
+    match = SLEEP.search(code)
+    window = escape_window(lines, index)
+    context = [j + 1 for j in window]
+    if match is None or not any(WAKEUP_ALLOWED.search(lines[j]) for j in window):
+        return False, context  # an unescaped sleep is check-concurrency.sh's refusal, not this rule's
+    for opener, number in enclosing_openers(lines, index, SCOPE_STOP, code[:match.start()]):
+        if LOOP_OPENER.search(opener):
+            return True, context + [number]
+        if not BRANCH_OPENER.search(opener):
+            break  # a closure or a declaration: the loop around it does not repeat this sleep
+    return False, context
+
+
+def scoped_to(matcher: Matcher, keep_file: Callable[[str], bool]):
+    """matcher_rule(MATCHER) over the changed files KEEP_FILE accepts, each side's facts shared through SIDE_MEMO."""
+    def find(changes: list[FileChange], moved: collections.Counter) -> list[Added]:
+        kept = [c for c in changes if keep_file(c.path)]
+        if len(SIDE_MEMO) > 4096:  # one push holds a few hundred sides; a long-lived caller (the tests) many pushes
+            SIDE_MEMO.clear()
+        for change in kept:
+            for side, lines in (("head", change.head_lines), ("base", change.base_lines)):
+                SIDE_MEMO[id(lines)] = (lines, change.memo.setdefault(f"main-thread classes {side}", {}))
+        return matcher_rule(matcher)(kept, moved)
+    return find
+
+
+MAIN_CLASS_RULES = (
+    Rule("main-hop", "A main-thread hop without a class: a `Task` that runs on the main actor (`Task { @MainActor in`, "
+         "or a plain `Task {` in main-actor code), `MainActor.run`, `CFRunLoopPerformBlock`, `RunLoop.main.perform` or "
+         "a `MainDelivery(` with no `class:`",
+         "an unclassed hop is a FIFO main-queue job: the scheduler cannot put the person's input first or keep "
+         "automation and hidden work out of the frame (p06-scheduler.md rule 1; Chrome posts every UI-thread task "
+         "with a BrowserTaskType, content/browser/scheduler/browser_task_queues.h). Deleting `@MainActor in` does "
+         "not remove the hop: the Task still inherits the main actor",
+         "recipe R-hop: change the model synchronously in the input's turn, or post with a class and an owner "
+         "(`mainWork.post(.visible, owner: ...)`, `node.queue(...).post`), or compute off main in a nonisolated "
+         "Task and `.reply(on:)`; deliveries use `MainDelivery(class:owner:)`",
+         "// main-hop-allow: <the AppKit order that needs this hop (focus, menu tracking)>",
+         scoped_to(Matcher(MAIN_HOP_LINE, allow_marker("main-hop"), main_hop_debt),
+                   lambda path: not path.startswith((WAKEUPS, SOURCES + "CmuxNextCompat/MainRunLoopBlock.swift")))),
+    Rule("view-observation", "A raw observation: `ObservationStream(` or `withObservationTracking`",
+         "it re-arms on every change whether or not anything shows the value, with no class or owner: hidden "
+         "workspaces keep doing view work and one O(all) closure per row runs per change (p06-scheduler.md F5)",
+         "recipe R-obs: `VisibleObservation(node, owner:, on:)` when the apply touches views (it tracks only while "
+         "the node is visible), `ServiceObservation(class, owner, read, apply)` for anything else (model, daemon, "
+         "disk); waits use StoreWaiters or PageWaiters",
+         "// view-observation-allow: <why neither VisibleObservation nor ServiceObservation fits>",
+         scoped_to(Matcher(VIEW_OBSERVATION, allow_marker("view-observation")),
+                   lambda path: not path.startswith((WAKEUPS, SOURCES + "CmuxNextCompat/ObservationStream.swift")))),
+    Rule("visibility-walk", "An ad hoc visibility test: `isHiddenOrHasHiddenAncestor`, or a `viewDidHide`/"
+         "`viewDidUnhide` override that does more than forward to its VisibilityNode",
+         "an ancestor walk per call, and a per-view hidden flag the scheduler cannot see: hidden work is not held, "
+         "and on show it runs out of order (p06-scheduler.md rule 4; Chrome keeps one visibility per WebContents, "
+         "content/public/browser/visibility.h)",
+         "recipe R-vis: read `node.isVisible` and defer with `node.deferUntilVisible(key:)`; recipe R-hide: a hide "
+         "override only calls super and `node.set(.hidden)` / `node.set(.visible)`",
+         "// visibility-walk-allow: <the hit test or accessibility read that needs the walk>",
+         scoped_to(Matcher(prefilter(HIDDEN_WALK, HIDE_OVERRIDE), allow_marker("visibility-walk"),
+                           visibility_walk_debt), lambda path: not path.startswith(WAKEUPS))),
+    Rule("timer-class", "A timer with no class: a `DemandTimer(` in main-actor code, or a `Task.sleep` / "
+         "`clock.sleep` loop (a sleep in a loop with `// wakeup-allow:`)",
+         "a main-thread deadline without a class fires in FIFO order beside the person's input, and an unaligned "
+         "periodic sleep wakes the process on its own schedule while hidden (p06-scheduler.md section E; Chrome "
+         "aligns delayed tasks, base/task/delay_policy.h, and throttles hidden ones, "
+         "third_party/blink/renderer/platform/scheduler/common/throttling/cpu_time_budget_pool.cc)",
+         "recipe R-timer: an event first (idle-wakeups.md); else `MainDeadline(owner:, workClass:, alignment:, "
+         "scheduler:)` on main (`.flexible` by default, `.precise` only under 36 ms); a race timeout uses the "
+         "`Deadline` helper; DemandTimer stays for off-main deadlines",
+         "// timer-class-allow: <why this deadline needs no class or alignment>",
+         scoped_to(Matcher(prefilter(DEMAND_TIMER, SLEEP), allow_marker("timer-class"),
+                           timer_class_debt), lambda path: not path.startswith(WAKEUPS))),
+    Rule("raw-observer", "A raw notification or KVO observer (queue Q4: `addObserver(`, NSWindow/NSApplication "
+         "notices, the NSWorkspace center, `notifications(named:)`, DistributedNotificationCenter, `.observe(\\.`, "
+         "NSView frame/bounds notices, `didUpdateNotification`)",
+         "each observer runs for every post, visible or not, in no class: N views x every window notice "
+         "(p06-scheduler.md F5; Chrome observers register on their owner, base/observer_list.h)",
+         "recipe R-notif: subscribe through WindowEvents or AppEvents with a node (one observer per window or app "
+         "per notice, fan-out to visible subscribers); a frame or bounds notice becomes the view's own `layout()` / "
+         "`setFrameSize`; KVO on WebKit takes the tab's node",
+         "// raw-observer-allow: <why no WindowEvents or AppEvents notice fits>",
+         scoped_to(Matcher(RAW_OBSERVER, allow_marker("raw-observer")),
+                   lambda path: not path.startswith(WAKEUPS))),
+    Rule("local-monitor", "A second NSEvent monitor inside CmuxNextInput, outside the input tap (InputEventTap)",
+         "the tap is the one monitor of the process (p06-scheduler.md Q8 target: 1); input-monitor refuses "
+         "monitors outside CmuxNextInput, and a module-local one beside the tap runs for every event outside its "
+         "order (Chrome's one InputRouter per widget, components/input/input_router_impl.cc)",
+         "recipe R-monitor: add a phase or a subscription to `InputEventTap`; a session monitor is subscribed only "
+         "while its session is active",
+         "// local-monitor-allow: <why the tap cannot see this event>",
+         scoped_to(Matcher(INPUT_MONITOR, allow_marker("local-monitor")),
+                   lambda path: path.startswith(INPUT_TAP_MODULE) and not TAP_FILE.match(path))),
+)
+RULES += MAIN_CLASS_RULES
+# ---------------------------------------------------------------- end of main-thread classes (p06-scheduler)
+
+
 # ---------------------------------------------------------------- wakeup-ext (p14-energy, PL-energy)
 # Nothing polls (plans/cmux-next/chrome-parity/p14-energy.md, section C) in the code outside CmuxNext Sources: the
 # Shared packages and CmuxUpdater the app links, the cmux-tui crates' src, webviews/src and the CEF shim's C++/ObjC.
