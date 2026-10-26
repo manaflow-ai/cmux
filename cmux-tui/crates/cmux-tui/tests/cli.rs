@@ -3717,6 +3717,9 @@ mod conversation_inbox_state;
 #[path = "cli/conversation_live.rs"]
 mod conversation_live;
 #[cfg(unix)]
+#[path = "cli/conversation_scheduled.rs"]
+mod conversation_scheduled;
+#[cfg(unix)]
 #[path = "cli/conversation_person_credentials.rs"]
 mod conversation_person_credentials;
 #[cfg(unix)]

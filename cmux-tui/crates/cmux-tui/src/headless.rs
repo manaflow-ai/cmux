@@ -23,6 +23,8 @@ where
     // The daemon is ready: apps with an `always` server start off this path.
     #[cfg(unix)]
     cmux_tui_core::server::start_apps_when_ready(mux);
+    // Send Later: what came due while the daemon was down goes now.
+    cmux_tui_core::server::start_scheduled_sender(mux);
     // The brains of the Chiefs that are not the default, when the app asked
     // for them (CMUX_TUI_CHIEF_BRAINS); they end with this owner.
     let chief_brains = cmux_tui_core::chief_brains::start(mux, socket_path);

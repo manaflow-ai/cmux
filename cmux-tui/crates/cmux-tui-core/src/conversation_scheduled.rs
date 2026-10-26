@@ -12,6 +12,9 @@
 //! left the conversation, the agent budget) keeps the row as `failed` with the
 //! reason, for the author to retry, edit or cancel.
 
+use std::sync::{Condvar, Mutex, PoisonError};
+use std::time::Duration;
+
 use cmux_conversation::{Op, OpRequest, Part, Reject};
 use rusqlite::{OptionalExtension, Transaction, TransactionBehavior, params};
 use serde::Serialize;
@@ -92,6 +95,8 @@ pub(crate) enum Delivery {
     Failed { scheduled: ScheduledMessage },
     /// Nothing waits under that id (sent or cancelled meanwhile).
     Gone,
+    /// An agent's send inside the rate gap: it waits until the gap ends.
+    Postponed,
 }
 
 /// A change of a waiting message: its new time and/or its new parts.
@@ -254,11 +259,9 @@ impl ConversationStore {
     pub(crate) fn scheduled_author(&mut self, id: &str) -> anyhow::Result<Option<String>> {
         Ok(self
             .connection
-            .query_row(
-                "SELECT author FROM scheduled_message WHERE id = ?1",
-                params![id],
-                |row| row.get(0),
-            )
+            .query_row("SELECT author FROM scheduled_message WHERE id = ?1", params![id], |row| {
+                row.get(0)
+            })
             .optional()?)
     }
 
@@ -319,6 +322,17 @@ impl ConversationStore {
                 });
                 // Nothing of the refused op was written; only the mark.
                 drop(transaction);
+                // The agent rate gap is a wait, not a refusal: it waits out
+                // the gap and goes then.
+                if reason == Reject::AgentRate.code() {
+                    let later = crate::workspace_registry::unix_epoch_ms()?
+                        .saturating_add(cmux_conversation::MIN_AGENT_GAP_MS);
+                    self.connection.execute(
+                        "UPDATE scheduled_message SET send_at_ms = ?2 WHERE id = ?1",
+                        params![id, to_i64(later)?],
+                    )?;
+                    return Ok(Delivery::Postponed);
+                }
                 self.connection.execute(
                     "UPDATE scheduled_message SET failure = ?2 WHERE id = ?1",
                     params![id, reason],
@@ -421,8 +435,9 @@ struct Row {
 
 impl Row {
     fn decode(self) -> anyhow::Result<ScheduledMessage> {
-        let op = serde_json::from_str(&self.op_json)
-            .map_err(|error| anyhow::anyhow!("scheduled message {} is corrupt: {error}", self.id))?;
+        let op = serde_json::from_str(&self.op_json).map_err(|error| {
+            anyhow::anyhow!("scheduled message {} is corrupt: {error}", self.id)
+        })?;
         Ok(ScheduledMessage {
             id: self.id,
             conversation: self.conversation,
@@ -477,13 +492,64 @@ fn load_by_client_id(
 ) -> anyhow::Result<Option<ScheduledMessage>> {
     transaction
         .query_row(
-            &format!(
-                "{SELECT_ROW} WHERE conversation = ?1 AND author = ?2 AND client_msg_id = ?3"
-            ),
+            &format!("{SELECT_ROW} WHERE conversation = ?1 AND author = ?2 AND client_msg_id = ?3"),
             params![conversation, actor, client_msg_id],
             read_row,
         )
         .optional()?
         .map(Row::decode)
         .transpose()
+}
+
+/// The sender's wake: a change of the queue bumps the generation, and the
+/// sender waits for a new generation or its next due time. Nothing scheduled:
+/// it waits with no timeout (no polling, idle-wakeups.md).
+#[derive(Debug, Default)]
+pub(crate) struct SenderWake {
+    state: Mutex<WakeState>,
+    changed: Condvar,
+}
+
+#[derive(Debug, Default)]
+struct WakeState {
+    generation: u64,
+    started: bool,
+}
+
+impl SenderWake {
+    /// The queue changed: the sender looks again.
+    pub(crate) fn notify(&self) {
+        let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
+        state.generation += 1;
+        self.changed.notify_all();
+    }
+
+    /// True for the first caller only: it starts the sender.
+    pub(crate) fn claim_start(&self) -> bool {
+        let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
+        !std::mem::replace(&mut state.started, true)
+    }
+
+    pub(crate) fn generation(&self) -> u64 {
+        self.state.lock().unwrap_or_else(PoisonError::into_inner).generation
+    }
+
+    /// Waits until the generation moves past `seen` or `timeout` passes;
+    /// returns the generation then.
+    pub(crate) fn wait(&self, seen: u64, timeout: Option<Duration>) -> u64 {
+        let state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
+        let state = match timeout {
+            Some(timeout) => {
+                self.changed
+                    .wait_timeout_while(state, timeout, |state| state.generation == seen)
+                    .unwrap_or_else(PoisonError::into_inner)
+                    .0
+            }
+            None => self
+                .changed
+                .wait_while(state, |state| state.generation == seen)
+                .unwrap_or_else(PoisonError::into_inner),
+        };
+        state.generation
+    }
 }

@@ -44,6 +44,7 @@ public final class Events {
     public static final EventMetadata CONVERSATION_INBOX_CHANGED = new EventMetadata("conversation-inbox-changed", 12, "conversation-inbox-state-v1", List.of("subscribe"), true);
     public static final EventMetadata CONVERSATION_LIVE = new EventMetadata("conversation-live", 12, "chief-live-v1", List.of("subscribe"), true);
     public static final EventMetadata CONVERSATION_RUN_CHANGED = new EventMetadata("conversation-run-changed", 12, "conversation-runs-v1", List.of("subscribe"), true);
+    public static final EventMetadata CONVERSATION_SCHEDULED_CHANGED = new EventMetadata("conversation-scheduled-changed", 12, "conversation-scheduled-v1", List.of("subscribe"), true);
     public static final EventMetadata CONVERSATION_TYPING = new EventMetadata("conversation-typing", 12, "local-conversations-v1", List.of("subscribe"), true);
     public static final EventMetadata DAEMON_SHUTDOWN = new EventMetadata("daemon-shutdown", 12, null, List.of("control"), true);
     public static final EventMetadata DETACHED = new EventMetadata("detached", 5, null, List.of("attach-byte", "attach-render", "attach-browser"), true);
@@ -136,6 +137,7 @@ public final class Events {
         values.put("conversation-inbox-changed", CONVERSATION_INBOX_CHANGED);
         values.put("conversation-live", CONVERSATION_LIVE);
         values.put("conversation-run-changed", CONVERSATION_RUN_CHANGED);
+        values.put("conversation-scheduled-changed", CONVERSATION_SCHEDULED_CHANGED);
         values.put("conversation-typing", CONVERSATION_TYPING);
         values.put("daemon-shutdown", DAEMON_SHUTDOWN);
         values.put("detached", DETACHED);

@@ -145,6 +145,8 @@ pub struct Owner {
     pub runs: Vec<Value>,
     /// When set, every attachment upload is refused with this code.
     pub refuse_uploads: Option<String>,
+    /// Every Send Later the brain queued: (conversation, op, send_at_ms).
+    pub scheduled: Vec<(String, Op, u64)>,
 }
 
 /// One side conversation as the fake owner keeps it.
@@ -435,6 +437,19 @@ impl ConversationPort for FakeDaemon {
     fn run_append(&mut self, _: &str, run: Value, _: Vec<Value>) -> Result<(), OpError> {
         self.0.lock().unwrap().runs.push(run);
         Ok(())
+    }
+
+    fn schedule(
+        &mut self,
+        conversation: &str,
+        op: &Op,
+        send_at_ms: u64,
+    ) -> Result<String, OpError> {
+        let mut owner = self.0.lock().unwrap();
+        owner
+            .scheduled
+            .push((conversation.to_owned(), op.clone(), send_at_ms));
+        Ok(format!("sch_{}", owner.scheduled.len()))
     }
 
     fn draft(

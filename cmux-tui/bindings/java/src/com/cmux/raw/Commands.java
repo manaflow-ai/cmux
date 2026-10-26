@@ -91,6 +91,8 @@ public final class Commands {
     public static final CommandMetadata CONVERSATION_RUN = new CommandMetadata("conversation-run", Authority.LOCAL_ADMIN, 12, "conversation-runs-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata CONVERSATION_RUN_APPEND = new CommandMetadata("conversation-run-append", Authority.LOCAL_ADMIN, 12, "conversation-runs-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata CONVERSATION_RUNS = new CommandMetadata("conversation-runs", Authority.LOCAL_ADMIN, 12, "conversation-runs-v1", StreamKind.NONE, Map.of(), Map.of());
+    public static final CommandMetadata CONVERSATION_SCHEDULED_LIST = new CommandMetadata("conversation-scheduled-list", Authority.LOCAL_ADMIN, 12, "conversation-scheduled-v1", StreamKind.NONE, Map.of(), Map.of());
+    public static final CommandMetadata CONVERSATION_SCHEDULED_OP = new CommandMetadata("conversation-scheduled-op", Authority.LOCAL_ADMIN, 12, "conversation-scheduled-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata CONVERSATION_SEARCH = new CommandMetadata("conversation-search", Authority.LOCAL_ADMIN, 12, "conversation-search-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata CONVERSATION_SNAPSHOT = new CommandMetadata("conversation-snapshot", Authority.LOCAL_ADMIN, 12, "local-conversations-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata CONVERSATION_THREAD = new CommandMetadata("conversation-thread", Authority.LOCAL_ADMIN, 12, "conversation-thread-v1", StreamKind.NONE, Map.of(), Map.of());
@@ -381,6 +383,8 @@ public final class Commands {
         values.put("conversation-run", CONVERSATION_RUN);
         values.put("conversation-run-append", CONVERSATION_RUN_APPEND);
         values.put("conversation-runs", CONVERSATION_RUNS);
+        values.put("conversation-scheduled-list", CONVERSATION_SCHEDULED_LIST);
+        values.put("conversation-scheduled-op", CONVERSATION_SCHEDULED_OP);
         values.put("conversation-search", CONVERSATION_SEARCH);
         values.put("conversation-snapshot", CONVERSATION_SNAPSHOT);
         values.put("conversation-thread", CONVERSATION_THREAD);

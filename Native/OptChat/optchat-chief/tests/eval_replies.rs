@@ -128,6 +128,7 @@ fn stop_with_an_unanswered_person_message_is_refused_in_the_turn() {
             text: Some("On it.".into()),
             attachments: Vec::new(),
             reply_to: None,
+            delay_seconds: None,
         })
     })
     .expect("send answers");

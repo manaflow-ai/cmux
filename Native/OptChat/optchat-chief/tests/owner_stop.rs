@@ -430,6 +430,7 @@ fn the_chiefs_stop_tool_leaves_subagents_at_work_running() {
             text: Some("On it.".into()),
             attachments: Vec::new(),
             reply_to: None,
+            delay_seconds: None,
         })
     })
     .expect("send answers");

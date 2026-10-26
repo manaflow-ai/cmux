@@ -44,6 +44,10 @@ test "every generated optional non-null field rejects explicit null" {
     try expectExplicitNullRejected(protocol.ConversationOpResult, "transaction");
     try expectExplicitNullRejected(protocol.ConversationRunRequest, "after_rev");
     try expectExplicitNullRejected(protocol.ConversationRunAppendRequest, "steps");
+    try expectExplicitNullRejected(protocol.ConversationScheduledOpResult, "change");
+    try expectExplicitNullRejected(protocol.ConversationScheduledOpResult, "removed");
+    try expectExplicitNullRejected(protocol.ConversationScheduledOpResult, "replayed");
+    try expectExplicitNullRejected(protocol.ConversationScheduledOpResult, "rev");
     try expectExplicitNullRejected(protocol.ConversationSnapshotResult, "threads");
     try expectExplicitNullRejected(protocol.ConversationThreadRequest, "after_seq");
     try expectExplicitNullRejected(protocol.CreatePersonalGroupRequest, "collapsed");
@@ -103,6 +107,8 @@ test "every generated optional non-null field rejects explicit null" {
     try expectExplicitNullRejected(protocol.ColorsChangedEvent, "palette");
     try expectExplicitNullRejected(protocol.ColorsChangedEvent, "surface");
     try expectExplicitNullRejected(protocol.ConversationInboxChangedEvent, "pin_position");
+    try expectExplicitNullRejected(protocol.ConversationScheduledChangedEvent, "removed");
+    try expectExplicitNullRejected(protocol.ConversationScheduledChangedEvent, "scheduled");
     try expectExplicitNullRejected(protocol.DetachedEvent, "by");
     try expectExplicitNullRejected(protocol.DetachedEvent, "reason");
     try expectExplicitNullRejected(protocol.DetachedEvent, "scope");

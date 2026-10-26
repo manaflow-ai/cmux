@@ -181,6 +181,9 @@ pub struct SendCall {
     pub attachments: Vec<String>,
     /// The view line id of the user message whose thread it goes into.
     pub reply_to: Option<u64>,
+    /// Send Later: post it this many seconds from now instead of now (the
+    /// conversation owner holds it, so it goes out even if no turn runs).
+    pub delay_seconds: Option<u64>,
 }
 
 impl SendCall {
@@ -222,10 +225,26 @@ impl SendCall {
                     .ok_or("send: `reply_to` must be a message's line id")?,
             ),
         };
+        let delay_seconds = match args.get("delay_seconds") {
+            None | Some(Value::Null) => None,
+            Some(v) => {
+                let seconds = v
+                    .as_u64()
+                    .or_else(|| v.as_str().and_then(|s| s.trim().parse().ok()))
+                    .ok_or("send: `delay_seconds` must be a whole number of seconds")?;
+                if !(SEND_DELAY_MIN_SECONDS..=SEND_DELAY_MAX_SECONDS).contains(&seconds) {
+                    return Err(format!(
+                        "send: `delay_seconds` is {SEND_DELAY_MIN_SECONDS} to {SEND_DELAY_MAX_SECONDS} (one year)"
+                    ));
+                }
+                Some(seconds)
+            }
+        };
         Ok(SendCall {
             text,
             attachments,
             reply_to,
+            delay_seconds,
         })
     }
 
@@ -240,12 +259,20 @@ impl SendCall {
         if let Some(id) = self.reply_to {
             v["reply_to"] = json!(id);
         }
+        if let Some(seconds) = self.delay_seconds {
+            v["delay_seconds"] = json!(seconds);
+        }
         v
     }
 }
 
 /// Most attachments one `send` takes.
 pub const MAX_SEND_ATTACHMENTS: usize = 10;
+
+/// Shortest and longest Send Later delay of `send` (the owner's horizon is a
+/// little over a year).
+pub const SEND_DELAY_MIN_SECONDS: u64 = 60;
+pub const SEND_DELAY_MAX_SECONDS: u64 = 365 * 86_400;
 
 /// Shortest `sleep` (a turn costs more than a shorter wait saves).
 pub const SLEEP_MIN_SECONDS: u64 = 30;

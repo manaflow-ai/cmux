@@ -100,7 +100,8 @@ pub fn tools_granted(subagent: bool, grant: &crate::chief_profile::Grant) -> Val
          "inputSchema": {"type": "object", "properties": {
             "text": {"type": "string", "description": "The message, in Markdown."},
             "attachments": {"type": "array", "items": text, "maxItems": crate::tools::MAX_SEND_ATTACHMENTS, "description": "Files to attach: local paths (/abs, ~/rel, file://; images and videos show inline, any other file as a file, up to 50 MB each) or http(s) URLs (a link card)."},
-            "reply_to": {"type": "integer", "minimum": 0, "description": "A user message's line id: the message goes into its thread. Without it: the top level."}},
+            "reply_to": {"type": "integer", "minimum": 0, "description": "A user message's line id: the message goes into its thread. Without it: the top level."},
+            "delay_seconds": {"type": "integer", "minimum": crate::tools::SEND_DELAY_MIN_SECONDS, "maximum": crate::tools::SEND_DELAY_MAX_SECONDS, "description": "Send Later: post it this many seconds from now (60 to one year), text and URLs only. The app sends it then, even if you are not running; the user sees it waiting."}},
           "additionalProperties": false}}));
         list.push(json!({"name": "transcript", "description": TRANSCRIPT_DESCRIPTION,
          "inputSchema": {"type": "object", "properties": {

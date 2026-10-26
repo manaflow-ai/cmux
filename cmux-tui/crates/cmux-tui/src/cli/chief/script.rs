@@ -21,8 +21,18 @@ use super::turn::TurnWatch;
 use super::{ChatTarget, GlobalArgs, Input, Session, json_output};
 
 /// The verbs this module runs (`cmux chief WORD`).
-pub(super) const WORDS: [&str; 9] =
-    ["chats", "read", "send", "react", "amend", "retract", "mark-read", "wait", "events"];
+pub(super) const WORDS: [&str; 10] = [
+    "chats",
+    "read",
+    "send",
+    "react",
+    "amend",
+    "retract",
+    "mark-read",
+    "wait",
+    "events",
+    "scheduled",
+];
 
 /// The tapback reaction names; any other reaction is an emoji.
 const TAPBACKS: [&str; 6] = ["love", "like", "dislike", "laugh", "emphasize", "question"];
@@ -132,6 +142,8 @@ pub(super) struct Request {
     pub idle: bool,
     pub tail: Option<usize>,
     pub count: Option<usize>,
+    /// `send --at WHEN` and `scheduled edit --at WHEN` (scheduled.rs).
+    pub at: Option<String>,
 }
 
 /// Parses `cmux chief WORD …`.
@@ -191,6 +203,7 @@ pub(super) fn parse(args: &[String]) -> Result<Request, String> {
             "--idle" => request.idle = true,
             "--tail" => request.tail = Some(number(flag, &value()?)?.min(500) as usize),
             "--count" => request.count = Some(number(flag, &value()?)? as usize),
+            "--at" => request.at = Some(value()?),
             "-" => request.words.push("-".into()),
             other if other.starts_with("--") => return Err(format!("unknown argument {other}")),
             word => request.words.push(word.to_owned()),
@@ -310,6 +323,7 @@ pub(super) fn run(global: &GlobalArgs, args: &[String]) -> i32 {
                 "mark-read" => mark_read(&mut session, &request, json),
                 "wait" => wait(&mut session, &request, json),
                 "events" => events(&mut session, &request),
+                "scheduled" => super::scheduled::run(&mut session, &request, json),
                 _ => Err((2, text().usage.to_owned())),
             },
         },
@@ -516,6 +530,17 @@ fn send(session: &mut Session, request: &Request, json: bool) -> Outcome {
     }
     if !body.trim().is_empty() {
         parts.push(json!({"type": "text", "text": body}));
+    }
+    if let Some(when) = &request.at {
+        return super::scheduled::schedule(
+            session,
+            request,
+            when,
+            parts,
+            reply_to,
+            thread_root,
+            json,
+        );
     }
     if request.wait {
         // The stream opens first, so no reply can come before it.

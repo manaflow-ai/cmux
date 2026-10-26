@@ -6641,6 +6641,67 @@ Params: `conversation`, `op` (both required).
 Result: `object{conversation, participant, pinned:bool, pin_position?:uint64,
 marked_unread:bool}` (the new state).
 
+### conversation-scheduled-list
+
+| Field | Value |
+| --- | --- |
+| name | `conversation-scheduled-list` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `conversation-scheduled-v1` |
+
+Send Later: the caller's own scheduled messages, earliest `send_at_ms` first,
+of one conversation when `conversation` is set. Each item is
+`{id, conversation, author, op, send_at_ms:uint64, created_at_ms:uint64,
+state:"waiting"|"failed", failure?}`, where `op` is the `message.send` op the
+owner will commit and `failure` the reason code of a refused delivery. Only
+the author lists its messages. Trusted local connections only, never the
+remote relay.
+
+Params: `conversation` (optional).
+
+Result: `object{scheduled:[...]}`.
+
+### conversation-scheduled-op
+
+| Field | Value |
+| --- | --- |
+| name | `conversation-scheduled-op` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `conversation-scheduled-v1` |
+
+Changes the caller's Send Later queue. `op` is one of:
+
+- `{kind:"scheduled.create", conversation, send_at_ms:uint64, send}`: holds
+  `send` (a `message.send` op, its `client_msg_id` the delivery's idempotency
+  key) until `send_at_ms` (milliseconds since the epoch; at most 366 days
+  ahead, a past time sends at once). The send is checked now as at delivery
+  (participant, parts, reply and thread targets, attachments; `answers` and
+  questions are refused). A retry with the same `client_msg_id` and request
+  answers the same message with `replayed:true`; another request under that
+  id, or an id already sent, is `conversation_rejected`
+  `idempotency_conflict`. At most 500 per participant.
+- `{kind:"scheduled.update", id, send_at_ms?, parts?}`: a new time and/or new
+  parts; a failed message waits again.
+- `{kind:"scheduled.cancel", id}`: removes it unsent.
+- `{kind:"scheduled.send_now", id}`: sends it now.
+
+At its time the owner commits the op as its author in one transaction with
+the removal from the queue (at most once across crashes; a restart sends what
+came due while the daemon was down), and publishes the message's
+`conversation-changed` as for a live send. A refused delivery (the author left,
+the agent budget) stays as `state:"failed"` with `failure`; an agent's send
+inside the rate gap waits out the gap. The waiting message is not
+conversation state: no `rev`, no `conversation-changed` until it is sent.
+Rejects: `schedule_rejected` `unknown_scheduled` (not the caller's or gone),
+`too_late`, `too_many`, `not_a_send`, or a `conversation_rejected` reason.
+Trusted local connections only, never the remote relay.
+
+Params: `op` (required).
+
+Result: `object{scheduled?, replayed?:bool, removed?:{id, reason, seq?}, rev?:uint64, change?}`:
+`scheduled` after a create or update (or a failed send now), `removed` after a
+cancel or a send, with the sent message's `rev` and `change`.
+
 ### cloud-inbox-op
 
 | Field | Value |
