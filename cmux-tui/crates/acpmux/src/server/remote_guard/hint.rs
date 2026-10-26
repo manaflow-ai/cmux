@@ -129,7 +129,8 @@ fn explain(peer: &crate::peer::Peer, params: &Value, e: RpcError) -> RpcError {
 /// another build that serves this daemon as a peer (`served_peer`: its handshake, for a start
 /// this daemon did not forward for a Web client) but names no
 /// `servedAs` in the refusal: one older than the peer scratch folder (#24442), which treats
-/// an absent folder as the home folder. Its way out is updating it, then the same command;
+/// an absent folder as the home folder. Its way out is updating it once no session there is
+/// mid-turn (`--if-idle`), then the same command;
 /// the peer's own folder rule is unchanged. None for any other refusal.
 fn update_first(
     e: &RpcError,
@@ -146,7 +147,8 @@ fn update_first(
     if reason_of(e).as_deref() != Some(CWD_OUTSIDE_ROOTS) {
         return None;
     }
-    let update = format!("acpmux host update {peer_name}");
+    // `--if-idle`: the update never restarts the peer under a session mid-turn there.
+    let update = format!("acpmux host update {peer_name} --if-idle");
     let then = command(params, &Start::of(params), Some(peer_name), false).render(None);
     let message = format!(
         "{}: {peer_name} runs acpmux build {} (this daemon: {}), from before a start with no folder runs in a scratch folder there; run `{update}`, then `{then}`",
@@ -667,7 +669,7 @@ newlines')"#
     }
 
     /// `acpmux new --host H -m claude hi` with no --cwd, refused by a peer from before the
-    /// peer scratch folder: the way out is `acpmux host update H`, then the same command.
+    /// peer scratch folder: the way out is `acpmux host update H --if-idle`, then the same command.
     #[test]
     fn an_older_peer_refusing_a_start_with_no_folder_names_the_update() {
         let refused = || {
@@ -683,10 +685,11 @@ newlines')"#
         let data = e.data.clone().unwrap();
         assert_eq!(data["reason"], "peer_version_skew");
         assert_eq!(data["refused"], CWD_OUTSIDE_ROOTS);
-        assert_eq!(data["try"], "acpmux host update gcp-codex-lane-1");
+        assert_eq!(data["try"], "acpmux host update gcp-codex-lane-1 --if-idle");
         assert_eq!(data["then"], "acpmux new --host=gcp-codex-lane-1 -m claude hi");
         assert!(e.message.contains("972843ddd"), "{}", e.message);
-        assert!(e.message.contains("`acpmux host update gcp-codex-lane-1`"), "{}", e.message);
+        let update = "`acpmux host update gcp-codex-lane-1 --if-idle`";
+        assert!(e.message.contains(update), "{}", e.message);
         // A folder named, a peer that says how it served us, or one of this build: as before.
         let named = json!({"cwd": "/tmp/x", "_meta": {"acpmux": {"argv": argv}}});
         assert!(update_first(&refused(), "gcp-codex-lane-1", old, true, &named).is_none());
