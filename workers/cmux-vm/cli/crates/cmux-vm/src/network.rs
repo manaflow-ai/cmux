@@ -319,8 +319,8 @@ pub(crate) async fn tunnel(
             out.device_list(&fetch_body(client.mesh_list_devices(id.as_str(), None)).await?)
         }
         TunnelCommand::Get(TunnelGetArgs { id }) => {
-            if id.starts_with("tun_") {
-                if id.len() != 30 || !id[4..].bytes().all(|b| b.is_ascii_alphanumeric()) {
+            if let Some(suffix) = id.strip_prefix("tun_") {
+                if suffix.len() != 26 || !suffix.bytes().all(|b| b.is_ascii_alphanumeric()) {
                     return Err(CliError::usage("invalid tunnel id"));
                 }
                 let body = fetch_body(client.mesh_get_tunnel(&id, None)).await?;
