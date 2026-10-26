@@ -55,14 +55,20 @@ public final class RemoteLocalhostService {
     /// daemon's capabilities.
     public func route(for tab: TabModel, engine: BrowserEngineKind) -> RemoteLocalhostRoute {
         let daemon = machines.daemon(forTab: tab)
+        let workspace = daemon.store.pane(containing: tab.surface).flatMap { daemon.store.workspace(containing: $0.handle) }
+        return route(daemon: daemon, workspace: workspace?.id, engine: engine)
+    }
+
+    /// The route of a tab of `daemon`'s workspace `workspace` for `engine`
+    /// (also before the tab exists, for its notice).
+    public func route(daemon: DaemonService, workspace: String?, engine: BrowserEngineKind) -> RemoteLocalhostRoute {
         if daemon.isLocal, debugSocket != nil {
             return engine == .cef ? .machine(Self.debugMachineName) : .thisMacInstead(Self.debugMachineName, .webKit)
         }
         guard !daemon.isLocal else { return .thisMac }
         let name = machineName(of: daemon)
-        let workspace = daemon.store.pane(containing: tab.surface).flatMap { daemon.store.workspace(containing: $0.handle) }
-        guard isEnabled(workspace: workspace?.id) else { return .thisMacInstead(name, .turnedOff) }
-        guard daemon.supports(DaemonCapabilities.shared.loopbackForward) else { return .thisMacInstead(name, .updateMachine) }
+        guard isEnabled(workspace: workspace) else { return .thisMacInstead(name, .turnedOff) }
+        guard daemon.supports(DaemonCapability.loopbackForward.rawValue) else { return .thisMacInstead(name, .updateMachine) }
         guard engine == .cef else { return .thisMacInstead(name, .webKit) }
         return .machine(name)
     }

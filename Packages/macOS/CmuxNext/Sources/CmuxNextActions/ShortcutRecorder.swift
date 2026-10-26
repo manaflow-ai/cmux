@@ -51,12 +51,15 @@ public import AppKit
     public func handle(_ shortcut: Shortcut, keyCode: UInt16, event: NSEvent? = nil) -> Bool {
         guard var state = readState() else { return false }
         let bare = shortcut.modifiers.isEmpty
+        // Return or Enter answers a pending prompt; any other Return chord is recorded.
+        // (A `where` after `case 36, 76` would guard only 76.)
+        let answers = state.pending != nil && (bare || shortcut.modifiers == .option)
         switch keyCode {
         case 53 where bare:
             finish(notice: nil)
         case 51, 117:
             if bare { choose(.remove) } else if shortcut.modifiers == .shift { choose(.restoreDefault) } else { record(shortcut, event: event, into: &state) }
-        case 36, 76 where state.pending != nil && (bare || shortcut.modifiers == .option):
+        case 36 where answers, 76 where answers:
             let pending = state.pending
             let primary: ShortcutRecorderOption = pending?.owners.isEmpty == true ? .save : (pending?.canReplace == true ? .replace : .keepBoth)
             choose(shortcut.modifiers == .option ? .keepBoth : primary)

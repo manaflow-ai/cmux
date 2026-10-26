@@ -54,14 +54,23 @@ struct AgentPaneFilePutTests {
         #expect(AgentPaneFilePutFailure(AcpmuxStatusClient.Failure.unreachable("no daemon")) == .failed)
     }
 
-    @Test func aFilePastThePeerLimitIsNeverSent() async {
-        await #expect(throws: AgentPaneFilePutFailure.tooLarge) {
-            try await AcpmuxStatusClient.putFile(sessionId: "s", name: "big.bin",
-                                                 data: Data(count: AgentPaneUpload.maximumPeerFileBytes + 1)) { _ in
-                Issue.record("an oversize file was sent")
-                return [:]
+    @Test func resumableUploadUsesBoundedChunksAndCommitsThePath() async throws {
+        let data = Data(repeating: 7, count: AcpmuxStatusClient.filePutChunkBytes * 2 + 3)
+        let calls = CallLog()
+        let path = try await AcpmuxStatusClient.putFileChunked(sessionId: "s", name: "big.bin", data: data) { method, params in
+            await calls.add(method)
+            switch method {
+            case AcpmuxStatusClient.filePutBeginMethod: return ["uploadId": "0190a000-0000-7000-8000-000000000000"]
+            case AcpmuxStatusClient.filePutChunkMethod:
+                let offset = params["offset"] as? Int ?? 0
+                let bytes = Data(base64Encoded: params["data"] as? String ?? "")?.count ?? 0
+                return ["offset": offset + bytes]
+            default: return ["path": "/uploads/s/big.bin"]
             }
         }
+        #expect(path == "/uploads/s/big.bin")
+        let methods = await calls.methods()
+        #expect(methods == ["_acpmux/file_put_begin", "_acpmux/file_put_chunk", "_acpmux/file_put_chunk", "_acpmux/file_put_chunk", "_acpmux/file_put_finish"])
     }
 
     @Test func aHostWithoutAnAcpmuxTakesNoFiles() async {
@@ -94,5 +103,11 @@ struct AgentPaneFilePutTests {
             return next.data
         }
         func writes() -> [Data] { sent }
+    }
+
+    private actor CallLog {
+        var entries: [String] = []
+        func add(_ method: String) { entries.append(method) }
+        func methods() -> [String] { entries }
     }
 }

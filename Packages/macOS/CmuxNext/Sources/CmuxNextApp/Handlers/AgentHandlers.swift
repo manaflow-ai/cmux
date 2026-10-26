@@ -7,6 +7,7 @@ import CmuxNextControl
 import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextHomeEngine
+import CmuxNextMacScreen
 import CmuxNextOnboarding
 import CmuxNextSettings
 import Observation
@@ -30,6 +31,13 @@ enum AgentHandlers {
             registry.bind(id, run: { try fork(destination, invocation: $0, context: context) })
         }
         registry.bind("agentActivity.open", run: { _ in context.services.agentActivityPage.open() })
+        context.services.pages.register(context.services.macScreenTabs)
+        registry.bind("macScreen.open", run: { context.services.openMacScreen(in: try? context.pane($0)) })
+        // The menu bar item's rows while a device sees or controls this Mac (MacScreenShareIndicator).
+        registry.bind("macScreen.stopSharing", unavailable: { context.services.macScreenPages.hubHost.noSessionReason },
+                      run: { _ in _ = context.services.macScreenPages.hubHost.stopSession() })
+        registry.bind("macScreen.revokeViewer", unavailable: { context.services.macScreenPages.hubHost.noSessionReason },
+                      run: { _ in _ = context.services.macScreenPages.hubHost.revokeViewer() })
         AgentSessionWorkspace.bind(into: registry, context: context)
         AgentSessionTab.bind(into: registry, context: context)
         ChiefInspectorHandlers.bind(into: registry, context: context)
@@ -60,11 +68,15 @@ enum AgentHandlers {
         registry.bind("palette.computerUse.accessibility", run: { _ in context.services.onboarding.computerUseSetup.open(.accessibility) })
         registry.bind("palette.computerUse.screenRecording", run: { _ in context.services.onboarding.computerUseSetup.open(.screenRecording) })
         registry.bindAgentPane { invocation in
+            if openTargetedChat(invocation, context: context) { return }
             if let pane = context.scope(invocation).pane,
                DockedAgentChat.open(from: pane, invocation: invocation, services: context.services) { return }
             withAgentPane(invocation, context: context, seed: AgentPaneSeed()) { pane in
                 openNewAgentChat(in: pane, invocation: invocation, context: context)
             }
+        }
+        registry.bindAgentPaneSessionInfo { invocation in
+            focusedAgentView(context, invocation)?.toggleSessionInfo()
         }
         registry.bindAgentPaneInspector { invocation in
             guard let pane = context.scope(invocation).pane else { return context.refuse(MiscHandlerStrings.noPane) }
@@ -72,6 +84,25 @@ enum AgentHandlers {
                 return context.refuse(MiscHandlerStrings.noAgentPane)
             }
             view.toggleInspector()
+        }
+        registry.bind(.stopTurn, run: { invocation in
+            guard let view = focusedAgentView(context, invocation) else { return }
+            view.stopTurn()
+        })
+        registry.bind("agentPane.togglePointerInspector", unavailable: {
+            AgentPaneTunables.pointerInspector.value ? nil :
+                "UI pointer inspector is off. Turn it on in Debug Settings."
+        }, run: { invocation in
+            // Palette, keyboard and the CLI keep the existing toggle contract.
+            // A targeted context-menu invocation starts at the right-click point.
+            if invocation.target == nil {
+                context.services.uiInspector.toggle()
+            } else {
+                context.services.uiInspector.inspectFromContextMenu()
+            }
+        })
+        ActionTargetVisibility.hide("agentPane.togglePointerInspector", in: registry) { _ in
+            !AgentPaneTunables.pointerInspector.value
         }
         registry.bind(.fileOpen, run: { try openFile($0, context: context) })
         // The composer's mic (CmuxNextAgentPane). Held from the keyboard, it
@@ -224,7 +255,7 @@ enum AgentHandlers {
         SurfaceZoomIndicator.show(percent: 100, in: context.services.windows.active?.window)
     }
 
-    private static func openNewAgentChat(in pane: PaneController, invocation: ActionInvocation, context: AppActionContext) {
+    static func openNewAgentChat(in pane: PaneController, invocation: ActionInvocation, context: AppActionContext) {
         pane.newAgentTab()
     }
 

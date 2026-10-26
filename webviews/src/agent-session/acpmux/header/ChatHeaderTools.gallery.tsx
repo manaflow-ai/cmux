@@ -3,6 +3,7 @@ import { createElement } from "react";
 import type { ReactNode } from "react";
 import { componentEntry } from "../../../gallery/format";
 import type { Play, PlayContext } from "../../../gallery/play";
+import { avatarRows } from "./avatarRow";
 import type { ChatMenuItem } from "./ChatHeaderTools";
 import { PanelToggle } from "./PanelToggle";
 import type { QuickAction } from "./quickActions";
@@ -75,11 +76,12 @@ const menuRows = (): ChatMenuItem[] => [
 ];
 
 // The summary's panel toggle as the App passes it (summary/SummaryButton.tsx).
-const panelToggle = (shown: boolean) =>
+const panelToggle = (shown: boolean, icon = "view.list") =>
   createElement(PanelToggle, {
     className: "acpmux-summary-button",
     label: "Chat summary",
     shown,
+    icon,
     onToggle: () => undefined,
   });
 const summary = panelToggle(false);
@@ -117,6 +119,33 @@ const groupedControls: Play = async (ctx) => {
     throw new Error("header buttons are not on one 26px pitch");
   const glyphs = new Set(tools.map((button) => button.querySelector("svg")?.getAttribute("width")));
   if (glyphs.size !== 1) throw new Error(`header glyphs come in several sizes: ${[...glyphs].join(", ")}`);
+};
+
+// Plain icons (Leo 2026-10-25: "why do the icons have their own background border situation instead of
+// just being, you know, good"): with the right-side panel and Terminal's split open, Terminal hovered
+// and the chat menu open, no header tool draws a fill, border or shadow; the open panel's toggle reads
+// as on by its ink alone, against Browser at rest.
+const plainIcons: Play = async (ctx) => {
+  const { setHeaderState } = await import("./headerState");
+  setHeaderState({ lit: ["splitRight"] });
+  await ctx.waitFor(() => ctx.document.querySelector('[data-quick-action="terminal"][aria-pressed="true"]'));
+  await ctx.hover({ role: "button", name: "Terminal" });
+  await openMenu(ctx);
+  const view = ctx.document.defaultView!;
+  const tools = [...ctx.document.querySelectorAll<HTMLElement>(".acpmux-header-tools .acpmux-header-tool")];
+  for (const tool of tools) {
+    const style = view.getComputedStyle(tool);
+    const name = tool.getAttribute("aria-label");
+    if (!/^rgba\(.*,\s*0\)$|^transparent$/.test(style.backgroundColor))
+      throw new Error(`header tool ${name} draws a fill: ${style.backgroundColor}`);
+    if (["top", "right", "bottom", "left"].some((side) => style.getPropertyValue(`border-${side}-width`) !== "0px"))
+      throw new Error(`header tool ${name} draws a border`);
+    if (style.boxShadow !== "none") throw new Error(`header tool ${name} draws a shadow: ${style.boxShadow}`);
+  }
+  const on = ctx.find({ selector: '.acpmux-summary-button[aria-pressed="true"]' });
+  const off = ctx.find({ selector: '[data-quick-action="browser"]' });
+  if (view.getComputedStyle(on).color === view.getComputedStyle(off).color)
+    throw new Error("the open panel's toggle has the same ink as a tool at rest");
 };
 
 // The App found the chat branch's pull request: open, 3 of 5 checks passed, one failing (cx-tcwj).
@@ -334,6 +363,23 @@ export default componentEntry<HeaderToolsProps>({
       note: "The right-side panel is open: its toggle, first of the icons, is pressed and its glyph's column filled.",
       props: { ...base, summary: panelToggle(true) },
     },
+    "panel-icon-list": {
+      note: "Panel icon option: three list rows with circular markers, matching ChatGPT's session rail control; this is the shipped choice.",
+      props: { ...base, summary: panelToggle(false, "view.list") },
+    },
+    "panel-icon-info": {
+      note: "Panel icon option: the compact information glyph, shown for comparison with the list control.",
+      props: { ...base, summary: panelToggle(false, "status.info") },
+    },
+    "panel-icon-session": {
+      note: "Panel icon option: the session speech-bubble glyph, shown for comparison with the list control.",
+      props: { ...base, summary: panelToggle(false, "agent.session") },
+    },
+    "plain-icons": {
+      note: "Plain icons: the panel and Terminal's split open, Terminal hovered, the chat menu open; no tool draws a box, and the open panel's toggle is lit by its ink.",
+      props: { ...base, summary: panelToggle(true) },
+      play: plainIcons,
+    },
     "browser-preview": {
       note: "The chat's last turn named a local page: Browser opens it beside the chat and its tooltip names it; there is no separate Preview button.",
       props: { ...base, previewUrl: "http://localhost:5173/", onPreview: () => undefined },
@@ -436,6 +482,23 @@ export default componentEntry<HeaderToolsProps>({
     "menu-open": {
       note: "The chat menu starts with the quick actions not shown as buttons (New tab, Files, Split Down), then the tab's own rows, ending with Close.",
       props: base,
+      play: openMenu,
+    },
+    "menu-avatar": {
+      height: 860,
+      note: "A chat with an agent session and an uploaded avatar: Set Avatar… and Remove Avatar end the chat menu's tab rows, before Archive and Close (header/avatarRow.ts).",
+      props: {
+        ...base,
+        menu: () => {
+          const rows = menuRows();
+          const archive = rows.findIndex((row) => row !== "separator" && row.key === "archive");
+          const avatar = avatarRows(
+            { sessionId: "session-1", hasAvatar: true },
+            { set: () => undefined, remove: () => undefined },
+          );
+          return [...rows.slice(0, archive), ...avatar, "separator", ...rows.slice(archive)];
+        },
+      },
       play: openMenu,
     },
     "keyboard-menu": {
