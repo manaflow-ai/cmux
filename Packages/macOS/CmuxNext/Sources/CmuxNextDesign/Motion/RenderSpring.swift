@@ -1,6 +1,7 @@
 public import AppKit
 public import QuartzCore
 public import CmuxNextDesignTokens
+import CmuxNextCompat
 
 /// A spring that runs on the render server, with no main-thread work per frame
 /// (chrome-parity R2, plans/cmux-next/chrome-parity/p03-rendering.md).
@@ -99,11 +100,9 @@ public struct RenderSpring {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         if completion != nil || trace != nil {
-            CATransaction.setCompletionBlock {
-                MainActor.assumeIsolated { // main-proof: CATransaction.h: the completion block is called on the main thread
-                    if let trace { MotionTrace.end(trace) }
-                    completion?()
-                }
+            CATransaction.setMainCompletion {
+                if let trace { MotionTrace.end(trace) }
+                completion?()
             }
         }
         for move in moves {
