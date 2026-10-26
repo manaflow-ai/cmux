@@ -486,9 +486,13 @@ jobs:
     # is not success).
     needs: [sign, verify]
     if: ${{ !cancelled() && needs.sign.result == 'success' && needs.sign.outputs.signed == 'true' && needs.verify.result == 'success' && needs.verify.outputs.verified == 'true' }}
-    concurrency:
-      group: cmux-next-dev-daily
-      cancel-in-progress: false
+    # No concurrency group (a group replaces a pending run, which the dev-build
+    # rule forbids): runs publish side by side, and the newest source commit
+    # wins. The check and the write happen inside a lease on R2 (conditional
+    # writes), so no run writes between another's check and its write. The
+    # lease outlives the publish step's own timeout on R2's clock, so it is
+    # never taken from a run that is still writing.
+    environment: release
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
     # Room for one wait of up to an hour for the API budget's reset (below).
     timeout-minutes: 75
@@ -511,6 +515,14 @@ jobs:
           [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "sign job gave no source SHA" >&2; exit 1; }
           cp "signed-handoff/$APP_ARCHIVE_NAME" "$RUNNER_TEMP/$APP_ARCHIVE_NAME"
           (cd signed-handoff && shasum -a 256 "$APP_ARCHIVE_NAME") > "$RUNNER_TEMP/$APP_ARCHIVE_NAME.sha256"
+
+      - name: Checkout trusted R2 scripts
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          fetch-depth: 1
+          persist-credentials: false
+          sparse-checkout: scripts/ci
 
       # The release writes need contents: write, which only GITHUB_TOKEN has here,
       # and GITHUB_TOKEN's budget is shared by every workflow (run 40243784267
@@ -535,9 +547,22 @@ jobs:
           sleep "$wait"
 
       - name: Publish the rolling GitHub prerelease
+        # The step's own bound, which the R2 lease below outlives; the budget
+        # wait above runs before the lease is taken.
+        timeout-minutes: 45
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.CF_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CF_R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          R2_ENDPOINT: "https://${{ secrets.CF_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
+          R2_BUCKET: cmux-binaries
+          LEASE_KEY: nightly-next/locks/cmux-next-dev-publish.json
+          # The commit the channel publishes, recorded before the release
+          # changes: a write that fails halfway still blocks older commits.
+          RECORD_KEY: nightly-next/locks/cmux-next-dev-published.json
+          LEASE_OWNER: ${{ github.run_id }}-${{ github.run_attempt }}
         run: |
           set -euo pipefail
           archive="$RUNNER_TEMP/$APP_ARCHIVE_NAME"
@@ -551,7 +576,8 @@ jobs:
           # budget between it and these calls (run 40350641729's asset upload was
           # refused a second after the check passed). A call refused for the rate
           # limit waits for the reset and runs again: at most 3 tries, and at most
-          # an hour of waiting in this step (one ledger file, subshells included).
+          # 15 minutes of waiting in this step (one ledger file, subshells
+          # included), since the step holds the R2 lease while it waits.
           # A refused request did nothing on GitHub's side, so retrying a one-request
           # call (view, compare, upload --clobber, edit) is safe; any other failure
           # fails as before. Each attempt's stdout is held back and only a
@@ -576,43 +602,117 @@ jobs:
               reset="$(gh api rate_limit --jq '.resources.core.reset' 2>/dev/null || echo 0)"
               [[ "$reset" =~ ^[0-9]+$ ]] || reset=0
               wait=$(( reset > now ? reset - now + 5 : 60 ))
-              (( wait > 3600 - waited )) && wait=$(( 3600 - waited ))
+              (( wait > 900 - waited )) && wait=$(( 900 - waited ))
               (( wait > 0 )) || return "$rc"
               echo "::notice title=GitHub API budget::gh $1 $2 refused for the rate limit (try $try of 3); waiting ${wait}s for the reset" >&2
               sleep "$wait"
               echo $(( waited + wait )) > "$waited_file"
             done
           }
-          # Never roll the channel back: skip when the release already holds this
-          # commit or a newer one (the commit its notes name). feat-cmux-next
-          # usually moves while a source run builds, so requiring the current
-          # tip would publish almost nothing.
-          not_newer() {
-            published="$(ghw release view "$RELEASE_TAG" --repo "$GH_REPO" --json body --jq '.body' 2>/dev/null \
-              | grep -oE 'commit [0-9a-f]{40}' | head -n 1 | cut -d' ' -f2)" || published=""
-            [[ -n "$published" ]] || return 1
-            status="$(ghw api "repos/$GH_REPO/compare/$SOURCE_SHA...$published" --jq '.status')"
-            if [[ "$status" == ahead || "$status" == identical ]]; then
-              echo "::notice::cmux NEXT DEV already publishes $published, which is not older than $SOURCE_SHA; skipping"
-              return 0
-            fi
-            return 1
+          # Never roll the channel back. The record names the newest commit any
+          # run started publishing (before the record existed, the release
+          # notes did). This run writes when its commit is newer, or is that
+          # commit (a run repairing its own failed write). Two commits that
+          # diverged mean feat-cmux-next was rewritten: the one still on the
+          # branch wins. Any read or compare error fails the run.
+          compare() {
+            local status
+            status="$(ghw api "repos/$GH_REPO/compare/$1...$2" --jq '.status')" || exit 1
+            case "$status" in
+              ahead|behind|identical|diverged) echo "$status" ;;
+              *) echo "compare $1...$2 gave '$status'" >&2; exit 1 ;;
+            esac
           }
-          not_newer && exit 0
+          on_branch() {
+            local status
+            status="$(compare "$1" feat-cmux-next)" || exit 1
+            [[ "$status" == ahead || "$status" == identical ]]
+          }
+          published_commit() {
+            local body
+            record_etag="$(python3 scripts/ci/r2_cas.py get --key "$RECORD_KEY" --out "$RUNNER_TEMP/record.json")" || exit 1
+            if [[ "$record_etag" != absent ]]; then
+              published="$(jq -r '.commit // empty' "$RUNNER_TEMP/record.json")" || exit 1
+              [[ "$published" =~ ^[0-9a-f]{40}$ ]] || { echo "the publish record names no commit" >&2; exit 1; }
+              return
+            fi
+            published=""
+            if ! body="$(ghw api "repos/$GH_REPO/releases/tags/$RELEASE_TAG" --jq '.body // ""' 2>"$RUNNER_TEMP/release.err")"; then
+              grep -q 'HTTP 404' "$RUNNER_TEMP/release.err" || { cat "$RUNNER_TEMP/release.err" >&2; exit 1; }
+              return 0  # no release yet
+            fi
+            published="$(grep -oE 'commit [0-9a-f]{40}' <<<"$body" | head -n 1 | cut -d' ' -f2)" || published=""
+            # A release that exists but names no commit (empty or edited notes)
+            # could be newer than this run.
+            [[ -n "$published" ]] || { echo "the $RELEASE_TAG release names no source commit; not overwriting it" >&2; exit 1; }
+          }
+          # Whether the repository still has the commit: false only on GitHub's
+          # "no such commit" (404 or 422); any other error fails the run.
+          exists() {
+            ghw api "repos/$GH_REPO/commits/$1" --jq '.sha' >/dev/null 2>"$RUNNER_TEMP/commit.err" && return 0
+            grep -qE 'HTTP (404|422)' "$RUNNER_TEMP/commit.err" && return 1
+            cat "$RUNNER_TEMP/commit.err" >&2; exit 1
+          }
+          not_newer() {
+            published_commit
+            [[ -n "$published" ]] || return 1
+            # A recorded commit the repository no longer has (a force push and
+            # garbage collection after a failed write) cannot be compared, and
+            # would block every later run. A commit still on the source branch
+            # replaces it, with an annotation naming the lost commit.
+            if ! exists "$published"; then
+              if on_branch "$SOURCE_SHA"; then
+                echo "::warning title=cmux NEXT DEV record reset::the recorded commit $published no longer exists; $SOURCE_SHA, on the source branch, replaces it"
+                return 1
+              fi
+              echo "the recorded commit $published no longer exists and $SOURCE_SHA is not on the source branch" >&2; exit 1
+            fi
+            local status
+            status="$(compare "$SOURCE_SHA" "$published")" || exit 1
+            case "$status" in
+              behind|identical) return 1 ;;
+              diverged)
+                if ! on_branch "$published" && on_branch "$SOURCE_SHA"; then return 1; fi ;;
+            esac
+            echo "::notice::cmux NEXT DEV already publishes $published, which is not older than $SOURCE_SHA; skipping"
+            return 0
+          }
+          record() {
+            local condition=(--if-absent)
+            [[ "$record_etag" == absent ]] || condition=(--if-match "$record_etag")
+            jq -n --arg commit "$SOURCE_SHA" --arg run "$LEASE_OWNER" '{commit: $commit, run: $run}' > "$RUNNER_TEMP/record-new.json"
+            python3 scripts/ci/r2_cas.py put --key "$RECORD_KEY" --file "$RUNNER_TEMP/record-new.json" \
+              --content-type application/json --cache-control no-store "${condition[@]}" \
+              || { echo "the publish record changed outside the lease" >&2; exit 1; }
+          }
           # The tag sits on this workflow's main commit: a tag at a feat-cmux-next
           # commit needs the workflows permission (HTTP 403). The notes name
           # the source commit; consumers read only the assets.
           # The notes change last, so they never name a commit whose assets did
           # not upload.
-          # Create (once, when the release does not exist yet) makes several requests,
-          # so it is not replayed: a refusal fails the job and the dispatcher retries.
-          if ! ghw release view "$RELEASE_TAG" --repo "$GH_REPO" >/dev/null 2>&1; then
-            gh release create "$RELEASE_TAG" --repo "$GH_REPO" --target "$GITHUB_SHA" --title 'cmux NEXT DEV' --notes "$notes" --prerelease --latest=false \
-              "$archive" "$archive.sha256"
-          else
-            ghw release upload "$RELEASE_TAG" --repo "$GH_REPO" "$archive" "$archive.sha256" --clobber
-            ghw release edit "$RELEASE_TAG" --repo "$GH_REPO" --title 'cmux NEXT DEV' --notes "$notes" --prerelease --latest=false
-          fi
+          write() {
+            # Create (once, when the release does not exist yet) makes several
+            # requests, so it is not replayed: a refusal fails the job and the
+            # dispatcher retries.
+            if ! ghw release view "$RELEASE_TAG" --repo "$GH_REPO" >/dev/null 2>&1; then
+              gh release create "$RELEASE_TAG" --repo "$GH_REPO" --target "$GITHUB_SHA" --title 'cmux NEXT DEV' --notes "$notes" --prerelease --latest=false \
+                "$archive" "$archive.sha256"
+            else
+              ghw release upload "$RELEASE_TAG" --repo "$GH_REPO" "$archive" "$archive.sha256" --clobber
+              ghw release edit "$RELEASE_TAG" --repo "$GH_REPO" --title 'cmux NEXT DEV' --notes "$notes" --prerelease --latest=false
+            fi
+          }
+          # This step's timeout (45 minutes: 25 waiting for the lease, 15 of
+          # rate-limit waits, the rest for the work) ends every holder before
+          # its lease (50 minutes on R2's clock) runs out.
+          python3 scripts/ci/r2_cas.py lock --key "$LEASE_KEY" --owner "$LEASE_OWNER" --ttl 3000 --wait 1500 \
+            || { echo "another publisher held the lease for 25 minutes" >&2; exit 1; }
+          trap 'python3 scripts/ci/r2_cas.py unlock --key "$LEASE_KEY" --owner "$LEASE_OWNER" || true' EXIT
+          not_newer && exit 0
+          record
+          python3 scripts/ci/r2_cas.py holds --key "$LEASE_KEY" --owner "$LEASE_OWNER" \
+            || { echo "lost the publish lease before writing" >&2; exit 1; }
+          write
           echo "Published $RELEASE_TAG for $SOURCE_SHA"
 
   # The tip feed (Leo, 2026-10-24: "a separate app ... that is able to just
@@ -630,10 +730,10 @@ jobs:
     continue-on-error: true
     needs: [sign, verify]
     if: ${{ !cancelled() && needs.sign.result == 'success' && needs.sign.outputs.signed == 'true' && needs.sign.outputs.build != '' && needs.verify.result == 'success' && needs.verify.outputs.verified == 'true' }}
-    # One feed writer at a time; a newer build waits, none is cancelled.
-    concurrency:
-      group: cmux-next-dev-tip
-      cancel-in-progress: false
+    # No concurrency group (a group replaces a pending run, which the dev-build
+    # rule forbids): tip runs side by side, and the newest build wins. The
+    # feed write is a compare-and-swap on R2 (If-Match on the feed it read),
+    # so an older build can never overwrite a newer one.
     environment: release
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-6vcpu-macos-26' }}
     timeout-minutes: 55
@@ -643,6 +743,11 @@ jobs:
       APP_NAME: cmux NEXT DEV
       APP_ARCHIVE_NAME: cmux-NEXT-DEV.zip
       TIP_DMG_NAME: cmux-NEXT-DEV.dmg
+      # Each attempt's archive and deltas get their own names: every attempt
+      # signs its own DMG, and R2 keeps uploads write-once, so a feed's
+      # signature always matches the bytes behind its URL and a re-run never
+      # collides with an earlier attempt's upload.
+      TIP_RUN_TAG: r${{ github.run_id }}-${{ github.run_attempt }}
       TIP_BUILD: ${{ needs.sign.outputs.build }}
       SOURCE_SHA: ${{ needs.sign.outputs.source_sha }}
       TIP_BASE_URL: https://files.cmux.com/nightly-next/tip
@@ -775,7 +880,7 @@ jobs:
           xcrun stapler validate "$dmg"
           # The archive name carries the build so each item keeps its own URL.
           mkdir -p tip-new
-          cp "$dmg" "tip-new/cmux-NEXT-DEV-$TIP_BUILD.dmg"
+          cp "$dmg" "tip-new/cmux-NEXT-DEV-$TIP_BUILD-$TIP_RUN_TAG.dmg"
 
       - name: Generate the tip appcast with deltas
         if: steps.feed.outputs.fresh == 'true'
@@ -785,7 +890,7 @@ jobs:
           RELEASE_NOTES_URL: https://github.com/${{ github.repository }}/commit/${{ needs.sign.outputs.source_sha }}
           SPARKLE_PREVIOUS_ARCHIVES_DIR: tip-previous
           SPARKLE_MAXIMUM_DELTAS: "2"
-          SPARKLE_DELTA_NAME_PREFIX: cmux-NEXT-DEV-tip-
+          SPARKLE_DELTA_NAME_PREFIX: cmux-NEXT-DEV-tip-${{ github.run_id }}-${{ github.run_attempt }}-
         run: |
           set -euo pipefail
           # The feed key must be the key the app inside this DMG trusts:
@@ -796,14 +901,14 @@ jobs:
               env -u SPARKLE_PRIVATE_KEY swift scripts/derive_sparkle_public_key.swift --stdin
           )"
           mount="$(mktemp -d "$RUNNER_TEMP/tip-dmg.XXXXXX")"
-          hdiutil attach -quiet -nobrowse -readonly -mountpoint "$mount" "tip-new/cmux-NEXT-DEV-$TIP_BUILD.dmg"
+          hdiutil attach -quiet -nobrowse -readonly -mountpoint "$mount" "tip-new/cmux-NEXT-DEV-$TIP_BUILD-$TIP_RUN_TAG.dmg"
           app_key="$(/usr/libexec/PlistBuddy -c 'Print :SUPublicEDKey' "$mount/cmux NEXT DEV.app/Contents/Info.plist")"
           app_build="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$mount/cmux NEXT DEV.app/Contents/Info.plist")"
           hdiutil detach -quiet "$mount"
           [[ "$app_key" == "$signing_key" ]] || { echo "the tip app trusts $app_key, but the feed would be signed by $signing_key" >&2; exit 1; }
           [[ "$app_build" == "$TIP_BUILD" ]] || { echo "the DMG holds build $app_build, not $TIP_BUILD" >&2; exit 1; }
           mkdir -p tip-out
-          ./scripts/sparkle_generate_appcast.sh "tip-new/cmux-NEXT-DEV-$TIP_BUILD.dmg" cmux-next-tip "tip-out/$TIP_APPCAST" 2>&1 | tee tip-appcast.log
+          ./scripts/sparkle_generate_appcast.sh "tip-new/cmux-NEXT-DEV-$TIP_BUILD-$TIP_RUN_TAG.dmg" cmux-next-tip "tip-out/$TIP_APPCAST" 2>&1 | tee tip-appcast.log
           if grep -q "generate_appcast did not add edSignature" tip-appcast.log; then
             echo "generate_appcast refused the key for this archive; not publishing a feed the app cannot verify" >&2
             exit 1
@@ -819,19 +924,73 @@ jobs:
           AWS_SECRET_ACCESS_KEY: ${{ secrets.CF_R2_SECRET_ACCESS_KEY }}
           AWS_DEFAULT_REGION: auto
           R2_ENDPOINT: "https://${{ secrets.CF_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
+          R2_BUCKET: cmux-binaries
         run: |
           set -euo pipefail
-          upload() {
-            python3 scripts/ci/upload-r2-object.py --file "$1" --endpoint-url "$R2_ENDPOINT" \
-              --bucket cmux-binaries --key "$TIP_R2_PREFIX/$(basename "$1")" \
-              --content-type "$2" --cache-control "$3"
+          key="$TIP_R2_PREFIX/$TIP_APPCAST"
+          # The feed as R2 holds it now: its ETag, and stop if it already has
+          # this build or a newer one.
+          read_live() {
+            etag="$(python3 scripts/ci/r2_cas.py get --key "$key" --out tip-live-now.xml)"
+            newest=0
+            [[ "$etag" == absent ]] || newest="$(python3 scripts/ci/tip_feed.py newest tip-live-now.xml)"
+            if (( newest >= TIP_BUILD )); then
+              echo "::notice::the tip feed already has build $newest, not older than $TIP_BUILD; not writing the feed"
+              exit 0
+            fi
           }
-          upload "tip-new/cmux-NEXT-DEV-$TIP_BUILD.dmg" application/x-apple-diskimage "public, max-age=31536000, immutable"
+          read_live
+          # Archives and deltas are write-once under names unique to this
+          # attempt, so no run replaces bytes a feed already signed. Until the
+          # feed names them, they are this attempt's alone: a run that ends
+          # without writing the feed removes them (cmux_binaries_prune.py leaves
+          # this prefix alone). A feed write that failed without a clear
+          # conflict may have landed, or may still land, so after one the
+          # uploads stay.
+          uploaded=() written=false unsure=false
+          cleanup() {
+            local status=$?  # the step's own status, kept: the trap never turns a failure green
+            if [[ "$unsure" == true ]]; then
+              echo "::warning::a tip feed write ended without a clear answer; keeping this attempt's uploads"
+            elif [[ "$written" != true ]]; then
+              for object in ${uploaded[@]+"${uploaded[@]}"}; do
+                python3 scripts/ci/r2_cas.py delete --key "$object" || echo "::warning::could not remove $object"
+              done
+            fi
+            exit "$status"
+          }
+          trap cleanup EXIT
+          upload() {
+            local object
+            object="$TIP_R2_PREFIX/$(basename "$1")"
+            uploaded+=("$object")
+            python3 scripts/ci/upload-r2-object.py --file "$1" --endpoint-url "$R2_ENDPOINT" \
+              --bucket cmux-binaries --key "$object" \
+              --content-type "$2" --cache-control "$3" --write-once
+          }
+          upload "tip-new/cmux-NEXT-DEV-$TIP_BUILD-$TIP_RUN_TAG.dmg" application/x-apple-diskimage "public, max-age=31536000, immutable"
           for delta in tip-out/*.delta; do
             [[ -f "$delta" ]] || continue
             upload "$delta" application/octet-stream "public, max-age=31536000, immutable"
           done
-          upload "tip-out/$TIP_APPCAST" application/xml "no-cache, no-store, must-revalidate"
+          # Compare and swap. The appcast was generated from an earlier read of
+          # the feed, so this build's item is merged onto the feed R2 holds now
+          # (a build published in between stays), and written only while R2
+          # still holds that feed. A run that loses the race reads again.
+          for attempt in 1 2 3 4 5; do
+            (( attempt == 1 )) || read_live
+            if [[ "$etag" == absent ]]; then live=absent condition=(--if-absent); else live=tip-live-now.xml condition=(--if-match "$etag"); fi
+            python3 scripts/ci/tip_feed.py merge "tip-out/$TIP_APPCAST" "$live" --build "$TIP_BUILD" --keep "$TIP_KEEP" --out tip-merged.xml
+            python3 scripts/ci/tip_feed.py check tip-merged.xml --build "$TIP_BUILD"
+            rc=0 unsure=true
+            python3 scripts/ci/r2_cas.py put --key "$key" --file tip-merged.xml \
+              --content-type application/xml --cache-control "no-cache, no-store, must-revalidate" "${condition[@]}" || rc=$?
+            if (( rc == 0 )); then written=true; break; fi
+            (( rc == 3 )) || exit "$rc"
+            unsure=false  # R2 refused the write: it never lands
+            echo "::warning::another run wrote the tip feed first; reading it again (attempt $attempt)"
+            (( attempt < 5 )) || { echo "the tip feed kept changing under build $TIP_BUILD" >&2; exit 1; }
+          done
           {
             echo "### cmux NEXT DEV tip $TIP_BUILD"
             echo "feat-cmux-next $SOURCE_SHA, feed $TIP_BASE_URL/$TIP_APPCAST"
