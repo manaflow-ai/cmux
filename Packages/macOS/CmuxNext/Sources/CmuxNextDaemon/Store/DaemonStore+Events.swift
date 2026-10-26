@@ -67,7 +67,14 @@ extension DaemonStore {
         }
         return withOverlayLifted {
             var followup = Followup.none
+            var before: UInt64?
             for envelope in batch {
+                // The connection's events before its change count first: a wait they reach ends reached, not
+                // ended by the change (DaemonStore+Waits.swift).
+                if envelope.event.changesConnection, followup != .resync, let before {
+                    advanceAppliedSequence(to: personalRefetch.reachable(applying: before))
+                }
+                before = max(before ?? 0, envelope.sequence)
                 if envelope.sequence > snapshotBarrier || envelope.event.outlivesSnapshot {
                     switch applyEvent(envelope.event, sequence: envelope.sequence, envelope: envelope) {
                     case .resync: followup = .resync

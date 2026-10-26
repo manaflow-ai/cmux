@@ -8,7 +8,7 @@ public enum AppliedWaitResult: Sendable, Equatable {
     case cancelled
 }
 
-/// A wait ``DaemonStore/settle(through:)`` still had pending when it ended.
+/// A wait ``DaemonStore/settle(through:since:)`` still had pending when it ended.
 public enum DaemonSettleWait: String, Sendable, Equatable, CaseIterable {
     /// The store had not applied every event up to the sequence.
     case applied = "daemon.applied"
@@ -45,8 +45,8 @@ struct StoreWaiters {
 
     mutating func addIdle(_ id: UInt64, _ continuation: CheckedContinuation<Bool, Never>) { idle[id] = continuation }
 
-    /// Removes and returns the applied waits that are over: their connection changed (`epoch`), or the store
-    /// reached their sequence.
+    /// Removes and returns the applied waits that are over: their connection changed (`epoch`; checked first: a
+    /// later connection's sequence says nothing about this one's), or the store reached their sequence.
     mutating func takeDueApplied(appliedSequence: UInt64, epoch: Int) -> [(CheckedContinuation<AppliedWaitResult, Never>, AppliedWaitResult)] {
         var due: [(CheckedContinuation<AppliedWaitResult, Never>, AppliedWaitResult)] = []
         for (id, waiter) in applied {
@@ -60,6 +60,12 @@ struct StoreWaiters {
             applied[id] = nil
         }
         return due
+    }
+
+    /// Removes and returns every applied wait.
+    mutating func takeAllApplied() -> [CheckedContinuation<AppliedWaitResult, Never>] {
+        defer { applied = [:] }
+        return applied.values.map(\.continuation)
     }
 
     /// Removes and returns every idle wait.
