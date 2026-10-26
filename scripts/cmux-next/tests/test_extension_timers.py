@@ -214,6 +214,34 @@ class ProbeTests(unittest.TestCase):
         self.assertNotIn("rows", summary)
         self.assertEqual(len(report["rows"]), 2)
 
+    def run_probe(self, *args):
+        return subprocess.run([sys.executable, "-I", os.path.join(ROOT, "cef-idle-probe.py"), *args],
+                              capture_output=True, text=True, timeout=30)
+
+    def options(self, **values):
+        import argparse
+        opts = argparse.Namespace(**{"queue": False, "trace": None, "window": None, "extension_timers": None, **values})
+        return probe.extension_options(opts, argparse.ArgumentParser())
+
+    def test_the_default_window_sees_the_30_s_owner_four_times_in_both_modes(self):
+        self.assertEqual(self.options(extension_timers=UBO), (120.0, UBO))
+        self.assertEqual(self.options(), (120.0, UBO))  # --cdp-port alone: the built-in uBlock Origin
+        self.assertEqual(self.options(window=60.0, extension_timers="other"), (60.0, "other"))
+
+    def test_a_window_too_short_for_the_owner_is_refused_before_the_app_launches(self):
+        for args in (["--app", "/nonexistent.app", "--extension-timers"],
+                     ["--cdp-port", "1", "--extension-timers", UBO]):
+            result = self.run_probe(*args, "--window", "10")
+            self.assertEqual(result.returncode, 2, result.stderr)
+            self.assertIn("--window >= 60", result.stderr)
+
+    def test_the_profiler_never_shares_a_trace_or_queue_window(self):
+        result = self.run_probe("--app", "/nonexistent.app", "--extension-timers", "--queue")
+        self.assertEqual(result.returncode, 2, result.stderr)
+        self.assertIn("--queue", result.stderr)
+        result = self.run_probe("--trace", "/nonexistent.json", "--seconds", "100", "--extension-timers")
+        self.assertEqual(result.returncode, 2, result.stderr)
+
     def test_help_names_the_flags(self):
         out = subprocess.run([sys.executable, "-I", os.path.join(ROOT, "cef-idle-probe.py"), "--help"],
                              capture_output=True, text=True, check=True).stdout

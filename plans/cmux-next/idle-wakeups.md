@@ -440,7 +440,8 @@ Paths are in chromium/src at main, read 2026-10-25 (p14-energy.md sec. 1 has the
 
 The built-in uBlock Origin 1.75.0 (Manifest V2, `fetch-ublock.sh`) runs its background page in one extension
 renderer, the `cef-extension` kind (budget 0.1 wakeups/s per process, tabs-static). Its timers are profiled with
-`cef-idle-probe.py --extension-timers` (with `--app`, over the probe's window) or `--cdp-port PORT` (any running
+`cef-idle-probe.py --extension-timers` (with `--app`, in place of the trace and pump window, since its
+debugger pauses run on the browser main thread; window 120 s, at least 60 s) or `--cdp-port PORT` (any running
 Chromium, Chrome in chrome-static too): `extension_timers.py` sets DevTools' timer instrumentation breakpoints on
 the background target and counts each callback (a JS wake), each arm by the stack that armed it (the owner) and
 each `chrome.alarms` fire.
