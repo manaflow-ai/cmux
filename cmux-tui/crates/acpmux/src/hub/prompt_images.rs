@@ -375,6 +375,33 @@ fn block_size(block: &Value) -> Option<u64> {
     let data = block.get("data").and_then(Value::as_str)?;
     u64::try_from(base64::engine::general_purpose::STANDARD.decode(data).ok()?.len()).ok()
 }
+/// The `image` blocks of images a record names (`keep`'s `{id, mimeType, name}`), read back
+/// from where `keep` put them, so a prompt that is sent again (a restart's continuation,
+/// `restart_resume.rs`) carries them. One that is gone or whose id is not one `keep` makes is
+/// left out.
+pub(super) fn blocks_of(images: &[Value]) -> Vec<Value> {
+    use base64::Engine;
+    images
+        .iter()
+        .filter_map(|named| {
+            let id = named.get("id").and_then(Value::as_str).filter(|id| valid_id(id))?;
+            let bytes = std::fs::read(dir().join(id)).ok()?;
+            let mime = sniffed_type(&bytes)
+                .map(str::to_owned)
+                .or_else(|| named.get("mimeType").and_then(Value::as_str).map(str::to_owned))
+                .unwrap_or_else(|| "image/png".to_owned());
+            let mut block = json!({
+                "type": "image",
+                "mimeType": mime,
+                "data": base64::engine::general_purpose::STANDARD.encode(bytes),
+            });
+            if let Some(name) = named.get("name") {
+                block["name"] = name.clone();
+            }
+            Some(block)
+        })
+        .collect()
+}
 
 impl Hub {
     /// Records prompt `msg` as the session's `user_message`, naming the images of its `blocks`,
