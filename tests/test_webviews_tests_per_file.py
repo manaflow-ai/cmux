@@ -225,7 +225,7 @@ class PerFileRunner(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0, output)
         self.assertEqual(calls, ["./test/inspector-dead-clicks-flood.test.ts"] * 2)
         self.assertLess(len(output.encode()), 12_000, output)
-        self.assertIn("output truncated; complete log is in the webviews raw-log artifact", output)
+        self.assertIn("output truncated; complete log is in the configured webviews raw-log artifact", output)
         self.assertIn("(fail) inspector-dead-clicks sentinel", output)
         self.assertEqual(
             json.loads(results_path.read_text()),
@@ -247,7 +247,7 @@ class PerFileRunner(unittest.TestCase):
         self.assertEqual(calls, ["./test/browser-notice-flood.test.ts"])
         self.assertLess(len(output.encode()), 12_000, output)
         self.assertIn("::notice title=browser-flood", output)
-        self.assertIn("output truncated; complete log is in the webviews raw-log artifact", output)
+        self.assertIn("output truncated; complete log remains in the runner's per-file log", output)
 
     def test_retry_budget_expiring_during_limit_lookup_starts_no_retry(self):
         system_head = shutil.which("head")
