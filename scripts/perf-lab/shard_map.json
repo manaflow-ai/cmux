@@ -105,7 +105,7 @@
           "index": 0,
           "seconds": {
             "T0": 330,
-            "T1": 6780
+            "T1": 6900
           },
           "stories": {
             "T0": [
@@ -114,13 +114,14 @@
             "T1": [
               "blocking-hangs",
               "daemon-ops",
-              "launch-warm-realistic",
-              "memory-hidden",
+              "launch-cold",
+              "launch-cold-realistic",
               "motion",
+              "new-surfaces-matrix",
+              "omnibar",
               "pane-stress",
               "switch",
-              "tab-switch",
-              "typing"
+              "typing-stress"
             ]
           }
         },
@@ -128,7 +129,7 @@
           "index": 1,
           "seconds": {
             "T0": 150,
-            "T1": 6720
+            "T1": 6600
           },
           "stories": {
             "T0": [
@@ -138,14 +139,13 @@
             "T1": [
               "chat-anim",
               "home-idle",
-              "launch-cold",
-              "launch-cold-realistic",
+              "launch-warm-realistic",
+              "memory-hidden",
               "memory-hidden-webkit",
-              "new-surfaces-matrix",
-              "omnibar",
               "perf-gate",
               "sidebar",
-              "typing-stress"
+              "tab-switch",
+              "typing"
             ]
           }
         }

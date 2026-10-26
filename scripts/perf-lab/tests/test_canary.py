@@ -230,6 +230,21 @@ class KeyFrameStoryTests(unittest.TestCase):
                                          scheduler.ShardMap.load(LAB / "shard_map.json"))
         self.assertIn("typing-terminal", found)
 
+    def test_the_spin_is_on_the_path_of_the_t0_story_keys(self):
+        """typing-terminal types with debug.key into a window that is never key (BenchApp sets CMUX_NEXT_NO_ACTIVATE),
+        which skips CmuxApplication's dispatch and so its keyDownInterceptor. The spin is composed into
+        AppServices.routeKeyDown, which the interceptor and debug.key both call; a debug.key that called the router
+        directly would type past the spin and no canary run could alert."""
+        app = ROOT / "Packages/macOS/CmuxNext/Sources/CmuxNextApp"
+        services = (app / "AppServices.swift").read_text()
+        self.assertRegex(services, r"lazy var routeKeyDown[^\n]*= PerfLabCanaryKeyDown\(")
+        self.assertRegex(services, r"keyDownInterceptor = \{[^\n]*\n[^\n]*\n[^\n]*routeKeyDown\(event, window\)")
+        debug_key = (app / "Focus/DebugKey.swift").read_text()
+        self.assertIn("services.routeKeyDown(event, window)", debug_key)
+        self.assertNotIn("keyRouter.interceptKeyDown(", debug_key)
+        typing_terminal = json.loads((LAB / "stories.d/typing-terminal.json").read_text())
+        self.assertEqual(Path(typing_terminal["command"][0]).name, "typing-frame-bench.py")
+
     def test_only_sharded_t0_stories_with_a_key_to_frame_metric_count(self):
         stories = [_story("terminal-key", "T0", r"terminal\.light\.key_to_frame"),
                    _story("switch", "T0", r"switch\.ms"),

@@ -46,7 +46,8 @@ ran past their class budget with their stacks (debug.hangs over_budget).
 Result-v1: each phase kind's key-to-frame samples, every round together, are one cmux-perf-result/v1 file in --out
 (BenchApp.record): story --story (default `sidebar-churn-typing`, `sidebar-churn-typing-stress` for STRESS), metrics
 `idle.key_to_frame` and `churn.key_to_frame` (`hid_key_to_frame` with --input real: another path, another series).
-A --task-diagnostics run writes none (its numbers are perturbed). Fleet (an owned mini with a console; the step builds the app):
+A --task-diagnostics or --trace run writes none (typing_report.unrecorded: a stack capture or a Time Profiler
+attached during the measured keys perturbs them; the report says `perturbed`). Fleet (an owned mini with a console; the step builds the app):
   cmux-ci run --class exclusive --measurement --label measure --script scripts/measure/split-spring.sh --ref SHA \
     --artifact artifacts/split-spring/report.json --arg=--suite=sidebar-churn [--arg=--trace] [--arg=--gate-p95-ms=8]
 """
@@ -94,7 +95,10 @@ APP_CLI = os.path.join(opts.app, "Contents/Resources/bin/cmux")
 WINDOW = (40, 40, 1200, 900)
 STATUSES = ["todo", "working", "needs-attention", "review", "done"]
 results = {"tag": opts.tag, "host": os.uname().nodename, "opts": vars(opts), "log": [], "phases": [],
-           "input": opts.input, "session": opts.session, "perturbed": bool(opts.task_diagnostics)}
+           "input": opts.input, "session": opts.session}
+# A profiler or stack capture during the measured keys changes them: such a run writes no result-v1.
+UNRECORDED = typing_report.unrecorded(task_diagnostics=opts.task_diagnostics, trace=opts.trace)
+results["perturbed"] = UNRECORDED is not None
 SAMPLES = {}  # result-v1 metric -> key-to-frame samples, every round together
 
 
@@ -528,8 +532,8 @@ def main():
                        "churn_hang_max_ms": max(((p["hangs"] or {}).get("max_ms") or 0) for p in churn if isinstance(p["hangs"], dict))}
         results["summary"] = summary
         note(f"summary: {json.dumps(summary)}")
-        if opts.task_diagnostics:
-            results["recorded"] = "none: --task-diagnostics perturbs the numbers"
+        if UNRECORDED:
+            results["recorded"] = UNRECORDED
         else:
             story = opts.story or typing_report.session_story(typing_report.SIDEBAR_CHURN_STORY, opts.session)
             results["recorded"] = bench_tagged.record_series(bench, story, SAMPLES, log=note)

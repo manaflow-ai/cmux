@@ -58,6 +58,28 @@ def frame_metric(surface, phase):
     return f"{surface}.{phase}.key_to_frame"
 
 
+# The stories that claim a key-frame target row (scripts/perf-lab/targets.json), with the session of that row. Only
+# they name the target in their results: the typing story measures the same metric but does not claim the row.
+KEY_FRAME_STORIES = {"typing-terminal": "light", "typing-stress": "stress"}
+
+
+def frame_targets(story, session):
+    """{metric: target id} of a typing-frame-bench.py run of `story` in `session` (bench_tagged.record_series
+    `targets`): `terminal.key_to_frame` names `key-frame.<session>` when the story claims that row, else nothing."""
+    if KEY_FRAME_STORIES.get(story) != session:
+        return {}
+    return {frame_metric("terminal", "idle"): f"key-frame.{session}"}
+
+
+def unrecorded(**flags):
+    """Why a run writes no cmux-perf-result/v1, or None when it writes them. Each flag (its option name with `_` for
+    `-`) is an observer that runs during the measured keys and changes what they measure: a profiler that suspends
+    the task to sample it (`--sample`, `--trace`) or per-task stack capture (`--task-diagnostics`). Such a run's
+    numbers stay in its report, marked perturbed, and never join a lab series."""
+    on = [f"--{name.replace('_', '-')}" for name, value in flags.items() if value]
+    return f"none: {', '.join(on)} perturbs the numbers" if on else None
+
+
 def frame_engine(surfaces, engine):
     """The result engine of a typing-frame-bench.py run: the omnibar tab's engine when the run types into the omnibar,
     else none (the other surfaces type into no web page)."""

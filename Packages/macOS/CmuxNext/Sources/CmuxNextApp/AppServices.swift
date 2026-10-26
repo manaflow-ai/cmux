@@ -389,6 +389,8 @@ final class AppServices {
     let inputTap: InputEventTap  // the one input tap (AppDelegate's; a test's own); owners subscribe, never add event monitors (p04-input.md 3 (A))
     private var mouseDownSubscription: InputSubscription?  // a click after dispatch (start)
     private(set) lazy var keyRouter: KeyRouter = KeyRouter(registry: registry, inputDispatch: inputDispatch)  // first read in init (no IUO)
+    private(set) lazy var routeKeyDown: (NSEvent, NSWindow?) -> Bool = PerfLabCanaryKeyDown(features: { [weak self] in self?.features })
+        .wrap { [weak self] (event: NSEvent, window: NSWindow?) in self?.keyRouter.interceptKeyDown(event, in: window) ?? false }  // debug.key calls it too
     private(set) lazy var chromiumWarmup: ChromiumWarmup = ChromiumWarmup(engine: cache.cef, input: inputTap)  // first read by its afterFirstFrame start
     /// The Settings window (Settings…, Cmd-,).
     private(set) lazy var settingsWindow = SettingsWindowService(services: self)
@@ -664,11 +666,9 @@ final class AppServices {
         registry.dispatchingInputEvent = { inputDispatch.event }
         registry.isDispatchingKeyDown = { inputDispatch.isKeyDown }
         registry.effectExpectsFrame = { inputDispatch.noteFrameExpected() }
-        (NSApp as? CmuxApplication)?.keyDownInterceptor = PerfLabCanaryKeyDown(features: { [weak self] in self?.features }).wrap { [weak self] (event: NSEvent, window: NSWindow?) in
+        (NSApp as? CmuxApplication)?.keyDownInterceptor = { [weak self] event, window in
             guard let self else { return false }
-            // A key on Sleepy Mode's scene only wakes it; no shortcut runs behind the cover.
-            if self.sleepyMode.consumesKeyDown() { return true }
-            return self.keyRouter.interceptKeyDown(event, in: window)
+            return sleepyMode.consumesKeyDown() || routeKeyDown(event, window)  // a key on Sleepy Mode's scene only wakes it
         }
         (NSApp as? CmuxApplication)?.crossWindowKeyGuard = { [weak self] event, keyWindow in
             // Keys typed after New Window follow its new window on purpose (NewTabInputCoordinator).

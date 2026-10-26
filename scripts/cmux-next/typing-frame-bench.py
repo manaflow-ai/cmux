@@ -27,7 +27,9 @@ frames). Exit 1 with --gate-p95-ms when any measured surface's p95 is over it. P
 scripts/perf-lab/perf_stats.py (typing_report.distribution). Each session's key-to-frame samples, all rounds of a
 surface and phase together, are also one cmux-perf-result/v1 file per series in --out (BenchApp.record): story
 --story (default `typing`, `typing-stress` for STRESS), metric `terminal.key_to_frame` for the terminal at idle
-(the key-frame target) and `<surface>.<phase>.key_to_frame` for the others.
+(the key-frame target's metric; the stories that claim a key-frame row, typing-terminal and typing-stress, name
+it as the result's target_ref) and `<surface>.<phase>.key_to_frame` for the others. A --sample run writes none
+(typing_report.unrecorded: the profiler suspends the app during the measured keys; the report says `perturbed`).
 
   typing-frame-bench.py --app APP --tag TAG --out DIR [--json FILE] [--surfaces terminal,home,dock,omnibar]
       [--engine chromium|webkit]
@@ -78,6 +80,9 @@ CLI = os.path.join(APP, "Contents/Resources/bin/cmux")
 WINDOW = (40, 40, 1400, 900)
 BUSY = "while :; do printf '%s busy line %s %s\\n' $RANDOM $RANDOM $RANDOM; done"
 results = {"tag": TAG, "host": os.uname().nodename, "opts": vars(opts), "log": [], "runs": []}
+# /usr/bin/sample suspends the app for each sample while the load phase's keys run: such a run writes no result-v1.
+UNRECORDED = typing_report.unrecorded(sample=opts.sample)
+results["perturbed"] = UNRECORDED is not None
 app = None
 SESSION = "light"
 ROUND = 0
@@ -562,8 +567,9 @@ def run_session(session):
         bench.stop()
         story = opts.story or typing_report.session_story(typing_report.TYPING_STORY, session)
         engine = typing_report.frame_engine(opts.surfaces.split(","), opts.engine)
-        results.setdefault("recorded", {})[session] = bench_tagged.record_series(bench, story, dict(SAMPLES),
-                                                                                 engine=engine, log=note)
+        results.setdefault("recorded", {})[session] = UNRECORDED or bench_tagged.record_series(
+            bench, story, dict(SAMPLES), engine=engine, log=note,
+            targets=typing_report.frame_targets(story, session))
 
 
 def main():

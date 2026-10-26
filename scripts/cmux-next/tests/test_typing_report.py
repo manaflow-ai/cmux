@@ -10,6 +10,7 @@ Runs on any host (Linux included): no app, no fleet, no network.
 
 from __future__ import annotations
 
+import ast
 import importlib.util
 import json
 import re
@@ -134,6 +135,140 @@ class NameTests(unittest.TestCase):
                 engine = typing_report.frame_engine(surfaces, flags.get("--engine", "chromium"))
                 self.assertEqual(engine, story.engine, story_id)
                 self.assertEqual(flags["--sessions"], story.session, story_id)
+
+
+def debug_methods(path: Path, skip: frozenset[str] = frozenset(), extra_roots: tuple[str, ...] = ()) -> set[str]:
+    """The `rpc("debug.*")` / `.rpc("debug.*")` methods a bench's run reaches: every module-level call and every
+    function called from it (by name, any depth), except the functions in `skip` (a phase or surface the story does
+    not run). `extra_roots` are functions the bench reaches through a table (typing-frame-bench.py's SURFACES)."""
+    tree = ast.parse(path.read_text())
+    # Module functions and class methods; a nested function is part of the function that defines it.
+    defs = list(tree.body) + [m for c in tree.body if isinstance(c, ast.ClassDef) for m in c.body]
+    functions = {node.name: node for node in defs if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))}
+
+    def calls(node):
+        for child in ast.walk(node):
+            if isinstance(child, ast.Call):
+                yield child
+
+    def callee(call):
+        func = call.func
+        return func.id if isinstance(func, ast.Name) else func.attr if isinstance(func, ast.Attribute) else None
+
+    found, seen = set(), set()
+    pending = [node for node in tree.body if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))]
+    pending += [functions[name] for name in extra_roots]
+    while pending:
+        for call in calls(pending.pop()):
+            name = callee(call)
+            if name == "rpc" and call.args and isinstance(call.args[0], ast.Constant) \
+                    and str(call.args[0].value).startswith("debug."):
+                found.add(call.args[0].value)
+            elif name in functions and name not in seen and name not in skip:
+                seen.add(name)
+                pending.append(functions[name])
+    return found
+
+
+class NeedsTests(unittest.TestCase):
+    """Each typing story's `needs` names every debug method its command calls on the run the story makes, so a
+    bisect or pinpoint build without one is skipped as unsupported, not measured into a partial report (task 211)."""
+
+    # typing-frame-bench.py: what only a load phase reaches, and each surface's function (SURFACES).
+    FRAME_LOAD_ONLY = frozenset({"make_load", "chat_streams", "home_stream"})
+    FRAME_SURFACES = {"terminal": "surface_terminal", "home": "surface_home", "dock": "surface_dock",
+                      "omnibar": "surface_omnibar"}
+
+    def reached(self, story) -> set[str]:
+        path = ROOT / story.command[0]
+        if not path.name == "typing-frame-bench.py":
+            return debug_methods(path)
+        flags = dict(catalog._flag_values(list(story.command)))
+        surfaces = flags.get("--surfaces", "dock,terminal,home,omnibar").split(",")
+        skip = set() if "load" in flags.get("--phases", "idle,load").split(",") else set(self.FRAME_LOAD_ONLY)
+        skip |= {fn for surface, fn in self.FRAME_SURFACES.items() if surface not in surfaces}
+        return debug_methods(path, frozenset(skip), tuple(self.FRAME_SURFACES[s] for s in surfaces))
+
+    def test_needs_name_every_debug_method_the_command_calls(self) -> None:
+        stories = {s.id: s for s in catalog.load_catalog(ROOT).stories}
+        for story_id in ("typing-terminal", "typing", "typing-stress", "omnibar", "automation-typing",
+                         "sidebar-churn-typing", "typing-flood-stress"):
+            story = stories[story_id]
+            needed = {n.removeprefix("debug:") for n in story.needs if n.startswith("debug:")}
+            reached = self.reached(story)
+            self.assertIn("debug.key", reached, story_id)
+            self.assertEqual(reached - needed, set(), f"{story_id}: needs lacks these")
+            self.assertEqual(needed - reached, set(), f"{story_id}: needs names methods the run never calls")
+
+    def test_the_terminal_cut_needs_no_load_or_other_surface_method(self) -> None:
+        story = next(s for s in catalog.load_catalog(ROOT).stories if s.id == "typing-terminal")
+        self.assertEqual(self.reached(story), {"debug.key", "debug.hangs", "debug.frames", "debug.view_churn",
+                                               "debug.timings", "debug.focus"})
+
+
+class RecordingTests(unittest.TestCase):
+    def test_only_the_stories_that_claim_a_key_frame_row_name_its_target(self) -> None:
+        self.assertEqual(typing_report.frame_targets("typing-terminal", "light"),
+                         {"terminal.key_to_frame": "key-frame.light"})
+        self.assertEqual(typing_report.frame_targets("typing-stress", "stress"),
+                         {"terminal.key_to_frame": "key-frame.stress"})
+        self.assertEqual(typing_report.frame_targets("typing", "light"), {})
+        self.assertEqual(typing_report.frame_targets("typing-terminal", "stress"), {})
+
+    def test_the_targets_agree_with_the_stories_claims(self) -> None:
+        # Every story whose metric claims a key-frame row names that row in its results, and no other story does.
+        lab = catalog.load_catalog(ROOT)
+        claimed = {}
+        for (target, pattern), owners in catalog.claimed_checks(lab).items():
+            for owner in owners:
+                if target.startswith("key-frame."):
+                    claimed.setdefault(owner, []).append((target, pattern))
+        for story in lab.stories:
+            if not story.command[0].endswith("typing-frame-bench.py"):
+                continue
+            named = typing_report.frame_targets(story.id, story.session)
+            rows = claimed.get(story.id, [])
+            self.assertEqual(len(named), len(rows), story.id)
+            for target, pattern in rows:
+                self.assertTrue(any(t == target and re.fullmatch(pattern, m) for m, t in named.items()), story.id)
+
+    def test_a_typing_terminal_result_names_key_frame_light(self) -> None:
+        bench_tagged = load("bench_tagged", HERE / "bench_tagged.py")
+        app = RecordingApp()
+        story = "typing-terminal"
+        written = bench_tagged.record_series(app, story, {"terminal.key_to_frame": [4.0, 5.0],
+                                                          "terminal.load.key_to_frame": [6.0]},
+                                             targets=typing_report.frame_targets(story, "light"))
+        self.assertEqual(set(written), {"terminal.key_to_frame", "terminal.load.key_to_frame"})
+        self.assertEqual(app.targets, {"terminal.key_to_frame": "key-frame.light", "terminal.load.key_to_frame": None})
+
+    def test_a_perturbing_flag_records_nothing(self) -> None:
+        self.assertIsNone(typing_report.unrecorded(sample=False, trace=False, task_diagnostics=False))
+        self.assertEqual(typing_report.unrecorded(sample=True), "none: --sample perturbs the numbers")
+        self.assertEqual(typing_report.unrecorded(task_diagnostics=True, trace=True),
+                         "none: --task-diagnostics, --trace perturbs the numbers")
+
+    def test_each_profiling_bench_records_only_when_unperturbed(self) -> None:
+        # The profilers each bench can attach during the measured keys, and the one rule that keeps them out.
+        for name, flags in (("typing-frame-bench.py", ("sample",)),
+                            ("sidebar-churn-typing.py", ("task_diagnostics", "trace"))):
+            text = (HERE / name).read_text()
+            call = re.search(r"typing_report\.unrecorded\(([^)]*)\)", text)
+            self.assertIsNotNone(call, name)
+            self.assertEqual(sorted(re.findall(r"(\w+)=opts\.\w+", call.group(1))), sorted(flags), name)
+            self.assertRegex(text, r"UNRECORDED or bench_tagged\.record_series|if UNRECORDED:", name)
+            self.assertIn('results["perturbed"] = UNRECORDED is not None', text, name)
+
+
+class RecordingApp:
+    """BenchApp.record's signature; keeps each metric's target_ref."""
+
+    def __init__(self) -> None:
+        self.targets: dict[str, object] = {}
+
+    def record(self, story, metric, unit, samples, better, engine, target_ref=None):
+        self.targets[metric] = target_ref
+        return f"{story}/{metric}.json"
 
 
 class QueueTests(unittest.TestCase):

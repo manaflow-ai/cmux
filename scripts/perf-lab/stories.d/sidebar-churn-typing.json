@@ -11,7 +11,8 @@
   ],
   "repeats": 1,
   "seconds": 300,
-  "needs": ["debug:debug.key", "debug:debug.sidebar_perf", "debug:debug.hangs", "env:CMUX_NEXT_TYPING_PROBE"],
+  "needs": ["debug:debug.key", "debug:debug.sidebar_perf", "debug:debug.hangs", "debug:debug.main_budget",
+            "debug:debug.frames", "debug:debug.mouse", "env:CMUX_NEXT_TYPING_PROBE"],
   "hot_paths": ["terminal-key"],
   "owner": "PL-typing",
   "component": "Sidebar>Typing"

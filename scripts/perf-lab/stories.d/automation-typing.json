@@ -12,7 +12,7 @@
   "repeats": 1,
   "seconds": 240,
   "needs": ["debug:debug.key", "debug:debug.hangs", "debug:debug.main_budget", "debug:debug.cef",
-            "env:CMUX_NEXT_TYPING_PROBE"],
+            "debug:debug.layers", "debug:debug.mouse", "env:CMUX_NEXT_TYPING_PROBE"],
   "hot_paths": ["terminal-key"],
   "owner": "PL-typing",
   "component": "Input>Automation"
