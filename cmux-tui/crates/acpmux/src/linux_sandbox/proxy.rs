@@ -53,7 +53,8 @@ pub(crate) fn allowed(policy: &NetPolicy, addr: SocketAddr) -> bool {
             return false;
         }
         let last = [b[12], b[13], b[14], b[15]];
-        let translated = s[..6] == [0x64, 0xff9b, 0, 0, 0, 0] || s[..6] == [0, 0, 0, 0xffff, 0, 0];
+        // SIIT ::ffff:0:a.b.c.d expands to 0:0:0:0:ffff:0:<IPv4 high>:<IPv4 low>.
+        let translated = s[..6] == [0x64, 0xff9b, 0, 0, 0, 0] || s[..6] == [0, 0, 0, 0, 0xffff, 0];
         let local_nat64 = s[..3] == [0x64, 0xff9b, 1];
         if translated || local_nat64 {
             // RFC 6052 /48, /56 and /64 skip the reserved byte at index 8.
