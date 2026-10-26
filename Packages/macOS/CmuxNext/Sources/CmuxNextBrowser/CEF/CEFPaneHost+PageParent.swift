@@ -34,6 +34,9 @@ extension CEFPaneHost {
         page.wireToken = runtime.mintPageViewToken()
         // The page's focus follows the view's first responder state (``CEFTab/applyFocus(_:browser:)``).
         page.onFocusChange = { [weak self] focused in self?.visibleTab?.hostedPageFocusChanged(focused) }
+        #if DEBUG || CMUX_BENCH_HOOKS
+        page.editCommandSink = { [weak self] command in self?.runEditCommand(command) }
+        #endif
         hostView.addSubview(page, positioned: .below, relativeTo: nil)
         hostView.showOcclusion(in: page)
         hostedPageView = page
@@ -63,3 +66,14 @@ extension CEFRuntime {
         return lastPageViewToken
     }
 }
+
+#if DEBUG || CMUX_BENCH_HOOKS
+extension CEFPaneHost {
+    /// Host mode: the page view's Edit menu command on the visible tab's page, a post on the host's
+    /// ordered stream after the input before it (task p01-process-047).
+    func runEditCommand(_ command: ChromiumHostEditCommand) {
+        guard let browser = visibleTab?.browserID, let shim = runtime.shim else { return }
+        command.rawValue.withCString { shim.browserEditCommand(browser, $0) }
+    }
+}
+#endif

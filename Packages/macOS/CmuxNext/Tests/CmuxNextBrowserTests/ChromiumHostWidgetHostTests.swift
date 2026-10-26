@@ -368,5 +368,22 @@ import Testing
         #expect(wire.inputs.first?.1.kind == .focus)
         host.remove(ChromiumHostWidgetID(rawValue: 8))
     }
+
+    /// A widget's Edit menu commands keep going as kEdit frames (p01-process-047); one that frame
+    /// has no code for sends nothing.
+    @Test func aWidgetsEditCommandsGoAsEditFrames() throws {
+        let wire = RecordingWire()
+        let recorder = Recorder()
+        let host = makeHost(wire, recorder)
+        host.show(context(8, .extensionPopup))
+        let view = try #require(recorder.views.first)
+        view.copy(nil)
+        view.pasteAsPlainText(nil)
+        view.paste(nil)
+        #expect(wire.inputs.map(\.1) == [ChromiumHostFrame(.edit, v: [0]), ChromiumHostFrame(.edit, v: [2])])
+        host.remove(ChromiumHostWidgetID(rawValue: 8))
+        view.copy(nil)
+        #expect(wire.inputs.count == 2)
+    }
     #endif
 }

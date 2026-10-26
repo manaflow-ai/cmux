@@ -146,6 +146,10 @@ public final class ChromiumHostSession {
         }
         // The same stream as the key frames: an op follows the frames sent before it.
         view.textInputSink = { [weak self] op in _ = self?.send(ChromiumHostFrame(textInput: op)) }
+        // An Edit menu command is kIme's edit command with no key, on the same stream.
+        view.editCommandSink = { [weak self] command in
+            _ = self?.send(ChromiumHostFrame(textInput: .editCommand(command.rawValue)))
+        }
         view.onGeometry = { [weak self] geometry in
             self?.geometry = geometry
             self?.send(geometry.frame)

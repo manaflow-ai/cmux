@@ -46,14 +46,15 @@ nonisolated enum ChromiumHostOp: UInt16, CaseIterable, Sendable {
     case releaseContext = 157, setNavigationGuard = 158, setAuthCallback = 159, prefGet = 160, prefSetBool = 161
     case prefWatch = 162, bookmarksSync = 163, pageSchemeAdd = 164, pageSchemeAddFirstParty = 165
     case pageSchemeAddFirstPartyDynamic = 166, pageResourceRespond = 167, memoryPressureVote = 168
-    case setCursorEvents = 169, addDocumentScript = 170, addPageChannel = 171, tabEvaluate = 172, tabSetFrozen = 173
-    case tabSendClick = 174, tabSetColorScheme = 175, pageSchemeSetGroup = 176, tabDiscard = 177
-    case widgetSetGeometry = 178, widgetDismiss = 179, widgetSendInput = 180
+    case setCursorEvents = 169, browserEditCommand = 170, addDocumentScript = 171, addPageChannel = 172
+    case tabEvaluate = 173, tabSetFrozen = 174, tabSendClick = 175, tabSetColorScheme = 176
+    case pageSchemeSetGroup = 177, tabDiscard = 178, widgetSetGeometry = 179, widgetDismiss = 180
+    case widgetSendInput = 181
 
     /// The SHA-256 of the cmux_cef_shim.h this table was generated from (`CEFShimABI`).
-    static let abiIdentity = "81bf245c93a55693f030934eaf207a3c9f565fbe9ac595b664cc4a95e5918a2c"
+    static let abiIdentity = "dd43363e24bee8f3022a472f5d00e1d1de4bbddd548d03fe6aa1e4cfadb02fcd"
     /// This generation's op ids, classes and wire types; both HELLOs carry it.
-    static let wireIdentity = "b1c9bccd37ac5fa0bd72bf37512c3eee22aab45601fb889615e4a5bbdd75fcf7"
+    static let wireIdentity = "5af0c2673db543ecb6bfca69e667492403fd1358f7f9a28ed157e6582265e965"
     /// Ops of fork API symbols the header does not declare yet (`r.optional` in CEFShimLibrary).
     static let optionalOps: Set<ChromiumHostOp> = [
         .addDocumentScript, .addPageChannel, .tabEvaluate, .tabSetFrozen, .tabSendClick, .tabSetColorScheme,
@@ -361,6 +362,7 @@ nonisolated enum ChromiumHostOp: UInt16, CaseIterable, Sendable {
         Row(.post, [.int32, .int32, .string, .bytes], [.int32]),
         Row(.post, [.int32], [.int32]),
         Row(.local, [], []),
+        Row(.post, [.int32, .string], []),
         Row(.preinit, [.string, .string, .int32, .int32], [.int32]),
         Row(.preinit, [.string, .string], [.int32]),
         Row(.async, [.int32, .int32, .string, .string, .int32], [.int32]),

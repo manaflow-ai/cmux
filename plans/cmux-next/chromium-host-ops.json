@@ -4114,6 +4114,27 @@
       "pending_keys": [],
       "reply_event": null,
       "reason": "The Chromium Host turns cursor events on itself before initialize (its page windows never show; CURSOR events reach ChromiumHostPageView, task 045), so the remote export does nothing."
+    },
+    {
+      "name": "cmux_shim_browser_edit_command",
+      "class": "post",
+      "args": [
+        {
+          "name": "browser_id",
+          "type": "int"
+        },
+        {
+          "name": "command",
+          "type": "const char*"
+        }
+      ],
+      "returns": "void",
+      "result_used_by": [],
+      "mirror_key": null,
+      "refresh_events": [],
+      "pending_keys": [],
+      "reply_event": null,
+      "reason": "An Edit menu command of the page view (task 047), Chrome's RenderWidgetHostNSViewHost Undo ... SelectAll; ordered with the input seq barrier (task 092), so a paste lands after the keys typed before it."
     }
   ],
   "events": [

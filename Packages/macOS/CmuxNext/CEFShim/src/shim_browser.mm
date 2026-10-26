@@ -195,6 +195,32 @@ void cmux_shim_set_accessibility(int browser_id, int enabled) {
     host->SetAccessibilityState(enabled != 0 ? STATE_ENABLED : STATE_DISABLED);
 }
 
+void cmux_shim_browser_edit_command(int browser_id, const char* command) {
+  CefRefPtr<CefBrowser> browser = BrowserById(browser_id);
+  if (!browser || !command) return;
+  CefRefPtr<CefFrame> frame = browser->GetFocusedFrame();
+  if (!frame) frame = browser->GetMainFrame();
+  if (!frame) return;
+  const std::string name(command);
+  if (name == "Undo") {
+    frame->Undo();
+  } else if (name == "Redo") {
+    frame->Redo();
+  } else if (name == "Cut") {
+    frame->Cut();
+  } else if (name == "Copy") {
+    frame->Copy();
+  } else if (name == "Paste") {
+    frame->Paste();
+  } else if (name == "PasteAndMatchStyle") {
+    frame->PasteAndMatchStyle();
+  } else if (name == "Delete") {
+    frame->Delete();
+  } else if (name == "SelectAll") {
+    frame->SelectAll();
+  }
+}
+
 int cmux_shim_browser_set_embedder_visibility(int browser_id, int visibility) {
   if (!fork_api().browser_set_embedder_visibility) return 0;
   return fork_api().browser_set_embedder_visibility(browser_id, visibility);

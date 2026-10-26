@@ -148,6 +148,7 @@ final class ChromiumHostWidgetHost {
         entry.view.onGeometry = nil
         #if DEBUG || CMUX_BENCH_HOOKS
         entry.view.sink = nil
+        entry.view.editCommandSink = nil
         #endif
         _ = entry.view.show(contextID: 0)
         entry.view.removeFromSuperview()
@@ -200,6 +201,9 @@ final class ChromiumHostWidgetHost {
         entry.view.sink = { frame in
             wire.widget(widget, input: frame)
             return nil
+        }
+        entry.view.editCommandSink = { command in
+            if let frame = command.editFrame { wire.widget(widget, input: frame) }
         }
         #endif
         if entry.context.kind.placement.reportsGeometry {

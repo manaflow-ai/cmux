@@ -25,12 +25,13 @@ import QuartzCore
 /// changed (PATTERNS P8).
 ///
 /// Input (``InputTarget``): with ``InputTarget/view`` this view is the page's
-/// input target and first responder (host mode: mouse, scroll, keys and Edit
-/// menu actions become wire frames for ``sink``, one per event, in the
+/// input target and first responder (host mode: mouse, scroll and keys
+/// become wire frames for ``sink``, one per event, in the
 /// event's own turn: no display-tick alignment here, the renderer aligns
 /// input to its frames, as Chrome's browser process forwards input at once;
 /// ``ChromiumHostConnection`` coalesces only under socket back-pressure;
-/// keys in ChromiumHostPageView+Keys.swift). With
+/// keys in ChromiumHostPageView+Keys.swift; the Edit menu, services, speech
+/// and Look Up in ChromiumHostPageView+Edit.swift). With
 /// ``InputTarget/pageWindow`` the fork's transparent page window above takes
 /// every event (in-process layer hosting), and this view takes none.
 public final class ChromiumHostPageView: NSView {
@@ -113,6 +114,10 @@ public final class ChromiumHostPageView: NSView {
     var textInputSink: ((ChromiumHostTextInputOp) -> Void)?
     /// The page's text input: the state the host pushed and the input method's marked text.
     var textInput = ChromiumHostTextInput()
+    /// Where the Edit menu's commands go (``InputTarget/view`` only; ChromiumHostPageView+Edit.swift).
+    var editCommandSink: ((ChromiumHostEditCommand) -> Void)?
+    /// Speaks the page's selection for Start Speaking; made on first use. Tests pass a recorder.
+    lazy var speech: any ChromiumHostSpeaking = ChromiumHostSpeechSynthesizer()
     private var tracking: NSTrackingArea?
     #endif
 
@@ -403,19 +408,6 @@ extension ChromiumHostPageView {
     private func pagePoint(_ event: NSEvent) -> (x: Int32, y: Int32) {
         let local = convert(event.locationInWindow, from: nil)
         return (Int32(local.x.rounded(.down)), Int32((bounds.height - local.y).rounded(.down)))
-    }
-
-    // MARK: Edit menu
-
-    @objc public func copy(_ sender: Any?) { edit(0) }
-    @objc public func cut(_ sender: Any?) { edit(1) }
-    @objc public func paste(_ sender: Any?) { edit(2) }
-    @objc public override func selectAll(_ sender: Any?) { edit(3) }
-    @objc public func undo(_ sender: Any?) { edit(4) }
-    @objc public func redo(_ sender: Any?) { edit(5) }
-
-    private func edit(_ command: Int32) {
-        _ = sink?(ChromiumHostFrame(.edit, v: [command]))
     }
 
     /// An event time (seconds since boot) as CLOCK_UPTIME_RAW nanoseconds, the host's clock too.

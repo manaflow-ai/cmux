@@ -58,6 +58,9 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
     /// Fork API 34: `cmux_shim_browser_set_embedder_visibility` (a `cmux_shim_embedder_visibility_t`; 1 when the
     /// fork took it). Nil on a shim without the export (task p03-rendering-058).
     let browserSetEmbedderVisibility: (@convention(c) (Int32, Int32) -> Int32)?
+    /// `cmux_shim_browser_edit_command(browser, name)`: an Edit menu command on the page's focused frame
+    /// (`ChromiumHostEditCommand`, task p01-process-047); a post on the host's ordered stream in host mode.
+    let browserEditCommand: @convention(c) (Int32, UnsafePointer<CChar>?) -> Void
     let initialize: @convention(c) (
         UnsafePointer<CChar>?, UnsafePointer<CChar>?, UnsafePointer<CChar>?, UnsafePointer<CChar>?,
         UnsafePointer<CChar>?, Int32, UnsafePointer<CChar>?, UnsafePointer<CChar>?,
@@ -335,6 +338,7 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
         browserSetResizeSync = try r("cmux_shim_browser_set_resize_sync")
         browserSetEmbedderActive = try r("cmux_shim_browser_set_embedder_active")
         browserSetEmbedderVisibility = r.optional("cmux_shim_browser_set_embedder_visibility")
+        browserEditCommand = try r("cmux_shim_browser_edit_command")
         initialize = try r("cmux_shim_initialize")
         doWork = try r("cmux_shim_do_work")
         setScheduleDelayed = try r("cmux_shim_set_schedule_delayed")
