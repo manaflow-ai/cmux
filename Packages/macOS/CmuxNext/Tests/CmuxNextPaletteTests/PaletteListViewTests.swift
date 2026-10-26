@@ -147,9 +147,11 @@ import Testing
 
     // MARK: The Actions menu
 
-    /// The Actions menu's rows share the menu's one consumer: moves over several rows in one frame
-    /// hover the leading row at once and the row under the latest point at the frame; a row's enter
-    /// lands the pending move first.
+    /// The Actions menu's rows share the menu's one consumer: a fast sweep over the rows in one frame,
+    /// with every row's exit and enter in AppKit's order, hovers the leading row at once and the row
+    /// under the latest point at the frame (row crossings coalesce like moves, as Blink derives its
+    /// boundary events from the rAF-aligned move, boundary_event_dispatcher.cc). The pointer leaving
+    /// the menu lands the pending move first.
     @Test func theActionsMenuHoversOnTheLeadingEdgeAndOnceAtTheFrame() throws {
         _ = NSApplication.shared
         let frames = FrameInputTestRig()
@@ -171,23 +173,38 @@ import Testing
         let rows = Self.menuRows(in: menu)
         try #require(rows.count == 5)
         func center(_ index: Int) -> CGPoint { rows[index].convert(CGPoint(x: rows[index].bounds.midX, y: rows[index].bounds.midY), to: nil) }
-
-        for index in [0, 1, 2, 3] {
-            rows[index].mouseMoved(with: try Self.mouse(.mouseMoved, at: center(index), in: window))
+        func crossing(_ type: NSEvent.EventType, at point: CGPoint) throws -> NSEvent {
+            try #require(NSEvent.enterExitEvent(with: type, location: point, modifierFlags: [], timestamp: 0,
+                                                windowNumber: window.windowNumber, context: nil, eventNumber: 0,
+                                                trackingNumber: 0, userData: nil))
         }
-        #expect(hovered == [0], "before the frame only the leading move hovered")
-        frames.frame()
-        #expect(hovered == [0, 3], "the frame hovered the row under the latest move")
-        #expect(menu.hoverMoves.maxDeliveriesPerFrame == 2)
+        // One move from row `from` onto row `to`, as AppKit delivers it: the old row's exit, the new
+        // row's enter, then the move, every one at the new point.
+        func sweep(from: Int?, to index: Int) throws {
+            let point = center(index)
+            if let from, from != index { rows[from].mouseExited(with: try crossing(.mouseExited, at: point)) }
+            if from != index { rows[index].mouseEntered(with: try crossing(.mouseEntered, at: point)) }
+            rows[index].mouseMoved(with: try Self.mouse(.mouseMoved, at: point, in: window))
+        }
 
-        rows[1].mouseMoved(with: try Self.mouse(.mouseMoved, at: center(1), in: window))
-        rows[2].mouseMoved(with: try Self.mouse(.mouseMoved, at: center(2), in: window))
-        rows[4].mouseEntered(with: try #require(NSEvent.enterExitEvent(
-            with: .mouseEntered, location: center(4), modifierFlags: [], timestamp: 0, windowNumber: window.windowNumber,
-            context: nil, eventNumber: 0, trackingNumber: 0, userData: nil)))
-        #expect(hovered == [0, 3, 1, 2, 4], "the enter landed the pending move first")
+        var previous: Int?
+        for step in 0..<8 {
+            try sweep(from: previous, to: step % 5)
+            previous = step % 5
+        }
+        #expect(hovered == [0], "before the frame only the leading event hovered")
         frames.frame()
-        #expect(hovered.last == 4, "a move was delivered after the enter")
+        #expect(hovered == [0, 7 % 5], "the frame hovered the row under the latest move")
+        #expect(hovered.count <= 2, "more than 2 hover updates in one frame")
+        #expect(menu.hoverMoves.maxDeliveriesPerFrame <= 2)
+
+        try sweep(from: previous, to: 1)
+        try sweep(from: 1, to: 4)
+        #expect(hovered == [0, 2, 1], "the next frame interval's leading event hovers at once")
+        menu.mouseExited(with: try crossing(.mouseExited, at: center(4)))
+        #expect(hovered == [0, 2, 1, 4], "leaving the menu landed the pending move first")
+        frames.frame()
+        #expect(hovered.last == 4, "a move was delivered after the exit")
     }
 
     private static func menuRows(in view: NSView) -> [PaletteMenuRow] {

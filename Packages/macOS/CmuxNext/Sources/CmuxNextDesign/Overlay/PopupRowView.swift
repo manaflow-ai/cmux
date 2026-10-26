@@ -43,10 +43,11 @@ open class PopupRowView: NSView {
     public var onActivate: (() -> Void)?
     /// The pointer moved onto the row (enabled interactive rows only).
     public var onHover: (() -> Void)?
-    /// The popup's one hover consumer (feature `pointerFrameHover`): the row's moves go to it, and its
-    /// delivery calls ``pointerMoved()`` on the row under the latest point, at most twice a frame for
-    /// the whole popup (Chromium's rAF-aligned moves, main_thread_event_queue.cc). Enter, exit and a
-    /// press flush it first. Nil: each move acts at once.
+    /// The popup's one hover consumer (feature `pointerFrameHover`): the row's moves, enters and exits
+    /// go to it, and its delivery calls ``pointerMoved()`` on the row under the latest point, at most
+    /// twice a frame for the whole popup (Chromium's rAF-aligned moves, main_thread_event_queue.cc; its
+    /// boundary events come from those moves, boundary_event_dispatcher.cc). A press flushes it first;
+    /// the popup flushes it when the pointer leaves the popup. Nil: each enter and move acts at once.
     public weak var hoverMoves: PointerFrameHover?
     /// The owner's highlight (the keyboard's row in a menu).
     public var isHighlighted = false { didSet { if oldValue != isHighlighted { needsDisplay = true } } }
@@ -198,12 +199,12 @@ open class PopupRowView: NSView {
         tracking = area
     }
 
-    // Enter, exit and a press are discrete: the popup's pending move lands first (`ShouldFlushQueue`),
-    // so a move over the row before is never delivered after them.
+    // Crossing into or out of a row is a position like a move: with a popup consumer it coalesces with the
+    // moves around it, so a sweep across the rows hovers at most twice a frame. A press is discrete: the
+    // popup's pending move lands first (`ShouldFlushQueue`).
     open override func mouseEntered(with event: NSEvent) {
-        hoverMoves?.flush()
         isHovering = true
-        if isEnabled { onHover?() }
+        if let hoverMoves { hoverMoves.crossed(event) } else if isEnabled { onHover?() }
     }
 
     open override func mouseMoved(with event: NSEvent) {
@@ -217,7 +218,7 @@ open class PopupRowView: NSView {
     }
 
     open override func mouseExited(with event: NSEvent) {
-        hoverMoves?.flush()
+        hoverMoves?.crossed(event)
         isHovering = false
         isPressed = false
     }

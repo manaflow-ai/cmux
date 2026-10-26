@@ -8,8 +8,9 @@ import Testing
 /// Address bar suggestion rows hover once per frame (feature `pointerFrameHover`, p04-input-037): the
 /// card's rows share one consumer on p04-input-030's `FrameInputCoalescer`, so a frame interval's first
 /// move reports its row in its own turn and the rest once at the frame, the row under the latest point
-/// (Chromium's rAF-aligned moves, main_thread_event_queue.cc). Enter, exit and a press land the pending
-/// move first; the omnibar state machine still decides the highlight.
+/// (Chromium's rAF-aligned moves, main_thread_event_queue.cc). Crossing into or out of a row coalesces
+/// like a move (Blink derives boundary events from those moves, boundary_event_dispatcher.cc); leaving
+/// the card and a press land the pending move first. The omnibar state machine still decides the highlight.
 @MainActor @Suite(.serialized) struct SuggestionRowTests {
     @MainActor final class Harness {
         let bar = AddressBarView(mainWork: MainWorkScheduler(budget: MainFrameBudget()))
@@ -39,20 +40,38 @@ import Testing
         }
 
         func event(_ type: NSEvent.EventType, row index: Int) throws -> NSEvent {
-            let cardWindow = try #require(rows[index].window, "the card is not on a window")
+            try event(type, at: center(index))
+        }
+
+        func event(_ type: NSEvent.EventType, at point: CGPoint) throws -> NSEvent {
+            let cardWindow = try #require(rows.first?.window, "the card is not on a window")
             switch type {
             case .mouseEntered, .mouseExited:
-                return try #require(NSEvent.enterExitEvent(with: type, location: center(index), modifierFlags: [], timestamp: 0,
+                return try #require(NSEvent.enterExitEvent(with: type, location: point, modifierFlags: [], timestamp: 0,
                                                            windowNumber: cardWindow.windowNumber, context: nil, eventNumber: 0,
                                                            trackingNumber: 0, userData: nil))
             default:
-                return try #require(NSEvent.mouseEvent(with: type, location: center(index), modifierFlags: [],
+                return try #require(NSEvent.mouseEvent(with: type, location: point, modifierFlags: [],
                                                        timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: cardWindow.windowNumber,
                                                        context: nil, eventNumber: 0, clickCount: 1, pressure: type == .leftMouseUp ? 0 : 1))
             }
         }
 
         func move(over index: Int) throws { rows[index].mouseMoved(with: try event(.mouseMoved, row: index)) }
+
+        /// One move from row `from` (nil: from outside the card) onto row `to`, as AppKit delivers it: the
+        /// old row's exit, the new row's enter, then the move, every one at the new point.
+        func sweep(from: Int?, to index: Int) throws {
+            if let from, from != index { rows[from].mouseExited(with: try event(.mouseExited, row: index)) }
+            if from != index { rows[index].mouseEntered(with: try event(.mouseEntered, row: index)) }
+            try move(over: index)
+        }
+
+        /// A point on the card's window outside every row (below the card).
+        var outside: CGPoint {
+            let card = bar.panel.cardView
+            return card.convert(CGPoint(x: card.bounds.midX, y: card.bounds.minY - 20), to: nil)
+        }
 
         func close() {
             bar.panel.dismiss()
@@ -71,30 +90,40 @@ import Testing
         #expect(!harness.frames.coalescer.hasPending)
     }
 
-    /// Eight moves over the rows in one frame: the leading row at once, the row under the last move at
-    /// the frame. Two reports for the whole card, not one per row.
-    @Test func eightMovesInOneFrameReportTheLeadingAndTheLatestRow() throws {
+    /// A fast sweep in one frame: eight moves over the rows, with every row's exit and enter in AppKit's
+    /// order. The leading event reports at once and the row under the last move at the frame: two
+    /// reports for the whole card, not one (or two) per row crossed.
+    @Test func aSweepOfEightMovesAcrossTheRowsReportsTwiceInOneFrame() throws {
         let harness = try Harness()
         defer { harness.close() }
-        for step in 0..<8 { try harness.move(over: step % 5) }
-        #expect(harness.hovers == [0], "before the frame only the leading move reported")
+        var previous: Int?
+        for step in 0..<8 {
+            try harness.sweep(from: previous, to: step % 5)
+            previous = step % 5
+        }
+        #expect(harness.hovers == [0], "before the frame only the leading event reported")
         harness.frames.frame()
         #expect(harness.hovers == [0, 7 % 5])
-        #expect(harness.bar.panel.hoverMoves.maxDeliveriesPerFrame == 2)
+        #expect(harness.hovers.count <= 2, "more than 2 hover reports in one frame")
+        #expect(harness.bar.panel.hoverMoves.maxDeliveriesPerFrame <= 2)
         #expect(!harness.frames.coalescer.hasPending)
     }
 
-    /// Leaving a row lands the pending move first, then reports the exit; a frame after it reports
-    /// nothing more.
-    @Test func anExitLandsThePendingMoveFirst() throws {
+    /// Leaving the card lands the pending move first, at the pointer's last point (off the rows: the
+    /// pointer left them); a frame after it reports nothing more.
+    @Test func leavingTheCardLandsThePendingMoveFirst() throws {
         let harness = try Harness()
         defer { harness.close() }
-        try harness.move(over: 1)
-        try harness.move(over: 3)
-        harness.rows[3].mouseExited(with: try harness.event(.mouseExited, row: 3))
-        #expect(harness.hovers == [1, 3, nil])
+        try harness.sweep(from: nil, to: 1)
+        try harness.sweep(from: 1, to: 3)
+        let outside = harness.outside
+        harness.rows[3].mouseExited(with: try harness.event(.mouseExited, at: outside))
+        #expect(harness.hovers == [1], "a row's exit reported before the frame")
+        harness.bar.panel.cardView.mouseExited(with: try harness.event(.mouseExited, at: outside))
+        #expect(harness.hovers == [1, nil])
+        #expect(!harness.frames.coalescer.hasPending, "the exit left a move for a later frame")
         harness.frames.frame()
-        #expect(harness.hovers == [1, 3, nil], "a move was delivered after the exit")
+        #expect(harness.hovers == [1, nil], "a move was delivered after the exit")
     }
 
     /// A press lands the pending move before the click; the click picks the row under it.
@@ -120,5 +149,17 @@ import Testing
         for index in 0..<4 { try harness.move(over: index) }
         #expect(harness.hovers == [0, 1, 2, 3])
         #expect(!harness.frames.coalescer.hasPending)
+    }
+
+    /// With the feature off, a row's exit and enter report the row under the pointer at once, as a move
+    /// does.
+    @Test func withoutFrameInputACrossingReportsTheRowUnderThePointer() throws {
+        let harness = try Harness(frameInput: false)
+        defer { harness.close() }
+        try harness.sweep(from: nil, to: 0)
+        try harness.sweep(from: 0, to: 2)
+        #expect(harness.hovers == [0, 0, 2, 2, 2])
+        harness.rows[2].mouseExited(with: try harness.event(.mouseExited, at: harness.outside))
+        #expect(harness.hovers.last == .some(nil), "the exit off the card did not report leaving the rows")
     }
 }

@@ -1,6 +1,7 @@
 public import CmuxNextCompat
 public import CmuxNextDesign
 import AppKit
+public import CmuxNextWakeups
 public import WebKit
 
 /// The app's one owner of cmux pages (plans/cmux-next/chrome-parity/p13-webui.md 3.A): it makes
@@ -32,6 +33,10 @@ public final class WebUIHost {
     /// content lifecycle; a page it holds leaves it on ``close(_:)``. Nil while `pageLifecycle` is off:
     /// the composition root sets it.
     package var lifecycle: PageLifecycle?
+    /// The windows' frame-aligned pointer input (feature `pointerFrameHover`, the App's
+    /// `hoverFrameInput`): each page this host opens gets it for its popup's rows
+    /// (``PageWebView/popupHoverFrameInput``). Nil: each move hovers at once.
+    public let hoverFrameInput: FrameInputCoalescers?
     /// The clock of each opened page's Chromium deadline (tests pass one that never fires).
     private let clock: any Clock<Duration>
     /// Every page this host opened and has not closed. Weak, so a view a provider drops without
@@ -51,10 +56,13 @@ public final class WebUIHost {
     ///     until p13-webui-010; a test leaves the default, its own registry).
     ///   - clock: The Chromium deadline's clock.
     ///   - processGroups: The shared WebKit processes (a test passes its own to read the groups).
+    ///   - hoverFrameInput: The frame-aligned pointer input of the pages' popups; nil: each move.
     public init(chromium: (any PageChromiumHosting)?, openPanel: MadeAheadOpenPanel?,
                 memoryPressure: MemoryPressureEvents, registry: PageRegistry = PageRegistry(),
-                clock: any Clock<Duration> = ContinuousClock(), processGroups: WebProcessGroups = WebProcessGroups()) {
+                clock: any Clock<Duration> = ContinuousClock(), processGroups: WebProcessGroups = WebProcessGroups(),
+                hoverFrameInput: FrameInputCoalescers? = nil) {
         self.chromium = chromium
+        self.hoverFrameInput = hoverFrameInput
         self.openPanel = openPanel
         self.memoryPressure = memoryPressure
         self.registry = registry
@@ -73,6 +81,7 @@ public final class WebUIHost {
                                      registry: registry, processGroups: processGroups) else { return nil }
         // Read when the Chromium page reaches the host, after this turn; set before then.
         view.chromiumClock = clock
+        view.popupHoverFrameInput = hoverFrameInput
         opened.add(view)
         #if DEBUG || CMUX_BENCH_HOOKS
         observeOracleState(of: view)

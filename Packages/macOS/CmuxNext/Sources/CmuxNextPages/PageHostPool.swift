@@ -45,6 +45,9 @@ public final class PageHostPool {
     public internal(set) var spans: [(name: String, milliseconds: Double)] = []
     public var onSpan: ((String, Double) -> Void)?
     public var onSpareReady: ((PageWebView) -> Void)?
+    /// The windows' frame-aligned pointer input (feature `pointerFrameHover`): a claimed host gets it
+    /// for its popup's rows, as a page ``WebUIHost`` opens does. Nil: each move hovers at once.
+    let hoverFrameInput: FrameInputCoalescers?
 
     final class WeakHost {
         weak var view: PageWebView?
@@ -56,8 +59,10 @@ public final class PageHostPool {
     public init(memoryPressure: MemoryPressureEvents, policy: Policy = Policy(), options: PageEngineOptions = .standard,
                 clock: any Clock<Duration> = ContinuousClock(),
                 activity: @escaping () -> UInt64 = { ExpectedActivity.shared.total },
-                isTrackingMenu: @escaping () -> Bool = { RunLoop.main.currentMode == .eventTracking }) {
+                isTrackingMenu: @escaping () -> Bool = { RunLoop.main.currentMode == .eventTracking },
+                hoverFrameInput: FrameInputCoalescers? = nil) {
         self.memoryPressure = memoryPressure
+        self.hoverFrameInput = hoverFrameInput
         self.policy = policy
         self.options = options
         self.activity = activity
@@ -100,6 +105,7 @@ public final class PageHostPool {
         host.removeFromSuperview()
         host.countsTouches = true
         host.shouldFocusOnAttach = focus
+        host.popupHoverFrameInput = hoverFrameInput
         host.engineDecision = decision
         _ = host.retarget(descriptor: descriptor, routes: routes, route: route,
                           documentAttributes: documentAttributes, surface: surface,

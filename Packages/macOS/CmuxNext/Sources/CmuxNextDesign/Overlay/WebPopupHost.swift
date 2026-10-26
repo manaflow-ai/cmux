@@ -227,7 +227,8 @@ final class WebPopupRows: NSView {
     private var builtPlain = false
     private let style = PopupStyle.standard
     private static let separatorHeight: CGFloat = 9
-    /// Every row's moves, on the menu's one consumer: a delivery moves the row under the latest point.
+    /// Every row's moves, enters and exits, on the menu's one consumer: a delivery moves the row under the
+    /// latest point. The pointer leaving the menu lands the pending one (``mouseExited(with:)``).
     private(set) lazy var hoverMoves = PointerFrameHover(owner: "WebPopupRows.hover", view: self) { [weak self] point in
         self?.row(atWindowPoint: point)?.pointerMoved()
     }
@@ -248,6 +249,21 @@ final class WebPopupRows: NSView {
 
     nonisolated override var isFlipped: Bool { true }
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
+    // The whole menu's edge: leaving it is discrete, so the pending move lands now (`ShouldFlushQueue`).
+    // The rows' own edges are not; they post like moves (PopupRowView).
+    private var tracking: NSTrackingArea?
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let tracking { removeTrackingArea(tracking) }
+        let area = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self)
+        addTrackingArea(area)
+        tracking = area
+    }
+
+    override func mouseEntered(with event: NSEvent) {}
+    override func mouseExited(with event: NSEvent) { hoverMoves.flush() }
 
     var contentHeight: CGFloat {
         2 * style.padding + items.reduce(0) { $0 + ($1.separator ? Self.separatorHeight : style.rowHeight) }
