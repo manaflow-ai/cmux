@@ -615,6 +615,17 @@ class GraphQLTests(unittest.TestCase):
         response = {"data": {"repository": {"b0": {"nodes": [make_pr(1)]}, "b1": {"nodes": []}}}}
         self.assertEqual(sorted(janitor.parse_graphql_prs(response, ["a", "exp/b"])), ["a", "exp/b"])
 
+    def test_an_open_pr_older_than_the_five_newest_is_still_seen(self):
+        query, _ = janitor.graphql_query("manaflow-ai", "cmux", ["a"])
+        self.assertIn("o0: pullRequests(headRefName: $b0, states: [OPEN], first: 20)", query)
+        newest = [make_pr(n, state="CLOSED", head="zzz") for n in range(10, 15)]
+        response = {"data": {"repository": {"b0": {"nodes": newest},
+                                            "o0": {"nodes": [make_pr(3, head="aaa"), make_pr(12, head="zzz")]}}}}
+        prs = janitor.parse_graphql_prs(response, ["a"])["a"]
+        self.assertEqual([pr["number"] for pr in prs], [10, 11, 12, 13, 14, 3])
+        run = make_run(event="push", branch="a", sha="aaa")
+        self.assertEqual(janitor.open_pr_at_head(run, prs)["number"], 3)
+
 
 class SummaryTests(unittest.TestCase):
     def test_summary_logs_url_reason_and_age(self):
@@ -997,7 +1008,7 @@ class OrphanPlanTests(unittest.TestCase):
         self.assertEqual([d.action for d in orphan_plan(orphans, {"keep-me": [make_pr(7, head="bbb")]})], ["cancel"])
 
     def test_an_orphan_at_an_open_pr_head_is_never_cancelled(self):
-        for event in ("pull_request", "push", "workflow_dispatch"):
+        for event in ("pull_request", "push", "workflow_dispatch", "pull_request_review", "workflow_run"):
             with self.subTest(event=event):
                 orphans = self.orphans(1, event=event, branch="keep-me", prs=(7,))
                 decisions = orphan_plan(orphans, {"keep-me": [make_pr(7)]})
@@ -1006,8 +1017,9 @@ class OrphanPlanTests(unittest.TestCase):
 
     def test_orphan_pr_branches_are_resolved(self):
         orphans = self.orphans(1, branch="pr-branch") + self.orphans(1, kind="ghost", event="push", branch="exp/x")
-        # A push's branch too: an open pull request at its head keeps it (open_pr_at_head()).
-        self.assertEqual(janitor.orphan_branches(orphans, NOW), ["exp/x", "pr-branch"])
+        # Any event's branch too: an open pull request at its head keeps it (open_pr_at_head()).
+        orphans += self.orphans(1, event="pull_request_review", branch="reviewed")
+        self.assertEqual(janitor.orphan_branches(orphans, NOW), ["exp/x", "pr-branch", "reviewed"])
         protected = self.orphans(1, event="push", branch="feat-cmux-next", path=".github/workflows/cmux-next.yml")
         self.assertEqual(janitor.orphan_branches(protected, NOW), [])
 
@@ -1051,9 +1063,13 @@ class FakeGitHub(janitor.GitHub):
         path = path.replace("/repos/manaflow-ai/cmux", "", 1)
         if method == "POST" and path == "/graphql":
             variables = (body or {}).get("variables") or {}
-            return {"data": {"repository": {
-                key: {"nodes": self.prs.get(branch, [])} for key, branch in variables.items()
-                if re.fullmatch(r"b[0-9]+", key)}}}
+            # b<i>: the branch's newest pull requests; o<i>: its open ones (a dict entry may be shared, as GitHub's are).
+            repository = {key: {"nodes": self.prs.get(branch, [])} for key, branch in variables.items()
+                          if re.fullmatch(r"b[0-9]+", key)}
+            repository.update({"o" + key[1:]: {"nodes": [pr for pr in self.prs.get(branch, [])
+                                                         if pr.get("state") == "OPEN"]}
+                               for key, branch in variables.items() if re.fullmatch(r"b[0-9]+", key)})
+            return {"data": {"repository": repository}}
         if method == "GET" and path.startswith("/branches/"):
             branch = urllib.parse.unquote(path.split("/", 2)[2])
             if branch not in self.branches:

@@ -2024,8 +2024,18 @@ PR_FIELDS = """
 """
 
 
+# Open pull requests per branch, beside the five newest: open_pr_at_head() must see an open one however many
+# newer closed ones the branch has. GitHub allows one open pull request per head and base, so this is ample.
+OPEN_PRS_PER_BRANCH = 20
+OPEN_PR_FIELDS = """
+        number state headRefOid url
+        headRepositoryOwner { login }
+        labels(first: 100) { pageInfo { hasNextPage } nodes { name } }
+"""
+
+
 def graphql_query(owner: str, name: str, branches: Sequence[str]) -> tuple[str, dict[str, Any]]:
-    """One query that resolves every branch to its recent pull requests."""
+    """One query that resolves every branch to its recent pull requests, and to every open one (o<index>)."""
     variables: dict[str, Any] = {"owner": owner, "name": name}
     params = ["$owner: String!", "$name: String!"]
     fields = []
@@ -2035,6 +2045,10 @@ def graphql_query(owner: str, name: str, branches: Sequence[str]) -> tuple[str, 
         fields.append(
             f"    b{index}: pullRequests(headRefName: $b{index}, first: 5, "
             f"orderBy: {{field: CREATED_AT, direction: DESC}}) {{\n      nodes {{{PR_FIELDS}      }}\n    }}"
+        )
+        fields.append(
+            f"    o{index}: pullRequests(headRefName: $b{index}, states: [OPEN], first: {OPEN_PRS_PER_BRANCH}) "
+            f"{{\n      nodes {{{OPEN_PR_FIELDS}      }}\n    }}"
         )
     query = (
         f"query({', '.join(params)}) {{\n  repository(owner: $owner, name: $name) {{\n"
@@ -2049,7 +2063,12 @@ def parse_graphql_prs(response: Mapping[str, Any], branches: Sequence[str]) -> d
     result: dict[str, list[dict[str, Any]]] = {}
     for index, branch in enumerate(branches):
         connection = repository.get(f"b{index}") or {}
-        result[branch] = list(connection.get("nodes") or [])
+        nodes = list(connection.get("nodes") or [])
+        # An open pull request older than the five newest joins with the fields it was read with.
+        seen = {node.get("number") for node in nodes}
+        nodes += [node for node in ((repository.get(f"o{index}") or {}).get("nodes") or [])
+                  if node.get("number") not in seen]
+        result[branch] = nodes
     return result
 
 
@@ -2254,12 +2273,12 @@ def left_to_github(orphan: Orphan, now: dt.datetime) -> bool:
 def orphan_branches(orphans: Iterable[Orphan], now: dt.datetime) -> list[str]:
     """Branches whose pull requests the orphan plan needs: `no-janitor`, and an open PR at a run's head.
 
-    A push or dispatch orphan's branch is looked up too, since a run at an open
-    pull request's head is never cancelled whatever its event (open_pr_at_head()).
+    Every event's branch is looked up (a push, a dispatch, pull_request_review ...),
+    since a run at an open pull request's head is never cancelled whatever its
+    event (open_pr_at_head()); a protected orphan is never cancelled anyway.
     """
     return sorted({str(o.run["head_branch"]) for o in orphans
-                   if o.run.get("event") in (*PULL_REQUEST_EVENTS, "push", "workflow_dispatch")
-                   and o.run.get("head_branch") and not left_to_github(o, now)
+                   if o.run.get("head_branch") and not left_to_github(o, now)
                    and orphan_protected_reason(o.run) is None})
 
 
