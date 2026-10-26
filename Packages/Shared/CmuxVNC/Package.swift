@@ -19,10 +19,16 @@ let package = Package(
         .library(name: "CmuxVNC", targets: ["CmuxVNC"]),
         .library(name: "CmuxVNCDemoServer", targets: ["CmuxVNCDemoServer"]),
     ],
+    dependencies: [
+        // Test-only: the seeded fuzz suites (p10-stability-023).
+        .package(path: "../CmuxFuzzSupport"),
+    ],
     targets: [
         .target(name: "CmuxVNC", swiftSettings: swiftSettings, linkerSettings: [.linkedLibrary("z")]),
         .target(name: "CmuxVNCDemoServer", dependencies: ["CmuxVNC"], swiftSettings: swiftSettings,
                 linkerSettings: [.linkedLibrary("z")]),
-        .testTarget(name: "CmuxVNCTests", dependencies: ["CmuxVNC", "CmuxVNCDemoServer"], swiftSettings: swiftSettings),
+        .testTarget(name: "CmuxVNCTests", dependencies: [
+            "CmuxVNC", "CmuxVNCDemoServer", .product(name: "CmuxFuzzSupport", package: "CmuxFuzzSupport"),
+        ], swiftSettings: swiftSettings),
     ]
 )
