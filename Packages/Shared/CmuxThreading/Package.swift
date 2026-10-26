@@ -8,7 +8,9 @@ import PackageDescription
 // work. Foundation-free, so any Shared or iOS package can depend on it, and it builds on Linux for the Linux tier.
 
 /// The p10 compile-time safety settings (scripts/cmux-next/stability-settings.json fills this list).
-let stabilitySwiftSettings: [SwiftSetting] = []
+let stabilitySwiftSettings: [SwiftSetting] = [
+    .strictMemorySafety(),
+]
 
 let packageSwiftSettings: [SwiftSetting] = [
     .swiftLanguageMode(.v6),
