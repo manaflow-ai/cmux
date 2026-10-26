@@ -179,15 +179,19 @@ struct CloudAPIClientRunTests {
     }
 
     @Test func aServerOrHeaderCodeReachesThePageOnlyWhenThePageWordsIt() async {
-        // The Sandboxed send's mapping (AgentPageChats.wireSandbox): the server's code when the page
-        // knows it, `unavailable` for any other (it may name a provider handle).
+        // The Sandboxed send's mapping (AgentPageChats.sandboxCode): the server's code when the page
+        // knows it, `unavailable` for any other (it may name a provider handle), and a refusal before
+        // anything was stored as a definite one (the tab may send again).
         let page = { (error: CloudAPIError) async -> String? in
-            let reply = await AgentPaneReply.sandbox({ throw error }) { ($0 as? CloudAPIError)?.code ?? "unavailable" }
+            let reply = await AgentPaneReply.sandbox({ throw error }, code: AgentPageChats.sandboxCode)
             return (reply["error"] as? [String: Any])?["code"] as? String
         }
         #expect(await page(.http(status: 403, code: "run_sandbox_unavailable", message: nil)) == "run_sandbox_unavailable")
         #expect(await page(.http(status: 403, code: "provider_vm_abc123", message: "vm abc123")) == "unavailable")
         #expect(await page(.http(status: 500, code: nil, message: nil)) == "unavailable")
+        #expect(await page(.http(status: 429, code: "rate_limited", message: nil)) == "unavailable_now")
+        #expect(await page(.http(status: 401, code: nil, message: nil)) == "not_signed_in")
+        #expect(await page(.noBackend(URL(string: "http://127.0.0.1:9")!)) == "unavailable_now")
         #expect(await page(.timedOut("/api/runs/run-9")) == "timeout")
         #expect(await page(.notSignedIn) == "not_signed_in")
     }

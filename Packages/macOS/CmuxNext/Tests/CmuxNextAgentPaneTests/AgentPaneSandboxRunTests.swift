@@ -12,6 +12,7 @@ struct AgentPaneSandboxRunTests {
     }
 
     @MainActor private final class Runs { var tasks: [String] = [] }
+    @MainActor private final class Seen { var startAllowed: Bool? }
 
     private static func pane(_ runs: Runs, sessionId: String? = nil) -> AgentPaneModel {
         let model = AgentPaneModel(host: NoHost(), sessionId: sessionId)
@@ -87,31 +88,63 @@ struct AgentPaneSandboxRunTests {
     @Test func aStartOrOpenIsCountedByItsParsedMethodUntilItsAnswer() {
         // Counted by the method the transport parsed, so no spelling of the frame evades it.
         let replacements = AcpmuxPaneReplacements()
-        replacements.sent(method: "session/prompt", connection: 0)
-        replacements.sent(method: nil, connection: 0)
+        _ = replacements.sending(method: "session/prompt", connection: 0)
+        _ = replacements.sending(method: nil, connection: 0)
         #expect(!replacements.holds)
-        replacements.sent(method: "_acpmux/attach", connection: 0)
+        _ = replacements.sending(method: "_acpmux/attach", connection: 0)
         #expect(replacements.holds)
         // The daemon refused it: a definite failed open frees Sandboxed.
         replacements.observe(["id": 7, "error": ["code": -32000]], replyTo: "_acpmux/attach", connection: 0)
         #expect(!replacements.holds)
         // An open that succeeded holds until the chat is adopted (the pane is no new chat then).
-        replacements.sent(method: "session/new", connection: 0)
+        _ = replacements.sending(method: "session/new", connection: 0)
         replacements.observe(["id": 8, "result": [:]], replyTo: "session/new", connection: 0)
         #expect(replacements.holds)
         // An event that merely names a method is no answer.
         let other = AcpmuxPaneReplacements()
-        other.sent(method: "session/load", connection: 0)
+        _ = other.sending(method: "session/load", connection: 0)
         other.observe(["method": "_acpmux/event", "params": [:]], replyTo: nil, connection: 0)
         #expect(other.holds)
         // A start sent on a socket that then closed keeps its hold across the reconnect: the new
         // connection's answers don't end it; only its own (late) answer does.
         let reconnected = AcpmuxPaneReplacements()
-        reconnected.sent(method: "session/new", connection: 1)
+        _ = reconnected.sending(method: "session/new", connection: 1)
         reconnected.observe(["id": 9, "error": ["code": -32000]], replyTo: "session/new", connection: 2)
         #expect(reconnected.holds)
         reconnected.observe(["id": 3, "error": ["code": -32000]], replyTo: "session/new", connection: 1)
         #expect(!reconnected.holds)
+        // One counted but never sent stops counting.
+        let unsent = AcpmuxPaneReplacements()
+        _ = unsent.sending(method: "session/resume", connection: 0)
+        unsent.notSent(method: "session/resume", connection: 0)
+        #expect(!unsent.holds)
+    }
+
+    @Test func noChatStartsOrOpensWhileASandboxedSendRuns() async {
+        let replacements = AcpmuxPaneReplacements()
+        #expect(replacements.beginSandbox())
+        // A second Sandboxed send, and every start or open, is refused until the send ends.
+        #expect(!replacements.beginSandbox())
+        #expect(!replacements.sending(method: "session/new", connection: 0))
+        #expect(!replacements.sending(method: "_acpmux/attach", connection: 0))
+        #expect(replacements.sending(method: "session/prompt", connection: 0))
+        #expect(!replacements.holds)
+        replacements.endSandbox()
+        #expect(replacements.sending(method: "session/new", connection: 0))
+        // And a start out refuses a Sandboxed send.
+        #expect(!replacements.beginSandbox())
+
+        // Through the pane: no start while the App's runner runs, and the gate opens once it answers.
+        let model = AgentPaneModel(host: NoHost(), sessionId: nil)
+        let seen = Seen()
+        model.onSandboxRun = { [replacements = model.transport.replacements] _, _, _ in
+            seen.startAllowed = replacements.sending(method: "session/new", connection: 9)
+            return AgentPaneReply.success(["receipt": ["status": "succeeded"]])
+        }
+        model.transport.gestures.record()
+        _ = await model.respond(to: Self.run("go"))
+        #expect(seen.startAllowed == false)
+        #expect(model.transport.replacements.sending(method: "session/new", connection: 9))
     }
 
     @Test func theHandshakeTellsThePageThisAppAnswersSandboxState() throws {
@@ -132,7 +165,7 @@ struct AgentPaneSandboxRunTests {
             }
             #expect(facts.method == "session/new")
             let replacements = AcpmuxPaneReplacements()
-            replacements.sent(method: facts.method, connection: 0)
+            _ = replacements.sending(method: facts.method, connection: 0)
             #expect(replacements.holds)
         }
     }
@@ -181,6 +214,21 @@ struct AgentPaneSandboxRunTests {
         // Nothing ran, so a reloaded page finds no send to recover.
         let none = await refused.state(wait: false)
         #expect((none["value"] as? [String: Any]) == nil)
+        // A reloaded page that waits on a send which is then refused before any Run finds none.
+        let waited = AgentPaneSandboxRuns()
+        let gate = AsyncStream<Void>.makeStream()
+        let refusing = Task { @MainActor in
+            await waited.run(task: "x", key: "k-4") {
+                for await _ in gate.stream { break }
+                return AgentPaneReply.failure(code: "run_sandbox_unavailable", message: "x")
+            }
+        }
+        await Task.yield()
+        let waiting = Task { @MainActor in await waited.state(wait: true) }
+        await Task.yield()
+        gate.continuation.yield()
+        _ = await refusing.value
+        #expect(((await waiting.value)["value"] as? [String: Any]) == nil)
         let lost = AgentPaneSandboxRuns()
         _ = await lost.run(task: "x", key: "k-3") { AgentPaneReply.failure(code: "timeout", message: "x") }
         #expect(lost.refusal == "sandbox_spent")

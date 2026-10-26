@@ -86,9 +86,21 @@ final class AgentPageChats {
             guard services.settings?.snapshot.previewFeatures == true else { return AgentPaneReply.failure(code: "labs_off", message: "labs_off") }
             guard services.cloud.isSignedIn else { return AgentPaneReply.failure(code: "not_signed_in", message: "not_signed_in") }
             let api = services.cloud.api
-            return await AgentPaneReply.sandbox({ try await api.runSandbox(task: task, agent: agent, idempotencyKey: key) }) { error in
-                (error as? CloudAPIError)?.code ?? "unavailable"
-            }
+            return await AgentPaneReply.sandbox({ try await api.runSandbox(task: task, agent: agent, idempotencyKey: key) },
+                                                code: AgentPageChats.sandboxCode)
+        }
+    }
+
+    /// A Sandboxed send's failure as the page's code (AgentPaneReply keeps only the codes it words).
+    /// A refusal answered before the server stored anything is definite, so the tab may send again.
+    nonisolated static func sandboxCode(_ error: any Error) -> String {
+        switch error as? CloudAPIError {
+        // An expired or revoked session: sign in again.
+        case .notSignedIn?, .http(401, _, _, _, _)?: "not_signed_in"
+        // A rate limit, or no backend configured: nothing was stored or sent.
+        case .http(429, _, _, _, _)?, .noBackend?: "unavailable_now"
+        case let other?: other.code
+        case nil: "unavailable"
         }
     }
 

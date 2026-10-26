@@ -18,7 +18,7 @@ public final class AgentPaneSandboxRuns {
     /// The refusals that come before the server could create a Run (the page's `sandboxRetryable`):
     /// after one of these the tab may send again.
     static let definiteRefusals: Set<String> = [
-        "labs_off", "not_signed_in", "cloud_disabled", "unsupported", "transport.gesture_required",
+        "labs_off", "not_signed_in", "cloud_disabled", "unavailable_now", "unsupported", "transport.gesture_required",
         "run_sandbox_unavailable", "run_task_required", "run_agent_invalid", "run_image_invalid",
         "run_timeout_invalid", "run_attempts_invalid", "run_environment_invalid", "run_invalid_request",
     ]
@@ -56,6 +56,7 @@ public final class AgentPaneSandboxRuns {
         if let running {
             guard wait else { return AgentPaneReply.success(["task": running.task, "key": running.key, "running": true]) }
             let reply = await running.work.value
+            guard !Self.isDefiniteRefusal(reply) else { return AgentPaneReply.success() }
             return AgentPaneReply.success(["task": running.task, "key": running.key, "reply": reply])
         }
         // A refusal before any Run is no send to recover: nothing ran, and the page that sent it got

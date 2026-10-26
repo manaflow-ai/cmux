@@ -53,9 +53,15 @@ nonisolated final class AcpmuxPaneSocket: NSObject, URLSessionWebSocketDelegate,
     /// The transport's id for this socket's connection (``AcpmuxPaneReplacements``).
     private let connection: Int
 
-    /// A page frame with this parsed `method` went out on this socket (``AcpmuxPaneReplacements``).
-    func sentPageFrame(method: String?) {
-        replacements.sent(method: method, connection: connection)
+    /// A page frame with this decoded `method` is about to go out on this socket: false refuses it
+    /// (a start or open while a Sandboxed send runs, ``AcpmuxPaneReplacements``).
+    func sendingPageFrame(method: String?) -> Bool {
+        replacements.sending(method: method, connection: connection)
+    }
+
+    /// A page frame ``sendingPageFrame(method:)`` let through did not go out.
+    func pageFrameNotSent(method: String?) {
+        replacements.notSent(method: method, connection: connection)
     }
     private let ids: AcpmuxRequestIds
     /// Sends a reply in place on (``AgentPaneAgentReply``); nil refuses every one.

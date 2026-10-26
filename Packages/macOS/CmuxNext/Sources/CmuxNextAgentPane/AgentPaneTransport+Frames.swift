@@ -385,16 +385,24 @@ extension AgentPaneTransport {
         if remoteWire, facts.method == "acp.trust.set", let cwd = box.param("cwd"), remoteHomeChosen.contains(cwd) {
             box.setParam(RemoteAcpmuxWire.homeChosenParam, "true")
         }
+        // A start or open is counted before it goes, or refused while a Sandboxed send runs.
+        guard socket.sendingPageFrame(method: facts.method) else {
+            return Self.refuse(.refuse(.methodRefused, method: facts.method, requestID: facts.pageID), socket: socket)
+        }
         // The daemon sees only relay-owned ids; a page id is used by one request at a time.
         var relayID: Int?
         if let pageID = facts.pageID {
             let subject = facts.method == AgentPaneAgentReply.method ? box.param("sessionId") : nil
-            guard let next = ids.begin(pageID: pageID, method: facts.method ?? "", subject: subject) else { return Self.refuseInFlight() }
+            guard let next = ids.begin(pageID: pageID, method: facts.method ?? "", subject: subject) else {
+                socket.pageFrameNotSent(method: facts.method)
+                return Self.refuseInFlight()
+            }
             relayID = next
         }
         // A fork or handoff from a session outside the scope: the click's scope credit, used only
         // by a frame that goes out (every refusal above leaves it).
         if facts.foreignSource, !gestures.consumeScope() {
+            socket.pageFrameNotSent(method: facts.method)
             if let relayID { ids.cancel(relayID) }
             Self.logger.info("agent pane transport scope refused method=\(facts.method ?? "-", privacy: .public) \(self.gestures.debugDescription, privacy: .public)")
             return Self.refuse(.refuse(.gestureRequired, method: facts.method, requestID: facts.pageID), socket: socket)
@@ -402,7 +410,10 @@ extension AgentPaneTransport {
         // The person's prompt is on disk before it goes, until acpmux acknowledges it.
         let relay = facts.method == "session/prompt" ? promptRelay : nil
         let journaled = await relay?.record(box, ids: ids, relayID: relayID)
-        if let relay, journaled != nil, id != current || self.socket !== socket { return await relay.withdraw(journaled, relayID: relayID, ids: ids) }
+        if let relay, journaled != nil, id != current || self.socket !== socket {
+            socket.pageFrameNotSent(method: facts.method)
+            return await relay.withdraw(journaled, relayID: relayID, ids: ids)
+        }
         if facts.isFirst {
             sentFirst = true
             localAppToken = nil
@@ -415,12 +426,12 @@ extension AgentPaneTransport {
             }
         }
         if let error = await Self.encodeAndSend(box, relayID: relayID, socket: socket) {
+            socket.pageFrameNotSent(method: facts.method)
             if let relayID { ids.cancel(relayID) }
             await relay?.withdraw(journaled, relayID: nil, ids: ids)
             if error == .outboundOverflow { socket.close(code: 1008, reason: "outbound overflow", error: error) }
             return .stop(error)
         }
-        socket.sentPageFrame(method: facts.method)
         return .sent
     }
 

@@ -368,15 +368,23 @@ public final class AgentPaneModel {
         case .environment(let request): return await request.reply(store: startFolders.environments, newTabPage: newTab != nil && sessionId == nil)
         case .sandboxRun(let task, let agent, let key):
             // A new chat only, and it spends Cloud time: the Send's own gesture, as a git write.
-            // Not once a chat starts or opens here (it would replace the run's result), and one at a time.
-            // The send line drains first, so a start or open the page handed over before this is counted.
+            // Not once a chat starts or opens here (it would replace the run's result), and one at a time;
+            // while it runs no chat starts or opens here. The send line drains first, so a start or
+            // open the page handed over before this is counted.
             guard sessionId == nil, let onSandboxRun else { return Self.unsupported("sandbox.run") }
-            guard await transport.lineDrained(within: .seconds(5)), !transport.replacements.holds else {
-                return AgentPaneReply.failure(code: "unavailable_now", message: "unavailable_now")
-            }
+            let notNow = AgentPaneReply.failure(code: "unavailable_now", message: "unavailable_now")
+            guard await transport.lineDrained(within: .seconds(5)) else { return notNow }
             if let refusal = sandboxRuns.refusal { return AgentPaneReply.failure(code: refusal, message: refusal) }
-            guard transport.gestures.consume() else { return Self.transportFailure(.gestureRequired) }
-            return await sandboxRuns.run(task: task, key: key) { await onSandboxRun(task, agent, key) }
+            let replacements = transport.replacements
+            guard replacements.beginSandbox() else { return notNow }
+            guard transport.gestures.consume() else {
+                replacements.endSandbox()
+                return Self.transportFailure(.gestureRequired)
+            }
+            return await sandboxRuns.run(task: task, key: key) {
+                defer { replacements.endSandbox() }
+                return await onSandboxRun(task, agent, key)
+            }
         case .sandboxState(let wait):
             return await sandboxRuns.state(wait: wait)
         case .paneAction, .diffTurn, .preview, .setQuickActions, .tabState, .tabRowTools, .sideChat, .subagentPane, .processTerminal, .chatTab, .offerOpen, .asksOpen, .newChatHere: return await respondToHeader(request)
