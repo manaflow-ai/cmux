@@ -297,11 +297,7 @@ export function FolderPopover({
         {shown.size === 0 && !typedPath && (
           <div className="acpmux-location-empty">{t(typed ? "project.none" : "project.noneYet")}</div>
         )}
-        {note && (
-          <p className="acpmux-location-note">
-            {note}
-          </p>
-        )}
+        {note && <p className="acpmux-location-note">{note}</p>}
       </Popover>
       <AddProjectDialog
         open={adding}
