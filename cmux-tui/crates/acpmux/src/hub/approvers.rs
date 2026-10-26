@@ -118,9 +118,17 @@ impl ApproverSet {
         decision: &Value,
         now: u64,
     ) -> bool {
-        self.verifies_then(instance, session, permission, option, nonce, answers, decision, now, || {
-            true
-        })
+        self.verifies_then(
+            instance,
+            session,
+            permission,
+            option,
+            nonce,
+            answers,
+            decision,
+            now,
+            || true,
+        )
     }
 
     /// `verifies`, then `commit` (the answer counting: its nonce spent) when it does; whether
@@ -447,14 +455,15 @@ mod tests {
         let decision = json!({"approver": "phone-1", "expiresAt": 200, "signature": good});
         let (revoked, returned) = std::sync::mpsc::channel();
         let revoker = set.clone();
-        let committed = set.verifies_then("inst", "s1", "p1", "allow", "n1", None, &decision, 100, || {
-            std::thread::spawn(move || {
-                revoker.set(&json!({"macDevice": "mac-1", "approvers": []})).unwrap();
-                let _ = revoked.send(());
+        let committed =
+            set.verifies_then("inst", "s1", "p1", "allow", "n1", None, &decision, 100, || {
+                std::thread::spawn(move || {
+                    revoker.set(&json!({"macDevice": "mac-1", "approvers": []})).unwrap();
+                    let _ = revoked.send(());
+                });
+                // The commit is in flight: the revocation has not returned.
+                returned.recv_timeout(Duration::from_millis(300)).is_err()
             });
-            // The commit is in flight: the revocation has not returned.
-            returned.recv_timeout(Duration::from_millis(300)).is_err()
-        });
         assert!(committed, "the revocation returned while the answer was being committed");
         returned.recv_timeout(Duration::from_secs(10)).expect("the revocation returns");
         assert!(!check(&set, &good, 200, None, 100), "the old signature counts after revocation");
