@@ -147,8 +147,10 @@ final class AppControl {
         if let wireStats = services.wireStats { router.register([DaemonWireControl(stats: wireStats).method]) }
         router.register([DebugInput(sources: [InputTapDebugSource(tap: services.inputTap), DebugCEF.pumpInputSource(services.cache.chromium),
                                                ScrollViewAuditSource { [mainWork = services.mainWork] in
-                                                   await mainWork.apply(.automation, owner: "debug.input.scroll_views") {
-                                                       DebugInputScrollViews(auditing: NSApp.windows)
+                                                   await withCheckedContinuation { continuation in
+                                                       mainWork.postFromAnyThread(.automation, owner: "debug.input.scroll_views") {
+                                                           continuation.resume(returning: DebugInputScrollViews(auditing: NSApp.windows))
+                                                       }
                                                    }
                                                }]).method])
         router.register(DebugWindowsControl.methods(services) + [services.daemon.debugControlMethod { [weak services] in services?.windows.controllers.map { (id: $0.state.id, shows: $0.recoveryShows) } ?? [] }, services.daemon.debugDrainCostMethod])

@@ -5,21 +5,39 @@ import Foundation
 import SwiftUI
 import Testing
 
+/// A private document view class: `String(reflecting:)` names it with a launch-dependent
+/// `(unknown context at $...)` segment.
+private final class PrivateDocument: NSView {}
+
 /// `debug.input scroll_views` (p04-input-048): the audit lists every scroll view under a window with
 /// its classes, AppKit's responsive-scrolling flags and which views override `scrollWheel(_:)`, finds
-/// SwiftUI hosting, keeps a stable JSON schema, and reads only when asked.
+/// SwiftUI hosting, keeps a stable JSON schema and stable class names, and reads only when asked.
 @MainActor @Suite
 struct ScrollViewAuditTests {
     final class WheelScrollView: NSScrollView {
         override func scrollWheel(with event: NSEvent) { super.scrollWheel(with: event) }
     }
 
+    /// Overrides `scrollWheel(_:)`, calls super and opts back in, as p03-rendering-110's
+    /// SidebarScrollView and PaletteListView do.
+    final class OptInWheelScrollView: NSScrollView {
+        override class var isCompatibleWithResponsiveScrolling: Bool { true }
+        override func scrollWheel(with event: NSEvent) { super.scrollWheel(with: event) }
+    }
+
+    final class FrameScrollView: NSScrollView {}
+
     final class WheelDocument: NSView {
         override func scrollWheel(with event: NSEvent) { super.scrollWheel(with: event) }
     }
 
     final class DrawingDocument: NSView {
+        override class var isCompatibleWithResponsiveScrolling: Bool { false }
         override func draw(_ dirtyRect: NSRect) {}
+    }
+
+    final class IncompatibleNonDrawingDocument: NSView {
+        override class var isCompatibleWithResponsiveScrolling: Bool { false }
     }
 
     final class CompatibleDrawingDocument: NSView {
@@ -54,24 +72,38 @@ struct ScrollViewAuditTests {
         #expect(audit.notResponsive == 0)
     }
 
-    @Test func scrollWheelOverridesAreNamedAndMakeTheRowNotResponsive() throws {
+    /// AppKit's default `+[NSScrollView isCompatibleWithResponsiveScrolling]` is NO for a subclass that
+    /// overrides `scrollWheel(_:)`; the override itself is only listed.
+    @Test func aScrollWheelOverrideIsNamedAndCountsOnlyThroughTheClassFlag() throws {
         let subclass = Self.scrollView(WheelScrollView(frame: NSRect(x: 0, y: 0, width: 100, height: 100)), document: NSView())
         let document = Self.scrollView(document: WheelDocument())
         let audit = DebugInputScrollViews(auditing: [Self.root(subclass, document)])
         #expect(audit.rows.map(\.scrollWheelOverrides) == [["scroll_view"], ["document_view"]])
-        #expect(audit.rows.map(\.responsive) == [false, false])
-        #expect(audit.notResponsive == 2)
-        #expect(audit.rows[0].scrollViewClass.hasSuffix("WheelScrollView"))
+        #expect(audit.rows.map(\.scrollViewCompatible) == [false, true])
+        #expect(audit.rows.map(\.responsive) == [false, true])
+        #expect(audit.notResponsive == 1)
+        #expect(audit.rows[0].scrollViewClass == "CmuxNextInputTests.ScrollViewAuditTests.WheelScrollView")
+    }
+
+    @Test func aScrollViewThatOverridesScrollWheelAndOptsBackInIsResponsive() throws {
+        let optIn = Self.scrollView(OptInWheelScrollView(frame: NSRect(x: 0, y: 0, width: 100, height: 100)), document: NSView())
+        let audit = DebugInputScrollViews(auditing: [Self.root(optIn)])
+        let row = try #require(audit.rows.first)
+        #expect(row.scrollWheelOverrides == ["scroll_view"])
+        #expect(row.scrollViewCompatible == true)
+        #expect(row.responsive == true)
+        #expect(audit.notResponsive == 0)
     }
 
     @Test func aDrawingDocumentIsResponsiveOnlyWhenItsClassSaysCompatible() {
         let drawing = Self.scrollView(document: DrawingDocument())
         let compatible = Self.scrollView(document: CompatibleDrawingDocument())
-        let audit = DebugInputScrollViews(auditing: [Self.root(drawing, compatible)])
-        #expect(audit.rows.map(\.documentViewOverridesDraw) == [true, true])
-        #expect(audit.rows.map(\.documentViewCompatible) == [DrawingDocument.isCompatibleWithResponsiveScrolling, true])
-        #expect(audit.rows[1].responsive)
-        #expect(audit.rows[0].responsive == DrawingDocument.isCompatibleWithResponsiveScrolling)
+        let nonDrawing = Self.scrollView(document: IncompatibleNonDrawingDocument())
+        let audit = DebugInputScrollViews(auditing: [Self.root(drawing, compatible, nonDrawing)])
+        #expect(audit.rows.map(\.documentViewOverridesDraw) == [true, true, false])
+        #expect(audit.rows.map(\.documentViewCompatible) == [false, true, false])
+        #expect(audit.rows.map(\.responsive) == [false, true, true], "an incompatible document view counts only when it draws")
+        #expect(audit.notResponsive == 1)
     }
 
     @Test func nestedScrollViewsAreListedInDepthFirstOrderAcrossWindows() {
@@ -96,12 +128,28 @@ struct ScrollViewAuditTests {
         #expect(DebugInputScrollViews.className(type(of: hosting)) == "SwiftUI.NSHostingView", "generic arguments left out")
     }
 
+    @Test func classNamesAreTheSameOnEveryLaunch() throws {
+        let row = try #require(DebugInputScrollViews(auditing: [Self.root(Self.scrollView(document: PrivateDocument()))]).rows.first)
+        #expect(row.documentViewClass == "CmuxNextInputTests.PrivateDocument")
+        #expect(row.documentViewClass?.contains("$") == false)
+        #expect(DebugInputScrollViews.stableName("Module.(unknown context at $10a3c4f2c).Name") == "Module.Name")
+        #expect(DebugInputScrollViews.stableName("SwiftUI.Foo<X>.Bar") == "SwiftUI.Foo.Bar", "a nested type after the generic arguments stays")
+        #expect(DebugInputScrollViews.stableName("A.B<C<D>, (E) -> F>.G<H>") == "A.B.G")
+        #expect(DebugInputScrollViews.stableName("A.B<M.(unknown context at $1).P>.(unknown context at $2).Q") == "A.B.Q")
+    }
+
     @Test func theAuditWalksAWindowsFrameView() throws {
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 200, height: 200), styleMask: [.titled],
                               backing: .buffered, defer: true)
         window.isReleasedWhenClosed = false
-        window.contentView?.addSubview(Self.scrollView(document: NSView()))
-        let row = try #require(DebugInputScrollViews(auditing: [window]).rows.first)
+        let contentView = try #require(window.contentView)
+        let frameView = try #require(contentView.superview, "a titled window's content view sits in its frame view")
+        contentView.addSubview(Self.scrollView(document: NSView()))
+        frameView.addSubview(Self.scrollView(FrameScrollView(frame: NSRect(x: 0, y: 0, width: 100, height: 20)), document: NSView()))
+        let rows = DebugInputScrollViews(auditing: [window]).rows
+        #expect(rows.map(\.scrollViewClass).sorted() == ["CmuxNextInputTests.ScrollViewAuditTests.FrameScrollView", "NSScrollView"],
+                "a scroll view outside the content view (a title bar accessory's place) is found too")
+        let row = try #require(rows.first)
         #expect(row.window == window.windowNumber)
         #expect(row.windowClass == "NSWindow")
         #expect(row.windowVisible == false)

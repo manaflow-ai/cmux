@@ -5,8 +5,9 @@ internal import ObjectiveC
 /// on its own thread (responsive scrolling), for p03-rendering-110's owner (p04-input.md task 048,
 /// MQ-responsive-scroll). Chrome keeps scrolling off the main thread with its compositor
 /// (cc/input/input_handler.cc); AppKit's matching path is responsive scrolling, which a scroll view
-/// leaves when its class, clip view or document view overrides `scrollWheel(_:)`, or its document
-/// view draws and is not compatible (AppKit 10.9 release notes, "Responsive Scrolling").
+/// leaves when its class is not compatible (`+isCompatibleWithResponsiveScrolling`, NO by default for a
+/// subclass that overrides `scrollWheel(_:)` and does not opt back in), or its document view draws and
+/// is not compatible (AppKit 10.9 release notes, "Responsive Scrolling").
 ///
 /// Each read walks the windows once, on the main actor; nothing observes views between reads.
 public nonisolated struct DebugInputScrollViews: Sendable, Equatable, Codable {
@@ -31,12 +32,13 @@ public nonisolated struct DebugInputScrollViews: Sendable, Equatable, Codable {
         /// Whether the document view's class overrides `draw(_:)`; nil without one.
         public var documentViewOverridesDraw: Bool?
         /// The views whose class overrides `scrollWheel(_:)`, from `scroll_view`, `clip_view` and
-        /// `document_view`, in that order.
+        /// `document_view`, in that order. Informational: AppKit already folds a scroll view's override
+        /// into ``scrollViewCompatible``, and a class that opts back in stays responsive.
         public var scrollWheelOverrides: [String]
         /// Whether the scroll view is SwiftUI's or sits inside a SwiftUI hosting view.
         public var swiftUIHosted: Bool
-        /// AppKit's rule over the fields above: the scroll view's class is compatible, no view
-        /// overrides `scrollWheel(_:)`, and the document view is compatible or does not draw.
+        /// AppKit's rule over the class flags: the scroll view's class is compatible, and the document
+        /// view is compatible or does not draw.
         public var responsive: Bool
 
         public init(window: Int, windowClass: String, windowVisible: Bool, scrollViewClass: String, clipViewClass: String,
@@ -53,8 +55,7 @@ public nonisolated struct DebugInputScrollViews: Sendable, Equatable, Codable {
             self.documentViewOverridesDraw = documentViewOverridesDraw
             self.scrollWheelOverrides = scrollWheelOverrides
             self.swiftUIHosted = swiftUIHosted
-            responsive = scrollViewCompatible && scrollWheelOverrides.isEmpty
-                && ((documentViewCompatible ?? true) || documentViewOverridesDraw != true)
+            responsive = scrollViewCompatible && ((documentViewCompatible ?? true) || documentViewOverridesDraw != true)
         }
 
         private enum CodingKeys: String, CodingKey {
@@ -148,10 +149,36 @@ extension DebugInputScrollViews {
     }
 
     /// The class's Swift name without generic arguments (`SwiftUI.NSHostingView`), so a row does not
-    /// carry a SwiftUI view tree's type.
+    /// carry a SwiftUI view tree's type, and the same on every launch (``stableName(_:)``).
     static func className(_ cls: AnyClass) -> String {
-        let name = String(reflecting: cls)
-        return name.firstIndex(of: "<").map { String(name[..<$0]) } ?? name
+        stableName(String(reflecting: cls))
+    }
+
+    /// `reflected` without its `<...>` groups (nested ones too, so `SwiftUI.Foo<X>.Bar` keeps `.Bar`;
+    /// a function type's `->` inside one is not a bracket) and without the `(unknown context at $...).`
+    /// segments of private types, whose address moves with each launch and build.
+    static func stableName(_ reflected: String) -> String {
+        let unknownContext = "(unknown context at "
+        var name = ""
+        var depth = 0
+        var previous: Character?
+        var rest = Substring(reflected)
+        while let character = rest.first {
+            if depth == 0, rest.hasPrefix(unknownContext), let close = rest.firstIndex(of: ")") {
+                rest = rest[rest.index(after: close)...]
+                if rest.first == "." { rest = rest.dropFirst() }
+                previous = nil
+                continue
+            }
+            switch character {
+            case "<": depth += 1
+            case ">" where depth > 0 && previous != "-": depth -= 1
+            default: if depth == 0 { name.append(character) }
+            }
+            previous = character
+            rest = rest.dropFirst()
+        }
+        return name
     }
 
     @MainActor
@@ -166,12 +193,17 @@ extension DebugInputScrollViews {
 }
 
 /// `debug.input` section `scroll_views` (task 048): one walk of the App's windows per read, nothing
-/// between reads. The App passes the walk with its own classed main-thread hop, so this package
-/// neither reaches for `NSApp` nor posts unclassed main work.
+/// between reads. The App passes the walk with its own classed main-thread post, so this package does
+/// not reach for `NSApp`. Post it from the calling thread (`postFromAnyThread`), not through the
+/// main-actor `apply`, whose call is one more main-actor job the board does not attribute:
 ///
 /// ```swift
 /// ScrollViewAuditSource { [mainWork] in
-///     await mainWork.apply(.automation, owner: "debug.input.scroll_views") { DebugInputScrollViews(auditing: NSApp.windows) }
+///     await withCheckedContinuation { continuation in
+///         mainWork.postFromAnyThread(.automation, owner: "debug.input.scroll_views") {
+///             continuation.resume(returning: DebugInputScrollViews(auditing: NSApp.windows))
+///         }
+///     }
 /// }
 /// ```
 public nonisolated struct ScrollViewAuditSource: DebugInputSource {
