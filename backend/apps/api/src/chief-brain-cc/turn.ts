@@ -245,27 +245,35 @@ const ccAttempt = async (b: ChiefBrainDO, id: string, blocks: ReadonlyArray<stri
   try {
     if (!vm) {
       const name = vmName(env)
+      // Nothing below the create depends on the VM until the boot: the tailnet key, the turn token, the Chief's GitHub login and its tool
+      // files are asked for while the machine is made (each was a serial round trip on the first-token path). A failure surfaces where the
+      // value is used; the catch only keeps a rejection that lands before then from being unhandled.
+      const keyP = mintTailnetKey(env)
+      const prepP = Promise.all([notesToken(env, agent, conversation, id), githubOf(env, agent).ccGithubTurn(agent), toolsOf(env, agent).ccToolFiles()])
+      keyP.catch(() => undefined)
+      prepP.catch(() => undefined)
       vm = await createVm(env, name, { agent, conversation, run: id })
       writeConfig(b.sql, { [`cc_vm:${id}`]: vm })
       mark("vm")
-      const key = await mintTailnetKey(env)
-      const boot = await execRoot(env, vm, `/opt/chief-cc/boot.sh ${name}`, key, BOOT_MS)
+      const providerP = vmNetwork(env, vm)
+      providerP.catch(() => undefined)
+      const boot = await execRoot(env, vm, `/opt/chief-cc/boot.sh ${name}`, await keyP, BOOT_MS)
       if (boot.exit !== 0 || !boot.stdout.includes("ready")) throw new CcError(`the turn machine did not join the network (exit ${boot.exit})`)
       // The agent stays closed (boot.sh) until the Chief's network settings are applied here.
       const net = readNet(cfgOf(b, "cc_net"))
-      // The current `chief-vm` first (it ships with the Worker, not the snapshot), then the network settings.
-      const applied = await execRoot(env, vm, "bash -s", enc.encode(`${toolsScript()}\n${netScript(net)}`), 30_000)
+      // The current `chief-vm` first (it ships with the Worker, not the snapshot), then the network settings; the attachments the input
+      // names (pasted screenshots, files) are written meanwhile, where its lines say, before the agent starts.
+      const [applied, staged] = await Promise.all([
+        execRoot(env, vm, "bash -s", enc.encode(`${toolsScript()}\n${netScript(net)}`), 30_000),
+        stageAttachments(env, vm, agent, cfg.owner ?? "", conversation, blocks.join("\n\n"))
+      ])
       if (applied.exit !== 0 || !applied.stdout.includes("net ok")) throw new CcError(`the turn machine's network settings did not apply (exit ${applied.exit})`)
       mark("vm_ready")
-      // The attachments the input names (pasted screenshots, files), written where its lines say, before the agent starts.
-      const staged = await stageAttachments(env, vm, agent, cfg.owner ?? "", conversation, blocks.join("\n\n"))
       if (staged.written > 0) mark("attachments")
       const missingNote = staged.missing.length > 0 ? `\n\n[attachment files not available in this turn: ${staged.missing.map((m) => `${m.path} (${m.why})`).join("; ")}]` : ""
-      const token = await notesToken(env, agent, conversation, id)
+      const [token, github, toolFiles] = await prepP
       writeConfig(b.sql, { [`cc_token:${id}`]: await sha(token) })
       const origin = (env.CLOUD_API_ORIGIN ?? "").replace(/\/+$/, "")
-      // The Chief's own GitHub login (github.ts), else the deployment's shared token until it signs in.
-      const github = await githubOf(env, agent).ccGithubTurn(agent)
       const input = {
         notes_url: `${origin}/v1/chief-cc/${agent}/${conversation}/notes`,
         token,
@@ -274,10 +282,10 @@ const ccAttempt = async (b: ChiefBrainDO, id: string, blocks: ReadonlyArray<stri
         prompt: "",
         max_ms: RUN_MS,
         net,
-        provider: await vmNetwork(env, vm),
+        provider: await providerP,
         // The agent user's tools: written as its files by chief-turn-runner (root) before Claude Code starts. The Chief's own
         // tools (chief-tools, tools.ts) come after the set ones and never on a token path.
-        files: mergeTurnFiles(turnFiles(env.CHIEF_CC_TURN_FILES), await toolsOf(env, agent).ccToolFiles()),
+        files: mergeTurnFiles(turnFiles(env.CHIEF_CC_TURN_FILES), toolFiles),
         github_token: github.token ?? env.CHIEF_CC_GITHUB_TOKEN ?? null
       }
       input.prompt = tail(blocks.join("\n\n") + missingNote, STDIN_BYTES - enc.encode(JSON.stringify(input)).length)

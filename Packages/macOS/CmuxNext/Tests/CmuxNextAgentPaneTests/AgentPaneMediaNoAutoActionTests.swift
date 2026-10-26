@@ -493,7 +493,7 @@ struct AgentPaneMediaNoAutoActionTests {
         for file in [svg, shot] {
             let save = try #require(view.pathMenuItems(file.path)?.first { $0.title == AgentPaneMenuStrings.saveAs })
             let saved = await withCheckedContinuation { (done: CheckedContinuation<URL, Never>) in
-                pane.model.replyLinks.saveFile = { file, _ in done.resume(returning: file) }
+                pane.model.replyLinks.savePathFile = { file, _, _ in done.resume(returning: file) }
                 _ = (save.target as? NSObject)?.perform(save.action, with: save)
             }
             pane.effects.seen.append("save \(saved.path)")
