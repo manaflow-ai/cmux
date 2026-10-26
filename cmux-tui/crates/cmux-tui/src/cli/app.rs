@@ -517,7 +517,9 @@ pub(super) fn run_action(
             }
             _ => {
                 let key = argument_name(&name);
-                let value = if key == "path" || key == "out" { caller_path(value) } else { value };
+                // A file of the caller's working directory, for an app that runs elsewhere.
+                let file = matches!(key.as_str(), "path" | "out" | "bootstrapScript");
+                let value = if file { caller_path(value) } else { value };
                 arguments.insert(key, value);
             }
         }

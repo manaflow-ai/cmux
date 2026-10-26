@@ -91,6 +91,10 @@ pub enum PeerCmd {
         /// on a permission (but the session this command runs in).
         #[arg(long)]
         if_idle: bool,
+        /// Leave a peer alone (`current`) that runs a build of a later day
+        /// than the one pushed, or one with local changes: never a move back.
+        #[arg(long)]
+        keep_newer: bool,
     },
     /// On a Linux host, bring this machine's own daemon to the newest build
     /// of a channel (what acpmux-update.timer runs every 15 minutes): when

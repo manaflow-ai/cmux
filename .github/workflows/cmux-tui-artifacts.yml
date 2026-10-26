@@ -183,6 +183,8 @@ jobs:
           REF: ${{ github.ref }}
           SHA: ${{ github.sha }}
           GH_TOKEN: ${{ github.token }}
+          # Branch heads are read over git, which spends no REST budget.
+          CMUX_TUI_REF_REMOTE: ${{ github.server_url }}/${{ github.repository }}.git
         run: python3 scripts/ci/cmux_tui_superseded_push.py --event "$EVENT_NAME" --ref "$REF" --sha "$SHA"
 
       # A lane-branch push publishes its tree without the cmux_next_ daemon
@@ -1186,6 +1188,8 @@ jobs:
           KEY: ${{ needs.tree-preflight.outputs.key }}
           RUN_ID: ${{ github.run_id }}
           GH_TOKEN: ${{ github.token }}
+          # Branch heads are read over git, which spends no REST budget.
+          CMUX_TUI_REF_REMOTE: ${{ github.server_url }}/${{ github.repository }}.git
           RUN_ATTEMPT: ${{ github.run_attempt }}
         run: |
           set -euo pipefail
