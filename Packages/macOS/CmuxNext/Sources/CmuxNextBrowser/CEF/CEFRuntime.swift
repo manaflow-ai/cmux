@@ -415,9 +415,12 @@ final class CEFRuntime {
         self.shim = shim
         if case .inProcess(let loaded) = library {
             layout = loaded.layout
+            let forkAPI = shim.forkAPIVersion()
+            if forkAPI < CEFPumpSchedule.demandDrivenForkAPI {
+                logger.error("CEF fork API \(forkAPI) predates the demand-driven pump (\(CEFPumpSchedule.demandDrivenForkAPI)): delayed tasks may run late")
+            }
             let pump = CEFMessagePump(
                 work: { [weak self] in CEFStartSteps.shared.pump(windowPending: self?.pendingWindows.isEmpty == false) { self?.pumpWork() } },
-                safetyNet: CEFPumpSchedule.safetyNet(forkAPIVersion: shim.forkAPIVersion()),
                 gate: pumpGate
             )
             self.pump = pump

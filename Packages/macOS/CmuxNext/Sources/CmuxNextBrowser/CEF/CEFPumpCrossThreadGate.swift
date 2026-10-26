@@ -13,7 +13,7 @@ import CmuxNextWakeups
 ///
 /// - An immediate request (0 ms) always goes through.
 /// - With no armed deadline published (none armed, an immediate pass pending, a pass running, a
-///   re-arm in progress, or an old fork whose pump has a safety net), it goes through.
+///   or a re-arm in progress), it goes through.
 /// - With an armed deadline already due, it goes through (the timer may be firing now).
 /// - A delayed request is kept, with no wake, only while the armed deadline is in the future and
 ///   not later than the request's own.
