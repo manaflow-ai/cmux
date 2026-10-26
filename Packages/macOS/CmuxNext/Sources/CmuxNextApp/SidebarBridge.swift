@@ -8,6 +8,7 @@ import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextSettings
 import CmuxNextSidebar
+import CmuxNextWakeups
 import Observation
 
 /// Feeds one window's sidebar from the daemon store and turns sidebar
@@ -48,14 +49,15 @@ final class SidebarBridge {
     let spaceCache = SpaceSectionsCache()
     /// Each listed row's content, observed per row: a status change patches one row, not the sidebar (rows lane).
     /// Its flushes run on the display frame, so a frame's row patches and its scroll update commit together.
-    let rowFeed: SidebarRowFeed = {
-        let frames = FrameBatcher(owner: "SidebarRows")
-        return SidebarRowFeed(schedule: { work in frames.scheduleFrame(work) })
-    }()
+    /// Each flush carries the cause of the store change that marked its rows (`services.causes`), so a
+    /// person's or the frontend's row patch never waits for the budget automation's patches draw on.
+    let rowFeed: SidebarRowFeed
 
     init(services: AppServices, state: WindowState) {
         self.services = services
         self.state = state
+        let frames = FrameBatcher(owner: "SidebarRows"), causes = services.causes
+        rowFeed = SidebarRowFeed(cause: { causes.currentCause }, schedule: { cause, work in frames.queue.enqueue(cause: cause, work) })
         container = SidebarContainerView(model: model)
         model.onIntent = { [weak self] intent in self?.handle(intent) }
         // Loose rows come before every group unless the home session places

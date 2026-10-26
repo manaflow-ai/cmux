@@ -1,3 +1,4 @@
+public import CmuxNextWakeups
 import Foundation
 import Observation
 
@@ -31,6 +32,11 @@ fileprivate final class SidebarRowWatchCancel {
 /// callback is ignored by its generation. Observation tracking has no
 /// cancel call; without this every inputs change left one registration per
 /// unchanged row behind.
+///
+/// Each dirty row keeps the cause of the change that marked it, and each
+/// cause has its own flush (``init(cause:schedule:)``), which maps the rows
+/// of its cause and higher: a person's row change never waits behind, or
+/// pays for, the rows automation marked.
 @MainActor
 public final class SidebarRowFeed {
     /// Maps one row from its store; runs on the main actor (the feed and its callers are main-actor).
@@ -61,8 +67,10 @@ public final class SidebarRowFeed {
     }
 
     private var entries: [WorkspaceID: Entry] = [:]
-    private var dirty: Set<WorkspaceID> = []
-    private var flushScheduled = false
+    /// The dirty rows, each with the cause of the change that marked it.
+    private var dirty: [WorkspaceID: ObservationCause] = [:]
+    /// The causes with a flush scheduled and not run yet (bit `rawValue`).
+    private var scheduledFlushes: UInt8 = 0
     private var pass: UInt64 = 0
     /// The by-value inputs of the last pass, and whether a pass since the last `fill` changed them.
     private var inputs: AnyHashable?
@@ -76,12 +84,29 @@ public final class SidebarRowFeed {
     /// the frame has one commit (a main-actor task ran them between frames, a second commit that
     /// delayed the next frame's scroll update: scroll hitches with ticking rows, perf round 2).
     public typealias Schedule = (@escaping @MainActor @Sendable () -> Void) -> Void
-    private let schedule: Schedule
+    /// Runs one flush later, with the cause of the change that scheduled it (the app's budgeted
+    /// queue runs a person or frontend flush unbudgeted: ``FrameBatchQueue/enqueue(cause:_:)``).
+    public typealias CausedSchedule = @MainActor (ObservationCause, @escaping @MainActor @Sendable () -> Void) -> Void
+    private let schedule: CausedSchedule
+    /// The cause of the change being made now (the app's ``ObservationCauses/currentCause``).
+    private let cause: @MainActor () -> ObservationCause
 
-    /// `schedule` defaults to the next main-actor turn.
-    public init(schedule: Schedule? = nil) {
+    /// `schedule` defaults to the next main-actor turn. Every flush is ``ObservationCause/program``.
+    public convenience init(schedule: Schedule? = nil) {
         // task-owner: the feed; one flush per main-actor turn after the store's batch applies
-        self.schedule = schedule ?? { work in Task { @MainActor in work() } }
+        let plain = schedule ?? { work in Task { @MainActor in work() } }
+        self.init(cause: { .program }, schedule: { _, work in plain(work) })
+    }
+
+    /// A feed whose flushes carry their change's cause.
+    ///
+    /// - Parameters:
+    ///   - cause: The cause of the change being made now, read when a change marks a row (in the
+    ///     change's own turn).
+    ///   - schedule: Runs one flush later, with its cause.
+    public init(cause: @escaping @MainActor () -> ObservationCause, schedule: @escaping CausedSchedule) {
+        self.cause = cause
+        self.schedule = schedule
     }
 
     /// Starts a structural pass (call first in the pass's tracked closure).
@@ -148,12 +173,12 @@ public final class SidebarRowFeed {
             // A row whose content changed since its last map (dirty) keeps that row here: the scheduled flush maps it
             // and sends it as a patch. Mapped here, a tick's status would ride this pass as a structural set (hitch17:
             // a sidebar reload and an anchored offset shift every 1-2 s under 50 ticking terminals).
-            if remap || (!entry.armed && !dirty.contains(id)) { entry.row = arm(id, entry) }
+            if remap || (!entry.armed && dirty[id] == nil) { entry.row = arm(id, entry) }
             // The pass holds this row already, unless it was a stub or was mapped again since.
             if entry.revision != entry.namedRevision { rows.append(entry.row) }
             entry.namedRevision = entry.revision
         }
-        if remap { dirty.subtract(named) }
+        if remap, !dirty.isEmpty { for id in named { dirty[id] = nil } }
         return SidebarRowIndex.patching(rows, in: sections)
     }
 
@@ -169,9 +194,13 @@ public final class SidebarRowFeed {
             return entry.make()
         } onChange: { [weak self] in
             if Thread.isMainThread {
-                MainActor.assumeIsolated { self?.markDirty(id, generation: generation) } // main-proof: checked on the line above
+                MainActor.assumeIsolated { // main-proof: checked on the line above
+                    guard let self else { return }
+                    self.markDirty(id, generation: generation, cause: self.cause())
+                }
             } else {
-                Task { @MainActor [weak self] in self?.markDirty(id, generation: generation) }
+                // An off-main write is no request's: no cause scope covers it.
+                Task { @MainActor [weak self] in self?.markDirty(id, generation: generation, cause: .program) }
             }
         }
     }
@@ -185,20 +214,24 @@ public final class SidebarRowFeed {
         entry.cancel.epoch &+= 1
     }
 
-    private func markDirty(_ id: WorkspaceID, generation: UInt64) {
+    private func markDirty(_ id: WorkspaceID, generation: UInt64, cause: ObservationCause) {
         guard let entry = entries[id], entry.generation == generation else { return }
         entry.armed = false
-        dirty.insert(id)
-        guard !flushScheduled else { return }
-        flushScheduled = true
-        schedule { [weak self] in self?.flush() }
+        if let marked = dirty[id], marked >= cause { return }
+        dirty[id] = cause
+        let bit: UInt8 = 1 << cause.rawValue
+        guard scheduledFlushes & bit == 0 else { return }
+        scheduledFlushes |= bit
+        schedule(cause) { [weak self] in self?.flush(cause) }
     }
 
-    private func flush() {
-        flushScheduled = false
+    /// Maps the dirty rows of `cause` and higher causes again.
+    private func flush(_ cause: ObservationCause) {
+        scheduledFlushes &= ~(1 << cause.rawValue)
         guard !dirty.isEmpty else { return }
-        let ids = dirty
-        dirty.removeAll(keepingCapacity: true)
+        var ids: [WorkspaceID] = []
+        for (id, marked) in dirty where marked >= cause { ids.append(id) }
+        for id in ids { dirty[id] = nil }
         var changed: [SidebarWorkspace] = []
         SidebarPerfCounters.timed {
             for id in ids {
