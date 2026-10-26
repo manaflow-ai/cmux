@@ -216,8 +216,11 @@ export class ChiefBrainDO extends DurableObject<Env> {
     for (const q of [...SCHEMA, ...SPAWN_SCHEMA, IMPORT_SCHEMA]) this.sql.exec(q)
     const inboxColumns = new Set(this.sql.exec<{ name: string }>(`PRAGMA table_info(cb_inbox)`).toArray().map((c) => c.name))
     if (!inboxColumns.has("effect_authorized")) this.sql.exec(`ALTER TABLE cb_inbox ADD COLUMN effect_authorized INTEGER NOT NULL DEFAULT 0`)
+    // Whether thread_root is the message's own (brain-text ownsRoot); rows from before keep the old reply target.
+    if (!inboxColumns.has("own_root")) this.sql.exec(`ALTER TABLE cb_inbox ADD COLUMN own_root INTEGER NOT NULL DEFAULT 1`)
     const turnColumns = new Set(this.sql.exec<{ name: string }>(`PRAGMA table_info(cb_turn)`).toArray().map((c) => c.name))
     if (!turnColumns.has("effect_authorized")) this.sql.exec(`ALTER TABLE cb_turn ADD COLUMN effect_authorized INTEGER NOT NULL DEFAULT 0`)
+    if (!turnColumns.has("trigger_own_root")) this.sql.exec(`ALTER TABLE cb_turn ADD COLUMN trigger_own_root INTEGER NOT NULL DEFAULT 1`)
     this.memory = new Memory(this.sql, Number(env.CHIEF_BRAIN_VIEW_BUDGET ?? "0") || 0)
     const compactCache = new PrefixCache(ttlMs(env.CHIEF_BRAIN_CACHE_TTL), msOr(env.CHIEF_BRAIN_PREFIX_WAIT_MS, PrefixCache.WAIT_MS))
     this.compactor = new Compactor({
@@ -604,7 +607,7 @@ export class ChiefBrainDO extends DurableObject<Env> {
   }
 
   /** Logs the new messages, then builds the cache-stable input (frozen view + delta, OptChat 5a) with the turn row in one transaction (a restart resubmits the same bytes). */
-  openTurn(conversation: string, rows: ReadonlyArray<{ n: number; message: string; seq: number; kind: string; thread_root: string | null; text: string; woke: number; effect_authorized: number }>, fresh = false): void {
+  openTurn(conversation: string, rows: ReadonlyArray<{ n: number; message: string; seq: number; kind: string; thread_root: string | null; own_root?: number; text: string; woke: number; effect_authorized: number }>, fresh = false): void {
     return turnLoop.openTurn(this, conversation, rows, fresh)
   }
 

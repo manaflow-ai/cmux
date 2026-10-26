@@ -362,15 +362,20 @@ export function mergeMessages(
  * drawn again above it); one that answers a top-level message keeps `threadOf`'s rule. */
 export function withThreadRoots(messages: HomeMessage[]): HomeMessage[] {
   const byId = new Map(messages.map((message) => [message.id, message]));
+  // Each message's resolved thread, once per call (a long chain of replies is walked once).
+  const known = new Map<string, string | undefined>();
   // The thread `message` is in: its root, else the thread of the message it answers, else that
   // message (top level, or not loaded); undefined at the top level or in a reply loop.
   const rootOf = (message: HomeMessage, seen: Set<string>): string | undefined => {
     if (message.threadRoot) return message.threadRoot;
+    if (known.has(message.id)) return known.get(message.id);
     const target = message.replyTo?.message;
     if (!target || target === message.id || seen.has(target)) return undefined;
     seen.add(message.id);
     const answered = byId.get(target);
-    return (answered && rootOf(answered, seen)) ?? target;
+    const root = (answered && rootOf(answered, seen)) ?? target;
+    known.set(message.id, root);
+    return root;
   };
   let resolved: HomeMessage[] | undefined;
   messages.forEach((message, index) => {
