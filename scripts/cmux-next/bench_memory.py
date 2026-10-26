@@ -49,6 +49,7 @@ from __future__ import annotations
 import argparse
 import ctypes
 import json
+import math
 import os
 import plistlib
 import re
@@ -618,9 +619,15 @@ def kernel_pressure(app_pid: int, bundle: str, level: str, window: float, worksp
     source fires, and the app reads the new level. Samples the footprint of
     the app and its processes before, every 0.5 s for `window` seconds, and
     after. memory_pressure -S needs root: without it (and without passwordless
-    sudo) this records why and the run goes on."""
+    sudo) this records why and the run goes on.
+
+    memory_pressure holds the level for -s seconds, then resets it to normal;
+    it has no signal handler, so a killed simulator never resets. The hold is
+    the window, so it ends with the window; on an interrupt the run waits only
+    for the rest of the hold, then terminates the simulator."""
+    hold = max(1, math.ceil(window))
     result = {"level": level, "window_s": window}
-    argv = [MEMORY_PRESSURE, "-S", "-l", level, "-s", str(int(window) + 10)]
+    argv = [MEMORY_PRESSURE, "-S", "-l", level, "-s", str(hold)]
     if not os.access(MEMORY_PRESSURE, os.X_OK):
         result["skipped"] = f"{MEMORY_PRESSURE} not found"
     elif os.geteuid() != 0:
@@ -649,12 +656,11 @@ def kernel_pressure(app_pid: int, bundle: str, level: str, window: float, worksp
                 break
         after = sample(app_pid, bundle, f"kernel-pressure-{level}-after", workspaces)
         print_sample(after, top)
-    finally:
-        try:
-            _, errors = simulator.communicate(timeout=window + 30)
-        except subprocess.TimeoutExpired:
-            simulator.terminate()
-            _, errors = simulator.communicate()
+    except BaseException:
+        # Ctrl-C or SIGTERM: wait at most for the rest of the hold (its reset), then stop it.
+        stop_simulator(simulator, max(0.0, hold - (time.monotonic() - started)) + 2)
+        raise
+    _, errors = stop_simulator(simulator, hold + 10)
     result["kernel_level_after"] = kernel_pressure_level()
     if simulator.returncode != 0:
         result["simulator_error"] = (errors or "").strip()[:300] or f"exit {simulator.returncode}"
@@ -670,6 +676,18 @@ def kernel_pressure(app_pid: int, bundle: str, level: str, window: float, worksp
     if "kernel_level_reached_s" not in result:
         print(f"bench-memory: kern.memorystatus_vm_pressure_level never reached {want} within {window} s", flush=True)
     return result
+
+
+def stop_simulator(simulator: subprocess.Popen, timeout: float) -> tuple[str | None, str | None]:
+    """Waits up to `timeout` s for memory_pressure to reset the level and
+    exit; terminates it after that, saying the level may stay simulated."""
+    try:
+        return simulator.communicate(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        simulator.terminate()
+        print("bench-memory: memory_pressure did not end with its hold and was terminated; the simulated "
+              "level stays until the next memory_pressure -S run resets it", file=sys.stderr, flush=True)
+        return simulator.communicate()
 
 
 def interrupted(_signum, _frame):
