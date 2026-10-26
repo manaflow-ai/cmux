@@ -9,11 +9,12 @@ import CmuxNextWakeups
 import Observation
 
 // When Chromium is likely (ChromiumWarmup): Chromium tabs and the palette's Chromium
-// entries (while Chromium is the default engine it starts after launch). The "+" engine menu reports from
+// entries (while Chromium is the default engine it starts after startup). The "+" engine menu reports from
 // PaneController.contextMenu(for: .newTabButton), the default-engine action
-// from SettingsHandlers.
+// from SettingsHandlers. Every warm-start step is an afterStartup post on the launch's scheduler
+// (`AppServices.startup`, given to ChromiumWarmup at init).
 extension AppServices {
-    /// Starts the launch preload and the likelihood observers.
+    /// Posts the launch check and starts the likelihood observers.
     func startChromiumWarmup() {
         let machines = machines
         let preference = cache.browserTabs.preference

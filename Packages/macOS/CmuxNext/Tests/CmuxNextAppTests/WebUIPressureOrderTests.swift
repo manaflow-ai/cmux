@@ -55,7 +55,7 @@ struct WebUIPressureOrderTests {
         func usedRecently(within window: TimeInterval) async -> Bool { false }
         func preload() {}
         func libraryLoadEnded() async {}
-        func warmStart(reason: String) async {}
+        func initializeLoaded(reason: String) -> Bool { true }
         func prepareSpareWindow(pages: Bool) -> Bool { false }
         func dropPagesSpareWindow() {}
         func holdSpareWindows(_ held: Bool) { self.held = held }
@@ -89,7 +89,7 @@ struct WebUIPressureOrderTests {
         let slot = PagePreloadSlot(deadlines: services.mainDeadlines)
         host.preload = slot
         let engine = SpareWindowEngine(log: log)
-        let warmup = ChromiumWarmup(engine: engine, input: FakeInputTap(), memory: coordinator)
+        let warmup = ChromiumWarmup(engine: engine, input: FakeInputTap(), startup: services.startup, memory: coordinator)
         let hibernation = BrowserHibernation(cache: services.cache, memory: coordinator, deadlines: services.mainDeadlines)
         hibernation.start()
         let parking = Parking()

@@ -398,7 +398,7 @@ final class CEFRuntime {
         try finishStart(loadInProcess(candidate).map(CEFRuntimeBoot.inProcess), environment: environment, trigger: "debugWindow")
     }
 
-    private func startError() -> BrowserEngineError? {
+    func startError() -> BrowserEngineError? {
         switch state {
         case .failed(let reason): .engineUnavailable(.cef, reason: reason)
         case .shutDown: .engineUnavailable(.cef, reason: Strings.cefUnavailable)
@@ -406,7 +406,7 @@ final class CEFRuntime {
         }
     }
 
-    private func finishStart(
+    func finishStart(
         _ loaded: Result<CEFRuntimeBoot, BootError>,
         environment: [String: String],
         trigger: String

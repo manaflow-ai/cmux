@@ -32,6 +32,7 @@ public final class CEFEngine: BrowserEngine {
     /// Where the pages' keyed waits (``BrowserPageWaiting``) put their timeouts: the main thread's one
     /// deadline queue, shared with the WebKit engine as the stores are.
     public let waitDeadlines: MainWakeUpQueue
+    private(set) lazy var loadedStart = CEFLoadedStart(runtime: .shared)  // the warm start: its load, then CefInitialize on a picked turn (built on first use, as the runtime)
 
     /// The runtime to start, nil while none is available.
     var layout: CEFRuntimeLayout? { runtimeSource.layout }
@@ -263,12 +264,6 @@ public final class CEFEngine: BrowserEngine {
         set { CEFRuntime.shared.spareWindow.onNeeded = newValue }
     }
 
-    /// Returns once the framework load that `preload` started ended (at once
-    /// when none runs).
-    public func libraryLoadEnded() async {
-        await CEFRuntime.shared.libraryLoadEnded()
-    }
-
     /// Records `name` once in the start marks (the first Chromium page's
     /// creation points, `debug.cef` `start_steps`); true, for a `guard`.
     public func notePoint(_ name: String) -> Bool {
@@ -454,7 +449,7 @@ public final class CEFEngine: BrowserEngine {
     /// Hands the stores, sign-in tabs, wait deadlines and host supervisor (``CEFRuntimeSource/backend``) to the
     /// process's runtime before it starts or makes a tab (not in `init`: the runtime is built on
     /// Chromium's first use, not at launch).
-    private func adoptStores() {
+    func adoptStores() {
         let runtime = CEFRuntime.shared
         runtime.adopt(stores: stores, signInCallbacks: signInCallbacks, waitDeadlines: waitDeadlines,
                       hostSupervisor: runtimeSource.hostSupervisor)

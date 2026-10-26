@@ -428,7 +428,7 @@ final class AppServices {
     private(set) lazy var keyRouter: KeyRouter = KeyRouter(registry: registry, inputDispatch: inputDispatch)  // first read in init (no IUO)
     private(set) lazy var routeKeyDown: (NSEvent, NSWindow?) -> Bool = PerfLabCanaryKeyDown(features: { [weak self] in self?.features })
         .wrap { [weak self] (event: NSEvent, window: NSWindow?) in self?.keyRouter.interceptKeyDown(event, in: window) ?? false }  // debug.key calls it too
-    private(set) lazy var chromiumWarmup: ChromiumWarmup = ChromiumWarmup(engine: cache.cef, input: inputTap, memory: memoryCoordinator)  // first read by its afterFirstFrame start
+    private(set) lazy var chromiumWarmup: ChromiumWarmup = ChromiumWarmup(engine: cache.cef, input: inputTap, startup: startup, memory: memoryCoordinator)  // first read by its afterFirstFrame start
     /// The Settings window (Settings…, Cmd-,).
     private(set) lazy var settingsWindow = SettingsWindowService(services: self)
     /// The wallpaper choices, built off main and kept current by folder events (BackdropCatalogStore).
@@ -555,6 +555,8 @@ final class AppServices {
     let launchStartup: StartupScheduler?
     /// The app's crash keys (p10-stability-207; `AppControl` makes them): windows' focus, Chromium and the local daemon set theirs.
     let crashKeys: CrashKeySlots?
+    /// The scheduler ChromiumWarmup posts its steps on: the launch's (`launchStartup`), or with no launch (tests) one of its own.
+    let startup: StartupScheduler
     /// The burst bench's record of refusals, designed no-op Cmd-W presses and terminal grids (`debug.burst`).
     let burstTrace = BurstTrace()
     /// Every tab switch's `switch.tab` trace pair, in every build (`DebugTabSwitch`); tests replace it.
@@ -595,7 +597,7 @@ final class AppServices {
          crashKeys: CrashKeySlots? = nil, appearance: AppearanceSignals = DesignSettings.shared.signals) {
         self.appearance = appearance
         let work = work ?? BackgroundWork(hangs: hangWatch)
-        self.work = work
+        (self.work, self.startup) = (work, launchStartup ?? StartupScheduler(mainWork: mainWork, background: work, clock: ContinuousClock(), ledger: WakeupLedger()))
         self.energyMonitor = energyMonitor
         // First: the black-box ring is attached to TraceRuntime.shared, so every trace point records from here
         // on; the ring file opens on `.files`, never on main.
