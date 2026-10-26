@@ -72,7 +72,8 @@ final class BlockingViolationTable: Sendable {
     /// Makes a table.
     ///
     /// - Parameters:
-    ///   - environment: Read for `CMUX_BLOCKING_TRAP=1` (Debug builds only: every other build records).
+    ///   - environment: Read once, here, for `CMUX_BLOCKING_TRAP=1` (``BlockingMode/resolved(environment:)``: Debug
+    ///     builds only; every other build records).
     ///   - mode: A test's mode; nil reads `environment`.
     ///   - lockWaitLimitNanos: The longest main-thread ``Mutex`` wait that is not a violation.
     ///   - uptimeNanos: The clock a contended ``Mutex`` wait is measured with.
@@ -82,9 +83,9 @@ final class BlockingViolationTable: Sendable {
          uptimeNanos: @escaping @Sendable () -> UInt64 = { clock_gettime_nsec_np(CLOCK_UPTIME_RAW) },
          startsDrain: Bool = true) {
         #if DEBUG
-        self.mode = mode ?? (environment["CMUX_BLOCKING_TRAP"] == "1" ? .trap : .record)
+        self.mode = mode ?? BlockingMode.resolved(environment: environment)
         #else
-        self.mode = .record  // a bench (and, to come, a Nightly) never stops the app, whatever it was asked
+        self.mode = BlockingMode.resolved(environment: environment)
         #endif
         self.lockWaitLimitNanos = lockWaitLimitNanos
         self.uptimeNanos = uptimeNanos
@@ -192,7 +193,9 @@ final class BlockingViolationTable: Sendable {
             let location = "\(pending.fileID):\(pending.line)"
             published.withLock { $0.append(PublishedSite(id: pending.site, kind: pending.kind, location: location)) }
             #if DEBUG
-            logger.error("blocking \(pending.kind.rawValue, privacy: .public) on the main thread at \(location, privacy: .public): move it off the main thread, or wrap it in allowBlocking(<reviewed reason>) (plans/cmux-next/threading-model.md)")
+            // A fault, not an error: a new site is a bug to fix (p02-threads-006), and a fault is kept in the
+            // persistent log and shown by `log show` without --info or --debug.
+            logger.fault("blocking \(pending.kind.rawValue, privacy: .public) on the main thread at \(location, privacy: .public): move it off the main thread, or wrap it in allowBlocking(<reviewed reason>) (plans/cmux-next/threading-model.md)")
             #endif
             guard let sink = sink.withLock({ $0 }) else { continue }
             sink.record(BlockingViolation(kind: pending.kind, frames: resolver.frames(pending.stack)))

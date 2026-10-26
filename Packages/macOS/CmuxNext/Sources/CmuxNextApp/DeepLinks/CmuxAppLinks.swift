@@ -38,12 +38,7 @@ enum CmuxAppLinks {
         let work = services.work
         // task-owner: one disk check, then one open
         Task { @MainActor [weak services] in
-            // A person clicked the link: the disk check runs on the files lane at userBlocking (a stalled volume
-            // holds a lane thread, never a cooperative-pool one).
-            let isDirectory = (try? await work.run(.userBlocking, mayBlock: .files) { () -> Bool in
-                var directory: ObjCBool = false
-                return FileManager.checked.fileExists(atPath: path, isDirectory: &directory) && directory.boolValue
-            }) ?? false
+            let isDirectory = await isFolder(path, on: work)
             guard let services else { return }
             // Beside the pane the link was clicked from (LinkOpener): the pinned Home column, which
             // takes no tabs, gets the pane on its right or a new split.
@@ -55,6 +50,16 @@ enum CmuxAppLinks {
             }
         }
         return true
+    }
+
+    /// Whether `path` is a folder, checked on `work`'s files lane at userBlocking (a person clicked the link; a
+    /// stalled volume holds a lane thread, never the main thread or a cooperative-pool one). False when the
+    /// check failed.
+    static func isFolder(_ path: String, on work: BackgroundWork) async -> Bool {
+        (try? await work.run(.userBlocking, mayBlock: .files) { () -> Bool in
+            var directory: ObjCBool = false
+            return FileManager.checked.fileExists(atPath: path, isDirectory: &directory) && directory.boolValue
+        }) ?? false
     }
 
     /// The link `url` opens in this app, in the `cmux` scheme or `linkScheme` (this build's): a

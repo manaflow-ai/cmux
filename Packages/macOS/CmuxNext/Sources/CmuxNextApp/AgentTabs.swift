@@ -95,6 +95,8 @@ final class AgentTabStore {
     var launchDeferred: Set<String> = []
     /// The tabs' pages from the last quit, drawn at launch (`AgentPaneLaunchImages`).
     var launchImages = AgentPaneLaunchImages(directory: nil)
+    /// The app's blocking-work lanes, for each pane view's file drags (`AgentPaneView.work`).
+    var work: (any MayBlockRunner)?
     /// New chats' typed text from before they have a session, kept across a relaunch (cx-z5vd).
     var unsentDrafts = AgentUnsentDrafts(file: nil)
     /// "This chat runs on <machine>" for tabs whose session another Mac's acpmux runs.
@@ -499,6 +501,7 @@ final class AgentTabStore {
         DebugTimings.markLaunch("agent_pane.view_created")
         view.customization = customization.current
         view.shortcuts = shortcuts
+        view.work = work
         pageSettings.apply(to: view)
         // A New Tab page draws its own first frame: no native loading mark (Lawrence 2026-10-10,
         // React-only New Tab). Chat panes keep it.

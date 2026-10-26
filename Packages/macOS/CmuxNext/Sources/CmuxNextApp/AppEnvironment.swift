@@ -1,8 +1,10 @@
 import CmuxNextCompat
 import CmuxNextControl
 import CmuxNextDaemon
+import CmuxNextDesign
 import CmuxNextHomeEngine
 import CmuxNextTerminal
+import CmuxNextWakeups
 import Foundation
 
 /// How this process was launched. Identity (bundle, tag, control socket)
@@ -27,8 +29,13 @@ struct AppEnvironment: Sendable {
     /// terminal identity Ghostty gives its shells (`TerminalEnvironment.instance.ghostty`),
     /// so prompts and tools pick the same colors as in Ghostty. Also the
     /// daemon's launch overrides, so terminals it creates without a
-    /// per-terminal `env` match. Resolved once per launch.
+    /// per-terminal `env` match. Resolved once per launch, with no file read: its `TERM` is
+    /// `xterm-256color`, and ``installedTerminfo`` upgrades it where the env is applied.
     let terminalEnvironment: [String: String]
+    /// Whether `xterm-ghostty` is installed in a system terminfo directory: one read per launch on the
+    /// files lane, started in `main` (``current(_:openFiles:work:)``), awaited where a terminal's or the
+    /// daemon's env is built, never on the main thread (p02-threads-006). Nil (tests): `xterm-256color`.
+    var installedTerminfo: (@Sendable () async -> Bool)?
     /// Ghostty resources directory and bundled CLI helper for shell
     /// integration (`GhosttyShellIntegration`). Resolved once per launch.
     var ghosttyResources: String?
@@ -83,7 +90,10 @@ struct AppEnvironment: Sendable {
         #endif
     }
 
-    static func current(_ environment: [String: String] = ProcessInfo.processInfo.environment, openFiles: OpenFileLimit.Change? = nil) -> AppEnvironment {
+    /// This process's launch; `work` (the app's lanes, given by `main` only) starts the terminfo read
+    /// (``installedTerminfo``).
+    static func current(_ environment: [String: String] = ProcessInfo.processInfo.environment, openFiles: OpenFileLimit.Change? = nil,
+                        work: BackgroundWork? = nil) -> AppEnvironment {
         let noActivate = environment["CMUX_NEXT_NO_ACTIVATE"] == "1"
 #if DEBUG
         let showcase = environment["CMUX_NEXT_SHOWCASE"] == "1" || ProcessInfo.processInfo.arguments.contains("--showcase")
@@ -91,7 +101,7 @@ struct AppEnvironment: Sendable {
         let showcase = false
 #endif
         let launch = LaunchIdentity.current()
-        return AppEnvironment(
+        var made = AppEnvironment(
             launch: launch,
             noActivate: noActivate,
             showcase: showcase,
@@ -100,6 +110,12 @@ struct AppEnvironment: Sendable {
             ghosttyResources: GhosttyRuntime.resourcesDirectory(environment: environment),
             ghosttyBinary: GhosttyRuntime.cliHelperPath()
         )
+        if let work {
+            // Quit waits for it (14 file checks): a terminal or the daemon may be awaiting its answer.
+            let terminfo = LaunchRead(on: work, shutdown: .blockShutdown) { TerminalEnvironment.hasInstalledGhosttyTerminfo() }
+            made.installedTerminfo = { await terminfo.finished() }
+        }
+        return made
     }
 
     /// The per-terminal `env` provider every local spawn path uses (daemon
@@ -110,7 +126,7 @@ struct AppEnvironment: Sendable {
     func terminalEnvironmentProvider() -> @Sendable () async -> [String: String] {
         let resources = ghosttyResources
         let binary = ghosttyBinary
-        return TerminalEnvironment.instance.shared(overrides: terminalEnvironment, integration: {
+        return TerminalEnvironment.instance.shared(overrides: terminalEnvironment, installedTerminfo: installedTerminfo, integration: {
             await MainActor.run {
                 Self.shellIntegration(GhosttyRuntime.shared.shellIntegrationSettings, resources: resources, binary: binary)
             }

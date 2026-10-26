@@ -9,7 +9,7 @@ extension AgentPaneView {
         let drag = AgentPaneFileDrag()
         model.replyLinks.startDrag = { [weak self] file in
             guard let self, self.window != nil else { return false }
-            return drag.start(file, from: self)
+            return drag.start(file, from: self, work: self.work)
         }
         model.replyLinks.confirmOutside = { [weak self] path, answer in
             guard let self, self.window != nil, !self.isHiddenOrHasHiddenAncestor else { return answer(false) }

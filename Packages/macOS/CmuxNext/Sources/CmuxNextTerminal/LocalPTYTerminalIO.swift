@@ -27,7 +27,8 @@ public nonisolated final class LocalPTYTerminalIO: TerminalIO {
     private let input = PendingInput()
     private let closed = Atomic<Bool>(false)
 
-    /// Spawns `shell` as a login shell in `workingDirectory`.
+    /// Spawns `shell` as a login shell in `workingDirectory`. The shell's `TERM` is `xterm-256color`
+    /// (``terminalEnvironment(resourcesDirectory:version:installedTerminfo:)``) unless `environment` sets it.
     public init(
         shell: String = LocalPTYTerminalIO.defaultShell,
         workingDirectory: String = NSHomeDirectory(),
@@ -187,22 +188,20 @@ public nonisolated final class LocalPTYTerminalIO: TerminalIO {
 
     /// Ghostty's terminal identity, as the daemon's terminals get it
     /// (`TerminalEnvironment.instance.ghostty` in CmuxNextDaemon): `xterm-256color`
-    /// unless `xterm-ghostty` is installed in a system terminfo directory;
-    /// `COLORTERM`, `TERM_PROGRAM=ghostty` and its version. `TERMINFO` is not set.
+    /// unless `installedTerminfo` (the caller's lane read of
+    /// `TerminalEnvironment.hasInstalledGhosttyTerminfo`) says `xterm-ghostty` is
+    /// installed in a system terminfo directory; `COLORTERM`, `TERM_PROGRAM=ghostty`
+    /// and its version. `TERMINFO` is not set. It reads no file, so a shell can be
+    /// spawned from the main thread (p02-threads-006).
     static func terminalEnvironment(
         resourcesDirectory: String? = GhosttyRuntime.resourcesDirectory(),
         version: String? = GhosttyRuntime.version,
-        home: String = NSHomeDirectory(),
-        fileExists: (String) -> Bool = { FileManager.checked.fileExists(atPath: $0) }
+        installedTerminfo: Bool = false
     ) -> [String: String] {
         var result = ["COLORTERM": "truecolor", "TERM_PROGRAM": "ghostty", "TERM": "xterm-256color"]
         if let version, !version.isEmpty { result["TERM_PROGRAM_VERSION"] = version }
         if let resourcesDirectory, !resourcesDirectory.isEmpty { result["GHOSTTY_RESOURCES_DIR"] = resourcesDirectory }
-        let roots = [home + "/.terminfo", "/usr/share/terminfo", "/usr/lib/terminfo", "/etc/terminfo", "/lib/terminfo",
-                     "/opt/homebrew/share/terminfo", "/usr/local/share/terminfo"]
-        if roots.contains(where: { fileExists($0 + "/78/xterm-ghostty") || fileExists($0 + "/x/xterm-ghostty") }) {
-            result["TERM"] = "xterm-ghostty"
-        }
+        if installedTerminfo { result["TERM"] = "xterm-ghostty" }
         return result
     }
 }

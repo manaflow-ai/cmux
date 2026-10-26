@@ -41,11 +41,13 @@ extension DaemonService {
     /// prestart:)` takes it over. Nil when the launcher cannot be made (the
     /// later `start` reports why).
     public nonisolated static func prestart(launch: LaunchIdentity, terminalEnvironment: [String: String],
+                                     installedTerminfo: (@Sendable () async -> Bool)? = nil,
                                      terminalEnvironmentProvider: @escaping @Sendable () async -> [String: String],
                                      resolvesShellIntegration: Bool = false,
                                      echoesPlacementShift: Bool = false) -> DaemonPrestart? {
         guard let launcher = try? DaemonLauncher.forApp(build: launch.build,
                                                 terminalEnvironment: terminalEnvironment,
+                                                installedTerminfo: installedTerminfo,
                                                 daemonEnvironment: firstPartyAppsEnvironment,
                                                 webSocketPageOrigins: pageOrigins) else { return nil }
         return DaemonPrestart(launcher: launcher, configuration: localConfiguration(

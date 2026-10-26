@@ -2,15 +2,19 @@
 import AppKit
 @testable import CmuxNextAgentPane
 @testable import CmuxNextCompat
+import CmuxNextWakeups
 import Foundation
 import Testing
 import UniformTypeIdentifiers
 
 /// A drag of a file out of an agent chat starts at once with no read, and reads an image's bytes and
-/// picture off the main thread after the start (plans/cmux-next/threading-model.md). Each test binds its own blocking table, so a read on the main thread shows
-/// as a site.
+/// picture, or the file's icon, on the app's blocking-work lanes after the start
+/// (plans/cmux-next/threading-model.md, p02-threads-006). Each test binds its own blocking table, so a read
+/// or a Launch Services query on the main thread shows as a site.
 @MainActor @Suite(.serialized)
 struct AgentPaneFileDragTests {
+    private let work = BackgroundWork(label: "test.file-drag")
+
     private static func folder() throws -> URL {
         let folder = FileManager.default.temporaryDirectory.appendingPathComponent("file-drag-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
@@ -34,7 +38,7 @@ struct AgentPaneFileDragTests {
 
         let table = BlockingViolationTable(mode: .record)
         let contents = await BlockingViolationTable.$scoped.withValue(table) {
-            await AgentPaneFileDrag.contents(of: file)
+            await AgentPaneFileDrag.contents(of: file, on: work)
         }
         await table.flush()
 
@@ -42,6 +46,28 @@ struct AgentPaneFileDragTests {
         #expect(contents.data == png)
         let picture = try #require(contents.picture)
         #expect(picture.size == CGSize(width: 160, height: 80))
+        #expect(contents.icon == nil)
+    }
+
+    /// The drag asked Launch Services for the file's icon on the main thread, in the event's turn
+    /// (p02-threads-006). Now the turn draws a generic image, and the icon comes from the system lane.
+    @Test func aFilesIconIsAskedForOnTheSystemLaneNotTheMainThread() async throws {
+        let folder = try Self.folder()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let file = folder.appendingPathComponent("notes.txt")
+        try Data("notes".utf8).write(to: file)
+
+        let table = BlockingViolationTable(mode: .record)
+        let placeholder = BlockingViolationTable.$scoped.withValue(table) { AgentPaneFileDrag.placeholder() }
+        let contents = await BlockingViolationTable.$scoped.withValue(table) {
+            await AgentPaneFileDrag.contents(of: file, on: work)
+        }
+        await table.flush()
+
+        #expect(table.sites.isEmpty, "a drag asked for the icon on the main thread: \(table.sites)")
+        #expect(placeholder.size == AgentPaneFileDrag.iconSize)
+        let icon = try #require(contents.icon)
+        #expect(icon.size == AgentPaneFileDrag.iconSize)
     }
 
     /// The drag starts in the event's turn (lead review, 2026-10-25): its pasteboard holds the file URL and
@@ -72,7 +98,7 @@ struct AgentPaneFileDragTests {
         let file = folder.appendingPathComponent("notes.txt")
         try Data("notes".utf8).write(to: file)
 
-        let contents = await AgentPaneFileDrag.contents(of: file)
+        let contents = await AgentPaneFileDrag.contents(of: file, on: work)
 
         #expect(contents.data == nil)
         #expect(contents.picture == nil)

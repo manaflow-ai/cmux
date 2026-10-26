@@ -140,10 +140,10 @@ public final class DaemonService {
     @ObservationIgnored var updateHandOff: (@Sendable (DaemonConnection, DaemonIdentity) async -> Bool)?
 
     /// `terminalEnvironment` (`AppEnvironment.terminalEnvironment`) goes to
-    /// the daemon process and to every terminal it creates for this app.
+    /// the daemon process and to every terminal it creates for this app (`installedTerminfo`: `DaemonLauncher.forApp`).
     /// `prestart` is the first connect attempt `main` began
     /// (`DaemonService.prestart`); without one the first attempt starts here.
-    public func start(launch: LaunchIdentity, terminalEnvironment: [String: String],
+    public func start(launch: LaunchIdentity, terminalEnvironment: [String: String], installedTerminfo: (@Sendable () async -> Bool)? = nil,
                terminalEnvironmentProvider: @escaping @Sendable () async -> [String: String],
                resolvesShellIntegration: Bool = false,
                prestart: DaemonPrestart? = nil) {
@@ -155,7 +155,7 @@ public final class DaemonService {
         } else {
             do {
                 launcher = try DaemonLauncher.forApp(build: launch.build,
-                                                terminalEnvironment: terminalEnvironment,
+                                                terminalEnvironment: terminalEnvironment, installedTerminfo: installedTerminfo,
                                                 daemonEnvironment: Self.firstPartyAppsEnvironment, webSocketPageOrigins: Self.pageOrigins)
             } catch {
                 noteStartupFailure((error as? DaemonError) ?? .launchFailed(String(describing: error)))

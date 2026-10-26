@@ -1,4 +1,5 @@
 @testable import CmuxNextApp
+@testable import CmuxNextCompat
 import CmuxNextWakeups
 import Foundation
 import Testing
@@ -113,6 +114,30 @@ import Testing
         let (_, missing) = try await URLSession.shared.data(from: other.url!)
         #expect((missing as? HTTPURLResponse)?.statusCode == 404)
     }
+
+    #if DEBUG
+    /// A page request reads the shared file on the files lane, never on the main thread, where the
+    /// server's connection events arrive (p02-threads-006). The table is the test's own, so a read on the
+    /// main thread shows as a site.
+    @Test func aPageReadRunsOnTheFilesLane() async throws {
+        let folder = try Self.folder()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let file = folder.appending(path: "page.md")
+        try Data("# Page\n".utf8).write(to: file)
+        let work = BackgroundWork(label: "test.live-share")
+
+        let table = BlockingViolationTable(mode: .record)
+        let (text, missing) = await BlockingViolationTable.$scoped.withValue(table) { () async -> (String, String) in
+            (await MarkdownLiveShareServer.text(of: file, on: work),
+             await MarkdownLiveShareServer.text(of: folder.appending(path: "gone.md"), on: work))
+        }
+        await table.flush()
+
+        #expect(table.sites.isEmpty, "a page request read the file on the main thread: \(table.sites)")
+        #expect(text == "# Page\n")
+        #expect(missing.isEmpty)
+    }
+    #endif
 
     @Test func aChangeOnDiskSendsReload() async throws {
         let folder = try Self.folder()

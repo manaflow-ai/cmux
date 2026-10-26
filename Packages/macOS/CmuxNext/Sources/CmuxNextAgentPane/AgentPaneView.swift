@@ -1,5 +1,5 @@
 public import AppKit
-import CmuxNextCompat
+public import CmuxNextCompat
 public import CmuxNextDesign
 import CmuxNextErrorJournal
 public import CmuxNextPages
@@ -31,6 +31,9 @@ public final class AgentPaneView: NSView {
     public let source: AgentPaneSource
     public var customization = AgentPaneCustomization() { didSet { if customization != oldValue { applyCustomization() } } }
     public var shortcuts = AgentPaneShortcuts() { didSet { if shortcuts != oldValue { applyShortcuts() } } }
+    /// The app's blocking-work lanes (`AppServices.work`): a file drag reads the file's icon and an image's
+    /// bytes there (``AgentPaneFileDrag``). Nil (a pane the app did not wire) keeps a drag's generic image.
+    public var work: (any MayBlockRunner)?
     public var previewFeatures = false { didSet { if previewFeatures != oldValue { applyPreviewFeatures() } } }
     /// The `agent.sessionStatus` tunable (Debug Settings), followed live (``AgentPaneSessionStatus``).
     public internal(set) var sessionStatus = AgentPaneTunables.sessionStatus.value { didSet { if sessionStatus != oldValue { AgentPaneSessionStatus.push(to: self) } } }
