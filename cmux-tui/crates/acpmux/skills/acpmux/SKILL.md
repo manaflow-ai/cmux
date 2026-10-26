@@ -41,10 +41,10 @@ session's caller token is not one this acpmux daemon knows", run
 `acpmux session restart @`: your agent restarts in the same conversation when
 the turn ends, with tools that work again; your sub-sessions keep running.
 
-To put a session's chat in front of the user without moving their focus, run
+To open a session's chat for the user, run
 `cmux agent open SESSION_ID` (the `cmux` MCP server's `app_agent_open`) for a
 new workspace, or `cmux agent open-tab SESSION_ID --target PANE_ID`
-(`app_agent_open_tab`) for a tab in a pane you name; a
+(`app_agent_open_tab`) for a tab in a pane you name. Opening a workspace may move focus; a
 `start_session` child is also listed under your chat in the chat list. Post progress on a workspace's
 sidebar row with `cmux workspace WS status set KEY TEXT`, and ask for
 attention with `cmux notify`. `cmux docs search "show the user"` lists the rest.
@@ -214,7 +214,7 @@ form. Say and pass that name: never ask the person for a session id, and never u
 from another machine (an id names a session only on the machine that runs it).
 
 ```bash
-acpmux peer status                               # each peer: reachable, round trip, disk, load, build
+acpmux host status                               # each host: reachable, round trip, disk, load, build
 acpmux run -m claude --host HOST "…"             # start there; --cwd is a remote path
 acpmux ensure NAME -m codex --host HOST
 acpmux send HOST/NAME "…"                        # wait, tail, history, cancel work the same
@@ -224,13 +224,13 @@ acpmux resolve 'https://cmux.com/deeplink/agent?harness=claude&session=…&host=
 acpmux bead link NAME cx-cus7j.230               # the tracker bead NAME works on; `bead ls cx-cus7j.230` finds NAME, `bead ls --session NAME` lists its beads
 ```
 
-- **Check first.** Run `acpmux peer status` before remote work and after any peer request
+- **Check first.** Run `acpmux host status` before remote work and after any host request
   fails. Don't guess from a timeout. It names the next command for a peer it cannot reach
   (`acpmux host doctor HOST`) and for one on another build (`acpmux host update HOST`). The
   update restarts that peer's daemon: run it only when the task asks for it (see below), and
   otherwise report the version mismatch.
 - **Unreachable peer.** acpmux reconnects by itself. A request refused as unreachable was not
-  sent, so send it again once `peer status` shows the peer reachable. Its sessions show
+  sent, so send it again once `host status` shows the host reachable. Its sessions show
   `unreachable` meanwhile; don't start a replacement elsewhere unless the task can't wait.
 - **Where files live.** A remote session reads and writes the peer's disk. `--cwd` and
   `--worktree` are paths there, and its worktrees go to `~/.cmux/worktrees/<project>/<name>`
@@ -242,7 +242,7 @@ acpmux bead link NAME cx-cus7j.230               # the tracker bead NAME works o
   PR, next step).
 - **What the host allows.** Some machines are not for builds or long jobs. When the task or the
   session's first message names what a host must not run, honour it, and pick another host
-  from `peer status`.
+  from `host status`.
 
 A remote start runs under the peer's rules. `--cwd` must sit inside the peer's
 `webRoots` (a missing folder there is made); with no `--cwd` the session gets a

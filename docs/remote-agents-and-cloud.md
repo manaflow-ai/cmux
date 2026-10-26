@@ -120,7 +120,9 @@ cmux agent open-tab api-work --host my-linux --focus
 
 The tab binds to the peer session mirrored by your Mac's daemon. If the name is
 ambiguous, use its session ID from `acpmux ls --json`. This does not move the
-agent. The generic action form also accepts the peer host:
+agent. For remote chat placement in local sidebar groups, see the
+[acpmux peer guide](../cmux-tui/crates/acpmux/README.md#peers-every-session-on-every-machine-from-one-mac).
+The generic action form also accepts the peer host:
 
 ```sh
 cmux action run agent.openSessionTab --target PANE --session api-work --host my-linux
@@ -185,6 +187,7 @@ cmux cloud ssh --target machine:MACHINE_ID
 cmux cloud setup-github --target machine:MACHINE_ID
 cmux cloud pause-machine --target machine:MACHINE_ID
 cmux cloud resume-machine --target machine:MACHINE_ID
+cmux cloud exec --target machine:MACHINE_ID --command 'uname -a'
 ```
 
 `cloud ssh` opens a terminal in the app. It does not attach the invoking CLI's
@@ -198,6 +201,9 @@ The catalog also exposes file access, for example:
 ```sh
 cmux cloud file-read --target machine:MACHINE_ID --path /workspace/README.md
 ```
+
+`cloud exec` runs one command through the Cloud API and returns `exit_code`,
+`stdout` and `stderr`; pass the command with `--command`.
 
 File access is not automatic transcript backup or history hydration. Do not
 assume a particular no-wake behavior from the existence of this command.
