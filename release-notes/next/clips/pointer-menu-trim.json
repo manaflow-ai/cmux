@@ -1,0 +1,123 @@
+{
+  "caption": "Right-click a tab to find everyday actions in a shorter menu, with the rest in More or the command palette.",
+  "frameInterval": 0.25,
+  "settings": {
+    "appearance": {
+      "density": "compact",
+      "chromeStyle": "flat-sidebar-line",
+      "metrics": {
+        "sidebarWidth": 240,
+        "titlebarHeight": 32,
+        "tabMaxWidth": 200
+      }
+    },
+    "window": {
+      "titlebar": "standard"
+    },
+    "layout": {
+      "panePadding": 0
+    },
+    "sidebar": {
+      "side": "left"
+    },
+    "tabs": {
+      "barPosition": "top",
+      "barOrder": "aboveToolbar",
+      "toolbarButtons": []
+    }
+  },
+  "steps": [
+    {
+      "title": "Launch",
+      "wait": 2
+    },
+    {
+      "title": "A fixed window for the tab click",
+      "rpc": {
+        "method": "debug.window_frame",
+        "params": {
+          "frame": [
+            80,
+            80,
+            1200,
+            800
+          ]
+        }
+      },
+      "wait": 0.5
+    },
+    {
+      "title": "A public workspace",
+      "cmux": [
+        "workspace",
+        "new",
+        "--name",
+        "Release review"
+      ],
+      "wait": 2
+    },
+    {
+      "title": "A public guide page",
+      "cmux": [
+        "tab",
+        "new-browser",
+        "--url",
+        "https://example.com"
+      ],
+      "wait": 3
+    },
+    {
+      "title": "Put the guide in the first tab",
+      "cmux": [
+        "action",
+        "run",
+        "moveSurfaceLeft"
+      ],
+      "wait": 0.5
+    },
+    {
+      "title": "A second public page",
+      "cmux": [
+        "tab",
+        "new-browser",
+        "--url",
+        "https://example.org"
+      ],
+      "wait": 3
+    },
+    {
+      "title": "Report the tab strip geometry before clicking",
+      "rpc": {
+        "method": "debug.pane_chrome",
+        "params": {}
+      },
+      "wait": 0.8
+    },
+    {
+      "title": "Right-click the first browser tab",
+      "rpc": {
+        "method": "debug.mouse",
+        "params": {
+          "action": "click",
+          "button": "right",
+          "x": 300,
+          "y": 46
+        }
+      },
+      "wait": 3,
+      "clip": true
+    },
+    {
+      "title": "Keep the native menu open for the final stills",
+      "wait": 0.3
+    }
+  ],
+  "crop": [
+    0.19,
+    0.03,
+    0.48,
+    0.66
+  ],
+  "lead": 0.6,
+  "hold": 1.2
+}

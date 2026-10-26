@@ -11,8 +11,8 @@ import os
 /// A pane's "…" at its tab bar's trailing end (Leo 2026-10-12; was cx-kk7lm's row of buttons), after
 /// the actions pinned as buttons (`tabs.toolbarButtons`, none by default; Lawrence 2026-10-12): they
 /// show only while the pointer is over the tab bar, like its "+". The menu is the strip plus's (a terminal,
-/// a browser, an agent chat, … in this pane), then the actions not pinned (Split Right, Split Down,
-/// the shown tab's own, Toggle Pane Zoom), Search Tabs, then Show in Tab Bar, which pins or unpins one. A chat's
+/// a browser, an agent chat, … in this pane), then the splits and zoom not pinned, Search Tabs,
+/// then Show in Tab Bar, which pins or unpins one. Content tools remain pinnable and searchable. A chat's
 /// pane has none: its header has its own (acpmux header/ChatHeaderTools.tsx).
 @MainActor
 final class PaneToolbar {
@@ -138,6 +138,9 @@ final class PaneToolbar {
 
     static let zoom: ActionID = "toggleSplitZoom", search: ActionID = "tab.search"
 
+    private static let overflowNewTabTrimmedActions: Set<ActionID> = ["browserProfile.newTab", "newTab.page"]
+    private static let overflowTabTrimmedActions: Set<ActionID> = ["openDiffViewer", "file.open", "agentPane.searchChats"]
+
     /// Shows the `pinned` actions tab `target` of `kind` can run and "…" (nil kind: none); lit, with the
     /// zoom button, while the pane is zoomed.
     /// `paneKinds`: the kinds of every tab in the pane that offers "…", whichever is selected.
@@ -203,6 +206,11 @@ final class PaneToolbar {
     private func moreMenu() -> NSMenu? {
         guard let registry = registry(), let target, kind != nil else { return nil }
         let menu = newTabMenu() ?? NSMenu()
+        // The plus keeps the full creation menu; overflow keeps the common tab kinds.
+        for item in menu.items where ActionRegistry.menuRun(of: item).map({ Self.overflowNewTabTrimmedActions.contains($0.id) }) == true {
+            menu.removeItem(item)
+        }
+        while menu.items.last?.isSeparatorItem == true { menu.removeItem(at: menu.items.count - 1) }
         let own = contentMenu()
         if !own.isEmpty, !menu.items.isEmpty { menu.insertItem(.separator(), at: 0) }
         for (index, item) in own.enumerated() { menu.insertItem(item, at: index) }
@@ -211,7 +219,7 @@ final class PaneToolbar {
             button.isHidden ? nil : ActionID(rawValue: item.id)
         }
         let tabOwn = registry.makeContextMenu(for: .tab, target: ActionTargetRef(kind: .tab, id: target),
-                                              entries: tabActions().filter { !buttons.contains($0) }.map { .action($0) })
+                                              entries: tabActions().filter { !buttons.contains($0) && !Self.overflowTabTrimmedActions.contains($0) }.map { .action($0) })
         if !menu.items.isEmpty, !tabOwn.items.isEmpty { menu.addItem(.separator()) }
         for item in tabOwn.items {
             tabOwn.removeItem(item)
@@ -230,12 +238,13 @@ final class PaneToolbar {
         return menu.themeRows(in: view.themeScope.fullStrength)
     }
 
-    /// Show in Tab Bar: one checked row per action the list may pin; choosing one pins or unpins it.
+    /// Show in Tab Bar: the selected kind's controls, plus existing pins so they can be unpinned.
     private func showInTabBarItem(registry: ActionRegistry) -> NSMenuItem {
         let item = NSMenuItem(title: PaneToolbarStrings.showInTabBar, action: nil, keyEquivalent: "")
         let submenu = NSMenu(title: PaneToolbarStrings.showInTabBar)
         let setting = PaneToolbarButtonsSetting(pinned: pinned)
-        for id in PaneToolbarButtonsSetting.buttonIDs {
+        let available = Set(kind.map(Self.actions) ?? [])
+        for id in PaneToolbarButtonsSetting.buttonIDs where available.contains(ActionID(rawValue: id)) || pinned.contains(id) {
             guard let descriptor = registry.descriptor(for: ActionID(rawValue: id)) else { continue }
             let row = NSMenuItem(title: descriptor.title, action: #selector(ActionMenuClosure.run), keyEquivalent: "")
             row.state = pinned.contains(id) ? .on : .off

@@ -3,7 +3,7 @@
 // chat's own message box and send, never a second send:
 // - `home.messageTo`: Cmd+Shift+P asks for the conversation; `cmux chat send --to X [--text T]`
 //   and MCP send at once when given text, else open that chat with its message box focused.
-// - `home.messageAbout`: right-click a workspace, a tab or an agent chat: the Chief's chat opens
+// - `home.messageAbout`: right-click a workspace or an agent chat: the Chief's chat opens
 //   with a link to it in the message box.
 // - `home.sendSelectionToChief` / `home.sendSelectionTo`: right-click selected text in a terminal
 //   or a page (Markdown pages too): the text goes into that chat's message box as a quote.
@@ -31,7 +31,6 @@ nonisolated enum HomeMessageActionCatalog: ActionCatalogGroup {
                 // workspace's link in `cmux chat send --text`.
                 surfacePlan: ActionSurfacePlan(palette: .exempt(.familyMember), cli: .exempt(.familyMember), contextMenus: [
                     ContextMenuPlacement(.workspaceRow, .navigate, 50),
-                    ContextMenuPlacement(.tab, .navigate, 50),
                     ContextMenuPlacement(.agentChat, .navigate, 50),
                 ])
             ),
