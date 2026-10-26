@@ -58,19 +58,41 @@ export function providerOf(model: VariantModel): {
   };
 }
 
+/// The owner a row's id names between its provider and its model ("openrouter/qwen/coder-3" is
+/// "qwen"); a "provider/model" id names none.
+const ownerOf = (id: string): string | undefined => {
+  const parts = id.toLowerCase().split("/");
+  return parts.length > 2 ? parts.slice(1, -1).join("/") : undefined;
+};
+
 /// `models` as one row per model, in order of each model's first row. Only rows that name a
-/// provider join, and only one row per provider: two bare ids are two models, and so are two of one
-/// provider's rows that share a last id part ("openrouter/a/m" and "openrouter/b/m"). `current` is
-/// the running row's id: its group lands it.
+/// provider join, only rows of one owner join, and only one row per provider: two bare ids are two
+/// models, and so are "openrouter/qwen/m" and "together/mistral/m". A row that names no owner
+/// ("groq/m") joins the one owner its model has, or the owner its provider is ("mistral/m"); with
+/// several and neither, it is its own model. `current` is the running row's id: its group lands it.
 /// A provider's row is named without the provider ("Z.ai/GLM 5.3" is "GLM 5.3"); the menu names the
 /// provider beside it.
 export function groupVariants<T extends VariantModel>(models: readonly T[], current?: string): ModelGroup<T>[] {
+  const rows = models.map((model) => ({ model, ...providerOf(model), owner: ownerOf(model.id) }));
+  // Every owner each model id is named under.
+  const owners = new Map<string, Set<string>>();
+  for (const row of rows)
+    if (row.provider && row.owner) owners.set(row.key, (owners.get(row.key) ?? new Set<string>()).add(row.owner));
+  // The model a row is: its id's last part and its owner, or undefined when that cannot be told.
+  const identity = (row: (typeof rows)[number]): string | undefined => {
+    if (!row.provider) return undefined;
+    const named = owners.get(row.key) ?? new Set<string>();
+    const by = row.model.id.split("/")[0]!.toLowerCase();
+    const owner = row.owner ?? (named.size <= 1 ? ([...named][0] ?? "") : named.has(by) ? by : undefined);
+    return owner === undefined ? undefined : `${row.key}\u0000${owner}`;
+  };
   const groups: ModelGroup<T>[] = [];
-  const byKey = new Map<string, ModelGroup<T>>();
-  for (const model of models) {
-    const { provider, key, name, tag } = providerOf(model);
+  const byIdentity = new Map<string, ModelGroup<T>>();
+  for (const row of rows) {
+    const { model, provider, name, tag } = row;
     const offer = { model, provider: provider ?? "" };
-    const joined = provider ? byKey.get(key) : undefined;
+    const id = identity(row);
+    const joined = id === undefined ? undefined : byIdentity.get(id);
     const group = joined?.offers.some((each) => each.provider === provider) ? undefined : joined;
     if (group) {
       group.offers.push(offer);
@@ -85,7 +107,7 @@ export function groupVariants<T extends VariantModel>(models: readonly T[], curr
       offers: [offer],
     };
     groups.push(next);
-    if (provider && !byKey.has(key)) byKey.set(key, next);
+    if (id !== undefined && !byIdentity.has(id)) byIdentity.set(id, next);
   }
   return groups;
 }
