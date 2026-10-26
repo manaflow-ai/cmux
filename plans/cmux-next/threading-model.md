@@ -92,7 +92,9 @@ items; `DispatchQueue.blockingSync`), processes (`blockingPosixSpawn`, `Process.
 LocalAuthentication, AX, window lists, Launch Services and `NSWorkspace`, ServiceManagement, host resolution,
 `sysctl`/`proc`), SQLite, ImageIO and image decodes, and size-gated CPU work. The kinds are `BlockingKind`:
 file-io, fs-metadata, socket-read, socket-write, sync-wait, ipc-reply, process-spawn, process-wait,
-process-reap, lock-wait, system-call, system-query, sqlite, sleep, cpu-intensive and wrong-lane.
+process-reap, lock-wait, system-call, system-query, sqlite, sleep, cpu-intensive, wrong-lane and
+priority-inversion (the main thread awaits a BackgroundWork item stated below `.userBlocking` while input work runs
+on the main task board; record only).
 
 Rust checked forms live in `cmux-tui/crates/cmux-threads`: `checked::fs`, `checked::process`, `checked::sync`
 (`recv`, `recv_timeout`, `join`, condvar waits, `sleep`), `checked::block_on`, `checked::ipc_reply`,

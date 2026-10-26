@@ -29,7 +29,7 @@ public final class TraceRuntime: Sendable {
     /// The app's runtime: every Swift trace point, hang-watch scope and histogram of this process.
     // singleton-allow: Chrome's TraceLog: trace points run in every module and thread with no injection path;
     // lint:allow singleton: the one reviewed TraceRuntime exception in plans/cmux-next/arch-ratchet.json (2026-10-25).
-    public static let shared = TraceRuntime(role: .app)
+    public static let shared = TraceRuntime(role: .app, clock: TraceClock(), stubRecorder: nil, routesBlockingCalls: true)
 
     /// The process kind this runtime records (the ring header's `role`).
     public let role: Role
@@ -58,6 +58,10 @@ public final class TraceRuntime: Sendable {
     let ringAddress = Atomic<UInt64>(0)
     /// The last scope ``nextAsyncScope()`` handed out.
     let asyncScopes = Atomic<UInt64>(0)
+    /// The address of this runtime's ``CmuxNextCompat/BlockingTraceSink`` (an `Unmanaged` reference retained once
+    /// and never released) when it routes the process's checked blocking calls (``shared`` does), else 0. Set
+    /// once, in `init`, before any other thread sees the runtime.
+    let blockingSinkAddress = Atomic<UInt64>(0)
 
     /// A runtime for a process of kind `role`, with every category off and no ring yet.
     ///
@@ -69,12 +73,15 @@ public final class TraceRuntime: Sendable {
     }
 
     /// A runtime whose records take their times from `clock` and, while no ring is attached, go to
-    /// `stubRecorder` too (tests).
-    init(role: Role, clock: TraceClock, stubRecorder: (@Sendable (StubRecord) -> Void)?) {
+    /// `stubRecorder` too (tests). With `routesBlockingCalls`, the process's checked blocking calls write their
+    /// `task.blocking_call` intervals into this runtime while its `task` category records
+    /// (``CmuxNextCompat/BlockingTraceHook``): ``shared``, and a test that checks those intervals.
+    init(role: Role, clock: TraceClock, stubRecorder: (@Sendable (StubRecord) -> Void)?, routesBlockingCalls: Bool = false) {
         self.role = role
         self.clock = clock
         self.stubRecorder = stubRecorder
         hangWatch = HangWatch()
+        if routesBlockingCalls { installBlockingCallSink() }
     }
 
     // MARK: ring
@@ -173,8 +180,25 @@ public final class TraceRuntime: Sendable {
     /// its category is on. The name has one id per ring, claimed at its first record there
     /// (trace.md "Name table": interned ids follow the ring's catalog and category entries, from the
     /// ring's `name_cursor`); past the ring's `name_capacity` the record has no name.
-    public func write(_ name: InternedName, phase: Phase, flags: RecordFlags = [], arg0: UInt64 = 0, arg1: UInt64 = 0) {
-        guard isEnabled(categoryBit: name.categoryBit) else { return }
+    ///
+    /// - Returns: Whether the record passed its category gate. A begin's caller keeps it and ends a written begin
+    ///   with ``writeEnd(_:phase:flags:arg0:arg1:)``.
+    @discardableResult
+    public func write(_ name: InternedName, phase: Phase, flags: RecordFlags = [], arg0: UInt64 = 0, arg1: UInt64 = 0) -> Bool {
+        guard isEnabled(categoryBit: name.categoryBit) else { return false }
+        publish(name, phase: phase, flags: flags, arg0: arg0, arg1: arg1)
+        return true
+    }
+
+    /// Writes the end (E or AE) of a begin that ``write(_:phase:flags:arg0:arg1:)`` wrote, without reading the
+    /// category flags, as ``writeEnd(name:categoryBit:phase:flags:arg0:arg1:)`` does for a catalog name.
+    public func writeEnd(_ name: InternedName, phase: Phase, flags: RecordFlags = [], arg0: UInt64 = 0, arg1: UInt64 = 0) {
+        publish(name, phase: phase, flags: flags, arg0: arg0, arg1: arg1)
+    }
+
+    /// Publishes one record under an interned name into the attached ring; with no ring (a test's runtime) it
+    /// only counts.
+    private func publish(_ name: InternedName, phase: Phase, flags: RecordFlags, arg0: UInt64, arg1: UInt64) {
         guard let ring = attachedRing else {
             stubRecordCount.add(1, ordering: .relaxed) // No ring attached (a test's runtime): count what passed the gate.
             return

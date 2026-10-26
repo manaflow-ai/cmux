@@ -197,6 +197,14 @@ IDLE-BUDGET-READER-FAILED for a D15 reader that failed, POWER-BREAKDOWN / -OWNER
 power sessions and POWER-OVER <owner> <mW>, IDLE-BUDGET-MODE with the shipping fields, for a hidden session
 `HIDDEN-WAKE {json}` per source and one `HIDDEN-WAKE-TOTAL {json}` with sha and host, a Markdown table, and --json
 with every sample.
+
+Results (cmux-perf-result/v1, p12-perf-process-063): each cmux session that measured writes its perf cron rows
+(cron_rows, one value per window, p50 = p95 = p99) into --out through BenchApp.record, and every cmux session writes
+`idle_budget.<session>.failed` (1 when it did not measure) once its app answered (a session whose app was never
+built or never answered has no build or features to name). Stories (idle_burst_bench_report.idle_budget_story):
+idle-budget (the Chromium light sessions), idle-budget-webkit (light-webkit) and idle-budget-stress (STRESS); the
+sessions of one story in one invocation share one run. The reference sessions (chrome-static, chrome-power-visible)
+measure another browser and write none.
 """
 import argparse, contextlib, dataclasses, fcntl, fnmatch, glob, hashlib, json, os, platform, plistlib, re, select, \
     shlex, shutil, socket, sqlite3, subprocess, sys, tempfile, threading, time
@@ -2537,9 +2545,9 @@ CRON_SUM_FLOORS = {"wakeups_per_s": 0.5, "energy_mw_billed": 1.0, "energy_mw_cpu
 
 
 def cron_rows(report, budget=None):
-    """{row: {p50, p95, unit, budget, floor}} for the perf cron (scripts/cmux-next/perf-cron.py) from one
+    """{row: {p50, p95, p99, unit, budget, floor}} for the perf cron (scripts/cmux-next/perf-cron.py) from one
     idle-budget report: `idle_budget.<session>.<kind>.<field>` and the sums `idle_budget.<session>.<selector>.<field>`,
-    one value per run (p50 = p95)."""
+    one value per run (p50 = p95 = p99: one window is one sample)."""
     budget = budget if budget is not None else load_budget(BUDGET_FILE)
     out = {}
     for session, entry in ((report or {}).get("sessions") or {}).items():
@@ -2550,7 +2558,7 @@ def cron_rows(report, budget=None):
                 if not isinstance(value, (int, float)):
                     continue
                 unit = CRON_UNITS.get(field, "/s")
-                out[f"idle_budget.{session}.{name}.{field}"] = {"p50": value, "p95": value, "unit": unit,
+                out[f"idle_budget.{session}.{name}.{field}"] = {"p50": value, "p95": value, "p99": value, "unit": unit,
                                                                  "budget": limit_for(budget, session, name, field),
                                                                  "floor": floor}
         sums = session_budget(budget, session).get("sums") or {}
@@ -2560,9 +2568,26 @@ def cron_rows(report, budget=None):
                 if value is None:
                     continue
                 out[f"idle_budget.{session}.{selector}.{field}"] = {
-                    "p50": value, "p95": value, "unit": CRON_UNITS.get(field, "/s"),
+                    "p50": value, "p95": value, "p99": value, "unit": CRON_UNITS.get(field, "/s"),
                     "budget": (sums.get(selector) or {}).get(field), "floor": floor}
     return out
+
+
+def record_session(app, session, entry, budget, failed=False):
+    """The session's cron rows and its `failed` count as cmux-perf-result/v1 in the BenchApp's out folder
+    (idle_burst_bench_report.idle_budget_series, BenchApp.record); {`story/metric`: path or `not recorded: <why>`}.
+    A session that failed before its app answered has no features snapshot, so record() writes nothing and says why.
+    A writer that raises is reported as {"error": ...} and an IDLE-BUDGET-RESULTS-FAILED line: the other sessions
+    still measure."""
+    import idle_burst_bench_report as results_v1
+    try:
+        rows = {} if failed else cron_rows({"sessions": {session: entry}}, budget)
+        return results_v1.record_all(app, results_v1.idle_budget_series(session, SESSIONS[session], rows,
+                                                                        failed=failed))
+    except Exception as error:  # noqa: BLE001 - a result file that can not be written loses that file, not the run
+        problem = f"{type(error).__name__}: {error}"[:300]
+        print(f"IDLE-BUDGET-RESULTS-FAILED {session}: {problem}", flush=True)
+        return {"error": problem}
 
 
 # ---------------------------------------------------------------------------------------------------------
@@ -3335,13 +3360,24 @@ def build_busy_hidden(app, period_s, stress_module=None):
     return built
 
 
-def session_app(app_class, app_path, out, session, env):
+def session_app(app_class, app_path, out, session, env, runs=None):
     """(app, agents) of one cmux session: an agent session's AgentHome (else None), whose ACPMUX_HOME and
     ACPMUX_SOCKET join the session's launch env (session_env), so the app's acpmux and agent hosts run in it.
+    The app's result-v1 files go into `out` itself (the lab reads only that folder) as the session's perf session
+    (idle_burst_bench_report.idle_budget_story: stress for a STRESS session), in the run its story's sessions
+    share (`runs`: story -> perf_result.Run, filled here); its log and the agent home go into out/<session>.
     `app_class`: BenchApp."""
-    agents = AgentHome(os.path.join(out, session), session) if SESSIONS[session].get("agents") else None
-    app = app_class(app_path, out=os.path.join(out, session),
-                    env={**session_env(session, env), **(agents.env() if agents else {})}, config=session_config(session))
+    import idle_burst_bench_report as results_v1
+    folder = os.path.join(out, session)
+    os.makedirs(folder, exist_ok=True)
+    story, _engine, perf_session = results_v1.idle_budget_story(session, SESSIONS[session])
+    run = None
+    if runs is not None:
+        run = runs[story] = runs.get(story) or results_v1.perf_result.Run.start()
+    agents = AgentHome(folder, session) if SESSIONS[session].get("agents") else None
+    app = app_class(app_path, out=out, env={**session_env(session, env), **(agents.env() if agents else {})},
+                    config=session_config(session), log_name=os.path.join(session, "app.log"),
+                    perf_session=perf_session, run=run)
     return app, agents
 
 
@@ -4392,6 +4428,7 @@ def main(argv=None):
     import bench_launch
     from bench_launch import BenchApp
     env = launch_env(shipping_draw=opts.shipping_draw == "on")
+    runs = {}  # story -> the result-v1 run its sessions of this invocation share
     out = opts.out or os.path.join(os.getcwd(), "artifacts", "idle-budget")
     os.makedirs(out, exist_ok=True)
     machine = host_facts()
@@ -4412,7 +4449,7 @@ def main(argv=None):
         pages = IdlePages() if spec.get("tabs") else None
         try:
             sha = build_sha_of(opts.app) if spec.get("hidden_wake") else None  # before the launch: no report without it
-            app, agents = session_app(BenchApp, opts.app, out, session, rig.env(env))
+            app, agents = session_app(BenchApp, opts.app, out, session, rig.env(env), runs)
             entry = {"fresh_session": fresh_session(app), "shape": rig.shape}  # a failed session keeps its shape too
             report["sessions"][session] = entry
             consent = bench_launch.seed_hang_report_consent(app.app)
@@ -4570,6 +4607,7 @@ def main(argv=None):
             markdown.append(table(session, kinds, overs, entry) + "\n\n" + coalition_line(result.get("coalition"))
                             + power_table(entry.get("power")))
             print(f"IDLE-BUDGET-COALITION {session} " + json.dumps(result.get("coalition")), flush=True)
+            entry["results_v1"] = record_session(app, session, entry, budget)
             entry["exit"] = 0
         except BaseException as error:  # noqa: BLE001 - one session's failure (a STRESS shape refusal, a launch
             # failure) is recorded with its exit code; the other sessions still measure and report.
@@ -4579,6 +4617,8 @@ def main(argv=None):
             markdown.append(f"\n### {session}\n\nnot measured: {type(error).__name__}: {str(error)[:300]}")
             if isinstance(error, KeyboardInterrupt):
                 raise
+            if app is not None:  # no app was built: nothing names the build or its features
+                report["sessions"][session]["results_v1"] = record_session(app, session, {}, budget, failed=True)
         finally:
             try:
                 # The app stops (stop_session: the gated agent turns end first) before the rig's fixtures go.

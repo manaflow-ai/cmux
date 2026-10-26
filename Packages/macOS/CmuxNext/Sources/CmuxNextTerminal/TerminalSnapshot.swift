@@ -38,11 +38,13 @@ extension TerminalSurfaceView {
 
 /// An IOSurface handed to the snapshot renderer. IOSurfaces are safe to read
 /// from any thread; the preview may show a frame Ghostty is replacing.
+// crash-allow: one immutable IOSurface reference; IOSurface is a kernel-backed buffer read here only through CoreImage
 struct SendableSurface: @unchecked Sendable {
     let surface: IOSurface
 }
 
 enum TerminalSnapshotRenderer {
+    // crash-allow: an immutable constant; Apple documents CIContext objects as immutable and safe to share among threads
     static nonisolated(unsafe) let context = CIContext(options: [.cacheIntermediates: false, .name: "cmux-next.terminal.snapshot"])
 
     /// CIContext is thread-safe.
