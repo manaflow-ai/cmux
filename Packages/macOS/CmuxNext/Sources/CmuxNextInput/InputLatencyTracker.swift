@@ -24,7 +24,9 @@ import Darwin
 /// - A Chromium page in its own host process reports when the frame that shows an input reached the display, by the
 ///   input's event time (``hostPresented(eventNanos:at:)``, p04-input-066): that time closes the page's slot with
 ///   source ``InputPresentationSource/hostFeedback``, as the viz presentation feedback of a renderer's frame closes
-///   its events' `EventMetrics` (cc/metrics/compositor_frame_reporter.cc, `DidPresentCompositorFrame`).
+///   its events' `EventMetrics` (cc/metrics/compositor_frame_reporter.cc, `DidPresentCompositorFrame`). While no
+///   page reports (``pagesReportPresentation`` off: an in-process page, a host whose fork has no feedback), a page's
+///   slot closes as a view's does, with its turn's commit estimate.
 /// - Estimates come from ``InputPresentationEstimating`` (`PresentationClock`): resolved by the window's next real
 ///   tick, with how the vsync was found (``InputPresentationSource``) and whether the display has a variable refresh
 ///   rate. Then the slot closes, goes into the single-writer ``InputLatencyRing`` and is recorded as one
@@ -101,6 +103,11 @@ public final class InputLatencyTracker {
     /// Host presentation reports since launch that matched no open Chromium page slot (``hostPresented(eventNanos:at:)``):
     /// an input the tracker did not track, a slot that closed at its deadline first, or a report with no usable time.
     public internal(set) var unmatchedHostPresentations: UInt64 = 0
+    /// Chromium pages report the frame that shows each input (``hostPresented(eventNanos:at:)``): set by the page's
+    /// host from its `ready` frame. On, a ``InputTarget/chromiumPage`` slot waits for that report after its turn; off
+    /// (no fork has the feedback yet, and an in-process page never reports), it closes with its turn's commit
+    /// estimate, source ``InputPresentationSource/estimatedVsync`` (p04-input.md, p04-input-066).
+    public var pagesReportPresentation = false
 
     /// A tracker on the main run loop's commit, an `input` signposter and `CLOCK_UPTIME_RAW`.
     ///
@@ -259,7 +266,7 @@ public final class InputLatencyTracker {
                 if table.time(entry.token, .dispatchEnd) == nil { table.setCausedFrameUpdate(entry.token) }
             }
             if entry.hasFrameInterval { frameIntervals?.end(entry.token, target: entry.target, outcome: outcome) }
-            if entry.target.showsInLaterFrame {
+            if waitsForLaterFrame(entry.target) {
                 waiting.append(Waiting(token: entry.token, window: entry.window, target: entry.target,
                                        deadline: commitEnd &+ Self.contentDeadlineNanos))
             } else if outcome == .committed {
@@ -275,6 +282,12 @@ public final class InputLatencyTracker {
         }
         checkWaiting(at: commitEnd)
         if !pending.isEmpty || !waiting.isEmpty { boundary.arm() }
+    }
+
+    /// A slot of `target` stays open past its turn for the target's own frame. A Chromium page's frame time comes
+    /// only from its host's report, so a page waits only while pages report.
+    private func waitsForLaterFrame(_ target: InputTarget) -> Bool {
+        target == .chromiumPage ? pagesReportPresentation : target.showsInLaterFrame
     }
 
     /// Asks for the estimate of every waiting slot whose target submitted its frame, and closes those that took

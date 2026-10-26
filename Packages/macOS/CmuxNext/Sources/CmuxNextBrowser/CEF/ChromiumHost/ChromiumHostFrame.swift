@@ -131,6 +131,14 @@ nonisolated struct ChromiumHostFrame: Equatable, Sendable {
 
     /// `kPresentationFailed`: `gfx::PresentationFeedback::kFailure`, the frame never reached the display.
     static let presentationFailed: UInt32 = 1 << 1
+    /// `kReadyReportsInputPresented`, in a `ready` frame's `v[2]`: the host sends an `inputPresented` frame for each
+    /// input (its fork has the presentation feedback callback).
+    static let readyReportsInputPresented: Int32 = 1 << 0
+
+    /// A `ready` frame whose host reports each input's presentation; false for another kind.
+    var reportsInputPresented: Bool {
+        kind == .ready && v[2] & Self.readyReportsInputPresented != 0
+    }
 
     static func inputPresented(_ presented: InputPresented) -> ChromiumHostFrame {
         var frame = ChromiumHostFrame(.inputPresented, v: [Int32(bitPattern: presented.feedbackFlags)], t0: presented.eventNanos)

@@ -293,7 +293,8 @@ extension AppControl {
                                                  isOn: { hostSwitch.isEnabled }, mainWork: services.mainWork,
                                                  deadlines: services.mainDeadlines,
                                                  idleExitAfter: chromiumHostIdleExit(in: services.features),
-                                                 inputPresented: { [weak services] in _ = services?.inputLatency.tracker.hostPresented(eventNanos: $0, at: $1) })
+                                                 inputPresented: { [weak services] in _ = services?.inputLatency.tracker.hostPresented(eventNanos: $0, at: $1) },
+                                                 reportsInputPresented: { [weak services] in services?.inputLatency.tracker.pagesReportPresentation = $0 })
         router.register([
             .mainActor("debug.chromium_host") { [weak services] call in
                 let controller = services?.windows.controllers.first

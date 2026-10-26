@@ -189,5 +189,13 @@ import Testing
         #expect(frame.inputPresentedFields == presented)
         #expect(ChromiumHostFrame(.key).inputPresentedFields == nil)
     }
+
+    /// A host announces in its `ready` (`v[2]` bit 0, `kReadyReportsInputPresented`) that it reports each input's
+    /// presentation; an older host's `ready` has 0 there.
+    @Test func readyAnnouncesInputPresentedReports() {
+        #expect(ChromiumHostFrame(.ready, v: [27, 42, 1]).reportsInputPresented)
+        #expect(!ChromiumHostFrame(.ready, v: [27, 42]).reportsInputPresented)
+        #expect(!ChromiumHostFrame(.context, v: [0, 0, 1]).reportsInputPresented)
+    }
 }
 #endif

@@ -386,6 +386,31 @@ import Testing
         #expect(session.report["input_presented_failed"] as? Int == 1)
     }
 
+    /// Whether the current host reports presentation, as the session told the seam (the app's tracker), in order.
+    @MainActor @Observable
+    final class ReportsSeen {
+        var values: [Bool] = []
+    }
+
+    /// The session tells the tracker whether page slots can expect a report: what the host's `ready` announced, and
+    /// false once that host ended, so a page slot waits for a report only while one can come (task p04-input-066).
+    @Test func theHostsReadyDecidesWhetherPageSlotsWaitForReports() async throws {
+        let launcher = FakeLauncher()
+        let seen = ReportsSeen()
+        let session = ChromiumHostSession(configuration: Self.configuration, launcher: launcher, now: { ContinuousClock.now },
+                                          reportsInputPresented: { seen.values.append($0) })
+        session.open("https://a.example/")
+        let first = try await nextLaunch(launcher)
+        first.wire.send(ChromiumHostFrame(.ready, v: [27, first.pid, ChromiumHostFrame.readyReportsInputPresented]))
+        try await until("the first host reports") { seen.values == [true] }
+        launcher.end(first, ChromiumHostExit(signal: SIGTRAP, status: nil))
+        let second = try await nextLaunch(launcher)
+        #expect(seen.values == [true, false], "no report comes from a host that ended")
+        answer(second, context: 5, address: "https://a.example/")  // an older host: no bit in its ready
+        try await until("the second host does not report") { seen.values == [true, false, false] }
+        #expect(session.phase == .running)
+    }
+
     /// Reads the host's frames until one of `kind`; nil when the wire ends first.
     /// A local iterator, as ``nextLaunch(_:)`` does: a stream is read by one iterator at a time, so
     /// sequential calls continue where the last one stopped.

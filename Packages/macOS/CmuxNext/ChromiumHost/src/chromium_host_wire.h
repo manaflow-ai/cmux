@@ -77,7 +77,7 @@ enum Kind : uint32_t {
                    // It has a payload, so it never rides the input ring.
   kTextInputWatch = 12,  // v0 1: push kTextInputState after each change; 0: stop (task 044's watch)
   // host -> cmux
-  kReady = 101,         // v0 fork API version, v1 host pid
+  kReady = 101,         // v0 fork API version, v1 host pid, v2 what the host reports (kReadyReports*)
   kContext = 102,       // v0 CAContext id (bits of a uint32)
   kAddress = 103,       // payload url (main frame)
   kTitle = 104,         // payload title
@@ -180,8 +180,11 @@ struct Wheel {
 // by the input frame's t0, the one id cmux's latency slot and the frame share
 // (InputLatencyTracker.hostPresented). Fork item for PL-cef-layer: the fork
 // calls the host back with (event time, presentation timestamp, flags) for
-// each input event of a presented frame; with a fork without it the host
-// sends nothing and cmux's page slots close with no presented time.
+// each input event of a presented frame. A host on such a fork sets
+// kReadyReportsInputPresented in its kReady's v2; without it the host sends
+// nothing and cmux closes each page slot at its turn's commit, with that
+// commit's vsync estimate.
+inline constexpr int32_t kReadyReportsInputPresented = 1 << 0;
 // gfx::PresentationFeedback::Flags.
 inline constexpr uint32_t kPresentationVSync = 1u << 0;
 inline constexpr uint32_t kPresentationFailed = 1u << 1;

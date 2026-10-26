@@ -11,6 +11,10 @@ extension ChromiumHostSession {
     /// Takes the host's report that the frame showing the input of event time `eventNanos` reached the display at
     /// `presentedNanos` (both CLOCK_UPTIME_RAW nanoseconds).
     public typealias InputPresented = @MainActor (_ eventNanos: UInt64, _ presentedNanos: UInt64) -> Void
+    /// Takes whether the current host reports each input's presentation (its `ready` said so; false once it ended),
+    /// which in the app is the tracker's `pagesReportPresentation`: a page slot waits for a report only while one
+    /// can come.
+    public typealias ReportsInputPresented = @MainActor (_ reports: Bool) -> Void
 
     /// Hands an `inputPresented` frame of the current host on, or counts it when its frame failed to present.
     func takeInputPresented(_ frame: ChromiumHostFrame) {

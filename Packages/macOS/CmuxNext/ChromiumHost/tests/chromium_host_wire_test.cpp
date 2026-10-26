@@ -215,6 +215,15 @@ static void TestInputPresented() {
   Check(Decode(golden, &d) && d.kind == kInputPresented && d.payload == 0, "it decodes as kInputPresented");
   Check(d.t0 == 0x1122334455ULL && d.t1 == 0x1122a0b0c0ULL, "t0 is the event time, t1 the presentation time");
   Check(static_cast<uint32_t>(d.v[0]) == kPresentationVSync, "v0 carries the feedback flags");
+  // The capability rides kReady's v2, the bit ChromiumHostFrame.readyReportsInputPresented reads.
+  Header ready;
+  ready.kind = kReady;
+  ready.v[2] = kReadyReportsInputPresented;
+  uint8_t bytes[kHeaderSize];
+  Encode(ready, bytes);
+  Header readBack;
+  Check(Decode(bytes, &readBack) && readBack.kind == kReady && readBack.v[2] == 1,
+        "a ready that reports presentation carries bit 0 of v2");
 }
 
 int main() {

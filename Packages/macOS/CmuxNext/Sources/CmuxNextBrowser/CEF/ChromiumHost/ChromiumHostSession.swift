@@ -79,6 +79,7 @@ public final class ChromiumHostSession {
     private let connected: (ChromiumHostConnection) -> Void
     /// Takes each presentation report of the host (ChromiumHostSession+InputPresented.swift).
     let inputPresented: InputPresented
+    let reportsInputPresented: ReportsInputPresented
     @ObservationIgnored var failedInputPresentations = 0
     private(set) var connection: ChromiumHostConnection?
     private var startedAt: ContinuousClock.Instant?
@@ -117,11 +118,14 @@ public final class ChromiumHostSession {
     ///     param `idleExitAfter`), on the app's deadline scheduler; nil keeps it running.
     ///   - standInPicture: The page's last picture, shown while no host shows the page.
     ///   - inputPresented: Takes the host's presentation report of each input (the input latency tracker).
+    ///   - reportsInputPresented: Takes whether the current host sends those reports.
     public convenience init(configuration: ChromiumHostConfiguration, idleExit: ChromiumHostIdleExit? = nil,
                             standInPicture: @escaping @MainActor () -> CGImage? = { nil },
-                            inputPresented: @escaping InputPresented = { _, _ in }) {
+                            inputPresented: @escaping InputPresented = { _, _ in },
+                            reportsInputPresented: @escaping ReportsInputPresented = { _ in }) {
         self.init(configuration: configuration, launcher: ChromiumHostLauncher(), now: { ContinuousClock.now },
-                  idleExit: idleExit, standInPicture: standInPicture, inputPresented: inputPresented)
+                  idleExit: idleExit, standInPicture: standInPicture, inputPresented: inputPresented,
+                  reportsInputPresented: reportsInputPresented)
     }
 
     init(configuration: ChromiumHostConfiguration, launcher: any ChromiumHostLaunching,
@@ -129,6 +133,7 @@ public final class ChromiumHostSession {
          quitLimit: Duration = ChromiumHostFrame.quitLimit, idleExit: ChromiumHostIdleExit? = nil,
          standInPicture: @escaping @MainActor () -> CGImage? = { nil },
          inputPresented: @escaping InputPresented = { _, _ in },
+         reportsInputPresented: @escaping ReportsInputPresented = { _ in },
          connected: @escaping (ChromiumHostConnection) -> Void = { _ in }) {
         self.configuration = configuration
         self.launcher = launcher
@@ -139,6 +144,7 @@ public final class ChromiumHostSession {
         self.standInPicture = standInPicture
         self.connected = connected
         self.inputPresented = inputPresented
+        self.reportsInputPresented = reportsInputPresented
         idleDeadline = idleExit.map {
             MainDeadline(owner: "ChromiumHostSession.idleExit", workClass: .background, scheduler: $0.deadlines)
         }
@@ -350,6 +356,7 @@ public final class ChromiumHostSession {
         case .ready:
             forkAPI = frame.v[0]
             phase = .running
+            reportsInputPresented(frame.reportsInputPresented)
         case .context:
             contextID = UInt32(bitPattern: frame.v[0])
             view.show(contextID: contextID)
@@ -387,6 +394,7 @@ public final class ChromiumHostSession {
         tasks = []
         contextID = 0
         view.show(contextID: 0)
+        reportsInputPresented(false)
         // The focused field ended with the host, and any composition in it.
         view.applyTextInputState(ChromiumHostTextInputState())
         fillPageBackground()
