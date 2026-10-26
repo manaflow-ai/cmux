@@ -98,17 +98,17 @@ fn migrate_legacy_harness_state(
     if new_root == legacy_root {
         return Ok(());
     }
-    if pi_session_for(new_root, agent_id)?.is_none() {
-        if let Some(old_pi) = pi_session_for(&legacy_root, agent_id)? {
-            std::fs::create_dir_all(new_root)?;
-            let target = new_root.join(old_pi.file_name().ok_or_else(|| {
-                std::io::Error::new(std::io::ErrorKind::InvalidData, "legacy Pi filename missing")
-            })?);
-            copy_legacy_atomic(&old_pi, &target)?;
-        }
+    if pi_session_for(new_root, agent_id)?.is_none()
+        && let Some(old_pi) = pi_session_for(&legacy_root, agent_id)?
+    {
+        std::fs::create_dir_all(new_root)?;
+        let target = new_root.join(old_pi.file_name().ok_or_else(|| {
+            std::io::Error::new(std::io::ErrorKind::InvalidData, "legacy Pi filename missing")
+        })?);
+        copy_legacy_atomic(&old_pi, &target)?;
     }
     let new_store = new_root.join(agent_id);
-    if !std::fs::symlink_metadata(&new_store).is_ok()
+    if std::fs::symlink_metadata(&new_store).is_err()
         && std::fs::symlink_metadata(&legacy_store).is_ok()
     {
         copy_legacy_atomic(&legacy_store, &new_store)?;

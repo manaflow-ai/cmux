@@ -24,6 +24,9 @@ public final class TerminalBenchProbe: @unchecked Sendable {
     /// Echoes processed by Ghostty, waiting for the next presented frame.
     private var awaitingPresent: [CFTimeInterval] = []
     private var latencies: [Double] = []
+    /// Milliseconds between consecutive presented frames, handed over by `take()`.
+    private var frameIntervals: [Double] = []
+    private var lastPresent: CFTimeInterval?
 
     public init() {}
 
@@ -43,6 +46,8 @@ public final class TerminalBenchProbe: @unchecked Sendable {
         let now = CACurrentMediaTime()
         lock.withLock {
             presents += 1
+            if let lastPresent { frameIntervals.append((now - lastPresent) * 1000) }
+            lastPresent = now
             for key in awaitingPresent { latencies.append((now - key) * 1000) }
             awaitingPresent.removeAll()
         }
@@ -66,14 +71,17 @@ public final class TerminalBenchProbe: @unchecked Sendable {
         public var presents: Int
         public var echoLatencies: [Double]
         public var pendingEchoes: Int
+        /// Milliseconds between consecutive presented frames since the last `take()`.
+        public var frameIntervals: [Double]
     }
 
-    /// Counters so far; echo latencies are handed over (and cleared).
+    /// Counters so far; echo latencies and frame intervals are handed over (and cleared).
     public func take() -> Snapshot {
         lock.withLock {
-            defer { latencies.removeAll() }
+            defer { latencies.removeAll(); frameIntervals.removeAll() }
             return Snapshot(processed: processed, presents: presents, echoLatencies: latencies,
-                            pendingEchoes: keystrokes.count + echoes.reduce(0) { $0 + $1.keys.count } + awaitingPresent.count)
+                            pendingEchoes: keystrokes.count + echoes.reduce(0) { $0 + $1.keys.count } + awaitingPresent.count,
+                            frameIntervals: frameIntervals)
         }
     }
 }

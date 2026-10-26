@@ -242,12 +242,10 @@ impl Hub {
             json!({"from": bundle, "nativeRestored": restored}),
         );
         self.save_meta(&session);
-        if !defer_finalize {
-            if let Err(error) = self.finalize_harness_state(&session.meta()) {
-                self.recover_staged_replacements();
-                let _ = self.kill(&session, true).await;
-                return Err(RpcError::internal(error.to_string()));
-            }
+        if !defer_finalize && let Err(error) = self.finalize_harness_state(&session.meta()) {
+            self.recover_staged_replacements();
+            let _ = self.kill(&session, true).await;
+            return Err(RpcError::internal(error.to_string()));
         }
         Ok(session)
     }
@@ -414,7 +412,7 @@ impl Hub {
             if !meta.file_type().is_file() {
                 return Err(anyhow::anyhow!("{label} is not a regular file"));
             }
-            Ok(std::fs::read(path).map_err(|e| anyhow::anyhow!("read {label}: {e}"))?)
+            std::fs::read(path).map_err(|e| anyhow::anyhow!("read {label}: {e}"))
         };
         let journal_bytes = read_private(&journal, "durable journal")?;
         let target = dir.join("harness");
@@ -500,18 +498,18 @@ impl Hub {
             .ok_or_else(|| anyhow::anyhow!("invalid target session store root"))?;
         let journal_dir = root.join(agent_id);
         let journal_dir_was_present = std::fs::symlink_metadata(&journal_dir).is_ok();
-        if let Ok(meta) = std::fs::symlink_metadata(&journal_dir) {
-            if meta.file_type().is_symlink() || !meta.file_type().is_dir() {
-                return Err(anyhow::anyhow!("target durable session is not a real directory"));
-            }
+        if let Ok(meta) = std::fs::symlink_metadata(&journal_dir)
+            && (meta.file_type().is_symlink() || !meta.file_type().is_dir())
+        {
+            return Err(anyhow::anyhow!("target durable session is not a real directory"));
         }
         if std::fs::symlink_metadata(&journal_dir).is_ok() && !replace_durable {
             return Err(anyhow::anyhow!("target durable session is already occupied"));
         }
-        if let Ok(owner) = std::fs::symlink_metadata(journal_dir.join("owner.sqlite")) {
-            if owner.file_type().is_symlink() {
-                return Err(anyhow::anyhow!("target durable owner lock is symlinked"));
-            }
+        if let Ok(owner) = std::fs::symlink_metadata(journal_dir.join("owner.sqlite"))
+            && owner.file_type().is_symlink()
+        {
+            return Err(anyhow::anyhow!("target durable owner lock is symlinked"));
         }
         if !replace_durable && Self::harness_pi_session_optional(root, agent_id)?.is_some() {
             return Err(anyhow::anyhow!("target already has a Pi session for this ACP id"));

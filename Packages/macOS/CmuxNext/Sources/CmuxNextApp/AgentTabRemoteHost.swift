@@ -162,9 +162,11 @@ nonisolated struct AgentTabRemoteClient: AgentSessionRemoteClient {
 
     func cancel() async throws { _ = try await mapped { try await client.cancel(); return Data() } }
 
-    func permission(id: String, option: String, decisionNonce: String?, personDecision: String?) async throws {
+    func permission(id: String, option: String, answers: Data?, annotations: Data?, decisionNonce: String?,
+                    personDecision: String?) async throws {
         _ = try await mapped {
-            try await client.permission(id: id, option: option, decisionNonce: decisionNonce, personDecision: personDecision)
+            try await client.permission(id: id, option: option, answers: answers, annotations: annotations,
+                                        decisionNonce: decisionNonce, personDecision: personDecision)
             return Data()
         }
     }
