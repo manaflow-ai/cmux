@@ -66,6 +66,15 @@ import Testing
         #expect(AgentPaneUpload.maximumPeerFileBytes > 64 * 1024 * 1024)
     }
 
+    /// A peer whose disk lacks room says so (`filePut.noSpace`), and the composer names it instead
+    /// of a generic failure: the disk is the one bound a file has (Leo, 2026-10-24: "we shouldn't
+    /// have this limit").
+    @Test func aFullPeerDiskIsNamedNotAGenericFailure() {
+        let full = AcpmuxRPCError(code: -32602, name: "filePut.noSpace", message: "Not enough space on huge-blue for movie.mov (1.2 GB free)")
+        let reply = AgentPeerUploads.reply(AgentPaneFilePutFailure(full), machine: "huge-blue")
+        #expect(Self.code(reply) == "no_space", "\(reply)")
+    }
+
     private static func code(_ reply: [String: Any]) -> String? {
         (reply["error"] as? [String: Any])?["code"] as? String
     }
