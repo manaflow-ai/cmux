@@ -376,18 +376,21 @@ impl Hub {
         let recent = |sent: &[u64]| -> Vec<u64> {
             sent.iter().copied().filter(|t| now.saturating_sub(*t) < WINDOW_MS).collect()
         };
-        let report = if on_reports {
+        let capped = recent(&link.sent).len() >= MAX_REPORTS;
+        let own = if on_reports {
             None
-        } else if recent(&link.sent).len() >= MAX_REPORTS {
+        } else if capped {
             tracing::warn!(lane, "lane report not sent: {MAX_REPORTS} in the last 10 minutes");
             None
         } else {
-            Some(self.lane_build(lane, link, summary, turns).await)
+            // A transcript it cannot read now is no reply: the turn waits for the next check.
+            let Some(report) = self.lane_build(lane, link, summary, turns).await else {
+                return false;
+            };
+            Some(report)
         };
-        let report = report.filter(|r| link.last.as_deref() != Some(r.content.as_str()));
-        // A turn that sends none of its own (on reports only, or past the cap) still sends one
-        // its parent did not take before: that turn ended for real.
-        let report = report.or_else(|| link.unsent.clone());
+        let own = own.filter(|r| link.last.as_deref() != Some(r.content.as_str()));
+        let report = pick_report(own, link.unsent.as_ref(), capped);
         let report_turn = report.as_ref().map_or(turns, |r| r.turn);
         let prompt_id = self.lane_links(|links| {
             let l = links.get_mut(lane)?;
@@ -425,8 +428,21 @@ impl Hub {
         true
     }
 
-    async fn lane_build(&self, lane: &str, link: &Link, summary: &Value, turns: u64) -> Report {
-        let reply = self.lane_last_reply(lane, summary).await.unwrap_or_default();
+    /// None when the lane's transcript cannot be read now.
+    async fn lane_build(
+        &self,
+        lane: &str,
+        link: &Link,
+        summary: &Value,
+        turns: u64,
+    ) -> Option<Report> {
+        let reply = match self.lane_last_reply(lane, summary).await {
+            Ok(reply) => reply.unwrap_or_default(),
+            Err(e) => {
+                tracing::warn!(lane, "lane report waits: its transcript did not read: {e}");
+                return None;
+            }
+        };
         let opened = summary
             .get("pullRequests")
             .and_then(Value::as_array)
@@ -440,7 +456,7 @@ impl Hub {
         let shas = new_items(FULL_SHA.find_iter(&reply).map(|m| m.as_str().to_owned()), &[]);
         let name = summary.get("name").and_then(Value::as_str).unwrap_or(lane);
         let state = state(summary);
-        Report {
+        Some(Report {
             content: format!("{state}\n{reply}\n{}", all.join(" ")),
             name: name.to_owned(),
             session: lane.to_owned(),
@@ -453,21 +469,23 @@ impl Hub {
             },
             prs,
             shas,
-        }
+        })
     }
 
-    /// The lane's last reply, read from its newest transcript records.
-    async fn lane_last_reply(&self, lane: &str, summary: &Value) -> Option<String> {
+    /// The lane's last reply, read from its newest transcript records; an error when they
+    /// cannot be read.
+    async fn lane_last_reply(&self, lane: &str, summary: &Value) -> Result<Option<String>> {
         let last_seq = summary.get("lastSeq").and_then(Value::as_u64).unwrap_or(0);
-        let filter = EventFilter::parse(Some(&json!(["transcript"]))).ok()?;
+        let filter = EventFilter::parse(Some(&json!(["transcript"])))
+            .map_err(|e| anyhow::anyhow!("transcript filter: {e:?}"))?;
         let before = Some(last_seq.saturating_add(1));
-        let page = self.events_page(lane, 0, before, TAIL_RECORDS, None, true, &filter).ok()?;
+        let page = self.events_page(lane, 0, before, TAIL_RECORDS, None, true, &filter)?;
         let events: Vec<Value> = page
             .events
             .into_iter()
             .map(|r| json!({"seq": r.seq, "at": r.at, "dir": r.dir, "kind": r.kind, "msg": r.msg}))
             .collect();
-        last_reply(&events)
+        Ok(last_reply(&events))
     }
 
     /// Hands the report to the parent: accepted (queued, started, steered or held for the
@@ -521,6 +539,24 @@ impl Hub {
     }
 }
 
+/// What a turn sends: its own report, or else one its parent did not take before (that turn
+/// ended for real), but never past the cap: a held report waits for a turn under it. A newer
+/// report of its own replaces the held one and keeps the pull requests only that one named.
+fn pick_report(own: Option<Report>, unsent: Option<&Report>, capped: bool) -> Option<Report> {
+    match (own, unsent) {
+        (Some(mut own), Some(held)) => {
+            for pr in &held.prs {
+                if !own.prs.contains(pr) {
+                    own.prs.push(pr.clone());
+                }
+            }
+            Some(own)
+        }
+        (Some(own), None) => Some(own),
+        (None, held) => held.filter(|_| !capped).cloned(),
+    }
+}
+
 /// The turn a check reports: the lane's turn count `now` when no turn runs; while one runs,
 /// the turn whose end this check is (`ended`) and none past it, since the one running may have
 /// started after that end and has not ended. None when that turn was reported already.
@@ -535,6 +571,32 @@ fn due_turn(now: u64, running: bool, ended: Option<u64>, reported: u64) -> Optio
 
 #[cfg(test)]
 mod tests {
+    fn report(turn: u64, prs: &[&str]) -> Report {
+        Report {
+            content: format!("turn {turn}"),
+            name: "lane".into(),
+            session: "s".into(),
+            turn,
+            state: "idle".into(),
+            reply: "r".into(),
+            prs: prs.iter().map(|p| (*p).to_owned()).collect(),
+            shas: vec![],
+        }
+    }
+
+    #[test]
+    fn a_report_the_parent_did_not_take_goes_with_a_later_turn_but_never_past_the_cap() {
+        let held = report(1, &["pr/1"]);
+        // A turn on reports only sends the held report.
+        assert_eq!(pick_report(None, Some(&held), false), Some(held.clone()));
+        // Past the cap it stays held.
+        assert_eq!(pick_report(None, Some(&held), true), None);
+        // A newer report replaces it and keeps the pull requests only the held one named.
+        let got = pick_report(Some(report(2, &["pr/2"])), Some(&held), false).unwrap();
+        assert_eq!((got.turn, got.prs), (2, vec!["pr/2".to_owned(), "pr/1".to_owned()]));
+        assert_eq!(pick_report(None, None, false), None);
+    }
+
     #[test]
     fn a_check_never_reports_a_turn_still_running() {
         // Turn 1 ended; by the retry turn 2 has started: the report is of turn 1.

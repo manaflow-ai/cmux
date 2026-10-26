@@ -129,9 +129,7 @@ impl Hub {
             .waiting
             .remove(&prompt_id);
         // In the turn now: a turn on lane reports does more than take them in (`lane_reports.rs`).
-        // Only a steer that found no turn stayed out of it; one the turn took and that ended in
-        // an error was still part of it.
-        if !matches!(&answer, Err(e) if e.message.starts_with(crate::claude_stdio::STEER_NO_TURN)) {
+        if steer_entered_turn(&answer) {
             self.lane_turn_steered(session, opts.provenance.as_ref());
         }
         let mut r = match answer {
@@ -165,5 +163,27 @@ impl Hub {
         };
         merge_mux_meta(&mut r, json!({"promptId": prompt_id, "turnId": turn_id, "steer": true}));
         Ok(r)
+    }
+}
+
+/// Whether a steer's answer means it went into the running turn: any answer but one that found
+/// no turn or was withdrawn before the agent read it. One the turn took that ended in an error
+/// was still part of it.
+fn steer_entered_turn(answer: &Result<Value, RpcError>) -> bool {
+    !matches!(answer, Err(e) if e.message.starts_with(crate::claude_stdio::STEER_NO_TURN)
+        || e.message.starts_with(crate::claude_stdio::STEER_WITHDRAWN))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn only_a_steer_the_turn_took_counts_as_in_it() {
+        let err = |m: &str| Err(RpcError::internal(m.to_owned()));
+        assert!(steer_entered_turn(&Ok(json!({}))));
+        assert!(steer_entered_turn(&err("agent process closed")));
+        assert!(!steer_entered_turn(&err(crate::claude_stdio::STEER_NO_TURN)));
+        assert!(!steer_entered_turn(&err(crate::claude_stdio::STEER_WITHDRAWN)));
     }
 }
