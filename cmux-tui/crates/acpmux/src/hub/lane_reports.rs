@@ -861,6 +861,19 @@ mod tests {
     }
 
     #[test]
+    fn a_turn_whose_end_runs_after_the_next_turn_ended_keeps_its_steer() {
+        let mut k = TurnKinds::default();
+        // A task is steered into report turn 1; turn 1's end is held up behind the next turn,
+        // which ends first.
+        k.report_only.insert(("c".into(), 1));
+        k.report_only.insert(("c".into(), 2));
+        k.steer_in("c");
+        k.steer_done("c", true, 1);
+        assert!(k.end("c", 2));
+        assert!(!k.end("c", 1), "turn 1's task was lost when turn 2 ended first");
+    }
+
+    #[test]
     fn a_steer_answered_after_its_session_was_forgotten_leaves_nothing() {
         let turns = StdMutex::new(TurnKinds::default());
         let answered = SteerCount::new(&turns, "c", || 1);
