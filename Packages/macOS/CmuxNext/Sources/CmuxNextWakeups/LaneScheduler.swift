@@ -19,6 +19,13 @@ import Dispatch
 /// ``LaneCap`` class also runs only while fewer than the class's cap run, so one hung kind leaves the lane's
 /// other slots to the rest.
 ///
+/// A `shared` lane runs at most ``bestEffortCap`` ``WorkPriority/bestEffort`` and ``WorkPriority/idle`` items at
+/// once, at most ``idleCap`` of them idle, however many slots are free, so a burst of low work never fills the
+/// lane in front of later user-visible work: Chrome's `kMaxBestEffortTasks` (base/task/thread_pool/thread_pool_impl.cc,
+/// enforced by `ThreadGroup::max_best_effort_tasks_`). The idle limit is cmux's, as Chrome has no level below
+/// best effort. An item boosted by its waiter runs at the waiter's level and is not capped. A `perPriority`
+/// lane runs one item per level, inside both limits.
+///
 /// While a best-effort fence is up (``fence()``), a posted ``WorkPriority/idle`` or
 /// ``WorkPriority/bestEffort`` item stays queued in post order; an item someone awaits still runs at its
 /// own QoS. Chrome's `CanRunPolicy::kForegroundOnly` (base/task/thread_pool/thread_pool_impl.cc).
@@ -26,6 +33,12 @@ import Dispatch
 /// With a hang-watched lane, each item's run on its slot is one hang scope (Chrome's `WatchHangsInScope`
 /// in `TaskTracker::RunTask`, base/task/thread_pool/task_tracker.cc); the wait for a slot is not.
 final class LaneScheduler: Sendable {
+    /// How many ``WorkPriority/bestEffort`` and ``WorkPriority/idle`` items a `shared` lane runs at once
+    /// (Chrome's `kMaxBestEffortTasks`).
+    static let bestEffortCap = 2
+    /// How many of the ``bestEffortCap`` items may be ``WorkPriority/idle``.
+    static let idleCap = 1
+
     enum Policy: Sendable {
         case perPriority
         /// `width` slots for every priority, `reserved` of them (at most `width - 1`) for user-blocking items of no
@@ -76,6 +89,18 @@ final class LaneScheduler: Sendable {
             running.lazy.compactMap { $0 }.count < running.count - reserved
         }
 
+        /// Whether one more item at `level` stays inside ``LaneScheduler/bestEffortCap`` and
+        /// ``LaneScheduler/idleCap``; a level above best effort always does.
+        func underBestEffortCap(_ level: WorkPriority) -> Bool {
+            guard level <= .bestEffort else { return true }
+            var low = 0, idle = 0
+            for case let busy? in running where busy.priority <= .bestEffort {
+                low += 1
+                if busy.priority == .idle { idle += 1 }
+            }
+            return low < LaneScheduler.bestEffortCap && (level > .idle || idle < LaneScheduler.idleCap)
+        }
+
         /// The index of the first item at `level` that may start now, skipping the `full` capped classes, and
         /// every capped item when `uncappedOnly`.
         func next(at level: WorkPriority, full: Set<LaneCap>, uncappedOnly: Bool = false) -> Int? {
@@ -88,12 +113,13 @@ final class LaneScheduler: Sendable {
         }
 
         /// The highest level with an item that may start now, and that item's index. With only the reserve
-        /// free, that is a user-blocking item of no capped class.
+        /// free, that is a user-blocking item of no capped class; a level at the best-effort cap is skipped.
         func highest() -> (level: WorkPriority, index: Int)? {
             let full = fullCaps
             let open = unreservedFree
             for level in WorkPriority.allCases.reversed() {
                 if level < .userBlocking && !open { return nil }
+                guard underBestEffortCap(level) else { continue }
                 if let index = next(at: level, full: full, uncappedOnly: !open) { return (level, index) }
             }
             return nil

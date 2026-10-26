@@ -10,9 +10,16 @@ public import Foundation
 /// | WorkPriority | MainWorkClass | GCD QoS | TaskPriority |
 /// |---|---|---|---|
 /// | ``userBlocking`` | input, frame | `.userInitiated` | `.high` |
-/// | ``userVisible`` | visible | `.default` | `.medium` |
+/// | ``userVisible`` | visible | `.userInitiated` | `.medium` |
 /// | ``bestEffort`` | automation, background | `.utility` | `.utility` |
 /// | ``idle`` | (none: opt-in only) | `.background` | `.background` |
+///
+/// The QoS column is Chrome's: its thread pool runs user-blocking and user-visible tasks on one foreground group
+/// of `ThreadType::kDefault` threads, which base/threading/platform_thread_apple.mm (`ThreadTypeToQoSClass`) maps
+/// to `QOS_CLASS_USER_INITIATED`. Chrome runs its best-effort group at `kBackground` (`QOS_CLASS_BACKGROUND`);
+/// cmux keeps ``bestEffort`` at `.utility` because that level carries saves, the journal and block-shutdown work
+/// quit waits for, and `.background` throttles their disk I/O and moves them to efficiency cores. Work that may
+/// wait without limit says ``idle``, which runs at Chrome's best-effort QoS.
 ///
 /// `.userInteractive` belongs to the main thread and the few threads a frame waits for (render, PTY read,
 /// the daemon line reader, the watchdog); no ``BackgroundWork`` lane ever runs at it.
@@ -30,7 +37,8 @@ public enum WorkPriority: Int, Sendable, Comparable, CaseIterable, CustomStringC
     /// off the main thread. QoS `.utility`: not disk-throttled, so it finishes quickly when the
     /// machine is quiet.
     case bestEffort
-    /// Work whose result shows on screen soon: a thumbnail, an icon, a file a page shows.
+    /// Work whose result shows on screen soon: a thumbnail, an icon, a file a page shows. QoS
+    /// `.userInitiated`, as ``userBlocking``: the lane's order, not the QoS, puts user-blocking work first.
     case userVisible
     /// Work a person waits for right now: the result of a key, a click or an open.
     case userBlocking
@@ -59,8 +67,7 @@ public enum WorkPriority: Int, Sendable, Comparable, CaseIterable, CustomStringC
     /// The GCD quality of service a lane runs this level's work at.
     public var qos: DispatchQoS {
         switch self {
-        case .userBlocking: .userInitiated
-        case .userVisible: .default
+        case .userBlocking, .userVisible: .userInitiated
         case .bestEffort: .utility
         case .idle: .background
         }
@@ -70,8 +77,7 @@ public enum WorkPriority: Int, Sendable, Comparable, CaseIterable, CustomStringC
     /// never `.userInteractive`.
     public var processQoS: QualityOfService {
         switch self {
-        case .userBlocking: .userInitiated
-        case .userVisible: .default
+        case .userBlocking, .userVisible: .userInitiated
         case .bestEffort: .utility
         case .idle: .background
         }
