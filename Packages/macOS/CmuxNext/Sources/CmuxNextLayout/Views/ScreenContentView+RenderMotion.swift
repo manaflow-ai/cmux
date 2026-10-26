@@ -21,10 +21,13 @@ struct SplitRenderMotion: RenderServerMotion {
 /// A zoom or an unzoom (Cmd-Shift-Enter) on the render server (chrome-parity R2, p03-rendering-027; on with
 /// `motion.renderServer`): the zooming pane goes to its rest frame in the key's turn, laid out once at its
 /// rest size, and Core Animation shows it springing there on the zoom token (`PaneZoomMotion`). It stays
-/// above the docks until it lands (`rank`, set once in the turn; subview order, not a layer zPosition, so
-/// clicks go where it shows), the panes it covers stay untouched under it, and the landing restores the
-/// stacking and lets them go once. Chromium runs a transform animation of a layer that keeps its place in
-/// the paint order the same way (`cc/animation/keyframe_model.h`, `cc/trees/property_tree.h`).
+/// above the docks until it lands through the `rank` that `reconcile` gives it, not the layer zPosition the
+/// task spec names. Hit testing reads the model frames, which are at rest from the key's turn, so until
+/// p03-rendering-098 a click during the spring goes to the pane at rest under the pointer, not to what shows
+/// there. The panes it covers stay untouched under it; their rings, dims and page cutouts leave out all the
+/// pane springs across (``ScreenContentView/coverFrame(_:)``), and the landing restores the stacking and lets
+/// them go once. Chromium runs a transform animation of a layer that keeps its place in the paint order the
+/// same way (`cc/animation/keyframe_model.h`, `cc/trees/property_tree.h`).
 struct ZoomRenderMotion: RenderServerMotion {
     var kind: RenderMotionKind { .zoom }
 
@@ -183,21 +186,37 @@ extension ScreenContentView {
     /// ran (its spring came back to the CPU frame, ``takeRenderSpringsBack()``): the zooming pane springs on
     /// the render server from where it shows, at its velocity, on the zoom token. Nothing else may move with
     /// it (another pane or divider, a camera, a pan, a dock column growing in): those changes stay on the CPU
-    /// step. The panes the zoom covers and the stacking `reconcile` gave it are not touched until it lands
+    /// step. So does a zoom over or under a page in its own window (``PaneHostView/showsChildWindowContent``):
+    /// that window follows the model frames, not the spring, until tasks 051 to 053 remove it. The panes the
+    /// zoom covers and the stacking `reconcile` gave it are not touched until it lands
     /// (``renderSpringLanded()``). Returns whether it took the motion.
     func springZoomOnRenderServer() -> Bool { // perf-hot: 4ms motion-frame
         guard let pane = zoomMotion.pane, !zoomMotion.rendersOnServer, let frame = paneFrames[pane],
               let host = context.hosts[pane], holds(host), arriving.isEmpty, newDockColumns.isEmpty, !isGesturing,
               !scrollRidesFrames, !isCameraMoving,
-              paneFrames.allSatisfy({ $0.key == pane || $0.value.showsRest }), dividerFrames.values.allSatisfy(\.showsRest)
+              paneFrames.allSatisfy({ $0.key == pane || $0.value.showsRest }), dividerFrames.values.allSatisfy(\.showsRest),
+              !displayedHosts.contains(where: \.showsChildWindowContent)
         else { return false }
         let strip = stripShift, scale = self.scale
         let moves = SplitMotion.renderMoves([pane: frame]) { pane, rect in shownRect(rect, of: pane, strip: strip, scale: scale) }
         guard let move = moves[pane] else { return false }
         paneFrames[pane]?.snap()
-        zoomMotion.handToRenderServer()
+        zoomMotion.handToRenderServer(from: move.from, to: move.to)
         springMoves(panes: [pane: move], dividers: [:], token: zoomMotion.spring(for: pane))
+        // The rings, dims and page cutouts behind it read its sweep now (``coverFrame(_:)``), not its rest frame.
+        coverVersion &+= 1
+        context.overlayNeedsSync()
         return true
+    }
+
+    /// Where `host` covers the panes stacked behind it (``shownFrame(_:)``). A zooming pane on the render
+    /// server covers all it springs across until it lands: its model frame is at rest from the key's turn,
+    /// so the panes it grows over lose their chrome at once and the panes it uncovers get theirs back at
+    /// the landing, and no ring or dim on the overlay plane draws over it while it moves.
+    func coverFrame(_ host: PaneHostView) -> CGRect {
+        let shown = shownFrame(host)
+        guard host.pane == zoomMotion.pane, let sweep = zoomMotion.renderSweep else { return shown }
+        return shown.isNull ? sweep : shown.union(sweep)
     }
 
     /// A camera of this screen still moves: the strip's, a row column's, a scroll area's or the canvas's.
@@ -295,11 +314,13 @@ extension ScreenContentView {
             if close.reportsLeadingColumn { reportLeadingColumn() }
         }
         if zoomMotion.landedOnRenderServer() {
-            // `rank` without the zooming pane, the strip container back at its range, the clips and backing
-            // re-read once: the same pass the CPU path runs in its landing frame.
+            // The covered panes go first, as on the CPU path (`step`): the pass below may end the layout motion,
+            // and its observers and the interactive-rect report must not see them. Then `rank` without the
+            // zooming pane, the strip container back at its range, the clips, covers and backing re-read once.
+            releaseCovered()
             ensureStacking()
             applyPresentation(force: true)
-            releaseCovered()
+            context.stripClipsDidChange()
         }
         refreshDividerHover()
         guard userMotionActive, !isGesturing else { return }
@@ -335,4 +356,16 @@ extension SplitMotion {
 private extension AnimatedFrame {
     /// The frame shows its rest: geometry and alpha at their targets (what ``ScreenContentView/hasMotion`` reads).
     var showsRest: Bool { rect == targetRect && alpha.value == alpha.target }
+}
+
+extension PaneHostView {
+    /// A shown view in this pane draws in its own child window (`ChildWindowContent`). One walk of the
+    /// pane's views, asked in a change's turn, never on a motion frame.
+    var showsChildWindowContent: Bool { Self.drawsInChildWindow(content) }
+
+    private static func drawsInChildWindow(_ view: NSView) -> Bool {
+        guard !view.isHidden else { return false }
+        if let page = view as? any ChildWindowContent, page.drawsInChildWindow { return true }
+        return view.subviews.contains { drawsInChildWindow($0) }
+    }
 }

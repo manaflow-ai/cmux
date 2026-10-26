@@ -21,21 +21,35 @@ struct ZoomRenderMotionTests {
                                         a: .split("t", axis: .horizontal, ratio: 0.5, a: .leaf("p1"), b: .leaf("p2")),
                                         b: .split("b", axis: .horizontal, ratio: 0.5, a: .leaf("p3"), b: .leaf("p4")))
     static let others: [PaneID] = ["p2", "p3", "p4"]
+    /// A docked chat column on the left, then p1 and p2 in the strip.
+    static let docked = ScreenLayout.columns([
+        LayoutColumn(id: "dock", width: 0.3, root: .leaf("chat"), dock: DockColumn(edge: .left, mode: .docked)),
+        LayoutColumn(id: "c1", width: 0.3, root: .leaf("p1")),
+        LayoutColumn(id: "c2", width: 0.3, root: .leaf("p2")),
+    ])
 
-    /// The 2 x 2 grid in a 1200 x 800 window; ``zoom()`` and ``unzoom()`` are Cmd-Shift-Enter on p1.
+    /// A view in a pane that draws in its own child window (a Chromium page), or in the layer tree.
+    final class Page: NSView, ChildWindowContent {
+        var drawsInChildWindow = true
+    }
+
+    /// `layout` (the 2 x 2 grid) in a 1200 x 800 window; ``zoom(_:)`` and ``unzoom()`` are Cmd-Shift-Enter.
     final class Grid {
         let panes = SplitRenderMotionTests.Panes()
         let model: LayoutModel
         let root: LayoutRootView
         let window: NSWindow
+        let layout: ScreenLayout
         /// Every layout motion start (true) and end (false) the root announced.
         var motion: [Bool] = []
+        /// Runs inside the root's announcement that the layout motion ended.
+        var onLanding: (() -> Void)?
         private var observation: LayoutOverlaySyncObservation?
         private var landing: CheckedContinuation<Bool, Never>?
 
-        init(renderServer: Bool, reduceMotion: Bool = false) {
-            model = LayoutModel(screens: [LayoutScreen(id: "s", name: "s", layout: .splits(ZoomRenderMotionTests.grid))],
-                                activeScreenID: "s", focusedPane: "p1")
+        init(renderServer: Bool, reduceMotion: Bool = false, layout: ScreenLayout = .splits(ZoomRenderMotionTests.grid)) {
+            self.layout = layout
+            model = LayoutModel(screens: [LayoutScreen(id: "s", name: "s", layout: layout)], activeScreenID: "s", focusedPane: "p1")
             root = LayoutRootView(model: model, contentProvider: panes, rendersMotionOnServer: { renderServer })
             root.context.reduceMotionOverride = reduceMotion
             window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1200, height: 800), styleMask: [.borderless],
@@ -47,7 +61,10 @@ struct ZoomRenderMotionTests {
             observation = root.observeLayoutMotion { [weak self] moving in
                 guard let self else { return }
                 motion.append(moving)
-                if !moving { resumeLanding(true) }
+                if !moving {
+                    onLanding?()
+                    resumeLanding(true)
+                }
             }
         }
 
@@ -55,14 +72,19 @@ struct ZoomRenderMotionTests {
 
         func host(_ pane: PaneID) throws -> PaneHostView { try #require(root.context.hosts[pane]) }
 
-        func zoom() {
-            model.apply(screens: [LayoutScreen(id: "s", name: "s", layout: .splits(.leaf("p1")), zoomed: true)])
+        func zoom(_ pane: PaneID = "p1") {
+            model.apply(screens: [LayoutScreen(id: "s", name: "s", layout: .splits(.leaf(pane)), zoomed: true)])
             root.syncWithModel()
         }
 
         func unzoom() {
-            model.apply(screens: [LayoutScreen(id: "s", name: "s", layout: .splits(ZoomRenderMotionTests.grid))])
+            model.apply(screens: [LayoutScreen(id: "s", name: "s", layout: layout)])
             root.syncWithModel()
+        }
+
+        /// The rects that hide `host`'s ring and dim now, in the screen's coordinates.
+        func ringCovers(_ host: PaneHostView) -> [CGRect] {
+            screen.ringCovers(of: host, docks: screen.coverRects, above: screen.panesAbove())
         }
 
         /// The host that draws in front of every other pane host of the screen.
@@ -137,7 +159,11 @@ struct ZoomRenderMotionTests {
             grid.zoom()
             let screen = grid.screen
             let covered = try Self.others.map { try grid.host($0) }
+            // The motion's observers (and the interactive-rect report) see the covered panes gone, as on the CPU path.
+            var attachedAtLanding: Int?
+            grid.onLanding = { attachedAtLanding = covered.filter { $0.superview != nil }.count }
             #expect(await grid.landed(), "the zoom did not land in 5 s")
+            #expect(attachedAtLanding == 0, "\(attachedAtLanding ?? -1) covered hosts were still in the screen when the motion ended")
             #expect(grid.motion == [true, false], "layout motion \(grid.motion)")
             #expect(screen.renderSpringsInFlight == 0)
             #expect(!grid.root.driver.isRunning, "the landing asked for layout frames")

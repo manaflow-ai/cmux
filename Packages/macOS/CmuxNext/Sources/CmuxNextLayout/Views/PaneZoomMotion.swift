@@ -20,9 +20,12 @@ struct PaneZoomMotion {
     private var token: MotionSpring = .zoom
     /// The panes a zoom left: under the zooming pane, unchanged, until it lands.
     private(set) var covered: Set<PaneID> = []
-    /// The zooming pane's spring runs on the render server: its frame is at rest already, and it owns the
-    /// motion until that spring lands.
-    private(set) var rendersOnServer = false
+    /// While the render server runs the zooming pane's spring: the screen rect it springs across, from where
+    /// it showed to its rest. Its frame is at rest already, so what stacks behind it reads this until it
+    /// lands (`ScreenContentView.coverFrame(_:)`).
+    private(set) var renderSweep: CGRect?
+    /// The zooming pane's spring runs on the render server: it owns the motion until that spring lands.
+    var rendersOnServer: Bool { renderSweep != nil }
 
     /// A structural change: `pane` zooms in or back; nil, nothing does. Another change mid-flight
     /// keeps the zooming pane while it is still in the layout.
@@ -43,19 +46,19 @@ struct PaneZoomMotion {
         if pane == self.pane, !rendersOnServer, frame.rect == frame.targetRect { self.pane = nil }
     }
 
-    /// The render server took the zooming pane's spring.
-    mutating func handToRenderServer() { rendersOnServer = pane != nil }
+    /// The render server took the zooming pane's spring from `from` to `to` (screen rects).
+    mutating func handToRenderServer(from: CGRect, to: CGRect) { renderSweep = pane == nil ? nil : from.union(to) }
 
     /// A structural change took the render server's springs back to the CPU frames
     /// (`ScreenContentView.takeRenderSpringsBack()`): the zooming pane's frame shows where it is again,
     /// and lands as on the CPU unless the render server takes it once more.
-    mutating func takeBackFromRenderServer() { rendersOnServer = false }
+    mutating func takeBackFromRenderServer() { renderSweep = nil }
 
     /// The render server's springs landed. Returns true when they carried the zoom: the pane no longer owns
     /// the motion, and the covered panes may be let go (``settled(all:)``).
     mutating func landedOnRenderServer() -> Bool {
         guard rendersOnServer else { return false }
-        (rendersOnServer, pane) = (false, nil)
+        (renderSweep, pane) = (nil, nil)
         return true
     }
 
