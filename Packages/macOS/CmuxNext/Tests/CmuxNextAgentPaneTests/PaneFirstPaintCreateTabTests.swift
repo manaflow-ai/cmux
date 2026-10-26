@@ -35,7 +35,8 @@ struct PaneFirstPaintCreateTabTests {
         let gated = Gated(painted: false)
         let outcomes = Outcomes()
         let firstFrame = gated.createTabFirstFrame(content: gated)
-        #expect(firstFrame.content === gated)
+        let sameContent = firstFrame.content === gated
+        #expect(sameContent)
         _ = firstFrame.wait(outcomes.done)
         #expect(outcomes.values.isEmpty)
         gated.paint()
