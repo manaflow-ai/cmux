@@ -104,6 +104,18 @@ public nonisolated struct Signposter: Sendable {
         openInterval(name, arg0: 0) { signposter.beginInterval(name.staticName, id: $0, "\(message, privacy: .public)") }
     }
 
+    /// Begins an interval named `name` with a public message and its numbers in the ring record's `arg0`
+    /// (the name's doc comment in ``SignpostName`` says what `arg0` holds).
+    ///
+    /// - Parameters:
+    ///   - name: A catalog name of this signposter's category.
+    ///   - message: Public text recorded with the begin (ids and kinds, never user content).
+    ///   - arg0: The begin record's first number.
+    /// - Returns: The state to pass to ``end(_:_:)``.
+    public func begin(_ name: SignpostName, _ message: String, arg0: UInt64) -> SignpostInterval {
+        openInterval(name, arg0: arg0) { signposter.beginInterval(name.staticName, id: $0, "\(message, privacy: .public)") }
+    }
+
     /// Begins an interval named `name` with an action's fields, formatted by the log system only
     /// when something reads them (`id=<id> origin=<origin> input_age_ms=<age, 2 decimals>`). The ring
     /// record carries the input age; ``begin(_:_:actionIndex:entrypoint:)`` adds the action's numbers.

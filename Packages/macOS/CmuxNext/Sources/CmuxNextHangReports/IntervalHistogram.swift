@@ -1,5 +1,7 @@
 /// One allowlisted Release signpost interval as MetricKit aggregated it (`MXSignpostMetric`):
-/// how often it ran and how long it took, never a single event.
+/// how often it ran and how long it took, never a single event. The `launch` category carries
+/// MetricKit's view of launch intervals; cmux's own launch milestones by temperature are in
+/// ``HangReport/launches`` (``LaunchHistogram``), which MetricKit cannot split by temperature.
 public nonisolated struct IntervalHistogram: Codable, Sendable, Equatable {
     /// One of ``HangReportSignposts/categories``.
     public var category: String

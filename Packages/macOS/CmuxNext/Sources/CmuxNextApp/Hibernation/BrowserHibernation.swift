@@ -4,6 +4,7 @@ import CmuxNextBrowser
 import CmuxNextCompat
 import CmuxNextControl
 import CmuxNextDesign
+import CmuxNextEnergy
 import CmuxNextHibernation
 import CmuxNextSettings
 import CmuxNextWakeups
@@ -150,7 +151,8 @@ final class BrowserHibernation {
     /// When each page last played sound (`DiscardRule.recentlyAudible`); the end of a hidden page's sound replans.
     let audible = AudibleHistory()
 
-    init(cache: TabContentCache, memory: any MemoryConsumerRegistry, lowPower: LowPowerMode = .system) {
+    /// - Parameter lowPower: The app's Low Power Mode (its energy monitor's); the default, fixed off, is for tests.
+    init(cache: TabContentCache, memory: any MemoryConsumerRegistry, lowPower: LowPowerMode = LowPowerMode(enabled: false)) {
         self.cache = cache
         self.lowPower = lowPower
         self.memory = memory

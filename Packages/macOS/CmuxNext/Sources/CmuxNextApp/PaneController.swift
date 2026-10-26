@@ -375,7 +375,9 @@ final class PaneController: SurfacePresenter, PresentablePane {
         if let shown = selectedTabNode, shown !== next, shown.parent === visibilityNode { shown.set(.hidden) }
         selectedTabNode = next
         guard let next else { return }
-        next.attach(to: visibilityNode) // a no-op when it is already here
+        // A no-op when it is already here. It cannot throw: a tab's node is a child (`TabContentCache.node(for:)`)
+        // and a pane's node is never below a tab's.
+        try? next.attach(to: visibilityNode)
         next.set(.visible)
     }
 

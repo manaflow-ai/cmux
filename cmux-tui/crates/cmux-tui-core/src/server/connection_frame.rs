@@ -18,6 +18,9 @@ pub(super) fn handle_connection_frame(
     writer: &MessageWriter,
     scheduler: &Arc<ConnectionSurfaceScheduler>,
 ) -> bool {
+    // Every handler this frame reaches runs on the reader's request path
+    // (`crate::request_path`): its blocking work is counted at its caller.
+    let _request_path = crate::request_path::RequestPathScope::enter(mux.request_path_stats());
     // Keep an idle shutdown requester connected until owner cleanup closes
     // the transport, so lifecycle clients receive authoritative completion.
     // A pipelined message after the acknowledgement must not reach parsing or

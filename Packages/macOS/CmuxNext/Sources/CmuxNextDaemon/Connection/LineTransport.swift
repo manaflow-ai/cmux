@@ -2,6 +2,7 @@ import CmuxNextWakeups
 import Darwin
 public import Foundation
 import CmuxNextCompat
+import CmuxNextTrace
 
 /// Why a transport stopped.
 public enum TransportCloseReason: Sendable, Equatable {
@@ -31,20 +32,9 @@ final class LineTransport: Sendable {
     /// The event name a `cmux.protocol/2` stream line is routed under
     /// (`DaemonEvent.decode`); the connection opens one stream, `session.events`.
     static let streamEvent = "cmux.protocol/2 stream"
-
-    enum Waiter {
-        case reply(cmd: String, ReplySlot)
-        case discard(cmd: String, onError: (@Sendable (DaemonError) -> Void)?)
-        /// Its deadline passed; the late reply is dropped. The id stays in
-        /// `order` so an id-less error still maps to the right request.
-        case expired(cmd: String)
-
-        var cmd: String {
-            switch self {
-            case .reply(let cmd, _), .discard(let cmd, _), .expired(let cmd): cmd
-            }
-        }
-    }
+    /// How long the reader may take to handle one line (decode and route it) before the hang watcher
+    /// reports it: a line is a few microseconds, so 100 ms means the reader thread is stuck.
+    static let lineHangDeadline: Duration = .milliseconds(100)
 
     private struct State {
         var nextID: UInt64 = 1
@@ -53,8 +43,11 @@ final class LineTransport: Sendable {
         var order: [UInt64] = []
         var closed: TransportCloseReason?
         var sawShutdown = false
-        /// Events routed so far; responses capture it as their barrier.
+        /// Stream-0 events routed so far (raw events and `controlStreams`
+        /// lines); responses capture it as their barrier.
         var eventCount: UInt64 = 0
+        /// Streams the daemon writes in its reply FIFO (`session.events`).
+        var controlStreams: Set<String> = []
         /// Gets resource API stream lines (`stream_item`, `stream_end`).
         var streamHandler: (@Sendable (_ streamID: String, _ line: Data) -> Void)?
 
@@ -106,10 +99,13 @@ final class LineTransport: Sendable {
     /// Decodes this connection's lines on its reader thread, counting into ``recorder``; event
     /// handlers, which run there, decode with it too.
     let decoder: WireDecoder
+    /// Watches the reader's handling of each line, never its wait in `read(2)`; nil watches nothing.
+    private let hangWatched: HangWatchedLane?
 
     /// - Parameter stats: Where the connection counts (``DaemonEndpoint/wireStats``); nil for none.
+    /// - Parameter hangs: Watches each line's handling on the reader thread; nil watches nothing.
     init(path: String, bridge: DaemonBridge? = nil, role: DaemonWireStats.Role,
-         stats: DaemonWireStats?) throws(DaemonError) {
+         stats: DaemonWireStats?, hangs: (any HangWatchScoping)? = nil) throws(DaemonError) {
         self.path = path
         self.role = role
         let recorder = stats?.recorder()
@@ -127,6 +123,8 @@ final class LineTransport: Sendable {
         socket = Mutex(Socket(fd: fd))
         writer = SocketWriter(fd: fd, label: "com.cmuxterm.next.daemon.write")
         recorder?.connectionOpened(role, bridged: bridge != nil)
+        // After the last throw: a transport that never opened registers nothing (its deinit does not run).
+        hangWatched = hangs.map { HangWatchedLane("daemon.line", deadline: Self.lineHangDeadline, on: $0) }
     }
 
     private static func connect(_ path: String) throws(DaemonError) -> Int32 {
@@ -165,6 +163,7 @@ final class LineTransport: Sendable {
     }
 
     deinit {
+        hangWatched?.unregister()
         writer.close()
         closeDescriptor()
     }
@@ -194,6 +193,11 @@ final class LineTransport: Sendable {
 
     var isClosed: Bool { state.withLock { $0.closed != nil } }
     func setStreamHandler(_ handler: (@Sendable (_ streamID: String, _ line: Data) -> Void)?) { state.withLock { $0.streamHandler = handler } }
+
+    /// Counts `streamID`'s lines as stream-0 events until its `stream_end`;
+    /// call before the request that opens it, `endControlSequence` if that fails.
+    func routeOnControlSequence(streamID: String) { _ = state.withLock { $0.controlStreams.insert(streamID) } }
+    func endControlSequence(streamID: String) { _ = state.withLock { $0.controlStreams.remove(streamID) } }
 
     /// Sends one command and returns the raw `ok:true` response line.
     /// `body` receives the allocated id and returns the encoded JSON object
@@ -360,7 +364,7 @@ final class LineTransport: Sendable {
             outputStream?.outputCopied(count)  // into the splitter's buffer
             lines.append(chunk.prefix(count)) { line in
                 outputStream?.outputCopied(line.count)  // out of it, as the line
-                route(line, decoder: decoder, onEvent: onEvent)
+                handle(line, decoder: decoder, onEvent: onEvent)
             }
             if lines.pending.count > Self.maxLineBytes {
                 closeDetail = "line exceeds \(Self.maxLineBytes) bytes"
@@ -377,9 +381,19 @@ final class LineTransport: Sendable {
         onClose(reason)
     }
 
-    /// Events routed so far. Read after a command's reply, it bounds every
-    /// event the daemon emitted before that reply (a write barrier).
+    /// Stream-0 events routed so far; a reply captures it as its barrier.
+    /// After p05-ipc-120 it bounds every event the daemon emitted before that
+    /// reply (cmux-tui/spec/transports.md "Reply and event order", rule 2).
+    /// Until then the daemon's subscription hop can write the reply before
+    /// the request's own events, so the barrier can miss them.
     var routedEventCount: UInt64 { state.withLock { $0.eventCount } }
+
+    /// Routes one line inside a hang scope of ``lineHangDeadline`` (Chrome watches each IO-thread task
+    /// the same way, base/threading/hang_watcher.cc).
+    private func handle(_ line: Data, decoder: WireDecoder, onEvent: EventHandler) {
+        guard let hangWatched else { return route(line, decoder: decoder, onEvent: onEvent) }
+        hangWatched.run { route(line, decoder: decoder, onEvent: onEvent) }
+    }
 
     private func route(_ line: Data, decoder: WireDecoder, onEvent: EventHandler) {
         guard let envelope = try? decoder.decode(Envelope.self, from: line) else {
@@ -391,9 +405,24 @@ final class LineTransport: Sendable {
         // travels with the raw events, in socket order (`session.events`).
         let streamed = envelope.type == "stream_item" || envelope.type == "stream_end"
         let streamKind: DaemonWireStats.FrameKind = envelope.type == "stream_end" ? .streamEnd : .streamItem
-        if streamed, let streamID = envelope.streamID, let handler = state.withLock({ $0.streamHandler }) {
-            recorder?.lineRead(streamKind)
-            return handler(streamID, line)
+        if streamed, let streamID = envelope.streamID {
+            let streamRoute = state.withLock { state -> StreamRoute in
+                if state.controlStreams.contains(streamID) {
+                    if envelope.type == "stream_end" { state.controlStreams.remove(streamID) }
+                    return .control
+                }
+                if let handler = state.streamHandler { return .handler(handler) }
+                return .unrouted
+            }
+            switch streamRoute {
+            case .control: break
+            case .handler(let handler):
+                recorder?.lineRead(streamKind)
+                return handler(streamID, line)
+            case .unrouted:
+                recorder?.lineRead(.ignored)
+                return
+            }
         }
         if let name = streamed ? Self.streamEvent : envelope.event {
             let index = state.withLock { state -> UInt64 in

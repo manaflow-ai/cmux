@@ -43,7 +43,7 @@ extension ThreadStackSampler {
     }
 
     /// The kernel's copy of the thread's name (`THREAD_EXTENDED_INFO`), with no pthread lock.
-    private static func threadName(_ thread: thread_act_t) -> String {
+    static func threadName(_ thread: thread_act_t) -> String {
         var info = thread_extended_info_data_t()
         var count = mach_msg_type_number_t(MemoryLayout<thread_extended_info_data_t>.size / MemoryLayout<natural_t>.size)
         let result = withUnsafeMutablePointer(to: &info) {

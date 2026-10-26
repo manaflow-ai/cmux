@@ -622,6 +622,7 @@ fn spawn_plugin(
     if let Some(revision) = &options.revision {
         command.env("CMUX_PLUGIN_REVISION", revision);
     }
+    crate::request_path::note(crate::request_path::BlockingKind::ProcessSpawn);
     let child = command.spawn()?;
     #[cfg(unix)]
     {

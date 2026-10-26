@@ -27,7 +27,8 @@ tools/perf/core/bot_platforms.py). The rules (p12-perf-process.md 3.1-3.3, 3.5, 
   T0 > bisect > verify > T1 > T2 > aa; an A/A still waiting AA_PROMOTE_AFTER into its lab day goes before T1.
 - Every REFERENCE_EVERY-th T0 job on a waterfall host also runs its stories on the weekly-frozen reference
   artifact (task 146), in the same job, as Chrome's `run_reference_build` does (tools/perf/core/bot_platforms.py).
-  Expectations (task 023) and feature arms (task 098) are inputs: `skip(story, host)` and FeatureArm.
+  Expectations (task 023) and feature arms (task 098) are inputs: `skip(story, host)` and FeatureArm. Driver and
+  `lab.py schedule` read expectations.json for each plan (expectations.active_at at the plan's `now`).
 - One job per host: a host that the controller reports busy, or that runs a job of ours, gets nothing. A pinpoint
   work id is started once (task 016 gives each attempt its own id).
 
@@ -145,7 +146,9 @@ class Builds:
 class PinpointWork:
     """One unit of Pinpoint work (task 016) that needs a host of its class: a bisect step or a verification.
 
-    `id` names one attempt. The scheduler starts an id once, so a retry of the same step needs a new id."""
+    `id` names one attempt. The scheduler starts an id once, so a retry of the same step needs a new id.
+    `build_only`: a Pinpoint Build step. Its builds are requested in Pinpoint order (after batch tips and tier
+    builds) and no job ever starts for it; the executor reads the answer from the build ledger."""
 
     id: str
     kind: str  # BISECT or VERIFY
@@ -153,7 +156,8 @@ class PinpointWork:
     story: str
     seconds: int
     builds: tuple[tuple[str, str], ...] = ()
-    prefer_host: str | None = None  # verify: the bisect's host
+    prefer_host: str | None = None  # bisect: the host its last story job ran on; verify: the bisect's host
+    build_only: bool = False
 
     def __post_init__(self) -> None:
         if self.kind not in PINPOINT_KINDS:
@@ -797,11 +801,14 @@ class _Planner:
             failed = sorted(f"{sha[:12]} {config}" for sha, config in work.builds
                             if (sha, config) in self.builds.failed)
             if failed:
-                self.problems.append(f"pinpoint work {work.id}: build {', '.join(failed)} failed; not started")
+                if not work.build_only:  # a failed build answers a Build step; the executor records it
+                    self.problems.append(f"pinpoint work {work.id}: build {', '.join(failed)} failed; not started")
                 continue
             if not all(pair in self.builds.ready for pair in work.builds):
                 for sha, config in work.builds:
                     self._request(sha, (config,), work.id)
+                continue
+            if work.build_only:
                 continue
             host = self._pinpoint_host(work)
             if host is None:
@@ -932,23 +939,33 @@ def write_state(path: Path, state: State) -> None:
         raise
 
 
+def with_expectations(active, state: State, now: datetime, hosts: Sequence[Host], builds: Builds,
+                      branch_log: Sequence[str], **inputs) -> Plan:
+    """plan() with expectations.ActiveExpectations: its `skip` is the hook, its problems join the plan's."""
+    result = plan(state, now, hosts, builds, branch_log, skip=active.skip, **inputs)
+    return replace(result, problems=result.problems + tuple(active.problems))
+
+
 class Driver:
     """plan() with its state file and its branch view. labd calls tick() every POLL_SECONDS and after each
     controller callback (job_finished) with a submit callback that submits the plan's jobs, builds and try arms
     and returns what it could not. The state is saved only after submit returns, so a crash inside it leaves the
     previous state and the next tick plans the same work with the same job ids (labd skips an id the controller
-    already has)."""
+    already has). `expectations(now)` (expectations.active_at) gives each plan its skip hook and adds the problems
+    of the expectations file to the plan's."""
 
     def __init__(self, state_path: Path | str, *, ls_remote: Callable[[], str | None],
                  first_parent: Callable[[str | None, str], tuple[str, ...] | None],
                  stories: Sequence[StorySpec], shard_map: ShardMap,
-                 clock: Callable[[], datetime] = lambda: datetime.now(timezone.utc)) -> None:
+                 clock: Callable[[], datetime] = lambda: datetime.now(timezone.utc),
+                 expectations: Callable[[datetime], object] | None = None) -> None:
         self.path = Path(state_path)
         self.ls_remote = ls_remote
         self.first_parent = first_parent
         self.stories = tuple(stories)
         self.shard_map = shard_map
         self.clock = clock
+        self.expectations = expectations
         self.tip: str | None = None
         self.log: tuple[str, ...] = ()
         self.state = State.from_document(json.loads(self.path.read_text())) if self.path.is_file() else State()
@@ -964,8 +981,13 @@ class Driver:
     def tick(self, hosts: Sequence[Host], builds: Builds, *, submit: Callable[[Plan], Rejected],
              **inputs) -> Plan:
         self._refresh()
-        result = plan(self.state, self.clock(), hosts, builds, self.log, stories=self.stories,
-                      shard_map=self.shard_map, **inputs)
+        now = self.clock()
+        if self.expectations is None:
+            result = plan(self.state, now, hosts, builds, self.log, stories=self.stories, shard_map=self.shard_map,
+                          **inputs)
+        else:
+            result = with_expectations(self.expectations(now), self.state, now, hosts, builds, self.log,
+                                       stories=self.stories, shard_map=self.shard_map, **inputs)
         rejected = submit(result)
         state = result.state
         for job in result.jobs:
@@ -1028,6 +1050,7 @@ def run(command: str, args: argparse.Namespace, out=None, err=None) -> int:
     out = out or sys.stdout
     err = err or sys.stderr
     catalog = _load_sibling("catalog")
+    expectations = _load_sibling("expectations")
     try:
         stories = stories_from_catalog(catalog.load_catalog(args.root))
         shard_map = ShardMap.load(args.root / "scripts/perf-lab/shard_map.json")
@@ -1039,7 +1062,8 @@ def run(command: str, args: argparse.Namespace, out=None, err=None) -> int:
     except (SchedulerError, catalog.CatalogError, OSError, ValueError) as error:
         print(f"schedule: {error}", file=err)
         return 2
-    result = plan(state, now, hosts, builds, log, stories=stories, shard_map=shard_map)
+    active = expectations.active_at(args.root / expectations.EXPECTATIONS_PATH, now)
+    result = with_expectations(active, state, now, hosts, builds, log, stories=stories, shard_map=shard_map)
     json.dump(result.to_document(), out, indent=1)
     print(file=out)
     if args.write:
