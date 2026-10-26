@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 2b7eb48372c3df8cc72e67889a80d49f239b8b46a4d55c94efb165fb7882cb97.
+// cmux-tui mux protocol 12, IR 42c23485a8f63b727b98a7bf24ec73def2ea4880bd340707ef835ad16068889c.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -800,6 +800,21 @@ pub struct ScreenRenamedEvent {
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ScriptLogEvent {
+    /// The console method that wrote the line (log, info, warn, error, debug).
+    pub level: String,
+    /// The line, its arguments joined as the console prints them.
+    pub message: String,
+    /// The id of the script-run that wrote the line; absent for a REPL session's line.
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub request: Option<T::JsonValue>,
+    /// The REPL session (script-repl-open) whose cell wrote the line; absent for a script-run's line.
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub session: Option<String>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ScrollChangedEvent {
     pub at_bottom: bool,
     /// What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing.
@@ -1194,6 +1209,7 @@ pub enum Event {
     ScreenChanged(ScreenChangedEvent),
     ScreenClosed(ScreenClosedEvent),
     ScreenRenamed(ScreenRenamedEvent),
+    ScriptLog(ScriptLogEvent),
     ScrollChanged(ScrollChangedEvent),
     SettingsChanged(SettingsChangedEvent),
     SizeState(SizeStateEvent),
@@ -1288,6 +1304,7 @@ impl Event {
             Self::ScreenChanged(_) => Some("screen-changed"),
             Self::ScreenClosed(_) => Some("screen-closed"),
             Self::ScreenRenamed(_) => Some("screen-renamed"),
+            Self::ScriptLog(_) => Some("script-log"),
             Self::ScrollChanged(_) => Some("scroll-changed"),
             Self::SettingsChanged(_) => Some("settings-changed"),
             Self::SizeState(_) => Some("size-state"),
@@ -1381,6 +1398,7 @@ impl Event {
             Self::ScreenChanged(_) => Some(&SCREEN_CHANGED_EVENT_METADATA),
             Self::ScreenClosed(_) => Some(&SCREEN_CLOSED_EVENT_METADATA),
             Self::ScreenRenamed(_) => Some(&SCREEN_RENAMED_EVENT_METADATA),
+            Self::ScriptLog(_) => Some(&SCRIPT_LOG_EVENT_METADATA),
             Self::ScrollChanged(_) => Some(&SCROLL_CHANGED_EVENT_METADATA),
             Self::SettingsChanged(_) => Some(&SETTINGS_CHANGED_EVENT_METADATA),
             Self::SizeState(_) => Some(&SIZE_STATE_EVENT_METADATA),
@@ -1891,6 +1909,14 @@ pub fn decode_event(raw: Value) -> Event {
         },
         Some("screen-renamed") => match serde_json::from_value::<ScreenRenamedEvent>(raw.clone()) {
             Ok(event) => Event::ScreenRenamed(event),
+            Err(error) => Event::Unknown(UnknownEvent {
+                name,
+                raw,
+                decode_error: Some(error.to_string()),
+            }),
+        },
+        Some("script-log") => match serde_json::from_value::<ScriptLogEvent>(raw.clone()) {
+            Ok(event) => Event::ScriptLog(event),
             Err(error) => Event::Unknown(UnknownEvent {
                 name,
                 raw,

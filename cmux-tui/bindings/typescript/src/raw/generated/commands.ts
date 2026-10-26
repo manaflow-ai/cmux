@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 2b7eb48372c3df8cc72e67889a80d49f239b8b46a4d55c94efb165fb7882cb97. */
+/* cmux-tui mux protocol 12, IR 42c23485a8f63b727b98a7bf24ec73def2ea4880bd340707ef835ad16068889c. */
 
 
 import type * as T from "./types.js";
@@ -22,6 +22,46 @@ export interface CmuxFailureResponse {
 export type CmuxResponse<D = T.JsonValue> =
   | CmuxSuccessResponse<D>
   | CmuxFailureResponse;
+
+/** Protocol v12; authority: local-admin. */
+export interface AccessRequestRequest extends CmuxRequestBase {
+  cmd: "access-request";
+  "kind": string;
+  "name"?: (string) | null;
+  "path"?: (string) | null;
+  "reason"?: (string) | null;
+  "session"?: (string) | null;
+}
+export type AccessRequestResult = {
+  "request_id": string;
+};
+
+/** Protocol v12; authority: local-admin. */
+export interface AccessRequestAnswerRequest extends CmuxRequestBase {
+  cmd: "access-request-answer";
+  "outcome": string;
+  "path"?: (string) | null;
+  "reason"?: (string) | null;
+  "request_id": string;
+  "value"?: (string) | null;
+}
+export type AccessRequestAnswerResult = {
+};
+
+/** Protocol v12; authority: local-admin. */
+export interface AccessRequestListRequest extends CmuxRequestBase {
+  cmd: "access-request-list";
+}
+export type AccessRequestListResult = {
+  "requests": Array<T.AccessRequestPending>;
+};
+
+/** Protocol v12; authority: local-admin. */
+export interface AccessRequestStatusRequest extends CmuxRequestBase {
+  cmd: "access-request-status";
+  "request_id": string;
+}
+export type AccessRequestStatusResult = T.AccessRequestStatus;
 
 /** Protocol v12; authority: control. */
 export interface AckTabNotificationsRequest extends CmuxRequestBase {
@@ -278,6 +318,135 @@ export interface AgentSessionTrustRequest extends CmuxRequestBase {
   "surface": T.Id;
 }
 export type AgentSessionTrustResult = T.AgentSessionAcpmuxReply;
+
+/** Protocol v12; authority: local-admin. */
+export interface AgentTransferAbortRequest extends CmuxRequestBase {
+  cmd: "agent-transfer-abort";
+  "surface": T.Id;
+  "transfer_id": string;
+}
+export type AgentTransferAbortResult = {
+  "aborted": true;
+};
+
+/** Protocol v12; authority: local-admin. */
+export interface AgentTransferBeginRequest extends CmuxRequestBase {
+  cmd: "agent-transfer-begin";
+  "ask_first"?: boolean;
+  "interrupt"?: boolean;
+  "surface": T.Id;
+}
+export type AgentTransferBeginResult = {
+  "manifest": T.JsonValue;
+  "source_session": string;
+  "transfer_id": string;
+};
+
+/** Protocol v12; authority: local-admin. */
+export interface AgentTransferCommitRequest extends CmuxRequestBase {
+  cmd: "agent-transfer-commit";
+  "surface": T.Id;
+  "to": (T.JsonValue) | null;
+  "transfer_id": string;
+}
+export type AgentTransferCommitResult = {
+  "committed": true;
+};
+
+/** Protocol v12; authority: local-admin. */
+export interface AgentTransferFinishRequest extends CmuxRequestBase {
+  cmd: "agent-transfer-finish";
+  "name"?: (string) | null;
+  "receive_id": string;
+}
+export type AgentTransferFinishResult = {
+  "session": T.JsonValue;
+};
+
+/** Protocol v12; authority: local-admin. */
+export interface AgentTransferReadRequest extends CmuxRequestBase {
+  cmd: "agent-transfer-read";
+  "limit"?: (bigint) | null;
+  "offset": bigint;
+  "path": string;
+  "transfer_id": string;
+}
+export type AgentTransferReadResult = {
+  "data": T.Base64;
+  "eof": boolean;
+  "next": bigint;
+};
+
+/** Protocol v12; authority: local-admin. */
+export interface AgentTransferReceiveRequest extends CmuxRequestBase {
+  cmd: "agent-transfer-receive";
+  "cwd": string;
+  "manifest": Record<string, T.JsonValue>;
+}
+export type AgentTransferReceiveResult = {
+  "receive_id": string;
+  "session_id": string;
+};
+
+/** Protocol v12; authority: local-admin. */
+export interface AgentTransferReceiveAbortRequest extends CmuxRequestBase {
+  cmd: "agent-transfer-receive-abort";
+  "receive_id": string;
+}
+export type AgentTransferReceiveAbortResult = {
+  "dropped": boolean;
+  "forgotten": boolean;
+  "landed": (boolean) | null;
+};
+
+/** Protocol v12; authority: local-admin. */
+export interface AgentTransferSourceRequest extends CmuxRequestBase {
+  cmd: "agent-transfer-source";
+  "surface": T.Id;
+}
+export type AgentTransferSourceResult = {
+  "session": string;
+};
+
+/** Protocol v12; authority: local-admin. */
+export interface AgentTransferWriteRequest extends CmuxRequestBase {
+  cmd: "agent-transfer-write";
+  "data": T.Base64;
+  "offset": bigint;
+  "path": string;
+  "receive_id": string;
+}
+export type AgentTransferWriteResult = {
+  "next": bigint;
+};
+
+/** Protocol v12; authority: local-admin. */
+export interface AgentUpdateApplyRequest extends CmuxRequestBase {
+  cmd: "agent-update-apply";
+  "continue_threads"?: boolean;
+  "expected_machine_id"?: string;
+  "ids": Array<string>;
+}
+export type AgentUpdateApplyResult = {
+  "machine"?: string;
+  "results": Array<T.AgentUpdateOutcome>;
+  "threads_after_turn": bigint;
+  "threads_error"?: string;
+  "threads_failed": bigint;
+  "threads_restarted": bigint;
+};
+
+/** Protocol v12; authority: local-admin. */
+export interface AgentUpdatePlanRequest extends CmuxRequestBase {
+  cmd: "agent-update-plan";
+  "expected_machine_id"?: string;
+}
+export type AgentUpdatePlanResult = {
+  "harnesses": Array<T.AgentUpdateHarness>;
+  "live_threads": bigint;
+  "machine"?: string;
+  "running_threads": bigint;
+};
 
 /** Protocol v6; authority: control. */
 export interface ApplyLayoutRequest extends CmuxRequestBase {
@@ -1592,6 +1761,69 @@ export interface ForgetSessionRequest extends CmuxRequestBase {
 export type ForgetSessionResult = T.JsonValue;
 
 /** Protocol v12; authority: control. */
+export interface FsDeleteRequest extends CmuxRequestBase {
+  cmd: "fs.delete";
+  "paths": Array<string>;
+  "permanent"?: boolean;
+}
+export type FsDeleteResult = {
+};
+
+/** Protocol v12; authority: control. */
+export interface FsListRequest extends CmuxRequestBase {
+  cmd: "fs.list";
+  "cursor"?: (string) | null;
+  "filter"?: T.FsFilter;
+  "limit"?: bigint;
+  "listing"?: (string) | null;
+  "path"?: (string) | null;
+  "sort"?: T.FsSort;
+}
+export type FsListResult = T.FsPage;
+
+/** Protocol v12; authority: control. */
+export interface FsMkdirRequest extends CmuxRequestBase {
+  cmd: "fs.mkdir";
+  "name": string;
+  "path": string;
+}
+export type FsMkdirResult = T.FsEntryResult;
+
+/** Protocol v12; authority: control. */
+export interface FsReadRequest extends CmuxRequestBase {
+  cmd: "fs.read";
+  "max_bytes": bigint;
+  "offset"?: bigint;
+  "path": string;
+}
+
+/** Protocol v12; authority: control. */
+export interface FsRenameRequest extends CmuxRequestBase {
+  cmd: "fs.rename";
+  "name": string;
+  "path": string;
+}
+export type FsRenameResult = T.FsEntryResult;
+
+/** Protocol v12; authority: control. */
+export interface FsStatRequest extends CmuxRequestBase {
+  cmd: "fs.stat";
+  "path": string;
+}
+
+/** Protocol v12; authority: control. */
+export interface FsWriteRequest extends CmuxRequestBase {
+  cmd: "fs.write";
+  "bytes_base64"?: (T.Base64) | null;
+  "expected"?: (string) | null;
+  "mode": string;
+  "path": string;
+  "permissions"?: (number) | null;
+  "text"?: (string) | null;
+}
+export type FsWriteResult = T.FsEntryResult;
+
+/** Protocol v12; authority: control. */
 export interface GetBlobRequest extends CmuxRequestBase {
   cmd: "get-blob";
   "blob": string;
@@ -2565,6 +2797,48 @@ export type SaveTabGroupResult = {
   [key: string]: unknown;
 };
 
+/** Protocol v12; authority: local-admin. */
+export interface ScriptReplCloseRequest extends CmuxRequestBase {
+  cmd: "script-repl-close";
+  "session": string;
+}
+export type ScriptReplCloseResult = {
+  "closed": boolean;
+};
+
+/** Protocol v12; authority: local-admin. */
+export interface ScriptReplEvalRequest extends CmuxRequestBase {
+  cmd: "script-repl-eval";
+  "args"?: (T.JsonValue) | null;
+  "code": string;
+  "session": string;
+  "timeout_ms"?: (bigint) | null;
+}
+export type ScriptReplEvalResult = {
+  "dropped_log_lines"?: bigint;
+  "value": (T.JsonValue) | null;
+};
+
+/** Protocol v12; authority: local-admin. */
+export interface ScriptReplOpenRequest extends CmuxRequestBase {
+  cmd: "script-repl-open";
+}
+export type ScriptReplOpenResult = {
+  "session": string;
+};
+
+/** Protocol v12; authority: local-admin. */
+export interface ScriptRunRequest extends CmuxRequestBase {
+  cmd: "script-run";
+  "args"?: (T.JsonValue) | null;
+  "code": string;
+  "timeout_ms"?: (bigint) | null;
+}
+export type ScriptRunResult = {
+  "dropped_log_lines"?: bigint;
+  "value": (T.JsonValue) | null;
+};
+
 /** Protocol v5; authority: control. */
 export interface ScrollSurfaceRequest extends CmuxRequestBase {
   cmd: "scroll-surface";
@@ -3253,6 +3527,10 @@ export interface ZoomPaneRequest extends CmuxRequestBase {
 
 /** Every implemented protocol command request. */
 export type CmuxRequest =
+  | AccessRequestRequest
+  | AccessRequestAnswerRequest
+  | AccessRequestListRequest
+  | AccessRequestStatusRequest
   | AckTabNotificationsRequest
   | AddScreensToScreenGroupRequest
   | AddTabsToTabGroupRequest
@@ -3273,6 +3551,17 @@ export type CmuxRequest =
   | AgentSessionPromptRequest
   | AgentSessionStartRequest
   | AgentSessionTrustRequest
+  | AgentTransferAbortRequest
+  | AgentTransferBeginRequest
+  | AgentTransferCommitRequest
+  | AgentTransferFinishRequest
+  | AgentTransferReadRequest
+  | AgentTransferReceiveRequest
+  | AgentTransferReceiveAbortRequest
+  | AgentTransferSourceRequest
+  | AgentTransferWriteRequest
+  | AgentUpdateApplyRequest
+  | AgentUpdatePlanRequest
   | ApplyLayoutRequest
   | AppsAgentInventoryChangedRequest
   | AppsDispatchRequest
@@ -3398,6 +3687,13 @@ export type CmuxRequest =
   | FocusDirectionRequest
   | FocusPaneRequest
   | ForgetSessionRequest
+  | FsDeleteRequest
+  | FsListRequest
+  | FsMkdirRequest
+  | FsReadRequest
+  | FsRenameRequest
+  | FsStatRequest
+  | FsWriteRequest
   | GetBlobRequest
   | GetBrowserProviderRequest
   | GetCellPixelsRequest
@@ -3498,6 +3794,10 @@ export type CmuxRequest =
   | RunRequest
   | SaveScreenGroupRequest
   | SaveTabGroupRequest
+  | ScriptReplCloseRequest
+  | ScriptReplEvalRequest
+  | ScriptReplOpenRequest
+  | ScriptRunRequest
   | ScrollSurfaceRequest
   | SelectScreenRequest
   | SelectTabRequest
@@ -3575,6 +3875,38 @@ export type CmuxRequest =
 
 /** Command name to request, result, authority, and version mapping. */
 export interface CmuxCommandDefinitionMap {
+  "access-request": {
+    request: AccessRequestRequest;
+    result: AccessRequestResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "access-request-v1";
+    stream: null;
+  };
+  "access-request-answer": {
+    request: AccessRequestAnswerRequest;
+    result: AccessRequestAnswerResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "access-request-v1";
+    stream: null;
+  };
+  "access-request-list": {
+    request: AccessRequestListRequest;
+    result: AccessRequestListResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "access-request-v1";
+    stream: null;
+  };
+  "access-request-status": {
+    request: AccessRequestStatusRequest;
+    result: AccessRequestStatusResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "access-request-v1";
+    stream: null;
+  };
   "ack-tab-notifications": {
     request: AckTabNotificationsRequest;
     result: AckTabNotificationsResult;
@@ -3733,6 +4065,94 @@ export interface CmuxCommandDefinitionMap {
     authority: "local-admin";
     since: 12;
     capability: "agent-session-trust-v1";
+    stream: null;
+  };
+  "agent-transfer-abort": {
+    request: AgentTransferAbortRequest;
+    result: AgentTransferAbortResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "agent-transfer-v1";
+    stream: null;
+  };
+  "agent-transfer-begin": {
+    request: AgentTransferBeginRequest;
+    result: AgentTransferBeginResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "agent-transfer-v1";
+    stream: null;
+  };
+  "agent-transfer-commit": {
+    request: AgentTransferCommitRequest;
+    result: AgentTransferCommitResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "agent-transfer-v1";
+    stream: null;
+  };
+  "agent-transfer-finish": {
+    request: AgentTransferFinishRequest;
+    result: AgentTransferFinishResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "agent-transfer-v1";
+    stream: null;
+  };
+  "agent-transfer-read": {
+    request: AgentTransferReadRequest;
+    result: AgentTransferReadResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "agent-transfer-v1";
+    stream: null;
+  };
+  "agent-transfer-receive": {
+    request: AgentTransferReceiveRequest;
+    result: AgentTransferReceiveResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "agent-transfer-v1";
+    stream: null;
+  };
+  "agent-transfer-receive-abort": {
+    request: AgentTransferReceiveAbortRequest;
+    result: AgentTransferReceiveAbortResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "agent-transfer-v1";
+    stream: null;
+  };
+  "agent-transfer-source": {
+    request: AgentTransferSourceRequest;
+    result: AgentTransferSourceResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "agent-transfer-v1";
+    stream: null;
+  };
+  "agent-transfer-write": {
+    request: AgentTransferWriteRequest;
+    result: AgentTransferWriteResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "agent-transfer-v1";
+    stream: null;
+  };
+  "agent-update-apply": {
+    request: AgentUpdateApplyRequest;
+    result: AgentUpdateApplyResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "agent-update-v1";
+    stream: null;
+  };
+  "agent-update-plan": {
+    request: AgentUpdatePlanRequest;
+    result: AgentUpdatePlanResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "agent-update-v1";
     stream: null;
   };
   "apply-layout": {
@@ -4735,6 +5155,62 @@ export interface CmuxCommandDefinitionMap {
     capability: "profiles-v1";
     stream: null;
   };
+  "fs.delete": {
+    request: FsDeleteRequest;
+    result: FsDeleteResult;
+    authority: "control";
+    since: 12;
+    capability: "fs-v1";
+    stream: null;
+  };
+  "fs.list": {
+    request: FsListRequest;
+    result: FsListResult;
+    authority: "control";
+    since: 12;
+    capability: "fs-v1";
+    stream: null;
+  };
+  "fs.mkdir": {
+    request: FsMkdirRequest;
+    result: FsMkdirResult;
+    authority: "control";
+    since: 12;
+    capability: "fs-v1";
+    stream: null;
+  };
+  "fs.read": {
+    request: FsReadRequest;
+    result: T.FsReadResult;
+    authority: "control";
+    since: 12;
+    capability: "fs-v1";
+    stream: null;
+  };
+  "fs.rename": {
+    request: FsRenameRequest;
+    result: FsRenameResult;
+    authority: "control";
+    since: 12;
+    capability: "fs-v1";
+    stream: null;
+  };
+  "fs.stat": {
+    request: FsStatRequest;
+    result: T.FsStatResult;
+    authority: "control";
+    since: 12;
+    capability: "fs-v1";
+    stream: null;
+  };
+  "fs.write": {
+    request: FsWriteRequest;
+    result: FsWriteResult;
+    authority: "control";
+    since: 12;
+    capability: "fs-v1";
+    stream: null;
+  };
   "get-blob": {
     request: GetBlobRequest;
     result: GetBlobResult;
@@ -5533,6 +6009,38 @@ export interface CmuxCommandDefinitionMap {
     authority: "control";
     since: 12;
     capability: "saved-tab-groups-v1";
+    stream: null;
+  };
+  "script-repl-close": {
+    request: ScriptReplCloseRequest;
+    result: ScriptReplCloseResult;
+    authority: "local-admin";
+    since: 12;
+    capability: null;
+    stream: null;
+  };
+  "script-repl-eval": {
+    request: ScriptReplEvalRequest;
+    result: ScriptReplEvalResult;
+    authority: "local-admin";
+    since: 12;
+    capability: null;
+    stream: null;
+  };
+  "script-repl-open": {
+    request: ScriptReplOpenRequest;
+    result: ScriptReplOpenResult;
+    authority: "local-admin";
+    since: 12;
+    capability: null;
+    stream: null;
+  };
+  "script-run": {
+    request: ScriptRunRequest;
+    result: ScriptRunResult;
+    authority: "local-admin";
+    since: 12;
+    capability: null;
     stream: null;
   };
   "scroll-surface": {

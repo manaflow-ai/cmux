@@ -92,6 +92,38 @@ class HandlerCommandTests(unittest.TestCase):
         self.assertEqual(set(fields), {"origin", "key"})
         self.assertEqual(fields["origin"].attributes, ("default",))
 
+    def test_an_empty_struct_variant_and_a_crate_path_payload_are_read(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            tui = Path(directory) / "cmux-tui"
+            self.write(
+                tui,
+                "handler.rs",
+                '#[derive(Deserialize)]\n#[serde(tag = "cmd", deny_unknown_fields)]\nenum Command {\n'
+                '    #[serde(rename = "a.empty")]\n    Empty {},\n'
+                '    #[serde(rename = "a.read")]\n    Read(crate::store::ops::ReadParams),\n}\n\n'
+                "pub(super) fn try_handle() {}\n",
+            )
+            ops = tui / "crates/cmux-tui-core/src/store"
+            ops.mkdir(parents=True)
+            (ops / "ops.rs").write_text(
+                "pub(crate) struct ReadParams {\n"
+                "    pub(crate) path: String,\n"
+                '    #[serde(default, deserialize_with = "non_null")]\n'
+                "    offset: Option<u64>,\n"
+                "}\n",
+                encoding="utf-8",
+            )
+            with (
+                patch.object(CHECKER, "TUI", tui),
+                patch.object(CHECKER, "CORE_SRC", tui / "crates/cmux-tui-core/src"),
+            ):
+                fields = CHECKER.handler_command_fields({"a.empty", "a.read"})
+        self.assertEqual(fields["a.empty"], {})
+        self.assertEqual(set(fields["a.read"]), {"path", "offset"})
+        self.assertEqual(
+            CHECKER._runtime_field_presence(fields["a.read"]["offset"]), ("optional", False)
+        )
+
     def test_a_command_two_modules_decode_is_rejected(self) -> None:
         enum = '#[serde(tag = "cmd")]\nenum Command {\n    #[serde(rename = "x")]\n    X,\n}\n'
         with tempfile.TemporaryDirectory() as directory:
@@ -740,6 +772,44 @@ struct SurfaceParams {
         )
         with self.assertRaisesRegex(CHECKER.SdkSchemaError, "needs #\\[serde\\(rename"):
             CHECKER._module_enum_fields("    Bare,\n", "fixture Command")
+
+    def test_sniffed_modules_of_p05_ipc_019_are_schemad(self) -> None:
+        """agent_transfer (with access_requests and agent_update), fs_wire and
+        scripts decode every command they serve through a typed enum, and
+        each one is in the schema."""
+
+        decoded = HANDLERS.handler_commands(CHECKER.TUI)
+        modules = {"agent_transfer.rs", "access_requests.rs", "agent_update.rs", "fs_wire.rs", "scripts.rs"}
+        served = {name for name, command in decoded.items() if command.module.name in modules}
+        self.assertEqual(len(served), 26)
+        self.assertEqual(served - set(self.ir.commands), set())
+        commands = CHECKER.handler_command_fields(served)
+        self.assertEqual(set(commands["fs.read"]), {"path", "offset", "max_bytes"})
+        self.assertEqual(set(commands["agent-update-plan"]), {"expected_machine_id"})
+        self.assertEqual(set(commands["access-request-list"]), set())
+        self.assertEqual(
+            set(commands["agent-transfer-read"]), {"transfer_id", "path", "offset", "limit"}
+        )
+
+    def test_missing_fs_request_field_is_rejected(self) -> None:
+        document = copy.deepcopy(self.document)
+        document["commands"]["fs.read"]["request"]["fields"].pop("max_bytes")
+        with self.assertRaisesRegex(CHECKER.SdkSchemaError, "request field for fs.read"):
+            self.validate(document, self.inventory)
+
+    def test_fs_sort_struct_drift_is_rejected(self) -> None:
+        document = copy.deepcopy(self.document)
+        document["types"]["FsSort"]["fields"].pop("dirs_first")
+        with self.assertRaisesRegex(CHECKER.SdkSchemaError, "request field for FsSort"):
+            self.validate(document, self.inventory)
+
+    def test_a_non_null_owner_condition_must_not_be_nullable(self) -> None:
+        document = copy.deepcopy(self.document)
+        document["commands"]["agent-update-apply"]["request"]["fields"]["expected_machine_id"][
+            "nullable"
+        ] = True
+        with self.assertRaisesRegex(CHECKER.SdkSchemaError, "presence drift"):
+            self.validate(document, self.inventory)
 
     def test_wrong_event_stream_is_rejected(self) -> None:
         document = copy.deepcopy(self.document)

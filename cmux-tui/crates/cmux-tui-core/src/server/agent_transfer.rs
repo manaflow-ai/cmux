@@ -391,39 +391,41 @@ struct AbortParams {
     transfer_id: String,
 }
 
+/// The `agent-transfer-*` commands, decoded by their `cmd`; spec/sdk-schema.json
+/// types each variant (check-sdk-schema.py compares the fields).
+#[derive(Deserialize)]
+#[serde(tag = "cmd")]
 enum Verb {
+    #[serde(rename = "agent-transfer-receive")]
     Receive(ReceiveParams),
+    #[serde(rename = "agent-transfer-write")]
     Write(WriteParams),
+    #[serde(rename = "agent-transfer-finish")]
     Finish(FinishParams),
+    #[serde(rename = "agent-transfer-receive-abort")]
     ReceiveAbort(ReceiveAbortParams),
+    #[serde(rename = "agent-transfer-begin")]
     Begin(BeginParams),
+    #[serde(rename = "agent-transfer-read")]
     Read(ReadParams),
+    #[serde(rename = "agent-transfer-commit")]
     Commit(CommitParams),
+    #[serde(rename = "agent-transfer-abort")]
     Abort(AbortParams),
+    #[serde(rename = "agent-transfer-source")]
     Source(SourceParams),
 }
 
 impl Verb {
-    fn parse(cmd: &str, params: Map<String, Value>) -> Option<Self> {
-        if params.keys().any(|key| {
+    /// The verb of a frame (its `cmd` and params, `id` taken out); `None` for
+    /// a forbidden, unknown or malformed param or an unknown verb.
+    fn parse(frame: Map<String, Value>) -> Option<Self> {
+        if frame.keys().any(|key| {
             FORBIDDEN_PARAMS.contains(&key.as_str()) || COMMAND_PARAMS.contains(&key.as_str())
         }) {
             return None;
         }
-        let params = Value::Object(params);
-        use serde_json::from_value;
-        Some(match cmd {
-            "agent-transfer-receive" => Self::Receive(from_value(params).ok()?),
-            "agent-transfer-write" => Self::Write(from_value(params).ok()?),
-            "agent-transfer-finish" => Self::Finish(from_value(params).ok()?),
-            "agent-transfer-receive-abort" => Self::ReceiveAbort(from_value(params).ok()?),
-            "agent-transfer-begin" => Self::Begin(from_value(params).ok()?),
-            "agent-transfer-read" => Self::Read(from_value(params).ok()?),
-            "agent-transfer-commit" => Self::Commit(from_value(params).ok()?),
-            "agent-transfer-abort" => Self::Abort(from_value(params).ok()?),
-            "agent-transfer-source" => Self::Source(from_value(params).ok()?),
-            _ => return None,
-        })
+        serde_json::from_value(Value::Object(frame)).ok()
     }
 }
 
@@ -567,16 +569,15 @@ pub(super) fn try_handle(
     let Ok(Value::Object(mut object)) = serde_json::from_str::<Value>(message) else {
         return None;
     };
-    let cmd = match object.remove("cmd") {
-        Some(Value::String(cmd)) if cmd.starts_with("agent-transfer-") => cmd,
-        _ => return None,
-    };
+    if !object.get("cmd").and_then(Value::as_str)?.starts_with("agent-transfer-") {
+        return None;
+    }
     let id = object.remove("id");
     // Trust first: an untrusted client gets one answer whatever it sent.
     if !mux.control_clients.is_unix(client) || mux.is_remote_client(client) {
         return Some(reply(writer, id, Err(Refusal::NotTrusted.into())));
     }
-    let Some(verb) = Verb::parse(&cmd, object) else {
+    let Some(verb) = Verb::parse(object) else {
         return Some(reply(writer, id, Err(Refusal::BadRequest.into())));
     };
     let Some(socket) = mux.control_clients.agent_sessions.socket() else {

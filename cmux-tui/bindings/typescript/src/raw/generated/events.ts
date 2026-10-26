@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 2b7eb48372c3df8cc72e67889a80d49f239b8b46a4d55c94efb165fb7882cb97. */
+/* cmux-tui mux protocol 12, IR 42c23485a8f63b727b98a7bf24ec73def2ea4880bd340707ef835ad16068889c. */
 
 
 import type * as T from "./types.js";
@@ -570,6 +570,18 @@ export type ScreenRenamedEvent = { event: "screen-renamed" } & {
   "workspace": T.Id;
 };
 
+/** Protocol v12; emission: emitted; streams: control. */
+export type ScriptLogEvent = { event: "script-log" } & {
+  /** The console method that wrote the line (log, info, warn, error, debug). */
+  "level": string;
+  /** The line, its arguments joined as the console prints them. */
+  "message": string;
+  /** The id of the script-run that wrote the line; absent for a REPL session's line. */
+  "request"?: T.JsonValue;
+  /** The REPL session (script-repl-open) whose cell wrote the line; absent for a script-run's line. */
+  "session"?: string;
+};
+
 /** Protocol v6; emission: emitted; streams: subscribe, attach-byte, attach-render, attach-browser. */
 export type ScrollChangedEvent = { event: "scroll-changed" } & {
   "at_bottom": boolean;
@@ -884,6 +896,7 @@ export type KnownCmuxEvent =
   | ScreenChangedEvent
   | ScreenClosedEvent
   | ScreenRenamedEvent
+  | ScriptLogEvent
   | ScrollChangedEvent
   | SettingsChangedEvent
   | SizeStateEvent

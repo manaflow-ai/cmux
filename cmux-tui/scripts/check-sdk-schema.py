@@ -44,15 +44,25 @@ RUNTIME_NAMED_REQUEST_REFS = {
     "GrantParam": "AppGrant",
     "AgentCLIIntent": "AgentCLIIntent",
     "AgentSessionAnsweredBy": "AgentSessionAnsweredBy",
+    # fs.list's sort and filter (fs_ops/listing.rs).
+    "Sort": "FsSort",
+    "SortKey": "FsSortKey",
+    "SortDirection": "FsSortDirection",
+    "Filter": "FsFilter",
+    "EntryKind": "FsEntryKind",
 }
 
 # Named request types whose server struct is the authority for their fields:
-# the SDK object type of the same name must have the same fields, checked like
-# a command's request fields. Paths are under crates/cmux-tui-core/src.
+# the SDK object type must have the struct's fields, checked like a command's
+# request fields. SDK type -> (path under crates/cmux-tui-core/src, struct).
 RUNTIME_NAMED_REQUEST_STRUCTS = {
-    "AgentCLIIntent": "workspace_registry/agent_cli_intents.rs",
-    "AgentSessionAnsweredBy": "server/agent_session_attach.rs",
+    "AgentCLIIntent": ("workspace_registry/agent_cli_intents.rs", "AgentCLIIntent"),
+    "AgentSessionAnsweredBy": ("server/agent_session_attach.rs", "AgentSessionAnsweredBy"),
+    "FsSort": ("fs_ops/listing.rs", "Sort"),
+    "FsFilter": ("fs_ops/listing.rs", "Filter"),
 }
+
+CORE_SRC = TUI / "crates/cmux-tui-core/src"
 
 
 # Server modules that decode their own commands (p05-ipc queue Q2). One table
@@ -121,37 +131,6 @@ UNSCHEMAD_SNIFFED_COMMANDS = {
             "agent-session-trust",
         ),
         "p05-ipc-018",
-    ),
-    **dict.fromkeys(
-        (
-            "access-request",
-            "access-request-answer",
-            "access-request-list",
-            "access-request-status",
-            "agent-transfer-abort",
-            "agent-transfer-begin",
-            "agent-transfer-commit",
-            "agent-transfer-finish",
-            "agent-transfer-read",
-            "agent-transfer-receive",
-            "agent-transfer-receive-abort",
-            "agent-transfer-source",
-            "agent-transfer-write",
-            "agent-update-apply",
-            "agent-update-plan",
-            "fs.delete",
-            "fs.list",
-            "fs.mkdir",
-            "fs.read",
-            "fs.rename",
-            "fs.stat",
-            "fs.write",
-            "script-repl-close",
-            "script-repl-eval",
-            "script-repl-open",
-            "script-run",
-        ),
-        "p05-ipc-019",
     ),
     "oracle-state": "debug and --features oracle builds only (p15-oracle-021), not an SDK command",
 }
@@ -553,10 +532,12 @@ def handler_command_fields(names: set[str]) -> dict[str, dict[str, RuntimeField]
         if command.module in listed:
             continue
         label = f"{command.module.name} {command.enum}::{command.variant}"
+        source = command.source
         if command.kind == "unit":
             fields: dict[str, RuntimeField] = {}
         elif command.kind == "tuple":
-            fields = _rust_struct_fields(command.source, command.payload)
+            source, struct_name = _tuple_payload_struct(command.source, command.payload, label)
+            fields = _expand_flattened(source, _rust_struct_fields(source, struct_name), label)
         else:
             fields = _parse_rust_fields(command.payload, label)
         envelope = _parse_rust_fields(command.envelope, f"{label} envelope")
@@ -565,6 +546,21 @@ def handler_command_fields(names: set[str]) -> dict[str, dict[str, RuntimeField]
             fail(f"{label} repeats envelope fields {sorted(overlap)}")
         commands[name] = _expand_flattened(command.source, {**envelope, **fields}, label)
     return commands
+
+
+def _tuple_payload_struct(source: str, payload: str, label: str) -> tuple[str, str]:
+    """The source and name of a tuple variant's struct: one of the module,
+    or `crate::<path>::Type`, a struct of the file that path names."""
+
+    qualified = re.fullmatch(r"crate((?:::[a-z_][a-z0-9_]*)+)::([A-Z][A-Za-z0-9]*)", payload)
+    if qualified is None:
+        return source, payload
+    path = CORE_SRC.joinpath(*qualified.group(1).split("::")[1:]).with_suffix(".rs")
+    try:
+        return path.read_text(encoding="utf-8"), qualified.group(2)
+    except (OSError, UnicodeError) as error:
+        fail(f"cannot read {path} for {label}: {error}")
+    return "", ""
 
 
 def _expand_flattened(
@@ -613,6 +609,9 @@ def _runtime_field_presence(field: RuntimeField) -> tuple[str, bool]:
     # and may be null.
     if optional_type and any("required_nullable" in value for value in field.attributes):
         return "required", True
+    # An `Option<T>` with the `non_null` deserializer may be absent but never null.
+    if optional_type and any('deserialize_with = "non_null"' in value for value in field.attributes):
+        return "optional", False
     has_default = any(re.search(r"\bdefault\b", value) for value in field.attributes)
     presence = "optional" if optional_type or has_default else "required"
     # serde_json::Value includes JSON null even though it is not Option<Value>.
@@ -640,7 +639,8 @@ def _runtime_type_shape(rust_type: str) -> str:
         rust_type, optional = _unwrap_rust_option(rust_type)
     if inner := _split_rust_generic(rust_type, "Vec"):
         return f"array<{_runtime_type_shape(inner)}>"
-    if inner := _split_rust_generic(rust_type, "BTreeMap"):
+    # serde_json's `Map<String, Value>` is a JSON object, like a BTreeMap.
+    if inner := _split_rust_generic(rust_type, "BTreeMap") or _split_rust_generic(rust_type, "Map"):
         key, separator, value = inner.partition(", ")
         if not separator or key != "String":
             fail(f"unsupported Rust map request type {rust_type!r}")
@@ -803,8 +803,8 @@ def validate_sniffed_coverage(ir: SdkIR, served: Mapping[str, SniffedName]) -> l
 def validate_named_request_structs(ir: SdkIR) -> None:
     """Reject drift between RUNTIME_NAMED_REQUEST_STRUCTS and their SDK types."""
 
-    for type_name, relative_path in RUNTIME_NAMED_REQUEST_STRUCTS.items():
-        path = TUI / "crates/cmux-tui-core/src" / relative_path
+    for type_name, (relative_path, struct_name) in RUNTIME_NAMED_REQUEST_STRUCTS.items():
+        path = CORE_SRC / relative_path
         try:
             source = path.read_text(encoding="utf-8")
         except (OSError, UnicodeError) as error:
@@ -813,7 +813,7 @@ def validate_named_request_structs(ir: SdkIR) -> None:
         if not isinstance(sdk_type, Mapping) or sdk_type.get("kind") != "object":
             fail(f"SDK type {type_name} must be an object type")
         _compare_request_fields(
-            type_name, sdk_type["fields"], _rust_struct_fields(source, type_name), ir.types
+            type_name, sdk_type["fields"], _rust_struct_fields(source, struct_name), ir.types
         )
 
 
