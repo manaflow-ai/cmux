@@ -67,6 +67,7 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
         // the deadline CEFLayerHosting sets, so AsyncLiveResize would only lose that sync.
         if forkAPIVersion < Self.resizeSyncForkAPI { result.append("enable-features=AsyncLiveResize") }
         result.append(contentsOf: Self.chromePromptOffSwitches)
+        result.append(contentsOf: Self.idleServiceOffSwitches)
         // Chrome shares a renderer between at most 2 main frames of one site below its process
         // limit (kProcessPerSiteUpToMainFrameThreshold), but Chromium 154 turns that off for the
         // whole process once any frame ever had a DevTools agent (RenderFrameHostManager,
@@ -144,6 +145,38 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
         "disable-search-engine-choice-screen",
         "enable-features=IPH_DemoMode:chosen_feature/IPH_Dummy",
     ]
+
+    /// Chrome runtime services that work with no page shown and that cmux does not use (p13-webui-084;
+    /// the census, and what stays on and why, is perf-lead.md "Chrome runtime idle services").
+    /// Chromium 154 sources are named on each constant. Safe Browsing, the component updater
+    /// (Widevine CDM, CRLSet), network time and Cast stay on.
+    static let idleServiceOffSwitches: [String] = [
+        syncOffSwitch,
+        "disable-features=" + (hangWatcherOffFeatures + [optimizationHintsOffFeature]).joined(separator: ","),
+    ]
+
+    /// `disable-sync` (components/sync/base/command_line_switches.h, kDisableSync):
+    /// SyncServiceFactory::GetForProfile returns null, so the profile makes no SyncServiceImpl, sync
+    /// engine or sync invalidations listener. cmux has no Google sign-in (no OAuth client, DICE off)
+    /// and owns the bookmarks tree; password code reads a null sync service as "not syncing"
+    /// (password_sync_util.cc GetPasswordSyncState), and the fork's generation switch needs no sync.
+    static let syncOffSwitch = "disable-sync"
+
+    /// `EnableHangWatcher` and `EnableHangWatcherOnGpuProcess` (base/threading/hang_watcher.cc): a
+    /// HangWatcher thread in each Chromium process (the app is the browser process) wakes every 10 s
+    /// (kHangWatcherMonitoringPeriod) and reports a hung thread with DumpWithoutCrashing. Chromium
+    /// turns it on only "where the generated data is used"; cmux ships no crash_reporter.cfg, so the
+    /// dumps go nowhere. The GPU process reads its own feature (HangWatcher::InitializeOnMainThread).
+    static let hangWatcherOffFeatures = ["EnableHangWatcher", "EnableHangWatcherOnGpuProcess"]
+
+    /// `OptimizationHints` (components/optimization_guide/core/optimization_guide_features.cc): with it
+    /// off, the Optimization Hints component is not registered with the component updater
+    /// (optimization_hints_component_installer.cc RegisterOptimizationHintsComponent) and the hints
+    /// manager has no hints to fetch or refresh. No cmux feature reads the hints; Chrome's automation
+    /// launchers (Puppeteer, chrome-launcher) turn it off too. `OptimizationTargetPrediction` stays:
+    /// Safe Browsing's client-side detection model arrives through the optimization guide's model
+    /// provider (client_side_detection_service.cc).
+    static let optimizationHintsOffFeature = "OptimizationHints"
 
     /// Switches for this process. `CMUX_NEXT_CEF_LOAD_EXTENSIONS` is a
     /// colon-separated list of unpacked extension directories.
