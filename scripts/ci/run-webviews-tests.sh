@@ -119,7 +119,11 @@ with open(path, "rb") as stream:
     if size <= requested:
         sys.stdout.buffer.write(stream.read())
         raise SystemExit
-    marker = b"\n... output truncated; complete log is in the webviews raw-log artifact ...\n"
+    if os.environ.get("CMUX_WEB_TEST_RAW_LOG_DIR"):
+        note = b"complete log is in the configured webviews raw-log artifact"
+    else:
+        note = b"complete log remains in the runner's per-file log"
+    marker = b"\n... output truncated; " + note + b" ...\n"
     available = max(0, requested - len(marker))
     head_size = available // 2
     tail_size = available - head_size
@@ -386,7 +390,9 @@ failed=0
 while read -r result file log; do
   # A passing file's workflow annotations (prScope.ts warns about base-branch findings) still reach the run.
   if [ "$result" = PASS ]; then
-    grep -E '^::(warning|notice)( |::)' "$log" || true
+    annotations="$results/$(basename "$log").annotations"
+    grep -E '^::(warning|notice)( |::)' "$log" > "$annotations" || true
+    if [ -s "$annotations" ]; then print_bounded_log "$annotations"; fi
     continue
   fi
   failed=$((failed + 1))
