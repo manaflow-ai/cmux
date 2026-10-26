@@ -58,13 +58,28 @@ nonisolated extension LaunchSlices {
             temperature == nil ? nil : pageins.map { Int64(clamping: $0) }
         }
 
-        /// Writes the slices into `runtime`'s ring and records `launch.pageins` into its metrics.
+        /// The `launch.first_frame.<temperature>` sample this mark records: the first-frame slice's length, the
+        /// process start to the first window's first committed frame, in its temperature's histogram. Nil when the
+        /// mark released no first-frame slice, or the temperature is undetermined: Chrome's `UmaHistogramWithTemperature`
+        /// records `Startup.FirstWebContents.NonEmptyPaint3` per temperature only for a determined one
+        /// (components/startup_metric_utils/browser/startup_metric_utils.cc).
+        var firstFrameSample: (temperature: HistogramID.LaunchTemperature, duration: Duration)? {
+            guard let slice = slices.first(where: { $0.name == .launchFirstFrame }),
+                  let temperature = HistogramID.LaunchTemperature(slice.temperature) else { return nil }
+            return (temperature, .nanoseconds(slice.endNanos - slice.beginNanos))
+        }
+
+        /// Writes the slices into `runtime`'s ring and records `launch.pageins` and `launch.first_frame.<temperature>`
+        /// into its metrics.
         public func publish(into runtime: TraceRuntime) {
             for slice in slices {
                 slice.record(into: runtime)
             }
             if let pageinsSample {
                 Metrics(runtime: runtime).record(.launchPageins, pageinsSample)
+            }
+            if let firstFrame = firstFrameSample {
+                Metrics(runtime: runtime).record(.launchFirstFrame(firstFrame.temperature), duration: firstFrame.duration)
             }
         }
     }
