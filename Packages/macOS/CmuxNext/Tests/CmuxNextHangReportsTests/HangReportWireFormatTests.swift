@@ -20,4 +20,141 @@ struct HangReportWireFormatTests {
         #expect(report.intervals.allSatisfy { HangReportSignposts.allows(category: $0.category, name: $0.name) })
         #expect(HangReportSignposts.categories == ["action", "motion", "key", "switch", "create", "cef", "launch"])
     }
+
+    // MARK: Active seconds and the main-thread histograms (p12-perf-process-043)
+
+    /// `MainTurnHistogram.edgesNanos` (CmuxNextControl): 50 µs times 1.2 per edge, then 10 s.
+    static let turnEdgesNanos: [UInt64] = {
+        var edges: [UInt64] = []
+        var edge = 50_000.0
+        while edge < 10_000_000_000 {
+            edges.append(UInt64(edge.rounded()))
+            edge *= 1.2
+        }
+        return edges + [10_000_000_000]
+    }()
+
+    /// Counts in the fine bucket of each sample.
+    static func counts(_ samplesNanos: [UInt64]) -> [UInt64] {
+        var counts = [UInt64](repeating: 0, count: turnEdgesNanos.count + 1)
+        for sample in samplesNanos {
+            counts[turnEdgesNanos.firstIndex { sample < $0 } ?? turnEdgesNanos.count] += 1
+        }
+        return counts
+    }
+
+    static let turns: [UInt64] = Array(repeating: 200_000, count: 900) + Array(repeating: 3_600_000, count: 60)
+        + Array(repeating: 16_000_000, count: 39) + [12_000_000_000]
+    static let queueing: [UInt64] = Array(repeating: 1_200_000, count: 40) + [40_000_000]
+
+    static func mainThread(activeSeconds: Int = 5_400) -> HangReportBuilder.MainThreadInput {
+        HangReportBuilder.MainThreadInput(activeSeconds: activeSeconds, edgesNanos: turnEdgesNanos,
+                                          turnCounts: counts(turns), inputQueueingCounts: counts(queueing))
+    }
+
+    static func report(_ schema: HangReport.WireSchema, mainThread: HangReportBuilder.MainThreadInput?) -> HangReport {
+        HangReportFixtures.builder(wireSchema: schema).build(context: HangReportFixtures.context(), watchdog: StallAggregate(),
+                                                             metricKit: [], mainThread: mainThread)
+    }
+
+    @Test func schemaTwoCarriesNoActiveSecondsAndNoMainThreadHistograms() throws {
+        let with = Self.report(.v2, mainThread: Self.mainThread())
+        #expect(with == Self.report(.v2, mainThread: nil))
+        let json = String(decoding: try HangReport.encoder.encode(with), as: UTF8.self)
+        #expect(!json.contains("active_seconds"))
+        #expect(!json.contains(HangReport.mainThreadCategory + "\""))
+    }
+
+    @Test func schemaThreeSendsActiveSecondsAndBothHistogramsAsIntervals() throws {
+        let report = Self.report(.v3, mainThread: Self.mainThread())
+        #expect(report.activeSeconds == 5_400)
+        #expect(report.intervals.map(\.name) == [HangReport.mainTurnInterval, HangReport.inputQueueingInterval])
+        #expect(report.intervals.allSatisfy { $0.category == HangReport.mainThreadCategory && $0.hitchMsPerS == nil })
+        // The main category is not a signpost category, so no MetricKit interval can claim it.
+        #expect(!HangReportSignposts.categories.contains(HangReport.mainThreadCategory))
+        #expect(report.intervals.allSatisfy { $0.name.range(of: HangReportSignposts.namePattern, options: .regularExpression) != nil })
+        #expect(!report.hasNoFindings)
+
+        let turn = try #require(report.intervals.first)
+        #expect(turn.count == Self.turns.count)
+        #expect(turn.buckets.reduce(0) { $0 + $1.count } == Self.turns.count)
+        #expect(turn.buckets == [
+            HistogramBucket(lowMs: 0, highMs: 1, count: 900),
+            HistogramBucket(lowMs: 3, highMs: 5, count: 60),
+            HistogramBucket(lowMs: 14, highMs: 21, count: 39),
+            HistogramBucket(lowMs: 10_000, highMs: HistogramBucket.maxMs, count: 1),
+        ])
+        let queue = report.intervals[1]
+        #expect(queue.buckets == [HistogramBucket(lowMs: 1, highMs: 2, count: 40), HistogramBucket(lowMs: 30, highMs: 43, count: 1)])
+
+        let encoded = try HangReport.encoder.encode(report)
+        let json = String(decoding: encoded, as: UTF8.self)
+        #expect(json.contains(#""active_seconds":5400"#))
+        #expect(json.contains(#""category":"main","count":1000"#))
+        #expect(PrivacyLeakScanner(forbiddenTerms: HangReportFixtures.forbiddenTerms).findings(in: encoded).isEmpty)
+        #expect(try JSONDecoder().decode(HangReport.self, from: encoded) == report)
+    }
+
+    @Test func theTurnHistogramFitsTheWireBucketCapInTheShortestRuns() throws {
+        let everyBucket = [UInt64](repeating: 1, count: Self.turnEdgesNanos.count + 1)
+        let buckets = try #require(HangReportBuilder.mainThreadBuckets(counts: everyBucket, edgesNanos: Self.turnEdgesNanos))
+        #expect(buckets.count == 26)
+        #expect(buckets.count <= HistogramBucket.maxBuckets)
+        #expect(buckets.reduce(0) { $0 + $1.count } == everyBucket.count)
+        #expect(zip(buckets, buckets.dropFirst()).allSatisfy { $0.highMs == $1.lowMs && $0.lowMs < $0.highMs })
+        #expect(buckets.first?.lowMs == 0)
+        #expect(buckets.last == HistogramBucket(lowMs: 10_000, highMs: HistogramBucket.maxMs, count: 1))
+    }
+
+    @Test func aHistogramThatDoesNotMatchItsEdgesIsLeftOut() {
+        let edges = Self.turnEdgesNanos
+        #expect(HangReportBuilder.mainThreadBuckets(counts: [1, 2], edgesNanos: edges) == nil)
+        #expect(HangReportBuilder.mainThreadBuckets(counts: [1, 2, 3], edgesNanos: [5_000_000, 5_000_000]) == nil)
+        #expect(HangReportBuilder.mainThreadBuckets(counts: [1], edgesNanos: []) == nil)
+        let input = HangReportBuilder.MainThreadInput(activeSeconds: -3, edgesNanos: edges, turnCounts: [1, 2],
+                                                      inputQueueingCounts: [UInt64](repeating: 0, count: edges.count + 1))
+        let report = Self.report(.v3, mainThread: input)
+        #expect(report.intervals.isEmpty)
+        #expect(report.activeSeconds == 0)
+        #expect(Self.report(.v3, mainThread: Self.mainThread(activeSeconds: .max)).activeSeconds == HangReport.maxActiveSeconds)
+    }
+
+    @Test func theMainThreadHistogramsStayWhenMetricKitFillsTheIntervals() {
+        var report = Self.report(.v3, mainThread: nil)
+        report.intervals = (0..<HangReport.maxIntervals).map {
+            IntervalHistogram(category: "motion", name: "motion.\($0)", count: 1, buckets: [], hitchMsPerS: nil)
+        }
+        HangReportBuilder.addMainThread(Self.mainThread(), to: &report)
+        #expect(report.intervals.count == HangReport.maxIntervals)
+        #expect(report.intervals.suffix(2).map(\.name) == [HangReport.mainTurnInterval, HangReport.inputQueueingInterval])
+    }
+
+    @Test func aReportWithoutActiveSecondsStillDecodes() throws {
+        let schemaTwo = try JSONDecoder().decode(HangReport.self, from: Data(Self.golden.utf8))
+        #expect(schemaTwo.activeSeconds == nil)
+        var older = schemaTwo
+        older.schema = HangReport.WireSchema.v3.rawValue
+        let bytes = try HangReport.encoder.encode(older)
+        #expect(!String(decoding: bytes, as: UTF8.self).contains("active_seconds"))
+        #expect(try JSONDecoder().decode(HangReport.self, from: bytes) == older)
+    }
+
+    @Test func activeTimeCountsOnlyBetweenActivationNotices() {
+        let second: UInt64 = 1_000_000_000
+        var ledger = ActiveTimeLedger()
+        ledger.didResignActive(atNanos: 2 * second)              // not active: nothing to close
+        ledger.didBecomeActive(atNanos: 10 * second)
+        ledger.didBecomeActive(atNanos: 12 * second)             // a repeated notice keeps the first start
+        ledger.didResignActive(atNanos: 15 * second + second / 2)
+        #expect(!ledger.isActive)
+        #expect(ledger.seconds(atNanos: 100 * second) == 5)    // inactive time adds nothing
+        ledger.didBecomeActive(atNanos: 20 * second)
+        #expect(ledger.seconds(atNanos: 22 * second) == 7)     // the open span counts up to now
+        #expect(ledger.seconds(atNanos: 19 * second) == 5)     // an older stamp counts nothing
+        ledger.commit(seconds: 7, atNanos: 22 * second)          // the half second stays
+        #expect(ledger.seconds(atNanos: 22 * second) == 0)
+        #expect(ledger.seconds(atNanos: 23 * second + second / 2) == 2)
+        ledger.commit(seconds: .max, atNanos: 23 * second)
+        #expect(ledger.seconds(atNanos: 23 * second) == 0)
+    }
 }

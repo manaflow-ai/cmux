@@ -8,7 +8,7 @@ public import Foundation
 /// ```swift
 /// let builder = HangReportBuilder(classifier: classifier, resolver: DyldImageResolver())
 /// let report = builder.build(context: context, watchdog: aggregate, metricKit: deliveries,
-///                            inputLatency: await source.take())
+///                            inputLatency: await source.take(), mainThread: mainThreadInput)
 /// ```
 public nonisolated struct HangReportBuilder: Sendable {
     /// The envelope of one report: who, when and what was open.
@@ -59,9 +59,10 @@ public nonisolated struct HangReportBuilder: Sendable {
 
     /// The report of `watchdog`'s findings, the MetricKit deliveries and the input latency since
     /// the last report. `inputLatency` (the field ledger's counts, ``HangReportInputLatencySource``)
-    /// goes in only when ``wireSchema`` carries it.
+    /// and `mainThread` (active seconds and the main-turn and input-queueing histograms,
+    /// ``MainThreadInput``) go in only when ``wireSchema`` carries them.
     public func build(context: Context, watchdog: StallAggregate, metricKit: [MetricKitInput],
-                      inputLatency: InputLatencySnapshot? = nil) -> HangReport {
+                      inputLatency: InputLatencySnapshot? = nil, mainThread: MainThreadInput? = nil) -> HangReport {
         var report = HangReport(reportId: context.reportId, installId: context.installId, day: Self.safeDay(context.day),
                                 app: Self.safeApp(context.app), os: HangReport.OS(version: Self.safeVersion(context.os.version)),
                                 hardware: context.hardware, counts: context.counts)
@@ -79,6 +80,7 @@ public nonisolated struct HangReportBuilder: Sendable {
         report.schema = wireSchema.rawValue
         report.launches = wireSchema.carriesLaunches ? Self.launches(watchdog.launches) : nil
         if let inputLatency, wireSchema.carriesInputLatency { Self.addInputLatency(inputLatency, to: &report) }
+        if let mainThread, wireSchema.carriesMainThread { Self.addMainThread(mainThread, to: &report) }
         return report
     }
 
