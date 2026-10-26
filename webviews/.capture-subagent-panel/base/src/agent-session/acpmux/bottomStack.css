@@ -1,0 +1,127 @@
+/* The chat's bottom stack (hq#1957, Leo 2026-10-14), .acpmux-dock: everything under the transcript,
+   in this order: a question waiting for an answer (.acpmux-asks-stack), notices, the pull request
+   dock (summary/PullRequestDock.tsx), the tray while subagents or background commands run
+   (subagents/SubagentTray.tsx; the agents pill, subagents/AgentsPill.tsx, with it off),
+   then the composer form, which holds the queued prompts (ComposerQueue.tsx), the location strip and
+   the card. Every part takes its own height in the stack's own flow, so none draws over another or
+   under the pane's edge; a new part joins that flow here.
+   While the stage shows the transcript (.acpmux-main[data-dock=float]), the stack lies over the
+   transcript's foot, as the Claude and Codex apps lay their composer (Leo 2026-10-19): the
+   transcript runs the pane's height, its scrollbar's track to the pane's bottom corner, and keeps
+   the stack's height as room under its last row (VirtualTranscript `dock`), hiding the rows that
+   pass under it (conversation.css). The stack never takes the transcript's last
+   --acpmux-transcript-min under the header; in a pane shorter still, the dock and the queue give up
+   their height, down to one row, and scroll inside it. Elsewhere (a new chat's hero, a handoff
+   review, the diff, the inspector) the stack is in the pane's flow under the stage. */
+/* The stage holds the header (44px, styles.css) over the transcript. */
+.acpmux-main > .acpmux-stage {
+  min-height: calc(44px + var(--acpmux-transcript-min, 96px));
+}
+.acpmux-dock {
+  display: contents;
+}
+.acpmux-main[data-dock="float"] > .acpmux-dock {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  display: flex;
+  flex-direction: column;
+  max-height: calc(100% - 44px - var(--acpmux-transcript-min, 96px));
+  /* The wheel beside and under every part scrolls the transcript (Leo 2026-10-20: "if it's not in
+     the composer it should just scroll"): see the parts' rule below. */
+  pointer-events: none;
+}
+/* Claude Code's split adds the quiet row (28 px and its 4 px gap) under the card: the transcript
+   gives that up first, down to 64 px above the stack, so a short pane with a queued prompt keeps the
+   quiet row inside it (re-review of #22285). */
+.acpmux-main[data-dock="float"]:has(.acpmux-composer-foot) > .acpmux-dock {
+  max-height: calc(100% - 44px - max(64px, var(--acpmux-transcript-min, 96px) - 32px));
+}
+/* A part of the floating stack is a band the pane's width wide whose card, bar or pill sits inset in
+   it by the column's gutters (--cv-inset): the question card, the pull request dock, an error card,
+   the agents pill. The band takes the pointer, since the transcript's rows under the stack are only
+   masked: a hover, click or drag in its gutters or empty room must not reach a row no one sees. The
+   wheel there scrolls the transcript all the same (wheelPassThrough.ts forwards it), and a band that
+   scrolls itself (the pull request dock, the question card in a short pane) keeps its wheel and its
+   scrollbar. The composer passes the pointer through around its card and queue, which take it, so
+   the wheel beside the card reaches the transcript itself. */
+.acpmux-main[data-dock="float"] > .acpmux-dock > :not(.acpmux-composer),
+.acpmux-main[data-dock="float"] > .acpmux-dock > .acpmux-composer > * {
+  pointer-events: auto;
+}
+.acpmux-dock > .acpmux-agents-pill-anchor {
+  position: relative;
+  flex: none;
+  display: flex;
+  padding: 0 var(--cv-inset) 8px;
+}
+/* The tray of running subagents and background commands (subagents/SubagentTray.tsx), aligned
+   with the composer card; in a short pane it gives up its height like the parts below. */
+.acpmux-dock > .acpmux-running-tray {
+  margin: 0 var(--cv-inset) 8px;
+}
+.acpmux-dock > .acpmux-composer {
+  display: flex;
+  flex: 0 1 auto;
+  flex-flow: column nowrap;
+  min-height: 0;
+}
+.acpmux-dock > .acpmux-composer > * {
+  flex: none;
+}
+/* Who gives up height in a short pane, in order (Leo 2026-10-22: "how did the bottom overflow!? ...
+   the access to the composer got fucked"): first the parts over the composer (a question, the pull
+   request dock, the tray), each down to one row; then the queue; then the card's draft, which
+   scrolls inside a card of one line at least. The card and the quiet row under it never leave the
+   pane. Without an order the stack shrank the composer by its share, under what its card and quiet
+   row need, and the quiet row ran past the pane's bottom edge out of reach
+   (test/agent-pane-bottom-stack.test.ts). A part with nothing to give keeps its height. */
+.acpmux-main[data-dock="float"] > .acpmux-dock > :not(.acpmux-composer),
+.acpmux-main[data-dock="float"] > .acpmux-dock > .acpmux-composer > .acpmux-composer-queue {
+  flex-shrink: 1000;
+}
+/* The plain footer's card (composerLocation.css) is a grid: its prompt row takes what the card keeps,
+   and the prompt (or the shell field) fills that row, its own eight-line cap still the most it grows. */
+.acpmux-main[data-dock="float"]
+  > .acpmux-dock
+  > .acpmux-composer
+  > .acpmux-composer-box:has(> .acpmux-chrome-area > .acpmux-composer-inner) {
+  flex: 0 1 auto;
+  min-height: calc(var(--text-title--line-height, 22px) + 22px * var(--cmux-interface-scale, 1));
+  grid-template-rows: auto minmax(0, 1fr);
+}
+.acpmux-main[data-dock="float"]
+  .acpmux-composer-box:has(> .acpmux-chrome-area > .acpmux-composer-inner)
+  :is(.acpmux-md-field, .acpmux-shell-field) {
+  align-self: stretch;
+}
+/* A permission card's numbered options can outgrow a short pane: it scrolls inside the height it
+   keeps, so the composer card stays in view. */
+.acpmux-dock > .acpmux-composer > .acpmux-composer-queue,
+.acpmux-dock > .acpmux-pr-dock,
+.acpmux-dock > .acpmux-running-tray,
+.acpmux-dock > .acpmux-asks-stack {
+  flex: 0 1 auto;
+  min-height: var(--acpmux-stack-row-min, 34px);
+  overflow-y: auto;
+  /* The stack is a no-scroll zone (wheelPassThrough.ts): reaching a part's end scrolls nothing else. */
+  overscroll-behavior: contain;
+}
+
+/* What joins the bottom stack rises out of the composer as it appears (Leo 2026-10-20, directional
+   motion): a question, a notice, the pull request dock, the agents pill and a queued prompt fade in
+   from a few points below where they land (ui-enter, ui/popupSurface.css). Their space opens in one
+   frame, as the stack's flow takes it; only the drawing travels. */
+.acpmux-dock > :not(.acpmux-composer, .acpmux-home-area, .acpmux-asks-stack),
+.acpmux-asks-stack > *,
+.acpmux-composer-queue > li {
+  --ui-enter-y: var(--ui-enter-distance);
+  animation: ui-enter var(--ui-enter-duration) var(--ui-enter-ease) both;
+}
+/* A queued prompt only fades: the queue scrolls its focused row and Show less into whole-row view as
+   rows mount (an opened long queue mounts them all at once), and a row still travelling measured as
+   cut there. */
+.acpmux-composer-queue > li {
+  --ui-enter-distance: 0px;
+}
