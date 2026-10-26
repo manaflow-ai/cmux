@@ -7,6 +7,9 @@ import Testing
 /// accepts exactly the cases the daemon's reader (cmux-tui
 /// `feature_flags.rs`) accepts, after trimming the `.sig` text as
 /// `ReleaseNotesStore` does. A tampered byte or a foreign key fails both.
+/// The `resolve` and `serial` cases are decoded in the shape the daemon
+/// replays (each layer gated on its own, one serial per document), so the
+/// app's remote overrides model (task p12-perf-process-092) reads the same.
 @Suite struct FlagsDocumentVectorTests {
     struct Vectors: Decodable {
         struct Case: Decodable {
@@ -16,12 +19,36 @@ import Testing
             let valid: Bool
         }
 
+        struct Rejection: Decodable {
+            let layer: String
+            let reason: String
+        }
+
+        struct ResolveCase: Decodable {
+            let name: String
+            let cohort: String
+            let build: Int?
+            let now: Int
+            let features: [String: Bool]
+            let serial: Int?
+            let rejected: [Rejection]
+        }
+
+        struct SerialCase: Decodable {
+            let name: String
+            let refused: Bool
+        }
+
         let publicKey: String
         let signature: [Case]
+        let resolve: [ResolveCase]
+        let serial: [SerialCase]
 
         enum CodingKeys: String, CodingKey {
             case publicKey = "public_key"
             case signature
+            case resolve
+            case serial
         }
     }
 
@@ -42,6 +69,28 @@ import Testing
                 Data(vector.data.utf8), signature: signature, publicKey: vectors.publicKey)
             #expect(verified == vector.valid, "\(vector.name)")
         }
+    }
+
+    @Test func aRejectedCohortLayerKeepsTheDefaultsFeatures() throws {
+        let vectors = try Self.vectors()
+        let layers: Set<String> = ["default", "cohort"]
+        let reasons: Set<String> = ["malformed", "expired", "buildUnknown", "buildBelowMin", "buildAboveMax"]
+        for vector in vectors.resolve {
+            for rejection in vector.rejected {
+                #expect(layers.contains(rejection.layer), "\(vector.name)")
+                #expect(reasons.contains(rejection.reason), "\(vector.name)")
+            }
+        }
+        let belowMin = vectors.resolve.first { $0.cohort == "builds-4200-4299" && $0.build == 4199 }
+        #expect(belowMin?.features == ["terminalHolder": false, "cefLayerHosting": false])
+        #expect(belowMin?.rejected.map(\.layer) == ["cohort"])
+    }
+
+    @Test func aReplayThatDropsACohortIsRefused() throws {
+        let serial = try Self.vectors().serial
+        #expect(serial.contains { $0.refused })
+        #expect(serial.contains { !$0.refused })
+        #expect(serial.first { $0.name.contains("drops the cohort") }?.refused == true)
     }
 
     @Test func theTestKeyIsNotTheContentSigningKey() throws {
