@@ -30,11 +30,15 @@ public nonisolated struct CEFTrackerStats: Equatable, Sendable {
     /// refused (no page window yet), or nothing could show its context.
     public var hostingRefused = 0
     /// New DevTools and popup page windows the feature `cefLayerHosting` left in their own window: the fork
-    /// hosts no page window of their kind (`CEFLayerHosting.Hosting.widgetFallback`, below fork API 35).
+    /// hosts no page window of their kind (`CEFLayerHosting.Hosting.widgetFallback`, `CEFLayerHosting.Fork.hostedWidgets`).
     public var hostingWidgetFallbacks = 0
     /// New pane page windows the feature `cefLayerHosting` left in their own window: the app makes not
     /// every Track A call for the fork (`CEFLayerHosting.Hosting.missingTrackA`).
     public var hostingWithoutTrackA = 0
+    /// Attach calls into the fork (`CEFAttachedPages`, feature `cefAttachedPages`): one per browser and host view.
+    public var pagesAttached = 0
+    /// Attach calls the fork refused: that tab keeps layer hosting or its page window.
+    public var attachRefused = 0
     /// Page update requests a page answered with no post: nothing the fork reads had changed
     /// since its last read (`ChildWindowPageGeometry.pagesNeedUpdate`).
     public var geometrySkips = 0

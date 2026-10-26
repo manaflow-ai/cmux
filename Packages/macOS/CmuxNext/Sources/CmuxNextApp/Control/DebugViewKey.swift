@@ -48,6 +48,7 @@ enum DebugViewKey {
         guard let resolve = views[name] else {
             return .object(["error": .string("unknown view"), "views": .array(views.keys.sorted().map(JSONValue.string))])
         }
+        // visibility-walk-allow: AppKit refuses first responder to a hidden view; the key goes only to a view it shows
         guard let view = resolve(controller), view.window === window, !view.isHiddenOrHasHiddenAncestor else {
             return .object(["error": .string("view \(name) is not shown in that window")])
         }

@@ -113,6 +113,7 @@ final class SidebarRegionView: NSView {
         self.region = region
         super.init(frame: .zero)
         wantsLayer = true
+        layerContentsRedrawPolicy = .onSetNeedsDisplay // updateLayer sets colors only
         setAccessibilityElement(true)
         setAccessibilityRole(.group)
     }

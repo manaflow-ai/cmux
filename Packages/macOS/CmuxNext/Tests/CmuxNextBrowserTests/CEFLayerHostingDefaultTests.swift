@@ -5,8 +5,9 @@ import Testing
 
 /// Layer hosting's default (p03-rendering-050). The feature `cefLayerHosting` hosts a pane's page only where the
 /// app makes every Track A call for the fork (the resize fence, embedder visibility); no fork API alone turns it on.
-/// Below fork API 35 DevTools and popup windows keep their own window (per-widget hosting from 35 is
-/// `CEFWidgetHostingTests`), and `debug.cef` counts why a page did not host. The developer's `browserResize.layerHosting` keeps its meaning: every page window from API 26.
+/// On a fork that hosts only a tab's page, DevTools and popup windows keep their own window (each kind on a fork
+/// that hosts it is `CEFWidgetHostingTests`), and `debug.cef` counts why a page did not host. The developer's
+/// `browserResize.layerHosting` keeps its meaning: every page window from API 26.
 @MainActor
 @Suite(.serialized) struct CEFLayerHostingDefaultTests {
     let view = NSView(frame: NSRect(x: 0, y: 0, width: 400, height: 300))
@@ -83,7 +84,7 @@ import Testing
         #expect(CEFHostView.trackerStats.hostingWidgetFallbacks == before.hostingWidgetFallbacks)
     }
 
-    @Test func devToolsAndPopupsKeepTheirWindowBelowAPI35AndCountTheFallback() {
+    @Test func devToolsAndPopupsKeepTheirWindowOnAForkThatHostsOnlyAPageAndCountTheFallback() {
         for widget in [CEFLayerHosting.Widget.devTools, .popup, .popupWindow] {
             let before = CEFHostView.trackerStats
             let hosting = makeHosting(widget: widget)
@@ -107,7 +108,7 @@ import Testing
 
     @Test func noForkAPIAloneHostsByDefault() throws {
         let shim = try CEFShimLibrary.resolving(HostingSpy.symbol)
-        #expect(CEFLayerHosting.Fork(shim: shim, apiVersion: CEFLayerHosting.forkAPI - 1, trackA: .required) == nil)
+        #expect(CEFLayerHosting.Fork(shim: shim, apiVersion: CEFLayerHosting.forkAPI - 1, policy: CEFLayerHosting.Policy(trackA: .required)) == nil)
         for api: Int32 in [26, 27, 31, 32, 33, 40] {
             HostingSpy.reset()
             let fork = try #require(CEFLayerHosting.Fork(shim: shim, apiVersion: api))
@@ -121,9 +122,9 @@ import Testing
     @Test func theRuntimeGivesItsFeatureAndTrackACallsToEachPageWindow() throws {
         let (runtime, root) = try Self.runtime()
         defer { try? FileManager.default.removeItem(at: root) }
-        runtime.layerHostingTrackA = nil
+        runtime.pageHosting.trackA = nil
         #expect(try #require(CEFLayerHosting.Fork(runtime: runtime)).trackA == nil)
-        runtime.layerHostingTrackA = [.resizeFence]
+        runtime.pageHosting.trackA = [.resizeFence]
         #expect(try #require(CEFLayerHosting.Fork(runtime: runtime)).trackA == [.resizeFence])
     }
 
@@ -170,7 +171,7 @@ import Testing
         HostingSpy.reset()
         let root = FileManager.default.temporaryDirectory.appending(path: "cef-layer-default-\(UUID().uuidString)", directoryHint: .isDirectory)
         let runtime = CEFRuntime(shim: try CEFShimLibrary.resolving(HostingSpy.symbol), storage: CEFProfileStorage(root: root))
-        runtime.layerHostingTrackA = .required
+        runtime.pageHosting.trackA = .required
         _ = Unmanaged.passRetained(runtime)
         return (runtime, root)
     }

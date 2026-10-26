@@ -28,7 +28,7 @@ final class CEFPaneHost {
     /// Tabs of this host, in creation order.
     private(set) var tabs: [CEFTab] = []
     /// The tab whose creation created the window.
-    private var windowTab: CEFTab?
+    var windowTab: CEFTab?
     /// The tab currently shown in `hostView`.
     private(set) weak var visibleTab: CEFTab?
     /// The browser this host last made Chromium's active tab (its own
@@ -60,7 +60,7 @@ final class CEFPaneHost {
         self.contextMenus = contextMenus
         hostView.liveResizeWillStart = { [weak self] in self?.visibleTab?.samplePageBackdrop() }
         hostView.fileDrag.target = { [weak self] in self?.visibleTab }
-        // A popup host's page window hosts only on a fork that hosts popups (`CEFLayerHosting.widgets(apiVersion:)`).
+        // A popup host's page window hosts or attaches only on a fork that does it for popups (`CEFLayerHosting.Fork`).
         hostView.layerHosting.widget = isPopupHost ? .popup : .page
     }
 
@@ -117,6 +117,8 @@ final class CEFPaneHost {
     /// (`pageParent`). It names the page's parent view on the wire and shows the Core Animation
     /// context id the host gives for it (``ChromiumHostPageView/show(contextID:)``).
     var hostedPageView: ChromiumHostPageView?
+    /// Host mode: each browser's last page cursor (`CEFPaneHost+Cursor`).
+    var pageCursors: [Int32: CEFPageCursor] = [:]
     /// Host mode: tabs whose window waits for the host's answer on their machine store's proxy
     /// (`createAfterMachineProxy`).
     var machineProxyWaits: Set<ObjectIdentifier> = []

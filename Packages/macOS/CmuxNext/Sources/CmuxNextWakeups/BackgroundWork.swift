@@ -35,6 +35,8 @@ import Dispatch
 /// raises it once, through ``raiseLaunchFence(cap:clock:)``, and lowers it at startup complete or after
 /// ``LaunchFence/cap`` (``LaunchFence``).
 ///
+/// Every lane item is traced from its `fileID` and `line` post to its run (``TaskTrace``, Chrome's `TaskAnnotator`).
+///
 /// One instance per app, built in the composition root (AppServices) and passed through `init`;
 /// tests build their own.
 ///
@@ -87,6 +89,8 @@ public final class BackgroundWork: Sendable {
     let taskHooks: TaskHooks
     /// The main-thread task board whose open input work makes an awaited low item a priority-inversion site.
     let inputTurns: MainTaskBoard?
+    /// Traces each lane item's post; its run's flow-in goes in the lane's `task.run` slice.
+    let taskTrace: TaskTrace
 
     struct DrainState {
         var nextID: UInt64 = 1
@@ -137,14 +141,16 @@ public final class BackgroundWork: Sendable {
     ///     `CLOCK_UPTIME_RAW`. Tests pass their own.
     ///   - inputTurns: the app's main task board; an item below `.userBlocking` awaited on main while it runs input
     ///     work is a Debug priority-inversion site. nil checks nothing.
+    ///   - trace: the runtime of each lane item's ``TaskTrace`` records and `task.run` slices; default the process's.
     public convenience init(cpuWidth: Int = BackgroundWork.defaultCPUWidth, filesWidths: FilesLaneWidths = .standard,
                             label: String = "com.cmuxterm.next.work",
                             hangs: (any HangWatchScoping)? = nil,
                             onQueued: @escaping @Sendable (BlockingLane, WorkPriority) -> Void = { _, _ in },
                             onRan: (@Sendable (BlockingLane, WorkPriority, UInt64, UInt64) -> Void)? = nil,
-                            uptimeNanos: (@Sendable () -> UInt64)? = nil, inputTurns: MainTaskBoard? = nil) {
+                            uptimeNanos: (@Sendable () -> UInt64)? = nil, inputTurns: MainTaskBoard? = nil,
+                            trace: TraceRuntime = .shared) {
         self.init(cpuWidth: cpuWidth, filesWidths: filesWidths, label: label, hangs: hangs, onQueued: onQueued,
-                  onRan: onRan, uptimeNanos: uptimeNanos, taskHooks: .none, inputTurns: inputTurns)
+                  onRan: onRan, uptimeNanos: uptimeNanos, taskHooks: .none, inputTurns: inputTurns, trace: trace)
     }
 
     /// The designated init; tests pass ``TaskHooks`` to stop a task between its steps, the clock of the
@@ -158,6 +164,7 @@ public final class BackgroundWork: Sendable {
          inputTurns: MainTaskBoard? = nil, trace: TraceRuntime = .shared) {
         self.taskHooks = taskHooks
         self.inputTurns = inputTurns
+        taskTrace = TaskTrace(runtime: trace)
         self.cpuWidth = max(1, cpuWidth)
         self.filesWidths = filesWidths
         self.label = label
@@ -425,7 +432,7 @@ public final class BackgroundWork: Sendable {
     /// The lane job for an item; nil for a block-shutdown item that came after ``shutdown()`` returned
     /// (recorded, never run). `onRan` gets the level the lane ran it at, not the one it was posted at.
     /// `finished` runs once the item ran or was abandoned, after its shutdown count dropped (a ``WorkSequence``
-    /// starts its next item then).
+    /// starts its next item then). The post is traced here, at `site`.
     func makeJob(id: UInt64, lane: BlockingLane, shutdown: ShutdownBehavior,
                  site: CallSite, work body: @escaping @Sendable () -> Void,
                  abandoned: @escaping @Sendable () -> Void,
@@ -433,7 +440,8 @@ public final class BackgroundWork: Sendable {
         let work: @Sendable (WorkPriority) -> Void = { _ in body() }
         let report = runReport(lane: lane)
         guard shutdown == .blockShutdown else {
-            return LaneJob(id: id, shutdown: shutdown, work: work, ran: report, abandoned: abandoned, done: finished)
+            return LaneJob(id: id, shutdown: shutdown, trace: tracePost(site, on: lane), work: work, ran: report,
+                           abandoned: abandoned, done: finished)
         }
         let taken = state.withLock { state -> Bool in
             guard !state.drained else { return false }
@@ -444,8 +452,8 @@ public final class BackgroundWork: Sendable {
             blockShutdownRefused(site)
             return nil
         }
-        return LaneJob(id: id, shutdown: shutdown, work: work, ran: blockShutdownRan(site, then: report),
-                       abandoned: abandoned, done: { [self] in
+        return LaneJob(id: id, shutdown: shutdown, trace: tracePost(site, on: lane), work: work,
+                       ran: blockShutdownRan(site, then: report), abandoned: abandoned, done: { [self] in
             blockItemFinished()
             finished()
         })

@@ -51,7 +51,7 @@ extension UpdaterService {
         wireTips(registry: services.registry)
         UpdateSimulation(updater: self).follow(simulating)
         #if DEBUG || CMUX_BENCH_HOOKS
-        UpdateHarnessProbe.install(updater: self)
+        UpdateHarnessProbe.install(updater: self, mainWork: services.mainWork, appEvents: services.appEvents)
         #endif
     }
 

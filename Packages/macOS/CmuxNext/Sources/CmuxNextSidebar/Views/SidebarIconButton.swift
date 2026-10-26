@@ -60,6 +60,7 @@ final class SidebarIconButton: NSButton {
         setAccessibilityLabel(label)
         themedToolTip = label
         wantsLayer = true
+        layerContentsRedrawPolicy = .onSetNeedsDisplay // repaints on a state change or a new size (setFrameSize)
         target = self
         action = #selector(pressed)
         refusesFirstResponder = true
@@ -120,6 +121,13 @@ final class SidebarIconButton: NSButton {
     override func layout() {
         super.layout()
         renderIcon()
+    }
+
+    override func setFrameSize(_ newSize: NSSize) {
+        let changed = newSize != frame.size
+        super.setFrameSize(newSize)
+        // The cell's image is AppKit's, so it repaints at the new size.
+        if changed { needsDisplay = true }
     }
 
     nonisolated override var wantsUpdateLayer: Bool { true }

@@ -1183,21 +1183,27 @@ every task that changes behavior or performance and is not repeated per row.
 - Acceptance: Fork-seam tests per kind; tracker.hosted_pages counts them.
 - Test phase: devtools-resize-live.py; extension popup e2e.
 - Size L. Depends: 050. Queue: MQ-child-window-pages.
-- App side landed: `CEFLayerHosting.Widget` has four kinds (`page`, `devtools`, `popup`, `popup_window`) and
-  `Fork.hostedWidgets` says which the fork hosts: a tab's page from API 26, every kind from
-  `widgetHostingForkAPI` = 35. With the feature's Track A calls the default hosts each kind the fork hosts. An
-  embedded DevTools hosts on its own host view from DEVTOOLS_OPENED, and keeps its context when a dock move takes
-  the view into cmux's DevTools window. A `window.open` popup host's window hosts like a pane's page. An
-  extension's `chrome.windows` popup window hosts in the popup panel's view once `cmux_popup_window_attach`
-  succeeds. A hidden DevTools or popup keeps its frame in the app-wide hidden frame list. `debug.cef`
-  `tracker.hosted_pages_by_widget` counts the hosted views of each kind. Tests: `CEFWidgetHostingTests` (each kind
-  through the fork seam) and `CEFLayerHostingDefaultTests` (below API 35).
-- Not landed: the fork side. API 35 is the contract written in `cmux_cef_shim.h`:
-  `cmux_browser_set_layer_hosting` also takes a DevTools frontend placed over an embedder view and an attached popup
-  window's tab, with the resize fence and embedder visibility of a tab's page window. No fork reports 35 yet, so the
-  default still keeps those kinds in their own window (`hosting_widget_fallbacks`). The developer override hosts
-  them on any fork from 26. Track B attach for these kinds waits for 044/045 (`cmux_browser_attach_view`), which
-  are not on the branch.
+- App side landed: `CEFLayerHosting.Widget` has four kinds (`page`, `devtools`, `popup`, `popup_window`).
+  `Fork.hostedWidgets` says which kinds the fork hosts (Track A) and `Fork.attachedWidgets` which it attaches
+  (Track B, `cmux_browser_attach_view` from 044/045). With the feature's Track A calls the default hosts each kind
+  the fork hosts; with `cefAttachedPages` each kind the fork attaches attaches first. An embedded DevTools hosts
+  or attaches on its own host view from DEVTOOLS_OPENED, and keeps its context or attached view when a dock move
+  takes the view into cmux's DevTools window. A `window.open` popup host's window hosts or attaches like a pane's
+  page. An extension's `chrome.windows` popup window hosts or attaches in the popup panel's view once
+  `cmux_popup_window_attach` succeeds. A DevTools frontend's and a popup window's one browser shows from its page
+  window's creation (`Widget.showsOneBrowser`). A hidden DevTools or popup keeps its frame in the app-wide hidden
+  frame list. `debug.cef` `tracker.hosted_pages_by_widget` counts the hosted views of each kind. Tests:
+  `CEFWidgetHostingTests` (hosting and attach of each kind through the fork seam, the owners' wiring) and
+  `CEFLayerHostingDefaultTests` (a fork that hosts only a tab's page).
+- Not landed: the fork side, a separate fork task. No fork API number is reserved for it: fork API numbers are
+  given in landing order. Contract for that task: `cmux_browser_set_layer_hosting` and `cmux_browser_attach_view`
+  also take a DevTools frontend placed over an embedder view (`cmux_shim_devtools_set_placement` with a view,
+  docked or in the embedder's DevTools window), a `window.open` popup host's tab, and the tab of a popup window
+  attached with `cmux_shim_popup_window_attach`, each with the resize fence and embedder visibility of a tab's
+  page window. When it lands, `Fork(shim:apiVersion:policy:)` sets `hostedWidgets` and `attachedWidgets` to every
+  kind from the API number it gets, and `cmux_cef_shim.h` names each kind enabled at that gate. Until then the
+  shim's fork hosts and attaches only a tab's page, so the default keeps the other kinds in their own window
+  (`hosting_widget_fallbacks`). The developer override hosts them on any fork from 26.
 
 #### p03-rendering-058 Fork: visibility from the embedder
 - Files: fork `chrome_child_window_mac.mm`; fork `content/browser/web_contents/web_contents_occlusion_checker_mac.mm`;

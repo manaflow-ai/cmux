@@ -35,8 +35,8 @@ nonisolated enum CEFPopupWindows {
 /// panel (`.resizePopup`) and `chrome.windows.remove` closes the tab, which
 /// closes the panel. Like Chrome's popup browser window, which keeps its page's
 /// view in its own window (`Browser::TYPE_POPUP`, chrome/browser/ui/browser.h),
-/// the attached window's pixels show in the panel's layers where the fork hosts
-/// popup windows (``CEFLayerHosting/Widget/popupWindow``, fork API 35).
+/// the attached window's page attaches or hosts in the panel's view where the
+/// fork does it for popup windows (``CEFLayerHosting/Widget/popupWindow``).
 extension CEFPaneHost {
     /// A popup host for window `window` holding its tab `browser`, announced
     /// by `opener` (a pane's visible tab) as `.openPopup`.
@@ -92,8 +92,8 @@ extension CEFPaneHost {
             // The window's pixels are its widget context, shown filling this host's view.
             runtime.widgetHost?.place(.popupWindow, owner: browser, in: hostView)
         } else {
-            // The attached window is this view's page window from now on: hosted in the panel's layers as a
-            // pane's page is (`CEFLayerHosting.Widget.popupWindow`, fork API 35 with the feature's Track A calls).
+            // The attached window is this view's page window from now on: attached or hosted in the panel's
+            // view as a pane's page is, where the fork does it for popup windows (`CEFLayerHosting.Widget.popupWindow`).
             hostView.layerHosting.switchCommit.hiddenFrames = runtime.hiddenFrames
             hostView.layerHosting.pageWindowCreated(browser: browser, fork: CEFLayerHosting.Fork(runtime: runtime))
         }

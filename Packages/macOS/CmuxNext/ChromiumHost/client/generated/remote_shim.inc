@@ -177,27 +177,29 @@ enum Op : uint16_t {
   kOpPageSchemeAddFirstParty = 165,
   kOpPageSchemeAddFirstPartyDynamic = 166,
   kOpPageResourceRespond = 167,
-  kOpAddDocumentScript = 168,  // optional
-  kOpAddPageChannel = 169,  // optional
-  kOpTabEvaluate = 170,  // optional
-  kOpTabSetFrozen = 171,  // optional
-  kOpTabSendClick = 172,  // optional
-  kOpTabSetColorScheme = 173,  // optional
-  kOpPageSchemeSetGroup = 174,  // optional
-  kOpTabDiscard = 175,  // optional
-  kOpWidgetSetGeometry = 176,  // optional
-  kOpWidgetDismiss = 177,  // optional
-  kOpWidgetSendInput = 178,  // optional
+  kOpMemoryPressureVote = 168,
+  kOpSetCursorEvents = 169,
+  kOpAddDocumentScript = 170,  // optional
+  kOpAddPageChannel = 171,  // optional
+  kOpTabEvaluate = 172,  // optional
+  kOpTabSetFrozen = 173,  // optional
+  kOpTabSendClick = 174,  // optional
+  kOpTabSetColorScheme = 175,  // optional
+  kOpPageSchemeSetGroup = 176,  // optional
+  kOpTabDiscard = 177,  // optional
+  kOpWidgetSetGeometry = 178,  // optional
+  kOpWidgetDismiss = 179,  // optional
+  kOpWidgetSendInput = 180,  // optional
 };
-inline constexpr uint16_t kOpCount = 178;
+inline constexpr uint16_t kOpCount = 180;
 inline constexpr uint16_t kOpEvent = 0x8001;  // host -> cmux: one shim event
 inline constexpr uint16_t kOpReply = 0x8002;  // host -> cmux: an async op's result
 inline constexpr uint16_t kOpMirror = 0x8003;  // host -> cmux: a mirror value
 inline constexpr uint16_t kOpAck = 0x8004;  // host -> cmux: a token's op ran
-inline constexpr int kEventKindCount = 53;
-inline constexpr char kShimAbiID[] = "dce51ca5002a8218e3b4a22997c5248d576290eb9e792d24b46fb43fa93b781e";
+inline constexpr int kEventKindCount = 54;
+inline constexpr char kShimAbiID[] = "81bf245c93a55693f030934eaf207a3c9f565fbe9ac595b664cc4a95e5918a2c";
 // Both sides' HELLO carries it: the op ids, classes and wire types of this generation.
-inline constexpr char kWireID[] = "d562f9e481aeed152d0025c419e1dea0020882d2f3cb6c7bd389173702d74ef8";
+inline constexpr char kWireID[] = "b1c9bccd37ac5fa0bd72bf37512c3eee22aab45601fb889615e4a5bbdd75fcf7";
 // Exports the header does not declare yet (fork API symbols): the client sends one only to
 // a host whose HELLO lists its symbol.
 struct OptionalExport {
@@ -1635,6 +1637,13 @@ CMUX_SHIM_EXPORT int cmux_shim_page_resource_respond(int arg_token, int arg_stat
   op_w.Str(arg_mime);
   op_w.Bytes(arg_body, static_cast<size_t>(arg_length));
   (void)Post(kOpPageResourceRespond, 0, op_w);
+  return 1;
+}
+
+CMUX_SHIM_EXPORT int cmux_shim_memory_pressure_vote(int arg_level) {
+  TlvWriter op_w;
+  op_w.I32(arg_level);
+  (void)Post(kOpMemoryPressureVote, 0, op_w);
   return 1;
 }
 

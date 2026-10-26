@@ -68,7 +68,7 @@ final class OnboardingService {
         presenter = OnboardingWindowPresenter(mainWork: services.mainWork)
         let environment = ProcessInfo.processInfo.environment
         // Test launches never change the Mac's real default browser.
-        defaultApps = environment[RecordingDefaultApps.environmentKey] == "1" ? RecordingDefaultApps() : SystemDefaultApps()
+        defaultApps = environment[RecordingDefaultApps.environmentKey] == "1" ? RecordingDefaultApps() : SystemDefaultApps(runner: services.work)
         let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
         importStore = ImportedDataStore(directory: support.appending(path: services.environment.launch.bundleID ?? "com.cmuxterm.app.next")
             .appending(path: "BrowserImport", directoryHint: .isDirectory))

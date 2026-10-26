@@ -402,7 +402,7 @@ struct PageLifecycleTests {
         #expect(lifecycle.nextPassAt == .seconds(2), "the load's end armed no pass")
         view.loaded = false // a new load starts
         #expect(target.lifecycleKeepReasons.contains(.loading))
-        view.webView(view.webKitView, didFailProvisionalNavigation: nil, withError: URLError(.cancelled))
+        view.webView(view.webView, didFailProvisionalNavigation: nil, withError: URLError(.cancelled))
         #expect(!target.lifecycleKeepReasons.contains(.loading), "a failed load still counted as loading")
         host.close(view)
         #expect(lifecycle.state(of: "tab") == nil)
@@ -538,7 +538,7 @@ struct PageLifecycleTests {
         defer { host.close(view) }
         let center = CmuxDialogCenter(host: SilentDialogHost())
         let presenter = DialogPageConfirmationPresenter(center: center)
-        let answer = Task { await presenter.confirm(PageConfirmation(kind: .delete, name: "notes"), anchor: view.webKitView) }
+        let answer = Task { await presenter.confirm(PageConfirmation(kind: .delete, name: "notes"), anchor: view.webView) }
         for _ in 0..<100 where center.records.isEmpty { await Task.yield() }
         let sheet = try #require(center.records.first)
         #expect(view.keepReasons.current == [.confirmation])
@@ -578,13 +578,13 @@ struct PageLifecycleTests {
         let (host, view, root) = try openKeepAlivePage()
         defer { try? FileManager.default.removeItem(at: root) }
         defer { host.close(view) }
-        let delegate = try #require(view.webKitView.uiDelegate as? PageUIDelegate)
-        delegate.webView(view.webKitView, didAttachLocalInspector: NSObject())
-        delegate.webView(view.webKitView, didAttachLocalInspector: NSObject())
+        let delegate = try #require(view.webView.uiDelegate as? PageUIDelegate)
+        delegate.webView(view.webView, didAttachLocalInspector: NSObject())
+        delegate.webView(view.webView, didAttachLocalInspector: NSObject())
         #expect(view.keepReasons.current == [.inspector])
         view.documentCommitted()
         #expect(view.keepReasons.current == [.inspector])
-        delegate.webView(view.webKitView, willCloseLocalInspector: NSObject())
+        delegate.webView(view.webView, willCloseLocalInspector: NSObject())
         #expect(view.keepReasons.current.isEmpty)
     }
 

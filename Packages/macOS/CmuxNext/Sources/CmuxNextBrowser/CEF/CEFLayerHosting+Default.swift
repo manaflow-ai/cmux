@@ -17,6 +17,21 @@ extension CEFLayerHosting {
         static let required: TrackA = [.resizeFence, .embedderVisibility]
     }
 
+    /// The last `CEFEngine`'s page features (`CEFRuntime.pageHosting`), read by each new page window's ``Fork``.
+    nonisolated struct Policy: Equatable, Sendable {
+        /// Feature `cefLayerHosting`: nil while off, else the Track A calls the app makes.
+        var trackA: TrackA?
+        /// Feature `cefAttachedPages`: a pane's tabs attach Chromium's own view where the fork can (Track B).
+        var attachesViews = false
+    }
+
+    /// Whether the tabs of this page window attach Chromium's view (``CEFAttachedPages``): the fork's attach
+    /// call, for a kind of page window the fork attaches (``Fork/attachedWidgets``). The other kinds host or
+    /// keep their own window.
+    static func attaches(fork: Fork, widget: Widget) -> Bool {
+        fork.attachView != nil && fork.attachedWidgets.contains(widget)
+    }
+
     /// Whether a page window hosts, and why not (`debug.cef` `tracker`).
     nonisolated enum Hosting: Equatable, Sendable {
         case hosted
@@ -37,8 +52,8 @@ extension CEFLayerHosting {
     /// one and a popup in a browser window of their own
     /// (`chrome/browser/devtools/devtools_window.cc`, `Browser::TYPE_POPUP` in
     /// `chrome/browser/ui/browser.h`). The fork hosts a pane's page from API 26
-    /// and the other kinds from ``CEFLayerHosting/widgetHostingForkAPI``
-    /// (``Fork/hostedWidgets``).
+    /// and attaches it from API 33; which other kinds it hosts and attaches is
+    /// ``Fork/hostedWidgets`` and ``Fork/attachedWidgets``.
     nonisolated enum Widget: String, CaseIterable, Sendable {
         /// A pane's tabs (`CEFPaneHost`).
         case page
@@ -53,17 +68,10 @@ extension CEFLayerHosting {
 
         /// The kind's key in `debug.cef` `tracker.hosted_pages_by_widget`.
         var name: String { rawValue }
-    }
 
-    /// The first fork API whose `cmux_browser_set_layer_hosting` hosts every ``Widget`` kind (per-widget
-    /// hosting, p03-rendering-056): a DevTools frontend placed over a cmux view and an attached popup window
-    /// too, each with the resize fence and embedder visibility of a pane's page. Below it the fork hosts
-    /// only a tab's page window.
-    static let widgetHostingForkAPI: Int32 = 35
-
-    /// The kinds of page window fork API `apiVersion` hosts.
-    static func widgets(apiVersion: Int32) -> Set<Widget> {
-        apiVersion >= widgetHostingForkAPI ? Set(Widget.allCases) : [.page]
+        /// The view shows one browser from its page window's creation (a DevTools frontend, an attached
+        /// popup window's tab). A pane's and a `window.open` popup host's tabs show when the host presents one.
+        var showsOneBrowser: Bool { self == .devTools || self == .popupWindow }
     }
 
     /// Whether the page window hosts. `override` (`browserResize.layerHosting`):

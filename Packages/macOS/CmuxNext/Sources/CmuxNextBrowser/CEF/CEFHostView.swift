@@ -8,13 +8,25 @@ import CmuxNextSignposts
 /// (find bar, prompt bar) or must get the mouse (the window's dividers and
 /// switcher, `BrowserWindowOcclusionProviding`), and masks it to the rounded
 /// pane and window corners. What it reads lives in `ChildWindowPageFallback`.
+///
+/// With the feature `cefAttachedPages` and the fork's attach call, each tab's Chromium view is a subview of
+/// this view instead (`CEFLayerHosting.attachedPages`, Chrome's model): the page draws, takes clicks and keys
+/// and gets the first responder as any view does, after the window's key routing (`KeyRouter` in
+/// `sendEvent` and the window's `performKeyEquivalent` run before any view's), and the page window never
+/// orders in. Layer hosting and the page window above are the fallback of a tab the fork does not attach.
 final class CEFHostView: NSView {
     /// Rects in this view's coordinates where native UI covers the page.
     var occlusionRects: [CGRect] = [] {
         didSet {
             guard occlusionRects != oldValue else { return }
             postGeometryChange()
+            for case let page as ChromiumHostPageView in subviews { showOcclusion(in: page) }
         }
+    }
+
+    /// Host mode: `page`'s cursor leaves out the native UI over the page, as the page window does.
+    func showOcclusion(in page: ChromiumHostPageView) {
+        page.cursorHoles = occlusionRects.map { convert($0, to: page) }
     }
     /// The shown page's own background (`CEFTab.pageBackdropColor`). While
     /// the window live-resizes, this view fills with it instead of the pane
@@ -34,7 +46,8 @@ final class CEFHostView: NSView {
     var liveResizeWillStart: (() -> Void)?
     /// Hands files dragged in from another app to the shown page (`CEFFileDragRelay`).
     let fileDrag = CEFFileDragRelay()
-    /// Layer hosting (fork API 26) of the page window over this view (`CEFLayerHosting`).
+    /// Layer hosting (fork API 26) of the page window over this view, or its tabs' attached Chromium views
+    /// (`CEFLayerHosting`).
     let layerHosting: CEFLayerHosting
     /// Widgets that order an attached page's window in over this view (`CEFPageWindowWidgets`).
     let pageWindowWidgets = CEFPageWindowWidgets()
@@ -145,6 +158,19 @@ final class CEFHostView: NSView {
                 other != index && outer.contains(rect) && (outer != rect || other < index)
             }
         }.map(\.element)
+    }
+
+    /// The shown tab's attached Chromium view takes this view's bounds (`CEFAttachedPages`), as Chrome sizes
+    /// a tab's view to its contents container (`WebContentsViewMac::SetBounds`); the find bar and the other
+    /// subviews stay above it. No fork call: Chromium hears the new size from its own view.
+    override func layout() { // perf-hot: 0.1ms cef-geometry (each layout of a pane's host view)
+        super.layout()
+        layerHosting.attachedPages.layout()
+    }
+
+    override func resizeSubviews(withOldSize oldSize: NSSize) {
+        super.resizeSubviews(withOldSize: oldSize)
+        layerHosting.attachedPages.layout()
     }
 
     override func viewDidMoveToWindow() {

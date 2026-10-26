@@ -3,11 +3,13 @@ import AppKit
 import Foundation
 import Testing
 
-/// Per-widget layer hosting (p03-rendering-056): from fork API 35 the feature `cefLayerHosting` hosts every kind
-/// of page window a cmux view shows, not only a pane's page: an embedded DevTools (docked, and in cmux's DevTools
-/// window after a dock move), a `window.open` popup host's window and an extension's attached popup window
-/// (`chrome.windows.create` type popup). Each kind is driven through the fork seam (the shim's
-/// `browser_set_layer_hosting`), without Chromium, and `debug.cef` `tracker.hosted_pages` counts each kind's view.
+/// Per-widget hosting and attach (p03-rendering-056): every kind of page window a cmux view shows, not only a
+/// pane's page, hosts (Track A) or attaches (Track B) where the fork does it for that kind
+/// (`Fork.hostedWidgets`, `Fork.attachedWidgets`): an embedded DevTools (docked, and in cmux's DevTools window
+/// after a dock move), a `window.open` popup host's window and an extension's attached popup window
+/// (`chrome.windows.create` type popup). Each kind is driven through the fork seam, without Chromium, and
+/// `debug.cef` `tracker.hosted_pages` counts each kind's view. No fork API hosts or attaches the other kinds yet,
+/// so the runtime's own fork keeps them in their own window; the owners' wiring is checked through it.
 @MainActor
 @Suite(.serialized) struct CEFWidgetHostingTests {
     private static let allKinds = Set(CEFLayerHosting.Widget.allCases)
@@ -16,13 +18,14 @@ import Testing
 
     // MARK: The fork's kinds
 
-    @Test func theForkHostsEveryKindFromAPI35() throws {
-        #expect(CEFLayerHosting.widgets(apiVersion: CEFLayerHosting.forkAPI) == [.page])
-        #expect(CEFLayerHosting.widgets(apiVersion: CEFLayerHosting.widgetHostingForkAPI - 1) == [.page])
-        #expect(CEFLayerHosting.widgets(apiVersion: CEFLayerHosting.widgetHostingForkAPI) == Self.allKinds)
+    @Test func theShimsForkHostsAndAttachesOnlyATabsPage() throws {
         let shim = try CEFShimLibrary.resolving(WidgetSpy.symbol)
-        #expect(try #require(CEFLayerHosting.Fork(shim: shim, apiVersion: 34)).hostedWidgets == [.page])
-        #expect(try #require(CEFLayerHosting.Fork(shim: shim, apiVersion: 35)).hostedWidgets == Self.allKinds)
+        let policy = CEFLayerHosting.Policy(trackA: .required, attachesViews: true)
+        for api: Int32 in [CEFLayerHosting.forkAPI, CEFLayerHosting.attachViewForkAPI, CEFLayerHosting.embedderVisibilityForkAPI, 40] {
+            let fork = try #require(CEFLayerHosting.Fork(shim: shim, apiVersion: api, policy: policy))
+            #expect(fork.hostedWidgets == [.page], "fork API \(api)")
+            #expect(fork.attachedWidgets == [.page], "fork API \(api)")
+        }
     }
 
     @Test func eachKindHostsWithAForkThatHostsItAndEveryTrackACall() {
@@ -32,6 +35,7 @@ import Testing
                 CEFLayerHosting.hosting(override: false, fork: Self.fork(fake, widgets: widgets, trackA: trackA), widget: widget)
             }
             #expect(host(Self.allKinds, .required) == .hosted, "\(widget)")
+            #expect(host([widget], .required) == .hosted, "\(widget)")
             #expect(host(Self.allKinds, [.resizeFence]) == .missingTrackA, "\(widget)")
             #expect(host(Self.allKinds, nil) == .off, "\(widget)")
             #expect(host([.page], .required) == (widget == .page ? .hosted : .widgetFallback), "\(widget)")
@@ -44,14 +48,12 @@ import Testing
             let fake = CEFLayerHostingTests.FakeFork()
             let view = NSView(frame: NSRect(x: 0, y: 0, width: 400, height: 300))
             window.contentView?.addSubview(view)
-            let hosting = CEFLayerHosting(isEnabled: { false }, schedule: { $0() },
-                                          makePage: { ChromiumHostPageView(frame: $0, inputTarget: .pageWindow, makeLayerHost: { _ in CALayer() }) },
-                                          resizeDeadlineMs: { 0 }, liveResizeDeadlineMs: { 0 }, refreshIntervals: { [] }, afterCommit: { _ in })
+            let hosting = Self.hosting(schedule: { $0() })
             hosting.view = view
             hosting.widget = widget
             let before = CEFHostView.trackerStats
 
-            hosting.pageWindowCreated(browser: 3, fork: Self.fork(fake, widgets: Self.allKinds, trackA: .required))
+            hosting.pageWindowCreated(browser: 3, fork: Self.fork(fake, widgets: [widget], trackA: .required))
 
             #expect(fake.calls.map(\.enabled) == [true], "\(widget)")
             let page = try #require(hosting.page)
@@ -70,12 +72,120 @@ import Testing
         }
     }
 
-    // MARK: DevTools
+    /// A DevTools frontend's hosted view moves with its host view into cmux's DevTools window (`undockViews`):
+    /// the page window, its context and its count go along with no fork call.
+    @Test func aHostedDevToolsKeepsItsContextAcrossADockMove() throws {
+        let fake = CEFLayerHostingTests.FakeFork()
+        let hostView = CEFHostView(frame: NSRect(x: 0, y: 0, width: 400, height: 300), pageUpdateCenter: NotificationCenter(),
+                                   layerHosting: Self.hosting(schedule: { $0() }))
+        hostView.layerHosting.widget = .devTools
+        let paneWindow = Self.window()
+        paneWindow.contentView?.addSubview(hostView)
+        let before = CEFHostView.trackerStats
 
-    /// Docked: the DevTools page window hosts in its host view's layers once Chromium opened it. A dock move
-    /// into cmux's DevTools window takes the view, so the page window, its context and its count go along with
-    /// no fork call. A close turns hosting off for the DevTools browser and takes the count back.
-    @Test func anEmbeddedDevToolsHostsDockedAndKeepsItsContextInItsOwnWindow() throws {
+        hostView.layerHosting.pageWindowCreated(browser: Self.devTools, fork: Self.fork(fake, widgets: [.devTools], trackA: .required))
+        #expect(fake.calls.map(\.enabled) == [true])
+
+        let devToolsWindow = Self.window()
+        devToolsWindow.contentView?.addSubview(hostView)
+        #expect(fake.calls.count == 1, "a dock move asked the fork again")
+        #expect(hostView.layerHosting.page?.contextID == 7)
+        #expect(CEFHostView.trackerStats.hostedPagesByWidget["devtools", default: 0]
+            == before.hostedPagesByWidget["devtools", default: 0] + 1)
+
+        hostView.layerHosting.stop()
+        #expect(CEFHostView.trackerStats.hostedPagesByWidget == before.hostedPagesByWidget)
+    }
+
+    // MARK: Track B
+
+    /// Each kind attaches Chromium's view where the fork attaches that kind. A DevTools frontend's and an
+    /// attached popup window's one browser shows from the page window's creation; a pane's and a popup host's
+    /// tab shows when the host presents it.
+    @Test func eachKindAttachesWithAForkThatAttachesIt() throws {
+        for widget in CEFLayerHosting.Widget.allCases {
+            let fake = CEFAttachedPagesTests.FakeFork()
+            let turn = CEFLayerHostingTests.Turn()
+            let hostView = Self.hostView(turn)
+            hostView.layerHosting.widget = widget
+            #expect(CEFLayerHosting.attaches(fork: fake.fork(widgets: [widget]), widget: widget), "\(widget)")
+
+            hostView.layerHosting.pageWindowCreated(browser: 5, fork: fake.fork(widgets: [widget]))
+            if !widget.showsOneBrowser { hostView.layerHosting.pageShown(browser: 5) }
+            #expect(fake.attaches.isEmpty, "\(widget) attached inside Chromium's creation stack")
+            turn.end()
+
+            #expect(fake.attaches == [5], "\(widget)")
+            let view = try #require(hostView.layerHosting.attachedPages.view(of: 5), "\(widget)")
+            #expect(!view.isHidden, "\(widget)'s attached view stays hidden")
+            #expect(view.frame == hostView.bounds, "\(widget)")
+            #expect(hostView.layerHosting.drawsWithViews, "\(widget)")
+            #expect(!hostView.drawsInChildWindow, "\(widget)")
+            #expect(fake.hostingCalls.isEmpty, "an attached \(widget) asked for layer hosting of its page window")
+        }
+    }
+
+    /// A kind the fork does not attach takes the hosting fallback (or its own window), never an attach call.
+    @Test func aKindTheForkDoesNotAttachHostsInstead() {
+        for widget in [CEFLayerHosting.Widget.devTools, .popup, .popupWindow] {
+            let fake = CEFAttachedPagesTests.FakeFork()
+            let turn = CEFLayerHostingTests.Turn()
+            let hostView = Self.hostView(turn)
+            hostView.layerHosting.widget = widget
+            hostView.layerHosting.pageWindowCreated(browser: 5, fork: fake.fork(widgets: Self.allKinds.subtracting([widget])))
+            turn.end()
+            #expect(fake.attaches.isEmpty, "\(widget)")
+            #expect(fake.hostingCalls.map(\.browser) == [5], "\(widget)")
+        }
+    }
+
+    /// An attached DevTools view is a subview of its host view: a dock move takes it along with no attach call,
+    /// and a close (`stop`) forgets it.
+    @Test func anAttachedDevToolsMovesWithItsHostView() throws {
+        let fake = CEFAttachedPagesTests.FakeFork()
+        let turn = CEFLayerHostingTests.Turn()
+        let hostView = Self.hostView(turn)
+        hostView.layerHosting.widget = .devTools
+        let paneWindow = Self.window()
+        paneWindow.contentView?.addSubview(hostView)
+        hostView.layerHosting.pageWindowCreated(browser: Self.devTools, fork: fake.fork(widgets: [.devTools]))
+        turn.end()
+        let view = try #require(hostView.layerHosting.attachedPages.view(of: Self.devTools))
+
+        let devToolsWindow = Self.window()
+        devToolsWindow.contentView?.addSubview(hostView)
+        turn.end()
+        #expect(fake.attaches == [Self.devTools])
+        #expect(view.window === devToolsWindow)
+        #expect(hostView.layerHosting.attachedPages.shownView === view)
+
+        hostView.layerHosting.stop()
+        #expect(hostView.layerHosting.attachedPages.shownView == nil)
+    }
+
+    /// A first refusal of a DevTools frontend arms one retry, which the fork's next tracker read runs, as a
+    /// pane's tab does: no present ever shows a DevTools again.
+    @Test func aRefusedDevToolsAttachRetriesOnTheTrackersNextRead() throws {
+        let fake = CEFAttachedPagesTests.FakeFork()
+        fake.refusesOnce = [Self.devTools]
+        let turn = CEFLayerHostingTests.Turn()
+        let hostView = Self.hostView(turn)
+        hostView.layerHosting.widget = .devTools
+        hostView.layerHosting.pageWindowCreated(browser: Self.devTools, fork: fake.fork(widgets: [.devTools]))
+        turn.end()
+        #expect(hostView.layerHosting.attachedPages.retryArmed == [Self.devTools])
+
+        hostView.layerHosting.trackerDidRead()
+        turn.end()
+        #expect(fake.attaches == [Self.devTools, Self.devTools])
+        #expect(hostView.layerHosting.attachedPages.shownView != nil)
+    }
+
+    // MARK: The owners' wiring
+
+    /// DEVTOOLS_OPENED gives the DevTools host view's page window its kind and the runtime's fork: on a fork that
+    /// hosts only a tab's page the default counts the per-widget fallback and makes no fork call.
+    @Test func anEmbeddedDevToolsReachesTheDecisionAsItsKind() throws {
         let (runtime, root) = try Self.runtime()
         defer { try? FileManager.default.removeItem(at: root) }
         let tab = Self.tab(runtime)
@@ -88,27 +198,11 @@ import Testing
         let views = try #require(tab.devToolsController.views)
         #expect(views.host.layerHosting.widget == .devTools)
         runtime.handle(.devToolsOpened(browser: Self.page, devTools: Self.devTools, docked: true))
-        #expect(WidgetSpy.layerHosting.isEmpty, "inside Chromium's creation stack the DevTools has no page window yet")
         Self.endTurn()
 
-        #expect(WidgetSpy.layerHosting.map { [$0.browser, $0.enabled] } == [[Self.devTools, 1]])
-        #expect(views.host.layerHosting.page?.contextID == 7)
-        #expect(CEFHostView.trackerStats.hostedPagesByWidget["devtools", default: 0]
-            == before.hostedPagesByWidget["devtools", default: 0] + 1)
-
-        // The view leaves the pane for a window of its own, as `undockViews` adopts it.
-        let devToolsWindow = Self.window()
-        devToolsWindow.contentView?.addSubview(views.host)
-        Self.endTurn()
-        #expect(WidgetSpy.layerHosting.count == 1, "a dock move asked the fork again")
-        #expect(views.host.layerHosting.page?.contextID == 7)
-        #expect(CEFHostView.trackerStats.hostedPages == before.hostedPages + 1)
-
-        runtime.handle(.devToolsClosed(browser: Self.page, devTools: Self.devTools))
-        #expect(WidgetSpy.layerHosting.last.map { [$0.browser, $0.enabled] } == [Self.devTools, 0])
-        #expect(views.host.layerHosting.page == nil)
-        #expect(CEFHostView.trackerStats.hostedPages == before.hostedPages)
-        #expect(CEFHostView.trackerStats.hostedPagesByWidget == before.hostedPagesByWidget)
+        #expect(views.host.layerHosting.isForkBacked)
+        #expect(CEFHostView.trackerStats.hostingWidgetFallbacks == before.hostingWidgetFallbacks + 1)
+        #expect(WidgetSpy.layerHosting.isEmpty)
     }
 
     @Test func aDevToolsOutsideACmuxViewMakesNoForkCall() throws {
@@ -123,24 +217,10 @@ import Testing
         #expect(tab.devToolsController.views == nil)
     }
 
-    // MARK: Popups
-
-    @Test func aPopupHostsPageWindowHosts() throws {
-        let (runtime, root) = try Self.runtime()
-        defer { try? FileManager.default.removeItem(at: root) }
-        let key = CEFPaneKey(pane: BrowserPaneID(rawValue: CEFPaneHost.popupPrefix + UUID().uuidString), profile: .default)
-        let host = CEFPaneHost(key: key, runtime: runtime)
-        #expect(host.hostView.layerHosting.widget == .popup)
-        host.hostView.layerHosting.pageWindowCreated(browser: 4, fork: CEFLayerHosting.Fork(runtime: runtime))
-        Self.endTurn()
-        #expect(WidgetSpy.layerHosting.map { [$0.browser, $0.enabled] } == [[4, 1]])
-        #expect(host.hostView.layerHosting.page?.hostedWidget == "popup")
-    }
-
-    /// An extension's popup window: its popup host attaches the hidden Chromium window to the panel's view, which
-    /// then hosts that window's pixels. The tab's close (`chrome.windows.remove`) closes the window with it: the
-    /// hosted view goes and its count with it, with no call for a window that is gone.
-    @Test func anAttachedExtensionPopupWindowHostsInThePanelsView() throws {
+    /// An extension's popup window: once its popup host attached the hidden Chromium window to the panel's view,
+    /// that view's page window is the window's tab, of kind `popupWindow`. On a fork that hosts only a tab's page
+    /// the default counts the fallback.
+    @Test func anAttachedExtensionPopupWindowIsThePanelViewsPageWindow() throws {
         let (runtime, root) = try Self.runtime()
         defer { try? FileManager.default.removeItem(at: root) }
         let opener = Self.tab(runtime)
@@ -158,18 +238,13 @@ import Testing
         #expect(WidgetSpy.attaches == [11])
         Self.endTurn()
 
-        #expect(WidgetSpy.layerHosting.map { [$0.browser, $0.enabled] } == [[12, 1]])
-        #expect(host.hostView.layerHosting.page?.contextID == 7)
-        #expect(CEFHostView.trackerStats.hostedPagesByWidget["popup_window", default: 0]
-            == before.hostedPagesByWidget["popup_window", default: 0] + 1)
-
-        host.removed(popup)
-        #expect(WidgetSpy.layerHosting.count == 1)
-        #expect(host.hostView.layerHosting.page == nil)
-        #expect(CEFHostView.trackerStats.hostedPagesByWidget == before.hostedPagesByWidget)
+        #expect(host.hostView.layerHosting.browser == 12)
+        #expect(host.hostView.layerHosting.isForkBacked)
+        #expect(CEFHostView.trackerStats.hostingWidgetFallbacks == before.hostingWidgetFallbacks + 1)
+        #expect(WidgetSpy.layerHosting.isEmpty)
     }
 
-    @Test func aPopupWindowThatDidNotAttachMakesNoForkCall() throws {
+    @Test func aPopupWindowThatDidNotAttachGetsNoPageWindow() throws {
         let (runtime, root) = try Self.runtime()
         defer { try? FileManager.default.removeItem(at: root) }
         WidgetSpy.attachResult = 0
@@ -182,7 +257,7 @@ import Testing
         #expect(popup.host.attachPopupWindowIfNeeded(popup))
         Self.endTurn()
         #expect(WidgetSpy.layerHosting.isEmpty)
-        #expect(popup.host.hostView.layerHosting.page == nil)
+        #expect(!popup.host.hostView.layerHosting.isForkBacked)
     }
 
     // MARK: Harness
@@ -193,6 +268,22 @@ import Testing
                              trackA: trackA, hostedWidgets: widgets)
     }
 
+    /// Layer hosting without the developer override, whose turns end on `schedule`.
+    private static func hosting(schedule: @escaping CEFLayerHosting.Scheduler) -> CEFLayerHosting {
+        CEFLayerHosting(isEnabled: { false }, schedule: schedule,
+                        makePage: { ChromiumHostPageView(frame: $0, inputTarget: .pageWindow, makeLayerHost: { _ in CALayer() }) },
+                        resizeDeadlineMs: { 0 }, liveResizeDeadlineMs: { 0 }, refreshIntervals: { [] }, afterCommit: { _ in })
+    }
+
+    /// A host view whose hosting ends its turns on `turn`, with the developer override on: a refused attach
+    /// would show as a hosting call.
+    private static func hostView(_ turn: CEFLayerHostingTests.Turn) -> CEFHostView {
+        let hosting = CEFLayerHosting(isEnabled: { true }, schedule: { turn.add($0) },
+                                      makePage: { ChromiumHostPageView(frame: $0, inputTarget: .pageWindow, makeLayerHost: { _ in CALayer() }) },
+                                      afterCommit: { _ in })
+        return CEFHostView(frame: NSRect(x: 0, y: 0, width: 400, height: 300), pageUpdateCenter: NotificationCenter(), layerHosting: hosting)
+    }
+
     private static func window() -> NSWindow {
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 800, height: 600), styleMask: .borderless,
                               backing: .buffered, defer: true)
@@ -200,13 +291,13 @@ import Testing
         return window
     }
 
-    /// An in-process runtime on fork API 35 whose app makes every Track A call with the feature on. It outlives
-    /// the test: a tab's scheduled work reads it through an unowned reference.
+    /// An in-process runtime on the newest fork API whose app makes every Track A call with the feature on. It
+    /// outlives the test: a tab's scheduled work reads it through an unowned reference.
     private static func runtime() throws -> (CEFRuntime, URL) {
         WidgetSpy.reset()
         let root = FileManager.default.temporaryDirectory.appending(path: "cef-widget-hosting-\(UUID().uuidString)", directoryHint: .isDirectory)
         let runtime = CEFRuntime(shim: try CEFShimLibrary.resolving(WidgetSpy.symbol), storage: CEFProfileStorage(root: root))
-        runtime.layerHostingTrackA = .required
+        runtime.pageHosting.trackA = .required
         _ = Unmanaged.passRetained(runtime)
         return (runtime, root)
     }
@@ -229,9 +320,9 @@ import Testing
     }
 }
 
-/// Stand-in shim functions for fork API 35: `browser_set_layer_hosting` records each call and gives context 7
-/// when asked to host, `popup_window_attach` records the window and returns ``attachResult``, `devtools_command`
-/// takes every command; every other function does nothing and returns 0.
+/// Stand-in shim functions for the newest fork API: `browser_set_layer_hosting` records each call and gives
+/// context 7 when asked to host, `popup_window_attach` records the window and returns ``attachResult``,
+/// `devtools_command` takes every command; every other function does nothing and returns 0.
 private nonisolated enum WidgetSpy {
     nonisolated(unsafe) static var layerHosting: [(browser: Int32, enabled: Int32)] = []
     nonisolated(unsafe) static var attaches: [Int32] = []
@@ -253,8 +344,8 @@ private nonisolated enum WidgetSpy {
             return WidgetSpy.attachResult
         }
         let command: @convention(c) (Int32, Int32, Int32, Int32) -> Int32 = { _, _, _, _ in 1 }
-        // `CEFLayerHosting.widgetHostingForkAPI`.
-        let forkAPIVersion: @convention(c) () -> Int32 = { 35 }
+        // `CEFLayerHosting.embedderVisibilityForkAPI`.
+        let forkAPIVersion: @convention(c) () -> Int32 = { 34 }
         let nothing: @convention(c) () -> Int = { 0 }
         return switch name {
         case "cmux_shim_browser_set_layer_hosting": unsafeBitCast(layerHosting, to: UnsafeMutableRawPointer.self)
