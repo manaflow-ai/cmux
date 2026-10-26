@@ -65,7 +65,6 @@ final class TerminalFloodBench {
             chunk: chunk > 0 ? chunk : 4096,
             topline: topline
         )
-        TerminalBenchProbe.shared = probe
         daemon.probe = probe
         let daemon = daemon
         let session = DaemonTerminalSession(
@@ -81,6 +80,11 @@ final class TerminalFloodBench {
     }
 
     func run() async {
+        // Claimed here, not in init: SwiftUI evaluates `@State`'s initial value
+        // on every rebuild of the root view and drops the extra instances, and
+        // each one's init took the shared probe away from the bench that runs
+        // (fleet runs, 2026-10-26: 0 bytes processed, 0 frames, no echo seen).
+        TerminalBenchProbe.shared = probe
         let clock = ContinuousClock()
         let seconds = UserDefaults.standard.integer(forKey: "CmuxMobileFloodBenchSeconds")
         let floodSeconds = seconds > 0 ? seconds : 10

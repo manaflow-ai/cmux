@@ -52,7 +52,7 @@ import { ProviderReadDeadlineError, type ProviderReadOptions } from "./drivers/t
 
 export type VmProviderGatewayShape = {
   readonly create: (provider: ProviderId, options: CreateOptions) => Effect.Effect<VMHandle, VmProviderOperationError>;
-  readonly destroy: (provider: ProviderId, vmId: string, credential?: ProviderCredential) => Effect.Effect<void, VmProviderOperationError>;
+  readonly destroy: (provider: ProviderId, vmId: string, credential?: ProviderCredential, options?: { readonly strict?: boolean }) => Effect.Effect<void, VmProviderOperationError>;
   /** Optional: delete a machine-owned persistent home volume after its machine is destroyed. */
   readonly deleteHomeVolume?: (
     provider: ProviderId,
@@ -307,8 +307,8 @@ export const VmProviderGatewayLive = Layer.succeed(VmProviderGateway, {
         }),
       }),
     ),
-  destroy: (provider, vmId, credential) =>
-    providerEffect(provider, "destroy", () => getProvider(provider).destroy(vmId, credential)),
+  destroy: (provider, vmId, credential, options) =>
+    providerEffect(provider, "destroy", () => getProvider(provider).destroy(vmId, credential, options)),
   deleteHomeVolume: (provider, volumeName) =>
     providerEffect(provider, "deleteHomeVolume", async () => {
       const impl = getProvider(provider);

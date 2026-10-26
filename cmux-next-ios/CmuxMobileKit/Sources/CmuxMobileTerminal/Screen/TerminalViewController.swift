@@ -1004,6 +1004,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             self?.pacer.newFrame()
             self?.pumpOutput()
         }, selector: #selector(DisplayLinkProxy.step(_:)))
+        link.preferredFrameRateRange = .terminal
         link.add(to: .main, forMode: .common)
         outputLink = link
     }
@@ -1820,6 +1821,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
                 self.forceScroll = false
             }
         }, selector: #selector(DisplayLinkProxy.step(_:)))
+        link.preferredFrameRateRange = .terminal
         link.add(to: .main, forMode: .common)
         followFallback = link
     }
@@ -2625,7 +2627,7 @@ final class FlingAnimator {
 
     func start() {
         let link = CADisplayLink(target: self, selector: #selector(step(_:)))
-        link.preferredFrameRateRange = CAFrameRateRange(minimum: 80, maximum: 120, preferred: 120)
+        link.preferredFrameRateRange = .terminal
         link.add(to: .main, forMode: .common)
         self.link = link
     }
