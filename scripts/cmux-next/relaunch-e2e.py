@@ -41,13 +41,23 @@ round is written into --out as cmux-perf-result/v1 (BenchApp.record):
 relaunch_e2e.<mode>.first_answer (ms from the relaunch's spawn to its first
 answered system.ping, per end mode) and relaunch_e2e.failed_checks (count).
 Failed checks still record; a run that stopped writes none and exits 1.
+
+--matrix runs the launch correctness matrix instead (p08-startup done check 13, launch_matrix.py): first launch,
+scale change, appearance flip, theme change, crash recovery, crash streak, incognito leftovers, 3 windows on 2
+displays, full-screen window, translucent window, a workspace closed through the daemon while the app is closed,
+daemon cold, daemon unavailable, no-window launch, launch by URL open, quit during launch, and with --f2 the
+Chromium Host killed during launch. Each case runs on a fresh state of the tag and prints PASS, FAIL or SKIP with
+its first frame's still; DIR/launch-matrix.json keeps every row. Exit 1 on any FAIL.
+
+  scripts/cmux-next/relaunch-e2e.py --tag <tag> --matrix [all|CASE,CASE] [--picture off] [--f2] --out DIR
 """
 import argparse, glob, json, os, random, re, signal, socket, subprocess, sys, tempfile, time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))  # its siblings, also under `python3 -I`
 import launch_journey_report as journey  # noqa: E402
-from bench_launch import BenchApp  # noqa: E402
+from bench_launch import BenchApp, tag_of  # noqa: E402
 from bench_story import story_problem  # noqa: E402
+import launch_matrix  # noqa: E402
 
 
 def parse_args(argv=None):
@@ -65,7 +75,19 @@ def parse_args(argv=None):
     parser.add_argument("--story", help="write a run that did every round as cmux-perf-result/v1 under this story")
     parser.add_argument("--session", choices=["light"], default="light", help="result-v1 session (the story runner's)")
     parser.add_argument("--launch-timeout", type=float, default=120.0, help="seconds a launch may take to show its window")
+    parser.add_argument("--matrix", metavar="CASES",
+                        help=f"the launch correctness matrix: `all` or a comma list of {', '.join(launch_matrix.CASE)}")
+    parser.add_argument("--picture", choices=["on", "off"], default="on",
+                        help=f"--matrix: the {launch_matrix.PICTURE_FEATURE} feature (on: the saved picture is the first frame)")
+    parser.add_argument("--f2", action="store_true", help="--matrix: run cef-host-kill with the Chromium Host app on")
     args = parser.parse_args(argv)
+    if args.matrix:
+        if args.story or args.long_top:
+            parser.error("--matrix does not go with --story or --long-top")
+        try:
+            launch_matrix.select(args.matrix)
+        except ValueError as error:
+            parser.error(str(error))
     if args.story:
         if args.long_top:
             parser.error("--story does not go with --long-top: it relaunches nothing")
@@ -91,10 +113,7 @@ def configure(args, bench_app=BenchApp):
     """Sets the run's globals from the parsed `args`: the app, its CLI, the scratch folder and the BenchApp."""
     global opts, APP, CLI, SCRATCH, bench
     opts = args
-    APP = opts.app or next(iter(sorted(glob.glob(os.path.expanduser(
-        f"~/Library/Developer/Xcode/DerivedData/*/Build/Products/Debug/cmux DEV {opts.tag}.app")))), None)
-    if not APP:
-        sys.exit(f"no tagged app for {opts.tag}; pass --app")
+    APP = tagged_app(opts)
     CLI = os.path.join(APP, "Contents/Resources/bin/cmux")
     SCRATCH = opts.out or tempfile.mkdtemp(prefix=f"relaunch-e2e-{opts.tag}-")
     os.makedirs(SCRATCH, exist_ok=True)
@@ -103,6 +122,27 @@ def configure(args, bench_app=BenchApp):
     if bench.tag != opts.tag:
         sys.exit(f"--tag {opts.tag} is not the tag of {APP} ({bench.tag})")
     return bench
+
+
+def tagged_app(args):
+    """--app, else the tag's Debug build in DerivedData; exits when there is none."""
+    app = args.app or next(iter(sorted(glob.glob(os.path.expanduser(
+        f"~/Library/Developer/Xcode/DerivedData/*/Build/Products/Debug/cmux DEV {args.tag}.app")))), None)
+    if not app:
+        sys.exit(f"no tagged app for {args.tag}; pass --app")
+    return app
+
+
+def matrix(args, bench_app=BenchApp):
+    """--matrix: every selected case on its own fresh state of the tag; 1 on any FAIL."""
+    app = tagged_app(args)
+    if tag_of(app) != args.tag:
+        sys.exit(f"--tag {args.tag} is not the tag of {app} ({tag_of(app)})")
+    out = args.out or tempfile.mkdtemp(prefix=f"launch-matrix-{args.tag}-")
+    os.makedirs(out, exist_ok=True)
+    rows = launch_matrix.run_matrix(app, args.matrix, out, picture=args.picture == "on", f2=args.f2,
+                                    session=args.session, bench_app=bench_app)
+    return 1 if any(row["result"] == launch_matrix.FAIL for row in rows) else 0
 
 
 def cli(*args, timeout=30):
@@ -575,7 +615,10 @@ def run():
 
 
 def main(argv=None, bench_app=BenchApp):
-    configure(parse_args(argv), bench_app)
+    args = parse_args(argv)
+    if args.matrix:
+        return matrix(args, bench_app)
+    configure(args, bench_app)
     finished = False
     try:
         finished = run()
