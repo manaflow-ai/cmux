@@ -182,6 +182,20 @@ let stabilitySwiftSettings: [SwiftSetting] = [
     .strictMemorySafety(),
 ]
 
+/// Release-only profile-guided optimization of the CmuxNext Swift targets (plans/cmux-next/chrome-parity/p08-startup.md,
+/// section F, task 052). `scripts/cmux-next/check-release-compile.sh` sets `CMUX_PGO_PROFDATA` only when the
+/// repository variable is on and the profile's sha256 matches Resources/build/cmux-next.profdata.sha256, at a path
+/// that names that sha256, so a new profile is a new flag. A flag here reaches this package's targets and no remote
+/// package (startup-DESIGN.md section 9, `scope-xcodebuild`). `CMUX_PGO_COMPANIONS` adds task 110's adopted
+/// variants (startup-DESIGN.md section 10), which ship only with the profile, as Chrome ships PGO only on ThinLTO.
+let releaseProfileSwiftSettings: [SwiftSetting] = {
+    guard let profile = Context.environment["CMUX_PGO_PROFDATA"], !profile.isEmpty else { return [] }
+    let companionFlags: [String: String] = ["thinlto": "-lto=llvm-thin", "cmo": "-cross-module-optimization"]
+    let companions = (Context.environment["CMUX_PGO_COMPANIONS"] ?? "").split(separator: ",")
+    let flags: [String] = ["-profile-use=\(profile)"] + companions.compactMap { companionFlags[String($0)] }
+    return [.unsafeFlags(flags, .when(configuration: .release))]
+}()
+
 /// Settings shared by every UI target: Swift 6 mode, main-actor by default.
 let uiSwiftSettings: [SwiftSetting] = [
     .swiftLanguageMode(.v6),
@@ -190,7 +204,7 @@ let uiSwiftSettings: [SwiftSetting] = [
     .enableUpcomingFeature("InferIsolatedConformances"),
     .enableUpcomingFeature("ExistentialAny"),
     .enableUpcomingFeature("InternalImportsByDefault"),
-] + stabilitySwiftSettings
+] + stabilitySwiftSettings + releaseProfileSwiftSettings
 
 /// The daemon client is not main-actor by default: one actor owns the socket.
 let daemonSwiftSettings: [SwiftSetting] = [
@@ -199,7 +213,7 @@ let daemonSwiftSettings: [SwiftSetting] = [
     .enableUpcomingFeature("InferIsolatedConformances"),
     .enableUpcomingFeature("ExistentialAny"),
     .enableUpcomingFeature("InternalImportsByDefault"),
-] + stabilitySwiftSettings
+] + stabilitySwiftSettings + releaseProfileSwiftSettings
 
 /// Exports of the pinned GhosttyNextKit (Packages/Shared/CmuxGhosttyKit) beyond the API every pin has,
 /// as compile-time conditions of CmuxNextTerminal. libghostty links statically and Release exports no
