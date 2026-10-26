@@ -379,7 +379,7 @@ public final class FrameScheduler: NSObject {
         if clients.values.contains(where: { $0.isActive && $0.isAnimation }) {
             ExpectedActivity.shared.note(.animationFrame)
         }
-        budget?.beginFrame(timestamp: timestamp, targetTimestamp: targetTimestamp, refreshInterval: refreshInterval)
+        budget?.beginFrame(timestamp: timestamp, targetTimestamp: targetTimestamp, refreshInterval: refreshInterval, ranAt: ranAt)
         // A stalled frame keeps refreshInterval nil (`SwitchFrameTimer` reads nil as a stall), but is
         // still shown one link interval after it starts (Chrome's synthetic sources: frame_time + interval).
         let target = targetTimestamp ?? now + lastRefreshInterval

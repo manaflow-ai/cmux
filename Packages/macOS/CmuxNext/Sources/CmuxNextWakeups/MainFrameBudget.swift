@@ -1,7 +1,6 @@
 public import Foundation
 import CmuxNextSignposts
 import Darwin
-public import QuartzCore
 
 /// The one main-thread scheduler's per-frame budget (plans/cmux-next/main-thread-budget.md).
 ///
@@ -24,13 +23,16 @@ public import QuartzCore
 ///   too: the frame's scheduled work stops at ``Budgets/passTarget`` minus the last render pass
 ///   (``noteRenderPass(nanos:)``), when that is below ``Budgets/total``. So requests whose commits
 ///   are expensive run fewer per frame, and a pass stays under the 8 ms stall target.
-/// - Once render passes were measured and the tick names its target time (the vsync its frame is
-///   due for), the frame's scheduled work stops at a deadline instead: the target time less the
-///   95th percentile of the last 32 frames' passes (``MainCommitMeter``), Chromium's main-frame
-///   deadline (`cc/scheduler/scheduler.cc`), and never past ``Budgets/passTarget`` after the tick.
-///   At 120 Hz with 3 ms passes, work stops 5.33 ms after the tick. The deadline counts wall time,
-///   so the frame-locked work and the input checks before it are inside it. Without history or a
-///   target (a stalled frame, a window a task opened outside any tick), the fixed limit applies.
+/// - Once render passes were measured, a tick also gives its frame a deadline in wall time,
+///   Chromium's main-frame deadline (`cc/scheduler/scheduler.cc`): the frame's scheduled work
+///   stops at the tick's target time (the vsync it is due for), or ``Budgets/passTarget`` after
+///   the tick when that is sooner, less the commit estimate (the 95th percentile of the last 32
+///   frames' passes, ``MainCommitMeter``, or the last pass when that is longer). The deadline only
+///   ever ends the work earlier than the fixed limit, which still holds: it counts what the fixed
+///   limit cannot see, a tick that ran late, the frame-locked work before the batch and a target
+///   nearer than one refresh period. At 120 Hz with 3 ms passes, 2 ms of frame-locked work leaves
+///   the batch 3 ms, not 4. A stalled frame or a window a task opened outside any tick has no
+///   deadline of its own.
 ///
 /// Two rules keep every change on screen within one frame of being due:
 /// - the first task of a class in a frame always fits its budget, so each class makes progress
@@ -71,13 +73,11 @@ public final class MainFrameBudget {
     /// The budget's clock; ``ObservationCauses`` times the input-response pass's cap on it.
     let uptimeNanos: () -> UInt64
     /// The budget's clock where any thread may read it (`CLOCK_UPTIME_RAW` in the app, or an
-    /// injected ``init(budgets:input:board:signposts:starvation:clock:turns:mediaTime:)`` clock): an off-main post reads its
+    /// injected ``init(budgets:input:board:signposts:starvation:clock:turns:)`` clock): an off-main post reads its
     /// enqueue time with it on the posting thread, as Chrome sets `PendingTask::queue_time` at
-    /// `PostTask`. Nil for a main-actor-only test clock (``init(budgets:input:board:signposts:starvation:uptimeNanos:turns:mediaTime:)``),
+    /// `PostTask`. Nil for a main-actor-only test clock (``init(budgets:input:board:signposts:starvation:uptimeNanos:turns:)``),
     /// whose off-main posts are timed from their arrival on main.
     public nonisolated let postClock: (@Sendable () -> UInt64)?
-    /// `CACurrentMediaTime`, the display link's timebase: how far the frame's target time is.
-    private let mediaTime: () -> CFTimeInterval
     private let signposts: Bool
     /// The rendering starvation guard (nil: never starved).
     public let starvation: RenderStarvationGuard?
@@ -109,7 +109,8 @@ public final class MainFrameBudget {
     private var renderCharge: UInt64 = 0
     /// The last frames' render passes: the commit the deadline leaves room for.
     private var commitMeter = MainCommitMeter()
-    /// When this window's scheduled work stops (``uptimeNanos`` time); nil: the fixed limit.
+    /// When this window's scheduled work stops at the latest (``uptimeNanos`` time); nil: no
+    /// deadline, the fixed limit alone.
     private var deadline: UInt64?
     private var sequence: UInt32 = 0
     private var open: [OpenTask] = []
@@ -137,14 +138,11 @@ public final class MainFrameBudget {
     ///   - starvation: Holds budgeted work while a shown frame is late (nil: never).
     ///   - clock: The clock (`CLOCK_UPTIME_RAW` nanoseconds), read on main and by off-main posts.
     ///   - turns: The run-loop turn meter (default: one on this clock).
-    ///   - mediaTime: The display link's clock (`CACurrentMediaTime` seconds), read at each tick to
-    ///     place the frame's deadline.
     public convenience init(budgets: Budgets = Budgets(), input: any InputPendingSource = NoInputPending(), board: MainTaskBoard = MainTaskBoard(),
                             signposts: Bool = false, starvation: RenderStarvationGuard? = nil,
-                            clock: @escaping @Sendable () -> UInt64 = { MainTaskPost.uptimeNanos() }, turns: MainTurnMeter? = nil,
-                            mediaTime: @escaping () -> CFTimeInterval = { CACurrentMediaTime() }) {
+                            clock: @escaping @Sendable () -> UInt64 = { MainTaskPost.uptimeNanos() }, turns: MainTurnMeter? = nil) {
         self.init(budgets: budgets, input: input, board: board, signposts: signposts, starvation: starvation,
-                  mainClock: clock, postClock: clock, turns: turns, mediaTime: mediaTime)
+                  mainClock: clock, postClock: clock, turns: turns)
     }
 
     /// A budget on a clock only the main actor reads (a test's hand-moved clock): off-main posts
@@ -158,20 +156,17 @@ public final class MainFrameBudget {
     ///   - starvation: Holds budgeted work while a shown frame is late (nil: never).
     ///   - uptimeNanos: The clock, in nanoseconds; tests inject one they move.
     ///   - turns: The run-loop turn meter (default: one on this clock).
-    ///   - mediaTime: The display link's clock (`CACurrentMediaTime` seconds), read at each tick to
-    ///     place the frame's deadline; tests inject one in step with `uptimeNanos`.
     public convenience init(budgets: Budgets = Budgets(), input: any InputPendingSource = NoInputPending(), board: MainTaskBoard = MainTaskBoard(),
                             signposts: Bool = false, starvation: RenderStarvationGuard? = nil, uptimeNanos: @escaping () -> UInt64,
-                            turns: MainTurnMeter? = nil, mediaTime: @escaping () -> CFTimeInterval = { CACurrentMediaTime() }) {
+                            turns: MainTurnMeter? = nil) {
         self.init(budgets: budgets, input: input, board: board, signposts: signposts, starvation: starvation,
-                  mainClock: uptimeNanos, postClock: nil, turns: turns, mediaTime: mediaTime)
+                  mainClock: uptimeNanos, postClock: nil, turns: turns)
     }
 
     private init(budgets: Budgets, input: any InputPendingSource, board: MainTaskBoard, signposts: Bool,
                  starvation: RenderStarvationGuard?, mainClock: @escaping () -> UInt64, postClock: (@Sendable () -> UInt64)?,
-                 turns: MainTurnMeter?, mediaTime: @escaping () -> CFTimeInterval) {
+                 turns: MainTurnMeter?) {
         self.budgets = budgets
-        self.mediaTime = mediaTime
         self.turns = turns ?? MainTurnMeter(signposts: signposts, uptimeNanos: mainClock)
         self.starvation = starvation
         totalNanos = Self.nanos(budgets.total)
@@ -188,15 +183,18 @@ public final class MainFrameBudget {
     /// outside any tick less than one refresh period ago (an idle queue's request just before the
     /// link's first tick) is kept as this frame's, so one run loop pass never gets two budgets.
     ///
-    /// With render-pass history, the frame's scheduled work stops at `targetTimestamp` less the
-    /// commit estimate (``MainCommitMeter``), never later than ``Budgets/passTarget`` after the tick.
+    /// With render-pass history, a tick's frame also gets a deadline: its scheduled work stops in
+    /// time for the commit to end by the target time and by ``Budgets/passTarget`` after the tick.
     ///
     /// - Parameters:
     ///   - timestamp: The display link's frame time; nil for a synthesized (stalled) frame.
     ///   - targetTimestamp: The time the frame is due on screen (the link's `targetTimestamp`);
     ///     nil: `timestamp` plus `refreshInterval`.
     ///   - refreshInterval: The display's refresh period in seconds, when known.
-    public func beginFrame(timestamp: CFTimeInterval?, targetTimestamp: CFTimeInterval? = nil, refreshInterval: Double?) { // perf-hot: 0.5ms frame-tick (every frame)
+    ///   - ranAt: When the tick runs on main, on the clock of `timestamp` (the ``FrameScheduler``'s
+    ///     display clock); nil: at `timestamp`.
+    public func beginFrame(timestamp: CFTimeInterval?, targetTimestamp: CFTimeInterval? = nil, refreshInterval: Double?,
+                           ranAt: CFTimeInterval? = nil) { // perf-hot: 0.5ms frame-tick (every frame)
         if let timestamp, timestamp == lastTimestamp { return }
         lastTimestamp = timestamp
         response.noteTick()
@@ -209,18 +207,29 @@ public final class MainFrameBudget {
         }
         guard let timestamp else { return }
         let target = targetTimestamp ?? refreshInterval.map { timestamp + $0 }
-        if let target, target > timestamp { deadline = frameDeadline(now: now, timestamp: timestamp, target: target) }
+        if let target, target > timestamp {
+            deadline = frameDeadline(now: now, timestamp: timestamp, target: target, ranAt: ranAt ?? timestamp)
+        }
     }
 
-    /// `target` less the commit estimate, and never past ``Budgets/passTarget`` after the tick (the
-    /// 8 ms stall target on a 60 Hz display), in ``uptimeNanos`` time; nil with no history. A tick
-    /// that came too late for any work gives `now` (each class's first task still runs).
-    private func frameDeadline(now: UInt64, timestamp: CFTimeInterval, target: CFTimeInterval) -> UInt64? {
-        guard let commit = commitMeter.p95() else { return nil }
-        let sinceTick = max(0, mediaTime() - timestamp)
-        let workEnd = min(target - timestamp - Double(commit) / 1_000_000_000, Double(passTargetNanos) / 1_000_000_000)
-        let left = workEnd - sinceTick
-        return left > 0 ? now &+ UInt64(left * 1_000_000_000) : now
+    /// When the frame's scheduled work stops at the latest, in ``uptimeNanos`` time: the pass ends
+    /// by `target` and by ``Budgets/passTarget`` after the tick, and the commit comes after the
+    /// work (``MainCommitMeter``'s p95, or the last pass when longer, so one expensive commit
+    /// lowers the next frame at once). The tick ran `ranAt - timestamp` late; a tick too late for
+    /// any work gives `now` (each class's first task still runs). Nil with no history.
+    private func frameDeadline(now: UInt64, timestamp: CFTimeInterval, target: CFTimeInterval,
+                               ranAt: CFTimeInterval) -> UInt64? {
+        guard let estimate = commitMeter.p95() else { return nil }
+        let commit = max(estimate, renderCharge)
+        let passEnd = min(Self.nanos(seconds: target - timestamp), passTargetNanos)
+        let workEnd = passEnd > commit ? passEnd - commit : 0
+        let late = Self.nanos(seconds: ranAt - timestamp)
+        return workEnd > late ? now &+ (workEnd - late) : now
+    }
+
+    /// `seconds` in whole nanoseconds (negative counts as zero).
+    private static func nanos(seconds: CFTimeInterval) -> UInt64 {
+        seconds > 0 ? UInt64(seconds * 1_000_000_000) : 0
     }
 
     /// The commit estimate the frame deadline leaves room for (``MainCommitMeter``), in
@@ -248,11 +257,11 @@ public final class MainFrameBudget {
     }
 
     /// Records one render pass (the main run loop's before-waiting phase: layout, display and the
-    /// Core Animation commit), in nanoseconds. The longest pass since a window opened is the frame's
-    /// sample of the commit estimate that places the next deadlines (``MainCommitMeter``), and is
-    /// charged to the next window when it has no deadline: its scheduled work stops at
-    /// ``Budgets/passTarget`` minus that pass. The pass also ends an input response that a link
-    /// tick after the input rendered in (``noteTickRenderEnded()``).
+    /// Core Animation commit), in nanoseconds. The longest pass since a window opened is charged to
+    /// the next window (its scheduled work stops at ``Budgets/passTarget`` minus that pass) and is
+    /// the frame's sample of the commit estimate that places the next deadlines (``MainCommitMeter``).
+    /// The pass also ends an input response that a link tick after the input rendered in
+    /// (``noteTickRenderEnded()``).
     public func noteRenderPass(nanos: UInt64) {
         renderSinceRoll = max(renderSinceRoll, nanos)
         stats.renderPasses += 1
@@ -314,10 +323,11 @@ public final class MainFrameBudget {
         return min(totalNanos, left)
     }
 
-    /// Whether the frame's scheduled work may go on at `now`: before the frame's deadline, or
-    /// without one under the fixed limit.
+    /// Whether the frame's scheduled work may go on at `now`: under the fixed limit (what the
+    /// window already spent counts, a window a task opened before the tick included) and before the
+    /// frame's deadline, when it has one.
     private func underFrameLimit(_ now: UInt64) -> Bool {
-        if let deadline { return now < deadline }
+        if let deadline, now >= deadline { return false }
         return frameSpentNow(now) < scheduledLimitNanos
     }
 
@@ -328,9 +338,9 @@ public final class MainFrameBudget {
     /// class may not while input is pending (unless it yielded last frame). Past that, its first
     /// task of a frame always may, then it may while its own share is left, and past that, with no
     /// input pending and no input response open, on idle time the other classes left; never once
-    /// the frame's deadline passed or, without one, its scheduled work reached its limit
-    /// (``Budgets/total``, lowered by an expensive last render pass). A refusal is counted: the
-    /// caller keeps the task for the next frame.
+    /// the frame's scheduled work reached its limit (``Budgets/total``, lowered by an expensive last
+    /// render pass) or its deadline passed. A refusal is counted: the caller keeps the task for the
+    /// next frame.
     public func mayRun(_ workClass: MainWorkClass) -> Bool {
         guard let index = Self.index(workClass), let budget = budgets.budget(workClass) else { return true }
         if heldForLateFrame(index) { return false }

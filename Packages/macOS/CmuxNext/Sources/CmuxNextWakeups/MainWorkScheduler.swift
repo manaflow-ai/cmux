@@ -117,12 +117,16 @@ public final class MainWorkScheduler {
     ///   - clock: The stall deadline's clock.
     ///   - ledger: Where frames are recorded.
     ///   - startup: The launch's phases (default: already settled, so no class is held).
+    ///   - mediaTime: The display clock's time (`CACurrentMediaTime`), when a tick runs: a test that
+    ///     fires made-up timestamps with render-pass history passes one in step with them, or the
+    ///     budget reads its ticks as late.
     ///   - makeLink: Makes the fake link.
     public static func testing(budget: MainFrameBudget = MainFrameBudget(), clock: any Clock<Duration> = ContinuousClock(),
                                ledger: WakeupLedger = .shared, startup: StartupPhase = .settled(),
+                               mediaTime: @escaping @MainActor () -> CFTimeInterval = { CACurrentMediaTime() },
                                makeLink: @escaping FrameScheduler.LinkFactory) -> MainWorkScheduler {
         MainWorkScheduler(budget: budget, frames: FrameScheduler.testing(name: "budgeted test", clock: clock, ledger: ledger,
-                                                                         mediaTime: { CACurrentMediaTime() }, budget: budget,
+                                                                         mediaTime: mediaTime, budget: budget,
                                                                          makeLink: makeLink),
                           startup: startup, renderPasses: nil)
     }
