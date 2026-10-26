@@ -5,7 +5,9 @@ import CmuxNextCloud
 import CmuxNextControl
 import CmuxNextDaemon
 import CmuxNextDesign
+import CmuxNextFeatures
 import CmuxNextInput
+import CmuxNextIPC
 import CmuxNextLaunch
 import CmuxNextMallocZone
 import CmuxNextRemoteFetch
@@ -91,7 +93,12 @@ public struct CmuxNextApp {
         // video wallpapers list the windows above theirs on its system lane, never on main.
         BrowserFaviconLoader.shared.useResolver(SystemRemoteResolver(runner: work))
         BackdropVideoPlayers.shared.lanes = work
-        let wireStats = DaemonWireStats.forBuild()  // `debug.daemon.wire`'s counters; nil in a release build
+        // The launch's feature values, once, before the first feature read (the daemon connect's).
+        let features = AppServices.launchFeatures(environment)
+        // `debug.daemon.wire`'s counters, each schema method timed; nil in a release build unless the
+        // person opted in to field data.
+        let wireStats = DaemonWireStats.forBuild(fieldData: features.isEnabled(.ipcMethodLatencyFieldData),
+                                                 methods: MethodTable.schema.methods.map { .init(id: $0.id.rawValue, name: $0.name) })
         // The daemon connect overlaps AppKit's start (off the main thread).
         let prestart = DaemonService.prestart(work: work, launch: environment.launch, terminalEnvironment: environment.terminalEnvironment,
                                               resolvedTerminalEnvironment: environment.resolvedTerminalEnvironment(),
@@ -114,7 +121,7 @@ public struct CmuxNextApp {
         TooltipPresenter.shared.inputTap = inputTap
         let order = LaunchOrder(fence: fence, board: mainBoard, input: inputTap) { DebugTimings.markLaunch($0) }
         DaemonLauncher.captureLoginEnvironment(after: order.startup) // at once only with nothing remembered (p08-startup-034)
-        let delegate = AppDelegate(environment: environment, daemonPrestart: prestart, wireStats: wireStats,
+        let delegate = AppDelegate(environment: environment, daemonPrestart: prestart, wireStats: wireStats, features: features,
                                    startupTrace: startupTrace, order: order, inputTap: inputTap, settingsRead: settingsRead,
                                    launchReads: (work, launchImages, relaunchWake))
         DebugTimings.markLaunch("main.delegate")

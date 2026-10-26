@@ -200,6 +200,8 @@ MODEL_BY_PATH = {
     'types/ServerStatsLockStall': models.ServerStatsLockStall,
     'types/ServerStatsLockWait': models.ServerStatsLockWait,
     'types/ServerStatsLockWaits': models.ServerStatsLockWaits,
+    'types/ServerStatsMethodLatency': models.ServerStatsMethodLatency,
+    'types/ServerStatsPercentiles': models.ServerStatsPercentiles,
     'types/ServerStatsRegistryLock': models.ServerStatsRegistryLock,
     'types/ServerStatsRequestLatency': models.ServerStatsRequestLatency,
     'types/ServerStatsRequestPathIo': models.ServerStatsRequestPathIo,
@@ -857,6 +859,7 @@ ENUM_BY_PATH = {
 
 PYTHON_FIELD_NAMES = {
     'bytes': 'bytes_data',
+    'class': 'class_',
     'from': 'from_',
     'self': 'is_self'
 }

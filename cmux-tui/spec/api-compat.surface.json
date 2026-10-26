@@ -22798,6 +22798,101 @@
         "ty": "float64",
         "required": true
       },
+      "/data/ipc_methods": {
+        "ty": "array"
+      },
+      "/data/ipc_methods/*": {
+        "ty": "object"
+      },
+      "/data/ipc_methods/*/class": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/ipc_methods/*/handler_us": {
+        "ty": "object",
+        "required": true
+      },
+      "/data/ipc_methods/*/handler_us/count": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/ipc_methods/*/handler_us/max": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/ipc_methods/*/handler_us/p50": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/ipc_methods/*/handler_us/p95": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/ipc_methods/*/handler_us/p99": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/ipc_methods/*/id": {
+        "ty": "uint16",
+        "required": true,
+        "nullable": true
+      },
+      "/data/ipc_methods/*/latency_us": {
+        "ty": "object",
+        "required": true
+      },
+      "/data/ipc_methods/*/latency_us/count": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/ipc_methods/*/latency_us/max": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/ipc_methods/*/latency_us/p50": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/ipc_methods/*/latency_us/p95": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/ipc_methods/*/latency_us/p99": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/ipc_methods/*/lock_wait_us": {
+        "ty": "object",
+        "required": true
+      },
+      "/data/ipc_methods/*/lock_wait_us/count": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/ipc_methods/*/lock_wait_us/max": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/ipc_methods/*/lock_wait_us/p50": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/ipc_methods/*/lock_wait_us/p95": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/ipc_methods/*/lock_wait_us/p99": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/ipc_methods/*/method": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/ipc_methods/*/trace_id": {
+        "ty": "uint16",
+        "required": true
+      },
       "/data/journal_writer": {
         "ty": "object",
         "required": true,

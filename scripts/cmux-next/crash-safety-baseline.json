@@ -143,7 +143,7 @@
     "CmuxNextCompat": 10,
     "CmuxNextControl": 2,
     "CmuxNextCrashReporting": 4,
-    "CmuxNextDaemon": 1,
+    "CmuxNextDaemon": 2,
     "CmuxNextDesign": 4,
     "CmuxNextDictation": 2,
     "CmuxNextFiles": 2,
