@@ -33,9 +33,7 @@ extension HomeService {
     func ensureHomeWorkspace(_ connection: DaemonConnection) {
         homeWorkspaceTask?.cancel()
         homeWorkspaceStep = "ensure_home"
-        homeEnsureGeneration &+= 1
-        let generation = homeEnsureGeneration
-        homeEnsureInFlight = true
+        let generation = beginHomeEnsure()
         // task-owner: one ensure_home, then at most one conversation create and one tab create
         homeWorkspaceTask = Task { [weak self] in
             do {
@@ -57,7 +55,16 @@ extension HomeService {
         }
     }
 
-    private func settleHomeEnsure(_ generation: Int) {
+    /// A new `ensure_home` owns the in-flight flag from now; returns its generation.
+    func beginHomeEnsure() -> Int {
+        homeEnsureGeneration &+= 1
+        homeEnsureInFlight = true
+        return homeEnsureGeneration
+    }
+
+    /// `ensure_home` `generation` answered or failed: the flag clears and ``awaitHomeEnsured()`` resumes,
+    /// only when no newer one started since.
+    func settleHomeEnsure(_ generation: Int) {
         guard homeEnsureGeneration == generation else { return }
         homeEnsureInFlight = false
         homeEnsureWaiters.settle(Self.homeEnsureSlot, with: false)

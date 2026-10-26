@@ -49,7 +49,6 @@ final class HomeHostView: NSView {
     /// (else a paired server runs it).
     private var showsCloud = false
     private var showsHosted = false
-    private var isWorking = false
     /// Where attachments open and their right-click menu (the transcript holds it weakly).
     private var fileActions: HomeFileActions?
 
@@ -298,8 +297,7 @@ final class HomeHostView: NSView {
         isChief = line.isChief
         openPendingSettings()
         // The Chief types while its turn runs: the compose bar offers Stop.
-        isWorking = line.isChief && line.typing
-        transcript.isWorking = isWorking
+        transcript.isWorking = line.isChief && line.typing
         if line.cloud != showsCloud || (line.cloud && line.hosted != showsHosted) {
             showsCloud = line.cloud
             showsHosted = line.hosted
@@ -355,7 +353,7 @@ final class HomeHostView: NSView {
     /// close again (never with `openOnly`, the pet's Chief Pet Settings…). Only over the Chief. True if shown.
     @discardableResult func toggleChiefSettings(openOnly: Bool = false) -> Bool {
         if settings.isShown { if !openOnly { settings.close() }; return openOnly }
-        guard isChief, visibility.isShown else { return false }
+        guard showsChiefOnScreen else { return false }
         settingsView.refresh()
         return settings.show(relativeTo: transcript.namePill, toggles: transcript.namePillToggles)
     }
@@ -387,12 +385,23 @@ final class HomeHostView: NSView {
     }
 
     /// This view shows a Chief conversation in a window and is not hidden: the front window's Home
-    /// that `home.stopChief` and `home.toggleChiefSettings` act on (`HomeChiefActions`).
-    var showsChiefOnScreen: Bool { isChief && visibility.isShown }
-    /// The shown Chief's turn runs.
-    var chiefIsWorking: Bool { isWorking }
-    /// The shown Chief's control (`chief.stop`).
-    var chiefControl: HomeChiefControl { control }
+    /// that `home.stopChief` and `home.toggleChiefSettings` act on (`HomeChiefActions`). An occluded
+    /// window's Home counts, so these three read the Home store when asked: the view's observations
+    /// rest while it is not visible, and an action acts on the model, not on their last apply (p06 rule 3).
+    var showsChiefOnScreen: Bool { visibility.isShown && storeRow.map(Self.hasChief) == true }
+    /// The shown Chief's turn runs (its row types).
+    var chiefIsWorking: Bool { storeRow.map { Self.hasChief($0) && $0.isTyping } ?? false }
+    /// The shown Chief's control (`chief.stop`), naming the conversation's Chief as the store has it now.
+    var chiefControl: HomeChiefControl {
+        var current = control
+        current.chief = storeRow.flatMap { ChiefHome.namedChief(in: $0.summary.participants) }
+        return current
+    }
+
+    /// This conversation's row in the Home store.
+    private var storeRow: InboxRow? { control.services.home.homeStore.rows.first { $0.summary.id == control.conversation } }
+
+    private static func hasChief(_ row: InboxRow) -> Bool { row.summary.participants.contains { $0.agentClass == .chief } }
 
     /// Opens the settings `HomeChiefActions` asked for once this view shows its Chief (Toggle Chief
     /// Settings with no Home in front brought Home forward at this conversation).

@@ -172,7 +172,8 @@ public final class ChiefConversationOwner {
         refusal = nil
     }
 
-    private func attach(_ connection: DaemonConnection, identity: DaemonIdentity) {
+    /// The owner answered on `connection` (internal: a test attaches an owner without starting one).
+    func attach(_ connection: DaemonConnection, identity: DaemonIdentity) {
         self.identity = identity
         self.connection = connection
         lastError = nil

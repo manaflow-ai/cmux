@@ -1,6 +1,8 @@
 import AppKit
+import CmuxHomeCore
 @testable import CmuxNextApp
 import CmuxNextDesign
+import CmuxNextHomeEngine
 import CmuxNextWakeups
 import Testing
 
@@ -33,6 +35,39 @@ import Testing
         let view = HomeHostView(services: services, conversation: "conv_no_window")
         #expect(!view.visibility.isShown, "a Home in no window counts as shown")
         #expect(!view.showsChiefOnScreen)
+    }
+
+    /// The view's observations rest in an occluded window, but Stop still acts on the Chief as the Home
+    /// store has it: the window shows the Chief, another app covers it, the Chief starts a turn, and
+    /// `home.stopChief` (the CLI, an agent) must stop that Chief. With the view's last apply it read
+    /// "not working" and refused with "no working Chief" while the turn ran.
+    @Test func anOccludedHomeStopsTheChiefThatStartedWorkingWhileCovered() async throws {
+        let services = try await HomeChiefHostedSettingsTests.servicesWithCloudChiefs()
+        let conversation = "conv_named", chief = HomeChiefHostedSettingsTests.namedChief
+        let view = HomeHostView(services: services, conversation: conversation)
+        view.frame = NSRect(x: 0, y: 0, width: 600, height: 700)
+        let window = NSWindow(contentRect: view.frame, styleMask: [.borderless], backing: .buffered, defer: true)
+        window.isReleasedWhenClosed = false
+        defer { window.orderOut(nil) }
+        let source = WindowVisibilitySource.of(window, read: { _ in .visible })
+        window.contentView?.addSubview(view)
+        let applied = await HomeDaemonNoticeTests.wait { view.isChief }
+        #expect(applied, "the shown Home never applied its Chief line")
+
+        source.node.set(.occluded)
+        #expect(!view.visibility.node.isVisible, "an occluded window left the Home visible")
+        #expect(view.showsChiefOnScreen, "an occluded window's Home is no longer the front Home")
+        services.home.homeSource.publish(.typing(ConversationID(conversation), ParticipantID(chief), on: true))
+        let typing = await HomeDaemonNoticeTests.wait {
+            services.home.homeStore.rows.first { $0.summary.id.rawValue == conversation }?.isTyping == true
+        }
+        try #require(typing, "the store never saw the Chief type")
+
+        #expect(view.chiefIsWorking, "Stop read the view's last apply, not the store")
+        let plan = HomeChiefActions.plan(services.home, front: view)
+        #expect(plan.front == .chief(isWorking: true))
+        #expect(plan.stop == .front, "home.stopChief refused while the covered Home's Chief worked")
+        #expect(view.chiefControl.chief == chief, "Stop names a Chief other than the conversation's")
     }
 
     // MARK: Fixtures

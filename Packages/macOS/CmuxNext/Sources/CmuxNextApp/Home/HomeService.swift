@@ -64,7 +64,7 @@ final class HomeService {
     @ObservationIgnored private var availability: ServiceObservation<DaemonConnection?>?
     @ObservationIgnored private var listing: Task<Void, any Error>?
     /// The latest conversation-list read; only its answer is applied.
-    @ObservationIgnored private var listGeneration = 0
+    @ObservationIgnored private(set) var listGeneration = 0
     /// The launch's Home and New Tab feeds (``postLaunchFeeds(startup:)``, p08-startup-027): ``start()`` is one of their
     /// posts, after startup unless a Home view needs it right after the first frame. nil (tests, a
     /// service made after launch): nothing waits on the launch order.
@@ -224,12 +224,18 @@ final class HomeService {
         }
         watchReplies()
         chief.start()
-        let chief = chief
         startCloud()
         // task-owner: lives as long as the service; event-driven (Observation)
         homeStore.start()
         keepHomeListForLaunch()
-        // The Chief owner's connection: each new one reloads the list and the open sessions. Visible: Home shows it.
+        watchChiefOwner()
+    }
+
+    /// The Chief owner's connection: each new one reloads the list and the open sessions, and checks the
+    /// Chief tab again, whether or not a Home shows (a service observation). Visible: Home shows it.
+    func watchChiefOwner() {
+        guard availability == nil else { return }
+        let chief = chief
         availability = ServiceObservation(.visible, owner: "HomeService.chiefOwner", on: services.mainWork) {
             chief.supports(DaemonCapability.localConversations.rawValue) ? chief.connection : nil
         } apply: { [weak self] connection in
