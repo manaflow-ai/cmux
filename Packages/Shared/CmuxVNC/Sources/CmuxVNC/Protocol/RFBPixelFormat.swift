@@ -38,21 +38,27 @@ public struct RFBPixelFormat: Equatable, Sendable {
         bitsPerPixel: 32, depth: 24, bigEndian: false, trueColor: true,
         redMax: 255, greenMax: 255, blueMax: 255, redShift: 16, greenShift: 8, blueShift: 0)
 
-    public var bytesPerPixel: Int { Int(bitsPerPixel) / 8 }
+    public var bytesPerPixel: Int { bitsPerPixel.widened / 8 }
 
     /// The 16 wire bytes.
     public var encoded: [UInt8] {
-        [bitsPerPixel, depth, bigEndian ? 1 : 0, trueColor ? 1 : 0,
-         UInt8(redMax >> 8), UInt8(redMax & 0xFF), UInt8(greenMax >> 8), UInt8(greenMax & 0xFF),
-         UInt8(blueMax >> 8), UInt8(blueMax & 0xFF), redShift, greenShift, blueShift, 0, 0, 0]
+        [bitsPerPixel, depth, bigEndian ? 1 : 0, trueColor ? 1 : 0]
+            + Self.wire(redMax) + Self.wire(greenMax) + Self.wire(blueMax)
+            + [redShift, greenShift, blueShift, 0, 0, 0]
     }
 
     /// Parses 16 wire bytes; nil when short.
     public init?(bytes: some Collection<UInt8>) {
-        let b = Array(bytes)
-        guard b.count >= 16 else { return nil }
-        self.init(bitsPerPixel: b[0], depth: b[1], bigEndian: b[2] != 0, trueColor: b[3] != 0,
-                  redMax: UInt16(b[4]) << 8 | UInt16(b[5]), greenMax: UInt16(b[6]) << 8 | UInt16(b[7]),
-                  blueMax: UInt16(b[8]) << 8 | UInt16(b[9]), redShift: b[10], greenShift: b[11], blueShift: b[12])
+        let b = Array(bytes.prefix(16))
+        guard b.count == 16 else { return nil }
+        func byte(_ at: Int) -> UInt8 { b.dropFirst(at).first ?? 0 }
+        func u16(_ at: Int) -> UInt16 { b.dropFirst(at).prefix(2).bigEndian(as: UInt16.self) }
+        self.init(bitsPerPixel: byte(0), depth: byte(1), bigEndian: byte(2) != 0, trueColor: byte(3) != 0,
+                  redMax: u16(4), greenMax: u16(6), blueMax: u16(8),
+                  redShift: byte(10), greenShift: byte(11), blueShift: byte(12))
+    }
+
+    private static func wire(_ value: UInt16) -> [UInt8] {
+        [UInt8(truncatingIfNeeded: value >> 8), UInt8(truncatingIfNeeded: value)]
     }
 }
