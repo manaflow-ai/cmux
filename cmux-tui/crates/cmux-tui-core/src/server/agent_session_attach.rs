@@ -73,6 +73,8 @@ pub(crate) struct AgentSessions {
     pub(super) inventory_reads: AtomicUsize,
     pub(super) inventory_watches: super::agent_inventory::watch::Watches,
     state: Mutex<AttachState>,
+    /// WhoIs attestations from the same-user host proxy, fixed for each link.
+    proxy_authors: Mutex<HashMap<u64, Value>>,
     /// `agent-session-start-v1`: the acpmux starter and the tabs starting.
     starts: agent_session_start::AgentSessionStarts,
     /// `agent-session-children-v1`: the descendants acpmux answered, which
@@ -117,6 +119,7 @@ impl AgentSessions {
     /// The connection ended: every attachment of it closes.
     pub(crate) fn disconnect(&self, client: u64) {
         self.inventory_watches.disconnect(client);
+        self.proxy_authors.lock().unwrap_or_else(|e| e.into_inner()).remove(&client);
         let gone: Vec<Arc<Attachment>> = {
             let mut state = self.lock();
             state.reserved.retain(|(c, _)| *c != client);
@@ -145,6 +148,7 @@ impl AgentSessions {
 
 /// One attached tab: its acpmux link and the client stream it feeds.
 struct Attachment {
+    author: Option<Value>,
     client: u64,
     surface: SurfaceId,
     /// The acpmux session id (resolved by acpmux from the record's session).
@@ -170,6 +174,18 @@ struct Attachment {
 }
 
 impl Attachment {
+    fn stamp(&self, mut params: Value) -> Value {
+        if let Some(author) = &self.author {
+            params["_meta"]["acpmux"]["author"] = author.clone();
+        }
+        params
+    }
+
+    /// A page as this attachment may see it: a proxied teammate gets no `composer` records.
+    fn private(&self, page: Value) -> Value {
+        if self.author.is_some() { stream::without_drafts(page) } else { page }
+    }
+
     fn note_permission(&self, id: &str) {
         let mut permissions = self.permissions.lock().unwrap_or_else(|e| e.into_inner());
         if permissions.iter().any(|known| known == id) {
@@ -445,15 +461,23 @@ pub(super) fn try_handle(
     message: &str,
     writer: &MessageWriter,
 ) -> Option<bool> {
-    if let Some(handled) = agent_session_observe::try_handle(mux, client, message, writer) {
-        return Some(handled);
-    }
     if !message.contains("\"agent-session-") {
         return None;
     }
     let Ok(Value::Object(mut object)) = serde_json::from_str::<Value>(message) else {
         return None;
     };
+    if object.get("cmd").and_then(Value::as_str) == Some("agent-session-proxy-bind") {
+        return Some(proxy::bind(mux, client, object, writer));
+    }
+    // A peer cannot self-attribute: only the preface's fixed identity is accepted.
+    if !proxy::check(mux, client, &mut object) {
+        return Some(refuse(writer, object.remove("id"), Refusal::NotTrusted));
+    }
+    if object.get("cmd").and_then(Value::as_str) == Some("agent-session-observe") {
+        let clean = Value::Object(object).to_string();
+        return agent_session_observe::try_handle(mux, client, &clean, writer);
+    }
     let cmd = match object.remove("cmd") {
         Some(Value::String(cmd)) if cmd.starts_with("agent-session-") => cmd,
         _ => return None,
@@ -618,10 +642,13 @@ fn attach(
         return refuse(writer, id, Refusal::UnknownTab);
     };
     let record_session = session.clone();
-    let acpmux_params = match page_params(&session, &params, true) {
+    let mut acpmux_params = match page_params(&session, &params, true) {
         Ok(value) => value,
         Err(refusal) => return refuse(writer, id, refusal),
     };
+    if let Some(author) = proxy::author(mux, client) {
+        acpmux_params["_meta"]["acpmux"]["author"] = author;
+    }
     {
         let mut state = sessions.lock();
         let key = (client, params.surface);
@@ -705,6 +732,8 @@ impl ReaderSlot {
     }
 }
 
+#[path = "agent_session_proxy.rs"]
+mod proxy;
 #[path = "agent_session_stream.rs"]
 mod stream;
 pub(crate) use stream::bound_page;
@@ -738,8 +767,9 @@ fn run_on_worker(
     }
     // A cancel is a notification on the link and never waits.
     if let AgentSessionCommand::Cancel(_) = command {
-        let sent =
-            attachment.link.notify("session/cancel", json!({"sessionId": attachment.session}));
+        let sent = attachment
+            .link
+            .notify("session/cancel", attachment.stamp(json!({"sessionId": attachment.session})));
         return match sent {
             Ok(()) => ok(writer, id, json!({})),
             Err(error) => refuse(writer, id, Refusal::of(error)),
@@ -776,14 +806,16 @@ fn call(attachment: &Attachment, command: AgentSessionCommand) -> Result<Value, 
         AgentSessionCommand::Attach(params) => {
             let newest_first = params.after_seq.is_none() || params.before_seq.is_some();
             let params = page_params(session, &params, true)?;
-            let page = attachment.link.call("_acpmux/attach", params, CALL_TIMEOUT);
-            page.map(|page| bound_page(page, newest_first)).map_err(Refusal::of)
+            let page =
+                attachment.link.call("_acpmux/attach", attachment.stamp(params), CALL_TIMEOUT);
+            page.map(|page| attachment.private(bound_page(page, newest_first))).map_err(Refusal::of)
         }
         AgentSessionCommand::Events(params) => {
             let newest_first = params.before_seq.is_some();
             let params = page_params(session, &params, false)?;
-            let page = attachment.link.call("_acpmux/events", params, CALL_TIMEOUT);
-            page.map(|page| bound_page(page, newest_first)).map_err(Refusal::of)
+            let page =
+                attachment.link.call("_acpmux/events", attachment.stamp(params), CALL_TIMEOUT);
+            page.map(|page| attachment.private(bound_page(page, newest_first))).map_err(Refusal::of)
         }
         AgentSessionCommand::Prompt(PromptParams { prompt_id, text, .. }) => {
             prompt(attachment, prompt_id, text)
@@ -828,7 +860,11 @@ fn call(attachment: &Attachment, command: AgentSessionCommand) -> Result<Value, 
             if !meta.is_empty() {
                 params.insert("_meta", json!({"acpmux": meta}));
             }
-            let answered = attachment.link.call("_acpmux/permission_respond", params, CALL_TIMEOUT);
+            let answered = attachment.link.call(
+                "_acpmux/permission_respond",
+                attachment.stamp(params),
+                CALL_TIMEOUT,
+            );
             // A failed answer stays answerable; a delivered one is spent.
             if answered.is_ok() {
                 attachment.forget_permission(&permission_id);
@@ -934,7 +970,9 @@ fn prompt(attachment: &Attachment, prompt_id: String, text: String) -> Result<Va
     // The request's own reply comes at the end of the turn and is not
     // waited for, so a queued prompt holds no call slot (permission answers
     // stay possible while turns queue).
-    if let Err(error) = attachment.link.send_ignoring_reply("session/prompt", params) {
+    if let Err(error) =
+        attachment.link.send_ignoring_reply("session/prompt", attachment.stamp(params))
+    {
         attachment.prompts.lock().unwrap_or_else(|e| e.into_inner()).remove(&prompt_id);
         return Err(Refusal::of(error));
     }

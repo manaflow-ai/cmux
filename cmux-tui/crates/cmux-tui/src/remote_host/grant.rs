@@ -17,8 +17,7 @@ pub(crate) const TEAMMATE_ALLOWLIST: &[&str] = &["lawrence@manaflow.ai"];
 pub(crate) enum Scope {
     /// The read-only probe: host name, OS, version, session, access.
     Status,
-    /// Run and watch agent sessions. Reserved: refused until the filtered
-    /// daemon proxy exists (design slice 3).
+    /// Attach to shared agent chats through the filtered proxy.
     Agents,
     /// A full daemon connection: terminals and input, as the teammate.
     Shell,
@@ -45,7 +44,7 @@ impl Scope {
     fn describe(self) -> &'static str {
         match self {
             Self::Status => "see this machine's cmux status (read-only)",
-            Self::Agents => "start and watch cmux agent sessions (not available yet)",
+            Self::Agents => crate::localization::catalog().host_share.agents,
             Self::Shell => {
                 "open your cmux terminals and run any command as you (full shell access)"
             }
@@ -104,9 +103,9 @@ pub(crate) fn check(config: &Config, login: &str) -> Check {
     Check::Granted(scopes)
 }
 
-/// Whether the scopes allow a full daemon connection (`op: connect`).
+/// Whether the scopes allow a connection; agents use the filtered proxy.
 pub(crate) fn may_connect(scopes: &[Scope]) -> bool {
-    scopes.contains(&Scope::Shell)
+    scopes.contains(&Scope::Shell) || scopes.contains(&Scope::Agents)
 }
 
 /// A grant needs a person: stdin and stderr must both be terminals, so no

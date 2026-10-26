@@ -309,7 +309,11 @@ fn serve_one(
                     "listener_pid": std::process::id(),
                 }))
             });
-            let result = splice(stream, daemon);
+            let result = if scopes.as_ref().is_some_and(|s| !s.contains(&Scope::Shell)) {
+                super::agent_proxy::run(stream, daemon, identity, peer)
+            } else {
+                splice(stream, daemon)
+            };
             if let Some(id) = guest {
                 host.guest_closed(id);
             }
@@ -334,7 +338,7 @@ fn probe_reply(host: &Host, config: &Config, access: &str) -> Value {
     })
 }
 
-type DaemonStream = Box<dyn cmux_tui_core::platform::transport::Stream>;
+pub(super) type DaemonStream = Box<dyn cmux_tui_core::platform::transport::Stream>;
 
 impl Host {
     fn connect_daemon(&self, config: &Config) -> anyhow::Result<DaemonStream> {

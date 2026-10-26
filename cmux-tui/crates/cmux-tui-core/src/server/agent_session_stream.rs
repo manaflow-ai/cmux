@@ -75,7 +75,10 @@ pub(super) fn connect_and_attach(
     // The answer (every session's summary) never reaches the client: only
     // the descendants it names are followed from now on.
     let watched = link.call("_acpmux/watch", json!({"enabled": true}), CALL_TIMEOUT);
+    let author = proxy::author(&mux, client);
+    let page = if author.is_some() { without_drafts(page) } else { page };
     let attachment = Arc::new(Attachment {
+        author,
         client,
         surface,
         session: resolved,
@@ -91,7 +94,9 @@ pub(super) fn connect_and_attach(
         prompts: Mutex::default(),
         children: Mutex::default(),
     });
-    if let Ok(watched) = &watched {
+    if attachment.author.is_none()
+        && let Ok(watched) = &watched
+    {
         attachment
             .follow_children(&agent_session_children::descendant_ids(&attachment.session, watched));
     }
@@ -161,6 +166,19 @@ pub(crate) fn bound_page(mut page: Value, newest_first: bool) -> Value {
     page
 }
 
+/// A `composer` record: someone's draft text. Kept on the owner's machine.
+fn is_draft(record: &Value) -> bool {
+    record.get("kind").and_then(Value::as_str) == Some("composer")
+}
+
+/// A replay page without `composer` records, for a proxied (teammate) attachment.
+pub(crate) fn without_drafts(mut page: Value) -> Value {
+    if let Some(events) = page.get_mut("events").and_then(Value::as_array_mut) {
+        events.retain(|record| !is_draft(record));
+    }
+    page
+}
+
 /// One notification or the close from the attachment's acpmux link.
 pub(super) fn deliver(attachment: &Attachment, inbound: Inbound) {
     if attachment.ended.load(Ordering::Acquire) {
@@ -176,6 +194,8 @@ pub(super) fn deliver(attachment: &Attachment, inbound: Inbound) {
         return attachment.end(Some("detached"));
     }
     match method.as_str() {
+        // A teammate never sees anyone's unsent text (chat-multiplayer design section 5).
+        "_acpmux/event" if same_session && attachment.author.is_some() && is_draft(&params) => {}
         "_acpmux/event" if same_session => {
             let event = json!({"event": "agent-session-record", "surface": attachment.surface, "record": params});
             // Never blocks: a client that does not keep up overflows its
@@ -196,7 +216,10 @@ pub(super) fn deliver(attachment: &Attachment, inbound: Inbound) {
         }
         // The session's own changes, and its descendants' (`agent-session-children-v1`),
         // while the tab still shows the session.
-        "_acpmux/session_changed" if same_session || attachment.follows_change(&params) => {
+        "_acpmux/session_changed"
+            if same_session
+                || (attachment.author.is_none() && attachment.follows_change(&params)) =>
+        {
             if !same_session && !attachment.tab_current() {
                 return attachment.end(Some("detached"));
             }
@@ -214,5 +237,22 @@ pub(super) fn deliver(attachment: &Attachment, inbound: Inbound) {
         }
         "_acpmux/lagged" => attachment.end(Some("lagged")),
         _ => {}
+    }
+}
+
+#[cfg(test)]
+mod draft_tests {
+    use super::*;
+
+    #[test]
+    fn a_teammate_page_keeps_every_record_but_drafts() {
+        let page = json!({"events": [{"seq": 1, "kind": "user_message"},
+            {"seq": 2, "kind": "composer", "msg": {"text": "secret"}}, {"seq": 3, "kind": "queued"}]});
+        let kept = without_drafts(page);
+        let seqs: Vec<u64> =
+            kept["events"].as_array().unwrap().iter().map(|e| e["seq"].as_u64().unwrap()).collect();
+        assert_eq!(seqs, vec![1, 3]);
+        assert!(is_draft(&json!({"kind": "composer"})));
+        assert!(!is_draft(&json!({"kind": "user_message"})));
     }
 }
