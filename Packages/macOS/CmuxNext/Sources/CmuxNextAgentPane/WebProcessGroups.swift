@@ -1,3 +1,4 @@
+import CmuxNextDesign
 import WebKit
 
 /// Puts new agent pages (the New Tab page, agent chats) into shared web content processes, at
@@ -33,7 +34,8 @@ final class WebProcessGroups {
     /// first page while that page lives, the group has room and both use the same process pool and
     /// data store (WebKit shares a process only then). Otherwise the view starts a new group.
     func webView(for configuration: WKWebViewConfiguration, make: (WKWebViewConfiguration) -> WKWebView) -> WKWebView {
-        if let anchor, members < pagesPerProcess,
+        // A retired anchor whose page closed (WebViewRetirement) serves no new page.
+        if let anchor, members < pagesPerProcess, WebViewRetirement.isPageClosed(anchor) != true,
            anchor.configuration.processPool === configuration.processPool,
            anchor.configuration.websiteDataStore === configuration.websiteDataStore,
            Self.relate(configuration, to: anchor) {
