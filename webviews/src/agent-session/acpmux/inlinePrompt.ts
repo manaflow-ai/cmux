@@ -1,4 +1,3 @@
-// Ordered display and replay adapt #24724 to ID-bound tokens. The ACP blocks stay authoritative.
 import {
   attachmentBlocks,
   hasInlineMarks,
@@ -10,7 +9,6 @@ import {
 } from "./attachments";
 import type { AcpmuxRow, PromptContentPart } from "./model";
 import { parseVideoInfo } from "./composer/videoAttachments";
-
 type DisplayPart = {
   kind: string;
   blockIndex: number;
@@ -79,7 +77,6 @@ export function inlinePrompt(input: string, attachments: ComposerAttachment[]) {
   }
   return { parts, display };
 }
-
 export function normalizePromptContentPart(value: unknown): PromptContentPart | undefined {
   if (!value || typeof value !== "object") return undefined;
   const raw = value as Record<string, unknown>;
@@ -115,19 +112,12 @@ export function normalizePromptContentPart(value: unknown): PromptContentPart | 
       : {}),
   } as PromptContentPart;
 }
-export const isInterleaved = (parts: readonly PromptContentPart[]) => {
-  const at = parts.findIndex((part) => part.kind !== "text");
-  return at >= 0 && parts.slice(at + 1).some((part) => part.kind === "text");
-};
-
 export function recordedPromptParts(msg: any, known?: readonly PromptContentPart[]): PromptContentPart[] | undefined {
   if (!Array.isArray(msg?.inlineParts)) return undefined;
   const parts: PromptContentPart[] = msg.inlineParts.flatMap((part: unknown) => {
     const normalized = normalizePromptContentPart(part);
     return normalized ? [normalized] : [];
   });
-  // Strip prompts retain their established rendering; an explicit empty record removes old parts.
-  if (!known?.length && !isInterleaved(parts)) return [];
   return parts.map((part, index) => {
     const old = known?.[index];
     if (part.kind === "file") {
@@ -144,7 +134,6 @@ export function recordedPromptParts(msg: any, known?: readonly PromptContentPart
           : {}),
       };
     }
-    // No ordinal replacement of durable image identity or bytes, including a failed middle image.
     return part.kind === "image" && old?.kind === "image"
       ? {
           ...part,
@@ -154,7 +143,6 @@ export function recordedPromptParts(msg: any, known?: readonly PromptContentPart
       : part;
   });
 }
-
 /// Move complete attachment tokens across a plain-text edit. Literal U+FFFC stays ordinary text.
 export function carryInline(input: string, text: string, attachments: ComposerAttachment[]): string {
   let plain = "";
@@ -190,7 +178,6 @@ export function carryInline(input: string, text: string, attachments: ComposerAt
   }
   return out + text.slice(from);
 }
-
 export async function restoreInline(
   row: AcpmuxRow,
   text: string,
@@ -203,7 +190,6 @@ export async function restoreInline(
       input += part.text;
       continue;
     }
-    // A legacy text file is already a complete ACP text block; keep its words once on replay.
     if (part.kind === "file" && part.text && !part.uri) {
       input += part.text;
       continue;
@@ -259,7 +245,6 @@ export async function restoreInline(
   if (text === (row.resend ?? row.text)) return { input, attachments };
   return { input: carryInline(input, text, attachments), attachments: attachments.filter((a) => a.kind !== "pasted") };
 }
-
 function localPath(value: string): string {
   const uri = new URL(value);
   if (uri.protocol !== "file:" || (uri.hostname && uri.hostname !== "localhost"))
