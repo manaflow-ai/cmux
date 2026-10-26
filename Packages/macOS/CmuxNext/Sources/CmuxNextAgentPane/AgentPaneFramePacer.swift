@@ -136,6 +136,7 @@ import CmuxNextWakeups
         inFlight = false
         guard pending, !frozen else {
             loadedBefore = false
+            thawCall = false
             return
         }
         let since = now() - lastCall + 1e-6 // a microsecond of rounding is a full frame
@@ -203,7 +204,8 @@ import CmuxNextWakeups
     public func pageDidThaw() {
         guard frozen else { return }
         frozen = false
-        thawCall = true
+        // Only frames that waited through the freeze make a thaw call; with none, the hidden hold stays.
+        thawCall = pending
         guard !inFlight, !nextTurnScheduled else { return }
         call()
     }

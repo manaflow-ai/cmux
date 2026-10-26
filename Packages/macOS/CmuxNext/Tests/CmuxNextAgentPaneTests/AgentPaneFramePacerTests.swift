@@ -183,6 +183,19 @@ struct AgentPaneFramePacerTests {
         #expect(rig.pacer.held)
     }
 
+    @Test func aThawDuringACallWithNothingWaitingLeavesTheHiddenHoldOn() {
+        let rig = Rig(hidden: true)
+        rig.arrive(urgent: true)
+        #expect(rig.calls == 1)
+        rig.pacer.pageDidFreeze()
+        rig.pacer.pageDidThaw()
+        rig.pacer.delivered()
+        rig.clock += 60
+        rig.arrive()
+        #expect(rig.calls == 1, "a stale thaw let a streaming frame wake the hidden page")
+        #expect(rig.pacer.held)
+    }
+
     @Test func aPaneThatShowsWhileFrozenRunsAgain() {
         let rig = Rig(hidden: true)
         rig.pacer.pageDidFreeze()
