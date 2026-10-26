@@ -788,6 +788,7 @@ async fn dispatch_request(
                 route,
                 subsession: None,
                 disallowed_tools,
+                checked_cwd: None,
             };
             let s = hub.new_session(req).await?;
             if conn.origin.web_class() {

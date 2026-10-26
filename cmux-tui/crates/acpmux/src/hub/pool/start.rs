@@ -66,6 +66,8 @@ impl Hub {
             hosts_dir: dir,
             buffer_cap: agent_host::DEFAULT_BUFFER_CAP,
             router_owner_fifo: crate::daemon::router_owner_path(),
+            // Never a sub-session's checked folder: a sub-session start takes no pooled harness.
+            cwd_pin: None,
         };
         // No host starts once `stop_pool` began: it could not end it.
         if self.pool.stopping.load(Ordering::SeqCst) {

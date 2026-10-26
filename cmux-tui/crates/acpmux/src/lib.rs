@@ -37,6 +37,7 @@ pub mod complete;
 pub mod config;
 pub mod cua_socket;
 pub mod cua_v2;
+pub mod cwd_pin;
 pub mod daemon;
 pub mod deliver;
 pub mod forum;

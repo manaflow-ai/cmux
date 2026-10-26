@@ -640,20 +640,19 @@ impl Hub {
         let name = self.unique_name(&format!("{}/{short}", pm.name));
         let harness = req.harness.clone().unwrap_or_else(|| pm.harness.clone());
         let asked = req.cwd.clone().unwrap_or_else(|| pm.cwd.clone());
-        let folder = super::subsession_guard::resolved_folder(&asked)?;
+        let folder = super::subsession_guard::CheckedFolder::resolve(&asked)?;
         // The harness, then the folder: one nobody answered the trust question for waits on a
         // card in the parent's chat instead of failing (`subsession_guard.rs`, `trust_wait.rs`).
         let model = req.model.as_deref();
         let decided =
             self.subsession_place_check(parent, pm, &folder, &harness, model, &short).await?;
-        let mut cwd = folder.clone();
-        let worktree = if req.worktree {
-            let mut kept = self.subsession_worktree(pm, &folder, &short).await?;
+        // Its worktree is made, and its harness spawns, only in the very folder checked.
+        let (cwd, worktree) = if req.worktree {
+            let mut kept = self.subsession_worktree(pm, folder.still_here()?, &short).await?;
             kept.source_decided = decided;
-            cwd = std::fs::canonicalize(&kept.made.cwd).unwrap_or_else(|_| kept.made.cwd.clone());
-            Some(kept)
+            (super::subsession_guard::CheckedFolder::resolve(&kept.made.cwd)?, Some(kept))
         } else {
-            None
+            (folder, None)
         };
         // The caller's own policy. A caller that names none runs the daemon
         // default, and so does its child: the default as the child's own
@@ -668,7 +667,8 @@ impl Hub {
         let request = NewRequest {
             harness: Some(harness),
             name: Some(name),
-            cwd: Some(cwd.clone()),
+            cwd: Some(cwd.to_path_buf()),
+            checked_cwd: Some(cwd.clone()),
             policy,
             model: req.model.clone(),
             effort: req.effort.clone(),
