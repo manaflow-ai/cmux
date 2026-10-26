@@ -20,16 +20,19 @@ everything it started, processes gone in the window included) is `coalition` in 
 it cannot be read.
 D15 (plans/cmux-next/chrome-parity/p14-energy.md, task 105), per process: disk bytes written (the
 ri_diskio_byteswritten delta: disk_bytes, disk_bytes_per_s), network bytes, their lo0 part and the connections open
-at the end (`nettop -x -n -d -L` over the window: network_bytes, network_loopback_bytes, connections; the remote ends
-name the owner of an over), unified-log lines and their subsystem:category owners (`log show --style ndjson` of the
+at the end (`nettop -x -n -d -L`, started before the window, only its samples stamped inside it: network_bytes,
+network_loopback_bytes, connections; the remote ends name the owner of an over), unified-log lines and their subsystem:category owners (`log show --style ndjson` of the
 pid set after the window, only events stamped inside it: log_lines); and per session WindowServer's wakeups/s in the
 window against a reference window with cmux hidden (`windowserver`: reported, never judged; rusage through `sudo -n`,
-else top's IDLEW; no rate across a WindowServer restart or a source change). A reader that fails leaves its values
-null and prints IDLE-BUDGET-READER-FAILED: not measured is never a pass.
+else top's IDLEW; no rate across a WindowServer restart or a source change; a hide that is not confirmed takes no
+reference). A process that exits inside the window keeps its network and log values in its kind, its disk unknown
+(`exited`). A reader that fails, or nettop samples that do not cover the window, leave the values null and print
+IDLE-BUDGET-READER-FAILED: not measured is never a pass.
 
 The script reads the app's counters only at the window's two ends (proc_pid_rusage of another process
-does not wake it; the two socket reads sit outside the process counters' window; nettop asks the kernel and
-`log show` asks logd), so the bench adds no wakeup to what it measures. Each end's state reads (debug.energy, pmset, the animated page) sit outside
+does not wake it; the two socket reads sit outside the process counters' window; nettop asks the kernel, starts
+before every bracket and its own counters are taken out of the app's coalition; `log show` asks logd), so the bench
+adds no wakeup to what it measures. Each end's state reads (debug.energy, pmset, the animated page) sit outside
 every counter bracket: the start reads, a quiet gap, then the counters; the counters, then the end reads.
 
 Sessions (--sessions):
@@ -236,12 +239,17 @@ def measure(app, instance, seconds, read_anim=None, attribute=False, workdir=Non
     outside every counter bracket, the app's own counters included, so the bench's reads are never counted. With
     `attribute`, `power` has the window's power owners: power_attribution.PowerWindow's subprocesses (ps, sudo)
     run before `first` and after `last`, outside this bracket and its own; only its libproc reads sit inside.
-    D15's readers (`d15`, default D15Readers()): WindowServer's reads sit outside the bracket, nettop (its CSV in
-    `workdir`) runs over the window in its own process and `log show` reads logd after it, so none of them wakes a
-    measured process."""
+    D15's readers (`d15`, default D15Readers()): WindowServer's reads sit outside the bracket; nettop (its CSV in
+    `workdir`) starts before the bracket and before PowerWindow lists the coalition, runs in its own process and only
+    its samples stamped inside the window count; `log show` reads logd after it. None of them wakes a measured
+    process, and nettop's own counters leave the coalition's (PowerWindow's `outside`, coalition_without).
+    Processes that exit inside the window keep their D15 values (`exited`, aggregate)."""
     d15 = d15 or D15Readers()
     pids = process_set(instance)
     start = window_end(app, pids, read_anim)
+    nettop = d15.start_network(seconds + NETTOP_LEAD_S, workdir)
+    helper = d15.network_pid(nettop)
+    helper = helper if helper is not None and same_coalition(helper, instance.pid) else None
     window = power_attribution.PowerWindow(instance.pid, lambda: process_set(instance), kind) if attribute else None
     if window:
         window.prepare()
@@ -256,11 +264,12 @@ def measure(app, instance, seconds, read_anim=None, attribute=False, workdir=Non
     if window:
         window.begin()
     coalition0 = procs.coalition_of(instance.pid)
-    nettop = d15.start_network(seconds, workdir)
+    helper0 = procs.usage(helper) if helper is not None else None
     began, wall_began = time.monotonic(), time.time()
     time.sleep(seconds)  # bench: the idle window itself (nothing is sent to the app in it)
     elapsed, wall_ended = time.monotonic() - began, time.time()
     coalition1 = procs.coalition_of(instance.pid)
+    helper1 = procs.usage(helper) if helper is not None else None
     if window:
         window.end()
     gpu1 = procs.gpu_ns_by_pid()
@@ -273,14 +282,18 @@ def measure(app, instance, seconds, read_anim=None, attribute=False, workdir=Non
     sources1 = frame_sources(app) if attribute else None
     counters1 = app_counters(app)
     end = window_end(app, last_pids, read_anim)
-    network = d15.finish_network(nettop, seconds)
+    network = d15.finish_network(nettop, wall_began, wall_ended)
     logs = d15.read_log(set(pids) | set(last_pids), wall_began, wall_ended)
-    rows = process_rows(first, last, elapsed, gpu0, gpu1, kind,
-                        network=NOT_MEASURED if network is None else network,
-                        logs=NOT_MEASURED if logs is None else logs)
+    network = NOT_MEASURED if network is None else network
+    logs = NOT_MEASURED if logs is None else logs
+    rows = process_rows(first, last, elapsed, gpu0, gpu1, kind, network=network, logs=logs)
+    coalition = procs.coalition_rates(coalition0, coalition1, elapsed)
+    if helper is not None:
+        coalition = coalition_without(coalition, helper0, helper1, elapsed)
     result = {"seconds": round(elapsed, 1), "processes": rows, "ends": {"start": start, "end": end},
-              "coalition": procs.coalition_rates(coalition0, coalition1, elapsed),
-              "readers": {"network": network is not None, "log": logs is not None},
+              "exited": exited_rows(first, last, kind, network=network, logs=logs),
+              "coalition": coalition,
+              "readers": {"network": network is not NOT_MEASURED, "log": logs is not NOT_MEASURED},
               "windowserver": windowserver_report(windowserver_rate(server0, server1), None, server1[2])}
     if "main_wakes" in hangs0 and "main_wakes" in hangs1:
         result["main_wakes_per_s"] = round((hangs1["main_wakes"] - hangs0["main_wakes"]) / elapsed, 3)
@@ -299,6 +312,28 @@ def measure(app, instance, seconds, read_anim=None, attribute=False, workdir=Non
     if ledger1.get("main_run_loop"):
         result["main_run_loop_timers"] = run_loop_timers(ledger1["main_run_loop"])
     return result
+
+
+# nettop starts before the bracket (PowerWindow's prepare, the quiet gap, the first reads): it samples this lead plus
+# the window, so it still samples when the window ends; a longer lead leaves the window uncovered (not measured).
+NETTOP_LEAD_S = 15
+
+
+def same_coalition(pid, main_pid):
+    """Whether `pid` is in the resource coalition of `main_pid` (False when either cannot be read)."""
+    cid = procs.coalition_id(pid)
+    return cid is not None and cid == procs.coalition_id(main_pid)
+
+
+def coalition_without(coalition, first, last, elapsed):
+    """procs.coalition_rates less one member's procs.rates over the same window (the bench's nettop), or None when
+    either is unknown: a process the bench added is never counted as the app's."""
+    if coalition is None or first is None or last is None:
+        return None
+    member = procs.rates(first, last, elapsed)
+    less = {field: round(coalition[field] - member[field], 3)
+            for field in ("energy_mw_cpu", "energy_mw_billed", "cpu_pct", "wakeups_per_s", "pkg_idle_wakeups_per_s")}
+    return {**coalition, **less}
 
 
 def frame_sources(app):
@@ -376,13 +411,22 @@ def process_row(pid, cmd, first, last, elapsed, gpu, threads_now, csw, ran, clas
     }
     if disk is not None:
         row.update({"disk_bytes": disk, "disk_bytes_per_s": round(disk / elapsed, 3)})
+    row.update(d15_fields(network, log))
+    return row
+
+
+def d15_fields(network, log):
+    """A row's network and log fields from its procs.parse_nettop and procs.parse_log entries: NOT_MEASURED gives
+    None values, None (not read) no fields."""
+    row = {}
     if network is not None:
         unknown = network is NOT_MEASURED
         net = {} if unknown else network
         row.update({"network_bytes": None if unknown else net.get("bytes", 0),
                     "network_loopback_bytes": None if unknown else net.get("loopback_bytes", 0),
                     "connections": None if unknown else net.get("connections", 0),
-                    "remotes": list(net.get("remotes") or [])})
+                    "remotes": list(net.get("remotes") or []),
+                    "remote_bytes": dict(net.get("remote_bytes") or {})})
     if log is not None:
         unknown = log is NOT_MEASURED
         lines = {} if unknown else log
@@ -391,9 +435,36 @@ def process_row(pid, cmd, first, last, elapsed, gpu, threads_now, csw, ran, clas
     return row
 
 
+def exited_rows(first, last, classify, network=None, logs=None):
+    """A D15-only row per process read at the window's start and gone at its end: its network bytes and log lines
+    from the whole-window readings, its disk bytes unknown (None: its rusage left with it). It has no rate fields
+    (an exited process never had rates); aggregate adds it to its kind's D15 values."""
+    rows = []
+    for pid, (cmd, c0, _o0, _t0) in sorted(first.items()):
+        if c0 is None or (pid in last and last[pid][1] is not None):
+            continue
+        row = {"pid": pid, "kind": classify(cmd), "command": cmd[:160], "exited": True, "disk_bytes": None,
+               "disk_bytes_per_s": None}
+        row.update(d15_fields(_reading(network, pid), _reading(logs, pid)))
+        rows.append(row)
+    return rows
+
+
+@dataclasses.dataclass(frozen=True)
+class NettopRun:
+    """A running start_nettop: its process, its CSV and when its last sample is due (time.monotonic())."""
+    process: subprocess.Popen
+    path: str
+    due: float
+
+    @property
+    def pid(self):
+        return self.process.pid
+
+
 def start_nettop(seconds, workdir=None):
-    """nettop over the coming window of `seconds`, its CSV in workdir/nettop.csv (workdir None: a new temporary
-    folder): (process, path), or None when it cannot start."""
+    """nettop sampling for the coming `seconds`, its CSV in workdir/nettop.csv (workdir None: a new temporary
+    folder), or None when it cannot start."""
     try:
         workdir = workdir or tempfile.mkdtemp(prefix="idle-budget-nettop-")
         path = os.path.join(workdir, "nettop.csv")
@@ -403,24 +474,24 @@ def start_nettop(seconds, workdir=None):
                                        stdin=subprocess.DEVNULL)
     except OSError:
         return None
-    return process, path
+    return NettopRun(process, path, time.monotonic() + seconds)
 
 
-def finish_nettop(started, seconds):
-    """procs.parse_nettop of a start_nettop run once it has printed its last sample, or None when it failed."""
+def finish_nettop(started, start, end):
+    """procs.parse_nettop of a start_nettop run over the window start..end (epoch seconds) once nettop has printed
+    its last sample, or None when it failed or its samples do not cover the window."""
     if started is None:
         return None
-    process, path = started
     try:
-        process.wait(timeout=seconds + 30)
+        started.process.wait(timeout=max(0.0, started.due - time.monotonic()) + 30)
     except subprocess.TimeoutExpired:
-        process.kill()
-        process.wait()
+        started.process.kill()
+        started.process.wait()
         return None
-    if process.returncode != 0:
+    if started.process.returncode != 0:
         return None
-    with open(path, errors="replace") as handle:
-        return procs.parse_nettop(handle.read())
+    with open(started.path, errors="replace") as handle:
+        return procs.parse_nettop(handle.read(), start, end)
 
 
 # ---------------------------------------------------------------------------------------------------------
@@ -465,13 +536,24 @@ REFERENCE_SETTLE_S = 5  # the hide lands (the window leaves the screen) before t
 
 
 def windowserver_reference(app, seconds):
-    """(WindowServer wakeups/s over `seconds` with cmux hidden, the hide's reply): the reference the window's delta
-    is taken against. It runs after the session's window and samples, so it changes nothing that was measured."""
+    """(WindowServer wakeups/s over `seconds` with cmux hidden, the hide's reply, `hidden` or `hide-failed`): the
+    reference the window's delta is taken against. It runs after the session's window and samples, so it changes
+    nothing that was measured. A hide the app refused, or after which a main window still shows, takes no reference
+    (None, `hide-failed`): with cmux shown it would give a plausible delta near 0."""
     reply = hide_all(app)
+    if not isinstance(reply, dict) or reply.get("error"):
+        return None, reply, "hide-failed"
     time.sleep(REFERENCE_SETTLE_S)  # bench: the hide lands before the reference window opens
+    if not hidden_confirmed(window_state(app)):
+        return None, reply, "hide-failed"
     before = windowserver_reading()
     time.sleep(seconds)  # bench: the reference window itself
-    return windowserver_rate(before, windowserver_reading()), reply
+    return windowserver_rate(before, windowserver_reading()), reply, "hidden"
+
+
+def hidden_confirmed(state):
+    """Whether a window_state() shows no visible main window (an unreadable state confirms nothing)."""
+    return "error" not in state and not any(window.get("visible") for window in state.get("main") or [])
 
 
 @dataclasses.dataclass(frozen=True)
@@ -479,7 +561,8 @@ class D15Readers:
     """measure's D15 readers (each resolved at the call, so a test's patch applies); tests pass fakes."""
     windowserver: object = lambda: windowserver_reading()  # noqa: E731
     start_network: object = lambda seconds, workdir: start_nettop(seconds, workdir)  # noqa: E731
-    finish_network: object = lambda started, seconds: finish_nettop(started, seconds)  # noqa: E731
+    finish_network: object = lambda started, start, end: finish_nettop(started, start, end)  # noqa: E731
+    network_pid: object = lambda started: None if started is None else started.pid  # noqa: E731
     read_log: object = lambda pids, start, end: procs.read_log(pids, start, end)  # noqa: E731
 
 
@@ -595,11 +678,13 @@ SUMMED_WHEN_PRESENT = {"disk_bytes": 0, "disk_bytes_per_s": 3, "network_bytes": 
 def aggregate(result):
     """Per kind: count, threads (sum and max per process), interrupt wakeups/s (sum and max per process, and the
     max over the processes of hidden pages), package-idle wakeups/s, CPU and billed energy (mW), GPU ms/s, context
-    switches/s, CPU %, disk and log sums when the rows have them; the roles."""
+    switches/s, CPU %, disk, network and log sums when the rows have them, with the processes that exited in the
+    window (`exited`: their pids); the roles."""
     kinds = {}
+    new_kind = lambda: {"n": 0, "threads": 0, "threads_max": 0, "wakeups_max": 0.0, "threads_ran": 0,  # noqa: E731
+                        **{field: 0.0 for field in SUMMED}}
     for row in result["processes"]:
-        entry = kinds.setdefault(row["kind"], {"n": 0, "threads": 0, "threads_max": 0, "wakeups_max": 0.0,
-                                               "threads_ran": 0, **{field: 0.0 for field in SUMMED}})
+        entry = kinds.setdefault(row["kind"], new_kind())
         entry["n"] += 1
         entry["threads"] += row["threads"]
         entry["threads_max"] = max(entry["threads_max"], row["threads"])
@@ -612,8 +697,11 @@ def aggregate(result):
         entry["threads_ran"] += row["threads_ran"]
         if row.get("role"):
             entry["roles"] = sorted(set(entry.get("roles", [])) | {row["role"]})
+    exited = result.get("exited") or []
+    for row in exited:  # D15-only rows of processes gone in the window: they count in their kind's D15 values
+        kinds.setdefault(row["kind"], new_kind()).setdefault("exited", []).append(row["pid"])
     for name, entry in kinds.items():
-        rows = [row for row in result["processes"] if row["kind"] == name]
+        rows = [row for row in [*result["processes"], *exited] if row["kind"] == name]
         for field, digits in SUMMED_WHEN_PRESENT.items():
             if not any(field in row for row in rows):
                 continue
@@ -628,13 +716,20 @@ def aggregate(result):
 
 def d15_owners(entry, rows):
     """The owners of a kind's D15 values, for the over lines: `disk_writers` (the pids that wrote), `remotes` (the
-    remote ends that moved bytes or stayed open) and `log_owners` ({subsystem:category: lines})."""
+    remote ends that moved bytes or stayed open), `remote_bytes` ({remote end: bytes moved}, what a remote-scoped
+    excuse judges) and `log_owners` ({subsystem:category: lines})."""
     writers = [row["pid"] for row in rows if row.get("disk_bytes")]
     if writers:
         entry["disk_writers"] = writers
     remotes = list(dict.fromkeys(remote for row in rows for remote in row.get("remotes") or []))
     if remotes:
         entry["remotes"] = remotes
+    remote_bytes = {}
+    for row in rows:
+        for remote, moved in (row.get("remote_bytes") or {}).items():
+            remote_bytes[remote] = remote_bytes.get(remote, 0) + moved
+    if remote_bytes:
+        entry["remote_bytes"] = remote_bytes
     owners = {}
     for row in rows:
         for owner, count in (row.get("log_owners") or {}).items():
@@ -829,7 +924,8 @@ def over_budget(session, kinds, budget, facts=None):
                     out.append((name, "role", ",".join(roles), limit))
                 continue
             value = entry.get(field)
-            if isinstance(value, (int, float)) and value > limit and not periodic_excuse(budget, name, field, entry):
+            if isinstance(value, (int, float)) and value > limit and not periodic_excuse(budget, name, field, entry,
+                                                                                          limit):
                 out.append((name, field, value, limit))
     for selector, limits in (own.get("sums") or {}).items():
         for field, limit in limits.items():
@@ -850,19 +946,24 @@ def over_budget(session, kinds, budget, facts=None):
 D15_FIELDS = ("disk_bytes_per_s", "network_bytes", "log_lines")
 
 
-def periodic_excuse(budget, name, field, entry):
-    """Whether an allowed_periodic entry excuses D15 `field` of kind `name`: the entry names the kind (`kind`) and
-    the field (`metrics`), and when it names a `remote`, every remote end of the kind contains it (bytes to any other
-    end stay an over). An entry without `kind` and `metrics` excuses no D15 value: its owner is a wakeup owner only."""
+def periodic_excuse(budget, name, field, entry, limit=0):
+    """Whether allowed_periodic entries excuse D15 `field` of kind `name` over `limit`: an entry names the kind
+    (`kind`) and the field (`metrics`). Without `remote` it excuses the whole value. With `remote` it applies to
+    network_bytes only and excuses the bytes moved to that end (procs.remote_matches: the whole host or host:port,
+    never a substring); the bytes left (to other ends, or not on a listed flow) must stay within `limit`. An entry
+    without `kind` and `metrics` excuses no D15 value: its owner is a wakeup owner only."""
     if field not in D15_FIELDS:
         return False
-    for rule in budget.get("allowed_periodic") or []:
-        if rule.get("kind") != name or field not in (rule.get("metrics") or []):
-            continue
-        remote = rule.get("remote")
-        if remote is None or (entry.get("remotes") and all(remote in end for end in entry["remotes"])):
-            return True
-    return False
+    rules = [rule for rule in budget.get("allowed_periodic") or []
+             if rule.get("kind") == name and field in (rule.get("metrics") or [])]
+    if any(rule.get("remote") is None for rule in rules):
+        return True
+    allowed = [rule["remote"] for rule in rules]
+    if field != "network_bytes" or not allowed or not isinstance(entry.get(field), (int, float)):
+        return False
+    excused = sum(moved for end, moved in (entry.get("remote_bytes") or {}).items()
+                  if any(procs.remote_matches(remote, end) for remote in allowed))
+    return entry[field] - excused <= limit
 
 
 def assertion_overs(own, budget, facts):
@@ -1858,15 +1959,15 @@ def table(session, kinds, overs, entry=None):
 
 def windowserver_with_reference(app, server, spec, seconds, entry):
     """The window's WindowServer report with its reference: a hidden session is its own (`self`); another session
-    hides cmux for `seconds` after its window and samples (the hide's reply in entry["windowserver_hide"]); 0 seconds:
-    no reference."""
+    hides cmux for `seconds` after its window and samples (the hide's reply in entry["windowserver_hide"]; a hide that
+    is not confirmed is reference `hide-failed`, no delta); 0 seconds: no reference."""
     rate, source = server["wakeups_per_s"], server["source"]
     if spec.get("hide"):
         return windowserver_report(rate, rate, source, reference="self")
     if seconds <= 0:
         return windowserver_report(rate, None, source, reference="none")
-    reference, entry["windowserver_hide"] = windowserver_reference(app, seconds)
-    return windowserver_report(rate, reference, source)
+    reference_rate, entry["windowserver_hide"], reference = windowserver_reference(app, seconds)
+    return windowserver_report(rate, reference_rate, source, reference=reference)
 
 
 def coalition_line(coalition):

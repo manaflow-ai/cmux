@@ -642,23 +642,80 @@ def _bytes(row: dict) -> int:
     return sum(int(value) for value in values if value.isdigit())
 
 
-def parse_nettop(text: str) -> dict[int, dict]:
-    """{pid: {bytes, loopback_bytes, connections, remotes}} from `nettop_command` output.
+# A window sample may land up to this long before the window's end (nettop's 1 s interval and its jitter).
+NETTOP_SLACK_S = 1.5
 
-    bytes: in + out of the process rows of samples 1..N; loopback_bytes: the part of its lo0 flows; connections:
-    flows of the last sample with a remote end that are not listening; remotes: the remote ends of every flow
-    that moved bytes or stayed open (the owner of an over)."""
+
+def _nettop_stamp(sample: list[dict], near: float) -> float | None:
+    """The epoch of a sample's `time` column (local HH:MM:SS.ffffff, no date): the day nearest to `near`."""
+    if not sample:
+        return None
+    try:
+        clock = datetime.datetime.strptime(sample[0].get("time", ""), "%H:%M:%S.%f").time()
+    except ValueError:
+        return None
+    day = datetime.datetime.fromtimestamp(near).date()
+    stamps = [datetime.datetime.combine(day + datetime.timedelta(days=shift), clock).timestamp() for shift in (-1, 0, 1)]
+    return min(stamps, key=lambda stamp: abs(stamp - near))
+
+
+def _window_samples(samples: list[list[dict]], start: float | None, end: float | None) -> list[list[dict]] | None:
+    """The delta samples that count: without a window samples 1..N; with one, those stamped inside start..end, and
+    None unless they cover it (a sample at or before `start` precedes them, the last lands within NETTOP_SLACK_S of
+    `end`). Sample 0 holds the totals so far and never counts."""
+    samples = [sample for sample in samples if sample]
+    if len(samples) < 2:
+        return None
+    if start is None or end is None:
+        return samples[1:]
+    stamps = [_nettop_stamp(sample, start) for sample in samples]
+    if any(stamp is None for stamp in stamps):
+        return None
+    inside = [index for index in range(1, len(samples)) if start <= stamps[index] <= end]
+    if not inside or stamps[inside[0] - 1] > start or stamps[inside[-1]] < end - NETTOP_SLACK_S:
+        return None
+    return [samples[index] for index in inside]
+
+
+def _host(end: str) -> str:
+    """The host of a nettop -n end: `17.253.4.125:443` and IPv6 `fe80::1%en0.443` (port after a dot)."""
+    if end.count(":") == 1:
+        return end.rsplit(":", 1)[0]
+    head, _, port = end.rpartition(".")
+    return head if head and port.isdigit() and ":" in head else end
+
+
+def remote_matches(allowed: str, end: str) -> bool:
+    """Whether a remote end (`tcp4 17.253.4.125:443`, parse_nettop's) is `allowed`: the same `proto host:port`,
+    `host:port` or `host`, compared whole (never a substring: 1.1.1.1 is not 11.1.1.1)."""
+    address = end.split(" ", 1)[-1]
+    return allowed in (end, address, _host(address))
+
+
+def parse_nettop(text: str, start: float | None = None, end: float | None = None) -> dict[int, dict] | None:
+    """{pid: {bytes, loopback_bytes, connections, remotes, remote_bytes}} from `nettop_command` output, or None when
+    the output does not measure the window (fewer than two samples, or with start..end (epoch seconds) samples that
+    do not cover it): not measured is never 0 bytes.
+
+    Only the samples stamped inside start..end count (`_window_samples`), so reads made around the window are not
+    counted. bytes: in + out of the process rows; loopback_bytes: the part of its lo0 flows; connections: flows of
+    the last counted sample with a remote end that are not listening; remote_bytes: {remote end: bytes} of the flows
+    that moved bytes; remotes: those ends, then the ends only open at the end (the owner of an over)."""
+    samples = _window_samples(_nettop_samples(text), start, end)
+    if samples is None:
+        return None
     out: dict[int, dict] = {}
-    samples = _nettop_samples(text)
-    for index, sample in enumerate(samples[1:], start=1):
+    opened: dict[int, list[str]] = {}
+    for index, sample in enumerate(samples):
         last = index == len(samples) - 1
         got = None
         for row in sample:
             flow = _FLOW.fullmatch(row["name"])
             if flow is None:
                 process = _PROCESS.fullmatch(row["name"])
-                got = None if process is None else out.setdefault(
-                    int(process.group(2)), {"bytes": 0, "loopback_bytes": 0, "connections": 0, "remotes": []})
+                pid = None if process is None else int(process.group(2))
+                got = None if pid is None else out.setdefault(
+                    pid, {"bytes": 0, "loopback_bytes": 0, "connections": 0, "remotes": [], "remote_bytes": {}})
                 if got is not None:
                     got["bytes"] += _bytes(row)
                 continue
@@ -668,11 +725,14 @@ def parse_nettop(text: str) -> dict[int, dict]:
             if row.get("interface") == "lo0":
                 got["loopback_bytes"] += moved
             remote = flow.group(3).strip()
-            is_open = last and row.get("state") != "Listen" and not remote.startswith("*")
-            got["connections"] += 1 if is_open else 0
-            end = f"{flow.group(1)} {remote}"
-            if (moved or is_open) and end not in got["remotes"]:
-                got["remotes"].append(end)
+            end_name = f"{flow.group(1)} {remote}"
+            if moved:
+                got["remote_bytes"][end_name] = got["remote_bytes"].get(end_name, 0) + moved
+            if last and row.get("state") != "Listen" and not remote.startswith("*"):
+                got["connections"] += 1
+                opened.setdefault(pid, []).append(end_name)
+    for pid, got in out.items():
+        got["remotes"] = list(dict.fromkeys([*got["remote_bytes"], *opened.get(pid, [])]))
     return out
 
 

@@ -596,48 +596,118 @@ class MeasureOrderTests(unittest.TestCase):
         app = FakeApp(calls)
         instance = type("Instance", (), {"pid": 1})()
         saved = (ib.process_set, ib.threads, procs.usage, procs.overhead, procs.gpu_ns_by_pid, procs.coalition_of,
-                 procs.thermal_state, procs.power_assertions, ib.time.sleep)
+                 procs.coalition_id, procs.thermal_state, procs.power_assertions, ib.time.sleep)
         ib.process_set = lambda _instance: {1: f"{APP}/Contents/MacOS/cmux DEV"}
         ib.threads = lambda _pid: {}
-        procs.usage = lambda _pid: calls.append("usage") or procs.usage_from_words(rusage_words(), 1, 1)
+        procs.usage = lambda pid: calls.append("usage" if pid == 1 else f"usage {pid}") or procs.usage_from_words(
+            rusage_words(), 1, 1)
         procs.overhead = lambda _pid: (0, 30, 0, 0, 0)
         procs.gpu_ns_by_pid = lambda: {}
         procs.coalition_of = lambda _pid: None
+        procs.coalition_id = lambda _pid: 7
         procs.thermal_state = lambda: "nominal"
         procs.power_assertions = lambda _pids: calls.append("pmset") or []
         ib.time.sleep = lambda seconds: calls.append(f"sleep {seconds:g}")
         d15 = ib.D15Readers(windowserver=lambda: calls.append("windowserver") or (157, 10, "rusage", len(calls)),
-                            start_network=lambda seconds, workdir: calls.append("nettop start") or "nettop",
-                            finish_network=lambda started, seconds: calls.append(f"nettop finish {started}") or {},
+                            start_network=lambda seconds, workdir: calls.append(f"nettop start {seconds:g}") or "nettop",
+                            network_pid=lambda started: 77,
+                            finish_network=lambda started, start, end: calls.append(f"nettop finish {started}") or {},
                             read_log=lambda pids, start, end: calls.append("log show") or None)
         try:
             result = ib.measure(app, instance, 60, read_anim=lambda: calls.append("anim") or {"count": 0, "t_ms": 0},
                                 d15=d15)
         finally:
             (ib.process_set, ib.threads, procs.usage, procs.overhead, procs.gpu_ns_by_pid, procs.coalition_of,
-             procs.thermal_state, procs.power_assertions, ib.time.sleep) = saved
+             procs.coalition_id, procs.thermal_state, procs.power_assertions, ib.time.sleep) = saved
         probes = {"debug.energy", "pmset", "anim"}
         counters = [i for i, c in enumerate(calls) if c in ("debug.hangs", "debug.wakeups", "debug.cef", "debug.layers", "usage")]
         start_probes = [i for i, c in enumerate(calls) if c in probes and i < counters[0]]
         end_probes = [i for i, c in enumerate(calls) if c in probes and i > counters[-1]]
         self.assertEqual(len(start_probes) + len(end_probes), sum(1 for c in calls if c in probes))
         self.assertEqual((len(start_probes), len(end_probes)), (3, 3))
-        self.assertEqual(calls[start_probes[-1] + 1], f"sleep {ib.QUIET_GAP_S:g}")  # a quiet gap before the counters
+        # nettop starts, then a quiet gap (its start-up and the start reads' aftermath) before the counters
+        self.assertEqual(calls[start_probes[-1] + 1:start_probes[-1] + 3],
+                         [f"nettop start {60 + ib.NETTOP_LEAD_S:g}", f"sleep {ib.QUIET_GAP_S:g}"])
         self.assertEqual(result["ends"]["start"]["saver"], True)
         self.assertIn("anim", result["ends"]["end"])
-        # D15: WindowServer is read outside the process counters, nettop runs over the window (it starts after the
-        # first usage reads and ends after the last) and `log show` reads logd after the window.
+        # D15: WindowServer is read outside the process counters; nettop starts before every bracket (no exec or
+        # start-up of it inside one), samples its lead plus the window and ends after the last read; its own usage
+        # is read right at the window's two ends (its coalition share is taken out); `log show` reads logd after.
         usage = [i for i, c in enumerate(calls) if c == "usage"]
         window = calls.index("sleep 60")
         servers = [i for i, c in enumerate(calls) if c == "windowserver"]
         self.assertEqual(len(servers), 2)
         self.assertTrue(servers[0] < usage[0] and servers[1] > usage[-1])
-        self.assertTrue(usage[0] < calls.index("nettop start") < window < calls.index("nettop finish nettop"))
+        started = calls.index(f"nettop start {60 + ib.NETTOP_LEAD_S:g}")
+        self.assertLess(started, calls.index(f"sleep {ib.QUIET_GAP_S:g}"))
+        self.assertTrue(started < usage[0] < window < usage[-1] < calls.index("nettop finish nettop"))
+        self.assertEqual([i for i, c in enumerate(calls) if c == "usage 77"], [window - 1, window + 1])
         self.assertGreater(calls.index("log show"), usage[-1])
         self.assertEqual(result["readers"], {"network": True, "log": False})
         self.assertEqual([r["network_bytes"] for r in result["processes"]], [0])
         self.assertEqual([r["log_lines"] for r in result["processes"]], [None])
         self.assertEqual(result["windowserver"]["source"], "rusage")
+
+    def test_nettop_runs_before_the_power_window_and_leaves_the_coalition(self):
+        """nettop exists before PowerWindow lists the coalition's outside members, and the coalition rates lose its
+        share: a reader started inside the bracket (after prepare) fails here."""
+        calls, ticks = [], {"coalition": 0, 77: 0}
+
+        class FakeWindow:
+            def __init__(self, *_args):
+                pass
+
+            def prepare(self):
+                calls.append("prepare")
+
+            def begin(self):
+                calls.append("begin")
+
+            def end(self):
+                calls.append("end")
+
+            def finish(self):
+                return None
+
+        def coalition(_pid):
+            ticks["coalition"] += 1
+            wakeups = 0 if ticks["coalition"] == 1 else 600  # 10/s over the 60 s window, nettop's 1/s of it
+            return procs.CoalitionUsage(0, 0, 0, 0, 0, wakeups, 0)
+
+        def usage(pid):
+            if pid == 77:
+                ticks[77] += 1
+                return procs.usage_from_words(rusage_words(interrupt=0 if ticks[77] == 1 else 60), 1, 1)
+            return procs.usage_from_words(rusage_words(), 1, 1)
+
+        d15 = ib.D15Readers(windowserver=lambda: (157, 10, "rusage", 0.0),
+                            start_network=lambda seconds, workdir: calls.append("nettop start") or "nettop",
+                            network_pid=lambda started: 77, finish_network=lambda started, start, end: {},
+                            read_log=lambda pids, start, end: {})
+        clock = iter(range(0, 1000, 60))
+        with contextlib.ExitStack() as stack:
+            for target, name, value in (
+                    (ib, "process_set", lambda _instance: {1: f"{APP}/Contents/MacOS/cmux DEV"}),
+                    (ib, "threads", lambda _pid: {}), (ib, "frame_sources", lambda _app: None),
+                    (ib.power_attribution, "PowerWindow", FakeWindow), (procs, "usage", usage),
+                    (procs, "overhead", lambda _pid: (0, 30, 0, 0, 0)), (procs, "gpu_ns_by_pid", lambda: {}),
+                    (procs, "coalition_of", coalition), (procs, "coalition_id", lambda _pid: 7),
+                    (procs, "thermal_state", lambda: "nominal"), (procs, "power_assertions", lambda _pids: []),
+                    (ib.time, "sleep", lambda _seconds: None), (ib.time, "monotonic", lambda: next(clock))):
+                stack.enter_context(unittest.mock.patch.object(target, name, value))
+            result = ib.measure(FakeApp([]), type("Instance", (), {"pid": 1})(), 60, attribute=True, d15=d15)
+        self.assertEqual(calls, ["nettop start", "prepare", "begin", "end"])
+        self.assertEqual(result["coalition"]["wakeups_per_s"], 9.0)
+
+    def test_a_reader_outside_the_app_coalition_is_not_subtracted(self):
+        coalition = {"energy_mw_cpu": 1.0, "energy_mw_billed": 1.0, "cpu_pct": 0.5, "wakeups_per_s": 4.0,
+                     "pkg_idle_wakeups_per_s": 1.0, "gpu_ms_per_s": 0.0}
+        nettop = procs.usage_from_words(rusage_words(interrupt=60), 1, 1)
+        self.assertEqual(ib.coalition_without(coalition, procs.Usage(), nettop, 60)["wakeups_per_s"], 3.0)
+        self.assertIsNone(ib.coalition_without(coalition, procs.Usage(), None, 60))  # gone: unknown, not the app's
+        with unittest.mock.patch.object(procs, "coalition_id", lambda pid: {1: 7, 77: 8}.get(pid)):
+            self.assertFalse(ib.same_coalition(77, 1))
+            self.assertTrue(ib.same_coalition(1, 1))
 
 
 class EnergyTests(unittest.TestCase):
@@ -1309,6 +1379,10 @@ LOG = "\n".join(json.dumps(event) for event in [
 ]) + "\n{\"count\":5,\"finished\":1}\n"
 WINDOW_START = procs.datetime.datetime(2026, 10, 25, 12, 0, 1, tzinfo=procs.datetime.timezone.utc).timestamp()
 WINDOW_END = WINDOW_START + 2
+# nettop's `time` is the local time of day: the window around NETTOP's two delta samples (12:00:01, 12:00:02).
+NETTOP_HEADER = NETTOP.split("\n", 1)[0] + "\n"
+NET_START = procs.datetime.datetime(2026, 10, 25, 12, 0, 0, 500000).timestamp()
+NET_END = procs.datetime.datetime(2026, 10, 25, 12, 0, 2, 200000).timestamp()
 
 TOP = """Processes: 512 total, 3 running, 509 sleeping, 2401 threads
 PID    IDLEW
@@ -1334,7 +1408,9 @@ class D15ParserTests(unittest.TestCase):
         self.assertEqual(net[501]["bytes"], 200)
         self.assertEqual(net[501]["connections"], 1)
         self.assertEqual(net[501]["remotes"], ["tcp4 17.253.4.125:443"])
-        self.assertEqual(net[502], {"bytes": 0, "loopback_bytes": 0, "connections": 1, "remotes": ["tcp4 127.0.0.1:9222"]})
+        self.assertEqual(net[502], {"bytes": 0, "loopback_bytes": 0, "connections": 1, "remotes": ["tcp4 127.0.0.1:9222"],
+                                    "remote_bytes": {}})
+        self.assertEqual(procs.parse_nettop(NETTOP, NET_START, NET_END), net)  # the window covers both samples
         self.assertEqual(net[300]["bytes"], 128)
 
     def test_nettop_counts_loopback_bytes_and_skips_the_totals_sample(self):
@@ -1346,8 +1422,55 @@ class D15ParserTests(unittest.TestCase):
         self.assertEqual(net[502]["loopback_bytes"], 300)
         self.assertEqual(net[501]["loopback_bytes"], 0)
 
-    def test_nettop_of_nothing_is_empty(self):
-        self.assertEqual(procs.parse_nettop(""), {})
+    def test_nettop_that_did_not_sample_the_window_is_not_measured(self):
+        self.assertIsNone(procs.parse_nettop(""))
+        sample0 = NETTOP.split("time,", 2)
+        self.assertIsNone(procs.parse_nettop("time," + sample0[1]))  # one sample: the totals only
+        header_once = NETTOP.split("\n", 1)[0] + "\n" + "\n".join(
+            line for line in NETTOP.splitlines()[1:] if not line.startswith("time,"))
+        self.assertIsNone(procs.parse_nettop(header_once))
+        self.assertIsNone(procs.parse_nettop(header_once, NET_START, NET_END))
+
+    def test_nettop_counts_only_the_samples_stamped_inside_the_window(self):
+        late = NETTOP + NETTOP_HEADER + "12:00:03.000000,cmux DEV t.501,,,999,0,0,0,0,,,,,,,,,,,,\n" + \
+            "12:00:03.000000,tcp4 127.0.0.1:50003<->127.0.0.1:8123,lo0,Established,999,0,0,0,0,,,,,,,,,,,,\n"
+        self.assertEqual(procs.parse_nettop(late)[501]["bytes"], 1199)  # no window: every sample
+        net = procs.parse_nettop(late, NET_START, NET_END)
+        self.assertEqual(net[501]["bytes"], 200)  # the bench's end reads at 12:00:03 are not the app's
+        self.assertEqual(net[501]["loopback_bytes"], 0)
+        self.assertEqual(net[501]["remote_bytes"], {"tcp4 17.253.4.125:443": 200})
+        self.assertEqual(net[501]["connections"], 1)  # open at the window's last sample (12:00:02)
+
+    def test_nettop_samples_that_do_not_cover_the_window_are_not_measured(self):
+        self.assertIsNone(procs.parse_nettop(NETTOP, NET_START, NET_END + 3))  # nettop stopped 3 s early
+        self.assertIsNone(procs.parse_nettop(NETTOP, NET_START - 1, NET_END))  # its totals came after the start
+        self.assertIsNotNone(procs.parse_nettop(NETTOP, NET_START, NET_END + 1))  # within one sample of the end
+
+    def test_finish_nettop_of_a_header_once_csv_is_a_failed_reader(self):
+        folder = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, folder)
+        path = os.path.join(folder, "nettop.csv")
+        with open(path, "w") as handle:
+            handle.write(NETTOP.split("\n", 1)[0] + "\n" + "\n".join(
+                line for line in NETTOP.splitlines()[1:] if not line.startswith("time,")))
+        done = types.SimpleNamespace(wait=lambda timeout=None: 0, returncode=0, kill=lambda: None)
+        self.assertIsNone(ib.finish_nettop(ib.NettopRun(done, path, 0.0), NET_START, NET_END))
+        first, last = d15_snapshots()
+        rows = ib.process_rows(first, last, 60.0, None, None, ib.kind, network=ib.NOT_MEASURED, logs={})
+        entry = ib.summarize("light", {"processes": rows, "ends": ends(False, False),
+                                       "readers": {"network": False, "log": True}}, D15BudgetTests.BUDGET)
+        self.assertEqual(entry["over"], [])
+        self.assertIn("light app network_bytes: not judged: unknown", entry["not_judged"])
+
+    def test_remote_matches_the_whole_host_or_end(self):
+        self.assertTrue(procs.remote_matches("17.253.4.125:443", "tcp4 17.253.4.125:443"))
+        self.assertTrue(procs.remote_matches("17.253.4.125", "tcp4 17.253.4.125:443"))
+        self.assertTrue(procs.remote_matches("tcp4 17.253.4.125:443", "tcp4 17.253.4.125:443"))
+        self.assertTrue(procs.remote_matches("2606:4700::1", "tcp6 2606:4700::1.443"))
+        for allowed, end in (("1.1.1.1:443", "tcp4 11.1.1.1:443"), ("17.253.4.12", "tcp4 17.253.4.125:443"),
+                             ("10.0.0.1", "tcp4 10.0.0.10:443"), ("17.0.0.1:443", "tcp4 117.0.0.1:443"),
+                             ("17.253.4.125:80", "tcp4 17.253.4.125:443")):
+            self.assertFalse(procs.remote_matches(allowed, end), (allowed, end))
 
     def test_nettop_command_covers_the_window(self):
         command = procs.nettop_command(60)
@@ -1472,6 +1595,65 @@ class D15BudgetTests(unittest.TestCase):
         self.assertFalse(ib.periodic_excuse({"allowed_periodic": [{**rule, "metrics": ["wakeups_per_s"]}]}, "app",
                                             "wakeups_per_s", kinds["app"]))
 
+    def test_a_remote_excuse_matches_the_whole_end_not_a_substring(self):
+        text = NETTOP.replace("17.253.4.125:443", "11.1.1.1:443")
+        kinds = self.kinds(procs.parse_nettop(text), {})
+        rule = {"owner": "x", "period_s": 30, "why": "y", "kind": "app", "metrics": ["network_bytes"],
+                "remote": "1.1.1.1:443"}
+        self.assertEqual([o[:2] for o in ib.over_budget("light", kinds, {**self.BUDGET, "allowed_periodic": [rule]})],
+                         [("app", "network_bytes")])
+
+    def test_a_remote_excuse_survives_an_idle_open_connection_elsewhere(self):
+        text = NETTOP.replace(  # a second, zero-byte flow of the app open to the bench's tab server at the end
+            "12:00:02.000000,tcp4 *:7000<->*:*,lo0,Listen,0,0",
+            "12:00:02.000000,tcp4 127.0.0.1:50009<->127.0.0.1:8123,lo0,Established,0,0")
+        kinds = self.kinds(procs.parse_nettop(text), {})
+        self.assertEqual(kinds["app"]["connections"], 2)
+        self.assertEqual(kinds["app"]["remotes"], ["tcp4 17.253.4.125:443", "tcp4 127.0.0.1:8123"])
+        rule = {"owner": "x", "period_s": 30, "why": "y", "kind": "app", "metrics": ["network_bytes"],
+                "remote": "17.253.4.125:443"}
+        self.assertEqual(ib.over_budget("light", kinds, {**self.BUDGET, "allowed_periodic": [rule]}), [])
+
+    def test_a_remote_excuse_leaves_bytes_to_other_ends_an_over(self):
+        text = NETTOP.replace(
+            "12:00:02.000000,cmux DEV t.501,,,0,0", "12:00:02.000000,cmux DEV t.501,,,50,0").replace(
+            "12:00:02.000000,tcp4 *:7000<->*:*,lo0,Listen,0,0",
+            "12:00:02.000000,tcp4 192.168.1.20:50010<->8.8.8.8:443,en0,Established,50,0")
+        kinds = self.kinds(procs.parse_nettop(text), {})
+        rule = {"owner": "x", "period_s": 30, "why": "y", "kind": "app", "metrics": ["network_bytes"],
+                "remote": "17.253.4.125"}
+        self.assertEqual(ib.over_budget("light", kinds, {**self.BUDGET, "allowed_periodic": [rule]}),
+                         [("app", "network_bytes", 250, 0)])
+
+    def test_a_remote_excuses_no_disk_or_log_value(self):
+        kinds = self.kinds(procs.parse_nettop(NETTOP), procs.parse_log(LOG, {501, 502}, WINDOW_START, WINDOW_END))
+        rule = {"owner": "x", "period_s": 30, "why": "y", "kind": "app", "metrics": ["log_lines"],
+                "remote": "17.253.4.125:443"}
+        self.assertFalse(ib.periodic_excuse({"allowed_periodic": [rule]}, "app", "log_lines", kinds["app"]))
+
+    def test_a_process_that_exits_in_the_window_keeps_its_network_and_log(self):
+        first, last = d15_snapshots()
+        helper = f"{APP}/Contents/Frameworks/cmux Helper.app/Contents/MacOS/cmux Helper --type=utility"
+        first = {**first, 503: (helper, first[501][1], first[501][2], {})}
+        network = {**procs.parse_nettop(NETTOP), 503: {"bytes": 4096, "loopback_bytes": 0, "connections": 0,
+                                                       "remotes": ["tcp4 1.2.3.4:443"],
+                                                       "remote_bytes": {"tcp4 1.2.3.4:443": 4096}}}
+        logs = {503: {"lines": 3, "owners": {"com.x:y": 3}}}
+        rows = ib.process_rows(first, last, 60.0, None, None, ib.kind, network=network, logs=logs)
+        exited = ib.exited_rows(first, last, ib.kind, network=network, logs=logs)
+        self.assertEqual([(r["pid"], r["exited"], r["disk_bytes"]) for r in exited], [(503, True, None)])
+        kinds = ib.aggregate({"processes": rows, "exited": exited})
+        name = ib.kind(helper)
+        self.assertEqual(kinds[name]["exited"], [503])
+        self.assertEqual(kinds[name]["n"], 0)
+        self.assertEqual(kinds[name]["network_bytes"], 4096)
+        self.assertEqual(kinds[name]["log_lines"], 3)
+        self.assertIsNone(kinds[name]["disk_bytes_per_s"])  # its rusage left with it: unknown, not 0
+        overs = ib.over_budget("light", kinds, self.BUDGET)
+        self.assertIn((name, "network_bytes", 4096, 0), overs)
+        self.assertIn((name, "log_lines", 3, 0), overs)
+        self.assertIn(f"light {name} disk_bytes_per_s: not judged: unknown", ib.kind_notes("light", kinds, self.BUDGET))
+
     def test_busy_and_reference_sessions_do_not_take_the_d15_zeros(self):
         budget = ib.load_budget(ib.BUDGET_FILE)
         kinds = self.kinds({}, {}, app_disk=4096)
@@ -1524,6 +1706,31 @@ class WindowServerTests(unittest.TestCase):
                          {"source": "rusage", "wakeups_per_s": 4.0, "hidden_reference_per_s": 4.0, "reference": "self",
                           "delta_per_s": 0.0})
         self.assertEqual(ib.windowserver_with_reference(None, server, {}, 0, {})["reference"], "none")
+
+    def test_a_hide_that_is_not_confirmed_takes_no_reference(self):
+        class HideApp:
+            def __init__(self, hide_reply, windows):
+                self.hide_reply, self.windows, self.calls = hide_reply, windows, []
+
+            def rpc(self, method, params=None, timeout=30):
+                self.calls.append(method)
+                return self.hide_reply if method == "action.run" else {"windows": self.windows}
+
+        server = ib.windowserver_report(4.0, None, "rusage")
+        shown = [{"kind": "main", "visible": True}]
+        hidden = [{"kind": "main", "visible": False}]
+        readings = iter([(157, 100, "rusage", 0.0), (157, 160, "rusage", 60.0)])
+        with unittest.mock.patch.object(ib.time, "sleep", lambda _seconds: None), \
+                unittest.mock.patch.object(ib, "windowserver_reading", lambda: next(readings)):
+            for reply, windows in (({"error": {"code": "unknown_action"}}, hidden), ({}, shown), ({}, None)):
+                app, entry = HideApp(reply, windows), {}
+                report = ib.windowserver_with_reference(app, server, {}, 60, entry)
+                self.assertEqual((report["reference"], report["hidden_reference_per_s"], report["delta_per_s"]),
+                                 ("hide-failed", None, None), (reply, windows))
+                self.assertEqual(entry["windowserver_hide"], reply)
+            confirmed = ib.windowserver_with_reference(HideApp({}, hidden), server, {}, 60, {})
+        self.assertEqual((confirmed["reference"], confirmed["hidden_reference_per_s"], confirmed["delta_per_s"]),
+                         ("hidden", 1.0, 3.0))
 
     def test_windowserver_is_reported_never_judged(self):
         budget = {"all_kinds": {"disk_bytes_per_s": 0}, "kinds": {"windowserver": {"wakeups_per_s": 0}}}
