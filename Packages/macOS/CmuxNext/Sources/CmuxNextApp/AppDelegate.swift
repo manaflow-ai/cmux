@@ -408,7 +408,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 DebugDownloads.register(on: control.service?.router, services: services)
                 DebugCEFDevToolsLayout.register(on: control.service?.router, services: services)
                 #if DEBUG
-                // The Chromium host app prototype (browserHost.helperPrototype; cef-helper-app-DESIGN.md).
+                // The Chromium host app prototype (browserHost.helper; cef-helper-app-DESIGN.md).
                 // Socket focus policy: `open` makes the page first responder only with focus: true.
                 let chromiumHost = ChromiumHostPrototype(makeConfiguration: { ChromiumHostPrototype.bundledConfiguration() },
                                                          tunables: TunableStore.shared)

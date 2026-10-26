@@ -123,6 +123,9 @@ final class AppServices {
     let blocking = BlockingDetector.forProcess()
     /// The local daemon's wire counters (`debug.daemon.wire`); nil in a release build.
     let wireStats: DaemonWireStats?
+    /// The observers' per-owner counts (`debug.observations`): each observer kind interns its owner here when it is
+    /// built. It is the main-thread scheduler's one ledger, so every `VisibleObservation` records into it too.
+    var observations: ObservationLedger { mainWork.observations }
     /// Sparkle updates (release builds) or read-only feed probes (DEV).
     let updater: UpdaterService
     /// The file picker made ahead of the click, the app's one: agent panes, page file inputs and Home's "+" take it.
@@ -143,7 +146,7 @@ final class AppServices {
     let signInCallbacks = CEFSignInCallbacks()
     /// Every terminal's grid sender: next frame, one in flight, a split's or close's final grid at once.
     let resizes = ResizeCoordinator()
-    private(set) lazy var cache: TabContentCache = TabContentCache(daemon: daemon, cef: CEFEngine(source: chromiumRuntime.source, stores: browserStores, signInCallbacks: signInCallbacks, lifecycleTrace: .shared, contextMenus: self.contextMenus), fileInput: openPanel, resizes: resizes)  // first read in init (no IUO)
+    private(set) lazy var cache: TabContentCache = TabContentCache(daemon: daemon, cef: CEFEngine(source: chromiumRuntime.source, stores: browserStores, signInCallbacks: signInCallbacks, lifecycleTrace: .shared, contextMenus: self.contextMenus, waitDeadlines: mainWork.wakeUps), fileInput: openPanel, resizes: resizes)  // first read in init (no IUO)
     #if DEBUG || CMUX_BENCH_HOOKS
     /// `debug.terminal_final_grid`: a split's or close's terminal grids, sent, drawn and announced.
     private(set) lazy var finalGridTrace: TerminalFinalGridTrace = {

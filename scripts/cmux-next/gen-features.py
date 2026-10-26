@@ -62,7 +62,7 @@ HEADER = (
 # become features. fnmatch patterns over Tunable<Bool> keys, and env names the daemon reads.
 UNMIGRATED_BOOL_TUNABLES = (
     "browserResize.layerHosting",
-    "browserHost.helperPrototype",
+    "browserHost.helper",
     "motion.pane.holdContent",
     "sidebar.*slideHoldsContent",
     "hibernation.compressedSnapshots",

@@ -170,7 +170,7 @@ an active flag: no page window is ever key, so neither the key-state walk nor th
 change runs for a page focus. That needs the pin past API 24 (this design's host work needs 27). DevTools focus
 emulation in process is not a substitute: the page view then has no text input client, so IME breaks.
 
-## 4. Prototype (behind `browserHost.helperPrototype`, default off; the host app is in Debug builds only)
+## 4. Prototype (behind `browserHost.helper`, default off; the host app is in Debug builds only)
 
 - Host: `Packages/macOS/CmuxNext/ChromiumHost/src/browser_host_main.mm` (built by `scripts/cmux-next/build-chromium-host.sh`
   as `cmux-chromium-host` against the shim build's wrapper, with a cache key of its own, so a host edit changes neither the
@@ -229,7 +229,7 @@ in the measure queue and go into perf-lead.md section 5 when they arrive.
 
 ### Default and prototype gaps (lead, 2026-10-24)
 
-The host stays off by default (`browserHost.helperPrototype`, Debug builds only; `ChromiumHostDefaultOffTests`): every
+The host stays off by default (`browserHost.helper`, Debug builds only; `ChromiumHostDefaultOffTests`): every
 Chromium tab of every DEV, NIGHTLY and Release user runs in process. Only `debug.chromium_host` starts a host, and only
 with the toggle on. It stays so until Japanese IME (a ship blocker), find, drag and permission prompts work in the host.
 The page's focus is `cmux_browser_set_embedder_active` on a detached page (fork API 30), and DevTools focus emulation
@@ -296,7 +296,7 @@ token, drag source, WebAuthn delegate, capture) as one CEF release.
 
 | Slice | Who | What | Done when |
 |---|---|---|---|
-| 0 | PL-cef-helper | Design + prototype behind `browserHost.helperPrototype` (landed 6ed76900e56, cc7bc02aef0) | done 2026-10-24 |
+| 0 | PL-cef-helper | Design + prototype behind `browserHost.helper` (landed 6ed76900e56, cc7bc02aef0) | done 2026-10-24 |
 | 1 | PL-cef-helper | Numbers: pump-share baseline (cmux20-bench, cmuxs-Mac-mini-3), prototype latency and pacing, stall test 9a, typing across a kill 9e | about 2026-10-26 (measure queue) |
 | 2 | PL-cef-helper | Input ring, coalescing per frame, wheel phase, user-input queue, IME, cursor; proof 9b, 9d; then the resize fence and 9c | about 2026-11-07 (needs fork items 1-3) |
 | 3 | helper agent A | The shim behind the wire (132 calls: host side over the shim sources, cmux side in Swift), supervisor for every tab, crash page, CDP proxy, launch and spare page | about 2026-11-07 |

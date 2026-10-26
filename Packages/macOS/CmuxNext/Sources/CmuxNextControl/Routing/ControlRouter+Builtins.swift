@@ -92,15 +92,8 @@ extension ControlRouter {
             }.withDeadline(.fixed(.seconds(120))) // `confirm: true` waits for the person, as settings.set
         } + [
             .snapshot("snapshot.get") { call in
-                let snapshot = call.snapshot
-                var members: [String: JSONValue] = [
-                    "sequence": JSONValue.number(Double(snapshot.topology.daemonSequence)),
-                    "generation": JSONValue(Int(truncatingIfNeeded: snapshot.generation)),
-                    "published_uptime_ns": .number(Double(snapshot.publishedAtUptimeNanos)),
-                    "tab_count": JSONValue(snapshot.topology.tabCount),
-                    "topology": snapshot.topology.json,
-                ]
-                try ControlCallerLocation.annotate(&members, params: call.params, topology: snapshot.topology)
+                var members = call.snapshot.snapshotGetMembers
+                try ControlCallerLocation.annotate(&members, params: call.params, topology: call.snapshot.topology)
                 return .object(members)
             },
         ] + diagnosticMethods()

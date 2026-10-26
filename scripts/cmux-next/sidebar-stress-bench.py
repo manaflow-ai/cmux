@@ -19,6 +19,9 @@ Per size it measures:
                 (the selection is applied and drawn by then) and the frame intervals
   drag          a row dragged over the list (`debug.mouse` down, then one dragged event per RPC):
                 main-thread time per mouse-move (Time Profiler) and frame intervals
+  observations  `debug.observations` before and after one workspace status change, tickers paused: armed
+                observations app-wide and the evaluations, applies and hosting bodies the one change cost;
+                `budget` checks armed SidebarRows <= on screen + one screen and 1 change -> <= 2 evaluations
 Traces go to OUT/traces/*.trace; OUT/results.json holds every number and the top main-thread frames.
 
 Usage (nx-remote --needs gui --app-from-fleet cmux --tag T --ref SHA):
@@ -34,7 +37,7 @@ parser.add_argument("--sizes", default="100,500,1000")
 parser.add_argument("--groups", type=int, default=10)
 parser.add_argument("--tick-share", type=float, default=0.05)
 parser.add_argument("--tickers", type=int, default=0, help="exact number of ticking workspaces (overrides --tick-share)")
-parser.add_argument("--scenarios", default="ticks,scroll,scroll_ticking,switch,drag,hitches",
+parser.add_argument("--scenarios", default="ticks,scroll,scroll_ticking,switch,drag,hitches,observations",
                     help="which scenarios to run per size; add switch_matrix for the workspace switch matrix")
 parser.add_argument("--switches", type=int, default=16, help="switch_matrix: switches per input and kind")
 parser.add_argument("--no-trace", action="store_true")
@@ -451,6 +454,68 @@ def scenario_ticks(pid, size):
             "frames_while_ticking": stats, "trace": os.path.relpath(tr.path, OUT), "profile": profile}
 
 
+def scenario_observations():
+    """One status value change's observation cost (debug.observations, p06-scheduler-029).
+
+    The `bench` status entry is set and settled before the baseline, so the measured change only edits the text of a
+    pill the row already shows (the same kind of change at every size), and it is cleared after, so the later
+    scenarios and sizes start from the same row. The changed row reads that status, so a change that no observer
+    re-read is an error, not a 0 that meets the budget. Body counts are null until some owner records a hosting body
+    (the recorder is p06-scheduler-214's): a 0 from no recorder is not "0 hidden bodies"."""
+    if not made["workspaces"]:
+        return {"error": "no workspace to change"}
+    first = made["workspaces"][0]
+    target = first["ref"] or first["name"]
+
+    def status_set(text):
+        done = cli("workspace", target, "status", "set", "bench", text)
+        return None if done.returncode == 0 else f"status set: exit {done.returncode} {(done.stdout + done.stderr).strip()[-200:]}"
+
+    ticking(False)
+    failed = status_set("observations settle")
+    if failed:
+        return {"error": failed}
+    time.sleep(1)
+    try:
+        before = rpc("debug.observations", {"reset": True})
+        if not isinstance(before, dict) or "error" in before:
+            return {"error": f"debug.observations: {before}"}  # an older build has no method
+        failed = status_set(f"observations {time.time():.0f}")
+        if failed:
+            return {"error": failed}
+        time.sleep(1)
+        after = rpc("debug.observations")
+        if not isinstance(after, dict) or "error" in after:
+            return {"error": f"debug.observations after the change: {after}"}
+        on_screen = sum(1 for r in workspace_rows() if r.get("in_list"))
+    finally:
+        done = cli("workspace", target, "status", "clear", "bench")
+        if done.returncode != 0:
+            note(f"observations: status clear bench -> {done.returncode}")
+    totals = after.get("totals") or {}
+    if not totals.get("evaluations"):
+        return {"error": "the status change re-read no observation: its row's observer does not feed the ledger",
+                "owners": [o.get("owner") for o in after.get("owners") or []]}
+    bodies_recorded = any(o.get("body_evaluations") for snap in (before, after) for o in snap.get("owners") or [])
+    per_change = {key: totals.get(key) for key in ("evaluations", "applies")}
+    for key in ("body_evaluations", "hidden_body_evaluations"):
+        per_change[key] = totals.get(key) if bodies_recorded else None
+    rows = next((o for o in after.get("owners") or [] if o.get("owner") == "SidebarRows"), {})
+    armed_rows = rows.get("armed")
+    budget = {"on_screen_rows": on_screen, "armed_rows": armed_rows,
+              "armed_rows_ok": armed_rows <= 2 * on_screen if armed_rows is not None and on_screen else None,
+              "evaluations_ok": per_change["evaluations"] <= 2}
+    busy = [o for o in after.get("owners") or [] if o.get("evaluations") or o.get("applies") or o.get("body_evaluations")]
+    result = {"armed_before": (before.get("totals") or {}).get("armed"), "armed_after": totals.get("armed"),
+              "per_change": per_change, "budget": budget,
+              "owners": [o.get("owner") for o in after.get("owners") or []], "busy_owners": busy}
+    if not bodies_recorded:
+        result["body_note"] = "no hosting body recorder: no owner recorded a body evaluation"
+    if budget["armed_rows_ok"] is False or not budget["evaluations_ok"]:
+        note(f"observations: over budget {budget}")
+    return result
+
+
 def scenario_switch(pid, size, count=24):
     scroll_to_top()
     time.sleep(1)
@@ -715,6 +780,8 @@ def main():
                 entry["drag"] = scenario_drag(app.pid, size)
             if "hitches" in want:
                 entry["hitches"] = scenario_hitches(app.pid, size)
+            if "observations" in want:
+                entry["observations"] = scenario_observations()
             entry["hangs"] = rpc("debug.hangs", {})
             results["sizes"][str(size)] = entry
             with open(os.path.join(OUT, "results.json"), "w") as f:
