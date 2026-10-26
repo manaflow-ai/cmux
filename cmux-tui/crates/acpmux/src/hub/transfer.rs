@@ -881,22 +881,22 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    /// Review of #25676: a rollback that cannot put a journal back keeps its marker, the backup
-    /// and the chat's store (whose session.json names the owner), so a restart finishes it.
+    /// Review 102 of #25676: an import that failed once its durable state was staged is never
+    /// loaded as a chat, even when its rollback cannot finish. Its marker and store wait for the
+    /// next start, whose sweep rolls it back as far as it can and loads nothing of it.
     #[tokio::test]
-    async fn a_rollback_that_cannot_put_a_journal_back_keeps_its_marker() {
+    async fn a_staged_import_that_failed_is_not_loaded_at_the_next_start() {
         let dir = std::env::temp_dir().join(format!("acpmux-test-{}", uuid::Uuid::now_v7()));
         let hub = harness_hub(&dir);
         let root = dir.join("sessions");
         let id = uuid::Uuid::now_v7().to_string();
         std::fs::create_dir_all(root.join(&id)).unwrap();
-        let owner = harness_meta(&id, "agent-0006").to_string();
-        std::fs::write(root.join(&id).join("session.json"), owner).unwrap();
+        let owner = harness_meta(&id, "agent-0006");
+        std::fs::write(root.join(&id).join("session.json"), owner.to_string()).unwrap();
         let journal_dir = root.join("agent-0006");
-        // The journal's path is a non-empty directory: the backup cannot be renamed back.
+        // The journal's path is a non-empty directory: its backup cannot be renamed back.
         std::fs::create_dir_all(journal_dir.join("journal.ndjson").join("in-the-way")).unwrap();
-        let backup = journal_dir.join("journal.ndjson.transfer-backup");
-        std::fs::write(&backup, "the journal before the import\n").unwrap();
+        std::fs::write(journal_dir.join("journal.ndjson.transfer-backup"), "before\n").unwrap();
         let marker = root.join(".agent-0006.durable-transfer-state");
         let staged = json!({
             "agentId": "agent-0006", "outerId": id, "replaceDurable": false, "phase": "staged",
@@ -904,10 +904,13 @@ mod tests {
             "journalDirWasPresent": true, "hadJournal": true, "hadPi": false,
         });
         std::fs::write(&marker, staged.to_string()).unwrap();
-        let _ = hub.recover_durable_marker(&root, &marker, "agent-0006");
-        assert!(marker.exists(), "the rollback failed but its marker went");
-        assert!(backup.exists(), "the journal's backup went");
-        assert!(root.join(&id).join("session.json").exists(), "the owner's store went");
+        let meta: SessionMeta = serde_json::from_value(owner).unwrap();
+        hub.drop_failed_import(&meta);
+        drop(hub);
+        let restarted = harness_hub(&dir);
+        let loaded = restarted.sessions.lock().unwrap().contains_key(&id);
+        assert!(!loaded, "the failed import loaded as a chat at the next start");
+        assert!(!marker.exists(), "the next start left the failed import's marker");
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
