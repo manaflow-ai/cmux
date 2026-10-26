@@ -35,10 +35,11 @@ public nonisolated struct CEFPumpStats: Equatable, Sendable {
     public var deferredForInput = 0
     /// Each pass's main-thread time while the input policy runs.
     public var passTimes = InputLatencyHistogram()
-    /// Passes for a delayed fire date that CEF answered, during the pass or within 2 ms of its end,
-    /// with a request under 2 ms (``EarlyPassWatch``): the pass came before Chromium's task was due,
-    /// because CEF truncates each delay to whole milliseconds against a stale `recent_now`, so one
-    /// delayed task cost a second main wake. 0 once the fork sends absolute run times (p14-energy-046).
+    /// Passes for a delayed fire date that CEF answered during the pass, on the main thread, with a
+    /// request under 2 ms (``EarlyPassWatch``): the pass came before Chromium's task was due, because CEF
+    /// truncates each delay to whole milliseconds against a stale `recent_now` (the re-ask at the end of
+    /// `CefDoMessageLoopWork`), so one delayed task cost a second main wake. 0 once the fork sends
+    /// absolute run times (p14-energy-046).
     public var earlyPasses = 0
 
     /// One pass's main-thread time at the 99th percentile in milliseconds, 0 before any pass.
@@ -48,47 +49,35 @@ public nonisolated struct CEFPumpStats: Equatable, Sendable {
 
     public init() {}
 
-    /// Decides which passes count as ``earlyPasses``. A pass that used CEF's whole time slice is not
-    /// one: the fork asks for "now" because work is left.
+    /// Decides which passes count as ``earlyPasses``: only CEF's own re-ask during the pass counts. A
+    /// request after the pass is a Chromium thread's or cmux's, not the truncated re-ask, and a pass that
+    /// used CEF's whole time slice is not early: the fork asks for "now" because work is left.
     nonisolated struct EarlyPassWatch: Equatable, Sendable {
-        /// The re-ask window after a pass, and the largest early re-ask (exclusive).
-        static let window: TimeInterval = 0.002
+        /// The largest early re-ask (exclusive), in ms.
+        static let earlyReask: Int64 = 2
 
         /// The running pass serves a delayed fire date.
         private var delayedPassRuns = false
-        /// A request under ``window`` arrived during that pass.
+        /// CEF asked for under ``earlyReask`` ms during that pass.
         private var reasked = false
-        /// The end of the last delayed pass not counted yet.
-        private var delayedPassEnd: TimeInterval?
 
         mutating func passBegan(servesFireDate: Bool) {
             delayedPassRuns = servesFireDate
             reasked = false
-            delayedPassEnd = nil
         }
 
-        /// True when the pass that ended at `now` was early.
-        mutating func passEnded(at now: TimeInterval, usedWholeSlice: Bool) -> Bool {
+        /// True when the pass that just ended was early.
+        mutating func passEnded(usedWholeSlice: Bool) -> Bool {
             defer {
                 delayedPassRuns = false
                 reasked = false
             }
-            guard delayedPassRuns, !usedWholeSlice else { return false }
-            if reasked { return true }
-            delayedPassEnd = now
-            return false
+            return delayedPassRuns && reasked && !usedWholeSlice
         }
 
-        /// A CEF request at `now`; true when it makes the last delayed pass early.
-        mutating func request(milliseconds: Int64, now: TimeInterval) -> Bool {
-            guard TimeInterval(milliseconds) / 1_000 < Self.window else { return false }
-            if delayedPassRuns {
-                reasked = true
-                return false
-            }
-            guard let end = delayedPassEnd, now - end <= Self.window else { return false }
-            delayedPassEnd = nil
-            return true
+        /// A CEF request made on the main thread.
+        mutating func request(milliseconds: Int64) {
+            if delayedPassRuns, milliseconds < Self.earlyReask { reasked = true }
         }
     }
 

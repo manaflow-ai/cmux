@@ -30,11 +30,11 @@ import os
 ///
 /// Each timer fire is one main wake in the wakeup ledger (owner ``ledgerOwner``) with the reason it
 /// fired (``LedgerReason``), as Chrome's `MessagePumpCFRunLoopBase` tells its wakes apart by what woke
-/// it (`RunDelayedWorkTimer` or `RunWorkSource`, base/message_loop/message_pump_apple.mm). A fire the
-/// deadline queue ran is already one record there, same owner, reason `deadline`; the pump adds none.
+/// it (`RunDelayedWorkTimer` or `RunWorkSource`, base/message_loop/message_pump_apple.mm). The deadline
+/// queue records no `deadline` for the pump's entries (``MainWakeUpQueue/LedgerReason/recordedByAction``).
 final class CEFMessagePump {
     /// The wakeup ledger owner of every pump wake.
-    static let ledgerOwner = "CEFMessagePump"
+    nonisolated static let ledgerOwner = "CEFMessagePump"
 
     /// Why a timer fire woke the main thread (`debug.wakeups` reason).
     nonisolated enum LedgerReason: String, CaseIterable, Sendable {
@@ -139,21 +139,26 @@ final class CEFMessagePump {
         counters.passTimes = InputLatencyHistogram()
     }
 
-    /// Main thread: a CEF `OnScheduleMessagePumpWork(delay_ms)` request.
-    func request(milliseconds: Int64) {
+    /// Main thread: a CEF `OnScheduleMessagePumpWork(delay_ms)` request. `fromChromiumThread`: a
+    /// Chromium thread made it and a run-loop block delivers it, so it is no re-ask of the running pass.
+    func request(milliseconds: Int64, fromChromiumThread: Bool = false) {
         guard isRunning else { return }
-        if milliseconds <= 0 { counters.immediateRequests += 1 } else { counters.delayedRequests += 1 }
-        pumpMark("pump-req-\(min(milliseconds, 9_999))")
-        let now = clock()
-        if earlyPassWatch.request(milliseconds: milliseconds, now: now) { counters.earlyPasses += 1 }
-        schedule.request(milliseconds: milliseconds, now: now)
-        rearm()
+        if !fromChromiumThread { earlyPassWatch.request(milliseconds: milliseconds) }
+        enqueue(milliseconds: milliseconds)
     }
 
     /// Main thread: cmux changed CEF state outside a CEF callback and wants
-    /// the result processed on the next run loop pass.
+    /// the result processed on the next run loop pass. It is no CEF re-ask (``CEFPumpStats/earlyPasses``).
     func scheduleNow() {
-        request(milliseconds: 0)
+        guard isRunning else { return }
+        enqueue(milliseconds: 0)
+    }
+
+    private func enqueue(milliseconds: Int64) {
+        if milliseconds <= 0 { counters.immediateRequests += 1 } else { counters.delayedRequests += 1 }
+        pumpMark("pump-req-\(min(milliseconds, 9_999))")
+        schedule.request(milliseconds: milliseconds, now: clock())
+        rearm()
     }
 
     /// Runs one pump pass now (the quit path drains without the timer).
@@ -164,8 +169,7 @@ final class CEFMessagePump {
     private func timerFired() {
         guard isRunning else { return }
         let reason = fireReason()
-        // A queue fire already counted this wake under the same owner (reason `deadline`).
-        if !timer.fireIsCountedByQueue { ledger.record(Self.ledgerOwner, reason: reason.rawValue) }
+        ledger.record(Self.ledgerOwner, reason: reason.rawValue)
         runDuePass(for: reason)
     }
 
@@ -263,9 +267,7 @@ final class CEFMessagePump {
         counters.workRuns += 1
         counters.workSeconds += elapsed
         if elapsed >= CEFPumpSchedule.timeSlice { counters.longWorkRuns += 1 }
-        if earlyPassWatch.passEnded(at: finished, usedWholeSlice: elapsed >= CEFPumpSchedule.timeSlice) {
-            counters.earlyPasses += 1
-        }
+        if earlyPassWatch.passEnded(usedWholeSlice: elapsed >= CEFPumpSchedule.timeSlice) { counters.earlyPasses += 1 }
         if input != nil { counters.passTimes.record(nanos: UInt64(max(0, elapsed) * 1e9)) }
         schedule.endWork()
         rearm()
@@ -310,14 +312,15 @@ final class CEFMessagePump {
 let cefScheduleCallback: CEFShimLibrary.ScheduleFn = { context, delayMilliseconds in
     guard let context else { return }
     let address = UInt(bitPattern: context)
-    if !Thread.isMainThread,
+    let fromChromiumThread = !Thread.isMainThread
+    if fromChromiumThread,
        let gate = CEFRuntime.pumpGate(at: address),
        !gate.admit(delayMilliseconds: delayMilliseconds, nowNanos: clock_gettime_nsec_np(CLOCK_UPTIME_RAW)) {
         return // kept for the main thread's next pass or re-arm, with no wake (CEFPumpCrossThreadGate)
     }
     let deliver: @Sendable () -> Void = {
         MainActor.assumeIsolated { // main-proof: deliver runs only in the Thread.isMainThread branch or as a CFRunLoopGetMain() block (below)
-            CEFRuntime.from(address)?.pump?.request(milliseconds: delayMilliseconds)
+            CEFRuntime.from(address)?.pump?.request(milliseconds: delayMilliseconds, fromChromiumThread: fromChromiumThread)
         }
     }
     if Thread.isMainThread {

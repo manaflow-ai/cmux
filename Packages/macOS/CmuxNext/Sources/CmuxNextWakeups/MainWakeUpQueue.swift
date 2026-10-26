@@ -30,8 +30,8 @@ import Foundation
 /// ``insert(owner:after:policy:_:)`` and ``cancel(_:)`` work from any thread. They re-arm the timer only
 /// when the fire date changes, earlier or later (`ScheduleDelayedWorkImpl` skips only an equal date); an
 /// insert behind the top costs nothing. A fire runs due entries (``fire()`` says which) on the main actor
-/// in latest-time order, with one ledger record per owner that ran (reason `deadline`) and one
-/// `MainWakeUpQueue` `fire` record per wake. No Task and no pool thread take part.
+/// in latest-time order, with one ledger record per owner that ran (reason `deadline`, or the entry's own
+/// ``LedgerReason``) and one `MainWakeUpQueue` `fire` record per wake. No Task and no pool thread take part.
 public final class MainWakeUpQueue: Sendable {
     /// Names one pending entry for ``cancel(_:)``.
     public struct Token: Hashable, Sendable {
@@ -44,10 +44,26 @@ public final class MainWakeUpQueue: Sendable {
     /// The `WakeupLedger` owner of the queue's own wakes (reason `fire`).
     public static let ledgerOwner = "MainWakeUpQueue"
 
+    /// What a fire records for an entry's owner when the entry runs.
+    public enum LedgerReason: Sendable, Equatable {
+        /// One record per owner per fire, reason `deadline`.
+        case deadline
+        /// None: the action records the wake itself, with the reason only it knows when it runs (the CEF
+        /// pump tells a delayed task from a kept deadline or a nested fire, as Chrome's
+        /// `MessagePumpCFRunLoopBase` tells its wakes apart, base/message_loop/message_pump_apple.mm).
+        case recordedByAction
+    }
+
+    /// One entry's work and what its fire records.
+    private struct Queued {
+        let reason: LedgerReason
+        let action: Action
+    }
+
     private struct State {
-        var heap = MainWakeUpHeap<Action>()
+        var heap = MainWakeUpHeap<Queued>()
         /// Hidden entries, all in ``WakeLeeway/hidden(delay:)`` windows.
-        var hidden = MainWakeUpHeap<Action>()
+        var hidden = MainWakeUpHeap<Queued>()
         var nextID: UInt64 = 0
         /// The uptime the timer is armed for and the last instant its tolerance lets it fire; nil while
         /// it is parked.
@@ -158,8 +174,9 @@ public final class MainWakeUpQueue: Sendable {
         guard deadline > now else { return insert(owner: owner, at: deadline, window: .window(delay: .zero), action) }
         let delay = Duration.nanoseconds(Int64(clamping: deadline - now))
         return state.withLock { state in
-            let entry = MainWakeUpHeap<Action>.Entry(
-                id: nextID(&state), deadline: deadline, window: .hidden(delay: delay), owner: owner, payload: action
+            let entry = MainWakeUpHeap<Queued>.Entry(
+                id: nextID(&state), deadline: deadline, window: .hidden(delay: delay), owner: owner,
+                payload: Queued(reason: .deadline, action: action)
             )
             state.hidden.insert(entry)
             rearm(&state)
@@ -172,15 +189,23 @@ public final class MainWakeUpQueue: Sendable {
     /// `.precise` exactly at `deadline`; `.flexibleNoSooner` up to the leeway after it;
     /// `.flexiblePreferEarly` up to the leeway before it. A `deadline` that has passed runs on the next
     /// fire. A flexible sub-second window snaps to the energy policy's grid at wake time, inside its own
-    /// earliest and latest times. Callable from any thread.
+    /// earliest and latest times. `ledgerReason`: what the fire records for `owner` when the entry runs.
+    /// Callable from any thread.
     @discardableResult
-    public func insert(owner: String, at deadline: UInt64, window: WakeLeeway, _ action: @escaping Action) -> Token {
-        state.withLock { add(&$0, owner: owner, deadline: deadline, window: window, action) }
+    public func insert(
+        owner: String, at deadline: UInt64, window: WakeLeeway, ledgerReason: LedgerReason = .deadline,
+        _ action: @escaping Action
+    ) -> Token {
+        state.withLock { add(&$0, owner: owner, deadline: deadline, window: window, reason: ledgerReason, action) }
     }
 
-    private func add(_ state: inout State, owner: String, deadline: UInt64, window: WakeLeeway, _ action: @escaping Action) -> Token {
+    private func add(
+        _ state: inout State, owner: String, deadline: UInt64, window: WakeLeeway, reason: LedgerReason = .deadline,
+        _ action: @escaping Action
+    ) -> Token {
         let id = nextID(&state)
-        state.heap.insert(.init(id: id, deadline: deadline, window: window, owner: owner, payload: action))
+        let queued = Queued(reason: reason, action: action)
+        state.heap.insert(.init(id: id, deadline: deadline, window: window, owner: owner, payload: queued))
         rearm(&state)
         return Token(id: id)
     }
@@ -215,7 +240,7 @@ public final class MainWakeUpQueue: Sendable {
     /// cancels its own entry here.
     @discardableResult
     public func cancel(_ token: Token) -> Bool {
-        let removed = state.withLock { state -> MainWakeUpHeap<Action>.Entry? in
+        let removed = state.withLock { state -> MainWakeUpHeap<Queued>.Entry? in
             guard let entry = state.heap.remove(id: token.id) ?? state.hidden.remove(id: token.id) else { return nil }
             rearm(&state)
             return entry
@@ -250,9 +275,11 @@ public final class MainWakeUpQueue: Sendable {
         var owners = Set<String>()
         var ran = 0
         while let entry = popDue(at: now) {
-            if owners.insert(entry.owner).inserted { ledger.record(entry.owner, reason: "deadline") }
+            if entry.payload.reason == .deadline, owners.insert(entry.owner).inserted {
+                ledger.record(entry.owner, reason: "deadline")
+            }
             ran += 1
-            entry.payload()
+            entry.payload.action()
         }
         state.withLock { state in
             if ran > 1 { state.coalescedFires &+= 1 }
@@ -261,11 +288,11 @@ public final class MainWakeUpQueue: Sendable {
     }
 
     /// Pops the next entry due at `now` and arms the timer for what is left.
-    private func popDue(at now: UInt64) -> MainWakeUpHeap<Action>.Entry? {
+    private func popDue(at now: UInt64) -> MainWakeUpHeap<Queued>.Entry? {
         state.withLock { state in
             let visible: UInt64? = state.heap.top.flatMap { $0.earliest <= now ? $0.latest : nil }
             let hidden: UInt64? = state.hidden.top.flatMap { $0.fireTime <= now ? $0.latest : nil }
-            let entry: MainWakeUpHeap<Action>.Entry?
+            let entry: MainWakeUpHeap<Queued>.Entry?
             switch (visible, hidden) {
             case let (visible?, hidden?) where hidden < visible: entry = state.hidden.popReleased(now: now)
             case (_?, _): entry = state.heap.popDue(now: now)

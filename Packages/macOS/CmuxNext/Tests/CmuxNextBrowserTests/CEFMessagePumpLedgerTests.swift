@@ -9,13 +9,10 @@ import Testing
 /// fired, and `earlyPasses` counts the delayed passes CEF answers with a request under 2 ms.
 @MainActor
 @Suite struct CEFMessagePumpLedgerTests {
-    /// The pump's timer, fired by hand. `countedByQueue`: its fires stand for the main deadline
-    /// queue's, which counted them already (``CEFWakeUpQueuePumpTimer``).
+    /// The pump's timer, fired by hand (``CEFMessagePumpTests`` runs the pump on the deadline queue).
     final class Timer: CEFPumpTimer {
         var onFire: (() -> Void)?
         var armed: TimeInterval?
-        var countedByQueue = false
-        var fireIsCountedByQueue: Bool { countedByQueue }
         func arm(after delay: TimeInterval, tolerance: TimeInterval) { armed = delay }
         func disarm() { armed = nil }
         func invalidate() { armed = nil }
@@ -71,16 +68,6 @@ import Testing
         #expect(rig.ledger.snapshot().allSatisfy { $0.reason != "scheduled" }, "the old reason is gone")
     }
 
-    /// A wake is one record per owner: the queue's `deadline` record already counted a queue fire.
-    @Test func aFireTheQueueCountedAddsNoRecordButKeepsItsReasonForEarlyPasses() {
-        let rig = Rig()
-        rig.timer.countedByQueue = true
-        rig.work = { rig.pump.request(milliseconds: 0) }
-        rig.delayedPass(milliseconds: 7)
-        #expect(rig.wakes(.delayed) == 0)
-        #expect(rig.pump.stats.earlyPasses == 1, "the pass still served CEF's delayed request")
-    }
-
     @Test func aKeptCrossThreadDeadlineFiresAsKept() {
         let rig = Rig()
         rig.pump.request(milliseconds: 10)
@@ -115,7 +102,8 @@ import Testing
     }
 
     /// CEF truncates a delay to whole milliseconds: the fire comes before Chromium's task is due and
-    /// the pass ends with a re-ask that truncates to 0 or 1 ms, during the pass or just after it.
+    /// the pass ends with a re-ask (the end of `CefDoMessageLoopWork`, on the main thread) that
+    /// truncates to 0 or 1 ms.
     @Test func aDelayedPassReaskedUnderTwoMillisecondsIsEarly() {
         let rig = Rig()
         rig.work = { rig.pump.request(milliseconds: 0) }
@@ -123,29 +111,67 @@ import Testing
         #expect(rig.pump.stats.earlyPasses == 1, "re-asked for now inside the pass")
         rig.work = {}
         rig.timer.fire() // the re-ask's immediate pass
+        rig.work = {
+            rig.pump.request(milliseconds: 1)
+            rig.pump.request(milliseconds: 1)
+        }
+        rig.delayedPass(milliseconds: 7)
+        #expect(rig.pump.stats.earlyPasses == 2, "re-asked for 1 ms inside the pass, counted once")
+    }
+
+    @Test func aKeptDeadlinePassReaskedIsEarly() {
+        let rig = Rig()
+        rig.pump.request(milliseconds: 10)
+        #expect(!rig.gate.admit(delayMilliseconds: 50, nowNanos: rig.clock.nanos))
+        rig.clock.seconds += 0.010
+        rig.timer.fire()
+        rig.work = { rig.pump.request(milliseconds: 1) }
+        rig.clock.seconds += 0.040
+        rig.timer.fire()
+        #expect(rig.wakes(.kept) == 1)
+        #expect(rig.pump.stats.earlyPasses == 1)
+    }
+
+    /// A Chromium thread's `ScheduleWork(0)` reaches the main thread as a run-loop block, often just
+    /// after a delayed pass (an IO reply to work the task posted): the pass was not early.
+    @Test func aChromiumThreadRequestAfterADelayedPassIsNotEarly() {
+        let rig = Rig()
+        rig.delayedPass(milliseconds: 7)
+        rig.pump.request(milliseconds: 0, fromChromiumThread: true)
+        #expect(rig.pump.stats.earlyPasses == 0, "delivered after the pass")
+        rig.timer.fire()
+        rig.work = { rig.pump.request(milliseconds: 0, fromChromiumThread: true) }
+        rig.delayedPass(milliseconds: 7)
+        #expect(rig.pump.stats.earlyPasses == 0, "a block a nested run loop ran inside the pass")
+        rig.work = {}
+        rig.timer.fire()
         rig.delayedPass(milliseconds: 7)
         rig.clock.seconds += 0.001
         rig.pump.request(milliseconds: 1)
-        #expect(rig.pump.stats.earlyPasses == 2, "re-asked for 1 ms 1 ms after the pass")
-        rig.pump.request(milliseconds: 1)
-        #expect(rig.pump.stats.earlyPasses == 2, "one pass counts once")
+        #expect(rig.pump.stats.earlyPasses == 0, "a main-thread request after the pass is no re-ask of it")
+    }
+
+    /// cmux's own "pump now" (`browserClosed` calls it inside a CEF pass) is no CEF re-ask.
+    @Test func aScheduleNowInsideADelayedPassIsNotEarly() {
+        let rig = Rig()
+        rig.work = { rig.pump.scheduleNow() }
+        rig.delayedPass(milliseconds: 7)
+        #expect(rig.pump.stats.earlyPasses == 0)
+        #expect(rig.pump.stats.immediateRequests == 1, "it still counts as an immediate request")
+        #expect(rig.timer.armed == 0, "and still runs a pass on the next run loop pass")
     }
 
     @Test func otherPassesAndRequestsAreNotEarly() {
         let rig = Rig()
+        rig.work = { rig.pump.request(milliseconds: 0) }
         rig.pump.scheduleNow()
         rig.timer.fire()
-        rig.pump.request(milliseconds: 0)
         #expect(rig.pump.stats.earlyPasses == 0, "an immediate pass is no fire date")
+        rig.work = {}
         rig.timer.fire()
+        rig.work = { rig.pump.request(milliseconds: 2) }
         rig.delayedPass(milliseconds: 7)
-        rig.pump.request(milliseconds: 5)
         #expect(rig.pump.stats.earlyPasses == 0, "a re-ask of 2 ms or more is the next task")
-        rig.delayedPass(milliseconds: 7)
-        rig.clock.seconds += 0.003
-        rig.pump.request(milliseconds: 1)
-        #expect(rig.pump.stats.earlyPasses == 0, "3 ms after the pass is a new request")
-        rig.timer.fire()
         rig.work = {
             rig.clock.seconds += CEFPumpSchedule.timeSlice + 0.001
             rig.pump.request(milliseconds: 0)
