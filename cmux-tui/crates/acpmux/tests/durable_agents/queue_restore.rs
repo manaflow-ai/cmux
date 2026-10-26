@@ -209,3 +209,61 @@ async fn a_queued_prompt_sent_again_after_a_failed_log_load_runs_once() {
     let runs: Vec<&Value> = events.iter().filter(|e| run_of(e)).collect();
     assert_eq!(runs.len(), 1, "q-once did not run exactly once: {runs:#?}");
 }
+
+/// A person's queued prompt (chat multiplayer, `author.rs`) is still theirs after a crash: the
+/// rebuilt queue keeps its `person_message` provenance, through that person's own edit, so only
+/// they change it, and it runs as theirs. The restarted daemon's startup waits
+/// (`hold_startup`), so the restored prompt waits for the test.
+#[tokio::test]
+async fn a_persons_queued_prompt_stays_theirs_across_a_crash() {
+    let mut daemon = Daemon::new("qauthor", "approve-all");
+    let (session, gate, client) = gated_turn_without_host(&daemon).await;
+    let ana = json!({"id": "tailnet:ana@example.com", "name": "Ana", "login": "ana@example.com"});
+    let mut rpc = daemon.rpc().await;
+    rpc.send(
+        "session/prompt",
+        json!({"sessionId": session, "prompt": [{"type": "text", "text": "from ana"}],
+               "_meta": {"acpmux": {"promptId": "q-ana", "author": ana}}}),
+    )
+    .await;
+    daemon.wait_event(&session, "queued record", |e| {
+        e["kind"] == "queued" && e["msg"]["promptId"] == "q-ana"
+    });
+    let edit = |author: Option<&Value>| {
+        let mut p = json!({"sessionId": session, "promptId": "q-ana", "op": "update", "text": "ana's rewrite"});
+        if let Some(author) = author {
+            p["_meta"] = json!({"acpmux": {"author": author}});
+        }
+        p
+    };
+    let mut editor = daemon.rpc().await;
+    let edited = editor.call("_acpmux/queue_edit", edit(Some(&ana))).await;
+    assert_eq!(edited["ok"], true, "{edited}");
+    daemon.sigkill();
+    drop((client, rpc, editor));
+
+    hold_startup(&daemon);
+    daemon.start();
+    let mut rpc = daemon.rpc().await;
+    for other in [Some(json!({"id": "user_bo", "name": "Bo"})), None] {
+        let refused = rpc.reply("_acpmux/queue_edit", edit(other.as_ref())).await;
+        assert_eq!(
+            refused.pointer("/error/data/reason"),
+            Some(&json!("queue.not_author")),
+            "the restart lost her name: {refused:#}"
+        );
+    }
+    std::fs::write(daemon.home.join("go"), b"").unwrap();
+    // The gated turn's agent did not outlive the daemon; one started again waits on the gate.
+    let _ = std::fs::OpenOptions::new()
+        .write(true)
+        .custom_flags(libc::O_NONBLOCK)
+        .open(&gate)
+        .and_then(|mut f| std::io::Write::write_all(&mut f, b"go"));
+    let ran = daemon.wait_event(&session, "q-ana's run", |e| {
+        e["kind"] == "user_message" && e["msg"]["promptId"] == "q-ana"
+    });
+    assert_eq!(ran["msg"]["text"], "ana's rewrite", "{ran:#}");
+    let anas = json!({"kind": "person_message", "from": "tailnet:ana@example.com", "fromName": "Ana", "login": "ana@example.com"});
+    assert_eq!(ran["msg"].pointer("/_meta/provenance"), Some(&anas), "{ran:#}");
+}

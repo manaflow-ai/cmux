@@ -286,6 +286,41 @@ async fn a_prompt_an_agent_sends_through_a_peer_names_that_agent_on_the_owning_d
     assert!(by_id("from-person").pointer("/_meta/provenance").is_none(), "{messages:?}");
 }
 
+/// A person's prompt through a peer (chat multiplayer, `author.rs`): A forwards its `author`, and
+/// B, which runs the chat, stamps the `person_message` provenance itself.
+#[tokio::test]
+async fn a_persons_prompt_through_a_peer_is_recorded_as_theirs_on_the_owning_daemon() {
+    let b = hub(config(PermissionPolicy::Ask)).await;
+    let (port, peer_token) = listen_with_peer_token(b.clone(), "author").await;
+    let mut cb = client(b.clone()).await;
+    let s = cb.call(method::SESSION_NEW, json!({"cwd": std::env::temp_dir(), "mcpServers": [], "_meta": {"acpmux": {"name": "shared"}}})).await.unwrap();
+    let remote_id = s["sessionId"].as_str().unwrap().to_owned();
+    let a = hub(config(PermissionPolicy::Ask)).await;
+    a.add_peer("b", &format!("ws://127.0.0.1:{port}"), Some("tok".into()), Some(peer_token), true)
+        .await
+        .unwrap();
+    let mut ca = client(a.clone()).await;
+    let ana = json!({"id": "tailnet:ana@example.com", "name": "Ana", "node": "ana-mbp"});
+    let sent = json!({"sessionId": "b/shared", "prompt": [{"type": "text", "text": "hi"}],
+                      "_meta": {"acpmux": {"promptId": "from-ana", "author": ana}}});
+    ca.call(method::SESSION_PROMPT, sent).await.unwrap();
+
+    let page = cb
+        .call("_acpmux/events", json!({"sessionId": remote_id, "kinds": ["user_message"]}))
+        .await
+        .unwrap();
+    let message = page["events"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|e| &e["msg"])
+        .find(|m| m["promptId"] == "from-ana")
+        .expect("her prompt ran on B")
+        .clone();
+    let stamped = json!({"kind": "person_message", "from": "tailnet:ana@example.com", "fromName": "Ana", "node": "ana-mbp"});
+    assert_eq!(message.pointer("/_meta/provenance"), Some(&stamped), "{message}");
+}
+
 /// Two daemons peered both ways (a real pair on 10-14 grew names
 /// like `a/b/a/b/.../cycle` to 346k characters): a daemon serves only its own
 /// sessions to a peer, both in the watch snapshot and in later changes, so a
