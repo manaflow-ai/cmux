@@ -490,6 +490,8 @@ impl Hub {
             "chiefMuxHome": crate::config::chief_builtins::Context::current().chief_home,
             // The host's CPU and RAM budget and this daemon's share of the load (`host_load.rs`).
             "host_pressure": host_pressure,
+            // The footprint, each memory consumer's bytes and the 20 largest sessions (`daemon_status.rs`).
+            "memory": crate::daemon_status::memory_status(self),
         })
     }
 }

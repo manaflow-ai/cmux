@@ -118,6 +118,11 @@ impl PoolState {
             oversize: StdMutex::new(Default::default()),
         }
     }
+
+    /// The parsed login files behind the pool keys (`auth.rs`): a memory consumer.
+    pub(in crate::hub) fn auth_cache(&self) -> &auth::AuthCache {
+        &self.auth
+    }
 }
 
 /// One hidden session, ready for a `session/new` to take.
