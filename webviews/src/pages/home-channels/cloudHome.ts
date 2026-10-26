@@ -313,6 +313,10 @@ export class CloudHome {
       case "cloud-subscription-state":
         // The inbox socket closed for good (the owner refused it): list again on the next read.
         if (event.scope === "inbox" && event.state === "closed") this.listed = false;
+        // A conversation's socket closed for good: the daemon dropped the subscription, so the
+        // next open or view subscribes again (a kept one would send presence it refuses).
+        if (event.scope === "conversation" && event.state === "closed" && typeof event.conversation === "string")
+          this.unsubscribed(event.conversation);
         // A conversation's socket that is not live hears no presence: its viewers go until the
         // owner's next `conversation-presence` (it sends one after each subscribe).
         if (event.scope === "conversation" && event.state !== "live" && typeof event.conversation === "string")
@@ -366,9 +370,7 @@ export class CloudHome {
         () => true,
         () => {
           // Not subscribed: the next open tries again.
-          const failed = this.subscribed.indexOf(id);
-          if (failed >= 0) this.subscribed.splice(failed, 1);
-          if (this.subscriptions.get(id) === subscribed) this.subscriptions.delete(id);
+          if (this.subscriptions.get(id) === subscribed) this.unsubscribed(id);
           return false;
         },
       );
@@ -383,6 +385,13 @@ export class CloudHome {
       this.subscriptions.delete(oldest);
       void this.daemon.request("cloud-conversation-unsubscribe", { conversation: oldest }).catch(() => undefined);
     }
+  }
+
+  /** Forgets `id`'s subscription (refused, or closed by the daemon): the next open subscribes. */
+  private unsubscribed(id: string): void {
+    const at = this.subscribed.indexOf(id);
+    if (at >= 0) this.subscribed.splice(at, 1);
+    this.subscriptions.delete(id);
   }
 
   /** Reads a one-message snapshot of each entry without a head: the inbox names no people. */

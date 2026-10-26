@@ -399,8 +399,9 @@ export class HomeChannelsStore {
         error: undefined,
         inboxState: inbox.inboxState === true,
       });
-      // The open conversation's owner is known now (a reconnect says the viewing again).
-      if (selected === this.snapshot.selected) this.syncViewing();
+      // The open conversation's owner is known now (a reconnect says the viewing again), and an
+      // open row the list dropped is no longer viewed (even with nothing to open instead).
+      this.syncViewing();
       if (selected && selected !== this.snapshot.selected) await this.select(selected, false);
       else if (selected) await this.reloadPage(selected);
     } catch (error) {
@@ -775,6 +776,8 @@ export class HomeChannelsStore {
 
   /** The Cloud conversation this page last said the person views (cmux.home.view). */
   private viewingSent?: string;
+  /** Bumped by each change `syncViewing` sends: a late answer applies only to its own attempt. */
+  private viewAttempt = 0;
 
   /** Tells the owner which Cloud conversation the person views: the open one while the page and
    * its pane show it, none otherwise (a row that left the list, a page torn down). Only a change
@@ -788,6 +791,7 @@ export class HomeChannelsStore {
     const before = this.viewingSent;
     if (want === before || !this.client) return;
     this.viewingSent = want;
+    const attempt = ++this.viewAttempt;
     const view = (conversation: string, viewing: boolean) =>
       this.client?.call<{ sent?: boolean }>(HomeOps.view, { conversation, viewing }).catch(() => undefined);
     if (before) void view(before, false);
@@ -795,7 +799,7 @@ export class HomeChannelsStore {
       void view(want, true)?.then((answer) => {
         // Not sent (the subscribe was refused): the owner never heard it, so the next show,
         // switch or reconnect says it again.
-        if (answer?.sent === false && this.viewingSent === want) this.viewingSent = undefined;
+        if (answer?.sent === false && attempt === this.viewAttempt) this.viewingSent = undefined;
       });
   }
 

@@ -145,7 +145,10 @@ test("the store stops viewing when it is torn down", async () => {
 
 /** A page client over `conversations` that records the views, the calls and each stream's
  *  handler; `answer` is what `cmux.home.view` answers. */
-function fakeClient(conversations: Conversation[], answer: () => unknown = () => ({})) {
+function fakeClient(
+  conversations: Conversation[],
+  answer: (conversation: string, viewing: boolean) => unknown = () => ({}),
+) {
   const views: [string, boolean][] = [];
   const calls: string[] = [];
   const streams = new Map<string, (data: unknown) => void>();
@@ -157,7 +160,7 @@ function fakeClient(conversations: Conversation[], answer: () => unknown = () =>
         return { conversation: conversations.find((c) => c.id === params.conversation), messages: [] };
       if (op === HomeOps.view) {
         views.push([params.conversation!, params.viewing!]);
-        return answer();
+        return answer(params.conversation!, params.viewing!);
       }
       return {};
     },
@@ -259,6 +262,47 @@ test("a viewing the owner did not take is said again on the next show", async ()
   stop();
 });
 
+test("a late refusal of an older attempt leaves the newer viewing as sent", async () => {
+  let refuse = (_answer: unknown) => {};
+  const first = new Promise((resolve) => (refuse = resolve));
+  let calls = 0;
+  const { client, views } = fakeClient([row("cloud-a", "cloud", "chief"), row("cloud-b", "cloud", "group")], () =>
+    calls++ === 0 ? first : { sent: true },
+  );
+  const { store, stop } = await started(client);
+  // A (its answer pending), then B, then A again, which the owner takes.
+  await store.select("cloud-b");
+  await store.select("cloud-a");
+  expect(views.at(-1)).toEqual(["cloud-a", true]);
+  // The first A attempt's refusal arrives last: it says nothing about the newer one.
+  refuse({ sent: false });
+  await tick();
+  views.length = 0;
+  await store.select("cloud-b");
+  expect(views).toEqual([
+    ["cloud-a", false],
+    ["cloud-b", true],
+  ]);
+  stop();
+});
+
+test("an inbox reload that drops the open Cloud row, with nothing to open instead, ends the viewing", async () => {
+  const conversations = [row("cloud-a", "cloud", "chief")];
+  const { client, views, streams } = fakeClient(conversations);
+  const { stop } = await started(client);
+  expect(views).toEqual([["cloud-a", true]]);
+  conversations.length = 0;
+  streams.get(HomeOps.events)!({ inboxStale: true });
+  await tick();
+  await tick();
+  expect(views).toEqual([
+    ["cloud-a", true],
+    ["cloud-a", false],
+  ]);
+  stop();
+  expect(views).toHaveLength(2);
+});
+
 type Request = { cmd: string; params?: Record<string, unknown> };
 
 function fakeDaemon(
@@ -268,6 +312,8 @@ function fakeDaemon(
 ) {
   const requests: Request[] = [];
   let refusals = refuse;
+  const listeners = new Set<(event: Record<string, unknown>) => void>();
+  const emit = (event: Record<string, unknown>) => listeners.forEach((listener) => listener(event));
   const socket = {
     async request(cmd: string, params?: Record<string, unknown>): Promise<unknown> {
       requests.push({ cmd, params });
@@ -293,10 +339,13 @@ function fakeDaemon(
           return {};
       }
     },
-    onEvent: () => () => {},
+    onEvent: (listener: (event: Record<string, unknown>) => void) => {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    },
     onClose: () => () => {},
   } as unknown as DaemonSocket;
-  return { socket, requests };
+  return { socket, requests, emit };
 }
 
 const presenceSent = (requests: Request[]) =>
@@ -381,4 +430,21 @@ test("the subscription cap never evicts the conversation the person views", asyn
   await home.call(HomeOps.view, { conversation: "conv_0", viewing: false });
   await home.call(HomeOps.page, { conversation: "conv_19" });
   expect(sentFor(requests, "cloud-conversation-unsubscribe")).toEqual(["conv_1", "conv_2", "conv_3", "conv_0"]);
+});
+
+test("a conversation socket the daemon closed is subscribed again before the next presence", async () => {
+  const { socket, requests, emit } = fakeDaemon(PRESENCE);
+  const home = new DaemonHomeClient(socket);
+  const off = await home.subscribe(HomeOps.events, () => {});
+  await home.call(HomeOps.inbox, {});
+  const view = () => home.call<{ sent: boolean }>(HomeOps.view, { conversation: "conv_cloud", viewing: true });
+  expect(await view()).toEqual({ sent: true });
+  emit({ event: "cloud-subscription-state", scope: "conversation", state: "closed", conversation: "conv_cloud" });
+  expect(await view()).toEqual({ sent: true });
+  expect(sentFor(requests, "cloud-conversation-subscribe")).toEqual(["conv_cloud", "conv_cloud"]);
+  const cmds = requests.map((r) => r.cmd);
+  expect(cmds.lastIndexOf("cloud-conversation-presence")).toBeGreaterThan(
+    cmds.lastIndexOf("cloud-conversation-subscribe"),
+  );
+  off();
 });
