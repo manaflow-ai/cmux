@@ -308,8 +308,8 @@ final class SettingsPageProvider: PageProvider {
                 if !keys.isEmpty { onEvent(["revision": .number(Double(count)), "keys": .array(keys.map(JSONValue.string))]) }
             }
         }
-        // Each event names only the keys that changed since the last one: a delta. A dropped event
-        // loses its keys, so the page gets a gap and re-reads (its refresh reads every row).
+        // Each event names only the keys that changed since the last one: a delta. After a drop the
+        // page gets `meta.gap`; SettingsStore then clears every refusal and re-reads every row.
         return PageSubscription(frozenDelivery: .resync) { task.cancel() }
     }
 
