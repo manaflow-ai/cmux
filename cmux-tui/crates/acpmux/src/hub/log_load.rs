@@ -10,9 +10,9 @@
 //! (`session.json`) and the agent host records (`hosts/`, [`LoadPlan`]). A chat whose host still
 //! runs keeps its saved status until adoption reaches it (`load_from_store`), and its log is read
 //! first (`load_live_logs`), so adoption reattaches it in seconds. Every other chat's log is read
-//! by one background pass (`load_logs`, after adoption). Each log is read once
-//! (`load_session_log`, under the chat's `log_load` lock). Requests that read a chat's restored
-//! state (its queue, a prompt) still wait for the whole pass (`wait_logs`).
+//! by one background pass (`load_logs`, after adoption) or, sooner, by the first request that
+//! needs it (`session_log`). Each log is read once (`load_session_log`, under the chat's
+//! `log_load` lock).
 //!
 //! The background pass ends once it has read every chat's log (its stop condition); its worker
 //! threads are scoped to it (`on_every_core`). Nothing repeats it, and a chat created after the
@@ -54,7 +54,8 @@ impl Hub {
 
     /// Reads every chat's log not read yet: each log's tail past its saved `lastSeq`, the turns
     /// a restart cut off, and the queued prompts. A daemon runs it after adoption, in the
-    /// background. The chats used last go first, closed ones after every open one.
+    /// background; a request for one chat reads that chat's log first (`session_log`). The
+    /// chats used last go first, closed ones after every open one.
     pub fn load_logs(self: &Arc<Self>) {
         let started = std::time::Instant::now();
         // The calls that wait for the load (`wait_logs`) answer even when it fails.
@@ -65,6 +66,9 @@ impl Hub {
             (m.status == SessionStatus::Closed, std::cmp::Reverse(m.updated_at))
         });
         self.load_session_logs(&sessions);
+        // Every log is read: a person's prompt no longer resumes pairs ahead of their logs.
+        self.logs_ready.send_replace(true);
+        self.forget_person_prompts();
         tracing::info!(
             "loaded the chat logs of {} sessions in {} ms",
             sessions.len(),
@@ -90,6 +94,30 @@ impl Hub {
             let _entered = runtime.as_ref().map(tokio::runtime::Handle::enter);
             self.load_session_log(session);
         });
+    }
+
+    /// Wait until `session`'s log is read, reading it now when the background pass has not
+    /// reached it (immediate outside a deferred start, and once every log is read or the load
+    /// failed). A chat whose agent host ran at the start also waits for adoption: a prompt that
+    /// went first would take the turn ahead of the turn adoption recovers (`hosts.rs`).
+    pub(crate) async fn session_log(self: &Arc<Self>, session: &Arc<Session>) {
+        if self.load_plan.lock().unwrap_or_else(|e| e.into_inner()).hosted.contains(&session.id) {
+            let mut adopted = self.adoption_ready.subscribe();
+            let _ = adopted.wait_for(|ready| *ready).await;
+        }
+        if self.session_log_loaded(session) {
+            return;
+        }
+        let (hub, s) = (self.clone(), session.clone());
+        if let Err(e) = tokio::task::spawn_blocking(move || hub.load_session_log(&s)).await {
+            // It answers from the session list, as a failed load does (`LogsReady`).
+            tracing::error!(session = %session.id, "reading the chat log failed: {e}");
+        }
+    }
+
+    /// Whether `session`'s log is read, or every log is (or their load failed).
+    pub(crate) fn session_log_loaded(&self, session: &Session) -> bool {
+        session.log_loaded.load(Ordering::SeqCst) || self.logs_loaded()
     }
 
     /// Reads one chat's log, once: its tail, a permission wait or turn the restart cut off, its
@@ -253,5 +281,14 @@ impl Drop for Loaded<'_> {
             tracing::error!("reading a chat log panicked; it answers from the session list");
         }
         self.done();
+    }
+}
+
+/// Ends adoption's hold on prompts to hosted chats (`session_log`) however adoption stops.
+pub(crate) struct AdoptionReady<'a>(pub(crate) &'a tokio::sync::watch::Sender<bool>);
+
+impl Drop for AdoptionReady<'_> {
+    fn drop(&mut self) {
+        self.0.send_replace(true);
     }
 }
