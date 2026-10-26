@@ -121,4 +121,3 @@ struct WorkstreamIngestionIdentityTests {
         await store.flushPersistence()
     }
 }
-
