@@ -278,9 +278,36 @@ pub(crate) enum AvatarChange {
 /// The daemon's registry, opened on first use.
 #[derive(Default)]
 pub(crate) struct ChiefHost {
-    pub(crate) store: Mutex<Option<ChiefStore>>,
+    /// Taken only through [`Self::lock_store`], so every holder names itself.
+    store: Mutex<Option<ChiefStore>>,
+    /// The thread that last took `store` (lock waits name it).
+    store_holder: cmux_threads::LockHolder,
     /// The brain supervisor's inbox (chief_brains.rs), when it runs.
     pub(crate) brains: crate::chief_brains::Slot,
+}
+
+/// The Chief store lock's name in `cmux_threads::lock_waits`.
+const STORE_LOCK_NAME: &str = "chief.store";
+
+impl ChiefHost {
+    /// The store: the checked scope (`sqlite` noted at the caller, Chrome's
+    /// `ScopedBlockingCall`), then the store lock, a wait of 2 ms or more
+    /// recorded with the holder's thread name. Every holder opens or reads
+    /// the database.
+    #[track_caller]
+    pub(crate) fn lock_store(
+        &self,
+    ) -> std::sync::LockResult<std::sync::MutexGuard<'_, Option<ChiefStore>>> {
+        let site = std::panic::Location::caller();
+        crate::request_path::note_at(crate::request_path::BlockingKind::Sqlite, site);
+        self.store_holder.lock_mutex(STORE_LOCK_NAME, site, &self.store)
+    }
+
+    /// The threads waiting for the store lock now.
+    #[cfg(test)]
+    pub(crate) fn store_waiting(&self) -> u32 {
+        self.store_holder.waiting()
+    }
 }
 
 pub(crate) struct ChiefStore {
