@@ -12,9 +12,15 @@ import subprocess
 
 
 ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
+# The frontend's three diagnostics (swift include/swift/AST/DiagnosticsSema.def, release/6.2):
+#   debug_long_function_body  "%kind0 took %1ms to type-check (limit: %2ms)"   -warn-long-function-bodies=N
+#   debug_long_closure_body   "closure took %0ms to type-check (limit: %1ms)"  -warn-long-function-bodies=N
+#   debug_long_expression     "expression took %0ms to type-check (limit: %1ms)" -warn-long-expression-type-checking=N
+# %kind0 prints the declaration's kind and quoted name: "instance method 'render()'", "initializer 'init(model:)'",
+# and for an accessor "getter for property 'body'" (lib/AST/DiagnosticEngine.cpp). Each fires at elapsed >= limit.
 WARNING_RE = re.compile(
     r"(?P<location>[^\n:]+\.swift:\d+:\d+):\s+warning:\s+"
-    r"(?P<kind>expression|body of '(?P<function>[^']+)') took "
+    r"(?:(?P<kind>expression|closure)|(?P<decl_kind>[A-Za-z_][A-Za-z_ ]*?) '(?P<function>[^']+)') took "
     r"(?P<milliseconds>\d+(?:\.\d+)?)ms to type-check"
     r"(?: \(limit: (?P<limit>\d+)ms\))?"
 )
@@ -32,11 +38,13 @@ def parse_log(path: Path) -> dict[str, object]:
     text = ANSI_RE.sub("", path.read_text(encoding="utf-8", errors="replace"))
     for match in WARNING_RE.finditer(text):
         function = match.group("function")
+        kind = "function" if function else match.group("kind")
         entries.append(
             {
                 "location": match.group("location"),
-                "kind": "function" if function else "expression",
-                "subject": function or "expression",
+                "kind": kind,
+                "declaration": match.group("decl_kind"),
+                "subject": function or kind,
                 "milliseconds": float(match.group("milliseconds")),
                 "limit_milliseconds": int(match.group("limit")) if match.group("limit") else None,
             }
@@ -60,9 +68,9 @@ def write_summary(receipt: dict[str, object], stream) -> None:
     slowest = list(receipt["slowest"])
     print(f"- warnings over threshold: `{receipt['count']}`", file=stream)
     if not slowest:
-        print("- no long function-body or expression warnings", file=stream)
+        print("- no long function-body, closure or expression warnings", file=stream)
         return
-    print("- slowest functions and expressions:", file=stream)
+    print("- slowest functions, closures and expressions:", file=stream)
     for index, entry in enumerate(slowest, 1):
         data = dict(entry)
         print(
