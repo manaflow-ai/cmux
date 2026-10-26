@@ -63,6 +63,11 @@ enum CloudStartSessionStrings {
         String(format: String(localized: "cloud.startSession.notConnected", defaultValue: "Machine `%1$@` didn't connect, so no agent started there. Check it with `cmux cloud machine-status --target machine:%2$@`, then run `cmux cloud start-session --target machine:%2$@ --agent %3$@` again.", table: "CloudSessions", bundle: .module), name, id, agent)
     }
 
+    /// The person closed the new chat's tab before its session started.
+    static func tabClosed(_ name: String, id: String, agent: String) -> String {
+        String(format: String(localized: "cloud.startSession.tabClosed", defaultValue: "The new chat's tab on machine `%1$@` was closed before its agent started, so %3$@ didn't start there. Run `cmux cloud start-session --target machine:%2$@ --agent %3$@` again.", table: "CloudSessions", bundle: .module), name, id, agent)
+    }
+
     /// The machine is up and the start was refused; `reason` is the refusal in plain words.
     static func agentFailed(_ name: String, id: String, agent: String, reason: String) -> String {
         String(format: String(localized: "cloud.startSession.agentFailed", defaultValue: "Machine `%1$@` started but its agent didn't (%4$@). Run `cmux cloud start-session --target machine:%2$@ --agent %3$@` again.", table: "CloudSessions", bundle: .module), name, id, agent, reason)

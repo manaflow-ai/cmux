@@ -467,7 +467,10 @@ final class CloudService {
     /// `creation` moves to its `creating` stage when the request is sent.
     /// `startedByPerson`: the person's own gesture in this app; any other
     /// create goes out at once on a paid plan (a Free or full plan gets the upgrade card; the opt-in `cloud.askBeforeAgentCreate` asks first) (``CloudMachineCreateFlow``); `askedBy` names the agent chat that asked.
-    func createMachine(name: String?, creation: CloudMachineCreation? = nil, startedByPerson: Bool, askedBy: String? = nil) async throws -> CloudMachineSession {
+    /// `proceed` runs once the server answered, before the new machine joins this Mac's list or
+    /// connects: its throw (the account that asked is no longer signed in) leaves it out.
+    func createMachine(name: String?, creation: CloudMachineCreation? = nil, startedByPerson: Bool, askedBy: String? = nil,
+                       proceed: () throws -> Void = {}) async throws -> CloudMachineSession {
         if let reason = unavailableReason { throw ActionFailure(message: reason) }
         guard auth.isSignedIn else { throw ActionFailure(message: CloudStrings.signInFirst) }
         creating += 1
@@ -477,6 +480,7 @@ final class CloudService {
             ? try await appServerCreate(name: name, startedByPerson: startedByPerson, askedBy: askedBy, onSent: onSent)
             : try await CloudMachineCreateFlow.legacy(name: name, startedByPerson: startedByPerson, askedBy: askedBy, askFirst: UserDefaults.standard.bool(forKey: "cloud.askBeforeAgentCreate"), gate: { [weak self] in self?.createGate ?? .allowed }, confirm: { [weak self] in await self?.confirmCreate?($0) ?? false }, create: { [api] in try await api.createMachine(displayName: name, onSent: onSent) })
         logger.info("created machine \(machine.id, privacy: .public)")
+        try proceed()
         if let existing = machines.session(machine.id) { return existing }
         guard let session = addSession(machine) else { throw ActionFailure(message: CloudStrings.noClient) }
         // A list in flight was asked before this machine existed.

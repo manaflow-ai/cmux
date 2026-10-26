@@ -178,7 +178,13 @@ struct CloudStartSession {
         }
         let anchor: (id: String, key: WorkspaceKey, pane: PaneModel)
         do {
-            anchor = try await CloudHandlers.terminalAnchor(on: session, context)
+            anchor = try await CloudHandlers.terminalAnchor(on: session, context) { [services] in
+                try Self.check(account, now: services.cloud.account, request.asked(machine: name))
+            }
+        } catch let changed as AccountChanged {
+            throw changed.failure
+        } catch is CancellationError {
+            throw CancellationError()
         } catch {
             throw ActionFailure(message: CloudStartSessionStrings.notConnected(name, id: id, agent: agent))
         }
@@ -188,13 +194,18 @@ struct CloudStartSession {
         do {
             let tabs = services.agentTabs
             let pending = try tabs.open(in: anchor.pane.handle, of: daemon, seed: request.cwd.map { AgentPaneSeedSource(AgentPaneSeed(cwd: $0)) })
-            tabKey = try await pending.value().key
+            tabKey = try await Self.created(pending, name: name, id: id, agent: agent).key
             // The start reads the tab as the machine's tree lists it (`tabKey` is the store's id).
             let listed = await CloudMove.holds(within: .seconds(10)) { [services] in services.locateTab(tabKey) != nil }
             try Self.check(account, now: services.cloud.account, request.asked(machine: name))
             guard listed else { throw AccountChanged(failure: ActionFailure(message: CloudStartSessionStrings.notConnected(name, id: id, agent: agent))) }
             switch tabs.remoteHost(tabKey) {
-            case let remote as AgentTabRemoteHost: started = try await remote.startNow(cwd: request.cwd, harness: agent)
+            case let remote as AgentTabRemoteHost:
+                // Each restart and start try is for the account that asked, checked right before it.
+                let command = request.command
+                started = try await remote.startNow(cwd: request.cwd, harness: agent) { @MainActor [services] in
+                    try Self.check(account, now: services.cloud.account, CloudStartSessionStrings.Asked(machine: name, agent: agent, command: command))
+                }
             case let refused as AgentTabRefusedHost: throw refused.refusal
             default: throw AgentRemoteStartRefusal.startUnsupported(machine: name)
             }
@@ -214,6 +225,16 @@ struct CloudStartSession {
             "session_id": .string(started.session), "host": .string(host), "agent": .string(agent),
             "workspace_id": .string(anchor.id), "surface_id": .string(String(started.surface)), "tab_id": .string(tabKey),
         ]
+    }
+
+    /// The store's tab of the chat this run opened. The person closing it before the store
+    /// answered is no account change: the refusal says the tab closed and gives the command.
+    static func created(_ pending: AgentTabPending, name: String, id: String, agent: String) async throws -> AgentTabCreated {
+        do {
+            return try await pending.value()
+        } catch is CancellationError where !Task.isCancelled {
+            throw AccountChanged(failure: ActionFailure(message: CloudStartSessionStrings.tabClosed(name, id: id, agent: agent)))
+        }
     }
 
     /// A refusal that passes through a step's error mapping as it is: the account changed since
@@ -288,7 +309,8 @@ struct CloudStartSession {
                 // Another ask's creation may have ended first.
                 if let named = machines.cloud.first(where: { $0.machine.title == name }) { return named }
                 try still()
-                return try await cloud.createMachine(name: name, startedByPerson: invocation.origin == .user, askedBy: askedBy ?? invocation.callerAgentSession)
+                // The answer of a create asked in another account never joins this one's list.
+                return try await cloud.createMachine(name: name, startedByPerson: invocation.origin == .user, askedBy: askedBy ?? invocation.callerAgentSession, proceed: still)
             }
         } catch is CancellationError {
             throw CancellationError()

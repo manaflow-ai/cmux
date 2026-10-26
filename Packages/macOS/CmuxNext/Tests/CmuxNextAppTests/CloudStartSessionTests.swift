@@ -3,6 +3,7 @@ import CmuxNextActions
 import CmuxNextAgentPane
 @testable import CmuxNextApp
 import CmuxNextCloud
+import CmuxNextCompat
 import CmuxNextDaemon
 import Foundation
 import Testing
@@ -135,10 +136,8 @@ struct CloudStartSessionTests {
             invoke(Self.invocation(target: f.session.machineID, ["agent": .string("claude")], origin: .mcp, agent: "asking-session"))
         }
         let task = try #require(run.results.first, "start-session tracked no result")
-        for await cards in shown where !cards.isEmpty {
-            #expect(cards.first?.state == .ask)
-            break
-        }
+        let asking = try #require(await Self.cards(shown) { !$0.isEmpty }, "the agent's card never showed")
+        #expect(asking.first?.state == .ask)
         // What the account observer does on a sign-out or team switch.
         f.services.cloud.startSessionRuns.forgetAll()
         f.services.cloud.startSessionAsks.endAll()
@@ -148,8 +147,100 @@ struct CloudStartSessionTests {
         }
         let request = CloudStartSession.Request(machineID: f.session.machineID, name: nil, agent: "claude", cwd: nil)
         #expect(failure.message == CloudStartSessionStrings.accountChanged(request.asked(machine: f.session.machine.title)))
-        for await cards in shown where cards.isEmpty { break }
+        #expect(await Self.cards(shown) { $0.isEmpty } != nil, "the agent's card stayed")
         #expect(f.session.daemon.connection == nil, "nothing connected")
+    }
+
+    /// The first cards `shown` yields that `match` takes, or nil once the stream ends or 10 seconds
+    /// pass: a run that fails before its card shows, or never clears it, fails instead of hanging.
+    static func cards(_ shown: AsyncStream<[AgentPaneToolCard]>, _ match: @escaping @Sendable ([AgentPaneToolCard]) -> Bool) async -> [AgentPaneToolCard]? {
+        // concurrency-allow: the test's ten-second bound on a card the run shows or clears
+        await withTaskGroup(of: [AgentPaneToolCard]?.self) { group in
+            group.addTask {
+                for await cards in shown where match(cards) { return cards }
+                return nil
+            }
+            group.addTask {
+                // wakeup-allow: one-shot ten-second test deadline
+                try? await Task.sleep(for: .seconds(10))
+                return nil
+            }
+            defer { group.cancelAll() }
+            return await group.next() ?? nil
+        }
+    }
+
+    /// The person closing the new chat's tab before the store answered is not an account change:
+    /// the refusal says the tab closed and gives the command. A run that was cancelled stays so.
+    @Test func closingTheNewTabAfterStartSaysSoAndGivesTheCommand() async throws {
+        let closed = AgentTabPending(key: "provisional", surface: SurfaceID(rawValue: 9))
+        // What the store's creation throws once the person closed the provisional tab.
+        closed.result = Task { throw CancellationError() }
+        do {
+            _ = try await CloudStartSession.created(closed, name: "devbox", id: "vm-devbox", agent: "codex")
+            Issue.record("a closed tab started")
+        } catch let refusal as CloudStartSession.AccountChanged {
+            #expect(refusal.failure.message == CloudStartSessionStrings.tabClosed("devbox", id: "vm-devbox", agent: "codex"))
+            #expect(refusal.failure.message.contains("`cmux cloud start-session --target machine:vm-devbox --agent codex`"))
+            #expect(refusal.failure.message != CloudStartSessionStrings.accountChanged(CloudStartSession.Request(machineID: "vm-devbox", name: nil, agent: "codex", cwd: nil).asked(machine: "devbox")))
+        }
+        let cancelled = Task { @MainActor in
+            withUnsafeCurrentTask { $0?.cancel() }
+            return await Result { try await CloudStartSession.created(closed, name: "devbox", id: "vm-devbox", agent: "codex") }
+        }
+        guard case .failure(let error) = await cancelled.value else { Issue.record("a cancelled run went on"); return }
+        #expect(error is CancellationError)
+    }
+
+    /// What a keyed start did on the machine, in order.
+    final class StartSteps: Sendable {
+        let steps = Mutex([String]())
+        func note(_ step: String) { steps.withLock { $0.append(step) } }
+        var all: [String] { steps.withLock { $0 } }
+    }
+
+    /// A new chat's host on a machine whose first keyed try is refused as safe to restart.
+    static func keyedHost(_ steps: StartSteps, servesKeyedReason: Bool) -> AgentTabRemoteHost {
+        let approvals = AgentPaneRemoteApprovals(machineID: "vm-keyed-\(UUID().uuidString.prefix(8))", label: "devbox", restart: { nil }, prepare: { _ in
+            steps.note("prepare")
+            return true
+        })
+        var host = AgentTabRemoteHost(surface: 1, session: nil, machine: "devbox", endpoint: { throw CancellationError() },
+                                      servesKeyedReason: servesKeyedReason, approvals: approvals)
+        host.start = { _, _, key in
+            steps.note(key == nil ? "start" : "start keyed")
+            if key != nil { throw AgentRemoteStartRefusal(code: AgentSessionAttachError.needsKeyedStart, machine: "devbox", keyedRestartSafe: true) }
+            return AgentTabRemoteStart.Started(surface: 1, session: "s-1")
+        }
+        return host
+    }
+
+    /// A sign-out or team switch during a keyed start stops it before the next restart or start
+    /// try on that machine; a start that goes through is reported as it is.
+    @Test(arguments: [false, true])
+    func anAccountChangeStopsAKeyedStartBeforeItsNextStep(servesKeyedReason: Bool) async throws {
+        let asked = Self.asked
+        // Signed out before anything ran: nothing runs on the machine.
+        let before = StartSteps()
+        await #expect(throws: CloudStartSession.AccountChanged.self) {
+            try await Self.keyedHost(before, servesKeyedReason: servesKeyedReason).startNow(cwd: nil, harness: "claude") { @MainActor in
+                try CloudStartSession.check(Self.account, now: [nil, nil], asked)
+            }
+        }
+        #expect(before.all.isEmpty, "\(before.all)")
+        // Signed out once the first step ran: the next restart or start never runs.
+        let after = StartSteps()
+        await #expect(throws: CancellationError.self) {
+            try await Self.keyedHost(after, servesKeyedReason: servesKeyedReason).startNow(cwd: nil, harness: "claude") {
+                if !after.all.isEmpty { throw CancellationError() }
+            }
+        }
+        #expect(after.all == [servesKeyedReason ? "start keyed" : "prepare"], "\(after.all)")
+        // The same account throughout: the restart and the start run, and the start is the answer.
+        let through = StartSteps()
+        let started = try await Self.keyedHost(through, servesKeyedReason: servesKeyedReason).startNow(cwd: nil, harness: "claude") {}
+        #expect(started == AgentTabRemoteStart.Started(surface: 1, session: "s-1"))
+        #expect(through.all == (servesKeyedReason ? ["start keyed", "prepare", "start"] : ["prepare", "start"]), "\(through.all)")
     }
 
     @Test func aRunStillStartingAnswersPendingWithWhatToRunNext() async throws {

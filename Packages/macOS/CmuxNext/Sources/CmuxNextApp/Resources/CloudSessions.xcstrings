@@ -325,6 +325,33 @@
         "vi": {"stringUnit": {"state": "needs_review", "value": "Máy `%1$@` không kết nối được nên không có tác tử nào được khởi động trên đó. Kiểm tra máy bằng `cmux cloud machine-status --target machine:%2$@`, rồi chạy lại `cmux cloud start-session --target machine:%2$@ --agent %3$@`."}}
       }
     },
+    "cloud.startSession.tabClosed": {
+      "comment": "The person closed the new chat's tab before its agent started. %1$@ machine name, %2$@ machine id, %3$@ agent.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "The new chat's tab on machine `%1$@` was closed before its agent started, so %3$@ didn't start there. Run `cmux cloud start-session --target machine:%2$@ --agent %3$@` again."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "マシン `%1$@` の新しいチャットのタブがエージェントの開始前に閉じられたため、%3$@ はそこで開始されませんでした。`cmux cloud start-session --target machine:%2$@ --agent %3$@` をもう一度実行してください。"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Der Tab des neuen Chats auf Maschine `%1$@` wurde geschlossen, bevor sein Agent startete, daher wurde %3$@ dort nicht gestartet. Führe `cmux cloud start-session --target machine:%2$@ --agent %3$@` erneut aus."}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "L'onglet de la nouvelle discussion sur la machine `%1$@` a été fermé avant le démarrage de son agent : %3$@ n'y a pas démarré. Relancez `cmux cloud start-session --target machine:%2$@ --agent %3$@`."}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "La pestaña del nuevo chat en la máquina `%1$@` se cerró antes de que se iniciara su agente, así que %3$@ no se inició allí. Vuelve a ejecutar `cmux cloud start-session --target machine:%2$@ --agent %3$@`."}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "أُغلق تبويب الدردشة الجديدة على الجهاز `%1$@` قبل أن يبدأ وكيلها، لذا لم يبدأ %3$@ هناك. شغّل `cmux cloud start-session --target machine:%2$@ --agent %3$@` مرة أخرى."}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "머신 `%1$@`의 새 채팅 탭이 에이전트가 시작되기 전에 닫혀 %3$@이(가) 시작되지 않았습니다. `cmux cloud start-session --target machine:%2$@ --agent %3$@`을(를) 다시 실행하세요."}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "机器 `%1$@` 上新聊天的标签页在其代理启动前被关闭，因此 %3$@ 没有在那里启动。请再次运行 `cmux cloud start-session --target machine:%2$@ --agent %3$@`。"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "機器 `%1$@` 上新聊天的分頁在其代理啟動前被關閉，因此 %3$@ 沒有在那裡啟動。請再次執行 `cmux cloud start-session --target machine:%2$@ --agent %3$@`。"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Kartica novog chata na mašini `%1$@` zatvorena je prije nego što se njen agent pokrenuo, pa %3$@ tamo nije pokrenut. Ponovo pokrenite `cmux cloud start-session --target machine:%2$@ --agent %3$@`."}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Fanen med den nye chat på maskinen `%1$@` blev lukket, før dens agent startede, så %3$@ startede ikke der. Kør `cmux cloud start-session --target machine:%2$@ --agent %3$@` igen."}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "La scheda della nuova chat sulla macchina `%1$@` è stata chiusa prima che il suo agente si avviasse, quindi %3$@ non è stato avviato lì. Esegui di nuovo `cmux cloud start-session --target machine:%2$@ --agent %3$@`."}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "ផ្ទាំងជជែកថ្មីនៅលើម៉ាស៊ីន `%1$@` ត្រូវបានបិទមុនពេលភ្នាក់ងាររបស់វាចាប់ផ្ដើម ដូច្នេះ %3$@ មិនបានចាប់ផ្ដើមនៅទីនោះទេ។ ដំណើរការ `cmux cloud start-session --target machine:%2$@ --agent %3$@` ម្ដងទៀត។"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Fanen for den nye chatten på maskinen `%1$@` ble lukket før agenten startet, så %3$@ startet ikke der. Kjør `cmux cloud start-session --target machine:%2$@ --agent %3$@` på nytt."}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Karta nowego czatu na maszynie `%1$@` została zamknięta, zanim uruchomił się jej agent, więc %3$@ nie został tam uruchomiony. Uruchom ponownie `cmux cloud start-session --target machine:%2$@ --agent %3$@`."}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "A aba do novo chat na máquina `%1$@` foi fechada antes de o agente iniciar, então %3$@ não foi iniciado lá. Execute `cmux cloud start-session --target machine:%2$@ --agent %3$@` novamente."}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Вкладку нового чата на машине `%1$@` закрыли до запуска её агента, поэтому %3$@ там не запущен. Снова выполните `cmux cloud start-session --target machine:%2$@ --agent %3$@`."}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "แท็บแชตใหม่บนเครื่อง `%1$@` ถูกปิดก่อนที่เอเจนต์จะเริ่มทำงาน %3$@ จึงไม่ได้เริ่มบนเครื่องนั้น เรียกใช้ `cmux cloud start-session --target machine:%2$@ --agent %3$@` อีกครั้ง"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "`%1$@` makinesindeki yeni sohbetin sekmesi ajanı başlamadan kapatıldı, bu yüzden %3$@ orada başlatılmadı. `cmux cloud start-session --target machine:%2$@ --agent %3$@` komutunu yeniden çalıştırın."}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Вкладку нового чату на машині `%1$@` закрили до запуску її агента, тому %3$@ там не запущено. Знову виконайте `cmux cloud start-session --target machine:%2$@ --agent %3$@`."}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Thẻ của cuộc trò chuyện mới trên máy `%1$@` đã bị đóng trước khi tác tử khởi động, nên %3$@ chưa khởi động trên đó. Chạy lại `cmux cloud start-session --target machine:%2$@ --agent %3$@`."}}
+      }
+    },
     "cloud.startSession.agentFailed": {
       "comment": "The machine is up but the agent session didn't start. %1$@ name, %2$@ id, %3$@ agent, %4$@ the reason in plain words.",
       "extractionState": "manual",
