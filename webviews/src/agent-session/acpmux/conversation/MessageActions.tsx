@@ -286,11 +286,10 @@ export function SentActions({ text }: { text: string }) {
 }
 
 /// The row at the end of another agent's message line (IncomingMessageCard.tsx IncomingMessageLine):
-/// its age, Copy, Retry and Pin. No read receipt: the message is the agent's to read.
+/// Copy, Retry and Pin. Its persistent timestamp lives on the message line; no read receipt.
 export function ReceivedActions({ row, text }: { row: AcpmuxRow; text: string }) {
   return (
     <span className="cv-received-actions">
-      <MessageTime at={row.at} className="cv-user__time" />
       <MessageCopy text={text} />
       <PromptRetry rowId={row.id} prompt={row.resend ?? row.text ?? ""} />
       <PinButton rowId={row.id} />

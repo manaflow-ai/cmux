@@ -1270,7 +1270,7 @@ pre.cv-math-source {
   margin: 0;
   padding-block: 3px;
   padding-inline: 8px 4px;
-  border: var(--cmux-hairline, .5px) solid var(--cv-card-ring);
+  border: var(--cmux-hairline, 0.5px) solid var(--cv-card-ring);
   border-radius: 8px;
   background: var(--cv-card-fill);
   box-shadow: none;
@@ -1280,7 +1280,9 @@ pre.cv-math-source {
   line-height: 20px;
 }
 /* Like the composer card, its rim clears under appearance.borders = none (composer-edges.test.ts). */
-:root[data-borders="none"] .acpmux-ask { border-color: transparent; }
+:root[data-borders="none"] .acpmux-ask {
+  border-color: transparent;
+}
 .acpmux-ask-row {
   display: flex;
   flex-wrap: wrap;
@@ -1374,7 +1376,7 @@ pre.cv-math-source {
 /* The wider grant: a hairline rim so it reads as a choice next to the filled Allow, not as a
    disabled one (cg-design-judge, light theme). */
 .acpmux-ask-action.is-secondary {
-  box-shadow: inset 0 0 0 var(--cmux-hairline, .5px) var(--cv-card-ring);
+  box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) var(--cv-card-ring);
 }
 .acpmux-ask-action.is-primary:hover {
   background: color-mix(in srgb, var(--agent-accent) 88%, var(--cv-fg));
@@ -1683,7 +1685,8 @@ pre.cv-math-source {
 }
 @media (prefers-reduced-motion: no-preference) {
   :root:not([data-status-indicators="static"]) .cv-spinner:not([data-working]),
-  :root:not([data-status-indicators="static"]):not([data-working-look="breathe"]):not([data-working-look="shimmer"]) .cv-spinner {
+  :root:not([data-status-indicators="static"]):not([data-working-look="breathe"]):not([data-working-look="shimmer"])
+    .cv-spinner {
     animation: cmux-spin var(--cmux-spinner-period, 900ms) linear infinite;
   }
   :root:not([data-status-indicators="static"])[data-working-look="breathe"] .cv-spinner[data-working] {
@@ -1692,8 +1695,8 @@ pre.cv-math-source {
   :root:not([data-status-indicators="static"])[data-working-look="shimmer"]
     .cv-tool:has(> .cv-tool__icon .cv-spinner[data-working])
     .cv-tool__text {
-    background: linear-gradient(100deg, var(--cv-text-dim) 30%, var(--cv-text) 50%, var(--cv-text-dim) 70%) 0 0 /
-      250% 100%;
+    background: linear-gradient(100deg, var(--cv-text-dim) 30%, var(--cv-text) 50%, var(--cv-text-dim) 70%) 0 0 / 250%
+      100%;
     -webkit-background-clip: text;
     background-clip: text;
     -webkit-text-fill-color: transparent;
@@ -2157,7 +2160,8 @@ pre.cv-math-source {
    (AgentMessageRow.css). Opened, its text grows in place under the line, at the line's text
    indent and with no box around it (Leo 2026-10-21: "a full bordered box for a 2-line message"
    is heavy): whole lines within eight lines (lineCut.ts), then Show more. */
-.cv-message > .cv-agentmsg__card {
+.cv-message > .cv-agentmsg__card,
+.cv-message > .cv-fold > .cv-agentmsg__card {
   margin: 0 0 6px 22.5px;
   padding: 0;
   border-radius: 0;
@@ -2501,9 +2505,9 @@ a.cv-sha:focus-visible {
   --cv-fade-right: 32px;
 }
 :is(.cv-edit-diff__body, .cv-shell__body, .cv-tool-output__box > .cv-tool-output):is(
-    [data-preview="cut"],
-    [data-more-right]
-  ) {
+  [data-preview="cut"],
+  [data-more-right]
+) {
   mask-image:
     linear-gradient(
       to bottom,
