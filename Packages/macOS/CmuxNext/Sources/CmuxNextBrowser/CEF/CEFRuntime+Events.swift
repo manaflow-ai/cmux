@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextCompat
 import CmuxNextInput
 import Foundation
 import os
@@ -20,8 +21,8 @@ let cefEventCallback: CEFShimLibrary.EventFn = { context, kind, browser, request
     // future shim path emits elsewhere, hop instead of trapping in
     // assumeIsolated (the strings are already copied into `event`).
     guard Thread.isMainThread else {
-        DispatchQueue.main.async { MainActor.assumeIsolated { CEFRuntime.from(address)?.receive(event) } } // main-proof: a DispatchQueue.main block runs on the main thread
-        return
+        // FIFO with every other run-loop block: a commit or a crash is never reordered by class.
+        return MainRunLoopBlock.perform { CEFRuntime.from(address)?.receive(event) }
     }
     MainActor.assumeIsolated { // main-proof: guarded by Thread.isMainThread above
         CEFRuntime.from(address)?.receive(event)
@@ -72,6 +73,7 @@ let cefDevToolsKeyCallback: CEFShimLibrary.KeyFn = { context, browser, nsEvent i
 
 extension CEFRuntime {
     func dispatch(_ event: CEFShimEvent) {
+        if mergedEvents.holds(event, for: event.browserID.flatMap { tabsByBrowser[$0] }) { return }
         switch event {
         case .contextInitialized:
             logger.info("CEF context initialized")
@@ -266,6 +268,7 @@ extension CEFRuntime {
     private func browserClosed(_ browser: Int32) {
         windowRequests.linkClicks.forget(opener: browser)
         if let tab = tabsByBrowser.removeValue(forKey: browser) {
+            mergedEvents.forget(tab, browser: browser)
             pageWindowWidgetsBrowserClosed(browser)
             tab.browserDidClose(closesTab: shutdownSequence == nil)
         } else {
@@ -302,20 +305,16 @@ extension CEFRuntime {
             shutdownSequence?.windowDestroyed(remaining: value)
             shutdownProgressed()
         case .activated:
-            // Chromium (an extension) switched the window's tab: cmux selects
-            // it. Our own cmux_tab_activate echoes for the visible tab.
-            // The event arrives inside Chromium's tab strip notification, which
-            // forbids re-entrant tab strip changes (cmux_tab_activate); the
-            // host selects the tab on the next main-actor turn.
-            // An echo of our own activation (or of the tab's creation) that
-            // lands after the user selected another tab must not select this
-            // one again: that stale completion jumped the selection back.
+            // Chromium (an extension) switched the window's tab: cmux selects it at the end of the turn, outside
+            // Chromium's tab strip notification, which forbids re-entrant tab strip changes (cmux_tab_activate).
+            // An echo of our own activation or of the tab's creation, late after the person chose another tab,
+            // selects nothing: that stale completion jumped the selection back.
             if let tab = tabsByBrowser[browser], tab.host.visibleTab !== tab {
                 guard tab.host.isForeignActivation(of: tab) else {
                     tab.host.lifecycleTrace.record(tab.id, "chromium-activated echo dropped")
                     return
                 }
-                Task { @MainActor [weak tab] in
+                tab.host.endOfTurn { [weak tab] in
                     guard let tab, tab.host.isForeignActivation(of: tab) else { return }
                     tab.host.lifecycleTrace.record(tab.id, "chromium-activated selects tab")
                     tab.emit(.activate)
