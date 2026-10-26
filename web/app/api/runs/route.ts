@@ -86,6 +86,11 @@ function sandboxImage(image: string | undefined, userId: string): SandboxImage |
 async function pinSandboxImage(parsed: ParsedRunBody, userId: string, idempotencyKey: string): Promise<ParsedRunBody | Response> {
   if (!parsed.sandbox) return parsed;
   const existing = await findRunByIdempotencyKey(userId, idempotencyKey);
+  // Sandboxes are a preview: off unless this deployment names the account (hq#3367). A retry of a
+  // Run this account already created under the key replays even if the allowlist changed since.
+  if (existing?.environment !== "sandboxed" && !sandboxRunsAllowed(userId)) {
+    return runJson({ error: "run_sandbox_unavailable", message: "Sandboxed runs are not enabled for this account.", retryable: false }, 403);
+  }
   const image = existing?.environment === "sandboxed" && existing.imageId
     ? { id: existing.imageId, version: existing.imageVersion, size: findVmImageManifestEntry(defaultProviderId(), existing.imageId)?.size ?? null }
     : sandboxImage(parsed.sandbox.requestedImage ?? undefined, userId);
@@ -118,14 +123,11 @@ function parseSandboxBody(body: Record<string, unknown>): ParsedRunBody | Respon
   };
 }
 
-function parseRunBody(body: Record<string, unknown>, userId: string): ParsedRunBody | Response {
+function parseRunBody(body: Record<string, unknown>): ParsedRunBody | Response {
   if (body.environment !== undefined && body.environment !== "persistent" && body.environment !== "sandboxed") {
     return runJson({ error: "run_environment_invalid", message: "environment must be persistent or sandboxed." }, 400);
   }
-  if (body.environment !== "sandboxed") return parseCreateRunBody(body);
-  // Sandboxes are a preview: off unless this deployment names the account (hq#3367).
-  if (!sandboxRunsAllowed(userId)) return runJson({ error: "run_sandbox_unavailable", message: "Sandboxed runs are not enabled for this account.", retryable: false }, 403);
-  return parseSandboxBody(body);
+  return body.environment === "sandboxed" ? parseSandboxBody(body) : parseCreateRunBody(body);
 }
 
 /**
@@ -215,7 +217,7 @@ export async function POST(request: Request): Promise<Response> {
         body = null;
       }
       if (!body) return runJson({ error: "run_invalid_request", message: "Run body must be a JSON object." }, 400);
-      const parsedBody = parseRunBody(body, user.id);
+      const parsedBody = parseRunBody(body);
       if (parsedBody instanceof Response) return parsedBody;
       const idempotencyKey = request.headers.get("idempotency-key")?.trim() || request.headers.get("x-cmux-idempotency-key")?.trim() || "";
       if (!idempotencyKey || idempotencyKey.length > 128) return runJson({ error: "run_idempotency_required", message: "Idempotency-Key is required for Run creation." }, 400);

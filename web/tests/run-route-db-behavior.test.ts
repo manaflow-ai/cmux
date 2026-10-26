@@ -565,6 +565,10 @@ describe("sandboxed Run create (hq#3367)", () => {
       const [count] = await sql!`select count(*)::int as n from runs where user_id = ${userId}`;
       expect(count?.n).toBe(0);
 
+      // A Run created while the account was allowed (local dev allows everyone) is created first,
+      // so its retry below runs under the deployment's allowlist.
+      const replayKey = `sandbox-${randomUUID()}`;
+      expect((await createRunRoute.POST(sandboxRequest(replayKey, { task: "x" }))).status).toBe(202);
       // A deployment allows only the accounts it names.
       const saved = { vercel: process.env.VERCEL, users: process.env.CMUX_RUN_SANDBOX_USER_IDS };
       process.env.VERCEL = "1";
@@ -573,6 +577,10 @@ describe("sandboxed Run create (hq#3367)", () => {
         const refused = await createRunRoute.POST(sandboxRequest(`sandbox-${randomUUID()}`, { task: "x" }));
         expect(refused.status).toBe(403);
         expect(await json(refused)).toMatchObject({ error: "run_sandbox_unavailable" });
+        // A retry of a Run the account already created is not refused by the allowlist (it reaches
+        // the deployment's provisioning checks, which this test has no store for).
+        const replay = await createRunRoute.POST(sandboxRequest(replayKey, { task: "x" }));
+        expect(await json(replay)).not.toMatchObject({ error: "run_sandbox_unavailable" });
       } finally {
         if (saved.vercel === undefined) delete process.env.VERCEL; else process.env.VERCEL = saved.vercel;
         if (saved.users === undefined) delete process.env.CMUX_RUN_SANDBOX_USER_IDS; else process.env.CMUX_RUN_SANDBOX_USER_IDS = saved.users;
