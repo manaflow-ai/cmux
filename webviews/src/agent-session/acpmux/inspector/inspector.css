@@ -293,7 +293,6 @@ button.acpmux-chat-inspector-port:hover,
 .acpmux-chat-inspector .acpmux-summary-link:hover:not(:disabled),
 .acpmux-chat-inspector .acpmux-summary-link:active:not(:disabled),
 .acpmux-chat-inspector .acpmux-summary-more:hover,
-.acpmux-chat-inspector-subagents__more:hover,
 .acpmux-chat-inspector .acpmux-summary-agent[aria-current="true"],
 .acpmux-chat-inspector .acpmux-summary-subagent-rows button.cv-subagent:hover {
   background: var(--acpmux-inspector-row-hover);
@@ -802,6 +801,7 @@ button.acpmux-chat-inspector-port:focus-visible {
   display: flex;
   align-items: center;
   gap: 6px;
+  width: 100%;
   height: 26px;
   padding: 0 8px;
   border: 0;
@@ -810,14 +810,13 @@ button.acpmux-chat-inspector-port:focus-visible {
   color: var(--agent-muted);
   font: inherit;
   font-size: var(--text-detail);
+  text-align: left;
+  appearance: none;
   cursor: default;
 }
-.acpmux-chat-inspector-fold:hover {
-  color: var(--agent-text);
-}
 .acpmux-chat-inspector-fold:focus-visible {
-  outline: 1.5px solid var(--agent-text);
-  outline-offset: -1.5px;
+  outline: var(--cmux-focus-ring-width, 1.5px) solid var(--cmux-focus-ring-color, var(--agent-text));
+  outline-offset: calc(-1 * var(--cmux-focus-ring-width, 1.5px));
 }
 /* Subagents (SubagentsSection.tsx): the running ones' lines, "Show more" under them, then the one
    row of the ended ones, which opens into their lines. */
