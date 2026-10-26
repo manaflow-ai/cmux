@@ -1039,18 +1039,6 @@ async fn client_session(
                 }
                 let answer = prompt
                     .ask(&format!(
-                        "Revoke a client session on VM {vm_id}? Type the VM id to confirm: "
-                    ))
-                    .map_err(|e| {
-                        CliError::cancelled(format!("could not read confirmation: {e}"))
-                    })?;
-                if answer.trim() != vm_id {
-                    return Err(CliError::cancelled(format!(
-                        "revocation of client session {session_id} on VM {vm_id} was not confirmed"
-                    )));
-                }
-                let answer = prompt
-                    .ask(&format!(
                         "Revoke client session {session_id} on VM {vm_id}? Type the session id to confirm: "
                     ))
                     .map_err(|e| {

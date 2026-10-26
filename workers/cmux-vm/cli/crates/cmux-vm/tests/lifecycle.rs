@@ -2339,3 +2339,94 @@ async fn exec_fails_when_the_command_fails() {
     assert_eq!(out.code, exit::UNEXPECTED);
     assert!(out.stderr.contains("acpmux: not found"), "{}", out.stderr);
 }
+
+#[tokio::test]
+async fn client_sessions_keep_tokens_private_and_confirm_revoke() {
+    let server = MockServer::start().await;
+    let session = "vcs_00000000000000000000000000";
+    let response = json!({"id":session,"vmId":VM_ID,"providerVmId":"provider-vm",
+        "linuxUser":"dev","token":"one-time-secret","createdAt":"now"});
+    Mock::given(method("POST"))
+        .and(path(format!("/v1/vms/{VM_ID}/client-session")))
+        .and(authorized())
+        .and(body_json(json!({"linuxUser":"dev"})))
+        .respond_with(ResponseTemplate::new(201).set_body_json(&response))
+        .expect(2)
+        .mount(&server)
+        .await;
+    let out = cli(
+        &server,
+        &["client-session", "create", VM_ID, "--user", "dev"],
+    )
+    .await;
+    assert_eq!(out.code, exit::OK, "{}", out.stderr);
+    assert!(
+        out.stdout
+            .contains("ssh provider-vm+dev@beta-ssh.freestyle.sh")
+    );
+    assert!(out.stdout.contains("one-time-secret"));
+    assert!(out.stdout.contains("shown once"));
+    assert!(!out.stderr.contains("one-time-secret"));
+    let dir = std::env::temp_dir().join(format!("cmux-client-session-{}", std::process::id()));
+    std::fs::create_dir(&dir).unwrap();
+    let file = dir.join("token");
+    let args = [
+        "--json",
+        "client-session",
+        "create",
+        VM_ID,
+        "--user",
+        "dev",
+        "--token-file",
+        file.to_str().unwrap(),
+    ];
+    let out = cli(&server, &args).await;
+    assert_eq!(out.code, exit::OK, "{}", out.stderr);
+    assert_eq!(std::fs::read_to_string(&file).unwrap(), "one-time-secret");
+    assert!(json_stdout(&out).get("token").is_none());
+    assert!(!out.stdout.contains("one-time-secret"));
+    assert!(!out.stderr.contains("one-time-secret"));
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        assert_eq!(
+            std::fs::metadata(&file).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
+    }
+    let refused = cli(&server, &args).await;
+    assert_ne!(refused.code, exit::OK);
+    assert_eq!(std::fs::read_to_string(&file).unwrap(), "one-time-secret");
+    Mock::given(method("GET"))
+        .and(path(format!("/v1/vms/{VM_ID}/client-sessions")))
+        .and(authorized())
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_json(json!({"sessions":[response],"token":"unexpected-secret"})),
+        )
+        .expect(1)
+        .mount(&server)
+        .await;
+    let out = cli(&server, &["--json", "client-session", "list", VM_ID]).await;
+    assert_eq!(out.code, exit::OK, "{}", out.stderr);
+    assert_eq!(json_stdout(&out)["sessions"][0]["id"], session);
+    assert!(!out.stdout.contains("secret"));
+    let refused = cli(&server, &["client-session", "revoke", VM_ID, session]).await;
+    assert_eq!(refused.code, exit::USAGE);
+    assert!(refused.stderr.contains(session));
+    Mock::given(method("DELETE"))
+        .and(path(format!("/v1/vms/{VM_ID}/client-sessions/{session}")))
+        .and(authorized())
+        .respond_with(ResponseTemplate::new(204))
+        .expect(1)
+        .mount(&server)
+        .await;
+    let out = cli(
+        &server,
+        &["client-session", "revoke", VM_ID, session, "--yes"],
+    )
+    .await;
+    assert_eq!(out.code, exit::OK, "{}", out.stderr);
+    assert!(out.stdout.contains(session) && out.stdout.contains(VM_ID));
+    std::fs::remove_dir_all(dir).unwrap();
+}
