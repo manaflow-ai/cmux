@@ -35,6 +35,7 @@ import { visibleVmImages, vmImageAllowed, vmImageEvidenceOf, type VmImageAllowed
 import { CmuxVmApi, CreatedVm, Vm, VmList, type CreateVmRequest, type ForkVmRequest, type VmState } from "../api.ts";
 import { OwnershipStore } from "../db/stores.ts";
 import { agentBudgetAllows, revokeVmClientSessions, withAgentLabels } from "./agent-sandboxes.ts";
+import { forgetOrphanedTlsRules } from "./tls-rule-cleanup.ts";
 import { actorRef, carriesRequiredLabels, CurrentPrincipal, type Principal } from "../domain/principal.ts";
 import {
   badRequest,
@@ -624,6 +625,9 @@ export const deleteVmById = (rawVmId: string) =>
         yield* settleDeletedCreation(caller, proofs.scope, vm.value);
         // Its client-session tokens die with it; a failed revoke is retried by the reaper.
         yield* revokeVmClientSessions(tenantId, vm.value).pipe(Effect.ignore);
+        // So do the TLS rules naming it; one the provider fails to delete stays an orphan that holds no budget
+        // and is retried by the next cleanup (src/handlers/tls-rule-cleanup.ts).
+        yield* forgetOrphanedTlsRules(caller, vm.value).pipe(Effect.ignore);
       }),
     ).pipe(
       // Idempotent: the caller's own already-deleted VM answers 204 again, so a lost 204 never wedges the retry.

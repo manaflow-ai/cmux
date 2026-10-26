@@ -50,10 +50,11 @@ import {
   tenantVerifiedDomain,
 } from "../proofs/domain-resource.ts";
 import { tenantOwnsVm } from "../proofs/tenant-owns-resource.ts";
-import { forwardAuthAllowed, forwardAuthEvidenceOf, reserveDomain, tlsRuleAllowed, tlsRuleEvidenceOf, verifiedDomainFor } from "../proofs/tls-rule.ts";
+import { forwardAuthAllowed, forwardAuthEvidenceOf, releaseDomain, reserveDomain, tlsRuleAllowed, tlsRuleEvidenceOf, verifiedDomainFor } from "../proofs/tls-rule.ts";
 import type { UpstreamError } from "../upstream/client.ts";
 import { UpstreamDomains } from "../upstream/domains.ts";
 import { audited, dependencyDown, withCaller } from "./common.ts";
+import { forgetOrphanedTlsRules, forgetTlsRules } from "./tls-rule-cleanup.ts";
 
 /** Per-tenant budgets: these are configuration records, not compute. */
 export const DOMAIN_LIMITS = { pendingVerifications: 20, tlsRules: 100, forwardAuths: 20 } as const;
@@ -71,6 +72,23 @@ const refuseConfinedCreate = (principal: Principal) =>
     : Effect.fail(new Forbidden({ message: "Service keys, agent keys and resource-allowlisted keys cannot create domains, TLS rules or forward-auth checks" }));
 
 const overBudget = (what: string, limit: number) => new QuotaExceeded({ message: `At most ${limit} ${what} per team` });
+const coverLost = () => new BadRequest({ message: "Your team no longer holds the verified domain this name is under" });
+
+/** Whether the tenant still holds `cover` as a verified domain (null: the rule needs none). */
+const holdsCover = (tenantId: Principal["tenantId"], cover: string | null) => Effect.gen(function* () {
+  if (cover === null) return true;
+  const owners = yield* (yield* DomainStore).verifiedOwners([cover]);
+  return owners.some((owner) => owner.tenantId === tenantId);
+});
+
+/** Whether a rule on `ruleDomain` is still allowed by a verified domain of the tenant (the most specific owner deciding). */
+const stillCovered = (tenantId: Principal["tenantId"], ruleDomain: string) => Effect.gen(function* () {
+  const base = ruleDomain.startsWith("*.") ? ruleDomain.slice(2) : ruleDomain;
+  const candidates = ruleDomain.startsWith("*.") ? [base] : ancestorsOf(base).slice(0, 2);
+  const owners = yield* (yield* DomainStore).verifiedOwners(candidates);
+  const decisive = candidates.map((candidate) => owners.find((owner) => owner.domain === candidate)).find((owner) => owner !== undefined);
+  return decisive !== undefined && decisive.tenantId === tenantId;
+});
 
 /** Store and provider failures answer 503 and log only the operation name. */
 const stored = <A, E, R>(operation: string, effect: Effect.Effect<A, E, R>) =>
@@ -148,10 +166,20 @@ const deleteDomain = (raw: string) => withCaller("domain:write", "write", (calle
   stored("domains.delete", Effect.gen(function* () {
     const row = yield* findDomain(caller.value, raw);
     const store = yield* DomainStore;
-    if ((yield* store.countTlsRulesUnder(caller.value.tenantId, row.domain)) > 0) {
-      return yield* Effect.fail(conflict("A TLS rule of your team still routes a name under this domain; delete it first"));
+    // Rules orphaned by deleted VMs never block a release; clean them up at the provider first (best effort).
+    yield* forgetOrphanedTlsRules(caller, null);
+    const released = yield* releaseDomain(caller, row.id);
+    if (released.kind === "missing") return yield* Effect.fail(domainMissing());
+    if (released.kind === "in_use") return yield* Effect.fail(conflict("A TLS rule of your team still routes a name under this domain; delete it first"));
+    // Pending challenges of the released domain would otherwise outlive it at the provider.
+    yield* (yield* UpstreamDomains).withdrawStaleChallenges(released.stale);
+    // A rule recorded while the release ran routes under a domain the team no longer holds: remove it.
+    // (createTlsRule checks again after its insert; between the two checks every interleaving is caught.)
+    const late: TlsRuleRow[] = [];
+    for (const rule of yield* store.listTlsRulesUnder(caller.value.tenantId, released.row.domain)) {
+      if (!(yield* stillCovered(caller.value.tenantId, rule.domain))) late.push(rule);
     }
-    yield* store.deleteDomain(caller.value.tenantId, row.id);
+    yield* forgetTlsRules(caller, late);
   }))));
 
 const requestWildcardCertificate = (raw: string) => withCaller("domain:write", "write", (caller) => audited("domain.wildcard_certificate", parseDomainId(raw).pipe(Option.getOrNull),
@@ -192,16 +220,28 @@ const createDomainVerification = (domain: string) => withCaller("domain:write", 
       return yield* Effect.fail(overBudget("pending domain verifications", DOMAIN_LIMITS.pendingVerifications));
     }
     const at = yield* now;
+    const upstream = yield* UpstreamDomains;
     const reserved = yield* reserveDomain(caller, domain, newDomainId(), at);
-    const challenge = yield* (yield* UpstreamDomains).createVerification(reserved.domain).pipe(
-      Effect.tapError(() => store.releasePendingClaim(caller.value.tenantId, reserved.row.domain).pipe(Effect.ignore)),
+    // Another team's lapsed reservation was taken over: its pending challenges can no longer verify anything.
+    yield* upstream.withdrawStaleChallenges(reserved.stale);
+    const release = store.releasePendingClaim(caller.value.tenantId, reserved.row.domain).pipe(Effect.ignore);
+    const challenge = yield* upstream.createVerification(reserved.domain).pipe(
+      Effect.tapError(() => release),
       Effect.catchAll(upstreamDown("createVerification")),
     );
+    const backOut = challenge.discard.pipe(Effect.zipRight(release));
     const row: VerificationRow = {
       id: newDomainVerificationId(), tenantId: caller.value.tenantId, domain: reserved.row.domain, upstreamId: challenge.upstreamId,
       recordName: challenge.recordName, code: challenge.code, createdBy: actorRef(caller.value.actor), createdAt: at, verifiedAt: null,
     };
-    yield* store.insertVerification(row).pipe(Effect.tapError(() => challenge.discard));
+    const budgetFull = () => overBudget("pending domain verifications", DOMAIN_LIMITS.pendingVerifications);
+    // The budget holds at the insert itself; concurrent creates that all passed it back out together.
+    const inserted = yield* store.insertVerification(row, DOMAIN_LIMITS.pendingVerifications).pipe(Effect.tapError(() => backOut));
+    if (!inserted) return yield* backOut.pipe(Effect.zipRight(Effect.fail(budgetFull())));
+    if ((yield* store.countPendingVerifications(caller.value.tenantId)) > DOMAIN_LIMITS.pendingVerifications) {
+      yield* store.deletePendingVerification(caller.value.tenantId, row.id);
+      return yield* backOut.pipe(Effect.zipRight(Effect.fail(budgetFull())));
+    }
     return verificationView(row);
   })), (view) => view.id));
 
@@ -230,13 +270,23 @@ const verifyDomain = (raw: string) => withCaller("domain:write", "write", (calle
     const store = yield* DomainStore;
     const policy = yield* DomainPolicy;
     const at = yield* now;
+    const upstream = yield* UpstreamDomains;
     if (owned.row.verifiedAt === null) {
-      const result = yield* (yield* UpstreamDomains).verifyDomain(owned.owns).pipe(Effect.catchAll(upstreamDown("verifyDomain")));
+      // The provider may name another challenge of this team for the same domain as the one that verified it.
+      const siblings = (yield* store.listVerifications(caller.value.tenantId, null))
+        .filter((row) => row.domain === owned.row.domain && row.id !== owned.row.id)
+        .map((row) => row.upstreamId);
+      const result = yield* upstream.verifyDomain(owned.owns, siblings).pipe(Effect.catchAll(upstreamDown("verifyDomain")));
       if (result === "pending") return yield* Effect.fail(new BadRequest({ message: `The TXT record at ${owned.row.recordName} is not visible yet; publish it and retry` }));
       if (result === "gone") return yield* Effect.fail(verificationMissing());
     }
     const domain = yield* store.markDomainVerified(caller.value.tenantId, owned.row.domain, at);
-    if (domain === null) return yield* Effect.fail(conflict("This domain is no longer reserved for your team; create a new verification"));
+    if (domain === null) {
+      // This challenge can never be recorded: withdraw it at the provider (best effort) and forget it.
+      yield* upstream.deleteVerification(owned.owns).pipe(Effect.ignore);
+      yield* store.deletePendingVerification(caller.value.tenantId, owned.row.id);
+      return yield* Effect.fail(conflict("This domain is no longer reserved for your team; create a new verification"));
+    }
     yield* store.markVerificationVerified(caller.value.tenantId, owned.row.id, at);
     return domainView(domain, policy);
   }))), (view) => view.id));
@@ -274,13 +324,21 @@ const ruleRefused = (operation: string) => (error: UpstreamError): Effect.Effect
   return upstreamDown(operation)(error);
 };
 
-const withRule = <C, A, E, R>(caller: Named<C, Principal>, raw: string, k: <V>(owned: Owned<C, V, TlsRuleRow>) => Effect.Effect<A, E, R>) =>
+/**
+ * Resolves one of the caller's rules. `orphans`: a rule whose VM was deleted is reachable too (for delete only),
+ * while a rule naming a live VM out of the key's reach stays 404.
+ */
+const withRule = <C, A, E, R>(caller: Named<C, Principal>, raw: string, k: <V>(owned: Owned<C, V, TlsRuleRow>) => Effect.Effect<A, E, R>, orphans = false) =>
   Effect.gen(function* () {
     const parsed = parseTlsRuleId(raw);
     if (Option.isNone(parsed)) return yield* Effect.fail(ruleMissing());
     return yield* name(parsed.value, (rule) => Effect.gen(function* () {
       const owned = yield* tenantOwnsTlsRule(caller, rule);
-      if (owned === null || !(yield* reachesVms(caller, owned.row.vmIds))) return yield* Effect.fail(ruleMissing());
+      if (owned === null) return yield* Effect.fail(ruleMissing());
+      if (!(yield* reachesVms(caller, owned.row.vmIds))) {
+        const orphaned = orphans && (yield* (yield* DomainStore).tlsRuleOrphaned(caller.value.tenantId, owned.row.id));
+        if (!orphaned) return yield* Effect.fail(ruleMissing());
+      }
       return yield* k(owned);
     }));
   });
@@ -300,16 +358,34 @@ const createTlsRule = (payload: TlsRuleRequest) => withCaller("domain:write", "w
   stored("tlsRules.create", Effect.gen(function* () {
     yield* refuseConfinedCreate(caller.value);
     const store = yield* DomainStore;
-    if ((yield* store.countTlsRules(caller.value.tenantId)) >= DOMAIN_LIMITS.tlsRules) return yield* Effect.fail(overBudget("TLS rules", DOMAIN_LIMITS.tlsRules));
+    const tenantId = caller.value.tenantId;
+    const budgetFull = () => overBudget("TLS rules", DOMAIN_LIMITS.tlsRules);
+    // Rules orphaned by deleted VMs hold no budget; clean them up at the provider too (best effort).
+    yield* forgetOrphanedTlsRules(caller, null);
+    if ((yield* store.countTlsRules(tenantId)) >= DOMAIN_LIMITS.tlsRules) return yield* Effect.fail(budgetFull());
     const allowed = yield* tlsRuleAllowed(caller, payload);
     const evidence = tlsRuleEvidenceOf(allowed);
     const created = yield* (yield* UpstreamDomains).createTlsRule(allowed).pipe(Effect.catchAll(ruleRefused("createTlsRule")));
     const at = yield* now;
     const row: TlsRuleRow = {
-      id: newTlsRuleId(), tenantId: caller.value.tenantId, upstreamId: created.upstreamId, domain: evidence.domain, spec: evidence.spec,
+      id: newTlsRuleId(), tenantId, upstreamId: created.upstreamId, domain: evidence.domain, spec: evidence.spec,
       vmIds: evidence.vmIds, forwardAuthId: evidence.forwardAuthId, createdBy: actorRef(caller.value.actor), createdAt: at, updatedAt: at,
     };
-    yield* store.insertTlsRule(row).pipe(Effect.tapError(() => created.discard));
+    // The insert itself re-checks the budget and that the team still holds the verified domain the name is under.
+    const inserted = yield* store.insertTlsRule(row, DOMAIN_LIMITS.tlsRules, evidence.cover).pipe(Effect.tapError(() => created.discard));
+    if (!inserted) {
+      yield* created.discard;
+      return yield* Effect.fail((yield* holdsCover(tenantId, evidence.cover)) ? budgetFull() : coverLost());
+    }
+    // Then once more after it: concurrent creates past the budget back out together, and a rule that raced a
+    // release of its domain is removed (deleteDomain checks for the other order).
+    const overflow = (yield* store.countTlsRules(tenantId)) > DOMAIN_LIMITS.tlsRules;
+    const covered = yield* holdsCover(tenantId, evidence.cover);
+    if (overflow || !covered) {
+      yield* created.discard;
+      yield* store.deleteTlsRule(tenantId, row.id);
+      return yield* Effect.fail(covered ? budgetFull() : coverLost());
+    }
     return ruleView(row);
   })), (view) => view.id));
 
@@ -336,14 +412,20 @@ const updateTlsRule = (raw: string, payload: TlsRuleRequest) => withCaller("doma
     const row = yield* store.updateTlsRule(caller.value.tenantId, owned.row.id,
       { domain: evidence.domain, spec: evidence.spec, vmIds: evidence.vmIds, forwardAuthId: evidence.forwardAuthId }, yield* now);
     if (row === null) return yield* Effect.fail(ruleMissing());
+    if (!(yield* holdsCover(caller.value.tenantId, evidence.cover))) {
+      // The domain was released while the rule changed to a name under it: the rule cannot stay.
+      yield* forgetTlsRules(caller, [row]);
+      return yield* Effect.fail(coverLost());
+    }
     return ruleView(row);
   })))));
 
 const deleteTlsRule = (raw: string) => withCaller("domain:write", "write", (caller) => audited("tls_rule.delete", parseTlsRuleId(raw).pipe(Option.getOrNull),
   stored("tlsRules.delete", withRule(caller, raw, (owned) => Effect.gen(function* () {
+    // "gone" (the provider deleted it with its VM) still forgets it here.
     yield* (yield* UpstreamDomains).deleteTlsRule(owned.owns).pipe(Effect.catchAll(upstreamDown("deleteTlsRule")));
     yield* (yield* DomainStore).deleteTlsRule(caller.value.tenantId, owned.row.id);
-  })))));
+  }), true))));
 
 export const tlsRulesHandlers = HttpApiBuilder.group(CmuxVmApi, "tlsRules", (handlers) => handlers
   .handle("listTlsRules", ({ urlParams }) => listTlsRules(urlParams.vmId))
@@ -388,7 +470,13 @@ const createTlsForwardAuth = (payload: TlsForwardAuthRequest) => withCaller("dom
       id: newForwardAuthId(), tenantId: caller.value.tenantId, upstreamId: created.upstreamId, ...forwardAuthEvidenceOf(allowed).fields,
       createdBy: actorRef(caller.value.actor), createdAt: at, updatedAt: at,
     };
-    yield* store.insertForwardAuth(row).pipe(Effect.tapError(() => created.discard));
+    const budgetFull = () => overBudget("forward-auth checks", DOMAIN_LIMITS.forwardAuths);
+    const inserted = yield* store.insertForwardAuth(row, DOMAIN_LIMITS.forwardAuths).pipe(Effect.tapError(() => created.discard));
+    if (!inserted) return yield* created.discard.pipe(Effect.zipRight(Effect.fail(budgetFull())));
+    if ((yield* store.countForwardAuths(caller.value.tenantId)) > DOMAIN_LIMITS.forwardAuths) {
+      yield* store.deleteForwardAuth(caller.value.tenantId, row.id);
+      return yield* created.discard.pipe(Effect.zipRight(Effect.fail(budgetFull())));
+    }
     return forwardAuthView(row);
   })), (view) => view.id));
 
@@ -413,6 +501,8 @@ const deleteTlsForwardAuth = (raw: string) => withCaller("domain:write", "write"
   stored("forwardAuths.delete", withForwardAuth(caller, raw, (owned) => Effect.gen(function* () {
     const inUse = () => conflict("A TLS rule still uses this forward-auth check; change or delete the rule first");
     const store = yield* DomainStore;
+    // A rule orphaned by a deleted VM does not use it any more: clean those up first (best effort at the provider).
+    yield* forgetOrphanedTlsRules(caller, null);
     if ((yield* store.countTlsRulesUsingForwardAuth(caller.value.tenantId, owned.row.id)) > 0) return yield* Effect.fail(inUse());
     const result = yield* (yield* UpstreamDomains).deleteForwardAuth(owned.owns).pipe(Effect.catchAll(upstreamDown("deleteForwardAuth")));
     if (result === "in_use") return yield* Effect.fail(inUse());

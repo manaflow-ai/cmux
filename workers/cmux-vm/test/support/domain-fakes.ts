@@ -35,7 +35,10 @@ export interface FakeCertificate {
 
 const below = (domain: string, base: string) => domain.length > base.length + 1 && domain.endsWith(`.${base}`);
 
-export function makeMemoryDomainStore() {
+/** Whether `vmId` is a live VM of `tenant` (the harness answers from its ownership rows). */
+export type VmLive = (tenant: string, vmId: string) => boolean;
+
+export function makeMemoryDomainStore(vmLive: VmLive = () => true) {
   const domains: DomainRow[] = [];
   const verifications: VerificationRow[] = [];
   const forwardAuths: ForwardAuthRow[] = [];
@@ -48,19 +51,24 @@ export function makeMemoryDomainStore() {
     const kept = list.filter(keep);
     list.splice(0, list.length, ...kept);
   };
+  const liveRule = (row: TlsRuleRow) => row.vmIds.every((vmId) => vmLive(row.tenantId, vmId));
+  const under = (row: TlsRuleRow, domain: string) => row.domain === domain || below(row.domain, domain);
   const store: DomainStoreService = {
     claimDomain: (tenant, domain, candidate, createdBy, at, staleBefore) => Effect.sync(() => {
       const current = domains.find((row) => row.domain === domain);
       if (current === undefined) {
         const row: DomainRow = { id: candidate, tenantId: tenant, domain, createdBy, createdAt: at, verifiedAt: null };
         domains.push(row);
-        return { kind: "claimed", row } as const;
+        return { kind: "claimed", row, displaced: [] } as const;
       }
       if (current.verifiedAt !== null) return current.tenantId === tenant ? { kind: "verified", row: current } as const : { kind: "taken" } as const;
       if (current.tenantId !== tenant && current.createdAt >= staleBefore) return { kind: "taken" } as const;
-      const row: DomainRow = { ...current, id: current.tenantId === tenant ? current.id : candidate, tenantId: tenant, createdBy, createdAt: at };
+      // The tenant's own reservation is never refreshed; another tenant's lapsed one is taken over with a new id.
+      const row: DomainRow = current.tenantId === tenant ? current : { ...current, id: candidate, tenantId: tenant, createdBy, createdAt: at };
       domains[domains.indexOf(current)] = row;
-      return { kind: "claimed", row } as const;
+      const displaced = verifications.filter((candidateRow) => candidateRow.domain === domain && candidateRow.tenantId !== tenant && candidateRow.verifiedAt === null);
+      remove(verifications, (candidateRow) => !displaced.includes(candidateRow));
+      return { kind: "claimed", row, displaced } as const;
     }),
     releasePendingClaim: (tenant, domain) => Effect.sync(() => {
       if (verifications.some((row) => row.tenantId === tenant && row.domain === domain)) return;
@@ -77,16 +85,22 @@ export function makeMemoryDomainStore() {
     findDomain: (tenant, id) => Effect.sync(() => domains.find((row) => row.tenantId === tenant && row.id === id && row.verifiedAt !== null) ?? null),
     deleteDomain: (tenant, id) => Effect.sync(() => {
       const row = domains.find((candidate) => candidate.tenantId === tenant && candidate.id === id && candidate.verifiedAt !== null);
-      if (row === undefined) return false;
+      if (row === undefined) return { kind: "missing" } as const;
+      if (rules.some((rule) => rule.tenantId === tenant && under(rule, row.domain) && liveRule(rule))) return { kind: "in_use" } as const;
       remove(domains, (candidate) => candidate !== row);
-      remove(verifications, (candidate) => !(candidate.tenantId === tenant && candidate.domain === row.domain));
-      return true;
+      const released = verifications.filter((candidate) => candidate.tenantId === tenant && candidate.domain === row.domain);
+      remove(verifications, (candidate) => !released.includes(candidate));
+      return { kind: "released", row, verifications: released } as const;
     }),
     verifiedOwners: (names) => Effect.sync((): ReadonlyArray<DomainOwner> =>
       domains.filter((row) => row.verifiedAt !== null && names.includes(row.domain)).map((row) => ({ domain: row.domain, tenantId: row.tenantId }))),
     verifiedBelow: (base) => Effect.sync((): ReadonlyArray<DomainOwner> =>
       domains.filter((row) => row.verifiedAt !== null && below(row.domain, base)).map((row) => ({ domain: row.domain, tenantId: row.tenantId }))),
-    insertVerification: (row) => Effect.sync(() => void verifications.push(row)),
+    insertVerification: (row, limit) => Effect.sync(() => {
+      if (verifications.filter((candidate) => candidate.tenantId === row.tenantId && candidate.verifiedAt === null).length >= limit) return false;
+      verifications.push(row);
+      return true;
+    }),
     listVerifications: (tenant, state) => Effect.sync(() => verifications.filter((row) =>
       row.tenantId === tenant && (state === null || (state === "verified") === (row.verifiedAt !== null))).reverse()),
     findVerification: (tenant, id) => Effect.sync(() => verifications.find((row) => row.tenantId === tenant && row.id === id) ?? null),
@@ -100,7 +114,11 @@ export function makeMemoryDomainStore() {
       return verifications.length < before;
     }),
     countPendingVerifications: (tenant) => Effect.sync(() => verifications.filter((row) => row.tenantId === tenant && row.verifiedAt === null).length),
-    insertForwardAuth: (row) => Effect.sync(() => void forwardAuths.push(row)),
+    insertForwardAuth: (row, limit) => Effect.sync(() => {
+      if (forwardAuths.filter((candidate) => candidate.tenantId === row.tenantId).length >= limit) return false;
+      forwardAuths.push(row);
+      return true;
+    }),
     listForwardAuths: (tenant) => Effect.sync(() => forwardAuths.filter((row) => row.tenantId === tenant).reverse()),
     findForwardAuth: (tenant, id) => Effect.sync(() => forwardAuths.find((row) => row.tenantId === tenant && row.id === id) ?? null),
     updateForwardAuth: (tenant, id, fields, at) => Effect.sync(() => {
@@ -112,7 +130,12 @@ export function makeMemoryDomainStore() {
     }),
     deleteForwardAuth: (tenant, id) => Effect.sync(() => remove(forwardAuths, (row) => !(row.tenantId === tenant && row.id === id))),
     countForwardAuths: (tenant) => Effect.sync(() => forwardAuths.filter((row) => row.tenantId === tenant).length),
-    insertTlsRule: (row) => Effect.sync(() => void rules.push(row)),
+    insertTlsRule: (row, limit, cover) => Effect.sync(() => {
+      if (rules.filter((candidate) => candidate.tenantId === row.tenantId && liveRule(candidate)).length >= limit) return false;
+      if (cover !== null && !domains.some((candidate) => candidate.tenantId === row.tenantId && candidate.domain === cover && candidate.verifiedAt !== null)) return false;
+      rules.push(row);
+      return true;
+    }),
     listTlsRules: (tenant) => Effect.sync(() => rules.filter((row) => row.tenantId === tenant).reverse()),
     findTlsRule: (tenant, id) => Effect.sync(() => rules.find((row) => row.tenantId === tenant && row.id === id) ?? null),
     updateTlsRule: (tenant, id, fields, at) => Effect.sync(() => {
@@ -123,15 +146,18 @@ export function makeMemoryDomainStore() {
       return next;
     }),
     deleteTlsRule: (tenant, id) => Effect.sync(() => remove(rules, (row) => !(row.tenantId === tenant && row.id === id))),
-    countTlsRules: (tenant) => Effect.sync(() => rules.filter((row) => row.tenantId === tenant).length),
-    countTlsRulesUsingForwardAuth: (tenant, id) => Effect.sync(() => rules.filter((row) => row.tenantId === tenant && row.forwardAuthId === id).length),
-    countTlsRulesUnder: (tenant, domain) => Effect.sync(() => rules.filter((row) => row.tenantId === tenant && (row.domain === domain || below(row.domain, domain))).length),
+    countTlsRules: (tenant) => Effect.sync(() => rules.filter((row) => row.tenantId === tenant && liveRule(row)).length),
+    countTlsRulesUsingForwardAuth: (tenant, id) => Effect.sync(() => rules.filter((row) => row.tenantId === tenant && row.forwardAuthId === id && liveRule(row)).length),
+    countTlsRulesUnder: (tenant, domain) => Effect.sync(() => rules.filter((row) => row.tenantId === tenant && under(row, domain) && liveRule(row)).length),
+    listTlsRulesUnder: (tenant, domain) => Effect.sync(() => rules.filter((row) => row.tenantId === tenant && under(row, domain) && liveRule(row))),
+    listOrphanedTlsRules: (tenant, vmId) => Effect.sync(() => rules.filter((row) => row.tenantId === tenant && (vmId === null || row.vmIds.includes(vmId)) && !liveRule(row))),
+    tlsRuleOrphaned: (tenant, id) => Effect.sync(() => rules.some((row) => row.tenantId === tenant && row.id === id && !liveRule(row))),
   };
   return { store, domains, verifications, forwardAuths, rules };
 }
 
-export function makeDomainFakes(provider: FakeUpstream, policy: DomainPolicyConfig = {}) {
-  const memory = makeMemoryDomainStore();
+export function makeDomainFakes(provider: FakeUpstream, policy: DomainPolicyConfig = {}, vmLive?: VmLive) {
+  const memory = makeMemoryDomainStore(vmLive);
   const challenges = new Map<string, FakeChallenge>();
   /** TXT records "published" at a DNS host: recordName -> values. */
   const txt = new Map<string, Set<string>>();
@@ -139,6 +165,8 @@ export function makeDomainFakes(provider: FakeUpstream, policy: DomainPolicyConf
   const delegated = new Set<string>();
   const certificates: FakeCertificate[] = [];
   const forwardAuths = new Map<string, Record<string, unknown>>();
+  /** Challenge id -> the challenge id a verify of it names as `verifiedBy` (default: itself). */
+  const verifiers = new Map<string, string>();
   /** TLS rule ids this fake created; the proxy replacement route in fake-upstream.ts owns the rest. */
   const ownRules = new Set<string>();
 
@@ -175,7 +203,7 @@ export function makeDomainFakes(provider: FakeUpstream, policy: DomainPolicyConf
       if (method === "PUT") {
         if (!challenge.verified && !(txt.get(challenge.recordName)?.has(challenge.code) ?? false)) return json({ code: "VERIFICATION_FAILED", message: "no record" }, 400);
         challenge.verified = true;
-        return json({ domain: challenge.domain, createdAt: new Date().toISOString(), verifiedBy: challenge.id });
+        return json({ domain: challenge.domain, createdAt: new Date().toISOString(), verifiedBy: verifiers.get(challenge.id) ?? challenge.id });
       }
       if (method === "DELETE") {
         if (challenge.verified) return json({ code: "CONFLICT", message: "verified" }, 409);
@@ -253,6 +281,10 @@ export function makeDomainFakes(provider: FakeUpstream, policy: DomainPolicyConf
       const values = txt.get(name) ?? new Set<string>();
       values.add(value);
       txt.set(name, values);
+    },
+    /** Makes a verify of challenge `id` name `verifier` as the challenge that verified the domain. */
+    nameVerifier(id: string, verifier: string) {
+      verifiers.set(id, verifier);
     },
     /** Delegates `_acme-challenge.<domain>` so a wildcard certificate can be issued. */
     delegate(domain: string) {

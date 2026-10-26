@@ -84,6 +84,21 @@ export const tenantOwnsForwardAuth = <C, R>(
   return { owns: mint(caller, config, row.upstreamId), row };
 });
 
+/**
+ * System cleanup, not a read on the caller's behalf: the caller's tenant owns this TLS rule. Minted without the
+ * key-visibility check (a service, agent or allowlisted key deleting a VM still cleans up the rules naming it),
+ * because nothing about the rule is returned to the caller. Used only to delete rules orphaned by a VM delete or
+ * left under a released domain; the tenant check is what keeps another tenant's provider rule out of reach.
+ */
+export const tenantTlsRuleForCleanup = <C, R>(
+  caller: Named<C, Principal>,
+  rule: Named<R, TlsRuleId>,
+): Effect.Effect<Owned<C, R, TlsRuleRow> | null, StoreError, DomainStore> => Effect.gen(function* () {
+  const row = yield* (yield* DomainStore).findTlsRule(caller.value.tenantId, rule.value);
+  if (row === null || row.tenantId !== caller.value.tenantId) return null;
+  return { owns: mint(caller, rule, row.upstreamId), row };
+});
+
 /** A verified domain has no provider id of its own; this is the same visibility rule without a proof. */
 export const tenantVerifiedDomain = (principal: Principal, id: DomainId): Effect.Effect<DomainRow | null, StoreError, DomainStore> => Effect.gen(function* () {
   if (!seesDomainResource(principal, id)) return null;

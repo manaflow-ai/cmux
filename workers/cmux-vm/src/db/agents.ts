@@ -53,8 +53,11 @@ export interface AgentStoreService {
   readonly markClientSessionRevoked: (tenantId: TenantId, id: ClientSessionId, at: Date) => Effect.Effect<void, StoreError>;
   /** Live client sessions whose VM is deleted: their revoke failed when the VM went. */
   readonly orphanClientSessions: (limit: number) => Effect.Effect<ReadonlyArray<ClientSessionRow>, StoreError>;
-  /** Records a live session's new Linux user (after the provider grant changed). */
-  readonly setClientSessionLinuxUser: (tenantId: TenantId, id: ClientSessionId, linuxUser: string) => Effect.Effect<void, StoreError>;
+  /**
+   * Records a live session's new Linux user (after the provider grant changed), only while its recorded user is
+   * still `from`: a compare-and-set, false when another change got there first (or the session is gone).
+   */
+  readonly setClientSessionLinuxUser: (tenantId: TenantId, id: ClientSessionId, from: string, to: string) => Effect.Effect<boolean, StoreError>;
   /** The tenant's live client sessions on live VMs, by id after `after`, at most `limit`. */
   readonly liveTenantClientSessions: (
     tenantId: TenantId,
@@ -202,14 +205,14 @@ export const sqlAgentStoreLayer: Layer.Layer<AgentStore, never, SqlClient> = Lay
           [limit],
         )
         .pipe(Effect.flatMap(decode(SessionRow, "clientSessions.orphans")), Effect.map((rows) => rows.map(toSession))),
-    setClientSessionLinuxUser: (tenantId, id, linuxUser) =>
+    setClientSessionLinuxUser: (tenantId, id, from, to) =>
       sql
         .query(
           "clientSessions.linuxUser",
-          `UPDATE cmux_vm.vm_client_sessions SET linux_user = $3 WHERE id = $1 AND tenant_id = $2 AND revoked_at IS NULL`,
-          [id, tenantId, linuxUser],
+          `UPDATE cmux_vm.vm_client_sessions SET linux_user = $4 WHERE id = $1 AND tenant_id = $2 AND revoked_at IS NULL AND linux_user = $3 RETURNING id`,
+          [id, tenantId, from, to],
         )
-        .pipe(Effect.asVoid),
+        .pipe(Effect.map((rows) => rows.length === 1)),
     liveTenantClientSessions: (tenantId, after, limit) =>
       sql
         .query(

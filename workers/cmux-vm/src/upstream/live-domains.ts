@@ -8,7 +8,7 @@
 import { Effect, Layer, Redacted, Schema } from "effect";
 import { UpstreamId } from "../lib/ids.ts";
 import { domainUpstreamIdOf, type TenantOwnsDomainResource } from "../proofs/domain-resource.ts";
-import { forwardAuthEvidenceOf, tlsRuleEvidenceOf, verifiableDomainOf } from "../proofs/tls-rule.ts";
+import { forwardAuthEvidenceOf, staleChallengeIdsOf, tlsRuleEvidenceOf, verifiableDomainOf } from "../proofs/tls-rule.ts";
 import type { Environment } from "../policy.ts";
 import { UpstreamError } from "./client.ts";
 import { UpstreamCertificate, UpstreamDomains, type UpstreamDomainsService } from "./domains.ts";
@@ -57,7 +57,7 @@ export function makeUpstreamDomains(config: UpstreamConfig): UpstreamDomainsServ
           discard: discard("deleteVerification", `/v5/verifications/${encodeURIComponent(body.id)}`, body.id),
         })),
       ),
-    verifyDomain: (owns) => Effect.gen(function* () {
+    verifyDomain: (owns, siblings) => Effect.gen(function* () {
       const operation = "verifyDomain";
       const id = yield* idOf(operation, owns);
       const upstreamId = domainUpstreamIdOf(owns);
@@ -66,10 +66,12 @@ export function makeUpstreamDomains(config: UpstreamConfig): UpstreamDomainsServ
         { 400: "pending", 404: "gone" },
       );
       if (result === "pending" || result === "gone") return result;
-      // Only this challenge's own code may verify it.
-      if (result !== upstreamId) return yield* Effect.fail(new UpstreamError({ operation, status: null }));
+      // Only this challenge, or another challenge of the same tenant for the same domain, may have verified it.
+      if (result !== upstreamId && !siblings.some((sibling) => sibling === result)) return yield* Effect.fail(new UpstreamError({ operation, status: null }));
       return "verified";
     }),
+    withdrawStaleChallenges: (stale) =>
+      Effect.forEach(staleChallengeIdsOf(stale), (id) => discard("deleteVerification", `/v5/verifications/${encodeURIComponent(id)}`, id), { discard: true }),
     deleteVerification: (owns) => Effect.gen(function* () {
       const id = yield* idOf("deleteVerification", owns);
       return yield* outcome(http.json("deleteVerification", "DELETE", `/v5/verifications/${id}`).pipe(Effect.as("deleted" as const)), { 404: "gone", 409: "verified" });

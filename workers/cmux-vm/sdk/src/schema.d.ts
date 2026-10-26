@@ -995,7 +995,7 @@ export interface paths {
         get?: never;
         /**
          * Change a client session's Linux user
-         * @description Replace the one Linux user the session's tokens (existing and future) may act as on this VM. Exactly one user: a session is never unrestricted. Setting the current user again is not an error. A revoked session is 404. Requires the vm:exec scope.
+         * @description Replace the one Linux user the session's tokens (existing and future) may act as on this VM. Exactly one user: a session is never unrestricted. Setting the current user again is not an error. A revoked session is 404. A change that raced another change of the same session and lost is 409; the session keeps the winner's user, on the grant too. Requires the vm:exec scope.
          */
         put: operations["clientSessions.setClientSessionLinuxUser"];
         post?: never;
@@ -1768,7 +1768,7 @@ export interface paths {
         put?: never;
         /**
          * Start proving you control a domain
-         * @description Start proving you control a domain. Requires the domain:write scope. Reserves the domain for your team while the challenge is pending (another team's request is 409; an unverified reservation lapses after 7 days). Names under the managed zone cannot be verified. Service keys, agent keys and resource-allowlisted keys cannot create these resources; allowlisted keys see only the ids they list.
+         * @description Start proving you control a domain. Requires the domain:write scope. Reserves the domain for your team while the challenge is pending (another team's request is 409; an unverified reservation lapses 7 days after your team's first request, and another request does not extend it). Names under the managed zone cannot be verified. Service keys, agent keys and resource-allowlisted keys cannot create these resources; allowlisted keys see only the ids they list.
          */
         post: operations["domains.createDomainVerification"];
         delete?: never;
@@ -8423,6 +8423,15 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["NotFound"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Conflict"];
                 };
             };
             /** @description QuotaExceeded */

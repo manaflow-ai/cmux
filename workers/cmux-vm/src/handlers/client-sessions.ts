@@ -14,7 +14,7 @@ import { ClientSessionSummary } from "../api/agents.ts";
 import { ClientSessionPage, ClientSessionToken, ClientSessionTokenList, ClientSessionTokenSummary } from "../api/client-sessions.ts";
 import { AgentStore, type ClientSessionRow } from "../db/agents.ts";
 import { carriesRequiredLabels } from "../domain/principal.ts";
-import { NotFound, unavailable } from "../errors.ts";
+import { conflict, NotFound, unavailable } from "../errors.ts";
 import { parseClientSessionId, parseClientSessionTokenId, TenantId, type VmId } from "../lib/ids.ts";
 import { UpstreamClient, type UpstreamError } from "../upstream/client.ts";
 import { audited, auditableVmId, withCaller, withOwnedVm } from "./common.ts";
@@ -75,13 +75,31 @@ export const clientSessionsHandlers = HttpApiBuilder.group(CmuxVmApi, "clientSes
         auditableVmId(path.vmId),
         withOwnedVm(path.vmId, "vm:exec", "exec", (caller, vm, proofs) =>
           Effect.gen(function* () {
+            const tenantId = TenantId.make(caller.value.tenantId);
             const row = yield* liveSession(caller.value.tenantId, vm.value, path.sessionId);
             const upstream = yield* UpstreamClient;
             const agents = yield* AgentStore;
-            yield* upstream.setClientSessionLinuxUser(vm, proofs, row.upstreamIdentityId, payload.linuxUser).pipe(Effect.mapError(upstreamFailure));
-            yield* agents
-              .setClientSessionLinuxUser(TenantId.make(caller.value.tenantId), row.id, payload.linuxUser)
+            const grant = (linuxUser: string) =>
+              upstream.setClientSessionLinuxUser(vm, proofs, row.upstreamIdentityId, linuxUser).pipe(Effect.mapError(upstreamFailure));
+            yield* grant(payload.linuxUser);
+            // Compare-and-set from the user this request read, so two changes cannot leave the table and the grant apart.
+            const won = yield* agents
+              .setClientSessionLinuxUser(tenantId, row.id, row.linuxUser, payload.linuxUser)
               .pipe(Effect.mapError(() => unavailable()));
+            // Whether or not this change won, the provider grant ends equal to the recorded user: a change racing this
+            // one may have written the grant after or before ours. Every request re-reads after its last grant write.
+            let applied = payload.linuxUser;
+            let settled = false;
+            for (let attempt = 0; attempt < 3 && !settled; attempt += 1) {
+              const current = yield* liveSession(caller.value.tenantId, vm.value, path.sessionId);
+              if (current.linuxUser === applied) settled = true;
+              else {
+                yield* grant(current.linuxUser);
+                applied = current.linuxUser;
+              }
+            }
+            if (!settled) return yield* Effect.fail(unavailable());
+            if (!won) return yield* Effect.fail(conflict("The session's Linux user changed while this request ran; read it and retry"));
             return summaryOf(row, payload.linuxUser);
           }),
         ),

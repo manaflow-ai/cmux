@@ -10,7 +10,7 @@
 import { Context, Effect, Schema } from "effect";
 import type { UpstreamId } from "../lib/ids.ts";
 import type { TenantOwnsDomainResource } from "../proofs/domain-resource.ts";
-import type { ForwardAuthAllowed, TlsRuleAllowed, VerifiableDomain } from "../proofs/tls-rule.ts";
+import type { ForwardAuthAllowed, StaleChallenges, TlsRuleAllowed, VerifiableDomain } from "../proofs/tls-rule.ts";
 import type { UpstreamError } from "./client.ts";
 
 export const UpstreamCertificate = Schema.Struct({
@@ -37,8 +37,14 @@ export interface Created {
 export interface UpstreamDomainsService {
   /** Issues a challenge for a domain the caller reserved. */
   readonly createVerification: <C>(domain: VerifiableDomain<C>) => Effect.Effect<UpstreamChallenge, UpstreamError>;
-  /** Checks exactly this challenge's own code. "pending" while DNS does not show it; "gone" when the provider no longer has it. */
-  readonly verifyDomain: <C, R>(owns: TenantOwnsDomainResource<C, R>) => Effect.Effect<"verified" | "pending" | "gone", UpstreamError>;
+  /**
+   * Checks exactly this challenge's own code. "pending" while DNS does not show it; "gone" when the provider no
+   * longer has it. The provider names the challenge that verified the domain: it must be this one, or one of
+   * `siblings` (the same tenant's other challenges for the same domain); any other answer is an error.
+   */
+  readonly verifyDomain: <C, R>(owns: TenantOwnsDomainResource<C, R>, siblings: ReadonlyArray<UpstreamId>) => Effect.Effect<"verified" | "pending" | "gone", UpstreamError>;
+  /** Withdraws provider challenges whose rows cmux's table just removed. Best effort: never fails. */
+  readonly withdrawStaleChallenges: <C>(stale: StaleChallenges<C>) => Effect.Effect<void>;
   /** Withdraws exactly this pending challenge. */
   readonly deleteVerification: <C, R>(owns: TenantOwnsDomainResource<C, R>) => Effect.Effect<"deleted" | "gone" | "verified", UpstreamError>;
   /** Every certificate of the account: the handler filters to the caller's domains. */

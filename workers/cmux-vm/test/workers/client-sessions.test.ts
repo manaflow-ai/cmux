@@ -127,6 +127,34 @@ describe("changing the Linux user", () => {
     expect(h.clientSessions.find((row) => row.id === session.id)?.linuxUser).toBe("ubuntu");
   });
 
+  it("keeps the recorded user and the provider grant equal when a concurrent change wins the race", async () => {
+    const key = await h.addKey(TENANT_A, EXEC);
+    const { vmId, upstreamId } = h.addVm(TENANT_A);
+    const session = await open(key, vmId);
+    const original = h.upstream.fetch;
+    let raced = false;
+    // Right after this request's grant write, another change (to "bob") writes the grant and the table, as a
+    // concurrent PUT that started later but recorded first would.
+    h.upstream.fetch = async (request: Request) => {
+      const response = await original(request);
+      if (!raced && request.method === "PATCH" && /permissions\/vm/u.test(new URL(request.url).pathname)) {
+        raced = true;
+        await original(new Request(request.url, { method: "PATCH", headers: request.headers, body: JSON.stringify({ allowedLinuxUsers: ["bob"] }) }));
+        const index = h.clientSessions.findIndex((row) => row.id === session.id);
+        const row = h.clientSessions[index];
+        if (row !== undefined) h.clientSessions[index] = { ...row, linuxUser: "bob" };
+      }
+      return response;
+    };
+    const response = await h.request(`${sessionPath(vmId, session.id)}/linux-user`, bearer(key), { method: "PUT", body: { linuxUser: "cmux" } });
+    h.upstream.fetch = original;
+    expect(response.status).toBe(409);
+    expect(h.clientSessions.find((row) => row.id === session.id)?.linuxUser).toBe("bob");
+    expect(h.upstream.identityGrants(session.token)).toEqual([{ vmId: upstreamId, allowedLinuxUsers: ["bob"] }]);
+    const minted = await (await h.request(`${sessionPath(vmId, session.id)}/tokens`, bearer(key), { method: "POST" })).json<TokenBody>();
+    expect(minted.ssh.user).toBe(`${upstreamId}+bob`);
+  });
+
   it("is 404 for a revoked session", async () => {
     const key = await h.addKey(TENANT_A, EXEC);
     const { vmId } = h.addVm(TENANT_A);

@@ -257,7 +257,8 @@ export async function makeHarness(options: HarnessOptions = {}) {
   /** Mesh networking routes (cx-0op) are served by mesh-fakes.ts first. */
   const mesh = makeMeshFakes(upstream, options.mesh);
   /** Domain and TLS routes (cx-b4h.6) are served by domain-fakes.ts first. */
-  const domains = makeDomainFakes(upstream, options.domains ?? {});
+  const domains = makeDomainFakes(upstream, options.domains ?? {}, (tenant, vmId) =>
+    resources.some((row) => row.tenantId === tenant && row.kind === "vm" && row.cmuxId === vmId && live(row)));
   const upstreamFetch = async (request: Request): Promise<Response> =>
     (await domains.upstream(request)) ?? (await mesh.upstream(request)) ?? (await s3a.upstream(request)) ?? upstream.fetch(request);
 
@@ -346,11 +347,13 @@ export async function makeHarness(options: HarnessOptions = {}) {
         }),
       orphanClientSessions: (limit) =>
         Effect.sync(() => clientSessions.filter((row) => row.revokedAt === null && deleted.has(row.vmId)).slice(0, limit)),
-      setClientSessionLinuxUser: (tenantId, id, linuxUser) =>
+      setClientSessionLinuxUser: (tenantId, id, from, to) =>
         Effect.sync(() => {
-          const index = clientSessions.findIndex((row) => row.tenantId === tenantId && row.id === id && row.revokedAt === null);
+          const index = clientSessions.findIndex((row) => row.tenantId === tenantId && row.id === id && row.revokedAt === null && row.linuxUser === from);
           const found = clientSessions[index];
-          if (found !== undefined) clientSessions[index] = { ...found, linuxUser };
+          if (found === undefined) return false;
+          clientSessions[index] = { ...found, linuxUser: to };
+          return true;
         }),
       liveTenantClientSessions: (tenantId, after, limit) =>
         Effect.sync(() =>
@@ -440,6 +443,8 @@ export async function makeHarness(options: HarnessOptions = {}) {
     },
     /** Whether the ownership row for `cmuxId` is marked deleted. */
     isDeleted: (cmuxId: string) => deleted.has(cmuxId),
+    /** Tombstones an ownership row directly, as a delete path that ran no cleanup (or an older release) left it. */
+    markDeleted: (cmuxId: string) => void deleted.add(cmuxId),
     audit,
     /** Whether `tenant`'s plan allows creating VMs (team_alpha and team_bravo do by default). */
     /** Simulates a redeployed operator catalog while retaining the tenant ledger. */

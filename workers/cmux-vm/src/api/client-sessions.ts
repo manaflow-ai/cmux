@@ -12,7 +12,7 @@
  */
 import { HttpApiEndpoint, HttpApiGroup, HttpApiSchema, OpenApi } from "@effect/platform";
 import { Schema } from "effect";
-import { BadRequest, Forbidden, NotFound, QuotaExceeded, ServiceUnavailable } from "../errors.ts";
+import { BadRequest, Conflict, Forbidden, NotFound, QuotaExceeded, ServiceUnavailable } from "../errors.ts";
 import { ClientSessionId, ClientSessionTokenId } from "../lib/ids.ts";
 import { ClientSessionSummary } from "./agents.ts";
 import { GroupTeamHeaders } from "./common.ts";
@@ -113,13 +113,15 @@ export class ClientSessionsGroupDefinition extends HttpApiGroup.make("clientSess
       .addSuccess(ClientSessionSummary)
       .addError(BadRequest)
       .addError(NotFound)
+      .addError(Conflict)
       .addError(QuotaExceeded)
       .addError(ServiceUnavailable)
       .annotateContext(
         describe(
           "Change a client session's Linux user",
           "Replace the one Linux user the session's tokens (existing and future) may act as on this VM. Exactly one user: a session is never " +
-            "unrestricted. Setting the current user again is not an error. A revoked session is 404.",
+            "unrestricted. Setting the current user again is not an error. A revoked session is 404. A change that raced another change " +
+            "of the same session and lost is 409; the session keeps the winner's user, on the grant too.",
         ),
       ),
   )

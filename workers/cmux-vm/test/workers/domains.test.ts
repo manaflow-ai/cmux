@@ -5,7 +5,10 @@
  * else, closed to service and agent keys, and a tenant routes only names it
  * may: a managed hostname of its own or a domain it verified.
  */
+import { Effect } from "effect";
 import { afterEach, describe, expect, it } from "vitest";
+import { StoreError } from "../../src/db/sql.ts";
+import { DOMAIN_LIMITS } from "../../src/handlers/domains.ts";
 import { ALL_SCOPES, allScopesExcept, bearer, DOMAIN_ENDPOINTS } from "../support/endpoints.ts";
 import { makeHarness, type HarnessOptions } from "../support/harness.ts";
 
@@ -195,11 +198,14 @@ describe("domain verification", () => {
     const row = t.domains.rows.domains.find((candidate) => candidate.domain === "shared.test");
     if (row === undefined) throw new Error("no reservation");
     t.domains.rows.domains[t.domains.rows.domains.indexOf(row)] = { ...row, createdAt: new Date(Date.now() - 8 * 24 * 3600 * 1000) };
+    const staleChallenge = t.domains.rows.verifications.find((candidate) => candidate.id === pending.id)?.upstreamId;
+    if (staleChallenge === undefined) throw new Error("no challenge");
     const taken = await send(t, keyB, "POST", "/v1/domain-verifications", { domain: "shared.test" });
     expect(taken.status).toBe(201);
-    // A's old challenge may pass at the provider, but the reservation is no longer A's.
+    // A's old challenge is withdrawn at the provider and forgotten here: the reservation is no longer A's.
+    expect(t.domains.challenges.has(staleChallenge)).toBe(false);
     t.domains.publishTxt(pending.record.name, pending.record.value);
-    expect((await send(t, keyA, "POST", `/v1/domain-verifications/${pending.id}/verify`)).status).toBe(409);
+    expect((await send(t, keyA, "POST", `/v1/domain-verifications/${pending.id}/verify`)).status).toBe(404);
     const takenView = await taken.json<Verification>();
     t.domains.publishTxt(takenView.record.name, takenView.record.value);
     expect((await send(t, keyB, "POST", `/v1/domain-verifications/${takenView.id}/verify`)).status).toBe(200);
@@ -422,5 +428,160 @@ describe("forward-auth checks", () => {
       expect((await send(t, key, "POST", "/v1/tls-forward-auths", { url })).status, url).toBe(400);
     }
     expect(t.upstreamRequests).toHaveLength(0);
+  });
+});
+
+describe("review fixes (https://github.com/manaflow-ai/cmux/pull/25367)", () => {
+  const lapse = (t: Harness, domain: string, days: number) => {
+    const row = t.domains.rows.domains.find((candidate) => candidate.domain === domain);
+    if (row === undefined) throw new Error("no reservation");
+    t.domains.rows.domains[t.domains.rows.domains.indexOf(row)] = { ...row, createdAt: new Date(Date.now() - days * 24 * 3600 * 1000) };
+  };
+
+  it("deleting a VM deletes its TLS rules at the provider and here, so the domain and forward-auth check can be released", async () => {
+    const t = await harness();
+    const f = await fixtures(t);
+    expect((await send(t, f.key, "DELETE", `/v1/vms/${f.vm.vmId}`)).status).toBe(204);
+    expect(t.domains.rows.rules).toHaveLength(0);
+    expect(t.upstream.tlsRules.size).toBe(0);
+    expect((await send(t, f.key, "DELETE", `/v1/domains/${f.domain.id}`)).status).toBe(204);
+    expect((await send(t, f.key, "DELETE", `/v1/tls-forward-auths/${f.forwardAuth.id}`)).status).toBe(204);
+  });
+
+  it("an already-orphaned rule never blocks a release, holds no budget, and can itself be deleted", async () => {
+    const t = await harness();
+    const f = await fixtures(t);
+    // The VM was tombstoned by a path that ran no cleanup (or by an older release): its rule is an orphan.
+    t.markDeleted(f.vm.vmId);
+    const tenant = t.domains.rows.rules[0]?.tenantId;
+    if (tenant === undefined) throw new Error("no rule");
+    expect(await Effect.runPromise(t.domains.rows.store.countTlsRules(tenant))).toBe(0);
+    expect((await (await send(t, f.key, "GET", "/v1/tls-rules")).json<{ items: unknown[] }>()).items).toEqual([]);
+    expect((await send(t, f.key, "DELETE", `/v1/tls-rules/${f.rule.id}`)).status).toBe(204);
+    expect(t.upstream.tlsRules.size).toBe(0);
+    expect((await send(t, f.key, "DELETE", `/v1/domains/${f.domain.id}`)).status).toBe(204);
+    expect((await send(t, f.key, "DELETE", `/v1/tls-forward-auths/${f.forwardAuth.id}`)).status).toBe(204);
+  });
+
+  it("a release cleans orphaned rules at the provider so the forward-auth check is no longer in use there", async () => {
+    const t = await harness();
+    const f = await fixtures(t);
+    t.markDeleted(f.vm.vmId);
+    expect((await send(t, f.key, "DELETE", `/v1/domains/${f.domain.id}`)).status).toBe(204);
+    expect(t.upstream.tlsRules.size).toBe(0);
+    expect(t.domains.rows.rules).toHaveLength(0);
+    expect((await send(t, f.key, "DELETE", `/v1/tls-forward-auths/${f.forwardAuth.id}`)).status).toBe(204);
+  });
+
+  it("a re-claim never extends an unverified reservation: after the first claim's lapse another team takes it", async () => {
+    const t = await harness();
+    const keyA = await t.addKey(TENANT_A, ALL_SCOPES);
+    const keyB = await t.addKey(TENANT_B, ALL_SCOPES);
+    expect((await send(t, keyA, "POST", "/v1/domain-verifications", { domain: "held.test" })).status).toBe(201);
+    lapse(t, "held.test", 8);
+    // A asks again: that does not renew the reservation.
+    expect((await send(t, keyA, "POST", "/v1/domain-verifications", { domain: "held.test" })).status).toBe(201);
+    expect((await send(t, keyB, "POST", "/v1/domain-verifications", { domain: "held.test" })).status).toBe(201);
+    expect(t.domains.rows.verifications.filter((row) => row.domain === "held.test").map((row) => row.tenantId)).toEqual([TENANT_B]);
+  });
+
+  it("a release withdraws the domain's pending challenges at the provider", async () => {
+    const t = await harness();
+    const key = await t.addKey(TENANT_A, ALL_SCOPES);
+    const first = await (await send(t, key, "POST", "/v1/domain-verifications", { domain: "two.test" })).json<Verification>();
+    const second = await (await send(t, key, "POST", "/v1/domain-verifications", { domain: "two.test" })).json<Verification>();
+    const secondChallenge = t.domains.rows.verifications.find((row) => row.id === second.id)?.upstreamId;
+    if (secondChallenge === undefined) throw new Error("no challenge");
+    t.domains.publishTxt(first.record.name, first.record.value);
+    const domain = await (await send(t, key, "POST", `/v1/domain-verifications/${first.id}/verify`)).json<DomainView>();
+    expect((await send(t, key, "DELETE", `/v1/domains/${domain.id}`)).status).toBe(204);
+    expect(t.domains.challenges.has(secondChallenge)).toBe(false);
+  });
+
+  it("accepts a provider answer naming another challenge of the same team for the domain, and no other", async () => {
+    const t = await harness();
+    const keyA = await t.addKey(TENANT_A, ALL_SCOPES);
+    const keyB = await t.addKey(TENANT_B, ALL_SCOPES);
+    const first = await (await send(t, keyA, "POST", "/v1/domain-verifications", { domain: "sib.test" })).json<Verification>();
+    const second = await (await send(t, keyA, "POST", "/v1/domain-verifications", { domain: "sib.test" })).json<Verification>();
+    const upstreamOf = (id: string) => t.domains.rows.verifications.find((row) => row.id === id)?.upstreamId ?? "";
+    t.domains.publishTxt(first.record.name, first.record.value);
+    t.domains.publishTxt(second.record.name, second.record.value);
+    t.domains.nameVerifier(upstreamOf(second.id), upstreamOf(first.id));
+    expect((await send(t, keyA, "POST", `/v1/domain-verifications/${second.id}/verify`)).status).toBe(200);
+    // Another team's challenge never counts.
+    const other = await (await send(t, keyB, "POST", "/v1/domain-verifications", { domain: "other.test" })).json<Verification>();
+    t.domains.publishTxt(other.record.name, other.record.value);
+    t.domains.nameVerifier(upstreamOf(other.id), upstreamOf(first.id));
+    expect((await send(t, keyB, "POST", `/v1/domain-verifications/${other.id}/verify`)).status).toBe(503);
+  });
+
+  it("releases the reservation and the challenge when recording a new verification fails", async () => {
+    const t = await harness();
+    const keyA = await t.addKey(TENANT_A, ALL_SCOPES);
+    const keyB = await t.addKey(TENANT_B, ALL_SCOPES);
+    const store = t.domains.rows.store;
+    const insert = store.insertVerification;
+    Object.assign(store, { insertVerification: () => Effect.fail(new StoreError({ operation: "verifications.insert", cause: "injected" })) });
+    expect((await send(t, keyA, "POST", "/v1/domain-verifications", { domain: "fail.test" })).status).toBe(503);
+    Object.assign(store, { insertVerification: insert });
+    expect(t.domains.challenges.size).toBe(0);
+    expect((await send(t, keyB, "POST", "/v1/domain-verifications", { domain: "fail.test" })).status).toBe(201);
+  });
+
+  it("withdraws and forgets a challenge whose reservation is gone when it verifies", async () => {
+    const t = await harness();
+    const key = await t.addKey(TENANT_A, ALL_SCOPES);
+    const pending = await (await send(t, key, "POST", "/v1/domain-verifications", { domain: "gone.test" })).json<Verification>();
+    t.domains.rows.domains.splice(t.domains.rows.domains.findIndex((row) => row.domain === "gone.test"), 1);
+    t.domains.publishTxt(pending.record.name, pending.record.value);
+    expect((await send(t, key, "POST", `/v1/domain-verifications/${pending.id}/verify`)).status).toBe(409);
+    expect(t.upstream.callsTo("DELETE", /^\/v5\/verifications\//u)).toHaveLength(1);
+    expect(t.domains.rows.verifications.find((row) => row.id === pending.id)).toBeUndefined();
+  });
+
+  it("does not keep a rule whose domain was released while the provider created it", async () => {
+    const t = await harness();
+    const key = await t.addKey(TENANT_A, ALL_SCOPES);
+    await verifyOwn(t, key, "race.test");
+    const vm = t.addVm(TENANT_A);
+    const upstream = t.domains.upstream;
+    t.domains.upstream = async (request: Request) => {
+      const response = await upstream(request);
+      if (request.method === "POST" && new URL(request.url).pathname === "/v5/tls") {
+        // A concurrent DELETE /v1/domains/{id} lands between the policy check and the insert.
+        t.domains.rows.domains.splice(t.domains.rows.domains.findIndex((row) => row.domain === "race.test"), 1);
+      }
+      return response;
+    };
+    const response = await send(t, key, "POST", "/v1/tls-rules", ingress("app.race.test", vm.vmId));
+    t.domains.upstream = upstream;
+    expect(response.status).toBe(400);
+    expect(t.domains.rows.rules).toHaveLength(0);
+    expect(t.upstream.tlsRules.size).toBe(0);
+  });
+
+  it("enforces the forward-auth and pending-verification budgets at the insert, not only at the first count", async () => {
+    const t = await harness({ ratePerMinute: { write: 1000 } });
+    const key = await t.addKey(TENANT_A, ALL_SCOPES);
+    for (let index = 0; index < DOMAIN_LIMITS.forwardAuths; index += 1) {
+      expect((await send(t, key, "POST", "/v1/tls-forward-auths", { url: `https://auth.example.com/${index}` })).status).toBe(201);
+    }
+    for (let index = 0; index < DOMAIN_LIMITS.pendingVerifications; index += 1) {
+      expect((await send(t, key, "POST", "/v1/domain-verifications", { domain: `d${index}.test` })).status).toBe(201);
+    }
+    // A concurrent request read the counts before the last creates landed.
+    const store = t.domains.rows.store;
+    const counts = { forwardAuths: store.countForwardAuths, pending: store.countPendingVerifications };
+    Object.assign(store, { countForwardAuths: () => Effect.succeed(0), countPendingVerifications: () => Effect.succeed(0) });
+    const fa = await send(t, key, "POST", "/v1/tls-forward-auths", { url: "https://auth.example.com/over" });
+    const dv = await send(t, key, "POST", "/v1/domain-verifications", { domain: "over.test" });
+    Object.assign(store, { countForwardAuths: counts.forwardAuths, countPendingVerifications: counts.pending });
+    expect(fa.status).toBe(429);
+    expect(dv.status).toBe(429);
+    expect(t.domains.forwardAuths.size).toBe(DOMAIN_LIMITS.forwardAuths);
+    expect(t.domains.rows.forwardAuths).toHaveLength(DOMAIN_LIMITS.forwardAuths);
+    expect(t.domains.challenges.size).toBe(DOMAIN_LIMITS.pendingVerifications);
+    expect(t.domains.rows.domains.some((row) => row.domain === "over.test")).toBe(false);
   });
 });

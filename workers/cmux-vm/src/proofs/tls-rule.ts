@@ -13,11 +13,14 @@
  *   ids and write-only header values) and the public view; neither is on the
  *   proof itself.
  * - ForwardAuthAllowed: a bounded HTTPS URL and header set.
+ * - StaleChallenges: provider challenges whose verification rows cmux's table
+ *   just removed (a released domain, or another tenant's lapsed reservation
+ *   taken over), so they may be withdrawn at the provider.
  */
 import { defineProof, name, type Named, type Proof } from "@gdp-ts/core";
 import { Effect, Option, Redacted } from "effect";
 import type { TlsForwardAuthRequest, TlsRuleRequest, TlsRuleSpec } from "../api/domains.ts";
-import { DomainStore, type DomainRow, type ForwardAuthFields } from "../db/domains.ts";
+import { DomainStore, type DomainRow, type ForwardAuthFields, type VerificationRow } from "../db/domains.ts";
 import type { StoreError } from "../db/sql.ts";
 import {
   DomainPolicy,
@@ -32,7 +35,7 @@ import {
 } from "../domain/domains.ts";
 import { actorRef, type Principal } from "../domain/principal.ts";
 import { badRequest, conflict, missingScope, NotFound, vmNotFound, type BadRequest } from "../errors.ts";
-import { parseVmId, type VmId } from "../lib/ids.ts";
+import { parseVmId, type UpstreamId, type VmId } from "../lib/ids.ts";
 import { parseForwardAuthId, type ForwardAuthId } from "../lib/domain-ids.ts";
 import { httpsOrigin } from "../network-origin.ts";
 import { TenantPolicy } from "../policy.ts";
@@ -63,6 +66,23 @@ const mintVerifiable = <C>(caller: Named<C, Principal>, domain: string): Verifia
   return proof;
 };
 
+export interface StaleChallenges<C> extends Proof<"StaleChallenges", [C]> {}
+const Stale = defineProof("StaleChallenges");
+const staleEvidence = new WeakMap<object, ReadonlyArray<UpstreamId>>();
+
+export const staleChallengeIdsOf = <C>(proof: StaleChallenges<C>): ReadonlyArray<UpstreamId> => {
+  const found = staleEvidence.get(proof);
+  if (found === undefined) throw new Error("StaleChallenges proof was not minted by src/proofs");
+  return found;
+};
+
+/** Only pending challenges: a verified one is a permanent record at the provider. */
+const mintStale = <C>(caller: Named<C, Principal>, removed: ReadonlyArray<VerificationRow>): StaleChallenges<C> => {
+  const proof: StaleChallenges<C> = Object.freeze({ ...Stale.prove(caller) });
+  staleEvidence.set(proof, Object.freeze(removed.filter((row) => row.verifiedAt === null).map((row) => row.upstreamId)));
+  return proof;
+};
+
 /**
  * Reserves `raw` for the caller's tenant. Names under the managed zone are
  * never verifiable. Another tenant's verified domain, or its reservation newer
@@ -81,7 +101,19 @@ export const reserveDomain = <C>(caller: Named<C, Principal>, raw: string, candi
     const claim = yield* (yield* DomainStore).claimDomain(caller.value.tenantId, domain, candidate, actorRef(caller.value.actor), at, staleBefore);
     if (claim.kind === "taken") return yield* Effect.fail(conflict("This domain is reserved by another team"));
     if (claim.kind === "verified") return yield* Effect.fail(conflict("Your team already verified this domain"));
-    return { row: claim.row, domain: mintVerifiable(caller, domain) };
+    return { row: claim.row, domain: mintVerifiable(caller, domain), stale: mintStale(caller, claim.displaced) };
+  });
+
+/**
+ * Releases the caller's verified domain (refused while a live rule of the team routes under it), with the
+ * pending challenges the release removed.
+ */
+export const releaseDomain = <C>(caller: Named<C, Principal>, id: DomainRow["id"]) =>
+  Effect.gen(function* () {
+    if (keyHasScope(caller, "domain:write") === null) return yield* Effect.fail(missingScope("domain:write"));
+    const released = yield* (yield* DomainStore).deleteDomain(caller.value.tenantId, id);
+    if (released.kind !== "released") return released;
+    return { kind: "released" as const, row: released.row, stale: mintStale(caller, released.verifications) };
   });
 
 /** A verified domain of the caller's, for a wildcard certificate; null when the caller cannot see it. */
@@ -100,6 +132,8 @@ interface RuleEvidence {
   readonly domain: string;
   readonly vmIds: ReadonlyArray<string>;
   readonly forwardAuthId: string | null;
+  /** The verified domain of the caller's that allows this name (null: a managed hostname, or egress). */
+  readonly cover: string | null;
 }
 const ruleEvidence = new WeakMap<object, RuleEvidence>();
 
@@ -116,8 +150,11 @@ const sameKeys = (value: object, keys: ReadonlyArray<string>): boolean => {
 
 const ROUTE_REFUSED = "Route only a managed hostname of your team or a domain your team verified (or one label below it)";
 
-/** Whether the caller's tenant may route `domain` publicly. Fails with a message that never says who else owns it. */
-const mayRoute = (principal: Principal, domain: RuleDomain): Effect.Effect<void, BadRequest | StoreError, DomainStore | DomainPolicy> =>
+/**
+ * Whether the caller's tenant may route `domain` publicly. Fails with a message that never says who else owns it.
+ * Succeeds with the verified domain that allows it (the rule's cover), or null for a managed hostname.
+ */
+const mayRoute = (principal: Principal, domain: RuleDomain): Effect.Effect<string | null, BadRequest | StoreError, DomainStore | DomainPolicy> =>
   Effect.gen(function* () {
     const policy = yield* DomainPolicy;
     const store = yield* DomainStore;
@@ -126,14 +163,14 @@ const mayRoute = (principal: Principal, domain: RuleDomain): Effect.Effect<void,
       const hostname = domain.hostname;
       if (zone !== null && isUnder(hostname, zone)) {
         const suffix = yield* managedSuffixOf(policy, principal.tenantId);
-        if (suffix !== null && isManagedHostnameOf(hostname, suffix)) return;
+        if (suffix !== null && isManagedHostnameOf(hostname, suffix)) return null;
         return yield* Effect.fail(badRequest(`Managed hostnames of your team are one label ending in ${suffix ?? "the managed suffix"}`));
       }
       const parent = parentOf(hostname);
       const owners = yield* store.verifiedOwners(parent === null ? [hostname] : [hostname, parent]);
       const exact = owners.find((owner) => owner.domain === hostname);
       const decisive = exact ?? owners.find((owner) => owner.domain === parent);
-      if (decisive !== undefined && decisive.tenantId === principal.tenantId) return;
+      if (decisive !== undefined && decisive.tenantId === principal.tenantId) return decisive.domain;
       return yield* Effect.fail(badRequest(ROUTE_REFUSED));
     }
     const base = domain.base;
@@ -143,6 +180,7 @@ const mayRoute = (principal: Principal, domain: RuleDomain): Effect.Effect<void,
     // A wildcard covers one label: it may not cover a child another team verified.
     const below = yield* store.verifiedBelow(base);
     if (below.some((owner) => owner.tenantId !== principal.tenantId && parentOf(owner.domain) === base)) return yield* Effect.fail(badRequest(ROUTE_REFUSED));
+    return base;
   });
 
 /** Resolves one of the caller's VMs for a rule, with vm:network; another tenant's is 404. */
@@ -197,6 +235,7 @@ export const tlsRuleAllowed = <C>(caller: Named<C, Principal>, input: TlsRuleReq
     let spec: TlsRuleSpec;
     let vmIds: string[];
     let forwardAuthId: string | null = null;
+    let cover: string | null = null;
 
     if (source.public === true && source.vmId === undefined) {
       // Ingress: the Internet dials the name and lands on one of the caller's VMs.
@@ -205,7 +244,7 @@ export const tlsRuleAllowed = <C>(caller: Named<C, Principal>, input: TlsRuleReq
       }
       if (match !== null) return yield* Effect.fail(badRequest("match applies to egress rules only"));
       if (input.forwardAuthId != null && protocol !== "http") return yield* Effect.fail(badRequest("Forward-auth checks apply to http rules only"));
-      yield* mayRoute(caller.value, domain);
+      cover = yield* mayRoute(caller.value, domain);
       const vm = yield* ownedVm(caller, destination.vmId);
       const forwardAuth = input.forwardAuthId == null ? null : yield* ownedForwardAuth(caller, input.forwardAuthId);
       forwardAuthId = forwardAuth?.id ?? null;
@@ -257,7 +296,7 @@ export const tlsRuleAllowed = <C>(caller: Named<C, Principal>, input: TlsRuleReq
     if (headers !== null && headerEntries.length > 0) body = { ...body, transform: [{ headers }] };
     if (description !== null) body = { ...body, description };
     const proof: TlsRuleAllowed<C> = Object.freeze({ ...RuleAllowed.prove(caller) });
-    ruleEvidence.set(proof, Object.freeze({ body: Object.freeze(body), spec, domain: spec.domain, vmIds, forwardAuthId }));
+    ruleEvidence.set(proof, Object.freeze({ body: Object.freeze(body), spec, domain: spec.domain, vmIds, forwardAuthId, cover }));
     return proof;
   });
 
