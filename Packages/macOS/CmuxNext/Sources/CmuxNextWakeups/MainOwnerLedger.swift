@@ -347,6 +347,11 @@ extension MainOwnerLedger {
             maxNanos = max(maxNanos, nanos)
         }
 
+        /// Counts `duration` in whole nanoseconds (a negative one as zero).
+        public mutating func add(_ duration: Duration) {
+            add(duration.nanosecondCount)
+        }
+
         /// The bucket `nanos` lands in.
         public static func bucket(of nanos: UInt64) -> Int {
             guard nanos >= 1 << minExponent else { return 0 }

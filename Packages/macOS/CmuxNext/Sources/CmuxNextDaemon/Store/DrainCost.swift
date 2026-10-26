@@ -32,7 +32,7 @@ public struct DrainCost: Sendable, Equatable {
 
     /// Counts one drain of `duration` that applied `events` events.
     mutating func record(_ duration: Duration, events count: Int) {
-        histogram.add(MainFrameBudget.nanos(duration))
+        histogram.add(duration)
         events &+= count
     }
 
