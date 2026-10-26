@@ -67,7 +67,11 @@ pub(crate) fn masks(home: &Path, read_denies: &[PathBuf]) -> Vec<Mask> {
 
 /// Pure argv construction, including the command prefix after `--`.
 /// The loops end after four writable roots and the supplied masks.
-pub(crate) fn bwrap_args(paths: &Paths, masks: &[Mask], cmd_prefix: &[String]) -> Vec<String> {
+pub(crate) fn bwrap_args(
+    paths: &Paths,
+    masks: &[Mask],
+    cmd_prefix: &[String],
+) -> Result<Vec<String>, String> {
     let mut out: Vec<String> = [
         "--new-session",
         "--die-with-parent",
@@ -90,42 +94,43 @@ pub(crate) fn bwrap_args(paths: &Paths, masks: &[Mask], cmd_prefix: &[String]) -
     .map(str::to_owned)
     .collect();
     for path in [&paths.cwd, &paths.tmp, &paths.claude_tmp_project, &paths.claude_project] {
-        let path = path_arg(path);
+        let path = path_arg(path)?;
         out.extend(["--bind".into(), path.clone(), path]);
     }
-    let memory = path_arg(&paths.claude_project.join("memory"));
+    let memory = path_arg(&paths.claude_project.join("memory"))?;
     out.extend(["--ro-bind".into(), memory.clone(), memory]);
     for mask in masks {
         match mask {
             Mask::Directory(path) => {
-                let path = path_arg(path);
+                let path = path_arg(path)?;
                 out.extend(["--tmpfs".into(), path.clone(), "--remount-ro".into(), path]);
             }
             Mask::File(path) => {
-                out.extend(["--ro-bind".into(), "/dev/null".into(), path_arg(path)]);
+                out.extend(["--ro-bind".into(), "/dev/null".into(), path_arg(path)?]);
             }
         }
     }
     out.extend([
         "--chdir".into(),
-        path_arg(&paths.cwd),
+        path_arg(&paths.cwd)?,
         "--cap-drop".into(),
         "ALL".into(),
         "--".into(),
     ]);
     out.extend_from_slice(cmd_prefix);
-    out
+    Ok(out)
 }
 
 /// Fail closed on invalid caller data; lossy conversion could mask a
 /// different path or grant writes to a different directory.
-fn path_arg(path: &Path) -> String {
-    assert!(path.is_absolute(), "sandbox paths must be absolute");
-    assert!(
-        !path.components().any(|c| c == std::path::Component::ParentDir),
-        "sandbox paths must not contain .."
-    );
-    path.to_str().expect("sandbox paths must be UTF-8").to_owned()
+fn path_arg(path: &Path) -> Result<String, String> {
+    if !path.is_absolute() {
+        return Err(format!("sandbox path is not absolute: {}", path.display()));
+    }
+    if path.components().any(|c| c == std::path::Component::ParentDir) {
+        return Err(format!("sandbox path contains ..: {}", path.display()));
+    }
+    path.to_str().map(str::to_owned).ok_or_else(|| "sandbox paths must be UTF-8".to_owned())
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -214,7 +219,9 @@ pub(crate) fn probe(bwrap: &Path) -> Result<(), Unavailable> {
             }));
         }
     };
-    let stderr = child.stderr.take().expect("stderr was piped");
+    let Some(stderr) = child.stderr.take() else {
+        return Err(Unavailable::Other("bwrap probe stderr pipe unavailable".into()));
+    };
     // SAFETY: stderr owns a live pipe fd. F_SETFL changes only its status flags.
     if unsafe { libc::fcntl(stderr.as_raw_fd(), libc::F_SETFL, libc::O_NONBLOCK) } == -1 {
         return Err(Unavailable::Other(format!("bwrap stderr: {}", io::Error::last_os_error())));
@@ -286,7 +293,7 @@ mod tests {
         };
         let selected = [Mask::Directory(p.home.join(".ssh")), Mask::File(p.home.join(".netrc"))];
         let command = strings(&["/usr/bin/acpmux", "__remote-sandbox-init", "--", "a b", "--bind"]);
-        let args = bwrap_args(&p, &selected, &command);
+        let args = bwrap_args(&p, &selected, &command).unwrap();
         let mut expected = strings(&[
             "--new-session",
             "--die-with-parent",
@@ -376,13 +383,15 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "sandbox paths must be UTF-8")]
     fn argv_refuses_lossy_path_conversion() {
         use std::os::unix::ffi::OsStringExt;
         let fixture = Fixture::new();
         let mut p = fixture.paths();
         p.cwd = std::ffi::OsString::from_vec(b"/invalid-\xff".to_vec()).into();
-        let _ = bwrap_args(&p, &[], &strings(&["true"]));
+        assert_eq!(
+            bwrap_args(&p, &[], &strings(&["true"])),
+            Err("sandbox paths must be UTF-8".to_owned())
+        );
     }
 
     /// Stops after the fixed Linux additions have each been created.
@@ -590,7 +599,7 @@ case "$bad_ipv6_route" in '') ;; *) fail 48 "non-loopback IPv6 route: observed=<
             .map(|path| path.to_str().unwrap().to_owned()),
         );
         command.extend([FILE_MARKER.to_owned(), DIRECTORY_MARKER.to_owned()]);
-        let args = bwrap_args(&p, &masks(&p.home, &[secrets, secret]), &command);
+        let args = bwrap_args(&p, &masks(&p.home, &[secrets, secret]), &command).unwrap();
         let mut child = tokio::process::Command::new(bwrap);
         child
             .args(args)
