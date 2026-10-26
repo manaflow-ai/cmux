@@ -31,7 +31,7 @@ struct Text {
 
 static ENGLISH: Text = Text {
     local_only: "Send Later works in local chats only",
-    bad_time: "{when} is not a time: give +30m, +2h, +1d, 2026-10-27T09:00:00-07:00 or Unix milliseconds",
+    bad_time: "{when} is not a time: give +30m, +2h, +1d, 2026-10-27T09:00:00-07:00 or a Unix time",
     no_wait: "--at and --wait do not go together: the message is sent later",
     scheduled: "scheduled {id} for {time}",
     none: "no scheduled messages",
@@ -45,7 +45,7 @@ static ENGLISH: Text = Text {
 
 static JAPANESE: Text = Text {
     local_only: "後で送信はローカルのチャットでのみ使えます",
-    bad_time: "{when} は時刻ではありません: +30m、+2h、+1d、2026-10-27T09:00:00+09:00 または Unix ミリ秒を指定してください",
+    bad_time: "{when} は時刻ではありません: +30m、+2h、+1d、2026-10-27T09:00:00+09:00 または Unix 時刻を指定してください",
     no_wait: "--at と --wait は同時に使えません: メッセージは後で送信されます",
     scheduled: "{id} を {time} に送信予約しました",
     none: "予約されたメッセージはありません",
@@ -68,9 +68,13 @@ fn now_ms() -> u64 {
         .map_or(0, |since| u64::try_from(since.as_millis()).unwrap_or(u64::MAX))
 }
 
+/// Unix times below this are seconds, at or above it milliseconds (in
+/// seconds it is the year 5138, in milliseconds March 1973).
+const UNIX_MS_FROM: u64 = 100_000_000_000;
+
 /// Parses WHEN: `+N` with a unit `s`, `m`, `h` or `d` from now, an RFC 3339
-/// time with a `Z` or `±HH:MM` offset (seconds optional), or Unix
-/// milliseconds.
+/// time with a `Z` or `±HH:MM` offset (seconds optional), or a Unix time in
+/// seconds or milliseconds.
 pub(super) fn parse_when(when: &str, now_ms: u64) -> Result<u64, String> {
     let bad = || text().bad_time.replace("{when}", when);
     let when = when.trim();
@@ -88,7 +92,12 @@ pub(super) fn parse_when(when: &str, now_ms: u64) -> Result<u64, String> {
         return count.checked_mul(unit_ms).and_then(|ms| now_ms.checked_add(ms)).ok_or_else(bad);
     }
     if !when.is_empty() && when.bytes().all(|b| b.is_ascii_digit()) {
-        return when.parse().map_err(|_| bad());
+        let unix: u64 = when.parse().map_err(|_| bad())?;
+        return if unix < UNIX_MS_FROM {
+            unix.checked_mul(1_000).ok_or_else(bad)
+        } else {
+            Ok(unix)
+        };
     }
     rfc3339_ms(when).ok_or_else(bad)
 }
@@ -99,6 +108,9 @@ fn rfc3339_ms(text: &str) -> Option<u64> {
     let mut date = date.split('-');
     let (year, month, day): (i64, i64, i64) =
         (date.next()?.parse().ok()?, date.next()?.parse().ok()?, date.next()?.parse().ok()?);
+    if date.next().is_some() {
+        return None;
+    }
     let offset_at = rest.find(['Z', 'z', '+', '-'])?;
     let (clock, zone) = rest.split_at(offset_at);
     let offset_minutes: i64 = match zone {
@@ -106,7 +118,11 @@ fn rfc3339_ms(text: &str) -> Option<u64> {
         _ => {
             let sign = if zone.starts_with('-') { -1 } else { 1 };
             let (hours, minutes) = zone[1..].split_once(':')?;
-            sign * (hours.parse::<i64>().ok()? * 60 + minutes.parse::<i64>().ok()?)
+            let (hours, minutes) = (hours.parse::<i64>().ok()?, minutes.parse::<i64>().ok()?);
+            if !(0..24).contains(&hours) || !(0..60).contains(&minutes) {
+                return None;
+            }
+            sign * (hours * 60 + minutes)
         }
     };
     let mut clock = clock.split(':');
@@ -122,8 +138,15 @@ fn rfc3339_ms(text: &str) -> Option<u64> {
         },
         None => (0, 0),
     };
+    let leap = year % 4 == 0 && (year % 100 != 0 || year % 400 == 0);
+    let month_days = match month {
+        2 if leap => 29,
+        2 => 28,
+        4 | 6 | 9 | 11 => 30,
+        _ => 31,
+    };
     if !(1..=12).contains(&month)
-        || !(1..=31).contains(&day)
+        || !(1..=month_days).contains(&day)
         || !(0..24).contains(&hour)
         || !(0..60).contains(&minute)
         || !(0..=60).contains(&second)
@@ -276,7 +299,10 @@ pub(super) fn run(session: &mut Session, request: &Request, json: bool) -> Outco
             }
             let body = words[2..].join(" ");
             if !body.trim().is_empty() {
-                op["parts"] = json!([{"type": "text", "text": body}]);
+                // New text replaces the text only: the files stay.
+                let mut parts = vec![json!({"type": "text", "text": body})];
+                parts.extend(kept_parts(session, &id)?);
+                op["parts"] = json!(parts);
             }
             let reply = call(session, "conversation-scheduled-op", json!({"op": op}))?;
             let scheduled = reply.get("scheduled").cloned().unwrap_or(Value::Null);
@@ -289,6 +315,17 @@ pub(super) fn run(session: &mut Session, request: &Request, json: bool) -> Outco
         }
         Some(_) => Err((2, text().bad_verb.into())),
     }
+}
+
+/// The parts of the caller's message `id` other than its text.
+fn kept_parts(session: &mut Session, id: &str) -> Result<Vec<Value>, (i32, String)> {
+    let reply = call(session, "conversation-scheduled-list", json!({}))?;
+    let items = reply.get("scheduled").and_then(Value::as_array).cloned().unwrap_or_default();
+    let Some(item) = items.iter().find(|item| item["id"] == id) else {
+        return Ok(Vec::new());
+    };
+    let parts = item.pointer("/op/parts").and_then(Value::as_array).cloned().unwrap_or_default();
+    Ok(parts.into_iter().filter(|part| part["type"] != "text").collect())
 }
 
 fn list(session: &mut Session, json: bool) -> Outcome {
@@ -313,4 +350,38 @@ fn list(session: &mut Session, json: bool) -> Outcome {
         println!("{id}  {}  {state}  {}", time_text(at), item_text(item));
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse_when;
+
+    const NOW: u64 = 1_761_500_000_000;
+
+    #[test]
+    fn when_reads_relative_rfc3339_and_unix_times() {
+        assert_eq!(parse_when("+2m", NOW), Ok(NOW + 120_000));
+        assert_eq!(parse_when("+1d", NOW), Ok(NOW + 86_400_000));
+        assert_eq!(parse_when("2026-10-27T09:00:00Z", NOW), Ok(1_793_091_600_000));
+        assert_eq!(parse_when("2026-10-27T09:00-07:00", NOW), Ok(1_793_116_800_000));
+        assert_eq!(parse_when("2028-02-29T00:00:00Z", NOW), Ok(1_835_395_200_000));
+        // Unix seconds are not read as milliseconds (a 1970 time).
+        assert_eq!(parse_when("1761500000", NOW), Ok(1_761_500_000_000));
+        assert_eq!(parse_when("1761500000123", NOW), Ok(1_761_500_000_123));
+    }
+
+    #[test]
+    fn when_refuses_impossible_dates_and_offsets() {
+        for bad in [
+            "2026-02-31T09:00:00Z",
+            "2027-02-29T09:00:00Z",
+            "2026-10-27-5T09:00:00Z",
+            "2026-10-27T09:00:00+99:99",
+            "2026-10-27T09:00:00+05:60",
+            "+5x",
+            "soon",
+        ] {
+            assert!(parse_when(bad, NOW).is_err(), "{bad} was accepted");
+        }
+    }
 }

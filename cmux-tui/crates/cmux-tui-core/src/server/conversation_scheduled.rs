@@ -118,7 +118,7 @@ pub(super) fn op(mux: &Mux, client: u64, params: OpParams) -> anyhow::Result<Val
             if author.as_deref() != Some(actor.as_str()) {
                 return Err(ScheduleRejected("unknown_scheduled").into());
             }
-            match deliver(mux, &id)? {
+            match deliver(mux, &id, None)? {
                 Delivery::Sent { scheduled, outcome } => json!({
                     "removed": {"id": scheduled.id, "reason": "sent", "seq": outcome.result.seq},
                     "rev": outcome.result.rev,
@@ -160,12 +160,12 @@ fn removed(scheduled: &ScheduledMessage, reason: &'static str, seq: Option<u64>)
     }))
 }
 
-/// Sends message `id` and publishes what became of it: the message's
-/// `conversation-changed` (so a Chief wakes as for a live send) and the
-/// queue's `conversation-scheduled-changed`.
-fn deliver(mux: &Mux, id: &str) -> anyhow::Result<Delivery> {
+/// Sends message `id` (`due_at`: see `deliver_scheduled`) and publishes what
+/// became of it: the message's `conversation-changed` (so a Chief wakes as
+/// for a live send) and the queue's `conversation-scheduled-changed`.
+fn deliver(mux: &Mux, id: &str, due_at: Option<u64>) -> anyhow::Result<Delivery> {
     mux.conversation_write_many(
-        |store| store.deliver_scheduled(id),
+        |store| store.deliver_scheduled(id, due_at),
         |delivery| match delivery {
             Delivery::Sent { scheduled, outcome } => {
                 let mut events = Vec::with_capacity(2);
@@ -187,15 +187,21 @@ fn deliver(mux: &Mux, id: &str) -> anyhow::Result<Delivery> {
 }
 
 /// Sends everything due now; returns when to look next (`None`: nothing
-/// waits).
+/// waits). A delivery that fails in the store (a full disk) leaves its row
+/// due: the next look is then no sooner than `MAX_WAIT`, never a tight loop.
 fn send_due(mux: &Mux) -> anyhow::Result<Option<u64>> {
-    let due = mux.with_conversations(|store| store.due_scheduled(now_ms()?))?;
+    let now = now_ms()?;
+    let due = mux.with_conversations(|store| store.due_scheduled(now))?;
+    let mut failed = false;
     for id in due {
-        if let Err(error) = deliver(mux, &id) {
+        if let Err(error) = deliver(mux, &id, Some(now)) {
             eprintln!("cmux-tui: scheduled message {id}: {error:#}");
+            failed = true;
         }
     }
-    mux.with_conversations(|store| store.next_scheduled_due())
+    let next = mux.with_conversations(|store| store.next_scheduled_due())?;
+    let floor = now_ms()?.saturating_add(MAX_WAIT.as_millis() as u64);
+    Ok(if failed { next.map(|next| next.max(floor)) } else { next })
 }
 
 /// Starts the Send Later sender once per mux, on its own thread (never on

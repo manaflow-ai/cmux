@@ -102,8 +102,8 @@ pub const ATTACH_INITIAL_SIZE_CAPABILITY: &str = "attach-initial-size";
 mod apps;
 #[cfg(unix)]
 pub use apps::start_apps_when_ready;
-pub use conversation_scheduled::start_scheduled_sender;
 pub use cmd_workspaces::WORKSPACE_NAME_SOURCE_CAPABILITY;
+pub use conversation_scheduled::start_scheduled_sender;
 #[cfg(unix)]
 mod browser_runtime;
 #[path = "server/image_paste.rs"]

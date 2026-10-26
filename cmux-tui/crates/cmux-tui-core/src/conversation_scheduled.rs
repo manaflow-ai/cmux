@@ -110,8 +110,10 @@ impl ConversationStore {
     /// Queues `op` (a `message.send` of `actor`) for `send_at_ms`. The send is
     /// checked now as it would be at delivery (participant, parts, reply and
     /// thread targets, attachments); a retry with the same `client_msg_id`
-    /// and request returns the waiting message, another request under that
-    /// id is `idempotency_conflict`. A time already past sends at once.
+    /// and op returns the waiting message at its time (a retry that counts
+    /// its delay again from a later now is the same message, not a second
+    /// one), another op under that id is `idempotency_conflict`. A time
+    /// already past sends at once.
     pub(crate) fn schedule_send(
         &mut self,
         conversation: &str,
@@ -130,7 +132,7 @@ impl ConversationStore {
             self.connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
         if let Some(existing) = load_by_client_id(&transaction, conversation, actor, client_msg_id)?
         {
-            if existing.op != *op || existing.send_at_ms != send_at_ms {
+            if existing.op != *op {
                 return Err(rejected(Reject::IdempotencyConflict));
             }
             return Ok((existing, false));
@@ -198,10 +200,15 @@ impl ConversationStore {
              WHERE author = ?1 AND (?2 IS NULL OR conversation = ?2)
              ORDER BY send_at_ms, id",
         )?;
-        statement
+        let rows = statement
             .query_map(params![actor, conversation], read_row)?
-            .map(|row| row?.decode())
-            .collect()
+            .collect::<Result<Vec<_>, _>>()?;
+        // A row this daemon cannot read (written by a newer one) is left out,
+        // never the whole list; the sender marks it failed (`unreadable`).
+        Ok(rows
+            .into_iter()
+            .filter_map(|row| row.decode().map_err(|error| eprintln!("cmux-tui: {error:#}")).ok())
+            .collect())
     }
 
     /// Moves `actor`'s message `id` to a new time and/or replaces its parts.
@@ -287,16 +294,40 @@ impl ConversationStore {
             .map_err(Into::into)
     }
 
-    /// Sends message `id` now (it came due, or its author chose Send Now):
-    /// the op and the removal of the row in one transaction. A refusal by the
-    /// owner marks the row failed with its reason.
-    pub(crate) fn deliver_scheduled(&mut self, id: &str) -> anyhow::Result<Delivery> {
+    /// Sends message `id` now (its author chose Send Now: `due_at` is `None`)
+    /// or because it came due (`due_at` is the sender's now): the op and the
+    /// removal of the row in one transaction. Checked in that transaction,
+    /// so a message moved later or marked failed since the sender read the
+    /// due list is not sent (`Gone`). A refusal by the owner marks the row
+    /// failed with its reason; a row this daemon cannot read is marked
+    /// failed `unreadable` without decoding it, so it stops coming due.
+    pub(crate) fn deliver_scheduled(
+        &mut self,
+        id: &str,
+        due_at: Option<u64>,
+    ) -> anyhow::Result<Delivery> {
         let transaction =
             self.connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
         let Some(row) = load_row(&transaction, id)? else {
             return Ok(Delivery::Gone);
         };
-        let scheduled = row.decode()?;
+        if let Some(now_ms) = due_at
+            && (row.failure.is_some() || u64::try_from(row.send_at_ms).unwrap_or(0) > now_ms)
+        {
+            return Ok(Delivery::Gone);
+        }
+        let scheduled = match row.decode() {
+            Ok(scheduled) => scheduled,
+            Err(error) => {
+                eprintln!("cmux-tui: {error:#}");
+                transaction.execute(
+                    "UPDATE scheduled_message SET failure = 'unreadable' WHERE id = ?1",
+                    params![id],
+                )?;
+                transaction.commit()?;
+                return Ok(Delivery::Gone);
+            }
+        };
         let Op::MessageSend { client_msg_id, .. } = &scheduled.op else {
             return Err(refused("not_a_send"));
         };

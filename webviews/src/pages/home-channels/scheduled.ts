@@ -105,6 +105,7 @@ export class ScheduledBook {
   private put(entry: HomeScheduled): void {
     if (entry.conversation !== this.watched) return;
     const rest = this.list(entry.conversation).filter((held) => held.id !== entry.id);
+    this.supersedeReads(entry.conversation);
     this.lists.set(entry.conversation, [...rest, entry].sort(byTime));
     this.notify();
   }
@@ -112,11 +113,17 @@ export class ScheduledBook {
   private remove(entry: HomeScheduled): void {
     const list = this.list(entry.conversation);
     if (!list.some((held) => held.id === entry.id)) return;
+    this.supersedeReads(entry.conversation);
     this.lists.set(
       entry.conversation,
       list.filter((held) => held.id !== entry.id),
     );
     this.notify();
+  }
+
+  /** A read that started before a change answers with the list before it: drop it (the change's event reads again). */
+  private supersedeReads(conversation: string): void {
+    this.reads.set(conversation, (this.reads.get(conversation) ?? 0) + 1);
   }
 
   private async load(conversation: string): Promise<void> {

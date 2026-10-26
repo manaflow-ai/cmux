@@ -1047,7 +1047,11 @@ export class DaemonHomeClient implements PageClient {
         if (typeof params.text === "string") {
           const text = params.text.trim();
           if (!text || text.length > 40_000) throw pageError("cmux.page.invalid_params", "text");
-          op.parts = [{ type: "text", text }];
+          // New text replaces the text only: the message keeps its files.
+          const list = await this.local.request<Json>("conversation-scheduled-list", {});
+          const held = ((list.scheduled as Json[] | undefined) ?? []).find((entry) => entry.id === op.id);
+          const parts = ((held?.op as Json | undefined)?.parts as Json[] | undefined) ?? [];
+          op.parts = [{ type: "text", text }, ...parts.filter((part) => part.type !== "text")];
         }
         break;
       }

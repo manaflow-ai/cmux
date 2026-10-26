@@ -211,6 +211,8 @@ export function Composer({
   /** Sends now, or with `at` queues it for then (Send Later). */
   const submit = (markdown: string, at?: number) => {
     if (disabled || uploading || (!markdown.trim() && ready.length === 0)) return;
+    // A picked time never sends now, even when Send Later went away meanwhile.
+    if (at !== undefined && !sendLater) return;
     const sending = ready;
     const files = sending.length ? sending : undefined;
     const taken = at !== undefined && sendLater ? sendLater.onSchedule(markdown, files, at) : onSend(markdown, files);

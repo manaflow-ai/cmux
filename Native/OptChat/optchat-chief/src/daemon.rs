@@ -585,11 +585,11 @@ impl ConversationPort for SdkConversations {
             Optional::Value(value) => value,
             _ => return Err(OpError::Transport("schedule: no scheduled message".into())),
         };
-        Ok(scheduled
+        scheduled
             .get("id")
             .and_then(Value::as_str)
-            .unwrap_or_default()
-            .to_owned())
+            .map(str::to_owned)
+            .ok_or_else(|| OpError::Transport("schedule: the reply names no message".into()))
     }
 
     fn attachment(

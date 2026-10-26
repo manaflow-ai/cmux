@@ -190,9 +190,18 @@ impl Brain {
             .daemon
             .as_mut()
             .ok_or("send: the conversation is not connected yet; try again")?;
-        let id = daemon
-            .schedule(&entry.conversation, &entry.op, send_at_ms)
-            .map_err(|error| format!("send: not scheduled: {error}"))?;
+        let id = match daemon.schedule(&entry.conversation, &entry.op, send_at_ms) {
+            Ok(id) => id,
+            // The same message under its key is already queued (a replay
+            // returns it) or already sent: never queue it a second time.
+            Err(crate::daemon::OpError::Rejected(reason))
+                if reason.contains("idempotency_conflict") =>
+            {
+                self.sent_keys.insert(key);
+                return Ok("outcome: noop. this message is already scheduled or sent".to_owned());
+            }
+            Err(error) => return Err(format!("send: not scheduled: {error}")),
+        };
         self.sent_keys.insert(key);
         Ok(format!(
             "outcome: done. scheduled {id} to send in {seconds} s"

@@ -127,6 +127,16 @@ fn a_scheduled_message_is_sent_at_its_time_and_survives_a_restart() {
         page.request("conversation-scheduled-op", create(&chat, "later-1", "Standup now", at));
     assert_eq!(again["replayed"], true, "{again}");
     assert_eq!(again["scheduled"]["id"], json!(id), "{again}");
+    // A retry that counts its delay from a later now (a Chief replaying its
+    // turn) is the same message at its first time, never a second one.
+    let later =
+        page.request("conversation-scheduled-op", create(&chat, "later-1", "Standup now", at + 9));
+    assert_eq!(later["replayed"], true, "{later}");
+    assert_eq!(later["scheduled"]["send_at_ms"], at, "{later}");
+    refused(
+        &page.reply("conversation-scheduled-op", create(&chat, "later-1", "Other text", at)),
+        "idempotency_conflict",
+    );
 
     // It goes out at its time, as the person, never before, and leaves the queue.
     let (message, events) = sent_message(&mut page, "later-1");
@@ -238,27 +248,103 @@ fn a_scheduled_message_is_sent_at_its_time_and_survives_a_restart() {
 
     // Durable: a message due while the daemon is down goes out when it
     // starts again, and one still ahead stays listed.
-    let due = now_ms() + 300;
+    let due = now_ms() + 2_000;
     page.request("conversation-scheduled-op", create(&chat, "later-7", "while down", due));
+    let waiting = listed(&mut page, &chat);
+    assert!(
+        waiting.iter().any(|item| item["op"]["client_msg_id"] == "later-7"),
+        "still waiting before the kill: {waiting:?}"
+    );
     drop(page);
     drop(chief);
     drop(home);
     let _ = server.child.kill();
     let _ = server.child.wait();
-    while now_ms() <= due {
-        std::thread::sleep(Duration::from_millis(50));
-    }
+    // The daemon is down across the due time (a test wait, not a runtime one).
+    std::thread::sleep(Duration::from_millis(due.saturating_sub(now_ms()) + 100));
+    let restarted = now_ms();
     let addr = restart(&mut server);
     let mut page = Ws::open(&addr);
     page.request("subscribe", json!({}));
     let history = page.request("conversation-snapshot", json!({"conversation": chat, "tail": 20}));
-    let in_history = |history: &Value| {
-        history["messages"].as_array().unwrap().iter().any(|m| m["client_msg_id"] == "later-7")
+    let message = match history["messages"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|m| m["client_msg_id"] == "later-7")
+    {
+        Some(message) => message.clone(),
+        None => sent_message(&mut page, "later-7").0,
     };
-    if !in_history(&history) {
-        sent_message(&mut page, "later-7");
-    }
+    assert!(created_ms(&message) >= restarted, "sent before the restart: {message}");
     let list = listed(&mut page, &chat);
     assert_eq!(list.len(), 1, "only the far one waits: {list:?}");
     assert_eq!(list[0]["id"], json!(mine_id));
+}
+
+/// A file in a scheduled message is its author's until the message is sent:
+/// the Chief can neither read it nor attach it before then, and can after.
+#[test]
+fn a_scheduled_file_stays_private_until_it_is_sent() {
+    use base64::Engine as _;
+    use sha2::{Digest, Sha256};
+
+    const FILE: &[u8] = b"quarterly numbers, not yet shared";
+    let hash: String = Sha256::digest(FILE).iter().map(|byte| format!("{byte:02x}")).collect();
+    let server = HeadlessServer::start("conversation-scheduled-file");
+    let mut home = Unix::open(&server.socket);
+    let created = home.request(
+        "conversation-create",
+        json!({"idempotency_key": "sched-file", "title": "Numbers", "participants": [
+            {"id": "user_local", "kind": "human", "display_name": "Tester"},
+            {"id": "agent_mux", "kind": "agent", "display_name": "mux", "agent_class": "mux"}]}),
+    );
+    let chat = created["conversation"]["id"].as_str().unwrap().to_owned();
+    let begun = home.request(
+        "conversation-attachment-upload",
+        json!({"op": "begin", "conversation": chat, "sha256": hash, "byte_count": FILE.len(),
+               "mime_type": "text/plain", "name": "numbers.txt"}),
+    );
+    let upload = begun["upload"].as_str().unwrap().to_owned();
+    home.request(
+        "conversation-attachment-upload",
+        json!({"op": "chunk", "upload": upload, "piece": "original", "offset": 0,
+               "data": base64::engine::general_purpose::STANDARD.encode(FILE)}),
+    );
+    home.request("conversation-attachment-upload", json!({"op": "commit", "upload": upload}));
+    let part = json!({"type": "attachment", "hash": hash, "name": "numbers.txt",
+                      "mime_type": "text/plain", "byte_count": FILE.len()});
+    let scheduled = home.request(
+        "conversation-scheduled-op",
+        json!({"op": {"kind": "scheduled.create", "conversation": chat,
+                      "send_at_ms": now_ms() + 3_600_000,
+                      "send": {"kind": "message.send", "client_msg_id": "file-later",
+                               "parts": [{"type": "text", "text": "numbers"}, part]}}}),
+    );
+    let id = scheduled["scheduled"]["id"].as_str().unwrap().to_owned();
+
+    let token =
+        home.request("conversation-agent-token", json!({"participant": "agent_mux"}))["token"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+    let mut chief = Unix::open(&server.socket);
+    chief.request("conversation-bind", json!({"participant": "agent_mux", "token": token}));
+    let read = json!({"conversation": chat, "hash": hash, "variant": "original",
+                      "offset": 0, "length": 4096});
+    let early = chief.reply("conversation-attachment-read", read.clone());
+    assert_eq!(early["ok"], false, "the Chief read a file that was only scheduled: {early}");
+    let reuse = chief.reply(
+        "conversation-op",
+        json!({"conversation": chat, "idempotency_key": "chief-reuse",
+               "op": {"kind": "message.send", "client_msg_id": "chief-reuse", "parts": [part]}}),
+    );
+    assert_eq!(reuse["ok"], false, "the Chief attached a file that was only scheduled: {reuse}");
+
+    let sent = home.request("conversation-scheduled-op", op("scheduled.send_now", &id));
+    assert_eq!(sent["removed"]["reason"], "sent", "{sent}");
+    let read = chief.request("conversation-attachment-read", read);
+    let bytes =
+        base64::engine::general_purpose::STANDARD.decode(read["data"].as_str().unwrap()).unwrap();
+    assert_eq!(bytes, FILE);
 }
