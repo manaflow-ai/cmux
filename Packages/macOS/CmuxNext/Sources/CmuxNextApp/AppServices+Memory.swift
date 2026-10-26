@@ -229,7 +229,8 @@ struct AppMemoryConsumers {
     }
 
     /// `pageLifecycle` (default off): page tabs' reveal and conceal drive the page lifecycle
-    /// (p13-webui-022), on the app's one deadline scheduler. Agent chats join in p13-webui-038.
+    /// (p13-webui-022), on the app's one deadline scheduler. Agent chats and New Tab pages join it when
+    /// the browser hibernation makes their `AgentPageHibernation` (p13-webui-038).
     private func registerPageLifecycle() {
         guard services.features.isEnabled(.pageLifecycle) else { return }
         installPageLifecycle(PageLifecycle(deadlines: services.mainDeadlines))
