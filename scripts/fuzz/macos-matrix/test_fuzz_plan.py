@@ -22,7 +22,7 @@ import fuzz  # noqa: E402
 
 def action(ident: str, **kw) -> dict:
     row = {"id": ident, "title": ident, "cli_name": ident.replace(".", " "), "category": "workspace",
-           "arguments": [], "targets": [], "surfaces": {"mcp": "offered"}, "bound": True,
+           "arguments": [], "targets": [], "requires": [], "surfaces": {"mcp": "offered"}, "bound": True,
            "debug_only": False, "destructive": False, "waits_for_person": False}
     row.update(kw)
     return row
@@ -46,6 +46,9 @@ CATALOG = [
     action("cloud.vm.start", category="cloud"),
     action("update.check"),
     action("unbound.thing", bound=False),
+    action("sidebar.section.addGroup", arguments=[
+        {"name": "section", "kind": "target", "required": True, "target_kind": "sidebar-section"}]),
+    action("cloudMove", category="workspace", unavailable_reason="Sign in to use cmux Cloud."),
 ]
 ELIGIBLE = {"workspace.new", "workspace.close", "pane.resize", "tab.rename", "tab.moveToWorkspace",
             "browser.open", "app.pickFolder"}
@@ -63,7 +66,9 @@ class EligibilityTests(unittest.TestCase):
         self.assertEqual({a["id"] for a in eligible}, ELIGIBLE)
         self.assertEqual(excluded, {"debug.crash": "debug-only", "app.quit": "ends-app",
                                     "cloud.vm.start": "category:cloud", "update.check": "skip-word:update",
-                                    "unbound.thing": "not-bound"})
+                                    "unbound.thing": "not-bound",
+                                    "sidebar.section.addGroup": "unresolvable-target:sidebar-section",
+                                    "cloudMove": "unavailable-in-build"})
 
 
 class PlanTests(unittest.TestCase):
@@ -158,6 +163,30 @@ class OutcomeTests(unittest.TestCase):
         self.assertEqual(s["action_outcomes"]["pane.resize"],
                          {"runs": 2, "outcomes": {"error:invalid_params": 1, "ok": 1}})
 
+    def test_a_refused_only_action_stays_uncovered(self):
+        eligible, excluded = fuzz.classify_actions(CATALOG)
+        cov = fuzz.Coverage(eligible, excluded)
+        for a in sorted(ELIGIBLE):
+            cov.record(a, "ok")
+        cov.runs.pop("tab.rename")
+        cov.runs.pop("pane.resize")
+        cov.record("tab.rename", "error:invalid_params")
+        cov.record("tab.rename", "error:unavailable")
+        cov.record("pane.resize", "error:transport")
+        cov.record("browser.open", "error:operation_failed")  # the handler ran and failed: covered
+        s = cov.summary()
+        self.assertEqual(s["actions_covered"], len(ELIGIBLE) - 2)
+        self.assertEqual(sorted(s["actions_uncovered"]), ["pane.resize", "tab.rename"])
+        self.assertEqual(s["actions_refused"], {"pane.resize": ["error:transport"],
+                                                "tab.rename": ["error:invalid_params", "error:unavailable"]})
+
+    def test_reached_handler(self):
+        for outcome in ("ok", "timeout", "error:operation_failed", "error:js_error", "error:daemon_error"):
+            self.assertTrue(fuzz.reached_handler(outcome), outcome)
+        for outcome in ("error:invalid_params", "error:confirmation_required", "error:feature.disabled",
+                        "error:unavailable", "error:not_found", "error:transport", "rc:2"):
+            self.assertFalse(fuzz.reached_handler(outcome), outcome)
+
     def test_uncovered_listed(self):
         eligible, excluded = fuzz.classify_actions(CATALOG)
         cov = fuzz.Coverage(eligible, excluded)
@@ -165,6 +194,130 @@ class OutcomeTests(unittest.TestCase):
         s = cov.summary()
         self.assertEqual(s["actions_covered"], 1)
         self.assertEqual(len(s["actions_uncovered"]), len(ELIGIBLE) - 1)
+
+
+class TimeBoundTests(unittest.TestCase):
+    def gates(self, prefix_len: int, minutes: float, coverage_minutes: float, at: list[float]) -> list[str]:
+        """The gate of step i at minute at[i] after the loop's start."""
+        run_end, prefix_end = fuzz.run_deadlines(0.0, minutes, coverage_minutes)
+        out = []
+        for i, t in enumerate(at):
+            gate = fuzz.step_gate(i, prefix_len, t * 60, run_end, prefix_end)
+            out.append(gate)
+            if gate == "stop":
+                break
+        return out
+
+    def test_minutes_bounds_the_whole_run_coverage_pass_included(self):
+        # --minutes 20 with the default --coverage-minutes 60: the run ends at minute 20, in the pass.
+        self.assertEqual(self.gates(10, 20, 60, [0, 5, 19.9, 20]), ["run", "run", "run", "stop"])
+        self.assertEqual(fuzz.run_deadlines(100.0, 20, 60), (100.0 + 1200, 100.0 + 1200))
+
+    def test_coverage_bound_inside_minutes_skips_the_rest_of_the_pass_then_walks(self):
+        # Pass bounded at 5 of 20 minutes: steps 2..3 of the pass are skipped, the walk runs to minute 20.
+        self.assertEqual(self.gates(4, 20, 5, [0, 4, 5, 6, 7, 19, 20]),
+                         ["run", "run", "skip", "skip", "run", "run", "stop"])
+
+    def test_no_minutes_no_run_bound(self):
+        self.assertEqual(fuzz.run_deadlines(0.0, 0, 60), (None, 3600.0))
+        self.assertEqual(self.gates(1, 0, 60, [0, 59, 61, 600]), ["run", "run", "run", "run"])
+
+    def test_replay_has_no_prefix_so_only_minutes_bounds_it(self):
+        # A replay runs with prefix_len 0: the coverage bound never skips a replayed step.
+        self.assertEqual(self.gates(0, 0, 60, [0, 61, 120, 600]), ["run", "run", "run", "run"])
+        self.assertEqual(self.gates(0, 20, 60, [0, 19, 20]), ["run", "run", "stop"])
+
+
+FIXTURE = os.path.join(HERE, "fixtures", "action-list.json")
+CONTROL_CATALOG = os.path.join(HERE, "..", "..", "..", "Packages", "macOS", "CmuxNext", "Sources", "CmuxNextControl",
+                               "ControlCatalog.swift")
+
+
+def control_action_json_keys() -> set[str]:
+    """The keys ControlActionInfo.json(contextMask:debugActionsAvailable:) writes, read from its source."""
+    import re
+    with open(CONTROL_CATALOG) as f:
+        src = f.read()
+    body = src[src.index("func json(contextMask: UInt32, debugActionsAvailable: Bool)"):src.index("func contextGap(")]
+    keys = set(re.findall(r'^\s*"([a-z_]+)": ', body, re.M))
+    keys |= set(re.findall(r'members\["([a-z_]+)"\]', body))
+    keys |= {"missing_context", "available_with_target", "context_reason"}  # merged from contextGap
+    return keys
+
+
+class ActionListFixtureTests(unittest.TestCase):
+    """fixtures/action-list.json: real catalog actions in ControlActionInfo.json's shape (the arguments
+    as ControlArgumentInfo.json writes them)."""
+
+    def setUp(self):
+        with open(FIXTURE) as f:
+            self.actions = fuzz.checked_action_list(json.load(f))
+
+    def test_fixture_has_the_wire_shape(self):
+        keys = control_action_json_keys()
+        self.assertTrue(set(fuzz.ACTION_LIST_KEYS) <= keys, set(fuzz.ACTION_LIST_KEYS) - keys)
+        for a in self.actions:
+            self.assertEqual(set(a) - keys, set(), a["id"])
+            for arg in a["arguments"]:
+                self.assertTrue({"name", "title", "kind", "required"} <= set(arg), a["id"])
+                self.assertIn(arg["kind"], ("string", "int", "bool", "enum", "target"))
+
+    def test_classification(self):
+        eligible, excluded = fuzz.classify_actions(self.actions)
+        self.assertEqual(excluded, {
+            "cloudMove": "unavailable-in-build",
+            "macScreen.open": "not-bound",
+            "openDebugSettings": "debug-only",
+            "palette.checkForUpdates": "skip-word:update",
+            "quit": "ends-app",
+            "quitKeepSessions": "ends-app",
+            "sidebar.priority.snooze": "unresolvable-target:agent-chat",
+            "workspaceGroup.addToSection": "unresolvable-target:sidebar-section",
+        })
+        self.assertEqual(len(eligible) + len(excluded), len(self.actions))
+
+    def test_coverage_plan_follows_the_real_schemas(self):
+        eligible, _ = fuzz.classify_actions(self.actions)
+        by_id = {a["id"]: a for a in eligible}
+        for seed in range(20):
+            prefix_len, steps = fuzz.plan_run(seed, eligible, tour=False, coverage=True, count=0)
+            planned = list(steps)
+            self.assertEqual(prefix_len, len(eligible))
+            self.assertEqual(sorted(s["id"] for s in planned), sorted(by_id))
+            for s in planned:
+                a = by_id[s["id"]]
+                schema = {arg["name"]: arg for arg in a["arguments"]}
+                given = dict(s["args"])
+                for name, arg in schema.items():
+                    if arg["required"]:
+                        self.assertIn(name, given, (seed, a["id"]))
+                for name, value in given.items():
+                    arg = schema[name]
+                    if arg["kind"] == "int":
+                        self.assertTrue(arg["min"] <= int(value) <= arg["max"], (seed, a["id"], value))
+                    elif arg["kind"] == "enum":
+                        self.assertIn(value, [c["value"] for c in arg["choices"]], (seed, a["id"]))
+                    elif arg["kind"] == "bool":
+                        self.assertIn(value, ("true", "false"))
+                    elif arg["kind"] == "target":
+                        self.assertEqual(value["kind"], arg["target_kind"])
+                if a["destructive"]:
+                    self.assertEqual(given["confirm"], "true", a["id"])
+                if a["requires"]:
+                    self.assertIn("target", s, (seed, a["id"]))  # the target stands in for the focused context
+                if a["waits_for_person"]:
+                    self.assertIs(s["wait"], False)
+
+    def test_action_surfaces_json_is_refused(self):
+        surfaces = os.path.join(HERE, "..", "..", "..", "plans", "cmux-next", "action-surfaces.json")
+        with open(surfaces) as f:
+            with self.assertRaises(ValueError):
+                fuzz.checked_action_list(json.load(f))
+        with tempfile.TemporaryDirectory() as d:
+            r = subprocess.run([sys.executable, "-I", os.path.join(HERE, "fuzz.py"), "--plan-only", surfaces,
+                                "--out", d], capture_output=True, text=True)
+            self.assertEqual(r.returncode, 2)
+            self.assertIn("not a `cmux --json action list` reply", r.stderr)
 
 
 class PlanOnlyTests(unittest.TestCase):

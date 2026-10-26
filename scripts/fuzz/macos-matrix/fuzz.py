@@ -13,10 +13,12 @@ testing/libfuzzer/libprotobuf-mutator.md): every argument gets a value of its de
 (enum choices, ints at and inside their min/max, target-kind arguments resolved against the
 live object lists at run time). The run has three parts: the feature tour, a coverage pass
 that runs every eligible action once (seeded order, valid arguments), then the seeded random
-walk. The same seed and the same build give the same steps. summary.json reports each
-action's runs and outcomes, `actions_eligible`, `actions_covered` (equal when the coverage
-pass finished) and why each other action was left out. `--plan-only` writes the plan from a
-saved `action list --json` with no VM, to check a plan offline.
+walk. The same seed and the same build give the same steps. --minutes bounds the whole run;
+--coverage-minutes bounds the tour and coverage pass inside it. summary.json reports each
+action's runs and outcomes, `actions_eligible`, `actions_covered` (a run reached the handler:
+not refused with a code in REFUSALS), `actions_refused` and why each other action was left
+out. `--plan-only` writes the plan from a saved `action list --json` with no VM, to check a
+plan offline.
 
 After every step it pings the app (a hang is a ping over --hang-ms) and checks
 for new crash reports. On a hang it samples the main thread; on a crash it
@@ -243,11 +245,20 @@ def exclusion_reason(a: dict) -> str | None:
         return "ends-app"
     if a.get("bound") is False:
         return "not-bound"
+    if a.get("unavailable_reason"):
+        return "unavailable-in-build"  # bound as unavailable: every run answers `unavailable`
     if a.get("category") in ("cloud", "remote"):
         return f"category:{a['category']}"
     ident = (a["id"] + " " + a.get("cli_name", "")).lower().replace(".", "")
     word = next((w for w in SKIP_WORDS if w in ident), None)
-    return f"skip-word:{word}" if word else None
+    if word:
+        return f"skip-word:{word}"
+    for arg in a.get("arguments") or []:
+        kind = arg.get("target_kind") or ""
+        if arg.get("kind") == "target" and arg.get("required") and kind not in TARGET_LISTS and kind not in TARGET_FIXED:
+            # No list command names such an object, so every run would be refused for the argument.
+            return f"unresolvable-target:{kind}"
+    return None
 
 
 def classify_actions(listed: list[dict]) -> tuple[list[dict], dict[str, str]]:
@@ -264,9 +275,28 @@ def classify_actions(listed: list[dict]) -> tuple[list[dict], dict[str, str]]:
     return eligible, excluded
 
 
+ACTION_LIST_KEYS = ("id", "title", "cli_name", "arguments", "targets", "requires", "bound", "debug_only",
+                    "destructive", "waits_for_person")
+
+
+def checked_action_list(doc: object) -> list[dict]:
+    """The actions of a `cmux --json action list` reply (ControlActionInfo.json). Raises ValueError
+    for any other document, such as plans/cmux-next/action-surfaces.json, which has no argument
+    schema, so a plan made from it would test none of the argument generators."""
+    actions = doc.get("actions") if isinstance(doc, dict) else None
+    if not isinstance(actions, list) or not actions:
+        raise ValueError("not a `cmux --json action list` reply: no `actions` list")
+    for a in actions:
+        missing = [k for k in ACTION_LIST_KEYS if not isinstance(a, dict) or k not in a]
+        if missing:
+            ident = a.get("id") if isinstance(a, dict) else a
+            raise ValueError(f"not a `cmux --json action list` reply: action {ident!r} has no {', '.join(missing)}")
+    return actions
+
+
 def load_actions(g: Guest) -> tuple[list[dict], dict[str, str]]:
     r = g.cmux(["action", "list"], timeout=30)
-    return classify_actions(json.loads(r.stdout)["actions"])
+    return classify_actions(checked_action_list(json.loads(r.stdout)))
 
 
 STRING_VALUES = ("fuzz", "a", "", "Ω≈ç 🙂 ünïcødé", "x" * 300, "../../../etc/passwd", "\u202erlt", "%s%n{}$(true)")
@@ -329,7 +359,9 @@ def plan_args(rng: random.Random, a: dict, valid_only: bool) -> list[list]:
 def plan_action(rng: random.Random, a: dict, valid_only: bool) -> dict:
     step = {"kind": "action", "id": a["id"], "args": plan_args(rng, a, valid_only)}
     kinds = [t for t in a.get("targets") or [] if t in TARGET_LISTS or t in TARGET_FIXED]
-    if kinds and rng.random() < 0.7:
+    # In the coverage pass an action that needs context always names its object: a target stands
+    # in for the focused window's context (`available_with_target`), which the pass does not set up.
+    if kinds and ((valid_only and a.get("requires")) or rng.random() < 0.7):
         # Resolved against the live list in UI order at run time (n modulo its length), so a replay
         # with the same seed and build picks the same object.
         step["target"] = {"kind": rng.choice(kinds), "n": rng.randrange(1 << 16)}
@@ -391,7 +423,8 @@ def plan_step(rng: random.Random, actions: list[dict]) -> dict:
 TARGET_LISTS = {  # action target kind -> CLI list command
     "workspace": ["workspace", "list"], "tab": ["tab", "list"], "pane": ["pane", "list"],
     "screen": ["screen", "list"], "workspace-group": ["workspace", "group", "list"],
-    "window": ["window", "list"],
+    "window": ["window", "list"], "tab-group": ["tab", "group", "list"],
+    "screen-group": ["screen", "group", "list"], "bookmark": ["bookmark", "list"],
 }
 TARGET_FIXED = {  # target kinds that always have these objects (ActionTargetKind)
     "machine": ["machine:local"], "room": ["room:default"], "browser-profile": ["browser-profile:default"],
@@ -451,8 +484,19 @@ def action_cli_args(step: dict, resolve: Callable[[dict], str | None]) -> list[s
     return tokens
 
 
-REFUSALS = ("invalid_params", "usage.invalid", "unavailable", "not_bound", "disabled", "feature.disabled",
-            "confirmation_required", "not_found")
+# Error codes with which the app or the CLI refuses a run before its handler acts (ControlError+ActionRun,
+# ControlRouter+Validation, PublicIDTargetResolver, the CLI's usage errors); `transport`: the step broke off.
+REFUSALS = frozenset(("invalid_params", "invalid_request", "usage.invalid", "parse_error", "method_not_found",
+                      "unavailable", "not_bound", "disabled", "feature.disabled", "confirmation_required",
+                      "not_found", "ambiguous", "transport"))
+
+
+def reached_handler(outcome: str) -> bool:
+    """Whether an action step's outcome shows its handler ran: `ok`, a `timeout`, or an error code
+    that is not a refusal. `rc:<n>` (the CLI failed with no error code) does not."""
+    if outcome in ("ok", "timeout"):
+        return True
+    return outcome.startswith("error:") and outcome[len("error:"):] not in REFUSALS
 
 
 def action_outcome(r: subprocess.CompletedProcess) -> str:
@@ -630,7 +674,9 @@ def minimize(steps: list[dict], g: Guest, vnc: RFB, out: str) -> list[dict]:
 
 
 class Coverage:
-    """Per-action runs and outcomes for summary.json."""
+    """Per-action runs and outcomes for summary.json. An action counts as covered only when one of
+    its runs reached the handler (``reached_handler``); an action that was only refused stays in
+    `actions_uncovered` and is listed in `actions_refused` with its outcomes."""
 
     def __init__(self, eligible: list[dict], excluded: dict[str, str]):
         self.eligible = [a["id"] for a in eligible]
@@ -642,17 +688,36 @@ class Coverage:
         tally[outcome] = tally.get(outcome, 0) + 1
 
     def summary(self) -> dict:
-        covered = [a for a in self.eligible if a in self.runs]
+        covered = {a for a in self.eligible if any(reached_handler(o) for o in self.runs.get(a, {}))}
         return {
             "actions_known": len(self.eligible) + len(self.excluded),
             "actions_eligible": len(self.eligible),
             "actions_covered": len(covered),
             "actions_ok": sum(1 for a in covered if self.runs[a].get("ok")),
-            "actions_uncovered": [a for a in self.eligible if a not in self.runs],
+            "actions_uncovered": [a for a in self.eligible if a not in covered],
+            "actions_refused": {a: sorted(self.runs[a]) for a in self.eligible if a in self.runs and a not in covered},
             "actions_excluded": self.excluded,
             "action_outcomes": {a: {"runs": sum(t.values()), "outcomes": dict(sorted(t.items()))}
                                 for a, t in sorted(self.runs.items())},
         }
+
+
+def run_deadlines(start: float, minutes: float, coverage_minutes: float) -> tuple[float | None, float]:
+    """(run_end, prefix_end). --minutes bounds the whole run, tour and coverage pass included, as
+    vm.sh and os-matrix.sh expect; the coverage pass ends at --coverage-minutes or at the run's
+    end, whichever comes first."""
+    run_end = start + minutes * 60 if minutes > 0 else None
+    prefix_end = start + coverage_minutes * 60
+    return run_end, prefix_end if run_end is None else min(prefix_end, run_end)
+
+
+def step_gate(i: int, prefix_len: int, now: float, run_end: float | None, prefix_end: float) -> str:
+    """`run` step i, `skip` it (a coverage-pass step past the pass's bound), or `stop` the run."""
+    if run_end is not None and now >= run_end:
+        return "stop"
+    if i < prefix_len and now >= prefix_end:
+        return "skip"
+    return "run"
 
 
 def plan_digest(steps: list[dict]) -> str:
@@ -663,7 +728,7 @@ def write_plan(actions_json: str, seed: int, tour: bool, walk: int, out: str) ->
     """--plan-only: the plan for a saved `cmux --json action list`, no VM. Writes plan.jsonl
     and returns its digest and coverage."""
     with open(actions_json) as f:
-        eligible, excluded = classify_actions(json.load(f)["actions"])
+        eligible, excluded = classify_actions(checked_action_list(json.load(f)))
     prefix_len, steps = plan_run(seed, eligible, tour=tour, coverage=True, count=walk)
     planned = list(steps)
     with open(os.path.join(out, "plan.jsonl"), "w") as f:
@@ -684,10 +749,12 @@ def main() -> int:
     ap.add_argument("--steps", type=int, default=None,
                     help="random steps after the tour (default 1000; with --minutes: as many as the time allows)")
     ap.add_argument("--minutes", type=float, default=0,
-                    help="stop the walk after this many minutes (0: run every step); counted from the walk's start")
+                    help="stop the run after this many minutes (0: run every step); the run's time bound, "
+                         "tour and coverage pass included")
     ap.add_argument("--no-coverage", action="store_true", help="skip the pass that runs every eligible action once")
     ap.add_argument("--coverage-minutes", type=float, default=60,
-                    help="time bound on the tour and coverage pass (default 60); summary.json lists what it left")
+                    help="time bound on the tour and coverage pass (default 60), inside --minutes; "
+                         "summary.json lists what it left")
     ap.add_argument("--plan-only", metavar="ACTIONS_JSON",
                     help="write plan.jsonl for a saved `cmux --json action list` and exit (no VM)")
     ap.add_argument("--hang-ms", type=int, default=1000)
@@ -705,7 +772,10 @@ def main() -> int:
     os.makedirs(o.out, exist_ok=True)
     if o.plan_only:
         walk = o.steps if o.steps is not None else 1000
-        print(json.dumps(write_plan(o.plan_only, o.seed, not o.no_tour, walk, o.out)))
+        try:
+            print(json.dumps(write_plan(o.plan_only, o.seed, not o.no_tour, walk, o.out)))
+        except ValueError as e:
+            ap.error(f"--plan-only {o.plan_only}: {e}")
         return 0
     if not o.ssh or not o.vnc:
         ap.error("--ssh and --vnc are required")
@@ -729,7 +799,8 @@ def main() -> int:
     if o.replay:
         with open(o.replay) as f:
             replayed = [json.loads(l)["step"] for l in f if l.strip()]
-        prefix_len, steps, plan_sha = len(replayed), iter(replayed), plan_digest(replayed)
+        # No coverage prefix: a replay repeats every step, bounded only by --minutes.
+        prefix_len, steps, plan_sha = 0, iter(replayed), plan_digest(replayed)
     else:
         # --minutes without --steps walks until the time is up.
         count = o.steps if o.steps is not None else (None if o.minutes > 0 else 1000)
@@ -768,23 +839,39 @@ def main() -> int:
         except Exception as e:  # screenshot is best effort
             rec["screenshot_error"] = str(e)
 
-    prefix_end = time.time() + o.coverage_minutes * 60
-    walk_end: float | None = None
+    run_end, prefix_end = run_deadlines(time.time(), o.minutes, o.coverage_minutes)
+    executed = 0
+    # Prefix steps (tour and coverage pass) not run, and the wall time of the coverage-pass action
+    # steps that ran, ping and report checks included: the data behind the --coverage-minutes default.
+    coverage_skipped = coverage_steps = 0
+    coverage_seconds = 0.0
+    coverage_started: float | None = None
     run_id = os.getpid()  # in live-sample names: a reused guest never matches an older file
     last_pid = g.pid()
     for i, step in enumerate(steps):
-        if i < prefix_len and time.time() >= prefix_end:
+        now = time.time()
+        if coverage_started is not None:
+            coverage_seconds += now - coverage_started
+            coverage_started = None
+        gate = step_gate(i, prefix_len, now, run_end, prefix_end)
+        if gate == "stop":
+            if i < prefix_len:
+                summary.setdefault("coverage_stopped", f"--minutes {o.minutes:g} reached at step {i}")
+                coverage_skipped += prefix_len - i
+            summary["stopped"] = f"--minutes {o.minutes:g} reached after {executed} steps"
+            break
+        if gate == "skip":
             # The rest of the pass is skipped, not run late: actions_uncovered lists it.
             summary.setdefault("coverage_stopped", f"--coverage-minutes {o.coverage_minutes:g} reached at step {i}")
+            coverage_skipped += 1
             continue
-        if i >= prefix_len and walk_end is None and o.minutes > 0:
-            walk_end = time.time() + o.minutes * 60
-        if walk_end is not None and time.time() >= walk_end:
-            summary["stopped"] = f"--minutes {o.minutes:g} reached after {i} steps"
-            break
-        started = time.time()
-        # An action step goes through the socket and needs no focus; the next GUI step refocuses.
-        if step["kind"] != "action" and g.refocus():
+        started = now
+        if i < prefix_len and step["kind"] == "action":
+            coverage_started = started
+            coverage_steps += 1
+        # Before action steps too: an action's availability follows the focused window's context,
+        # and the Esc that dismisses a waiting action's dialog goes to the frontmost app.
+        if g.refocus():
             summary["refocus"] = summary.get("refocus", 0) + 1
         try:
             note, outcome = run_step(step, g, vnc)
@@ -798,7 +885,8 @@ def main() -> int:
         log.write(json.dumps({"i": i, "step": step, "note": note, "outcome": outcome, "ping_ms": ms,
                               "dt": round(time.time() - started, 3)}) + "\n")
         log.flush()
-        summary["steps"] = i + 1
+        executed += 1
+        summary["steps"] = executed
         if o.shot_every and i % o.shot_every == 0:
             try:
                 open(os.path.join(o.out, f"step-{i:05d}.png"), "wb").write(vnc.screenshot_png())
@@ -879,6 +967,15 @@ def main() -> int:
             finding("dead", i, step, died)
             g.sh(": >/tmp/cmux-fuzz-app.log", timeout=20)
             g.launch(exit_file=exit_file)
+
+    if coverage_started is not None:
+        coverage_seconds += time.time() - coverage_started
+    if coverage_skipped:
+        summary["coverage_skipped"] = coverage_skipped
+    if coverage_steps:
+        summary["coverage_steps_run"] = coverage_steps
+        summary["coverage_seconds"] = round(coverage_seconds, 1)
+        summary["coverage_s_per_step"] = round(coverage_seconds / coverage_steps, 2)
 
     faults = g.sh(f"log show --style ndjson --start '@{int(t0)}' --predicate "
                   "'(process CONTAINS \"cmux\") AND (messageType == fault)' 2>/dev/null | tail -500", timeout=120)
