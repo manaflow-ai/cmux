@@ -183,6 +183,18 @@ describe("groupVariants", () => {
       { name: "Opus 5.5", tag: "New" },
     ]);
   });
+
+  test("duplicate provider rows stay one offer and preserve the running row", async () => {
+    const { groupVariants } = await variants();
+    const rows = [
+      { id: "openrouter/qwen/Coder-3", name: "OpenRouter/Coder 3" },
+      { id: "openrouter/qwen/coder-3", name: "OpenRouter/Coder 3" },
+    ];
+    const groups = groupVariants(rows, rows[1]!.id);
+    expect(groups).toHaveLength(1);
+    expect(groups[0]!.offers).toHaveLength(1);
+    expect(groups[0]!.model.id).toBe(rows[1]!.id);
+  });
 });
 
 const openCode = [
