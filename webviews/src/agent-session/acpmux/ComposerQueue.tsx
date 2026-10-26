@@ -225,7 +225,9 @@ export function ComposerQueue({
       const kept = [...current].filter((id) => queue.some((entry) => entry.id === id));
       return kept.length === current.size ? current : new Set(kept);
     });
-    if (editing && !queue.some((entry) => entry.id === editing)) {
+    // The edited prompt left, or turned out to be a teammate's (its authored record came in while
+    // the editor was open): the editor closes, and what was typed goes back to the composer.
+    if (editing && !queue.some((entry) => entry.id === editing && entry.author === undefined)) {
       const open = draft.current;
       if (open?.id === editing && open.text.trim() && open.text !== open.original) onLost?.(open.text.trim(), editing);
       draft.current = undefined;
@@ -411,6 +413,7 @@ export function ComposerQueue({
     focusRow(index);
   };
   const save = (entry: QueuedEntry, text: string) => {
+    if (entry.author !== undefined) return cancel(shown.indexOf(entry));
     const images = entry.images ?? [];
     const kept = images.filter((image) => !dropped.has(image.id));
     draft.current = undefined;

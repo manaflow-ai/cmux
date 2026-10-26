@@ -654,3 +654,43 @@ test("a teammate's queued prompt has no menu and no neighbour moves it", async (
   expect(edits).toEqual([]);
   expect(touched).toEqual([]);
 });
+
+// An edit opened while the row named no author, then the authored record comes in (an attach page
+// replayed, a teammate's own edit): the editor closes, nothing is saved to the teammate's prompt,
+// and what the person typed goes back to the composer.
+test("an open edit closes, unsaved, when the row turns out to be a teammate's", async () => {
+  const edits: [string, QueueEdit][] = [];
+  const lost: [string, string][] = [];
+  const container = installDom();
+  const ana = { id: "tailnet:ana@example.com", name: "Ana" };
+  const draw = (rows: Array<{ id: string; prompt: string; author?: typeof ana }>) =>
+    root!.render(
+      <ComposerQueue
+        queue={rows}
+        chat="c"
+        t={t}
+        onChange={async (id, edit) => {
+          edits.push([id, edit]);
+          return true;
+        }}
+        onRemove={async () => true}
+        onLost={(text, id) => lost.push([id, text])}
+      />,
+    );
+  await act(async () => {
+    root = createRoot(container);
+    draw(queue);
+  });
+  await startEdit(container, "p-1");
+  const field = container.querySelector<HTMLTextAreaElement>('[data-prompt-id="p-1"] textarea')!;
+  await act(async () => {
+    field.value = "first, reworded";
+    field.dispatchEvent(new dom!.window.Event("input", { bubbles: true }));
+  });
+  await act(async () => draw([{ ...queue[0]!, author: ana }, queue[1]!]));
+  await settle();
+  expect(container.querySelector('[data-prompt-id="p-1"] textarea')).toBeNull();
+  expect(lost).toEqual([["p-1", "first, reworded"]]);
+  expect(edits).toEqual([]);
+  expect(actions(container, "p-1")).toEqual([]);
+});

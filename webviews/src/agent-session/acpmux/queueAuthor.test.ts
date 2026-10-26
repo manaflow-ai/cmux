@@ -244,3 +244,38 @@ test("a switch back to a chat whose kept tail lost the authored record keeps the
     close();
   }
 });
+
+test("a cold open whose page holds no authored record takes the author acpmux lists", async () => {
+  const { client, socket, daemon, view, until, close } = await pane();
+  const mock = socket as unknown as {
+    sessions: Array<Record<string, unknown>>;
+    record: (target: string, step: unknown) => void;
+  };
+  try {
+    const cold = "acp_cold";
+    // Ana's `queued` record, then more records than an attach's page holds (400), and no edit
+    // since: only acpmux's list says whose the prompt is (after an app restart, say).
+    mock.record(cold, { mux: "queued", msg: { promptId: "p-ana", text: "Rebase first", _meta: fromAna } });
+    for (let n = 0; n < 450; n += 1) mock.record(cold, { mux: "mock_filler", msg: { n } });
+    mock.record(cold, { mux: "queued", msg: { promptId: "p-me", text: "Then run the tests" } });
+    const session = {
+      ...mock.sessions[0],
+      sessionId: cold,
+      name: "cold",
+      queue: [
+        { promptId: "p-ana", prompt: "Rebase first", fromAgent: null, author: ana },
+        { promptId: "p-me", prompt: "Then run the tests", fromAgent: null, author: null },
+      ],
+    };
+    mock.sessions.push(session);
+    daemon.deliver({ jsonrpc: "2.0", method: "_acpmux/session_changed", params: { kind: "created", session } });
+    await client.select(cold);
+    await until(() => view.shown.queue?.length === 2);
+    expect(authors(view.shown)).toEqual([
+      ["p-ana", "Ana"],
+      ["p-me", null],
+    ]);
+  } finally {
+    close();
+  }
+});
