@@ -231,9 +231,17 @@ pub(super) fn session_events(
             let message = format!("cannot connect to session socket {}: {error}", socket.display());
             local("transport.unavailable", message)
         })?;
-    let _ = stream.set_read_timeout(Some(wire::SERVER_PREFLIGHT_TIMEOUT));
+    let left = deadline.saturating_duration_since(Instant::now());
+    if left.is_zero() {
+        return Ok(());
+    }
+    let _ = stream.set_read_timeout(Some(left.min(wire::SERVER_PREFLIGHT_TIMEOUT)));
     let mut reader = BufReader::new(stream);
-    super::super::tab_capabilities::negotiate(&mut reader).map_err(|failure| match failure {
+    let negotiated = super::super::tab_capabilities::negotiate(&mut reader);
+    if Instant::now() >= deadline {
+        return Ok(());
+    }
+    negotiated.map_err(|failure| match failure {
         resolve::Failure::Resource(error) => {
             CallFailure { kind: NotRun, error, idempotency_key: None }
         }
@@ -533,3 +541,7 @@ mod tests {
         assert!(!is_partial_id("ws_XY", "ws"));
     }
 }
+
+#[cfg(all(test, unix))]
+#[path = "transport_capabilities_tests.rs"]
+mod capabilities_tests;

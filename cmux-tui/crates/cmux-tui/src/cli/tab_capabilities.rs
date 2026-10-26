@@ -27,19 +27,32 @@ pub(super) fn negotiate(
         return Err(resolve::Failure::Resource(json!({"code":"session.busy",
             "message":"session is busy","details":{},"retryable":true})));
     }
-    // A not-yet-ready daemon may reject any request with the normal v2 error.
-    if response["protocol"] == cmux_tui_core::resource::PROTOCOL && response["ok"] == false {
-        let error: cmux_tui_core::resource::ResponseEnvelope = serde_json::from_value(response)
+    // A daemon that is not ready can refuse every frame with the normal v2
+    // resource error. Preserve that error; it is not an unsupported hello.
+    if response["protocol"] == cmux_tui_core::resource::PROTOCOL {
+        let reply: cmux_tui_core::resource::ResponseEnvelope = serde_json::from_value(response)
             .map_err(|error| resolve::Failure::Transport(format!("protocol error: {error}")))?;
-        error.validate().map_err(|error| resolve::Failure::Transport(error.message))?;
-        return Err(resolve::Failure::Resource(
-            serde_json::to_value(error.error).unwrap_or(Value::Null),
+        reply.validate().map_err(|error| resolve::Failure::Transport(error.message))?;
+        if reply.id.as_str() != id {
+            return Err(resolve::Failure::Transport(
+                "protocol error: client capabilities response id mismatch".into(),
+            ));
+        }
+        if let Some(error) = reply.error {
+            return Err(resolve::Failure::Resource(
+                serde_json::to_value(error).unwrap_or(Value::Null),
+            ));
+        }
+        return Err(resolve::Failure::Transport(
+            "protocol error: expected raw client capabilities response".into(),
         ));
     }
-    if response["id"] != id || response["ok"] != true {
+    if response["id"] != id || !response["ok"].is_boolean() {
         return Err(resolve::Failure::Transport(
             "protocol error: invalid client capabilities response".into(),
         ));
     }
+    // An older daemon may reject this optional hello. Its ordinary resource
+    // operations remain usable with the existing browser compatibility view.
     Ok(())
 }
