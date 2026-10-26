@@ -63,6 +63,28 @@ import CmuxTerminalCore
         #expect(rawBytes(in: events) == Data(sequence.utf8))
     }
 
+    /// A bracketed paste's body reaches the program as pasted: LF stays LF and
+    /// Tab stays a character, not Return and a Tab key.
+    @Test(arguments: [
+        "\u{1B}[200~a\nb\tc\u{1B}[201~",
+        "\u{1B}[200~line one\r\nline two",   // paste continuing in the next write
+    ])
+    func bracketedPasteBodyStaysRaw(sequence: String) {
+        let events = TerminalSurface.parsedSocketInputEvents(for: sequence)
+        #expect(!containsKeyOrTerminalBytes(events), "\(events)")
+        #expect(rawBytes(in: events) == Data(sequence.utf8))
+    }
+
+    @Test func inputAfterABracketedPasteIsParsedAgain() {
+        let events = TerminalSurface.parsedSocketInputEvents(for: "\u{1B}[200~x\u{1B}[201~\t")
+        #expect(rawBytes(in: events) == Data("\u{1B}[200~x\u{1B}[201~".utf8))
+        guard case .key(let key) = events.last else {
+            Issue.record("Expected the Tab key after the paste: \(events)")
+            return
+        }
+        #expect(key.label == "tab")
+    }
+
     @Test func bareEscapeStaysTheEscapeKey() {
         let events = TerminalSurface.parsedSocketInputEvents(for: "\u{1B}")
         #expect(containsKeyOrTerminalBytes(events))

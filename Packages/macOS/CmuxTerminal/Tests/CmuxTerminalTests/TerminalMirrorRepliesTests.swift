@@ -45,6 +45,9 @@ import CmuxTerminal
         "\u{1B}P",                    // Alt+Shift+P with no terminator
         "\u{1B}[",                    // Alt+[
         "é\u{1B}b",                   // UTF-8 and Alt+B
+        "\u{1B}[200~\u{1B}]11;rgb:1/2/3\u{07}\u{1B}[I\u{1B}[201~", // pasted text that looks like replies
+        "\u{1B}[200~\u{1B}[?62;22c",       // paste continuing in the next write
+        String(repeating: "\u{1B}]x", count: 4_000), // many unterminated strings
     ])
     func keepsInput(input: String) {
         #expect(filtered(input) == input)
@@ -53,5 +56,10 @@ import CmuxTerminal
     @Test func keepsInputAroundRepliesInOneWrite() {
         let write = "a\u{1B}[?62;22cb\u{1B}[<0;1;1Mc\u{1B}]11;rgb:1/2/3\u{07}d\u{1B}[Ie\u{1B}[27u"
         #expect(filtered(write) == "ab\u{1B}[<0;1;1Mcde\u{1B}[27u")
+    }
+
+    @Test func filtersRepliesAfterABracketedPasteEnds() {
+        let write = "\u{1B}[200~\u{1B}[I\u{1B}[201~\u{1B}[I\u{1B}[?62;22cz"
+        #expect(filtered(write) == "\u{1B}[200~\u{1B}[I\u{1B}[201~z")
     }
 }
