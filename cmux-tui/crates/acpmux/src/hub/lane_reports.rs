@@ -162,6 +162,34 @@ impl TurnKinds {
     }
 }
 
+/// One steer [`TurnKinds::steer_in`] counted, until its answer: [`SteerCount::done`] takes it
+/// back. Dropped first (its request was dropped), it may have gone in, so it counts as in.
+pub(super) struct SteerCount<'a> {
+    turns: &'a StdMutex<TurnKinds>,
+    id: String,
+    entered: Option<bool>,
+}
+
+impl<'a> SteerCount<'a> {
+    fn new(turns: &'a StdMutex<TurnKinds>, id: &str) -> Self {
+        turns.lock().unwrap_or_else(|e| e.into_inner()).steer_in(id);
+        Self { turns, id: id.to_owned(), entered: None }
+    }
+
+    /// The steer was answered: `entered`, it went into a turn, which reports (the one running,
+    /// or, if that one already ended, the next).
+    pub(super) fn done(mut self, entered: bool) {
+        self.entered = Some(entered);
+    }
+}
+
+impl Drop for SteerCount<'_> {
+    fn drop(&mut self) {
+        let entered = self.entered.unwrap_or(true);
+        self.turns.lock().unwrap_or_else(|e| e.into_inner()).steer_done(&self.id, entered);
+    }
+}
+
 /// One report, before it is written out.
 #[derive(Debug, Clone, PartialEq)]
 struct Report {
@@ -382,20 +410,13 @@ impl Hub {
     }
 
     /// A prompt that is not a lane report is about to be steered into `session`: counted before
-    /// it reaches the agent, so any turn that ends while it is on its way reports. Whether one
-    /// was counted.
-    pub(super) fn lane_steer_in(&self, session: &Session, provenance: Option<&Value>) -> bool {
-        if reports_only(provenance) {
-            return false;
-        }
-        self.lane_turns().steer_in(&session.id);
-        true
-    }
-
-    /// The steer [`Hub::lane_steer_in`] counted was answered: `entered`, it went into a turn, which
-    /// reports (the one running, or, if that one already ended, the next).
-    pub(super) fn lane_steer_done(&self, session: &Session, entered: bool) {
-        self.lane_turns().steer_done(&session.id, entered);
+    /// it reaches the agent, so any turn that ends while it is on its way reports.
+    pub(super) fn lane_steer_in(
+        &self,
+        session: &Session,
+        provenance: Option<&Value>,
+    ) -> Option<SteerCount<'_>> {
+        (!reports_only(provenance)).then(|| SteerCount::new(&self.lane_reports.turns, &session.id))
     }
 
     /// A local session's turn ended, or failed before its agent started (`turns.rs`): a lane's

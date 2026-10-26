@@ -123,7 +123,7 @@ impl Hub {
             params["_meta"]["steerNow"] = json!(true);
         }
         // Counted in the turn before the agent can read it (`lane_reports.rs`).
-        let carried = self.lane_steer_in(session, opts.provenance.as_ref());
+        let count = self.lane_steer_in(session, opts.provenance.as_ref());
         let answer = agent_prompt(session, &child, params, turn_id, true).await;
         session
             .steer_now
@@ -131,8 +131,8 @@ impl Hub {
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .waiting
             .remove(&prompt_id);
-        if carried {
-            self.lane_steer_done(session, steer_entered_turn(&answer));
+        if let Some(count) = count {
+            count.done(steer_entered_turn(&answer));
         }
         let mut r = match answer {
             Err(e) if e.message.starts_with(crate::claude_stdio::STEER_NO_TURN) => {
