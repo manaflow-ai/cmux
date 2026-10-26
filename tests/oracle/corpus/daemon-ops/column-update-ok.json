@@ -59,7 +59,8 @@
       "args": {
         "method": "column.update",
         "params": {
-          "column": "split_00000000000000000000000000000000"
+          "column": "split_00000000000000000000000000000000",
+          "dock": false
         },
         "idempotencyKey": "column-update-ok.call"
       },

@@ -38,6 +38,7 @@
       "args": {
         "method": "closed.delete",
         "params": {
+          "all": true,
           "closed": ""
         },
         "idempotencyKey": "closed-delete-error.call"

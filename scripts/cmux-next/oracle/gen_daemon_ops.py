@@ -17,6 +17,8 @@ for each operation with class `mutation`,
   `validation.invalid`: the daemon checks every request against the same catalog before any handler runs
   (cmux-tui/crates/cmux-tui-core/src/resource_router/catalog_validation.rs), and `CatalogCheck` below is that
   check in Python, so the generator proves each success request passes it and each error request fails it.
+  Rules that live in a handler, not in that check, are HANDLER_FIELDS; preconditions the standard fixture
+  cannot meet are KNOWN_GAPS.
 
 The standard fixture is FIXTURE: named objects (a terminal workspace, a split, a browser tab, a tab group, ...),
 each made by one catalog mutation and read from its result by a JSON pointer that the generator resolves in the
@@ -26,7 +28,9 @@ Cases are flat in the suite directory, as every suite: `oracle.py` and the expec
 (`suite/case[/step]`) name a case by one path segment. The families of tasks 061-070 tune their operations in
 `<family>/_tuning.json` (oracle.py skips `_` files), which this generator reads, so regeneration keeps the tuning
 and stays byte-stable. coverage.json lists every operation with its family, cases, fixture steps, broken field,
-placeholders (fields with a fixed id, not a fixture object: the tuning work) and tuning.
+placeholders (fields with a fixed id, not a fixture object: the tuning work), known gap and tuning. An operation
+counts as covered only when its success case has no placeholder and no known gap; the rest are excluded with the
+family task that tunes them. Covered is not a verdict: driver_daemon.py on the VM gives the first one.
 
 Usage:
   gen_daemon_ops.py --out DIR          write the cases and coverage.json into DIR
@@ -80,6 +84,35 @@ FAMILY_OF = {prefix: family for family, prefixes in FAMILIES.items() for prefix 
 SCOPE = {"machine": "current", "session": "current"}
 # catalog_validation.rs validate_resource_id: the id prefix of a resource kind.
 ID_PREFIX = {"workspace": "ws", "terminal": "term", "frontend_projection": "projection", "pairing_request": "pairing"}
+# resource.rs PUBLIC_ID_PREFIXES: Selector::parse reads `<prefix>_<32 hex>` as an id only for these prefixes.
+PUBLIC_ID_PREFIXES = ("machine", "session", "ws", "screen", "pane", "tab", "term", "browser", "client", "split", "stream",
+                      "notification", "agent", "projection", "pairing", "sidebar_view", "sidebar_plugin")
+# resource/selector_tokens.rs is_reserved_selector_token: CLI grammar words a bare selector may not be.
+RESERVED_SELECTOR_TOKENS = frozenset("""
+    machine session client window pairing request frontend projection workspace screen pane tab terminal browser split
+    notification agent sidebar view plugin provider scope action notice list get show create open rename delete restore
+    purge connect snapshot events ping shutdown update metadata detach set clear resolve put move focus close run apply
+    export undo neighbor swap zoom resize send keys read history state direction process renderer grant cell pixels copy
+    attach navigate back forward reload activate install use builtin disable remove report notify
+""".split())
+# catalog_validation.rs validate_operation_constraints: the per-operation rules the catalog types cannot say.
+TERMINAL_LAUNCH_OPS = frozenset({"workspace.create", "pane.split", "pane.create", "screen.create", "tab.create_terminal"})
+ARGV_OPS = TERMINAL_LAUNCH_OPS | {"pane.run", "workspace.run"}
+PAIRED_SIZE_OPS = {"browser.attach": ("width_px", "height_px"), "tab.create_browser": ("width_px", "height_px"),
+                   **{name: ("cols", "rows") for name in ("pane.create", "pane.run", "pane.split", "tab.create_terminal",
+                                                          "terminal.attach", "workspace.run")}}
+REQUIRE_ANY = {
+    "client.metadata.update": ("name", "kind", "capabilities"),
+    "session.terminal_defaults.update": ("foreground", "background", "cursor", "selection_background",
+                                         "selection_foreground", "palette", "cursor_style", "cursor_blink", "complete"),
+}
+RATIO_OPS = frozenset({"pane.split_ratio.set", "pane.split"})
+NAME_UPDATE_OPS = frozenset({"tab.rename", "workspace.rename"})
+CONSTRAINT_OPS = (TERMINAL_LAUNCH_OPS | ARGV_OPS | set(PAIRED_SIZE_OPS) | set(REQUIRE_ANY) | RATIO_OPS | NAME_UPDATE_OPS
+                  | {"session.journal.subscribe", "browser.input.mouse", "terminal.input.mouse"})
+# Fields that only state an expectation: an update that sets only these (and ids) changes nothing.
+PRECONDITION_FIELDS = frozenset({"expected_revision", "if_revision", "expected_rev", "expected_generation",
+                                 "expected_name_revision"})
 UNKNOWN_PARAMETER = "oracle_unknown"
 ERROR_CODE = "validation.invalid"
 # hermetic_env.py ROOT_TOKEN (p15-oracle-200): the case's state root. A path under it is local to the case.
@@ -161,9 +194,11 @@ def resource_id(resource: str) -> str:
 
 
 class CatalogCheck:
-    """The daemon's request check in Python (catalog_validation.rs validate_catalog_params and
-    validate_catalog_value, and resource.rs Selector::parse for selector strings). It returns the first
-    refusal, or None. validate_operation_constraints (hand-written per operation in Rust) is not ported."""
+    """The daemon's request check in Python: catalog_validation.rs validate_catalog_params, validate_catalog_value
+    and validate_operation_constraints (with mouse.rs and resource_name.rs NameUpdate::parse), and resource.rs
+    Selector::parse for selector strings. It returns the first refusal, or None. One rule is stricter than the
+    catalog check: an id in a selector of a resource kind must be an id of that kind, which the routing and the
+    handlers refuse otherwise (resource_selector.rs, mux/resource_topology/client_ids.rs "is not a pane id")."""
 
     def __init__(self, catalog: Catalog):
         self.catalog = catalog
@@ -177,18 +212,22 @@ class CatalogCheck:
                 return f"request contains unknown parameters {unknown}"
         for name, requiredness in selectors.items():
             if name in params:
-                problem = self.selector(params[name], f"{operation}.{name}")
+                problem = self.selector(params[name], f"{operation}.{name}", name)
                 if problem:
                     return problem
             elif requiredness == "required":
                 return f"required selector {name} is missing"
+        with_defaults: Dict[str, Any] = {}
         for name, spec in fields.items():
             if name in params:
                 problem = self.value(params[name], spec["type"], f"{operation}.{name}", {})
                 if problem:
                     return problem
+                with_defaults[name] = params[name]
             elif spec.get("required"):
                 return f"required parameter {name} is missing"
+            elif "default" in spec:
+                with_defaults[name] = spec["default"]
         alternatives = descriptor.get("one_of")
         if alternatives:
             matches = sum(
@@ -197,18 +236,69 @@ class CatalogCheck:
             )
             if matches != 1:
                 return "request must match exactly one parameter alternative"
+        return self.constraints(operation, with_defaults, params)
+
+    @staticmethod
+    def constraints(operation: str, fields: Mapping[str, Any], supplied: Mapping[str, Any]) -> Optional[str]:
+        """validate_operation_constraints: `fields` has the catalog defaults filled in, `supplied` is the request."""
+        if operation in NAME_UPDATE_OPS:
+            source = fields.get("source", "user")
+            release = fields.get("release", False)
+            if release and source != "auto":
+                return f"{operation}.release: release hands a name to source auto"
+            if source == "auto" and not release and not ("expected_generation" in fields and "expected_name_revision" in fields):
+                return f"{operation}.source: automatic names require a generation and name revision"
+        if operation == "workspace.create" and fields.get("initial_content") == "empty":
+            field_name = next((name for name in ("cwd", "argv", "shell") if name in fields), None)
+            if field_name:
+                return f"workspace.create.{field_name}: an empty workspace has no terminal to launch"
+        if operation in TERMINAL_LAUNCH_OPS and "argv" in fields and "shell" in fields:
+            return f"{operation}.shell: argv and shell are exclusive"
+        if operation in ARGV_OPS and isinstance(fields.get("argv"), list):
+            argv = fields["argv"]
+            if not argv or not isinstance(argv[0], str) or not argv[0]:
+                return f"{operation}.argv[0]: argv[0] must be non-empty"
+        if operation in PAIRED_SIZE_OPS:
+            first, second = PAIRED_SIZE_OPS[operation]
+            if (first in fields) != (second in fields):
+                return f"{operation}: paired size parameters must be sent together ({first}, {second})"
+        if operation in REQUIRE_ANY and not any(name in supplied for name in REQUIRE_ANY[operation]):
+            return f"{operation}: at least one update parameter is required"
+        if operation == "session.journal.subscribe" and "cursor" in supplied and "start" in supplied:
+            return f"{operation}: journal cursor and start are mutually exclusive"
+        ratio = fields.get("ratio")
+        if operation in RATIO_OPS and isinstance(ratio, (int, float)) and not isinstance(ratio, bool) and not 0.0 < ratio < 1.0:
+            return f"{operation}.ratio: ratio must be greater than zero and less than one"
+        kind = fields.get("kind")
+        if operation == "browser.input.mouse":
+            if kind in ("down", "up") and "button" not in fields:
+                return "browser.input.mouse.button: button is required for down and up"
+            if kind == "move" and ("button" in fields or "click_count" in fields):
+                return "browser.input.mouse: move forbids button and click_count"
+        if operation == "terminal.input.mouse":
+            button, delta = "button" in fields, fields.get("delta_rows")
+            valid = {"down": button and delta is None, "up": button and delta is None, "move": not button and delta is None,
+                     "wheel": not button and isinstance(delta, int) and not isinstance(delta, bool) and delta != 0}
+            if not valid.get(kind, False):
+                return "terminal.input.mouse: terminal mouse parameters do not match the input kind"
         return None
 
     @staticmethod
-    def selector(value: Any, path: str) -> Optional[str]:
+    def selector(value: Any, path: str, resource: Optional[str] = None) -> Optional[str]:
+        """Selector::parse; with `resource`, an id must also be an id of that kind."""
         if not isinstance(value, str):
             return f"{path}: selector must be a string"
         if value.startswith("name:") or value == "current":
             return None
         prefix, _, payload = value.rpartition("_")
-        if prefix and re.fullmatch(r"[0-9a-f]{32}", payload):
+        if prefix in PUBLIC_ID_PREFIXES and len(payload) == 32 and re.fullmatch(r"[0-9a-f]{32}", payload):
+            wanted = ID_PREFIX.get(resource, resource) if resource else None
+            if wanted is not None and prefix != wanted:
+                return f"{path}: {value} is not a {resource} id"
             return None
-        if "_" in value:
+        if prefix in PUBLIC_ID_PREFIXES and payload and re.fullmatch(r"[0-9a-fA-F]+", payload):
+            return f"{path}: {value} is not an id"
+        if "_" in value or value in RESERVED_SELECTOR_TOKENS:
             return f"{path}: reserved or ambiguous names must use the name: prefix"
         return None
 
@@ -247,7 +337,7 @@ class CatalogCheck:
                     return f"{path}: required object field {name} is missing"
             return None
         if kind == "selector":
-            return self.selector(value, path)
+            return self.selector(value, path, descriptor["resource"])
         if kind == "resource_id":
             prefix = ID_PREFIX.get(descriptor["resource"], descriptor["resource"])
             if not isinstance(value, str) or not value.startswith(prefix + "_"):
@@ -330,11 +420,11 @@ FIXTURE: Tuple[FixtureStep, ...] = (
     FixtureStep("fx-browser", "tab.create_browser", (("workspace", "workspace"), ("screen", "screen"), ("pane", "pane")),
                 {"url": "about:blank"}, (("browser", "/value/browser_id"), ("browser_tab", "/value/tab_id"))),
     FixtureStep("fx-tab-group", "tab_group.create", (), {"tabs": [Handle("tab")], "name": "oracle"},
-                (("tab_group", "/value/id"),)),
+                (("tab_group", "/value/id"), ("grouped_tab", "/value/tab_ids/0"))),
     FixtureStep("fx-saved-tab-group", "saved_tab_group.save", (), {"tab_group": Handle("tab_group")},
                 (("saved_tab_group", "/value/id"),)),
     FixtureStep("fx-screen-group", "screen_group.create", (), {"screens": [Handle("screen")], "name": "oracle"},
-                (("screen_group", "/value/id"),)),
+                (("screen_group", "/value/id"), ("grouped_screen", "/value/screen_ids/0"))),
     FixtureStep("fx-workspace-group", "workspace_group.create", (), {"name": "oracle"}, (("workspace_group", "/value/id"),)),
     FixtureStep("fx-room", "room.create", (), {"name": "oracle"}, (("room", "/value/id"),)),
     FixtureStep("fx-stash", "stash.create", (), {"tabs": [Handle("other_tab")], "name": "oracle"}, (("stash", "/value/stash_id"),)),
@@ -343,7 +433,9 @@ FIXTURE: Tuple[FixtureStep, ...] = (
     FixtureStep("fx-checklist", "workspace_checklist.add", (("workspace", "workspace"),), {"text": "oracle"},
                 (("checklist_item", "/value/items/0/id"),)),
     FixtureStep("fx-chief", "chief.profile.create", (), {"display_name": "oracle"}, (("chief", "/value/id"),)),
-    FixtureStep("fx-message", "agent.message.send", (), {"body": "oracle"}, (("message", "/value/id"),)),
+    # agent_message_store.rs recipients_of refuses a send with no recipient and no parent: address the fixture terminal.
+    FixtureStep("fx-message", "agent.message.send", (), {"recipients": [Handle("terminal")], "body": "oracle"},
+                (("message", "/value/id"),)),
     FixtureStep("fx-sidebar-view", "sidebar_view.ensure", (), {"cols": 80, "rows": 24}, (("sidebar_view", "/value/id"),)),
 )
 FIXTURE_BY_ID = {step.id: step for step in FIXTURE}
@@ -360,7 +452,28 @@ NAMED_FIELD_HANDLE = {
     "message_id": "message", "pane_id": "pane", "terminal_id": "terminal", "workspace_id": "workspace",
 }
 OPERATION_FIELD_HANDLE = {("workspace_checklist.remove", "item"): "checklist_item",
-                          ("workspace_checklist.update", "item"): "checklist_item"}
+                          ("workspace_checklist.update", "item"): "checklist_item",
+                          # A removal takes a member of the fixture group (array items are sampled by singular name).
+                          ("tab_group.remove_tabs", "tab"): "grouped_tab",
+                          ("screen_group.remove_screens", "screen"): "grouped_screen"}
+# Fields a handler requires that the catalog marks optional; the success request sends these values.
+HANDLER_FIELDS: Dict[str, Dict[str, Any]] = {
+    # agent_message_store.rs recipients_of: "give at least one recipient, or a message to reply to".
+    "agent.message.send": {"recipients": [Handle("terminal")]},
+    # closed_history_delete.rs: exactly one of closed or all.
+    "closed.delete": {"all": True},
+}
+# Success cases that pass the request check but cannot succeed on the standard fixture; the family task owns the
+# precondition. A tuned success request takes the case over from this list.
+KNOWN_GAPS: Dict[str, str] = {
+    "closed.reopen": "a fresh daemon has no closed group to reopen; the family task closes one first",
+}
+KNOWN_GAP_PREFIXES: Tuple[Tuple[str, str], ...] = (
+    ("git.", "the fixture workspace has no git repository; the family task generates one under $CASE_ROOT"),
+)
+FAMILY_TASK = {"browser": "p15-oracle-061", "sidebar": "p15-oracle-062", "session": "p15-oracle-063",
+               "workspace": "p15-oracle-064", "terminal": "p15-oracle-065", "layout": "p15-oracle-066",
+               "tab": "p15-oracle-067", "git": "p15-oracle-068", "chief": "p15-oracle-069", "misc": "p15-oracle-070"}
 # Values for fields whose name says more than their type.
 NAMED_VALUES: Dict[str, Any] = {
     "url": "about:blank", "argv": ["/bin/sh", "-c", "exit 0"], "shell": "/bin/sh", "path": f"{ROOT_TOKEN}/oracle",
@@ -583,12 +696,42 @@ def base_request(synth: Synth, operation: str) -> Request:
         wanted += [name for name in alternatives[0].get("required", ()) if name not in wanted]
     for name in wanted:
         request.params[name] = synth.sample(request, descriptor["fields"][name]["type"], name, f"params.{name}")
-    if not wanted and operation.rsplit(".", 1)[-1] in ("update", "rename"):
-        # Updates and renames refuse an empty change; send the first field that is not a precondition.
-        first = next((name for name in descriptor["fields"] if name not in ("expected_revision", "if_revision")), None)
-        if first is not None:
-            request.params[first] = synth.sample(request, descriptor["fields"][first]["type"], first, f"params.{first}")
+    request.params.update(copy.deepcopy(HANDLER_FIELDS.get(operation, {})))
+    optional = [name for name in descriptor["fields"] if name not in request.params and name not in PRECONDITION_FIELDS]
+    if is_change_operation(operation) and not changed_fields(request) and optional:
+        # Updates and renames refuse an empty change: send the first field that is not a precondition.
+        add_field(synth, request, optional[0])
+    elif synth.check.params(operation, synth.concrete(wire_params(request))) is not None:
+        # validate_operation_constraints (a mouse down needs a button, ...): the first optional field that
+        # makes the request pass.
+        for name in optional:
+            trial = copy.deepcopy(request)
+            add_field(synth, trial, name)
+            if synth.check.params(operation, synth.concrete(wire_params(trial))) is None:
+                return trial
     return request
+
+
+def is_change_operation(operation: str) -> bool:
+    return operation.rsplit(".", 1)[-1] in ("update", "rename")
+
+
+def add_field(synth: Synth, request: Request, name: str) -> None:
+    spec = synth.catalog.operations[request.operation]["params"]["fields"][name]
+    request.params[name] = synth.sample(request, spec["type"], name, f"params.{name}")
+
+
+def changed_fields(request: Request) -> List[str]:
+    """The params that change something: not a precondition, and not an identity (a fixture object or a
+    fixed placeholder id that names what the operation changes)."""
+    return [name for name, value in request.params.items()
+            if name not in PRECONDITION_FIELDS and not any(True for _ in handles_in(value))
+            and not any(p == f"params.{name}" or p.startswith((f"params.{name}[", f"params.{name}."))
+                        for p in request.placeholders)]
+
+
+def wire_params(request: Request) -> Dict[str, Any]:
+    return {**SCOPE, **request.target, **request.params}
 
 
 def error_request(synth: Synth, success: Request) -> Tuple[Request, Dict[str, str]]:
@@ -662,8 +805,15 @@ def call_step(case_id: str, step_id: str, operation: str, target: Mapping[str, A
 OK = {"outcome": "ok", "receipt": "mutation_result"}
 
 
+def known_gap(operation: str) -> Optional[str]:
+    """Why the success case cannot succeed on the standard fixture, or None."""
+    if operation in KNOWN_GAPS:
+        return KNOWN_GAPS[operation]
+    return next((reason for prefix, reason in KNOWN_GAP_PREFIXES if operation.startswith(prefix)), None)
+
+
 def case_doc(case_id: str, operation: str, family: str, kind: str, request: Request, expect: Mapping[str, Any],
-             note: str) -> Dict[str, Any]:
+             note: str, gap: Optional[str] = None) -> Dict[str, Any]:
     steps = []
     for step_id in fixture_closure(list(handles_in(request.target)) + list(handles_in(request.params))):
         fx = FIXTURE_BY_ID[step_id]
@@ -686,9 +836,12 @@ def case_doc(case_id: str, operation: str, family: str, kind: str, request: Requ
         "invariants": [f"generated by {GENERATOR} from the catalog type of {operation} (family {family})"],
         "teardown": ["stop the case daemon", "verify the socket and state root are gone"],
     }
-    if request.placeholders:
-        doc["untested"] = [f"{path} is a fixed placeholder, not a fixture object; {family}/{TUNING} tunes it"
-                           for path in request.placeholders]
+    untested = [f"{path} is a fixed placeholder, not a fixture object; {family}/{TUNING} tunes it"
+                for path in request.placeholders]
+    if gap:
+        untested.append(f"{gap}; {family}/{TUNING} tunes it")
+    if untested:
+        doc["untested"] = untested
     return doc
 
 
@@ -776,6 +929,7 @@ def generate(catalog: Catalog, tuning: Mapping[str, Mapping[str, Any]]) -> Dict[
     files: Dict[str, Any] = {}
     operations: Dict[str, Any] = {}
     families: Dict[str, int] = {family: 0 for family in FAMILIES}
+    excluded: Dict[str, str] = {}
     seen: Dict[str, str] = {}
     for operation in catalog.mutations():
         family = family_of(operation)
@@ -796,11 +950,10 @@ def generate(catalog: Catalog, tuning: Mapping[str, Mapping[str, Any]]) -> Dict[
         else:
             broken_request = copy.deepcopy(success)
         apply_tuning(broken_request, tuned.get("error", {}))
-        problem = synth.check.params(operation, synth.concrete({**SCOPE, **success.target, **success.params}))
+        problem = synth.check.params(operation, synth.concrete(wire_params(success)))
         if problem is not None:
             raise GenError(f"{operation}: the success request fails the catalog check: {problem}")
-        wire = {**SCOPE, **broken_request.target, **broken_request.params}
-        if code == ERROR_CODE and synth.check.params(operation, synth.concrete(wire)) is None:
+        if code == ERROR_CODE and synth.check.params(operation, synth.concrete(wire_params(broken_request))) is None:
             raise GenError(f"{operation}: the error request passes the catalog check")
         for request in (success, broken_request):
             remote = next(non_local_remotes(request.params, "params"), None)
@@ -812,8 +965,10 @@ def generate(catalog: Catalog, tuning: Mapping[str, Mapping[str, Any]]) -> Dict[
         error_note = tuned.get("error", {}).get("note") or (
             f"{broken['field']} breaks its catalog type ({broken['rule']}); the daemon's catalog check refuses it"
             if broken else f"tuned to {code}")
+        gap = None if "success" in tuned else known_gap(operation)
         files[f"{ok_id}.json"] = case_doc(ok_id, operation, family, "success", success, OK,
-                                          tuned.get("success", {}).get("note", "every required field from its catalog type"))
+                                          tuned.get("success", {}).get("note", "every required field from its catalog type"),
+                                          gap)
         files[f"{error_id}.json"] = case_doc(error_id, operation, family, "error", broken_request,
                                              {"outcome": "error", "error": code}, error_note)
         entry: Dict[str, Any] = {
@@ -823,9 +978,14 @@ def generate(catalog: Catalog, tuning: Mapping[str, Mapping[str, Any]]) -> Dict[
             "error": {"code": code, **(broken or {})},
             "placeholders": sorted(set(success.placeholders)),
         }
+        if gap:
+            entry["gap"] = gap
         if tuned:
             entry["tuned"] = sorted(tuned)
         operations[operation] = entry
+        reasons = ([f"placeholders {', '.join(entry['placeholders'])}"] if entry["placeholders"] else []) + ([gap] if gap else [])
+        if reasons:
+            excluded[operation] = f"{'; '.join(reasons)}: {FAMILY_TASK[family]} tunes the success case"
     total = len(operations)
     files[COVERAGE] = {
         "generator": GENERATOR,
@@ -833,8 +993,11 @@ def generate(catalog: Catalog, tuning: Mapping[str, Mapping[str, Any]]) -> Dict[
         "catalog_sha256": catalog.sha256,
         "suite": SUITE,
         "total": total,
-        "covered": total,
-        "excluded": {},
+        # Operations whose success case has no placeholder and no known precondition gap. No case has a verdict
+        # yet: driver_daemon.py on the VM gives the first one.
+        "covered": total - len(excluded),
+        "verdicts": "not run",
+        "excluded": excluded,
         "missing": [],
         "families": families,
         "placeholder_operations": sum(1 for entry in operations.values() if entry["placeholders"]),
@@ -912,7 +1075,8 @@ class GenDaemonOpsSelfTest(unittest.TestCase):
         mutations = self.catalog.mutations()
         coverage = self.files[COVERAGE]
         self.assertEqual(sorted(coverage["operations"]), mutations)
-        self.assertEqual((coverage["covered"], coverage["total"]), (len(mutations), len(mutations)))
+        self.assertEqual(coverage["total"], len(mutations))
+        self.assertEqual(coverage["covered"], len(mutations) - len(coverage["excluded"]))
         self.assertEqual(len(self.files), 2 * len(mutations) + 1)
         self.assertEqual(sum(coverage["families"].values()), len(mutations))
         for operation in mutations:
@@ -1069,6 +1233,97 @@ class GenDaemonOpsSelfTest(unittest.TestCase):
         self.assertRegex(check.params("terminal.input.write", both), "alternative")
         self.assertRegex(check.params("screen_group.create", {**scope, "screens": ["ws_" + "0" * 32]}), "prefix")
         self.assertRegex(check.params("screen_group.create", {**scope, "screens": []}), "too few")
+
+    def test_selector_check_matches_selector_parse(self) -> None:
+        """resource.rs Selector::parse: ids only for PUBLIC_ID_PREFIXES, no bare reserved tokens."""
+        check = self.synth.check
+        scope = dict(SCOPE)
+        for value in ("room_" + "0" * 32, "column_" + "0" * 32, "pane", "update", "pane_" + "0" * 31, "pane_" + "A" * 32):
+            with self.subTest(value=value):
+                self.assertIsNotNone(check.selector(value, "x"))
+        for value in ("pane_" + "0" * 32, "split_" + "a" * 32, "sidebar_view_" + "0" * 32, "name:pane", "current", "oracle"):
+            with self.subTest(value=value):
+                self.assertIsNone(check.selector(value, "x"))
+        self.assertRegex(check.selector("tab_" + "0" * 32, "x", "pane"), "not a pane id")
+        self.assertRegex(check.selector("ws_" + "0" * 32, "x", "room"), "not a room id")
+        self.assertIsNone(check.selector("ws_" + "0" * 32, "x", "workspace"))
+        self.assertRegex(check.params("pane.split", {**scope, "pane": "room_" + "0" * 32, "direction": "right"}), "name: prefix")
+        self.assertRegex(check.params("pane.split", {**scope, "pane": resource_id("tab"), "direction": "right"}), "not a pane id")
+
+    def test_operation_constraints_match_validate_operation_constraints(self) -> None:
+        check = self.synth.check
+        scope = dict(SCOPE)
+        browser = {**scope, "browser": resource_id("browser"), "x_px": 1.0, "y_px": 1.0, "pointer_frame_seq": "1"}
+        self.assertRegex(check.params("browser.input.mouse", {**browser, "kind": "down"}), "button is required")
+        self.assertIsNone(check.params("browser.input.mouse", {**browser, "kind": "down", "button": "left"}))
+        self.assertRegex(check.params("browser.input.mouse", {**browser, "kind": "move", "click_count": 1}), "move forbids")
+        terminal = {**scope, "terminal": resource_id("terminal"), "row": 0, "column": 0}
+        self.assertRegex(check.params("terminal.input.mouse", {**terminal, "kind": "down"}), "do not match")
+        self.assertIsNone(check.params("terminal.input.mouse", {**terminal, "kind": "down", "button": "left"}))
+        self.assertRegex(check.params("terminal.input.mouse", {**terminal, "kind": "wheel", "delta_rows": 0}), "do not match")
+        self.assertIsNone(check.params("terminal.input.mouse", {**terminal, "kind": "wheel", "delta_rows": -1}))
+        pane = {**scope, "pane": resource_id("pane"), "direction": "right"}
+        self.assertRegex(check.params("pane.split", {**pane, "cols": 80}), "paired size")
+        self.assertRegex(check.params("pane.split", {**pane, "ratio": 1.0}), "ratio")
+        self.assertRegex(check.params("pane.split", {**pane, "argv": [""]}), "argv\\[0\\]")
+        self.assertRegex(check.params("pane.split", {**pane, "argv": ["/bin/sh"], "shell": "/bin/sh"}), "exclusive")
+        self.assertRegex(check.params("workspace.create", {**scope, "initial_content": "empty", "cwd": "/tmp"}), "empty workspace")
+        self.assertRegex(check.params("session.terminal_defaults.update", scope), "at least one update parameter")
+        rename = {**scope, "workspace": resource_id("workspace"), "name": "x"}
+        self.assertRegex(check.params("workspace.rename", {**rename, "source": "auto"}), "generation and name revision")
+        self.assertRegex(check.params("workspace.rename", {**rename, "release": True}), "release hands a name")
+
+    def test_every_success_request_passes_the_operation_constraints(self) -> None:
+        for operation, entry in self.files[COVERAGE]["operations"].items():
+            call = self.files[entry["cases"]["success"].split("/", 1)[1] + ".json"]["steps"][-1]
+            request = base_request(self.synth, operation)
+            self.assertEqual(refs(wire_params(request)), {**call["target"], **call["args"]["params"]}, operation)
+            concrete = self.synth.concrete(wire_params(request))
+            self.assertIsNone(self.synth.check.params(operation, concrete), operation)
+            fields = {k: v for k, v in concrete.items() if k in self.catalog.operations[operation]["params"]["fields"]}
+            self.assertIsNone(CatalogCheck.constraints(operation, fields, concrete), operation)
+        self.assertEqual(self.files["browser-input-mouse-ok.json"]["steps"][-1]["args"]["params"]["button"], "left")
+        self.assertEqual(self.files["terminal-input-mouse-ok.json"]["steps"][-1]["args"]["params"]["button"], "left")
+
+    def test_every_update_and_rename_sets_a_field_that_is_not_an_id(self) -> None:
+        for operation in self.catalog.mutations():
+            if is_change_operation(operation):
+                with self.subTest(operation=operation):
+                    self.assertTrue(changed_fields(base_request(self.synth, operation)), operation)
+        self.assertEqual(self.files["room-update-ok.json"]["steps"][-1]["args"]["params"],
+                         {"room": "$step:fx-room#/value/id", "name": "oracle"})
+
+    def test_handler_rules_the_catalog_cannot_say(self) -> None:
+        fx = FIXTURE_BY_ID["fx-message"]
+        self.assertEqual(fx.params["recipients"], [Handle("terminal")])
+        send = self.files["agent-message-send-ok.json"]
+        self.assertEqual(send["steps"][-1]["args"]["params"]["recipients"], ["$step:fx-workspace#/value/terminal_id"])
+        self.assertEqual([s["id"] for s in self.files["agent-message-unsend-ok.json"]["steps"]],
+                         ["fx-workspace", "fx-message", "call"])
+        self.assertEqual(self.files["closed-delete-ok.json"]["steps"][-1]["args"]["params"], {"all": True})
+        for name, group, item in (("tab-group-remove-tabs-ok.json", "fx-tab-group", "tab_ids"),
+                                  ("screen-group-remove-screens-ok.json", "fx-screen-group", "screen_ids")):
+            case = self.files[name]
+            self.assertIn(group, [s["id"] for s in case["steps"]], name)
+            params = case["steps"][-1]["args"]["params"]
+            self.assertEqual(list(params.values()), [[f"$step:{group}#/value/{item}/0"]], name)
+
+    def test_coverage_excludes_what_cannot_pass_yet(self) -> None:
+        coverage = self.files[COVERAGE]
+        excluded = coverage["excluded"]
+        self.assertEqual(coverage["verdicts"], "not run")
+        for operation, entry in coverage["operations"].items():
+            gap = bool(entry["placeholders"]) or "gap" in entry
+            self.assertEqual(operation in excluded, gap, operation)
+            if gap:
+                self.assertIn(FAMILY_TASK[entry["family"]], excluded[operation], operation)
+        for operation in ("git.commit", "closed.reopen", "pane.split_ratio.set", "history.visit.import"):
+            self.assertIn(operation, excluded)
+        for operation in ("closed.delete", "agent.message.send", "browser.input.mouse", "tab_group.remove_tabs"):
+            self.assertNotIn(operation, excluded)
+        tuned = generate(self.catalog, {"closed.reopen": {"success": {"note": "after a close"}}})[COVERAGE]
+        self.assertNotIn("closed.reopen", tuned["excluded"])
+        self.assertEqual(tuned["covered"], coverage["covered"] + 1)
 
     def test_a_split_targets_the_fixture_pane_as_the_example_case_does(self) -> None:
         """schemas/oracle/fixtures/case-example-daemon.json splits the pane of a workspace it created."""

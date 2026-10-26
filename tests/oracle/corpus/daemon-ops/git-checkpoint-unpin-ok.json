@@ -88,6 +88,7 @@
   ],
   "untested": [
     "params.checkpoint_id is a fixed placeholder, not a fixture object; git/_tuning.json tunes it",
-    "params.pin_id is a fixed placeholder, not a fixture object; git/_tuning.json tunes it"
+    "params.pin_id is a fixed placeholder, not a fixture object; git/_tuning.json tunes it",
+    "the fixture workspace has no git repository; the family task generates one under $CASE_ROOT; git/_tuning.json tunes it"
   ]
 }

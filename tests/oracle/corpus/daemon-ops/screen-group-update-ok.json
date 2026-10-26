@@ -80,7 +80,8 @@
       "args": {
         "method": "screen_group.update",
         "params": {
-          "screen_group": "$step:fx-screen-group#/value/id"
+          "screen_group": "$step:fx-screen-group#/value/id",
+          "name": "oracle"
         },
         "idempotencyKey": "screen-group-update-ok.call"
       },

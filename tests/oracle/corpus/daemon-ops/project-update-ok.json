@@ -38,7 +38,8 @@
       "args": {
         "method": "project.update",
         "params": {
-          "path": "$CASE_ROOT/oracle"
+          "path": "$CASE_ROOT/oracle",
+          "rename": "oracle"
         },
         "idempotencyKey": "project-update-ok.call"
       },

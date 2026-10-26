@@ -82,5 +82,8 @@
   "teardown": [
     "stop the case daemon",
     "verify the socket and state root are gone"
+  ],
+  "untested": [
+    "the fixture workspace has no git repository; the family task generates one under $CASE_ROOT; git/_tuning.json tunes it"
   ]
 }

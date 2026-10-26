@@ -84,7 +84,8 @@
           "kind": "oracle-not-in-enum",
           "x_px": 10.0,
           "y_px": 10.0,
-          "pointer_frame_seq": "1"
+          "pointer_frame_seq": "1",
+          "button": "left"
         },
         "idempotencyKey": "browser-input-mouse-error.call"
       },

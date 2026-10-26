@@ -57,7 +57,8 @@
       "args": {
         "method": "workspace_group.update",
         "params": {
-          "workspace_group": "$step:fx-workspace-group#/value/id"
+          "workspace_group": "$step:fx-workspace-group#/value/id",
+          "name": "oracle"
         },
         "idempotencyKey": "workspace-group-update-ok.call"
       },
