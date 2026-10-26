@@ -27,6 +27,7 @@ public final class DaemonRecovery {
     @ObservationIgnored var unresponsivePolicy = UnresponsiveOwnerWatch.Policy.standard
     private nonisolated let restartsUnresponsive = Mutex<@Sendable () -> Bool>({ true })
     @ObservationIgnored private var launcher: DaemonLauncher?
+    @ObservationIgnored private var watch: UnresponsiveOwnerWatch?
     @ObservationIgnored private var wake: RetryWake?
     @ObservationIgnored private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.daemon")
 
@@ -48,11 +49,14 @@ public final class DaemonRecovery {
         self.wake = wake
         // The button's restart without its confirm: the terminal hosts are separate processes,
         // so they outlive the stuck owner and the next owner adopts them.
-        launcher.ensureOutcome.follow(UnresponsiveOwnerWatch(policy: unresponsivePolicy, isEnabled: { [weak self] in
+        watch?.stop()
+        let watch = UnresponsiveOwnerWatch(policy: unresponsivePolicy, isEnabled: { [weak self] in
             self?.restartsUnresponsiveOwner() ?? false
-        }, replace: { [weak self] in
-            await self?.restart(automatic: true) ?? false
-        }))
+        }, replace: { [weak self] claim in
+            await self?.restartUnresponsive(claim) ?? false
+        })
+        self.watch = watch
+        launcher.ensureOutcome.follow(watch)
         let outcome = launcher.ensureOutcome
         outcome.observe { [weak self] in
             guard let self else { return }
@@ -61,6 +65,21 @@ public final class DaemonRecovery {
             if !offersRestart { restartFailure = nil }
         }
         offersRestart = outcome.ownerLooksStuck
+    }
+
+    /// Ends the automatic restart: the service shut its connection down (`shutdownConnection`), so
+    /// nothing may start an owner again behind it. A later `attach` follows the launcher afresh.
+    func detach() {
+        watch?.stop()
+        watch = nil
+    }
+
+    /// The watch's restart: on the main actor, only while no Restart runs and the watch still
+    /// claims it (the toggle on, the same owner still stuck), then the button's restart with no
+    /// confirm. No suspension between the claim and `restart` setting ``isRestarting``.
+    private func restartUnresponsive(_ claim: @Sendable () -> Bool) async -> Bool {
+        guard launcher != nil, !isRestarting, claim() else { return false }
+        return await restart(automatic: true)
     }
 
     /// Tries to connect now instead of at the next backoff step.

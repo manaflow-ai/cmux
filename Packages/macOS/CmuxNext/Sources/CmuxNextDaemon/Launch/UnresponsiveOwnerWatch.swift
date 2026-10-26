@@ -65,86 +65,150 @@ public final class UnresponsiveOwnerWatch: Sendable {
         var owner: Int32?
         var replacedOwners: Set<Int32?> = []
         var replaces = 0
-        var replacing = false
+        /// The streak whose replace is queued or running; nil when none is.
+        var replacing: UInt64?
+        /// ``stop()`` ran (the service shut its connection down): nothing is replaced any more.
+        var stopped = false
     }
 
     private let state = Mutex(State())
     private let window: DemandTimer
     private let policy: Policy
     private let isEnabled: @Sendable () -> Bool
-    private let replace: @Sendable () async -> Bool
+    private let replace: @Sendable (_ claim: @escaping @Sendable () -> Bool) async -> Bool
 
     /// - Parameters:
-    ///   - isEnabled: Read before each replace (the Debug Settings toggle).
-    ///   - replace: Replaces the owner; true when the owner was replaced.
+    ///   - isEnabled: The Debug Settings toggle, read at each stuck ensure, when the window passes
+    ///     and at the claim. Off: no streak builds up and no deadline is pending.
+    ///   - replace: Replaces the owner; true when the owner was replaced. It must call `claim`
+    ///     right before it replaces, on the executor that replaces, and replace only when `claim`
+    ///     says yes: the replace was queued before it ran, and by then the toggle may be off, an
+    ///     ensure may have worked, or the person's own Restart may have replaced the owner.
     public init(policy: Policy = .standard, clock: any Clock<Duration> = ContinuousClock(),
-                isEnabled: @escaping @Sendable () -> Bool, replace: @escaping @Sendable () async -> Bool) {
+                isEnabled: @escaping @Sendable () -> Bool,
+                replace: @escaping @Sendable (_ claim: @escaping @Sendable () -> Bool) async -> Bool) {
         self.policy = policy
         self.isEnabled = isEnabled
         self.replace = replace
         window = DemandTimer(owner: "daemon.unresponsiveOwner.window", clock: clock)
     }
 
-    /// Replaces started so far.
+    /// Replaces started so far (a claim that says no gives its replace back).
     public var replaceCount: Int { state.withLock { $0.replaces } }
 
-    /// Records how one ensure ended; may start the replace.
+    /// Whether the window's deadline is pending.
+    public var isWaiting: Bool { window.isScheduled }
+
+    /// Ends the watch for good: the deadline is cancelled and no replace is claimed after it
+    /// (``DaemonRecovery/detach()``, when the service shuts its connection down).
+    public func stop() {
+        state.withLock { state in
+            state.stopped = true
+            state.streak = 0
+            state.windowPassed = false
+            window.cancel()
+        }
+    }
+
+    /// Records how one ensure ended; may start the replace. The deadline is scheduled and
+    /// cancelled under the state lock, so an older outcome never cancels a newer streak's
+    /// deadline (the timer's own lock is taken inside this one, never the other way).
+    ///
+    /// The deadline (``Policy/sustained``, one-shot) is pending only during a stuck streak with
+    /// the toggle on: an ensure that is not stuck cancels it, a stuck one with the toggle off ends
+    /// the streak and cancels it, ``stop()`` cancels it, and when it fires with the toggle off it
+    /// ends the streak.
     public func note(_ ensure: Ensure) {
-        let started: UInt64? = state.withLock { state in
+        let enabled = isEnabled()
+        let policy = policy
+        let evaluate = state.withLock { state -> Bool in
+            guard !state.stopped else { return false }
             switch ensure {
-            case .stuck:
+            case .stuck where enabled:
                 state.streak += 1
-                guard state.streak == 1 else { return nil }
-                state.streakID &+= 1
-                return state.streakID
+                if state.streak == 1 {
+                    state.streakID &+= 1
+                    state.windowPassed = false
+                    let started = state.streakID
+                    // One bounded deadline per streak, not a poll: it only marks the window as passed.
+                    window.schedule(after: policy.sustained) { [weak self] in self?.windowPassed(streak: started) }
+                }
+                return true
+            case .stuck:
+                Self.endStreak(&state, window: window)
+                return false
             case .ready(let pid):
                 state.owner = pid
-                state.streak = 0
-                state.windowPassed = false
-                return nil
+                Self.endStreak(&state, window: window)
+                return false
             case .busy, .failed:
-                state.streak = 0
-                state.windowPassed = false
-                return nil
+                Self.endStreak(&state, window: window)
+                return false
             }
         }
-        guard case .stuck = ensure else {
-            window.cancel()
-            return
-        }
-        if let started {
-            // One bounded deadline per streak, not a poll: it only marks the window as passed.
-            window.schedule(after: policy.sustained) { [weak self] in self?.windowPassed(streak: started) }
-        }
-        evaluate()
+        if evaluate { self.evaluate() }
+    }
+
+    private static func endStreak(_ state: inout State, window: DemandTimer) {
+        state.streak = 0
+        state.windowPassed = false
+        window.cancel()
     }
 
     private func windowPassed(streak: UInt64) {
+        let enabled = isEnabled()
         let current = state.withLock { state in
-            guard state.streakID == streak, state.streak > 0 else { return false }
+            guard !state.stopped, state.streakID == streak, state.streak > 0 else { return false }
+            guard enabled else {
+                state.streak = 0
+                return false
+            }
             state.windowPassed = true
             return true
         }
         if current { evaluate() }
     }
 
+    /// Whether the current streak is due for a replace now.
+    private func due(_ state: State) -> Bool {
+        !state.stopped && state.streak >= policy.stuckEnsures && state.windowPassed
+            && state.replaces < policy.perLaunch && !state.replacedOwners.contains(state.owner)
+    }
+
     private func evaluate() {
         guard isEnabled() else { return }
-        let policy = policy
-        let go = state.withLock { state in
-            guard state.streak >= policy.stuckEnsures, state.windowPassed, !state.replacing,
-                  state.replaces < policy.perLaunch, !state.replacedOwners.contains(state.owner) else { return false }
-            state.replacing = true
+        let started: (streak: UInt64, owner: Int32?)? = state.withLock { state in
+            guard state.replacing == nil, due(state) else { return nil }
+            state.replacing = state.streakID
             state.replacedOwners.insert(state.owner)
             state.replaces += 1
-            return true
+            return (state.streakID, state.owner)
         }
-        guard go else { return }
+        guard let started else { return }
         let replace = replace
-        // task-owner: one replace per stuck owner; it ends with `server ensure --replace-unresponsive`
+        // task-owner: one replace per stuck owner; it ends with `server ensure --replace-unresponsive` or a claim that says no
         Task { [weak self] in
-            _ = await replace()
-            self?.state.withLock { $0.replacing = false }
+            _ = await replace({ self?.claim(started.streak, owner: started.owner) ?? false })
+            self?.state.withLock { state in
+                if state.replacing == started.streak { state.replacing = nil }
+            }
+        }
+    }
+
+    /// Whether the replace queued for `streak` may still run: the toggle is on, the watch was not
+    /// stopped, and the same owner is still in the same stuck streak. When not, the replace is
+    /// given back (its count and its owner), so that owner can be replaced on a later streak.
+    nonisolated private func claim(_ streak: UInt64, owner: Int32?) -> Bool {
+        let enabled = isEnabled()
+        return state.withLock { state in
+            let current = enabled && !state.stopped && state.replacing == streak && state.streakID == streak
+                && state.streak >= policy.stuckEnsures && state.windowPassed && state.owner == owner
+            if !current, state.replacing == streak {
+                state.replaces -= 1
+                state.replacedOwners.remove(owner)
+                state.replacing = nil
+            }
+            return current
         }
     }
 }

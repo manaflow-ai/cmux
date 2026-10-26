@@ -44,7 +44,7 @@ struct UnresponsiveOwnerWatchTests {
         let clock = ManualClock()
         let calls = Shared(0)
         let watch = UnresponsiveOwnerWatch(policy: .standard, clock: clock, isEnabled: { true },
-                                           replace: { calls.current += 1; return true })
+                                           replace: { _ in calls.current += 1; return true })
         watch.note(.ready(pid: 41))
         watch.note(.stuck)
         try await clock.waitForSleeper()
@@ -59,7 +59,7 @@ struct UnresponsiveOwnerWatchTests {
 
     @Test func oneStuckEnsureOverTheWindowIsNotEnough() async throws {
         let clock = ManualClock()
-        let watch = UnresponsiveOwnerWatch(policy: .standard, clock: clock, isEnabled: { true }, replace: { true })
+        let watch = UnresponsiveOwnerWatch(policy: .standard, clock: clock, isEnabled: { true }, replace: { _ in true })
         watch.note(.stuck)
         try await clock.waitForSleeper()
         clock.advance(by: .seconds(31))
@@ -72,7 +72,7 @@ struct UnresponsiveOwnerWatchTests {
 
     @Test func aBusyOwnerIsNeverReplaced() async throws {
         let clock = ManualClock()
-        let watch = UnresponsiveOwnerWatch(policy: .standard, clock: clock, isEnabled: { true }, replace: { true })
+        let watch = UnresponsiveOwnerWatch(policy: .standard, clock: clock, isEnabled: { true }, replace: { _ in true })
         // Stuck, then busy (it answers again, at its connection limit): the streak ends with its window.
         watch.note(.stuck)
         try await clock.waitForSleeper()
@@ -90,7 +90,7 @@ struct UnresponsiveOwnerWatchTests {
     @Test func itReplacesOncePerOwnerProcess() async throws {
         let clock = ManualClock()
         // The replace is refused: the same owner stays stuck.
-        let watch = UnresponsiveOwnerWatch(policy: .standard, clock: clock, isEnabled: { true }, replace: { false })
+        let watch = UnresponsiveOwnerWatch(policy: .standard, clock: clock, isEnabled: { true }, replace: { _ in false })
         watch.note(.ready(pid: 41))
         watch.note(.stuck)
         watch.note(.stuck)
@@ -112,18 +112,105 @@ struct UnresponsiveOwnerWatchTests {
         #expect(watch.replaceCount == 2)
     }
 
-    @Test func theToggleOffKeepsTheOwnerUntilItIsOnAgain() async throws {
+    /// Review of #25382: with the toggle off no streak builds up and no deadline is pending, so
+    /// turning it on again needs a fresh window, never one that passed while it was off.
+    @Test func theToggleOffStopsTheWindowAndOnAgainNeedsAFreshOne() async throws {
         let clock = ManualClock()
-        let enabled = Shared(false)
-        let watch = UnresponsiveOwnerWatch(policy: .standard, clock: clock, isEnabled: { enabled.current }, replace: { true })
+        let enabled = Shared(true)
+        let watch = UnresponsiveOwnerWatch(policy: .standard, clock: clock, isEnabled: { enabled.current }, replace: { _ in true })
+        watch.note(.stuck)
+        try await clock.waitForSleeper()
+        #expect(watch.isWaiting)
+        enabled.current = false
+        watch.note(.stuck)
+        #expect(!watch.isWaiting, "a stuck ensure with the toggle off cancels the deadline")
+        watch.note(.stuck)
+        #expect(!watch.isWaiting)
+        clock.advance(by: .seconds(31))
+        try? await Task.sleep(for: .milliseconds(50))
+        #expect(watch.replaceCount == 0)
+
+        enabled.current = true
+        watch.note(.stuck)
+        #expect(watch.replaceCount == 0, "on again: the window starts over")
+        try await clock.waitForSleeper()
+        clock.advance(by: .seconds(30))
+        try? await Task.sleep(for: .milliseconds(50))
+        watch.note(.stuck)
+        #expect(watch.replaceCount == 1)
+    }
+
+    /// The toggle turned off while the deadline is pending: it fires, ends the streak and replaces
+    /// nothing, also when the toggle is on again at the next stuck ensure.
+    @Test func aWindowThatPassesWithTheToggleOffReplacesNothing() async throws {
+        let clock = ManualClock()
+        let enabled = Shared(true)
+        let watch = UnresponsiveOwnerWatch(policy: .standard, clock: clock, isEnabled: { enabled.current }, replace: { _ in true })
         watch.note(.stuck)
         watch.note(.stuck)
         try await clock.waitForSleeper()
-        clock.advance(by: .seconds(31))
-        try? await Task.sleep(for: .milliseconds(200))  // the window's deadline runs off this task
-        #expect(watch.replaceCount == 0)
+        enabled.current = false
+        clock.advance(by: .seconds(30))
+        try? await Task.sleep(for: .milliseconds(50))
+        #expect(!watch.isWaiting)
         enabled.current = true
         watch.note(.stuck)
+        #expect(watch.replaceCount == 0)
+    }
+
+    /// Review of #25382: a stopped watch (the service shut its connection down) cancels its
+    /// deadline and replaces nothing after it.
+    @Test func aStoppedWatchNeverReplaces() async throws {
+        let clock = ManualClock()
+        let watch = UnresponsiveOwnerWatch(policy: .standard, clock: clock, isEnabled: { true }, replace: { _ in true })
+        watch.note(.stuck)
+        watch.note(.stuck)
+        try await clock.waitForSleeper()
+        watch.stop()
+        #expect(!watch.isWaiting)
+        clock.advance(by: .seconds(31))
+        for _ in 0..<3 { watch.note(.stuck) }
+        try? await Task.sleep(for: .milliseconds(50))
+        #expect(watch.replaceCount == 0)
+        #expect(!watch.isWaiting)
+    }
+
+    /// Review of #25382: a replace that was queued while the owner was stuck and runs after it
+    /// answered again is not run (its claim says no) and is given back, so the same owner is
+    /// replaced if it gets stuck again later.
+    @Test func aReplaceQueuedBeforeTheOwnerRecoveredDoesNotRun() async throws {
+        let clock = ManualClock()
+        let (gate, open) = AsyncStream<Void>.makeStream()
+        let claims = Shared<[Bool]>([])
+        let watch = UnresponsiveOwnerWatch(policy: .standard, clock: clock, isEnabled: { true }, replace: { claim in
+            for await _ in gate { break }
+            let yes = claim()
+            claims.current.append(yes)
+            return yes
+        })
+        watch.note(.ready(pid: 41))
+        watch.note(.stuck)
+        watch.note(.stuck)
+        try await clock.waitForSleeper()
+        clock.advance(by: .seconds(30))
+        await Self.replaces(watch, reach: 1)
+        #expect(watch.replaceCount == 1, "queued")
+        watch.note(.ready(pid: 41))  // the owner answers again before the replace runs
+        open.yield()
+        for _ in 0..<400 where claims.current.isEmpty { try? await Task.sleep(for: .milliseconds(5)) }
+        #expect(claims.current == [false])
+        #expect(watch.replaceCount == 0, "given back")
+
+        // Stuck again later: the same owner is replaced this time.
+        watch.note(.stuck)
+        watch.note(.stuck)
+        try await clock.waitForSleeper()
+        clock.advance(by: .seconds(30))
+        await Self.replaces(watch, reach: 1)
+        open.yield()
+        for _ in 0..<400 where claims.current.count < 2 { try? await Task.sleep(for: .milliseconds(5)) }
+        #expect(claims.current == [false, true])
         #expect(watch.replaceCount == 1)
+        open.finish()
     }
 }
