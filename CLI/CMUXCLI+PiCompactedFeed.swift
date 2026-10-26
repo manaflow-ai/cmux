@@ -1,3 +1,4 @@
+import CmuxControlSocket
 import Foundation
 
 extension CMUXCLI {
@@ -127,10 +128,13 @@ extension CMUXCLI {
             surfaceId: target?.surfaceId,
             maximumRequestCount: client.isRelayBacked ? 2 : nil
         ).acknowledgedBatchRequest(from: rawObject)
-        guard let request else { throw piFeedAcknowledgmentError() }
+        guard let request,
+              let line = try? ControlRequestLine.encode(request.request) else {
+            throw piFeedAcknowledgmentError()
+        }
 
         let response = try client.send(
-            command: request.line,
+            command: line,
             responseTimeout: 4
         )
         let acknowledgedTarget = try validatePiFeedAcknowledgment(

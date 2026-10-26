@@ -55,7 +55,7 @@ All billing events use the Stack user id as `distinct_id` (teams: `stack-team:<i
 | `cmux_billing_checkout_expired` | `checkout.session.expired` (buyer never paid, ~24h) | `plan`, `billing_interval`, `amount_total` |
 | `cmux_billing_subscription_created/updated/deleted` | subscription webhooks; attribution read from subscription metadata | `subscription_status`, `cancel_at_period_end`, `cancellation_reason`, `cancellation_feedback` |
 | `cmux_billing_invoice_paid`, `cmux_billing_invoice_payment_failed`, `cmux_billing_charge_refunded` | unchanged | |
-| `cmux_upgrade_entrypoint_opened` | Mac client, on every upgrade click, anonymous PostHog id | `source`, `client`, `channel`, `app_version`, `app_build` |
+| `cmux_upgrade_entrypoint_opened` | Mac client, on every upgrade click; the Stack user id when signed in, else the install's anonymous id (linked on sign-in) | `source`, `client`, `plan`, `destination`, `channel`, `app_version`, `app_build`; the rest of the Mac funnel is in [mac-product-analytics.md](mac-product-analytics.md) |
 
 Person properties written on the first paid checkout and never overwritten: `first_paid_checkout_at`, `first_paid_checkout_source`, `first_paid_checkout_placement`, `first_paid_checkout_client`, `first_paid_checkout_channel`, `first_paid_checkout_app_version`, `first_paid_checkout_utm_source`, `first_paid_checkout_utm_campaign`.
 
@@ -75,3 +75,17 @@ Mac events also carry `channel` (`stable`, `nightly`, `dev`) next to `app_versio
 - Churn feedback by acquisition surface: `cmux_billing_subscription_deleted` keeps the original `checkout_source` from subscription metadata.
 
 Dashboard: cmuxterm-hq `scripts/posthog-billing-dashboard.py` ("Billing attribution").
+
+## Identity of Stripe billing events (2026-10)
+
+Stripe billing events are sent only from production (`VERCEL_ENV=production`,
+or `CMUX_SERVER_ANALYTICS_FORCE=1`) and carry `livemode` and `vercel_env`.
+User-scope events are keyed by the Stack user. Team checkout events
+(`cmux_billing_checkout_started`, `_completed`, `_expired`) are keyed by the
+purchasing admin with the `stack_team` group, and the completed event sets
+that admin's `billing_plan` to `team`. Every other team event (subscription
+changes, invoices, refunds) keeps `distinct_id: stack-team:<team id>` but is
+person-less (`$process_person_profile: false`), so it creates no person.
+PostHog does not link person-less events to groups: break those down by the
+`stack_team_id` property. Funnels built on the old `stack-team:` person for
+team checkouts must switch to the admin person or the group.

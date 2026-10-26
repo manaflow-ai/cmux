@@ -55,7 +55,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     "notification.dismissed", "notification.badge", "notification.feed.changed",
                     "feed.changed",
                     "phone_push.status.changed", "caffeine.status.changed",
-                    "mobile.compatible_tags.changed",
+                    "mobile.compatible_tags.changed", "mobile.host.capabilities.changed",
                     "browser.frame", "browser.state", "browser.closed", "browser.dialog", "browser.dialog.resolved",
                     "simulator.frame", "simulator.state", "simulator.closed",
                 ]
@@ -67,7 +67,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     "notification.dismissed", "notification.badge", "notification.feed.changed",
                     "feed.changed",
                     "phone_push.status.changed", "caffeine.status.changed",
-                    "mobile.compatible_tags.changed",
+                    "mobile.compatible_tags.changed", "mobile.host.capabilities.changed",
                     "browser.frame", "browser.state", "browser.closed", "browser.dialog", "browser.dialog.resolved",
                     "simulator.frame", "simulator.state", "simulator.closed",
                 ]
@@ -79,7 +79,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     "notification.dismissed", "notification.badge", "notification.feed.changed",
                     "feed.changed",
                     "phone_push.status.changed", "caffeine.status.changed",
-                    "mobile.compatible_tags.changed",
+                    "mobile.compatible_tags.changed", "mobile.host.capabilities.changed",
                     "browser.frame", "browser.state", "browser.closed", "browser.dialog", "browser.dialog.resolved",
                     "simulator.frame", "simulator.state", "simulator.closed",
                 ]
@@ -476,6 +476,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// a later send to that row succeeds.
     public internal(set) var agentFeedFailedTerminalReplies: [MobileAgentFeedItemID: MobileAgentFeedFailedReply] = [:]
     var agentFeedSnapshotsByMac: [String: AgentFeedMacSnapshot] = [:]
+    @ObservationIgnored var agentFeedStopReasonCache = AgentFeedStopReasonCache()
     var agentFeedKnownRevisionsByMac: [String: Int] = [:]
     /// Free-text terminal replies this device sent, keyed by the replied row,
     /// so the row keeps showing what was said across snapshot refreshes.
@@ -1773,6 +1774,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private var terminalOutputConsumerOwnerIDsBySurfaceID: [String: UUID]
     var terminalOutputQueuesBySurfaceID: [String: TerminalOutputDeliveryQueue]
     let terminalLaneCoordinator: MobileTerminalLaneCoordinator?
+    /// Content-free Feed measurement port, also passed to the store-free Feed UI.
+    @ObservationIgnored public let feedPerformanceObserver: (any MobileFeedPerformanceObserving)?
     @ObservationIgnored let terminalLatencyObserver: any MobileTerminalLatencyObserving
     var terminalLaneOutputReadySurfaceIDs: Set<String>
     var terminalLaneLifecycleID: UUID
@@ -2013,6 +2016,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         hiddenMacStore: any PairedMacHiddenStoring = InMemoryPairedMacHiddenStore(),
         analytics: any AnalyticsEmitting = NoopAnalytics(),
         terminalLatencyObserver: any MobileTerminalLatencyObserving = NoopMobileTerminalLatencyObserver(),
+        feedPerformanceObserver: (any MobileFeedPerformanceObserving)? = nil,
         diagnosticLog: DiagnosticLog? = nil,
         feedbackEmailSubmitter: (any MobileFeedbackEmailSubmitting)? = nil,
         feedbackStampProvider: @escaping @MainActor () -> MobileFeedbackStamp = { MobileShellComposite.emptyFeedbackStamp },
@@ -2085,6 +2089,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         self.multiMacAggregationDefaults = multiMacAggregationDefaults
         self.hiddenMacStore = hiddenMacStore
         self.analytics = analytics
+        self.feedPerformanceObserver = feedPerformanceObserver
         self.terminalLatencyObserver = terminalLatencyObserver
         self.diagnosticLog = diagnosticLog
         self.feedbackEmailSubmitter = feedbackEmailSubmitter
@@ -14759,6 +14764,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     )
                 } else if event.topic == "mobile.compatible_tags.changed" {
                     await self.handleCompatibleMacTagsChangedEvent(event)
+                } else if event.topic == "mobile.host.capabilities.changed" {
+                    await self.refreshForegroundHostCapabilities(
+                        client: client,
+                        generation: listenerConnectionGeneration
+                    )
                 } else if event.topic == "browser.frame" {
                     self.handleMobileBrowserFrameEvent(event)
                 } else if event.topic == "browser.state" {
@@ -14834,6 +14844,38 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             return
         }
         phonePushMacStatus = status.phonePush
+    }
+
+    /// Refreshes the capability snapshot after the Mac changes a runtime
+    /// feature gate while this connection remains open. The event is only an
+    /// invalidation; the authenticated status response remains authoritative.
+    private func refreshForegroundHostCapabilities(
+        client: MobileCoreRPCClient,
+        generation: UUID
+    ) async {
+        guard isCurrentRemoteConnection(
+            client: client,
+            generation: generation
+        ) else { return }
+        do {
+            let data = try await client.sendRequest(
+                MobileCoreRPCClient.requestData(method: "mobile.host.status", params: [:]),
+                timeoutNanoseconds: Self.terminalOutputCapabilityTimeoutNanoseconds
+            )
+            guard isCurrentRemoteConnection(client: client, generation: generation),
+                  let status = try? MobileHostStatusResponse.decode(data) else { return }
+            let capabilities = Set(status.capabilities)
+            supportedHostCapabilities = capabilities
+            updateForegroundWorkspaceActionCapabilities()
+            refreshMacUpdateHint(
+                capabilities: capabilities,
+                statusMacAppVersion: status.macAppVersion,
+                macDeviceID: status.macDeviceID ?? activeTicket?.macDeviceID
+            )
+        } catch {
+            guard isCurrentRemoteConnection(client: client, generation: generation) else { return }
+            _ = disconnectForAuthorizationFailureIfNeeded(error)
+        }
     }
 
     /// Applies one or more Mac-owned phone-forwarding settings over the current

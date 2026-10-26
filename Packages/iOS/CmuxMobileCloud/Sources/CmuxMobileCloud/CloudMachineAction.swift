@@ -2,6 +2,7 @@
 public enum CloudMachineAction: Sendable, Equatable {
     case pause
     case resume
+    case restart
     case delete
 }
 

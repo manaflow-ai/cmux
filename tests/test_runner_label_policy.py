@@ -228,6 +228,7 @@ class SideLaneVariable(unittest.TestCase):
         for name in ("CI_SIDE_LANE_RUNNER", "CI_LIGHT_LANE_RUNNER"):
             self.assertEqual(drifted_runner_variables({name: "glaeda-side-std-xcode-26.6"}), [])
             self.assertEqual(drifted_runner_variables({name: "glaeda-side-light-xcode-26.6"}), [])
+            self.assertEqual(drifted_runner_variables({name: "glaeda-aws-side-std-xcode-26.3"}), [])
             self.assertEqual(drifted_runner_variables({name: "blacksmith-6vcpu-macos-26"}), [])
             for label in ("glaeda-std-xcode-26.6", "glaeda-root-light-xcode-26.6", "glaeda-side-nonsense",
                           "warp-macos-26-arm64-12x"):
@@ -285,6 +286,41 @@ class NightlyRunnerVariable(unittest.TestCase):
         self.assertIn("vars.CI_SEED_TRUSTED_POOL != '' && vars.CI_NIGHTLY_TRUSTED_RUNNER != ''", text)
 
 
+class NextNightlyTrustedLabels(unittest.TestCase):
+    def test_next_has_a_separate_trusted_pool_and_runner(self):
+        self.assertEqual(drifted_runner_variables({
+            "CI_NIGHTLY_NEXT_TRUSTED_POOL": "glaeda-trusted-std-xcode-26.6",
+            "CI_NIGHTLY_NEXT_TRUSTED_RUNNER": "glaeda-runner-next-glaeda",
+        }), [])
+        for label in ("glaeda-std-xcode-26.6", "glaeda-promote-trusted-std-xcode-26.6",
+                      "glaeda-side-std-xcode-26.6", 'x", "self-hosted'):
+            with self.subTest(label=label):
+                self.assertEqual([name for name, _, _ in drifted_runner_variables({
+                    "CI_NIGHTLY_NEXT_TRUSTED_POOL": label})], ["CI_NIGHTLY_NEXT_TRUSTED_POOL"])
+
+
+class NextNightlyCapabilityGuard(unittest.TestCase):
+    def test_only_complete_tuple_in_nightly_is_exempt(self):
+        import subprocess
+        import tempfile
+        selector = "fromJSON(format('[\"{0}\", \"{1}\", \"glaeda-trusted-next-nightly\"]', vars.CI_NIGHTLY_NEXT_TRUSTED_POOL, vars.CI_NIGHTLY_NEXT_TRUSTED_RUNNER))"
+        script = 'ROOT_DIR="$1"\ncheck_no_self_hosted_fleet_runners() {\n' + _guard_function(GUARD_SCRIPT.read_text()) + '\n}\ncheck_no_self_hosted_fleet_runners'
+        with tempfile.TemporaryDirectory() as directory:
+            workflows = Path(directory) / '.github/workflows'
+            workflows.mkdir(parents=True)
+            nightly = workflows / 'nightly.yml'
+            nightly.write_text('runs-on: ${{ ' + selector + ' }}\n')
+            def check():
+                return subprocess.run(['bash', '-c', script, 'guard', directory], capture_output=True, text=True)
+            self.assertEqual(check().returncode, 0)
+            other = workflows / 'another.yml'
+            nightly.rename(other)
+            self.assertNotEqual(check().returncode, 0)
+            other.unlink()
+            nightly.write_text('runs-on: glaeda-trusted-next-nightly\n')
+            self.assertNotEqual(check().returncode, 0)
+
+
 class OwnedPoolLabels(unittest.TestCase):
     OWNED = ("glaeda-std-xcode-26.6", "glaeda-light-xcode-26.6", "glaeda-xl-xcode-26")
 
@@ -300,7 +336,7 @@ class OwnedPoolLabels(unittest.TestCase):
                 )
 
     def test_the_pool_order_may_name_owned_and_cloud_pools(self) -> None:
-        order = "glaeda-std-xcode-26.6, glaeda-light-xcode-26.6,blacksmith-12vcpu-macos-26,blacksmith-6vcpu-macos-15"
+        order = "glaeda-std-xcode-26.6, glaeda-aws-std-xcode-26.3, glaeda-light-xcode-26.6,blacksmith-12vcpu-macos-26,blacksmith-6vcpu-macos-15"
         self.assertIsNone(pool_order_reason(order))
         self.assertIsNone(pool_order_reason(""))
         self.assertEqual(drifted_runner_variables({"CI_PR_POOL_ORDER": order}), [])

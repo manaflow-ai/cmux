@@ -39,12 +39,16 @@ extension TerminalController {
             action = .selectWorkspaceByNumber
         case "surface_digits", "surface_number", "select_surface_by_number":
             action = .selectSurfaceByNumber
+        case "focus_sidebar", "focussidebar":
+            action = .focusSidebar
+        case "pane_digits", "pane_number", "focus_pane_by_number":
+            action = .focusPaneByNumber
         default:
             action = nil
         }
 
         guard let action else {
-            return "ERROR: Unknown shortcut name. Supported: focus_left, focus_right, focus_up, focus_down, split_right, split_down, resize_pane_left, resize_pane_right, resize_pane_up, resize_pane_down, workspace_digits, surface_digits"
+            return "ERROR: Unknown shortcut name. Supported: focus_left, focus_right, focus_up, focus_down, split_right, split_down, resize_pane_left, resize_pane_right, resize_pane_up, resize_pane_down, workspace_digits, surface_digits, focus_sidebar, pane_digits"
         }
 
         if combo.lowercased() == "clear" || combo.lowercased() == "unbound" || combo.lowercased() == "none" {

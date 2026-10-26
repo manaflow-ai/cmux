@@ -232,6 +232,17 @@ func TestTmuxSplitWindowCanonicalizesCallerSurfaceRefs(t *testing.T) {
 	if got := output; got != want {
 		t.Fatalf("stdout = %q, want %q", got, want)
 	}
+	store, err := loadTmuxCompatStore()
+	if err != nil {
+		t.Fatalf("load cleaned store: %v", err)
+	}
+	layout := store.MainVerticalLayouts["11111111-1111-4111-8111-111111111111"]
+	if layout.LastColumnSurfaceId != "77777777-7777-4777-8777-777777777777" {
+		t.Fatalf("last column = %q, want the live replacement", layout.LastColumnSurfaceId)
+	}
+	if store.LastSplitSurface["11111111-1111-4111-8111-111111111111"] != "77777777-7777-4777-8777-777777777777" {
+		t.Fatalf("last split = %q, want the live replacement", store.LastSplitSurface["11111111-1111-4111-8111-111111111111"])
+	}
 }
 
 func TestTmuxSplitWindowIgnoresStaleUUIDColumnSurface(t *testing.T) {

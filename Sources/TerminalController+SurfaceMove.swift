@@ -36,6 +36,10 @@ extension TerminalController {
                 result = .err(code: "not_found", message: "Surface not found", data: ["surface_id": surfaceId.uuidString])
                 return
             }
+            if let refusal = v2BrowserReplTabRefusal(surfaceId) {
+                result = refusal
+                return
+            }
 
             let sourcePane = sourceWorkspace.paneId(forPanelId: surfaceId)
             let sourceIndex = sourceWorkspace.indexInPane(forPanelId: surfaceId)

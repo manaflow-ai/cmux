@@ -271,9 +271,12 @@ public final class BrowserAutomationNavigationCoordinator {
     }
 
     /// Cancels a transaction that no longer has a caller waiting for it.
-    public func cancel(_ ticket: BrowserAutomationNavigationTicket) {
-        guard activeTicket == ticket else { return }
+    /// - Returns: Whether it was still active (it had not committed or ended).
+    @discardableResult
+    public func cancel(_ ticket: BrowserAutomationNavigationTicket) -> Bool {
+        guard activeTicket == ticket else { return false }
         finish(ticket, with: .cancelled)
+        return true
     }
 
     /// Cancels the active transaction and stops observing the current WebView instance.

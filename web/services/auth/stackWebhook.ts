@@ -1,6 +1,8 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
-import { applyHexclaveWebhookEvent, type HexclaveSyncDependencies } from "./hexclave/sync";
+import type { HexclaveInboxStore } from "./hexclave/inbox";
+import { hexclaveEventTarget, type HexclaveSyncDependencies } from "./hexclave/sync";
 import { parseHexclaveWebhook, type HexclaveWebhookEvent } from "./hexclave/webhookEvents";
+import { captureAccountSignedUp } from "../analytics/accountSignup";
 
 /**
  * Hexclave (formerly Stack Auth) webhooks, delivered by Svix. Every event
@@ -70,8 +72,14 @@ export type StackWebhookDependencies = {
   readonly webhookSecret: () => string | undefined;
   /** Null when Hexclave server access or the database is not configured. */
   readonly sync: () => HexclaveSyncDependencies | null;
+  /** Where verified events wait to be applied; null when the database is not configured. */
+  readonly inbox: () => HexclaveInboxStore | null;
+  /** Start a bounded inbox drain after the response (the route uses `after`). */
+  readonly scheduleDrain?: () => void;
   readonly nowSeconds?: () => number;
   readonly log?: StackWebhookLog;
+  /** Product analytics for a new account (`cmux_account_signed_up`). */
+  readonly captureSignup?: (data: unknown) => void;
 };
 
 const defaultLog: StackWebhookLog = (level, message, fields) => {
@@ -90,8 +98,11 @@ const defaultLog: StackWebhookLog = (level, message, fields) => {
  *   and never processed.
  * - 200 ignored: verified, but a type this code does not know. Logged.
  * - 200 duplicate: this svix-id was already processed.
- * - 500: reconcile or revocation failed; Svix retries the same svix-id.
- * - 200 processed: only after the mirror reflects Hexclave and revocations ran.
+ * - 503 + Retry-After: the verified event could not be stored in the inbox;
+ *   Svix retries the same svix-id later.
+ * - 200 queued: the verified event is stored in the inbox. The drain applies
+ *   it (mirror reconcile and revocations) and retries Hexclave failures with
+ *   backoff; `hexclave_webhook_events` records it once applied.
  */
 export async function handleStackWebhook(
   request: Request,
@@ -117,6 +128,8 @@ export async function handleStackWebhook(
 
   const sync = dependencies.sync();
   if (!sync) return json(503, { error: "stack_webhook_sync_not_configured" });
+  const inbox = dependencies.inbox();
+  if (!inbox) return json(503, { error: "stack_webhook_inbox_not_configured" });
 
   try {
     if (await sync.store.isEventProcessed(svixId)) {
@@ -138,26 +151,36 @@ export async function handleStackWebhook(
       await recordBestEffort(sync, log, { svixId, eventType: parsed.eventType, outcome: "ignored" });
       return json(200, { received: true, ignored: parsed.eventType });
     case "event":
-      return processEvent(svixId, parsed.event, sync, log);
+      return enqueueEvent(svixId, parsed.event, inbox, dependencies, log);
   }
 }
 
-async function processEvent(
+/**
+ * Store a verified event and answer at once. Applying it (fresh Hexclave
+ * reads, mirror writes, revocations) happens in the inbox drain, so a
+ * Hexclave throttle no longer fails deliveries and Svix's redelivery burst
+ * no longer multiplies Hexclave reads. A failed store answers 503 so Svix
+ * redelivers; nothing was accepted.
+ */
+async function enqueueEvent(
   svixId: string,
   event: HexclaveWebhookEvent,
-  sync: HexclaveSyncDependencies,
+  inbox: HexclaveInboxStore,
+  dependencies: StackWebhookDependencies,
   log: StackWebhookLog,
 ): Promise<Response> {
   try {
-    const result = await applyHexclaveWebhookEvent(event, sync);
-    await sync.store.recordEvent({ svixId, eventType: event.type, outcome: "processed" });
-    log("info", "stack_webhook_processed", { svixId, eventType: event.type, ...result });
-    return json(200, { received: true, handled: event.type });
+    await inbox.enqueue({ svixId, eventType: event.type, target: hexclaveEventTarget(event) });
   } catch (error) {
-    log("error", "stack_webhook_sync_failed", { svixId, eventType: event.type, error: errorSummary(error) });
-    await recordBestEffort(sync, log, { svixId, eventType: event.type, outcome: "failed" });
-    return json(500, { error: "sync_failed" });
+    log("error", "stack_webhook_enqueue_failed", { svixId, eventType: event.type, error: errorSummary(error) });
+    return json(503, { error: "inbox_unavailable", retryable: true }, { "retry-after": "30" });
   }
+  log("info", "stack_webhook_queued", { svixId, eventType: event.type });
+  // Accepted exactly when the inbox stored it; a redelivery reuses the
+  // event's natural insert id, so the account is counted once.
+  if (event.type === "user.created") (dependencies.captureSignup ?? captureAccountSignedUp)(event.data);
+  dependencies.scheduleDrain?.();
+  return json(200, { received: true, queued: event.type });
 }
 
 async function recordBestEffort(
@@ -191,6 +214,6 @@ function errorSummary(error: unknown): Record<string, unknown> {
   };
 }
 
-function json(status: number, body: Record<string, unknown>): Response {
-  return new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
+function json(status: number, body: Record<string, unknown>, headers: Record<string, string> = {}): Response {
+  return new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json", ...headers } });
 }

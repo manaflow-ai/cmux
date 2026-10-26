@@ -1,3 +1,4 @@
+import CmuxSSHClipboardTrust
 import CmuxCloud
 import CmuxCloudTui
 import Foundation
@@ -26,12 +27,12 @@ extension CmuxTuiSurfaceProviderRegistry {
                 },
                 breadcrumb: { event, fields in StartupBreadcrumbLog.append(event, fields: fields) }
             ),
+            sshClipboardWriteTrustStore: AppDelegate.shared?.sshClipboardWriteTrustStore
+                ?? SSHClipboardWriteTrustStore(defaults: .standard),
             wireGuardHub: hub,
             isCloudEnabled: { CloudMachinesFeature.isEnabled },
             allowsBackgroundWork: {
-                CloudActivationPolicy.live(
-                    remoteEnabled: { CmuxFeatureFlags.offMainEffectiveValue(for: CmuxFeatureFlags.cloudMachinesFlag) }
-                ).allowsBackgroundCloudWork
+                CloudActivationPolicy.live().allowsBackgroundCloudWork
             },
             listPage: {
                 guard let client = VMClient.shared else { return nil }

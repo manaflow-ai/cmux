@@ -25,6 +25,30 @@ struct TerminalSurfacePendingRemoteReplayCompletion: Sendable {
     let discarded: @MainActor @Sendable () -> Void
 }
 
+/// Thread-safe write-only permission sampled by Ghostty's clipboard callback.
+/// The callback can arrive off the main actor while a context-menu action
+/// revokes or grants the permission on the main actor.
+private final class TerminalRemoteClipboardWritePermission: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value: Bool
+
+    init(_ value: Bool) {
+        self.value = value
+    }
+
+    func read() -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return value
+    }
+
+    func update(_ value: Bool) {
+        lock.lock()
+        self.value = value
+        lock.unlock()
+    }
+}
+
 public final class TerminalSurface: Identifiable, ObservableObject {
     static let committedTextInputChunkByteLimit = 96
 
@@ -227,9 +251,90 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     public var allowsAutomaticClipboardWrite: Bool {
         (!ioMode.usesManualIO && !isRemoteTerminal) || allowsRemoteClipboardWrites
     }
-    /// Cloud-only permission for guest clipboard writer shims. Clipboard reads
-    /// remain denied by the runtime policy regardless of this flag.
-    public let allowsRemoteClipboardWrites: Bool
+    // The Ghostty clipboard callback is synchronous and may run off-main; this
+    // short lock protects the compare-and-consume of a pending selection transaction.
+    private let clipboardWritePermitLock = NSLock()
+    private struct ClipboardWriteTransaction {
+        let deadline: UInt64
+        var remainingWrites: UInt8
+    }
+    private var clipboardWriteTransaction: ClipboardWriteTransaction?
+
+    /// Arms a bounded transaction for asynchronous writes caused by one pointer selection.
+    ///
+    /// A triple-click produces a word write followed by a line write, so the
+    /// caller may reserve more than one callback for the same gesture. The
+    /// transaction is replaced by a newer gesture and never accumulates stale
+    /// writes from an earlier selection.
+    ///
+    /// - Parameter writeCount: Number of non-empty callbacks this gesture may
+    ///   produce, clamped to the supported range of one through three.
+    public func permitClipboardWriteForUserGesture(writeCount: Int = 1) {
+        clipboardWritePermitLock.lock()
+        defer { clipboardWritePermitLock.unlock() }
+        clipboardWriteTransaction = ClipboardWriteTransaction(
+            deadline: DispatchTime.now().uptimeNanoseconds + 15_000_000_000,
+            remainingWrites: UInt8(max(1, min(writeCount, 3)))
+        )
+    }
+
+    /// Consumes one callback from the pending pointer-selection transaction.
+    public func consumeClipboardWritePermit() -> Bool {
+        clipboardWritePermitLock.lock()
+        defer { clipboardWritePermitLock.unlock() }
+        guard var transaction = clipboardWriteTransaction,
+              DispatchTime.now().uptimeNanoseconds <= transaction.deadline else {
+            clipboardWriteTransaction = nil
+            return false
+        }
+        transaction.remainingWrites -= 1
+        clipboardWriteTransaction = transaction.remainingWrites == 0 ? nil : transaction
+        return true
+    }
+
+    /// Returns whether a non-empty callback may write this surface's clipboard.
+    ///
+    /// Automatic writes remain governed by the surface trust policy. Manual
+    /// mirrors additionally require a user copy running on this call stack
+    /// (Cmd+C, Edit > Copy, keyboard copy mode) or a pending user-selection
+    /// transaction.
+    ///
+    /// - Parameter contentLength: Number of bytes in the callback payload.
+    /// - Returns: Whether the callback is admitted.
+    public func permitsClipboardWrite(contentLength: Int) -> Bool {
+        guard contentLength > 0 else { return false }
+        if allowsAutomaticClipboardWrite { return true }
+        guard ioMode == .manualMirror else { return false }
+        if surfaceCallbackContext?.takeUnretainedValue().hasUserInitiatedClipboardWriteIntent == true {
+            return true
+        }
+        return consumeClipboardWritePermit()
+    }
+
+    /// Cancels a pending pointer-selection clipboard permit.
+    public func cancelClipboardWritePermit() {
+        clipboardWritePermitLock.lock()
+        clipboardWriteTransaction = nil
+        clipboardWritePermitLock.unlock()
+    }
+    /// Provider-granted permission for remote clipboard writer shims. This flag
+    /// never grants clipboard reads; the existing native paste policy remains
+    /// separate.
+    private let remoteClipboardWritePermission: TerminalRemoteClipboardWritePermission
+
+    /// Whether the current write-only remote clipboard grant is active.
+    public var allowsRemoteClipboardWrites: Bool {
+        remoteClipboardWritePermission.read()
+    }
+
+    /// Updates the write-only remote clipboard grant for a live mirror. The
+    /// callback reads this value on the runtime callback thread, while callers
+    /// change it on the main actor alongside the surface's other UI-owned
+    /// state.
+    @MainActor
+    public func setAllowsRemoteClipboardWrites(_ allowed: Bool) {
+        remoteClipboardWritePermission.update(allowed)
+    }
     /// Ordered input from the manual transport (literal bytes or named keys).
     let manualInputHandler: (@Sendable (TerminalManualInput) -> Void)?
     /// Resolves physical keys that the manual transport should encode itself.
@@ -369,6 +474,10 @@ public final class TerminalSurface: Identifiable, ObservableObject {
         TerminalSurfaceRuntimeTeardownReservation?
     var headlessStartupWindow: NSWindow?
     var surfaceCallbackContext: Unmanaged<GhosttySurfaceCallbackContext>?
+    /// Ghostty's renderer layer for the live runtime surface. Every free path
+    /// takes it and detaches its display callback on the main actor before
+    /// the native free (#17483).
+    var runtimeDisplayLayer: TerminalSurfaceRuntimeDisplayLayer?
     var agentCommandShims: AgentCommandShimSet?
     var agentCommandShimSpawnPolicy: TerminalSurfaceSpawnPolicy?
     var agentCommandShimInstallTask: Task<AgentCommandShimSet?, Never>?
@@ -415,6 +524,7 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     // Same off-isolation-reader carve-out as debugMetadataLock.
     let debugForceRefreshCountLock = NSLock()
     var debugForceRefreshCountValue = 0
+    var debugForceRefreshReasonsValue: [String] = []
     /// Test-only override for the native free used by teardown paths.
     // nonisolated(unsafe) so the nonisolated deinit teardown path can read it,
     // like the @MainActor teardownSurface/suspend paths already do; tests only
@@ -629,7 +739,7 @@ public final class TerminalSurface: Identifiable, ObservableObject {
         self.focusPlacement = focusPlacement
         self.ioMode = ioMode
         self.isRemoteTerminal = isRemoteTerminal
-        self.allowsRemoteClipboardWrites = allowsRemoteClipboardWrites
+        self.remoteClipboardWritePermission = TerminalRemoteClipboardWritePermission(allowsRemoteClipboardWrites)
         self.manualInputHandler = manualInputHandler
         self.manualInputKeyNameResolver = manualInputKeyNameResolver
         self.registry = dependencies.registry
@@ -767,6 +877,10 @@ public final class TerminalSurface: Identifiable, ObservableObject {
         // mobileByteTeeLease, so teeLease is nil here and ?.release() no-ops.
         let teeLease = mobileByteTeeLease
         mobileByteTeeLease = nil
+        // Deinit is nonisolated; the coordinator detaches the layer's display
+        // callback on the main actor before it schedules the native free.
+        let displayLayer = runtimeDisplayLayer
+        runtimeDisplayLayer = nil
         // `dropSurface` is @MainActor but `deinit` is nonisolated, so hop to the
         // main actor with the surface id captured by value (no self capture).
         // Dropping by id only clears the registry/replay state; releasing
@@ -833,6 +947,7 @@ public final class TerminalSurface: Identifiable, ObservableObject {
                 callbackContext: callbackContext,
                 manualIOContext: manualIOContext,
                 byteTeeLease: teeLease,
+                displayLayer: displayLayer,
                 beforeFree: {
                     await retiredRemoteOutputLane.drain()
                 },
@@ -849,6 +964,7 @@ public final class TerminalSurface: Identifiable, ObservableObject {
             callbackContext: callbackContext,
             manualIOContext: manualIOContext,
             byteTeeLease: teeLease,
+            displayLayer: displayLayer,
             beforeFree: {
                 await retiredRemoteOutputLane.drain()
             }
@@ -865,6 +981,9 @@ extension TerminalSurface: TerminalSurfaceControlling {
     public var owningTabId: UUID { tabId }
     /// The live runtime surface pointer (callback seam).
     public var runtimeSurfacePointer: ghostty_surface_t? { surface }
+    /// Whether manual-I/O clipboard reads require a native paste gesture.
+    /// Whether this surface requires a native paste gesture before reading.
+    public var requiresClipboardReadGesture: Bool { ioMode.usesManualIO }
 }
 
 // The engine's surface registry tracks surfaces behind the cross-domain

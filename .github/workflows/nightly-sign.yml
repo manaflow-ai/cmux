@@ -1,0 +1,76 @@
+name: Nightly signing
+
+# Signing for the nightly track, split out of nightly.yml (cmuxterm-hq#2053).
+#
+# A `workflow_run` workflow runs from the default branch, so every step here is
+# main's code. It never checks out or runs code from the source run's ref: the
+# source run's prepared apps are data. scripts/ci/nightly_sign_admit.py admits
+# a source run only when the GitHub API confirms its identity (workflow file,
+# repository, event, attempt), that its head SHA is on its branch, and that
+# each prepared app tarball has the sha256 its producing job recorded.
+#
+# vars.NIGHTLY_SIGN selects the mode:
+# - unset (default) or any value but `shadow`: no job runs.
+# - `shadow`: admit and verify only. No keychain, no signing, no notarization,
+#   no publication; nightly.yml still signs and publishes as before.
+# tests/test_nightly_sign_shadow_workflow.py fails when a job here can sign,
+# notarize, publish, hold a secret or run code outside main's admit tool.
+on:
+  workflow_run:
+    workflows:
+      - Nightly macOS build
+    types: [completed]
+    branches:
+      - main
+      - nightly-next
+      - "rc/**"
+  workflow_dispatch:
+    inputs:
+      source_run_id:
+        description: Completed Nightly macOS build run to admit
+        required: true
+        type: string
+      source_run_attempt:
+        description: Exact attempt of that run
+        required: true
+        type: string
+
+permissions: {}
+
+env:
+  SOURCE_WORKFLOW_PATHS: .github/workflows/nightly.yml
+
+concurrency:
+  group: nightly-sign-${{ github.event.workflow_run.id || inputs.source_run_id }}
+  cancel-in-progress: false
+
+jobs:
+  admit:
+    name: Admit source run (shadow)
+    if: vars.NIGHTLY_SIGN == 'shadow' && (github.ref == 'refs/heads/main' && (github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'))
+    # Literal Linux labels: a variable must not move this job to another machine.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      actions: read
+      checks: read
+      contents: read
+    steps:
+      - name: Checkout main's tools
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          submodules: false
+
+      - name: Admit the source run and verify its prepared apps
+        id: admit
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_RUN_ID: ${{ github.event_name == 'workflow_dispatch' && inputs.source_run_id || github.event.workflow_run.id }}
+          SOURCE_RUN_ATTEMPT: ${{ github.event_name == 'workflow_dispatch' && inputs.source_run_attempt || github.event.workflow_run.run_attempt }}
+        run: >-
+          python3 -I scripts/ci/nightly_sign_admit.py
+          --repo "$GITHUB_REPOSITORY"
+          --source-run-id "$SOURCE_RUN_ID"
+          --source-run-attempt "$SOURCE_RUN_ATTEMPT"
+          --out "$RUNNER_TEMP/nightly-sign-source"

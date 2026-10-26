@@ -172,107 +172,25 @@ cmux_computer_use_json_escape() {
     printf '%s' "$value"
 }
 
-# Print "<owner uid> <octal permissions>" for each path, one line per path, in
-# a single stat process. The launch path used to spawn two stat processes (plus
-# two subshells) per ancestor directory; under load each spawn costs tens of
-# milliseconds of wall time before Codex starts.
-cmux_computer_use_stat_owner_modes() {
-    local stat_bin=/usr/bin/stat
-    [[ -x "$stat_bin" ]] || stat_bin=/bin/stat
-    [[ -x "$stat_bin" ]] || return 1
-    "$stat_bin" -f '%u %Lp' "$@" 2>/dev/null || "$stat_bin" -c '%u %a' "$@" 2>/dev/null
+# The installed-helper client selection and its trust checks live in the
+# cmux-cua resource beside link-policy.sh, shared with the Claude wrapper.
+# Cleared at startup so the environment cannot pre-answer it.
+cmux_codex_client_policy_loaded=""
+cmux_codex_load_client_policy() {
+    [[ "$cmux_codex_client_policy_loaded" == "1" ]] && return 0
+    local self_dir resource_dir policy
+    self_dir="$(cd "$(dirname "$0")" 2>/dev/null && pwd -P)" || return 1
+    resource_dir="${self_dir%/bin}"
+    policy="$resource_dir/cmux-cua/client-policy.sh"
+    [[ -r "$policy" ]] || return 1
+    # shellcheck source=/dev/null
+    . "$policy" || return 1
+    cmux_codex_client_policy_loaded=1
 }
 
-# Succeed only when every "<owner> <mode>" line is owned by root or the current
-# user, is neither group- nor world-writable, and the line count matches.
-# Group write is as disqualifying as world write on the OVERRIDE path: write
-# permission on a directory allows renaming the driver away and dropping a
-# replacement, regardless of the file's own permissions. The bundled path never
-# runs this check, so macOS's root:admin 775 dirs (/Applications) do not affect
-# normal installs.
-cmux_computer_use_owner_modes_are_trusted() {
-    local output="$1"
-    local expected_count="$2"
-    local current_uid owner mode extra count=0
-    cmux_codex_wrapper_effective_uid || return 1
-    current_uid="$cmux_codex_wrapper_uid"
-    while read -r owner mode extra; do
-        [[ -z "$extra" && "$owner" =~ ^[0-9]+$ && "$mode" =~ ^[0-9]+$ ]] || return 1
-        [[ "$owner" == "0" || "$owner" == "$current_uid" ]] || return 1
-        (( ((mode / 10) % 10 & 2) == 0 && (mode % 10 & 2) == 0 )) || return 1
-        count=$((count + 1))
-    done <<< "$output"
-    (( count == expected_count ))
-}
-
-# The client binary must be a regular file (canonicalization has already
-# resolved symlinks) and it and every ancestor directory must be owned by root
-# or the current user and be neither group- nor world-writable: with write
-# access another local user could swap the binary that runs under cmux's TCC
-# identity. One stat process covers the file and all of its ancestors.
-cmux_computer_use_trusted_client_path() {
-    local path="$1"
-    [[ -f "$path" && ! -L "$path" ]] || return 1
-    local dir="${path%/*}"
-    [[ "$dir" = /* ]] || return 1
-    local -a paths=("$path")
-    while :; do
-        paths+=("$dir")
-        [[ "$dir" == "/" ]] && break
-        dir="${dir%/*}"
-        [[ -n "$dir" ]] || dir="/"
-    done
-    local output
-    output="$(cmux_computer_use_stat_owner_modes "${paths[@]}")" || return 1
-    cmux_computer_use_owner_modes_are_trusted "$output" "${#paths[@]}"
-}
-
-cmux_computer_use_canonical_executable() {
-    local candidate="$1"
-    [[ "$candidate" = /* && -x "$candidate" ]] || return 1
-    local path="$candidate"
-    local hops=0
-    while :; do
-        local dir="${path%/*}"
-        local base="${path##*/}"
-        local dir_real
-        dir_real="$(cd "$dir" 2>/dev/null && pwd -P)" || return 1
-        path="$dir_real/$base"
-        [[ -L "$path" ]] || break
-        (( hops < 16 )) || return 1
-        local target
-        target="$(/usr/bin/readlink "$path" 2>/dev/null || readlink "$path" 2>/dev/null)" || return 1
-        if [[ "$target" = /* ]]; then
-            path="$target"
-        else
-            path="$dir_real/$target"
-        fi
-        hops=$((hops + 1))
-    done
-    [[ -x "$path" ]] || return 1
-    printf '%s' "$path"
-}
-
-cmux_computer_use_resolve_client() {
-    # Codex compatibility mode brokers per-app approval. The daemon verifies
-    # that broker as the exact executable already serving the cmux-owned
-    # socket, then verifies the broker's parent as signed OpenAI Codex. A
-    # separately signed Resources/bin client cannot satisfy that invariant
-    # unless it is the exact app-installed cmux-cua helper selected by cmux.
-    local installed_client client_real
-    installed_client="${CMUX_CUA_CLIENT_PATH:-}"
-    # Older app launches and CI-hosted wrapper invocations may not inherit the
-    # app's exported client path. Reconstruct the same app-owned location from
-    # the runtime scope, then apply the identical canonicalization and trust
-    # checks below. Never fall back to an untrusted PATH lookup.
-    if [[ -z "$installed_client" && "${HOME:-}" = /* ]]; then
-        local runtime_scope="${CMUX_CUA_RUNTIME_SCOPE:-${CMUX_TAG:-default}}"
-        installed_client="${HOME}/Library/Application Support/cmux/cmux-cua/helper/${runtime_scope}/cmux Computer Use.app/Contents/MacOS/cmux-cua"
-    fi
-    [[ -n "$installed_client" ]] || return 1
-    client_real="$(cmux_computer_use_canonical_executable "$installed_client")" || return 1
-    cmux_computer_use_trusted_client_path "$client_real" || return 1
-    printf '%s' "$client_real"
+cmux_codex_resolve_computer_use_client() {
+    cmux_codex_load_client_policy || return 1
+    cmux_computer_use_resolve_client
 }
 
 cmux_computer_use_auth_token() {
@@ -378,7 +296,7 @@ cmux_codex_cua_attachment_reason() {
         printf '%s' 'stale-cmux-socket'
         return 0
     fi
-    if ! cmux_computer_use_resolve_client >/dev/null 2>&1; then
+    if ! cmux_codex_resolve_computer_use_client >/dev/null 2>&1; then
         printf '%s' 'missing-client'
         return 0
     fi
@@ -420,9 +338,12 @@ cmux_codex_emit_computer_use_args() {
     # ownership, daemon credentials, and the installed approval broker.
     cmux_computer_use_surface_socket_available || return 0
     local client default_session runtime_scope runtime_uid cua_socket state_dir
-    # Read the uid in this shell first: the helpers below run in command
-    # substitutions, so a uid they cache would not survive back here.
+    # Load the client policy and read the uids in this shell first: the
+    # helpers below run in command substitutions, so anything they load or
+    # cache would not survive back here.
     cmux_codex_wrapper_effective_uid || return 1
+    cmux_codex_load_client_policy || return 1
+    cmux_cua_client_effective_uid || return 1
     client="$(cmux_computer_use_resolve_client)" || return 1
     # Gate on the credential here; the parent shell exports its value.
     cmux_computer_use_auth_token >/dev/null || return 1

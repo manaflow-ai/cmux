@@ -63,6 +63,9 @@ public struct CloudAPIRequestBuilder: Sendable, Equatable {
 
     /// Resuming waits for the provider to boot compute back up.
     public static let resumeTimeout: TimeInterval = 16 * 60
+    /// A provider restart should be quick, but frozen machines need more than
+    /// the ordinary request timeout while the control plane confirms recovery.
+    public static let restartTimeout: TimeInterval = 60
 
     /// `POST /api/vm/{id}/pause`: stops compute and billing, keeps the disk.
     public func pauseMachine(id: String, accessToken: String, refreshToken: String) throws -> URLRequest {
@@ -75,6 +78,15 @@ public struct CloudAPIRequestBuilder: Sendable, Equatable {
         var request = try request("POST", path: "/api/vm/\(try Self.pathSegment(id))/resume", body: nil,
                                   accessToken: accessToken, refreshToken: refreshToken)
         request.timeoutInterval = Self.resumeTimeout
+        return request
+    }
+
+    /// `POST /api/vm/{id}/restart`: recovers a running machine without
+    /// entering its guest or changing its disk.
+    public func restartMachine(id: String, accessToken: String, refreshToken: String) throws -> URLRequest {
+        var request = try request("POST", path: "/api/vm/\(try Self.pathSegment(id))/restart", body: nil,
+                                  accessToken: accessToken, refreshToken: refreshToken)
+        request.timeoutInterval = Self.restartTimeout
         return request
     }
 

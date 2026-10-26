@@ -17,6 +17,7 @@ import {
   stripeSubscriptions,
 } from "../../../db/schema";
 import { FX_RATES_AS_OF } from "./fx";
+import { PLAN_ITEM_JSONPATH } from "../subscriptionItems";
 import {
   computeSubscriptionMetrics,
   type Granularity,
@@ -145,8 +146,9 @@ function stripeEnvironmentFilter(environment: AnalyticsQuery["environment"]): SQ
   return undefined;
 }
 
-const stripePrice = sql`(${stripeSubscriptions.raw}->'items'->'data'->0->'price')`;
-const stripeItem = sql`(${stripeSubscriptions.raw}->'items'->'data'->0)`;
+// The plan item, never item 0: a metered usage item may come first (subscriptionItems.ts).
+const stripeItem = sql`jsonb_path_query_first(${stripeSubscriptions.raw}, ${sql.raw(`'${PLAN_ITEM_JSONPATH}'`)})`;
+const stripePrice = sql`(${stripeItem}->'price')`;
 
 function rawNumber(expression: SQL): SQL<number | null> {
   return sql<number | null>`nullif(${expression}, '')::float8`;
@@ -305,7 +307,7 @@ export type SubscriptionAnalyticsReport = SubscriptionMetrics & {
   };
 };
 
-/** `<bundle>.<plan>.monthly` names its plan; anything else has none. */
+/** `<bundle>.<plan>.<monthly|yearly>` names its plan; anything else has none. */
 function planFromProductId(productId: string | null): string | null {
   const parts = productId?.split(".") ?? [];
   return parts.length >= 3 ? parts[parts.length - 2] ?? null : null;

@@ -169,14 +169,26 @@ crossterm = { path = "vendor/crossterm" }
 # exhaustive event mapping in the same source-controlled compatibility layer.
 terminput-crossterm = { path = "vendor/terminput-crossterm" }
 
+# Fat LTO with one codegen unit makes the shipped macOS arm64 cmux-tui about a
+# quarter smaller (45.4 -> 34.3 MB before stripping) for ~1m45s of release build.
+# Every release waits for this client: #19506's one lost-runner publish did not
+# recur in three release-path publishes on the same 6-vCPU macOS runner.
 [profile.release]
-lto = "thin"
+lto = "fat"
+codegen-units = 1
 
 # Debug builds are what mux-dev dogfood runs; opt-level 0 makes the
 # per-frame render/diff path visibly laggy. Light optimization for our
 # code, full for dependencies (ratatui/crossterm do the heavy lifting).
 [profile.dev]
 opt-level = 1
+# Line tables keep file:line in panics, backtraces and profiles; full DWARF made
+# each worktree's target about twice the size (feat-cmux-next #22193, Huge Blue
+# 10-19: 11 GB -> 5.4 GB cold, cold builds 360 s -> 251 s). `[profile.test]`
+# inherits these settings, so test and dev builds keep sharing dependency
+# artifacts. Use `debug = true` locally to step through locals in a debugger.
+debug = "line-tables-only"
 
 [profile.dev.package."*"]
 opt-level = 3
+debug = false

@@ -558,6 +558,9 @@ extension CMUXCLI {
         if config.carrier {
             arguments.append("--carrier")
         }
+        if !config.session.isEmpty {
+            arguments += ["--session", config.session]
+        }
         if let hubSocket = config.wireguardHubSocket, !hubSocket.isEmpty {
             arguments += ["--wireguard-hub", hubSocket]
         }
@@ -989,6 +992,7 @@ extension CMUXCLI {
                                                               workspaces and terminal history stay. `vm ls` shows it paused.
           cmux vm resume <machine>                            Wake a paused machine: the daemon, terminals and files come back.
                                                               Opening or exec'ing a paused machine also wakes it.
+          cmux vm restart <machine>                           \(String(localized: "cli.vm.restart.help", defaultValue: "Request recovery when supported. Running processes may be lost."))
 
         A provider without pause says so; such machines stay available until `cmux vm rm`. Add --json for the raw result.
         """
@@ -1008,6 +1012,9 @@ extension CMUXCLI {
     /// their own usage fall back to the family text.
     static func vmVerbUsage(_ verb: String) -> String? {
         switch verb.lowercased() {
+        case "new", "create": return vmNewUsage
+        case "ls", "list": return vmListUsage
+        case "ports": return vmPortsUsage
         case "resize": return vmResizeUsage
         case "network": return vmNetworkUsage
         case "agent-updates": return vmAgentUpdatesUsage
@@ -1020,7 +1027,7 @@ extension CMUXCLI {
         case "tree": return vmTreeUsage
         case "tui": return vmTuiUsage
         case "exec": return vmExecUsage
-        case "pause", "resume": return vmLifecycleUsage
+        case "pause", "resume", "restart": return vmLifecycleUsage
         case "agent": return vmAgentUsage
         case "run": return vmRunUsage
         case "route": return vmRouteUsage

@@ -38,3 +38,14 @@ notary_auth_init() {
 
   NOTARY_AUTH_ARGS=(--key "$key_path" --key-id "$ASC_API_KEY_ID" --issuer "$ASC_API_ISSUER_ID")
 }
+
+# Delete the decoded key before a script runs code from the bundle: the app
+# runs as the same user and could read the file. Call it after the last
+# notarytool command.
+notary_auth_forget() {
+  local key_dir="${1:-}"
+  if [ -n "$key_dir" ]; then
+    rm -rf "$key_dir/notary-key"
+  fi
+  NOTARY_AUTH_ARGS=()
+}

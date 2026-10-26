@@ -28,6 +28,12 @@ if [[ ! -d "$APP_PATH/Contents" ]]; then
   exit 1
 fi
 
+# This script runs code from the bundle. It refuses to run while a CI signing
+# keychain exists and gives the app no signing or publishing credentials.
+# shellcheck source=ci/lib/signing-runtime-guard.sh
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/ci/lib/signing-runtime-guard.sh"
+cmux_signing_runtime_guard
+
 INFO_PLIST="$APP_PATH/Contents/Info.plist"
 BUNDLE_ID="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$INFO_PLIST")"
 EXECUTABLE_NAME="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$INFO_PLIST")"

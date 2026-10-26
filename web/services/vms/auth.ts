@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { eq } from "drizzle-orm";
+import { after } from "next/server";
 import { getStackServerApp, isStackConfigured } from "../../app/lib/stack";
 import {
   stackAccessTokenVerifierFromEnv,
@@ -38,6 +39,8 @@ export type AuthedUser = {
   isAnonymous?: boolean;
   displayName: string | null;
   primaryEmail: string | null;
+  /** Whether Stack verified the primary email; absent on identity snapshots. */
+  primaryEmailVerified?: boolean;
   billingCustomerType: "team" | "user";
   billingTeamId: string;
   selectedTeamId: string | null;
@@ -293,6 +296,35 @@ export async function withSubrouterAuthorizationDeadline<T>(
   }
 }
 
+/**
+ * Run a Stack call under a caller's authorization deadline. The call shares
+ * the deadline-gated concurrency slots and `cmux.stack_auth.*` span with
+ * verification, and rejects with `SubrouterAuthorizationTimeoutError` once the
+ * signal aborts. A call that has not started when the signal aborts never
+ * starts.
+ */
+export function deadlineGatedStackCall<T>(
+  operation: () => Promise<T>,
+  signal: AbortSignal,
+  operationName: string,
+): Promise<T> {
+  return stackAuthorizationCall(operation, signal, operationName);
+}
+
+/**
+ * Persist the identity snapshot after the response. `after` keeps the
+ * function alive on Vercel; outside a request scope (tests, scripts) it
+ * throws and the write runs detached. The write already swallows its own
+ * failures.
+ */
+function deferIdentitySnapshotWrite(write: () => Promise<void>): void {
+  try {
+    after(write);
+  } catch {
+    void write();
+  }
+}
+
 export async function verifySubrouterRequest(
   request: Request,
   signal: AbortSignal,
@@ -376,6 +408,7 @@ async function stackAuthorizationCall<T>(
     release();
     throw new SubrouterAuthorizationUnavailableError(
       error instanceof Error ? error.message : "Stack authorization failed",
+      { cause: error },
     );
   }
   void pending.then(release, release);
@@ -388,6 +421,7 @@ async function stackAuthorizationCall<T>(
     }
     throw new SubrouterAuthorizationUnavailableError(
       error instanceof Error ? error.message : "Stack authorization failed",
+      { cause: error },
     );
   }
 }
@@ -407,9 +441,10 @@ function acquireStackAuthorizationSlot(
     timedOutStackAuthorizationCalls >=
       MAX_CONCURRENT_STACK_AUTHORIZATION_CALLS
   ) {
-    return Promise.reject(new SubrouterAuthorizationUnavailableError(
+    // Local overload behind a slow Stack: transient, like the timeouts behind it.
+    return Promise.reject(Object.assign(new SubrouterAuthorizationUnavailableError(
       "Stack authorization circuit is open",
-    ));
+    ), { transient: true }));
   }
   if (
     activeStackAuthorizationCalls <
@@ -422,9 +457,10 @@ function acquireStackAuthorizationSlot(
     stackAuthorizationWaiters.length >=
       MAX_QUEUED_STACK_AUTHORIZATION_CALLS
   ) {
-    return Promise.reject(new SubrouterAuthorizationUnavailableError(
+    // Local overload behind a slow Stack: transient, like the timeouts behind it.
+    return Promise.reject(Object.assign(new SubrouterAuthorizationUnavailableError(
       "Stack authorization queue is full",
-    ));
+    ), { transient: true }));
   }
   return new Promise((resolve, reject) => {
     const waiter = {
@@ -591,9 +627,15 @@ async function verifyNativeRequest(
     }
     if (resolved) {
       recordAuthResolution({ source: "stack", providerCalled: true });
-      await writeIdentitySnapshot(resolved.user, {
+      const writeSnapshot = () => writeIdentitySnapshot(resolved.user, {
         completeTeamList: resolved.completeTeamList,
       });
+      // The snapshot is a best-effort optimization. A deadline-gated caller
+      // must not spend its Stack budget waiting for a database connection:
+      // production traces showed this upsert idle 6-11 s behind a saturated
+      // pool, which alone pushed /api/coderouter/organizations past 10 s.
+      if (options.subrouterAuthorizationSignal) deferIdentitySnapshotWrite(writeSnapshot);
+      else await writeSnapshot();
     }
     return resolved?.user ?? null;
   }
@@ -904,6 +946,7 @@ async function authedUserFromStackUser(
       isAnonymous: user.isAnonymous === true,
       displayName: user.displayName,
       primaryEmail: user.primaryEmail,
+      primaryEmailVerified: user.primaryEmailVerified === true,
       billingCustomerType: billingTeam ? "team" : "user",
       billingTeamId: billingTeam?.id ?? user.id,
       selectedTeamId: selectedTeam?.id ?? null,
@@ -1014,6 +1057,7 @@ type StackUserLike = {
   readonly isAnonymous?: boolean;
   readonly displayName: string | null;
   readonly primaryEmail: string | null;
+  readonly primaryEmailVerified?: boolean;
   readonly clientReadOnlyMetadata?: unknown;
   readonly selectedTeam?: unknown;
   readonly listTeams?: (

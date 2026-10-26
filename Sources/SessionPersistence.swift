@@ -1,3 +1,4 @@
+import CMUXAgentLaunch
 import CmuxSurfaceCatalogModel
 import CoreGraphics
 import CmuxBrowser
@@ -292,9 +293,11 @@ enum SessionSidebarSelection: String, Codable, Sendable, Equatable {
 
     init(selection: SidebarSelection) {
         switch selection {
-        case .tabs, .notifications:
+        case .tabs, .notifications, .home:
             // Notifications moved from a window-level overlay to a pane tab.
-            // Never persist the retired overlay selection.
+            // Never persist the retired overlay selection. Chief Home is not
+            // persisted either, so builds without `.home` can still decode
+            // the snapshot; relaunch always lands on the workspace.
             self = .tabs
         }
     }
@@ -1568,6 +1571,12 @@ struct SessionTerminalPanelSnapshot: Codable, Sendable {
     var wasAgentRunning: Bool?
     /// Whether the terminal has received user input. Nil means unknown in older snapshots.
     var hasReceivedExplicitInput: Bool?
+    /// The Claude Code background session this pane was viewing through
+    /// `claude attach`. Restore reattaches it instead of resuming a second writer.
+    var claudeBackgroundViewer: ClaudeBackgroundSessionViewer?
+    /// Explicit recovery state retained when an automatic relaunch could not
+    /// start. This prevents the next snapshot from looking like a plain shell.
+    var restoreRecovery: SessionRestoreRecoverySnapshot?
 
     init(
         workingDirectory: String? = nil,
@@ -1583,7 +1592,9 @@ struct SessionTerminalPanelSnapshot: Codable, Sendable {
         isRemoteTerminal: Bool? = nil,
         remotePTYSessionID: String? = nil,
         wasAgentRunning: Bool? = nil,
-        hasReceivedExplicitInput: Bool? = nil
+        hasReceivedExplicitInput: Bool? = nil,
+        claudeBackgroundViewer: ClaudeBackgroundSessionViewer? = nil,
+        restoreRecovery: SessionRestoreRecoverySnapshot? = nil
     ) {
         self.workingDirectory = workingDirectory
         self.fontSize = fontSize
@@ -1599,7 +1610,14 @@ struct SessionTerminalPanelSnapshot: Codable, Sendable {
         self.remotePTYSessionID = remotePTYSessionID
         self.wasAgentRunning = wasAgentRunning
         self.hasReceivedExplicitInput = hasReceivedExplicitInput
+        self.claudeBackgroundViewer = claudeBackgroundViewer
+        self.restoreRecovery = restoreRecovery
     }
+}
+
+struct SessionRestoreRecoverySnapshot: Codable, Equatable, Sendable {
+    var reason: String
+    var recoveryInput: String?
 }
 
 extension SessionTerminalPanelSnapshot: WorkspaceSessionRemoteRestoreTerminalSnapshot {}
@@ -1702,8 +1720,18 @@ struct SessionFilePreviewPanelSnapshot: Codable, Sendable {
 /// Marker for a workspace todo pane; the pane has no content of its own (the checklist
 /// persists on the workspace), so the panel `type` plus this empty marker is enough to restore it.
 struct SessionWorkspaceTodoPanelSnapshot: Codable, Sendable {}
+/// Marker for a CodeRouter guide pane; the guide content is static and needs no payload.
+struct SessionCoderouterGuidePanelSnapshot: Codable, Sendable {}
 /// Marker for the global notifications pane; its feed lives in the notification store.
 struct SessionNotificationsPanelSnapshot: Codable, Sendable {}
+/// A Chief pane: the messages live in Chief's own store, so only the shown conversation is kept.
+struct SessionChiefPanelSnapshot: Codable, Sendable {
+    /// Raw `ConversationID`; nil is Chief's default conversation.
+    var conversationID: String?
+    /// Whether this is the workspace's canonical Chief Home pane. Missing in
+    /// older manifests, which restore as an ordinary Chief pane.
+    var isHome: Bool? = nil
+}
 struct SessionProjectPanelSnapshot: Codable, Sendable {
     var projectPath: String
     var selectedNodePath: String?
@@ -1759,7 +1787,9 @@ struct SessionPanelSnapshot: Codable, Sendable {
     var agentSession: SessionAgentSessionPanelSnapshot? = nil
     var project: SessionProjectPanelSnapshot?
     var workspaceTodo: SessionWorkspaceTodoPanelSnapshot? = nil
+    var coderouterGuide: SessionCoderouterGuidePanelSnapshot? = nil
     var notificationsPanel: SessionNotificationsPanelSnapshot? = nil
+    var chief: SessionChiefPanelSnapshot? = nil
 }
 extension SessionPanelSnapshot: WorkspaceSessionRemoteRestorePanelSnapshot {}
 

@@ -18,7 +18,17 @@ final class ScrollbackTestTerminal {
     private let inputs: AsyncStream<TerminalManualInput>
     private let continuation: AsyncStream<TerminalManualInput>.Continuation
 
-    init(initialInput: String? = nil) throws {
+    /// `ioMode: .manual` also delivers parser-generated replies (DSR, CSI 996)
+    /// to the input stream; `.manualMirror` suppresses them.
+    /// `pinsOnScreenOcclusion` reports `.visible` occlusion so the renderer
+    /// presents even when the headless app-host process is not the active
+    /// app: the window server then never sets `.visible` and the window never
+    /// becomes key.
+    init(
+        initialInput: String? = nil,
+        ioMode: TerminalSurfaceIOMode = .manualMirror,
+        pinsOnScreenOcclusion: Bool = false
+    ) throws {
         _ = NSApplication.shared
         let pair = AsyncStream<TerminalManualInput>.makeStream()
         inputs = pair.stream
@@ -30,11 +40,12 @@ final class ScrollbackTestTerminal {
             configTemplate: nil,
             initialInput: initialInput,
             focusPlacement: .rightSidebarDock,
-            ioMode: .manualMirror,
+            ioMode: ioMode,
             manualInputHandler: { sink.yield($0) }
         )
         view = surface.hostedView.surfaceView
-        window = NSWindow(
+        let windowClass: NSWindow.Type = pinsOnScreenOcclusion ? OnScreenScrollbackTestWindow.self : NSWindow.self
+        window = windowClass.init(
             contentRect: NSRect(x: 0, y: 0, width: 640, height: 400),
             styleMask: [.titled, .closable],
             backing: .buffered,
@@ -77,7 +88,7 @@ final class ScrollbackTestTerminal {
 
     func close() {
         surface.hostedView.removeFromSuperview()
-        // Manual-mirror IO: no shell and no TTY, so nothing to kill first.
+        // Manual IO: no shell and no TTY, so nothing to kill first.
         surface.teardownSurface()
         continuation.finish()
         window.orderOut(nil)
@@ -147,6 +158,24 @@ final class ScrollbackTestTerminal {
         #expect(ghostty_surface_has_selection(runtime))
     }
 
+    /// Reads input bytes until `isComplete` holds for everything read so far.
+    /// Parser replies (DSR, CSI 996) reach the PTY peer from Ghostty's IO
+    /// thread, after a barrier written with `ghostty_surface_text`, so wait for
+    /// the reply itself rather than a barrier.
+    func inputBytes(until isComplete: (Data) -> Bool) async -> Data {
+        var bytes = Data()
+        for await input in inputs {
+            guard case let .bytes(chunk) = input else {
+                Issue.record("Unexpected transport-owned named key")
+                continue
+            }
+            bytes.append(chunk)
+            if isComplete(bytes) { return bytes }
+        }
+        Issue.record("The terminal I/O peer ended before the expected input")
+        return bytes
+    }
+
     /// The I/O mailbox orders this marker after earlier wheel/key writes.
     /// Awaiting its callback proves absence of leaked input without a settling sleep.
     func inputBeforeBarrier() async throws -> String {
@@ -173,4 +202,10 @@ final class ScrollbackTestTerminal {
         Issue.record("The terminal I/O peer ended before the barrier")
         return bytes
     }
+}
+
+/// Reports the occlusion state an on-screen window has in the running app;
+/// see `OnScreenTestWindow` in SimulatorPanelThemeTests.swift.
+private final class OnScreenScrollbackTestWindow: NSWindow {
+    override var occlusionState: NSWindow.OcclusionState { .visible }
 }

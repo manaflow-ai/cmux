@@ -1,6 +1,9 @@
-import { and, count, desc, eq, gt, inArray, isNull, lt, or } from "drizzle-orm";
+import { and, count, eq, gt, inArray, isNull, lt, or } from "drizzle-orm";
 import { cloudDb } from "../../db/client";
-import { cloudVms, cloudVmRuntimeIntervals, stripeSubscriptions } from "../../db/schema";
+import { cloudVms, cloudVmRuntimeIntervals } from "../../db/schema";
+import { personalBillingPeriod, runtimeSecondsWithinPeriod, subscriptionPeriodStart } from "./planUsage";
+
+export { runtimeSecondsWithinPeriod, subscriptionPeriodStart };
 
 export const GO_INCLUDED_VM_HOURS = 40;
 export const GO_INCLUDED_VM_SECONDS = GO_INCLUDED_VM_HOURS * 3600;
@@ -15,41 +18,20 @@ export type GoVmUsage = {
   readonly savedVms: number;
 };
 
-export function runtimeSecondsWithinPeriod(
-  intervals: readonly { startedAt: Date; endedAt: Date | null }[],
-  periodStart: Date,
-  periodEnd: Date,
-  now: Date,
-): number {
-  const end = Math.min(now.getTime(), periodEnd.getTime());
-  return Math.ceil(intervals.reduce((sum, interval) => sum + Math.max(0,
-    Math.min(interval.endedAt?.getTime() ?? end, end) -
-      Math.max(interval.startedAt.getTime(), periodStart.getTime()),
-  ), 0) / 1000);
-}
-
-export function subscriptionPeriodStart(raw: Record<string, unknown> | null): Date | null {
-  const items = raw?.items as { data?: Array<{ current_period_start?: unknown }> } | undefined;
-  const value = items?.data?.[0]?.current_period_start ?? raw?.current_period_start;
-  return typeof value === "number" && Number.isFinite(value) && value > 0
-    ? new Date(value * 1000) : null;
-}
-
-/** A renewal resets the allowance using Stripe's billing period, not UTC months. */
+/**
+ * A renewal resets the allowance using the subscription's own billing period
+ * (web checkout or the App Store), not UTC months. Null when the user's plan
+ * is not Go; an exhausted allowance when no Go subscription is active.
+ */
 export async function getGoVmUsage(userId: string, now = new Date()): Promise<GoVmUsage | null> {
   const db = cloudDb();
-  const [subscription] = await db.select().from(stripeSubscriptions).where(and(
-    eq(stripeSubscriptions.stackUserId, userId),
-    eq(stripeSubscriptions.scope, "user"),
-    inArray(stripeSubscriptions.status, ["active", "trialing"]),
-  )).orderBy(desc(stripeSubscriptions.updatedAt)).limit(1);
+  const subscription = await personalBillingPeriod(userId, { now, stripeStatuses: ["active", "trialing"] });
   if (!subscription) return { periodStart: now, periodEnd: now, usedSeconds: GO_INCLUDED_VM_SECONDS, remainingSeconds: 0, savedVms: 0 };
-  if (subscription.plan !== "go") return null;
-  const periodStart = subscriptionPeriodStart(subscription.raw);
-  const periodEnd = subscription.currentPeriodEnd;
-  if (!periodStart || !periodEnd || periodStart >= periodEnd || now >= periodEnd) {
+  if (subscription.planId !== "go") return null;
+  if (!subscription.period) {
     throw new Error("Go billing period is unavailable; reconcile the subscription before granting runtime");
   }
+  const { start: periodStart, end: periodEnd } = subscription.period;
   const [intervals, retained] = await Promise.all([
     db.select({ startedAt: cloudVmRuntimeIntervals.startedAt, endedAt: cloudVmRuntimeIntervals.endedAt })
       .from(cloudVmRuntimeIntervals).where(and(

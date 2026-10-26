@@ -22,7 +22,9 @@ import {
   type ServerEventInput,
   type ServerEventScalar,
 } from "../analytics/serverEvents";
+import { isRememberedSyntheticUser } from "../analytics/syntheticAccounts";
 import type { VmRepositoryShape, VmUsageEventInput } from "./repository";
+import { currentVmRequestContext, noteVmRequestLedgerVmId } from "./requestContext";
 
 export const VM_PRODUCT_ANALYTICS_SCHEMA_VERSION = 1;
 
@@ -103,7 +105,7 @@ const METADATA_PICKERS: Record<VmLedgerEventType, MetadataPicker> = {
     source: str(m.source) ?? "unknown",
   }),
   "vm.paused": (m) => ({
-    source: enumValue(m.source, ["user", "go_hours_limit"]) ?? "unknown",
+    source: enumValue(m.source, ["user", "go_hours_limit", "unexpected_wake"]) ?? "unknown",
     used_seconds: int(m.usedSeconds), automated: bool(m.automated),
   }),
   "vm.snapshot.created": (m) => ({
@@ -152,6 +154,7 @@ export function vmProductEventFromLedger(
     plan_id: planId,
     billing_team_id: input.billingTeamId ?? undefined,
     schema_version: VM_PRODUCT_ANALYTICS_SCHEMA_VERSION,
+    is_synthetic: isSyntheticLedgerRow(input) ? true : undefined,
     ...METADATA_PICKERS[input.eventType](metadata),
   };
   if (input.eventType === "vm.destroyed" && input.vmCreatedAt) {
@@ -177,6 +180,44 @@ export function vmProductEventFromLedger(
   };
 }
 
+/** PostHog event for a machine that reached `running` and accepts connections. */
+export const VM_READY_POSTHOG_EVENT = "cloud_vm_ready";
+
+/**
+ * `cloud_vm_ready`: the machine is usable (its `mark_running` committed,
+ * which is when the create workflow writes `vm.created`). `time_to_ready_ms`
+ * runs from the machine row's insert, the moment the request was accepted,
+ * so it covers provider provisioning and boot. Null for rows that are not a
+ * successful create, or when the machine's `createdAt` is unknown.
+ */
+export function vmReadyEventFromLedger(
+  input: VmUsageEventInput,
+  now: Date = new Date(),
+): ServerEventInput | null {
+  if (input.eventType !== "vm.created" || !input.vmId || !input.vmCreatedAt) return null;
+  const timeToReadyMs = now.getTime() - input.vmCreatedAt.getTime();
+  if (!Number.isFinite(timeToReadyMs) || timeToReadyMs < 0) return null;
+  const metadata = input.metadata ?? {};
+  return {
+    event: VM_READY_POSTHOG_EVENT,
+    distinctId: input.userId,
+    teamId: input.billingTeamId,
+    properties: {
+      product: "cloud_vm",
+      vm_id: input.vmId,
+      plan_id: normalizedPlan(input.billingPlanId),
+      provider: input.provider,
+      origin: enumValue(metadata.origin, ["create", "restore", "fork", "base"]) ?? "create",
+      time_to_ready_ms: Math.round(timeToReadyMs),
+      billing_team_id: input.billingTeamId ?? undefined,
+      is_synthetic: isSyntheticLedgerRow(input) ? true : undefined,
+      schema_version: VM_PRODUCT_ANALYTICS_SCHEMA_VERSION,
+    },
+    insertId: `${VM_READY_POSTHOG_EVENT}:${input.vmId}`,
+    timestamp: now,
+  };
+}
+
 export type VmProductCapture = (input: VmUsageEventInput) => void;
 
 /** Default capture: map the ledger row and hand it to the shared sender. */
@@ -184,9 +225,19 @@ export function captureVmProductEvent(
   input: VmUsageEventInput,
   dependencies: Partial<ServerEventDependencies> = {},
 ): void {
-  const event = vmProductEventFromLedger(input, dependencies.now?.() ?? new Date());
-  if (!event) return;
-  void captureServerEvent(event, dependencies);
+  const now = dependencies.now?.() ?? new Date();
+  for (const event of [vmProductEventFromLedger(input, now), vmReadyEventFromLedger(input, now)]) {
+    if (event) void captureServerEvent(event, dependencies);
+  }
+}
+
+/**
+ * A probe account's row: the request that wrote it authenticated a probe
+ * account, or this instance did earlier (rows mirrored after the response).
+ */
+function isSyntheticLedgerRow(input: VmUsageEventInput): boolean {
+  const context = currentVmRequestContext();
+  return (context?.synthetic === true && context.userId === input.userId) || isRememberedSyntheticUser(input.userId);
 }
 
 /**
@@ -200,6 +251,8 @@ export function withVmProductAnalytics(
 ): VmRepositoryShape {
   const safeCapture = (input: VmUsageEventInput): void => {
     try {
+      // The request's PostHog rows name the machine this row is about.
+      noteVmRequestLedgerVmId(input.vmId);
       capture(input);
     } catch (error) {
       console.warn("[analytics] cloud vm product capture failed", {

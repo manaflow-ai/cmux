@@ -16,7 +16,9 @@ run-name: ${{ (github.event_name == 'schedule' || github.event_name == 'workflow
 # `owned-pool-watch` artifact when they place attempt 1 on an owned pool, and
 # ci-macos.yml's late-placement an `owned-pool-watch-late` one when it moves
 # jobs onto one; every minute the sweeper lists both names repository-wide
-# and gives each new run a thread running the per-run watch. Until
+# and gives each new run a thread running the per-run watch. A run marked
+# `owned-pool-watch-refusals` (cmux-next.yml, no free overflow) and its
+# re-runs are watched for refusals only: a long queue is left alone. Until
 # 2026-09-25 each such run had its own owned-pool-watch job, a "Watch owned
 # pool jobs" check on the pull request, dispatching its own rescue run: 263
 # rescue runs in the 2 hours to 12:30 UTC, and 59 of the last 60 did nothing.
@@ -37,15 +39,17 @@ run-name: ${{ (github.event_name == 'schedule' || github.event_name == 'workflow
 #   vars.CI_NIGHTLY_TRUSTED_RUNNER a glaeda-runner-* label, attempt 1 of every
 #   push or schedule run on main asks for that one trusted mini, so every such
 #   run is watched (owned_pool_rescue.NIGHTLY_WORKFLOW_PATH).
-# The side lanes have no picker and are already covered by the periodic
-# sweeper. They stay in the script's target rules for explicit dispatches, but
-# no longer wake a fresh rescue through workflow_run.
+# The side lanes (owned_pool_rescue.SIDE_WORKFLOW_PATHS, every other workflow
+# owned_pool_sources.py finds on main or feat-cmux-next) have no picker and no
+# marker: the sweeper finds each failed run of one by path, which is when a
+# refused job's failed jobs can be re-run. They do not wake a fresh rescue
+# through workflow_run (one per run, #16076).
 # It needs actions: write, and its code comes from main. It runs whenever
 # owned pools are on (CI_PR_POOL_OWNED is 1), because a run on an owned pool
 # has no other way off it; CI_OWNED_POOL_RESCUE=0 turns it off. The switch
 # gets its default before the comparison: an unset variable is null, and
-# null == '0' in an expression. It only polls, so it runs on a GitHub-hosted
-# runner rather than holding a slot in CI's Linux pool.
+# null == '0' in an expression. It only polls; it runs on an ephemeral
+# Blacksmith runner (CI_TRUSTED_RUNNER), not on an owned pool it may rescue.
 on:
   schedule:
     - cron: "17 */2 * * *"
@@ -92,8 +96,8 @@ concurrency:
 jobs:
   rescue:
     name: ${{ (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' && !inputs.run_id) && 'Sweep runs on persistent pools' || 'Rescue a run stuck on a persistent pool' }}
-    if: ${{ vars.CI_PR_POOL_OWNED == '1' && (vars.CI_OWNED_POOL_RESCUE || '1') != '0' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || (github.event.workflow_run.path != '.github/workflows/nightly.yml' && github.event.workflow_run.path != '.github/workflows/ios-screenshots.yml' && contains(fromJSON('["pull_request","push","schedule","workflow_dispatch"]'), github.event.workflow_run.event) && (startsWith(vars.CI_SIDE_LANE_RUNNER, 'glaeda-side-') || startsWith(vars.CI_LIGHT_LANE_RUNNER, 'glaeda-side-')) || github.event.workflow_run.path == '.github/workflows/ios-screenshots.yml' && github.event.workflow_run.event == 'workflow_dispatch' || github.event.workflow_run.path == '.github/workflows/nightly.yml' && (github.event.workflow_run.event == 'push' || github.event.workflow_run.event == 'schedule') && github.event.workflow_run.head_branch == 'main' && startsWith(vars.CI_SEED_TRUSTED_POOL, 'glaeda-trusted-') && startsWith(vars.CI_NIGHTLY_TRUSTED_RUNNER, 'glaeda-runner-')) && github.event.workflow_run.head_repository.full_name == github.repository && github.event.workflow_run.run_attempt == 1) }}
-    runs-on: ubuntu-24.04 # github-hosted-required: polls the Actions API; keeps CI's Linux pool free
+    if: ${{ vars.CI_PR_POOL_OWNED == '1' && (vars.CI_OWNED_POOL_RESCUE || '1') != '0' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || (github.event.workflow_run.path != '.github/workflows/nightly.yml' && github.event.workflow_run.path != '.github/workflows/ios-screenshots.yml' && contains(fromJSON('["pull_request","push","schedule","workflow_dispatch"]'), github.event.workflow_run.event) && (startsWith(vars.CI_SIDE_LANE_RUNNER, 'glaeda-side-') || startsWith(vars.CI_LIGHT_LANE_RUNNER, 'glaeda-side-')) || github.event.workflow_run.path == '.github/workflows/ios-screenshots.yml' && github.event.workflow_run.event == 'workflow_dispatch' || github.event.workflow_run.path == '.github/workflows/nightly.yml' && (github.event.workflow_run.event == 'push' || github.event.workflow_run.event == 'schedule') && (github.event.workflow_run.head_branch == 'main' && startsWith(vars.CI_SEED_TRUSTED_POOL, 'glaeda-trusted-') && startsWith(vars.CI_NIGHTLY_TRUSTED_RUNNER, 'glaeda-runner-') || github.event.workflow_run.head_branch == 'nightly-next' && github.event.workflow_run.event == 'push' && startsWith(vars.CI_NIGHTLY_NEXT_TRUSTED_POOL, 'glaeda-trusted-') && startsWith(vars.CI_NIGHTLY_NEXT_TRUSTED_RUNNER, 'glaeda-runner-'))) && github.event.workflow_run.head_repository.full_name == github.repository && github.event.workflow_run.run_attempt == 1) }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["ubuntu-24.04","blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: polls the Actions API; keeps CI's Linux pool free; CI_TRUSTED_RUNNER picks Blacksmith (default) or GitHub-hosted
     # A sweeper adopts runs for 300 minutes and gives a rescue 25 more to
     # settle (SWEEP_SECONDS, RESCUE_GRACE_SECONDS). A single run's watch is
     # at most 150 minutes plus the same grace (JOB_TIMEOUT_SECONDS).
@@ -109,9 +113,24 @@ jobs:
           ref: main
           persist-credentials: false
 
-      # Reads from the org's manaflow-glaeda-route App, on its own 5000 requests
-      # an hour; cancels and re-runs stay on GITHUB_TOKEN (owned_pool_rescue.py,
-      # GitHub). Any failure leaves READ_TOKEN empty and GITHUB_TOKEN reads.
+      - name: Mint the cmux-bot token
+        id: cmux-bot-token
+        if: vars.CMUX_BOT_APP_ID != ''
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.CMUX_BOT_APP_ID }}
+          private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
+          permission-actions: write
+          permission-checks: read
+          permission-contents: read
+          permission-issues: write
+          permission-pull-requests: write
+
+      # Prefer cmux-bot for both reads and mutations so this watcher has its own
+      # API budget. Keep the runner-routing App as a read fallback while the
+      # organization rolls cmux-bot out; a failed mint falls back to GITHUB_TOKEN.
       - name: Mint the read token
         id: read-token
         if: vars.GLAEDA_ROUTE_APP_ID != ''
@@ -124,13 +143,28 @@ jobs:
           permission-actions: read
           permission-pull-requests: read
 
+      # The rescue reads a failed side-lane run's `needs` graph from its workflow file
+      # (owned_pool_rescue.downstream_of_refusals()), which needs PyYAML. Best effort:
+      # without it that check excuses nothing and the rescue runs as before.
+      - name: Prepare rescue Python
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          python3 -m venv "$RUNNER_TEMP/rescue-venv"
+          "$RUNNER_TEMP/rescue-venv/bin/python" -m pip install --disable-pip-version-check --no-input PyYAML==6.0.3
+          echo "$RUNNER_TEMP/rescue-venv/bin" >> "$GITHUB_PATH"
+
       - name: Watch runs on persistent pools
         env:
-          READ_TOKEN: ${{ steps.read-token.outputs.token }}
+          READ_TOKEN: ${{ steps.cmux-bot-token.outputs.token || steps.read-token.outputs.token }}
           # A CI run's budget grows by a round per queue round the picker allows.
           QUEUE_ROUNDS: ${{ vars.CI_PR_POOL_QUEUE_ROUNDS }}
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ steps.cmux-bot-token.outputs.token || github.token }}
           RESCUE_SECONDS: ${{ vars.CI_OWNED_POOL_RESCUE_SECONDS }}
+          # cmux-next uses the repository rescue window. A bot rerun reaches
+          # attempt 3 and takes the workflow's Blacksmith fallback; manual
+          # reruns stay minis-first through attempt 2.
+          SIDE_RESCUE_SECONDS: ${{ vars.CI_OWNED_POOL_RESCUE_SECONDS }}
           POOL_OWNED: ${{ vars.CI_PR_POOL_OWNED }}
           WATCH_RUN_ID: ${{ inputs.run_id }}
           SWEEP: ${{ (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' && !inputs.run_id) && '1' || '' }}

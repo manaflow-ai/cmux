@@ -335,6 +335,24 @@ final class CmuxSettingsFileStore {
             if malformedAutomation { snapshot.managedUserDefaults[SocketControlSettings.appStorageKey] = preservedSocketMode }
             if !issues.isEmpty {
                 configurationIssues = issues
+                let fontOnlyIssues = !snapshot.invalidManagedUserDefaultKeys.isEmpty
+                    && issues.count == snapshot.invalidManagedUserDefaultKeys.count
+                    && issues.allSatisfy {
+                        $0.contains(CmuxJSONFontSettings.sidebarPath)
+                            || $0.contains(CmuxJSONFontSettings.surfaceTabBarPath)
+                    }
+                if fontOnlyIssues, let lastGoodResolvedSettings {
+                    for key in snapshot.invalidManagedUserDefaultKeys {
+                        if let previousValue = lastGoodResolvedSettings.managedUserDefaults[key] {
+                            snapshot.managedUserDefaults[key] = previousValue
+                        } else {
+                            snapshot.managedUserDefaults.removeValue(forKey: key)
+                        }
+                    }
+                    snapshot.invalidManagedUserDefaultKeys.removeAll()
+                    self.lastGoodResolvedSettings = snapshot
+                    return snapshot
+                }
                 if let lastGoodResolvedSettings {
                     return lastGoodResolvedSettings
                 }
@@ -453,6 +471,7 @@ final class CmuxSettingsFileStore {
         if let sidebarSection = root["sidebar"] as? [String: Any] {
             parseSidebarSection(sidebarSection, sourcePath: sourcePath, snapshot: &snapshot)
         }
+        parseFontSections(root, sourcePath: sourcePath, snapshot: &snapshot)
         if let sidebarAppearanceSection = root["sidebarAppearance"] as? [String: Any] {
             parseSidebarAppearanceSection(sidebarAppearanceSection, sourcePath: sourcePath, snapshot: &snapshot)
         }
@@ -474,8 +493,14 @@ final class CmuxSettingsFileStore {
             parseFileExplorerSection(fileExplorerSection, sourcePath: sourcePath, snapshot: &snapshot)
         }
         if let section = root["agentMessages"] as? [String: Any] { parseAgentMessagesSection(section, sourcePath: sourcePath, snapshot: &snapshot) }
+        if let section = root["chief"] as? [String: Any] { parseChiefSection(section, sourcePath: sourcePath, snapshot: &snapshot) }
         if let workspaceGroupsSection = root["workspaceGroups"] as? [String: Any] {
             parseWorkspaceGroupsSection(workspaceGroupsSection, sourcePath: sourcePath, snapshot: &snapshot)
+        }
+        if let sleepyModeSection = root["sleepyMode"] as? [String: Any] {
+            parseSleepyModeSection(sleepyModeSection, sourcePath: sourcePath, snapshot: &snapshot)
+        } else if root.keys.contains("sleepyMode") {
+            logInvalid("sleepyMode", sourcePath: sourcePath)
         }
         if let shortcutsSection = root["shortcuts"] {
             parseShortcutsSection(shortcutsSection, sourcePath: sourcePath, snapshot: &snapshot)
@@ -765,6 +790,21 @@ final class CmuxSettingsFileStore {
                 snapshot.managedUserDefaults[SettingCatalog().workspaceColors.subtleSelection.userDefaultsKey] = .bool(value)
             } else {
                 logInvalid("workspaceColors.subtleSelection", sourcePath: sourcePath)
+            }
+        }
+        if section.keys.contains("brightenInDarkMode") {
+            if let value = jsonBool(section["brightenInDarkMode"]) {
+                snapshot.managedUserDefaults[SettingCatalog().workspaceColors.brightenInDarkMode.userDefaultsKey] = .bool(value)
+            } else {
+                logInvalid("workspaceColors.brightenInDarkMode", sourcePath: sourcePath)
+            }
+        }
+        if section.keys.contains("unselectedFillOpacity") {
+            if let value = jsonDouble(section["unselectedFillOpacity"]), value.isFinite {
+                snapshot.managedUserDefaults[SettingCatalog().workspaceColors.unselectedFillOpacity.userDefaultsKey] =
+                    .double(min(max(value, 0), 1))
+            } else {
+                logInvalid("workspaceColors.unselectedFillOpacity", sourcePath: sourcePath)
             }
         }
         if section.keys.contains("notificationBadgeColor") {
@@ -1900,6 +1940,9 @@ struct ResolvedSettingsSnapshot {
     /// binding to a focus context (see ``ShortcutWhenClause``).
     var whenClauses: [KeyboardShortcutSettings.Action: ShortcutWhenClause] = [:]
     var managedUserDefaults: [String: ManagedSettingsValue] = [:]
+    /// Managed defaults whose source fields were invalid. They retain their
+    /// last-good values while valid sibling settings from the same edit apply.
+    var invalidManagedUserDefaultKeys: Set<String> = []
     var legacyDerivedManagedUserDefaultKeys: Set<String> = []
     var managedCustomSettings = ManagedCustomSettings()
 

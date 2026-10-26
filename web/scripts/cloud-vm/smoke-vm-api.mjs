@@ -12,6 +12,7 @@ import {
   parseWebDirAndTarget,
   requireEnvKeys,
 } from "./projects.mjs";
+import { classifyCodexCanaryOutcome, edgeCanaryProblems } from "./canaryOutcome.mjs";
 
 const usage = "Usage: smoke-vm-api.mjs [web-dir] <staging|production> [--create] [--snapshot-check] [--provider freestyle|default] [--image <manifest image id or version>] [--url https://preview.example] [--vercel-curl] [--skip-attach] [--paid] [--edge-check] [--claude-check] [--zero-token] [--sweep-older-than-minutes <n>] [--result-file <path>]";
 const args = process.argv.slice(2);
@@ -210,6 +211,9 @@ async function sessionHeaders(stackUser, expiresInMillis) {
   return {
     authorization: `Bearer ${tokens.accessToken}`,
     "x-stack-refresh-token": tokens.refreshToken,
+    // Names the probe in `cloud_vm_request.client_name`. The server also tags
+    // every event of this account `is_synthetic` from its smoke address.
+    "x-cmux-client": "cmux-cloud-smoke",
   };
 }
 
@@ -399,9 +403,7 @@ try {
       };
       const guestEnv = "export HOME=/root; for f in /etc/profile.d/*.sh; do [ -r \"$f\" ] && . \"$f\"; done; . /etc/cmux/agent-config.sh;";
       const originHost = await exec(`${guestEnv} printf '%s' "$CMUX_CODEROUTER_URL" | sed -e 's#^https\\?://##' -e 's#/.*$##'`);
-      const hosts = await exec("sed -n '/BEGIN freestyle-tls-egress/,/END freestyle-tls-egress/p' /etc/hosts");
       const host = (originHost.stdout ?? "").trim();
-      const steered = host.length > 0 && (hosts.stdout ?? "").includes(host);
       // Any crt_ string under the agent config roots means a token leaked into the guest.
       const leak = await exec("grep -rslE 'crt_[A-Za-z0-9_-]{40,}' /root/.config/cmux /root/.codex /root/.pi /root/.config/opencode /etc/cmux /etc/environment /etc/profile.d 2>/dev/null; true");
       const tokenOnDisk = (leak.stdout ?? "").trim();
@@ -413,16 +415,9 @@ try {
         ? await exec(`${guestEnv} command -v codex >/dev/null || echo 'codex-missing'; curl -sS --max-time 30 -X POST -H 'content-type: application/json' -H "authorization: Bearer $OPENAI_API_KEY" -d '{"model":"cmux-canary-no-such-model","input":"x","max_output_tokens":16,"stream":false}' "$CMUX_CODEROUTER_URL/v1/responses"; echo; echo "codex-exit $?"`)
         : await exec(`${guestEnv} cd /root && command -v codex && codex exec --skip-git-repo-check 'Reply with exactly the single word pong and nothing else.' 2>&1 | tail -20; echo "codex-exit $?"`, 240_000);
       const codexOut = `${codex.stdout ?? ""}${codex.stderr ?? ""}`;
-      // codex echoes the prompt, so only a line that is exactly the answer counts.
-      const codexPong = !zeroToken && codexOut.split("\n").some((line) => line.trim().toLowerCase() === "pong");
-      // The edge delivered the token but the team has no upstream subscription:
-      // a real outcome on staging teams, reported rather than failed. In
-      // zero-token mode it is the only passing outcome.
-      const codexOutcome = /codex-missing/.test(codexOut)
-        ? "failed"
-        : codexPong ? "answered" : /"error":\s*"no_usable_account"/.test(codexOut) ? "no_account" : "failed";
+      const codexOutcome = classifyCodexCanaryOutcome(codexOut, { zeroToken });
       edge = {
-        hostsSteered: steered,
+        edgeHost: host || null,
         tokenOnDisk: tokenOnDisk === "" ? null : tokenOnDisk,
         modelsStatus,
         codexExit: codex.exitCode,
@@ -445,14 +440,14 @@ try {
         const selfUsage = await exec(`${guestEnv} curl -sS --max-time 20 -H "authorization: Bearer $OPENAI_API_KEY" "$CMUX_CODEROUTER_URL/api/coderouter/vm-usage/self"`);
         edge.selfUsage = (selfUsage.stdout ?? "").trim().slice(0, 600);
       }
-      const problems = [];
-      if (!steered) problems.push(`guest /etc/hosts is not steered to the edge for ${host || "the coderouter origin"}`);
-      if (tokenOnDisk) problems.push(`route token found in guest files: ${tokenOnDisk}`);
-      if (modelsStatus !== "200") problems.push(`GET /api/coderouter/vm-usage/self from the guest returned ${modelsStatus || "nothing"}`);
-      if (codexOutcome === "failed") problems.push(`codex turn through the edge did not answer: ${edge.codexTail}`);
-      if (claudeCheck && edge.claudeOutcome !== "answered") problems.push(`claude turn through the edge did not answer: ${edge.claudeTail}`);
+      const problems = edgeCanaryProblems({
+        ...edge,
+        claudeCheck,
+        codexTail: edge.codexTail,
+        claudeTail: edge.claudeTail,
+      });
       timings.edgeMs = Math.round(performance.now() - edgeStartedAt);
-      // Everything past the guest's hosts and disk is coderouter answering.
+      // Everything past the guest's alias and disk is coderouter answering.
       if (modelsStatus !== "200" || codexOutcome === "failed" || (claudeCheck && edge.claudeOutcome !== "answered")) {
         stage = "coderouter";
       }

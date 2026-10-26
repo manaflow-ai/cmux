@@ -264,6 +264,71 @@ struct BrowserReplFileSystemTests {
     }
 }
 
+/// Another local process can change the tree between the REPL's path check
+/// and its system call; the checks and the calls must be the same.
+@Suite("Browser REPL fs against other processes")
+struct BrowserReplFileSystemRaceTests {
+    private typealias Scratch = BrowserReplFileSandboxTests.Scratch
+
+}
+
+/// A file that is not a regular file (a FIFO, a device) or one too large
+/// to hold in memory must not hold a session's fs, or every session's.
+@Suite("Browser REPL fs on special and large files")
+struct BrowserReplFileSystemSpecialFileTests {
+    private typealias Scratch = BrowserReplFileSandboxTests.Scratch
+
+    /// Runs `operation` off the test's thread and returns its error code
+    /// (`"ok"` on success); nil when it is still running after 10 s.
+    /// Opening the FIFO for reading and writing then lets a blocked open or
+    /// read finish, so a red run does not leave fs stuck.
+    private func performBounded(
+        _ fs: BrowserReplFileSystem,
+        _ operation: String,
+        _ arguments: [String: String],
+        fifo: String
+    ) async -> String? {
+        let task = Task.detached { fs.perform(operation, arguments: arguments).failureCode }
+        let result = await browserReplWithDeadline(seconds: 10) { await task.value }
+        guard result == nil else { return result }
+        // A blocked writer then gets EPIPE, not a signal that ends the tests.
+        signal(SIGPIPE, SIG_IGN)
+        var finished: String?
+        while finished == nil {
+            let unblock = open(fifo, O_RDWR | O_NONBLOCK)
+            if unblock >= 0 { _ = write(unblock, "x", 1) }
+            finished = await browserReplWithDeadline(seconds: 1) { await task.value }
+            if unblock >= 0 { close(unblock) }
+            if finished == nil { finished = await browserReplWithDeadline(seconds: 1) { await task.value } }
+        }
+        return nil
+    }
+
+    private func makeFileSystem(
+        _ scratch: Scratch,
+        budget: BrowserReplWriteBudget,
+        isCancelled: @escaping @Sendable () -> Bool = { false }
+    ) -> BrowserReplFileSystem {
+        BrowserReplFileSystem(
+            sandbox: BrowserReplFileSandbox(root: scratch.root),
+            temporaryDirectory: scratch.base + "/tmp",
+            rootDescriptor: nil,
+            temporaryDescriptor: nil,
+            writeBudget: budget,
+            isCancelled: isCancelled
+        )
+    }
+
+}
+
+private extension Result where Success == Any, Failure == BrowserReplFileSystemError {
+    /// The error code, or `"ok"`.
+    var failureCode: String {
+        if case .failure(let error) = self { return error.code }
+        return "ok"
+    }
+}
+
 /// A flag one task sets and another polls.
 private final class BrowserReplRaceFlag: @unchecked Sendable {
     private let lock = NSLock()
@@ -285,4 +350,46 @@ private extension Result where Success == Any, Failure == BrowserReplFileSystemE
         guard case .success(let value) = self else { return nil }
         return (value as? [String: Any])?["type"] as? String
     }
+}
+
+/// r17 native#1: two sessions whose roots nest (one session works in a
+/// directory, another in its parent) share entries. The outer session can
+/// rename a directory the inner one holds open out of the inner root while
+/// an operation of the inner one runs; the inner operation must not then
+/// create, write or remove anything there, outside its root.
+@Suite("Browser REPL fs against a descendant moved out of the root")
+struct BrowserReplFileSystemDescendantMoveTests {
+    private typealias Scratch = BrowserReplFileSandboxTests.Scratch
+
+    private func fileSystem(root: String, isCancelled: @escaping @Sendable () -> Bool = { false }) -> BrowserReplFileSystem {
+        BrowserReplFileSystem(
+            sandbox: BrowserReplFileSandbox(root: root),
+            temporaryDirectory: nil,
+            rootDescriptor: nil,
+            temporaryDescriptor: nil,
+            writeBudget: BrowserReplWriteBudget(),
+            isCancelled: isCancelled
+        )
+    }
+
+}
+
+/// How many entries a moved directory held when it was moved.
+private final class BrowserReplMovedCount: @unchecked Sendable {
+    private let lock = NSLock()
+    private var count: Int?
+
+    var isSet: Bool { lock.withLock { count != nil } }
+    var value: Int { lock.withLock { count ?? 0 } }
+
+    func set(_ value: Int) { lock.withLock { count = value } }
+}
+
+/// Owner decision 2026-10-06: an extended attribute past the 1 MiB
+/// `copyFile` copies does not fail the copy; the copy leaves it out and
+/// says so in the cell's output.
+@Suite("Browser REPL copyFile and large extended attributes")
+struct BrowserReplCopyLargeAttributeTests {
+    private typealias Scratch = BrowserReplFileSandboxTests.Scratch
+
 }

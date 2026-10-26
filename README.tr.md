@@ -69,7 +69,7 @@ Kenar çubuğu git dalını, bağlantılı PR durumunu/numarasını, çalışma 
 <tr>
 <td width="40%" valign="middle">
 <h3>SSH</h3>
-<code>cmux ssh user@remote</code> uzak bir makine için çalışma alanı oluşturur. Tarayıcı panelleri uzak ağ üzerinden yönlendirilir, böylece localhost sorunsuz çalışır. Uzak oturuma bir görsel sürükleyerek scp ile yükleyin.
+<code>cmux ssh user@remote</code> uzak bir makine için çalışma alanı oluşturur. İlk uzak terminalinde bir kez başlangıç komutu çalıştırmak için <code>--command 'omp "investigate auth"'</code> parametresini geçin. Tarayıcı panelleri uzak ağ üzerinden yönlendirilir, böylece localhost sorunsuz çalışır. Uzak oturuma bir görsel sürükleyerek scp ile yükleyin.
 </td>
 <td width="60%">
 <img src="./docs/assets/ssh.png" alt="cmux SSH" width="100%" />
@@ -120,6 +120,25 @@ brew upgrade --cask cmux
 
 İlk açılışta macOS, tanımlanmış bir geliştiriciden gelen bir uygulamayı açmayı onaylamanızı isteyebilir. Devam etmek için **Aç**'a tıklayın.
 
+### Kabuk tamamlama
+
+Homebrew cask'i zsh, bash ve fish için tamamlamayı kurar. Kurulumdan sonra yeni bir kabuk başlatın. Yüklenmezse, Homebrew'un tamamlama dizinlerinin kabuğunuza bağlı olduğundan emin olun ([Homebrew'un kabuk tamamlama belgelerine](https://docs.brew.sh/Shell-Completion) bakın).
+
+cmux'u başka bir yolla kurduysanız, ilgili satırı kabuğunuzun başlangıç dosyasına ekleyin ve yeni bir kabuk başlatın:
+
+```zsh
+autoload -Uz compinit && compinit
+eval "$(cmux completion zsh)"
+```
+
+```bash
+eval "$(cmux completion bash)"
+```
+
+```fish
+cmux completion fish | source
+```
+
 ## Neden cmux?
 
 Birçok Claude Code ve Codex oturumunu paralel olarak çalıştırıyorum. Ghostty'yi bir sürü bölünmüş panelle kullanıyor ve bir ajanın bana ne zaman ihtiyacı olduğunu anlamak için yerel macOS bildirimlerine güveniyordum. Ancak Claude Code'un bildirim metni her zaman sadece "Claude is waiting for your input" oluyor, hiçbir bağlam yok ve yeterince sekme açıkken başlıkları bile okuyamıyordum artık.
@@ -152,7 +171,9 @@ cmux'u nasıl yapılandıracağınız hakkında daha fazla bilgi için, [doküma
 
 | Kısayol | Eylem |
 |----------|--------|
-| ⌘ N | Yeni çalışma alanı |
+| ⌘ N | Yeni yerel çalışma alanı |
+| ⌘ Y | Son kullanılabilir Cloud bağlamında yeni Cloud çalışma alanı; hiçbiri yoksa New Cloud Machine açılır |
+| ⌘ ⇧ Y | Yeni Cloud makinesi |
 | ⌘ 1–8 | Çalışma alanı 1–8'e atla |
 | ⌘ 9 | Son çalışma alanına atla |
 | ⌃ ⌘ ] | Sonraki çalışma alanı |

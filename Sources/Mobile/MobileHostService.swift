@@ -433,11 +433,35 @@ final class MobileHostService {
 
     private let defaults: UserDefaults
     private let runtimeOverride: (any MobileHostPairingRuntime)?
+    private var chiefEnabledSnapshot: Bool
+    private var chiefSettingsObserver: NSObjectProtocol?
     private var pairingRuntime: any MobileHostPairingRuntime { runtimeOverride ?? MobileHostIrxRuntime.shared }
 
     init(defaults: UserDefaults = .standard, runtime: (any MobileHostPairingRuntime)? = nil) {
         self.defaults = defaults
         runtimeOverride = runtime
+        chiefEnabledSnapshot = ChiefSettings.isEnabled(in: defaults)
+        chiefSettingsObserver = nil
+        chiefSettingsObserver = NotificationCenter.default.addObserver(
+            forName: UserDefaults.didChangeNotification,
+            object: defaults,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.publishChiefCapabilityChangeIfNeeded()
+            }
+        }
+    }
+
+    private func publishChiefCapabilityChangeIfNeeded() {
+        let enabled = ChiefSettings.isEnabled(in: defaults)
+        guard enabled != chiefEnabledSnapshot else { return }
+        chiefEnabledSnapshot = enabled
+        NotificationCenter.default.post(name: .mobileHostStatusDidChange, object: nil)
+        // A connected phone otherwise keeps the capability snapshot it got at
+        // connect time. Invalidate that snapshot over the existing event
+        // stream so it can re-read `mobile.host.status` immediately.
+        Self.emitEvent(topic: "mobile.host.capabilities.changed", payload: [:])
     }
 
     /// Inject the auth dependency. Call once at the composition root.
@@ -522,6 +546,27 @@ final class MobileHostService {
     /// The mobile client ids recorded for a connection.
     func clientIDs(forConnectionID connectionID: UUID) -> Set<String> {
         clientIDsByConnectionID[connectionID] ?? []
+    }
+
+    /// Records accepted input from an Iroh terminal lane for the phone
+    /// connection that owns the admitted binding.
+    ///
+    /// Iroh lane frames do not carry the RPC `client_id`. The control
+    /// connection records that id when the phone's first authorized request
+    /// arrives; the connection registry supplies the binding-to-connection
+    /// association needed to route lane activity to the right participant.
+    func noteIrohTerminalInputActivity(surfaceID: UUID, bindingID: String) {
+        let clientIDs = MobileHostConnectionRegistry.shared
+            .snapshot(irohBindingID: bindingID)
+            .reduce(into: Set<String>()) { result, connection in
+                result.formUnion(clientIDsByConnectionID[connection.connectionID] ?? [])
+            }
+        for clientID in clientIDs {
+            TerminalController.shared.noteMobileSizingActivity(
+                surfaceID: surfaceID,
+                clientID: clientID
+            )
+        }
     }
 
     /// This Mac's authenticated Stack email, or `nil` when signed out or before

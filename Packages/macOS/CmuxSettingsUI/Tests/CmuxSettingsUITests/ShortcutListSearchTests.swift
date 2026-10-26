@@ -65,6 +65,19 @@ struct ShortcutListSearchTests {
         #expect(!titleHits[firstCaptionOnly...].contains(true))
     }
 
+    @Test func preparedIndexPreservesModelRankingAndKeyFiltering() {
+        let model = makeModel()
+        let index = ShortcutListSearchIndex(model: model)
+        let queries = [
+            ShortcutListSearchQuery(text: "browser"),
+            ShortcutListSearchQuery(text: "surface", keys: StoredShortcut(first: commandT)),
+            ShortcutListSearchQuery(text: "terminal hunk")
+        ]
+        for query in queries {
+            #expect(index.actions(matching: query) == model.actions(matching: query))
+        }
+    }
+
     @Test func oneStrokeFindsExactBindingsAndChordsStartingWithIt() {
         let keys = StoredShortcut(first: controlB)
         #expect(ShortcutListSearch.keys(keys, match: StoredShortcut(first: controlB), numbered: false))
@@ -128,14 +141,16 @@ struct ShortcutListSearchTests {
 
     @Test func refreshKeepsShownRowsAndAddsNewMatches() {
         let model = makeModel()
+        let index = ShortcutListSearchIndex(model: model)
         let query = ShortcutListSearchQuery(keys: StoredShortcut(first: commandT))
-        let shown = model.actions(matching: query)
+        let shown = index.actions(matching: query)
         #expect(!shown.contains(.openSettings))
 
         // Unbind a shown row and give another action the searched keys.
         model.bindings[ShortcutAction.newSurface.rawValue] = .unbound
         model.bindings[ShortcutAction.openSettings.rawValue] = StoredShortcut(first: commandT)
-        let refreshed = model.actions(matching: query, keeping: shown)
+        let refreshedIndex = ShortcutListSearchIndex(model: model)
+        let refreshed = refreshedIndex.actions(matching: query, keeping: shown)
 
         #expect(Array(refreshed.prefix(shown.count)) == shown)
         #expect(refreshed.contains(.newSurface))

@@ -10,12 +10,18 @@ pages see trusted events.
     cmux browser repl 'await page.goto("https://example.com"); snapshot()'
     cmux browser repl --eval - < script.js
     cmux browser repl --session work 'const s1 = await snapshot()'
-    cmux browser repl list | reset <session> | guide
+    cmux browser repl list | reset <session> [--all-workspaces] | guide
 
 Without `--session` each call is one-shot: its tabs close at the end unless
 `page.keep()` was called. With `--session NAME`, top-level `const`/`let`
 bindings and tabs persist until `reset NAME` or 30 minutes idle. A session
-binds to your cmux workspace, or to the focused workspace outside cmux.
+binds to your cmux workspace; the same name in another workspace is another
+session. Outside cmux, one session per name is shared by every caller
+outside cmux, whatever workspace is focused (its tabs open in the one
+focused when it was made). `list` and `reset` act on your sessions
+(`--all-workspaces` for every one). A name
+is up to 64 letters, digits, `.`, `_` and `-`; at most 32 sessions are open
+at once.
 
 - The last expression's value prints (a promise is awaited first);
   `undefined` prints nothing. `console.log()` prints too.
@@ -60,7 +66,11 @@ binds to your cmux workspace, or to the focused workspace outside cmux.
 - `sleep(ms)`, `display(value)`, `console`.
 - `session`: `name(label)` labels this session's tabs; `keep(page)` keeps a
   tab after a one-shot run; `id`; `guide()` returns this text.
-  `allowedDomains(["example.com", "*.example.org"], { lock })`,
+  `allowedDomains(["example.com", "*.example.org"], { lock })` (a wildcard
+  over a public suffix, such as `*.com` or `*.co.uk`, is refused;
+  `example.com` also allows `www.example.com`, `=example.com` only the
+  exact host, as `sites.browserAuth` needs on such a host, with the
+  page's port: `=https://example.com:443`),
   `prohibitedDomains([...])` and `blockIPAddresses(true)` limit navigations,
   new tabs, `fetch` (every redirect), site tools and the subresources of
   tabs this session opened. A tab this session opened never loads a blocked page (the
@@ -79,7 +89,9 @@ binds to your cmux workspace, or to the focused workspace outside cmux.
 - `secrets.set(name, value, { domains, totp })` or `secrets.load(file)`
   (`{ "<domain>": { name: value } }`) registers a secret; type it with
   `locator.fill(secret("name"))` or `locator.type(secret("name"))`. It is
-  typed only into frames on its domains, and its value prints, reads and
+  typed only into frames on its domains, in a tab this session opened,
+  while `session.allowedDomains([...])` allows only its domains (and the
+  policy cannot widen past them afterwards), and its value prints, reads and
   saves as `<secret:name>` everywhere. `{ totp: true }` types the current
   one-time code of a base32 seed.
 - `search(query, { engine, limit })`: `[{ title, url, snippet }]` from

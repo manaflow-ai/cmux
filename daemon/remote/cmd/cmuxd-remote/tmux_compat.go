@@ -1224,7 +1224,7 @@ func tmuxAnchoredSplitTarget(rc *rpcContext, workspaceId string) (*tmuxSplitAnch
 
 		// Right-column anchors can outlive the pane they pointed at.
 		// Drop stale state and rebuild from the caller surface instead.
-		_ = withLockedTmuxCompatStore(func(store *tmuxCompatStore) error {
+		if err := withLockedTmuxCompatStore(func(store *tmuxCompatStore) error {
 			if current, ok := store.MainVerticalLayouts[workspaceId]; ok &&
 				current.LastColumnSurfaceId == staleLastColumn {
 				current.LastColumnSurfaceId = ""
@@ -1232,7 +1232,15 @@ func tmuxAnchoredSplitTarget(rc *rpcContext, workspaceId string) (*tmuxSplitAnch
 				delete(store.LastSplitSurface, workspaceId)
 			}
 			return nil
-		})
+		}); err != nil {
+			return nil, err
+		}
+		// The cleanup may have raced with a close or another split. Reload the
+		// post-cleanup snapshot before choosing a main-surface fallback.
+		store, err = loadTmuxCompatStore()
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	candidateAnchors := []string{tmuxCallerSurfaceHandle()}
@@ -1271,8 +1279,9 @@ func tmuxAnchoredSplitTarget(rc *rpcContext, workspaceId string) (*tmuxSplitAnch
 // --- TmuxCompatStore (local JSON state) ---
 
 type mainVerticalState struct {
-	MainSurfaceId       string `json:"mainSurfaceId"`
-	LastColumnSurfaceId string `json:"lastColumnSurfaceId,omitempty"`
+	MainSurfaceId          string   `json:"mainSurfaceId"`
+	LastColumnSurfaceId    string   `json:"lastColumnSurfaceId,omitempty"`
+	MainPaneWidthFraction  *float64 `json:"mainPaneWidthFraction,omitempty"`
 }
 
 type tmuxCompatStore struct {
@@ -1768,11 +1777,6 @@ func tmuxNewWindow(rc *rpcContext, args []string) error {
 func tmuxSplitWindow(rc *rpcContext, args []string) error {
 	p := parseTmuxArgs(args, []string{"-c", "-F", "-l", "-t"}, []string{"-P", "-b", "-d", "-h", "-v"})
 
-	targetWs, _, targetSurface, err := tmuxResolveSurfaceTarget(rc, p.value("-t"))
-	if err != nil {
-		return err
-	}
-
 	direction := "down"
 	if p.hasFlag("-h") {
 		direction = "right"
@@ -1786,18 +1790,22 @@ func tmuxSplitWindow(rc *rpcContext, args []string) error {
 	// Anchor splits to the leader surface for agent teams.
 	callerWorkspace := tmuxCallerWorkspaceHandle()
 	anchoredCallerSurface := ""
+	var targetWs, targetSurface string
+	var err error
 	if callerWorkspace != "" {
-		if wsId, err := tmuxResolveWorkspaceId(rc, callerWorkspace); err == nil {
-			anchored, err := tmuxAnchoredSplitTarget(rc, wsId)
-			if err != nil {
-				return err
-			}
-			if anchored != nil {
+		if wsId, resolveErr := tmuxResolveWorkspaceId(rc, callerWorkspace); resolveErr == nil {
+			if anchored, anchorErr := tmuxAnchoredSplitTarget(rc, wsId); anchorErr == nil && anchored != nil {
 				targetWs = wsId
 				targetSurface = anchored.targetSurfaceId
 				direction = anchored.direction
 				anchoredCallerSurface = anchored.callerSurfaceId
 			}
+		}
+	}
+	if targetWs == "" {
+		targetWs, _, targetSurface, err = tmuxResolveSurfaceTarget(rc, p.value("-t"))
+		if err != nil {
+			return err
 		}
 	}
 
@@ -2483,6 +2491,7 @@ func tmuxResizePane(rc *rpcContext, args []string) error {
 			}
 		}
 		panes, _ := panePayload["panes"].([]any)
+		currentFraction := 0.0
 		for _, pp := range panes {
 			pane, _ := pp.(map[string]any)
 			if pane == nil {
@@ -2499,7 +2508,24 @@ func tmuxResizePane(rc *rpcContext, args []string) error {
 						targetPoints = float64(target)*cellPoints + residual
 					}
 				}
+				if isPercentage {
+					if frame, ok := pane["pixel_frame"].(map[string]any); ok {
+						paneWidth := floatFromAny(frame["width"])
+						containerWidth := floatFromAny(func() any {
+							frame, _ := panePayload["container_frame"].(map[string]any)
+							return frame["width"]
+						}())
+						if paneWidth > 0 && containerWidth > 0 {
+							currentFraction = paneWidth / containerWidth
+						}
+					}
+				}
 				break
+			}
+		}
+		if isPercentage && target == 30 && currentFraction > 0 {
+			if !tmuxShouldApplyMainVerticalLeaderWidth(rc, wsId, paneId, currentFraction, 0.30) {
+				return nil
 			}
 		}
 		params := map[string]any{
@@ -2584,6 +2610,61 @@ func tmuxResizePane(rc *rpcContext, args []string) error {
 		return err
 	}
 	return nil
+}
+
+// Claude's main-vertical flow repeats `resize-pane -x 30%` after every
+// teammate. Remember the first automatic width and treat later repeats as
+// layout bookkeeping, while adopting a width changed by the user.
+func tmuxShouldApplyMainVerticalLeaderWidth(
+	rc *rpcContext,
+	workspaceID string,
+	paneID string,
+	currentFraction float64,
+	targetFraction float64,
+) bool {
+	store, err := loadTmuxCompatStore()
+	if err != nil {
+		return true
+	}
+	layout, ok := store.MainVerticalLayouts[workspaceID]
+	if !ok || layout.MainSurfaceId == "" {
+		return true
+	}
+	mainSurfaceID, err := tmuxCanonicalSurfaceId(rc, layout.MainSurfaceId, workspaceID)
+	if err != nil {
+		return true
+	}
+	mainPaneID, err := tmuxPaneIdForSurface(rc, workspaceID, mainSurfaceID)
+	if err != nil || mainPaneID != paneID {
+		return true
+	}
+
+	shouldApply := true
+	if err := withLockedTmuxCompatStore(func(store *tmuxCompatStore) error {
+		layout, ok := store.MainVerticalLayouts[workspaceID]
+		if !ok {
+			return nil
+		}
+		const epsilon = 0.02
+		if math.Abs(targetFraction-0.30) <= epsilon {
+			if remembered := layout.MainPaneWidthFraction; remembered != nil {
+				if math.Abs(currentFraction-*remembered) > epsilon {
+					updated := currentFraction
+					layout.MainPaneWidthFraction = &updated
+					store.MainVerticalLayouts[workspaceID] = layout
+				}
+				shouldApply = false
+				return nil
+			}
+		}
+		remembered := targetFraction
+		layout.MainPaneWidthFraction = &remembered
+		store.MainVerticalLayouts[workspaceID] = layout
+		return nil
+	}); err != nil {
+		return true
+	}
+	return shouldApply
 }
 
 func tmuxWaitFor(_ *rpcContext, args []string) error {
@@ -2692,16 +2773,19 @@ func tmuxSelectLayout(rc *rpcContext, args []string) error {
 		if callerSurface := tmuxCallerSurfaceHandle(); callerSurface != "" {
 			if err := withLockedTmuxCompatStore(func(store *tmuxCompatStore) error {
 				existingColumn := ""
+				var existingMainPaneWidthFraction *float64
 				if existing, ok := store.MainVerticalLayouts[wsId]; ok {
 					existingColumn = existing.LastColumnSurfaceId
+					existingMainPaneWidthFraction = existing.MainPaneWidthFraction
 				}
 				seedColumn := existingColumn
 				if seedColumn == "" {
 					seedColumn = store.LastSplitSurface[wsId]
 				}
 				store.MainVerticalLayouts[wsId] = mainVerticalState{
-					MainSurfaceId:       callerSurface,
-					LastColumnSurfaceId: seedColumn,
+					MainSurfaceId:         callerSurface,
+					LastColumnSurfaceId:   seedColumn,
+					MainPaneWidthFraction: existingMainPaneWidthFraction,
 				}
 				return nil
 			}); err != nil {

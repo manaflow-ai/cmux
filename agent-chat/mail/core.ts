@@ -301,6 +301,32 @@ export class InMemoryMailBroker {
     return next;
   }
 
+  /** Restore a committed envelope without notifying listeners. Persistence adapters use this during replay. */
+  restore(envelope: MailEnvelope, deliveries: readonly DeliveryReceipt[]): void {
+    if (this.messagesById.has(envelope.id)) throw new Error(`mail message ${envelope.id} was restored twice`);
+    const normalized = normalizeEnvelope(envelope);
+    if (normalized.recipients.length > this.maxRecipients) throw new MailFanoutError(normalized.recipients.length, this.maxRecipients);
+    const byRecipient = new Map<AgentAddress, DeliveryReceipt>();
+    for (const receipt of deliveries) {
+      if (receipt.messageId !== normalized.id || !normalized.recipients.includes(receipt.recipient)) {
+        throw new Error(`invalid delivery receipt for mail message ${normalized.id}`);
+      }
+      byRecipient.set(receipt.recipient, { ...receipt });
+    }
+    if (byRecipient.size !== normalized.recipients.length) throw new Error(`missing delivery receipt for mail message ${normalized.id}`);
+    this.messagesById.set(normalized.id, normalized);
+    this.fingerprintsById.set(normalized.id, fingerprint(normalized));
+    this.appendOrder.push(normalized.id);
+    this.deliveriesByMessage.set(normalized.id, byRecipient);
+  }
+
+  /** Restore one delivery receipt without emitting a duplicate delivery event. */
+  restoreDelivery(receipt: DeliveryReceipt): void {
+    const deliveries = this.deliveriesByMessage.get(receipt.messageId);
+    if (!deliveries?.has(receipt.recipient)) throw new Error(`unknown mail delivery ${receipt.messageId}/${receipt.recipient}`);
+    deliveries.set(receipt.recipient, { ...receipt });
+  }
+
   markDelivered(messageId: MailId, recipient: AgentAddress): DeliveryReceipt {
     return this.updateDelivery(messageId, recipient, { state: "delivered" });
   }

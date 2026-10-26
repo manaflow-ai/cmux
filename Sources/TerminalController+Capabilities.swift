@@ -30,6 +30,9 @@ extension TerminalController {
         var methods: [String] = [
             "system.ping",
             "system.capabilities",
+            "coderouter.handoff.begin",
+            "coderouter.handoff.complete",
+            "coderouter.handoff.arm",
             "system.identify",
             "system.tree",
             "sidebar.custom.open",
@@ -130,7 +133,9 @@ extension TerminalController {
             "vm.agent_updates_set",
             "vm.rename",
             "vm.pause",
+            "vm.hygiene",
             "vm.resume",
+            "vm.restart",
             "vm.snapshot",
             "vm.snapshot_list",
             "vm.snapshot_delete",
@@ -266,7 +271,7 @@ extension TerminalController {
             "workspace.remote.pty_bridge", "workspace.remote.pty_resize", "workspace.remote.pty_attach_end",
             "workspace.remote.terminal_session_launching",
             "workspace.remote.terminal_session_connected", "workspace.remote.terminal_session_end",
-            "remote.tmux.sessions", "remote.tmux.attach", "remote.tmux.detach", "remote.tmux.state", "remote.tmux.mirror", "remote.tmux.window", "remote.tmux.pane_grids", "remote.tmux.pane_surfaces",
+            "remote.tmux.sessions", "remote.tmux.attach", "remote.tmux.detach", "remote.tmux.state", "remote.tmux.attach_progress", "remote.tmux.mirror", "remote.tmux.window", "remote.tmux.pane_grids", "remote.tmux.pane_surfaces",
             "remotes.list", "remotes.add", "remotes.remove",
             "layout.save", "layout.list", "layout.get", "layout.open", "layout.delete",
             "canvas.align", "canvas.break", "canvas.info", "canvas.join", "canvas.new_pane",
@@ -288,7 +293,7 @@ extension TerminalController {
             "feed.list",
             "surface.list",
             "surface.current",
-            "surface.focus",
+            "surface.focus", "surface.jump_to_last_prompt",
             "surface.split",
             "surface.respawn",
             "surface.create",
@@ -321,6 +326,13 @@ extension TerminalController {
             "agent.message.mark_read",
             "agent.message.poll",
             "agent.message.settings",
+            "chief.open",
+            "chief.send",
+            "chief.status",
+            "chief.conversations",
+            "chief.read",
+            "chief.mark_read",
+            "chief.stop",
             "debug.terminals",
             "surface.send_text",
             "surface.send_key",
@@ -332,6 +344,7 @@ extension TerminalController {
             "surface.ports_kick",
             "surface.read_text",
             "surface.input_state",
+            "surface.wait_text_change",
             "surface.read_selection",
             "surface.clear_history",
             "surface.trigger_flash",
@@ -484,8 +497,14 @@ extension TerminalController {
         }
         methods.append(contentsOf: ControlCommandExecutionPolicy.simulatorMethods)
 #if DEBUG
+        methods.append("chief.approve")
+        methods.append("chief.answer")
+        methods.append("chief.debug")
         methods.append(contentsOf: Self.v2DebugMethodNames)
 #endif
+        if !ChiefSettings.isEnabled {
+            methods.removeAll { $0.hasPrefix("chief.") }
+        }
 
         return [
             "protocol": "cmux-socket",
