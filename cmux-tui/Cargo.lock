@@ -1680,6 +1680,7 @@ dependencies = [
  "cmux-config",
  "cmux-holder",
  "cmux-host",
+ "cmux-ipc",
  "cmux-link",
  "cmux-lock-rank",
  "cmux-panic-log",
