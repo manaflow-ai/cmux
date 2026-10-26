@@ -1,4 +1,5 @@
 import CmuxNextCompat
+public import CmuxNextTrace
 import Darwin
 import Dispatch
 
@@ -97,6 +98,8 @@ public final class BackgroundWork: Sendable {
     ///     did not start at once), after it is queued and before it can start; default nothing. Traces
     ///     count waits with it; tests use it as the point after which a cancel or an escalation meets a
     ///     queued item, not the checks at the call.
+    ///   - hangs: watches each item's run on its lane thread for a hang, with the lane's
+    ///     ``hangDeadline(_:)``; the wait for a slot is not watched. nil (the default) watches nothing.
     ///   - onRan: called on the lane thread after each item ran, with its lane, its priority and its start
     ///     and end in `uptimeNanos` nanoseconds; default none, and then no item reads the clock for it. The
     ///     startup trace (CmuxNextLaunch's StartupTrace) records lane jobs with it until it closes
@@ -104,15 +107,17 @@ public final class BackgroundWork: Sendable {
     ///   - uptimeNanos: the clock a block-shutdown item's run time is measured with, in nanoseconds; nil is
     ///     `CLOCK_UPTIME_RAW`. Tests pass their own.
     public convenience init(cpuWidth: Int = BackgroundWork.defaultCPUWidth, label: String = "com.cmuxterm.next.work",
+                            hangs: (any HangWatchScoping)? = nil,
                             onQueued: @escaping @Sendable (BlockingLane, WorkPriority) -> Void = { _, _ in },
                             onRan: (@Sendable (BlockingLane, WorkPriority, UInt64, UInt64) -> Void)? = nil,
                             uptimeNanos: (@Sendable () -> UInt64)? = nil) {
-        self.init(cpuWidth: cpuWidth, label: label, onQueued: onQueued, onRan: onRan, uptimeNanos: uptimeNanos,
-                  taskHooks: .none)
+        self.init(cpuWidth: cpuWidth, label: label, hangs: hangs, onQueued: onQueued, onRan: onRan,
+                  uptimeNanos: uptimeNanos, taskHooks: .none)
     }
 
     /// The designated init; tests pass ``TaskHooks`` to stop a task between its steps.
-    init(cpuWidth: Int, label: String, onQueued: @escaping @Sendable (BlockingLane, WorkPriority) -> Void,
+    init(cpuWidth: Int, label: String, hangs: (any HangWatchScoping)? = nil,
+         onQueued: @escaping @Sendable (BlockingLane, WorkPriority) -> Void,
          onRan: (@Sendable (BlockingLane, WorkPriority, UInt64, UInt64) -> Void)? = nil,
          uptimeNanos: (@Sendable () -> UInt64)?, taskHooks: TaskHooks) {
         self.taskHooks = taskHooks
@@ -122,13 +127,35 @@ public final class BackgroundWork: Sendable {
         self.onRan = onRan
         self.uptimeNanos = uptimeNanos ?? { clock_gettime_nsec_np(CLOCK_UPTIME_RAW) }
         lanes = BlockingLane.allCases.map { lane in
-            switch lane {
-            case .files: LaneScheduler(label: "\(label).\(lane)", policy: .perPriority, mayBlock: true)
-            case .system: LaneScheduler(label: "\(label).\(lane)", policy: .shared(width: Self.systemWidth, reserved: Self.systemReserved),
-                                        mayBlock: true, caps: [.hostResolution: Self.hostResolutionCap])
+            let traits: (policy: LaneScheduler.Policy, mayBlock: Bool) = switch lane {
+            case .files: (.perPriority, true)
+            case .system: (.shared(width: Self.systemWidth, reserved: Self.systemReserved), true)
             // The .cpu lane is sized to the cores: a blocking seam in one of its items is a wrong-lane violation.
-            case .cpu: LaneScheduler(label: "\(label).\(lane)", policy: .shared(width: max(1, cpuWidth)), mayBlock: false)
+            case .cpu: (.shared(width: max(1, cpuWidth)), false)
             }
+            let watched = hangs.map { HangWatchedLane(Self.hangScopeName(lane), deadline: Self.hangDeadline(lane), on: $0) }
+            let caps: [LaneCap: Int] = lane == .system ? [.hostResolution: Self.hostResolutionCap] : [:]
+            return LaneScheduler(label: "\(label).\(lane)", policy: traits.policy, mayBlock: traits.mayBlock, caps: caps,
+                                 hangWatched: watched)
+        }
+    }
+
+    /// How long one item of `lane` may run before the hang watcher reports it: a file operation 5 s,
+    /// a system call 30 s (`getaddrinfo`'s own timeout, see ``systemWidth``), CPU work 10 s.
+    public static func hangDeadline(_ lane: BlockingLane) -> Duration {
+        switch lane {
+        case .files: .seconds(5)
+        case .system: .seconds(30)
+        case .cpu: .seconds(10)
+        }
+    }
+
+    /// The name a hang report gives an item of `lane`.
+    static func hangScopeName(_ lane: BlockingLane) -> StaticString {
+        switch lane {
+        case .files: "lane.files"
+        case .system: "lane.system"
+        case .cpu: "lane.cpu"
         }
     }
 

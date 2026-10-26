@@ -1,4 +1,5 @@
 import CmuxNextCompat
+import CmuxNextTrace
 import Dispatch
 
 /// The queue of one ``BlockingLane``: which item runs next, on which slot, at which QoS.
@@ -19,6 +20,9 @@ import Dispatch
 /// While a best-effort fence is up (``fence()``), a posted ``WorkPriority/idle`` or
 /// ``WorkPriority/bestEffort`` item stays queued in post order; an item someone awaits still runs at its
 /// own QoS. Chrome's `CanRunPolicy::kForegroundOnly` (base/task/thread_pool/thread_pool_impl.cc).
+///
+/// With a hang-watched lane, each item's run on its slot is one hang scope (Chrome's `WatchHangsInScope`
+/// in `TaskTracker::RunTask`, base/task/thread_pool/task_tracker.cc); the wait for a slot is not.
 final class LaneScheduler: Sendable {
     enum Policy: Sendable {
         case perPriority
@@ -97,15 +101,18 @@ final class LaneScheduler: Sendable {
     let policy: Policy
     /// Whether the lane's items may block (Chrome's `MayBlock()` trait): files and system may, cpu may not.
     private let mayBlock: Bool
+    /// The lane's hang-watch slot; each item runs in one scope of it. nil watches nothing.
+    private let hangWatched: HangWatchedLane?
     private let slots: [DispatchQueue]
     // concurrency-allow: a short non-blocking critical section over the pending lists, taken from lane threads, cancel handlers and submitters that must not await (lock carve-out).
     private let state: Mutex<State>
 
     /// - Parameters:
     ///   - caps: how many items of each ``LaneCap`` class run at once; a class without an entry is not capped.
-    init(label: String, policy: Policy, mayBlock: Bool, caps: [LaneCap: Int] = [:]) {
+    init(label: String, policy: Policy, mayBlock: Bool, caps: [LaneCap: Int] = [:], hangWatched: HangWatchedLane? = nil) {
         self.policy = policy
         self.mayBlock = mayBlock
+        self.hangWatched = hangWatched
         let names: [String], reserved: Int
         switch policy {
         case .perPriority:
@@ -119,6 +126,10 @@ final class LaneScheduler: Sendable {
         slots = names.map { DispatchQueue(label: $0, qos: .unspecified, autoreleaseFrequency: .workItem) }
         state = Mutex(State(running: Array(repeating: nil, count: names.count), reserved: reserved,
                             caps: caps.mapValues { max(1, $0) }))
+    }
+
+    deinit {
+        hangWatched?.unregister()
     }
 
     /// What ``submit(_:at:unless:)`` did with an item.
@@ -230,13 +241,19 @@ final class LaneScheduler: Sendable {
                 // Chrome's task_tracker.cc runs a MayBlock() task with blocking allowed and any other task
                 // under ScopedDisallowBlocking: a files or system item may block, a cpu item may not.
                 if mayBlock {
-                    BlockingContext.runAsLane { start.job.execute() }
+                    BlockingContext.runAsLane { run(start.job) }
                 } else {
-                    BlockingContext.runAsCPULane { start.job.execute() }
+                    BlockingContext.runAsCPULane { run(start.job) }
                 }
                 finish(start.job.id, slot: start.slot)
             }
         }
+    }
+
+    /// Runs `job` on this slot's thread, inside the lane's hang scope when it has one.
+    private func run(_ job: LaneJob) {
+        guard let hangWatched else { return job.execute() }
+        hangWatched.run { job.execute() }
     }
 
     private func finish(_ id: UInt64, slot: Int) {

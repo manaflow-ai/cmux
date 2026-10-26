@@ -3,6 +3,7 @@ public import CmuxNextActions
 import CmuxNextCompat
 public import CmuxNextControl
 public import CmuxNextDaemon
+public import CmuxNextTrace
 public import CmuxNextWakeups
 import Foundation
 import Network
@@ -78,6 +79,9 @@ public final class DaemonService {
     /// Callers of `endpoint()` waiting for the first connection (terminals
     /// drawn from the launch snapshot attach as soon as it exists).
     @ObservationIgnored var connectionWaiters: [CheckedContinuation<Void, Never>] = []
+    /// Watches each line the service's connections and its terminal attachments read (their reader threads'
+    /// `daemon.line` scopes); nil watches nothing.
+    @ObservationIgnored public let hangWatch: (any HangWatchScoping)?
 
     /// - Parameters:
     ///   - machineID: `local`, or the remote machine's id.
@@ -87,11 +91,14 @@ public final class DaemonService {
     ///     budget). The service keeps only the batcher it builds on it (a test passes one it ticks by hand).
     ///   - wireStats: Where its connections count their wire traffic; the app's composition root passes
     ///     its recorder (nil in a release build, which counts nothing).
+    ///   - hangWatch: The app's ``HangWatch`` from its composition root, for every connection and terminal
+    ///     attachment this service opens; nil (tests) watches nothing.
     public init(machineID: String = "local", echoesPlacementShift: Bool = false, mainWork: MainWorkScheduler,
-                wireStats: DaemonWireStats? = nil) {
+                wireStats: DaemonWireStats? = nil, hangWatch: (any HangWatchScoping)? = nil) {
         self.machineID = machineID
         self.echoesPlacementShift = echoesPlacementShift
         self.wireStats = wireStats
+        self.hangWatch = hangWatch
         drainScheduler = FrameBatcher(owner: "DaemonStore.drain", scheduler: mainWork.frames)
         retryWake = RetryWake(owner: "DaemonService.retry \(machineID)")
         // The local daemon's kept tabs restart at its first connect (`relaunchKeptLayoutIfNeeded`).
@@ -185,7 +192,8 @@ public final class DaemonService {
         let configuration = Self.localConfiguration(terminalEnvironment: terminalEnvironmentProvider,
                                                     resolvesShellIntegration: resolvesShellIntegration,
                                                     installKey: launcher.configuration.installKey,
-                                                    echoesPlacementShift: echoesPlacementShift, retryWake: retryWake)
+                                                    echoesPlacementShift: echoesPlacementShift, retryWake: retryWake,
+                                                    hangWatch: hangWatch)
         var first: (@Sendable () async -> DaemonPrestart.Outcome)?
         if let prestart {
             // Cancelling the startup (shutdown) cancels the attempt too.
@@ -294,6 +302,7 @@ public final class DaemonService {
         let clock = startupClock
         var configuration = DaemonConnection.Configuration(retryWake: wake, terminalEnvironment: nil, sessionEvents: true)
         configuration.echoesPlacementShift = echoesPlacementShift
+        configuration.hangWatch = hangWatch
         runTask = Task { [weak self, drainScheduler, logger, configuration] in
             weak let weakSelf = self
             var ends = RetryPacer(.firstConnect)

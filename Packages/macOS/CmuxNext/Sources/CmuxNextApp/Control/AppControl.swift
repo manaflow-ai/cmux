@@ -5,11 +5,13 @@ import CmuxNextBrowserImport
 import CmuxNextControl
 import CmuxNextDaemon
 import CmuxNextDesign
+import CmuxNextEnergy
 import CmuxNextErrorJournal
 import CmuxNextInput
 import CmuxNextSettings
 import CmuxNextSidebar
 import CmuxNextTerminal
+import CmuxNextTrace
 import CmuxNextWakeups
 
 /// The App's control-socket wiring (architecture.md 5a): the main-thread
@@ -62,6 +64,9 @@ final class AppControl {
     /// Starts stall and busy detection. Call first thing at launch.
     func startWatchdog() {
         watchdog.start()
+        // Other threads' and lanes' hang-watch scopes (the process's slot table) are scanned on the
+        // watchdog's thread; each overrun goes to debug.hangs thread_hangs.
+        watchdog.attach(hangWatch: TraceRuntime.shared.hangWatch)
         // Stall records name the scheduled main-thread task they caught; a launch in the task
         // diagnostics mode also records tasks past their class budget, with a stack (debug.hangs
         // over_budget). It perturbs what it measures, so it is off unless asked for.
@@ -523,8 +528,8 @@ final class AppControl {
             .mainActor("debug.crash.exception") { [weak services] _ in .value(DebugCrashes.raiseException(services?.crashReporting)) },
             // Low Power Mode as WebKit tabs follow it: `enabled: bool` overrides
             // macOS (no sudo needed), `enabled: null` follows macOS again.
-            .mainActor("debug.low_power_mode") { call in
-                let mode = LowPowerMode.system
+            .mainActor("debug.low_power_mode") { [weak services] call in
+                guard let mode = services?.energyMonitor.lowPowerMode else { return .value(.null) }
                 if let enabled = call.params["enabled"] { mode.override = enabled.boolValue }
                 return .value(["enabled": .bool(mode.isEnabled), "override": mode.override.map { .bool($0) } ?? .null,
                                "system": .bool(ProcessInfo.processInfo.isLowPowerModeEnabled)])

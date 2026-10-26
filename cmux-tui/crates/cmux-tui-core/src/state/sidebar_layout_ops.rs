@@ -31,6 +31,7 @@ impl Mux {
     /// idempotency key. A reducer reject is `validation.invalid` with the
     /// reason (`workspaces_required`, `unknown_item`, ...) and writes
     /// nothing; a no-op commits with no change.
+    #[track_caller]
     pub(crate) fn state_sidebar_layout_update(
         &self,
         mutation: &WorkspaceMutation,

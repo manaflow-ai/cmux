@@ -4,7 +4,7 @@ import CmuxNextActions
 import CmuxNextControl
 import CmuxNextDaemonService
 @testable import CmuxNextFocusUI
-import CmuxNextTerminal
+@testable import CmuxNextTerminal
 import CmuxNextWakeups
 import CmuxNextWakeupsTestSupport
 import Foundation
@@ -159,6 +159,27 @@ struct KeyDownDispatchTests {
         #expect(reports == [false, true], "a frame expected after the nested wait was not reported: \(reports)")
     }
 
+    /// The input-response pass must be on the run loop for the whole discrete dispatch (a nested run loop's first
+    /// wait included): the context says when the first discrete dispatch begins, before its body, and when the last
+    /// one ends, after its report.
+    @Test func theFirstDiscreteDispatchIsAnnouncedBeforeItsBodyAndTheLastEndsAfterItsReport() throws {
+        _ = NSApplication.shared
+        var log: [String] = []
+        let context = InputDispatchContext(discreteInput: { log.append("report \($0)") },
+                                           discreteDispatch: { log.append($0 ? "began" : "ended") },
+                                           displayPending: { _ in false })
+        context.dispatching(try Self.key(.keyUp)) {}
+        #expect(log.isEmpty, "a key-up was announced as a discrete dispatch: \(log)")
+        let click = try Self.mouse(.leftMouseDown)
+        context.dispatching(try Self.key(.keyDown)) {
+            log.append("body")
+            // A click dispatched inside the key's dispatch: one span for both.
+            context.dispatching(click) {}
+            context.noteFrameExpected()
+        }
+        #expect(log == ["began", "body", "report false", "report true", "ended"], "\(log)")
+    }
+
     @Test func doneAppliedWaitingAndUntypedRunsExpectAFrameAndRefusedDoesNot() {
         var effect: ActionEffect = .refused("no name", quiet: true)
         var expected = 0
@@ -195,8 +216,10 @@ struct KeyDownDispatchTests {
         defer { keeper.deactivate() }
         // An event in no window: no view's display request makes the frame expected.
         services.inputDispatch.dispatching(try Self.key(.keyDown)) {
+            #expect(budget.isDiscreteDispatchOpen, "the app's key dispatch did not tell its scheduler it began")
             services.registry.settle(.done, of: "test.rename", ActionInvocation())
         }
+        #expect(!budget.isDiscreteDispatchOpen, "the app's key dispatch did not tell its scheduler it ended")
         #expect(budget.isInputResponseOpen, "an action run in the app's key dispatch did not open the input response")
         scheduler.renderPassEnded(nanos: 1_000_000)
         #expect(budget.isInputResponseOpen, "the key's own render pass ended its input response")

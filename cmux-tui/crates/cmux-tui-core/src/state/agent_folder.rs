@@ -84,6 +84,7 @@ pub(crate) fn validate(path: &str) -> Result<(), String> {
 
 impl Mux {
     /// `workspace.agent_folder.set`: set or clear (`None`) the folder.
+    #[track_caller]
     pub(crate) fn state_set_agent_folder(
         &self,
         mutation: &WorkspaceMutation,
