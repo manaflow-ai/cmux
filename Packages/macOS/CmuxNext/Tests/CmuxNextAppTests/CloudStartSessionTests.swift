@@ -181,19 +181,51 @@ struct CloudStartSessionTests {
 
     // MARK: A machine that can't be created
 
-    @Test func aMachineThatCannotBeCreatedSaysSoWithTheCommand() async throws {
+    /// With no machine list read (no Cloud sign-in), `--name` refuses rather than make a second
+    /// machine of a name that may exist, and says what to check and run.
+    @Test func aNameWithAnUnreadMachineListCreatesNothingAndSaysWhatToCheck() async throws {
         let services = Self.fixture().services
         let name = "fresh-\(UUID().uuidString.prefix(6).lowercased())"
         let invoke = try #require(services.registry.action(for: CloudStartSession.action)?.invoke)
         let run = services.registry.capturingRun { invoke(Self.invocation(["agent": .string("claude"), "name": .string(name)])) }
         let task = try #require(run.results.first, "start-session tracked no result")
         guard case .failure(let failure) = await task.value else {
-            Issue.record("a create with no Cloud sign-in went through")
+            Issue.record("a --name run with no machine list went through")
             return
         }
-        #expect(failure.message.hasPrefix("Couldn't create Cloud machine `\(name)` ("), "\(failure.message)")
+        #expect(failure.message.hasPrefix("Couldn't read your Cloud machines, so claude didn't start: a machine named \(name) may already exist."), "\(failure.message)")
+        #expect(failure.message.contains("`cmux cloud list-machines`"))
         #expect(failure.message.contains("`cmux cloud start-session --name \(name) --agent claude`"))
-        #expect(!failure.message.contains(".)"))
+        #expect(!services.machines.cloud.contains { $0.machine.title == name })
+    }
+
+    /// Two asks for one new name share one creation.
+    @Test func twoRunsForOneNewNameCreateOnce() async throws {
+        let f = Self.fixture()
+        let runs = CloudStartSessionRuns()
+        let (gate, open) = AsyncStream<Void>.makeStream()
+        let (entered, enter) = AsyncStream<Void>.makeStream()
+        defer { open.finish(); enter.finish() }
+        var creates = 0
+        let create: @MainActor () async throws -> CloudMachineSession = {
+            creates += 1
+            enter.yield()
+            for await _ in gate { break }
+            return f.session
+        }
+        let first = Task { @MainActor in try await runs.creating("dev", create) }
+        for await _ in entered { break }
+        let second = Task { @MainActor in try await runs.creating("dev", create) }
+        // The main actor runs `second` up to its wait on the first creation before this resumes.
+        await Task.yield()
+        await Task.yield()
+        // Two gate values: a second creation (the bug) gets its own and fails the count, never hangs.
+        open.yield()
+        open.yield()
+        let one = try await first.value
+        let two = try await second.value
+        #expect(creates == 1)
+        #expect(one === f.session && two === f.session)
     }
 
     @Test func theRetryCommandKeepsTheNameOneShellWord() {
