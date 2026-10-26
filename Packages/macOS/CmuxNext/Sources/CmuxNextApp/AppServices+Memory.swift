@@ -11,6 +11,7 @@ import CmuxNextCompat
 import CmuxNextFeatures
 import CmuxNextHibernation
 import CmuxNextMemory
+import CmuxNextPages
 import CmuxNextWakeups
 
 /// Runs the memory coordinator's release slices on a budgeted frame queue: on a later frame, after input
@@ -52,6 +53,16 @@ struct AppMemoryConsumers {
         // One line per package, sorted by package name, for example:
         // registerTabs()  // CmuxNextTabs
         registerInternalPageDiscards()  // CmuxNextApp
+        registerPageLifecycle()  // CmuxNextPages
+    }
+
+    /// `pageLifecycle` (default off): page tabs' reveal and conceal drive the page lifecycle
+    /// (p13-webui-022). Agent chats join in p13-webui-038.
+    private func registerPageLifecycle() {
+        guard services.features.isEnabled(.pageLifecycle) else { return }
+        let pages = services.pages, lifecycle = services.webUI.lifecycle
+        lifecycle.pageOfTab = { [weak pages] key in (pages?.existingView(key)?.content as? PageWebView).map(PageWebViewLifecycle.init) }
+        services.cache.pageLifecycle = lifecycle
     }
 
     /// `memoryDiscardInternalPages` (default off): hidden page tabs' views go after their policy.

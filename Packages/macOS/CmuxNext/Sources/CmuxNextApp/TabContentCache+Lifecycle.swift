@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextBridge
 import CmuxNextBrowser
+import CmuxNextPages
 
 /// Presentation, warm set and the content lifecycle of `TabContentCache`
 /// (plans/cmux-next/tab-lifecycle.md).
@@ -21,8 +22,8 @@ extension TabContentCache {
 
     // MARK: Presentation
 
-    /// `presenter` shows `key` (its view is, or is about to be, in the
-    /// presenter's hierarchy). Takes the surface from any previous presenter.
+    /// `presenter` shows `key` (its view is, or is about to be, in the presenter's hierarchy).
+    /// Takes the surface from any previous presenter.
     func present(_ key: String, by presenter: any SurfacePresenter, presence: SurfacePresence) {
         let owner = ObjectIdentifier(presenter)
         presenters[owner] = WeakPresenter(value: presenter)
@@ -31,8 +32,7 @@ extension TabContentCache {
         if ledger.isRendering(key) { notePageScreen(key) }
     }
 
-    /// `presenter` stopped showing `key`. Ignored when another presenter
-    /// took it meanwhile (the tab moved there).
+    /// `presenter` stopped showing `key`. Ignored when another presenter took it meanwhile (the tab moved there).
     func withdraw(_ key: String, by presenter: any SurfacePresenter) {
         apply(ledger.withdraw(key, by: ObjectIdentifier(presenter)))
     }
@@ -177,6 +177,7 @@ extension TabContentCache {
     }
 
     private func reveal(_ key: String) {
+        pageLifecycle?.tabDidShow(key) // first: a frozen page thaws in this turn, before its view shows
         if let entry = terminals[key] {
             entry.session.isRenderingSuspended = false
             entry.io.setVisible(true)
@@ -208,6 +209,7 @@ extension TabContentCache {
             entry.tab.setContentVisible(false)
         }
         if pageDiscards?.pageDidHide(key, token: token) != true { hibernation?.tabDidHide(key) }
+        pageLifecycle?.tabDidHide(key)
     }
 
     func trace(_ key: String, _ event: String) {

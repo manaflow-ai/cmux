@@ -4,6 +4,7 @@ import CmuxNextBrowser
 import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextMacScreen
+import CmuxNextPages
 import CmuxNextRemote
 import CmuxNextTerminal
 import CmuxNextWakeups
@@ -36,6 +37,7 @@ final class TabContentCache {
     var onRelease: ((String) -> Void)?
     var hibernation: BrowserHibernation? // hibernates hidden browser pages (time, memory pressure) and restores them
     weak var pageDiscards: InternalPageTabStore? // takes page tabs' lifecycle effects (memoryDiscardInternalPages; nil while off)
+    var pageLifecycle: PageLifecycle? // page tabs' freeze and discard, from each reveal and conceal (pageLifecycle; nil while off)
     /// Hibernated tabs, observed by the tab strips.
     let dormantTabs = DormantTabs()
     let previews = PreviewImageCache()
@@ -50,12 +52,10 @@ final class TabContentCache {
     let pageThumbnails = PreviewImageCache(capacityBytes: 16 << 20)
     var pageThumbnailVersions: [String: Int] = [:]
     var pageCapturesInFlight: Set<String> = []
-    /// How long a leave capture may take before its thumbnail is dropped
-    /// (the capture runs on the main thread). Tests that do not test this
-    /// deadline use the shared 30 s test configuration.
+    /// How long a leave capture may take before its thumbnail is dropped (the capture runs on the
+    /// main thread). Tests that do not test this deadline use the shared 30 s test configuration.
     var pageCaptureDeadline: Duration = .seconds(2)
-    /// Pages revealed since their last hide: the next hide captures their
-    /// thumbnail (`TabContentCache+Lifecycle`).
+    /// Pages revealed since their last hide: the next hide captures their thumbnail (`TabContentCache+Lifecycle`).
     var shownPages: Set<String> = []
     /// Over the Chromium engine's stores, so both engines share them (``BrowserSharedStores``).
     let webKit: WebKitEngine
@@ -472,7 +472,7 @@ final class TabContentCache {
         if let owner = ledger.remove(key), displacing { presenters[owner]?.value?.surfaceWasDisplaced(key) }
         applyLifecycle(lifecycle.send(.removed(key)))
         pendingMounts[key] = nil; framedStandIns.remove(key); pendingBrowsers.remove(key)
-        hibernation?.forget(key)
+        hibernation?.forget(key); pageLifecycle?.remove(key)
         agentMarks.forget(key)
         pageRequests.services?.remoteViewPages.forget(key)
         terminals.removeValue(forKey: key)?.close()

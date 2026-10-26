@@ -1,6 +1,8 @@
 public import CmuxNextCompat
 public import CmuxNextDesign
+public import CmuxNextWakeups
 import AppKit
+import CmuxNextHibernation
 public import WebKit
 
 /// The app's one owner of cmux pages (plans/cmux-next/chrome-parity/p13-webui.md 3.A): it makes
@@ -28,11 +30,16 @@ public final class WebUIHost {
     /// The shared web content processes of the WebKit pages that ask for them
     /// (``PageEngineOptions/sharesWebKitProcess``, the agent pages).
     public let processGroups: WebProcessGroups
+    /// Every page's Active, Hidden, Frozen and Discarded states (p13-webui.md 3.C), fed by the tab
+    /// content lifecycle; a page it opened leaves it on ``close(_:)``.
+    package let lifecycle: PageLifecycle
     /// The clock of each opened page's Chromium deadline (tests pass one that never fires).
     private let clock: any Clock<Duration>
     /// Every page this host opened and has not closed. Weak, so a view a provider drops without
     /// closing it still deinits (p13-webui-061 makes every tab close call ``close(_:)``).
     private let opened = NSHashTable<PageWebView>.weakObjects()
+    /// The lifecycle's memory pressure, from ``memoryPressure``.
+    private var pressureRegistration: MainActorHandlerRegistration<MemoryPressureLevel>?
 
     /// - Parameters:
     ///   - chromium: The app's Chromium page maker (`ChromiumPageHost`); nil for WebKit only.
@@ -42,15 +49,20 @@ public final class WebUIHost {
     ///     until p13-webui-010; a test leaves the default, its own registry).
     ///   - clock: The Chromium deadline's clock.
     ///   - processGroups: The shared WebKit processes (a test passes its own to read the groups).
+    ///   - deadlines: The page lifecycle's deadline scheduler: the app passes its one
+    ///     (`AppServices.mainDeadlines`); a test leaves the default, one nobody runs, so no pass fires.
     public init(chromium: (any PageChromiumHosting)?, openPanel: MadeAheadOpenPanel?,
                 memoryPressure: MemoryPressureEvents, registry: PageRegistry = PageRegistry(),
-                clock: any Clock<Duration> = ContinuousClock(), processGroups: WebProcessGroups = WebProcessGroups()) {
+                clock: any Clock<Duration> = ContinuousClock(), processGroups: WebProcessGroups = WebProcessGroups(),
+                deadlines: MainDeadlineScheduler = MainDeadlineScheduler(work: MainWorkScheduler(budget: MainFrameBudget()))) {
         self.chromium = chromium
         self.openPanel = openPanel
         self.memoryPressure = memoryPressure
         self.registry = registry
         self.clock = clock
         self.processGroups = processGroups
+        lifecycle = PageLifecycle(conditions: .init(pressure: memoryPressure.currentLevel), deadlines: deadlines)
+        pressureRegistration = memoryPressure.observe { [weak self] level in self?.lifecycle.setPressure(level) }
     }
 
     /// Makes and starts loading the page `request` asks for, in the engine ``PageEnginePolicy``
@@ -76,6 +88,7 @@ public final class WebUIHost {
         view.close()
         opened.remove(view)
         registry.remove(view)
+        lifecycle.forget(view)
     }
 
     /// A configuration in the process pool and data store of the grouped WebKit pages
