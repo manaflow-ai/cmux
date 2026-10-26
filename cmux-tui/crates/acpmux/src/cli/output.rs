@@ -444,7 +444,8 @@ pub(crate) async fn stream_prompt(
                 print_json(&v);
             } else {
                 // What the stream missed of it.
-                if let Some(text) = logged.filter(|l| !l.is_empty() && Some(l) != streamed.as_ref()) {
+                if let Some(text) = logged.filter(|l| !l.is_empty() && Some(l) != streamed.as_ref())
+                {
                     println!("\n{text}");
                 }
                 let stop = v.get("stopReason").and_then(Value::as_str).unwrap_or("end_turn");

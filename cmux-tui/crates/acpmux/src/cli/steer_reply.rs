@@ -120,7 +120,9 @@ pub(crate) async fn wait_end(client: Arc<Client>, id: String, turn: String) -> R
     let info = json!({"sessionId": id, "waitLogs": false});
     let info = client.request(method::MUX_INFO, info).await?;
     if info.get("stale").and_then(Value::as_bool) == Some(true) {
-        return Err(anyhow!("the machine of {id} is unreachable; the turn it steered into may run on"));
+        return Err(anyhow!(
+            "the machine of {id} is unreachable; the turn it steered into may run on"
+        ));
     }
     let running = info.pointer("/turn/turnId").and_then(Value::as_str) == Some(turn.as_str());
     if !running && let Some(end) = logged_end(&client, &id, &turn).await? {
@@ -146,7 +148,9 @@ pub(crate) async fn wait_end(client: Arc<Client>, id: String, turn: String) -> R
         return end;
     }
     let status = row.get("status").and_then(Value::as_str).unwrap_or("ended");
-    Err(anyhow!("{id} is {status} with no end of the turn the message steered into (acpmux last {id})"))
+    Err(anyhow!(
+        "{id} is {status} with no end of the turn the message steered into (acpmux last {id})"
+    ))
 }
 
 /// How long a turn that no longer runs may take to record its end.
@@ -154,7 +158,8 @@ const WRITING_END_MS: u64 = 30_000;
 
 /// Turn `turn`'s end as a session row's `lastTurn` gives it, when it is that turn's.
 fn last_turn_end(row: &Value, turn: &str) -> Option<Result<Value>> {
-    let last = row.get("lastTurn").filter(|t| t.get("turnId").and_then(Value::as_str) == Some(turn))?;
+    let last =
+        row.get("lastTurn").filter(|t| t.get("turnId").and_then(Value::as_str) == Some(turn))?;
     let msg = json!({
         "turnId": turn,
         "status": last.get("status"),
@@ -281,7 +286,8 @@ mod tests {
         let done = row(json!({"turnId": "t1", "status": "completed", "stopReason": "end_turn"}));
         assert_eq!(last_turn_end(&done, "t1").unwrap().unwrap()["stopReason"], "end_turn");
         assert!(last_turn_end(&done, "t2").is_none(), "another turn's");
-        let failed = row(json!({"turnId": "t1", "status": "failed", "errorText": "agent process closed"}));
+        let failed =
+            row(json!({"turnId": "t1", "status": "failed", "errorText": "agent process closed"}));
         let e = last_turn_end(&failed, "t1").unwrap().unwrap_err();
         assert_eq!(e.to_string(), "agent process closed");
         assert!(last_turn_end(&json!({"sessionId": "s", "lastTurn": null}), "t1").is_none());

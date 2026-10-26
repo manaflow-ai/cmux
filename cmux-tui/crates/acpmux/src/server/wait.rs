@@ -235,7 +235,8 @@ mod turn_ended_tests {
         let running = json!({"status": "running", "turn": {"turnId": "t1"}, "lastTurn": {"turnId": "t0", "endedAt": 90}});
         assert!(!ended(running), "still running");
         // Taken out of the session, its end not recorded yet: not yet.
-        let between = json!({"status": "running", "turn": null, "lastTurn": {"turnId": "t0", "endedAt": 90}});
+        let between =
+            json!({"status": "running", "turn": null, "lastTurn": {"turnId": "t0", "endedAt": 90}});
         assert!(!ended(between), "its end is not recorded yet");
         let recorded = json!({"status": "waiting", "turn": null, "lastTurn": {"turnId": "t1", "endedAt": 120}});
         assert!(ended(recorded), "recorded, while a background ask waits");
