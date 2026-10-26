@@ -78,7 +78,7 @@ const { act } = await import("react");
 const { createRoot } = await import("react-dom/client");
 const { VirtualTranscript } = await import("../src/agent-session/acpmux/App");
 const { setChatDisplay } = await import("../src/agent-session/acpmux/chatDisplay");
-const { REDRAW_MS } = await import("../src/agent-session/acpmux/chatMinimap/ChatMinimap");
+const { REDRAW_MS, ChatMinimap } = await import("../src/agent-session/acpmux/chatMinimap/ChatMinimap");
 const { setBookmarkTransport } = await import("../src/agent-session/acpmux/threadMinimap/bookmarks");
 const noBookmarks = async (sessionId: string) => ({ sessionId, bookmarks: [] });
 setBookmarkTransport({ get: noBookmarks, set: noBookmarks });
@@ -405,3 +405,59 @@ test("unmounting cancels the view box's pending frame", async () => {
     await pane.done();
   }
 });
+
+test("a press on the frozen box grabs it where it is drawn: the transcript does not jump", async () => {
+  setChatDisplay({ "agentPane.display.vscodeMinimap": true });
+  const pane = await mount();
+  try {
+    await pane.render("Done.");
+    await act(async () => flushFrames());
+    const page = content(pane.scroller(), 20_000);
+    pane.scroller().scrollTop = page.height - VIEWPORT;
+    await pane.render("Streaming", true);
+    await act(async () => flushFrames());
+    // The transcript follows the reply far down; the box stays where it froze.
+    page.height += 10_000;
+    await scrollTo(pane.scroller(), page.height - VIEWPORT);
+    const top = Number.parseFloat(/translateY\(([\d.]+)px\)/.exec(pane.box().style.transform)![1]!);
+    const at = page.height - VIEWPORT;
+    const track = pane.host.querySelector<HTMLElement>(".acpmux-chat-minimap__track")!;
+    const press = (type: string) => new dom.window.MouseEvent(type, { bubbles: true, button: 0, clientY: top + 4 }); // prettier-ignore
+    await act(async () => void (track.dispatchEvent(press("pointerdown")), track.dispatchEvent(press("pointerup")))); // prettier-ignore
+    expect(pane.scroller().scrollTop).toBe(at);
+  } finally {
+    await pane.done();
+    setChatDisplay({});
+  }
+});
+
+test("with the setting off the minimap reads no row", async () => {
+  const host = document.createElement("div");
+  document.body.append(host);
+  const root = createRoot(host);
+  const rows = chat("Done.");
+  const reads = { count: 0 };
+  const counted = new Proxy(rows, {
+    get(target, key, receiver) {
+      if (typeof key === "string" && /^\d+$/.test(key)) reads.count += 1;
+      return Reflect.get(target, key, receiver);
+    },
+  });
+  const heights = Float64Array.from(rows, () => 60);
+  const layout = { tops: Float64Array.from(rows, (_, i) => i * 60), heights, totalHeight: rows.length * 60 };
+  const props = { rows: counted, layout, scroller: { current: null }, viewportHeight: 600, foot: 700, width: 1040, scrolls: true }; // prettier-ignore
+  try {
+    setChatDisplay({});
+    await act(async () => root.render(<ChatMinimap {...props} />));
+    await act(async () => root.render(<ChatMinimap {...props} rows={counted} />));
+    expect(reads.count).toBe(0);
+    // On, it reads them (so the count above can fail).
+    await act(async () => setChatDisplay({ "agentPane.display.vscodeMinimap": true }));
+    expect(reads.count).toBeGreaterThan(0);
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
+    setChatDisplay({});
+  }
+});
+
