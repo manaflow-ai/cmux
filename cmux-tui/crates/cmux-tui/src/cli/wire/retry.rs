@@ -87,13 +87,19 @@ impl Tries {
     /// Whether the current try, which failed with `failure`, may be made
     /// again. Records the failure when it may.
     pub(super) fn may_retry(&self, failure: Failure) -> bool {
-        let allowed = decide(self.mutation || self.waits, self.stream, failure)
-            && !self.disabled
-            && self.made.get() <= BACKOFF.len();
+        let allowed = self.may_retry_before_send(failure);
         if allowed {
             *self.previous.borrow_mut() = Some(failure);
         }
         allowed
+    }
+
+    /// A capability hello can drop before the resource request is sent. Use
+    /// the same retry policy without marking that unsent request's outcome unknown.
+    pub(super) fn may_retry_before_send(&self, failure: Failure) -> bool {
+        decide(self.mutation || self.waits, self.stream, failure)
+            && !self.disabled
+            && self.made.get() <= BACKOFF.len()
     }
 
     /// Whether an earlier try sent the request and failed: a later try that
