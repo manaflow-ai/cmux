@@ -5,6 +5,7 @@ import AppKit
 #endif
 import ImageIO
 import CmuxSafeConcurrency // cmux: Mutex (p10-stability-055)
+import os
 
 /// Decoded images for row drawing (Images.load), bounded by bytes, and image sizes from
 /// metadata (no decode). shared/LONG-MESSAGES.md, media-heavy conversations.
@@ -72,7 +73,7 @@ final class MediaCache: Sendable {
             }
             return freed
         }
-        if !freed.isEmpty { Reclaimer.release(freed) }
+        if !freed.isEmpty { Reclaimer.release(bitmaps: freed) }
     }
 
     /// cmux: a hidden transcript released its rows (MessagesWindowView.releaseRows): the decoded images of `refs` at
@@ -89,7 +90,7 @@ final class MediaCache: Sendable {
             }
             return freed
         }
-        if !freed.isEmpty { Reclaimer.release(freed) }
+        if !freed.isEmpty { Reclaimer.release(bitmaps: freed) }
     }
 
     /// Pixel size from the file's metadata (no decode), cached.
@@ -170,16 +171,14 @@ extension Images {
 }
 
 extension VectorAsset {
-    private static let siblingLock = NSLock()
-    private static var siblings: [String: Bool] = [:]
+    /// cmux: rows ask on the main thread and the render queues: the lock owns the cache.
+    private static let siblings = OSAllocatedUnfairLock<[String: Bool]>(initialState: [:])
     /// Whether `name.png` has a `name.svg` beside it (cached file check, no parse).
     static func hasSibling(_ ref: String) -> Bool {
         guard !ref.hasPrefix("file:"), ref.hasSuffix(".png") else { return false }
-        siblingLock.lock()
-        if let v = siblings[ref] { siblingLock.unlock(); return v }
-        siblingLock.unlock()
+        if let v = siblings.withLock({ $0[ref] }) { return v }
         let v = FileManager.default.fileExists(atPath: Fixtures.assetURL(String(ref.dropLast(4)) + ".svg").path)
-        siblingLock.lock(); siblings[ref] = v; siblingLock.unlock()
+        siblings.withLock { $0[ref] = v }
         return v
     }
 }
@@ -196,9 +195,12 @@ extension MediaCache {
         q.name = "media.thumbs"
         return q
     }()
+    // Main thread only; only the decode runs on thumbQueue.
     private static var thumbs: [String: CGImage] = [:]
     private static var thumbOrder: [String] = []
-    private static var thumbPending = Set<String>()
+    /// cmux: pending refs with every waiting request's completion, kept on main (they hold layers; only the ref
+    /// crosses to thumbQueue).
+    private static var thumbPending: [String: [() -> Void]] = [:]
     static var thumbsMade = 0, thumbMsTotal = 0.0, thumbMsMax = 0.0
     static let thumbCapacity = 2000
 
@@ -207,14 +209,17 @@ extension MediaCache {
 
     /// Main thread: make the thumbnail off main if it is missing. `done` runs on main.
     static func requestThumb(_ ref: String, _ done: (() -> Void)? = nil) {
-        guard thumbs[ref] == nil, !thumbPending.contains(ref) else { return }
-        thumbPending.insert(ref)
+        guard thumbs[ref] == nil else { return }
+        if thumbPending[ref] != nil { // already decoding: this request waits for the same thumbnail
+            if let done { thumbPending[ref]?.append(done) }
+            return
+        }
+        thumbPending[ref] = done.map { [$0] } ?? []
         let url = Fixtures.assetURL(ref)
         thumbQueue.addOperation {
             let t0 = CACurrentMediaTime()
-            var img: CGImage?
-            if let src = CGImageSourceCreateWithURL(url as CFURL, [kCGImageSourceShouldCache: false] as CFDictionary) {
-                img = CGImageSourceCreateThumbnailAtIndex(src, 0, [
+            let img = CGImageSourceCreateWithURL(url as CFURL, [kCGImageSourceShouldCache: false] as CFDictionary).flatMap { src in
+                CGImageSourceCreateThumbnailAtIndex(src, 0, [
                     kCGImageSourceCreateThumbnailFromImageIfAbsent: true,
                     kCGImageSourceCreateThumbnailWithTransform: true,
                     kCGImageSourceShouldCacheImmediately: true,
@@ -222,7 +227,7 @@ extension MediaCache {
             }
             let ms = (CACurrentMediaTime() - t0) * 1000
             DispatchQueue.main.async {
-                thumbPending.remove(ref)
+                let done = thumbPending.removeValue(forKey: ref) ?? []
                 thumbsMade += 1; thumbMsTotal += ms; thumbMsMax = max(thumbMsMax, ms)
                 guard let img else { return }
                 thumbs[ref] = img
@@ -231,7 +236,7 @@ extension MediaCache {
                     for k in thumbOrder.prefix(thumbOrder.count - thumbCapacity) { thumbs[k] = nil }
                     thumbOrder.removeFirst(thumbOrder.count - thumbCapacity)
                 }
-                done?()
+                done.forEach { $0() }
             }
         }
     }
@@ -299,7 +304,7 @@ final class ScrollPrefetcher {
     static let enabled = !ProcessInfo.processInfo.arguments.contains("--no-media-prefetch")
     static let precommit = !ProcessInfo.processInfo.arguments.contains("--no-precommit")
     func update(_ r: RowRecycler) {
-        guard ScrollPrefetcher.enabled, RowBitmaps.prerenderEnabled else { return }
+        guard ScrollPrefetcher.enabled else { return } // cmux: no RowBitmaps.prerenderEnabled
         let y = r.bounds.minY, t = r.clock()
         if t < r.pageJumpUntil {
             // A track-click page: the jump is no velocity, and the page code prepares its rows.

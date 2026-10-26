@@ -27,6 +27,9 @@ final class CEFRuntime {
     /// The app's crash keys, which name Chromium's state (``attachCrashKeys(_:)``); nil names nothing.
     var crashKeys: CrashKeySlots?
     private(set) var shim: CEFShimLibrary?
+    /// `CMUX_CEF_DEFER_EVENTS=1` in process (``CEFDeferredEvents``), from the environment `start` is
+    /// given; nil runs each event in the shim's call.
+    private(set) var deferredEvents: CEFDeferredEvents?
     private(set) var layout: CEFRuntimeLayout?
     private(set) var storage = CEFProfileStorage.forApplication(bundleIdentifier: Bundle.main.bundleIdentifier)
     /// The in-process backend's external message pump, made by the in-process initialize only. Nil before
@@ -161,6 +164,8 @@ final class CEFRuntime {
     /// What the pump's input policy reads, from the engine made last (feature `cefPumpInputPolicy`,
     /// ``CEFPumpInputPolicy``); read at start with ``input``. Nil: the pump never holds for input.
     var pumpInput: CEFPumpInputSeams?
+    /// The feature `chromiumSpareAfterFirstTab`, asked at start (the App supplies it).
+    var spareAfterFirstTabFeature: @MainActor () -> Bool = { false }
     /// True when this Chromium started with the built-in uBlock Origin.
     private(set) var builtInAdBlockerLoaded = false
     /// True when this Chromium started with `cmux-process-reuse-per-renderer-devtools` (`debug.cef` `windows`).
@@ -244,9 +249,11 @@ final class CEFRuntime {
     }
 
     /// A runtime over `shim` that never loads or starts Chromium, its profiles under `storage`
-    /// (tests drive panes against a spy shim).
-    init(shim: CEFShimLibrary, storage: CEFProfileStorage) {
-        self.shim = shim
+    /// (tests drive panes against a spy shim), its events deferred when `deferredEvents` is given.
+    /// Chromium counts as up, so the mirror's hello is read at once.
+    init(shim: CEFShimLibrary, storage: CEFProfileStorage, deferredEvents: CEFDeferredEvents? = nil) {
+        self.deferredEvents = deferredEvents
+        self.shim = deferredEvents?.serveMirror(from: shim, helloNow: true) ?? shim
         self.storage = storage
         makePumpTimer = CEFInProcessPump.wakeUpQueueTimer
         state = .ready
@@ -455,7 +462,13 @@ final class CEFRuntime {
 
     /// The main-thread part: NSApp check, message pump (in process only), `CefInitialize`.
     private func initialize(_ library: CEFRuntimeBoot, environment: [String: String]) throws(BootError) {
-        let shim = library.shim
+        let inHostMode = switch library {
+        case .host: true
+        case .inProcess: false
+        }
+        deferredEvents = CEFDeferredEvents.requested(by: environment, inHostMode: inHostMode)
+        // Chromium is not up yet: CONTEXT_INITIALIZED's batch carries the mirror's counts.
+        let shim = deferredEvents?.serveMirror(from: library.shim, helloNow: false) ?? library.shim
         // The app's NSApplication subclass must conform (CmuxApplication); the shim no longer
         // patches NSApp at runtime. In host mode the host's NSApp runs Chromium.
         if case .inProcess = library, shim.prepareApplication() != 1 { throw .application }
@@ -472,6 +485,7 @@ final class CEFRuntime {
         let switchSet = CEFSwitches.current(
             forkAPIVersion: shim.forkAPIVersion(), rendererPaths: CEFForkFeatures(shim).rendererPaths,
             chromiumFeatures: chromiumFeatures,
+            spareAfterFirstTab: spareAfterFirstTabFeature(),
             bundleIdentifier: Bundle.main.bundleIdentifier,
             environment: environment,
             builtInExtensions: builtInPlan.folders, keepsUnpackedEnabled: builtInPlan.keepsUnpackedEnabled
@@ -557,8 +571,9 @@ final class CEFRuntime {
                                         refreshInterval: pumpInput.refreshInterval, frameTarget: pumpInput.frameTarget)
         }
         let owner = CEFInProcessPump(
-            shim: shim, wakeUps: wakeUps, gate: pumpGate, makeTimer: makePumpTimer, inputPolicy: policy, logger: logger,
-            work: { [weak self] in CEFStartSteps.shared.pump(windowPending: self?.pendingWindows.isEmpty == false) { self?.pumpWork() } }
+            shim: shim, wakeUps: wakeUps, gate: pumpGate, makeTimer: makePumpTimer, inputPolicy: policy, crashKeys: crashKeys,
+            logger: logger,
+            work: { [weak self] in CEFStartSteps.shared.pump(windowPending: self?.pendingWindows.isEmpty == false) { self?.shim?.doWork() } }
         )
         inProcessPump = owner
         owner.pump.start()
