@@ -690,6 +690,10 @@ path = "tests/test_ci_required_checks_have_no_path_filters.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_quota_hold_gate.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_workflow_permissions_are_job_scoped.py"
 lane = "linux-guard"
 
