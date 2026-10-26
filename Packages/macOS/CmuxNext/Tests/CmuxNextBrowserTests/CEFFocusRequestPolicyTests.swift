@@ -4,7 +4,7 @@ import Testing
 
 /// Task 032 of plans/cmux-next/chrome-parity/p01-process.md: in host mode cmux installs no
 /// focus_request_fn (its answer is synchronous and would cross the wire); the host's shim grants a
-/// focus request only for the page cmux marked embedder-active (CEFShim/src/embedder_focus_policy.h,
+/// focus request only for a page cmux marked embedder-active (CEFShim/src/embedder_focus_policy.h,
 /// scripts/cmux-next/test-shim-embedder-focus-cpp.sh). In process cmux's handler still refuses
 /// Chromium's own requests.
 @MainActor @Suite(.serialized, .timeLimit(.minutes(1))) struct CEFFocusRequestPolicyTests {

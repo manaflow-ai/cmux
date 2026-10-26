@@ -31,7 +31,7 @@ extension CEFRuntime {
     ///
     /// In process cmux refuses them (``CEFTab/chromiumRequestsFocus(_:)``). In host mode cmux
     /// installs none: a synchronous answer would cross the wire. The host's shim grants a request
-    /// only for the page cmux marked embedder-active, the one its first responder shows
+    /// only for a page cmux marked embedder-active, one its window's first responder shows
     /// (``CEFTab/applyFocus(_:browser:)``; CEFShim/src/embedder_focus_policy.h): a navigation in a
     /// background pane takes no focus, and the focused pane's page keeps it after its own load,
     /// as Chrome focuses only a window's active tab.

@@ -170,7 +170,7 @@ Host& host();
 
 // True when CEF's request to focus `browser_id` must be cancelled
 // (CefFocusHandler::OnSetFocus returns it). In process cmux's focus_request
-// decides; with none installed (host mode) only the browser cmux marked
+// decides; with none installed (host mode) only a browser cmux marked
 // embedder-active may take focus (shim_browser.mm).
 bool RefusesFocus(int browser_id, int source);
 // cmux marked `browser_id` embedder-active or not (shim_helper_host.mm),

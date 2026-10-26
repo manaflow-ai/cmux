@@ -505,7 +505,7 @@ void DevToolsPlacementView() {
 }
 
 // The host installs no focus handler (task p01-process-032): the shim grants a
-// focus request only for the page cmux marked embedder-active
+// focus request only for a page cmux marked embedder-active
 // (CEFShim/src/embedder_focus_policy.h). cmux installing its in-process
 // handler over the wire changes nothing, and embedder-active reaches the shim.
 void FocusIsTheShimsEmbedderActiveRule() {

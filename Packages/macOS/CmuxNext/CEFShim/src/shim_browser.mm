@@ -41,13 +41,12 @@ namespace cmux_shim {
 // browser's first load, LoadURL), and inside cmux's own SetFocus and
 // embedder-active calls. In process cmux's handler answers (CEFTab+Focus.swift:
 // a page window that took focus would take the keys from the omnibar). The
-// Chromium Host installs none: the page cmux marked embedder-active, the one
-// its first responder shows, may take focus, also after its own load; any
-// other page (a background pane, a page not adopted yet) may not.
+// Chromium Host installs none: a page cmux marked embedder-active, one its
+// window's first responder shows, may take focus, also after its own load;
+// any other page (a background pane, a page not adopted yet) may not.
 bool RefusesFocus(int browser_id, int source) {
   const Host& h = host();
-  if (h.focus_request) return h.focus_request(h.ctx, browser_id, source) == 0;
-  return !h.embedder_focus.Allows(browser_id);
+  return h.embedder_focus.Refuses(h.focus_request, h.ctx, browser_id, source);
 }
 
 void NoteEmbedderActive(int browser_id, bool active) {

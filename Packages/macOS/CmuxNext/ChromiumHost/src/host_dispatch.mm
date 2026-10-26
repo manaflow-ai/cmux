@@ -515,7 +515,7 @@ int HostContext::OnWindowRequest(void*, int kind, int, int source_browser_id, in
   return kind <= 2 ? source_browser_id : 0;
 }
 
-// No focus handler: the shim grants a focus request only for the page cmux
+// No focus handler: the shim grants a focus request only for a page cmux
 // marked embedder-active (task p01-process-032, CEFShim/src/
 // embedder_focus_policy.h), so the focused pane's page keeps Chromium's
 // focus after its own loads and a background pane's load takes none.
