@@ -29,6 +29,19 @@ public enum CloudAPIError: Error, Sendable, Equatable, CustomStringConvertible {
         }
     }
 
+    /// A stable code for a caller that maps failures to its own text: the server's error code
+    /// (`run_sandbox_unavailable`, …) when it sent one. Server text: a caller that hands it on
+    /// past the app keeps only the codes it knows.
+    public var code: String {
+        switch self {
+        case .notSignedIn: "not_signed_in"
+        case .noBackend, .transport: "unavailable"
+        case .timedOut: "timeout"
+        case .http(let status, let code, _, _, _): code ?? "http_\(status)"
+        case .decoding: "bad_response"
+        }
+    }
+
     /// Parses the standard VM error body (`web/services/vms/routeHelpers.ts`
     /// `vmErrorResponse`: `{error, message, action, traceId, ui:{message, traceId}}`).
     static func from(status: Int, data: Data, headerCode: String?) -> CloudAPIError {

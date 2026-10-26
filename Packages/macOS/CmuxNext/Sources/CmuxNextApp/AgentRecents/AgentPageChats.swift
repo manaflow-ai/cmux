@@ -1,4 +1,6 @@
+import CmuxNextActions
 import CmuxNextAgentPane
+import CmuxNextCloud
 import CmuxNextSidebar
 
 /// The New Tab page's chats. The cards read the app's one Chats feed (acpmux's device chat index,
@@ -24,6 +26,8 @@ final class AgentPageChats {
     /// This Mac's saved environments, one store for every page (AgentTabStore.wired); none in a
     /// run with no state folder, where New Tab pages list none.
     var environments: (any AgentPaneEnvironmentStoring)?
+    /// A new chat's Sandboxed send (``AgentPaneModel/onSandboxRun``), one runner for every page.
+    var sandboxRun: (@MainActor (String, String?, String) async -> [String: Any])?
 
     /// Follows `feed` for every page of `tabs`; cards open through `opener`.
     static func wire(_ tabs: AgentTabStore, to feed: ChatsFeed, opener: ChatsOpenCoordinator) {
@@ -65,6 +69,27 @@ final class AgentPageChats {
         view.deviceChats = chats
         view.recentlyClosed = closed
         view.model.startFolders.environments = environments
+        view.model.onSandboxRun = sandboxRun
+    }
+
+    /// Sandboxed sends run through `services`' signed-in Cloud client (hq#3367), only while Labs >
+    /// Show Preview Features is on and Cloud isn't turned off by policy. Each waits for its Run's
+    /// receipt through ``CloudAPIClient/runSandbox(task:agent:timeoutMs:idempotencyKey:teardown:callsMargin:now:)``,
+    /// which answers by the task timeout plus teardown whatever the calls do.
+    static func wireSandbox(_ tabs: AgentTabStore, services: AppServices) {
+        tabs.pageChats.sandboxRun = { [weak services] task, agent, key in
+            guard let services else { return AgentPaneReply.failure(code: "cloud_disabled", message: "cloud_disabled") }
+            // Cloud turned off by policy: a definite refusal, nothing was asked of the server.
+            guard !services.registry.disabledFeatures.contains(.cloud) else {
+                return AgentPaneReply.failure(code: "cloud_disabled", message: "cloud_disabled")
+            }
+            guard services.settings?.snapshot.previewFeatures == true else { return AgentPaneReply.failure(code: "labs_off", message: "labs_off") }
+            guard services.cloud.isSignedIn else { return AgentPaneReply.failure(code: "not_signed_in", message: "not_signed_in") }
+            let api = services.cloud.api
+            return await AgentPaneReply.sandbox({ try await api.runSandbox(task: task, agent: agent, idempotencyKey: key) }) { error in
+                (error as? CloudAPIError)?.code ?? "unavailable"
+            }
+        }
     }
 
     /// The newest chats, as the page cards take them.

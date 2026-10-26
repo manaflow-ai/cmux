@@ -59,6 +59,12 @@ public final class AgentPaneModel {
     @ObservationIgnored public var onRunAction: ((String, [String: String]) -> Bool)?
     /// Resolves the explicit Browse… fallback in the project picker.
     @ObservationIgnored public var onBrowseProject: (() async -> String?)?
+    /// A new chat's Sandboxed send (`sandbox.run`, hq#3367): the App runs one task on a throwaway
+    /// Cloud VM behind Labs and answers the page's reply (the receipt, or a typed refusal). Nil: no
+    /// sandboxes in this app.
+    @ObservationIgnored public var onSandboxRun: (@MainActor (_ task: String, _ agent: String?, _ key: String) async -> [String: Any])?
+    /// This pane's Sandboxed send, kept across a page reload (``AgentPaneSandboxRuns``).
+    @ObservationIgnored public let sandboxRuns = AgentPaneSandboxRuns()
     /// Returns bounded project paths for the picker, optionally filtered by query.
     @ObservationIgnored public var onListProjects: ((String?) async -> [String])?
     /// The folders a chat on another machine can pick: that machine's (its workspace's folders
@@ -260,7 +266,7 @@ public final class AgentPaneModel {
         // Boot traffic, and a request the host refused (it changed nothing), leave it untouched.
         case .ready, .reconnect, .uiPointerReport, .framePacing, .renderRate, .checkpointAvailability, .painted, .newTabInputReady, .newTabContext, .newTabWarm, .unsupported,
              .transportOpen, .transportSend, .transportClose, .transportGesture, .transportGestureRelease, .chatsPage, .quickFloatingState, .quickContext,
-             .tabRowTools, .projectIcon, .environment(.list): break
+             .tabRowTools, .projectIcon, .environment(.list), .sandboxState: break
         case .reply(let reply) where reply.isPassive: break
         default:
             if !userTouched { touchedBy = String(String(describing: request).prefix { $0 != "(" }) }
@@ -360,6 +366,19 @@ public final class AgentPaneModel {
         case .watchChat(let key): if let onWatchChat { onWatchChat(key); return AgentPaneReply.success() } else { return Self.unsupported("chats.watch") }
         case .chatsPage(let query): return await respondToChatsPage(query)
         case .environment(let request): return await request.reply(store: startFolders.environments, newTabPage: newTab != nil && sessionId == nil)
+        case .sandboxRun(let task, let agent, let key):
+            // A new chat only, and it spends Cloud time: the Send's own gesture, as a git write.
+            // Not once a chat starts or opens here (it would replace the run's result), and one at a time.
+            // The send line drains first, so a start or open the page handed over before this is counted.
+            guard sessionId == nil, let onSandboxRun else { return Self.unsupported("sandbox.run") }
+            guard await transport.lineDrained(within: .seconds(5)), !transport.replacements.holds else {
+                return AgentPaneReply.failure(code: "unavailable_now", message: "unavailable_now")
+            }
+            if let refusal = sandboxRuns.refusal { return AgentPaneReply.failure(code: refusal, message: refusal) }
+            guard transport.gestures.consume() else { return Self.transportFailure(.gestureRequired) }
+            return await sandboxRuns.run(task: task, key: key) { await onSandboxRun(task, agent, key) }
+        case .sandboxState(let wait):
+            return await sandboxRuns.state(wait: wait)
         case .paneAction, .diffTurn, .preview, .setQuickActions, .tabState, .tabRowTools, .sideChat, .subagentPane, .processTerminal, .chatTab, .offerOpen, .asksOpen, .newChatHere: return await respondToHeader(request)
         case .appAction(let id):
             guard newTab?.omnibar.actions.contains(where: { $0.id == id }) == true, let onAppAction else { return Self.unsupported("app.action") }

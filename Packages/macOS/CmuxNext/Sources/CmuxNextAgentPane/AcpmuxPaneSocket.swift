@@ -49,6 +49,14 @@ nonisolated final class AcpmuxPaneSocket: NSObject, URLSessionWebSocketDelegate,
     private let options: AcpmuxPermissionOptions
     private let sessions: AcpmuxPaneSessions
     private let decisions: AcpmuxDecisionContexts
+    private let replacements: AcpmuxPaneReplacements
+    /// The transport's id for this socket's connection (``AcpmuxPaneReplacements``).
+    private let connection: Int
+
+    /// A page frame with this parsed `method` went out on this socket (``AcpmuxPaneReplacements``).
+    func sentPageFrame(method: String?) {
+        replacements.sent(method: method, connection: connection)
+    }
     private let ids: AcpmuxRequestIds
     /// Sends a reply in place on (``AgentPaneAgentReply``); nil refuses every one.
     private let agentReplies: AgentPaneAgentReply.Send?
@@ -59,13 +67,15 @@ nonisolated final class AcpmuxPaneSocket: NSObject, URLSessionWebSocketDelegate,
 
     init(request: URLRequest, wire: (any AcpmuxPaneWire)? = nil, limits: AgentPaneTransport.Limits,
          options: AcpmuxPermissionOptions, sessions: AcpmuxPaneSessions, decisions: AcpmuxDecisionContexts = AcpmuxDecisionContexts(),
-         ids: AcpmuxRequestIds, agentReplies: AgentPaneAgentReply.Send? = nil, signal: @escaping @Sendable () -> Void) {
+         replacements: AcpmuxPaneReplacements = AcpmuxPaneReplacements(), connection: Int = 0, ids: AcpmuxRequestIds, agentReplies: AgentPaneAgentReply.Send? = nil, signal: @escaping @Sendable () -> Void) {
         self.request = request
         self.wire = wire
         self.limits = limits
         self.options = options
         self.sessions = sessions
         self.decisions = decisions
+        self.replacements = replacements
+        self.connection = connection
         self.ids = ids
         self.agentReplies = agentReplies
         self.signal = signal
@@ -172,6 +182,7 @@ nonisolated final class AcpmuxPaneSocket: NSObject, URLSessionWebSocketDelegate,
                     sessions.observeFolder(object, replyTo: method)
                     if wire != nil { sessions.observeTabSession(object, replyTo: method) }
                     decisions.observe(object, replyTo: method)
+                    replacements.observe(object, replyTo: method, connection: connection)
                     if Self.pageWaits(on: object) { awaited += 1 }
                     page.append(fresh)
                 case .complete(let object, let pageID, let subject):

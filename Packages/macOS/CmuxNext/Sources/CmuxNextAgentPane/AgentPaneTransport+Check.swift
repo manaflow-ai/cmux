@@ -65,6 +65,7 @@ extension AgentPaneTransport {
         }
         if !snapshot.isFirst, let method { snapshot.sessions.sent(method: method, id: pageID) }
         let error = sendNow(box, relayID: relayID, socket: socket)
+        if error == nil { socket.sentPageFrame(method: method) }
         if error != nil, let relayID { ids.cancel(relayID) }
         if error == .outboundOverflow { socket.close(code: 1008, reason: "outbound overflow", error: error) }
         return .sent(error)

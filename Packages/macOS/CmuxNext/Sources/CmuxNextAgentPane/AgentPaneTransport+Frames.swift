@@ -1,6 +1,7 @@
 import Foundation
 import os
 import CmuxNextCompat
+import CmuxNextWakeups
 
 /// One page frame through the relay: the off-main checks and the main-actor decisions.
 extension AgentPaneTransport {
@@ -187,6 +188,27 @@ extension AgentPaneTransport {
             }
         }
         draining = false
+        let waiting = drainWaiters
+        drainWaiters = []
+        for waiter in waiting { waiter.resume() }
+    }
+
+    /// Waits until the send line is empty (every frame handed over before now sent or refused), at
+    /// most `within`; true when it is. `sandbox.run` waits on it, so a start or open the page handed
+    /// over first is counted (``AcpmuxPaneReplacements``) before the send is admitted.
+    func lineDrained(within bound: Duration) async -> Bool {
+        if pending.isEmpty && !draining { return true }
+        // One deadline per wait: the drain resumes the waiters first, or it does; cancelled after.
+        let deadline = DemandTimer(owner: "agent-pane.sandbox-run.line-drained")
+        deadline.schedule(after: bound) { @MainActor [weak self] in
+            guard let self else { return }
+            let waiting = self.drainWaiters
+            self.drainWaiters = []
+            for waiter in waiting { waiter.resume() }
+        }
+        await withCheckedContinuation { drainWaiters.append($0) }
+        deadline.cancel()
+        return pending.isEmpty && !draining
     }
 
     /// The person proof (acpmux `hub/person.rs`, cx-fcaq), sent right after the page's first frame
@@ -217,10 +239,11 @@ extension AgentPaneTransport {
     /// The next frame's result, to its send; a send whose frames are done (or stopped) is answered.
     private func complete(_ step: Step) {
         guard let entry = pending.first else { return }
-        if !entry.frames.isEmpty { entry.frames.removeFirst() }
+        let frame = entry.frames.isEmpty ? nil : entry.frames.removeFirst()
         switch step {
         case .sent: break
-        case .refused(let error): entry.firstError = entry.firstError ?? error
+        case .refused(let error):
+            entry.firstError = entry.firstError ?? error
         case .stop(let error):
             entry.firstError = entry.firstError ?? error
             entry.frames.removeAll()
@@ -397,6 +420,7 @@ extension AgentPaneTransport {
             if error == .outboundOverflow { socket.close(code: 1008, reason: "outbound overflow", error: error) }
             return .stop(error)
         }
+        socket.sentPageFrame(method: facts.method)
         return .sent
     }
 
