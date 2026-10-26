@@ -455,6 +455,10 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
         Command::Host(PeerCmd::SelfUpdate { channel }) => {
             crate::cli::hosts::self_update(&channel, json_out).await
         }
+        // A file of this person's: no daemon needed.
+        Command::Host(PeerCmd::Hold { name, reason, until, release }) => {
+            crate::cli::hosts::hold(name, reason, until, release, json_out)
+        }
         Command::Host(cmd) => {
             let client = connect(true).await?;
             let v = match cmd {
@@ -565,6 +569,9 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                 // match stays total without a panic.
                 PeerCmd::SelfUpdate { channel } => {
                     return crate::cli::hosts::self_update(&channel, json_out).await;
+                }
+                PeerCmd::Hold { name, reason, until, release } => {
+                    return crate::cli::hosts::hold(name, reason, until, release, json_out);
                 }
                 PeerCmd::Update { name, all, binary_dir, if_idle, keep_newer } => {
                     // Run from a session, `--if-idle` never waits on that session's own turn.
