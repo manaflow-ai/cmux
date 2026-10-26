@@ -176,8 +176,11 @@ public final class LayoutModel {
     /// The last pending close's order (`PaneCloseHold.sequence`).
     @ObservationIgnored var paneCloseSequence = 0
     /// Fit-screen widths of shown column closes that landed while another close on their screen was
-    /// pending, not sent yet (`flushLandedCloseWidths`).
+    /// pending, not sent yet (`flushLandedCloseSizes`).
     @ObservationIgnored var landedCloseWidths: [ColumnID: Double] = [:]
+    /// Even ratios of shown closes that landed while another close on their screen was pending, not
+    /// sent yet (`flushLandedCloseSizes`).
+    @ObservationIgnored var landedCloseRatios: [SplitID: Double] = [:]
     /// Until this uptime, a ratio-only change is an explicit equalize the screens spring (Lawrence 2026-10-16).
     @ObservationIgnored public private(set) var explicitReflowUntil: TimeInterval = 0
     static let explicitReflowWindow: TimeInterval = 0.6
@@ -221,10 +224,10 @@ public final class LayoutModel {
         // Shown closes whose pane leaves the daemon's tree now: their column widths are reconciled
         // across the closes still pending (`noteLandedColumnClose`), not taken from the raw trees.
         let landed = Set(paneCloses.keys.filter { pane in !newScreens.contains { $0.layout.contains(pane) } })
-        noteLandedColumnCloses(from: previous, to: newScreens, landed: landed) // before the overlay below reads them
+        noteLandedCloses(from: previous, to: newScreens, landed: landed) // before the overlay below reads them
         defer {
             applyCloseSizing(from: previous, to: newScreens, landed: landed)
-            flushLandedCloseWidths()
+            flushLandedCloseSizes()
         }
         daemonScreens = newScreens
         resolvePaneCloses(in: newScreens)
@@ -414,6 +417,13 @@ public final class LayoutModel {
               let ratio = tree.equalizedRatio(for: split) else { return }
         explicitReflowUntil = ProcessInfo.processInfo.systemUptime + Self.explicitReflowWindow
         setSplitRatio(split, ratio: ratio, transaction: .make(), phase: .ended)
+    }
+
+    /// Drops the sent (ended) ratio overrides of `splits`: a newer change owns their ratios now. A
+    /// live gesture's or a pending split's override stays.
+    func supersedeSentRatios(_ splits: Set<SplitID>) {
+        guard !splits.isEmpty else { return }
+        splitOverrides = splitOverrides.filter { !splits.contains($0.key) || !$0.value.ended }
     }
 
     /// Drops the sent (ended) width overrides of `columns`: a newer change owns their widths now. A
