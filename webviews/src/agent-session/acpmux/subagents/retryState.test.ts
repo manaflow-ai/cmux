@@ -266,7 +266,9 @@ describe("Retry reaches acpmux, else the parent", () => {
     expect(await runRetry({ ...failed, id: "w3" }, "why", deps(why("not_retryable")), translate)).toBe(
       "retry.nothingFailed",
     );
-    expect(await runRetry({ ...failed, id: "w4" }, "why", deps({ code: "retry.stopped" }), translate)).toBe("retry.gone");
+    expect(await runRetry({ ...failed, id: "w4" }, "why", deps({ code: "retry.stopped" }), translate)).toBe(
+      "retry.gone",
+    );
     const old = deps({ code: "retry.subagent_unsupported" });
     expect(await runRetry({ ...failed, id: "w5" }, "why", old, translate)).toBeUndefined();
     expect((old.calls[1] as unknown[])[0]).toBe("send");
