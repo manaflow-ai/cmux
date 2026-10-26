@@ -67,6 +67,12 @@ struct ProBadgeLayoutTests {
             .role, getter: "accessibilityRole", of: dismiss
         ) as? String
         #expect(role == NSAccessibility.Role.button.rawValue)
+        let frame = try #require(
+            CloudTreeHeaderActionsTests.accessibilityAttribute(
+                .frame, getter: "accessibilityFrame", of: dismiss
+            ) as? NSValue
+        )
+        #expect(frame.rectValue.width > 0)
         try #require(Self.press(dismiss))
         #expect(store.isDismissed)
     }

@@ -317,7 +317,10 @@ struct ProBadgeView: View {
                 .safeHelp(dismissTitle)
                 .accessibilityLabel(dismissTitle)
                 .accessibilityIdentifier("ProBadgeDismissButton")
-                .frame(width: isHovered ? 14 : 0, alignment: .leading)
+                // Keep a positive accessibility target while the visual slot
+                // is collapsed. The hidden state is only one point wide; the
+                // glyph itself is not mounted until hover.
+                .frame(width: isHovered ? 14 : 1, alignment: .leading)
                 .clipped()
             }
             .modifier(ProBadgeCapsule(style: style, isHovered: isHovered))
