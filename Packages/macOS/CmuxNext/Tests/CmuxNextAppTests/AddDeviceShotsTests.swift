@@ -3,6 +3,7 @@ import CmuxNextDesign
 @testable import CmuxNextServer
 import Foundation
 import Testing
+import CmuxNextWakeups
 
 /// Renders every state of the Add Device card (the network list, loading, no network, the code
 /// way, a new Mac or Linux computer, a new iPhone, a copied line) into one contact sheet, so a
@@ -56,7 +57,7 @@ import Testing
         for shot in Shot.allCases {
             let fake = AddDeviceFlowTests.Fake()
             let model = await shot.drive(fake)
-            let view = AddDeviceView(model: model)
+            let view = AddDeviceView(model: model, mainWork: MainWorkScheduler(budget: MainFrameBudget()))
             #expect(!Self.hostsSwiftUI(view), "\(shot) hosts SwiftUI")
             let image = try AddMachineShotsTests.render(view)
             #expect(image.size.width >= 400, "\(shot) is \(image.size.width) pt wide")
@@ -75,7 +76,7 @@ import Testing
         let fake = AddDeviceFlowTests.Fake()
         let model = AddDeviceModel(services: fake.services())
         await model.begin()
-        let view = AddDeviceView(model: model)
+        let view = AddDeviceView(model: model, mainWork: MainWorkScheduler(budget: MainFrameBudget()))
         let ids = Self.identifiers(view)
         #expect(ids.contains("cmux.addDevice.way"))
         #expect(ids.contains("cmux.addDevice.add.studio"))

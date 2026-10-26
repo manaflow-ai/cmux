@@ -97,7 +97,7 @@ import PackageDescription
 //   CmuxNextAccounts -> CodeRouter, Design, Icons (Settings > Accounts and the onboarding step; the App supplies AccountsServices)
 //   CmuxNextAgentIntegrations -> Daemon, Pages, Settings (Settings > Agents > Agent integrations: relays the bundled
 //     CLI's `agent hook status|install|uninstall`; the App supplies the CLI's location)
-//   CmuxNextBookmarks -> Design, Icons (bookmark tree per browser profile, Netscape HTML, ranking, file store,
+//   CmuxNextBookmarks -> Design, Icons, Wakeups (bookmark tree per browser profile, Netscape HTML, ranking, file store,
 //     cmux://bookmarks page, bookmarks bar, edit bubble; no daemon; the App supplies the store)
 //   CmuxNextResources -> Wakeups, Design (hover-card CPU/memory: aggregation, on-demand sampler, lines;
 //     no daemon; the App supplies the samples). Tabs and Sidebar show it.
@@ -129,7 +129,7 @@ import PackageDescription
 //     no daemon; the App supplies the source; plans/cmux-next/tasks.md)
 //   CmuxNextFeed -> Design, Wakeups (feed panel: list, inbox and menu bar prototypes over a mirror + intent
 //     log of the feed owner; no daemon; the App supplies the source; plans/cmux-next/feed.md)
-//   CmuxNextServer -> Design, Icons (server menubar panel, pairing, approver sheet and health prototypes
+//   CmuxNextServer -> Design, Icons, Wakeups (server menubar panel, pairing, approver sheet and health prototypes
 //     over a projection of `server.status`; no daemon; the App supplies the source;
 //     plans/cmux-next/server.md)
 //   CmuxNextRemoteView -> Design, Icons (remote desktop pane: decode, presenters, chrome, input capture;
@@ -762,7 +762,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         // edit bubble.
         .target(
             name: "CmuxNextBookmarks",
-            dependencies: ["CmuxNextCompat", "CmuxNextDesign", "CmuxNextIcons"],
+            dependencies: ["CmuxNextCompat", "CmuxNextDesign", "CmuxNextIcons", "CmuxNextWakeups"],
             resources: [
                 .process("Resources"),
             ],
@@ -970,7 +970,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         ),
         .testTarget(
             name: "CmuxNextPopupsTests",
-            dependencies: ["CmuxNextBrowser", "CmuxNextDesign", "CmuxNextPopups"],
+            dependencies: ["CmuxNextBrowser", "CmuxNextDesign", "CmuxNextPopups", "CmuxNextWakeups"],
             swiftSettings: uiSwiftSettings
         ),
         // The one owner of what happens to a workspace with no pane: a last-tab
@@ -1206,7 +1206,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         // projection of `server.status`. The App supplies the source.
         .target(
             name: "CmuxNextServer",
-            dependencies: ["CmuxNextCompat", "CmuxNextDesign", "CmuxNextIcons"],
+            dependencies: ["CmuxNextCompat", "CmuxNextDesign", "CmuxNextIcons", "CmuxNextWakeups"],
             resources: [
                 .process("Resources"),
             ],
@@ -1817,7 +1817,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         ),
         .testTarget(
             name: "CmuxNextHibernationTests",
-            dependencies: ["CmuxNextHibernation", "CmuxNextCompat", "CmuxNextSettings"],
+            dependencies: ["CmuxNextHibernation", "CmuxNextCompat", "CmuxNextSettings", "CmuxNextWakeups"],
             swiftSettings: uiSwiftSettings
         ),
         // The browser's engine-neutral half: tab and engine values, intents, capability protocols, omnibox
