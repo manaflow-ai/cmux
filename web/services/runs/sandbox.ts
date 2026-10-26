@@ -124,7 +124,7 @@ export function sandboxReceiptFor(snapshot: RunSnapshotRow, provider: ProviderId
   const outcome = storedOutcome(run.receipt);
   const attempt = snapshot.attempts[0];
   // Cleanup scrubs stored text before it clears the handles; until then they are redacted here.
-  const handles = [attempt?.providerVmId, attempt?.providerWorkspaceId, attempt?.providerTerminalId];
+  const handles = snapshotHandles(snapshot);
   return {
     schema: "cmux.run.receipt/v1",
     runId: run.id,
@@ -176,15 +176,19 @@ function servedDigest(digest: string): string {
   return isArtifactDigest(digest) ? digest : "[redacted]";
 }
 
+/** Every handle a sandboxed Run's text could name: its attempt's, and its VM rows' provider ids. */
+function snapshotHandles(snapshot: RunSnapshotRow): (string | null | undefined)[] {
+  const attempt = snapshot.attempts[0];
+  return [attempt?.providerVmId, attempt?.providerWorkspaceId, attempt?.providerTerminalId, ...(snapshot.sandboxVmHandles ?? [])];
+}
+
 /** A sandboxed Run's run or attempt error as served: redacted like its receipt. */
 export function sandboxErrorView(error: string | null, snapshot: RunSnapshotRow): string | null {
-  const attempt = snapshot.attempts[0];
-  return error === null ? null : redactReceiptText(error, [attempt?.providerVmId, attempt?.providerWorkspaceId, attempt?.providerTerminalId]);
+  return error === null ? null : redactReceiptText(error, snapshotHandles(snapshot));
 }
 
 export function sandboxArtifactView<T extends { readonly name: string; readonly mediaType: string; readonly digest: string; readonly uri: string; readonly metadata: Record<string, unknown> }>(view: T, snapshot: RunSnapshotRow): T {
-  const attempt = snapshot.attempts[0];
-  const handles = [attempt?.providerVmId, attempt?.providerWorkspaceId, attempt?.providerTerminalId];
+  const handles = snapshotHandles(snapshot);
   return {
     ...view,
     digest: servedDigest(view.digest),

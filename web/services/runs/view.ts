@@ -27,6 +27,7 @@ export type RunSnapshotRow = {
   readonly sandboxVmLive?: boolean;
   readonly sandboxVms?: readonly { readonly createdAt: Date; readonly destroyedAt: Date | null; readonly live: boolean }[];
   readonly sandboxVmUnknown?: boolean;
+  readonly sandboxVmHandles?: readonly string[];
 };
 
 export type RunViewOptions = {

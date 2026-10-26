@@ -50,6 +50,8 @@ export type RunSnapshot = {
   readonly sandboxVms?: readonly { readonly createdAt: Date; readonly destroyedAt: Date | null; readonly live: boolean }[];
   /** Sandboxed Runs only: a create the VM reaper abandoned may have made a machine nobody recorded. */
   readonly sandboxVmUnknown?: boolean;
+  /** Sandboxed Runs only: the provider ids of its VM rows, redacted wherever its text is shown. */
+  readonly sandboxVmHandles?: readonly string[];
 };
 
 /**
@@ -205,7 +207,9 @@ async function readSnapshot(db: RunQueryDb, runId: string, userId: string): Prom
       live,
     };
   });
-  return { run, attempts, artifacts, sandboxVmLive: allocationUnknown || sandboxVms.some((vm) => vm.live), sandboxVms, sandboxVmUnknown: allocationUnknown };
+  // The VM rows' provider ids are handles too, journaled on the attempt or not: redacted alike.
+  const sandboxVmHandles = rows.flatMap((row) => (row.providerVmId ? [row.providerVmId] : []));
+  return { run, attempts, artifacts, sandboxVmLive: allocationUnknown || sandboxVms.some((vm) => vm.live), sandboxVms, sandboxVmUnknown: allocationUnknown, sandboxVmHandles };
 }
 
 export async function getRun(runId: string, userId: string): Promise<RunSnapshot> {
@@ -929,12 +933,35 @@ export async function claimExpiredAttemptCleanups(input: { readonly limit?: numb
  * like its receipt (token shapes and the attempt's own handles), since events are served as stored.
  */
 async function artifactEventName(tx: RunQueryDb, input: { readonly runId: string; readonly attemptId: string; readonly name: string; readonly digest: string }): Promise<string> {
-  const row = (await tx.select({ environment: runs.environment, attempt: { providerVmId: runAttempts.providerVmId, providerWorkspaceId: runAttempts.providerWorkspaceId, providerTerminalId: runAttempts.providerTerminalId } })
+  const row = (await tx.select({ attempt: runAttempts, run: runs })
     .from(runAttempts).innerJoin(runs, eq(runs.id, runAttempts.runId)).where(eq(runAttempts.id, input.attemptId)).limit(1))[0];
-  if (row?.environment !== "sandboxed") return input.name;
+  if (row?.run.environment !== "sandboxed") return input.name;
   // A sandbox's receipt serves the digest as is, so it must be one.
   if (!isArtifactDigest(input.digest)) throw new RunArtifactConflictError("artifact digest is invalid");
-  return redactReceiptText(input.name, [row.attempt.providerVmId, row.attempt.providerWorkspaceId, row.attempt.providerTerminalId]);
+  return redactReceiptText(input.name, await sandboxAttemptHandles(tx, row.run, row.attempt));
+}
+
+/**
+ * Every handle a sandbox attempt's text could name: the ones journaled on the attempt and the
+ * provider id of any VM row under its key (a launcher that died before journaling it still
+ * made one).
+ */
+async function sandboxAttemptHandles(
+  db: RunQueryDb,
+  run: Pick<typeof runs.$inferSelect, "id" | "userId" | "billingTeamId">,
+  attempt: Pick<typeof runAttempts.$inferSelect, "id" | "providerVmId" | "providerWorkspaceId" | "providerTerminalId">,
+): Promise<string[]> {
+  const journaled = [attempt.providerVmId, attempt.providerWorkspaceId, attempt.providerTerminalId].filter((handle): handle is string => !!handle);
+  if (!run.billingTeamId) return journaled;
+  const key = sandboxVmIdempotencyKey(run.id, attempt.id);
+  const vms = await db.select({ providerVmId: cloudVms.providerVmId }).from(cloudVms).where(and(
+    eq(cloudVms.billingTeamId, run.billingTeamId),
+    eq(cloudVms.userId, run.userId),
+    eq(cloudVms.idempotencyKey, key),
+    sql`${cloudVms.providerMetadata}->>${SANDBOX_VM_MARKER_KEY} = ${key}`,
+    isNotNull(cloudVms.providerVmId),
+  )).limit(4);
+  return [...journaled, ...vms.flatMap((vm) => (vm.providerVmId ? [vm.providerVmId] : []))];
 }
 
 /**
@@ -956,8 +983,8 @@ async function scrubSandboxHandles(attemptId: string, cleanupLeaseToken: string)
       eq(runs.environment, "sandboxed"),
     )).limit(1))[0];
     if (!row) return;
-    const handles = [row.attempt.providerVmId, row.attempt.providerWorkspaceId, row.attempt.providerTerminalId];
-    if (!handles.some(Boolean)) return;
+    const handles = await sandboxAttemptHandles(tx, row.run, row.attempt);
+    if (handles.length === 0) return;
     const reply = typeof row.run.receipt?.reply === "string" ? row.run.receipt.reply : null;
     if (reply !== null) {
       await tx.update(runs).set({ receipt: { ...row.run.receipt, reply: redactReceiptText(reply, handles) } }).where(eq(runs.id, row.run.id));
@@ -1047,7 +1074,8 @@ export async function recordSandboxOutcome(input: {
     )).limit(1))[0]?.run_attempts;
     if (!attempt) return false;
     const { exitCode, signal, timedOut, bootMs } = input.outcome;
-    const handles = [attempt.providerVmId, attempt.providerWorkspaceId, attempt.providerTerminalId];
+    const run = (await tx.select().from(runs).where(eq(runs.id, input.runId)).limit(1))[0];
+    const handles = run ? await sandboxAttemptHandles(tx, run, attempt) : [attempt.providerVmId, attempt.providerWorkspaceId, attempt.providerTerminalId];
     const reply = input.outcome.reply === null ? null : sandboxReply(input.outcome.reply, handles);
     await tx.update(runs).set({ receipt: { reply, exitCode, signal, timedOut, bootMs }, updatedAt: nowAt }).where(eq(runs.id, input.runId));
     return true;

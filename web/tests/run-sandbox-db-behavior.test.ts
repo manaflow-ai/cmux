@@ -585,6 +585,31 @@ describe("sandboxed Run lifecycle in the repository", () => {
     }
   });
 
+  dbTest("a VM the attempt never journaled is still a handle: redacted in the outcome, artifact events, served views and at cleanup", async () => {
+    const userId = `sandbox-${randomUUID()}`;
+    try {
+      const created = await repo().createRun(input(userId));
+      const attempt = created.attempts[0]!;
+      const lease = await repo().claimAttemptLease({ runId: created.run.id, attemptId: attempt.id, workerId: "sandbox-worker" });
+      const target = { runId: created.run.id, attemptId: attempt.id, lease };
+      const vmId = `vm-unjournaled-${randomUUID().slice(0, 8)}`;
+      await insertSandboxVm(userId, `sandbox-run:${created.run.id}:attempt:${attempt.id}`, vmId);
+      await repo().recordRunArtifact({ runId: target.runId, attemptId: target.attemptId, ...lease, name: `dump-${vmId}.txt`, sizeBytes: 1, digest: `sha256:${"d".repeat(64)}`, uri: "artifact://x" });
+      const [event] = await sql!`select payload->>'name' as name from run_events where attempt_id = ${attempt.id} and kind = 'attempt.artifact'`;
+      expect(event?.name).not.toContain(vmId);
+      await repo().ingestRunEvent({ runId: target.runId, attemptId: target.attemptId, ...lease, externalId: "end", attemptSequence: 0, kind: "attempt.failed", payload: { error: "x" } });
+      expect(await repo().recordSandboxOutcome({ runId: target.runId, attemptId: target.attemptId, ...lease, outcome: { reply: `booted ${vmId}`, exitCode: 1, signal: null, timedOut: false, bootMs: null } })).toBe(true);
+      const [run] = await sql!`select receipt->>'reply' as reply from runs where id = ${created.run.id}`;
+      expect(run?.reply).not.toContain(vmId);
+      const snapshot = await repo().getRun(created.run.id, userId);
+      const { toRunSnapshotView } = await import("../services/runs/view");
+      expect(JSON.stringify(toRunSnapshotView({ ...snapshot, artifacts: snapshot.artifacts.map((artifact) => ({ ...artifact, name: `raw-${vmId}` })) }))).not.toContain(vmId);
+    } finally {
+      await sql!`delete from cloud_vms where user_id = ${userId}`;
+      await removeRuns(userId);
+    }
+  });
+
   dbTest("a sandbox key allocates one machine, ever: a destroyed or failed row is returned, never replaced", async () => {
     const userId = `sandbox-${randomUUID()}`;
     try {
