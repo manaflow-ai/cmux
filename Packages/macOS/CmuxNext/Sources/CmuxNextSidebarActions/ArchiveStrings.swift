@@ -13,6 +13,7 @@ nonisolated enum ArchiveStrings {
     static var notPlacedYet: String { text("archive.refusal.notPlacedYet", "the workspace is still being added to the sidebar") }
     static var autoArchiveRuleTitle: String { text("autoArchive.ruleTitle", "Set Group Auto-Archive") }
     static var autoArchiveBadRule: String { text("autoArchive.refusal.badRule", "auto-archive takes default, never or a number of hours") }
+    static var autoArchiveNeedsItem: String { text("autoArchive.refusal.needsItem", "name an archived workspace item, or all") }
     static var noSuchItem: String { text("archive.refusal.noSuchItem", "no such sidebar item") }
 
     private static func text(_ key: StaticString, _ value: String.LocalizationValue) -> String {

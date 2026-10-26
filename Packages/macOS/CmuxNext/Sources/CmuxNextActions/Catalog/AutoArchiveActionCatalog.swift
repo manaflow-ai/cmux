@@ -10,9 +10,10 @@ nonisolated enum AutoArchiveActionCatalog: ActionCatalogGroup {
                 category: .workspace, symbol: "archivebox", surfaces: [.palette, .contextMenu], cliName: "workspace archive-idle"
             ),
             ActionDescriptor(
-                id: "workspace.showArchived", title: t("action.autoArchive.showArchived", "Show Archived Workspaces…"),
-                keywords: ["archive", "archived", "restore", "unarchive", "find", "search", "workspaces"],
-                category: .workspace, symbol: "archivebox.circle", surfaces: [.palette, .contextMenu]
+                id: "workspace.restoreArchived", title: t("action.autoArchive.restoreArchived", "Restore Archived Workspace…"),
+                keywords: ["archive", "archived", "restore", "unarchive", "find", "search", "workspaces", "show archived"],
+                category: .workspace, symbol: "archivebox.circle", surfaces: [.palette, .contextMenu], arguments: [archivedChoice],
+                cliName: "workspace restore-archived"
             ),
             ActionDescriptor(
                 id: "workspaceGroup.setAutoArchive", title: t("action.autoArchive.setGroupRule", "Auto-Archive Group Workspaces"),
@@ -21,6 +22,14 @@ nonisolated enum AutoArchiveActionCatalog: ActionCatalogGroup {
                 cliName: "workspace-group set-auto-archive"
             ),
         ]
+    }
+
+    /// The archived workspace to restore (a document item), or `all`; the palette lists them.
+    static var archivedChoice: ActionArgument {
+        ActionArgument(name: "item", title: t("argument.autoArchive.item", "Archived Workspace"), kind: .string,
+                       suggestions: ActionSuggestions(source: ActionSuggestions.archivedWorkspaces, pinned: [
+                           ActionEnumCase(value: "all", title: t("argument.value.autoArchive.restoreAll", "Restore All")),
+                       ]))
     }
 
     /// A group's rule: the setting's default, never, or after this many idle hours (the reducer

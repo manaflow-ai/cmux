@@ -71,9 +71,10 @@ and MCP agree and each change is one undo step:
 
 ## Archived view
 
-**Show Archived Workspaces…** (sidebar background menu, palette): a palette page of every archived
-workspace (by hand, on its own, or under an archived group), last used first, searchable by name.
-Return restores; Open shows it as it is; **Restore All** at the end.
+**Restore Archived Workspace…** (sidebar background menu, palette, `cmux workspace restore-archived
+--arg item=<item|all>`): a searchable Cmd-Shift-P step listing every archived workspace (by hand, on its
+own, or under an archived group), last used first, with **Restore All** first. Return restores it (and its
+archived groups). Opening an archived workspace from the sidebar still works as before (dimmed).
 
 A workspace auto-archive archived comes back on its own when shown again (a click, Cmd-P, a link). One
 archived by hand keeps Aziz's rule: it opens dimmed until Unarchive.
@@ -94,10 +95,10 @@ archived by hand keeps Aziz's rule: it opens dimmed until Unarchive.
 | --- | --- |
 | Settings > General > Auto-Archive | Idle Workspaces (style), Idle For (days) |
 | cmux.json | `workspaces.autoArchive.style`, `workspaces.autoArchive.idleDays` |
-| Sidebar background menu | Archive Idle Workspaces, Show Archived Workspaces… |
+| Sidebar background menu | Archive Idle Workspaces, Restore Archived Workspace… |
 | Group menu > Options | Auto-Archive Group Workspaces ▸ |
 | Palette | all three |
-| CLI | `cmux workspace archive-idle`, `cmux workspace-group set-auto-archive` |
+| CLI | `cmux workspace archive-idle`, `cmux workspace restore-archived`, `cmux workspace-group set-auto-archive` |
 | MCP | the same actions (agents may run the sweep; the style and days are `userOnly`) |
 
 ## Files
@@ -105,9 +106,11 @@ archived by hand keeps Aziz's rule: it opens dimmed until Unarchive.
 - Reducer: `cmux-tui/crates/cmux-layout-reducer/src/sidebar_doc/archive.rs`, `model.rs`
   (`ARCHIVED_BY_KEY`, `AUTO_ARCHIVE_KEY`, `AutoArchiveRule`), tests `archive_group_tests.rs`.
 - Settings: `schemas/settings/source/auto-archive.json` (generated Swift), `AutoArchiveSettings.swift`.
-- Logic: `CmuxNextSidebarActions/AutoArchivePlanner.swift` (pure), `AutoArchiveCoordinator.swift`,
-  `AutoArchiveLedger.swift`, `AutoArchiveActions.swift`, `AutoArchiveDocument.swift`.
-- App: `AppServices+AutoArchiveHost.swift` (reads only), wiring in `AppServices`, `AppActions`, `AppDelegate`.
+- Logic: `CmuxNextSidebar/AutoArchive/` (`AutoArchivePlanner` pure, `AutoArchiveCoordinator`,
+  `AutoArchiveLedger`, `AutoArchivePolicy`, `AutoArchiveDocument`, `SidebarDocAutoArchiveRule`);
+  `CmuxNextBridge/AutoArchiveCandidates.swift` (daemon reads); actions in
+  `CmuxNextSidebarActions/AutoArchiveActions.swift`. No Package.swift change (it is frozen).
+- App: `AppServices+AutoArchiveHost.swift` (one-line forwards), wiring in `AppServices`, `AppActions`, `AppDelegate`.
 - Tests: `AutoArchivePlannerTests`, `AutoArchiveCoordinatorTests`, reducer `archive_group_tests`.
 
 ## Open

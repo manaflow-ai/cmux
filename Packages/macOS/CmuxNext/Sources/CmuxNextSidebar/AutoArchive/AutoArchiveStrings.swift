@@ -8,12 +8,7 @@ public nonisolated enum AutoArchiveStrings {
     static var cardArchive: String { text("autoArchive.card.archive", "Archive") }
     static var cardNotNow: String { text("autoArchive.card.notNow", "Not Now") }
     static var nothingIdle: String { text("autoArchive.refusal.nothingIdle", "no workspace is idle long enough to archive") }
-    public static var archivedTitle: String { text("autoArchive.archived.title", "Archived Workspaces") }
-    public static var archivedPlaceholder: String { text("autoArchive.archived.placeholder", "Search archived workspaces") }
-    public static var restore: String { text("autoArchive.archived.restore", "Restore") }
-    public static var open: String { text("autoArchive.archived.open", "Open") }
     static var needsDocument: String { text("autoArchive.refusal.needsDocument", "this sidebar cannot archive items yet") }
-    public static var restoreAll: String { text("autoArchive.archived.restoreAll", "Restore All") }
 
     static func archived(_ count: Int) -> String {
         String(format: text("autoArchive.toast.archived", "Archived %lld idle workspaces"), count)

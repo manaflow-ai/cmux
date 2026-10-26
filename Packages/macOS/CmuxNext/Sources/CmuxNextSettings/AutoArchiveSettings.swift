@@ -21,6 +21,10 @@ public nonisolated struct AutoArchiveSettings: Sendable, Equatable {
     public var idleSeconds: Double { idleDays * 86_400 }
 
     static func parse(_ root: JSONValue, diagnostics: inout [SettingsDiagnostic]) -> Self {
-        Self() // red: not parsed yet
+        guard var reader = ConfigFieldReader(root, at: ["workspaces", "autoArchive"], diagnostics: &diagnostics) else { return Self() }
+        let style = reader.choice("style", AutoArchiveStyle.self) ?? styleDefault
+        let idleDays = reader.number("idleDays", range: idleDaysRange) ?? idleDaysDefault
+        diagnostics += reader.diagnostics
+        return Self(style: style, idleDays: idleDays)
     }
 }

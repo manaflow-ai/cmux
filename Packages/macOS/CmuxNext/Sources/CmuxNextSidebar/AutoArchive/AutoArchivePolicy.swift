@@ -25,6 +25,12 @@ public nonisolated struct AutoArchivePolicy: Equatable, Sendable {
         self.idleDays = idleDays
     }
 
+    /// The policy a settings file names (`workspaces.autoArchive.style` and `.idleDays`); nil or an
+    /// unknown style takes the default.
+    public init(styleName: String?, idleDays: Double?) {
+        self.init(style: styleName.flatMap(Style.init(rawValue:)) ?? .suggest, idleDays: idleDays ?? 3)
+    }
+
     /// `idleDays` in seconds.
     public var idleSeconds: Double { idleDays * 86_400 }
 }

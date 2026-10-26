@@ -3,25 +3,21 @@ public import CmuxNextSidebar
 import Foundation
 
 /// The auto-archive actions (plans/cmux-next/auto-archive-DESIGN.md): Archive Idle Workspaces (the
-/// sweep), Show Archived Workspaces (the page the App opens), and a group's Auto-Archive rule. Every
-/// surface (the sidebar background menu, the group menu, the palette, the CLI, MCP) runs these.
+/// sweep), Restore Archived Workspace… (the Archived list, a searchable Cmd-Shift-P step), and a
+/// group's Auto-Archive rule. Every surface (the sidebar background menu, the group menu, the palette,
+/// the CLI, MCP) runs these.
 @MainActor
 public final class AutoArchiveActions {
     /// Held for the registry's life: the bound actions are its only owner.
     private let coordinator: AutoArchiveCoordinator
-    private let groupItem: @MainActor (ActionInvocation) throws -> String
-    private let showArchived: @MainActor (ActionInvocation) -> Void
+    private let host: any SidebarArchiveHost
     private let store: () -> SidebarDocStore?
 
-    /// - Parameters:
-    ///   - groupItem: the document item of the invocation's group (throws when it targets none).
-    ///   - showArchived: opens the Archived Workspaces page.
-    public init(coordinator: AutoArchiveCoordinator, groupItem: @escaping @MainActor (ActionInvocation) throws -> String,
-                showArchived: @escaping @MainActor (ActionInvocation) -> Void,
+    /// - Parameter host: the archive actions' host (its group lookup names the invocation's group).
+    public init(coordinator: AutoArchiveCoordinator, host: any SidebarArchiveHost,
                 store: @escaping () -> SidebarDocStore? = { SidebarDocStore.current }) {
         self.coordinator = coordinator
-        self.groupItem = groupItem
-        self.showArchived = showArchived
+        self.host = host
         self.store = store
     }
 
@@ -35,10 +31,24 @@ public final class AutoArchiveActions {
                 return .refused(error.message)
             }
         })
-        registry.bindEffect("workspace.showArchived", unavailable: unavailable, effect: { [self] invocation in
-            self.showArchived(invocation)
+        registry.bindEffect("workspace.restoreArchived", unavailable: unavailable, effect: { [self, weak registry] invocation in
+            guard let item = invocation["item"]?.stringValue, !item.isEmpty else {
+                // The archived workspaces as a Cmd-Shift-P step; Return runs this again with the pick.
+                guard let registry, !registry.refusalHasCaller, registry.ask("workspace.restoreArchived", invocation, ActionArgumentAsk(argument: "item"))
+                else { return .refused(ArchiveStrings.autoArchiveNeedsItem) }
+                return .done
+            }
+            let archived = self.coordinator.archivedWorkspaces().map(\.item)
+            let items = item == "all" ? archived : archived.filter { $0 == item }
+            guard !items.isEmpty else { return .refused(ArchiveStrings.noSuchItem) }
+            self.coordinator.restore(items)
             return .done
         })
+        let otherSuggestions = registry.argumentSuggestions
+        registry.argumentSuggestions = { [weak self] source in
+            guard source == ActionSuggestions.archivedWorkspaces, let self else { return otherSuggestions?(source) ?? [] }
+            return self.coordinator.archivedWorkspaces().map { ActionEnumCase(value: $0.item, title: $0.title.isEmpty ? $0.workspace : $0.title) }
+        }
         registry.bindEffect("workspaceGroup.setAutoArchive", unavailable: unavailable, effect: { [self] invocation in
             guard let store = self.activeStore() else { return .refused(ArchiveStrings.needsDocument) }
             let rule: Any
@@ -52,7 +62,8 @@ public final class AutoArchiveActions {
                 rule = value.wire
             }
             do {
-                let item = try self.groupItem(invocation)
+                let group = try self.host.archiveGroupID(invocation)
+                let item = store.records.groupItem(personal: group) ?? group
                 try store.sendChecked(ops: [["op": "group.update", "id": item, "patch": ["auto_archive": rule]]],
                                       title: ArchiveStrings.autoArchiveRuleTitle)
                 return .done

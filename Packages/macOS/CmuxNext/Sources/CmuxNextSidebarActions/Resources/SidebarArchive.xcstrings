@@ -1,6 +1,137 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "autoArchive.refusal.needsItem": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "name an archived workspace item, or all"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "حدّد عنصر مساحة عمل مؤرشفة، أو all"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "navedite stavku arhiviranog radnog prostora ili all"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "angiv et arkiveret arbejdsområde-element eller all"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "gib ein archiviertes Arbeitsbereich-Element oder all an"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "indica un elemento de espacio archivado, o all"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "indiquez un élément d’espace archivé, ou all"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "indica un elemento di spazio archiviato, oppure all"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "アーカイブしたワークスペースの項目か all を指定してください"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "សូមដាក់ឈ្មោះធាតុកន្លែងធ្វើការក្នុងប័ណ្ណសារ ឬ all"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "보관된 워크스페이스 항목이나 all을 지정하세요"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "angi et arkivert arbeidsområde-element, eller all"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "podaj element zarchiwizowanego obszaru lub all"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "informe um item de espaço arquivado, ou all"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "укажите элемент архивного рабочего пространства или all"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ระบุรายการเวิร์กสเปซที่เก็บถาวร หรือ all"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "arşivlenmiş bir çalışma alanı öğesi ya da all belirtin"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "укажіть елемент архівного робочого простору або all"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "hãy nêu một mục không gian đã lưu trữ, hoặc all"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "请指定一个已归档的工作区项目，或 all"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "請指定一個已封存的工作區項目，或 all"
+          }
+        }
+      }
+    },
     "autoArchive.ruleTitle": {
       "extractionState": "manual",
       "localizations": {

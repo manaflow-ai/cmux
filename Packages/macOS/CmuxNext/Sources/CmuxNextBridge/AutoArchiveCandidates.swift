@@ -8,11 +8,11 @@ import Foundation
 /// the coordinator calls it once per pass, never per frame or keystroke.
 @MainActor
 public struct AutoArchiveCandidates {
-    private let stores: @MainActor () -> [DaemonStore]
+    private let stores: [DaemonStore]
     private let title: @MainActor (WorkspaceModel) -> String
 
     /// `stores`: every machine's daemon store; `title`: the name a row shows (the App's shown name).
-    public init(stores: @escaping @MainActor () -> [DaemonStore], title: @escaping @MainActor (WorkspaceModel) -> String = { $0.displayName }) {
+    public init(stores: [DaemonStore], title: @escaping @MainActor (WorkspaceModel) -> String = { $0.displayName }) {
         self.stores = stores
         self.title = title
     }
@@ -20,7 +20,7 @@ public struct AutoArchiveCandidates {
     /// The candidates of every workspace `placed` (the document's ref-to-item map) holds.
     public func candidates(placed: [SidebarDocWorkspaceRef: String]) -> [AutoArchivePlanner.Candidate] {
         var out: [AutoArchivePlanner.Candidate] = []
-        for store in stores() {
+        for store in stores {
             for workspace in store.workspaces {
                 guard let ref = SidebarDocSections.ref(of: workspace, session: store.registryID), let item = placed[ref] else { continue }
                 out.append(candidate(workspace, item: item))

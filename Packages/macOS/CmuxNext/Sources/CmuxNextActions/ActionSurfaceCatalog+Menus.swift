@@ -65,7 +65,7 @@ nonisolated extension ActionSurfaceCatalog {
         // the Archived list on the sidebar's background menu.
         "workspaceGroup.setAutoArchive": [p(.workspaceGroup, .identity, 109, .choices, folder: .options)],
         "workspace.archiveIdle": [p(.sidebarBackground, .organize, 105)],
-        "workspace.showArchived": [p(.sidebarBackground, .organize, 106)],
+        "workspace.restoreArchived": [p(.sidebarBackground, .organize, 106)],
         "workspaceGroup.markRead": [p(.workspaceGroup, .identity, 110, folder: .options)],
         "workspaceGroup.markUnread": [p(.workspaceGroup, .identity, 111, folder: .options)],
         "workspaceGroup.clearNotifications": [p(.workspaceGroup, .identity, 112, folder: .options)],
