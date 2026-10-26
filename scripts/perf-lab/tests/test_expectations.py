@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""expectations.py: entry rules, expiry, `lab.py expectations --check` and the skip hook inside scheduler.plan().
+"""expectations.py: entry rules, expiry, `lab.py expectations --check`, the skip hook inside scheduler.plan() and
+the Driver and `lab.py schedule` reading expectations.json. Hermetic: every check pins its day and its file.
 
   python3 -m unittest scripts/perf-lab/tests/test_expectations.py
 """
@@ -11,10 +12,12 @@ import json
 import subprocess
 import sys
 import tempfile
+import types
 import unittest
 from argparse import Namespace
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
+from unittest import mock
 
 LAB = Path(__file__).resolve().parent.parent
 REPO_ROOT = LAB.parents[1]
@@ -32,6 +35,7 @@ def _load(name: str):
 
 
 expectations = _load("expectations")
+catalog = _load("catalog")
 scheduler = _load("scheduler")
 gen = _load("gen_shard_map")
 
@@ -130,6 +134,45 @@ class EntryRuleTests(unittest.TestCase):
             with self.subTest(bad=bad), self.assertRaises(expectations.ExpectationsError):
                 expectations.from_document(bad)
 
+    def test_checked_in_file_parses(self):
+        """Schema only: expiry and the story catalog are `lab.py expectations --check`'s job, not this suite's."""
+        loaded = expectations.load(REPO_ROOT / expectations.EXPECTATIONS_PATH)
+        self.assertEqual(loaded.problems, ())
+
+
+class ActiveAtTests(unittest.TestCase):
+    def _active_at(self, text, now):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "expectations.json"
+            path.write_text(text)
+            return expectations.active_at(path, now)
+
+    def test_valid_entry_skips_and_reports_nothing(self):
+        active = self._active_at(json.dumps(document(entry())), NOW)
+        self.assertEqual((active.pairs, active.problems), ({("t0-key", M6)}, ()))
+
+    def test_expiry_is_judged_on_the_utc_day_of_now(self):
+        text = json.dumps(document(entry()))  # expires 2026-10-31
+        late_utc_evening = datetime(2026, 10, 31, 23, 30, tzinfo=timezone.utc)
+        self.assertEqual(self._active_at(text, late_utc_evening).pairs, {("t0-key", M6)})
+        same_instant_east = late_utc_evening.astimezone(timezone(timedelta(hours=9)))  # 2026-11-01 locally
+        self.assertEqual(self._active_at(text, same_instant_east).pairs, {("t0-key", M6)})
+        west_evening = datetime(2026, 10, 31, 20, 0, tzinfo=timezone(timedelta(hours=-5)))  # 2026-11-01 in UTC
+        expired = self._active_at(text, west_evening)
+        self.assertEqual(expired.pairs, frozenset())
+        self.assertIn("expired on 2026-10-31", expired.problems[0])
+
+    def test_unreadable_file_skips_nothing_and_says_why(self):
+        for text in ("{not json", json.dumps({"schema": "other", "expectations": []})):
+            with self.subTest(text=text):
+                active = self._active_at(text, NOW)
+                self.assertEqual(active.pairs, frozenset())
+                self.assertEqual(len(active.problems), 1)
+                self.assertTrue(active.problems[0].startswith("expectations: "))
+        with tempfile.TemporaryDirectory() as tmp:
+            missing = expectations.active_at(Path(tmp) / "expectations.json", NOW)
+        self.assertEqual((missing.pairs, len(missing.problems)), (frozenset(), 1))
+
 
 class SchedulerInputTests(unittest.TestCase):
     """The skip hook inside plan(): a matching story x host-class pair is skipped, every other pair runs."""
@@ -154,6 +197,25 @@ class SchedulerInputTests(unittest.TestCase):
         built = scheduler.Builds(ready=frozenset({(tip, "bench")}))
         return scheduler.plan(cut.state, NOW + timedelta(minutes=6), self.HOSTS, built, (tip,),
                               stories=self.STORIES, shard_map=self.SHARD_MAP, skip=skip)
+
+    def _driver_t0_plan(self, path):
+        """Two Driver ticks, as labd runs them: cut a batch, then plan its T0 once its build is ready."""
+        tip = f"{1:040x}"
+        clock = iter([NOW, NOW + timedelta(minutes=6)])
+        accept = lambda plan: scheduler.Rejected()
+        with tempfile.TemporaryDirectory() as tmp:
+            driver = scheduler.Driver(Path(tmp) / "scheduler.json", ls_remote=lambda: tip,
+                                      first_parent=lambda anchor, head: (head,), stories=self.STORIES,
+                                      shard_map=self.SHARD_MAP, clock=lambda: next(clock),
+                                      expectations=lambda now: expectations.active_at(path, now))
+            driver.tick(self.HOSTS, scheduler.Builds(), submit=accept)
+            return driver.tick(self.HOSTS, scheduler.Builds(ready=frozenset({(tip, "bench")})), submit=accept)
+
+    @staticmethod
+    def _write(directory, *items):
+        path = Path(directory) / "expectations.json"
+        path.write_text(json.dumps(document(*items)))
+        return path
 
     @staticmethod
     def _planned(result):
@@ -181,15 +243,61 @@ class SchedulerInputTests(unittest.TestCase):
         self.assertEqual(result.skipped, ())
         self.assertIn((owner.name, "t0-key"), self._planned(result))
 
+    def test_driver_tick_reads_the_file_and_skips_a_valid_entry(self):
+        owner = self._owner("t0-key")
+        with tempfile.TemporaryDirectory() as tmp:
+            result = self._driver_t0_plan(self._write(tmp, entry(host_class=owner.host_class)))
+        self.assertEqual([(s.story, s.host) for s in result.skipped], [("t0-key", owner.name)])
+        self.assertNotIn(owner.name, {host for host, _ in self._planned(result)})
+        self.assertEqual(result.problems, ())
+
+    def test_driver_tick_runs_an_expired_entry_and_reports_it(self):
+        owner = self._owner("t0-key")
+        with tempfile.TemporaryDirectory() as tmp:
+            result = self._driver_t0_plan(self._write(
+                tmp, entry(host_class=owner.host_class, added="2026-10-18", expires="2026-10-25")))
+        self.assertEqual(result.skipped, ())
+        self.assertIn((owner.name, "t0-key"), self._planned(result))
+        self.assertTrue(any("expired on 2026-10-25" in p for p in result.problems), result.problems)
+
+    def test_driver_tick_with_a_broken_file_skips_nothing_and_keeps_planning(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "expectations.json"
+            path.write_text("{not json")
+            result = self._driver_t0_plan(path)
+        self.assertEqual(result.skipped, ())
+        self.assertIn((self._owner("t0-key").name, "t0-key"), self._planned(result))
+        self.assertTrue(any("is not JSON" in p for p in result.problems), result.problems)
+
+    def test_schedule_command_reads_the_expectations_file(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            hosts, builds, broken = root / "hosts.json", root / "builds.json", root / "expectations.json"
+            hosts.write_text(json.dumps({"hosts": [
+                {"name": h.name, "role": h.role, "class": h.lab_class, "host_class": h.host_class, "shard": h.shard}
+                for h in self.HOSTS]}))
+            builds.write_text("{}")
+            broken.write_text("{not json")
+            args = Namespace(root=REPO_ROOT, state=root / "state.json", hosts=hosts, builds=builds, branch_log=None,
+                             now="2026-10-26T12:00Z", write=False)
+            out, err = io.StringIO(), io.StringIO()
+            with mock.patch.object(expectations, "EXPECTATIONS_PATH", broken):  # absolute: root / it is it
+                code = scheduler.run("schedule", args, out, err)
+        self.assertEqual((code, err.getvalue()), (0, ""))
+        self.assertTrue(any("is not JSON" in p for p in json.loads(out.getvalue())["problems"]))
+
 
 class CommandTests(unittest.TestCase):
+    STORY_CATALOG = types.SimpleNamespace(stories=[types.SimpleNamespace(id="switch")])
+
     def _run(self, items, *, check=True, today=TODAY):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "expectations.json"
             path.write_text(json.dumps(document(*items)))
             out, err = io.StringIO(), io.StringIO()
-            code = expectations.run("expectations", Namespace(root=REPO_ROOT, file=path, check=check, today=today),
-                                    out, err)
+            with mock.patch.object(catalog, "load_catalog", return_value=self.STORY_CATALOG):
+                code = expectations.run("expectations",
+                                        Namespace(root=REPO_ROOT, file=path, check=check, today=today), out, err)
         return code, out.getvalue(), err.getvalue()
 
     def test_check_fails_on_an_expired_entry(self):
@@ -213,10 +321,20 @@ class CommandTests(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertIn("not an https issue link", err)
 
-    def test_checked_in_file_passes_through_lab_py(self):
-        done = subprocess.run([sys.executable, "-I", str(LAB / "lab.py"), "expectations", "--check"],
-                              capture_output=True, text=True)
-        self.assertEqual(done.returncode, 0, done.stderr)
+    def test_story_not_in_the_catalog_fails_the_check(self):
+        code, _, err = self._run([entry(story="gone")])
+        self.assertEqual(code, 1)
+        self.assertIn("story 'gone' is not in stories.d/", err)
+
+    def test_lab_py_dispatches_the_command(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "expectations.json"
+            path.write_text(json.dumps(document(entry(added="2026-10-18", expires="2026-10-25"))))
+            done = subprocess.run([sys.executable, "-I", str(LAB / "lab.py"), "expectations", "--check",
+                                   "--file", str(path), "--today", TODAY.isoformat()], capture_output=True, text=True)
+        self.assertEqual(done.returncode, 1, done.stderr)
+        self.assertIn("expired on 2026-10-25", done.stderr)
+        self.assertIn(f"skipping on {TODAY}", done.stdout)
 
 
 if __name__ == "__main__":

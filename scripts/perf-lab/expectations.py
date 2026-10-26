@@ -2,16 +2,17 @@
 """Story expectations: a story x host-class pair the lab does not run for a few days, with an issue and an expiry.
 
     python3 -I scripts/perf-lab/lab.py expectations [--check] [--today YYYY-MM-DD]
-    load(path).active(today).skip                    # the skip(story, host) hook of scheduler.plan()
+    active_at(path, now).skip                        # the skip(story, host) hook of scheduler.plan()
 
 Chrome disables a story on a platform in tools/perf/expectations.config (a crbug link, the platform tags and
 the story, `[ Skip ]`), and core/perf_data_generator.py refuses a malformed file. Here an entry of
 expectations.json is {story, host_class, reason, issue, added, expires}: `host_class` is the series host class
 (store.host_class, for example apple-m6/24gb/120hz), `issue` an https link, `added` and `expires` UTC dates with
 expires at most MAX_DAYS after added (p12-perf-process.md 3.7). An entry skips its pair through the end of its
-`expires` day. An expired entry, or one that breaks a rule, skips nothing: the story runs again and
-`expectations --check` exits 1 until someone fixes the story or removes the entry. Never add or extend an entry
-to clear an alert (R3); a noisy series gets de-noised (task 024), never disabled.
+`expires` day. An expired entry, or one that breaks a rule, skips nothing: the story runs again,
+`expectations --check` exits 1 and every scheduler plan lists the problem until someone fixes the story or removes
+the entry. scheduler.Driver (labd) and `lab.py schedule` read the file through active_at() for every plan. Never
+add or extend an entry to clear an alert (R3); a noisy series gets de-noised (task 024), never disabled.
 
 Stdlib only; loads catalog.py by file path, so it runs under `python3 -I`.
 """
@@ -93,9 +94,11 @@ class Expectation:
 
 @dataclass(frozen=True)
 class ActiveExpectations:
-    """The pairs to skip on one day. `skip` is scheduler.plan()'s skip(story, host) hook."""
+    """The pairs to skip on one day. `skip` is scheduler.plan()'s skip(story, host) hook; `problems` are the
+    entries that skip nothing that day and why, which the scheduler adds to its plan's problems."""
 
     pairs: frozenset[tuple[str, str]]
+    problems: tuple[str, ...] = ()
 
     def skip(self, story: str, host) -> bool:
         return (story, host.host_class) in self.pairs
@@ -111,7 +114,8 @@ class Expectations:
         duplicates = self._duplicates()
         return ActiveExpectations(frozenset(
             e.pair for e in self.entries
-            if not e.rule_problems() and not e.expired(on) and not e.future(on) and e.pair not in duplicates))
+            if not e.rule_problems() and not e.expired(on) and not e.future(on) and e.pair not in duplicates),
+            tuple(self.check(on)))
 
     def check(self, on: date, *, stories: Iterable[str] | None = None) -> list[str]:
         """Every problem on `on`: unreadable, issue-less, too long or expired entries, duplicate pairs and,
@@ -195,6 +199,15 @@ def load(path: Path | str) -> Expectations:
 
 def utc_today() -> date:
     return datetime.now(timezone.utc).date()
+
+
+def active_at(path: Path | str, now: datetime) -> ActiveExpectations:
+    """The pairs to skip at `now`, judged on its UTC day, so expiry follows the `now` that plan() gets. A file that
+    cannot be read skips nothing and says why: a bad edit lets every story run, it never stops the lab."""
+    try:
+        return load(path).active(now.astimezone(timezone.utc).date())
+    except ExpectationsError as error:
+        return ActiveExpectations(frozenset(), (str(error),))
 
 
 # ---------- command (lab.py protocol, task 005) ----------
