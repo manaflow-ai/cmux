@@ -51,11 +51,16 @@ struct CloudAgentChatTests {
             #expect(bound, "the machine's store did not bind the started session to the chat's tab")
 
             _ = try await frames.call(wire, "_acpmux/attach", ["sessionId": session])
-            let prompt = "ping from this Mac"
+            // The test agent answers `envs:` with its own environment: the machine's home and acpmux
+            // home prove the agent process runs on the machine, not on this Mac.
+            let prompt = "envs:HOME,ACPMUX_HOME"
             let sent = try await frames.call(wire, "session/prompt", ["sessionId": session, "prompt": [["type": "text", "text": prompt]]])
             #expect(sent.errorCode == nil, "\(sent.raw)")
-            let answered = await world.until { frames.agentText().contains(prompt) }
-            #expect(answered, "the machine's agent did not answer the prompt; frames: \(frames.lines.suffix(5))")
+            let machineEnvironment = { (frames: Frames) in
+                frames.agentText().contains { $0.contains(world.home.path) && $0.contains(world.acpmuxHome.path) }
+            }
+            let answered = await world.until { machineEnvironment(frames) }
+            #expect(answered, "the machine's agent did not answer with the machine's environment: \(frames.agentText())")
             wire.cancel(code: 1000, reason: "test")
 
             // The page's next connection (a reload, the tab shown again) attaches to that chat on
@@ -65,7 +70,7 @@ struct CloudAgentChatTests {
             let replay = try await Frames.open(rewire)
             let attached = try await replay.call(rewire, "_acpmux/attach", ["sessionId": session])
             #expect(attached.errorCode == nil, "\(attached.raw)")
-            let replayed = await world.until { replay.agentText().contains(prompt) }
+            let replayed = await world.until { machineEnvironment(replay) }
             #expect(replayed, "the reconnected page does not replay the machine's chat")
             #expect(world.agentSessions() == [session], "a reconnect started another chat on the machine")
             rewire.cancel(code: 1000, reason: "test")
@@ -82,14 +87,16 @@ struct CloudAgentChatTests {
             let frames = try await Frames.open(wire)
             let newChat: [String: Any] = ["mcpServers": [Any](), "_meta": ["acpmux": ["harness": "sample"]]]
             let first = try await frames.call(wire, "session/new", newChat)
-            let folder = first.errorData?["cwd"] as? String
-            #expect(first.errorCode == "agent_session.untrusted_folder", "the default first send: \(first.raw); folders \(world.machine.daemon.store.tabFolders)")
-            if let folder {
-                _ = try await frames.call(wire, "acp.trust.set", ["cwd": folder, "level": "trusted"])
-                let started = try await frames.call(wire, "session/new", newChat)
-                #expect(started.result?["sessionId"] is String, "\(started.raw)")
-                #expect(world.agentSessions().count == 1)
-            }
+            #expect(first.errorCode == "agent_session.untrusted_folder", "the default first send: \(first.raw)")
+            // The folder the machine's workspace reports there, never one of this Mac.
+            let folder = try #require(first.errorData?["cwd"] as? String, "\(first.raw)")
+            #expect(folder == world.workspace.firstTabFolder, "the chat's folder is not its workspace's on the machine")
+            #expect(folder != NSHomeDirectory())
+            let trusted = try await frames.call(wire, "acp.trust.set", ["cwd": folder, "level": "trusted"])
+            #expect(trusted.errorCode == nil, "\(trusted.raw)")
+            let started = try await frames.call(wire, "session/new", newChat)
+            #expect(started.result?["sessionId"] is String, "\(started.raw)")
+            #expect(world.agentSessions().count == 1)
             wire.cancel(code: 1000, reason: "test")
         }
     }
@@ -120,14 +127,17 @@ struct CloudAgentChatTests {
         let workspace: WorkspaceModel
         /// The machine's work folder (under its home), where its terminal runs.
         let work: URL
+        /// The machine's home folder (its daemon's and agents' `HOME`).
+        let home: URL
         let acpmuxHome: URL
         let binary: URL
 
-        init(services: AppServices, machine: CloudMachineSession, workspace: WorkspaceModel, work: URL, acpmuxHome: URL, binary: URL) {
+        init(services: AppServices, machine: CloudMachineSession, workspace: WorkspaceModel, work: URL, home: URL, acpmuxHome: URL, binary: URL) {
             self.services = services
             self.machine = machine
             self.workspace = workspace
             self.work = work
+            self.home = home
             self.acpmuxHome = acpmuxHome
             self.binary = binary
         }
@@ -223,13 +233,22 @@ struct CloudAgentChatTests {
                 }
                 try? await Task.sleep(for: .milliseconds(20))
             }
+            Issue.record("\(method) got no answer in 60 s")
             throw CancellationError()
         }
 
-        /// The text the chat's agent said so far (its `agent_message_chunk` records, live or
-        /// replayed; the wire serves that one session).
-        func agentText() -> String {
-            lines.filter { $0.contains("agent_message_chunk") }.joined(separator: "\n")
+        /// What the chat's agent said so far: the text of each `agent_message_chunk` update in the
+        /// frames, live or replayed (the wire serves that one session), never the person's prompt.
+        func agentText() -> [String] {
+            func chunks(_ value: Any) -> [String] {
+                if let object = value as? [String: Any] {
+                    if object["sessionUpdate"] as? String == "agent_message_chunk",
+                       let text = (object["content"] as? [String: Any])?["text"] as? String { return [text] }
+                    return object.values.flatMap(chunks)
+                }
+                return (value as? [Any])?.flatMap(chunks) ?? []
+            }
+            return lines.flatMap { line in (try? JSONSerialization.jsonObject(with: Data(line.utf8))).map(chunks) ?? [] }
         }
     }
 
@@ -261,7 +280,9 @@ struct CloudAgentChatTests {
         try JSONSerialization.data(withJSONObject: config).write(to: acpmuxHome.appendingPathComponent("config.json"))
 
         let base = ["PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "SHELL": "/bin/sh", "TERM": "xterm-256color"]
-        let macEnvironment: @Sendable () -> [String: String] = { base.merging(["HOME": NSHomeDirectory()]) { $1 } }
+        // This Mac's acpmux has a home of its own: a chat that ran here instead never touches the person's.
+        let macAcpmux = root.appendingPathComponent("mac-acpmux").path
+        let macEnvironment: @Sendable () -> [String: String] = { base.merging(["HOME": NSHomeDirectory(), "ACPMUX_HOME": macAcpmux]) { $1 } }
         var vmVariables = base.merging(["HOME": home.path, "ACPMUX_HOME": acpmuxHome.path]) { $1 }
         if let hostKind { vmVariables["CMUX_AGENT_START_HOST"] = hostKind }
         let vmEnvironment: @Sendable () -> [String: String] = { [vmVariables] in vmVariables }
@@ -299,7 +320,7 @@ struct CloudAgentChatTests {
             }
             while target() == nil, ContinuousClock.now < deadline { try? await Task.sleep(for: .milliseconds(100)) }
             let workspace = try #require(target(), "the machine's workspace has no pane")
-            try await body(World(services: services, machine: cloudMachine, workspace: workspace, work: work, acpmuxHome: acpmuxHome, binary: binary))
+            try await body(World(services: services, machine: cloudMachine, workspace: workspace, work: work, home: home, acpmuxHome: acpmuxHome, binary: binary))
             result = .success(())
         } catch {
             result = .failure(error)
