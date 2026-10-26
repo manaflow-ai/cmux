@@ -1427,6 +1427,31 @@ mod tests {
         assert!(!branch_in(&repo, "task"), "its branch removed");
     }
 
+    /// A link put at the new worktree's path as git adds it never has the checkout written
+    /// through it: the repository it leads to keeps its files and its index.
+    #[cfg(unix)]
+    #[test]
+    fn a_link_at_the_worktrees_path_never_gets_the_checkout_written_through_it() {
+        let (scratch, repo, home) = repo();
+        let victim = scratch.0.join("victim");
+        std::fs::create_dir_all(victim.join("sub")).unwrap();
+        sh(&victim, &["init", "-q", "-b", "main"]);
+        std::fs::write(victim.join("sub/a.txt"), "victim's own\n").unwrap();
+        sh(&victim, &["add", "."]);
+        sh(&victim, &["commit", "-q", "-m", "victim"]);
+        let index = std::fs::read(victim.join(".git/index")).unwrap();
+        let (aside, link_to) = (scratch.0.join("made-aside"), victim.clone());
+        AFTER_ADD.with(|h| {
+            *h.borrow_mut() = Some(Box::new(move |root: &Path| {
+                std::fs::rename(root, &aside).unwrap();
+                std::os::unix::fs::symlink(&link_to, root).unwrap();
+            }))
+        });
+        let _ = make_worktree_under(repo.as_path().into(), "Task", &home);
+        assert_eq!(std::fs::read_to_string(victim.join("sub/a.txt")).unwrap(), "victim's own\n");
+        assert_eq!(std::fs::read(victim.join(".git/index")).unwrap(), index, "its index untouched");
+    }
+
     /// The descriptor removal reads a folder through never reaches a child another thread
     /// spawns meanwhile: it is close-on-exec from the moment it exists.
     #[cfg(unix)]
