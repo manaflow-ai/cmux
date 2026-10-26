@@ -16,7 +16,7 @@
 //! store's own check of the log's length).
 //!
 //! `_acpmux/retention {dryRun?, archive?, olderThanDays?, only?}` (`acpmux daemon retention`) runs
-//! one: a dry run only measures; `archive` keeps every old segment under `<archive>/<id>/`. One
+//! one: a dry run only measures; `archive` keeps every old segment under `<archive>/<id>/<pass>/`. One
 //! pass at a time; it reads each chat's log once, one chat after another, on a blocking thread,
 //! and ends with the list (its stop condition), removing any compacted copy it did not put in
 //! place. The store's setting is read at the daemon's start.
@@ -33,7 +33,7 @@ static RUNNING: AtomicBool = AtomicBool::new(false);
 pub struct RetentionRequest {
     /// Only measure.
     pub dry_run: bool,
-    /// Keep every old segment under `<archive>/<id>/events/`.
+    /// Keep every old segment under `<archive>/<id>/<pass>/events/`.
     pub archive: Option<PathBuf>,
     /// Instead of `store.closedLogDays`.
     pub older_than_days: Option<u32>,

@@ -916,7 +916,7 @@ pub struct RetentionArgs {
     /// Only report the chats and bytes a pass would compact; change nothing.
     #[arg(long)]
     pub dry_run: bool,
-    /// Keep every old log segment under this folder (`<folder>/<chat id>/events/`).
+    /// Keep every old log segment under this folder (`<folder>/<chat id>/<pass>/events/`).
     #[arg(long)]
     pub archive: Option<PathBuf>,
     /// Chats closed for longer than this many days, instead of the setting.
