@@ -62,6 +62,8 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
     /// `cmux_shim_set_schedule_delayed`: CEF's delayed work as absolute run times with Chromium's
     /// leeway (p14-energy-046); 1 when the fork has the call, 0 when delayed work stays on `ScheduleFn`.
     let setScheduleDelayed: @convention(c) (ScheduleDelayedFn?) -> Int32
+    /// `cmux_shim_set_energy_saver(enabled, exempt_scheme)` (``CEFEnergySaver``); 1 when the fork took it.
+    let setEnergySaver: @convention(c) (Int32, UnsafePointer<CChar>?) -> Int32
 
     let createWindow: @convention(c) (Int32, UnsafeMutableRawPointer?, Int32, Int32, UnsafePointer<CChar>?, UnsafePointer<CChar>?) -> Int32
     /// The same window whose first tab has no renderer and never navigates (the spare window's
@@ -293,17 +295,13 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
 
     /// Checks the shim's identity against the header this code was built with.
     static func checkABI(expected: String?, found: String?) throws(LoadError) {
-        guard let expected, let found, expected == found else {
-            throw .abiMismatch(expected: expected ?? "missing", found: found ?? "missing")
-        }
+        guard let expected, let found, expected == found else { throw .abiMismatch(expected: expected ?? "missing", found: found ?? "missing") }
     }
 
     /// Opens the shim at `url`, resolves every symbol and checks that its ABI
     /// identity is `expected` (`CEFShimABI.bundledIdentity()`).
     static func open(_ url: URL, expected: String?) throws(LoadError) -> CEFShimLibrary {
-        guard let handle = dlopen(url.path, RTLD_NOW | RTLD_LOCAL) else {
-            throw .open(String(cString: dlerror()))
-        }
+        guard let handle = dlopen(url.path, RTLD_NOW | RTLD_LOCAL) else { throw .open(String(cString: dlerror())) }
         let library = try CEFShimLibrary(Resolver(symbol: { dlsym(handle, $0) }))
         try checkABI(expected: expected, found: library.abiIDFn().map { String(cString: $0) })
         return library
@@ -360,6 +358,7 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
         initialize = try r("cmux_shim_initialize")
         doWork = try r("cmux_shim_do_work")
         setScheduleDelayed = try r("cmux_shim_set_schedule_delayed")
+        setEnergySaver = try r("cmux_shim_set_energy_saver")
         createWindow = try r("cmux_shim_create_window")
         createPlaceholderWindow = try r("cmux_shim_create_placeholder_window")
         placeholderSupported = try r("cmux_shim_placeholder_supported")

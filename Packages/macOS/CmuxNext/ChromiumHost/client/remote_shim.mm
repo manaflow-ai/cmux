@@ -747,6 +747,14 @@ CMUX_SHIM_EXPORT int cmux_shim_set_schedule_delayed(cmux_shim_schedule_delayed_f
   return 0;
 }
 
+// The Chromium Host applies Energy Saver over its own versioned wire message
+// (p14-energy-045); until then host mode reports it unsupported.
+CMUX_SHIM_EXPORT int cmux_shim_set_energy_saver(int enabled, const char* exempt_scheme) {
+  (void)enabled;
+  (void)exempt_scheme;
+  return 0;
+}
+
 // Strings this dylib returns are Dup's malloc'd copies.
 CMUX_SHIM_EXPORT void cmux_shim_free(char* s) {
   std::free(s);

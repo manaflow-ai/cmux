@@ -183,6 +183,8 @@ final class CEFRuntime {
     private(set) var wakeUps = MainWakeUpQueue(energy: EnergyPolicySource())
     /// The pages' keyed waits on ``wakeUps``.
     var waitDeadlines: AlignedWakeups { AlignedWakeups(queue: wakeUps) }
+    /// Chromium's Energy Saver from the start (``CEFEnergySaver/following(_:)``); nil before it and on an older fork.
+    private(set) var energySaver: CEFEnergySaver?
 
     private init() {}
 
@@ -334,6 +336,7 @@ final class CEFRuntime {
             CEFStartSteps.shared.timed("ready_hooks") {
                 // The app's pane host views exist in both modes; helpers, Chromium windows and page windows only in process.
                 observeDisplays()
+                if energySaver == nil { energySaver = CEFEnergySaver.following(self) }
                 if case .inProcess = library {
                     startChildMonitor(); windowGuard.start(); ChromiumPageWindowMain.install()
                     ChromiumPageTextAccessory.install { [weak self] view in self?.showsCmuxPage(in: view.window) ?? false }
@@ -348,12 +351,8 @@ final class CEFRuntime {
         } catch {
             // A trust failure names the rejected item in the log, but the
             // user-facing refusal stays the existing localized summary.
-            let untrusted: Bool
-            if case .untrusted = error {
-                untrusted = true
-            } else {
-                untrusted = false
-            }
+            var untrusted = false
+            if case .untrusted = error { untrusted = true }
             let reason = untrusted ? Strings.cefUnavailable : "\(Strings.cefUnavailable) (\(error))"
             logger.error("CEF start failed: \(String(describing: error), privacy: .public)")
             // The attached host's wire stays with the remote shim until it detaches.

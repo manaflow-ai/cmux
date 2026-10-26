@@ -197,8 +197,9 @@ extension EnergyReport {
     /// Chromium's side of Energy Saver.
     public struct CEF: Sendable, Equatable {
         public enum Saver: String, Sendable {
+            /// The fork took the app's last saver state (`cmux_cef_set_energy_saver`, p14-energy-030).
             case applied
-            /// The app makes no call into the fork's Energy Saver API (p14-energy-030).
+            /// Chromium has not taken it: not started, a fork below the API, or the Chromium Host (p14-energy-045).
             case unsupported
         }
 
