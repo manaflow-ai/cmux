@@ -203,8 +203,8 @@ VIM
   note ""
   note "## Flood benchmark (Demo build, in-app TerminalFloodBench, fake Mac daemon, real DaemonClient + Ghostty renderer)"
   note ""
-  note "| Workload | Bytes | Replay Mbit/s | Main CPU ms/s | App CPU ms/s | Frames/s | Frame p50 / p95 / max ms | Echo p50 / p90 / max ms | Drain ms |"
-  note "| --- | --- | --- | --- | --- | --- | --- | --- | --- |"
+  note "| Workload | Bytes | Replay Mbit/s | Main CPU ms/s | App CPU ms/s | Frames/s | Frame p50 / p95 / max ms | Echo p50 / p90 / max ms | Idle echo p50 / p90 ms | Drain ms |"
+  note "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |"
   for name in cat vim top; do
     read -r mbps size _secs < "$corpus/$name.rate"
     simctl launch "$udid" "$bundle_id" -CmuxMobileFloodBench -CmuxMobileFloodBenchFile "$corpus/$name.typescript" \
@@ -218,14 +218,14 @@ VIM
     until [[ -s "$result" ]] || (( SECONDS > deadline )); do sleep 1; done
     simctl io "$udid" screenshot "$out/screens/$name-after.png" >/dev/null
     simctl terminate "$udid" "$bundle_id" >/dev/null 2>&1 || true
-    if [[ ! -s "$result" ]]; then note "| $name | $size | $mbps | no result (timed out) | | | | | |"; continue; fi
+    if [[ ! -s "$result" ]]; then note "| $name | $size | $mbps | no result (timed out) | | | | | | |"; continue; fi
     cp "$result" "$out/bench/$name.json"
     python3 - "$out/bench/$name.json" "$name" "$size" "$mbps" >> "$summary" <<'PY'
 import json, sys
-s = json.load(open(sys.argv[1]))["summary"]; f = s["flood"]
+s = json.load(open(sys.argv[1]))["summary"]; f = s["flood"]; i = s.get("idle", {})
 print(f"| {sys.argv[2]} | {int(sys.argv[3]):,} | {float(sys.argv[4]):.2f} | {f['mainCPUmsPerSecondAvg']} | {f.get('processCPUmsPerSecondAvg', '-')} | "
       f"{f['presentsPerSecondAvg']:.0f} | {f.get('frameIntervalP50ms', '-')} / {f.get('frameIntervalP95ms', '-')} / {f.get('frameIntervalMaxms', '-')} | "
-      f"{f['echoP50ms']} / {f['echoP90ms']} / {f['echoMaxms']} | {s['drainAfterStopMs']:.0f} |")
+      f"{f['echoP50ms']} / {f['echoP90ms']} / {f['echoMaxms']} | {i.get('echoP50ms', '-')} / {i.get('echoP90ms', '-')} | {s['drainAfterStopMs']:.0f} |")
 PY
   done
   note ""

@@ -82,5 +82,27 @@ import UIKit
         let latency = try #require(latencies.first, "the echo never counted as shown")
         #expect(latency < 150, "echo \(latency) ms on an idle terminal")
     }
+
+    /// The drain is timed when its last byte is parsed, not at the bench's
+    /// next once-a-second sample (which read every drain as a whole second).
+    @Test func drainIsTimedWhenItsLastByteIsParsed() {
+        let probe = TerminalBenchProbe()
+        probe.outputProcessed(100)
+        let since = CACurrentMediaTime()
+        probe.timeDrain(until: 300, since: since)
+        probe.outputProcessed(150)
+        #expect(probe.take().drainMs == nil, "250 of 300 bytes parsed: still draining")
+        probe.outputProcessed(50)
+        let drained = probe.take().drainMs
+        let bound = (CACurrentMediaTime() - since) * 1000
+        #expect(drained.map { $0 >= 0 && $0 <= bound } == true, "drain \(String(describing: drained)) ms, at most \(bound)")
+        probe.outputProcessed(10)
+        #expect(probe.take().drainMs == drained, "later bytes do not move a finished drain")
+
+        let done = TerminalBenchProbe()
+        done.outputProcessed(10)
+        done.timeDrain(until: 10, since: CACurrentMediaTime())
+        #expect(done.take().drainMs != nil, "already parsed: drained at once")
+    }
 }
 #endif
