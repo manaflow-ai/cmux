@@ -99,15 +99,17 @@ extension KeyRouter {
 
     nonisolated static let deleteKeyCode: UInt16 = 51
 
-    /// Whether `window`, the key window, is a Chromium page window over `controller`'s window that
-    /// does not show the focused pane's page (``KeyFacts/keyInOtherPage``): the focus model named a
-    /// Markdown page opened beside a chat while the chat's page window kept the keys (#25666).
-    /// The cmux window itself never is one.
+    /// Whether `window`, the key window, is the Chromium page window of a page shown in another pane
+    /// than the focused one (``KeyFacts/keyInOtherPage``): the focus model named a Markdown page
+    /// opened beside a chat while the chat's page window kept the keys (#25666). Only a pane's page
+    /// at its place counts: the hidden New Tab spare, DevTools and the focused page's own window
+    /// before it is placed are not another page, and keep their type-ahead.
     func keyInOtherPage(_ window: NSWindow, controller: WindowController) -> Bool {
-        guard window !== controller.window, window.isChromiumPageWindow else { return false }
-        guard let pane = controller.focus.state.resolved.pane,
-              let page = controller.content?.paneController(key: pane)?.currentContent?.childWindowTab as? CEFTab else { return true }
-        return !page.isPageWindow(window)
+        guard window !== controller.window, window.isChromiumPageWindow, let content = controller.content else { return false }
+        let focused = controller.focus.state.resolved.pane
+        return content.panes.values.contains { pane in
+            pane.paneKey != focused && (pane.currentContent?.childWindowTab as? CEFTab)?.isPageWindow(window) == true
+        }
     }
 
     /// Delivers the queued text, one insertion at a time; keys typed while

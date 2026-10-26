@@ -19,8 +19,9 @@ import argparse, json, os, socket, sys, tempfile, time
 parser = argparse.ArgumentParser()
 parser.add_argument("--socket", required=True, help="the build's control socket")
 parser.add_argument("--fake-agent", required=True, help="path of acpmux's tests/fake_agent.py")
-parser.add_argument("--dir", default=tempfile.mkdtemp(prefix="md-chat-typing-"), help="the chat's folder and the Markdown file's")
+parser.add_argument("--dir", help="the chat's folder and the Markdown file's")
 opts = parser.parse_args()
+opts.dir = opts.dir or tempfile.mkdtemp(prefix="md-chat-typing-")
 failures = []
 
 
@@ -116,8 +117,8 @@ def main():
     before = composer_length(chat)
     handled = [rpc("debug.key", {"key": key, "target": "page", "pane": chat}).get("handled_by") for key in "bcd"]
     check(handled == ["page"] * 3, f"keys in the chat's window reach the chat, not the Markdown page ({handled})")
-    check(wait(lambda: composer_length(chat) != before, 5),
-          f"the chat's composer took them ({before} -> {composer_length(chat)})")
+    check(wait(lambda: composer_length(chat) == before + 3, 5),
+          f"the chat's composer took all three ({before} -> {composer_length(chat)})")
     print("RESULT " + ("FAIL: " + "; ".join(failures) if failures else "PASS"), flush=True)
     return 1 if failures else 0
 
