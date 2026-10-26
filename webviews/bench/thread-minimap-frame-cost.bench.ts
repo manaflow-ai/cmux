@@ -6,6 +6,9 @@
 // thread gives the busy time in each painted frame (scripting and rendering apart), its p50 and p95,
 // and long tasks.
 //   PROD_DIR=<pane build> bun bench/thread-minimap-frame-cost.bench.ts [rounds=3] [turns=1000]
+// An arm `<rail>+canvas` is that rail with the VS Code Minimap on (chatMinimap/ChatMinimap.tsx); its
+// rounds pair with `<rail>`'s, run back to back in alternating order, and their p95 deltas are printed.
+// ARMS=off,off+canvas SCENARIOS=scroll,stream picks arms and scenarios.
 // PROD_DIR is required: the output of vite's build() on vite.config.acpmux-pane.mjs, so React runs
 // as it ships. KEEP_TRACES=1 keeps the traces (and PROFILE=1's CPU profiles); otherwise they go.
 /// <reference types="bun" />
@@ -18,7 +21,11 @@ import { PAPERCUT_CHAT, papercutEvents } from "../test/support/papercutChat";
 const ROUNDS = Number(process.argv[2] ?? 3);
 const TURNS = Number(process.argv[3] ?? 1000);
 const ARMS = (process.env.ARMS?.split(",") ?? ["off", "compact", "full"]) as readonly string[];
-const SCENARIOS = ["idle", "scroll", "stream"] as const;
+const SCENARIOS = (process.env.SCENARIOS?.split(",") ?? ["idle", "scroll", "stream"]) as readonly (
+  | "idle"
+  | "scroll"
+  | "stream"
+)[];
 const SECONDS = 4;
 const PROFILE = process.env.PROFILE === "1";
 const KEEP_TRACES = process.env.KEEP_TRACES === "1";
@@ -65,11 +72,19 @@ let url = "";
 async function open(browser: Browser, arm: string): Promise<Page> {
   seq = events.length;
   const page = await browser.newPage({ viewport: { width: 1200, height: 800 } });
-  await page.addInitScript((arm) => {
-    localStorage.setItem("cmux.experiments", JSON.stringify({ "thread-minimap-layout": arm }));
-  }, arm);
+  const [rail, extra] = arm.split("+");
+  await page.addInitScript((rail) => {
+    localStorage.setItem("cmux.experiments", JSON.stringify({ "thread-minimap-layout": rail }));
+  }, rail);
   await page.goto(url);
   await page.getByText(`Answer ${TURNS}:`, { exact: false }).waitFor({ timeout: 180_000 });
+  // The host's `display` event, through dev.tsx's hook for a standalone daemon.
+  if (extra === "canvas")
+    await page.evaluate(() =>
+      (window as { cmuxDevDisplay?: (value: unknown) => void }).cmuxDevDisplay?.({
+        "agentPane.display.vscodeMinimap": true,
+      }),
+    );
   // EXTRA_CSS: a stylesheet to add, to try out where a cost comes from.
   if (process.env.EXTRA_CSS) await page.addStyleTag({ content: process.env.EXTRA_CSS });
   await page.waitForTimeout(1500);
@@ -273,14 +288,21 @@ try {
   // A first load warms the page's caches, so the first measured run is not the cold one.
   await (await open(browser, "off")).close();
   for (let round = 0; round < ROUNDS; round++) {
-    for (const arm of ARMS) {
-      for (const scenario of SCENARIOS) {
+    // Arms interleave within each scenario, in alternating order, so drift hits every arm alike.
+    for (const scenario of SCENARIOS) {
+      for (const arm of round % 2 ? [...ARMS].reverse() : ARMS) {
         const page = await open(browser, arm);
         const drawn = await page.evaluate(() => ({
           scrollmap: document.querySelectorAll(".acpmux-scrollmap").length,
           minimap: document.querySelectorAll(".acpmux-minimap").length,
           marks: document.querySelectorAll(".acpmux-minimap__tick").length,
+          canvas: document.querySelectorAll(".acpmux-chat-minimap canvas").length,
         }));
+        const draws = () =>
+          page.evaluate(() =>
+            Number(document.querySelector<HTMLElement>(".acpmux-chat-minimap canvas")?.dataset.draws ?? 0),
+          );
+        const drawsBefore = await draws();
         if (round === 0) console.error(arm, scenario, JSON.stringify(drawn));
         const file = path.join(tmp, `${arm}-${scenario}-${round}.json`);
         await browser.startTracing(page, {
@@ -305,6 +327,7 @@ try {
           requestAnimationFrame(stamp);
         });
         await drive(page, scenario);
+        if (drawn.canvas) console.error(arm, scenario, `round ${round}: ${(await draws()) - drawsBefore} canvas draws`);
         await page.evaluate(() => {
           (window as unknown as { benchFrames?: boolean }).benchFrames = false;
           console.timeStamp("bench-end");
@@ -348,6 +371,19 @@ for (const scenario of SCENARIOS) {
     const delta = (pick: (r: (typeof a)[number]) => number) => fmt(median(a.map(pick)) - median(b.map(pick)));
     console.log(
       `${arm} - off ${scenario}: p50 ${delta((r) => r.p50)} p95 ${delta((r) => r.p95)} mean ${delta((r) => r.mean)}`,
+    );
+  }
+}
+// A `+canvas` arm against its rail alone, round by round: the median p95 delta and its spread.
+for (const scenario of SCENARIOS) {
+  for (const arm of ARMS.filter((each) => each.endsWith("+canvas"))) {
+    const a = results[`${arm}/${scenario}`];
+    const b = results[`${arm.split("+")[0]}/${scenario}`];
+    if (!a || !b) continue;
+    const deltas = a.map((run, index) => run.p95 - b[index]!.p95);
+    const under = deltas.filter((delta) => delta < 1).length;
+    console.log(
+      `${arm} paired ${scenario}: p95 delta median ${fmt(median(deltas))} min ${fmt(Math.min(...deltas))} max ${fmt(Math.max(...deltas))}; under 1 ms in ${under}/${deltas.length}; deltas ${deltas.map((delta) => delta.toFixed(2)).join(" ")}`,
     );
   }
 }

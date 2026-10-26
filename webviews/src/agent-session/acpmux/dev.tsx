@@ -75,6 +75,10 @@ import { seedDevRecents } from "./devRecents";
 const params = new URLSearchParams(location.search);
 const devHost = devHostParams(location.hash);
 if (devHost) installDevHost(devHost);
+// A standalone daemon has no cmux host to send the `display` event: the frame-cost bench
+// (bench/thread-minimap-frame-cost.bench.ts) turns the chat minimap on through this instead.
+if (devHost)
+  (window as { cmuxDevDisplay?: (value: unknown) => void }).cmuxDevDisplay = (await import("./chatDisplay")).setChatDisplay;
 else if (params.has("mock") && !window.webkit?.messageHandlers?.agentSession)
   window.cmuxAcpmuxActions = { ready: async () => ({ protocolVersion: 1, transport: "mock" }) };
 if (params.get("recents") === "demo") seedDevRecents();
