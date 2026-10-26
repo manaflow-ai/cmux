@@ -15,7 +15,7 @@ extension AppActions {
             // A pinned workspace has no list row: it moves one place among the items of its section (Pinned).
             if let store = SidebarDocStore.current, SidebarDocWiring.isActive,
                let item = SidebarDocWiring.item(workspace: workspace.id, machines),
-               let layout = store.shown?.layout, let to = bandMove(item, by: offset, in: layout) {
+               let to = store.shown?.layout.stepMoveTarget(item, by: offset) {
                 store.move([item], to: to, title: SidebarDocStore.moveTitle)
             }
             return
@@ -41,20 +41,5 @@ extension AppActions {
         machines.local.send("set-personal-workspace") {
             try await $0.state.placePersonalWorkspace(session: moved.session, key: key, resource: resource, index: index)
         }
-    }
-
-    /// Where Move Up (-1) or Down (+1) puts document item `item` among the items of the band
-    /// section that lists it (a tile or top row of Pinned): next to its neighbor there. Nil at
-    /// either end, or when no band section lists it.
-    static func bandMove(_ item: String, by offset: Int, in layout: SidebarLayoutDocument) -> SidebarDocTarget? {
-        for section in layout.sections {
-            let ids = section.items.map(\.id.rawValue)
-            guard let at = ids.firstIndex(of: item) else { continue }
-            guard ids.indices.contains(at + offset) else { return nil }
-            let anchor = ids[at + offset]
-            return offset > 0 ? SidebarDocTarget(section: section.id.rawValue, after: anchor)
-                : SidebarDocTarget(section: section.id.rawValue, before: anchor)
-        }
-        return nil
     }
 }

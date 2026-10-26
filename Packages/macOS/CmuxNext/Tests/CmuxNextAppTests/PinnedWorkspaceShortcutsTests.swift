@@ -76,14 +76,14 @@ import Testing
 
     @Test func moveStepsAmongThePinnedItems() {
         let layout = Self.layout(["itm_a", "itm_b", "itm_c"])
-        #expect(AppActions.bandMove("itm_b", by: -1, in: layout) == SidebarDocTarget(section: "sec_pinned", before: "itm_a"))
-        #expect(AppActions.bandMove("itm_b", by: 1, in: layout) == SidebarDocTarget(section: "sec_pinned", after: "itm_c"))
+        #expect(layout.stepMoveTarget("itm_b", by: -1) == SidebarDocTarget(section: "sec_pinned", before: "itm_a"))
+        #expect(layout.stepMoveTarget("itm_b", by: 1) == SidebarDocTarget(section: "sec_pinned", after: "itm_c"))
     }
 
     @Test func moveStopsAtEitherEndAndOutsideTheBands() {
         let layout = Self.layout(["itm_a", "itm_b"])
-        #expect(AppActions.bandMove("itm_a", by: -1, in: layout) == nil)
-        #expect(AppActions.bandMove("itm_b", by: 1, in: layout) == nil)
-        #expect(AppActions.bandMove("itm_list_row", by: 1, in: layout) == nil)
+        #expect(layout.stepMoveTarget("itm_a", by: -1) == nil)
+        #expect(layout.stepMoveTarget("itm_b", by: 1) == nil)
+        #expect(layout.stepMoveTarget("itm_list_row", by: 1) == nil)
     }
 }
