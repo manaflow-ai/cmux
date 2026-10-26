@@ -45,7 +45,15 @@ const ready = (height: number) => ({
   height,
   note: "Same long multi-paragraph draft as the chat candidates, in this New Tab/Cmd-I pane size.",
   ready: {
-    newTab: { layout: "b", kind: "agent", cwd: CWD, home: "/Users/you", lastAgent: "claude", template: "composer" },
+    newTab: {
+      layout: "b",
+      kind: "agent",
+      cwd: CWD,
+      home: "/Users/you",
+      lastAgent: "claude",
+      template: "composer",
+      location: DRAFT,
+    },
     newSession: true,
     draft: DRAFT,
   },
