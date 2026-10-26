@@ -48,7 +48,7 @@ afterEach(() => {
 
 test("the author chip shows the face and the name", () => {
   const host = render(<AuthorChip author={ANA} />);
-  expect(host.querySelector(".cv-face")?.textContent).toBe("AR");
+  expect(host.querySelector(".cv-face")?.textContent).toBe("A");
   expect(host.querySelector(".cv-author__name")?.textContent).toBe("Ana Ruiz");
 });
 
@@ -85,5 +85,5 @@ test("the typing line names one, two, or several people", () => {
 });
 
 test("answered by names the person", () => {
-  expect(render(<AnsweredBy person={MEI} />).textContent).toBe("MLAnswered by Mei Lin");
+  expect(render(<AnsweredBy person={MEI} />).textContent).toBe("MAnswered by Mei Lin");
 });

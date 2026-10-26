@@ -23,7 +23,8 @@ export function Face({ person, size = 16 }: { person: Participant; size?: number
       style={{ width: size, height: size, fontSize: Math.round(size * 0.45), background: machineColor(person.name) }}
       aria-hidden="true"
     >
-      {picture ? <img src={picture} alt="" draggable={false} /> : initials(person.name)}
+      {/* A small face has room for one letter, as Home's avatars. */}
+      {picture ? <img src={picture} alt="" draggable={false} /> : initials(person.name).slice(0, size >= 24 ? 2 : 1)}
     </span>
   );
 }

@@ -76,13 +76,15 @@
   margin-left: 4px;
 }
 
-/* Who is typing, over the composer. */
+/* Who is typing, over the composer, on the composer card's edge (the column's gutter). */
 .cv-typing {
   display: flex;
+  flex: none;
   align-items: center;
   gap: 6px;
   min-height: 20px;
-  padding: 0 4px 4px;
+  margin: 0 var(--cv-inset, 0px);
+  padding: 0 12px 6px;
   font-family: var(--cv-font);
   font-size: var(--text-detail);
   color: var(--cv-text-muted);
