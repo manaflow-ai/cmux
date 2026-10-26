@@ -3,6 +3,7 @@ import Darwin
 import Foundation
 import os
 import CmuxNextCompat
+import CmuxNextMetrics
 import CmuxNextSettings
 import CmuxNextTrace
 import CmuxNextWakeups
@@ -492,6 +493,7 @@ public final class MainThreadWatchdog: Sendable {
         let elapsed = now - started
         for event in state.episodes.observe(beat: beat, busy: true, elapsedNanos: elapsed) {
             if case .began = event {
+                fieldMetrics.threadHung(.main, atNanos: started)
                 reportHang(beat: beat, elapsedNanos: elapsed, now: now, sampler: sampler, crashKeys: crashKeys, lastReportNanos: &state.lastReportNanos)
             } else {
                 handle(event)
