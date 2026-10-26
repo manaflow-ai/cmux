@@ -97,7 +97,7 @@ struct CloudMachineRepoTests {
         #expect(object == ["url": "https://github.com/o/r.git", "owner": "o", "name": "r", "ref": "v1", "dir": "~/work/r"])
     }
 
-    final class FakeMachine: @unchecked Sendable {
+    nonisolated final class FakeMachine: @unchecked Sendable {
         var writes: [String] = []
         var data: [Data] = []
         var machine: CloudMachineBootstrap.Machine {
