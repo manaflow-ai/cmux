@@ -247,6 +247,38 @@ mod tests {
     }
 
     #[test]
+    fn carrier_ssh_argv_preserves_explicit_forwarding_policy() {
+        for extra in [
+            &["-o", "ControlPath=none", "-o", "ClearAllForwardings=no"][..],
+            &["-oControlMaster=no", "-oclearallforwardings no"],
+            &["-Snone", "-o", "ClearAllForwardings=yes"],
+            &["-o", "ControlMaster=no", "-R18080:localhost:80"],
+            &["-o", "ControlMaster=no", "-D", "1080"],
+            &["-o", "ControlMaster=no", "-o", "LocalForward 18080 localhost:80"],
+        ] {
+            let caller = extra.iter().map(|argument| (*argument).to_owned()).collect::<Vec<_>>();
+            assert_eq!(
+                carrier_ssh_arguments(Some(2222), &caller, "alice@example.com"),
+                expected(&[], extra),
+                "{extra:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn carrier_ssh_argv_keeps_grouped_agent_and_x11_flags() {
+        let extra = ["-o", "ControlMaster=no", "-qAXY", "-l", "-A", "--"];
+        let caller = extra.iter().map(|argument| (*argument).to_owned()).collect::<Vec<_>>();
+        let expected = ["-T", "-p", "2222", "-o", "ClearAllForwardings=yes"]
+            .iter()
+            .chain(&extra)
+            .chain(&["alice@example.com"])
+            .map(|argument| (*argument).to_owned())
+            .collect::<Vec<_>>();
+        assert_eq!(carrier_ssh_arguments(Some(2222), &caller, "alice@example.com"), expected);
+    }
+
+    #[test]
     fn hardened_ssh_argv_forwarding_follows_control_master() {
         // A run that can become the shared master keeps forwarding as
         // configured, including when `-M` overrides `ControlMaster=no` and
