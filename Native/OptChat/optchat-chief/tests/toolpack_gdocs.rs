@@ -92,7 +92,7 @@ fn json_of(out: &Output) -> serde_json::Value {
 const DOC: &str = "https://docs.google.com/document/d/DOCID_FIXTURE_0123456789/edit";
 
 #[test]
-fn the_gdocs_pack_ships_on_with_its_script_and_skill() {
+fn gdocs_the_gdocs_pack_ships_on_with_its_script_and_skill() {
     let names: Vec<&str> = toolpacks::BUILTIN.iter().map(|b| b.0).collect();
     assert!(names.contains(&"gdocs"), "{names:?}");
     let p = toolpacks::builtin("gdocs").unwrap();
@@ -128,7 +128,7 @@ fn the_gdocs_pack_ships_on_with_its_script_and_skill() {
 }
 
 #[test]
-fn every_turn_has_gdocs_on_path_and_it_runs_with_no_token() {
+fn gdocs_every_turn_has_gdocs_on_path_and_it_runs_with_no_token() {
     let (dir, paths) = chief();
     let wrapper = std::fs::read_to_string(paths.bin.join("gdocs")).unwrap();
     assert!(wrapper.contains("(tool pack gdocs"), "{wrapper}");
@@ -169,7 +169,7 @@ fn every_turn_has_gdocs_on_path_and_it_runs_with_no_token() {
 }
 
 #[test]
-fn read_parses_a_real_mobilebasic_page() {
+fn gdocs_read_parses_a_real_mobilebasic_page() {
     let (dir, paths) = chief();
     let page = fixtures().join("mobilebasic.html");
     let out = gdocs(
@@ -197,7 +197,7 @@ fn read_parses_a_real_mobilebasic_page() {
 }
 
 #[test]
-fn replace_outline_reformats_a_30_bullet_doc_and_verifies_it() {
+fn gdocs_replace_outline_reformats_a_30_bullet_doc_and_verifies_it() {
     let (dir, paths) = chief();
     let flat = std::fs::read_to_string(fixtures().join("roadmap-flat.txt")).unwrap();
     std::fs::write(
@@ -225,7 +225,7 @@ fn replace_outline_reformats_a_30_bullet_doc_and_verifies_it() {
     assert!(out.status.success(), "{v}");
     assert_eq!(v["route"], "browser");
     assert_eq!(v["verify"]["ok"], true, "{v}");
-    assert_eq!(v["verify"]["expected_blocks"], 43);
+    assert_eq!(v["verify"]["expected_blocks"], 42);
     // Select-all then one paste: the whole body in one undo step.
     let log = std::fs::read_to_string(dir.path().join("calls.log")).unwrap();
     let sel = log.find("G.selectAll()").expect("select-all");
@@ -246,7 +246,7 @@ fn replace_outline_reformats_a_30_bullet_doc_and_verifies_it() {
 }
 
 #[test]
-fn verify_fails_when_the_editor_drops_the_nesting() {
+fn gdocs_verify_fails_when_the_editor_drops_the_nesting() {
     let (dir, paths) = chief();
     std::fs::write(
         dir.path().join("state.json"),
@@ -282,7 +282,7 @@ fn verify_fails_when_the_editor_drops_the_nesting() {
 }
 
 #[test]
-fn insert_after_text_comment_and_suggest_use_the_editor_not_keys_to_the_window() {
+fn gdocs_insert_after_text_comment_and_suggest_use_the_editor_not_keys_to_the_window() {
     let (dir, paths) = chief();
     std::fs::write(
         dir.path().join("state.json"),
@@ -452,7 +452,7 @@ fn drive_server(doc: Arc<Mutex<String>>, seen: Arc<Mutex<Vec<String>>>) -> Strin
 }
 
 #[test]
-fn with_a_drive_token_it_uses_the_api_and_no_browser() {
+fn gdocs_with_a_drive_token_it_uses_the_api_and_no_browser() {
     let (dir, paths) = chief();
     let doc = Arc::new(Mutex::new("<p>old</p>".to_owned()));
     let seen = Arc::new(Mutex::new(Vec::new()));

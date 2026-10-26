@@ -66,6 +66,10 @@ if verb == "navigate":
     out(None)
     sys.exit(0)
 if verb == "wait":
+    fn = args[args.index("--function") + 1] if "--function" in args else ""
+    if "[1-9]" in fn and not (s.get("q") and plain(s["doc"]).count(s["q"])):
+        print(json.dumps({"code": "timeout", "message": "wait timed out"}))
+        sys.exit(1)
     out(True)
     sys.exit(0)
 if verb != "eval":
@@ -75,9 +79,9 @@ if verb != "eval":
 js = args[3]
 if js == "location.href":
     out(s["url"])
-elif "window.__cmuxGdocs.v===2" in js:
+elif "window.__cmuxGdocs.v===" in js:
     out(s["lib"])
-elif "const G=window.__cmuxGdocs={v:2" in js:
+elif "const G=window.__cmuxGdocs={v:" in js:
     s["lib"] = True
     out("ok")
 elif "G.mode()" in js:
@@ -94,9 +98,18 @@ elif "G.toEnd()" in js:
 elif "G.toStart()" in js:
     s["sel"] = "start"
     out(1)
-elif m := re.search(r"G\.find\((\".*\")\)", js):
-    needle = json.loads(m.group(1))
-    hits = plain(s["doc"]).count(needle)
+elif "G.suggestions()" in js:
+    out([f"Add: \u201c{plain(h)}\u201d" for h in s.get("suggestions", [])])
+elif "G.openFind()" in js:
+    out(True)
+elif m := re.search(r"G\.findSet\((\".*\")\)", js):
+    s["q"] = json.loads(m.group(1))
+    out(1)
+elif "window.__cmuxGdocs.findCount()" in js:
+    out(plain(s["doc"]).count(s.get("q", "")) > 0)
+elif "G.findGo()" in js:
+    needle = s.get("q", "")
+    hits = plain(s["doc"]).count(needle) if needle else 0
     if hits:
         s["sel"] = "find:" + needle
     out(f"1 of {hits}" if hits else "")
@@ -110,6 +123,12 @@ elif m := re.search(r"G\.paste\((\".*?(?<!\\)\"),(\".*\")\),1\)", js):
         html = re.sub(r"</?ul>", "", html)
         html = "<ul>" + html + "</ul>" if "<li>" in html else html
     sel = s["sel"]
+    if s["mode"] == "suggesting":
+        s.setdefault("suggestions", []).append(html.strip())
+        s["sel"] = "end"
+        out(1)
+        save(s)
+        sys.exit(0)
     if sel == "all":
         s["doc"] = html
     elif sel == "start":
