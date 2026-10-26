@@ -229,6 +229,14 @@ Capacity: 1 MiB, the holder's per-terminal ring size (resident only as it fills;
 shared by daemon and app). A reader 1 MiB behind resyncs by snapshot. Slice 3 measures resyncs per minute
 in the STRESS flood (10 printing terminals) and the 50 MB/s `cat` flood; if any appear with a healthy app,
 the size is raised with that number as its reason.
+The measurement is `scripts/cmux-next/ipc-soak.py --minutes 10 --flood 10 --vdisplay 120` (p05-ipc-116): two
+launches, STRESS with 10 shown terminals at 10 MB/s each and a light session with one terminal at 50 MB/s,
+paced by the script's own printer; it reads the daemon's `ring_resyncs` and `ring_laps` (`server-stats
+--include ipc`) and the app's `outputBytesCopiedApp` (`debug.daemon.wire`) and prints the section 9 row.
+Its verdict is `keep` (0 resyncs, app healthy, every printer at >= 90% of its rate), `raise` (resyncs with a
+healthy app: the per-minute number is the reason) or `inconclusive` (a counter missing, output copied
+instead of read from the ring, a hang over 250 ms, a crash or a daemon restart). Only `raise` changes the
+capacity, and the commit that changes it carries the row.
 
 ### 4.3 Mapping and lifetime
 
@@ -352,4 +360,4 @@ touched: `CmuxNextTerminal` (TerminalSession, TerminalOutputLane, TerminalSurfac
 
 | Date | Row | Host / sha / Hz | Light | STRESS | Note |
 |---|---|---|---|---|---|
-| | | | | | |
+| 2026-10-26 | p05-ipc-116 ring sizing | not run yet: needs a Mac with a GUI session and a build with the ring (p05-ipc-111..113) and its counters (004, 082) | 50 MB/s `cat`: pending | 10 x 10 MB/s: pending | capacity 1 MiB, unchanged until a measured row; replace this row with the `ipc-soak.py` row (host, sha, macOS, Hz, command): `python3 scripts/cmux-next/ipc-soak.py --app $APP --minutes 10 --flood 10 --vdisplay 120` |
