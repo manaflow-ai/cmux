@@ -44,9 +44,22 @@ fn json_output_is_a_global_flag_of_cmux_vm() {
 }
 
 #[test]
-fn a_vm_with_no_verb_or_an_unknown_verb_is_a_usage_error() {
-    assert!(planned(&["vm"]).is_err());
-    assert!(planned(&["vm", "frobnicate"]).is_err());
+fn a_vm_with_no_verb_or_an_unknown_verb_lists_the_wrapper_verbs() {
+    for words in [&["vm"][..], &["vm", "frobnicate"][..]] {
+        let error = planned(words).unwrap_err();
+        for verb in [
+            "new", "ls", "get", "pause", "resume", "start", "stop", "rm", "exec", "fork",
+            "snapshot",
+        ] {
+            assert!(error.0.contains(verb), "{verb} missing from: {}", error.0);
+        }
+    }
+}
+
+#[test]
+fn resize_points_at_the_cloud_action() {
+    let error = planned(&["vm", "resize"]).unwrap_err();
+    assert!(error.0.contains("cmux cloud resize-machine"), "{}", error.0);
 }
 
 #[test]
