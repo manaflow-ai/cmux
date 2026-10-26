@@ -3,6 +3,7 @@ public import CmuxNextDesign
 public import CmuxNextResources
 import CmuxNextCompat
 import CmuxNextIcons
+import CmuxNextWakeups
 import Observation
 /// Footer slots the App fills (account, cloud, status).
 public enum SidebarAccessorySlot: CaseIterable, Sendable {
@@ -33,6 +34,9 @@ public final class SidebarView: NSView {
     var titlebarHeight: CGFloat { titlebarHeightOverride ?? Metrics.titlebarHeight }
     let list: SidebarListView
     let scrollView = SidebarScrollView()
+    let needsYouTray = SidebarNeedsYouTrayView() // the session tree's needs-you tray (SidebarView+NeedsYou)
+    /// Coalesces the tray's recompute across a burst of row patches (status ticks).
+    let needsYouRefresh = DemandTimer(owner: "sidebar.needs-you.refresh")
     private(set) lazy var spacePaging = SidebarSpacePaging(host: self)
     /// Hosts the list's scroll view and fades rows out at its top or bottom
     /// while more are hidden there.
@@ -238,7 +242,7 @@ public final class SidebarView: NSView {
         spacePaging.attach(list: scrollView, dots: profileBar)
         addSubview(edgeFade)
         scrollFit = ScrollFitElasticity(scrollView: scrollView)
-        buildBands()
+        buildBands(); buildNeedsYou()
 
         addSubview(footer)
         footer.addSubview(profileBar)
@@ -327,6 +331,7 @@ public final class SidebarView: NSView {
         footerBand.placeSpaces(top: y, height: spacesHeight)
         edgeFade.frame = listFrame
         layoutEditBar(over: listFrame)
+        layoutNeedsYou(over: listFrame)
         scrollView.tile()
         syncListSize()
         // Everything above may have moved under a still pointer (cx-3wu5).
