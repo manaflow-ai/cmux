@@ -1,0 +1,59 @@
+{
+  "version": 1,
+  "build": "4035798236101",
+  "notes": "notes/4035798236101.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": "reel.mp4",
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 25395,
+      "title": "cmux NEXT daemon update: Cloud machines as update targets",
+      "author": "Leo",
+      "clip": "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/25395/c9f1a3e3/next-core-after/tour.mp4",
+      "source": "tour-after",
+      "sha8": "c9f1a3e3",
+      "tour": "core"
+    },
+    {
+      "pr": 25514,
+      "title": "ci(cmux-next): prefer owned Macs for PR release compiles",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25394,
+      "title": "cmux NEXT daemon update: a toast when a machine's update fails",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25152,
+      "title": "Agent chat: the wave rail draws only the ticks in its view (36 ms to 1.7 ms a frame on a 2,000-row chat)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25393,
+      "title": "cmux NEXT daemon update: an ssh machine's tooltip shows its update",
+      "author": "Leo",
+      "clip": "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/25393/e762a0fa/next-core-after/tour.mp4",
+      "source": "tour-after",
+      "sha8": "e762a0fa",
+      "tour": "core"
+    },
+    {
+      "pr": 25511,
+      "title": "ci(cmux-next): match fully qualified priority Swift suites",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25439,
+      "title": "acpmux: Linux sandbox E1a: the user-notify supervisor's path resolver (target root, symlinks, .., /proc fd aliases)",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
