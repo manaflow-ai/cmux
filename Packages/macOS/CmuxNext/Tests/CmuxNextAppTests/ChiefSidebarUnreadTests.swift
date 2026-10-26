@@ -1,5 +1,6 @@
 import AppKit
 import CmuxHomeCore
+import CmuxNextAgentActivity
 @testable import CmuxNextAgentLanes
 @testable import CmuxNextApp
 @testable import CmuxNextHomeEngine
