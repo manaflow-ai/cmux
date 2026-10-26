@@ -1354,20 +1354,35 @@ mod tests {
             begun_at: 1_800_000_000,
         };
         let stat = |size: u64, mtime: Value| json!({"kind": "file", "size": size, "mtime": mtime});
-        assert_eq!(commit_evidence(&stat(10, json!(1_800_000_005)), &expected), CommitEvidence::Committed);
+        assert_eq!(
+            commit_evidence(&stat(10, json!(1_800_000_005)), &expected),
+            CommitEvidence::Committed
+        );
         // A VM clock a little behind this machine's still counts.
         assert_eq!(
-            commit_evidence(&stat(10, json!(1_800_000_000 - COMMIT_MTIME_SKEW_SECS)), &expected),
+            commit_evidence(
+                &stat(10, json!(1_800_000_000 - COMMIT_MTIME_SKEW_SECS)),
+                &expected
+            ),
             CommitEvidence::Committed
         );
         // An older file of the same size is not the upload.
         assert_eq!(
-            commit_evidence(&stat(10, json!(1_800_000_000 - COMMIT_MTIME_SKEW_SECS - 1)), &expected),
+            commit_evidence(
+                &stat(10, json!(1_800_000_000 - COMMIT_MTIME_SKEW_SECS - 1)),
+                &expected
+            ),
             CommitEvidence::Lost
         );
-        assert_eq!(commit_evidence(&stat(9, json!(1_800_000_005)), &expected), CommitEvidence::Lost);
+        assert_eq!(
+            commit_evidence(&stat(9, json!(1_800_000_005)), &expected),
+            CommitEvidence::Lost
+        );
         // No modification time: the content decides, up to the read-back bound.
-        assert_eq!(commit_evidence(&stat(10, Value::Null), &expected), CommitEvidence::ReadBack);
+        assert_eq!(
+            commit_evidence(&stat(10, Value::Null), &expected),
+            CommitEvidence::ReadBack
+        );
         let large = Uploaded {
             length: COMMIT_READBACK_LIMIT + 1,
             ..expected
@@ -1377,7 +1392,10 @@ mod tests {
             CommitEvidence::Unconfirmed
         );
         assert_eq!(
-            commit_evidence(&stat(COMMIT_READBACK_LIMIT + 1, json!(1_800_000_005)), &large),
+            commit_evidence(
+                &stat(COMMIT_READBACK_LIMIT + 1, json!(1_800_000_005)),
+                &large
+            ),
             CommitEvidence::Committed
         );
     }

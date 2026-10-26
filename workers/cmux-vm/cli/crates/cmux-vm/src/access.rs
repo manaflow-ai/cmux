@@ -540,7 +540,9 @@ impl Drop for SessionGuard<'_> {
             Ok(handle) if handle.runtime_flavor() == tokio::runtime::RuntimeFlavor::MultiThread => {
                 let timeout = self.timeout;
                 tokio::task::block_in_place(|| {
-                    handle.block_on(async { matches!(tokio::time::timeout(timeout, revoke).await, Ok(Ok(_))) })
+                    handle.block_on(async {
+                        matches!(tokio::time::timeout(timeout, revoke).await, Ok(Ok(_)))
+                    })
                 })
             }
             _ => false,
@@ -865,7 +867,9 @@ mod tests {
         use wiremock::matchers::{method, path};
         let server = wiremock::MockServer::start().await;
         wiremock::Mock::given(method("DELETE"))
-            .and(path(format!("/v1/vms/{GUARD_VM}/client-sessions/{GUARD_SESSION}")))
+            .and(path(format!(
+                "/v1/vms/{GUARD_VM}/client-sessions/{GUARD_SESSION}"
+            )))
             .respond_with(wiremock::ResponseTemplate::new(204).set_delay(delay))
             .mount(&server)
             .await;
@@ -875,12 +879,18 @@ mod tests {
     #[tokio::test]
     async fn a_slow_revoke_gives_up_at_the_guard_timeout_and_is_not_retried() {
         let server = revoke_server(std::time::Duration::from_secs(30)).await;
-        let client = cmux_vm_client::authenticated_raw_client(&server.uri(), "cmuxvm_sk_test", None, "test").unwrap();
+        let client =
+            cmux_vm_client::authenticated_raw_client(&server.uri(), "cmuxvm_sk_test", None, "test")
+                .unwrap();
         let mut guard = SessionGuard::new(&client, GUARD_VM, GUARD_SESSION, false)
             .with_timeout(std::time::Duration::from_millis(200));
         let started = std::time::Instant::now();
         assert!(!guard.revoke().await);
-        assert!(started.elapsed() < std::time::Duration::from_secs(5), "{:?}", started.elapsed());
+        assert!(
+            started.elapsed() < std::time::Duration::from_secs(5),
+            "{:?}",
+            started.elapsed()
+        );
         // The answer is remembered: a second call (or Drop) sends nothing more.
         assert!(!guard.revoke().await);
         assert_eq!(server.received_requests().await.unwrap().len(), 1);
@@ -891,7 +901,9 @@ mod tests {
     #[tokio::test]
     async fn a_prompt_revoke_within_the_timeout_succeeds() {
         let server = revoke_server(std::time::Duration::ZERO).await;
-        let client = cmux_vm_client::authenticated_raw_client(&server.uri(), "cmuxvm_sk_test", None, "test").unwrap();
+        let client =
+            cmux_vm_client::authenticated_raw_client(&server.uri(), "cmuxvm_sk_test", None, "test")
+                .unwrap();
         let mut guard = SessionGuard::new(&client, GUARD_VM, GUARD_SESSION, false);
         assert_eq!(guard.timeout, REVOKE_TIMEOUT);
         assert!(guard.revoke().await);

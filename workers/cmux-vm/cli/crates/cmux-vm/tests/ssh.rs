@@ -146,7 +146,8 @@ async fn the_session_is_revoked_on_every_way_out_and_interrupts_belong_to_ssh() 
     assert!(elapsed < std::time::Duration::from_secs(30), "{elapsed:?}");
     assert_eq!(out.code, exit::OK, "{}", out.stderr);
     assert!(
-        out.stderr.contains(&format!("cmux-vm session revoke {VM_ID} {SESSION} --yes")),
+        out.stderr
+            .contains(&format!("cmux-vm session revoke {VM_ID} {SESSION} --yes")),
         "{}",
         out.stderr
     );
