@@ -157,7 +157,7 @@ public final class BusyWatchdog: Sendable {
             for (pid, entry) in start.helpers {
                 guard let usage = ProcessUsage.sample(pid) else { continue }
                 let share = usage.cpuShare(since: entry.usage)
-                if share > configuration.helperThreshold { busy.append((pid, usage.name, entry.label, share)) }
+                if share > configuration.helperThreshold { busy.append((pid: pid, name: usage.name, label: entry.label, share: share)) }
             }
             // Same-site tabs share a renderer: the record names every tab it serves.
             var tabs: [ProcessUsage.TabRenderers] = []

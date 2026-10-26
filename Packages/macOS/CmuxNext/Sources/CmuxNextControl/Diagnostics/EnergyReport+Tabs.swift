@@ -15,7 +15,7 @@ extension EnergyReport {
                          sample: (pid_t) -> ProcessUsage? = ProcessUsage.sample) -> [ProcessUsage.TabUsage] {
         guard !tabs.isEmpty else { return [] }
         var renderers = processes.filter { $0.kind == rendererKind }.map { (renderer: identify($0.usage.pid), usage: $0.usage) }
-        var known = Set(renderers.map(\.renderer.pid))
+        var known = Set(renderers.map { $0.renderer.pid })
         for pid in tabs.compactMap(\.pid) where known.insert(pid).inserted {
             guard let usage = sample(pid) else { continue }
             renderers.append((renderer: ProcessUsage.Renderer(pid: pid, clientID: nil), usage: usage))
