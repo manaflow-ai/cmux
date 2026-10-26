@@ -22,6 +22,7 @@ enum ChiefMemoryImportHandlers {
     static let toastID = "chief-memory-import"
 
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
+        // action-wait-allow: starts a process and a dialog that wait on the person and on another process; nothing local can stand in
         registry.bind(actionID, run: { invocation in
             guard let tool = bundledTool() else { throw ActionWorkFailure(ChiefMemoryImportStrings.noTool) }
             let target = try resolveTarget(invocation["chief"]?.stringValue, context: context)
@@ -41,6 +42,7 @@ enum ChiefMemoryImportHandlers {
                 return nil
             })
         })
+        // action-wait-allow: runs a process and waits for it; nothing local can stand in
         registry.bind(undoActionID, run: { invocation in
             guard let tool = bundledTool() else { throw ActionWorkFailure(ChiefMemoryImportStrings.noTool) }
             let target = try resolveTarget(invocation["chief"]?.stringValue, context: context)
@@ -54,7 +56,7 @@ enum ChiefMemoryImportHandlers {
     }
 
     /// `Contents/Resources/bin/optchat-chief`, or nil when this build does not carry it (as ``BundledAgentMemoryIndex``).
-    static func bundledTool(bundle: Bundle = .main) -> URL? {
+    nonisolated static func bundledTool(bundle: Bundle = .main) -> URL? {
         guard let url = bundle.resourceURL?.appendingPathComponent("bin/optchat-chief"),
               FileManager.default.isExecutableFile(atPath: url.path) else { return nil }
         return url
@@ -151,7 +153,7 @@ enum ChiefMemoryImportHandlers {
         func importSources(_ sources: [String]) async {
             toast(ChiefMemoryImportStrings.working, duration: .seconds(600))
             var tokenDir: URL?
-            defer { if let tokenDir { try? FileManager.default.removeItem(at: tokenDir) } }
+            defer { if let tokenDir { ChiefMemoryImportHandlers.discard(tokenDir) } }
             var tokenFile: String?
             if case .cloud = target {
                 do {
@@ -193,7 +195,7 @@ enum ChiefMemoryImportHandlers {
 
         func undo() async {
             var tokenDir: URL?
-            defer { if let tokenDir { try? FileManager.default.removeItem(at: tokenDir) } }
+            defer { if let tokenDir { ChiefMemoryImportHandlers.discard(tokenDir) } }
             var tokenFile: String?
             if case .cloud = target {
                 do {
@@ -216,6 +218,12 @@ enum ChiefMemoryImportHandlers {
             return CmuxToastCenter.shared.show(CmuxToast(id: ChiefMemoryImportHandlers.toastID, message: message, action: action, duration: duration),
                                                in: window)
         }
+    }
+
+    /// Deletes the Cloud token's folder, off the main thread.
+    nonisolated static func discard(_ folder: URL) {
+        // task-owner: one small delete; ends with it
+        Task.detached(priority: .utility) { try? FileManager.default.removeItem(at: folder) }
     }
 
     struct Output: Sendable {
