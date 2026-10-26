@@ -120,7 +120,7 @@ enum DebugKey {
         defer { services.keyRouter.trace = nil; TerminalKeyEquivalent.trace = nil }
         // As in AppKit's dispatch, the menu gate sees this key as the current event.
         let (handledBy, action) = services.keyRouter.dispatchingSynthetic(event) { () -> (String, JSONValue) in
-            if services.keyRouter.interceptKeyDown(event, in: window) {
+            if services.routeKeyDown(event, window) {
                 return ("app", services.keyRouter.lastInterception.map { verdict($0)["action"] ?? .null } ?? .null)
             } else if isChord, window.performKeyEquivalent(with: event) {
                 return (window === shell ? "window" : params["target"]?.stringValue == "devtools" ? "devtools" : "page", .null)
