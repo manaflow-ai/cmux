@@ -44,7 +44,7 @@ pub enum Command {
     /// --prompt-file, --report-to and --group it starts an agent on a task
     /// in one step; running it again reuses everything and sends nothing.
     #[command(alias = "new-session", alias = "run", alias = "exec")]
-    New(NewArgs),
+    New(Box<NewArgs>),
     /// Block until a session resolves: its turn ends or it needs a permission
     /// answer. Returns on the first one unless --all. Exit 0 when a turn
     /// ended, 2 when a permission is waiting, 3 on timeout.
