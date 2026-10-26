@@ -291,12 +291,12 @@ nonisolated extension Feature {
         runtimeMutable: false
     )
 
-    /// The sidebar observes only the workspace rows on screen and one screen around them, and maps a row that changed while away once when it scrolls back near.
+    /// The sidebar keeps only the workspace rows on screen observed, and maps a row that changed off screen once when it scrolls back near (at once when it comes on screen).
     public static let sidebarRowsNearViewport = Feature(
         index: 17,
         name: "sidebarRowsNearViewport",
         owner: "a590",
-        description: "The sidebar observes only the workspace rows on screen and one screen around them, and maps a row that changed while away once when it scrolls back near.",
+        description: "The sidebar keeps only the workspace rows on screen observed, and maps a row that changed off screen once when it scrolls back near (at once when it comes on screen).",
         kind: .perfPath,
         process: .app,
         chromiumFeature: nil,

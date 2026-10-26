@@ -25,6 +25,11 @@ final class SidebarListView: NSView {
     weak var rowFeed: SidebarRowFeed?
     /// Something beside the list shows every row's content (the rail): the feed observes every row.
     var observesEveryRow = false
+    /// The open group headers on screen and the members they roll up, for this layout (`watchRows`).
+    var rollUpWatch: (headers: [GroupID], members: Set<WorkspaceID>)?
+    /// Whether the list can be seen: its window's occlusion (miniaturized, covered, the app hidden), hidden out of a
+    /// window. The row feed arms no row while it is not visible. A root until the window's node (p06-scheduler-022) parents it.
+    let visibility = VisibilityNode(root: "sidebar.list", own: .hidden)
     var rowViews: [SidebarRowKey: SidebarRowView] = [:]
     var workspaces: [WorkspaceID: SidebarWorkspace] = [:]
     var tabs: [TabID: SidebarTab] = [:]
@@ -256,14 +261,16 @@ final class SidebarListView: NSView {
         } }
         // The rows read the window when they moved in; the list's own reading starts them all from
         // the same state, not each from whatever its window said a moment earlier.
-        if window != nil { windowOcclusionChanged() }
+        if window != nil { windowOcclusionChanged() } else { visibility.set(.hidden) }
     }
     private func subscribePointerEnds() {
         for subscription in pointerEnds { subscription.cancel() }
         pointerEnds = window == nil ? [] : inputTap.map { observePointerEnds(on: $0) } ?? []
     }
     private func windowOcclusionChanged() {
-        setWindowVisible(window?.occlusionState.contains(.visible) ?? false)
+        let visible = window?.occlusionState.contains(.visible) ?? false
+        setWindowVisible(visible)
+        visibility.set(visible ? .visible : .occluded)
     }
     /// Pauses (or resumes) every row's activity animation, down to a row badge's glyphs (cx-m8buz).
     func setWindowVisible(_ visible: Bool) {

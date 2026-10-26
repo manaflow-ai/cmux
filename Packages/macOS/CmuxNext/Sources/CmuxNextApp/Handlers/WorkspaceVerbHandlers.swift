@@ -259,6 +259,7 @@ enum WorkspaceVerbHandlers {
     private static func sort(by key: WorkspaceSortKey, only: GroupID? = nil, _ context: AppActionContext) throws {
         guard let window = context.activeWindow else { throw ActionFailure.invalidTarget(RefusalStrings.noWindowOpen) }
         let bridge = window.sidebar
+        bridge.rowFeed.refreshAll() // a row off screen may hold an old title (feature sidebarRowsNearViewport)
         let before = bridge.model.sections
         var names: [String: String] = [:], directories: [String: String] = [:]
         for workspace in bridge.model.allWorkspaces {
