@@ -194,6 +194,14 @@ inline bool GrantsCmuxPageLocalNetwork(const std::string& requesting_origin, uin
   return requesting_origin.size() > prefix.size() && requesting_origin.compare(0, prefix.size(), prefix) == 0;
 }
 
+// Whether `url` is at `origin` (scheme://host): the origin, then nothing or
+// a path, query or fragment.
+inline bool UrlHasOrigin(const std::string& url, const std::string& origin) {
+  return url.size() >= origin.size() && url.compare(0, origin.size(), origin) == 0 &&
+         (url.size() == origin.size() || url[origin.size()] == '/' || url[origin.size()] == '?' ||
+          url[origin.size()] == '#');
+}
+
 // Whether a request may load a page's files: a main-frame navigation, or a
 // request from a frame of the same cmux-page origin (a child frame being
 // navigated is judged by its parent). Normal web pages can neither embed
@@ -202,13 +210,76 @@ inline bool PageRequestAllowed(bool main_frame, const std::string& frame_url, co
                                const std::string& domain) {
   if (main_frame) return true;
   const std::string origin = std::string(kCmuxPageScheme) + "://" + domain;
-  auto same = [&](const std::string& url) {
-    return url.size() >= origin.size() && url.compare(0, origin.size(), origin) == 0 &&
-           (url.size() == origin.size() || url[origin.size()] == '/' || url[origin.size()] == '?' ||
-            url[origin.size()] == '#');
+  if (UrlHasOrigin(frame_url, origin)) return true;
+  return (frame_url.empty() || frame_url == "about:blank") && UrlHasOrigin(parent_url, origin);
+}
+
+// cmux-page://cmux.shared/: the content-hashed chunks every first-party page
+// imports (PageSharedChunks in CmuxNextPages). It is never a page: it serves
+// only script and style, only to a CORS request from a first-party page
+// origin, and never to a navigation.
+inline constexpr char kSharedChunkHost[] = "cmux.shared";
+// Its policy when the app sends none: nothing it serves may load anything.
+inline constexpr char kSharedChunkDefaultCSP[] = "default-src 'none'";
+
+// The Access-Control-Allow-Origin a request with Origin `origin` gets from
+// cmux.shared: the origin itself when it is a first-party page origin
+// (cmux-page://cmux.<page>, serialized exactly: lowercase, no port, no path),
+// else empty (no header, and the request is refused). cmux.shared is not a
+// page, so it is not an origin that may read itself. Chrome answers
+// chrome://resources the same way (SharedResourcesDataSource::
+// GetAccessControlAllowOriginForOrigin, content/browser/webui/
+// shared_resources_data_source.cc).
+inline std::string SharedChunkAllowedOrigin(const std::string& origin) {
+  const std::string prefix = std::string(kCmuxPageScheme) + "://";
+  if (origin.size() <= prefix.size() || origin.compare(0, prefix.size(), prefix) != 0) return std::string();
+  const std::string host = origin.substr(prefix.size());
+  std::string normalized;
+  if (!NormalizePageId(host, &normalized) || normalized != host) return std::string();
+  if (!IsReservedPageId(host) || host == kSharedChunkHost) return std::string();
+  return origin;
+}
+
+// Whether a path (a URL path, or the real path a request resolved to) names
+// a file type cmux.shared serves: .js or .css (lowercase), so nothing it
+// serves can be a document.
+inline bool IsSharedChunkPath(const std::string& path) {
+  const size_t slash = path.rfind('/');
+  const size_t dot = path.rfind('.');
+  if (dot == std::string::npos || (slash != std::string::npos && dot < slash)) return false;
+  const std::string ext = path.substr(dot + 1);
+  return ext == "js" || ext == "css";
+}
+
+// Whether cmux.shared answers a request: never a navigation (a main or child
+// frame), only one whose Origin is a first-party page origin
+// (SharedChunkAllowedOrigin), and, when it comes from a document frame, a
+// frame at that origin. A frame with no URL of its own (about:blank,
+// about:srcdoc) or no frame (a worker) is judged by the Origin alone.
+inline bool SharedChunkRequestAllowed(bool navigation, const std::string& frame_url, const std::string& origin) {
+  if (navigation || SharedChunkAllowedOrigin(origin).empty()) return false;
+  if (frame_url.empty() || frame_url == "about:blank" || frame_url == "about:srcdoc") return true;
+  return UrlHasOrigin(frame_url, origin);
+}
+
+// Response headers of every cmux.shared response. `allowed_origin` empty
+// sends no Access-Control-Allow-Origin. Vary: Origin as Chrome sends with
+// its ACAO (URLDataManagerBackend, content/browser/webui/
+// url_data_manager_backend.cc). frame-ancestors 'none' is added unless the
+// CSP sets its own.
+inline std::vector<std::pair<std::string, std::string>> SharedChunkResponseHeaders(const std::string& csp,
+                                                                                   const std::string& allowed_origin) {
+  std::string policy = csp;
+  if (policy.find("frame-ancestors") == std::string::npos) policy += "; frame-ancestors 'none'";
+  std::vector<std::pair<std::string, std::string>> headers = {
+      {"Content-Security-Policy", policy},
+      {"X-Content-Type-Options", "nosniff"},
+      {"X-Frame-Options", "DENY"},
+      {"Cross-Origin-Resource-Policy", "same-origin"},
+      {"Vary", "Origin"},
   };
-  if (same(frame_url)) return true;
-  return (frame_url.empty() || frame_url == "about:blank") && same(parent_url);
+  if (!allowed_origin.empty()) headers.emplace_back("Access-Control-Allow-Origin", allowed_origin);
+  return headers;
 }
 
 // Response headers of every cmux-page response. frame-ancestors 'self' is

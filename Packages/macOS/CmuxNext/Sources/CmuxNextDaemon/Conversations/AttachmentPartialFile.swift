@@ -21,8 +21,9 @@ struct AttachmentPartialFile: Sendable {
         let directory = destination.deletingLastPathComponent()
         try FileManager.checked.createDirectory(at: directory, withIntermediateDirectories: true)
         let url = directory.appendingPathComponent(".\(destination.lastPathComponent).\(UUID().uuidString).partial")
-        let descriptor = url.withUnsafeFileSystemRepresentation { path in
-            path.map { blockingOpen($0, O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC, 0o644) } ?? -1
+        // SAFETY: open reads the NUL-terminated file system path the URL lends for the closure.
+        let descriptor = unsafe url.withUnsafeFileSystemRepresentation { path in
+            unsafe path.map { unsafe blockingOpen($0, O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC, 0o644) } ?? -1
         }
         guard descriptor >= 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
         return AttachmentPartialFile(url: url, destination: destination, descriptor: descriptor)
@@ -32,15 +33,23 @@ struct AttachmentPartialFile: Sendable {
     ///
     /// - Throws: A `POSIXError` when a write fails.
     func write(_ bytes: Data, at offset: Int) throws {
-        try bytes.withUnsafeBytes { buffer in
+        // SAFETY: `buffer` is Data's contiguous storage, valid only inside this closure, which never lets a
+        // pointer out.
+        let failure: Int32? = unsafe bytes.withUnsafeBytes { buffer -> Int32? in
             var done = 0
-            while done < buffer.count {
-                let wrote = blockingPwrite(descriptor, buffer.baseAddress.map { $0 + done }, buffer.count - done, off_t(offset + done))
+            // SAFETY: reads only the buffer's count.
+            while unsafe done < buffer.count {
+                // SAFETY: 0 <= done < buffer.count, so the write starts at base + done and covers the
+                // buffer.count - done bytes left, which end at the buffer's end.
+                let wrote = unsafe blockingPwrite(descriptor, buffer.baseAddress.map { unsafe $0 + done }, buffer.count - done,
+                                                  off_t(offset + done))
                 if wrote < 0, errno == EINTR { continue }
-                guard wrote > 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
+                guard wrote > 0 else { return errno }
                 done += wrote
             }
+            return nil
         }
+        if let failure { throw POSIXError(POSIXErrorCode(rawValue: failure) ?? .EIO) }
     }
 
     /// Flushes the bytes to the disk, closes the file and moves it to ``destination``. A file another read of

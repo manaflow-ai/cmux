@@ -80,6 +80,7 @@ pub(super) const MODULE_ROUTES: &[&[Route]] = &[
     #[cfg(any(debug_assertions, feature = "oracle"))]
     super::oracle_state_command::ROUTES,
     super::loopback_forward::ROUTES,
+    super::energy_op::ROUTES,
     #[cfg(unix)]
     super::browser_runtime::ROUTES,
     #[cfg(unix)]

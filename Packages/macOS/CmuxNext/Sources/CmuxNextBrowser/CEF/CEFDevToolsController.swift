@@ -230,10 +230,10 @@ final class CEFDevToolsController {
         tab.devTools = BrowserDevToolsState(isOpen: true, dock: docked ? layout.dock : .window)
         if docked, !layout.dock.isDocked { undockViews() }
         tab.container.layoutContent()
-        // A docked DevTools is its own page window on its own host view: hosted in the window's layers
-        // only on a developer's layer hosting override (fork API 26; the Track A default keeps it in its
-        // own window, `CEFLayerHosting.Widget`), from this open on (a later tunable change applies
-        // at the next open). In host mode it shows in the hosted page view, from the context the host gives.
+        // A docked DevTools is its own page window on its own host view: the feature `cefLayerHosting`
+        // keeps it in its own window (`CEFLayerHosting.Widget`) until p03-rendering-056 hosts it; only the
+        // benches' arm `cefLayerHostingEveryPage` hosts it now.
+        // In host mode it shows in the hosted page view, from the context the host gives.
         if docked, tab.host.isHostMode {
             showHostedContext(of: browser)
         } else if docked {

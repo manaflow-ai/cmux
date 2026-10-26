@@ -133,6 +133,31 @@
         "settled"
       ],
       "note": "the tab keeps its id and place; its record names the other profile (changed true)"
+    },
+    {
+      "id": "retry",
+      "op": "resource.call",
+      "target": {
+        "machine": "current",
+        "session": "current",
+        "tab": "$step:fx-app-browser#/value/tab_id"
+      },
+      "args": {
+        "method": "browser.tab.set_profile",
+        "params": {
+          "profile": "$step:other-profile#/value/browser_profile/id"
+        },
+        "idempotencyKey": "browser-tab-set-profile-ok.call"
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "mutation_result"
+      },
+      "checkpoint": [
+        "before",
+        "settled"
+      ],
+      "note": "I10: step call again with its idempotency key; the daemon replays its reply, adds no journal record and changes no facet"
     }
   ],
   "invariants": [

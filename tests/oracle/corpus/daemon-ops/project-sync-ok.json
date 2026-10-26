@@ -79,6 +79,33 @@
         "settled"
       ],
       "note": "the app found the folder gone; a source other than the user still reports it, so it stays present"
+    },
+    {
+      "id": "retry",
+      "op": "resource.call",
+      "target": {
+        "machine": "current",
+        "session": "current"
+      },
+      "args": {
+        "method": "project.sync",
+        "params": {
+          "existing": [],
+          "gone": [
+            "/srv/oracle-project"
+          ]
+        },
+        "idempotencyKey": "project-sync-ok.call"
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "mutation_result"
+      },
+      "checkpoint": [
+        "before",
+        "settled"
+      ],
+      "note": "I10: step call again with its idempotency key; the daemon replays its reply, adds no journal record and changes no facet"
     }
   ],
   "invariants": [

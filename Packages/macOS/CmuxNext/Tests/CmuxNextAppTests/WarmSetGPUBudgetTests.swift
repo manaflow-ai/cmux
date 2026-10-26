@@ -60,6 +60,7 @@ import Testing
     /// released surface and the two non-presented buffers of a resident hidden one.
     @Test func theCacheReleasesHiddenTerminalsAndDebugMemoryCountsNone() throws {
         _ = NSApplication.shared
+        GhosttyRuntime.startedForTests()
         let services = AppServices(environment: AppEnvironment.current([:]))
         let cache = services.cache
         let residency = RecordingResidency()

@@ -23,9 +23,7 @@ final class MainThreadWatchdogAlarm: Sendable {
     init() {
         descriptor = kqueue()
         guard descriptor >= 0 else { return }
-        var stop = kevent(ident: Self.stopIdent, filter: Int16(truncatingIfNeeded: EVFILT_USER), flags: UInt16(truncatingIfNeeded: EV_ADD | EV_CLEAR),
-                          fflags: 0, data: 0, udata: nil)
-        _ = kevent(descriptor, &stop, 1, nil, 0, nil)
+        submit(ident: Self.stopIdent, filter: EVFILT_USER, flags: EV_ADD | EV_CLEAR)
     }
 
     deinit {
@@ -38,26 +36,31 @@ final class MainThreadWatchdogAlarm: Sendable {
     /// Fires once, `nanos` from now, unless ``disarm()`` comes first (the main run loop woke).
     func arm(afterNanos nanos: UInt64) {
         guard descriptor >= 0 else { return }
-        var change = kevent(ident: Self.timerIdent, filter: Int16(truncatingIfNeeded: EVFILT_TIMER), flags: UInt16(truncatingIfNeeded: EV_ADD | EV_ONESHOT),
-                            fflags: UInt32(truncatingIfNeeded: NOTE_NSECONDS), data: Int(clamping: nanos), udata: nil)
-        _ = kevent(descriptor, &change, 1, nil, 0, nil)
+        submit(ident: Self.timerIdent, filter: EVFILT_TIMER, flags: EV_ADD | EV_ONESHOT,
+               fflags: UInt32(truncatingIfNeeded: NOTE_NSECONDS), data: Int(clamping: nanos))
     }
 
     /// Drops a pending or fired timer (the main run loop is about to sleep). None is fine (ENOENT).
     func disarm() {
         guard descriptor >= 0 else { return }
-        var change = kevent(ident: Self.timerIdent, filter: Int16(truncatingIfNeeded: EVFILT_TIMER), flags: UInt16(truncatingIfNeeded: EV_DELETE),
-                            fflags: 0, data: 0, udata: nil)
-        _ = kevent(descriptor, &change, 1, nil, 0, nil)
+        submit(ident: Self.timerIdent, filter: EVFILT_TIMER, flags: EV_DELETE)
     }
 
     /// Ends a wait now, or the next one if none runs (`stop()`, and a scheduled task's start:
     /// `MainThreadWatchdog.wakeForTask()`).
     func wake() {
         guard descriptor >= 0 else { return }
-        var change = kevent(ident: Self.stopIdent, filter: Int16(truncatingIfNeeded: EVFILT_USER), flags: 0,
-                            fflags: UInt32(truncatingIfNeeded: NOTE_TRIGGER), data: 0, udata: nil)
-        _ = kevent(descriptor, &change, 1, nil, 0, nil)
+        submit(ident: Self.stopIdent, filter: EVFILT_USER, flags: 0, fflags: UInt32(truncatingIfNeeded: NOTE_TRIGGER))
+    }
+
+    /// Registers one change with the kqueue, with no event list back.
+    private func submit(ident: UInt, filter: Int32, flags: Int32, fflags: UInt32 = 0, data: Int = 0) {
+        // SAFETY: udata is nil (no context pointer), and the change is a local live for the kevent call, which
+        // reads that one change and, with a nil event list of count 0, writes nothing back.
+        var change = unsafe kevent(ident: ident, filter: Int16(truncatingIfNeeded: filter), flags: UInt16(truncatingIfNeeded: flags),
+                                   fflags: fflags, data: data, udata: nil)
+        // SAFETY: as above.
+        _ = unsafe kevent(descriptor, &change, 1, nil, 0, nil)
     }
 
     /// Blocks the calling thread (the watchdog's, never the main thread) until the timer fires,
@@ -68,10 +71,13 @@ final class MainThreadWatchdogAlarm: Sendable {
         if let nanos {
             var timeout = timespec(tv_sec: Int(clamping: nanos / 1_000_000_000), tv_nsec: Int(truncatingIfNeeded: nanos % 1_000_000_000))
             // concurrency-allow: the dedicated watchdog thread's bounded wait between stall checks; never the main thread.
-            _ = kevent(descriptor, nil, 0, &event, 1, &timeout)
+            // SAFETY: kevent writes at most 1 event, the count given, into `event` and reads `timeout`, both locals
+            // live for the call.
+            _ = unsafe kevent(descriptor, nil, 0, &event, 1, &timeout)
         } else {
             // concurrency-allow: the dedicated watchdog thread parks while the main run loop sleeps; never the main thread.
-            _ = kevent(descriptor, nil, 0, &event, 1, nil)
+            // SAFETY: kevent writes at most 1 event, the count given, into `event`, a local live for the call.
+            _ = unsafe kevent(descriptor, nil, 0, &event, 1, nil)
         }
     }
 }

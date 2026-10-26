@@ -1,6 +1,7 @@
 import CmuxNextAgentPane
 @testable import CmuxNextApp
 import CmuxNextBrowser
+import CmuxNextFeatures
 import CmuxNextPages
 import Foundation
 import Testing
@@ -14,7 +15,7 @@ import Testing
 @Suite struct PageChromiumCoverageTests {
     /// Every page the app ships, with the engine options its service makes it with.
     private static let surfaces: [(page: PageDescriptor, options: PageEngineOptions)] = [
-        (.agent, PageEngineOptions(chromiumAgentChat: AgentPaneTunables.chromium.value)), (.history, .standard), (.cloud, .standard), (.apps, .standard), (.settings, PageFactory.settingsEngineOptions),
+        (.agent, PageEngineOptions(chromiumAgentChat: Feature.agentChromium.defaults.value(for: .release))), (.history, .standard), (.cloud, .standard), (.apps, .standard), (.settings, PageFactory.settingsEngineOptions),
         (.keybindings, .standard), (.diff, DiffPageService.engineOptions), (.markdown, FilePageService.engineOptions),
         (.editor, FilePageService.engineOptions), (.iconPicker, IconPickerService.engineOptions), (.passwords, .standard),
         (.chiefInspector, .standard), (.debugSettings, .standard), (.homeChannels, PageFactory.homeChannelsEngineOptions),
@@ -79,6 +80,43 @@ import Testing
         #expect(entries[PageDescriptor.diff.id]?.entry == "diff-page.html")
         #expect(entries[PageDescriptor.markdown.id]?.entry == "markdown-page.html")
         #expect(entries[PageDescriptor.editor.id]?.entry == "editor-page.html")
+    }
+
+    /// `cmux-page://cmux.shared` reaches Chromium from the same table as the pages (the shim gives it
+    /// the shared chunk handler only from there): with the chunk policy, no generated paths and no
+    /// page entry, and only from a root inside the app's resources.
+    @Test func chromiumServesTheSharedChunkOriginWithItsOwnPolicy() throws {
+        let bundle = FileManager.default.temporaryDirectory.appending(path: "shared-origin-\(UUID().uuidString)/Resources")
+        defer { try? FileManager.default.removeItem(at: bundle.deletingLastPathComponent()) }
+        let sharedRoot = bundle.appending(path: "pages/_shared")
+        try FileManager.default.createDirectory(at: sharedRoot, withIntermediateDirectories: true)
+        var roots: [String: URL] = [PageID.sharedHost: sharedRoot]
+        for page in [PageDescriptor.settings, .history, .markdown] {
+            let root = bundle.appending(path: "pages/\(page.resource)")
+            try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+            roots[page.id] = root
+        }
+        let entries = FirstPartyPageSchemes.entries(roots: roots, bundleResources: bundle, processGroups: true,
+                                                    rendererSharing: true)
+        let shared = try #require(entries[PageID.sharedHost], "Chromium does not serve cmux.shared")
+        #expect(shared.root == sharedRoot)
+        #expect(shared.csp == PageID.sharedChunkPolicy)
+        #expect(shared.dynamicPrefixes.isEmpty)
+        #expect(shared.processGroup == nil)
+        #expect(shared.mainFrameCap == nil)
+        for page in [PageDescriptor.settings, .history, .markdown] {
+            #expect(entries[page.id]?.csp == page.csp.header, "\(page.id) lost its own policy next to cmux.shared")
+        }
+
+        #expect(FirstPartyPageSchemes.isServed(PageID.sharedHost))
+        #expect(FirstPartyPageSchemes.refusal(id: PageID.sharedHost, root: sharedRoot, bundleResources: bundle) == nil)
+        let outside = FileManager.default.temporaryDirectory.appending(path: "shared-outside-\(UUID().uuidString)")
+        #expect(FirstPartyPageSchemes.refusal(id: PageID.sharedHost, root: outside, bundleResources: bundle)
+            == .outsideBundle(PageID.sharedHost))
+        #expect(FirstPartyPageSchemes.refusal(id: PageID.sharedHost, root: bundle, bundleResources: bundle)
+            == .outsideBundle(PageID.sharedHost))
+        let refused = FirstPartyPageSchemes.entries(roots: [PageID.sharedHost: outside], bundleResources: bundle)
+        #expect(refused[PageID.sharedHost] == nil)
     }
 
     @Test func aReservedIDTheAppDoesNotShipIsNeverServed() {
