@@ -7,7 +7,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { after, test } from "node:test";
 import { fileURLToPath } from "node:url";
-import { CAPS, moduleImports, pageNames, parseHtml, report } from "./page-bundle-report.mjs";
+import { CAPS, moduleImports, pageNames, parseHtml, report, sectionChunks, settingsSections } from "./page-bundle-report.mjs";
 
 const SCRIPT = join(dirname(fileURLToPath(import.meta.url)), "page-bundle-report.mjs");
 const REACT = 'var e={};e.__CLIENT_INTERNALS_DO_NOT_USE_OR_WARN_USERS_THEY_CANNOT_UPGRADE={H:null};export{e as R};\n';
@@ -34,12 +34,26 @@ const size = (trees, path) => statSync(join(trees.pages, path)).size;
 const html = (head, body = "") =>
   `<!doctype html>\n<html>\n<head>\n${head}\n</head>\n<body>\n<main id="root"></main>\n${body}\n</body>\n</html>\n`;
 
-// The split build: a shared React chunk from cmux.shared, a page entry and a lazy section.
+// The split build: a shared React chunk from cmux.shared, a page entry and two lazy sections, each
+// in the chunk esbuild names after its module (Theme-<hash>.js), one with a chunk of its own.
 const splitPage = {
   "index.html": html(`<link rel="modulepreload" href="${SHARED}" />`, '<script type="module" src="app.js"></script>'),
-  "app.js": `import{R as r}from"${SHARED}";const s=()=>import("./chunks/section-1.js");console.log(r,s);\n`,
-  "chunks/section-1.js": `import{R as r}from"${SHARED}";import"./section-2.js";export const a=r;\n`,
-  "chunks/section-2.js": "export const b=1;\n",
+  "app.js":
+    `import{R as r}from"${SHARED}";const s=()=>import("./chunks/Theme-QW12ER34.js");` +
+    `const t=()=>import("./chunks/Accounts-ZX56CV78.js");console.log(r,s,t);\n`,
+  "chunks/Theme-QW12ER34.js": `import{R as r}from"${SHARED}";import"./chunk-AB12CD34.js";export const a=r;\n`,
+  "chunks/chunk-AB12CD34.js": "export const b=1;\n",
+  "chunks/Accounts-ZX56CV78.js": "export const c=1;\n",
+};
+
+// The Settings sections of the fixtures: two lazy ones and a third lazySections.ts does not name.
+const SECTIONS = {
+  sections: [
+    { id: "theme", chunk: "Theme" },
+    { id: "accounts", chunk: "Accounts" },
+    { id: "general", chunk: null },
+  ],
+  problems: [],
 };
 
 function prefixed(prefix, files) {
@@ -48,13 +62,13 @@ function prefixed(prefix, files) {
 
 test("a split page counts its own and shared bytes, requests, lazy chunks and the React URL", () => {
   const trees = tree("split", { "pages/_shared/react-AB12.js": REACT, ...prefixed("pages/settings", splitPage) });
-  const [row] = report(trees, ["settings"]).documents;
+  const [row] = report(trees, ["settings"], SECTIONS).documents;
   assert.equal(row.missing, false);
   assert.equal(row.ownBytes, size(trees, "settings/app.js"));
   assert.equal(row.sharedBytes, size(trees, "_shared/react-AB12.js"));
   assert.equal(row.inlineBytes, 0);
   assert.equal(row.requests, 2, "the modulepreload and the import of the same chunk are one request");
-  assert.equal(row.lazyChunks, 2, "section-1 and the chunk it imports; the shared chunk is already loaded");
+  assert.equal(row.lazyChunks, 3, "both sections and the chunk Theme imports; the shared chunk is already loaded");
   assert.deepEqual(row.react, [SHARED]);
   assert.deepEqual(row.unresolved, []);
 });
@@ -65,7 +79,7 @@ test("every built document naming the same shared React URL passes the identity 
     ...prefixed("pages/settings", splitPage),
     ...prefixed("pages/history", splitPage),
   });
-  const result = report(trees, ["settings", "history"]);
+  const result = report(trees, ["settings", "history"], SECTIONS);
   assert.ok(!result.findings.some((finding) => finding.startsWith("React URL")), result.findings.join("\n"));
   assert.ok(!result.findings.some((finding) => finding.startsWith("settings:")), result.findings.join("\n"));
   // The trees have no agent pane, viewers or agent activity: the report says so rather than passing.
@@ -80,7 +94,7 @@ test("an inline one-file page: inline bytes are its own, its React URL differs, 
     ...prefixed("pages/history", splitPage),
     "pages/settings/index.html": html("", `<script type="module">\n${big}</script>`),
   });
-  const result = report(trees, ["history", "settings"]);
+  const result = report(trees, ["history", "settings"], SECTIONS);
   const settings = result.documents.find((row) => row.name === "settings");
   assert.equal(settings.inlineBytes, Buffer.byteLength(`\n${big}`));
   assert.equal(settings.ownBytes, settings.inlineBytes);
@@ -88,7 +102,86 @@ test("an inline one-file page: inline bytes are its own, its React URL differs, 
   assert.deepEqual(settings.react, ["inline #1 in cmux-page://cmux.settings/index.html"]);
   assert.ok(result.findings.some((finding) => /^settings: own JS \d+\.\d KB > 250\.0 KB$/.test(finding)), result.findings.join("\n"));
   assert.ok(result.findings.includes("React URL: 2 different URLs across 2 documents (D8 wants one)"));
-  assert.ok(result.findings.some((finding) => finding.startsWith("settings: no lazy chunk")));
+  assert.ok(
+    result.findings.includes(
+      "settings: the first load holds 3 sections (D8 wants the navigation and one): theme (no lazy Theme-<hash>.js chunk), " +
+        "accounts (no lazy Accounts-<hash>.js chunk), general (not in lazySections.ts)",
+    ),
+    result.findings.join("\n"),
+  );
+});
+
+// Every page imports webviews/src/pages/shared/desktop.ts, which loads the glass lens through
+// import(), so a Settings page always has a lazy chunk, whether or not its sections are lazy.
+test("a lazy chunk that is not a section does not pass the Settings check", () => {
+  const trees = tree("lens-only", {
+    "pages/_shared/react-AB12.js": REACT,
+    "pages/settings/index.html": html("", '<script type="module" src="app.js"></script>'),
+    "pages/settings/app.js":
+      `import{R as r}from"${SHARED}";import"./_shared/Theme-QW12ER34.js";import"./_shared/Accounts-ZX56CV78.js";` +
+      `const l=()=>import("./_shared/lens-N3NMW2K2.js");console.log(r,l);\n`,
+    "pages/settings/_shared/Theme-QW12ER34.js": "export const a=1;\n",
+    "pages/settings/_shared/Accounts-ZX56CV78.js": "export const b=1;\n",
+    "pages/settings/_shared/lens-N3NMW2K2.js": "export const l=1;\n",
+  });
+  const result = report(trees, ["settings"], SECTIONS);
+  assert.equal(result.documents[0].lazyChunks, 1);
+  assert.ok(
+    result.findings.includes(
+      "settings: the first load holds 3 sections (D8 wants the navigation and one): " +
+        "theme (cmux-page://cmux.settings/_shared/Theme-QW12ER34.js loads first), " +
+        "accounts (cmux-page://cmux.settings/_shared/Accounts-ZX56CV78.js loads first), general (not in lazySections.ts)",
+    ),
+    result.findings.join("\n"),
+  );
+  // Today's sources: no lazySections.ts, so the lens chunk does not make the sections lazy.
+  const today = report(trees, ["settings"], sectionChunks([{ id: "theme", lead: ["themeStudio"], trail: [] }], null));
+  assert.ok(
+    today.findings.includes(
+      "settings: webviews/src/pages/settings/lazySections.ts is missing, so the first load holds every section",
+    ),
+    today.findings.join("\n"),
+  );
+});
+
+test("one section in the first load passes the Settings check, two do not", () => {
+  const trees = tree("one-first", { "pages/_shared/react-AB12.js": REACT, ...prefixed("pages/settings", splitPage) });
+  const passing = report(trees, ["settings"], SECTIONS);
+  assert.ok(!passing.findings.some((finding) => finding.startsWith("settings:")), passing.findings.join("\n"));
+  const sections = { ...SECTIONS, sections: [...SECTIONS.sections, { id: "server", chunk: "Server" }] };
+  const failing = report(trees, ["settings"], sections);
+  assert.ok(
+    failing.findings.includes(
+      "settings: the first load holds 2 sections (D8 wants the navigation and one): " +
+        "general (not in lazySections.ts), server (no lazy Server-<hash>.js chunk)",
+    ),
+    failing.findings.join("\n"),
+  );
+});
+
+test("sectionChunks reads lazySections.ts entries and adds the schema categories that draw a card", () => {
+  const source =
+    'export const lazySections = {\n  theme: () => import("./sections/Theme"),\n' +
+    "  \"agents\": async () => import('./sections/Agents.tsx'),\n" +
+    '  a: () => import("./a/index"),\n  b: () => import("./b/index"),\n};\n';
+  const categories = [
+    { id: "theme", lead: ["themeStudio"], trail: [] },
+    { id: "editor", lead: [], trail: [] },
+    { id: "mobile", lead: [], trail: ["mobile"] },
+  ];
+  assert.deepEqual(sectionChunks(categories, source), {
+    sections: [
+      { id: "theme", chunk: "Theme" },
+      { id: "mobile", chunk: null },
+      { id: "agents", chunk: "Agents" },
+      { id: "a", chunk: "index" },
+      { id: "b", chunk: "index" },
+    ],
+    problems: ["sections a, b share the chunk name index, so their chunks cannot be told apart"],
+  });
+  const ids = settingsSections().sections.map((section) => section.id);
+  for (const id of ["theme", "accounts", "agents"]) assert.ok(ids.includes(id), ids.join(" "));
+  assert.ok(!ids.includes("development"), "a category with no card has no section code");
 });
 
 test("a locale loader adds one request and the largest locale table", () => {
@@ -110,12 +203,29 @@ test("a locale loader adds one request and the largest locale table", () => {
   assert.equal(row.ownBytes, own.reduce((a, b) => a + b, 0) + Buffer.byteLength(loader));
 });
 
+test("a cmux.shared URL resolves only to a .js or .css file under pages/_shared", () => {
+  const trees = tree("shared-root", {
+    "pages/_shared/react-AB12.js": REACT,
+    "pages/_shared/x.mjs": "export const x=1;\n",
+    "pages/settings/index.html": html("", '<script type="module" src="app.js"></script>'),
+    "pages/settings/app.js":
+      'import"cmux-page://cmux.shared/_shared/react-AB12.js";import"cmux-page://cmux.shared/settings/app.js";' +
+      `import"cmux-page://cmux.shared/x.mjs";import"${SHARED}";\n`,
+  });
+  const result = report(trees, ["settings"], SECTIONS);
+  for (const path of ["_shared/react-AB12.js", "settings/app.js", "x.mjs"]) {
+    const finding = `settings: cmux-page://cmux.shared/${path} does not resolve to a built file`;
+    assert.ok(result.findings.includes(finding), `${finding}\n${result.findings.join("\n")}`);
+  }
+  assert.equal(result.documents[0].sharedBytes, size(trees, "_shared/react-AB12.js"), "only the file the handler serves");
+});
+
 test("a chunk URL that resolves to no built file is a finding", () => {
   const trees = tree("broken", {
     "pages/settings/index.html": html("", '<script type="module" src="app.js"></script>'),
     "pages/settings/app.js": `import"../_shared/react-AB12.js";\n`,
   });
-  const result = report(trees, ["settings"]);
+  const result = report(trees, ["settings"], SECTIONS);
   assert.ok(result.findings.includes("settings: cmux-page://cmux.settings/_shared/react-AB12.js does not resolve to a built file"));
 });
 

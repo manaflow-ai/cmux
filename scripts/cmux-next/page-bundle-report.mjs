@@ -20,7 +20,16 @@
 //
 // Caps (KB = 1000 bytes): own <= 250 KB, shared <= 400 KB, total <= 600 KB and requests <= 4 for
 // every page and the agent pane; one React URL across the pages, the agent pane, diff, markdown,
-// editor and agent-activity; the Settings page loads its other sections lazily.
+// editor and agent-activity; the Settings first load holds the navigation and at most one section.
+//
+// A Settings section is a category of the settings schema (schemas/settings/settings-schema.json,
+// page.categories) that draws a card; a category of schema rows only has no code of its own.
+// webviews/src/pages/settings/lazySections.ts (task 081) names each section's module as
+// `<category id>: () => import("<module>")`. esbuild writes a dynamic import target to its own chunk
+// named after the module, <module basename>-<hash>.js (build-pages.mjs, chunkNames), so a section is
+// lazy when that chunk is reachable only through import(). A section with no entry, or whose chunk is
+// in the first load, is in the first load; more than one of those is a finding. Other lazy chunks
+// (the glass lens every page imports) say nothing about the sections.
 //
 //   node scripts/cmux-next/page-bundle-report.mjs                    # the in-tree build output
 //   node scripts/cmux-next/page-bundle-report.mjs --root DIR         # a build-web-bundles.sh --out-root tree
@@ -30,7 +39,7 @@
 //
 // Exits 0 when every cap holds, 1 when one fails or a document is missing, 2 on a usage error.
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { basename, dirname, extname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 const REPO = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
@@ -121,14 +130,21 @@ export function moduleImports(code) {
   return { static: [...new Set(pick(STATIC_IMPORT))], dynamic: [...new Set(pick(DYNAMIC_IMPORT))] };
 }
 
-/** Maps a served URL to its built file: the document's own host, or cmux.shared (pages/_shared). */
+// The file types cmux.shared serves (PageSharedChunks.servedExtensions); any other is refused.
+const SHARED_EXTENSIONS = new Set([".js", ".css"]);
+
+/**
+ * Maps a served URL to its built file: the document's own host, or cmux.shared, which serves only
+ * the .js and .css files under pages/_shared (PageSharedChunks.file(for:root:)). null when no
+ * handler serves the URL.
+ */
 function fileFor(url, doc, sharedDir) {
   const u = new URL(url);
   if (u.protocol !== "cmux-page:") return null;
   const path = decodeURIComponent(u.pathname);
   if (u.host === new URL(doc.url).host) return join(doc.dir, path);
-  if (u.host !== SHARED_HOST) return null;
-  return [join(sharedDir, path), join(dirname(sharedDir), path)].find((file) => existsSync(file)) ?? join(sharedDir, path);
+  if (u.host !== SHARED_HOST || !SHARED_EXTENSIONS.has(extname(path))) return null;
+  return join(sharedDir, path);
 }
 
 const isShared = (url) => new URL(url).host === SHARED_HOST;
@@ -148,6 +164,8 @@ export function measure(doc, sharedDir) {
     inlineBytes: 0,
     requests: 0,
     lazyChunks: 0,
+    firstLoad: [],
+    lazy: [],
     react: [],
     reactLazy: false,
     unresolved: [],
@@ -197,6 +215,7 @@ export function measure(doc, sharedDir) {
   }
   row.ownBytes += row.inlineBytes;
   row.requests = requested.size;
+  row.firstLoad = [...requested.keys()];
   const locale = localeDir === null ? null : largestLocale(join(doc.dir, localeDir), requested);
   if (locale !== null) {
     row.ownBytes += locale;
@@ -204,6 +223,7 @@ export function measure(doc, sharedDir) {
   }
   const lazy = lazySources(lazyRoots, requested, doc, sharedDir, row);
   row.lazyChunks = lazy.size;
+  row.lazy = [...lazy.keys()];
   // React in the first load, else in a lazy chunk (the diff page mounts React after boot); a
   // shared copy first, as it is the URL every document should name.
   const holders = (map) => [...map].filter(([, code]) => REACT_MARKER.test(code)).map(([key]) => key);
@@ -245,8 +265,64 @@ function lazySources(roots, requested, doc, sharedDir, row) {
   return seen;
 }
 
-/** The D8 findings over the measured rows; an empty list means every cap holds. */
-export function findings(rows) {
+const SETTINGS_SCHEMA = "schemas/settings/settings-schema.json";
+const LAZY_SECTIONS = "webviews/src/pages/settings/lazySections.ts";
+// `<id>: () => import("<module>")`, the id bare or quoted.
+const LAZY_ENTRY =
+  /(?:"([\w-]+)"|'([\w-]+)'|([\w$]+))\s*:\s*(?:async\s*)?\(\s*\)\s*=>\s*import\(\s*(["'`])([^"'`\n]+)\4\s*\)/g;
+
+/** The chunk name esbuild gives a dynamic import target: the module's basename, no extension. */
+const chunkName = (specifier) => basename(specifier).replace(/\.[cm]?[jt]sx?$/, "");
+const escapeRegExp = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+/**
+ * The Settings sections and the chunk each is built to: every schema category with a card
+ * (`categories` is schema.page.categories) and every entry of lazySections.ts (`lazySource`, null
+ * when the file is missing). `chunk` is null for a section lazySections.ts does not name.
+ */
+export function sectionChunks(categories, lazySource) {
+  const problems = [];
+  const entries = new Map();
+  if (lazySource === null) problems.push(`${LAZY_SECTIONS} is missing, so the first load holds every section`);
+  for (const m of (lazySource ?? "").matchAll(LAZY_ENTRY)) entries.set(m[1] ?? m[2] ?? m[3], chunkName(m[5]));
+  const byChunk = new Map();
+  for (const [id, chunk] of entries) byChunk.set(chunk, [...(byChunk.get(chunk) ?? []), id]);
+  for (const [chunk, ids] of byChunk) {
+    if (ids.length > 1) problems.push(`sections ${ids.join(", ")} share the chunk name ${chunk}, so their chunks cannot be told apart`);
+  }
+  const carded = categories
+    .filter((category) => (category.lead ?? []).length + (category.trail ?? []).length > 0)
+    .map((category) => category.id);
+  const ids = [...new Set([...carded, ...entries.keys()])];
+  return { sections: ids.map((id) => ({ id, chunk: entries.get(id) ?? null })), problems };
+}
+
+/** The Settings sections of the repository's sources (sectionChunks). */
+export function settingsSections(repo = REPO) {
+  const schema = JSON.parse(readFileSync(join(repo, SETTINGS_SCHEMA), "utf8"));
+  const lazyFile = join(repo, LAZY_SECTIONS);
+  return sectionChunks(schema.page.categories, existsSync(lazyFile) ? readFileSync(lazyFile, "utf8") : null);
+}
+
+/** The Settings sections a measured row's first load holds, each as "<id> (<why>)". */
+function firstLoadSections(row, sections) {
+  const named = (urls, chunk) => {
+    const pattern = new RegExp(`^${escapeRegExp(chunk)}-[A-Z0-9]+\\.js$`);
+    return urls.find((url) => pattern.test(basename(new URL(url).pathname)));
+  };
+  return sections.flatMap(({ id, chunk }) => {
+    if (chunk === null) return [`${id} (not in lazySections.ts)`];
+    if (named(row.lazy, chunk)) return [];
+    const first = named(row.firstLoad, chunk);
+    return [first ? `${id} (${first} loads first)` : `${id} (no lazy ${chunk}-<hash>.js chunk)`];
+  });
+}
+
+/**
+ * The D8 findings over the measured rows; an empty list means every cap holds. `sections` is
+ * settingsSections()'s result, for the Settings check.
+ */
+export function findings(rows, sections = settingsSections()) {
   const out = [];
   const kb = (bytes) => `${(bytes / KB).toFixed(1)} KB`;
   for (const row of rows) {
@@ -268,8 +344,12 @@ export function findings(rows) {
   const urls = new Set(built.map((row) => row.react[0]));
   if (urls.size > 1) out.push(`React URL: ${urls.size} different URLs across ${built.length} documents (D8 wants one)`);
   const settings = rows.find((row) => row.name === "settings");
-  if (settings && !settings.missing && settings.lazyChunks === 0) {
-    out.push("settings: no lazy chunk, so the first load holds every section (D8 wants the navigation and one)");
+  if (settings && !settings.missing) {
+    for (const problem of sections.problems) out.push(`settings: ${problem}`);
+    const first = firstLoadSections(settings, sections.sections);
+    if (first.length > 1) {
+      out.push(`settings: the first load holds ${first.length} sections (D8 wants the navigation and one): ${first.join(", ")}`);
+    }
   }
   return out;
 }
@@ -300,11 +380,11 @@ function table(rows) {
   return [format(header), ...lines.map(format)].join("\n");
 }
 
-/** Measures every document of the given trees. */
-export function report(trees, names) {
+/** Measures every document of the given trees; `sections` as findings() takes it. */
+export function report(trees, names, sections = settingsSections()) {
   const sharedDir = join(trees.pages, "_shared");
   const rows = documents(trees, names).map((doc) => measure(doc, sharedDir));
-  const found = findings(rows);
+  const found = findings(rows, sections);
   return { caps: { ...CAPS, kb: KB }, documents: rows, findings: found, pass: found.length === 0 };
 }
 
@@ -347,7 +427,7 @@ function main(argv) {
   console.log(table(result.documents));
   console.log(
     `caps: own <= ${CAPS.ownBytes / KB} KB, shared <= ${CAPS.sharedBytes / KB} KB, total <= ${CAPS.totalBytes / KB} KB, ` +
-      `requests <= ${CAPS.requests} (every page and the agent pane); one React URL; Settings sections lazy`,
+      `requests <= ${CAPS.requests} (every page and the agent pane); one React URL; Settings first load: navigation and one section`,
   );
   for (const finding of result.findings) console.log(`FAIL ${finding}`);
   console.log(result.pass ? "D8: pass" : `D8: FAIL (${result.findings.length} findings)`);
