@@ -54,6 +54,7 @@ public struct CmuxNextApp {
         // from here, while AppKit starts, so each pane's first frame can use them without waiting.
         let state = environment.sidebarSnapshotFile?.url.deletingLastPathComponent(), work = BackgroundWork(onRan: startupTrace?.laneJobSink)
         startupTrace?.start(writingOn: work) // its file is written on work's files lane, never here
+        startupTrace?.whenClosed { work.stopReportingRuns() } // a closed trace costs the lanes nothing
         let launchImages = AgentPaneLaunchImages(state: state), relaunchWake = AgentPaneRelaunchWake(directory: state)
         launchImages.prefetch(on: work) { DebugTimings.markLaunch($0) }
         TerminalLaunchFrames.beside(state).prefetch(on: work) { DebugTimings.markLaunch($0) }
@@ -69,7 +70,7 @@ public struct CmuxNextApp {
         // Instantiate the CEF-ready subclass before anything touches NSApp.
         let app = CmuxApplication.shared
         (app as? CmuxApplication)?.refusesActivation = ProcessInfo.processInfo.environment["CMUX_NEXT_NO_ACTIVATE"] == "1"
-        let delegate = AppDelegate(environment: environment, daemonPrestart: prestart,
+        let delegate = AppDelegate(environment: environment, daemonPrestart: prestart, startupTrace: startupTrace,
                                    launchReads: (work, launchImages, relaunchWake))
         app.delegate = delegate
         app.setActivationPolicy(.regular)

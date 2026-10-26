@@ -242,7 +242,10 @@ public final class MainThreadWatchdog: Sendable {
     public func start() {
         guard running.compareExchange(expected: false, desired: true, ordering: .acquiringAndReleasing).exchanged else { return }
         busy.watchCurrentThread()
-        beatNanos.store(uptime(), ordering: .releasing)
+        let started = uptime()
+        beatNanos.store(started, ordering: .releasing)
+        // The turn this call runs in is awake (mainAsleep false below) and began no later than now.
+        turnStartNanos.store(started, ordering: .relaxed)
         beatCPUNanos.store(clock_gettime_nsec_np(CLOCK_THREAD_CPUTIME_ID), ordering: .releasing)
         mainAsleep.store(false, ordering: .releasing)
         // Two observers: every activity but before-waiting stamps first

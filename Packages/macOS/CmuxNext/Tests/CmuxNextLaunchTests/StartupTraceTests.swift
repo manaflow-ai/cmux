@@ -1,7 +1,9 @@
 @testable import CmuxNextLaunch
 import CmuxNextWakeups
 import CmuxNextWakeupsTestSupport
+import Dispatch
 import Foundation
+import os
 import Testing
 
 /// The startup trace (`CMUX_TRACE_STARTUP`, p08-startup task 004): the environment's one read, the ring, and
@@ -22,6 +24,7 @@ import Testing
 
     @Test func zeroIsOffAndEmptyIsTheDefault() throws {
         #expect(Self.configuration(["CMUX_TRACE_STARTUP": "0"]) == nil)
+        #expect(Self.configuration(["CMUX_TRACE_STARTUP": "-2"]) == nil)
         let empty = try #require(Self.configuration(["CMUX_TRACE_STARTUP": ""]))
         #expect(empty.seconds == StartupTraceConfiguration.defaultSeconds)
         #expect(empty.file.path == "/h/Library/Logs/cmux/startup-7.json")
@@ -38,6 +41,13 @@ import Testing
         #expect(separate.file.path == "/tmp/other.json")
         let long = try #require(Self.configuration(["CMUX_TRACE_STARTUP": "100000"]))
         #expect(long.seconds == StartupTraceConfiguration.maximumSeconds)
+    }
+
+    /// Only an empty value or a positive number of seconds turns tracing on: `false`, `off` and the like
+    /// (inherited by every shell the app starts) never write a trace file.
+    @Test(arguments: ["false", "off", "no", "5s", "nan", "false,/tmp/launch.json"])
+    func aValueThatIsNotANumberIsOff(value: String) {
+        #expect(Self.configuration(["CMUX_TRACE_STARTUP": value]) == nil)
     }
 
     // MARK: ring
@@ -142,20 +152,82 @@ import Testing
         #expect(names.last == "mark \"499\"\n")
     }
 
-    /// Recording never writes on the recording thread: the record reaches the file only through a drain on
-    /// the files lane.
-    @Test func recordingWritesNothingOnTheCallersThread() async throws {
+    /// A record from the main thread that makes a drain due does not write: the drain is posted to the files
+    /// lane (held here behind a gate, so a write on the caller would show in the file), and the drain's write
+    /// runs on a lane thread, not the caller's.
+    @MainActor
+    @Test func aDueDrainWritesOnTheFilesLaneNotOnTheMainThread() async throws {
+        let file = Self.temporaryFile()
+        defer { try? FileManager.default.removeItem(at: file) }
+        // 1 KiB writes and 8 records: a drain is due at 4 pending records.
+        let trace = StartupTrace(configuration: StartupTraceConfiguration(file: file, capacity: 8, chunkBytes: 1_024),
+                                 processStartNanos: 0, clock: ManualClock())
+        let work = BackgroundWork(label: "test.startup-trace", onRan: trace.laneJobSink)
+        trace.start(writingOn: work)
+        _ = await trace.flush()
+        let gate = DispatchSemaphore(value: 0)
+        // The test's own hold on the drains' serial queue: it may block (a files-lane item).
+        work.post(.userVisible, mayBlock: .files) { gate.wait() }
+        let main = StartupTrace.threadID()
+        for index in 0..<4 { trace.mark("on_main_\(index)") }
+        #expect(!(try Self.read(file)).contains("on_main"))
+        gate.signal()
+        _ = await trace.flush()
+        _ = await trace.flush() // the lane slices of the drains above
+        let events = try Self.parse(try Self.read(file))
+        let marks = events.filter { ($0["name"] as? String)?.hasPrefix("on_main_") == true }
+        #expect(marks.count == 4)
+        #expect(marks.allSatisfy { ($0["tid"] as? NSNumber)?.uint64Value == main })
+        let lanes = events.filter { $0["name"] as? String == "lane.files" }
+        #expect(!lanes.isEmpty)
+        #expect(lanes.allSatisfy { ($0["tid"] as? NSNumber)?.uint64Value != main })
+    }
+
+    /// A few records reach the file within the flush interval with no flush, no close and no full ring:
+    /// a crash in the first second keeps what it recorded.
+    @Test func aFewRecordsReachTheFileOnThePeriodicDrain() async throws {
+        let file = Self.temporaryFile()
+        defer { try? FileManager.default.removeItem(at: file) }
+        let clock = ManualClock()
+        let configuration = StartupTraceConfiguration(seconds: StartupTraceConfiguration.maximumSeconds, file: file)
+        let trace = StartupTrace(configuration: configuration, processStartNanos: 0, clock: clock, now: { 1_000 })
+        let drained = Started()
+        let work = BackgroundWork(label: "test.startup-trace", onRan: { _, _, _, _ in drained.signal() })
+        trace.start(writingOn: work)
+        _ = await trace.flush()
+        await drained.wait(2) // the start's drain and the flush
+        trace.mark("early_one")
+        trace.mark("early_two")
+        // The deadline and the periodic drain both sleep on the clock.
+        await Self.waitForSleepers(clock, count: 2)
+        clock.advance(by: configuration.flushInterval)
+        await drained.wait()
+        let text = try Self.read(file)
+        #expect(text.contains("early_one"))
+        #expect(text.contains("early_two"))
+        #expect(!trace.status.closed)
+    }
+
+    /// Close hooks run once, after the file closed; a hook added after the close runs at once. The app
+    /// takes the watchdog's main-turn sink and BackgroundWork's run reports off with them.
+    @Test func closeHooksRunOnceAfterTheClose() async throws {
         let file = Self.temporaryFile()
         defer { try? FileManager.default.removeItem(at: file) }
         let trace = StartupTrace(configuration: StartupTraceConfiguration(file: file), processStartNanos: 0,
                                  clock: ManualClock())
-        let work = BackgroundWork(label: "test.startup-trace")
-        trace.start(writingOn: work)
+        let calls = OSAllocatedUnfairLock<[String]>(initialState: [])
+        trace.whenClosed { calls.withLock { $0.append("before") } }
+        trace.start(writingOn: BackgroundWork(label: "test.startup-trace"))
         _ = await trace.flush()
-        trace.mark("on_main")
-        #expect(!((try? Self.read(file)) ?? "").contains("on_main"))
+        #expect(calls.withLock { $0 }.isEmpty)
+        trace.close()
+        let closed = await Self.waitUntilClosed(trace)
+        #expect(closed.closed)
+        #expect(calls.withLock { $0 } == ["before"])
+        trace.whenClosed { calls.withLock { $0.append("after") } }
+        trace.close()
         _ = await trace.flush()
-        #expect(try Self.read(file).contains("on_main"))
+        #expect(calls.withLock { $0 } == ["before", "after"])
     }
 
     /// The deadline closes the trace `seconds` after process start.
@@ -197,6 +269,12 @@ import Testing
         return try #require(value as? [[String: Any]])
     }
 
+    /// Yields until `count` tasks sleep on `clock` (timers arm on their own tasks).
+    private static func waitForSleepers(_ clock: ManualClock, count: Int) async {
+        for _ in 0..<10_000 where clock.sleeperCount < count { await Task.yield() }
+        #expect(clock.sleeperCount >= count)
+    }
+
     /// Flushes until the close (posted on the files lane by the deadline or `close()`) has run.
     private static func waitUntilClosed(_ trace: StartupTrace) async -> StartupTrace.Status {
         var status = await trace.flush()
@@ -205,5 +283,23 @@ import Testing
             status = await trace.flush()
         }
         return status
+    }
+}
+
+/// Lane items (synchronous) report that they ran; the async test awaits the reports.
+private struct Started: Sendable {
+    private let stream: AsyncStream<Void>
+    private let continuation: AsyncStream<Void>.Continuation
+
+    init() { (stream, continuation) = AsyncStream.makeStream(of: Void.self) }
+
+    func signal() { continuation.yield() }
+
+    func wait(_ count: Int = 1) async {
+        var left = count
+        for await _ in stream {
+            left -= 1
+            if left == 0 { return }
+        }
     }
 }

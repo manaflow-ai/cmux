@@ -47,6 +47,8 @@ public final class BackgroundWork: Sendable {
     private let lanes: [LaneScheduler]
     private let onQueued: @Sendable (BlockingLane, WorkPriority) -> Void
     private let onRan: (@Sendable (BlockingLane, WorkPriority, UInt64, UInt64) -> Void)?
+    /// False after ``stopReportingRuns()``: items submitted later skip `onRan` and the clock.
+    private let reportsRuns = Atomic<Bool>(true)
     // concurrency-allow: id counter and the shutdown count, read and written synchronously by submitters and lane threads (lock carve-out: a counter, no I/O under it).
     private let state = Mutex(DrainState())
 
@@ -67,7 +69,8 @@ public final class BackgroundWork: Sendable {
     ///     queued item, not the checks at the call.
     ///   - onRan: called on the lane thread after each item ran, with its lane, its priority and its start
     ///     and end in `CLOCK_UPTIME_RAW` nanoseconds; default none, and then no item reads the clock. The
-    ///     startup trace (CmuxNextLaunch's StartupTrace) records lane jobs with it.
+    ///     startup trace (CmuxNextLaunch's StartupTrace) records lane jobs with it until it closes
+    ///     (``stopReportingRuns()``).
     public init(cpuWidth: Int = BackgroundWork.defaultCPUWidth, label: String = "com.cmuxterm.next.work",
                 onQueued: @escaping @Sendable (BlockingLane, WorkPriority) -> Void = { _, _ in },
                 onRan: (@Sendable (BlockingLane, WorkPriority, UInt64, UInt64) -> Void)? = nil) {
@@ -250,10 +253,16 @@ public final class BackgroundWork: Sendable {
         }
     }
 
+    /// Items submitted from now on no longer call `onRan` or read the clock (one relaxed load per item);
+    /// items already queued still report. The startup trace calls it when it closes.
+    public func stopReportingRuns() {
+        reportsRuns.store(false, ordering: .relaxed)
+    }
+
     private func makeJob(id: UInt64, lane: BlockingLane, priority: WorkPriority, shutdown: ShutdownBehavior,
                          work: @escaping @Sendable () -> Void, abandoned: @escaping @Sendable () -> Void) -> LaneJob {
         let run: @Sendable () -> Void
-        if let onRan {
+        if let onRan, reportsRuns.load(ordering: .relaxed) {
             run = {
                 let start = clock_gettime_nsec_np(CLOCK_UPTIME_RAW)
                 work()

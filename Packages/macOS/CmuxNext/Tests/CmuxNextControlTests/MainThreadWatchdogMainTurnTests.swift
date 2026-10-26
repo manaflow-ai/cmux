@@ -28,6 +28,39 @@ import Testing
         #expect(sent.first?.1 == wake + 2_400_000)
     }
 
+    /// `start()` runs inside a turn (applicationDidFinishLaunching) whose wake the watchdog never saw: that
+    /// turn starts at `start()`, not at 0 (a slice from boot that zoomed the whole trace out to the uptime).
+    @MainActor
+    @Test func theTurnThatStartsTheWatchdogBeginsAtStartNotAtZero() {
+        let clock = ManualUptime()
+        let watchdog = MainThreadWatchdog(configuration: .init(threshold: .milliseconds(50), sampleStacks: false, logStalls: false),
+                                          uptime: clock.read)
+        let turns = TurnLog()
+        watchdog.setMainTurnSink(minimumNanos: 1_000_000) { start, end in turns.add(start, end) }
+        let started = clock.read()
+        watchdog.start()
+        defer { watchdog.stop() }
+        clock.advance(by: .milliseconds(3))
+        watchdog.heartbeat(.beforeWaiting)
+        let sent = turns.all
+        #expect(sent.count == 1)
+        #expect(sent.first?.0 == started)
+        #expect(sent.first?.1 == started + 3_000_000)
+    }
+
+    /// A sleep whose wake was never stamped (start 0) sends nothing.
+    @MainActor
+    @Test func aTurnWithNoSeenWakeIsNotSent() {
+        let clock = ManualUptime()
+        let watchdog = MainThreadWatchdog(configuration: .init(threshold: .milliseconds(50), logStalls: false), uptime: clock.read)
+        let turns = TurnLog()
+        watchdog.setMainTurnSink(minimumNanos: 1_000_000) { start, end in turns.add(start, end) }
+        watchdog.mainAsleep.store(false, ordering: .releasing)
+        clock.advance(by: .milliseconds(3))
+        watchdog.heartbeat(.beforeWaiting)
+        #expect(turns.all.isEmpty)
+    }
+
     @MainActor
     @Test func noSinkAndARemovedSinkSendNothing() {
         let clock = ManualUptime()

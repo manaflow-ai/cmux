@@ -73,10 +73,14 @@ enum DebugTimings {
         return trace
     }
 
-    /// - Parameter watchdog: Sends main-thread turns over 1 ms to the startup trace, when one is attached.
-    static func install(watchdog: MainThreadWatchdog) {
-        if let trace = launchMarks.withLock({ $0.trace }) {
-            watchdog.setMainTurnSink(minimumNanos: StartupTrace.mainTurnThresholdNanos) { trace.mainTurn(start: $0, end: $1) }
+    /// - Parameters:
+    ///   - watchdog: Sends main-thread turns over 1 ms to `startupTrace` until it closes.
+    ///   - startupTrace: The launch's startup trace (``makeStartupTrace()``), or nil.
+    static func install(watchdog: MainThreadWatchdog, startupTrace: StartupTrace?) {
+        if let startupTrace {
+            watchdog.setMainTurnSink(minimumNanos: StartupTrace.mainTurnThresholdNanos) { startupTrace.mainTurn(start: $0, end: $1) }
+            // Closed, the trace takes nothing more: the sink comes off and a main turn is one relaxed load again.
+            startupTrace.whenClosed { watchdog.setMainTurnSink(minimumNanos: 0, nil) }
         }
         DaemonLaunchTimings.shared.install { markLaunch($0, at: $1) }
         AgentPaneLaunchTimings.shared.install { markLaunch($0) }

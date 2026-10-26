@@ -12,9 +12,9 @@ extension MainThreadWatchdog {
         mainTurnMinimumNanos.store(sink == nil ? .max : minimumNanos, ordering: .relaxed)
     }
 
-    /// The heartbeat's call at the sleep that ends a turn.
+    /// The heartbeat's call at the sleep that ends a turn. A start of 0 is a turn whose wake was never seen.
     func mainTurnEnded(start: UInt64, end: UInt64) {
-        guard end > start, end - start >= mainTurnMinimumNanos.load(ordering: .relaxed),
+        guard start > 0, end > start, end - start >= mainTurnMinimumNanos.load(ordering: .relaxed),
               let sink = mainTurnSink.withLock({ $0 }) else { return }
         sink(start, end)
     }

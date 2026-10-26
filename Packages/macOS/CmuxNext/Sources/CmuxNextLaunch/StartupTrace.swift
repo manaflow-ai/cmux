@@ -12,8 +12,11 @@ public import Foundation
 ///
 /// Recording appends a fixed-size record to a preallocated ring under a short lock. The files lane of the
 /// ``BackgroundWork`` given to ``start(writingOn:)`` drains the ring into the file in writes of about
-/// 64 KiB, each ending on an event, so a launch that crashes leaves a file that still loads (the JSON
-/// Array form needs no closing `]`). Nothing is written on the recording thread, the main thread included.
+/// 64 KiB, each ending on an event: when the ring holds a write's worth, and at most
+/// ``StartupTraceConfiguration/flushInterval`` after a record that has not been written yet (Chrome's startup
+/// tracing also flushes on a period), so a launch that crashes leaves a file that still loads with what it
+/// recorded until shortly before (the JSON Array form needs no closing `]`). Nothing is written on the
+/// recording thread, the main thread included.
 ///
 /// Built only when the variable asks for it (``fromEnvironment(processStartNanos:)``); unset, the app holds
 /// nil and records nothing.
@@ -35,6 +38,8 @@ public final class StartupTrace: Sendable {
     public let ringBytes: Int
     private let now: @Sendable () -> UInt64
     private let deadline: DemandTimer
+    /// The periodic drain: armed by the first record not yet written, at most one at a time.
+    private let flushTimer: DemandTimer
     /// Recording until the trace closes: one load, so a closed trace costs its callers no lock.
     private let recording = Atomic<Bool>(true)
     // concurrency-allow: the ring's append and swap, held for one array append or one swap, never across I/O (lock carve-out: no I/O, no wait under it).
@@ -51,6 +56,10 @@ public final class StartupTrace: Sendable {
         var work: BackgroundWork?
         /// A posted drain has not started yet.
         var drainPosted = false
+        /// ``StartupTrace/flushTimer`` is armed.
+        var flushArmed = false
+        /// Run once, on the files lane, after the file closes (``StartupTrace/whenClosed(_:)``).
+        var closeHooks: [@Sendable () -> Void] = []
         /// The deadline passed (or ``StartupTrace/close()`` ran): the next drain closes the file.
         var closeRequested = false
         var dropped = 0
@@ -83,6 +92,7 @@ public final class StartupTrace: Sendable {
         self.processStartNanos = processStartNanos
         self.now = now ?? { clock_gettime_nsec_np(CLOCK_UPTIME_RAW) }
         deadline = DemandTimer(owner: "StartupTrace.deadline", clock: clock)
+        flushTimer = DemandTimer(owner: "StartupTrace.flush", clock: clock)
         let capacity = configuration.capacity
         ringBytes = 2 * capacity * MemoryLayout<StartupTraceRecord>.stride
         drainCount = max(1, min(capacity / 2, configuration.chunkBytes / 160))
@@ -91,7 +101,7 @@ public final class StartupTrace: Sendable {
         spare.reserveCapacity(capacity)
         state = Mutex(State(pending: pending, spare: spare,
                             file: StartupTraceFile(url: configuration.file, pid: getpid(), chunkBytes: configuration.chunkBytes,
-                                                   mainThread: pthread_main_np() != 0 ? Self.threadID() : nil)))
+                                                   mainThread: pthread_main_np() != 0 ? StartupTrace.threadID() : nil)))
     }
 
     /// The trace the environment asks for (`CMUX_TRACE_STARTUP`), or nil after one `getenv` when it is unset.
@@ -123,10 +133,13 @@ public final class StartupTrace: Sendable {
         record(StartupTraceRecord(event: .mark(name), start: time, end: time, thread: Self.threadID()))
     }
 
-    /// A startup task that ran from `start` to `end` on the calling thread.
-    public func task(_ name: StaticString, start: UInt64, end: UInt64) {
-        record(StartupTraceRecord(event: .task(name), start: start, end: end, thread: Self.threadID()))
+    /// A startup task that ran from `start` to `end` (default now) on the calling thread.
+    public func task(_ name: StaticString, start: UInt64, end: UInt64? = nil) {
+        record(StartupTraceRecord(event: .task(name), start: start, end: end ?? now(), thread: Self.threadID()))
     }
+
+    /// The trace's clock now (`CLOCK_UPTIME_RAW` nanoseconds): a startup task's start for ``task(_:start:end:)``.
+    public var uptimeNanos: UInt64 { now() }
 
     /// A main-thread run-loop turn from `start` to `end` (the watchdog's main-turn sink, on the main thread).
     public func mainTurn(start: UInt64, end: UInt64) {
@@ -142,14 +155,53 @@ public final class StartupTrace: Sendable {
 
     private func record(_ record: StartupTraceRecord) {
         guard recording.load(ordering: .relaxed) else { return }
-        let work = state.withLock { state -> BackgroundWork? in
-            guard !state.closed else { return nil }
+        let next = state.withLock { state -> Next in
+            guard !state.closed else { return .idle }
             if state.pending.count < configuration.capacity {
                 state.pending.append(record)
             } else {
                 state.dropped += 1
             }
-            guard state.pending.count >= drainCount, !state.drainPosted, let work = state.work else { return nil }
+            return nextDrain(&state)
+        }
+        run(next)
+    }
+
+    /// What to do after the ring changed: nothing, post a drain, or arm the periodic drain.
+    private enum Next {
+        case idle
+        case drain(BackgroundWork)
+        case armFlush
+    }
+
+    /// A drain when a write's worth is pending, else the periodic drain for pending records; no periodic drain
+    /// before ``start(writingOn:)`` (it posts the first drain) nor once a close is asked for (it posts the last).
+    /// Under the state's lock.
+    private func nextDrain(_ state: inout State) -> Next {
+        guard let work = state.work, !state.closed, !state.drainPosted, !state.pending.isEmpty else { return .idle }
+        if state.pending.count >= drainCount {
+            state.drainPosted = true
+            return .drain(work)
+        }
+        guard !state.flushArmed, !state.closeRequested else { return .idle }
+        state.flushArmed = true
+        return .armFlush
+    }
+
+    private func run(_ next: Next) {
+        switch next {
+        case .idle: break
+        case let .drain(work): post(on: work)
+        case .armFlush:
+            flushTimer.schedule(after: configuration.flushInterval) { [self] in flushDue() }
+        }
+    }
+
+    /// The periodic drain's deadline: drains what is pending unless a drain is already posted.
+    private func flushDue() {
+        let work = state.withLock { state -> BackgroundWork? in
+            state.flushArmed = false
+            guard !state.closed, !state.drainPosted, !state.pending.isEmpty, let work = state.work else { return nil }
             state.drainPosted = true
             return work
         }
@@ -173,6 +225,17 @@ public final class StartupTrace: Sendable {
             }
         }
         return status
+    }
+
+    /// Runs `action` once, on the files lane, after the file closes (at once when it already closed): the
+    /// producers' hooks come off then (the watchdog's main-turn sink, ``BackgroundWork/stopReportingRuns()``), so
+    /// a closed trace costs the main thread and the lanes nothing. `action` must return at once.
+    public func whenClosed(_ action: @escaping @Sendable () -> Void) {
+        let closed = state.withLock { state -> Bool in
+            if !state.closed { state.closeHooks.append(action) }
+            return state.closed
+        }
+        if closed { action() }
     }
 
     /// Writes the rest and closes the file; later records are dropped. The deadline calls it; a second call
@@ -211,6 +274,7 @@ public final class StartupTrace: Sendable {
             let closing = state.closeRequested
             if closing {
                 state.closed = true
+                state.flushArmed = false
                 recording.store(false, ordering: .relaxed)
             }
             var batch = state.spare
@@ -224,19 +288,23 @@ public final class StartupTrace: Sendable {
         file.write(batch)
         if taken.closing { file.close(at: now(), dropped: taken.dropped) }
         batch.removeAll(keepingCapacity: true)
-        let again = state.withLock { state -> BackgroundWork? in
+        let (next, hooks) = state.withLock { state -> (Next, [@Sendable () -> Void]) in
             state.file = file
             if state.closed {
+                let hooks = state.closeHooks
                 state.pending = []
-                return nil
+                state.closeHooks = []
+                return (.idle, hooks)
             }
             state.spare = batch
-            let due = state.closeRequested || state.pending.count >= drainCount
-            guard due, !state.drainPosted, let work = state.work else { return nil }
-            state.drainPosted = true
-            return work
+            return (nextDrain(&state), [])
         }
-        if let again { post(on: again) }
+        if taken.closing {
+            deadline.cancel()
+            flushTimer.cancel()
+        }
+        for hook in hooks { hook() }
+        run(next)
     }
 
     /// The calling thread's system-wide id (`pthread_threadid_np`), the `tid` Perfetto shows.

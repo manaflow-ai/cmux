@@ -8,6 +8,7 @@ import CmuxNextCrashReporting
 import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextKeepAwake
+import CmuxNextLaunch
 import CmuxNextPages
 import CmuxNextWebUpdates
 import CmuxNextPalette
@@ -22,6 +23,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let environment: AppEnvironment
     /// The daemon's first connect attempt, begun in `main`.
     private let daemonPrestart: DaemonPrestart?
+    /// The startup trace `CMUX_TRACE_STARTUP` asked for (nil: none): launch phases record their slices in it.
+    private let startupTrace: StartupTrace?
     /// The first live terminal frame (or no daemon): deferrable warm-up waits for it.
     private let launchSettle = LaunchSettle()
     /// Launch work that starts after the first window frame (perf-launch-memory).
@@ -58,11 +61,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var webAuthHandler: WebAuthSessionHandler?
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app")
 
-    init(environment: AppEnvironment, daemonPrestart: DaemonPrestart?,
+    init(environment: AppEnvironment, daemonPrestart: DaemonPrestart?, startupTrace: StartupTrace? = nil,
          launchReads: (work: BackgroundWork, images: AgentPaneLaunchImages, wake: AgentPaneRelaunchWake), launchCleanup: LaunchCleanup = LaunchCleanup()) {
         self.environment = environment
         self.launchReads = launchReads
         self.daemonPrestart = daemonPrestart
+        self.startupTrace = startupTrace
         self.launchCleanup = launchCleanup
         let mainWork = MainWorkScheduler(budget: MainFrameBudget(input: SessionInputPending(), signposts: true))
         self.mainWork = mainWork
@@ -83,8 +87,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         })
         control.startWatchdog()
         DebugTimings.markLaunch("did_finish_launching_start")
-        DebugTimings.install(watchdog: control.watchdog)
-        defer { DebugTimings.markLaunch("did_finish_launching_end") }
+        let launchStart = startupTrace?.uptimeNanos
+        DebugTimings.install(watchdog: control.watchdog, startupTrace: startupTrace)
+        defer {
+            DebugTimings.markLaunch("did_finish_launching_end")
+            if let launchStart { startupTrace?.task("did_finish_launching", start: launchStart) }
+        }
         // No system caret bubble over cmux's own native text fields (before any field edits).
         NativeCaretAccessory.install()
         // Every window, shell or auxiliary, opens by one placement rule.
