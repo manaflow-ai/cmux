@@ -11,6 +11,7 @@ extension WindowController {
         // toolbar band; strips under it follow in the same layout pass.
         root.onToolbarBandPresenceChange = { [weak self] in
             for pane in self?.content?.panes.values.map({ $0 }) ?? [] { pane.view.stripView.updateWindowControlsAvoidance() }
+            self?.updateTopRowAvoiders()
         }
         // The host pressure indicator joins the top row after the band and badge (cmuxterm-hq#2995).
         root.hostPressureIndicator = HostPressureIndicatorView(services: services) { [weak self] in
@@ -35,12 +36,20 @@ extension WindowController {
         }
     }
 
-    /// Strips under the traffic lights recompute their inset.
+    /// Strips and other views under the traffic lights recompute their inset.
     func relayoutTopRowStrips() {
         for pane in content?.panes.values.map({ $0 }) ?? [] {
             pane.view.stripView.updateWindowControlsAvoidance()
             pane.view.stripView.layoutSubtreeIfNeeded()
         }
+        updateTopRowAvoiders()
+    }
+
+    /// Views with no tab strip that keep clear of the traffic lights (Home's list header in the
+    /// docked Home pane, which has no tab bar) re-check where the lights are over them (cmux#25593).
+    private func updateTopRowAvoiders() {
+        guard let window = window as? ShellWindow else { return }
+        window.windowControlsAvoiders.update(in: window)
     }
 
     /// Marks this window incognito: the badge shows in the sidebar header,

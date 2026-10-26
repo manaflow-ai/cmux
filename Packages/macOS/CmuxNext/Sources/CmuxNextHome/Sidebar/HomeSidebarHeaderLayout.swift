@@ -7,6 +7,8 @@ import MessagesLabSidebar
 /// (`HomeChatColumnView`) at every width (the user, 2026-10-21). The avatar-only list (below
 /// `CmuxSidebarView.compactBelow`) shows no row, and an open search (⌘F, type-to-search) takes the
 /// band until it closes. Frames are in the header's flipped coordinates (y down).
+/// With the window's traffic lights over the row (the docked Home pane has no tab bar, so with the
+/// sidebar hidden the list is at the window's top-left), the row starts after them (`leading`).
 public struct HomeSidebarHeaderLayout: Equatable, Sendable {
     /// The band the row sits in; the list starts under it.
     static let band: CGFloat = 52
@@ -27,25 +29,33 @@ public struct HomeSidebarHeaderLayout: Equatable, Sendable {
     public private(set) var compose: CGRect = .zero
     /// An open search in the avatar-only list covers the band until it closes.
     public private(set) var buttonsCovered: Bool
+    /// Where the row starts: the inset, or past the window's traffic lights over it.
+    public private(set) var leading: CGFloat
     /// Where the list starts.
     public var listTop: CGFloat { Self.band }
+    /// The row's frame at `width`: what the traffic lights must not cover.
+    static func row(width: CGFloat) -> CGRect { CGRect(x: 0, y: ((band - side) / 2).rounded(), width: max(0, width), height: side) }
 
     /// The list at `width` shows avatars only, and so no header row.
     public static func isCompact(width: CGFloat) -> Bool { width < CmuxSidebarView.compactBelow }
 
-    init(width: CGFloat, searchOpen: Bool) {
+    /// - Parameter windowControls: Points from the row's leading edge the window's traffic lights
+    ///   take (`WindowTitlebar.windowControlsClearance`); 0 when none lie over it.
+    init(width: CGFloat, searchOpen: Bool, windowControls: CGFloat = 0) {
         let width = max(0, width)
-        let y = ((Self.band - Self.side) / 2).rounded()
+        let y = Self.row(width: width).minY
+        let x = max(Self.inset, windowControls)
+        leading = x
         compact = Self.isCompact(width: width)
         if compact {
             filter = .zero
             buttonsCovered = searchOpen
-            search = searchOpen ? CGRect(x: Self.inset, y: y, width: max(0, width - 2 * Self.inset), height: Self.side)
-                : CGRect(x: Self.inset, y: y, width: 0, height: 0)
+            search = searchOpen ? CGRect(x: x, y: y, width: max(0, width - x - Self.inset), height: Self.side)
+                : CGRect(x: x, y: y, width: 0, height: 0)
             return
         }
-        let field = max(Self.minimumField, width - 2 * Self.inset - (Self.side + Self.gap))
-        search = CGRect(x: Self.inset, y: y, width: field, height: Self.side)
+        let field = max(Self.minimumField, width - x - Self.inset - (Self.side + Self.gap))
+        search = CGRect(x: x, y: y, width: field, height: Self.side)
         filter = CGRect(x: search.maxX + Self.gap, y: y, width: Self.side, height: Self.side)
         buttonsCovered = false
     }
