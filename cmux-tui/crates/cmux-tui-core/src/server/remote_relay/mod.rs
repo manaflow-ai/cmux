@@ -329,15 +329,16 @@ pub(super) fn handle_watched_frame(
     // The seven `fs-v1` ops (exactly; fs_wire.rs) have their own owner and
     // checks, outside the conversation allowlist.
     #[cfg(unix)]
-    let routed = {
-        stage(super::FrameStage::Fs);
-        match routed {
-            Some(mut span) => match super::fs_wire::try_handle(mux, client, message, writer) {
+    let routed = match routed {
+        Some(mut span) if head.cmd().is_some_and(super::fs_wire::is_fs_op) => {
+            stage(super::FrameStage::Fs);
+            let line = super::routes::RouteLine { mux, client, message, writer, head: &head };
+            match super::fs_wire::handle(&line) {
                 Some(keep_open) => return span.answered(keep_open),
                 None => Some(span),
-            },
-            None => None,
+            }
         }
+        routed => routed,
     };
     stage(super::FrameStage::RemoteRelay);
     if gate::check_frame(message).is_err() {
