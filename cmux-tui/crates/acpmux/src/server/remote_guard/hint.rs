@@ -76,7 +76,9 @@ fn explain(peer: &crate::peer::Peer, params: &Value, e: RpcError) -> RpcError {
     let cause = data.and_then(|d| d.get("cause")).and_then(Value::as_str);
     let found = Found { served, try_cwd, cause };
     let (command, why) = match suggest(&Start::of(params), &reason, found) {
-        Hint::Here(start) => (command(params, &start, Some(&peer.name), false), String::new()),
+        Hint::Here(start) => {
+            (command(params, &start, Some(&peer.name), false).render(None), String::new())
+        }
         Hint::OnHost(start) => {
             let then = start
                 .name
@@ -92,7 +94,7 @@ fn explain(peer: &crate::peer::Peer, params: &Value, e: RpcError) -> RpcError {
                 run_on = Some(peer.name.clone());
             }
             (
-                on_host(ssh.as_deref(), &command(params, &start, None, true)),
+                command(params, &start, None, true).render(ssh.as_deref()),
                 format!("{served}: run it on {} itself{then}", peer.name),
             )
         }
@@ -142,15 +144,36 @@ fn reason_of(e: &RpcError) -> Option<String> {
     }
 }
 
-/// Build a refusal's runnable command from the original CLI argv when available. The daemon
-/// CLI adds this metadata before forwarding a request, so prompts and launcher flags survive intact.
-fn command(params: &Value, start: &Start, host: Option<&str>, on_host: bool) -> String {
+/// A command and optional prompt-file input, rendered together only at the outer shell.
+struct Retry {
+    command: String,
+    input: Option<String>,
+}
+
+impl Retry {
+    fn render(&self, ssh: Option<&str>) -> String {
+        let command = on_host(ssh, &self.command);
+        match &self.input {
+            // Keep file text outside ssh's command argument: accepted files can be 1 MiB,
+            // larger than exec's per-argument limit. The shell's printf streams it over stdin.
+            Some(text) => format!("printf %s {} | ({command})", quote(text)),
+            None => command,
+        }
+    }
+}
+
+/// Build a refusal's runnable command from the original CLI argv when available. The CLI
+/// adds this metadata before forwarding a request, so prompts and launcher flags survive intact.
+fn command(params: &Value, start: &Start, host: Option<&str>, on_host: bool) -> Retry {
     let Some(mut words) = params
         .pointer("/_meta/acpmux/argv")
         .and_then(Value::as_array)
         .map(|a| a.iter().filter_map(Value::as_str).map(str::to_owned).collect::<Vec<_>>())
     else {
-        return if on_host { start.on_host_command() } else { start.command(host) };
+        return Retry {
+            command: if on_host { start.on_host_command() } else { start.command(host) },
+            input: None,
+        };
     };
     if on_host {
         change_option(&mut words, "--host", None);
@@ -162,20 +185,17 @@ fn command(params: &Value, start: &Start, host: Option<&str>, on_host: bool) -> 
     // `suggest` already selected the usable folder (or the scratch-folder fallback).
     change_option(&mut words, "--cwd", start.cwd.as_deref());
     let prompt_file = params.pointer("/_meta/acpmux/promptFileText").and_then(Value::as_str);
-    let prefix = if let Some(text) = prompt_file
-        && change_option(&mut words, "--prompt-file", Some("/dev/stdin"))
-    {
-        format!("printf %s {} | ", quote(text))
-    } else {
-        String::new()
-    };
+    let input = prompt_file
+        .filter(|_| change_option(&mut words, "--prompt-file", Some("/dev/stdin")))
+        .map(str::to_owned);
     let rendered = words.iter().map(|w| quote(w)).collect::<Vec<_>>();
-    let inner = format!("{prefix}acpmux {}", rendered.join(" "));
-    if on_host && let Some(cwd) = start.cwd.as_deref() {
+    let inner = format!("acpmux {}", rendered.join(" "));
+    let command = if on_host && let Some(cwd) = start.cwd.as_deref() {
         format!("mkdir -p {} && {inner}", quote(cwd))
     } else {
         inner
-    }
+    };
+    Retry { command, input }
 }
 
 /// Change only actual options, never another option's value or prompt words after `--`.
@@ -426,12 +446,12 @@ mod tests {
             "cwd": "/remote/project"
         });
         let start = Start { cwd: Some("/remote/project".into()), ..Start::default() };
-        let got = command(&params, &start, Some("b"), false);
+        let got = command(&params, &start, Some("b"), false).render(None);
         assert_eq!(
             got,
             r#"printf %s 'line 1; $(touch nope)
-line '\''two'\''' | acpmux new --host=b -m codex --prompt-file=/dev/stdin --tag 'a=$()' 'a prompt with '\''quotes'\'' and
-newlines'"#
+line '\''two'\''' | (acpmux new --host=b -m codex --prompt-file=/dev/stdin --tag 'a=$()' 'a prompt with '\''quotes'\'' and
+newlines')"#
         );
     }
 
@@ -490,7 +510,11 @@ newlines'"#
             std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o700)).unwrap();
         }
         let prompt = "'quoted' \"double\" $HOME $(exit 99) `exit 98`\nsecond line";
-        let file = "file's text $HOME $(exit 97)\ntrailing newline\n";
+        let file = format!(
+            "{}file's text $HOME $(exit 97)\ntrailing newline\n",
+            "a".repeat((1 << 20) - 100)
+        );
+        let file = file.as_str();
         let argv = json!([
             "--json",
             "new",
@@ -517,45 +541,57 @@ newlines'"#
             "--mode"
         ]);
         let params = json!({"_meta":{"acpmux":{"argv":argv,"promptFileText":file}}});
-        let inner = command(&params, &Start::default(), None, true);
-        let tried = on_host(Some("example-host"), &inner);
-        let path = format!("{}:{}", dir.display(), std::env::var("PATH").unwrap());
-        let output = std::process::Command::new("sh")
-            .args(["-c", &tried])
-            .env("PATH", path)
-            .output()
-            .unwrap();
-        assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
-        let output = String::from_utf8(output.stdout).unwrap();
-        let actual: Vec<_> = output.split('\0').collect();
-        assert_eq!(
-            actual,
-            [
-                "--json",
-                "new",
-                "-n",
-                "demo",
-                "-m",
-                "codex",
-                "-e",
-                "xhigh",
-                "--policy",
-                "approve-all",
-                "--prompt-file=/dev/stdin",
-                "--tag",
-                "a=b",
-                "--worktree",
-                "repo@main",
-                "--report-to",
-                "boss",
-                "-d",
-                "--",
-                prompt,
-                "--host",
-                "--mode",
-                file
-            ]
-        );
+        let start = Start {
+            cwd: Some(dir.join("project").to_string_lossy().into_owned()),
+            ..Start::default()
+        };
+        let inner = command(&params, &start, None, true);
+        for ssh in [Some("example-host"), None] {
+            let tried = inner.render(ssh);
+            let path = format!("{}:{}", dir.display(), std::env::var("PATH").unwrap());
+            use std::io::Write;
+            use std::process::Stdio;
+            let mut shell = std::process::Command::new("sh")
+                .env("PATH", path)
+                .stdin(Stdio::piped())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
+                .spawn()
+                .unwrap();
+            shell.stdin.take().unwrap().write_all(format!("{tried}\n").as_bytes()).unwrap();
+            let output = shell.wait_with_output().unwrap();
+            assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+            let output = String::from_utf8(output.stdout).unwrap();
+            let actual: Vec<_> = output.split('\0').collect();
+            assert_eq!(
+                actual,
+                [
+                    "--json",
+                    "new",
+                    "-n",
+                    "demo",
+                    "-m",
+                    "codex",
+                    "-e",
+                    "xhigh",
+                    "--policy",
+                    "approve-all",
+                    "--prompt-file=/dev/stdin",
+                    "--tag",
+                    "a=b",
+                    "--worktree",
+                    "repo@main",
+                    "--report-to",
+                    "boss",
+                    "-d",
+                    "--",
+                    prompt,
+                    "--host",
+                    "--mode",
+                    file
+                ]
+            );
+        }
         std::fs::remove_dir_all(dir).unwrap();
     }
 
