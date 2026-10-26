@@ -2,6 +2,7 @@ import * as Effect from "effect/Effect";
 import {
   CloudVmPublicationRepository,
   PublicationConflictError,
+  PublicationNotFoundError,
   type CloudVmPublicationApiKeyRow,
 } from "./repository";
 import {
@@ -21,6 +22,7 @@ import {
 
 export const DEFAULT_API_KEY_NAME = "API key";
 const MAX_API_KEY_NAME_LENGTH = 64;
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu;
 
 /** What a list shows: never the key or its hash. */
 export type PublicationApiKeyDto = {
@@ -141,12 +143,15 @@ export function revokePublicationApiKey(input: {
   readonly now?: Date;
 }) {
   return Effect.gen(function* () {
+    const keyId = input.keyId.trim();
+    // Key ids are UUIDs; anything else names no key and must not reach a uuid column.
+    if (!UUID_PATTERN.test(keyId)) return yield* new PublicationNotFoundError({ resource: "api_key" });
     const repository = yield* CloudVmPublicationRepository;
     const target = yield* requireOwnedPublication(repository, input.publicationId, input.principal.userId, input.principal.teamIds);
     const row = yield* repository.revokeApiKey({
       publicationId: target.publication.id,
       ownerUserId: input.principal.userId,
-      keyId: input.keyId.trim(),
+      keyId,
       now: input.now ?? new Date(),
     });
     return apiKeyDto(row);

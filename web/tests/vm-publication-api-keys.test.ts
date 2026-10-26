@@ -191,6 +191,9 @@ describe("publication API keys", () => {
       },
     });
     expect(revoked.revokedAt).toBe(NOW.toISOString());
+    // A malformed id names no key and never reaches the uuid column.
+    await expect(runWorkflow(revokePublicationApiKey({ principal, publicationId: PUBLICATION_ID, keyId: "not-a-uuid", now: NOW }), {}))
+      .rejects.toMatchObject({ resource: "api_key" });
     // A team VM whose team the caller has left is not theirs to manage.
     await expect(runWorkflow(revokePublicationApiKey({ principal, publicationId: PUBLICATION_ID, keyId: KEY_ID, now: NOW }), {
       findOwnedPublication: () => Effect.succeed(target(publication("personal"), "team-1")),
