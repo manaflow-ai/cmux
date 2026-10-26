@@ -1108,8 +1108,10 @@ impl AgentPort for Acpmux {
     }
 
     fn probe_models(&self, harness: &str) -> Result<(), String> {
+        let mut params = models_params(harness);
+        params["probe"] = json!([harness]);
         self.client()?
-            .request("_acpmux/models", json!({"probe": [harness]}))
+            .request("_acpmux/models", params)
             .map(|_| ())
             .map_err(|e| format!("models probe: {e}"))
     }
@@ -1117,7 +1119,7 @@ impl AgentPort for Acpmux {
     fn offered_models(&self, harness: &str) -> Result<Vec<Value>, String> {
         let catalog = self
             .client()?
-            .request("_acpmux/models", json!({}))
+            .request("_acpmux/models", models_params(harness))
             .map_err(|e| format!("models: {e}"))?;
         Ok(catalog["harnesses"]
             .as_array()
@@ -1297,6 +1299,20 @@ impl AgentPort for Acpmux {
             )
             .map(|_| ())
             .map_err(|e| format!("setting the system prompt of preset {preset}: {e}"))
+    }
+}
+
+/// The `_acpmux/models` params for `harness`: this acpmux's own harnesses
+/// (`localOnly`) unless `harness` is a peer's (`peer/harness`). Without
+/// `localOnly` acpmux also asks every peer and waits up to 10 s for a slow
+/// one, with the brain's input loop held (cosmic-gray 2026-10-21: `cmux
+/// chief engine` gave up after the daemon's 10 s with "Resource temporarily
+/// unavailable"). An older acpmux ignores the field and asks its peers.
+fn models_params(harness: &str) -> Value {
+    if harness.contains('/') {
+        json!({})
+    } else {
+        json!({"localOnly": true})
     }
 }
 
