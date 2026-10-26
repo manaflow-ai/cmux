@@ -21,7 +21,7 @@ set -uo pipefail
 dir="${1:-.}"
 input=$(</dev/stdin)
 merge=0
-case $input in *"pr merge"* | *"/merge"*) merge=1 ;; esac
+case $input in *"pr merge"* | *"/merge"* | *mergePullRequest* | *PullRequestAutoMerge*) merge=1 ;; esac
 said=()
 # A guard that can't run is a warning: for a merge the person and the agent both see it and the merge goes
 # ahead; otherwise it goes to stderr.
@@ -64,13 +64,21 @@ if ((merge)); then
 installed on this machine, so nothing judges this merge. Install it with guards-sync (cmuxterm-hq \
 tools/agent-guards/guards-sync, which also keeps it current) or python3 tools/agent-guards/install.py from a \
 cmuxterm-hq checkout"
-  # install.py's own test of a registration: the guard's file name in a PreToolUse command of this account's settings.
+  # A registration: the guard's file name in a PreToolUse command of this account's settings whose matcher
+  # covers Bash (none, "*", or a pattern Bash matches), so Claude Code runs it on this command.
   elif ! python3 -I - "${CLAUDE_CONFIG_DIR:-$HOME/.claude}/settings.json" <<'PY'; then
-import json, sys
+import json, re, sys
+def covers_bash(matcher):
+    if matcher in (None, "", "*"):
+        return True
+    try:
+        return re.fullmatch(str(matcher), "Bash") is not None
+    except re.error:
+        return False
 try:
     with open(sys.argv[1]) as f:
         pre = (json.load(f).get("hooks") or {}).get("PreToolUse") or []
-    sys.exit(0 if any("require-cmux-guards" in str((h or {}).get("command", ""))
+    sys.exit(0 if any(covers_bash((e or {}).get("matcher")) and "require-cmux-guards" in str((h or {}).get("command", ""))
                       for e in pre for h in (e or {}).get("hooks") or []) else 1)
 except (OSError, ValueError, AttributeError, TypeError):
     sys.exit(1)

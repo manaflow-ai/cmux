@@ -35,7 +35,7 @@ print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse", "additio
 # A stand-in for the installed landing gate (cmuxterm-hq tools/agent-guards/require-cmux-guards.sh).
 GATE = """#!/bin/bash
 input=$(</dev/stdin)
-case $input in *"pr merge"*) printf '%s\\n' '{"hookSpecificOutput": {"hookEventName": "PreToolUse",
+case $input in *"pr merge"* | *mergePullRequest* | *PullRequestAutoMerge*) printf '%s\\n' '{"hookSpecificOutput": {"hookEventName": "PreToolUse",
   "permissionDecision": "deny", "permissionDecisionReason": "installed landing gate"}}' ;; esac
 exit 0
 """
@@ -110,7 +110,8 @@ class GuardsRunFromTheBase(unittest.TestCase):
     def guards(self, label: str) -> None:
         (self.seed / "scripts/ci/base_merge_warning.py").write_text(WARNING % label)
 
-    def install_gate(self, file: bool = True, registered_in: Path | None = None, text: str = GATE) -> Path:
+    def install_gate(self, file: bool = True, registered_in: Path | None = None, text: str = GATE,
+                     matcher: str = "Bash") -> Path:
         """The gate as tools/agent-guards/install.py installs it: the hook in ~/.claude/hooks/, registered as a
         PreToolUse(Bash) command in a config directory's settings.json."""
         gate = self.home / ".claude/hooks/require-cmux-guards.sh"
@@ -120,7 +121,7 @@ class GuardsRunFromTheBase(unittest.TestCase):
         if registered_in is not None:
             registered_in.mkdir(parents=True, exist_ok=True)
             (registered_in / "settings.json").write_text(json.dumps({"hooks": {"PreToolUse": [
-                {"matcher": "Bash", "hooks": [{"type": "command", "command": f"bash {gate}", "timeout": 30}]}]}}))
+                {"matcher": matcher, "hooks": [{"type": "command", "command": f"bash {gate}", "timeout": 30}]}]}}))
         return gate
 
     def hook(self, command: str, env: dict | None = None) -> tuple[int, dict | None, str]:
@@ -222,9 +223,8 @@ class GuardsRunFromTheBase(unittest.TestCase):
 
     def test_a_merge_whose_guards_cannot_be_read_goes_ahead_with_a_warning(self):
         """A merge the hook can't judge goes ahead with a warning the agent and the person both see, never with only a
-        stderr line (2026-10-21: timed-out reads held #23660 and #23371 for hours with every gate met). Claude Code
-        runs a registered gate itself."""
-        self.install_gate(registered_in=self.home / ".claude")
+        stderr line (2026-10-21: timed-out reads held #23660 and #23371 for hours with every gate met)."""
+        self.install_gate(registered_in=self.home / ".claude", text=GATE_HOLD)
         self.unreadable_launcher()
         code, out, err = self.hook(MERGE)
         self.assertEqual(code, 0, err)
@@ -245,6 +245,33 @@ class GuardsRunFromTheBase(unittest.TestCase):
         code, out, err = self.hook(MERGE)
         self.assertEqual(code, 0, err)
         self.assert_let_through(out, "merge guards did not run")
+
+    def test_a_registered_gate_still_judges_a_merge_whose_launcher_cannot_be_read(self):
+        """Codex review of #23858: whether Claude Code runs a registration can't be told for sure from its text, so
+        with no launcher the installed gate runs here even when registered; that only costs a second read."""
+        self.install_gate(registered_in=self.home / ".claude")
+        self.unreadable_launcher()
+        code, out, err = self.hook(MERGE)
+        self.assertEqual(code, 0, err)
+        self.assert_refused(out, "installed landing gate")
+
+    def test_a_graphql_merge_goes_to_the_installed_gate(self):
+        """Codex review of #23858: `gh api graphql` merges never matched `pr merge` or `/merge`."""
+        self.install_gate()
+        for command in ("gh api graphql -f query='mutation { mergePullRequest(input: {pullRequestId: \"x\"}) { clientMutationId } }'",
+                        "gh api graphql -f query='mutation { enablePullRequestAutoMerge(input: {pullRequestId: \"x\"}) { clientMutationId } }'"):
+            with self.subTest(command=command):
+                code, out, err = self.hook(command)
+                self.assertEqual(code, 0, err)
+                self.assert_refused(out, "installed landing gate")
+
+    def test_a_registration_whose_matcher_skips_bash_does_not_count(self):
+        """Codex review of #23858: a PreToolUse entry that names the gate under another tool's matcher never runs on a
+        Bash command, so the merge must not defer to it."""
+        self.install_gate(registered_in=self.home / ".claude", matcher="Edit|Write")
+        self.assert_refused(self.hook(MERGE)[1], "installed landing gate")
+        self.install_gate(registered_in=self.home / ".claude", matcher="Bash|Edit")
+        self.assertIsNone(self.hook(MERGE)[1])
 
     def test_a_stale_origin_is_fetched_with_gtimeout_where_timeout_is_missing(self):
         """Codex review of #23858: stock macOS has no `timeout`, so the merge's fetch never ran there; GNU coreutils
