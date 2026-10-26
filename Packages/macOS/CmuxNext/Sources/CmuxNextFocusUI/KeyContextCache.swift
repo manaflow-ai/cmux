@@ -4,27 +4,19 @@ public nonisolated enum KeyContextInvalidation: String, CaseIterable, Sendable {
     /// The window's focus machine moved (a new focused pane, tab or field), or its focus settled.
     case focusTransition
     /// The window's first responder changed inside the same focus: a text field, the file explorer
-    /// list, the TextBox composer, the code editor's web view.
+    /// list (its keyboard), the TextBox composer, the code editor's web view.
     case firstResponder
     /// The window shows another top page (Home), or none.
     case topPage
-    /// The focused page's ``PageInputReadiness`` reported a list or an editable element taking focus.
-    case pageInputReadiness
-    /// The focused address bar's suggestion list opened or closed.
-    case suggestionList
-    /// The focused terminal entered or left copy mode.
-    case copyMode
     /// The window's sidebar selection crossed one row (single to multi-selection or back).
     case sidebarSelection
     /// Workspaces as tabs was turned on or off.
     case workspacesAsTabs
-    /// The focused markdown page now shows a file it can or cannot save.
-    case markdownReadOnly
 }
 
-/// The inputs a window's key facts were built from. Every field is an O(1) read (an identity, a flag
-/// of an object the last build found), so comparing two stamps costs far less than the facts' own
-/// lookups (pane controllers, the responder chain, page services).
+/// The inputs a window's key facts were built from. Every field is an O(1) read (an identity, a count
+/// crossing one, a setting), so comparing two stamps costs far less than the facts' own lookups (pane
+/// controllers, the responder chain, page services).
 public nonisolated protocol KeyContextStamp: Equatable {
     /// The first input that differs from `earlier`; called only when the stamps differ.
     func invalidation(since earlier: Self) -> KeyContextInvalidation
@@ -67,12 +59,12 @@ public final class KeyContextCache<Stamp: KeyContextStamp, Value> {
     ///
     /// - Parameters:
     ///   - owner: The window the value belongs to; its entry goes when it does.
-    ///   - stamp: Reads the current stamp, given the cached value (whose objects it may read).
+    ///   - stamp: Reads the owner's current stamp.
     ///   - build: Builds the value and the stamp it was built from.
-    public func value(for owner: AnyObject, stamp: (Value) -> Stamp, build: () -> (value: Value, stamp: Stamp)) -> Value {
+    public func value(for owner: AnyObject, stamp: () -> Stamp, build: () -> (value: Value, stamp: Stamp)) -> Value {
         let key = ObjectIdentifier(owner)
         if let entry = entries[key], entry.owner === owner, entry.generation == generation {
-            let current = stamp(entry.value)
+            let current = stamp()
             if current == entry.stamp { return entry.value }
             lastInvalidation = current.invalidation(since: entry.stamp)
         }

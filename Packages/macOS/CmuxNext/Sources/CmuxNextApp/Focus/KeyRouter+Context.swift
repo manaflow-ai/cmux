@@ -135,72 +135,80 @@ extension KeyRouter {
         }
     }
 
-    /// The facts of `window` (the key window) and its cmux window: the cached ones while nothing they
-    /// were built from changed (``keyFactsCache``, p04-input-053). Marked text and the code editor's
-    /// key sequence (which ends by itself after a time) are read live on every key.
+    /// The facts of `window` (the key window) and its cmux window: the lookups are cached while nothing
+    /// they were built from changed (``keyFactsCache``, p04-input-053), and the flags of the objects they
+    /// found are read live on every key (``liveKeyFacts(_:from:in:)``).
     func facts(in window: NSWindow, controller: WindowController) -> Facts { // perf-hot: 0.05ms key-dispatch (every chord)
-        let cached = keyFactsCache.value(for: window, stamp: { keyFactsStamp(in: window, controller: controller, cached: $0) }, build: {
-            let built = buildKeyFacts(in: window, controller: controller)
-            return (built, keyFactsStamp(in: window, controller: controller, cached: built))
+        let cached = keyFactsCache.value(for: window, stamp: { keyFactsStamp(in: window, controller: controller) }, build: {
+            (buildKeyFacts(in: window, controller: controller), keyFactsStamp(in: window, controller: controller))
         })
-        var facts = cached.facts
+        return liveKeyFacts(cached.facts, from: cached.sources, in: window)
+    }
+
+    /// `facts` with what can change under an equal stamp read now: marked text, and the flags of the
+    /// objects the build found (the page's list or editable focus, the suggestion list, copy mode, a
+    /// read-only markdown file, the editor's key sequence, which ends by itself after a time, and the
+    /// Chromium page window, which is placed, moved or hidden with no focus change).
+    func liveKeyFacts(_ facts: Facts, from sources: FactSources, in window: NSWindow) -> Facts {
+        var facts = facts
         facts.hasMarkedText = (window.firstResponder as? any NSTextInputClient)?.hasMarkedText() == true
-        // Only a code editor page has key sequences; the editor pages' service is not made for others.
-        if facts.pageID == Self.codeEditorPageID, let page = cached.page {
-            facts.pageKeySequencePending = services?.viewers.editorPages.keySequencePending(on: page) ?? false
-        }
+        facts.listFocus = sources.readiness?.isListFocused == true
+        facts.pageEditableFocused = sources.readiness?.isEditableFocused == true
+        facts.omnibarListOpen = sources.suggestions?.isShowingSuggestions == true
+        facts.terminalCopyMode = sources.copyMode?.isCopyModeActive == true
+        facts.pageReportsUnhandledKeys = sources.chromiumPage?.isPageWindow(window) == true
+        let page = sources.page
+        facts.markdownReadOnly = page.map { markdownReadOnly($0) } ?? false
+        facts.pageKeySequencePending = page.map { keySequencePending($0) } ?? false
         return facts
     }
 
-    /// What `facts(in:controller:)` compares before it reuses a window's facts: the focus, the first
-    /// responder, the top page, workspaces as tabs, and the flags of the objects the last build found.
-    func keyFactsStamp(in window: NSWindow, controller: WindowController, cached: CachedFacts) -> FactsStamp {
+    /// What `facts(in:controller:)` compares before it reuses a window's lookups: the focus, the first
+    /// responder, the top page, workspaces as tabs, and whether the sidebar selection is above one row.
+    func keyFactsStamp(in window: NSWindow, controller: WindowController) -> FactsStamp {
         FactsStamp(focus: controller.focus.state, responder: window.firstResponder.map { ObjectIdentifier($0) },
                    topPage: controller.shownTopPage, workspacesAsTabs: SidebarTunables.workspacesAsTabs.value,
-                   listFocus: cached.readiness?.isListFocused == true, pageEditableFocused: cached.readiness?.isEditableFocused == true,
-                   omnibarListOpen: cached.addressBar?.isShowingSuggestions == true,
-                   terminalCopyMode: cached.terminal?.isCopyModeActive == true,
-                   sidebarMultiSelection: controller.sidebar.model.selection.count > 1,
-                   markdownReadOnly: markdownReadOnly(cached.page))
+                   sidebarMultiSelection: controller.sidebar.model.selection.count > 1)
     }
 
-    /// The facts of `window` and its cmux window, looked up (the cache's build).
+    /// The facts of `window` and its cmux window that its stamp covers, and the objects
+    /// ``liveKeyFacts(_:from:in:)`` reads (the cache's build).
     private func buildKeyFacts(in window: NSWindow, controller: WindowController) -> CachedFacts {
         let page = focusedPage(in: controller)
-        let readiness = focusedReadiness(in: controller)
-        let addressBar = focusedAddressBar(in: controller)
-        let terminal = focusedTerminalSurface(in: controller)
-        let facts = Facts(terminalCopyMode: terminal?.isCopyModeActive == true, pageID: page?.descriptor.id,
-                          markdownReadOnly: markdownReadOnly(page),
-                          listFocus: readiness?.isListFocused == true,
-                          pageEditableFocused: readiness?.isEditableFocused == true,
-                          omnibarListOpen: addressBar?.isShowingSuggestions == true,
+        let facts = Facts(pageID: page?.descriptor.id,
                           internalPage: focusedInternalPage(in: controller),
                           showsPageHistory: services?.locationTrail.pageHistory(in: controller) != nil,
                           topPage: controller.shownTopPage == .home ? "home" : nil,
                           textBoxFocused: window.firstResponder is TextBoxTextView,
                           sidebarMultiSelection: controller.sidebar.model.selection.count > 1,
                           fileExplorerFocused: FileExplorerService.hasKeyboard(window),
-                          workspacesAsTabs: SidebarTunables.workspacesAsTabs.value,
-                          pageReportsUnhandledKeys: chromiumPageHasKeys(window, controller: controller))
-        return CachedFacts(facts: facts, readiness: readiness, addressBar: addressBar, terminal: terminal, page: page)
+                          workspacesAsTabs: SidebarTunables.workspacesAsTabs.value)
+        let sources = FactSources(page: page, readiness: focusedReadiness(in: controller),
+                                  suggestions: focusedAddressBar(in: controller),
+                                  copyMode: focusedTerminalSurface(in: controller),
+                                  chromiumPage: focusedChromiumTab(in: controller))
+        return CachedFacts(facts: facts, sources: sources)
     }
 
     /// Whether `page` is a markdown page showing a file it cannot save (`markdownReadOnlyFocused`).
-    private func markdownReadOnly(_ page: PageWebView?) -> Bool {
-        guard let page, page.descriptor.id == Self.markdownPageID else { return false }
-        return services?.viewers.markdownPages.showsReadOnly(on: page) == true
+    private func markdownReadOnly(_ page: PageWebView) -> Bool {
+        page.descriptor.id == Self.markdownPageID && services?.viewers.markdownPages.showsReadOnly(on: page) == true
     }
 
-    /// The focused live Chromium tab's page window is `window`, the key window: the key reaches
-    /// the page, and Chromium reports it if the page leaves it unhandled. While the shell window
-    /// itself is key (a page the model names but Chromium has not been handed the keyboard), the
-    /// key would reach no page, so cmux runs its action first as before.
-    private func chromiumPageHasKeys(_ window: NSWindow, controller: WindowController) -> Bool {
+    /// Whether `page` is a code editor page waiting for the second key of a key sequence. Only a code
+    /// editor page has key sequences; the editor pages' service is not made for others.
+    private func keySequencePending(_ page: PageWebView) -> Bool {
+        page.descriptor.id == Self.codeEditorPageID && services?.viewers.editorPages.keySequencePending(on: page) == true
+    }
+
+    /// The focused live Chromium tab. When its page window is the key window, the key reaches the
+    /// page, and Chromium reports it if the page leaves it unhandled. While the shell window itself
+    /// is key (a page the model names but Chromium has not been handed the keyboard), the key would
+    /// reach no page, so cmux runs its action first as before.
+    private func focusedChromiumTab(in controller: WindowController) -> CEFTab? {
         guard case .browserPage = controller.focus.state.resolved, let pane = controller.focus.state.resolved.pane,
-              case .browser(let entry)? = controller.content?.paneController(key: pane)?.currentContent,
-              let tab = entry.tab as? CEFTab else { return false }
-        return tab.isPageWindow(window)
+              case .browser(let entry)? = controller.content?.paneController(key: pane)?.currentContent else { return nil }
+        return entry.tab as? CEFTab
     }
 
     /// The page id of the focused internal page tab.
@@ -276,3 +284,9 @@ extension KeyRouter {
         return entry.session.surfaceView
     }
 }
+
+// The objects whose flags the key facts read on every key (KeyRouter.FactSources).
+extension TerminalSurfaceView: KeyFactsCopyModeSource {}
+extension AddressBarView: KeyFactsSuggestionSource {}
+extension CEFTab: KeyFactsPageWindowSource {}
+extension PageInputReadiness: KeyFactsReadinessSource {}

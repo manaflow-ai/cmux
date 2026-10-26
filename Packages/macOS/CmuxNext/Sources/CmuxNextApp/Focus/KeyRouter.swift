@@ -167,16 +167,14 @@ final class KeyRouter: BrowserKeyRouting {
     /// hook and the menu gate run nothing for them.
     let decided = DecidedKeyEvents()
 
-    /// The inputs a window's key facts were built from (``keyFactsStamp(in:controller:cached:)``).
+    /// The inputs a window's key facts were built from (``keyFactsStamp(in:controller:)``).
     typealias FactsStamp = KeyFactsStamp<FocusState, TopPageRoute>
-    /// A window's cached facts and the objects their changing flags are read from. Weak: a closed
-    /// pane's objects go with it, and a missing one reads as off.
+    /// The objects whose flags ``liveKeyFacts(_:from:in:)`` reads on every key.
+    typealias FactSources = KeyFactSources<PageWebView>
+    /// A window's cached facts and the objects ``liveKeyFacts(_:from:in:)`` reads with them.
     struct CachedFacts {
         var facts: Facts
-        weak var readiness: PageInputReadiness?
-        weak var addressBar: AddressBarView?
-        weak var terminal: TerminalSurfaceView?
-        weak var page: PageWebView?
+        var sources: FactSources
     }
     /// Each window's key facts, built once per change instead of once per chord (p04-input-053):
     /// ``facts(in:controller:)`` reuses them while their stamp holds; a focus settle bumps the

@@ -7,15 +7,18 @@ import CmuxNextSidebar
 import Testing
 
 /// The key router's per-window key facts behind a generation counter (p04-input-053): a run of chords with
-/// no change builds the facts and the `KeyContext` once; each input they are built from rebuilds them and names
-/// itself; marked text stays live.
+/// no change builds the facts and the `KeyContext` once; each input the lookups are built from rebuilds them and
+/// names itself (focus, first responder, file explorer keyboard, top page, sidebar selection crossing one,
+/// workspaces as tabs); each flag of an object they found follows that object with no rebuild (marked text, the
+/// page's list and editable focus, the suggestion list, copy mode, a read-only markdown file, the editor's key
+/// sequence, the Chromium page window). ``KeyFactsSourcesTests`` drives the sources this file does not.
 @MainActor @Suite(.serialized)
 struct KeyContextCacheTests {
     // MARK: The cache
 
     private nonisolated struct Stamp: KeyContextStamp {
         var value = 0
-        func invalidation(since earlier: Stamp) -> KeyContextInvalidation { .copyMode }
+        func invalidation(since earlier: Stamp) -> KeyContextInvalidation { .topPage }
     }
 
     private final class Owner {}
@@ -24,7 +27,7 @@ struct KeyContextCacheTests {
         let cache = KeyContextCache<Stamp, Int>()
         let owner = Owner()
         for _ in 0..<100 {
-            #expect(cache.value(for: owner, stamp: { _ in Stamp() }, build: { (7, Stamp()) }) == 7)
+            #expect(cache.value(for: owner, stamp: { Stamp() }, build: { (7, Stamp()) }) == 7)
         }
         #expect(cache.builds == 1)
         #expect(cache.lastInvalidation == nil)
@@ -33,31 +36,31 @@ struct KeyContextCacheTests {
     @Test func aChangedStampRebuildsAndNamesItsSource() {
         let cache = KeyContextCache<Stamp, Int>()
         let owner = Owner()
-        _ = cache.value(for: owner, stamp: { _ in Stamp() }, build: { (1, Stamp()) })
-        let value = cache.value(for: owner, stamp: { _ in Stamp(value: 1) }, build: { (2, Stamp(value: 1)) })
+        _ = cache.value(for: owner, stamp: { Stamp() }, build: { (1, Stamp()) })
+        let value = cache.value(for: owner, stamp: { Stamp(value: 1) }, build: { (2, Stamp(value: 1)) })
         #expect(value == 2)
         #expect(cache.builds == 2)
-        #expect(cache.lastInvalidation == .copyMode)
+        #expect(cache.lastInvalidation == .topPage)
     }
 
     @Test func invalidateMakesEveryEntryStale() {
         let cache = KeyContextCache<Stamp, Int>()
         let first = Owner(), second = Owner()
-        _ = cache.value(for: first, stamp: { _ in Stamp() }, build: { (1, Stamp()) })
-        _ = cache.value(for: second, stamp: { _ in Stamp() }, build: { (1, Stamp()) })
+        _ = cache.value(for: first, stamp: { Stamp() }, build: { (1, Stamp()) })
+        _ = cache.value(for: second, stamp: { Stamp() }, build: { (1, Stamp()) })
         cache.invalidate(.focusTransition)
         #expect(cache.lastInvalidation == .focusTransition)
-        _ = cache.value(for: first, stamp: { _ in Stamp() }, build: { (2, Stamp()) })
-        _ = cache.value(for: second, stamp: { _ in Stamp() }, build: { (2, Stamp()) })
+        _ = cache.value(for: first, stamp: { Stamp() }, build: { (2, Stamp()) })
+        _ = cache.value(for: second, stamp: { Stamp() }, build: { (2, Stamp()) })
         #expect(cache.builds == 4)
     }
 
     @Test func eachOwnerHasItsOwnEntry() {
         let cache = KeyContextCache<Stamp, Int>()
         let first = Owner(), second = Owner()
-        #expect(cache.value(for: first, stamp: { _ in Stamp() }, build: { (1, Stamp()) }) == 1)
-        #expect(cache.value(for: second, stamp: { _ in Stamp() }, build: { (2, Stamp()) }) == 2)
-        #expect(cache.value(for: first, stamp: { _ in Stamp() }, build: { (3, Stamp()) }) == 1)
+        #expect(cache.value(for: first, stamp: { Stamp() }, build: { (1, Stamp()) }) == 1)
+        #expect(cache.value(for: second, stamp: { Stamp() }, build: { (2, Stamp()) }) == 2)
+        #expect(cache.value(for: first, stamp: { Stamp() }, build: { (3, Stamp()) }) == 1)
         #expect(cache.builds == 2)
     }
 
@@ -86,20 +89,14 @@ struct KeyContextCacheTests {
         case .focusTransition: changed.focus.windowKey.toggle()
         case .firstResponder: changed.responder = ObjectIdentifier(responder)
         case .topPage: changed.topPage = .home
-        case .pageInputReadiness: changed.listFocus.toggle()
-        case .suggestionList: changed.omnibarListOpen.toggle()
-        case .copyMode: changed.terminalCopyMode.toggle()
         case .sidebarSelection: changed.sidebarMultiSelection.toggle()
         case .workspacesAsTabs: changed.workspacesAsTabs.toggle()
-        case .markdownReadOnly: changed.markdownReadOnly.toggle()
         }
         return changed
     }
 
     private static var baseStamp: KeyRouter.FactsStamp {
-        KeyRouter.FactsStamp(focus: FocusState(), responder: nil, topPage: nil, workspacesAsTabs: false, listFocus: false,
-                             pageEditableFocused: false, omnibarListOpen: false, terminalCopyMode: false,
-                             sidebarMultiSelection: false, markdownReadOnly: false)
+        KeyRouter.FactsStamp(focus: FocusState(), responder: nil, topPage: nil, workspacesAsTabs: false, sidebarMultiSelection: false)
     }
 
     @Test(arguments: KeyContextInvalidation.allCases)
@@ -111,30 +108,51 @@ struct KeyContextCacheTests {
 
         let cache = KeyContextCache<KeyRouter.FactsStamp, Int>()
         let window = Owner()
-        _ = cache.value(for: window, stamp: { _ in Self.baseStamp }, build: { (0, Self.baseStamp) })
-        _ = cache.value(for: window, stamp: { _ in changed }, build: { (1, changed) })
+        _ = cache.value(for: window, stamp: { Self.baseStamp }, build: { (0, Self.baseStamp) })
+        _ = cache.value(for: window, stamp: { changed }, build: { (1, changed) })
         #expect(cache.builds == 2, "\(source) did not rebuild the facts")
         #expect(cache.lastInvalidation == source)
     }
 
-    @Test func anEditableElementTakingFocusIsAReadinessChange() {
-        var changed = Self.baseStamp
-        changed.pageEditableFocused = true
-        #expect(changed.invalidation(since: Self.baseStamp) == .pageInputReadiness)
-    }
-
     // MARK: The real router
 
-    private struct Harness {
+    struct Harness {
         let services: AppServices
         let controller: WindowController
         let shell: NSWindow
         var router: KeyRouter { services.keyRouter }
         func facts() -> KeyRouter.Facts { router.facts(in: shell, controller: controller) }
         func close() { for controller in services.windows.controllers { controller.window?.close() } }
+        var builds: Int { router.keyFactsCache.builds }
+
+        /// Makes `sources` the objects the shell's cached facts read, as a build under the window's focus
+        /// that found them would: a unit test has no pane content (a terminal, a browser, a page) for the
+        /// build to find. Returns the build count after it.
+        func seed(_ sources: KeyRouter.FactSources) -> Int {
+            router.keyFactsCache.invalidate(.focusTransition)
+            let stamp = router.keyFactsStamp(in: shell, controller: controller)
+            _ = router.keyFactsCache.value(for: shell, stamp: { stamp }, build: {
+                (KeyRouter.CachedFacts(facts: KeyRouter.Facts(), sources: sources), stamp)
+            })
+            return builds
+        }
+
+        /// The window's focus and the cache's generation now (``expected(_:since:)``).
+        struct Mark {
+            let focus: FocusState
+            let generation: UInt64
+        }
+
+        func mark() -> Mark { Mark(focus: controller.focus.state, generation: router.keyFactsCache.generation) }
+
+        /// The source the cache names for a change of `source`'s input since `mark`. The window reports a new
+        /// first responder to the focus machine, so a focus move or settle that the change caused comes first.
+        func expected(_ source: KeyContextInvalidation, since mark: Mark) -> KeyContextInvalidation {
+            controller.focus.state != mark.focus || router.keyFactsCache.generation != mark.generation ? .focusTransition : source
+        }
     }
 
-    private static func harness() throws -> Harness {
+    static func harness() throws -> Harness {
         _ = NSApplication.shared
         let services = AppServices(environment: AppEnvironment.current([:]))
         AppActions.bind(services)
