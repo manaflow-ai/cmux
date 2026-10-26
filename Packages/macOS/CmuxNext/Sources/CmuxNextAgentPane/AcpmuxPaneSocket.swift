@@ -429,7 +429,7 @@ nonisolated final class AcpmuxPaneSocket: NSObject, URLSessionWebSocketDelegate,
 
     /// Closes the socket (the host's decision): queued inbound frames are dropped on an error.
     func close(code: Int, reason: String, error: AgentPaneTransportError?) {
-        let (task, session, wake, first) = state.withLock { state -> (URLSessionWebSocketTask?, URLSession?, Bool, Bool) in
+        let (task, session, wake, first, hostReplies) = state.withLock { state -> (URLSessionWebSocketTask?, URLSession?, Bool, Bool, [@Sendable ([String: Any]) -> Void]) in
             guard state.closed == nil else { return (nil, nil, false, false) }
             state.closed = AgentPaneTransportClose(code: code, reason: reason, error: error)
             if error != nil {
@@ -439,8 +439,11 @@ nonisolated final class AcpmuxPaneSocket: NSObject, URLSessionWebSocketDelegate,
             }
             // Always woken: the close goes even to a hidden pane (``pageWaits``).
             state.signaled = true
-            return (state.task, state.session, true, true)
+            let replies = Array(state.hostReplies.values)
+            state.hostReplies.removeAll()
+            return (state.task, state.session, true, true, replies)
         }
+        hostReplies.forEach { $0(["error": ["message": "upload connection closed"]]) }
         task?.cancel(with: URLSessionWebSocketTask.CloseCode(rawValue: code) ?? .normalClosure, reason: Data(reason.utf8))
         session?.finishTasksAndInvalidate()
         if first, let wire { wire.cancel(code: code, reason: reason) }
@@ -456,14 +459,17 @@ nonisolated final class AcpmuxPaneSocket: NSObject, URLSessionWebSocketDelegate,
     }
 
     private func finish(code: Int, reason: String, error: AgentPaneTransportError?) {
-        let (opening, session, wake) = state.withLock { state -> (CheckedContinuation<Void, any Error>?, URLSession?, Bool) in
+        let (opening, session, wake, hostReplies) = state.withLock { state -> (CheckedContinuation<Void, any Error>?, URLSession?, Bool, [@Sendable ([String: Any]) -> Void]) in
             let opening = state.opening
             state.opening = nil
             guard state.closed == nil else { return (opening, nil, false) }
             state.closed = AgentPaneTransportClose(code: code, reason: reason, error: error)
             state.signaled = true
-            return (opening, state.session, true)
+            let replies = Array(state.hostReplies.values)
+            state.hostReplies.removeAll()
+            return (opening, state.session, true, replies)
         }
+        hostReplies.forEach { $0(["error": ["message": "upload connection closed"]]) }
         opening?.resume(throwing: AgentPaneTransportError.connectFailed)
         session?.finishTasksAndInvalidate()
         resolveChallenge(nil)
