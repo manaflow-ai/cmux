@@ -1,9 +1,9 @@
 // l10n-allow-file: deterministic transcript fixture text.
 // Real Chromium regression for the rail's animated jump: manual input over the rail must cancel the
 // in-flight motion immediately and keep follow/landing code from starting another move for one second.
-import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
+import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
-import { chromium, type Browser, type Page } from "playwright";
+import { chromium, type Browser } from "playwright";
 import { installPaintedFrames } from "./support/paintedFrames";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";

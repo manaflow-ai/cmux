@@ -91,6 +91,7 @@ import { ChatMinimap } from "./chatMinimap/ChatMinimap";
 import type { RowsChange } from "./threadMinimap/model";
 import { PromptMarksSession } from "./threadMinimap/promptMarks";
 import { preserveScrollAnchorTop, scrollAnchorBase } from "./conversation/scrollAnchor";
+import { attachUserScrollIntent, userScrollIntent } from "./conversation/userScroll";
 import { setBookmarkTransport } from "./threadMinimap/bookmarks";
 import { composerDraft, notifyDraftActionsChanged } from "./composerDraft";
 import { paneContext } from "./paneContext";
@@ -1767,7 +1768,8 @@ const scrollPosition = (node: HTMLElement, totalHeight: number) => ({
   atLatest: node.scrollTop >= totalHeight - node.clientHeight - FOLLOW_BOTTOM_DEADBAND_PX,
 });
 
-function settleFollowBottom(node: HTMLElement, latest: number): boolean {
+function settleFollowBottom(node: HTMLElement, latest: number, intent?: ReturnType<typeof userScrollIntent>): boolean {
+  if (intent?.isHeld()) return false;
   if (Math.abs(latest - node.scrollTop) <= FOLLOW_BOTTOM_DEADBAND_PX) return false;
   node.scrollTop = latest;
   return true;
@@ -3082,6 +3084,7 @@ export function VirtualTranscript({
     const old = switched ? null : previousLayout.current;
     const oldRows = previousRows.current;
     const node = ref.current;
+    const intent = node ? userScrollIntent(node) : undefined;
     // The view stopped following with its rows drawn up by the composer's growth (`lift`): that
     // growth is room now (`heldRoom`), and the offset moves by it in this same frame, so nothing the
     // reader sees moves.
@@ -3158,11 +3161,11 @@ export function VirtualTranscript({
         const latest = Math.max(0, layout.totalHeight - node.clientHeight);
         // Jump to latest's glide in flight heads for the new end instead of snapping there.
         const jumping = jumpTarget.current !== undefined;
-        if (jumping && Math.abs(latest - jumpTarget.current!) > 0.5) {
+        if (jumping && !intent?.isHeld() && Math.abs(latest - jumpTarget.current!) > 0.5) {
           jumpTarget.current = latest;
           node.scrollTo({ top: latest, behavior: "smooth" });
         }
-        const settled = jumping ? clamped : settleFollowBottom(node, latest) || clamped;
+        const settled = jumping ? clamped : settleFollowBottom(node, latest, intent) || clamped;
         if (settled) followTrace.set(latest);
       } else if (top > 0 || rows[0]?.id !== oldRows[0]?.id) {
         // Keep the row at the top of the viewport where it is as rows above it change height.
@@ -3589,6 +3592,7 @@ export function VirtualTranscript({
     if (event.currentTarget.clientHeight === 0) return;
     checkOlderNow.current();
     const node = event.currentTarget;
+    const intent = userScrollIntent(node);
     const next = node.scrollTop;
     // A step of Jump to latest's glide: the view is following on its way to the end, not snapped
     // there (a first step inside the deadband read as layout work), and not stopped (a longer one
@@ -3623,7 +3627,7 @@ export function VirtualTranscript({
       Math.abs(next - scrolledTo.current.top) <= FOLLOW_BOTTOM_DEADBAND_PX;
     if (layoutDriven) {
       const latest = Math.max(0, layout.totalHeight - node.clientHeight);
-      const settled = settleFollowBottom(node, latest);
+      const settled = settleFollowBottom(node, latest, intent);
       const resting = settled ? latest : next;
       scrolledTo.current = { top: resting, atLatest: true };
       followTrace.set(resting);
@@ -3637,7 +3641,7 @@ export function VirtualTranscript({
     const recentUp = performance.now() - readerAt.current <= READER_SCROLL_MS && next < was.top - 0.5;
     scrolledTo.current = recentUp ? { ...measured, atLatest: false } : measured;
     const latest = Math.max(0, layout.totalHeight - node.clientHeight);
-    if (was.atLatest && !scrolledTo.current.atLatest && strayFrom(next, latest)) {
+    if (!intent.isHeld() && was.atLatest && !scrolledTo.current.atLatest && strayFrom(next, latest)) {
       // Not the reader's scroll: the view keeps following the reply.
       scrolledTo.current = { top: latest, atLatest: true };
       seenAnchor.current = null;
@@ -3694,6 +3698,17 @@ export function VirtualTranscript({
   };
   useEffect(() => {
     const node = ref.current;
+    if (!node) return;
+    const intent = userScrollIntent(node);
+    const cancelProgrammatic = (held: boolean) => {
+      if (!held) return;
+      clearTimeout(settle.current);
+      settle.current = undefined;
+      jumpTarget.current = undefined;
+      node.scrollTo({ top: node.scrollTop, behavior: "auto" });
+    };
+    const unsubscribeIntent = intent.subscribe(cancelProgrammatic);
+    const detachIntent = attachUserScrollIntent(node);
     const reader = (event?: Event) => {
       readerAt.current = performance.now();
       followTrace.input();
@@ -3777,6 +3792,8 @@ export function VirtualTranscript({
     gutterRelease.current = gutter?.release;
     return () => {
       clearTimeout(settle.current);
+      unsubscribeIntent();
+      detachIntent();
       for (const name of inputs) node?.removeEventListener(name, reader, { capture: true });
       node?.removeEventListener("click", holdClicked, { capture: true });
       node?.removeEventListener(ANCHORED_COLLAPSE_EVENT, holdAsked);

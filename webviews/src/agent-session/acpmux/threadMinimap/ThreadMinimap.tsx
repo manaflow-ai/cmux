@@ -23,6 +23,7 @@ import { MARK_OPACITY, threadMinimapMark } from "./mark.experiment";
 import { experimentArm } from "../../../experiments/experiment";
 import { tickRanges } from "./tickWindow";
 import { useThreadMinimapArm } from "../chatDisplay";
+import { userScrollIntent } from "../conversation/userScroll";
 import {
   CARD_DELAY,
   cardOffset,
@@ -330,13 +331,14 @@ export function ThreadMinimap({
           return box.top - node.getBoundingClientRect().top - LANDING_OFFSET;
         },
         SETTLE_FRAMES,
+        { explicit: true },
       );
     if (how === "scrub" || !row || reducedMotion()) {
       stopScroll(node);
       node.scrollTop = to;
       if (how !== "scrub") settle();
-    } else if (how === "step") animateScroll(node, target, STEP_MS, STEP_CURVE, settle);
-    else animateScroll(node, target, jumpDuration(to - node.scrollTop), JUMP_CURVE, settle);
+    } else if (how === "step") animateScroll(node, target, STEP_MS, STEP_CURVE, settle, { explicit: true });
+    else animateScroll(node, target, jumpDuration(to - node.scrollTop), JUMP_CURVE, settle, { explicit: true });
     if (how === "click" || how === "bookmark") {
       if (row) highlightBubble(bubbleOf(row));
       // An unmounted row mounts once the transcript draws its new place.
@@ -424,12 +426,23 @@ export function ThreadMinimap({
   // geometry, so no commit reads layout for it.
   const glide = useRef<Animation | undefined>(undefined);
   const holding = useRef(false);
+  useEffect(() => {
+    const node = scroller.current;
+    if (!node) return;
+    const intent = userScrollIntent(node);
+    return intent.subscribe((held) => {
+      if (!held) return;
+      glide.current?.cancel();
+      glide.current = undefined;
+    });
+  }, [scroller]);
   // oxlint-disable-next-line react-hooks/exhaustive-deps -- runs after every commit on purpose (the band tracks every frame); its setState calls are guarded by `added`.
   useLayoutEffect(() => {
     const was = anchor.current;
     anchor.current = undefined;
     holding.current = false;
     if (!shown || !turns.length) return;
+    const intent = scroller.current ? userScrollIntent(scroller.current) : undefined;
     const railTop = railTopAt(height, viewportHeight, foot);
     let scrolled = listTop;
     if (added !== undefined && was) {
@@ -460,7 +473,7 @@ export function ThreadMinimap({
         }
         glide.current = undefined;
         const start = from - moved;
-        if (Math.abs(start) >= 0.5 && typeof shell.animate === "function" && !reducedMotion())
+        if (!intent?.isHeld() && Math.abs(start) >= 0.5 && typeof shell.animate === "function" && !reducedMotion())
           glide.current = shell.animate([{ transform: `translateY(${start}px)` }, { transform: "translateY(0)" }], {
             duration: SHIFT_MS,
             easing: `cubic-bezier(${STEP_CURVE.join(", ")})`,

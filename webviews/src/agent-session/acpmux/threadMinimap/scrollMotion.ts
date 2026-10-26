@@ -4,6 +4,7 @@
 // ends it where it is.
 import { bezierAt, type CubicBezier } from "../../../ui/cubicBezier";
 import { HIGHLIGHT_EASING, HIGHLIGHT_MS } from "./model";
+import { userScrollIntent } from "../conversation/userScroll";
 
 const running = new WeakMap<HTMLElement, () => void>();
 const READER_INPUTS = ["wheel", "pointerdown", "touchstart", "keydown"] as const;
@@ -33,7 +34,10 @@ export function animateScroll(
   duration: number,
   curve: CubicBezier,
   then?: () => void,
+  options: { explicit?: boolean } = {},
 ): void {
+  const intent = userScrollIntent(node);
+  if (intent.isHeld() && !options.explicit) return;
   stopScroll(node);
   if (duration <= 0 || typeof requestAnimationFrame !== "function") {
     node.scrollTop = target();
@@ -46,8 +50,12 @@ export function animateScroll(
   const end = () => {
     cancelAnimationFrame(frame);
     for (const name of READER_INPUTS) node.removeEventListener(name, end);
+    unsubscribeIntent?.();
     if (running.get(node) === end) running.delete(node);
   };
+  const unsubscribeIntent = intent.subscribe((held) => {
+    if (held) end();
+  });
   const step = (now: number) => {
     const progress = Math.min(1, Math.max(0, (now - start) / duration));
     node.scrollTop = from + (target() - from) * bezierAt(curve, progress);
@@ -67,7 +75,14 @@ export function animateScroll(
 /// moves by that much, until it holds for three frames or `frames` run out. Any input anywhere in the
 /// page (a wheel, a press, a key: the reader scrolling, Find, Jump to Latest) or another scroll on
 /// `node` ends it.
-export function settleScroll(node: HTMLElement, offset: () => number | undefined, frames: number): void {
+export function settleScroll(
+  node: HTMLElement,
+  offset: () => number | undefined,
+  frames: number,
+  options: { explicit?: boolean } = {},
+): void {
+  const intent = userScrollIntent(node);
+  if (intent.isHeld() && !options.explicit) return;
   stopScroll(node);
   if (typeof requestAnimationFrame !== "function") return;
   let frame = 0;
@@ -77,8 +92,12 @@ export function settleScroll(node: HTMLElement, offset: () => number | undefined
   const end = () => {
     cancelAnimationFrame(frame);
     for (const name of READER_INPUTS) page.removeEventListener(name, end, true);
+    unsubscribeIntent?.();
     if (running.get(node) === end) running.delete(node);
   };
+  const unsubscribeIntent = intent.subscribe((held) => {
+    if (held) end();
+  });
   const step = () => {
     // A scroller with no layout (hidden, or a DOM without one) has nothing to measure.
     const by = node.clientHeight > 0 ? offset() : undefined;
