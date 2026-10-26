@@ -326,7 +326,8 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
         }
     }
     // Periodic upkeep (catalog, harness health, upload sweep) shares one clock (`maintenance.rs`).
-    if let Err(e) = hub.maintenance.start() {
+    let phase = crate::maintenance::install_phase(&home().join(crate::maintenance::PHASE_FILE));
+    if let Err(e) = hub.maintenance.start(phase) {
         tracing::warn!("the maintenance clock did not start, periodic upkeep is off: {e}");
     }
     // The curated model catalog (`catalog/`): the last good copy now, then a fetch at

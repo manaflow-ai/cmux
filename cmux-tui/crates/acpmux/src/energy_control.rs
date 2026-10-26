@@ -1,8 +1,12 @@
 //! `_acpmux/energy {saver?: bool}` (p14-energy-034): Energy Saver reaches
-//! acpmux through its control channel. The cmux app resolves the mode and
-//! sends it on each edge, as Chrome's `BatterySaverModeManager` sends one
-//! `SetBatterySaverMode` per edge to each child process
+//! acpmux through its control channel. The cmux daemon sends its mode (the
+//! app's `energy.set` override, or its own reading) on its agent chat watch's
+//! connection, as that watch connects and on each edge
+//! (cmux-tui-core `mux/acpmux_energy.rs`), as Chrome's
+//! `BatterySaverModeManager` sends one `SetBatterySaverMode` per edge to each
+//! child process
 //! (chrome/browser/performance_manager/public/user_tuning/battery_saver_mode_manager.h).
+//! An acpmux that no daemon watches keeps the mode it was last sent.
 //!
 //! `saver` sets the mode; without it (or `null`) the call only reads. The
 //! handler flips one atomic and wakes the maintenance clock on an edge: no

@@ -15,12 +15,21 @@
 //! going. A run never overlaps the one before, as with the tokio interval
 //! and `MissedTickBehavior::Delay` these jobs used.
 //!
+//! The catalog refresh and the health check ask servers, so installs must
+//! not all ask at the same instant. Each job sits on the grid shifted by this
+//! install's phase ([`install_phase`], a random number kept in the acpmux
+//! home): installs spread across the period, and one install's jobs still
+//! share their wakes. A job started at once ([`Start::Now`]) first runs on
+//! the grid at least half a period later, so a daemon that starts just
+//! before a boundary does not fetch twice.
+//!
 //! Energy Saver: [`Maintenance::energy`] is this process's mode. The control
 //! channel's `_acpmux/energy` (`energy_control.rs`) flips it, and the clock
 //! runs each job registered `skippable_in_saver` at 4 times its period.
 
 use std::collections::BTreeMap;
 use std::future::Future;
+use std::path::Path;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, OnceLock};
 
@@ -29,7 +38,10 @@ use tokio::sync::{mpsc, oneshot};
 use tokio::task::JoinHandle;
 
 use cmux_wake::MaintenanceClock;
-pub use cmux_wake::{EnergyMode, JobSpec, RegisterError};
+pub use cmux_wake::{EnergyMode, JobSpec, Placement, RegisterError};
+
+/// The file in the acpmux home that keeps [`install_phase`].
+pub const PHASE_FILE: &str = "maintenance-phase";
 
 type AsyncJob = Box<dyn FnMut() -> BoxFuture<'static, ()> + Send>;
 
@@ -61,6 +73,8 @@ pub struct Maintenance {
 
 struct Running {
     clock: MaintenanceClock,
+    /// This install's grid phase ([`install_phase`]).
+    phase: u64,
     adapter: mpsc::UnboundedSender<Message>,
     next_slot: AtomicUsize,
 }
@@ -92,9 +106,10 @@ impl Maintenance {
         &self.energy
     }
 
-    /// Starts the clock thread and the adapter task, once; call in the
-    /// daemon's runtime. A second call does nothing.
-    pub fn start(&self) -> std::io::Result<()> {
+    /// Starts the clock thread and the adapter task, once, with every job on
+    /// the grid shifted by `phase` ([`install_phase`]); call in the daemon's
+    /// runtime. A second call does nothing.
+    pub fn start(&self, phase: u64) -> std::io::Result<()> {
         if self.running.get().is_some() {
             return Ok(());
         }
@@ -102,7 +117,7 @@ impl Maintenance {
         let (adapter, inbox) = mpsc::unbounded_channel();
         tokio::spawn(adapt(inbox));
         // A racing start loses its clock here; its adapter ends with its sender.
-        let _ = self.running.set(Running { clock, adapter, next_slot: AtomicUsize::new(0) });
+        let _ = self.running.set(Running { clock, phase, adapter, next_slot: AtomicUsize::new(0) });
         Ok(())
     }
 
@@ -130,7 +145,9 @@ impl Maintenance {
             .send(Message::Add { slot, spec, job })
             .map_err(|_| RegisterError::Stopped)?;
         let due = running.adapter.clone();
-        let registered = running.clock.register(spec, move || {
+        let placement =
+            Placement { phase: running.phase, ran_at_registration: start == Start::Now };
+        let registered = running.clock.register_placed(spec, placement, move || {
             let _ = due.send(Message::Due(slot));
         });
         if registered.is_err() {
@@ -179,6 +196,27 @@ impl Maintenance {
         }
         answer.await.unwrap_or_default()
     }
+}
+
+/// This install's grid phase: the number kept in `path`, or a new random one
+/// written there. A file that cannot be read or written still yields a
+/// random phase for this process.
+pub fn install_phase(path: &Path) -> u64 {
+    if let Some(phase) =
+        std::fs::read_to_string(path).ok().and_then(|text| text.trim().parse().ok())
+    {
+        return phase;
+    }
+    let mut bytes = [0u8; 8];
+    if let Err(e) = getrandom::fill(&mut bytes) {
+        tracing::warn!("maintenance: no random phase ({e}); jobs sit on the epoch's grid");
+        return 0;
+    }
+    let phase = u64::from_le_bytes(bytes);
+    if let Err(e) = std::fs::write(path, format!("{phase}\n")) {
+        tracing::warn!("maintenance: the phase is not kept ({e}); it changes at the next start");
+    }
+    phase
 }
 
 struct Slot {

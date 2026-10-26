@@ -24,7 +24,7 @@ mod maintenance;
 use std::time::Duration;
 
 pub use energy::{EnergyMode, EnergyWatch};
-pub use maintenance::{JobSpec, MaintenanceClock, RegisterError};
+pub use maintenance::{JobSpec, MaintenanceClock, Placement, RegisterError};
 
 /// Chromium's `kDefaultLeeway` on macOS: the leeway and grid of a flexible
 /// delay below 1 s (`base/task/task_features.cc`).

@@ -74,8 +74,8 @@ async fn jobs_register_only_on_a_started_clock() {
     assert!(matches!(maintenance.register(SPEC, || async {}), Err(MaintenanceError::NotStarted)));
     assert!(maintenance.jobs().await.is_empty());
 
-    maintenance.start().unwrap();
-    maintenance.start().unwrap();
+    maintenance.start(0).unwrap();
+    maintenance.start(0).unwrap();
     let owner = Arc::new(());
     let other = JobSpec { name: "test.other", skippable_in_saver: false, ..SPEC };
     maintenance.register(SPEC, || async {}).unwrap();
@@ -86,7 +86,7 @@ async fn jobs_register_only_on_a_started_clock() {
 #[tokio::test]
 async fn a_job_registered_to_start_now_runs_at_once_through_the_adapter() {
     let maintenance = Maintenance::default();
-    maintenance.start().unwrap();
+    maintenance.start(0).unwrap();
     let (ran_tx, mut ran) = mpsc::unbounded_channel::<()>();
     let owner = Arc::new(ran_tx);
     maintenance
@@ -106,4 +106,22 @@ fn energy_saver_flips_once_per_edge() {
     assert!(maintenance.energy().set_saver(true));
     assert!(!maintenance.energy().set_saver(true));
     assert!(maintenance.energy().is_saver());
+}
+
+#[test]
+fn the_install_phase_is_kept_across_starts() {
+    let home = std::env::temp_dir().join(format!("acpmux-phase-{}", uuid::Uuid::now_v7()));
+    std::fs::create_dir_all(&home).unwrap();
+    let path = home.join(PHASE_FILE);
+    let first = install_phase(&path);
+    assert_eq!(install_phase(&path), first, "the second start reads the same phase");
+    assert_eq!(std::fs::read_to_string(&path).unwrap().trim(), first.to_string());
+
+    std::fs::write(&path, "not a number").unwrap();
+    let replaced = install_phase(&path);
+    assert_eq!(install_phase(&path), replaced, "a bad file is replaced once");
+
+    // No file can be written: still a phase, for this process only.
+    let _ = install_phase(&home.join("missing").join(PHASE_FILE));
+    let _ = std::fs::remove_dir_all(&home);
 }
