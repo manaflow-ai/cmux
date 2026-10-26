@@ -4,6 +4,7 @@ import CmuxNextAgentPane
 import CmuxNextBrowser
 import CmuxNextBrowserImport
 import CmuxNextDesign
+import CmuxNextImportCards
 import CmuxNextOnboarding
 import CmuxNextSettings
 import os
@@ -112,7 +113,15 @@ final class OnboardingService {
     /// Follows `browser.import.enabled` from `settings` (`AppServices.settings`).
     func followImportSetting(_ settings: SettingsController) {
         importSettingFollow?.cancel()
-        importSettingFollow = BrowserImportGate(services: services).follow(settings)
+        importSettingFollow = BrowserImportGate(host: services).follow(settings)
+    }
+
+    /// `browser.import.enabled` turned off: the browser tab's offer goes and an Import from Browser
+    /// window still open closes.
+    func importTurnedOff() {
+        browserImportOffer.importTurnedOff()
+        guard let controller, controller.model.step == .importData else { return }
+        controller.close()
     }
 
     /// Opens the tool window for `step` (or brings the open one forward).

@@ -1,8 +1,10 @@
 import AppKit
 @testable import CmuxNextActions
 @testable import CmuxNextApp
+@testable import CmuxNextBrowser
+import CmuxNextBrowserImport
 import CmuxNextDesign
-import CmuxNextImportCards
+@testable import CmuxNextImportCards
 import CmuxNextImportSuggestions
 @testable import CmuxNextSettings
 import Foundation
@@ -135,5 +137,101 @@ import Testing
         #expect(h.fileMenuShows("importFromBrowser"))
         #expect(ImportSuggestionsCenter.shared.isEnabled)
         #expect(await h.syncPaused(false), "Keep in Sync watches again")
+    }
+
+    /// Importing a file the person picks never reads another browser: it stays while browser import is off.
+    @Test func offKeepsTheFileImports() async throws {
+        let h = try await make()
+        defer { h.tearDown() }
+        try await h.set(false)
+        for id: ActionID in ["bookmark.import", "password.importCSV", "browserProfile.removeImportedData"] {
+            #expect(h.services.registry.unavailableReason(for: id) != BrowserImportOfferStrings.turnedOff, "\(id) is not turned off")
+        }
+    }
+
+    /// An Import from Browser window already open when the setting goes off closes, and an import
+    /// run started from what is left on screen is refused before it reads anything.
+    @Test func offClosesAnOpenImportWindowAndRefusesItsRun() async throws {
+        let h = try await make()
+        defer { h.tearDown() }
+        h.services.onboarding.show(step: .importData)
+        #expect(h.services.onboarding.isShowing, "the import window opens while browser import is on")
+        try await h.set(false)
+        await h.until { !h.services.onboarding.isShowing }
+        #expect(!h.services.onboarding.isShowing, "turning browser import off closed the import window")
+
+        let app = AppOnboardingServices(owner: h.services.onboarding)
+        #expect(await app.detectBrowsers().isEmpty, "no other browser's folders are read")
+        await #expect(throws: BrowserImportTurnedOff.self) {
+            _ = try await app.runImport(ImportPlan(items: []), progress: { _ in })
+        }
+    }
+
+    /// The browser tab's offer: turned off while it shows, it goes, and on again a later page may offer it.
+    @Test func offHidesTheOfferAndOnAgainLetsItShowThisLaunch() async throws {
+        let h = try await make()
+        defer { h.tearDown() }
+        let offer = h.services.onboarding.browserImportOffer
+        let chrome = BrowserChromeView(tab: WebKitEngine(fileInput: NoFileInput(), stores: .inMemory()).makeWebKitTab())
+        offer.show(on: chrome, browsers: [InstalledImportBrowser(browser: .chrome, icon: NSImage())])
+        #expect(offer.shownThisLaunch)
+        try await h.set(false)
+        await h.until { !offer.shownThisLaunch }
+        #expect(!offer.shownThisLaunch, "the offer hidden by the setting is not spent for this launch")
+    }
+}
+
+/// A suggestion scan running when browser import turns off reads nothing more and shows nothing;
+/// on again, a new scan starts at once.
+@MainActor @Suite(.serialized, .timeLimit(.minutes(1)))
+struct BrowserImportOffScanTests {
+    /// A scan the test lets finish.
+    @MainActor final class HeldScan {
+        private(set) var started = 0
+        private var release: [CheckedContinuation<Void, Never>] = []
+
+        func run() async -> [ImportFinding] {
+            started += 1
+            await withCheckedContinuation { release.append($0) }
+            return [ImportFinding(id: "browser.chrome", kind: .browser, browser: .chrome, name: "Chrome", count: 1)]
+        }
+
+        func finish() {
+            for waiter in release { waiter.resume() }
+            release = []
+        }
+    }
+
+    @Test func turningOffDropsTheScanInFlightAndOnAgainScansAgain() async throws {
+        let defaults = try #require(UserDefaults(suiteName: "import-off-scan-\(UUID().uuidString)"))
+        let ledger = FileManager.default.temporaryDirectory.appending(path: "import-jobs-\(UUID().uuidString).json")
+        defer { try? FileManager.default.removeItem(at: ledger) }
+        let center = ImportSuggestionsCenter(defaults: defaults, ledgerURL: ledger)
+        let held = HeldScan()
+        center.scanThisMac = { _ in await held.run() }
+        center.host = ImportCardsHost(runImport: { _, _, _ in throw CancellationError() }, importedProfiles: { [] },
+                                      openSettings: { _ in }, importClassic: { _ in nil })
+        var landed = false
+        center.scan { landed = true }
+        while held.started == 0 { await Task.yield() }
+        #expect(center.isScanning)
+
+        center.importEnabled = false
+        #expect(!center.isScanning, "the scan in flight is dropped")
+        held.finish()
+        for _ in 0..<50 { await Task.yield() }
+        #expect(center.findings.isEmpty, "a dropped scan's findings are not shown")
+        #expect(!landed)
+
+        center.importEnabled = true
+        await withCheckedContinuation { done in
+            center.scan { done.resume() }
+            Task { @MainActor in
+                while held.started < 2 { await Task.yield() }
+                held.finish()
+            }
+        }
+        #expect(held.started == 2, "on again, a new scan ran")
+        #expect(center.findings.count == 1)
     }
 }

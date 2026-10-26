@@ -110,10 +110,12 @@ final class BrowserImportOfferService {
         }
     }
 
-    /// `browser.import.enabled` turned off: the card on screen goes (it is not recorded as answered).
+    /// `browser.import.enabled` turned off: the card on screen goes (it is not recorded as answered),
+    /// so once it is on again the next finished page may offer it again this launch.
     func importTurnedOff() {
         shownOn?.hideCookieImportOffer()
         shownOn = nil
+        shownThisLaunch = false
     }
 
     /// A finished import (this offer's or File > Import from Browser): once

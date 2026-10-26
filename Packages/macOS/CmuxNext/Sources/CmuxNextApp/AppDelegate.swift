@@ -7,6 +7,7 @@ import CmuxNextControl
 import CmuxNextCrashReporting
 import CmuxNextDaemon
 import CmuxNextDesign
+import CmuxNextImportCards
 import CmuxNextKeepAwake
 import CmuxNextPages
 import CmuxNextWebUpdates
