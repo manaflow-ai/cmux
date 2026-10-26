@@ -3577,10 +3577,12 @@ jobs:
     outputs:
       runner: ${{ steps.sign-runner.outputs.runner }}
     steps:
-      - name: Checkout
+      - name: Checkout publication tooling at the workflow commit
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
+          ref: ${{ github.sha }}
+          path: .publish-tooling
           sparse-checkout: scripts/ci
 
       # The Blacksmith macOS label whose queue is moving, for the macOS jobs after this one
@@ -3593,7 +3595,7 @@ jobs:
         env:
           SNAPSHOT_TOKEN: ${{ github.token }}
           CANDIDATE: ${{ vars.MACOS_RUNNER_26 }}
-        run: python3 scripts/ci/nightly_sign_runner.py
+        run: python3 .publish-tooling/scripts/ci/nightly_sign_runner.py
 
   build-sign-notarize-nightly:
     # Production secrets: GitHub releases them only to protected refs (the

@@ -121,7 +121,9 @@ class Workflow(unittest.TestCase):
             with self.subTest(job=job):
                 step = next(s for s in jobs[job]["steps"] if s.get("id") == "sign-runner")
                 self.assertTrue(step["continue-on-error"])
-                self.assertEqual(step["run"].strip(), "python3 scripts/ci/nightly_sign_runner.py")
+                # The picker job checks out only the publication tooling (tests/test_nightly_cmux_tui_resolve.py).
+                tooling = ".publish-tooling/" if job == "pick-nightly-sign-runner" else ""
+                self.assertEqual(step["run"].strip(), f"python3 {tooling}scripts/ci/nightly_sign_runner.py")
                 self.assertEqual(step["env"]["CANDIDATE"], "${{ vars.MACOS_RUNNER_26 }}")
                 self.assertEqual(jobs[job]["outputs"][output], "${{ steps.sign-runner.outputs.runner }}")
                 self.assertNotIn("environment", jobs[job])
