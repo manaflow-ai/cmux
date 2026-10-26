@@ -1,5 +1,7 @@
 import CmuxNextBridge
 import CmuxNextDaemon
+import CmuxNextLayout
+import CmuxNextWakeups
 import Foundation
 import Observation
 
@@ -91,6 +93,18 @@ final class WindowState {
     /// since the relaunch (`WindowManager.enterRestoredFullScreens`). Saves
     /// keep `full_screen` while it is set.
     var restoresFullScreen = false
+    /// The window's automation-caused structural layout changes per frame, shared by each
+    /// workspace layout it mounts (``layoutBurst(frames:)``). In memory only.
+    @ObservationIgnored private var madeLayoutBurst: LayoutAutomationBurst?
+
+    /// The window's ``LayoutAutomationBurst``, made on first use: frames are those of `budget`,
+    /// the app's main frame budget, which the drain of automation events runs in.
+    func layoutBurst(frames budget: MainFrameBudget) -> LayoutAutomationBurst {
+        if let madeLayoutBurst { return madeLayoutBurst }
+        let made = LayoutAutomationBurst(frame: { [weak budget] in budget?.stats.frames ?? 0 })
+        madeLayoutBurst = made
+        return made
+    }
 
     init(id: String = UUID().uuidString.lowercased(), workspaceID: String? = nil, machineID: String? = nil) {
         self.id = id

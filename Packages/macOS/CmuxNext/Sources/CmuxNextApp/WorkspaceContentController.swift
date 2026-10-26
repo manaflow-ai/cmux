@@ -4,6 +4,7 @@ import CmuxNextBridge
 import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextDesign
+import CmuxNextFeatures
 import CmuxNextLayout
 import CmuxNextPages
 import CmuxNextWakeups
@@ -31,7 +32,8 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
     unowned let state: WindowState
     private(set) var handles = LayoutHandleMap()
     private(set) var panes: [LayoutPaneID: PaneController] = [:]
-    private var observation: Task<Void, Never>?
+    /// The workspace's layout mapping, applied with the cause of its changes.
+    private var observation: LayoutTreeObservation?
     private var connectionObservation: Task<Void, Never>?
     private var attentionObservation: Task<Void, Never>?
     private var settlingObservation: Task<Void, Never>?
@@ -106,7 +108,7 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         isOffScreen = false
         if let pending = deferredApply {
             deferredApply = nil
-            apply(pending, force: true)
+            apply(pending, cause: services.mainWork.causes.currentCause, force: true)
         }
     }
 
@@ -134,6 +136,11 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         self.state = state
         focus = state.focus
         layoutModel.intentHandler = { [weak self] intent in self?.handle(intent) }
+        // The window's automation bursts land at once after their first structural change
+        // (p06-scheduler-038, feature `automationBurstSnap`).
+        if services.features.isEnabled(.automationBurstSnap) {
+            layoutModel.automationBurst = state.layoutBurst(frames: services.mainWork.budget)
+        }
         _ = layoutView  // built here, then the bar and the content view, as before
         // A scroll the layout took is timed as the layout's (`key.scroll_frame target=layout`).
         layoutView.onScrollTaken = { [inputDispatch = services.inputDispatch] in inputDispatch.noteLayoutTookScroll() }
@@ -181,14 +188,15 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
     }
 
     private func observe() {
-        let workspace = workspace
-        // One mapping now (the first frame), tracked; the stream brings the later ones. A trigger:
-        // `applyCurrent` applies outside the stream too; `apply` compares with what it applied.
-        let (first, later) = ObservationStream.current({ ObservationTrigger(LayoutMapping.shared.map(workspace)) })
-        observation = Task { [weak self] in
-            for await result in later { self?.apply(result.value) }
+        // One mapping now (the first frame), tracked; the observation brings the later ones, each
+        // with the cause of its changes. `applyCurrent` applies outside it too; `apply` compares
+        // with what it applied.
+        let observation = LayoutTreeObservation(workspace, causes: services.mainWork.causes,
+                                                raisesCause: layoutModel.automationBurst != nil) { [weak self] result, cause in
+            self?.apply(result, cause: cause)
         }
-        apply(first.value)
+        self.observation = observation
+        apply(observation.start(), cause: services.mainWork.causes.currentCause)
         // An empty workspace loaded while disconnected, or drawn from the
         // launch snapshot, is repaired once the daemon is back and its tree
         // is live, even if the tree itself does not change.
@@ -238,10 +246,14 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
     /// Re-applies the current store state (after a command response that
     /// may trail its own delta).
     func applyCurrent(_ file: StaticString = #fileID, _ line: UInt = #line) {
-        apply(LayoutMapping.shared.map(workspace), force: true, file, line) // after a command response that may trail its own delta
+        // In the turn of the change it follows: an action's run, a command's reply.
+        apply(LayoutMapping.shared.map(workspace), cause: services.mainWork.causes.currentCause, force: true, file, line) // after a command response that may trail its own delta
     }
 
-    private func apply(_ result: LayoutMapping.Result, force: Bool = false, _ file: StaticString = #fileID, _ line: UInt = #line) {
+    /// `cause`: who caused the change; the window's second or later automation-caused structural
+    /// change in one frame lands with no motion (`LayoutModel.apply(screens:cause:)`).
+    private func apply(_ result: LayoutMapping.Result, cause: ObservationCause, force: Bool = false,
+                       _ file: StaticString = #fileID, _ line: UInt = #line) {
         // Commands translate through the current handles even when the tree is unchanged (the
         // daemon's echo of an optimistic split renumbers only the new pane): no apply then.
         let topologyMoved = adoptHandles(result.handles)
@@ -270,7 +282,7 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         defer { isApplying = wasApplying }
         if layoutModel.acceptsEdgeDockDrops != appliedTree.edgeDocks { layoutModel.acceptsEdgeDockDrops = appliedTree.edgeDocks }
         if layoutModel.acceptsRowOps != appliedTree.rows { layoutModel.acceptsRowOps = appliedTree.rows } // no row op without rows-v1 (rows.md step 4)
-        layoutModel.apply(screens: result.screens)
+        layoutModel.apply(screens: result.screens, cause: cause)
         #if DEBUG
         DebugLayoutCounters.notePanes(layoutModel.screens.reduce(0) { $0 + $1.layout.panes.count }, of: self)
         #endif

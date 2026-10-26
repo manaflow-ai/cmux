@@ -311,7 +311,10 @@ public final class LayoutRootView: NSView {
         lastSnapshot = snapshot
         // Chrome (focus ring, dim) fades whenever motion is allowed; pane frames, the strip's
         // reveal and the screen slide move only with `ui.paneAnimations` (motion.md rule 9).
-        let chromeAnimated = previous != nil && canAnimate && !snapshot.gestureActive
+        // A structural change of an automation burst lands at once (`LayoutAutomationBurst`): the
+        // same no-motion path the `ui.animations.panes` switch takes, with springs in flight landed.
+        let burstSnap = model.takeStructureSnap()
+        let chromeAnimated = previous != nil && canAnimate && !snapshot.gestureActive && !burstSnap
         let animated = chromeAnimated && context.animatesPaneLayout
         var needsFrames = false
 
@@ -401,7 +404,8 @@ public final class LayoutRootView: NSView {
                 // Only a snap that stands in for Reduce Motion's spring shows the
                 // scrollbar, not one at launch or while out of the window.
                 if view.syncScroll(focused: focused, source: source, mode: snapshot.centerMode,
-                                   animated: previous != nil && canAnimate && context.animatesPaneLayout, reveals: !snapshot.gestureActive,
+                                   animated: previous != nil && canAnimate && context.animatesPaneLayout && !burstSnap,
+                                   reveals: !snapshot.gestureActive,
                                    showsScrollbarOnSnap: previous != nil && window != nil && driver.isAttached) {
                     screenNeedsFrames = true
                 }

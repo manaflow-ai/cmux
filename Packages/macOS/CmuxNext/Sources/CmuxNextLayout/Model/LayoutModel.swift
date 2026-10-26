@@ -1,6 +1,7 @@
 public import Foundation
 public import Observation
 public import CmuxNextDesign
+public import CmuxNextWakeups
 
 /// Input and output of the layout engine for one workspace.
 ///
@@ -199,6 +200,13 @@ public final class LayoutModel {
     /// transaction is rejected.
     @ObservationIgnored private var daemonScreens: [LayoutScreen] = []
 
+    /// The window's count of automation-caused structural changes per frame, shared by every
+    /// workspace layout of the window (set by the App). Nil: every change may animate.
+    @ObservationIgnored public var automationBurst: LayoutAutomationBurst?
+    /// The last ``apply(screens:cause:)`` was a structural change the burst lands at once: the
+    /// view's next sync shows it with no motion (``takeStructureSnap()``).
+    @ObservationIgnored private var snapsStructure = false
+
     public init(screens: [LayoutScreen] = [], activeScreenID: ScreenID? = nil, focusedPane: PaneID? = nil) {
         self.screens = screens
         daemonScreens = screens
@@ -211,7 +219,12 @@ public final class LayoutModel {
     /// Replaces the tree with a daemon snapshot. Keeps client-local focus and
     /// active screen when they still exist. A closed focused pane falls back to
     /// its nearest surviving neighbor before it (else after it, else the first).
-    public func apply(screens newScreens: [LayoutScreen]) {
+    ///
+    /// - Parameters:
+    ///   - newScreens: The daemon's screens.
+    ///   - cause: Who caused the change. The second or later automation-caused structural change
+    ///     of the window in one frame (``automationBurst``) lands with no motion.
+    public func apply(screens newScreens: [LayoutScreen], cause: ObservationCause = .program) {
         let previous = daemonScreens
         defer { applyCloseSizing(from: previous, to: newScreens) }
         daemonScreens = newScreens
@@ -221,7 +234,10 @@ public final class LayoutModel {
         // Equal screens (the echo of this client's own gesture, a snapshot
         // that changed another workspace) write nothing, so no observer runs.
         let next = overlaid(newScreens)
-        if next != screens { screens = next }
+        if next != screens {
+            snapsStructure = Self.changesStructure(from: previous, to: newScreens) && automationBurst?.snaps(cause) == true
+            screens = next
+        }
         reconcileCanvases()
         if activeScreenID == nil || !screens.contains(where: { $0.id == activeScreenID }) {
             activeScreenID = screens.first?.id
@@ -235,6 +251,21 @@ public final class LayoutModel {
         // camera toward it (Lawrence 2026-10-20, closing the last column).
         let fallback = focusedPane.flatMap { Self.neighbor(of: $0, in: previous, on: activeScreen) } ?? activeScreen?.layout.panes.first
         if focusedPane != fallback { focusedPane = fallback }
+    }
+
+    /// Whether the last structural change lands with no motion; resets it. The view reads it once
+    /// per sync, so a later change that is not part of the burst moves again.
+    public func takeStructureSnap() -> Bool {
+        defer { snapsStructure = false }
+        return snapsStructure
+    }
+
+    /// A screen came or went, or one changed its panes, splits, columns or zoom.
+    private static func changesStructure(from old: [LayoutScreen], to new: [LayoutScreen]) -> Bool {
+        guard old.count == new.count else { return true }
+        return zip(old, new).contains { before, after in
+            before.id != after.id || before.zoomed != after.zoomed || !before.layout.hasSameStructure(as: after.layout)
+        }
     }
 
     /// The pane of `screen` nearest before `closed` in its old order (`old`), else the nearest
