@@ -489,7 +489,8 @@ final class CEFRuntime {
             spareAfterFirstTab: spareAfterFirstTabFeature(),
             bundleIdentifier: Bundle.main.bundleIdentifier,
             environment: environment,
-            builtInExtensions: builtInPlan.folders, keepsUnpackedEnabled: builtInPlan.keepsUnpackedEnabled
+            builtInExtensions: builtInPlan.folders, keepsUnpackedEnabled: builtInPlan.keepsUnpackedEnabled,
+            pageSiteCaps: CEFPageSchemes.siteCaps(CEFPageSchemes.firstParty)
         )
         builtInAdBlockerLoaded = !switchSet.builtInExtensions.isEmpty
         processReusePerRendererDevTools = switchSet.arguments.contains(CEFSwitches.processReusePerRendererDevTools)

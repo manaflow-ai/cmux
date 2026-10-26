@@ -144,9 +144,26 @@ nonisolated extension Feature {
         runtimeMutable: false
     )
 
+    /// Chromium puts the open instances of a shareable cmux page (New Tab and every agent chat) in one live renderer of up to 8 pages, as Chrome does for New Tab Pages; different pages share only once their hosts carry their group. Needs fork API 32 and renderer paths.
+    public static let cmuxPageRendererSharing = Feature(
+        index: 8,
+        name: "cmuxPageRendererSharing",
+        owner: "PL-memory",
+        description: "Chromium puts the open instances of a shareable cmux page (New Tab and every agent chat) in one live renderer of up to 8 pages, as Chrome does for New Tab Pages; different pages share only once their hosts carry their group. Needs fork API 32 and renderer paths.",
+        kind: .perfPath,
+        process: .app,
+        chromiumFeature: nil,
+        defaults: FeatureDefaults(dev: false, nightly: false, release: false),
+        expires: "2026-12-20",
+        params: [],
+        stories: ["home-idle"],
+        sticky: false,
+        runtimeMutable: false
+    )
+
     /// The daemon compresses the scrollback of a terminal that no client views and that printed nothing for 10 minutes, at utility priority and never under memory pressure; any access restores it first. Stays off until the kernel compressor measurement (p07-memory-112) shows a 2x gain.
     public static let coldScrollbackCompression = Feature(
-        index: 8,
+        index: 9,
         name: "coldScrollbackCompression",
         owner: "PL-memory",
         description: "The daemon compresses the scrollback of a terminal that no client views and that printed nothing for 10 minutes, at utility priority and never under memory pressure; any access restores it first. Stays off until the kernel compressor measurement (p07-memory-112) shows a 2x gain.",
@@ -163,7 +180,7 @@ nonisolated extension Feature {
 
     /// The control socket binds on a background lane at launch with the mode the launch settings read gives, and serves once its method groups register after the first frame, instead of binding on the main thread when the launch settles.
     public static let controlSocketEarlyBind = Feature(
-        index: 9,
+        index: 10,
         name: "controlSocketEarlyBind",
         owner: "Performance Lead",
         description: "The control socket binds on a background lane at launch with the mode the launch settings read gives, and serves once its method groups register after the first frame, instead of binding on the main thread when the launch settles.",
@@ -180,7 +197,7 @@ nonisolated extension Feature {
 
     /// Daemon requests run at their cause's class: verified-app requests at user-initiated, CLI, script, agent and page requests at utility, raised while they wait for or hold a daemon lock.
     public static let daemonRequestQos = Feature(
-        index: 10,
+        index: 11,
         name: "daemonRequestQos",
         owner: "Performance Lead",
         description: "Daemon requests run at their cause's class: verified-app requests at user-initiated, CLI, script, agent and page requests at utility, raised while they wait for or hold a daemon lock.",
@@ -197,7 +214,7 @@ nonisolated extension Feature {
 
     /// Energy Saver turns on as the energy.saver setting asks (Low Power Mode, low battery or a hot Mac on battery by default) and makes cmux draw fewer frames and wake less often.
     public static let energySaver = Feature(
-        index: 11,
+        index: 12,
         name: "energySaver",
         owner: "Performance Lead",
         description: "Energy Saver turns on as the energy.saver setting asks (Low Power Mode, low battery or a hot Mac on battery by default) and makes cmux draw fewer frames and wake less often.",
@@ -214,7 +231,7 @@ nonisolated extension Feature {
 
     /// Each display link runs at the highest frame rate its armed clients ask for, and looping indicators such as spinners ask the render server for 30 frames a second.
     public static let frameRateClasses = Feature(
-        index: 12,
+        index: 13,
         name: "frameRateClasses",
         owner: "PL-motion-core",
         description: "Each display link runs at the highest frame rate its armed clients ask for, and looping indicators such as spinners ask the render server for 30 frames a second.",
@@ -231,7 +248,7 @@ nonisolated extension Feature {
 
     /// A frozen hidden page whose memory grows by max(50 MB, 25 percent) after it froze is discarded with its opener group, read at 5, 30 and 120 minutes after the freeze.
     public static let frozenGrowthDiscard = Feature(
-        index: 13,
+        index: 14,
         name: "frozenGrowthDiscard",
         owner: "PL-memory",
         description: "A frozen hidden page whose memory grows by max(50 MB, 25 percent) after it froze is discarded with its opener group, read at 5, 30 and 120 minutes after the freeze.",
@@ -248,7 +265,7 @@ nonisolated extension Feature {
 
     /// Resting the pointer on a sidebar row or tab whose browser page is frozen or hibernated wakes that page in the background after a short dwell, at most two at once, never in Low Power Mode on battery or under memory pressure.
     public static let intentPrewarmHover = Feature(
-        index: 14,
+        index: 15,
         name: "intentPrewarmHover",
         owner: "PL-switch",
         description: "Resting the pointer on a sidebar row or tab whose browser page is frozen or hibernated wakes that page in the background after a short dwell, at most two at once, never in Low Power Mode on battery or under memory pressure.",
@@ -934,6 +951,7 @@ nonisolated extension Feature {
         .cefTimerSlack,
         .chromiumHostWidgets,
         .chromiumSpareAfterFirstTab,
+        .cmuxPageRendererSharing,
         .coldScrollbackCompression,
         .controlSocketEarlyBind,
         .daemonRequestQos,
@@ -991,6 +1009,7 @@ nonisolated extension Feature {
         .cefTimerSlack,
         .chromiumHostWidgets,
         .chromiumSpareAfterFirstTab,
+        .cmuxPageRendererSharing,
         .coldScrollbackCompression,
         .controlSocketEarlyBind,
         .daemonRequestQos,
