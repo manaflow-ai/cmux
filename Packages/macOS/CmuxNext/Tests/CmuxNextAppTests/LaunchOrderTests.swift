@@ -39,7 +39,9 @@ import Testing
         for await _ in idleRan {}
         #expect(!f.fence.launch.isUp, "the cap lowered the fence with startup still held")
         f.complete()
-        #expect(f.marks.names.last == "startup_complete.fence_capped")
+        #expect(f.marks.names.last == LaunchOrder.fenceCappedMark)
+        #expect(f.marks.names.filter { $0.hasPrefix("startup_complete.") }.count == 1,
+                "the cap mark is no completion reason: startup_complete.<reason> holds only the reason")
     }
 
     @Test func aQuitBeforeCompletionNeverMarksTheCompletion() {

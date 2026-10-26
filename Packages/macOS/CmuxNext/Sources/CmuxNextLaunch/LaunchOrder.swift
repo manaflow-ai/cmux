@@ -14,7 +14,7 @@ public import CmuxNextWakeups
 /// ``BackgroundWork`` as soon as the lanes exist, and the order made on that fence lowers it at
 /// the completion, after the `startup_complete` marks. Its cap (``BackgroundWork/LaunchFence/cap``,
 /// 3 s) lowers it first when startup completes later; the completion then marks
-/// `startup_complete.fence_capped`.
+/// ``fenceCappedMark``.
 ///
 /// ```swift
 /// let work = BackgroundWork(hangs: hangWatch)
@@ -45,6 +45,10 @@ public struct LaunchOrder {
         }
     }
 
+    /// The mark the completion sends when the cap lowered the fence first. It stays out of the
+    /// `startup_complete.` namespace, which holds only the completion's reason (bench-startup.py).
+    nonisolated public static let fenceCappedMark = "launch.best_effort_fence_capped"
+
     /// The app's one main-thread scheduler (budget, input check, task signposts, starvation guard);
     /// its ``MainWorkScheduler/startup`` phase is the launch's.
     public let mainWork: MainWorkScheduler
@@ -55,8 +59,8 @@ public struct LaunchOrder {
     /// post its lane work to `fence`'s lanes. At startup complete it marks `startup_complete.<reason>`
     /// (an instant mark, as task 007 sends the temperature) and then `startup_complete`, so a reader
     /// that waits for `startup_complete` has the reason too; then it lowers the fence, so the held
-    /// idle and best-effort items start, or marks `startup_complete.fence_capped` when the cap lowered
-    /// it first. A quit before completion never lowers it (shutdown lifts it).
+    /// idle and best-effort items start, or marks ``fenceCappedMark`` when the cap lowered it first.
+    /// A quit before completion never lowers it (shutdown lifts it).
     ///
     /// - Parameters:
     ///   - fence: The fence `main()` raised.
@@ -70,7 +74,7 @@ public struct LaunchOrder {
         startup.whenComplete { [launch = fence.launch] completion in
             mark("startup_complete.\(completion.reason)")
             mark("startup_complete")
-            if !launch.lower() { mark("startup_complete.fence_capped") }
+            if !launch.lower() { mark(Self.fenceCappedMark) }
         }
     }
 

@@ -211,6 +211,9 @@ MARKS = [
     # p08-startup-012: StartupScheduler's refs are all released (or its 10 s failsafe fired); --startup-complete
     # waits for it after the first content.
     ("startup_complete", "startup complete (StartupScheduler)"),
+    # p02-threads-114: the best-effort fence's 3 s cap lowered it before startup completed (LaunchOrder.fenceCappedMark);
+    # outside the `startup_complete.` namespace, so it is never read as a completion reason.
+    ("launch.best_effort_fence_capped", "best-effort fence lowered by its 3 s cap, before startup complete"),
 ]
 STARTUP_COMPLETE = "startup_complete"
 # P1, main() on the main thread (p08-startup 033): from its first mark to NSApplication.run, per run.
