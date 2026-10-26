@@ -170,6 +170,8 @@ public final class DaemonStore: StateResourceQueries {
     @ObservationIgnored var personalRefetch = PersonalRefetch()
     /// `refresh()` callers waiting for a snapshot requested after their call.
     @ObservationIgnored var refreshWaiters: [CheckedContinuation<Void, Never>] = []
+    /// Work waiting for the first live snapshot (`whenFirstSnapshotApplied`); emptied when it lands.
+    @ObservationIgnored var firstSnapshotWaiters: [@MainActor () -> Void] = []
     /// Spacing and budget of failed-snapshot retries; reset by the next applied one.
     @ObservationIgnored var resyncPacer = RetryPacer(.resync)
     /// The pending retry of a failed snapshot (cancelled when the driver ends).
@@ -300,6 +302,7 @@ public final class DaemonStore: StateResourceQueries {
         }
         workspaceListMayHaveChanged()
         runAppliedWaiters(nil, snapshot: true)
+        runFirstSnapshotWaiters()
     }
 
     /// The tree a snapshot applied up to `barrier` holds every personal change at or below it; a
