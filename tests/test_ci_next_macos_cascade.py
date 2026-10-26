@@ -190,6 +190,14 @@ class Cascade(unittest.TestCase):
 
 
 class Place(unittest.TestCase):
+    def test_bot_rerun_can_place_after_a_refusal_but_a_person_rerun_stays_owned(self):
+        result = cascade.place(env(GITHUB_RUN_ATTEMPT="2", GITHUB_TRIGGERING_ACTOR=BOT), (),
+                               {LARGE: 0, SMALL: 0}, {LARGE: 0, SMALL: 0})
+        self.assertTrue(result.jobs[LARGE] or result.jobs[SMALL])
+        person = cascade.place(env(GITHUB_RUN_ATTEMPT="2", GITHUB_TRIGGERING_ACTOR="teamleaderleo"), (),
+                               {LARGE: 0, SMALL: 0}, {LARGE: 0, SMALL: 0})
+        self.assertEqual(person.why, "a person re-run keeps its own route")
+
     def test_jobs_an_idle_mini_took_and_gui_jobs_stay_off_blacksmith(self):
         result = cascade.place(env(), ("fast-tier",), {LARGE: 0, SMALL: 0}, {LARGE: 0, SMALL: 0})
         self.assertEqual(result.jobs, none_placed(**{LARGE: ("swift-canary", "cmux-scheme-compile")}))
@@ -300,6 +308,49 @@ class Place(unittest.TestCase):
         # Without the queue count no slot is known free: the overflow keeps the owned label.
         self.assertEqual(result.retry_runner, "")
 
+    def test_unread_counts_send_a_feeds_compile_to_the_last_resort(self):
+        """2026-10-26: the route token read 403 and the snapshot was stale, so DEV daily 40415036753's Release
+        compile (cmux-scheme-compile) queued on the owned label behind ~260 jobs and the DEV feed fell 100
+        minutes behind. A feed's compile (FRESH_JOBS) takes 6 vCPU when the counts cannot be read."""
+        dev = env(CASCADE_RUNS=" cmux-scheme-compile ", FRESH_JOBS="cmux-scheme-compile")
+        for live, waiting in ((None, None), ({LARGE: 0, SMALL: 0}, None)):
+            with self.subTest(live=live, waiting=waiting):
+                result = cascade.place(dev, (), live, waiting)
+                self.assertEqual(result.jobs, none_placed(**{SMALL: ("cmux-scheme-compile",)}))
+                self.assertEqual(result.retry_runner, "")
+                self.assertIn("last resort", result.why)
+        push = env(CASCADE_RUNS=" fast-tier cmux-scheme-compile release-compile ", FRESH_JOBS="release-compile")
+        self.assertEqual(cascade.place(push, (), None, None).jobs, none_placed(**{SMALL: ("release-compile",)}))
+        # An idle mini is spent on the run's other jobs first; as many idle minis as jobs, and nothing moves.
+        self.assertEqual(cascade.place(push, ("fast-tier",), None, None).jobs,
+                         none_placed(**{SMALL: ("release-compile",)}))
+        self.assertEqual(cascade.place(push, ("a", "b", "c"), None, None).jobs, none_placed())
+        # A job that does not run here, or a run with no FRESH_JOBS, still places nothing.
+        self.assertEqual(cascade.place(env(FRESH_JOBS="release-compile"), (), None, None).jobs, none_placed())
+        self.assertEqual(cascade.place(env(), (), None, None).jobs, none_placed())
+        # A person's re-run reads nothing and keeps its own route, as before.
+        self.assertEqual(cascade.place(env(GITHUB_RUN_ATTEMPT="2", GITHUB_TRIGGERING_ACTOR="teamleaderleo",
+                                           FRESH_JOBS="cmux-scheme-compile",
+                                           CASCADE_RUNS=" cmux-scheme-compile "), (), None, None).jobs,
+                         none_placed())
+
+    def test_the_placement_names_the_fresh_jobs_on_attempt_1_of_a_feed_run_only(self):
+        jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
+        place = next(step for step in jobs["macos-placement"]["steps"] if step.get("id") == "place")
+        expression = place["env"]["FRESH_JOBS"]
+        for event, ref, attempt, dev_daily, expected in (
+                ("push", "refs/heads/feat-cmux-next", "1", False, "release-compile"),
+                ("push", "refs/heads/feat-cmux-next", "2", False, ""),
+                ("push", "refs/heads/next-batch/abc", "1", False, ""),
+                ("workflow_dispatch", "refs/heads/feat-cmux-next", "1", True, "cmux-scheme-compile"),
+                ("workflow_dispatch", "refs/heads/feat-cmux-next", "2", True, ""),
+                ("workflow_dispatch", "refs/heads/feat-cmux-next", "1", False, ""),
+                ("pull_request", "refs/pull/1/merge", "1", False, "")):
+            with self.subTest(event=event, ref=ref, attempt=attempt, dev_daily=dev_daily):
+                context = {"github": {"event_name": event, "ref": ref, "run_attempt": attempt},
+                           "inputs": {"dev_daily": dev_daily}}
+                self.assertEqual(evaluate(expression, context), expected)
+
     def test_only_attempt_1_of_an_owned_side_label_cascades(self):
         free = {LARGE: 0, SMALL: 0}
         for overrides in ({"GITHUB_RUN_ATTEMPT": "2"}, {"SIDE_LABEL": "blacksmith-6vcpu-macos-26"}, {"SIDE_LABEL": ""}):
@@ -322,8 +373,28 @@ class Place(unittest.TestCase):
             self.assertEqual(cascade.read(live_env, pool, now=NOW, log=lambda _: None),
                              ({LARGE: 2, SMALL: 3}, {LARGE: 1, SMALL: 0},
                               cascade.Seen(waits={LARGE: 5.0, SMALL: 0.0}, hosted=0, age=2.0)))
-        with mock.patch.object(cascade.Api, "in_flight", side_effect=OSError("boom")):
+        # A refused runner read (the route token's 403s, 2026-10-26 22:47Z) is not replaced by the snapshot,
+        # which counts only this repository's share of the organization's pool.
+        with mock.patch.object(cascade.Api, "in_flight", side_effect=OSError("HTTP Error 403: Forbidden")):
             self.assertEqual(cascade.read(live_env, pool, now=NOW, log=lambda _: None), (None, None, None))
+        # cmux-bot's token (ROUTE_TOKEN_FALLBACK) reads again when the routing App's read is refused.
+        tokens = []
+
+        def in_flight(api):
+            tokens.append(api.route_token)
+            if api.route_token == "t":
+                raise OSError("HTTP Error 403: Forbidden")
+            return {LARGE: 2, SMALL: 3}
+
+        with mock.patch.object(cascade.Api, "in_flight", autospec=True, side_effect=in_flight):
+            live, waiting, _ = cascade.read({**live_env, "ROUTE_TOKEN_FALLBACK": "bot"}, pool, now=NOW,
+                                            log=lambda _: None)
+        self.assertEqual((tokens, live, waiting), (["t", "bot"], {LARGE: 2, SMALL: 3}, {LARGE: 1, SMALL: 0}))
+        tokens.clear()
+        with mock.patch.object(cascade.Api, "in_flight", autospec=True, side_effect=in_flight):
+            cascade.read({**live_env, "ROUTE_TOKEN": "ok", "ROUTE_TOKEN_FALLBACK": "bot"}, pool, now=NOW,
+                         log=lambda _: None)
+        self.assertEqual(tokens, ["ok"])
         pool.GitHub.return_value.snapshot.side_effect = OSError("boom")
         with mock.patch.object(cascade.Api, "in_flight", return_value={LARGE: 2, SMALL: 3}):
             self.assertEqual(cascade.read(live_env, pool, now=NOW, log=lambda _: None),

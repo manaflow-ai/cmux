@@ -1469,7 +1469,8 @@ jobs:
     if: ${{ !cancelled() && needs.build-ok.result == 'success' && github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feat-cmux-next' || (github.event_name == 'push' && !startsWith(github.ref, 'refs/heads/cmux-tui-pin-'))) }}
     needs: build-ok
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
-    timeout-minutes: 15
+    # 15 minutes of work, plus the hour the attestation retry may wait for the API budget.
+    timeout-minutes: 75
     permissions:
       contents: read
       id-token: write
@@ -1820,7 +1821,41 @@ jobs:
             --machine-manifest \
             --artifact-directory assets/chatmux-relay
 
+      # The attestation is the only GitHub API write on the publish path, and it
+      # fails when other workflows have spent the installation's hourly budget
+      # ("API rate limit exceeded for installation": runs 40376958903 and
+      # 40380418761 on 2026-10-26 left their trees unpublished, and nightly-next
+      # promotion waited an hour). A failed first try waits once, bounded, for
+      # the budget (scripts/ci/gh_budget_wait.sh --reserve, as nightly.yml's
+      # daemon attestation does) and tries again; the retry must pass, so no
+      # binary is published without provenance.
       - name: Attest raw binary subjects
+        id: attest_subjects
+        continue-on-error: true
+        uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4.1.0
+        with:
+          subject-path: |
+            assets/cmux-tui/cmux-tui-*
+            assets/cmux-tui/manifest.json
+            assets/cmux-tui-windows/cmux-tui-*
+            assets/cmux-tui-windows/manifest.json
+            assets/cmux-relay/cmux-relay-*
+            assets/cmux-relay/manifest.json
+            assets/chatmux-relay/chatmux-relay-*
+            assets/chatmux-relay/cmux-tui-*
+            assets/chatmux-relay/manifest.json
+          # These are file subjects, not OCI images. No artifact-metadata
+          # storage records are created for this R2 publication.
+          push-to-registry: false
+
+      - name: Wait for the API budget before retrying the attestation
+        if: steps.attest_subjects.outcome == 'failure'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash scripts/ci/gh_budget_wait.sh --reserve 200
+
+      - name: Retry the attestation of raw binary subjects
+        if: steps.attest_subjects.outcome == 'failure'
         uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4.1.0
         with:
           subject-path: |
@@ -2239,7 +2274,8 @@ jobs:
     if: ${{ !cancelled() && needs.publish.result == 'success' && needs.build-windows.outputs.windows_built == 'true' }}
     needs: [publish, build-windows]
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
-    timeout-minutes: 15
+    # As publish: the shared steps' attestation retry may wait up to an hour.
+    timeout-minutes: 75
     permissions:
       contents: read
       id-token: write
@@ -2464,7 +2500,8 @@ jobs:
     # (tests/test_cmux_tui_feat_publish_order.py).
     needs: [tree-preflight, build-ok, publish]
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
-    timeout-minutes: 15
+    # A slow companion fetch may take its retries (fetch below).
+    timeout-minutes: 30
     # Ownership is elected before expensive work; publication stays per run
     # and the write-once uploader makes a rare election race safe.
     concurrency:
@@ -2563,7 +2600,10 @@ jobs:
           rm -rf tree assets/tree
           cp -R assets/run assets/tree
           base="https://files.cmux.com/cmux-tui/tree/$KEY"
-          fetch() { curl -fsSL --proto '=https' --connect-timeout 20 --max-time 120 "$1?verify=$GITHUB_RUN_ID" -o "$2"; }
+          # A companion is up to ~100 MB: 120 s with no retry timed out at 37 of
+          # 40 MB (run 40376958903). curl retries timeouts and 5xx, never a 404,
+          # so the source.json absence check below still fails at once.
+          fetch() { curl -fsSL --proto '=https' --connect-timeout 20 --max-time 300 --retry 3 --retry-delay 10 "$1?verify=$GITHUB_RUN_ID" -o "$2"; }
           fetch "https://files.cmux.com/cmux-tui/$GITHUB_SHA/manifest.json" manifest.json
           mkdir -p tree
           if fetch "$base/source.json" tree/source.json 2>/dev/null; then
@@ -2769,7 +2809,8 @@ jobs:
     if: ${{ !cancelled() && needs.publish-tree.result == 'success' && needs.publish-windows.result == 'success' }}
     needs: [tree-preflight, publish-tree, publish-windows]
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
-    timeout-minutes: 15
+    # As publish-tree, whose steps it runs: a slow companion fetch may take its retries.
+    timeout-minutes: 30
     concurrency:
       group: cmux-tui-tree-windows-${{ needs.tree-preflight.outputs.key }}-${{ github.sha }}
       cancel-in-progress: false
