@@ -2,6 +2,7 @@ import AppKit
 @testable import CmuxNextApp
 @testable import CmuxNextDaemon
 import CmuxNextDesign
+import CmuxNextWakeupsTestSupport
 import Foundation
 import Testing
 
