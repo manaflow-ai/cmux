@@ -118,6 +118,26 @@ impl ApproverSet {
         decision: &Value,
         now: u64,
     ) -> bool {
+        self.verifies_then(instance, session, permission, option, nonce, answers, decision, now, || {
+            true
+        })
+    }
+
+    /// `verifies`, then `commit` (the answer counting: its nonce spent) when it does; whether
+    /// both did.
+    #[allow(clippy::too_many_arguments)]
+    pub fn verifies_then(
+        &self,
+        instance: &str,
+        session: &str,
+        permission: &str,
+        option: &str,
+        nonce: &str,
+        answers: Option<&Value>,
+        decision: &Value,
+        now: u64,
+        commit: impl FnOnce() -> bool,
+    ) -> bool {
         let field = |f: &str| decision.get(f).and_then(Value::as_str);
         let (Some(id), Some(signature)) = (field("approver"), field("signature")) else {
             return false;
@@ -146,6 +166,7 @@ impl ApproverSet {
         ring::signature::UnparsedPublicKey::new(&ring::signature::ECDSA_P256_SHA256_FIXED, &key)
             .verify(&message, &signature)
             .is_ok()
+            && commit()
     }
 }
 
@@ -408,6 +429,31 @@ mod tests {
             {"id": "phone-1", "publicKey": hex(k.public_key().as_ref()), "name": "iPhone"}]}))
             .unwrap();
         assert!(!check(&set, &good, 200, None, 100));
+    }
+
+    /// Landing term 4 of #24233: revoking the phone stops even a signature made before. A
+    /// revocation sent while a signed answer is being committed returns only after that commit,
+    /// and from then on the same signature counts nothing.
+    #[test]
+    fn a_revocation_during_a_commit_waits_for_it_and_then_the_signature_counts_nothing() {
+        use std::time::Duration;
+        let k = key();
+        let set = std::sync::Arc::new(enrolled(&k));
+        let good = sign(&k, &parts(200, ""));
+        let decision = json!({"approver": "phone-1", "expiresAt": 200, "signature": good});
+        let (revoked, returned) = std::sync::mpsc::channel();
+        let revoker = set.clone();
+        let committed = set.verifies_then("inst", "s1", "p1", "allow", "n1", None, &decision, 100, || {
+            std::thread::spawn(move || {
+                revoker.set(&json!({"macDevice": "mac-1", "approvers": []})).unwrap();
+                let _ = revoked.send(());
+            });
+            // The commit is in flight: the revocation has not returned.
+            returned.recv_timeout(Duration::from_millis(300)).is_err()
+        });
+        assert!(committed, "the revocation returned while the answer was being committed");
+        returned.recv_timeout(Duration::from_secs(10)).expect("the revocation returns");
+        assert!(!check(&set, &good, 200, None, 100), "the old signature counts after revocation");
     }
 
     #[test]
