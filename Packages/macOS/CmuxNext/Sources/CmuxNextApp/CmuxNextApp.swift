@@ -89,6 +89,11 @@ public struct CmuxNextApp {
         // The launch's order owners: the main-thread scheduler and the StartupScheduler on it, passed by init.
         // The one input tap (p04-input.md 3 (A)): the budget's pending input, control and services observe it.
         let inputTap = InputEventTap()
+        // The design kit's popups, overlay hosts and tooltip subscribe to it too, before the delegate
+        // and services make any: their owners in many packages make them with no tap (p04-input-013).
+        NativePopupHost.appInputTap = inputTap
+        WindowOverlayHost.appInputTap = inputTap
+        TooltipPresenter.shared.inputTap = inputTap
         let order = LaunchOrder(fence: fence, input: inputTap) { DebugTimings.markLaunch($0) }
         let delegate = AppDelegate(environment: environment, daemonPrestart: prestart, wireStats: wireStats,
                                    startupTrace: startupTrace, order: order, inputTap: inputTap,

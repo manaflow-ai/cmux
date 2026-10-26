@@ -5,8 +5,9 @@ import CmuxNextWakeupsTestSupport
 import Testing
 
 /// The hover card coordinator listens on the app's one input tap, not AppKit event monitors
-/// (p04-input-013): only while a card is pending or shown it holds a dismissal intercept of order
-/// `.popup`, and a key press, click or wheel scroll ends the card and goes on.
+/// (p04-input-013): only while a card is pending or shown it holds an observer of key presses and
+/// clicks and a scroll intercept of order `.popup`, and a key press, click or wheel scroll ends the
+/// card and goes on. An intercept that consumes the key first (a modal's Escape) never hides it.
 @MainActor @Suite(.serialized) struct HoverCardCoordinatorTests {
     private final class Source: HoverCardSource {
         let window: NSWindow
@@ -25,8 +26,7 @@ import Testing
 
     /// A coordinator with a pending card for the window's one target, listening on `events`' tap.
     private static func pendingCard(_ events: InputTapTestEvents, window: NSWindow, source: Source) throws -> HoverCardCoordinator {
-        let coordinator = HoverCardCoordinator(clock: ManualClock())
-        coordinator.inputTap = { events.tap }
+        let coordinator = HoverCardCoordinator(clock: ManualClock(), input: events.tap)
         coordinator.register(source)
         let frame = window.frame
         coordinator.pointerLocation = { CGPoint(x: frame.midX, y: frame.midY) }
@@ -41,23 +41,40 @@ import Testing
         return coordinator
     }
 
-    @Test func aPendingCardHoldsOneDismissalInterceptAndAKeyPressEndsIt() throws {
+    @Test func aPendingCardHoldsItsDismissalsAndAKeyPressEndsIt() throws {
         let events = InputTapTestEvents()
         let window = InputTapTestEvents.window()
         defer { window.orderOut(nil) }
         let source = Source(window: window)
         let coordinator = try Self.pendingCard(events, window: window, source: source)
         defer { coordinator.unregister(source) }
-        for eventClass in [InputEventClass.key, .button, .scroll] {
-            #expect(events.tap.subscriberCount(eventClass, stage: .intercept) == 1, "no \(eventClass) dismissal intercept")
+        for eventClass in [InputEventClass.key, .button] {
+            #expect(events.tap.subscriberCount(eventClass, stage: .observe) == 1, "no \(eventClass) dismissal observer")
+            #expect(events.tap.subscriberCount(eventClass, stage: .intercept) == 0, "a \(eventClass) dismissal intercept")
         }
+        #expect(events.tap.subscriberCount(.scroll, stage: .intercept) == 1, "no scroll intercept")
         #expect(coordinator.report["dismissal_subscription"] == "true")
 
         #expect(!events.dispatch(try InputTapTestEvents.key(.keyUp, keyCode: 0, in: window)))
         #expect(coordinator.machine.activeTarget != nil, "a key up ended the card")
         #expect(!events.dispatch(try InputTapTestEvents.key(.keyDown, keyCode: 0, in: window)), "the key press was swallowed")
         #expect(coordinator.machine.activeTarget == nil, "a key press kept the card")
-        #expect(events.subscriptions == 0, "the dismissal intercept outlived the card")
+        #expect(events.subscriptions == 0, "the dismissals outlived the card")
+    }
+
+    /// A modal overlay's Escape intercept (order `.modal`, before every popup's) consumes the key: the
+    /// card still hears it and ends.
+    @Test func anEscapeAModalInterceptConsumesStillEndsTheCard() throws {
+        let events = InputTapTestEvents()
+        let window = InputTapTestEvents.window()
+        defer { window.orderOut(nil) }
+        let source = Source(window: window)
+        let coordinator = try Self.pendingCard(events, window: window, source: source)
+        defer { coordinator.unregister(source) }
+        let modal = events.tap.subscribe(class: .key, phase: .intercept(order: .modal)) { _ in .consume }
+        #expect(events.dispatch(try InputTapTestEvents.key(.keyDown, keyCode: 53, in: window)), "the modal did not take Escape")
+        #expect(coordinator.machine.activeTarget == nil, "the card missed the Escape the modal took")
+        withExtendedLifetime(modal) {}
     }
 
     @Test func aClickOrAScrollOffTheCardEndsItAndGoesOn() throws {

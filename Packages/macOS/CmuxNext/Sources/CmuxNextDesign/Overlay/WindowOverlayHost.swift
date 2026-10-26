@@ -60,8 +60,13 @@ public final class WindowOverlayHost {
     /// The tap intercept for Escape (``InputEventTap/InterceptOrder/modal``), held while an overlay
     /// that dismisses on Escape, or a modal, shows (``updateEscapeIntercept()``).
     var escapeIntercept: InputSubscription?
-    /// The app's input tap, read when a subscription starts (tests inject their own).
-    var inputTap: () -> InputEventTap? = { InputEventTap.application }
+    /// The app's input tap the hosts subscribe to, set once by the App's composition root before any
+    /// window shows. Each host takes it when it is made (tests set a host's own).
+    public static var appInputTap: InputEventTap?
+    /// The tap this host subscribes to (``appInputTap`` when made).
+    var inputTap: InputEventTap?
+    /// The pointer in screen coordinates (tests inject one).
+    var pointerLocation: () -> NSPoint = { NSEvent.mouseLocation }
     /// Rects in window coordinates that sit above `.pane` overlays and pages (the sidebar), by id.
     var occluders: [String: NSRect] = [:]
     /// `interactiveRegions()`, rebuilt on present, layout, dismiss, occluder and content frame changes.
@@ -92,6 +97,7 @@ public final class WindowOverlayHost {
     init(window: NSWindow?) {
         self.window = window
         isAppHost = window == nil
+        inputTap = Self.appInputTap
         panel = OverlayHostPanel()
         panel.onCancel = { [weak self] in self?.escape() }
         panel.onCycleKeyView = { [weak self] forward in self?.cycleKeyView(forward: forward) ?? false }

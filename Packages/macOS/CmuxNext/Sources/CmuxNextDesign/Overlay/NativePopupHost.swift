@@ -33,11 +33,16 @@ public final class NativePopupHost {
     /// While the popup shows: the tap observer of clicks (one outside the popup closes it) and the
     /// Escape intercept (``InputEventTap/InterceptOrder/popup``, after a modal overlay's).
     private var subscriptions: [InputSubscription] = []
-    /// The app's input tap, read when the popup shows (tests inject their own).
-    var inputTap: () -> InputEventTap? = { InputEventTap.application }
+    /// The app's input tap popups subscribe to, set once by the App's composition root before any
+    /// window shows: the popups' owners in many packages make their hosts with no tap of their own.
+    public static var appInputTap: InputEventTap?
+    /// The tap this popup subscribes to while it shows.
+    var inputTap: InputEventTap?
 
-    public init(panel: NSPanel) {
+    /// A host for `panel` that subscribes to `input` (nil: ``appInputTap``).
+    public init(panel: NSPanel, input: InputEventTap? = nil) {
         self.panel = panel
+        inputTap = input ?? Self.appInputTap
         if let keyed = panel as? NativePopupPanel {
             keyed.onLostKeys = { [weak self, weak keyed] elsewhere in
                 guard let self, let keyed else { return }
@@ -129,22 +134,24 @@ public final class NativePopupHost {
     }
 
     private func watch(_ window: NSWindow) {
-        guard observers.isEmpty else { return }
-        let center = NotificationCenter.default
-        let names: [(NSNotification.Name, AnyObject?)] = [
-            (NSApplication.didResignActiveNotification, nil), (NSWindow.willMoveNotification, window),
-            (NSWindow.didResizeNotification, window), (NSWindow.willCloseNotification, window),
-            (NSWindow.didMiniaturizeNotification, window),
-        ]
-        observers = names.map { name, object in
-            center.addObserver(forName: name, object: object, queue: .main) { [weak self] _ in
-                Task { @MainActor in self?.dismiss() }
+        if observers.isEmpty {
+            let center = NotificationCenter.default
+            let names: [(NSNotification.Name, AnyObject?)] = [
+                (NSApplication.didResignActiveNotification, nil), (NSWindow.willMoveNotification, window),
+                (NSWindow.didResizeNotification, window), (NSWindow.willCloseNotification, window),
+                (NSWindow.didMiniaturizeNotification, window),
+            ]
+            observers = names.map { name, object in
+                center.addObserver(forName: name, object: object, queue: .main) { [weak self] _ in
+                    Task { @MainActor in self?.dismiss() }
+                }
             }
         }
-        guard let tap = inputTap() else { return }
+        guard subscriptions.isEmpty, let tap = requiredInputTap(inputTap, owner: "NativePopupHost") else { return }
+        let shows: @MainActor () -> Bool = { [weak self] in self?.isShown == true }
         subscriptions = [
-            tap.subscribe(class: .button) { [weak self] event in self?.clickEvent(event) },
-            tap.subscribe(class: .key, phase: .intercept(order: .popup)) { [weak self] event in
+            tap.subscribe(class: .button, while: shows) { [weak self] event in self?.clickEvent(event) },
+            tap.subscribe(class: .key, phase: .intercept(order: .popup), while: shows) { [weak self] event in
                 self?.escapeEvent(event) ?? .pass
             },
         ]

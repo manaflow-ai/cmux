@@ -45,6 +45,14 @@ struct InputTapTestEvents {
                                                clickCount: 1, pressure: 1))
     }
 
+    /// A tracking-area edge: `.mouseEntered` or `.mouseExited`.
+    static func tracking(_ type: NSEvent.EventType, in window: NSWindow? = nil) throws -> NSEvent {
+        _ = NSApplication.shared
+        return try #require(NSEvent.enterExitEvent(with: type, location: .zero, modifierFlags: [], timestamp: 1,
+                                                   windowNumber: window?.windowNumber ?? 0, context: nil, eventNumber: 0,
+                                                   trackingNumber: 0, userData: nil))
+    }
+
     static func scroll() throws -> NSEvent {
         _ = NSApplication.shared
         let cgEvent = try #require(CGEvent(scrollWheelEvent2Source: nil, units: .pixel, wheelCount: 2, wheel1: -3, wheel2: 0, wheel3: 0))

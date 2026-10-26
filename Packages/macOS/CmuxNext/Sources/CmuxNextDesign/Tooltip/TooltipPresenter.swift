@@ -1,4 +1,5 @@
 public import AppKit
+import CmuxNextCompat
 import CmuxNextInput
 import CmuxNextWakeups
 public import CmuxNextDesignTokens
@@ -11,8 +12,8 @@ public import CmuxNextDesignTokens
 /// there at once; each fades out quicker than it came. It draws in the view's theme scope on the
 /// shared overlay glass (`Glass.makeOverlayPanel`, the hover cards' too; a small tight shadow)
 /// under the legibility tint (`TooltipSurface.tint`), with a shortcut hint in the secondary ink. Pages draw the same tooltip
-/// (webviews/src/ui/titleTooltips.ts, `.ui-tooltip`). A click, a key or a scroll puts it away; the app
-/// going inactive hides its panel (`hidesOnDeactivate`), and the next check (``recheck``) puts it away.
+/// (webviews/src/ui/titleTooltips.ts, `.ui-tooltip`). A click, a key, a scroll or the app going
+/// inactive puts it away.
 @MainActor
 public final class TooltipPresenter {
     public static let shared = TooltipPresenter()
@@ -45,8 +46,13 @@ public final class TooltipPresenter {
     /// The tap subscription for the clicks, keys and scrolls that put the tooltip away: held only
     /// while a tooltip shows or waits (``watch()``).
     private var dismissals: InputSubscription?
-    /// The app's input tap, read when a tooltip starts to show or wait (tests inject their own).
-    var inputTap: () -> InputEventTap? = { InputEventTap.application }
+    /// The app going inactive puts the tooltip away (the tap carries no AppKit-defined event): held
+    /// with ``dismissals``.
+    private var resignActive: MainActorObservation?
+    /// The app's input tap, set once by the App's composition root (tests set their own).
+    public var inputTap: InputEventTap?
+    /// Where the app's activation notifications come from (tests post on their own).
+    var notifications: NotificationCenter = .default
 
     /// The text and shortcut on screen, nil while hidden (tests and debug).
     public private(set) var shown: (text: String, shortcut: String?)?
@@ -222,11 +228,23 @@ public final class TooltipPresenter {
         return NSPoint(x: x.rounded(), y: y.rounded())
     }
 
-    /// Watches for the clicks, keys and scrolls that put the tooltip away while one shows or waits: an
-    /// observer of the tap (it never stops the event).
+    /// Watches for the clicks, keys and scrolls that put the tooltip away while one shows or waits (an
+    /// observer of the tap: it never stops the event), and for the app going inactive.
     private func watch() {
-        guard dismissals == nil else { return }
-        dismissals = inputTap()?.subscribe(class: [.button, .key, .scroll]) { [weak self] event in self?.inputEvent(event.type) }
+        if resignActive == nil {
+            resignActive = MainActorObservation(NSApplication.didResignActiveNotification, center: notifications) { [weak self] in
+                self?.dismiss()
+            }
+        }
+        guard dismissals == nil, let tap = requiredInputTap(inputTap, owner: "TooltipPresenter") else { return }
+        dismissals = tap.subscribe(class: [.button, .key, .scroll], while: { [weak self] in self?.isActive == true }) { [weak self] event in
+            self?.inputEvent(event.type)
+        }
+    }
+
+    /// A tooltip shows, waits, or ends its warm group at the next click or key; or a scroll is under way.
+    private var isActive: Bool {
+        shown != nil || candidate != nil || scrolling || !inside.isEmpty || intent.isWarm
     }
 
     /// A click, key press or scroll seen by the tap while watching (button and key ups pass by).
@@ -240,8 +258,9 @@ public final class TooltipPresenter {
 
     private func unwatch() {
         dismissals = nil
+        resignActive = nil
     }
 
-    /// The tap subscription is held (tests).
-    var isWatching: Bool { dismissals != nil }
+    /// The tap subscription or the inactive-app observer is held (tests).
+    var isWatching: Bool { dismissals != nil || resignActive != nil }
 }

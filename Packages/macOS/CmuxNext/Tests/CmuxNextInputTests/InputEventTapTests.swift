@@ -268,6 +268,26 @@ struct InputEventTapTests {
         #expect(pointer.location == InputPoint(x: 5, y: 6))
     }
 
+    /// Tracking-area edges reach only a subscriber that names `.tracking` (no `.all` or `.pointer`
+    /// one), and, made by a move rather than input of their own, replace neither last event.
+    @Test func trackingAreaEdgesReachOnlyTheirSubscribersAndAreNoLastEvent() throws {
+        let tap = InputEventTap()
+        let log = Log()
+        let tracking = tap.subscribe(class: .tracking) { log.calls.append($0.type == .mouseEntered ? "enter" : "exit") }
+        let pointer = tap.subscribe(class: .pointer) { _ in log.calls.append("pointer") }
+        try Self.dispatch(Self.mouse(.mouseMoved, at: CGPoint(x: 1, y: 2)), through: tap)
+        _ = NSApplication.shared
+        for type in [NSEvent.EventType.mouseEntered, .mouseExited] {
+            let edge = try #require(NSEvent.enterExitEvent(with: type, location: CGPoint(x: 9, y: 9), modifierFlags: [], timestamp: 2,
+                                                           windowNumber: 0, context: nil, eventNumber: 0, trackingNumber: 0, userData: nil))
+            Self.dispatch(edge, through: tap)
+        }
+        #expect(log.calls == ["pointer", "enter", "exit"])
+        #expect(tap.lastDispatched?.type == .mouseMoved, "a tracking-area edge replaced the last dispatched event")
+        #expect(tap.lastPointer?.type == .mouseMoved, "a tracking-area edge replaced the last pointer event")
+        withExtendedLifetime((tracking, pointer)) {}
+    }
+
     @Test func ownersSetAndClearFlags() {
         let tap = InputEventTap()
         tap.setFlag(.hintsShowing, true)

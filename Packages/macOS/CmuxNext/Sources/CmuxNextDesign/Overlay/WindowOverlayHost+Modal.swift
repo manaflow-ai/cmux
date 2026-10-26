@@ -113,8 +113,9 @@ extension WindowOverlayHost {
     /// ``InputEventTap/InterceptOrder/modal``, puts it before every popup's.
     func updateEscapeIntercept() {
         let wanted = handles.contains { $0.options.dismissOnEscape || $0.options.isModal }
-        if wanted, escapeIntercept == nil {
-            escapeIntercept = inputTap()?.subscribe(class: .key, phase: .intercept(order: .modal)) { [weak self] event in
+        if wanted, escapeIntercept == nil, let tap = requiredInputTap(inputTap, owner: "WindowOverlayHost.escape") {
+            escapeIntercept = tap.subscribe(class: .key, phase: .intercept(order: .modal),
+                                            while: { [weak self] in self?.handles.isEmpty == false }) { [weak self] event in
                 self?.escapeEvent(event) ?? .pass
             }
         } else if !wanted {

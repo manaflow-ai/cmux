@@ -19,22 +19,26 @@ extension WindowOverlayHost {
             mouseRouting = nil
             return
         }
-        routeMouse(at: NSEvent.mouseLocation)
-        guard mouseRouting == nil else { return }
-        // An observer of the tap: it never stops the event (a move, a drag or a click of any window).
-        mouseRouting = inputTap()?.subscribe(class: [.pointerMove, .drag, .button]) { [weak self] event in
+        routeMouse(at: pointerLocation())
+        guard mouseRouting == nil, let tap = requiredInputTap(inputTap, owner: "WindowOverlayHost.mouseRouting") else { return }
+        // An observer of the tap: it never stops the event (a move, a drag, a click or a tracking-area
+        // edge of any window). The parent window takes no mouse moves, so over it the pointer sends
+        // only tracking-area enters and exits (a page window's too); they route the mouse as a move does.
+        // A panel off screen has nothing to route.
+        mouseRouting = tap.subscribe(class: [.pointerMove, .drag, .button, .tracking],
+                                     while: { [weak self] in self?.panel.isVisible == true }) { [weak self] event in
             self?.routingEvent(event)
         }
     }
 
-    /// One pointer event seen by `mouseRouting`: a click may give the panel the keyboard, a move or a
-    /// drag routes the mouse (button ups pass by).
+    /// One pointer event seen by `mouseRouting`: a click may give the panel the keyboard; a move, a
+    /// drag or a tracking-area enter or exit routes the mouse (button ups pass by).
     func routingEvent(_ event: NSEvent) {
         switch event.type {
         case .leftMouseDown, .rightMouseDown, .otherMouseDown:
             clickDidLand(in: event.window, at: event.window === panel ? event.locationInWindow : .zero)
-        case .mouseMoved, .leftMouseDragged, .rightMouseDragged, .otherMouseDragged:
-            routeMouse(at: NSEvent.mouseLocation)
+        case .mouseMoved, .leftMouseDragged, .rightMouseDragged, .otherMouseDragged, .mouseEntered, .mouseExited:
+            routeMouse(at: pointerLocation())
         default:
             break
         }
@@ -83,7 +87,7 @@ extension WindowOverlayHost {
             return true
         case .leftMouseDragged, .rightMouseDragged, .otherMouseDragged:
             guard forwardTarget != nil, Self.button(of: event) == forwardButton else {
-                if forwardTarget == nil { routeMouse(at: NSEvent.mouseLocation) }
+                if forwardTarget == nil { routeMouse(at: pointerLocation()) }
                 return false
             }
             forward(event)
@@ -94,7 +98,7 @@ extension WindowOverlayHost {
             forwardTarget = nil
             return true
         case .mouseMoved, .mouseEntered, .mouseExited:
-            routeMouse(at: NSEvent.mouseLocation)
+            routeMouse(at: pointerLocation())
             return false
         default:
             return false

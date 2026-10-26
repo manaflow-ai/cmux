@@ -13,8 +13,7 @@ import Testing
     }
 
     private static func shownPopup(_ events: InputTapTestEvents, over window: NSWindow, log: Log) throws -> NativePopupHost {
-        let host = NativePopupHost(panel: NativePopupPanel(identifier: "test.popup"))
-        host.inputTap = { events.tap }
+        let host = NativePopupHost(panel: NativePopupPanel(identifier: "test.popup"), input: events.tap)
         host.onDismiss = { log.dismissed += 1 }
         let anchor = CGRect(x: window.frame.midX - 20, y: window.frame.midY, width: 40, height: 20)
         try #require(host.show(size: CGSize(width: 160, height: 100), anchor: anchor, in: window, entrance: false) != nil)

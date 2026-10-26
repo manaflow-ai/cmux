@@ -9,9 +9,12 @@ import Testing
 /// never stops one), and a click or a key press puts the tooltip away and ends the subscription.
 @MainActor @Suite(.serialized) struct TooltipPresenterTests {
     /// A presenter waiting to show `view`'s tooltip, listening on `events`' tap.
-    private static func waiting(_ events: InputTapTestEvents, on view: NSView) throws -> TooltipPresenter {
-        let presenter = TooltipPresenter(clock: ManualClock())
-        presenter.inputTap = { events.tap }
+    private static func waiting(_ events: InputTapTestEvents, on view: NSView, clock: ManualClock = ManualClock(),
+                                notifications: NotificationCenter = NotificationCenter()) throws -> TooltipPresenter {
+        let presenter = TooltipPresenter(clock: clock)
+        presenter.inputTap = events.tap
+        presenter.notifications = notifications
+        presenter.timing = .standard // a delay, whatever the tunables say
         #expect(!presenter.isWatching)
         presenter.enter(try #require(TooltipTracker.whole(of: view)))
         try #require(presenter.isWatching, "the presenter does not watch while a tooltip waits")
@@ -51,6 +54,27 @@ import Testing
         #expect(presenter.shown == nil)
         #expect(!presenter.isWatching)
         #expect(events.subscriptions == 0)
+    }
+
+    /// The tap carries no AppKit-defined event, so the app going inactive comes as a notification: a
+    /// tooltip still waiting on its delay is put away (its timer must not show it over the other app),
+    /// and the warm group ends with it.
+    @Test func theAppGoingInactivePutsAWaitingTooltipAway() async throws {
+        let events = InputTapTestEvents()
+        let window = InputTapTestEvents.window()
+        defer { window.orderOut(nil) }
+        let clock = ManualClock()
+        let notifications = NotificationCenter()
+        let presenter = try Self.waiting(events, on: try Self.viewWithTooltip(in: window), clock: clock,
+                                         notifications: notifications)
+        try await clock.waitForSleeper() // the tooltip's delay is pending
+        notifications.post(name: NSApplication.didResignActiveNotification, object: nil)
+        #expect(!presenter.isWatching, "the inactive app kept the waiting tooltip")
+        #expect(presenter.shown == nil)
+        #expect(events.subscriptions == 0, "the observer outlived the tooltip")
+        clock.advance(by: .seconds(2)) // past the delay: its timer was cancelled
+        await Task.yield()
+        #expect(presenter.shown == nil, "the delay's timer showed the tooltip over the other app")
     }
 
     @Test func aScrollKeepsWatchingUntilTheScrollingStops() throws {
