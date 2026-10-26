@@ -1050,6 +1050,32 @@ class RoleAuditTests(unittest.TestCase):
         fixed = census_rows_of(TABS_KINDS, TABS_CENSUS, TABS_SHOWN, base={605: 4})
         self.assertEqual(ib.role_audit("tabs-static", fixed, budget), ([], []))
 
+    def test_a_shown_renderer_left_at_best_effort_is_flagged(self):
+        """Task 107: in the run where the hidden tab is best-effort, the shown tab's and Home's renderers are
+        foreground (Chrome's kUserBlocking). Backgrounded, each is a mismatch; when the hidden tab is shown (the
+        census moves t2 to shown), its renderer must be back above best-effort."""
+        budget = ib.load_budget(ib.BUDGET_FILE)
+        backgrounded = census_rows_of(TABS_KINDS, TABS_CENSUS, TABS_SHOWN, base={605: 4, 601: 4, 602: 28})
+        for session in ("tabs-static", "energy-saver"):
+            mismatches, notes = ib.role_audit(session, backgrounded, budget)
+            self.assertEqual(mismatches, [
+                {"kind": "cef-renderer", "pids": [601], "observed": "suppressed", "expected": "not-background"},
+                {"kind": "cef-renderer", "pids": [602], "observed": "suppressed", "expected": "not-background"}])
+            self.assertEqual(notes, [])
+        self.assertEqual(ib.role_over_line("tabs-static", mismatches[1]),
+                         "IDLE-BUDGET-OVER tabs-static cef-renderer role owner=role pids=602 observed=suppressed "
+                         "expected=not-background")
+        shown_t2 = {"engine": "chromium", "tabs": ["t2"]}
+        self.assertEqual(ib.role_audit("tabs-static", census_rows_of(TABS_KINDS, TABS_CENSUS, shown_t2,
+                                                                     base={602: 4}), budget), ([], []))
+        still_background = census_rows_of(TABS_KINDS, TABS_CENSUS, shown_t2, base={602: 4, 605: 4})
+        self.assertEqual(ib.role_audit("tabs-static", still_background, budget)[0],
+                         [{"kind": "cef-renderer", "pids": [605], "observed": "suppressed",
+                           "expected": "not-background"}])
+        # No window shows: every renderer, the shown tab's too, is best-effort.
+        self.assertEqual([m["pids"] for m in ib.role_audit("minimized", backgrounded, budget)[0]
+                          if m["kind"] == "cef-renderer"], [])
+
     def test_a_build_without_a_census_judges_no_renderer_of_a_shown_session(self):
         """No debug.webui: every renderer is of unknown visibility. A shown session reports them not judged (no false
         over for Home's or the shown tab's renderer); with no window shown each is still best-effort."""

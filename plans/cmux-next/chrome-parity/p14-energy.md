@@ -1555,6 +1555,20 @@ repositories.
   same run.
 - Test phase: fork CI (136); tabs-static role rows.
 - Size M. Depends: 106. Queue fork.
+- Source finding (2026-10-26, Chromium 154.0.8037.58, manaflow-ai/cef `cmux/8037`): no fork patch is needed. The task
+  port is wired in content for every child, with no embedder seam: `RenderProcessHostImpl::OnChannelConnected` calls
+  `ChildProcessTaskPortProvider::OnChildProcessLaunched`, the helper answers `GetTaskPort` with its own task
+  (`content/child/child_thread_impl.cc`), and `ChildProcessLauncherHelper::SetProcessPriorityOnLauncherThread`
+  (`child_process_launcher_helper_mac.cc`) calls `Process::SetPriority` with that provider (`CanSetPriority()` is
+  true on Mac). cmux helpers run `CefExecuteProcess` (`helper_main.mm`). CEF does not override
+  `IsRendererProcessPriorityEnabled` and neither CEF nor `CEFSwitches` passes `--disable-renderer-backgrounding`.
+  `kUserVisibleProcessPriority` is off, so the Mac roles are kBestEffort (hidden) and kUserBlocking (shown).
+  Visibility comes from the native view (Chrome style: `ChromeBrowserHostImpl::WasHidden` is NOTIMPLEMENTED), which
+  `idle-wakeups.md` sec. 7 measured as `hidden` for hidden tabs. Two things can still leave a hidden renderer in the
+  foreground: AMFI allow-everything on the host (Chromium then logs "will not collect child process task ports";
+  check `nvram boot-args`), and a page that does not report hidden (048). The role audit now also judges the
+  renderers the census marks shown as `not-background`, so one tabs-static run checks both halves. If the fleet
+  run flags a hidden renderer with neither cause, this task reopens with a fork patch.
 
 #### p14-energy-108 Built-in uBlock Origin idle cost
 - Files: `scripts/cmux-next/bundle-ublock.sh`, `scripts/cmux-next/fetch-ublock.sh`,

@@ -88,8 +88,9 @@ rows.
 Roles (D16 of plans/cmux-next/chrome-parity/p14-energy.md, task 106): at the window's end each task's base priority
 (proc_pidinfo pti_priority) and the kernel's darwinbg bit give its observed role (darwinbg, suppressed, default:
 observed_role). The app is napped while no window shows; renderers the debug.webui census marks hidden (or every
-renderer while no window shows) and the extension process are best-effort (Chrome's kBestEffort); the daemon and
-terminal hosts are never backgrounded while a terminal shows; pooled acpmux agents are PRIO_DARWIN_BG. A budget
+renderer while no window shows) and the extension process are best-effort (Chrome's kBestEffort), and a renderer it
+marks shown is not backgrounded (kUserBlocking, task 107); the daemon and terminal hosts are never backgrounded while a
+terminal shows; pooled acpmux agents are PRIO_DARWIN_BG. A budget
 `role` (napped, best-effort, background, not-background; null: not judged) overrides the default. Each mismatch is
 one `IDLE-BUDGET-OVER <session> <kind> role owner=role pids=... observed=... expected=...` line; a role that could not
 be read and a renderer of unknown visibility are IDLE-BUDGET-NOT-JUDGED.
@@ -1316,7 +1317,8 @@ def ratio_over(of, field, kinds, vs, reference, max_ratio, suffix, floor=None):
 #
 # Chrome's model (base/process/process_mac.cc `Process::SetPriority`; RenderProcessHostImpl::UpdateProcessPriority
 # in content/browser/renderer_host/render_process_host_impl.cc): a hidden or spare renderer is kBestEffort
-# (TASK_BACKGROUND_APPLICATION + TASK_SUPPRESSION_POLICY: low CPU priority), a shown one is not. App Nap suppresses a
+# (TASK_BACKGROUND_APPLICATION + TASK_SUPPRESSION_POLICY: low CPU priority), a shown one kUserBlocking
+# (TASK_FOREGROUND_APPLICATION; kUserVisible maps to it while kUserVisibleProcessPriority is off, its default). App Nap suppresses a
 # hidden app the same way. The audit reads each task's role at the window's end (procs.priorities: its base priority
 # and darwinbg bit, never its busiest thread's priority) and compares it with D16 or the budget's `role`.
 
@@ -1414,7 +1416,9 @@ def renderer_visibility(row):
 def expected_role(session, row, budget=None, sessions=None):
     """The role D16 expects of one process in `session`, or None when it is not judged: the budget's `role` wins (an
     explicit null: not judged); a busy kind or a reference session is not judged; a renderer is best-effort when the
-    census marks it hidden or no window shows, and not judged when it is shown or its visibility is unknown."""
+    census marks it hidden or no window shows, not backgrounded when a window shows and the census marks it shown
+    (Chrome's kUserBlocking for a visible widget: RenderProcessPriority::GetProcessPriority in
+    content/browser/child_process_launcher.cc), and not judged when its visibility is unknown."""
     budget = budget or {}
     name = row["kind"]
     limit = budget_role(budget, session, name)
@@ -1427,6 +1431,8 @@ def expected_role(session, row, budget=None, sessions=None):
         return "best-effort"
     if name == "cef-renderer" and (facts.get("shown") is False or renderer_visibility(row) == "hidden"):
         return "best-effort"
+    if name == "cef-renderer" and facts.get("shown") and renderer_visibility(row) == "shown":
+        return "not-background"
     if facts.get("shown") is False and name == "app":
         return "napped"
     if facts.get("shown") and name in ("daemon", "terminal-host"):
