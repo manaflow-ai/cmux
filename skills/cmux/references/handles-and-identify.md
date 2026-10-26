@@ -10,4 +10,4 @@ cmux workspace current show --json                 # the focused workspace
 cmux workspace name:api show                       # by exact name
 ```
 
-`current` resolves to the session's focused workspace, screen and pane. A nested `current` or name fills missing ancestors with `current`; an id needs no ancestors. Use the caller's ids, not `current`, when the user may be looking at another workspace.
+`current` resolves to the caller's own workspace, screen, pane and tab (its terminal's place, or where the app shows its agent chat); `focused` resolves to the one the person looks at. A nested `current` or name fills missing ancestors with `current` (`focused` with `focused`); an id needs no ancestors. Outside cmux, or with `--socket`/`--session`, `current` is that session's active object.

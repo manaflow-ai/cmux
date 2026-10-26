@@ -27,9 +27,7 @@ cmux tab list --json
 
 The terminal record lists the tabs that show it, and a tab record names its pane. Use those ids for every mutating command.
 
-In the CLI, `current` means the session's active workspace, screen and pane, which is what the user is looking at. It is not the caller: an agent can run in one workspace while the user looks at another. Use `current` only when the user asked about the focused context, and say so.
-
-In the cmux MCP server (`cmux_exec`), `current` is the caller's own workspace, screen, pane or tab: the server asks the app where the chat is on every call, so the person can look at another workspace while the script runs. `focused` is the one the person looks at. A chat the app cannot place fails with `caller.unresolved` instead of acting on the focused workspace.
+In the CLI and the cmux MCP server (`cmux_exec`), `current` is the caller's own workspace, screen, pane or tab: a terminal's from the daemon, an agent chat's from the app on every call, so the person can look at another workspace while the agent works. `focused` is the one the person looks at; use it only when the user asked about the focused context, and say so. A chat the app cannot place fails with `caller.unresolved` instead of acting on the focused workspace. With `--socket` or `--session`, `current` is that session's active object.
 
 An agent's new terminal or link that names no place opens beside its own chat, in its own workspace: `tab_create_terminal` (and `cmux tab create terminal`) with no workspace, screen or pane goes to the column right of the chat, or makes that column; `workspace_open_url` with no workspace opens through the app's beside-the-chat rule, never in Home. Name a pane only to put it somewhere else.
 
