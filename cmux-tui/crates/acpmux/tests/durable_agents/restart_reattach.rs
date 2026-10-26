@@ -64,8 +64,8 @@ fn stored_chat(store: &dyn acpmux::store::Store, id: &str, cwd: &Path, status: &
     store.save(&meta).unwrap();
 }
 
-/// Live chats reattach within the budget however many other chats the store holds. It also
-/// prints how long an idle chat's first open took while the rest load.
+/// Live chats reattach within the budget however many other chats the store holds, and an
+/// idle chat opened while the rest still load answers without waiting for them.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_restart_reattaches_live_agents_before_reading_the_other_chats_logs() {
     let live = env_or("ACPMUX_REATTACH_LIVE", 3) as usize;
@@ -74,6 +74,8 @@ async fn a_restart_reattaches_live_agents_before_reading_the_other_chats_logs() 
     let records = env_or("ACPMUX_REATTACH_RECORDS", 500);
     let scan_delay_ms = env_or("ACPMUX_REATTACH_SCAN_DELAY_MS", 100);
     let budget_ms = env_or("ACPMUX_REATTACH_BUDGET_MS", 4_000) as u128;
+    // An idle chat's first open reads that chat's log only.
+    let open_budget_ms = env_or("ACPMUX_REATTACH_OPEN_BUDGET_MS", 1_500) as u128;
 
     let mut daemon = Daemon::new("rt", "approve-all");
     let mut live_ids = Vec::new();
@@ -164,6 +166,10 @@ async fn a_restart_reattaches_live_agents_before_reading_the_other_chats_logs() 
     assert!(
         reattach_ms <= budget_ms,
         "the live agents reattached {reattach_ms} ms after the start over {closed} closed and {idle} idle chats (budget {budget_ms} ms)"
+    );
+    assert!(
+        open_ms <= open_budget_ms,
+        "an idle chat's first open took {open_ms} ms while the other logs loaded (budget {open_budget_ms} ms)"
     );
 }
 
