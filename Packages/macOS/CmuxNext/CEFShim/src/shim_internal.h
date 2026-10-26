@@ -19,6 +19,7 @@
 #include "cmux_cef_shim.h"  // Sources/CmuxNextBrowser/CEF/Shim
 #include "embedder_focus_policy.h"
 #include "embedder_ui_args.h"
+#include "find_ids.h"
 
 namespace cmux_shim {
 
@@ -73,6 +74,8 @@ struct ForkApi {
   int (*browser_set_resize_fence)(int, uint32_t, uint32_t) = nullptr;
   // API version 34: a hosted page's visibility from the app.
   int (*browser_set_embedder_visibility)(int, int) = nullptr;
+  // API version 36: a tab's Chromium views in an embedder NSView.
+  int (*browser_attach_view)(int, void*) = nullptr;
   void (*set_new_tab_page_url)(const char*) = nullptr;
   void (*set_install_prompt_handler)(void (*)(void*, int, int, const char*), void*) = nullptr;
   int (*install_prompt_reply)(int, int) = nullptr;
@@ -155,6 +158,9 @@ struct ForkApi {
   // No API number yet (p14-energy-124; numbered by p14-energy-136): the pid
   // of the renderer hosting a tab's main frame, 0 while none.
   int (*browser_renderer_pid)(int) = nullptr;
+  // No API number yet (p07-memory-051; the fork train p07-memory-074 numbers
+  // it): cmux's voter in Chromium's MultiSourceMemoryPressureMonitor.
+  int (*memory_pressure_vote)(int) = nullptr;
 };
 
 struct Host {
@@ -170,6 +176,9 @@ struct Host {
   // Decides Chromium's focus requests when focus_request is null (the
   // Chromium Host's mode, task p01-process-032).
   EmbedderFocusPolicy embedder_focus;
+  // The caller's find id of each browser's last cmux_shim_find, which its
+  // FIND_RESULT events carry (UI thread).
+  FindIds find_ids;
 };
 
 ForkApi& fork_api();

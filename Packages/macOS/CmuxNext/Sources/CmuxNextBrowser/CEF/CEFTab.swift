@@ -12,7 +12,7 @@ import CmuxNextWakeups
 /// is created the first time the tab is shown, so hidden background tabs
 /// cost nothing until selected.
 @Observable
-public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtensionActionHosting, BrowserDevToolsHosting, BrowserHangAnswering {
+public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserPageCovering, BrowserExtensionActionHosting, BrowserDevToolsHosting, BrowserHangAnswering {
     public let id: BrowserTabID
     public let engineKind: BrowserEngineKind = .cef
     public let profileID: BrowserProfileID
@@ -41,7 +41,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     @ObservationIgnored public internal(set) lazy var automaticDownloads = makeAutomaticDownloadGate()
 
     /// Chromium browser identifier once created.
-    @ObservationIgnored public private(set) var browserID: Int32?
+    @ObservationIgnored public internal(set) var browserID: Int32?
     /// The `switch.tab` interval waiting for this tab's page window to show it (the app's visible-time
     /// request, as Chrome stores one on the destination WebContents): the next show takes it.
     @ObservationIgnored var tabSwitchShow: TabSwitchSignpost.PageShow?
@@ -55,6 +55,8 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     public var occlusionRects: [CGRect] = [] {
         didSet { applyOcclusion() }
     }
+    /// A view shows in the page's place (``BrowserPageCovering``): the whole page is a hole.
+    @ObservationIgnored public var isPageCovered = false { didSet { if isPageCovered != oldValue { applyOcclusion() } } }
 
     /// DevTools of this page (docked in `contentView` or in a window).
     public internal(set) var devTools: BrowserDevToolsState
@@ -384,8 +386,8 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     }
 
     public func reload() {
-        reloadWhenShown = false
-        isDiscardedInPlace = false
+        (reloadWhenShown, isDiscardedInPlace) = (false, false)
+        if runtime.awaitsHostRestart { return runtime.reloadAfterHostRestart(self) }
         guard let browserID else {
             if let url = pendingURL ?? state.url { load(url) }
             return
@@ -458,9 +460,6 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     /// Whether the content lifecycle hid this page (read by the pane host
     /// when the tab's content view enters a window).
     var isContentHidden: Bool { isOccluded }
-
-    public func snapshot() async throws -> CGImage { try await CEFThumbnail.capture(self, CEFThumbnail.png) }
-    public func thumbnail() async throws -> CGImage { try await CEFThumbnail.capture(self, CEFThumbnail.params) }
 
     public func setZoom(_ zoom: Double) {
         machine.apply(.zoomChanged(zoom))

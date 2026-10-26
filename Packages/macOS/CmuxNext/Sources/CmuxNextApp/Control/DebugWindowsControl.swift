@@ -3,6 +3,7 @@ import CmuxNextControl
 import CmuxNextDesign
 import CmuxNextSettings
 import CmuxNextSidebar
+import CmuxNextWakeups
 
 #if DEBUG || CMUX_BENCH_HOOKS
 /// `debug.windows` and `debug.surfaces` (DEBUG builds; a release router drops
@@ -40,9 +41,9 @@ enum DebugWindowsControl {
             },
             // `text: true` adds each terminal mirror's viewport text, and each
             // terminal pane's `terminal_id` and `host_pid` (SurfaceHostReport).
-            .async("debug.surfaces") { [weak services] call in
+            .async("debug.surfaces") { [weak services, work = services.mainWork] call in
                 let includeText = call.params["text"]?.boolValue == true
-                let built: (JSONValue, [SurfaceHostReport.Target])? = await MainActor.run {
+                let built = await work.apply(.automation, owner: "debug.surfaces") { () -> (JSONValue, [SurfaceHostReport.Target])? in
                     guard let services else { return nil }
                     return (SurfaceDiagnosticsReport.make(services, includeText: includeText), SurfaceHostReport.targets(services))
                 }

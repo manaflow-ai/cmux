@@ -27,6 +27,7 @@ final class SidebarIconView: NSView {
     override init(frame: NSRect) {
         super.init(frame: frame)
         wantsLayer = true
+        layerContentsRedrawPolicy = .onSetNeedsDisplay // updateLayer sets colors only
         swatch.cornerCurve = .continuous
         layer?.addSublayer(swatch)
         imageView.imageScaling = .scaleProportionallyDown

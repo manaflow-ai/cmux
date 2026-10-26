@@ -195,6 +195,7 @@ final class SectionHeaderRowView: SidebarRowView {
 
     var allowsAdd = true
 
+    /// Layer colors only: `layerContentsRedrawPolicy` (.onSetNeedsDisplay, SidebarRowView) runs it on needsDisplay, never on a resize.
     override func updateLayer() {
         CATransaction.begin()
         CATransaction.setDisableActions(true)

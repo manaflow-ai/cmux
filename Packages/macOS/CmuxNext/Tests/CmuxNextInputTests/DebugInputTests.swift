@@ -58,6 +58,14 @@ struct DebugInputTests {
     static let pump = DebugInputPump(passesWhileInputPending: ["terminal": 0, "chromiumPage": 4], deferredForInput: 9,
                                      passMillisecondsP99: 1.5)
 
+    static let prewarm: DebugInputPrewarm = {
+        var counters = IntentPrewarmCounters()
+        counters.started = [.pointerDown: 3, .hoverDwell: 2]
+        counters.hits = [.pointerDown: 2]
+        counters.evicted = 1
+        return DebugInputPrewarm(counters: counters, held: 2)
+    }()
+
     static func latencyBatch() -> InputLatencyBatch {
         var slot = InputLatencySlot(kind: .keyPress, target: .terminal, entrypoint: .person, causedFrameUpdate: true)
         slot.generated = 1_000_000
@@ -81,6 +89,7 @@ struct DebugInputTests {
             FixedSource(section: .pump, value: pump, resets: resets),
             FixedSource(section: .scrollViews, value: [Opaque(count: 3)], resets: resets),
             FixedSource(section: .chromium, value: Opaque(count: 4), resets: resets),
+            FixedSource(section: .prewarm, value: prewarm, resets: resets),
         ]
     }
 
@@ -117,6 +126,7 @@ struct DebugInputTests {
         #expect(try Self.decode(Opaque.self, reply["coalescer"]) == Opaque(count: 2))
         #expect(try Self.decode([Opaque].self, reply["scroll_views"]) == [Opaque(count: 3)])
         #expect(try Self.decode(Opaque.self, reply["chromium"]) == Opaque(count: 4))
+        #expect(try Self.decode(DebugInputPrewarm.self, reply["prewarm"]) == Self.prewarm)
 
         let tapSection = try Self.decode(DebugInputTap.self, reply["tap"])
         #expect(tapSection.subscribers.map(\.eventClass) == InputEventClass.allCases.map { String(describing: $0) })
@@ -132,7 +142,7 @@ struct DebugInputTests {
 
     @Test func theSectionKeysAreTheSpecdNames() throws {
         #expect(DebugInputSection.allCases.map(\.rawValue)
-            == ["latency", "interactions", "gate", "coalescer", "tap", "pump", "scroll_views", "chromium"])
+            == ["latency", "interactions", "gate", "coalescer", "tap", "pump", "scroll_views", "chromium", "prewarm"])
         let gate = try Self.object(JSONValue.parse(JSONEncoder().encode(Self.gate)))
         #expect(Set(gate.keys) == ["held_by_origin", "exempt_by_rule", "max_input_wait_behind_jobs_ms",
                                    "jobs_deferred_over_one_frame", "nonswift_blocks_while_input_pending"])
@@ -140,6 +150,10 @@ struct DebugInputTests {
         #expect(Set(held.keys) == ["main", "offMain"], "p04-input.md task 007 and DC10 name it offMain")
         let pump = try Self.object(JSONValue.parse(JSONEncoder().encode(Self.pump)))
         #expect(Set(pump.keys) == ["passes_while_input_pending", "deferred_for_input", "pass_ms_p99"])
+        let prewarm = try Self.object(JSONValue.parse(JSONEncoder().encode(Self.prewarm)))
+        #expect(Set(prewarm.keys) == ["started", "hits", "evicted", "cancelled_by_pressure", "skipped_for_power",
+                                      "skipped_for_pressure", "held"])
+        #expect(prewarm["started"] as? [String: Int] == ["pointerDown": 3, "hoverDwell": 2])
         let tap = try Self.object(JSONValue.parse(JSONEncoder().encode(InputTapDebugSource.snapshot(InputEventTap()))))
         #expect(Set(tap.keys) == ["subscribers", "global_monitors", "flags"], "no event yet: last_dispatched is left out")
         let row = try #require((tap["subscribers"] as? [[String: Any]])?.first)

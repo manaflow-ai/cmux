@@ -188,6 +188,12 @@ typedef enum {
   // line (MIME types and ".ext"); s2 = the default path or file name. Chromium
   // shows no panel; a closed or crashed browser cancels it.
   CMUX_SHIM_FILE_DIALOG = 48,
+  // 49 to 53 are taken (plans/cmux-next/chromium-host-ops.json, optional_events).
+  // The page's cursor changed (CefDisplayHandler::OnCursorChange), only after
+  // cmux_shim_set_cursor_events(1): a = cef_cursor_type_t. For CT_CUSTOM (45)
+  // s1 = the image as PNG, base64; request = image pixels per DIP x 1000;
+  // b = the hotspot in image pixels, x in the low 32 bits, y in the high 32.
+  CMUX_SHIM_CURSOR = 54,
 } cmux_shim_event_kind_t;
 
 typedef enum {
@@ -354,6 +360,23 @@ typedef enum {
 // for an unknown value or browser, a browser with no page window, or a fork
 // without the call. UI thread.
 CMUX_SHIM_EXPORT int cmux_shim_browser_set_embedder_visibility(int browser_id, int visibility);
+// Fork API 36 (cmux_browser_attach_view; p03-rendering-044, Track B; 33 is
+// p14-energy's, 34 p03-rendering-058's, 35 p03-rendering-056's): browser_id's
+// page shows in parent_view (an NSView* of this process, in any app window)
+// as Chromium's own views: its WebContentsViewCocoa fills parent_view, below
+// its other subviews, and each RenderWidgetHostViewCocoa draws through its
+// own layer tree. Input, IME, cursor, drag, popups and accessibility come
+// from those views, and the page's visibility and active state follow
+// parent_view and its window (and Chromium's active tab). The page window
+// stays headless (never ordered in) while a tab of it is attached, also after
+// the tab moved there from another window; layer hosting, detached hosting
+// and the resize fence refuse the page then. parent_view NULL gives the tab
+// back to its page window, which shows again once none of its tabs is
+// attached (also after an attached tab closed or moved away). Returns 1, or 0
+// for an unknown browser, a browser with no page window, or a fork without
+// the call. In-process only: an NSView* means nothing in another process. UI
+// thread.
+CMUX_SHIM_EXPORT int cmux_shim_browser_attach_view(int browser_id, void* parent_view);
 // Fork API 30: the helper-app browser process (plans/cmux-next/cef-helper-app-DESIGN.md).
 // Each returns 0 (or does nothing) when the fork lacks the call; the fork's
 // include/cef_cmux.h documents the semantics. UI thread only unless noted.
@@ -1080,6 +1103,25 @@ CMUX_SHIM_EXPORT int cmux_shim_page_scheme_add_first_party_dynamic(const char* i
 // Returns 1 when the request was waiting, 0 when it ended or was answered.
 CMUX_SHIM_EXPORT int cmux_shim_page_resource_respond(int token, int status, const char* mime, const void* body,
                                                      size_t length);
+// cmux's vote in Chromium's memory pressure aggregator (fork
+// cmux_memory_pressure_vote, p07-memory-051): one voter next to Chromium's
+// own platform voter (content/browser/browser_main_loop.cc
+// CreateMemoryPressureMonitor); Chromium's listeners get the highest vote.
+// level: 0 none (withdraws cmux's vote), 1 moderate, 2 critical. The fork
+// calls MemoryPressureVoter::SetVote(level, /*notify_listeners=*/false), so
+// Chromium's listeners run only when the aggregate level changes, and a
+// kernel event that the platform voter also reports does not run them twice.
+// Inside the call run only the sync listeners (async ones are posted tasks
+// that run in later cmux_shim_do_work calls); in host library mode the call
+// is one post to the Chromium Host. Main thread, after cmux_shim_initialize.
+// Returns 1 when the fork took the vote, 0 when the fork lacks the call,
+// for a level out of range, or once quit began (nothing changes).
+CMUX_SHIM_EXPORT int cmux_shim_memory_pressure_vote(int level);
+// 1: page cursors come to the host as CMUX_SHIM_CURSOR and Chromium sets no
+// NSCursor of its own (the Chromium Host, whose page windows never show: the
+// page view in cmux shows the cursor). 0 (the default): Chromium sets the
+// cursor over its page window. UI thread.
+CMUX_SHIM_EXPORT void cmux_shim_set_cursor_events(int enabled);
 
 // Chromium tracing through stock CEF (include/cef_trace.h, CEFShim/src/shim_tracing.mm; task
 // p09-observability-050). These are not cmux_shim_* exports, so the Chromium Host wire does not

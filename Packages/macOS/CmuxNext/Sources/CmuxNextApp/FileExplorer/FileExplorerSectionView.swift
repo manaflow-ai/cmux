@@ -36,12 +36,12 @@ final class FileExplorerSectionView: NSView, RightSidebarRefreshing, NSTableView
     ///   - rowMenu: The right-click menu, the registry's `fileExplorerRow` menu (New File and
     ///     New Folder only when nothing is selected).
     ///   - openWith: Turns the menu's Open With row into the file's apps submenu.
-    ///   - apps: The apps that open a file (LaunchServices; a fake in tests).
+    ///   - apps: The apps that open a file (`WorkspaceFileApps` in the app; none by default, a fake in tests).
     ///   - effects: What a rename typed in a row uses besides the file system.
     ///   - showError: Shows why a rename typed in a row failed.
     init(model: FileExplorerModel, rootFolder: @escaping @MainActor @Sendable () -> URL?, perform: @escaping @MainActor (String) -> Void,
          rowMenu: @escaping @MainActor (_ hasSelection: Bool) -> NSMenu?, openWith: FileExplorerOpenWithMenu? = nil,
-         apps: any FileAppsProviding = WorkspaceFileApps(),
+         apps: any FileAppsProviding = UnwiredFileApps(),
          effects: any FileExplorerEffects = NullFileExplorerEffects(), showError: @escaping @MainActor (String) -> Void = { _ in }) {
         self.effects = effects
         self.showError = showError
@@ -144,6 +144,14 @@ final class FileExplorerSectionView: NSView, RightSidebarRefreshing, NSTableView
         if let selection = model.selection, let index = rows.firstIndex(where: { $0.url == selection }) {
             table.selectRowIndexes(IndexSet(integer: index), byExtendingSelection: false)
         }
+        prefetchOpenWith()
+    }
+
+    /// Warms the Open With lists of the rows on screen, so a right-click on one fills its submenu at once.
+    private func prefetchOpenWith() {
+        let shown = table.rows(in: table.visibleRect)
+        let visible = rows.indices.clamped(to: shown.location..<(shown.location + shown.length))
+        apps.prefetchOpenWithLists(for: rows[visible].map { (name: $0.name, isDirectory: $0.isFolder) })
     }
 
     @objc private func doubleClicked() {

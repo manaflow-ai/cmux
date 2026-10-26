@@ -115,6 +115,32 @@
         "settled"
       ],
       "note": "a built-in Chrome device; the tab snapshot shows extra.emulation, horizontal"
+    },
+    {
+      "id": "retry",
+      "op": "resource.call",
+      "target": {
+        "machine": "current",
+        "session": "current",
+        "tab": "$step:fx-app-browser#/value/tab_id"
+      },
+      "args": {
+        "method": "browser.tab.emulate",
+        "params": {
+          "device": "iPhone SE",
+          "orientation": "horizontal"
+        },
+        "idempotencyKey": "browser-tab-emulate-ok.call"
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "mutation_result"
+      },
+      "checkpoint": [
+        "before",
+        "settled"
+      ],
+      "note": "I10: step call again with its idempotency key; the daemon replays its reply, adds no journal record and changes no facet"
     }
   ],
   "invariants": [

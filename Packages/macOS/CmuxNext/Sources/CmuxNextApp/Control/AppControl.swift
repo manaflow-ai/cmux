@@ -120,13 +120,12 @@ final class AppControl {
         router.register(ErrorJournalControl(journal: errors.journal, sources: errors.sources).methods)
     }
 
-    /// Resources, extensions, Ghostty diagnostics and `debug.memory` (release builds too).
+    /// Resources, extensions, Ghostty diagnostics, `features.list`, `energy.status` and `debug.memory` (release builds too).
     func registerResourceMethods(_ services: AppServices, on router: ControlRouter) {
         router.register([
             // CPU and memory per tab and workspace, two samples `interval_ms` apart.
             .async("resources") { [weak services] call in
-                let services = await MainActor.run { services }
-                return try await ResourceControl.run(call.params, services: services)
+                try await ResourceControl.run(call.params, services: services)
             }.withDeadline(.fixed(ResourceControl.deadline)),
             // Installed Chrome extensions, shortcuts and toolbar badges.
             .mainActor("browser.extensions") { [weak services] _ in
@@ -135,6 +134,10 @@ final class AppControl {
             },
             // Ghostty config keys and keybind actions cmux does not apply (R92).
             GhosttyDiagnosticsControl().method,
+            // Every feature's value and source (`cmux settings feature-flags`), read-only.
+            FeatureFlagsPage.report(services.features, tunables: TunableStore.shared).method,
+            // Energy Saver's policy and inputs (`cmux energy status`, MCP `energy_status`).
+            EnergyReport.statusMethod(services: services),
         ])
         router.register(DebugHibernationControl.methods(services)) // debug.memory serves release builds too
     }
@@ -154,6 +157,7 @@ final class AppControl {
         // The local daemon's wire traffic, decodes, output copies and connections by role.
         if let wireStats = services.wireStats { router.register([DaemonWireControl(stats: wireStats).method]) }
         router.register([DebugInput(sources: [InputTapDebugSource(tap: services.inputTap), DebugCEF.pumpInputSource(services.cache.chromium),
+                                               IntentPrewarmDebugSource { [weak services] in services?.cache.hibernation?.intentPrewarm?.service },
                                                ScrollViewAuditSource { [mainWork = services.mainWork] in
                                                    await withCheckedContinuation { continuation in
                                                        mainWork.postFromAnyThread(.automation, owner: "debug.input.scroll_views") {
@@ -247,10 +251,16 @@ extension AppControl {
             group("Control.registerBrowserPage", services) { [weak settings] _, services, router in
                 // The passkey hand-off: an agent's request waits for the person's banner click.
                 let passkeys = BrowserPasskeyRequests(host: AppBrowserPasskeyHost(services: services))
-                services.notifications.onPasskeyBanner = { id in Task { _ = try? await passkeys.answer(id) } }
+                // The person's banner click: the answer awaits the requests' actor off main; its reveal is main work.
+                services.notifications.onPasskeyBanner = { [work = services.work] id in
+                    _ = work.task(.userBlocking) { _ = try? await passkeys.answer(id) }
+                }
+                // Read per agent click: the agent's work, in the automation class.
                 BrowserPageService(engine: AppBrowserPageEngine(services: services), passkeys: passkeys,
-                                   agentMouse: { [weak settings] in
-                                       await MainActor.run { settings?.snapshot.browserAgentMouse } ?? AgentMouseSetting().fallback
+                                   agentMouse: { [weak settings, work = services.mainWork] in
+                                       await work.apply(.automation, owner: "browser.agent_mouse") {
+                                           settings?.snapshot.browserAgentMouse
+                                       } ?? AgentMouseSetting().fallback
                                    }).install(on: router)
                 services.apps.attach(router: router)
             },
@@ -268,11 +278,12 @@ extension AppControl {
     }
 
     #if DEBUG || CMUX_BENCH_HOOKS
-    /// The Chromium host app prototype (browserHost.helper; cef-helper-app-DESIGN.md).
+    /// The Chromium host app prototype (feature cefHelperHost; cef-helper-app-DESIGN.md).
     /// Socket focus policy: `open` makes the page first responder only with focus: true.
     private static func registerChromiumHostDebug(_ services: AppServices, on router: ControlRouter) {
+        let hostSwitch = chromiumHostSwitch(in: services.features, tunables: TunableStore.shared)
         let chromiumHost = ChromiumHostPrototype(makeConfiguration: { ChromiumHostPrototype.bundledConfiguration() },
-                                                 tunables: TunableStore.shared, mainWork: services.mainWork,
+                                                 isOn: { hostSwitch.isEnabled }, mainWork: services.mainWork,
                                                  deadlines: services.mainDeadlines,
                                                  idleExitAfter: chromiumHostIdleExit(in: services.features))
         router.register([
@@ -300,6 +311,16 @@ extension AppControl {
             if case .duration(let seconds, _, _) = param.value { return .seconds(seconds) }
         }
         return nil
+    }
+
+    /// The Chromium host's switch: the launch's `cefHelperHost`, which Debug Settings
+    /// `browserHost.helper` overrides in FeatureList's order: below policy and the
+    /// environment, above remote, trial and the channel default, never in Release.
+    static func chromiumHostSwitch(in features: FeatureList, tunables: TunableStore) -> BrowserHostSwitch {
+        let launch = features.resolution(of: .cefHelperHost)
+        let decidedAboveLocal = launch.source == .policy || launch.source == .environment
+        return BrowserHostSwitch(launchValue: launch.isEnabled,
+                                 takesLocalOverride: features.channel.allowsLocalOverrides && !decidedAboveLocal, tunables: tunables)
     }
     #endif
 }

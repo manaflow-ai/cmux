@@ -1,3 +1,4 @@
+public import AppKit
 public import Foundation
 public import Observation
 
@@ -68,4 +69,6 @@ public final class ComputerUseStepModel {
     }
 
     public var helperAppURL: URL? { source?.helperAppURL }
+
+    public var helperAppIcon: NSImage? { source?.helperAppIcon }
 }

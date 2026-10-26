@@ -1,0 +1,14 @@
+{
+  "$schema": "../features.schema.json",
+  "name": "cefAttachedPages",
+  "owner": "PL-cef-layer",
+  "description": "A Chromium pane page is its own Cocoa view inside the pane (the fork attaches each tab's RenderWidgetHostViewCocoa, Chrome's model), so its page window never orders in; a tab the fork does not attach keeps layer hosting or its page window.",
+  "defaults": { "dev": false, "nightly": false, "release": false },
+  "kind": "perfPath",
+  "expires": "2026-12-20",
+  "process": "app",
+  "params": [],
+  "stories": ["tab-switch", "cef-resize-sync"],
+  "sticky": false,
+  "runtimeMutable": false
+}

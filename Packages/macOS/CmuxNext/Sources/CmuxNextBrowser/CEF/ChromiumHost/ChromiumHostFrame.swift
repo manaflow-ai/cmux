@@ -1,7 +1,7 @@
 #if DEBUG || CMUX_BENCH_HOOKS
 // The Chromium host app ships in Debug builds only (embed-cef.sh), and so does its Swift side.
 /// One frame of the wire between cmux and the Chromium host app (prototype
-/// behind `browserHost.helper`; plans/cmux-next/cef-helper-app-DESIGN.md).
+/// behind the feature `cefHelperHost`; plans/cmux-next/cef-helper-app-DESIGN.md).
 ///
 /// The C++ side is `ChromiumHost/src/chromium_host_wire.h`: a 64-byte
 /// little-endian header and `payload` bytes after it. Both sides check the
@@ -11,9 +11,10 @@ nonisolated struct ChromiumHostFrame: Equatable, Sendable {
     enum Kind: UInt32, Sendable {
         // cmux -> host
         case navigate = 1, geometry = 2, mouse = 3, wheel = 4, key = 5, focus = 6, ping = 7, stats = 8, quit = 9, edit = 10
+        case ime = 11, textInputWatch = 12
         // host -> cmux
         case ready = 101, context = 102, address = 103, title = 104, pong = 105, statsReply = 106, error = 107
-        case rendererGone = 108
+        case rendererGone = 108, textInputState = 109
     }
 
     static let headerSize = 64

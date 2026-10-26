@@ -1,9 +1,12 @@
+public import AppKit
 public import Foundation
 
 /// Grants set by hand, for the gallery and tests. Records which panes were opened.
 @MainActor
 public final class MockComputerUsePermissionSource: ComputerUsePermissionSource {
     public let helperAppURL: URL?
+    /// No icon: the tile shows cmux's own.
+    public var helperAppIcon: NSImage?
     public private(set) var opened: [ComputerUsePermissionPane] = []
     /// How many times Allow turned Computer Use on.
     public private(set) var enabledCount = 0

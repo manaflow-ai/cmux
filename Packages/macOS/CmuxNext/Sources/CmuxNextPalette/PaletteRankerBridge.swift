@@ -64,7 +64,7 @@ public final class PaletteRankerBridge {
     ) throws -> [PaletteRankedSection] {
         if let version, version != installedVersion { try install(index.entries, version: version) }
         return try invoke(PaletteRankerBridgeRequest(
-            operation: "rank",
+            operation: .rank,
             entries: version == nil ? index.entries.map(PaletteRankerBridgeEntry.init) : nil,
             version: version,
             query: query,
@@ -101,7 +101,7 @@ public final class PaletteRankerBridge {
     ) throws -> [PaletteRankedSection] {
         if let version, version != installedVersion { try install(entries, version: version) }
         return try invoke(PaletteRankerBridgeRequest(
-            operation: "rankEmpty",
+            operation: .rankEmpty,
             entries: version == nil ? entries.map(PaletteRankerBridgeEntry.init) : nil,
             version: version,
             query: nil,

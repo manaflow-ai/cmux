@@ -177,9 +177,10 @@ final class ControlConnection: Sendable {
     private func readAvailable(_ state: inout State) {
         var chunk = [UInt8](repeating: 0, count: 64 * 1024)
         while !state.isReadSuspended, !state.isInputFinished {
-            let count = read(descriptor, &chunk, chunk.count)
+            // SAFETY: read writes at most chunk.count bytes into the array's own storage, lent for the call.
+            let count = unsafe read(descriptor, &chunk, chunk.count)
             if count > 0 {
-                state.inbound.append(chunk, count: count)
+                state.inbound.append(contentsOf: chunk.prefix(count))
                 emitLines(&state)
                 if state.inbound.count > limits.maxLineBytes, state.inbound.firstIndex(of: 0x0A) == nil {
                     let error = ControlError(code: "request_too_large", message: ControlStrings.format("control.error.requestTooLarge", "Request line exceeds %lld bytes", limits.maxLineBytes))
@@ -233,11 +234,14 @@ final class ControlConnection: Sendable {
     private func flush(_ state: inout State) {
         while state.outboxOffset < state.outbox.count {
             let offset = state.outboxOffset
-            let written = state.outbox.withUnsafeBytes { raw -> Int in
+            // SAFETY: `raw` is the outbox's contiguous storage, valid only inside this closure, which never lets a
+            // pointer out; 0 <= offset < raw.count (the loop's condition), so the send covers the raw.count - offset
+            // bytes from base + offset to the buffer's end.
+            let written = unsafe state.outbox.withUnsafeBytes { raw -> Int in
                 // The loop runs only while the outbox has bytes, so the base address is set;
                 // without one the send fails like a closed peer (no trap).
-                guard let base = raw.baseAddress else { errno = EPIPE; return -1 }
-                return Darwin.send(descriptor, base + offset, raw.count - offset, MSG_NOSIGNAL)
+                guard let base = unsafe raw.baseAddress else { errno = EPIPE; return -1 }
+                return unsafe Darwin.send(descriptor, base + offset, raw.count - offset, MSG_NOSIGNAL)
             }
             if written > 0 {
                 state.outboxOffset += written

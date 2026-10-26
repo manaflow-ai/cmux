@@ -29,49 +29,33 @@
   ],
   "steps": [
     {
-      "id": "fx-workspace",
-      "op": "resource.call",
-      "target": {
-        "machine": "current",
-        "session": "current"
-      },
-      "args": {
-        "method": "workspace.create",
-        "params": {
-          "initial_content": "terminal",
-          "name": "oracle"
-        },
-        "idempotencyKey": "tab-rename-error.fx-workspace"
-      },
-      "expect": {
-        "outcome": "ok",
-        "receipt": "mutation_result"
-      }
-    },
-    {
       "id": "call",
       "op": "resource.call",
       "target": {
         "machine": "current",
         "session": "current",
-        "tab": "$step:fx-workspace#/value/tab_id"
+        "tab": "tab_00000000000000000000000000000000"
       },
       "args": {
         "method": "tab.rename",
         "params": {
-          "name": 7
+          "name": "renamed"
         },
         "idempotencyKey": "tab-rename-error.call"
       },
       "expect": {
         "outcome": "error",
-        "error": "validation.invalid"
+        "error": "selector.not_found",
+        "errorDetails": {
+          "scope": "tab",
+          "selector": "tab_00000000000000000000000000000000"
+        }
       },
       "checkpoint": [
         "before",
         "settled"
       ],
-      "note": "name breaks its catalog type (value must be a string); the daemon's catalog check refuses it"
+      "note": "a well-formed tab id that names no tab: nothing is renamed"
     }
   ],
   "invariants": [

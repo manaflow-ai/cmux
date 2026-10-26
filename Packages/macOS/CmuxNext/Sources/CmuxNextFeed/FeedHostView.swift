@@ -41,6 +41,7 @@ public final class FeedHostView: NSView {
         self.surface = surface
         super.init(frame: .zero)
         wantsLayer = true
+        layerContentsRedrawPolicy = .onSetNeedsDisplay
         let root = FeedRoot(model: model, appearance: appearanceState, layoutOverride: layoutOverride, mainWork: mainWork,
                             onReportsReply: onReportsReply)
         embed(NSHostingView(rootView: root))
