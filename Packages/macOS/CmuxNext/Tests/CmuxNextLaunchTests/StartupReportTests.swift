@@ -115,7 +115,7 @@ import Testing
 /// The recorder keeps the first committed frame once and reads its sources when asked.
 @MainActor
 @Suite struct StartupReportRecorderTests {
-    struct FixedThreads: StartupThreadSource {
+    nonisolated struct FixedThreads: StartupThreadSource {
         func threads() -> [StartupReport.ThreadRecord] {
             [.init(id: 7, name: "", priority: 47, isMain: true), .init(id: 9, name: "cmux-next launch warm-up", priority: 31, isMain: false)]
         }
