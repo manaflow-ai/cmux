@@ -1,5 +1,6 @@
 import AppKit
 import Foundation
+import ObjectiveC
 import WebKit
 
 /// The WebKit view of every first-party page (DESKTOP-FEEL, R139): the host half of the shared
@@ -268,5 +269,119 @@ final class PageWKWebView: WKWebView {
     @objc func paste(_ sender: Any?) {
         onPaste?()
         webKitPaste(sender)
+    }
+
+    // MARK: Page suspend (p13-webui-029 spike)
+
+    /// WebKit's page suspend SPI (`WKWebViewPrivate.h`), found once per process; nil when this WebKit
+    /// lacks a part of it. Not used by the page lifecycle yet: ``PageWebKitParking`` picks it only
+    /// from a live measurement.
+    static let pageSuspendSPI = PageSuspendSPI(in: WKWebView.self)
+
+    /// Whether WebKit holds this page suspended; false when this WebKit has no suspend SPI.
+    var isPageSuspended: Bool { Self.pageSuspendSPI?.isSuspended(self) ?? false }
+
+    /// Suspends the hidden page (`WebPageProxy::suspend`, the suspension a back-forward page gets): it
+    /// runs no script, timer or animation and keeps its document. WebKit raises on a public call
+    /// (`evaluateJavaScript`, a load) to a suspended view, so the owner resumes it before any call.
+    /// `done` gets the web process's answer.
+    ///
+    /// - Returns: Whether the page is suspended now (WebKit sets its flag in this call); false with no
+    ///   call into WebKit when this WebKit has no suspend SPI or the page is already suspended.
+    @discardableResult
+    func suspendPage(_ done: @escaping @MainActor (Bool) -> Void = { _ in }) -> Bool {
+        guard let spi = Self.pageSuspendSPI, !spi.isSuspended(self) else { return false }
+        spi.send(spi.suspend, to: self, done)
+        return spi.isSuspended(self)
+    }
+
+    /// Resumes a suspended page, in the show's turn before the view is visible. WebKit clears its flag
+    /// in this call, so the same turn may call into the page.
+    ///
+    /// - Returns: False, with no call into WebKit, when the page is not suspended.
+    @discardableResult
+    func resumePage(_ done: @escaping @MainActor (Bool) -> Void = { _ in }) -> Bool {
+        guard let spi = Self.pageSuspendSPI, spi.isSuspended(self) else { return false }
+        spi.send(spi.resume, to: self, done)
+        return true
+    }
+}
+
+/// WebKit's `_suspendPage:`, `_resumePage:` and `_isSuspended`, each called only through the IMP
+/// `class_getInstanceMethod` found, so a WebKit without one never gets an unknown selector.
+struct PageSuspendSPI {
+    typealias Reply = @convention(block) (ObjCBool) -> Void
+    typealias Send = @convention(c) (AnyObject, Selector, Reply) -> Void
+    typealias Read = @convention(c) (AnyObject, Selector) -> ObjCBool
+
+    let suspend: (selector: Selector, call: Send)
+    let resume: (selector: Selector, call: Send)
+    let isSuspendedRead: (selector: Selector, call: Read)
+
+    /// Nil when `type` lacks any of the three methods.
+    init?(in type: AnyClass, suspend: String = "_suspendPage:", resume: String = "_resumePage:",
+          isSuspended: String = "_isSuspended") {
+        func method(_ name: String) -> (Selector, IMP)? {
+            // crash-allow: WebKit private selector, called only through the IMP class_getInstanceMethod found (no unknown-selector exception).
+            let selector = NSSelectorFromString(name)
+            return class_getInstanceMethod(type, selector).map { (selector, method_getImplementation($0)) }
+        }
+        guard let suspendMethod = method(suspend), let resumeMethod = method(resume),
+              let readMethod = method(isSuspended) else { return nil }
+        self.suspend = (suspendMethod.0, unsafeBitCast(suspendMethod.1, to: Send.self))
+        self.resume = (resumeMethod.0, unsafeBitCast(resumeMethod.1, to: Send.self))
+        self.isSuspendedRead = (readMethod.0, unsafeBitCast(readMethod.1, to: Read.self))
+    }
+
+    @MainActor func isSuspended(_ view: AnyObject) -> Bool {
+        isSuspendedRead.call(view, isSuspendedRead.selector).boolValue
+    }
+
+    /// WebKit runs the reply on the main thread (its IPC replies arrive on the UI process's main run loop).
+    @MainActor func send(_ method: (selector: Selector, call: Send), to view: AnyObject,
+                         _ done: @escaping @MainActor (Bool) -> Void) {
+        let reply: Reply = { ok in
+            MainActor.assumeIsolated { done(ok.boolValue) } // main-proof: WebKit replies on the main run loop
+        }
+        method.call(view, method.selector, reply)
+    }
+}
+
+/// How a hidden, frozen WebKit page is parked (p13-webui.md 3.C, spike 029), chosen from a live
+/// measurement of each mode on the same page: its web process's wakeups per second while parked and
+/// the main-thread time of the turn that shows it again (`PageWebKitParkingBench`). Hidden in the
+/// window (p13-webui-028) is the default. Suspended wins only when it wakes less within the show-turn
+/// budget. Detached wins only when hidden in the window wakes more than ``detachWakeupFloor`` and
+/// detaching wakes less within the budget. Chrome freezes a hidden page where it is and never moves
+/// its view (`WebContents::SetPageFrozen`, content/public/browser/web_contents.h).
+enum PageWebKitParking: String, CaseIterable, Sendable {
+    case hiddenInWindow
+    case suspended
+    case detached
+
+    /// One mode's live numbers.
+    struct Measurement: Sendable, Equatable {
+        /// Interrupt wakeups per second of the page's web process while parked.
+        var wakeupsPerSecond: Double
+        /// Main-thread time of the turn that shows the page again.
+        var showTurn: Duration
+    }
+
+    /// Hidden-in-window wakeups per second at or under which a detach is never used.
+    static let detachWakeupFloor = 0.2
+    /// The most main-thread time the show's turn may take for a mode other than hidden in the window.
+    static let showTurnBudget: Duration = .milliseconds(4)
+
+    /// The mode the numbers pick. A nil measurement is a mode not measured (no SPI, or not run).
+    static func choose(hiddenInWindow: Measurement, suspended: Measurement?, detached: Measurement?) -> Self {
+        var pick = (mode: Self.hiddenInWindow, wakeups: hiddenInWindow.wakeupsPerSecond)
+        if let suspended, suspended.showTurn <= showTurnBudget, suspended.wakeupsPerSecond < pick.wakeups {
+            pick = (.suspended, suspended.wakeupsPerSecond)
+        }
+        if hiddenInWindow.wakeupsPerSecond > detachWakeupFloor, let detached,
+           detached.showTurn <= showTurnBudget, detached.wakeupsPerSecond < pick.wakeups {
+            pick = (.detached, detached.wakeupsPerSecond)
+        }
+        return pick.mode
     }
 }
