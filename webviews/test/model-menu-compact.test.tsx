@@ -246,6 +246,20 @@ const itemsOf = (popup: HTMLElement | undefined) =>
     item.textContent?.replace("✓", "").trim(),
   );
 
+/// The compact menu's search field.
+const field = () => menu()?.querySelector<HTMLInputElement>(".acpmux-quick-search input") ?? null;
+/// Types `text` into the search field as the browser does (its value, then an input event).
+const typeIn = (text: string) =>
+  act(async () => {
+    const input = field()!;
+    Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype, "value")!.set!.call(input, text);
+    input.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
+  });
+const keyIn = (target: HTMLElement, value: string) =>
+  act(async () => {
+    target.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: value, bubbles: true }));
+  });
+
 async function open() {
   await act(async () => chipButton().click());
   await settle();
@@ -345,6 +359,48 @@ test("Account lists the routes that serve this chat and switches to one", async 
   expect(sent).toEqual([{ method: "route", value: "work" }]);
 });
 
+test("Account lists this harness's direct accounts without transport variants", async () => {
+  const { sent } = await mount({
+    routes: [
+      { id: "work", name: "Work Max", kind: "direct-subscription", serves: true },
+      { id: "key", name: "Work API key", kind: "direct-api-key", serves: true },
+      { id: "codex", name: "Codex account", kind: "direct-subscription", serves: false },
+      ...["subrouter", "cliproxyapi", "custom-anthropic", "custom-openai", "local-coderouter", "cmux-router"].map(
+        (kind) => ({ id: kind, name: kind, kind, serves: true }),
+      ),
+      { id: "legacy", name: "Unbound legacy route", serves: true },
+    ],
+    family: "claude",
+  });
+  await open();
+  const account = await openSub("Account");
+  expect(itemsOf(account)).toEqual(["CLI login", "Work Max", "Work API key"]);
+  const key = [...account.querySelectorAll<HTMLElement>('[role="menuitemradio"]')].find(
+    (item) => item.textContent?.trim() === "Work API key",
+  )!;
+  await act(async () => key.click());
+  await settle();
+  expect(sent).toEqual([{ method: "route", value: "key" }]);
+});
+
+test("Account preserves the selected legacy route while hiding other unknown routes", async () => {
+  await mount({
+    routes: [
+      { id: "bound", name: "Selected account", serves: true },
+      { id: "other", name: "Other legacy route", serves: true },
+      { id: "proxy", name: "Proxy transport", kind: "subrouter", serves: true },
+    ],
+    active: { routeId: "bound", scope: "chat" },
+  });
+  await open();
+  expect(itemsOf(menu()!)).toContain("AccountSelected account");
+  const account = await openSub("Account");
+  expect(itemsOf(account)).toEqual(["CLI login", "Selected account"]);
+  expect(account.querySelector('[role="menuitemradio"][aria-checked="true"]')?.textContent).toContain(
+    "Selected account",
+  );
+});
+
 test("with no routes, Account offers the CLI login and says how to add one", async () => {
   await mount({ routes: [] });
   await open();
@@ -419,14 +475,14 @@ test("More models is a submenu: the harness's other models, then Add harness…"
   expect(added).toEqual(["add"]);
 });
 
-test("typing filters the models in place, across harnesses, with no search field", async () => {
+test("typing on a row filters the models in place, across harnesses, in the search field", async () => {
   await mount({ routes: [] });
   await open();
   for (const letter of "hai") await key(letter);
   await settle();
   expect(menu()).not.toBeNull();
   expect(doc().querySelector(".acpmux-mp")).toBeNull();
-  expect(menu()!.querySelector("input")).toBeNull();
+  expect(field()?.value).toBe("hai");
   const names = modelNames(menu()!);
   expect(names.length).toBeGreaterThan(0);
   expect(names.every((name) => name.toLowerCase().includes("hai"))).toBe(true);
@@ -470,9 +526,61 @@ test("typing keeps keyboard focus in the menu when the focused row goes away", a
   await typeAt("h");
   await settle();
   expect(menu()!.contains(doc().activeElement)).toBe(true);
-  await typeAt("a");
+  // The search field has the keyboard now; the next key types into it.
+  expect(doc().activeElement).toBe(field());
+  await typeIn("ha");
   await settle();
   expect(menu()!.querySelector(".ui-menu-group-label")?.textContent).toBe("“ha”");
+});
+
+// Lawrence 2026-10-22, on the model menu: "spacing + needs search". The menu opens with a search
+// field that has the keyboard, and it finds models the way the full picker's search does.
+test("the menu opens with a search field that has the keyboard", async () => {
+  await mount({ routes: [] });
+  await open();
+  expect(field()).not.toBeNull();
+  expect(field()!.placeholder).toBe("Type to search models");
+  expect(doc().activeElement).toBe(field());
+});
+
+test("the search field filters every harness's models and names each row's harness", async () => {
+  await mount({ routes: [] });
+  await open();
+  await typeIn("gpt");
+  await settle();
+  const rows = modelRows(menu()!);
+  expect(rows.length).toBeGreaterThan(0);
+  expect(modelNames(menu()!).every((name) => name.toLowerCase().includes("gpt"))).toBe(true);
+  expect(rows.every((row) => row.querySelector(".acpmux-quick-value")?.textContent === "Codex")).toBe(true);
+  await typeIn("");
+  await settle();
+  expect(modelNames(menu()!).some((name) => name.toLowerCase().includes("opus"))).toBe(true);
+});
+
+test("the search reads an effort word as the full picker does, and Enter lands the first match with it", async () => {
+  const { sent } = await mount({ routes: [] });
+  await open();
+  await typeIn("opus 5.5 high");
+  await settle();
+  const rows = modelRows(menu()!);
+  expect(rows.length).toBeGreaterThan(0);
+  expect(rows[0]!.querySelector(".acpmux-quick-value")?.textContent).toContain("high");
+  await keyIn(field()!, "Enter");
+  await settle();
+  expect(menu()).toBeNull();
+  expect(sent).toContainEqual({ method: "effort", value: "high" });
+});
+
+test("a started chat's search field filters its own models in place, without opening the full picker", async () => {
+  await mount({ routes: [] }, { turnCount: 1 });
+  await open();
+  expect(field()).not.toBeNull();
+  await typeIn("son");
+  await settle();
+  expect(doc().querySelector(".acpmux-mp")).toBeNull();
+  const names = modelNames(menu()!);
+  expect(names.length).toBeGreaterThan(0);
+  expect(names.every((name) => /sonnet/i.test(name))).toBe(true);
 });
 
 // Greptile on #22005: the composer hands the menu a new families object on every render, and a
@@ -578,7 +686,7 @@ test("a raw model id is named as people say it, and an unresolved effort draws n
 
 test("a switch acpmux refuses is named on the Account row", async () => {
   const { sent } = await mount(
-    { routes: [{ id: "work", name: "Work Max", serves: true }], family: "claude" },
+    { routes: [{ id: "work", name: "Work Max", kind: "direct-subscription", serves: true }], family: "claude" },
     { refuse: true },
   );
   await open();

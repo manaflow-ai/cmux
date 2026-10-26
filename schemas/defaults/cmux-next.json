@@ -230,6 +230,7 @@
     "key.workspace.selectLastUsed": ["ctrl+cmd+`"],
     "setting.agentPane.display.code.family": null,
     "setting.agentPane.display.code.scale": null,
+    "setting.agentPane.display.environment.placement": "left",
     "setting.agentPane.display.font.lineHeight": 1.625,
     "setting.agentPane.display.font.preset": "markdown",
     "setting.agentPane.display.font.size": 14,

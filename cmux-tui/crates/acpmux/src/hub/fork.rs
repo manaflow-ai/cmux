@@ -261,6 +261,7 @@ impl Hub {
             event_count: 0,
             turn_count,
             usage: None,
+            context_breakdown: None,
             available_commands: parent_meta.available_commands.clone(),
             goal: None,
             permission_rules: None,

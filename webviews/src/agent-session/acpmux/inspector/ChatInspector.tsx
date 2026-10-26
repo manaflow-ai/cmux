@@ -49,7 +49,7 @@ import { useHeaderState, type HeaderPullRequest } from "../header/headerState";
 import { useTabRow } from "../header/tabRow";
 import { usePaneLanguage, useT } from "../i18n";
 import { Icon } from "../icons/Icon";
-import { transcriptColumn, type AcpmuxRow, type AcpmuxSnapshot } from "../model";
+import { paneHeader, transcriptColumn, type AcpmuxRow, type AcpmuxSnapshot } from "../model";
 import { registerPicker } from "../pickerOpeners";
 import { opensProcessTerminal } from "../processTerminal";
 import { tooltipProps } from "../shortcuts";
@@ -86,6 +86,7 @@ import { WorkflowTasks } from "./WorkflowTasks";
 import type { WorkflowSummary } from "../summary/workflow";
 import type { Subagent } from "../subagents/subagentFold";
 import { subagentProgress } from "../subagents/subagentProgress";
+import { MIN_GUTTER } from "../threadMinimap/model";
 import "./inspector.css";
 
 type Summary = NonNullable<AcpmuxSnapshot["summary"]>;
@@ -114,18 +115,25 @@ export const pushedWidth = (paneWidth: number, width: number) =>
 /// part of the true agent pane area except in the case when both would fit if only the agent pane
 /// shifted left". When the right gutter (model.ts transcriptColumn) holds the panel and its margins,
 /// nothing moves; when the two gutters together hold it, the column moves left by what the right one
-/// lacks; otherwise nothing moves and the panel floats over the chat.
+/// lacks; otherwise nothing moves and the panel floats over the chat. The left gutter keeps the
+/// thread rail's room (threadMinimap/model.ts MIN_GUTTER), so the column never slides over the rail,
+/// which stays at the pane's left edge (inspector.css; Leo, 2026-10-25: "when that session rail is
+/// there, the session rail ends up pushing it to the side").
 /// A handoff review's form (handoff/styles.css: 760px, 18px from each edge) is wider than the column:
-/// with `wide`, the gutter is the form's.
+/// with `wide`, the gutter is the form's. The form takes the transcript's place, so no thread rail
+/// draws beside it: the shift keeps the form's own edge clearance instead of the rail's room.
 export const HANDOFF_FORM_WIDTH = 760;
+/// The form's clearance from each pane edge (handoff/styles.css `min(760px, calc(100% - 36px))`).
+export const HANDOFF_FORM_EDGE = 18;
 export const inspectorChatShift = (paneWidth: number, width: number, column?: ChatColumn, wide = false) => {
   if (paneWidth <= 0 || width <= 0) return 0;
   const columnInset = transcriptColumn(paneWidth, column).inset;
   const inset = wide
-    ? Math.min(columnInset, (paneWidth - Math.min(HANDOFF_FORM_WIDTH, paneWidth - 36)) / 2)
+    ? Math.min(columnInset, (paneWidth - Math.min(HANDOFF_FORM_WIDTH, paneWidth - 2 * HANDOFF_FORM_EDGE)) / 2)
     : columnInset;
   const lacks = width + 2 * FLOAT_MARGIN - inset;
-  return lacks > 0 && lacks <= inset ? lacks : 0;
+  const room = inset - (wide ? HANDOFF_FORM_EDGE : MIN_GUTTER);
+  return lacks > 0 && lacks <= room ? lacks : 0;
 };
 
 /// Whether the Inspector shows: on (Debug Settings `agent.inspector`), open (the viewer's, in every
@@ -145,6 +153,13 @@ export const inspectorShown = ({
 
 /// The side panel beside the chat (conversation/ArtifactPanel.tsx), a child of the pane's shell.
 const SIDE_PANEL = ":scope > .acpmux-artifact";
+
+/// The Inspector starts below the visible header and the Left placement row. Right uses the
+/// original header slot, so it keeps the original inset.
+export function inspectorTopOffset(tabRowHeight: number, environmentRowVisible: boolean): string {
+  const headerTop = tabRowHeight > 0 ? `${tabRowHeight}px` : "var(--acpmux-header-height, 44px)";
+  return environmentRowVisible ? `calc(${headerTop} + var(--ui-row-height))` : headerTop;
+}
 
 /// The chat's room in the pane: the pane's width less the side panel's beside the chat, and that
 /// panel's width, which the floating Inspector keeps clear of.
@@ -465,6 +480,14 @@ function InspectorPresence({
   const push = pushes(display.inspector);
   const chatShift = push ? 0 : inspectorChatShift(paneWidth, width, column, wide);
   const tabRowHeight = useTabRow().height;
+  // Left's machine · folder chip occupies its own row below the header/tab row. Keep the Inspector
+  // below it while open so the card never covers the chip; Right preserves the original header slot,
+  // and connection warnings, Off, or covered views remove that row.
+  const environmentRowVisible =
+    display.environmentPlacement === "left" &&
+    Boolean(snapshot.summary?.cwd || snapshot.summary?.branch) &&
+    !paneHeader(snapshot).status;
+  const inspectorTop = inspectorTopOffset(tabRowHeight, environmentRowVisible);
   // The overlay handoff is a layout assist, not panel motion. Set the placement marker before the
   // shift so the overlay transition is disabled for the one frame where flex layout takes the panel's
   // room; otherwise the old overlay shift would animate back and briefly move the chat right again.
@@ -536,7 +559,7 @@ function InspectorPresence({
       placement={push ? "push" : "overlay"}
       // Floating or pushing, it starts under the chat header (styles.css --acpmux-header-height; in the
       // pane's tab row, the row's height), so the header's tools, its own toggle among them, stay in reach.
-      under={tabRowHeight > 0 ? `${tabRowHeight}px` : "var(--acpmux-header-height, 44px)"}
+      under={inspectorTop}
       side={push ? 0 : side}
       presence={presence}
     >
