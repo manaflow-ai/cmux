@@ -1,19 +1,19 @@
 import Foundation
 
 /// The user's agent pane customization (``AgentPaneCustomization``: `theme.css`, `layout.json`,
-/// `registry.js`) pushed to the page, on the page host and on the old host.
+/// `registry.js`) pushed to the page.
 extension AgentPaneView {
     /// Pushes ``customization`` to the page, even an empty one (it clears
     /// what removed files left behind).
     func applyCustomization() {
         runPageHostRegistry()
-        deliver(AgentPageEvent.customization(customization), scripts: customization.scripts())
+        deliver(AgentPageEvent.customization(customization))
     }
 
-    /// On the page host, runs the user's `registry.js` as a host script (the old host's scripts
-    /// include it): the page's CSP (script-src 'self') refuses a script element the page makes.
+    /// Runs the user's `registry.js` as a host script: the page's CSP (script-src 'self') refuses a
+    /// script element the page makes.
     func runPageHostRegistry() {
-        guard pageEvents != nil, let script = customization.registryScript else { return }
+        guard let script = customization.registryScript else { return }
         evaluateScript(script)
     }
 

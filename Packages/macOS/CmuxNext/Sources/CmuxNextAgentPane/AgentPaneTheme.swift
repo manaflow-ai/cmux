@@ -114,15 +114,6 @@ enum AgentPaneTheme {
         return "rgba(\(channel(color.red)), \(channel(color.green)), \(channel(color.blue)), \(alpha))"
     }
 
-    /// The script that applies `tokens` to a loaded page.
-    static func script(_ tokens: ThemeTokens, surface: SurfaceKind = .agentPane) -> String? {
-        guard let data = try? JSONSerialization.data(withJSONObject: values(tokens, surface: surface), options: [.sortedKeys]),
-              let json = String(data: data, encoding: .utf8) else { return nil }
-        // The shared web theme first (`--cmux-*`, the page background), then
-        // the pane's own bridge.
-        return webTheme(tokens, surface: surface).applyScript + "window.cmuxAcpmuxBridge?.applyTheme(\(json));"
-    }
-
     /// The shared web theme of `surface`. The New Tab page is transparent (the page background
     /// rule paints nothing) unless `appearance.surfaces.newTabPage` gives it a background: its
     /// pane backs it with the window's own background, as it backs a terminal (cx-tcju).

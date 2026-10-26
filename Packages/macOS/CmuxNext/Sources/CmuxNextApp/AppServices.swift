@@ -119,6 +119,11 @@ final class AppServices {
     let actionBudget: ActionBudgetMonitor
     /// Every action; timed by the always-on `action.*` signposts and `actionBudget`, in Debug and Release.
     let registry: ActionRegistry
+    #if DEBUG || CMUX_BENCH_HOOKS
+    /// The refactor oracle's turn checkpoints (`debug.oracle.turns`): the registry's perform-turn observer.
+    /// Release builds have none, and their registry has no observer.
+    let oracleTurns = OracleActionTurns()
+    #endif
     /// The main-thread blocking detector's handle (threading-model.md): the Debug menu, `debug.blocking` (the Nightly sink to come).
     let blocking = BlockingDetector.forProcess()
     /// The local daemon's wire counters (`debug.daemon.wire`); nil in a release build.
@@ -505,7 +510,11 @@ final class AppServices {
         (self.launchImages, self.relaunchWake, self.launchImageHold) = (launchImages, relaunchWake, launchImageHold)
         actionBudget = ActionBudgetMonitor(board: mainWork.budget.board)
         updater = UpdaterService(work: work)
+        #if DEBUG || CMUX_BENCH_HOOKS
+        registry = ActionRegistry.standard(runTiming: SignpostActionRunTiming(monitor: actionBudget), turnObserver: oracleTurns)
+        #else
         registry = ActionRegistry.standard(runTiming: SignpostActionRunTiming(monitor: actionBudget))
+        #endif
         DaemonService.launchMark = { DebugTimings.markLaunch($0) }  // before any daemon service starts
         self.mainWork = mainWork
         inputDispatch = InputDispatchContext(scrollFrames: ScrollFrameSignpost(),

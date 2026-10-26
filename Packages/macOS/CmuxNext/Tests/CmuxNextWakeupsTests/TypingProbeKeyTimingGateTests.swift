@@ -23,9 +23,13 @@ import Testing
         runtime.setCategories(.all)
         let csv = FileManager.default.temporaryDirectory.appendingPathComponent("typing-probe-gate-\(UUID().uuidString).csv")
         defer { try? FileManager.default.removeItem(at: csv) }
-        let probe = TypingLatencyProbe(path: csv.path, flows: true, trace: runtime)
+        let probe = TypingLatencyProbe(path: csv.path, trace: runtime)
+        probe.startFlows()
+        let surface = probe.makeSurfaceKey()
 
         probe.keyDown(eventTimestamp: 0)
+        probe.keyReachedTerminal(surface)
+        probe.inputWritten(on: surface)
         #expect(probe.openFlow != nil)
         #expect(count.value > 0, "the open gate records the press's first hop")
 
@@ -34,7 +38,10 @@ import Testing
         let before = count.value
         probe.keyDown(eventTimestamp: 0)
         for mark in TypingLatencyProbe.Mark.allCases { probe.mark(mark) }
-        probe.keyReachedTerminal()
+        probe.keyReachedTerminal(surface)
+        probe.inputWritten(on: surface)
+        probe.outputDecoded(flow: nil)
+        probe.mark(.contents, surface: surface)
         probe.closeAtCommit()
         #expect(probe.openFlow == nil)
         #expect(count.value == before)
@@ -44,6 +51,8 @@ import Testing
 
         runtime.setKeyTimingSuppressed(false, by: .secureEventInput)
         probe.keyDown(eventTimestamp: 0)
+        probe.keyReachedTerminal(surface)
+        probe.inputWritten(on: surface)
         #expect(probe.openFlow != nil)
     }
 }

@@ -21,10 +21,9 @@ import Observation
 final class AgentTabStore {
     let host: any AgentPaneHostProviding
     /// The app's made-ahead open panel for agent panes' file pickers (nil, in tests, shows none) and
-    /// its page host (`AppServices.webUI`) every page-hosted agent pane opens its page through.
+    /// its page host (`AppServices.webUI`) every agent pane opens its page through.
     private let openPanel: MadeAheadOpenPanel?, webUI: WebUIHost
-    /// The page every agent tab loads: the bundled file, or in Debug builds the dev server
-    /// `CMUX_NEXT_AGENT_PANE_DEV_URL` names (nil only when the bundled page is missing).
+    /// The page every agent tab loads: the bundled file (nil only when the bundled page is missing).
     private let source: AgentPaneSource?
     /// Adaptive, or in Debug builds fixed by `CMUX_NEXT_AGENT_PANE_FULL_RATE` (`1` full, `0` capped) for measuring either rate.
     private let renderRate: AgentPaneRenderRate
@@ -495,7 +494,7 @@ final class AgentTabStore {
     private func makeView(_ model: AgentPaneModel) -> AgentPaneView? {
         AgentPaneNewTabFrame.shared.pageMade(model)
         model.linkScheme = linkScheme
-        guard let source, let view = AgentPaneView(model: model, source: source, renderRate: renderRate, pageHost: AgentPaneTunables.pageHost.value || AgentPaneTunables.chromium.value ? webUI : nil, openPanel: openPanel) else { return nil }
+        guard let source, let view = AgentPaneView(model: model, source: source, renderRate: renderRate, webUI: webUI, openPanel: openPanel) else { return nil }
         DebugTimings.markLaunch("agent_pane.view_created")
         view.customization = customization.current
         view.shortcuts = shortcuts

@@ -109,6 +109,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self?.forcedQuitExit.start()
         })
         control.startWatchdog()
+        (NSApp as? CmuxApplication)?.inputQueueing = control.watchdog
         DebugTimings.markLaunch("did_finish_launching_start")
         let launchStart = startupTrace?.uptimeNanos
         DebugTimings.install(watchdog: control.watchdog, startupTrace: startupTrace)

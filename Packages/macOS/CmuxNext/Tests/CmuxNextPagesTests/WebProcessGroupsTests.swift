@@ -1,4 +1,4 @@
-@testable import CmuxNextAgentPane
+@testable import CmuxNextPages
 import Foundation
 import Testing
 import WebKit

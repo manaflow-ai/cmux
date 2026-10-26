@@ -41,9 +41,8 @@ struct AgentPaneSVGImageNavigationTests {
         // The sentinel: once it arrives, anything the image could have started has been decided.
         try await recorder.sentinel { _ = try? await view.evaluateJavaScript("location.href = 'https://sentinel.invalid/'") }
         #expect(recorder.urls == ["https://sentinel.invalid/"], "\(recorder.urls)")
-        let pane = AgentPaneSource.bundled(URL(string: "cmux-agent://pane/index.html")!)
         for text in ["cmux://workspace/ws_x", "cmux://session/abc", "https://sentinel.invalid/"] {
-            #expect(AgentPaneNavigation.decision(for: URL(string: text), source: pane, userClicked: false) == .cancel)
+            #expect(AgentPaneNavigation.decision(for: URL(string: text), userClicked: false) == .cancel)
         }
         view.navigationDelegate = nil
     }

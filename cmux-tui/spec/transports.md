@@ -168,9 +168,11 @@ before decoding or allocating its payload.
 ### Binary frames (cmux-ipc, not yet negotiated)
 
 The `cmux-ipc` crate defines binary frames that a local Unix connection will
-carry next to JSON lines once a client negotiates them. No server grants them
-yet; until a later capability does, a frame on any connection is a bad
-message. WebSocket, relay and bridged connections keep JSON lines only.
+carry next to JSON lines once a client negotiates them. The daemon does not
+advertise or grant `ipc-frames-v2` until its reader reads frames
+(p05-ipc-061; [Framed IPC grants](#framed-ipc-grants)). Until then, a frame
+on any connection is a bad message. WebSocket, relay and bridged connections
+keep JSON lines only.
 
 A message that starts with byte `0xFF` is a frame; any other first byte starts
 a JSON line. `0xFF` never appears in UTF-8, so the two cannot be confused.
@@ -412,6 +414,75 @@ is the `layout-changed` case.
 A reconnect creates a new transport generation. Old pending ids, event buffers, and stream handles never cross generations. A client resends authentication, calls `identify`, registers subscriptions before fetching snapshots, checks generation values, and reattaches surfaces. Network loss uses capped exponential delay with jitter and one in-flight attempt. Static-token rejection is terminal. Reconnect-credential rejection discards that credential once and enters one pairing attempt. Pairing denial, expiry, or rate limiting requires user action.
 
 vNext adds client-generated `stream_id` to `subscribe` and `attach-surface`, echoes it on every event, and adds idempotent `cancel-stream`. Request timeout remains distinct from stream cancellation.
+
+## Framed IPC grants
+
+Status: grant rule only. The daemon advertises and grants a capability only
+after its transport is in the daemon. No transport is in the daemon yet, so
+`identify` lists none of the four and `set-client-info` grants none. The
+task that adds a transport also turns on its capability: p05-ipc-061 for
+`ipc-frames-v2`, the stream task for `attach-streams-v1` and `cancel-stream`,
+and the ring task for `terminal-output-ring-v1`
+(`plans/cmux-next/chrome-parity/p05-ipc.md`, sections 3.1 and 3.2). Mojo
+works the same way: it exposes an interface only after its implementation
+is bound.
+
+| Capability | What it enables | Requires |
+| --- | --- | --- |
+| `ipc-frames-v2` | 16-byte framed messages next to JSON lines, `SHARED_BUFFER` included | none |
+| `attach-streams-v1` | Client-minted streams on one connection. Their items stay JSON lines. | none |
+| `attach-frames-v1` | Attach output as `OUTPUT`, `GRID`, `SNAPSHOT` and `REPLAY` frames on a stream | `ipc-frames-v2`, `attach-streams-v1` |
+| `terminal-output-ring-v1` | The per-terminal shared-memory output ring (`RING`, `RING_ADVANCE`, `RING_ACK`) | `attach-frames-v1` |
+
+`identify` lists each capability that is in the daemon and that the
+connection can be granted in its current state. After the client declares an
+`api_revision` other than the daemon's, `identify` no longer lists the
+capabilities that need the same revision. A client gets a grant when it
+echoes the capability in `set-client-info` and its connection meets the rule
+below. The client must also get, or already hold, every capability in the
+Requires column. The daemon ignores a capability that it does not grant, as
+it does for any other capability, and the reply stays `{}`.
+
+| Connection | Grants |
+| --- | --- |
+| Direct local peer on the Unix socket, with `api_revision` equal to the daemon's (declared in `set-client-info`) | all four |
+| Direct local peer at any other revision, or with no declared revision | `attach-streams-v1` |
+| Bridge that the daemon identifies at accept | `attach-streams-v1` |
+| Unverified Unix peer | `attach-streams-v1` |
+| WebSocket | none |
+| Remote entry (`cmux link` peer) | none. The remote gate refuses them with `remote_denied`. |
+| Page relay (`client-hello role:page_relay`) or a page's connection | none |
+
+The daemon classifies a Unix peer at accept, from kernel facts only:
+
+- A direct local peer runs as the daemon's effective user (`SO_PEERCRED` or
+  `getpeereid`), and its executable is not one of cmux's byte bridges.
+- A bridge is this build's `cmux-mobile-host`, or a peer whose executable is
+  the daemon's own executable or `cmux`, `cmux-tui`, `cmux-tui-ssh`,
+  `cmux-remote` or `cmux-relay` in the daemon's folder. These executables
+  include `cmux relay`, `cmux link dial --service owner_session` and the
+  remote daemon's dialer. The daemon cannot see the subcommand, so every
+  connection from these executables counts as a bridge.
+- An unverified peer is one for which the kernel reports no user or no
+  executable, or reports a user other than the daemon's (root).
+
+Streams are JSON lines, so a bridge carries them, and the daemon's revision
+translation applies to them. Frames, the ring and shared buffers carry
+payloads that the daemon does not translate. They also pass descriptors over
+SCM_RIGHTS, which only a direct local peer can receive. This follows Mojo:
+platform handles pass only on a channel that can carry them
+(`mojo/core/channel_posix.cc`), and unversioned interfaces assume that both
+ends come from one build. A bridge that the daemon does not identify reaches
+it as a direct peer. The dialing client knows about the bridge, so it echoes
+only `attach-streams-v1` until the bridge can carry frames
+(`bridge-frames-v1`, p05-ipc-161).
+
+Each `set-client-info` first removes every grant that the connection's
+current state does not allow, for example after an `api_revision` other
+than the daemon's. To get the grant again, the client must echo the
+capability again in a later `set-client-info`. A later page-relay
+`client-hello` also ends every grant. The daemon checks a grant again each
+time the grant is used.
 
 ## Framed IPC method attributes
 
