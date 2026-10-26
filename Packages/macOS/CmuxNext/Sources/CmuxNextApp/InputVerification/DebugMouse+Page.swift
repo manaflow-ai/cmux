@@ -1,5 +1,6 @@
 #if DEBUG || CMUX_BENCH_HOOKS
 import AppKit
+import CmuxNextBrowser
 import CmuxNextDesign
 import CmuxNextLayout
 import CmuxNextSettings
@@ -31,6 +32,51 @@ extension DebugMouse {
         target.mouseUp(with: events[1])
         return .object(["window": .string(controller.state.id), "x": .number(point.x), "y": .number(point.y),
                         "view": .string(String(describing: type(of: target))), "delivered": .number(2)])
+    }
+
+    /// `debug.mouse {"action": "move", "target": "page"}`: a pointer move with no button over the Chromium page
+    /// of `pane` (default: the focused pane), at `x`,`y` (top-left points in the page) or its center: hover, so
+    /// the renderer computes the cursor and hover styles there. Host mode: the page view's own mouse path, which
+    /// sends a MOUSE frame to the Chromium Host; in process: the page window's view under the point, as
+    /// ``clickPage(_:services:)`` hands it clicks. A host-mode page view with no pointer route to the host
+    /// answers an error with `reason` `no_host_input_route`, never a move that reaches no renderer.
+    static func movePage(_ params: [String: JSONValue], services: AppServices) -> JSONValue {
+        let windowID = params["window"]?.stringValue
+        let controller = services.windows.controllers.first { windowID == nil || $0.state.id == windowID }
+        guard let controller, let window = controller.window, let pane = params["pane"]?.stringValue ?? controller.focus.state.pane,
+              let paneController = controller.content?.paneController(key: pane) else {
+            return .object(["error": .string("no window or pane")])
+        }
+        var pageView: ChromiumHostPageView?
+        if case .browser(let entry)? = paneController.currentContent { pageView = ChromiumHostPageView.first(in: entry.tab.contentView) }
+        func at(_ size: NSSize) -> NSPoint {
+            NSPoint(x: params["x"]?.doubleValue ?? size.width / 2, y: params["y"]?.doubleValue ?? size.height / 2)
+        }
+        if let pageView, pageView.takesPagePointer {
+            let point = at(pageView.bounds.size)
+            let base = pageView.convert(NSPoint(x: point.x, y: pageView.bounds.height - point.y), to: nil)
+            // `mouse` takes top-left window points (``baseLocation(_:in:)`` turns them back).
+            let topLeft = NSPoint(x: base.x, y: baseLocation(.zero, in: window).y - base.y)
+            guard let event = mouse(.mouseMoved, at: topLeft, in: window, flags: [], clicks: 0) else {
+                return .object(["error": .string("could not synthesize the move")])
+            }
+            pageView.mouseMoved(with: event)
+            return .object(["window": .string(controller.state.id), "x": .number(point.x), "y": .number(point.y),
+                            "view": .string("ChromiumHostPageView"), "delivered": .number(1)])
+        }
+        guard let page = DebugKey.pageWindow(of: pane, in: controller), let content = page.contentView else {
+            guard pageView != nil else { return .object(["error": .string("no Chromium page for pane")]) }
+            return .object(["error": .string("the page view has no pointer route to the Chromium Host (p01-process-042)"),
+                            "reason": .string("no_host_input_route")])
+        }
+        let point = at(content.bounds.size)
+        guard let event = mouse(.mouseMoved, at: point, in: page, flags: [], clicks: 0), let frame = content.superview,
+              let target = frame.hitTest(frame.convert(event.locationInWindow, from: nil)) else {
+            return .object(["error": .string("no view under the point")])
+        }
+        target.mouseMoved(with: event)
+        return .object(["window": .string(controller.state.id), "x": .number(point.x), "y": .number(point.y),
+                        "view": .string(String(describing: type(of: target))), "delivered": .number(1)])
     }
 
     /// `debug.mouse {"action": "scroll", "target": "page"}`: one scroll event over a Chromium page, at `x`,`y`

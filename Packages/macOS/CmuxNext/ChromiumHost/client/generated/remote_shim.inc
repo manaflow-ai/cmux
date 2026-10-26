@@ -177,27 +177,28 @@ enum Op : uint16_t {
   kOpPageSchemeAddFirstParty = 165,
   kOpPageSchemeAddFirstPartyDynamic = 166,
   kOpPageResourceRespond = 167,
-  kOpAddDocumentScript = 168,  // optional
-  kOpAddPageChannel = 169,  // optional
-  kOpTabEvaluate = 170,  // optional
-  kOpTabSetFrozen = 171,  // optional
-  kOpTabSendClick = 172,  // optional
-  kOpTabSetColorScheme = 173,  // optional
-  kOpPageSchemeSetGroup = 174,  // optional
-  kOpTabDiscard = 175,  // optional
-  kOpWidgetSetGeometry = 176,  // optional
-  kOpWidgetDismiss = 177,  // optional
-  kOpWidgetSendInput = 178,  // optional
+  kOpSetCursorEvents = 168,
+  kOpAddDocumentScript = 169,  // optional
+  kOpAddPageChannel = 170,  // optional
+  kOpTabEvaluate = 171,  // optional
+  kOpTabSetFrozen = 172,  // optional
+  kOpTabSendClick = 173,  // optional
+  kOpTabSetColorScheme = 174,  // optional
+  kOpPageSchemeSetGroup = 175,  // optional
+  kOpTabDiscard = 176,  // optional
+  kOpWidgetSetGeometry = 177,  // optional
+  kOpWidgetDismiss = 178,  // optional
+  kOpWidgetSendInput = 179,  // optional
 };
-inline constexpr uint16_t kOpCount = 178;
+inline constexpr uint16_t kOpCount = 179;
 inline constexpr uint16_t kOpEvent = 0x8001;  // host -> cmux: one shim event
 inline constexpr uint16_t kOpReply = 0x8002;  // host -> cmux: an async op's result
 inline constexpr uint16_t kOpMirror = 0x8003;  // host -> cmux: a mirror value
 inline constexpr uint16_t kOpAck = 0x8004;  // host -> cmux: a token's op ran
-inline constexpr int kEventKindCount = 53;
-inline constexpr char kShimAbiID[] = "f3c96f8ce9da96c940dbbeaee840760105fb817e325e7450a4b9cdb4e0abca38";
+inline constexpr int kEventKindCount = 54;
+inline constexpr char kShimAbiID[] = "04fcbd7e8dba41db508e174c1b562d05fc32db82400578d5cb31039799aad8b4";
 // Both sides' HELLO carries it: the op ids, classes and wire types of this generation.
-inline constexpr char kWireID[] = "b471feee19f3d5cdecf60518058aa62c4bd659f86969f2b64cda28dc7b53cbe1";
+inline constexpr char kWireID[] = "96d6173d68969807c46a967b14b4549a2a44a5601ae872e2572c769c0f7393e6";
 // Exports the header does not declare yet (fork API symbols): the client sends one only to
 // a host whose HELLO lists its symbol.
 struct OptionalExport {

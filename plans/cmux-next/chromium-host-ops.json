@@ -4080,6 +4080,23 @@
       "pending_keys": [],
       "reply_event": null,
       "reason": "Answers a PAGE_RESOURCE token; bodies over 64 KiB go in a sealed shm fd (task 020). Any thread."
+    },
+    {
+      "name": "cmux_shim_set_cursor_events",
+      "class": "local",
+      "args": [
+        {
+          "name": "enabled",
+          "type": "int"
+        }
+      ],
+      "returns": "void",
+      "result_used_by": [],
+      "mirror_key": null,
+      "refresh_events": [],
+      "pending_keys": [],
+      "reply_event": null,
+      "reason": "The Chromium Host turns cursor events on itself before initialize (its page windows never show; CURSOR events reach ChromiumHostPageView, task 045), so the remote export does nothing."
     }
   ],
   "events": [
@@ -4376,6 +4393,11 @@
     {
       "kind": "CMUX_SHIM_FILE_DIALOG",
       "value": 48,
+      "refreshes": []
+    },
+    {
+      "kind": "CMUX_SHIM_CURSOR",
+      "value": 54,
       "refreshes": []
     }
   ],
