@@ -178,6 +178,7 @@
     "CmuxNextTasks": 1,
     "CmuxNextVSCodeServer": 2,
     "CmuxNextWakeups": 1,
+    "CmuxSafeConcurrency": 1,
     "CmuxVNC": 2,
     "CmuxVNCDemoServer": 3,
     "CmuxVNCWebRTC": 19,
