@@ -11,13 +11,15 @@ import Foundation
 /// - every other section (Pinned, custom, app sections) is a list section
 ///   (`SectionID.custom`) at its own place in the document order: its items
 ///   draw in its own arrangement (`SidebarRowKey.block`), and its groups
-///   leave their machine and list there as header and member rows. An empty
-///   kept group lists there too.
+///   leave their machine and list there as header and member rows. A kept
+///   group with no open workspace lists there too; one whose open workspaces
+///   another window lists belongs to that window and does not (#25776).
 extension SidebarDocProjection {
     /// `sections` arranged as this document places items; `drag` names each row's item and each list section's document section.
     @MainActor public func arrange(_ sections: [SidebarSection], drag: SidebarDocDrag) -> [SidebarSection] {
         let projection = self
         let bandIDs = Set(projection.bandGroups.map(\.id))
+        let open = Self.openTrees(projection.bandGroups)
         var pulled: [String: SidebarGroup] = [:]
         var arranged = sections.map { section in
             var section = section
@@ -54,7 +56,11 @@ extension SidebarDocProjection {
                 continue
             }
             let id = layoutSection.id.rawValue
-            let nodes = projection.bandGroups.filter { $0.section == id }.map { SidebarNode.group(pulled[$0.id] ?? Self.emptyGroup($0)) }
+            let nodes = projection.bandGroups.filter { $0.section == id }.compactMap { group -> SidebarNode? in
+                if let shown = pulled[group.id] { return .group(shown) }
+                // Not listed here: another window (or room) lists its open workspaces, or none is open (its header alone).
+                return open.contains(group.id) ? nil : .group(Self.emptyGroup(group))
+            }
             guard !passedMachines || !nodes.isEmpty else { continue }
             let section = SidebarSection(kind: .custom(SidebarCustomSection(id: id, title: layoutSection.title, showsTitle: false)), nodes: nodes)
             if passedMachines { after.append(section) } else { before.append(section) }
@@ -188,6 +194,17 @@ extension SidebarDocProjection {
         }
         // Unplaced rows after the last placed one keep their mapped order at the end.
         return nodes + waiting
+    }
+
+    /// The band groups that hold an open workspace, themselves or in a group under them.
+    private static func openTrees(_ groups: [Group]) -> Set<String> {
+        let parents = Dictionary(groups.map { ($0.id, $0.parent) }, uniquingKeysWith: { first, _ in first })
+        var open = Set<String>()
+        for group in groups where group.holdsOpenWorkspace {
+            var id: String? = group.id
+            while let current = id, open.insert(current).inserted { id = parents[current] ?? nil }
+        }
+        return open
     }
 
     /// A kept group with no open member (Pinned keeps it): its header alone.
