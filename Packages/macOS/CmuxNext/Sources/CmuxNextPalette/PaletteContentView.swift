@@ -40,6 +40,15 @@ final class PaletteContentView: NSView {
         get { recorderView.onChoose }
         set { recorderView.onChoose = newValue }
     }
+    /// The windows' frame-aligned pointer input (feature `pointerFrameHover`): the result list and the
+    /// Actions menu hover on a frame interval's first move and once more at its frame. Nil: each move.
+    var hoverFrameInput: FrameInputCoalescers? {
+        get { list.hoverFrameInput }
+        set {
+            list.hoverFrameInput = newValue
+            actionsMenuView.hoverFrameInput = newValue
+        }
+    }
 
     private var appliedResults = -1
     private var appliedScroll = -1
