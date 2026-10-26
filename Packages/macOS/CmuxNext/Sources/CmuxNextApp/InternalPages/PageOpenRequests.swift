@@ -18,6 +18,9 @@ final class PageOpenRequests<Value> {
 
     init() {}
 
+    // A generic main-actor class: an isolated deinit crashes the Release optimizer (#23050).
+    nonisolated deinit {}
+
     /// Runs `body` with `request` as ``running``.
     func during<Output>(_ request: Value?, _ body: () -> Output) -> Output {
         let outer = running
