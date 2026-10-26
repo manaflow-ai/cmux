@@ -35,12 +35,31 @@ struct AgentSubsessionFamilyTests {
         guard case .page(_, _, _, _, _, _, _, let links) = page else { Issue.record("not a page: \(String(describing: page))"); return }
         #expect(links == ["c1": "root"])
         let change = message(#"{"method":"_acpmux/session_changed","params":{"sessionId":"c1","session":{"sessionId":"c1","startedBy":"root"}}}"#)
-        guard case .change(let session, _, _, _, _, _, _, _, let parent, _) = change else { Issue.record("not a change: \(String(describing: change))"); return }
+        guard case .change(let session, _, _, _, _, _, _, _, let parent, _, _) = change else { Issue.record("not a change: \(String(describing: change))"); return }
         #expect(session == "c1")
         #expect(parent == "root")
         let purge = message(#"{"method":"_acpmux/session_changed","params":{"sessionId":"c1","kind":"purged"}}"#)
-        guard case .change(_, _, _, _, _, _, _, _, let purged, _) = purge else { Issue.record("not a change: \(String(describing: purge))"); return }
+        guard case .change(_, _, _, _, _, _, _, _, let purged, _, _) = purge else { Issue.record("not a change: \(String(describing: purge))"); return }
         #expect(purged == nil, "a purged session keeps no parent")
+    }
+
+    /// A change of an acpmux peer's session names the peer, and whether its row went stale (the
+    /// peer dropped): the app offers a peer that connects later to the daemon update.
+    @Test func theFeedReadsThePeerOfAChange() {
+        /// The change's peer; nil inside when it names none, nil outside when the line is no change.
+        func peer(_ params: String) -> (name: String, stale: Bool)?? {
+            let line = #"{"method":"_acpmux/session_changed","params":"# + params + "}"
+            guard case .change(_, _, _, _, _, _, _, _, _, _, let peer) = AgentTurnStateFeed.Message(line: Data(line.utf8)) else { return nil }
+            return .some(peer)
+        }
+        let live = peer(#"{"sessionId":"p1","peer":"huge-blue","kind":"status","session":{"sessionId":"p1","status":"idle"}}"#)
+        #expect(live??.name == "huge-blue" && live??.stale == false)
+        let stale = peer(#"{"sessionId":"p1","peer":"huge-blue","kind":"status","session":{"sessionId":"p1","status":"unreachable","stale":true}}"#)
+        #expect(stale??.name == "huge-blue" && stale??.stale == true)
+        let local = peer(#"{"sessionId":"c1","session":{"sessionId":"c1"}}"#)
+        #expect(local.map { $0 == nil } == true, "this Mac's own session names no peer")
+        let purged = peer(#"{"sessionId":"p1","peer":"huge-blue","kind":"purged"}"#)
+        #expect(purged.map { $0 == nil } == true, "a peer's purged session says nothing of its connection")
     }
 
     @Test func aChatsFamilyIsItsSubsessionsAtAnyDepthAndItsParent() {

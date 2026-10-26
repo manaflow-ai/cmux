@@ -4,6 +4,10 @@
 // hides the macOS way (composerChrome.tsx): its right-click offers Hide, and a right-click on the
 // composer's button row offers Show. The page sets the value at once and asks the host to write it
 // (`pane.showContextUsage`, `pane.showDictation`), which pushes it back, also on the next launch.
+// `agentPane.attachmentView` rides the same event as `attachmentView`: how pictures and files show
+// in every composer and in sent messages, "inline" (in the text where each was added, the default)
+// or "strip" (in a row). It is only a look: a draft's text, its attachment marks and their order
+// are the same in both, so switching never changes what is sent. Anything else reads as "inline".
 // The same event carries `reasoningSlider`, the Debug Settings toggle `agent.reasoningSlider`
 // (DEV and NIGHTLY, off by default; not a cmux.json key): the reasoning menu draws a stepped
 // slider instead of its list of levels. Only Debug Settings changes it. The model chip always opens
@@ -21,10 +25,12 @@
 import { useSyncExternalStore } from "react";
 
 export type ReasoningSliderStyle = "accent" | "minimal";
+export type AttachmentView = "inline" | "strip";
 export type ComposerSettings = {
   showContextUsage: boolean;
   showDictation: boolean;
   spellChecking: boolean;
+  attachmentView: AttachmentView;
   reasoningSlider: boolean;
   reasoningSliderStyle: ReasoningSliderStyle;
   plainFooter: boolean;
@@ -36,6 +42,7 @@ export const DEFAULT_COMPOSER: ComposerSettings = {
   showContextUsage: true,
   showDictation: true,
   spellChecking: false,
+  attachmentView: "inline",
   reasoningSlider: false,
   reasoningSliderStyle: "accent",
   plainFooter: true,
@@ -57,10 +64,12 @@ export function readComposerSettings(value: unknown): ComposerSettings {
   const raw = (value && typeof value === "object" ? value : {}) as Record<string, unknown>;
   const flag = (key: ComposerFlag) => (typeof raw[key] === "boolean" ? raw[key] : DEFAULT_COMPOSER[key]);
   const reasoningSliderStyle: ReasoningSliderStyle = raw.reasoningSliderStyle === "minimal" ? "minimal" : "accent";
+  const attachmentView: AttachmentView = raw.attachmentView === "strip" ? "strip" : "inline";
   return {
     showContextUsage: flag("showContextUsage"),
     showDictation: flag("showDictation"),
     spellChecking: flag("spellChecking"),
+    attachmentView,
     reasoningSlider: flag("reasoningSlider"),
     reasoningSliderStyle,
     plainFooter: flag("plainFooter"),
@@ -71,13 +80,27 @@ export function readComposerSettings(value: unknown): ComposerSettings {
 
 let current = DEFAULT_COMPOSER;
 const listeners = new Set<() => void>();
+let confirmedAttachmentView = current.attachmentView;
+let attachmentWrite = 0;
+let confirmedWrite = 0;
+let pendingWrite = 0;
 
-/// The host's whole value, or a page change to some settings (the rest stay as they are).
-export function setComposerSettings(value: unknown) {
-  const next = readComposerSettings({ ...current, ...(value && typeof value === "object" ? value : {}) });
+function publishComposerSettings(value: unknown) {
+  const next = readComposerSettings({ ...current, ...(value && typeof value === "object" ? value : undefined) });
   if (KEYS.every((key) => next[key] === current[key])) return;
   current = next;
   for (const listener of listeners) listener();
+}
+
+/// The host's whole value, or a page change to some settings (the rest stay as they are).
+export function setComposerSettings(value: unknown) {
+  if (value && typeof value === "object" && "attachmentView" in value) {
+    confirmedAttachmentView = readComposerSettings(value).attachmentView;
+    // A host push is authoritative, including over replies from older writes.
+    confirmedWrite = ++attachmentWrite;
+    pendingWrite = 0;
+  }
+  publishComposerSettings(value);
 }
 
 export function useComposerSettings(): ComposerSettings {
@@ -105,6 +128,42 @@ let composerHost: ComposerHost | undefined;
 /// App's route to the host; a page with none (a gallery, a test) keeps its choice in the page.
 export function registerComposerHost(write: ComposerHost | undefined) {
   composerHost = write;
+}
+
+/// The host's write of `agentPane.attachmentView` (`pane.setAttachmentView {view}`).
+let attachmentViewHost: ((view: AttachmentView) => unknown) | undefined;
+
+/// App's route to the host; a page with none (a gallery, a test) keeps its choice in the page.
+export function registerAttachmentViewHost(write: ((view: AttachmentView) => unknown) | undefined) {
+  attachmentViewHost = write;
+}
+
+/// Shows attachments inline or in a strip in every composer and sent message, and asks the host to
+/// persist it. Only the look changes; no draft or message is touched.
+export function setAttachmentView(view: AttachmentView) {
+  if (!attachmentViewHost) {
+    setComposerSettings({ attachmentView: view });
+    return;
+  }
+  const write = ++attachmentWrite;
+  pendingWrite = write;
+  publishComposerSettings({ attachmentView: view });
+  const settle = (accepted: boolean) => {
+    if (accepted && write > confirmedWrite) {
+      confirmedAttachmentView = view;
+      confirmedWrite = write;
+    }
+    if (pendingWrite === write) pendingWrite = 0;
+    if (!pendingWrite) publishComposerSettings({ attachmentView: confirmedAttachmentView });
+  };
+  try {
+    void Promise.resolve(attachmentViewHost(view)).then(
+      () => settle(true),
+      () => settle(false),
+    );
+  } catch {
+    settle(false);
+  }
 }
 
 /// Shows or hides a composer control in every composer, and asks the host to persist it.

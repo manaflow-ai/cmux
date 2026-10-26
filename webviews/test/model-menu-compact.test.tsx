@@ -8,6 +8,7 @@ import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act, useState } from "react";
 import type { Root } from "react-dom/client";
+import type { UpdateOffer } from "../src/agent-session/acpmux/HarnessHealthNotice";
 import { DEFAULT_COMPOSER, setComposerSettings } from "../src/agent-session/acpmux/composerSettings";
 
 const scope = globalThis as Record<string, unknown>;
@@ -100,9 +101,11 @@ async function mount(
     effort?: string;
     folderProfile?: boolean;
     currentFolder?: boolean;
+    update?: UpdateOffer;
   } = {},
 ) {
   const { createRoot } = await import("react-dom/client");
+  const { UpdateOfferContext } = await import("../src/agent-session/acpmux/HarnessHealthNotice");
   const { QueryClient, QueryClientProvider } = await import("@tanstack/react-query");
   const { ComposerPickers } = await import("../src/agent-session/acpmux/ComposerPickers");
   const { usePickerCatalog } = await import("../src/agent-session/acpmux/modelCatalogHost");
@@ -216,7 +219,9 @@ async function mount(
   const tree = () => (
     <QueryClientProvider client={client}>
       <ChatAccountsContext.Provider value={accounts}>
-        <Host />
+        <UpdateOfferContext.Provider value={options.update}>
+          <Host />
+        </UpdateOfferContext.Provider>
       </ChatAccountsContext.Provider>
     </QueryClientProvider>
   );
@@ -794,4 +799,77 @@ test("every rail tab fits in the same list height and width, the tallest and wid
   // The space is the tallest tab's or the longest filter's (at most nine rows), not more.
   expect(Math.max(...extents.map((each) => each.rows))).toBe(held.rows);
   expect(Math.max(...extents.map((each) => each.separators))).toBe(held.separators);
+});
+
+// The static "Model · this session" caption is gone from both pickers, in a new chat, a started
+// one and on a machine profile (Leo 2026-10-25: "fix the basics first").
+test.each([{ turnCount: 0 }, { turnCount: 2 }, { folderProfile: true, currentFolder: true }])(
+  "compact and full model pickers omit the redundant session header: %j",
+  async (options) => {
+    await mount({ routes: [] }, options);
+    await open();
+    expect(menu()!.textContent).not.toMatch(/Model\s*·\s*this session/i);
+    expect(menu()!.querySelector(".ui-menu-group-label")).toBeNull();
+    await act(async () => {
+      dom.window.dispatchEvent(
+        new dom.window.KeyboardEvent("keydown", { key: "m", metaKey: true, ctrlKey: true, bubbles: true }),
+      );
+    });
+    await settle();
+    const full = doc().querySelector<HTMLElement>(".acpmux-mp");
+    expect(full).not.toBeNull();
+    expect(full!.textContent).not.toMatch(/Model\s*·\s*this session/i);
+  },
+);
+
+// The agent CLI's update is maintenance, not a model choice: a quiet footer under the list, out of
+// the numbered rows and the held list height, that a search keeps and whose Update still runs.
+test.each([
+  ["a new chat (rail)", {}],
+  ["a started chat (no rail)", { turnCount: 1 }],
+  ["a machine profile", { folderProfile: true, currentFolder: true }],
+] as const)("an agent update sits in a footer below the model list: %s", async (_name, options) => {
+  let updated = 0;
+  await mount(
+    { routes: [] },
+    {
+      ...options,
+      update: {
+        harness: "claude",
+        agent: "Claude Code",
+        version: "2.1.0",
+        latest: "2.2.0",
+        update: () => {
+          updated += 1;
+        },
+        skip: () => undefined,
+      },
+    },
+  );
+  await open();
+  const popup = menu()!;
+  const footer = popup.querySelector<HTMLElement>(".acpmux-quick-update");
+  expect(footer).not.toBeNull();
+  expect(footer!.parentElement).toBe(popup);
+  expect(popup.lastElementChild).toBe(footer);
+  expect(footer!.closest(".acpmux-quick-list")).toBeNull();
+  expect(footer!.textContent).toContain("2.2.0");
+  const actions = [...footer!.querySelectorAll<HTMLElement>('[role^="menuitem"]')];
+  expect(actions.map((item) => item.textContent)).toEqual(["Update"]);
+  // No model row, numbered or not, carries the update.
+  expect(
+    [...popup.querySelectorAll<HTMLElement>('[role^="menuitem"]')]
+      .filter((item) => !footer!.contains(item))
+      .some((item) => item.textContent?.includes("2.2.0")),
+  ).toBe(false);
+  // A typed search keeps the footer where it is.
+  if (field()) {
+    await typeIn("opus");
+    await settle();
+    expect(menu()!.lastElementChild?.classList.contains("acpmux-quick-update")).toBe(true);
+  }
+  await act(async () => menu()!.querySelector<HTMLElement>(".acpmux-quick-update [role^='menuitem']")!.click());
+  await settle();
+  expect(updated).toBe(1);
+  expect(menu()).toBeNull();
 });
