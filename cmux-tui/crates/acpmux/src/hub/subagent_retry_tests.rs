@@ -207,3 +207,379 @@ async fn a_raw_failure_while_the_chat_closes_leaves_it_not_retryable() {
     let got = outcomes(&hub, &session);
     assert_eq!(got, ["scheduled", "skipped:resumed"], "nothing scheduled after close began");
 }
+
+/// A person's retry, under the local caller's rules.
+fn by_person() -> crate::hub::auto_resume::retry_turn::RetryBy {
+    crate::hub::auto_resume::retry_turn::RetryBy {
+        control: crate::hub::Control::Local,
+        trust_gate: false,
+        full_access_device: None,
+        from: None,
+    }
+}
+
+/// A person's retry says why a subagent can't be retried: replaced by a new one of its name (by
+/// its id or its agent id), running, or its chat closing.
+#[tokio::test]
+async fn a_person_retry_says_why_a_subagent_cannot_be_retried() {
+    let (hub, session, _conn) = chat(vec![60_000]).await;
+    let running =
+        |id: &str| json!({"id": id, "parent": null, "state": "running", "task": "Push relay"});
+    // Named by its start, as the translator reports it.
+    hub.observe_subagents(&session, &[running("s/t1"), failed("s/t1")]);
+    settle().await;
+    hub.observe_subagents(&session, &[running("s/t2")]);
+    let why = |e: RpcError| {
+        let data = e.data.unwrap();
+        assert_eq!(data["reason"], "retry.nothing_failed", "{data}");
+        data["why"].as_str().unwrap().to_owned()
+    };
+    for named in ["s/t1", "agent-s/t1"] {
+        let refused = hub.retry_subagent(&session, named, by_person()).await.unwrap_err();
+        assert_eq!(why(refused), "replaced", "{named}");
+    }
+    let refused = hub.retry_subagent(&session, "s/t2", by_person()).await.unwrap_err();
+    assert_eq!(why(refused), "running");
+    let refused = hub.retry_subagent(&session, "s/t9", by_person()).await.unwrap_err();
+    assert_eq!(refused.data.unwrap()["reason"], "retry.unknown_subagent");
+    session.closing.store(true, Ordering::SeqCst);
+    let refused = hub.retry_subagent(&session, "s/t2", by_person()).await.unwrap_err();
+    assert_eq!(why(refused), "closed");
+    assert_eq!(outcomes(&hub, &session), ["scheduled", "skipped:replaced"]);
+}
+
+/// A stopped subagent a person retries, whose turn ends with it still failed, gets no automatic
+/// attempts after it: it stays stopped, and a person can retry it again.
+#[tokio::test]
+async fn a_stopped_subagent_a_person_retried_stays_stopped() {
+    // `[0]`: an automatic attempt would fire at once.
+    let (hub, session, _conn) = chat(vec![0]).await;
+    hub.observe_subagents(&session, &[failed("s/t1")]);
+    hub.stop_subagent_retries(&session, false);
+    settle().await;
+    let v = hub.retry_subagent(&session, "s/t1", by_person()).await.unwrap();
+    assert_eq!(v["kind"], "subagent", "{v}");
+    let idle = || {
+        let all = hub.subagent_retries.lock();
+        let failed = all.subs[&session.id]["s/t1"].failed.clone().unwrap();
+        failed.idle && failed.wait.is_none()
+    };
+    for _ in 0..100 {
+        if idle() {
+            break;
+        }
+        settle().await;
+    }
+    assert!(idle(), "its turn ended and it is stopped again");
+    settle().await;
+    assert_eq!(outcomes(&hub, &session), ["fired"]);
+    let entry = last_entry(&hub, &session, "s/t1").unwrap();
+    assert_eq!((&entry["state"], &entry["retryable"]), (&json!("failed"), &json!(true)));
+    let again = hub.retry_subagent(&session, "s/t1", by_person()).await.unwrap();
+    assert_ne!(again["promptId"], v["promptId"]);
+}
+
+/// A person's retry whose prompt is refused at dispatch (here: the sub-session that asked is
+/// gone) answers with the refusal at once, never after the next automatic attempt's wait.
+#[tokio::test]
+async fn a_refused_person_retry_answers_at_once() {
+    let (hub, session, _conn) = chat(vec![60_000, 60_000]).await;
+    hub.observe_subagents(&session, &[failed("s/t1")]);
+    settle().await;
+    let by =
+        crate::hub::auto_resume::retry_turn::RetryBy { from: Some("gone".into()), ..by_person() };
+    let answer = hub.retry_subagent(&session, "s/t1", by);
+    let refused = tokio::time::timeout(Duration::from_secs(10), answer).await;
+    let refused = refused.expect("answered at once").unwrap_err();
+    assert_eq!(refused.data.unwrap()["reason"], "subsessions.sender_gone");
+    settle().await;
+    assert_eq!(outcomes(&hub, &session), ["scheduled", "fired", "scheduled"]);
+}
+
+/// The chat's `user_message` records.
+fn prompts(hub: &Hub, session: &Session) -> Vec<Value> {
+    let records = hub.events(&session.id, 0, 10_000).unwrap();
+    records.into_iter().filter(|e| e.kind == "user_message").map(|e| e.msg).collect()
+}
+
+/// The subagent's retry state: its attempts so far, and its wait's attempt and whether it fired.
+fn wait_of(hub: &Hub, session: &Session, id: &str) -> (usize, Option<(usize, bool)>) {
+    let all = hub.subagent_retries.lock();
+    let sub = &all.subs[&session.id][id];
+    let wait = sub.failed.as_ref().and_then(|f| f.wait.as_ref()).map(|w| (w.attempt, w.fired));
+    (sub.attempts, wait)
+}
+
+/// A prompt that takes the chat between a person's claim and its send (here: one holding the
+/// turn lock, about to start; then Claude Code's own turn): `retry.busy`, nothing queued or sent,
+/// and the automatic retry it took over waits again, at its attempt.
+#[tokio::test]
+async fn a_person_retry_overtaken_after_its_claim_is_busy_and_gives_the_wait_back() {
+    let (hub, session, _conn) = chat(vec![60_000]).await;
+    hub.observe_subagents(&session, &[failed("s/t1")]);
+    settle().await;
+    for overtaken in ["turn_lock", "harness_turn"] {
+        let claim = hub.claim_subagent(&session, "s/t1", 1).unwrap();
+        assert_eq!(wait_of(&hub, &session, "s/t1"), (1, Some((1, true))));
+        let lock = (overtaken == "turn_lock").then(|| session.turn_lock.try_lock().unwrap());
+        session.harness_turn.store(overtaken == "harness_turn", Ordering::SeqCst);
+        let refused = hub.send_claim(&session, "s/t1", claim, by_person()).await.unwrap_err();
+        drop(lock);
+        session.harness_turn.store(false, Ordering::SeqCst);
+        assert_eq!(refused.data.unwrap()["reason"], "retry.busy", "{overtaken}");
+        assert!(session.queue().is_empty(), "{overtaken}: nothing queued");
+        assert!(prompts(&hub, &session).is_empty(), "{overtaken}: nothing sent");
+        settle().await;
+        assert_eq!(wait_of(&hub, &session, "s/t1"), (0, Some((1, false))), "{overtaken}");
+    }
+    assert_eq!(outcomes(&hub, &session), ["scheduled", "fired", "scheduled", "fired", "scheduled"]);
+    let entry = last_entry(&hub, &session, "s/t1").unwrap();
+    assert_eq!((&entry["state"], &entry["retryable"]), (&json!("failed"), &json!(true)));
+    assert!(entry["retry"].is_object(), "it waits again: {entry}");
+    // The wait it gave back still fires, now.
+    hub.retry_subagent(&session, "s/t1", by_person()).await.unwrap();
+}
+
+/// Stop, a resume or a replacement between a person's claim and its prompt's start: the prompt
+/// never runs, and the retry answers `retry.nothing_failed` (`skipped`), never a promptId.
+#[tokio::test]
+async fn a_person_retry_skipped_before_its_prompt_starts_is_refused() {
+    for skip in ["stop", "resume", "replace"] {
+        let (hub, session, _conn) = chat(vec![60_000]).await;
+        let running =
+            json!({"id": "s/t1", "parent": null, "state": "running", "task": "Push relay"});
+        hub.observe_subagents(&session, &[running, failed("s/t1")]);
+        settle().await;
+        let claim = hub.claim_subagent(&session, "s/t1", 1).unwrap();
+        match skip {
+            "stop" => hub.stop_subagent_retries(&session, false),
+            "resume" => hub.observe_subagents(
+                &session,
+                &[json!({"id": "s/t1", "parent": null, "state": "running"})],
+            ),
+            _ => hub.observe_subagents(
+                &session,
+                &[json!({"id": "s/t2", "parent": null, "state": "running", "task": "Push relay"})],
+            ),
+        }
+        let refused = hub.send_claim(&session, "s/t1", claim, by_person()).await.unwrap_err();
+        let data = refused.data.unwrap();
+        assert_eq!(
+            (&data["reason"], &data["why"]),
+            (&json!("retry.nothing_failed"), &json!("skipped")),
+            "{skip}"
+        );
+        assert!(prompts(&hub, &session).is_empty(), "{skip}: nothing ran");
+        assert!(session.turn().is_none(), "{skip}");
+    }
+}
+
+/// A double click: the second retry while the first one's prompt is under way is `retry.busy`,
+/// and only one prompt goes.
+#[tokio::test]
+async fn a_second_person_retry_while_the_first_is_under_way_is_busy() {
+    let (hub, session, _conn) = chat(vec![60_000]).await;
+    hub.observe_subagents(&session, &[failed("s/t1")]);
+    settle().await;
+    let first = hub.claim_subagent(&session, "s/t1", 1).unwrap();
+    let second = hub.retry_subagent(&session, "s/t1", by_person()).await.unwrap_err();
+    assert_eq!(second.data.unwrap()["reason"], "retry.busy");
+    let v = hub.send_claim(&session, "s/t1", first, by_person()).await.unwrap();
+    assert_eq!(v["kind"], "subagent", "{v}");
+    settle().await;
+    assert_eq!(prompts(&hub, &session).len(), 1);
+    assert_eq!(outcomes(&hub, &session).iter().filter(|o| *o == "fired").count(), 1);
+}
+
+/// A sub-session's retry (`from` its parent) passes the family check at dispatch, and its prompt
+/// names the sender.
+#[tokio::test]
+async fn a_sub_session_retry_runs_and_names_its_sender() {
+    let (hub, session, _conn) = chat(vec![60_000]).await;
+    let (out_tx, mut out_rx) = mpsc::channel(64);
+    let (in_tx, in_rx) = mpsc::channel(8);
+    tokio::spawn(crate::server::serve_connection_with(
+        hub.clone(),
+        in_rx,
+        out_tx,
+        crate::server::Origin::Local,
+    ));
+    let new = json!({"cwd": std::env::temp_dir(), "mcpServers": []});
+    in_tx.send(Message::request(2, method::SESSION_NEW, new).to_line()).await.unwrap();
+    let parent = loop {
+        let reply: Value = serde_json::from_str(&out_rx.recv().await.unwrap()).unwrap();
+        if reply["id"] == 2 {
+            break reply["result"]["sessionId"].as_str().unwrap().to_owned();
+        }
+    };
+    hub.observe_subagents(&session, &[failed("s/t1")]);
+    settle().await;
+    let by =
+        crate::hub::auto_resume::retry_turn::RetryBy { from: Some(parent.clone()), ..by_person() };
+    let v = hub.retry_subagent(&session, "s/t1", by).await.unwrap();
+    assert_eq!(v["kind"], "subagent", "{v}");
+    let sent = prompts(&hub, &session);
+    let provenance = &sent[0]["_meta"]["provenance"];
+    assert_eq!(provenance["from"], parent.as_str(), "{provenance}");
+    assert_eq!(provenance["manual"], true, "{provenance}");
+    assert_eq!(provenance["kind"], "subagent_retry", "{provenance}");
+}
+
+/// A turn continuation that becomes pending between a person's claim and its start (here: its
+/// cut turn ending, not settled yet): refused `retry.busy` at the start, under the continuation's
+/// own lock, and the claim given back.
+#[tokio::test]
+async fn a_person_retry_is_busy_once_a_continuation_is_pending_at_its_start() {
+    let (hub, session, _conn) = chat(vec![60_000]).await;
+    hub.observe_subagents(&session, &[failed("s/t1")]);
+    settle().await;
+    let claim = hub.claim_subagent(&session, "s/t1", 1).unwrap();
+    hub.set_ending_for_test(&session, Some("t-cut"));
+    let refused = hub.send_claim(&session, "s/t1", claim, by_person()).await.unwrap_err();
+    assert_eq!(refused.data.unwrap()["reason"], "retry.busy");
+    assert!(prompts(&hub, &session).is_empty(), "nothing sent");
+    assert!(session.turn().is_none());
+    settle().await;
+    assert_eq!(wait_of(&hub, &session, "s/t1"), (0, Some((1, false))), "the wait is given back");
+    hub.set_ending_for_test(&session, None);
+    hub.retry_subagent(&session, "s/t1", by_person()).await.unwrap();
+}
+
+/// A prompt that comes into the queue between a person's claim and its slot, which the `queued`
+/// count does not show yet (a queue change in flight): read under the queue's lock, the retry is
+/// `retry.busy` and never starts ahead of it.
+#[tokio::test]
+async fn a_person_retry_is_busy_behind_a_queued_prompt_the_count_misses() {
+    let (hub, session, _conn) = chat(vec![60_000]).await;
+    hub.observe_subagents(&session, &[failed("s/t1")]);
+    settle().await;
+    let queued = queued_prompt("p-waits", None);
+    // Claimed with the queue empty; the prompt comes in before the retry's slot.
+    let claim = hub.claim_subagent(&session, "s/t1", 1).unwrap();
+    session.queue.lock().unwrap().push(queued);
+    assert_eq!(session.queued(), 0, "the count does not show it");
+    let refused = hub.send_claim(&session, "s/t1", claim, by_person()).await.unwrap_err();
+    assert_eq!(refused.data.unwrap()["reason"], "retry.busy");
+    assert!(prompts(&hub, &session).is_empty(), "it never started ahead of the queue");
+    settle().await;
+    assert_eq!(wait_of(&hub, &session, "s/t1"), (0, Some((1, false))), "the wait is given back");
+    session.queue.lock().unwrap().clear();
+    hub.retry_subagent(&session, "s/t1", by_person()).await.unwrap();
+    assert_eq!(prompts(&hub, &session).len(), 1);
+}
+
+/// Another chat on `hub`, and the connection that keeps it.
+async fn another_chat(hub: &Arc<Hub>) -> (Arc<Session>, mpsc::Sender<String>) {
+    let (out_tx, mut out_rx) = mpsc::channel(64);
+    let (in_tx, in_rx) = mpsc::channel(8);
+    tokio::spawn(crate::server::serve_connection_with(
+        hub.clone(),
+        in_rx,
+        out_tx,
+        crate::server::Origin::Local,
+    ));
+    let new = json!({"cwd": std::env::temp_dir(), "mcpServers": []});
+    in_tx.send(Message::request(2, method::SESSION_NEW, new).to_line()).await.unwrap();
+    loop {
+        let reply: Value = serde_json::from_str(&out_rx.recv().await.unwrap()).unwrap();
+        if reply["id"] == 2 {
+            let session = hub.resolve(reply["result"]["sessionId"].as_str().unwrap()).unwrap();
+            return (session, in_tx);
+        }
+    }
+}
+
+/// A sub-session's subagent retry, asked for by its parent, takes one of the parent's run slots
+/// as its family prompts do: with them all taken it is `retry.busy`, never queued, and goes once
+/// one frees.
+#[tokio::test]
+async fn a_sub_session_retry_is_busy_while_its_parents_run_slots_are_full() {
+    let (hub, session, _conn) = chat(vec![60_000]).await;
+    let (parent, _parent_conn) = another_chat(&hub).await;
+    let (sibling, _sibling_conn) = another_chat(&hub).await;
+    parent.meta.lock().unwrap().subsession_limits.max_running = Some(1);
+    for child in [&session, &sibling] {
+        child.meta.lock().unwrap().subsession = Some(crate::store::SubsessionLink {
+            started_by: parent.id.clone(),
+            short_name: child.id.clone(),
+            depth: 1,
+            offered: false,
+        });
+    }
+    let family = json!({"kind": crate::hub::subsessions::PROVENANCE_KIND, "from": parent.id});
+    let slot = hub.take_run_slot(&sibling, Some(&family)).unwrap().expect("the one slot");
+    hub.observe_subagents(&session, &[failed("s/t1")]);
+    settle().await;
+    let by = || crate::hub::auto_resume::retry_turn::RetryBy {
+        from: Some(parent.id.clone()),
+        ..by_person()
+    };
+    let refused = hub.retry_subagent(&session, "s/t1", by()).await.unwrap_err();
+    assert_eq!(refused.data.unwrap()["reason"], "retry.busy");
+    assert!(session.queue().is_empty(), "never queued for a slot");
+    assert!(prompts(&hub, &session).is_empty());
+    settle().await;
+    assert_eq!(wait_of(&hub, &session, "s/t1"), (0, Some((1, false))), "the wait is given back");
+    drop(slot);
+    let v = hub.retry_subagent(&session, "s/t1", by()).await.unwrap();
+    assert_eq!(v["kind"], "subagent", "{v}");
+}
+
+/// A queue entry as `enqueue` makes it, with `provenance`, that no task waits on.
+fn queued_prompt(prompt_id: &str, provenance: Option<Value>) -> crate::hub::queue::QueuedPrompt {
+    let run = crate::hub::queue::PromptRun {
+        blocks: vec![json!({"type": "text", "text": "waits"})],
+        display_parts: None,
+        control: crate::hub::Control::Local,
+        trust_gate: false,
+        provenance,
+        agent: None,
+        supersede: None,
+        full_access_device: None,
+    };
+    crate::hub::queue::QueuedPrompt {
+        prompt_id: prompt_id.into(),
+        turn_id: format!("t-{prompt_id}"),
+        client: "test".into(),
+        preview: "waits".into(),
+        queued_at: 0,
+        withdraw: Arc::new(Notify::new()),
+        run: Arc::new(run),
+        restored: false,
+        resume: false,
+        steer: false,
+        held: false,
+        sent_now: false,
+        joined: Arc::new(std::sync::Mutex::new(None)),
+        requeued: false,
+        retries: 0,
+    }
+}
+
+/// Stopping a sub-session takes out the retries its parent asked for that wait in its queue
+/// (for a run slot), as it takes out the parent's messages; the chat's own prompts stay.
+#[tokio::test]
+async fn stopping_a_sub_session_withdraws_the_retries_waiting_in_its_queue() {
+    let (hub, session, _conn) = chat(vec![60_000]).await;
+    let retry = json!({"kind": "auto_resume", "promptId": "p", "attempt": 1, "manual": true,
+        "from": "parent"});
+    let message = json!({"kind": crate::hub::subsessions::PROVENANCE_KIND, "from": "parent"});
+    for (id, provenance) in
+        [("p-retry", Some(retry)), ("p-message", Some(message)), ("p-own", None)]
+    {
+        session.queue.lock().unwrap().push(queued_prompt(id, provenance));
+        session.queued.fetch_add(1, Ordering::SeqCst);
+    }
+    hub.withdraw_family_prompts(&session, "stopped");
+    let left: Vec<String> = session.queue().into_iter().map(|q| q.prompt_id).collect();
+    assert_eq!(left, ["p-own"]);
+    let removed: Vec<Value> = hub
+        .events(&session.id, 0, 10_000)
+        .unwrap()
+        .into_iter()
+        .filter(|e| e.kind == "queue_removed")
+        .map(|e| e.msg)
+        .collect();
+    assert_eq!(removed.len(), 2, "{removed:?}");
+    assert!(removed.iter().all(|r| r["reason"] == "stopped"), "{removed:?}");
+}

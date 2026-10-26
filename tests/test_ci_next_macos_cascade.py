@@ -185,6 +185,37 @@ class Place(unittest.TestCase):
         self.assertEqual(cascade.place(env(CASCADE_RUNS=runs, PROMOTE_LABEL=PROMOTE), ("fast-tier",), free, free,
                                        promote_busy=False).jobs, none_placed())
 
+    def test_a_feat_push_release_compile_takes_the_runs_first_slot(self):
+        # Run 40298786351 (2026-10-26 09:21Z): 6 vCPU had room, but MAX_PER_RUN went to fast-tier and the
+        # scheme compile ahead of it in JOBS, and the Release compile queued on the owned label.
+        runs = " fast-tier cmux-scheme-compile release-compile "
+        live, waiting = {LARGE: 0, SMALL: 5}, {LARGE: 7, SMALL: 0}
+        stalled = cascade.Seen(waits={LARGE: 227.0}, age=1.0, hosted=18)
+        before = cascade.place(env(CASCADE_RUNS=runs), (), live, waiting, stalled)
+        self.assertEqual(before.jobs[SMALL], ("fast-tier", "cmux-scheme-compile"))
+        first = env(CASCADE_RUNS=runs, FIRST_JOBS="release-compile")
+        self.assertEqual(cascade.place(first, (), live, waiting, stalled).jobs[SMALL], ("release-compile", "fast-tier"))
+        # The idle minis are spent on the run's other jobs first: one idle mini, and the Release compile still
+        # has its slot (fast-tier races for the mini); as many idle minis as side jobs, and nothing cascades.
+        one = cascade.place(first, ("fast-tier",), live, waiting, stalled)
+        self.assertEqual(one.jobs[SMALL], ("release-compile", "cmux-scheme-compile"))
+        three = cascade.place(first, ("fast-tier", "swift-canary", "cmux-scheme-compile"), live, waiting, stalled)
+        self.assertEqual(three.jobs, none_placed())
+        two = cascade.place(first, ("fast-tier", "swift-canary"), live, waiting, stalled)
+        self.assertEqual(two.jobs[SMALL], ("release-compile",))
+
+    def test_the_placement_names_the_first_jobs_only_on_a_feat_push_attempt_1(self):
+        jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
+        place = next(step for step in jobs["macos-placement"]["steps"] if step.get("id") == "place")
+        expression = place["env"]["FIRST_JOBS"]
+        for event, ref, attempt, expected in (("push", "refs/heads/feat-cmux-next", "1", "release-compile"),
+                                              ("push", "refs/heads/feat-cmux-next", "2", ""),
+                                              ("push", "refs/heads/next-batch/abc", "1", ""),
+                                              ("pull_request", "refs/pull/1/merge", "1", "")):
+            with self.subTest(event=event, ref=ref, attempt=attempt):
+                context = {"github": {"event_name": event, "ref": ref, "run_attempt": attempt}}
+                self.assertEqual(evaluate(expression, context), expected)
+
     def test_a_busy_promotion_mini_sends_the_feat_push_release_compile_to_blacksmith_first(self):
         runs = " swift-canary cmux-scheme-compile release-compile "
         free = {LARGE: 0, SMALL: 0}
@@ -542,16 +573,26 @@ class Wiring(unittest.TestCase):
             context["vars"]["CI_NEXT_PROMOTE_POOL"] = PROMOTE
             return context
 
-        # A free owned Mac wins; the Blacksmith pool is the last resort.
+        # An idle owned Mac wins: the cascade then gives the compile no Blacksmith slot and it takes the
+        # owned label. The cascade places it on Blacksmith only when no idle mini took it, so its slot comes
+        # before the owned label, which is then a queue (2026-10-26: 10-40 min on the std side label).
         self.assertEqual(evaluate(runs_on, push(runner="free-owned-mac")), "free-owned-mac")
         self.assertEqual(evaluate(runs_on, push()), SIDE)
         self.assertEqual(evaluate(runs_on, push(runner="")), SMALL)
-        self.assertEqual(evaluate(runs_on, push(large=" release-compile ")), SIDE)
-        self.assertEqual(evaluate(runs_on, push(small=" release-compile ")), SIDE)
-        self.assertEqual(evaluate(runs_on, push(runner="", large=" release-compile ")), SMALL)
+        self.assertEqual(evaluate(runs_on, push(large=" release-compile ")), LARGE)
+        self.assertEqual(evaluate(runs_on, push(small=" release-compile ")), SMALL)
+        self.assertEqual(evaluate(runs_on, push(runner="", large=" release-compile ")), LARGE)
         self.assertEqual(evaluate(runs_on, push(runner="", small=" release-compile ")), SMALL)
         # Another job's slot is not the Release compile's.
         self.assertEqual(evaluate(runs_on, push(large=" cmux-scheme-compile ")), SIDE)
+        # A re-run of the push does not reuse attempt 1's slot.
+        rerun = push(large=" release-compile ")
+        rerun["github"]["run_attempt"] = "2"
+        self.assertEqual(evaluate(runs_on, rerun), SIDE)
+        # The job's own label variable agrees with its runs-on.
+        runner_env = self.jobs["release-compile"]["env"]["CMUX_NEXT_RUNNER"]
+        for outputs in ({}, {"large": " release-compile "}, {"small": " release-compile "}, {"runner": ""}):
+            self.assertEqual(evaluate(runner_env, push(**outputs)), evaluate(runs_on, push(**outputs)))
         self.assertEqual(evaluate(runs_on, self.context("3", BOT, retry=SMALL)), SMALL)
         # Release compile never targets the dedicated nightly runner.
         self.assertNotIn("CI_NIGHTLY_NEXT_TRUSTED_RUNNER", self.jobs["release-compile"]["runs-on"])
