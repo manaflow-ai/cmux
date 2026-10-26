@@ -372,9 +372,6 @@
   overflow: visible;
   border-radius: var(--acpmux-composer-radius);
 }
-@media (prefers-reduced-motion: no-preference) {
-  .acpmux-access-menu { animation: ui-popup-open var(--ui-popup-open) ease-out; }
-}
 .acpmux-location-button,
 .acpmux-location-readonly {
   max-width: 190px;
@@ -1081,17 +1078,21 @@
    fills. It never leaves a row (Codex has no menu row for it): the prompt gives way, as for the mic. */
 .acpmux-fast {
   flex: none;
-  display: grid;
+  display: flex;
+  align-items: center;
+  gap: 4px;
   place-items: center;
-  width: 28px;
+  width: auto;
   height: 28px;
-  padding: 0;
+  padding: 0 6px;
   border: 0;
-  border-radius: 50%;
+  border-radius: 6px;
   background: none;
   color: var(--agent-muted);
   cursor: default;
 }
+.acpmux-speed { display: inline-flex; flex: none; align-items: center; font-size: var(--text-detail); }
+.acpmux-speed-choices { min-width: 16px; width: 16px; height: 28px; border: 0; border-radius: 6px; padding: 0; background: none; color: var(--agent-muted); font: inherit; }
 .acpmux-fast .acpmux-icon { width: 16px; height: 16px; }
 .acpmux-fast:focus-visible { outline: 1.5px solid var(--agent-text); outline-offset: 2px; }
 @media (hover: hover) and (pointer: fine) {
@@ -1268,7 +1269,7 @@
 }
 /* The context ring ends the quiet row, as Claude Code's does: no pill on hover or while its card
    shows (Leo 2026-10-21; the card is the feedback), the row's outline under keyboard focus. */
-.acpmux-composer-foot .acpmux-context-ring { width: 24px; height: 24px; margin-inline-start: 8px; }
+.acpmux-composer-foot .acpmux-context-ring { width: 24px; height: 24px; margin-inline-start: 4px; }
 .acpmux-composer-foot .acpmux-context-ring:focus-visible { outline-offset: 0; }
 
 /* The environment picker (EnvironmentPicker.tsx, preview): the folder popover's field and rows,

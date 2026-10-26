@@ -1,7 +1,11 @@
 import AppKit
 import CmuxNextBrowser
 import CmuxNextCrashReporting
+import CmuxNextDesign
 import CmuxNextWakeups
+import CmuxNextTerminal
+import CmuxNextSignposts
+import CmuxNextFocusUI
 import os
 
 /// Chromium's application protocols (base/message_loop/message_pump_apple.h,
@@ -50,6 +54,13 @@ final class CmuxApplication: NSApplication, CEFAppProtocol {
     /// Set once by `AppServices`: a mouse-down after AppKit dispatched it
     /// (focus has moved to the clicked pane), with its window.
     var mouseDownObserver: ((NSEvent) -> Void)?
+    /// Set once by `AppServices`: a left mouse-up, or a left-button drag, after AppKit dispatched it.
+    var leftButtonObserver: ((NSEvent) -> Void)?
+    /// Set once by `AppServices`: a key-down, before anything handles it.
+    var keyDownObserver: ((NSEvent) -> Void)?
+    /// Where the left mouse-down in dispatch went down (screen coordinates), taken before AppKit
+    /// dispatched it: a titlebar press's window drag has moved the window by the time it returns.
+    private(set) var mouseDownScreenLocation: NSPoint?
     /// The event in dispatch is the app's own synthetic input
     /// (`SyntheticInput`, `debug.mouse`), classified once per event: the
     /// no-activate guard and the browser host's user-input path both read it.
@@ -66,10 +77,24 @@ final class CmuxApplication: NSApplication, CEFAppProtocol {
     @objc(isHandlingSendEvent)
     func isHandlingSendEvent() -> Bool { handlingSendEvent }
 
+    /// Set once by `AppServices`: every event `sendEvent` gets is dispatched inside it, so the
+    /// router, the menu gate and the action signposts read the event given to `sendEvent`, not
+    /// `currentEvent` (the last dequeued one, kept after its dispatch).
+    var inputDispatch: InputDispatchContext?
+
     @objc(setHandlingSendEvent:)
     func setHandlingSendEvent(_ value: Bool) { handlingSendEvent = value }
 
     override func sendEvent(_ event: NSEvent) {
+        guard let inputDispatch else { return route(event) }
+        inputDispatch.dispatching(event) { route(event) }
+    }
+
+    private func route(_ event: NSEvent) {
+        if event.type == .keyDown {
+            let terminal = (keyWindow ?? event.window)?.firstResponder is TerminalSurfaceView
+            KeyFrameSignpost().begin(target: terminal ? .terminal : .view, eventTimestamp: event.timestamp)
+        }
         let probesKey = event.type == .keyDown && TypingLatencyProbe.isEnabled
         if probesKey { TypingLatencyProbe.shared.keyDown(eventTimestamp: event.timestamp) }
         defer { if probesKey { TypingLatencyProbe.shared.mark(.dispatchEnd) } }
@@ -95,17 +120,23 @@ final class CmuxApplication: NSApplication, CEFAppProtocol {
     }
 
     private func dispatch(_ event: NSEvent) {
+        if event.type == .keyDown { keyDownObserver?(event) }
+        if event.type == .leftMouseDown {
+            mouseDownScreenLocation = event.window.map { $0.convertPoint(toScreen: event.locationInWindow) } ?? event.locationInWindow
+        }
         if event.type == .keyDown {
             // Router-consumed keys never reach AppKit local event monitors.
             (Self.accessibilityWindow(for: keyWindow ?? event.window)?.windowController as? WindowController)?.hideShortcutHintsForKeyDown(event)
         }
         if event.type == .keyDown, let keyDownInterceptor, keyDownInterceptor(event, keyWindow ?? event.window) { return }
+        if event.type == .keyDown, FindPillView.forwardArrowKeyDown(event, in: keyWindow ?? event.window) { return }
         if event.type == .leftMouseDown || event.type == .leftMouseUp {
             BenchSpans.measure(event.type == .leftMouseDown ? "app.sendEvent.down" : "app.sendEvent.up") { super.sendEvent(event) }
         } else {
             super.sendEvent(event)
         }
         if event.type == .leftMouseDown || event.type == .rightMouseDown || event.type == .otherMouseDown { BenchSpans.measure("app.mouseDownObserver") { mouseDownObserver?(event) } }
+        if event.type == .leftMouseUp || event.type == .leftMouseDragged { leftButtonObserver?(event) }
         // After AppKit handled the move: a browser toolbar under the pointer in a window that is
         // not key sets its cursor last (`ArrowCursorView.pointerDidMove`).
         if event.type == .mouseMoved { ArrowCursorView.pointerDidMove() }

@@ -27,6 +27,8 @@ pub(crate) mod browser_devices;
 mod browser_devices_data_tests;
 pub(crate) mod browser_devices_ops;
 #[cfg(test)]
+mod churn_tree_events_tests;
+#[cfg(test)]
 mod closed_browser_history_tests;
 pub(crate) mod closed_history;
 pub(crate) mod closed_history_delete;

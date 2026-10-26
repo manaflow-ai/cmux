@@ -984,6 +984,15 @@ const ENVELOPE_TOOLS = [
       error: { code: -32602, message: "Invalid params: a title is required.", data: { field: "title", got: "" } },
     }),
   }),
+  // An MCP screenshot: its sentence, and its image in the call's strip instead of base64 JSON.
+  tool("Take a screenshot", "other", "completed", {
+    output: JSON.stringify({
+      content: [
+        { type: "text", text: "Captured the build-times chart." },
+        { type: "image", mimeType: "image/png", data: BUILD_TIMES_PNG },
+      ],
+    }),
+  }),
   tool("Read package.json", "read", "completed", {
     output:
       '{\n  "name": "@cmux/webviews",\n  "private": true,\n  "type": "module",\n  "scripts": {\n    "test": "bun test"\n  }\n}\n',
@@ -1676,7 +1685,7 @@ export default agentPaneEntry({
       },
     },
     "working-tokens": {
-      note: "A live Claude turn says its tokens so far after its time, as Claude desktop does, on its one live line at the bottom: Thinking 5m 54s · 2.1M tokens, with no blinking dots before it and no Working for over the turn. A harness that does not report each call shows the time alone. Play: the line holds still.",
+      note: "A live Claude turn says its generated output after its time, as Claude desktop does, on its one live line at the bottom: Thinking 5m 54s · 2.1M out, with no blinking dots before it and no Working for over the turn. A harness that does not report each call shows the time alone. Play: the line holds still.",
       snapshot: chat(
         [
           user(prompt, 5.9),
@@ -1828,6 +1837,23 @@ export default agentPaneEntry({
     "collapsed-run-open": {
       note: "The same line opened: the rows it holds, drawn as they are on their own.",
       snapshot: collapsedRunChat(),
+      play: openFoldedRun,
+    },
+    "collapsed-run-spacing-tight": {
+      note: "Gallery comparison: the tool rows use a 20px line and 2px after the run.",
+      snapshot: collapsedRunChat(),
+      documentAttributes: { "transcript-tool-spacing": "tight" },
+      play: openFoldedRun,
+    },
+    "collapsed-run-spacing-selected": {
+      note: "Selected gallery rhythm: compact 22px tool rows and a 4px gap before the reply, matching the Codex reference.",
+      snapshot: collapsedRunChat(),
+      play: openFoldedRun,
+    },
+    "collapsed-run-spacing-roomy": {
+      note: "Gallery comparison: the prior 26px tool rows and 8px after-run gap.",
+      snapshot: collapsedRunChat(),
+      documentAttributes: { "transcript-tool-spacing": "roomy" },
       play: openFoldedRun,
     },
     "collapsed-run-failed": {
@@ -2060,7 +2086,7 @@ export default agentPaneEntry({
       },
     },
     "tool-run-scrolled-fade": {
-      note: 'Leo 2026-10-21, "in that top section fade would be good": a long run ("Read files, ran commands") opened past its nine-row cap and scrolled so a row sits half under its summary line. The list\'s top fades out there instead of cutting the row in half against the line. Play: open the turn and the run, scroll the list 3.5 rows.',
+      note: 'Leo 2026-10-24: a long run ("Read files, ran commands") keeps its collapsed rows on the transcript\'s one vertical scroll surface instead of capturing the wheel in a nested list. Play: open the turn and the run.',
       snapshot: chat([
         user("Find where the sidebar's drag reorder loses its index.", 3),
         activity(
@@ -2081,10 +2107,9 @@ export default agentPaneEntry({
       play: async (ctx) => {
         await openGroupedRun(ctx);
         const list = () => ctx.find({ selector: ".cv-tool-run" });
-        await ctx.waitFor(() => list().scrollHeight > list().clientHeight + 26);
-        // 3.5 rows of 26px: the fourth row sits half under the summary line.
-        list().scrollTop = 26 * 3.5;
-        await ctx.waitFor(() => list().scrollTop > 0);
+        await ctx.waitFor(() => list().clientHeight > 0);
+        if (list().scrollHeight > list().clientHeight + 1) throw new Error("tool run captured vertical scroll");
+        if (list().scrollTop !== 0) throw new Error("tool run moved its own scroll position");
       },
     },
     "codex-turn-run-open": {
@@ -2188,7 +2213,13 @@ export default agentPaneEntry({
         if (ctx.document.querySelector(".cv-tools > .cv-tool.is-toggle")) await openFoldedRun(ctx);
         const closed = '.cv-tool.is-toggle[aria-expanded="false"]';
         await ctx.waitFor(() => ctx.document.querySelectorAll(closed).length === ENVELOPE_TOOLS.length);
-        for (let opened = 0; opened < ENVELOPE_TOOLS.length; opened++) await ctx.click({ selector: closed });
+        // Each row centered first: the runner scrolls a target only as far as needed, which parks a row
+        // at the transcript's foot, under Jump to latest (shown while a run is working), and the click
+        // lands on the pill.
+        for (let opened = 0; opened < ENVELOPE_TOOLS.length; opened++) {
+          ctx.find({ selector: closed }).scrollIntoView({ block: "center" });
+          await ctx.click({ selector: closed });
+        }
         await ctx.waitFor(() => ctx.document.querySelectorAll(".cv-tool-output-card").length === ENVELOPE_TOOLS.length);
         if (!ctx.document.querySelector(".cv-tool-output__markdown h2"))
           throw new Error("the MCP text list did not render as Markdown");
@@ -2808,12 +2839,12 @@ export default agentPaneEntry({
       },
     },
     "jump-latest-working": {
-      note: "Play: scrolled up while a reply streams below, Jump to latest shows its dots.",
+      note: "Play: scrolled up while a reply streams below, Jump to latest keeps its static arrow.",
       height: 560,
       snapshot: chat(longChatRows, { isWorking: true }),
       play: async (ctx) => {
         await ctx.scroll({ selector: ".acpmux-scroll" }, "top");
-        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-jump-latest[data-shown][data-working]"));
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-jump-latest[data-shown]"));
       },
     },
     selection: {

@@ -91,6 +91,9 @@ export function LinkHoverCard({
       }
       side={side}
       interactive
+      hoverBridgeId={hover.card["data-cmux-hover-bridge"]}
+      onPointerEnter={hover.card.onPointerEnter}
+      onPointerLeave={hover.card.onPointerLeave}
       // A pull request's page title only repeats its own title: the card is named by its reference.
       ariaLabel={pullRequest ? `${pullRequest.repo}#${pullRequest.number}` : (siteTitle ?? host)}
     >

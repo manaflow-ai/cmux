@@ -1,0 +1,210 @@
+# Remote agents and cmux Cloud
+
+Run an agent on a machine you own and view it from your Mac, or use a machine
+managed by cmux Cloud. The repository and tools execute on the remote host;
+your Mac is a client. Closing the client does not move the files or stop the
+remote agent.
+
+This guide describes the cmux NEXT command surface checked on 2026-10-25.
+Use the CLI bundled with the app you are running. Available commands can differ
+between builds. See the [acpmux README](../cmux-tui/crates/acpmux/README.md) for
+harness profiles and protocol details, and the [cmux-tui build prerequisites](../cmux-tui/README.md#build)
+before building from source.
+
+## Connect your own machine
+
+You need SSH access to your own Mac or Linux host, persistent storage, a
+compatible acpmux executable, and the agent harness you want to run. Authenticate
+that harness as yourself on the execution host: after installing Claude Code or
+Codex, run `claude auth login` or `codex login` there. SSH does not forward your
+model login or GitHub credentials automatically.
+
+For example, a NIGHTLY installation exposes the bundled CLI in this shell with:
+
+```sh
+export PATH="/Applications/cmux NIGHTLY.app/Contents/Resources/bin:$PATH"
+acpmux --version
+acpmux daemon start
+```
+
+For a compatible remote Mac, `acpmux host setup my-mac` installs acpmux and its
+daemon over SSH and adds the peer. It copies the invoking executable: do not
+use a Mac executable to bootstrap a Linux machine.
+
+On your own Linux host, install a build for its architecture. To build from
+source, install the Rust toolchain and Zig version required by the
+[cmux-tui README](../cmux-tui/README.md#build), then initialize the submodules
+before building. Install the resulting binary at `~/.local/bin/acpmux`, which
+`host doctor` checks by default:
+
+```sh
+git clone --branch feat-cmux-next https://github.com/manaflow-ai/cmux.git
+cd cmux
+git submodule update --init ghostty ghostty-next
+cd cmux-tui
+cargo build --release -p acpmux
+mkdir -p "$HOME/.local/bin"
+install -m 755 target/release/acpmux "$HOME/.local/bin/acpmux"
+export PATH="$HOME/.local/bin:$PATH"
+acpmux daemon run --listen 127.0.0.1:47811
+```
+
+The daemon runs in the foreground. For unattended use, configure your own
+service supervisor with that executable, persistent home and harness PATH;
+verify it remains available after SSH logout. Add `~/.local/bin` and the harness
+installation directory to that service's PATH as well; the shell export above
+affects only the current shell. Keep the WebSocket listener on
+loopback. The peer connection below tunnels it through SSH.
+
+Back on your Mac, use an SSH alias that reaches your own remote account:
+
+```sh
+ssh my-linux
+# After leaving the remote shell:
+acpmux host add my-linux ssh://my-linux
+acpmux host ls
+acpmux host doctor my-linux --json
+```
+
+An SSH URL can include a user, such as `ssh://me@host`. An explicit URL port
+selects the remote **acpmux listener** (default 47811), not the SSH server port;
+configure the SSH server port in your SSH alias. Accept the host key once, then
+verify `ssh -o BatchMode=yes my-linux true`: the peer cannot answer password/2FA
+prompts. You can use your own Tailscale network, a private network or an ordinary
+SSH route. The peer reads credentials from the remote default `~/.acpmux` home.
+acpmux reads the peer's authentication through SSH; you do not need to paste
+its daemon token. Peering grants access to session contents and tools, so add
+only hosts and accounts you trust.
+
+`host doctor` without `--harness` skips harness checks; a healthy peer does not
+prove that an agent can run. Its `--harness ID` option checks a named harness
+profile, not the PATH-discovered harness alone. Verify the remote harness with
+`acpmux daemon harnesses` on that host and a real session prompt.
+
+`host enroll` installs the invoking binary too. Use it only for a compatible
+remote OS and architecture. For a Linux host reached from a Mac, use the Linux
+installation and `host add` steps above instead.
+
+## Work with a remote session
+
+Choose an existing project on the remote host. Its path must be a known local
+session cwd or within the daemon's permitted remote project roots (`webRoots`).
+For a fresh host, merge `"webRoots": ["/home/me/project"]` into the existing
+`~/.acpmux/config.json`, preserving its token and other fields, then restart your
+daemon with the same home/listener. This authorizes remote access to that
+directory; choose only the project root you intend to expose.
+
+```sh
+acpmux new --host my-linux -m codex --name api-work --cwd /home/me/project -d
+acpmux ls
+acpmux session info my-linux/api-work
+acpmux send my-linux/api-work "Summarize this project's structure."
+acpmux attach my-linux/api-work
+```
+
+Replace `codex` with an installed harness, such as `claude`. Ctrl-Q detaches
+the TUI; the agent remains on the host. You can use that TUI in a cmux terminal.
+To view a remote session as a native cmux NEXT chat tab, select a local pane,
+wait for the app's peer inventory to load, and run:
+
+```sh
+cmux agent open-tab api-work --host my-linux --focus
+```
+
+The tab binds to the peer session mirrored by your Mac's daemon. If the name is
+ambiguous, use its session ID from `acpmux ls --json`. This does not move the
+agent. Remote sidebar group placement is a separate limitation: the checked
+launcher refuses combining `acpmux new --host` with `--group`; `agent open`
+creates workspaces for local/Chief sessions rather than performing this peer lookup.
+
+To end the current turn, stop the agent, or continue a saved session:
+
+```sh
+acpmux session cancel my-linux/api-work
+acpmux session stop my-linux/api-work
+acpmux send my-linux/api-work "Continue from the saved conversation."
+```
+
+Stop preserves the session log. Adding `--purge` deletes it; do not use purge
+to repair a connection. Closing an app tab closes a viewer. `session resume`
+resumes held queued prompts; it is not a machine-resume command.
+
+## Use cmux Cloud
+
+Open cmux NEXT and sign into your account/team. Cloud operations require the
+account's access and entitlement. Creation may require confirmation in the app.
+Cloud manages its guest software; do not run standalone acpmux host setup or
+update against a managed Cloud machine.
+
+The live action catalog is the command reference. Some app actions print only
+general help when passed `--help`, so inspect the catalog as well:
+
+```sh
+cmux action list --category cloud --json
+cmux action describe cloudPauseMachine --json
+cmux machine list
+cmux cloud new-machine
+```
+
+Use an ID from the machine list to select the machine explicitly:
+
+```sh
+cmux cloud machine-status --target machine:MACHINE_ID
+cmux cloud ssh --target machine:MACHINE_ID
+cmux cloud setup-github --target machine:MACHINE_ID
+cmux cloud pause-machine --target machine:MACHINE_ID
+cmux cloud resume-machine --target machine:MACHINE_ID
+```
+
+`cloud ssh` opens a terminal in the app. It does not attach the invoking CLI's
+stdin/stdout to SSH. Pause and resume act on the whole machine and initiate
+asynchronous work; check machine status before assuming the operation finished.
+Pausing stops computation, including every agent on that machine. Resuming can
+require network and provider connections to be established again.
+
+The catalog also exposes file access, for example:
+
+```sh
+cmux cloud file-read --target machine:MACHINE_ID --path /workspace/README.md
+```
+
+File access is not automatic transcript backup or history hydration. Do not
+assume a particular no-wake behavior from the existence of this command.
+The `cloud new-machine`, `pause-machine` and `resume-machine` names above are
+the current app actions; old `cmux vm` examples are not interchangeable with them.
+
+## Persistence and reconnect
+
+The execution host owns the acpmux journal and the harness's native resume
+files. In the default local store, acpmux keeps session metadata and numbered
+event segments under `~/.acpmux/sessions`; an app or `ACPMUX_HOME` can select a
+different home. If you deliberately run an isolated standalone daemon from
+inside an agent session, unset the inherited `ACPMUX_SOCKET` before setting
+`ACPMUX_HOME`; otherwise commands can still target the enclosing session's
+daemon. Check `acpmux daemon status` for the actual socket and home before
+starting or stopping it. The checkout, harness login and native state must also remain
+available to resume execution.
+
+An SSH drop or app restart normally leaves remote work running. A daemon
+restart can adopt surviving agent-host processes; otherwise the next prompt
+attempts native harness resume. If native loading fails, transcript rehydration
+may preserve conversation without preserving tool execution state. Abrupt host
+or disk loss is not equivalent to a daemon restart and can lose unsynced data.
+
+The app fetches a bounded history page and streams new events. On reconnect it
+uses event sequence numbers to fetch missed history and deduplicate replay.
+Previously viewed transcript tails can paint immediately, but the current app
+cache is memory-only and disappears on quit. It is not an offline backup; a
+failed attach can discard a cached tail. A peer's stale session listing is also
+not a complete copy of its transcript.
+
+## Diagnose a problem
+
+| Symptom | Start here |
+| --- | --- |
+| Remote sessions unreachable | `acpmux host ls`, `acpmux host doctor my-linux --json`, then verify `ssh my-linux` and the remote listener. Resume a paused machine before expecting live agent traffic. |
+| Daemon missing | On its host, `acpmux daemon status`, then `acpmux daemon start` for a standalone daemon. For a service-managed daemon, inspect that service and its configured home/listener. |
+| Another service owns the socket | Use the CLI from the running app and record its socket/holder error. Do not delete a live socket or terminate an unknown process. |
+| Harness fails to start | `acpmux daemon harnesses`; verify that host's harness installation/login. `acpmux harness doctor codex` performs a handshake and a real prompt, which can consume usage. |
+| Stuck or stale chat | `acpmux session info my-linux/api-work` and `acpmux session tail my-linux/api-work`. Restore connectivity before interpreting stale state; cancel/stop only the intended session. |
+| Cloud action unavailable | Inspect `cmux action describe cloudPauseMachine --json`, account/team access and the explicit machine target. A command being listed does not mean its current context is eligible. |

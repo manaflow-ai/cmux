@@ -155,7 +155,7 @@ extension PaneController {
     /// and shown in this turn, so it draws in the key's frame; `new-tab` runs behind it, and the
     /// daemon's tab takes its place (``NewTerminalTabCommand``). The keys typed meanwhile wait for
     /// the daemon's terminal, as before.
-    private func newTerminalTabNow(_ command: NewTerminalTabCommand, agent: AgentPaneView?, intent: UInt64?,
+    private func newTerminalTabNow(_ command: NewTerminalTabCommand, agent: AgentPaneView?, intent: UInt64?, // perf-hot: 10ms new-tab (the terminal stand-in shows in the key's turn)
                                    keys: CreationInputBuffer.Ticket?, window: NSWindow?, then: (@MainActor (SurfaceID) -> Void)?) {
         // task-owner: the selected agent's cwd, read while the stand-in shows (#16620)
         let agentCwd = agent.map { agent in
@@ -206,8 +206,27 @@ extension PaneController {
     /// out until the daemon's records drop them, and come back only when the
     /// daemon refused the close (tab-spam-race).
     func close(_ ids: [StripTabID]) {
-        guard !ids.isEmpty else { return }
-        var commands: [(label: String, run: DaemonCommandBody)] = []
+        guard let prepared = prepareClose(ids) else { return }
+        let daemon = daemon
+        let runs = daemon.closeRuns(surfaces: prepared.surfaces, commands: prepared.commands)
+        let userClose = CloseUndoToasts.isUserClose // a refused user close shows RefusedCloseNotice
+        services.registry.track(Task { [services] in
+            let outcome = await daemon.runReportingOutcomes(runs)
+            if outcome.failed, userClose { RefusedCloseNotice(services: services).show(codes: outcome.codes, in: view.window) }
+            await prepared.finish(outcome.failed, outcome.unknown)
+            return outcome.failed ? "close failed (see the app log)" : nil
+        })
+    }
+
+    /// The local half of a close of `ids`: app-local tabs and tabs still being
+    /// created go now; the daemon tabs leave the visible state through one
+    /// close intent, and the pane starts leaving when its last tab goes. Nil
+    /// when no daemon tab is left to close. The caller sends the returned
+    /// commands (alone, or with other panes' in one batch, `PaneController.close(_:)`)
+    /// and then calls its `finish`.
+    func prepareClose(_ ids: [StripTabID]) -> PreparedTabClose? {
+        guard !ids.isEmpty else { return nil }
+        var commands: [DaemonService.CloseRun] = []
         var surfaces: [SurfaceID] = []
         var keys: [String] = []
         for id in ids {
@@ -221,23 +240,21 @@ extension PaneController {
             guard let tab = tab(id) else { continue }
             surfaces.append(tab.surface)
             keys.append(tab.id)
-            commands.append(daemon.closeCommand(for: tab))
+            // Built from the records before the intent takes the tabs out of them.
+            let command = daemon.closeCommand(for: tab)
+            commands.append((command.label, command.run))
             // Its terminal's only view closes: that session may end it.
             if tab.kind == .remoteTerminal { services.remoteTerminals.viewClosed(tab) }
         }
-        // The runs are built from the records before the intent takes the tabs out of them.
-        let runs = commands.isEmpty ? [] : daemon.closeRuns(surfaces: surfaces, commands: commands.map { ($0.label, $0.run) })
+        let daemon = daemon
         let store = daemon.store
         let transaction = store.intendClose(surfaces)
         BenchSpans.measure("pane.apply") { apply(snapshot()) }
-        guard !runs.isEmpty else { return }
+        guard !commands.isEmpty else { return nil }
         // Its last tab closes: the whole pane leaves now, its neighbours springing into its space
         // (close-animation DESIGN.md); the strip has nothing left to animate.
         let paneClose = stripModel.tabs.isEmpty ? showPaneClose() : nil
-        let userClose = CloseUndoToasts.isUserClose // a refused user close shows RefusedCloseNotice
-        services.registry.track(Task { [services] in
-            let (failed, unknown, codes) = await daemon.runReportingOutcomes(runs)
-            if failed, userClose { RefusedCloseNotice(services: services).show(codes: codes, in: view.window) }
+        return PreparedTabClose(surfaces: surfaces, commands: commands) { [self, services] failed, unknown in
             if let transaction {
                 if failed {
                     // The daemon kept some: the records show what it has.
@@ -259,8 +276,7 @@ extension PaneController {
             finishPaneClose(paneClose, failed: failed)
             for key in keys { services.cache.release(key) }
             if failed || unknown { resyncStrip() }
-            return failed ? "close failed (see the app log)" : nil
-        })
+        }
     }
 
     /// Moves a tab into `target` at `index` (display order), optimistic.
@@ -283,8 +299,8 @@ extension PaneController {
         let surface = tab.surface
         // `tab.pin`/`tab.unpin` on a daemon with state resources.
         let resource = daemon.store.servesStateResources ? tab.resourceID : nil
-        guard resource != nil || daemon.supports(DaemonCapabilities.shared.tabMetadata) else {
-            services.registry.refuse(daemon.missingCapabilityMessage(DaemonCapabilities.shared.tabMetadata))
+        guard resource != nil || daemon.supports(DaemonCapability.tabMetadata.rawValue) else {
+            services.registry.refuse(daemon.missingCapabilityMessage(DaemonCapability.tabMetadata.rawValue))
             return
         }
         services.registry.track(Task { [services] in
@@ -353,7 +369,9 @@ extension PaneController {
         let registry = services.registry
         switch target {
         case .tab(let id, let selection):
-            select(id) // one of the selected tabs keeps the selection (TabMultiSelection)
+            // Building the menu selects nothing and moves no focus (#24913: the selection's focus
+            // move made a Chromium page window key inside the right-click). The rows act on the
+            // right-clicked tab, or on the selection it is one of (`AppActionContext.actionTabs`).
             return Self.tabMenu(id.rawValue, tab: tab(id), keepsTab: TabPromotion.staysPut(tab: id.rawValue, in: workspace?.workspace),
                                 sameKind: NewTabKind.of(id.rawValue, tab: tab(id), services: services),
                                 registry: registry, selectionPins: selection.count > 1 ? stripModel.pinsAll(selection) : nil).themeRows(in: view.themeScope.fullStrength)

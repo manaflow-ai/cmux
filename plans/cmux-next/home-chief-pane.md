@@ -1,9 +1,11 @@
-# cmux next: the Home Chief pane cannot close and shows its tab strip
+# cmux next: the Home Chief pane cannot close and shows no tab strip
 
 Status: implemented 2026-10-20; H1 and H4 changed 2026-10-21. User request (Lawrence 2026-10-20):
 "make it impossible to close home chief left hand side. should not even show tabs UI for left hand
 side chief." Leo 2026-10-21 took back the second half: "JUST MAKE THE TAB THING SHOW UP ON THE
-MAIN PANE TOO" (Austin and Lawrence: tabs showing up on the main agent pane).
+MAIN PANE TOO" (Austin and Lawrence: tabs showing up on the main agent pane). Lawrence 2026-10-23
+took the strip back off: "for chief home page, i see tabbar now which is bad. home chief should have
+no tabbar." Tabs still drag in (`allow_tabs`); the strip shows only while one is there.
 
 ## Model
 
@@ -19,16 +21,18 @@ not ask for what the daemon would refuse, and shows no control for it.
 
 ## Rules
 
-- H1. Tab strip. The Home Chief pane shows its tab bar like every agent pane (Leo 2026-10-21: "JUST
-  MAKE THE TAB THING SHOW UP ON THE MAIN PANE TOO"; it had no strip from 2026-10-20): Home's tab
-  first with no close x, and the tabs dragged in. The strip has no +: what Home opens (New Tab,
+- H1. No tab strip. While the Home Chief pane holds only Home's tab it shows no tab bar
+  (`DockColumn.hidesTabBar`, PaneController; Lawrence 2026-10-23), and Show/Hide Tab Bar is refused
+  there (`PaneTabBarHandlers.noToggleReason`). A tab dragged in brings the strip back while it is
+  there (Home's tab first with no close x), so it stays reachable. The strip has no +: what Home opens (New Tab,
   Cmd-D, a new chat, Split Browser, a link, a file, an app page) still goes beside it
   (`ChatColumnPlacement`, `NewChatPlacement`, `LinkOpener`). Only a drag puts a tab in the dock:
   every tab creator (`newTerminalTab`, `PaneBrowserTabOpener`, `InternalPageTabStore.openStoreTab`,
   the actions in `TabLifecycle`) moves a tab it made there to a new column right of it
   (`HomeDockOpens`), and an open in the background keeps the focus in Home. The session-local
-  (WebKit) fallback opens in the pane right of Home, and with Home alone is refused. The person's Hide Tab Bar hides it, as in any pane
-  (`PaneTabBarChoices`); New Horizontal Tab stays hidden for that pane in menus and the palette.
+  (WebKit) fallback opens in the pane right of Home, and with Home alone is refused. With a dragged-in tab, the person's Hide Tab Bar
+  hides the strip, as in any pane (`PaneTabBarChoices`); New Horizontal Tab stays hidden for that pane
+  in menus and the palette.
 - H2. Cmd-W. With focus in Home, the person's Cmd-W does nothing and shows no notice
   (`TabKeyboardClose.ignore`). The person's Close Pane does the same. With Home and other tabs
   (only with `allow_tabs`), Cmd-W on Home selects the next tab, as before.
@@ -51,11 +55,11 @@ not ask for what the daemon would refuse, and shows no control for it.
 
 ## Tests
 
-- App: `Tests/CmuxNextAppTests/HomeChiefPaneShowsTabBarTests.swift` (H1),
+- App: `Tests/CmuxNextAppTests/HomeChiefPaneHasNoTabBarTests.swift` (H1),
   `HomeChiefPaneUncloseableTests.swift` (H2, H3, H4), `PinnedHomeDockTests.swift` (close x, Cmd-W,
   new-chat placement, which tabs a chat dock takes, refusal text), `HomeLoneDockTests.swift` (opens
   beside the dock, a dragged-in tab drags out) and, against the same-tree daemon,
-  `HomeSplitKeysTests.homesDockShowsItsTabStripAndTakesTabs` (`allow_tabs`, drag in and back out),
+  `HomeSplitKeysTests.homesDockShowsNoTabStripAndTakesTabs` (`allow_tabs`, drag in and back out),
   `HomeDockOpensTests` (script, file, page and session-local opens beside Home; focus kept).
 - Daemon: `cmux-tui/crates/cmux-tui-core/src/server/pinned_columns_tests.rs` (close-surface,
   `tab.close`, close-pane, `pane.close`, `screen.close`, `pane.split`, new tabs, moves in and out,

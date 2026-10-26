@@ -8,6 +8,7 @@ needs `--target machine:vm-…`; without it the run is refused.
 
 | Sidebar or palette item | CLI |
 | --- | --- |
+| List Cloud Machines (the Cloud sidebar) | `cmux cloud list-machines` (returns `machines`) |
 | New Cloud Machine… | `cmux cloud new-machine` (returns `machine_id`) |
 | New Cloud Workspace | `cmux cloud new-workspace` |
 | New workspace on a machine | `cmux workspace new-on-machine --machine machine:vm-…` |
@@ -32,7 +33,7 @@ needs `--target machine:vm-…`; without it the run is refused.
 | Move to Cloud / Bring Back Local (agent chat tab) | `cmux cloud move`, `cmux cloud bring-back` |
 | Copy Machine ID / Link / Port | Menu only: the CLI never writes the clipboard |
 | Cloud Diagnostics… | `cmux cloud diagnostics` |
-| Team Picker | `cmux cloud team-picker` |
+| Switch Active Team… (also Settings > Accounts > Active Team) | `cmux cloud team-picker` |
 | Sign In / Sign Out | `cmux cloud sign-in`, `cmux cloud sign-out` |
 | Open Mobile Pairing | `cmux cloud open-mobile-pairing` |
 
