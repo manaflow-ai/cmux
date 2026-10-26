@@ -236,10 +236,8 @@ public final class SidebarModel {
     public var detailedStatus = false
     /// Rows show when they last changed (`sidebar.showTimestamps`, off by default).
     public var showsTimestamps = false
-    /// `sidebar.showColors`: off, rows and group headers draw no workspace or group color.
-    public var showsColors = true
-    /// `workspaceColors.indicatorStyle`: a colored row's dot, leading rail or full-row fill (#25653).
-    public var colorIndicator: WorkspaceColorIndicatorStyle = .dot
+    /// `sidebar.showColors` (off: no workspace or group color) and `workspaceColors.indicatorStyle`.
+    public var showsColors = true, colorIndicator: WorkspaceColorIndicatorStyle = .dot
     /// This Mac's rows carry its machine mark too (`sidebar.showLocalMachine`, off by default).
     public var showsLocalMachine = false
     /// What a collapsed group header shows beside its loading spinner

@@ -25,14 +25,14 @@ public nonisolated enum WorkspaceIcon: Hashable, Sendable {
         }
     }
 
-    /// The workspace color this icon draws in (a swatch, a symbol's tint, an emoji's chip); nil
-    /// for a favicon. A row restored from the snapshot has no `SidebarWorkspace.color` yet.
+    /// The workspace color a swatch or a symbol's tint draws, for a row restored from the snapshot
+    /// (no `SidebarWorkspace.color` yet). Nil for an emoji: Reset Workspace Color keeps its chip
+    /// (`SidebarEdits`), so the chip cannot say the workspace still has a color.
     public var color: GroupColor? {
         switch self {
         case let .swatch(color): color
         case let .symbol(_, tint): tint
-        case let .emoji(_, chip): chip
-        case .favicon: nil
+        case .emoji, .favicon: nil
         }
     }
 

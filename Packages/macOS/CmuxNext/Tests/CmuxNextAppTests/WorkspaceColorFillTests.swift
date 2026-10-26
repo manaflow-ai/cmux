@@ -86,6 +86,25 @@ struct WorkspaceColorFillTests {
         #expect(Self.contents(model)["member"]?.rowColor == nil, "Reset Workspace Color takes the fill away")
     }
 
+    /// Switching the style in Settings redraws the rows already on screen: `changesList` gated the
+    /// list's redraw, and without the style in it a shown row kept its dot until something else
+    /// reconfigured it (a status tick), so the sidebar showed dots and fills mixed.
+    @Test func changingTheStyleRedrawsShownRows() throws {
+        let design = DesignSettings()
+        let sidebar = SidebarView(model: SidebarModel(sections: Self.sections()), design: design)
+        sidebar.frame = NSRect(x: 0, y: 0, width: 280, height: 400)
+        sidebar.renderNow()
+        sidebar.layoutSubtreeIfNeeded()
+        sidebar.list.reload(animated: false) // realize the rows (DensitySidebarOverflowTests); not after the change below
+        let before = try #require(sidebar.list.rowViews[.workspace(WorkspaceID("member"))] as? WorkspaceRowView)
+        #expect(before.rowColor == nil, "the dot style draws no fill")
+        design.sidebarSections = Self.preferences("fill")
+        sidebar.renderNow()
+        sidebar.layoutSubtreeIfNeeded()
+        let after = try #require(sidebar.list.rowViews[.workspace(WorkspaceID("member"))] as? WorkspaceRowView)
+        #expect(after.rowColor?.color == .green && after.rowColor?.style == .fill, "the grouped row fills without another change")
+    }
+
     private static func rowView(_ ws: SidebarWorkspace, style: String, selected: Bool = false) -> (WorkspaceRowView, NSWindow) {
         var options = SidebarLayoutOptions()
         options.colorIndicator = Self.preferences(style).workspaceColorIndicator

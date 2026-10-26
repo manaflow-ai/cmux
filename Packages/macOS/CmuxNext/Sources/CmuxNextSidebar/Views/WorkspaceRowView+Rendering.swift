@@ -76,11 +76,8 @@ extension WorkspaceRowView {
             // Fills only, no borders: drop target, selection, multi-selection or on screen, hover.
             let fill = isDropTarget || isSelected ? Palette.selectionFill : isSecondarySelected || isOnScreen ? Palette.secondarySelectionFill
                 : isHovered && !isPlaceholderRow && DesignSettings.shared.showsHoverFills ? Palette.hoverFill : nil
-            // `workspaceColors.indicatorStyle` fill: the row's color in place of the gray steps (#25653).
-            let painted = colorFill(selected: isDropTarget || isSelected, soft: isSecondarySelected || isOnScreen,
-                                    hovered: isHovered && !isPlaceholderRow) ?? fill
+            let painted = colorFill() ?? fill // `workspaceColors.indicatorStyle` (#25653): fill or rail
             paintFill(painted)
-            tintColorRail()
             (rowBadge.ringColor, rowBadge.chipColor) = (Self.badgeBackdrop(painted), Palette.sidebarStep.cgColor)
             // The sidebar's own tonal step, once more: a bar a step apart.
             placeholderBar.layer?.backgroundColor = Palette.sidebarStep.cgColor
