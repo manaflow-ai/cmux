@@ -69,7 +69,7 @@ class AssignError(Exception):
 FAMILIES: dict[str, tuple[int, str, tuple[str, ...]]] = {
     "daemon": (0x01, "Daemon identity, liveness, configuration and machine state.", (
         "identify", "ping", "shutdown-daemon", "reload-config", "server-stats", "machine-*",
-        "debug-daemon-locks",
+        "debug-daemon-locks", "server-threads", "server-blocking",
         "subscribe-activity", "ws-listen", "page-credential", "pairing-response",
         "set-default-colors", "set-window-title", "clear-window-title", "trace-*",
     )),
@@ -220,7 +220,10 @@ COMMAND_PRIORITY: dict[str, tuple[str, ...]] = {
         # that control command pass the bytes it names.
         "fs.read", "agent-transfer-read",
     ),
-    "background": ("server-stats", "debug-daemon-locks", "machine-usage", "terminal-resources", "agent-inventory-refresh"),
+    "background": (
+        "server-stats", "debug-daemon-locks", "server-threads", "server-blocking", "machine-usage",
+        "terminal-resources", "agent-inventory-refresh",
+    ),
 }
 
 # Bulk writes: the bytes of a data stream and its half close, like a Mojo
@@ -270,7 +273,10 @@ EVENT_PRIORITY: dict[str, tuple[str, ...]] = {
 # fs.read and fs.stat are not here: they observe the files this connection's
 # own fs.write, fs.mkdir, fs.rename and fs.delete change (sync_cli's push
 # stats a folder its failed mkdir found, and reads back what it wrote).
-INDEPENDENT = ("server-stats", "debug-daemon-locks", "machine-usage", "machine-listening-tcp")
+INDEPENDENT = (
+    "server-stats", "debug-daemon-locks", "server-threads", "server-blocking", "machine-usage",
+    "machine-listening-tcp",
+)
 
 # Durability --------------------------------------------------------------------
 # read_only: changes no daemon state. memory: changes state the journal never
@@ -281,7 +287,7 @@ READ_ONLY = (
     "list-*", "get-*", "read-*", "ids", "identify", "ping", "export-layout", "vt-state",
     "resolve-terminal", "process-info", "terminal-ports", "terminal-resources",
     "terminal-history", "terminal-read-range", "terminal-events", "server-stats",
-    "debug-daemon-locks", "machine-*",
+    "debug-daemon-locks", "server-threads", "server-blocking", "machine-*",
     "wait-for", "pane-neighbor", "remote-terminal-snapshot",
     "conversation-list", "conversation-snapshot", "conversation-history", "conversation-thread",
     "conversation-search", "conversation-link-resolve", "conversation-runs", "conversation-run",

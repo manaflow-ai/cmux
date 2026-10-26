@@ -1267,8 +1267,16 @@
         "id": 774,
         "priority": "input"
       },
+      "server-blocking": {
+        "id": 276,
+        "priority": "background"
+      },
       "server-stats": {
         "id": 266,
+        "priority": "background"
+      },
+      "server-threads": {
+        "id": 275,
         "priority": "background"
       },
       "set-cell-pixels": {

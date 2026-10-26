@@ -906,6 +906,106 @@ acquisition of a free lock records a zero wait.
 
 Errors: `daemon lock stats require a trusted local connection`.
 
+### server-threads
+
+| Field | Value |
+| --- | --- |
+| name | `server-threads` |
+| status | implemented |
+| since | protocol 12, capability `server-threads-v1` |
+
+Every daemon thread in the `cmux_threads` registry, the blocking work lanes,
+and the process's task role (plans/cmux-next/chrome-parity/p02-threads.md,
+"Proof tools"; the plan names it `server.threads`). A thread is listed while
+it runs: `cmux_threads::spawn` registers it and its row goes before it exits;
+threads started by other code are listed once they register. The registry
+lock is held only for the per-row reads (no I/O), the lane counters are read
+under each lane's lock, and the reply is rendered after both are released.
+Owner only: a client that is not on the trusted local socket gets `daemon
+thread diagnostics require a trusted local connection`.
+
+Params: `{}`.
+
+Result:
+
+```text
+object{
+  schema:uint32,
+  uptime_ms:uint64,
+  process:object{pid:uint32, role:string|null, role_raw:int32|null},
+  threads:array<object{
+    name:string, tid:uint64|null,
+    declared:qos, desired:qos, effective:qos|null,
+    requested_qos:string|null, nice:int32|null, priority:int32|null,
+    refused_changes:uint32, matches:bool|null
+  }>,
+  lanes:array<object{
+    lane:"files"|"system"|"cpu", pending:uint64, running:uint64, blocked:uint64,
+    workers:uint64, idle_workers:uint64, workers_started:uint64, workers_exited:uint64,
+    wakeups:uint64, spawn_failures:uint64, panics:uint64,
+    shutdown_raises:uint64, shutdown_raise_refusals:uint64
+  }>
+}
+qos = "background"|"utility"|"default"|"user-initiated"|"user-interactive"
+```
+
+`schema` is `1`. `declared` is the QoS the thread registered with, `desired`
+the one last asked of it, `effective` the one it last applied (null before a
+change succeeded). The kernel's value is `requested_qos` on macOS (a qos name,
+`unspecified`, or a raw class such as `0x05`) and `nice` on Linux; `matches`
+says whether it is `desired` (null when it could not be read). `priority` is
+the scheduler priority now: macOS `pth_curpri` (Default 31), Linux 20 + nice
+(the `priority` field of `/proc/<pid>/task/<tid>/stat`), or `-1 -
+rt_priority` for a real-time thread. `role` is the Mach task role (`reniced`,
+`unspecified`, `foreground`, `background`, `control`, `graphics-server`,
+`throttle`, `non-ui`, `default`, `darwin-bg`, or `other` with `role_raw`);
+it is null on Linux. Threads are sorted by name, then tid.
+
+Errors: `daemon thread diagnostics require a trusted local connection`.
+
+### server-blocking
+
+| Field | Value |
+| --- | --- |
+| name | `server-blocking` |
+| status | implemented |
+| since | protocol 12, capability `server-threads-v1` |
+
+The blocking calls the daemon made on threads that disallow blocking (request
+and echo threads), by call site (plans/cmux-next/chrome-parity/p02-threads.md,
+section F; the plan names it `server.blocking`). Counters accumulate since
+daemon start in a fixed table of atomics; the command takes no lock, so it is
+safe to poll. Owner only, with the `server-threads` error.
+
+Params: `{}`.
+
+Result:
+
+```text
+object{
+  schema:uint32,
+  uptime_ms:uint64,
+  mode:"record"|"panic",
+  site_capacity:uint64,
+  overflow:uint64,
+  sites:array<object{
+    file:string, line:uint32, column:uint32, kinds:array<string>, count:uint64, lane_sync:bool
+  }>
+}
+```
+
+`schema` is `1`. `mode` is what a violation does beyond its count: `panic`
+only in Debug builds (`CMUX_DAEMON_BLOCKING=record` selects `record`; Release
+always records). `sites` lists each source location, most frequent first, with
+every kind seen there (`fs`, `process-spawn`, `process-wait`, `recv`, `join`,
+`condvar-wait`, `sleep`, `sqlite`, `block-on`, `ipc-reply`, `fd-read`,
+`fd-write`, `lock-wait`, `priority-inversion`). `lane_sync` is true when a work
+item's wait for other work reached the site. Once `site_capacity` sites are
+kept, a violation at a new site only counts in `overflow`. A daemon with no
+violation reports `sites: []` and `overflow: 0`.
+
+Errors: `daemon thread diagnostics require a trusted local connection`.
+
 ### oracle-state
 
 | Field | Value |

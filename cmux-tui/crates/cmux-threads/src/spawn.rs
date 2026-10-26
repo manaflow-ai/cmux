@@ -120,6 +120,35 @@ mod tests {
         }
     }
 
+    /// A row's priority is the kernel's: 20 + nice on Linux, and on macOS a
+    /// UserInteractive thread runs above a Utility one.
+    #[test]
+    fn a_rows_priority_is_the_schedulers() {
+        let read = |name: &'static str, qos| {
+            spawn(name, qos, || (current(), own_row().priority)).unwrap().join().unwrap()
+        };
+        let (utility_live, utility) = read("cmux-threads-test-pri-utility", ThreadQos::Utility);
+        let (_, interactive) =
+            read("cmux-threads-test-pri-interactive", ThreadQos::UserInteractive);
+        #[cfg(any(target_os = "linux", target_os = "android"))]
+        {
+            let LiveQos::Nice(nice) = utility_live else { panic!("{utility_live:?}") };
+            assert_eq!(utility, Some(20 + nice));
+            assert!(interactive.is_some());
+        }
+        #[cfg(target_vendor = "apple")]
+        {
+            let _ = utility_live;
+            let (utility, interactive) = (utility.unwrap(), interactive.unwrap());
+            assert!(interactive > utility, "user-interactive {interactive}, utility {utility}");
+        }
+        #[cfg(not(any(target_vendor = "apple", target_os = "linux", target_os = "android")))]
+        {
+            let _ = utility_live;
+            assert_eq!((utility, interactive), (None, None));
+        }
+    }
+
     #[test]
     fn registry_row_is_present_while_running_and_gone_after_join() {
         const NAME: &str = "cmux-threads-test-row";
