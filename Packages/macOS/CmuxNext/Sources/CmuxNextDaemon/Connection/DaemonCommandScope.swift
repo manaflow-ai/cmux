@@ -1,6 +1,7 @@
 import CryptoKit
 public import Foundation
 import CmuxNextCompat
+public import CmuxNextWakeups
 
 /// Everything one app action sent to its daemons (plans/cmux-next/state-ownership.md 4).
 ///
@@ -17,6 +18,11 @@ import CmuxNextCompat
 /// same key replays in the daemon instead of applying twice. A closed scope
 /// derives nothing and records nothing: a task that outlives the action
 /// sends ordinary commands.
+///
+/// With a ``cause`` the scope records each `mutation_id` it sends in the
+/// connection's ``MutationCauseLedger``, so the echo applies in that cause:
+/// ``person()`` for a person's action run, ``automation(idempotencyKey:)``
+/// for the control socket's.
 public final class DaemonCommandScope: Sendable {
     /// The scope of the action whose handler (or a task it started) is running.
     @TaskLocal public static var current: DaemonCommandScope?
@@ -62,10 +68,34 @@ public final class DaemonCommandScope: Sendable {
     }
 
     public let idempotencyKey: String?
+    /// The cause the echoes of this scope's mutations apply in, or nil to
+    /// leave them to the daemon's envelope cause.
+    public let cause: ObservationCause?
+    /// False for a person's run: nothing waits for its commands, so it opens
+    /// no tickets and records no barriers or created objects.
+    private let tracksCommands: Bool
     private let state = Mutex(State())
 
-    public init(idempotencyKey: String? = nil) {
+    public convenience init(idempotencyKey: String? = nil) {
+        self.init(idempotencyKey: idempotencyKey, cause: nil, tracksCommands: true)
+    }
+
+    private init(idempotencyKey: String?, cause: ObservationCause?, tracksCommands: Bool) {
         self.idempotencyKey = idempotencyKey.flatMap { $0.isEmpty ? nil : $0 }
+        self.cause = cause
+        self.tracksCommands = tracksCommands
+    }
+
+    /// The scope of a person's action run (a key, a click, the palette): its
+    /// echoes apply as `person`. It tracks no commands; nothing waits for it.
+    public static func person() -> DaemonCommandScope {
+        DaemonCommandScope(idempotencyKey: nil, cause: .person, tracksCommands: false)
+    }
+
+    /// The scope of a control-socket action run (the CLI, MCP, a script, an
+    /// agent): its echoes apply as `automation`.
+    public static func automation(idempotencyKey: String?) -> DaemonCommandScope {
+        DaemonCommandScope(idempotencyKey: idempotencyKey, cause: .automation, tracksCommands: true)
     }
 
     // MARK: - Stage log
@@ -119,7 +149,8 @@ public final class DaemonCommandScope: Sendable {
 
     /// Opens a ticket for a command about to be sent, or nil once closed.
     public func begin(label: String? = nil) -> Ticket? {
-        state.withLock { state -> Ticket? in
+        guard tracksCommands else { return nil }
+        return state.withLock { state -> Ticket? in
             guard !state.closed else { return nil }
             state.nextTicket &+= 1
             state.open.insert(state.nextTicket)
@@ -147,6 +178,7 @@ public final class DaemonCommandScope: Sendable {
 
     /// Records that `machine`'s events up to `sequence` cover a command's echo.
     public func noteBarrier(_ sequence: UInt64, machine: String) {
+        guard tracksCommands else { return }
         state.withLock { state in
             guard !state.closed else { return }
             state.barriers[machine] = max(state.barriers[machine] ?? 0, sequence)
@@ -155,7 +187,7 @@ public final class DaemonCommandScope: Sendable {
 
     /// Records objects a creating command made (`DaemonCreatingRequest`).
     public func noteCreated(_ objects: [DaemonCreatedObject]) {
-        guard !objects.isEmpty else { return }
+        guard tracksCommands, !objects.isEmpty else { return }
         state.withLock { state in
             guard !state.closed else { return }
             for object in objects where !state.created.contains(object) { state.created.append(object) }
@@ -209,6 +241,14 @@ public final class DaemonCommandScope: Sendable {
             return state.mutations
         }
         return ordinal.map { Self.derivedUUID(key: key, kind: "mutation", ordinal: $0).uuidString.lowercased() }
+    }
+
+    /// Records that this scope sent `mutationID`, with its ``cause``, in
+    /// `ledger` (the sending connection's). Nothing without a cause or once
+    /// closed.
+    public func recordMutation(_ mutationID: String, in ledger: MutationCauseLedger) {
+        guard let cause, !state.withLock({ $0.closed }) else { return }
+        ledger.record(mutationID, cause: cause)
     }
 
     /// The next generated id of `kind` (a new workspace key, a reserved
@@ -274,7 +314,7 @@ extension DaemonCommandScope {
     /// Reports what `request` created, when it is a creating request, to
     /// the ``current`` scope.
     static func noteCreated(by request: some DaemonRequest, response: Any) {
-        guard let scope = current, let creating = request as? any DaemonCreatingRequest else { return }
+        guard let scope = current, scope.tracksCommands, let creating = request as? any DaemonCreatingRequest else { return }
         scope.noteCreated(creating.createdObjects(inAny: response))
     }
 }

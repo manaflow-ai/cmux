@@ -1,6 +1,41 @@
 public import Foundation
+public import CmuxNextWakeups
 
 extension DaemonEvent {
+    /// The `mutation_id` this event echoes, if any: workspace deltas and frontend projection
+    /// changes carry the id of the mutation that caused them.
+    public var echoedMutationID: String? {
+        switch self {
+        case .workspaceAdded(let d), .workspaceClosed(let d), .workspaceRenamed(let d), .workspaceMoved(let d),
+             .workspaceChanged(let d): d.mutationID
+        case .frontendProjectionChanged(let change): change.mutationID
+        default: nil
+        }
+    }
+
+    /// Who caused this event (plans/cmux-next/chrome-parity/p06-scheduler.md, "Person cause, app
+    /// side"): the cause of the scope that sent the mutation it echoes when `recorded` holds that
+    /// id (a person's run, the control socket's), else the envelope's `wire` cause. A missing or
+    /// unknown wire cause (an old daemon) is `program`; the wire never claims `person`.
+    ///
+    /// - Parameters:
+    ///   - wire: The envelope's `cause` field.
+    ///   - recorded: The receiving connection's sent mutation ids.
+    public func cause(wire: String?, recorded: MutationCauseLedger) -> ObservationCause {
+        if let id = echoedMutationID, let cause = recorded.cause(of: id) { return cause }
+        return Self.cause(wire: wire)
+    }
+
+    /// The cause a daemon envelope names: `frontend` (a request from the verified app),
+    /// `automation` (an agent, the CLI, a page), otherwise `program`.
+    public static func cause(wire: String?) -> ObservationCause {
+        switch wire {
+        case "frontend": .frontend
+        case "automation": .automation
+        default: .program
+        }
+    }
+
     /// Client transaction id this event echoes, if any.
     public var clientTransactionID: ClientTransactionID? {
         switch self {

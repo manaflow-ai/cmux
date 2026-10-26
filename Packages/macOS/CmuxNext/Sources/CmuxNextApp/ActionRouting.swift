@@ -20,9 +20,17 @@ enum ActionRouting {
             }
             let previous = services.routedDaemon
             services.routedDaemon = routed ?? previous
-            body()
+            personScoped(invocation, body)
             services.routedDaemon = previous
         }
+    }
+
+    /// Runs a person's action run (origin `user`, outside a control-socket run) in a person
+    /// ``DaemonCommandScope``, so the echoes of the mutations it sends apply as `person`
+    /// (plans/cmux-next/chrome-parity/p06-scheduler.md, "Person cause, app side").
+    private static func personScoped(_ invocation: ActionInvocation, _ body: () -> Void) {
+        guard invocation.origin == .user, DaemonCommandScope.current == nil else { return body() }
+        DaemonCommandScope.$current.withValueInTask(DaemonCommandScope.person(), operation: body)
     }
 
     /// The daemon owning the invocation's explicit target (`target`, else a

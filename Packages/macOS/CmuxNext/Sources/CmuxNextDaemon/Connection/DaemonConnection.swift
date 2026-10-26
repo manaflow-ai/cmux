@@ -41,6 +41,8 @@ public actor DaemonConnection {
     public nonisolated let events: AsyncThrowingStream<DaemonEventEnvelope, any Error>
     /// Identifies this event source; pair it with an envelope's connection serial.
     public nonisolated let eventSourceID: UUID = UUID()
+    /// The `mutation_id`s caused scopes sent on this connection, which name their echoes' cause.
+    public nonisolated let mutationCauses = MutationCauseLedger()
     private nonisolated let continuation: AsyncThrowingStream<DaemonEventEnvelope, any Error>.Continuation
 
     let configuration: Configuration
@@ -191,7 +193,7 @@ public actor DaemonConnection {
 
     /// Delivers an event the connection itself produced, after those routed so far.
     func yieldEvent(_ envelope: DaemonEventEnvelope) {
-        continuation.yield(DaemonEventEnvelope(sequence: envelope.sequence, event: envelope.event, sourceID: eventSourceID))
+        continuation.yield(DaemonEventEnvelope(sequence: envelope.sequence, event: envelope.event, sourceID: eventSourceID, cause: envelope.cause))
     }
 
     /// The admitted control session, or nil when not connected.
@@ -223,12 +225,14 @@ public actor DaemonConnection {
             let eventSourceID = eventSourceID
             let raw = configuration.role == .pageRelay
             let decoder = transport.decoder
+            let mutationCauses = mutationCauses
             transport.start(
-                onEvent: { [weak self] name, line, index in
+                onCausedEvent: { [weak self] name, line, index, wireCause in
                     let event = raw ? DaemonEvent.raw(name: name, line: line, decoder: decoder)
                         : DaemonEvent.decode(name: name, line: line, decoder: decoder)
                     let envelope = DaemonEventEnvelope(
-                        sequence: DaemonEventEnvelope.sequence(serial: serial, index: index), event: event, sourceID: eventSourceID)
+                        sequence: DaemonEventEnvelope.sequence(serial: serial, index: index), event: event, sourceID: eventSourceID,
+                        cause: event.cause(wire: wireCause, recorded: mutationCauses))
                     if case .sessionState(let item) = envelope.event, item.endsStream {
                         // task-owner: hop onto the actor; a stale serial is ignored there
                         Task { await self?.sessionStreamEvent(item, serial: serial) }
