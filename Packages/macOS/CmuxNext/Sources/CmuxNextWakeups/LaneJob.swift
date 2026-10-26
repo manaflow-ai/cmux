@@ -8,25 +8,34 @@ final class LaneJob: Sendable {
     let id: UInt64
     let shutdown: ShutdownBehavior
     private let work: @Sendable () -> Void
+    /// Gets the body's start and end on the lane's clock, after the body and before `done`; nil when nothing
+    /// reports the run (``BackgroundWork``'s `onRan`, the block-shutdown check).
+    private let ran: (@Sendable (_ start: UInt64, _ end: UInt64) -> Void)?
     private let abandoned: @Sendable () -> Void
     private let done: @Sendable () -> Void
     // concurrency-allow: one-shot claim checked synchronously by a lane thread, a cancel handler and shutdown (lock carve-out).
     private let claimed = Mutex(false)
 
     init(id: UInt64, shutdown: ShutdownBehavior, work: @escaping @Sendable () -> Void,
+         ran: (@Sendable (_ start: UInt64, _ end: UInt64) -> Void)? = nil,
          abandoned: @escaping @Sendable () -> Void, done: @escaping @Sendable () -> Void) {
         self.id = id
         self.shutdown = shutdown
         self.work = work
+        self.ran = ran
         self.abandoned = abandoned
         self.done = done
     }
 
-    /// Runs the body unless the item was abandoned first.
-    func execute() {
-        guard claim() else { return }
+    /// Runs the body unless the item was abandoned first, and returns its end: `clock` read once after the body,
+    /// which `ran` gets with `start`. Nil when the item was abandoned and nothing ran.
+    func execute(startedAt start: UInt64, clock: () -> UInt64) -> UInt64? {
+        guard claim() else { return nil }
         work()
+        let end = clock()
+        ran?(start, end)
         done()
+        return end
     }
 
     /// Gives the item up unless it has started: a waiting caller gets `CancellationError`.

@@ -41,7 +41,8 @@ import Dispatch
 ///
 /// Every item's queue wait (submit to start on its slot thread) and run time count in the lane's ``LaneStats`` at
 /// the level it ran, in every build: three reads of the lane's clock (submit, start, end) and four relaxed atomic
-/// adds per item, no lock (Chrome's `TaskTracker::RecordLatencyHistogram` counts post to start the same way).
+/// adds per item, no lock (Chrome's `TaskTracker::RecordLatencyHistogram` counts post to start the same way). The
+/// item's own run report (``BackgroundWork``'s `onRan`, the block-shutdown check) gets the same start and end.
 final class LaneScheduler: Sendable {
     /// How many ``WorkPriority/bestEffort`` and ``WorkPriority/idle`` items a `shared` lane runs at once
     /// (Chrome's `kMaxBestEffortTasks`).
@@ -371,27 +372,36 @@ final class LaneScheduler: Sendable {
 
     private func launch(_ starts: [Start]) {
         for start in starts {
-            slots[start.slot].async(qos: start.priority.qos, flags: .enforceQoS) { [self] in
-                let started = clock()
-                // Chrome's task_tracker.cc runs a MayBlock() task with blocking allowed and any other task
-                // under ScopedDisallowBlocking: a files or system item may block, a cpu item may not.
-                if mayBlock {
-                    BlockingContext.runAsLane { run(start.job) }
-                } else {
-                    BlockingContext.runAsCPULane { run(start.job) }
-                }
-                let ended = clock()
-                stats.record(start.priority, waitNanos: started > start.queuedAt ? started - start.queuedAt : 0,
-                             runNanos: ended > started ? ended - started : 0)
-                finish(start.job.id, slot: start.slot)
-            }
+            slots[start.slot].async(qos: start.priority.qos, flags: .enforceQoS) { [self] in runOnSlot(start) }
         }
     }
 
-    /// Runs `job` on this slot's thread, inside the lane's hang scope when it has one.
-    private func run(_ job: LaneJob) {
-        guard let hangWatched else { return job.execute() }
-        hangWatched.run { job.execute() }
+    /// One item on its slot thread: its start and end stamps (the item's ``LaneJob`` reports them too, so nothing
+    /// else reads the clock for it), its body, its ``stats``, then the next items. An item abandoned before it
+    /// started counts nothing.
+    // perf-hot: 100ns lane-item
+    private func runOnSlot(_ start: Start) {
+        let started = clock()
+        // Chrome's task_tracker.cc runs a MayBlock() task with blocking allowed and any other task
+        // under ScopedDisallowBlocking: a files or system item may block, a cpu item may not.
+        let ended: UInt64?
+        if mayBlock {
+            ended = BlockingContext.runAsLane { run(start.job, startedAt: started) }
+        } else {
+            ended = BlockingContext.runAsCPULane { run(start.job, startedAt: started) }
+        }
+        if let ended {
+            stats.record(start.priority, waitNanos: started > start.queuedAt ? started - start.queuedAt : 0,
+                         runNanos: ended > started ? ended - started : 0)
+        }
+        finish(start.job.id, slot: start.slot)
+    }
+
+    /// Runs `job` on this slot's thread, inside the lane's hang scope when it has one; its end stamp, or nil
+    /// when it was abandoned first.
+    private func run(_ job: LaneJob, startedAt started: UInt64) -> UInt64? {
+        guard let hangWatched else { return job.execute(startedAt: started, clock: clock) }
+        return hangWatched.run { job.execute(startedAt: started, clock: clock) }
     }
 
     private func finish(_ id: UInt64, slot: Int) {

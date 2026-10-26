@@ -64,7 +64,7 @@ public nonisolated struct HangReportBuilder: Sendable {
                       inputLatency: InputLatencySnapshot? = nil) -> HangReport {
         var report = HangReport(reportId: context.reportId, installId: context.installId, day: Self.safeDay(context.day),
                                 app: Self.safeApp(context.app), os: HangReport.OS(version: Self.safeVersion(context.os.version)),
-                                hardware: context.hardware, counts: context.counts)
+                                hardware: context.hardware, counts: safeCounts(context.counts))
         let metricKitHangs = metricKit.flatMap(\.hangs).map { hang in
             HangSample(source: .metrickit, kind: .hang, durationMs: hang.durationMs, frames: frames(hang.callStackTree))
         }
@@ -80,6 +80,16 @@ public nonisolated struct HangReportBuilder: Sendable {
         report.launches = wireSchema.carriesLaunches ? Self.launches(watchdog.launches) : nil
         if let inputLatency, wireSchema.carriesInputLatency { Self.addInputLatency(inputLatency, to: &report) }
         return report
+    }
+
+    /// `counts` with the lane wait only when ``wireSchema`` carries it and it is one of
+    /// ``CoarseCounts/waitLabels``.
+    func safeCounts(_ counts: CoarseCounts) -> CoarseCounts {
+        var counts = counts
+        if !wireSchema.carriesLaneWait || !(counts.userBlockingWaitP99Ms.map(CoarseCounts.waitLabels.contains) ?? false) {
+            counts.userBlockingWaitP99Ms = nil
+        }
+        return counts
     }
 
     /// The launches, rebuilt through ``LaunchAggregate/merge(_:)`` (closed-set temperatures and

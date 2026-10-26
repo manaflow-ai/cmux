@@ -6,9 +6,10 @@ internal import CmuxNextSettings
 /// submit to start) and ran (`run`), since launch or the last reset (plans/cmux-next/chrome-parity/p02-threads.md,
 /// task 123; RUN-13 reads `user_blocking_wait_p99_ms`). Each histogram has `count`, `total_ms`, `p50_ms`,
 /// `p95_ms`, `p99_ms` (interpolated inside log2 buckets) and `max_ms` (the upper edge of the highest bucket with
-/// an item, so the longest item took between half of it and it). `{"reset": true}` zeroes every lane's counts
-/// after the report. The lanes count in every build; the report reads relaxed atomics only, so it runs off the
-/// main thread and answers while the main thread is busy.
+/// an item, so the longest item took between half of it and it). `{"reset": true}` zeroes every lane's counts in
+/// the read the report shows (one atomic exchange per counter), so each item counts in exactly one report. The
+/// lanes count in every build; the report reads relaxed atomics only, so it runs off the main thread and answers
+/// while the main thread is busy.
 public struct WorkControl: Sendable {
     private let work: BackgroundWork
 
@@ -23,7 +24,7 @@ public struct WorkControl: Sendable {
     }
 
     static func report(_ params: [String: JSONValue], work: BackgroundWork) -> JSONValue {
-        let times = work.laneTimes()
+        let times = work.laneTimes(resetting: params["reset"]?.boolValue == true)
         var lanes: [String: JSONValue] = [:]
         for lane in BlockingLane.allCases {
             var priorities: [String: JSONValue] = [:]
@@ -32,12 +33,10 @@ public struct WorkControl: Sendable {
             }
             lanes[lane.description] = .object(priorities)
         }
-        let report: JSONValue = .object([
-            "user_blocking_wait_p99_ms": .number(milliseconds(work.userBlockingQueueWaitP99Nanos)),
+        return .object([
+            "user_blocking_wait_p99_ms": .number(milliseconds(BackgroundWork.userBlockingQueueWaitP99Nanos(in: times))),
             "lanes": .object(lanes),
         ])
-        if params["reset"]?.boolValue == true { work.resetLaneTimes() }
-        return report
     }
 
     private static func json(_ histogram: LaneHistogram) -> JSONValue {

@@ -244,6 +244,12 @@ to it (closed literal sets, the same limits, a fixture byte-identical to the Swi
 p04-input-104 wires the reporter in behind the default-off feature `hangReportInputLatency` and
 063's server-version flag.
 
+Schema 3 also adds `counts.userBlockingWaitP99Ms` (p02-threads-123,
+`HangReport.WireSchema.carriesLaneWait`): the background lanes' user-blocking queue-wait p99 since
+launch, one of `0-1`, `1-2`, `2-4`, `4-8`, `8-16`, `16-32`, `32-64`, `64+` (milliseconds,
+`CoarseCounts.waitLabels`). The schema-3 decoder must list it as an optional closed literal set
+before a build sends schema 3; a schema-2 report never has it.
+
 ## 5. Server
 
 - `web/app/api/hang-reports/route.ts`: a thin Next route handler that runs one Effect program
