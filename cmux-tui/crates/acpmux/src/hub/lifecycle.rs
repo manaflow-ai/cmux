@@ -1357,8 +1357,8 @@ mod stop_fence_tests;
 /// it resolves the answer, so the `ReplayDone` that `end` queues lands behind the whole replay,
 /// and before the next prompt is even written. The hold names the agent's generation: another
 /// agent's updates and markers never touch it. A start abandoned mid-load never ends it, so
-/// what that agent still had buffered stays out of the preview as well; the next agent holds
-/// under its own generation.
+/// what that agent still had queued stays out of the preview as well, beside the next agent's
+/// own hold (`Session::replaying` keeps both).
 struct ReplayHold<'a> {
     session: &'a Session,
     agent: &'a crate::agent::ChildAgent,
@@ -1366,7 +1366,12 @@ struct ReplayHold<'a> {
 
 impl<'a> ReplayHold<'a> {
     fn start(session: &'a Session, agent: &'a crate::agent::ChildAgent) -> Self {
-        session.replaying.store(agent.generation, Ordering::SeqCst);
+        let mut held = session.replaying.lock().unwrap_or_else(|e| e.into_inner());
+        if held.len() >= super::session::REPLAY_HOLDS {
+            held.remove(0);
+        }
+        held.push(agent.generation);
+        drop(held);
         Self { session, agent }
     }
 
@@ -1374,13 +1379,7 @@ impl<'a> ReplayHold<'a> {
     /// its queue is closed (nothing more can arrive).
     async fn end(self) {
         if !self.agent.queue_replay_done().await {
-            let generation = self.agent.generation;
-            let _ = self.session.replaying.compare_exchange(
-                generation,
-                0,
-                Ordering::SeqCst,
-                Ordering::SeqCst,
-            );
+            self.session.end_replay(self.agent.generation);
         }
     }
 }

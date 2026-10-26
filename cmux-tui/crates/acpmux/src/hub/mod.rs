@@ -801,7 +801,7 @@ impl Hub {
             spawn_lock: Mutex::new(()),
             append_lock: StdMutex::new(()),
             loading: AtomicBool::new(false),
-            replaying: AtomicU64::new(0),
+            replaying: StdMutex::new(Vec::new()),
             caught_up: AtomicBool::new(true),
             turn_lock: Mutex::new(()),
             turn: StdMutex::new(None),

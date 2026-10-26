@@ -24,12 +24,13 @@ pub struct Session {
     /// so the log and fan-out always see sequences in order.
     pub(super) append_lock: StdMutex<()>,
     pub(super) loading: AtomicBool,
-    /// The generation of the agent whose `session/load` (or Claude fork prime) is replaying
-    /// history, 0 for none: from the load's start until the inbound loop reaches that agent's
+    /// The generations of the agents whose `session/load` (or Claude fork prime) replays
+    /// history: from the load's start until the inbound loop reaches that agent's
     /// [`crate::agent::Inbound::ReplayDone`], its agent messages are history, never the chat's
-    /// newest reply (`ReplayHold` in `lifecycle.rs`). An abandoned start leaves its agent's
-    /// generation here, so what that agent still sends stays out too.
-    pub(super) replaying: AtomicU64,
+    /// newest reply (`ReplayHold` in `lifecycle.rs`). A start abandoned mid-load leaves its
+    /// agent's generation here, so what that agent still had queued stays out even after the
+    /// next agent's load begins. At most [`REPLAY_HOLDS`], the oldest dropped first.
+    pub(super) replaying: StdMutex<Vec<u64>>,
     /// The log's records past the saved `lastSeq` are counted (`Hub::catch_up`).
     /// False from a deferred daemon start until the first append or the log load.
     pub(super) caught_up: AtomicBool,
@@ -182,6 +183,11 @@ pub struct Session {
 }
 
 impl Session {
+    /// Lifts the replay hold of the agent of this generation (`Session::replaying`).
+    pub(super) fn end_replay(&self, agent: u64) {
+        self.replaying.lock().unwrap_or_else(|e| e.into_inner()).retain(|g| *g != agent);
+    }
+
     /// Notes whether the session now waits on the person: `input_since` is when it began
     /// (the lane's `input` since, cx-v9k2f), 0 while it does not.
     pub(super) fn mark_waiting(&self, waiting: bool) {
@@ -326,3 +332,7 @@ pub(crate) fn newest_first(sessions: Vec<Arc<Session>>) -> Vec<Arc<Session>> {
     keyed.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| a.1.id.cmp(&b.1.id)));
     keyed.into_iter().map(|(_, s)| s).collect()
 }
+
+/// The most generations [`Session::replaying`] keeps: one load at a time, and the agents of
+/// starts abandoned mid-load, whose queued output ends within moments.
+pub(super) const REPLAY_HOLDS: usize = 8;

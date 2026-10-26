@@ -34,7 +34,11 @@ impl Hub {
                             }
                             continue;
                         }
-                        let replayed = session.replaying.load(Ordering::SeqCst) == agent;
+                        let replayed = session
+                            .replaying
+                            .lock()
+                            .unwrap_or_else(|e| e.into_inner())
+                            .contains(&agent);
                         self.on_update(&session, params.as_ref(), replayed);
                     }
                 }
@@ -72,14 +76,7 @@ impl Hub {
                 Inbound::Barrier(done) => {
                     let _ = done.send(());
                 }
-                Inbound::ReplayDone { agent } => {
-                    let _ = session.replaying.compare_exchange(
-                        agent,
-                        0,
-                        Ordering::SeqCst,
-                        Ordering::SeqCst,
-                    );
-                }
+                Inbound::ReplayDone { agent } => session.end_replay(agent),
                 Inbound::Exited { pid, code, host_seq } => {
                     {
                         let mut slot = session.child.lock().await;
