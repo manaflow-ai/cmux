@@ -227,11 +227,15 @@ let daemonSwiftSettings: [SwiftSetting] = [
 ///   723c4ab93): `GhosttyGPUResidency`, so `terminalGPURelease` and the larger warm set.
 /// - GHOSTTY_ENERGY_SAVER: `ghostty_app_set_energy_saver` (ghostty-next cp/p14-energy-114, not in
 ///   723c4ab93): `GhosttyRuntime.followEnergySaver(on:)` sends the saver's edges to libghostty.
+/// - GHOSTTY_LOCK_WAIT: `ghostty_surface_set_lock_wait_callback` (ghostty-next cp/p04-input-078, not in
+///   723c4ab93): `GhosttyLockWaitSignpost` records `ghostty.lock_wait` in Debug and bench builds.
 let ghosttyNextKitHasGPUResident = false
 let ghosttyNextKitHasEnergySaver = false
+let ghosttyNextKitHasLockWait = false
 let ghosttyNextKitCapabilities: [SwiftSetting] =
     (ghosttyNextKitHasGPUResident ? [.define("GHOSTTY_GPU_RESIDENT")] : [])
     + (ghosttyNextKitHasEnergySaver ? [.define("GHOSTTY_ENERGY_SAVER")] : [])
+    + (ghosttyNextKitHasLockWait ? [.define("GHOSTTY_LOCK_WAIT")] : [])
 
 /// The app's ONE Rust static library, CCmuxAppFFI (cmux-tui/crates/cmux-app-ffi):
 /// the remote desktop core C ABI (module CCmuxRdFFI), the sidebar layout

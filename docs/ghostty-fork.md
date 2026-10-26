@@ -2457,6 +2457,51 @@ release and checksum pin must be regenerated whenever this commit changes, even
 for comment-only amends, because the release tag is keyed by the Ghostty commit
 SHA.
 
+### ghostty-next: a key never waits on the terminal lock behind output parsing
+
+This section is about the `ghostty-next` fork (`manaflow-ai/ghostty-next`), which cmux-next embeds as
+GhosttyNextKit.
+
+- Branch: `cp/p04-input-078` on `manaflow-ai/ghostty-next`, commit `a06d1bdef`, on fork `main`
+  `9ce9b7d08`. cmux task p04-input-078 (plans/cmux-next/chrome-parity/p04-input.md).
+- What:
+  - Input entry points (key encoding options, KAM, the link refresh on a modifier change, preedit, a
+    manual surface's input write) take the terminal lock through `renderer.State.lockInput`, which counts
+    them in the atomic `input_waiting`. `Termio.processOutputLocked` parses each chunk in 4 KiB sub-slices
+    and, while an input waits, releases the lock until it had its turn (`yieldToInputLocked`, the
+    `handoff_gen` futex that `lockDemand` uses for the renderer). A key waits for at most one 4 KiB slice,
+    never a 64 KiB chunk. This is Blink's parser yield
+    (third_party/blink/renderer/core/html/parser/html_document_parser.cc, `PumpTokenizer` checks
+    `ShouldYield` between token chunks).
+  - A plain press takes no lock for its side effects. The parser, `Surface.setSelection`, every viewport
+    move and every terminal swap publish two atomics under the lock: `input_selection` (the active screen
+    has a selection) and `input_viewport_follows` (the viewport is at the active area and no place is kept
+    for a snapshot restore). `Surface.typedSideEffects` reads them; only a press that has a selection to
+    clear or a viewport to bring down tries the lock, and when output holds it the press posts termio
+    `Message.typed`. The termio thread clears the selection and scrolls under the lock, and tells the
+    surface (`selection_changed`) so the apprt hears of the clear as before. A stale atomic only sends a
+    press down the locked path.
+  - `ghostty_surface_set_lock_wait_callback(surface, cb, userdata)`: one-shot; reports each input wait of
+    50 us or more in ns, on the thread that waited, after it released the lock.
+- cmux side: `GhosttyLockWaitSignpost` (CmuxNextTerminal) records `ghostty.lock_wait` (catalog id 87,
+  ring instant, arg0 the wait in ns) in Debug and bench builds. It is compiled only with
+  `GHOSTTY_LOCK_WAIT` (`ghosttyNextKitHasLockWait` in Packages/macOS/CmuxNext/Package.swift, false now):
+  the pin bump that brings the export turns it on. The gitlink and the GhosttyNextKit pin do not move in
+  the task commit; the bump is a separate commit.
+- Coverage: `manual: input mirrors follow the selection and the viewport` and `manual: a key waits for
+  one 4 KiB slice of dense SGR output, not a 64 KiB chunk` (src/termio/Termio.zig). The second parses
+  8 MiB of full-screen dense SGR repaints in 64 KiB chunks while a second thread locks for input every
+  100 us. The test executable is Debug (build.zig): there a 64 KiB chunk parses in about 12.5 ms and the
+  input wait p99 is about 1.5 ms (one slice). Built ReleaseFast for a local check (not committed): chunk
+  0.56 ms, wait p99 75-81 us, under the 0.5 ms budget, which the test asserts outside Debug.
+- Files touched (conflict surface): `src/renderer/State.zig`, `src/termio/Termio.zig`,
+  `src/termio/Thread.zig`, `src/termio/message.zig`, `src/termio/stream_handler.zig`, `src/Surface.zig`,
+  `src/apprt/surface.zig`, `src/apprt/embedded.zig`, `include/ghostty.h`, `NEXT.md`.
+- Conflict notes: a new input entry point that takes the terminal lock uses `lockInput`/`unlockInput`,
+  not `mutex.lock`. A new change that can give the active screen a selection or move its viewport off the
+  active area calls `Termio.publishInputMirrorsLocked` before it releases the lock. Do not parse a whole
+  chunk in one `nextSlice` call again.
+
 ## Upstreamed fork changes
 
 ### cursor-click-to-move respects OSC 133 click-to-move
