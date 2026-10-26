@@ -16,6 +16,7 @@ import {
   type RunView,
   type RunStatus,
   type AttemptStatus,
+  type RunEnvironment,
 } from "./model";
 
 export type RunSnapshotRow = {
@@ -193,6 +194,10 @@ export function toRunSnapshotView(snapshot: RunSnapshotRow, options: RunViewOpti
   const run: RunView = {
     id: snapshot.run.id,
     status: snapshot.run.status as RunStatus,
+    environment: (snapshot.run.environment ?? "persistent") as RunEnvironment,
+    image: snapshot.run.environment === "sandboxed" && snapshot.run.imageId
+      ? { id: snapshot.run.imageId, version: snapshot.run.imageVersion ?? null }
+      : null,
     recipe: snapshot.run.recipe,
     desiredAttempts: snapshot.run.desiredAttempts,
     source: safeSource(snapshot.run.source),
