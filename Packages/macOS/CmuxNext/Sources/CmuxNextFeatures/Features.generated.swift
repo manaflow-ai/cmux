@@ -840,6 +840,23 @@ nonisolated extension Feature {
         runtimeMutable: false
     )
 
+    /// While no cmux window is visible (app hidden, windows minimized or covered, displays asleep), memory release runs in 8 ms slices back to back between main-thread events, not 2 ms per frame. Input brings back frame slices until a frame passes with no input.
+    public static let memoryHiddenAppRelease = Feature(
+        index: 47,
+        name: "memoryHiddenAppRelease",
+        owner: "PL-memory",
+        description: "While no cmux window is visible (app hidden, windows minimized or covered, displays asleep), memory release runs in 8 ms slices back to back between main-thread events, not 2 ms per frame. Input brings back frame slices until a frame passes with no input.",
+        kind: .labs,
+        process: .app,
+        chromiumFeature: nil,
+        defaults: FeatureDefaults(dev: false, nightly: false, release: false),
+        expires: nil,
+        params: [],
+        stories: [],
+        sticky: false,
+        runtimeMutable: false
+    )
+
     /// Evicted terminals' last frames share one app-wide list: a frame being read stays, the least recently hidden goes first past a limit set from the Mac's memory, a frame hidden 5 min goes, and a memory warning drops every hidden one.
     public static let memoryHiddenFrameLRU = Feature(
         index: 48,
@@ -1677,6 +1694,7 @@ nonisolated extension Feature {
         .memoryDiscardRemoteTabs,
         .memoryDiscardSidebarSections,
         .memoryFileHomeCaches,
+        .memoryHiddenAppRelease,
         .memoryHiddenFrameLRU,
         .memoryImageCaches,
         .memoryOpenPanelOnFirstUse,
@@ -1774,6 +1792,7 @@ nonisolated extension Feature {
         .memoryDiscardRemoteTabs,
         .memoryDiscardSidebarSections,
         .memoryFileHomeCaches,
+        .memoryHiddenAppRelease,
         .memoryHiddenFrameLRU,
         .memoryImageCaches,
         .memoryOpenPanelOnFirstUse,
