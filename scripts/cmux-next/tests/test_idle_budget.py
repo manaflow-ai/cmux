@@ -2608,7 +2608,8 @@ class FiveSessionsTests(unittest.TestCase):
             def stop(self):
                 events.append("stop")
 
-        def measure(app, instance, seconds, read_anim=None, attribute=False, shown_tab=None, workdir=None):
+        def measure(app, instance, seconds, read_anim=None, attribute=False, shown_tab=None, workdir=None,
+                    ledger_limit=20):
             events.append(("measure", app, type(instance).__name__))
             return {"seconds": seconds, "ends": {}, "processes": [{**row("daemon", 8, 0.05), "ran": []}],
                     "windowserver": ib.windowserver_report(None, None, None)}
@@ -2620,7 +2621,7 @@ class FiveSessionsTests(unittest.TestCase):
                 unittest.mock.patch.object(bench_launch, "seed_hang_report_consent", lambda _app: ""), \
                 unittest.mock.patch.multiple(ib, measure=measure, fresh_session=lambda _app: {}, threads=lambda _pid: {},
                                              host_facts=lambda: {"host": "h", "macos": "26"},
-                                             sample_threads=lambda *a: events.append("sample")), \
+                                             run_sample=lambda *a: events.append("sample")), \
                 unittest.mock.patch.object(ib.procs, "Instance", lambda app, pid: types.SimpleNamespace(pid=pid)), \
                 unittest.mock.patch.object(ib.time, "sleep", sleeps.append), \
                 contextlib.redirect_stdout(io.StringIO()) as out, self.assertRaises(SystemExit) as raised:
