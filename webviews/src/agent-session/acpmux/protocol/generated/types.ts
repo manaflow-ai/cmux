@@ -695,6 +695,7 @@ export type SessionDetail = {
    * settled. Absent otherwise, and from a peer on an older acpmux.
    */
   retryDeciding?: boolean;
+  /**
    * The root of its lineage tree: the first ancestor no agent started; its own
    * id for a root. Absent from a peer on an older acpmux.
    */
@@ -883,6 +884,7 @@ export type SessionSummary = {
    * settled. Absent otherwise, and from a peer on an older acpmux.
    */
   retryDeciding?: boolean;
+  /**
    * The root of its lineage tree: the first ancestor no agent started; its own
    * id for a root. Absent from a peer on an older acpmux.
    */
