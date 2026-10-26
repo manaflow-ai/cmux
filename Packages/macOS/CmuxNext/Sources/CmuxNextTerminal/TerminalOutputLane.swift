@@ -56,6 +56,8 @@ nonisolated final class TerminalOutputLane: @unchecked Sendable {
 
     func processOutput(_ data: Data) {
         guard !data.isEmpty else { return }
+        // A key armed after these bytes reached the lane cannot be their echo.
+        let armedBefore = echoStage?.armedCount ?? 0
         backlog.withLock { $0.bytes += data.count }
         queue.async { [self] in
             defer { parsed(data.count) }
@@ -64,7 +66,7 @@ nonisolated final class TerminalOutputLane: @unchecked Sendable {
                 guard let base = buffer.baseAddress?.assumingMemoryBound(to: CChar.self) else { return }
                 ghostty_surface_process_output(surface, base, UInt(buffer.count))
             }
-            echoStage?.outputParsed()
+            echoStage?.outputParsed(armedBefore: armedBefore)
             TypingLatencyProbe.shared.mark(.outputParsed)
             #if DEBUG || CMUX_BENCH_HOOKS
             if NewTerminalTrace.shared.isArmed { NewTerminalTrace.shared.parsed(lane: ObjectIdentifier(self), data) }

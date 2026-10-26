@@ -4,7 +4,9 @@ public import CmuxNextInputCore
 /// ending event: ``contentSubmitted`` or one of the misses, after ``echoParsed`` when its output was
 /// parsed.
 public nonisolated enum TerminalEchoEvent: UInt8, Sendable, Hashable, CaseIterable {
-    /// The first output chunk after the key was parsed on the surface's output lane.
+    /// The first output chunk that reached the surface's output lane after the key was parsed there.
+    /// Every key waiting then takes the same chunk, as Chromium gives events coalesced into one frame
+    /// that frame (cc/metrics/compositor_frame_reporter.cc).
     case echoParsed
     /// The first frame Ghostty handed to its layer after that parse (``InputStage/contentSubmitted``).
     case contentSubmitted
@@ -12,13 +14,15 @@ public nonisolated enum TerminalEchoEvent: UInt8, Sendable, Hashable, CaseIterab
     case noEcho
     /// Output was parsed, but no frame was set within the window (the surface was hidden or paused).
     case noFrame
-    /// Another key on the same surface came before this key's frame.
+    /// The surface's ring was full (``TerminalEchoStage/defaultCapacity`` keys waiting) and a newer
+    /// key took this one's entry.
     case superseded
     /// The surface closed while the key waited.
     case surfaceClosed
 }
 
-/// Where a terminal's key-to-echo stages go: the app's input latency tracker. The terminal reports
+/// Where a terminal's key-to-echo stages go: the app's input latency tracker, installed at the
+/// composition root by p04-input-094 (``TerminalEchoStages/install(_:)``). The terminal reports
 /// times and outcomes; the sink owns the latency slots (Chromium's `EventMetrics` takes each stage's
 /// time on the thread that saw it, cc/metrics/event_metrics.h).
 public nonisolated protocol TerminalEchoLatencySink: AnyObject, Sendable {

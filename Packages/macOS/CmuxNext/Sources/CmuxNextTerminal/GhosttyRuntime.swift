@@ -63,9 +63,9 @@ public final class GhosttyRuntime {
     /// The input sources as the terminal key path reads them (switch keys, source kind, copy mode's
     /// ASCII map); the app starts it with its runner, this runtime's observers keep it current.
     public let inputSources = TerminalInputSources()
-    /// The terminals' key-to-echo stages; the app installs its input latency tracker here
-    /// (``TerminalEchoStages/install(_:)``) before its first terminal.
-    public let echoStages = TerminalEchoStages()
+    /// The terminals' key-to-echo stages and the process's contents gate; the app installs its input
+    /// latency tracker here (``TerminalEchoStages/install(_:)``, p04-input-094) before its first terminal.
+    public let echoStages = TerminalEchoStages(contentsGate: TerminalContentsGate())
     private var observers: [any NSObjectProtocol] = []
     private var appearanceObservation: NSKeyValueObservation?
 
