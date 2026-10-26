@@ -33,6 +33,21 @@ SHARED_NIGHTLY_GROUPS = {
 }
 
 
+# A group scoped to its run with nothing conditional: a fixed prefix and github.run_id, so no branch of
+# an expression can fall back to a shared name (the old warm slot named github.run_id only in its fallback).
+RUN_SCOPED = re.compile(
+    r"\$\{\{ format\('[\w.-]*\{0\}', github\.run_id\) \}\}|[\w.-]*\$\{\{ github\.run_id \}\}")
+
+
+def test_a_conditional_group_is_not_run_scoped() -> None:
+    old_warm_slot = ("${{ github.ref == 'refs/heads/nightly-next' && 'nightly-next-build-app-warm' || "
+                     "format('nightly-build-app-{0}', github.run_id) }}")
+    assert not RUN_SCOPED.fullmatch(old_warm_slot)
+    assert not RUN_SCOPED.fullmatch("nightly-${{ github.run_id }}-${{ github.ref_name }}")
+    assert RUN_SCOPED.fullmatch("${{ format('nightly-build-app-{0}', github.run_id) }}")
+    assert RUN_SCOPED.fullmatch("nightly-next-legacy-identity-${{ github.run_id }}")
+
+
 def test_nightly_builds_and_signers_never_share_an_evicting_group() -> None:
     """A newer nightly tip builds and signs alongside an older one, never replacing it (2026-10-26).
 
@@ -44,7 +59,9 @@ def test_nightly_builds_and_signers_never_share_an_evicting_group() -> None:
 
     document = yaml.safe_load((WORKFLOWS / "nightly.yml").read_text(encoding="utf-8"))
     top = document["concurrency"]["group"]
-    assert "github.ref == 'refs/heads/nightly-next' && format('run-{0}', github.run_id)" in top, top
+    # The nightly-next branch is the expression's first operand, so no other branch can win first.
+    assert re.match(r"nightly-build-\$\{\{[^}]*\}\}-\$\{\{ github\.ref == 'refs/heads/nightly-next' && "
+                    r"format\('run-\{0\}', github\.run_id\) \|\|", top), top
     for name, job in document["jobs"].items():
         concurrency = job.get("concurrency")
         if concurrency is None:
@@ -52,7 +69,7 @@ def test_nightly_builds_and_signers_never_share_an_evicting_group() -> None:
         group = concurrency if isinstance(concurrency, str) else str(concurrency.get("group", ""))
         if isinstance(concurrency, dict):
             assert concurrency.get("cancel-in-progress") is not True, name
-        if "github.run_id" in group:
+        if RUN_SCOPED.fullmatch(group):
             continue
         allowed = SHARED_NIGHTLY_GROUPS.get(name)
         assert allowed and group.startswith(allowed), (
@@ -78,6 +95,7 @@ def test_delivery_coalescers_have_fixed_backstops_and_non_cancelling_groups() ->
 
 if __name__ == "__main__":
     test_delivery_workflows_never_cancel_in_progress_work()
+    test_a_conditional_group_is_not_run_scoped()
     test_nightly_builds_and_signers_never_share_an_evicting_group()
     test_delivery_coalescers_have_fixed_backstops_and_non_cancelling_groups()
     print("PASS: nightly and DEV delivery never cancel or replace waiting builds")
