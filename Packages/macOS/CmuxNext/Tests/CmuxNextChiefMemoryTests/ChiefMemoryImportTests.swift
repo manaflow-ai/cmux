@@ -1,6 +1,6 @@
 import Foundation
 import Testing
-@testable import CmuxNextApp
+@testable import CmuxNextChiefMemory
 
 /// The memory import flow's pure parts: what the CLI answers, the titles the person reads and the arguments
 /// the app runs (a person can run the same `optchat-chief memory import-from` by hand).
