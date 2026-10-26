@@ -212,9 +212,9 @@ pub struct PtyTerminalRuntime {
     /// journal barrier.
     pub(super) reader_thread: Mutex<Option<std::thread::JoinHandle<()>>>,
     pub(super) reader_completion: Arc<ReaderCompletion>,
-    /// Owned child-reaper join fence. Shutdown uses the same bounded deadline
+    /// Owned child-reaper fence. Shutdown uses the same bounded deadline
     /// as the reader so the child wait cannot outlive terminal teardown.
-    pub(super) reaper_thread: Mutex<Option<std::thread::JoinHandle<()>>>,
+    pub(super) reaper_thread: Mutex<Option<LocalReaper>>,
     pub(super) reaper_completion: Arc<ReaderCompletion>,
     /// Hot or compressed; every lock restores it first (cold_terminal.rs).
     pub(super) term: TerminalCell,
@@ -342,6 +342,17 @@ pub(super) enum PtyRuntime {
     ExitedHosted,
 }
 
+/// What reports the end of a local terminal's far side; `reaper_completion`
+/// says when it has.
+pub(super) enum LocalReaper {
+    /// A thread blocked until the far side ended (a holder terminal, a byte
+    /// backend, a Windows child).
+    Thread(std::thread::JoinHandle<()>),
+    /// The mux's reaper waits for the child (`cmux_threads::reaper`).
+    #[cfg(unix)]
+    Watched,
+}
+
 /// Owns a freshly spawned PTY child until the child reaper has taken over.
 ///
 /// `portable_pty::Child` does not stop or reap a process when its handle is
@@ -349,7 +360,7 @@ pub(super) enum PtyRuntime {
 /// guard keeps every error path terminating and reaping the child. The guard
 /// moves into the reaper closure; if thread creation fails, dropping that
 /// closure runs this cleanup instead.
-pub(super) struct PtyChildStartupGuard {
+pub(crate) struct PtyChildStartupGuard {
     child: Box<dyn cmux_pty::Child + Send + Sync>,
     reaped: bool,
 }
@@ -367,10 +378,30 @@ impl PtyChildStartupGuard {
         self.child.clone_killer()
     }
 
+    #[cfg(not(unix))]
     pub(super) fn wait_for_exit(&mut self) -> TerminalExit {
-        let (exit, reaped) = wait_for_native_child_status_with_reap_result(self.child.as_mut());
+        let (exit, reaped) =
+            crate::terminal_host_protocol::wait_for_native_child_status_with_reap_result(
+                self.child.as_mut(),
+            );
         self.reaped = reaped;
         exit
+    }
+
+    /// The end from the status the mux's reaper took. A failed reap leaves
+    /// the child to this guard's kill and wait.
+    #[cfg(unix)]
+    pub(super) fn reaped(
+        &mut self,
+        status: std::io::Result<std::process::ExitStatus>,
+    ) -> TerminalExit {
+        match status {
+            Ok(status) => {
+                self.reaped = true;
+                TerminalExit::from_exit_status(&status)
+            }
+            Err(error) => TerminalExit::unknown(format!("wait failed: {error}")),
+        }
     }
 }
 

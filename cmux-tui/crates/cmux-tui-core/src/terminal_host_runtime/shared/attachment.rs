@@ -14,7 +14,7 @@ use std::time::{Duration, Instant};
 
 use anyhow::Context;
 
-pub(crate) use super::super::sys::SpawnedHostProcess;
+pub(crate) use super::super::sys::{HostReaper, SpawnedHostProcess};
 use super::super::sys::{HostStream, PtyCustody, connect_with_retry};
 use super::super::*;
 use super::clipboard_read::{OwnerIntent, owner_rights_for};
@@ -638,10 +638,11 @@ impl HostAttachment {
 
     /// Commit the launch ownership handoff after every fallible Surface
     /// setup step succeeds. Until then, dropping this attachment exact-
-    /// kills and waits the child process through SpawnedHostProcess.
-    pub(crate) fn commit_launched_host(&mut self) {
+    /// kills and waits the child process through SpawnedHostProcess. The
+    /// mux's `reaper` reaps the host when it exits (`Mux::host_reaper`).
+    pub(crate) fn commit_launched_host(&mut self, reaper: Option<&HostReaper>) {
         if let Some(process) = self.launch_process.take() {
-            process.commit();
+            process.commit(reaper);
         }
     }
 

@@ -1,6 +1,7 @@
 //! Surface teardown: kill, daemon shutdown and disconnect, terminal reader and
 //! reaper completion, and the hosted launch release.
 
+use super::terminal_runtime::LocalReaper;
 use super::*;
 
 impl Surface {
@@ -13,11 +14,12 @@ impl Surface {
         // Decide self-join under the lock and leave the reaper's own handle
         // in place: taking it and putting it back let a concurrent caller
         // see an empty slot and return while the handle was restored later.
+        // A watched child's completion marks `reaper_completion` before it
+        // publishes the exit, so it never waits for itself here.
         let reaper = {
             let mut slot = pty.reaper_thread.lock().unwrap();
-            if slot
-                .as_ref()
-                .is_some_and(|reaper| reaper.thread().id() == std::thread::current().id())
+            if let Some(LocalReaper::Thread(reaper)) = slot.as_ref()
+                && reaper.thread().id() == std::thread::current().id()
             {
                 eprintln!("cmux-tui: child reaper skipped self-join during shutdown");
                 None
@@ -27,7 +29,9 @@ impl Surface {
         };
         if let Some(reaper) = reaper {
             if pty.reaper_completion.wait_until(deadline) {
-                if reaper.join().is_err() {
+                if let LocalReaper::Thread(reaper) = reaper
+                    && reaper.join().is_err()
+                {
                     eprintln!("cmux-tui: child reaper thread panicked during shutdown");
                 }
             } else {
@@ -87,7 +91,7 @@ impl Surface {
             completion.complete();
             result.expect("installed test terminal reaper panicked");
         });
-        let previous = pty.reaper_thread.lock().unwrap().replace(reaper);
+        let previous = pty.reaper_thread.lock().unwrap().replace(LocalReaper::Thread(reaper));
         assert!(previous.is_none(), "test PTY already owns a reaper thread");
     }
 
@@ -108,7 +112,7 @@ impl Surface {
             reaper_completion.complete();
             surface.finish_terminal_reader(Instant::now() + Duration::from_secs(1));
         });
-        let previous = pty.reaper_thread.lock().unwrap().replace(reaper);
+        let previous = pty.reaper_thread.lock().unwrap().replace(LocalReaper::Thread(reaper));
         assert!(previous.is_none(), "test PTY already owns a reaper thread");
         completion
     }

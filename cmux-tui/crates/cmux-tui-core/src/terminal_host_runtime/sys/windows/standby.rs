@@ -560,9 +560,12 @@ pub(crate) struct SpawnedHostProcess {
     ends_with_daemon_job: bool,
 }
 
+/// No Windows host needs reaping: a committed host is detached.
+pub(crate) enum HostReaper {}
+
 impl SpawnedHostProcess {
     /// The launch is committed: the host lives on its own.
-    pub(crate) fn commit(mut self) {
+    pub(crate) fn commit(mut self, _reaper: Option<&HostReaper>) {
         if let Some(process) = self.process.take() {
             process.detach();
         }

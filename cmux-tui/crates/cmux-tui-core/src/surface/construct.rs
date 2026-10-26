@@ -2,6 +2,7 @@
 //! id, resource identity and cell pixels, prelaunched hosts, and the deferred
 //! cell-pixel and hosted clear-history helpers they install.
 
+use super::spawn::LocalEnd;
 use super::*;
 
 /// When a new terminal surface takes its share of the Kitty image budget.
@@ -318,7 +319,7 @@ impl Surface {
 
         crate::request_path::note(crate::request_path::BlockingKind::ProcessSpawn);
         let cmux_pty::SpawnedPty { master, child } = pty.spawn(cmd)?;
-        let mut child = PtyChildStartupGuard::new(child);
+        let child = PtyChildStartupGuard::new(child);
         let pid = child.process_id();
         let killer = child.clone_killer();
         #[cfg(unix)]
@@ -327,12 +328,19 @@ impl Surface {
         let supports_clear_history_key_fallback = false;
         let reader = master.try_clone_reader()?;
         let writer = master.take_writer()?;
+        #[cfg(unix)]
+        let end = LocalEnd::Child(child);
+        #[cfg(not(unix))]
+        let end = LocalEnd::Wait(Box::new(move || {
+            let mut child = child;
+            TerminalEnd::ProcessEnded(child.wait_for_exit())
+        }));
         let launch = LocalLaunch {
             master,
             reader,
             writer,
             killer,
-            wait: Box::new(move || TerminalEnd::ProcessEnded(child.wait_for_exit())),
+            end,
             pid,
             command: argv,
             cwd,

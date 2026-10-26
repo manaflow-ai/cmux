@@ -98,6 +98,39 @@ fn local_surface_reaper_timeout_retains_production_handle() {
     assert!(pty.reaper_thread.lock().unwrap().is_none());
 }
 
+/// p02-threads-237: fifty local terminals end with their own exit statuses
+/// through the mux's one reaper, and none of them has a wait thread.
+#[cfg(unix)]
+#[test]
+fn local_terminals_end_through_the_mux_reaper_with_no_wait_thread() {
+    let mux = Mux::new_for_test("reaper-fifty", SurfaceOptions::default());
+    let surfaces: Vec<_> = (0..50)
+        .map(|code| {
+            let options = SurfaceOptions {
+                command: Some(vec!["/bin/sh".into(), "-c".into(), format!("exit {code}")]),
+                ..SurfaceOptions::default()
+            };
+            (code, Surface::spawn(1000 + code, options, Arc::downgrade(&mux)).expect("spawn"))
+        })
+        .collect();
+    let waits = cmux_threads::snapshot()
+        .into_iter()
+        .filter(|thread| thread.name.starts_with("surface-1") && thread.name.ends_with("-wait"))
+        .count();
+    assert_eq!(waits, 0, "a local terminal started a wait thread");
+    let deadline = Instant::now() + Duration::from_secs(20);
+    for (code, surface) in &surfaces {
+        let pty = surface.as_pty().expect("a PTY surface");
+        assert!(pty.reaper_completion.wait_until(deadline), "terminal {code} never ended");
+        let code = i32::try_from(*code).unwrap();
+        assert_eq!(
+            surface.terminal_exit().map(|exit| exit.outcome),
+            Some(crate::terminal_host_protocol::TerminalExitOutcome::Exit { code }),
+        );
+    }
+    assert_eq!(mux.reaper.stats().watching, 0);
+}
+
 #[test]
 fn pty_child_startup_guard_kills_and_waits_on_drop() {
     let state = Arc::new(StartupChildState::default());
