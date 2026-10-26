@@ -4,10 +4,9 @@
 // opens it whole), and a Claude Code task notification as one quiet line
 // (IncomingMessageCard.tsx, incomingMessage.ts). A message from a chat here also has Reply at the line's end, which
 // answers in place in the sender's chat and thread.
-// In cmux's Minimal Mode (`sidebar.minimal`) a closed message is one line (Leo 2026-10-24: "one line
-// is kind of enough sometimes for the ... preview of the message"): the minimal-* variants. A, the
-// chip, the first line and a chevron, ships; B (a fade and "+N lines") and C (the name inline, no
-// chip) are drawn here only, over the shipped line.
+// Received messages start as one line regardless of `sidebar.minimal`: the sender's chip, first
+// line and a chevron. The default-compact and minimal-* variants show that shipped state; B (a fade
+// and "+N lines") and C (the name inline, no chip) remain gallery-only alternatives.
 import { agentPaneEntry, type ChipHostFixture } from "../../../gallery/format";
 import type { Play } from "../../../gallery/play";
 import { SESSION_ID, assistant, chat, session, summary, user } from "../../../gallery/fixtures/acpmux";
@@ -172,6 +171,11 @@ export default agentPaneEntry({
         assistant("Reviewing #123 now.", 3.5),
         summary(3.5, { status: "completed" }),
       ]),
+    },
+    "default-compact": {
+      note: "Received agent messages start as one-line strips even with global Minimal Mode off; click a row's chevron to expand it in place.",
+      display: { "sidebar.minimal": false },
+      snapshot: minimalChat,
     },
     subsession: {
       note: "A sub-session's chat: its first prompt and a later message from the chat that started it read Parent · coordinator, and a report from its own sub-session reads Sub-session · fixture; each name opens that chat beside this one.",
@@ -419,7 +423,7 @@ export default agentPaneEntry({
       play: inlineName,
     },
     "minimal-off": {
-      note: "The same chat with Minimal Mode off: unchanged, each message's line over its card.",
+      note: "The same chat with Minimal Mode off: received messages remain compact while user and assistant messages stay unchanged.",
       snapshot: minimalChat,
     },
     notice: {
