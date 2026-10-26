@@ -30,7 +30,13 @@ extension SidebarListView {
     func releaseHeldModelChange() {
         guard holdsModelChange, drag == nil, settling == nil, landing == nil, external == nil else { return }
         reload(animated: false, fromModel: true)
-        SidebarNewRowTimer.shared.drew(model.sections, in: window) // a new workspace's row held until now draws here
+    }
+
+    /// Tells ``newRows`` which workspaces this list lists now (`reload` runs it, so every path that shows a row
+    /// does: a held change released, a space switch, a drop's end). Off screen it lists nothing anyone sees.
+    func reportListedRows() {
+        guard let newRows, let window else { return }
+        newRows.drew(in: window) { workspaces[$0] != nil }
     }
 
     /// A change waits now: the pointer is over the rows and no drag, drop or landing runs (those
