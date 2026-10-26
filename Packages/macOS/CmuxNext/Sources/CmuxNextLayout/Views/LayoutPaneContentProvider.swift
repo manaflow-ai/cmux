@@ -75,6 +75,9 @@ final class LayoutViewContext {
     }
     /// The first split or close started (true) or the last one landed (false): `LayoutRootView.onTerminalGridHold`.
     var gridHoldDidChange: (Bool) -> Void = { _ in }
+    /// Presses the root's intercept handled while render-server springs ran on its active screen
+    /// (`ScreenContentView.pressedPane(at:)`, `LayoutRootView.pressesMidRenderSpring`), cumulative.
+    var pressesMidRenderSpring = 0
     /// The strip scrollbar's fade-out deadline clock.
     let scrollbarClock: any Clock<Duration>
     /// Where the pointer is now, in `window`'s coordinates; nil when it cannot
