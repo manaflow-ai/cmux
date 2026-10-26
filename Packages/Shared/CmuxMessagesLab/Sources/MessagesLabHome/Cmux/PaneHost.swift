@@ -887,3 +887,16 @@ final class ChatController: NSObject, NSTextViewDelegate {
 
     // The display change (colour space and scale): PaneHost+Scale.swift (followDisplay).
 }
+
+extension NSView {
+    /// cmux: the Chief chat's zoom (HostView.contentZoom) of the host this view is in, 1 outside one. A view's length
+    /// in its window also carries a canvas camera's scale, so a bitmap's scale reads the zoom here, not from `convert`.
+    var enclosingContentZoom: CGFloat {
+        var view = superview
+        while let v = view {
+            if let host = v as? HostView { return host.contentZoom }
+            view = v.superview
+        }
+        return 1
+    }
+}

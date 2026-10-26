@@ -1680,8 +1680,10 @@ final class RowCell: UICollectionViewCell {
         // 0 after snapTyping), read from the window's layer tree.
         let o = typingContainer.convert(CGPoint(x: r.minX, y: r.minY), to: nil)
         let o1 = typingContainer.convert(CGPoint(x: r.minX + 1, y: r.minY + 1), to: nil)
+        // cmux: the rest place is in window points, so its pixel offset is at the window's pixels (pixelScale).
+        let px = Double(pixelScale)
         func rest(_ v: CGFloat, _ v1: CGFloat) -> Double {
-            let g = Double(v) * s, k = Double(v1 - v)
+            let g = Double(v) * px, k = Double(v1 - v)
             guard g.isFinite, k.isFinite, abs(k) > 1e-6 else { return 0 }
             let f = (g - (g + 1e-6).rounded()) * (k < 0 ? -1 : 1)
             return abs(f) > 1e-6 ? f : 0
