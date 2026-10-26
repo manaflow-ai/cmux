@@ -128,15 +128,14 @@ public final class AgentPaneView: NSView {
     ///   - renderRate: How fast the page renders. Adaptive starts at the
     ///     display's full rate and caps it while scrolls miss frames, as they
     ///     do on a loaded machine (#16471).
-    ///   - pageHost: Host the page on the shared page host (``PageWebView``) instead of this
-    ///     view's own WebKit host. Only a bundled page can move; a dev-server page stays.
-    ///   - chromium: Makes the page host's Chromium view when the chat shows in Chromium (the app's
-    ///     ``PageWebView/chromiumHosting`` by default; tests pass a fake).
+    ///   - pageHost: The app's page host (`AppServices.webUI`), which opens the page in the engine its
+    ///     Chromium host and the page policy pick (tests pass one with a fake Chromium host). Nil
+    ///     keeps the page on this view's own WebKit host. Only a bundled page can move; a
+    ///     dev-server page stays.
     ///   - openPanel: The app's made-ahead open panel (`AppServices.openPanel`) for Add Files, Attach and a page's
     ///     file input, warmed when the pane reaches a window; nil (tests) shows no file picker and warms none.
     public init?(model: AgentPaneModel, source: AgentPaneSource? = nil, renderRate: AgentPaneRenderRate = .capped,
-                 pageHost: Bool = false, chromium: (any PageChromiumHosting)? = PageWebView.chromiumHosting,
-                 openPanel: MadeAheadOpenPanel? = nil) {
+                 pageHost: WebUIHost? = nil, openPanel: MadeAheadOpenPanel? = nil) {
         guard let source = source ?? Self.bundledPage.map({ AgentPaneSource.bundled($0) }) else { return nil }
         self.openPanel = openPanel
         fileChooser = openPanel.map { PageOpenPanel(openPanel: $0) }
@@ -145,12 +144,12 @@ public final class AgentPaneView: NSView {
         self.renderRate = renderRate
         Self.warmupNoLongerNeeded = true
         let webView: WKWebView
-        if pageHost, case .bundled(let index) = source {
+        if let pageHost, case .bundled(let index) = source {
             let provider = AgentPageProvider { [weak model] _ in model }
             // Needs you reads the pane's own acpmux (a Chief chat's is the Chief home's), never another.
             provider.pendingAsksSocket = { [weak model] in model?.pendingAsksSocket }
             guard let page = AgentPanePageHost.makePage(root: index.deletingLastPathComponent(), provider: provider, renderRate: renderRate,
-                                                                 chromium: chromium)
+                                                        webUI: pageHost)
             else { return nil }
             self.page = page
             pageEvents = provider
