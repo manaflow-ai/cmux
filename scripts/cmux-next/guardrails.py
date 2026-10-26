@@ -3969,6 +3969,122 @@ RULES += BLOCKING_RULES
 # ---------------------------------------------------------------- end of main-blocking / thread-doc (PL-blocking)
 
 
+# ---- awaited-low-priority (PL-qos, p02-threads-113)
+# A task started below the person's priority (`Task(priority: .low|.utility|.background)`, `Task.detached(priority:`
+# the same, `work.task(.bestEffort|.idle)`) whose `.value` or `.result` main-actor code awaits is a latency inversion:
+# the task waits behind work nobody waits for until the await, and Swift's escalation only raises it from the await on
+# (WorkPriority.idle's doc). Chrome posts work a person waits for at USER_BLOCKING (base/task/task_traits.h) and raises
+# a queued sequence when that changes (base/task/updateable_sequenced_task_runner.h); cmux's recipe is the same: start
+# the work at the waiter's priority, or keep a `work.runHandle` and raise it (task 117). Judged lexically, on the
+# creation line: awaited at once (`await Task.detached(priority: .utility) { ... }.value`), through a local the same
+# function awaits, or through a stored property (`self.x =`, a property initializer) that a method of the same type
+# in the file awaits; the await must run on main (main-actor code, a `Task {` or inline closure in it, or
+# `MainActor.run {`). A fire-and-forget task, a handle returned or passed on, and an await off main pass.
+LOW_TASK = re.compile(r"(?<![\w$])Task(?:\s*<[^>{}]*>)?(?:\.detached)?\s*\(\s*priority:\s*(?:TaskPriority)?\."
+                      r"(?:low|utility|background)\b"
+                      r"|(?:(?<![\w$.])(?:\w+[?!]?\s*\.\s*)*\w+[?!]?\s*)?\.task\(\s*(?:WorkPriority)?\.(?:bestEffort|idle)\b")
+PRIORITY_ALLOW = re.compile(r"//\s*priority-allow:\s*\S")
+AWAIT_BEFORE = re.compile(r"\bawait\s*\(?\s*$")
+LOCAL_BINDING = re.compile(r"\b(?:let|var)\s+`?(\w+)`?\s*(?::[^=]+)?=\s*(?:try[?!]?\s+)?$")
+ASSIGNED_TO = re.compile(r"(?:^|[^\w.$])(self\s*\.\s*)?`?(\w+)`?\s*=\s*$")
+
+
+def awaits_on_main(version: Version, index: int, prefix: str) -> bool:
+    """Whether the await at PREFIX's end on VERSION's line INDEX runs on the main actor: directly in main-actor code,
+    in a `Task {` or an inline closure (`map`, `withLock`, ...) that keeps that isolation, or in a main opener. A
+    detached, queue or escaping closure, an actor and a nonisolated function are off main. The isolation is the
+    declaration's, read on its opener line: the await's own line may open a `Task.detached` after it."""
+    default_main = module_of(version.path) in ui_targets()
+    if "main_lines" not in version.memo:
+        version.memo["main_lines"] = main_actor_scope().main_actor_lines(version.lines, default_main)
+    for opener, number in enclosing_openers(version.lines, index, OPENER_STOP, prefix):
+        header = block_header(version.lines, number, opener) if number - 1 != index else opener
+        if MAIN_OPENER.search(opener) or MAIN_OPENER.search(code_of(version.lines[number - 1])):
+            return True
+        if DECLARATION_OPENER.search(header):
+            return version.memo["main_lines"][number - 1]
+        # The opener alone too: block_header joins a statement that ends in `)` to the `if ... {` below it.
+        if not any(p.search(text) for p in (CONTROL_OPENER, TASK_INHERITS, INLINE_CLOSURE_CALL) for text in (header, opener)):
+            return False
+    return default_main
+
+
+def handle_scope(version: Version, index: int, column: int, prefix: str) -> tuple[str, tuple[int, ...]] | None:
+    """(name, blocks) of the handle that the task created at COLUMN of line INDEX (PREFIX: the code before it) is
+    stored in: a local's declaring block, or a stored property's type body and that type's extensions in the file.
+    None when nothing in this file keeps it (fire-and-forget, `return`, an argument, a member of another value)."""
+    local = LOCAL_BINDING.search(prefix)
+    assigned = None if local else ASSIGNED_TO.search(prefix)
+    if local is None and assigned is None:
+        return None
+    name = local.group(1) if local else assigned.group(2)
+    blocks, codes = blocks_of(version), codes_of(version)
+    chain = blocks.chain(blocks.at(index, column))[:-1]
+    types = [b for b in chain if TYPE_NAME.search(blocks.header(b)) and not CONTROL_OPENER.search(blocks.header(b))]
+    if local is not None and chain[:1] != types[:1]:
+        return name, (chain[0],)
+    if assigned is not None and not assigned.group(1):
+        # `name =`: a `var name` declared in the enclosing function keeps the handle local.
+        function = next((b for b in chain if b not in types and DECLARATION_OPENER.search(blocks.header(b))), None)
+        declared = re.compile(r"\b(?:var|let)\s+`?" + re.escape(name) + r"`?\b")
+        if function is not None:
+            inside = chain[:chain.index(function) + 1]
+            for j in range(blocks.opened[function][0], index + 1):
+                found = declared.search(codes[j])
+                if found and blocks.at(j, found.start()) in inside:
+                    return name, (blocks.at(j, found.start()),)
+    if not types:
+        return None
+    line, at = blocks.opened[types[0]]
+    return name, blocks.declaration_scope(line, at + 1, None)
+
+
+def awaited_low_task(version: Version, index: int) -> tuple[bool, list[int]]:
+    """(a low-priority task created on line INDEX is awaited on main (the section comment), the 1-based lines that
+    await its handle: a push that adds or edits one rejudges the unchanged creation line)."""
+    code = code_of(version.lines[index])
+    blocks, codes = blocks_of(version), codes_of(version)
+    debt, awaits = False, []
+    for match in LOW_TASK.finditer(code):
+        prefix, at = code[:match.start()], index
+        if not prefix.strip() and index > 0:  # `let page =` / `await` ends the line above
+            prefix, at = codes[index - 1], index - 1
+        if AWAIT_BEFORE.search(prefix[max((m.end() for m in STATEMENT_START.finditer(prefix)), default=0):]):
+            debt |= awaits_on_main(version, at, prefix)
+            continue
+        scope = handle_scope(version, index, match.start(), prefix)
+        if scope is None:
+            continue
+        name, kept_in = scope
+        site = re.compile(r"(?<![\w$.])(?:self\s*\.\s*)?`?" + re.escape(name) + r"`?\s*[?!]?\s*\.\s*(?:value|result)\b")
+        for j, line in enumerate(codes):
+            if j == index or name not in line:
+                continue
+            for found in site.finditer(line):
+                head = line[:found.start()]
+                if not AWAIT.search(head[max((m.end() for m in STATEMENT_START.finditer(head)), default=0):]):
+                    continue
+                if not set(kept_in) & set(blocks.chain(blocks.at(j, found.start()))):
+                    continue
+                awaits.append(j + 1)
+                debt |= awaits_on_main(version, j, head)
+    return debt, awaits
+
+
+AWAITED_LOW_PRIORITY_RULES = (
+    Rule("awaited-low-priority", "A task started at `.low`/`.utility`/`.background` (or `work.task(.bestEffort|.idle)`) "
+         "whose `.value` or `.result` main-actor code awaits: at once, through a local or through a stored property",
+         "the task queues behind work nobody waits for until main awaits it, and the await raises it only from then on: "
+         "the person waits for best-effort work (priority inversion; plans/cmux-next/chrome-parity/p02-threads.md D, R8)",
+         "start the task at the waiter's priority (`work.task(.userBlocking)` for an input's result, `.userVisible` for "
+         "what shows soon), or keep a `work.runHandle` and raise it when main awaits (task 117); fire-and-forget work "
+         "keeps its low priority and nothing awaits it",
+         "// priority-allow: <why main may wait for this low-priority work>",
+         matcher_rule(Matcher(LOW_TASK, PRIORITY_ALLOW, awaited_low_task))),
+)
+RULES += AWAITED_LOW_PRIORITY_RULES
+
+
 # ---------------------------------------------------------------- diff
 
 def parse_diff(diff: str) -> dict[str, FileChange]:
