@@ -52,7 +52,7 @@ export default componentEntry<Props>({
   area: "Agent pane",
   pane: true,
   height: 200,
-  widths: { narrow: 360, normal: 520, wide: 720 },
+  widths: { narrow: 420, normal: 720, wide: 900 },
   covers: ["agent-session/acpmux/subagents/SubagentDoneLine.tsx"],
   load: async () => {
     const { SubagentDoneLine, RetryAffordanceContext } = await import("./SubagentDoneLine");
@@ -69,11 +69,13 @@ export default componentEntry<Props>({
         subagents: [line],
       }));
       return (
-        <div className="acpmux-shell" style={{ padding: "16px" }}>
+        <div className="acpmux-shell" style={{ padding: "16px", flexDirection: "column", gap: "4px" }}>
           <TurnActionsContext.Provider value={base ? { restartSubagent } : actions}>
             <RetryAffordanceContext.Provider value={affordance}>
               {rows.map((row) => (
-                <SubagentDoneLine key={row.id} row={row} />
+                <div key={row.id}>
+                  <SubagentDoneLine row={row} />
+                </div>
               ))}
             </RetryAffordanceContext.Provider>
           </TurnActionsContext.Provider>
