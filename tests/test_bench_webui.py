@@ -193,11 +193,13 @@ class FakeApp:
 
 
 class FakeInstance:
-    """procs.Instance: the counters a mode is handed (kinds as procs.window returns them) and its command lines."""
+    """procs.Instance: the counters a mode is handed (kinds as procs.window returns them), its command lines and, for
+    a per-pid window, `per_pid` ({pid: wakeups/s}, as procs.window's `pids` rows)."""
 
-    def __init__(self, clock, kinds=None, mb=200.0, commands=()):
+    def __init__(self, clock, kinds=None, mb=200.0, commands=(), per_pid=None):
         self.clock, self.kinds, self.mb = clock, kinds or {}, mb
         self.commands = dict(enumerate(commands, start=900))
+        self.per_pid = per_pid or {}
         self.windows = []
 
     def pids(self):
@@ -209,12 +211,15 @@ class FakeInstance:
     def window(self, seconds, during=None, per_pid=False):
         self.windows.append(seconds)
         (during or self.clock.sleep)(seconds)
-        return {"kinds": self.kinds, "seconds": seconds}
+        result = {"kinds": self.kinds, "seconds": seconds}
+        if per_pid:
+            result["pids"] = [{"pid": pid, "kind": "renderer", "wakeups_per_s": rate} for pid, rate in self.per_pid.items()]
+        return result
 
 
 def options(**overrides):
     values = dict(engine="chromium", session="light", settle=60, measure=60, hide_settle=10, discard_settle=300,
-                  open_timeout=20, priority_wait=1.0, runs=4, cold_runs=2, chat_turns=0, kills=4)
+                  open_timeout=20, priority_wait=1.0, runs=4, cold_runs=2, chat_turns=0, kills=4, every_page_hidden=False)
     values.update(overrides)
     return argparse.Namespace(**values)
 
@@ -449,6 +454,66 @@ class PagesTests(unittest.TestCase):
         self.assertEqual(got["frozen_pages"]["status"], "unscored")
         self.assertEqual(got["frozen_hidden_traffic"]["status"], "unscored")
         self.assertEqual(got["page_renderers"]["value"], 0)  # procs found no renderer without a browser tab
+
+
+class HiddenWakeupsTests(unittest.TestCase):
+    """pages10 --every-page-hidden (task 037, MQ5). FakeApp gives the privileged pages pid 500 and the other five
+    pids 501-505."""
+
+    QUIET = {500: 0.05, 501: 0.0, 502: 0.1, 503: 0.0, 504: 0.2, 505: 0.0}
+
+    def run_hidden(self, per_pid, kinds=None, **overrides):
+        clock = FakeClock()
+        app = FakeApp(clock)
+        instance = FakeInstance(clock, kinds=kinds, per_pid=per_pid)
+        report = bench(app, clock, instance, every_page_hidden=True, **overrides).run("pages10")
+        return app, instance, rows(report)
+
+    def test_quiet_renderers_name_no_loop(self):
+        app, instance, got = self.run_hidden(self.QUIET)
+        self.assertNotIn("active", {page["state"] for page in app.pages.values()})
+        self.assertIn(("action.run", {"action": "newSurface", "args": {}, "focus": True, "origin": "script"}), app.calls)
+        self.assertEqual(instance.windows, [60])
+        self.assertEqual(got["hidden_page_renderers"]["value"], 6)
+        self.assertEqual(got["hidden_page_renderer_wakeups_max_per_s"]["value"], 0.2)
+        self.assertEqual(got["hidden_page_renderer_wakeups_max_per_s"]["status"], "met")
+        self.assertIn("no rAF loop moves", got["hidden_page_renderer_wakeups_max_per_s"]["note"])
+        shared = got["hidden_renderer_wakeups_per_s:" + "+".join(p for p, _, _ in webui.PRIVILEGED5)]
+        self.assertEqual(shared["value"], 0.05)
+        self.assertIn("cmux.settings=frozen", shared["note"])
+        self.assertNotIn("frozen_pages", got)  # D3's rows need one page shown: not this run's shape
+
+    def test_a_waking_renderer_names_its_pages(self):
+        _, _, got = self.run_hidden({**self.QUIET, 503: 1.5})
+        entry = got["hidden_page_renderer_wakeups_max_per_s"]
+        self.assertEqual(entry["status"], "missed")
+        self.assertIn("cmux.markdown (1.5/s)", entry["note"])
+        self.assertEqual(got["hidden_renderer_wakeups_per_s:cmux.markdown"]["status"], "missed")
+
+    def test_a_renderer_with_no_counters_is_unscored_not_zero(self):
+        quiet = dict(self.QUIET)
+        del quiet[505]
+        _, _, got = self.run_hidden(quiet)
+        self.assertEqual(got["hidden_renderer_wakeups_per_s:cmux.chief-usage"]["status"], "unscored")
+        _, _, got = self.run_hidden({})
+        self.assertEqual(got["hidden_page_renderer_wakeups_max_per_s"]["status"], "unscored")
+        self.assertIn("no renderer measured", got["hidden_page_renderer_wakeups_max_per_s"]["note"])
+
+    def test_gpu_wakeups_sum_both_engines_gpu_processes(self):
+        kinds = {"gpu": {"n": 1, "wakeups_per_s": 0.3}, "webkit-gpu": {"n": 1, "wakeups_per_s": 0.1},
+                 "renderer": {"n": 6, "wakeups_per_s": 9.0}}
+        _, _, got = self.run_hidden(self.QUIET, kinds=kinds)
+        self.assertEqual(got["hidden_gpu_wakeups_per_s"]["value"], 0.4)
+        self.assertEqual(got["hidden_gpu_wakeups_per_s"]["status"], "missed")
+
+    def test_before_the_freeze_no_page_is_frozen(self):
+        _, _, got = self.run_hidden(self.QUIET, hide_settle=0)
+        self.assertEqual(got["hidden_frozen_pages"]["value"], 0)
+
+    def test_the_option_belongs_to_pages10(self):
+        self.assertTrue(webui.parse(["pages10", "--app", "x", "--every-page-hidden"]).every_page_hidden)
+        with self.assertRaises(SystemExit), contextlib.redirect_stderr(io.StringIO()):
+            webui.parse(["home", "--app", "x", "--every-page-hidden"])
 
 
 class OpenTests(unittest.TestCase):
