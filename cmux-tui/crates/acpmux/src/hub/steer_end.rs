@@ -115,7 +115,8 @@ impl Hub {
         let step_now = {
             let mut now =
                 session.steer_now.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-            now.waiting.insert(prompt_id.clone());
+            let author = crate::author::of_provenance(opts.provenance.as_ref());
+            now.waiting.insert(prompt_id.clone(), author.map(str::to_owned));
             now.step.remove(&prompt_id)
         };
         if step_now {
