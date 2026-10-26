@@ -326,10 +326,11 @@ mod tests {
                 commit_fence: Arc::default(),
             }),
         };
-        sender.terminal_sender.as_ref().unwrap().try_send(barrier).ok().unwrap();
+        let terminal = sender.terminal_sender.as_ref().unwrap().clone();
+        terminal.try_send(barrier).ok().unwrap();
         let stop = Arc::new(AtomicBool::new(false));
         let refill = {
-            let (stop, sender) = (stop.clone(), sender.terminal_sender.clone().unwrap());
+            let (stop, sender) = (stop.clone(), terminal);
             std::thread::spawn(move || {
                 while !stop.load(Ordering::Acquire) {
                     let queued = QueuedJournalEvent { event: event(), completion: None };
