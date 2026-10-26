@@ -250,15 +250,82 @@ def bench_part(opts, out, name, mode, runs, extra):
     return part
 
 
+def tag_of(opts):
+    bs = load("bench_startup", os.path.join(HERE, "bench-startup.py"))
+    tag = bs.app_tag(opts.app)
+    bs.APPS[tag] = opts.app
+    return bs, tag
+
+
+def stop_apps(opts):
+    """Quits the tag's app (a part that timed out can leave it running, and the next bench then refuses); the
+    daemon keeps running, so the state stays warm."""
+    bs, tag = tag_of(opts)
+    bs.stop(bs.app_pids(tag))
+
+
+def seed_terminals(opts, workspaces):
+    """The terminal session task 072 measured at 772cdfc45ac: WORKSPACES workspaces of 3 terminal tabs and a split
+    (daemon socket), project-01's first terminal selected, then the app quits and the daemon keeps it (warm)."""
+    bs, tag = tag_of(opts)
+    from bench_cli_storm import Client  # noqa: E402  (bench-startup's own control client)
+    scratch = tempfile.mkdtemp(prefix="startup-baseline-seed-")
+    with open(os.path.join(scratch, "cmux.json"), "w") as f:
+        f.write("{}\n")
+    bs.reset_state(tag)
+    launch = bs.Launch(tag, scratch)
+    try:
+        if not launch.wait_for([bs.FIRST_CONTENT, bs.FINAL_MARK, "first_window_frame_committed"], opts.timeout,
+                               any_of=True):
+            raise RuntimeError("the seeding launch never committed a window frame")
+        daemon = Client(bs.daemon_socket(tag), timeout=10)
+        try:
+            def listed():
+                reply = daemon.call("list-workspaces", cmd_key="cmd")
+                return {w["id"]: w for w in reply["data"]["workspaces"]}
+
+            for index in range(workspaces):
+                before = listed()
+                made = daemon.call("new-workspace", {"name": f"project-{index + 1:02d}"}, cmd_key="cmd")
+                if not made.get("ok"):
+                    raise RuntimeError(f"new-workspace failed: {made.get('error')}")
+                workspace = next(w for key, w in listed().items() if key not in before)
+                pane = workspace["screens"][0]["panes"][0]
+                for _ in range(2):
+                    daemon.call("new-tab", {"pane": pane["id"]}, cmd_key="cmd")
+                daemon.call("split", {"pane": pane["id"], "dir": "right"}, cmd_key="cmd")
+        finally:
+            daemon.close()
+        app = bs.app_client(tag)
+        try:
+            tab = bs.app_tab_id(app, "project-01", opts.timeout)
+            if tab:
+                app.call("action.run", {"action": "palette.goToTab", "target": {"kind": "tab", "id": tab}})
+        finally:
+            app.close()
+        launch.wait_for([bs.FINAL_MARK], opts.timeout)
+        launch.wait_for(["startup-baseline.never"], 3)  # the selection reaches the saved state
+    finally:
+        launch.quit()
+        bs.stop(bs.app_pids(tag))
+        shutil.rmtree(scratch, ignore_errors=True)
+    return f"{workspaces} workspaces of 3 terminal tabs and a split (task 072's seed), no agent chat"
+
+
 def realistic_part(opts, out, name, mode, runs, extra):
-    """bench_part with --profile realistic (done checks 1 and 2); when that gives no kept run (the seed's agent pane
-    never answered, say), the same runs on the state the tag has, and the note says why."""
-    part = bench_part(opts, out, name, mode, runs, ["--profile", "realistic"] + extra)
-    if part["numbers"] and part["numbers"]["kept"]:
-        return part
-    failed = part_failure(part)
+    """bench_part with --profile realistic (done checks 1 and 2). When that gives no kept run (at 772cdfc45ac the
+    realistic seed's launch never draws a terminal), task 072's terminal session is seeded once and this part and
+    every later one restore it; the note says so."""
+    if not opts.seeded:
+        part = bench_part(opts, out, name, mode, runs, ["--profile", "realistic"] + extra)
+        if part["numbers"] and part["numbers"]["kept"]:
+            return part
+        opts.realistic_failure = part_failure(part)
+        stop_apps(opts)
+        opts.seeded = seed_terminals(opts, opts.workspaces)
     part = bench_part(opts, out, name, mode, runs, extra)
-    part["note"] = f"NOT the realistic profile, which gave no run ({failed}): the state the tag had"
+    part["note"] = (f"NOT the realistic profile, which gave no run ({opts.realistic_failure}); state: "
+                    f"{opts.seeded}")
     return part
 
 
@@ -386,7 +453,7 @@ def host_env(opts, out):
         with open(path) as f:
             display_line = f.read().strip()
     display = display_from(display_line)
-    size = re.search(r"visible=(\d+x\d+)", display_line)
+    size = re.search(r"\bsize=(\d+x\d+)", display_line)  # the display's pixels (`visible=` can read 0x0)
     head = subprocess.run(["git", "-C", ROOT, "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip()
     return {"host": os.uname().nodename.split(".")[0], "macos": f"{sw('-productVersion')} ({sw('-buildVersion')})",
             "machine": platform.machine(), "display": display, "display_line": display_line,
@@ -416,8 +483,10 @@ def main():
     parser.add_argument("--until-mark", default="first_terminal_frame",
                         help="the queues' last mark: startup_complete once the build sends it")
     parser.add_argument("--part-timeout", type=float, default=1800)
+    parser.add_argument("--workspaces", type=int, default=24, help="the terminal seed's workspaces (task 072: 24)")
     opts, _ = parser.parse_known_args()
     opts.app = os.path.abspath(opts.app)
+    opts.seeded, opts.realistic_failure = None, None
     parts = [part for part in opts.parts.split(",") if part]
     unknown = sorted(set(parts) - set(PARTS))
     if unknown:
@@ -435,6 +504,8 @@ def main():
     for name in parts:
         print(f"startup-baseline: {name}", flush=True)
         try:
+            if name != "gaps":
+                stop_apps(opts)
             if name == "warm":
                 done[name] = realistic_part(opts, out, "warm", "warm", opts.warm, [])
             elif name == "cold":

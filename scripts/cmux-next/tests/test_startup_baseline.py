@@ -98,6 +98,46 @@ class Rows(unittest.TestCase):
         self.assertIn("App Launch: Process Creation x5 | p50 12.0", rows[0])
 
 
+class RealisticFallback(unittest.TestCase):
+    """A realistic profile with no kept run seeds the terminal session once; every later part restores it."""
+
+    def setUp(self):
+        self.calls, self.seeds = [], []
+        self.saved = (baseline.bench_part, baseline.seed_terminals, baseline.stop_apps)
+
+        def bench_part(opts, out, name, mode, runs, extra):
+            self.calls.append((name, extra))
+            if "realistic" in extra:
+                return {"exit": 1, "tail": "tag split-spring: the seeding launch never drew a terminal",
+                        "numbers": {"runs": 20, "kept": 0, "marks": {}, "temperatures": {}}}
+            return {"exit": 0, "numbers": {"runs": runs, "kept": runs, "marks": {}, "temperatures": {}}}
+
+        baseline.bench_part = bench_part
+        baseline.seed_terminals = lambda opts, workspaces: self.seeds.append(workspaces) or f"{workspaces} ws"
+        baseline.stop_apps = lambda opts: None
+
+    def tearDown(self):
+        baseline.bench_part, baseline.seed_terminals, baseline.stop_apps = self.saved
+
+    def test_seeds_once_and_says_so(self):
+        opts = type("Opts", (), {"seeded": None, "realistic_failure": None, "workspaces": 24})()
+        warm = baseline.realistic_part(opts, "/out", "warm", "warm", 20, [])
+        cold = baseline.realistic_part(opts, "/out", "cold", "cold", 10, ["--temperature", "cold"])
+        self.assertEqual(self.seeds, [24])
+        self.assertEqual([extra for _, extra in self.calls],
+                         [["--profile", "realistic"], [], ["--temperature", "cold"]])
+        for part in (warm, cold):
+            self.assertIn("NOT the realistic profile", part["note"])
+            self.assertIn("never drew a terminal", part["note"])
+            self.assertIn("24 ws", part["note"])
+
+    def test_a_working_realistic_profile_is_kept(self):
+        baseline.bench_part = lambda *a: {"exit": 0, "numbers": {"runs": 20, "kept": 20}}
+        opts = type("Opts", (), {"seeded": None, "realistic_failure": None, "workspaces": 24})()
+        self.assertNotIn("note", baseline.realistic_part(opts, "/out", "warm", "warm", 20, []))
+        self.assertEqual(self.seeds, [])
+
+
 class LifeCycle(unittest.TestCase):
     def test_refs_are_resolved(self):
         xml = ('<trace-query-result><node><schema name="life-cycle-period"/>'
