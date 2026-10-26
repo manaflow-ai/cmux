@@ -103,27 +103,33 @@ def _closes_at_end(text: str) -> bool:
     return depth == 0
 
 
-def always_keyed(expression: str, key: re.Pattern) -> bool:
+def always_keyed(expression: str, key: re.Pattern, falls_through: bool = False) -> bool:
     """Whether every value `expression` (one GitHub expression) can take carries `key`.
 
-    An `||` holds when each alternative does. An `&&` chain's value is its last operand, unless the chain is
-    taken only on one branch (a positive `github.ref == '<ref>'` operand): a group per branch tip, like a ref
-    key. format() holds when one of its arguments always does; a context path holds when it is the key; any
-    other value (a literal, a comparison, a negation, another function) does not.
+    An `||` holds when each alternative does; every alternative but the last falls through to the next when
+    its value is falsy. An `&&` chain's value is its last operand, or a falsy operand when it is not the
+    last alternative; so a chain holds only where it falls through, and then when a positive
+    `github.ref == '<ref>'` operand pins it to one branch (a group per branch tip, like a ref key) or its
+    last operand holds. format() holds when an argument its format string interpolates always does; a
+    context path holds when it is the key; any other value (a literal, a comparison, a negation, another
+    function) does not.
     """
     text = expression.strip()
     while wrapped(text):
         text = text[1:-1].strip()
     alternatives = split_top(text, "||")
     if len(alternatives) > 1:
-        return all(always_keyed(alternative, key) for alternative in alternatives)
+        return all(always_keyed(alternative, key, index < len(alternatives) - 1 or falls_through)
+                   for index, alternative in enumerate(alternatives))
     operands = split_top(text, "&&")
     if len(operands) > 1:
-        return any(PINNED_REF.fullmatch(operand.strip()) for operand in operands[:-1]) or \
-            always_keyed(operands[-1], key)
+        return falls_through and (any(PINNED_REF.fullmatch(operand.strip()) for operand in operands[:-1])
+                                  or always_keyed(operands[-1], key))
     call = re.fullmatch(r"format\s*\((.*)\)", text, re.DOTALL)
     if call and _closes_at_end(text[text.index("("):]):
-        return any(always_keyed(argument, key) for argument in split_top(call.group(1), ",")[1:])
+        arguments = split_top(call.group(1), ",")
+        used = {int(index) for index in re.findall(r"\{(\d+)\}", arguments[0])}
+        return any(always_keyed(argument, key) for index, argument in enumerate(arguments[1:]) if index in used)
     return bool(re.fullmatch(r"[\w.]+", text)) and bool(key.fullmatch(text))
 
 
@@ -244,6 +250,12 @@ class RunsOnFallbackTests(unittest.TestCase):
                                                          "'other-branches' || github.sha }}"}))
         self.assertIsNone(evicting("x.yml", {"group": "${{ format('c-{0}-{1}', github.workflow, "
                                                       "(github.event.pull_request.number || github.sha)) }}"}))
+        # An argument format() never interpolates, or a conditional one that can be false, keys nothing.
+        self.assertIsNotNone(evicting("x.yml", {"group": "${{ format('compile-{0}', github.workflow, "
+                                                         "github.run_id) }}", "cancel-in-progress": "true"}))
+        self.assertIsNotNone(evicting("x.yml", {"group": "${{ format('compile-{0}', github.event_name == "
+                                                         "'pull_request' && github.event.pull_request.number) }}"}))
+        self.assertIsNotNone(evicting("x.yml", {"group": "${{ github.ref == 'refs/heads/main' && 'main' }}"}))
         # A scalar `labels` is one label, and an empty or single-host alternative is no fallback.
         self.assertIn("glaeda-runner-cmux15", runs_on_text({"runs-on": {"group": "mac",
                                                                         "labels": "glaeda-runner-cmux15"}}))
