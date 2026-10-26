@@ -48,7 +48,14 @@ public final class FrameScheduler: NSObject {
     public static func install(displays: DisplayClock) {
         guard displays !== appDisplays else { return }
         app.invalidate()
-        app = FrameScheduler(name: "app", host: .screen, displays: displays, budget: nil)
+        app = FrameScheduler(name: "app", host: .screen, displays: displays, budget: nil, energy: app.energy)
+    }
+
+    /// Puts ``app``, the live window schedulers and those made from now on (they take ``app``'s) onto
+    /// `energy`, the composition root's one ``EnergyPolicySource``. Called once at launch, like
+    /// ``install(displays:)``.
+    public static func install(energy: EnergyPolicySource) {
+        for scheduler in all { scheduler.energy = energy }
     }
 
     /// `window`'s scheduler, created on first use and dropped with the window.
@@ -56,7 +63,8 @@ public final class FrameScheduler: NSObject {
         let key = ObjectIdentifier(window)
         if let scheduler = windows[key]?.value, scheduler.window === window { return scheduler }
         windows = windows.filter { $0.value.value?.window != nil }
-        let scheduler = FrameScheduler(name: "window \(window.windowNumber)", host: .window(window), displays: appDisplays, budget: nil)
+        let scheduler = FrameScheduler(name: "window \(window.windowNumber)", host: .window(window), displays: appDisplays, budget: nil,
+                                       energy: app.energy)
         windows[key] = WeakScheduler(value: scheduler)
         // The window keeps its scheduler alive.
         objc_setAssociatedObject(window, &FrameScheduler.associationKey, scheduler, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
@@ -122,11 +130,16 @@ public final class FrameScheduler: NSObject {
     /// The budget its budgeted clients draw on: only a ``MainWorkScheduler``'s scheduler has one
     /// (and only that scheduler gets budgeted clients); nil for ``app`` and window schedulers.
     let budget: MainFrameBudget?
+    /// The energy policy its frame rate classes follow (``ambientFrames``).
+    public private(set) var energy: EnergyPolicySource
 
-    /// - Parameter displays: The clock to subscribe to (the app's: ``appDisplays``).
+    /// - Parameters:
+    ///   - displays: The clock to subscribe to (the app's: ``appDisplays``).
+    ///   - energy: The energy policy (the app's: ``install(energy:)``).
     init(name: String, host: Host, displays: DisplayClock, clock: any Clock<Duration> = ContinuousClock(),
-         ledger: WakeupLedger = .shared, budget: MainFrameBudget?) {
+         ledger: WakeupLedger = .shared, budget: MainFrameBudget?, energy: EnergyPolicySource = .normal) {
         self.budget = budget
+        self.energy = energy
         self.name = name
         switch host {
         case .screen: isScreenHost = true
@@ -145,20 +158,22 @@ public final class FrameScheduler: NSObject {
     /// `mediaTime` stands in for `CACurrentMediaTime`, the timebase of frame timestamps.
     public static func testing(clock: any Clock<Duration> = ContinuousClock(), ledger: WakeupLedger = .shared,
                                mediaTime: @escaping @MainActor () -> CFTimeInterval = { CACurrentMediaTime() },
+                               energy: EnergyPolicySource = .normal,
                                makeLink: @escaping LinkFactory) -> FrameScheduler {
-        testing(name: "test", clock: clock, ledger: ledger, mediaTime: mediaTime, budget: nil, makeLink: makeLink)
+        testing(name: "test", clock: clock, ledger: ledger, mediaTime: mediaTime, budget: nil, energy: energy, makeLink: makeLink)
     }
 
     /// A scheduler named `name` on a one-display clock whose links `makeLink` makes for it.
     static func testing(name: String, clock: any Clock<Duration>, ledger: WakeupLedger,
                         mediaTime: @escaping @MainActor () -> CFTimeInterval, budget: MainFrameBudget?,
-                        makeLink: @escaping LinkFactory) -> FrameScheduler {
+                        energy: EnergyPolicySource = .normal, makeLink: @escaping LinkFactory) -> FrameScheduler {
         let owner = TestLinkOwner()
         let displays = DisplayClock(makeLink: { _, _ in
             guard let scheduler = owner.scheduler else { return nil }
             return makeLink(scheduler)
         }, displayOf: { _ in 1 }, clock: clock, ledger: ledger, mediaTime: mediaTime)
-        let scheduler = FrameScheduler(name: name, host: .screen, displays: displays, clock: clock, ledger: ledger, budget: budget)
+        let scheduler = FrameScheduler(name: name, host: .screen, displays: displays, clock: clock, ledger: ledger,
+                                       budget: budget, energy: energy)
         owner.scheduler = scheduler
         return scheduler
     }
@@ -179,6 +194,9 @@ public final class FrameScheduler: NSObject {
         madeInput = made
         return made
     }
+
+    /// What ambient frame clients get under the energy policy now (``AmbientFrames``).
+    public var ambientFrames: AmbientFrames { AmbientFrames(energy.policy) }
 
     /// A display link ticks this scheduler (only while clients are active).
     public var hasLink: Bool { subscribed.map { displayClock.hasLink($0) } ?? false }
@@ -345,6 +363,28 @@ public final class FrameScheduler: NSObject {
     private func fire(_ client: FrameClient, _ tick: FrameTick) {
         ledger.record(client.owner, reason: "frame")
         if !client.fire(tick) { drop(ObjectIdentifier(client)) }
+    }
+
+    /// The frames of clients the person only glances at (ambient: a backdrop, an idle indicator), from the
+    /// energy policy's `screensAsleep` and `ambientMaxFPS`. Motion and input frames never follow it.
+    public enum AmbientFrames: Sendable, Equatable {
+        /// None: the displays sleep, so nobody sees them.
+        case stopped
+        /// At most this many a second (Energy Saver: Chrome's 30 Hz frame sink throttle,
+        /// components/performance_manager/user_tuning/battery_saver_mode_manager.cc).
+        case capped(Int)
+        /// The motion range every other client gets.
+        case uncapped
+
+        public init(_ policy: EnergyPolicy) {
+            if policy.screensAsleep {
+                self = .stopped
+            } else if let fps = policy.ambientMaxFPS {
+                self = .capped(fps)
+            } else {
+                self = .uncapped
+            }
+        }
     }
 
     private struct WeakScheduler {

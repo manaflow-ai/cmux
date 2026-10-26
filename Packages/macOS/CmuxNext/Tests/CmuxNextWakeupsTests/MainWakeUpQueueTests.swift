@@ -32,7 +32,7 @@ struct MainWakeUpQueueTests {
 
     @Test("Aligned fire dates are exact multiples of the grid in uptime ns", arguments: [WakeLeeway.defaultAlignment, WakeLeeway.saverAlignment])
     func gridMultiples(alignment: Duration) throws {
-        let rig = Rig(alignment: alignment)
+        let rig = Rig()
         let grid = alignment.nanosecondCount
         var deadline: UInt64 = 900 * Self.ms + 123_457
         for step in 0..<40 {
@@ -181,6 +181,74 @@ struct MainWakeUpQueueTests {
         #expect(rig.fires == 1 && rig.queue.count == 0)
     }
 
+    // MARK: Energy Saver (p14-energy-023)
+
+    @Test("Energy Saver moves pending flexible entries onto the 32 ms grid and leaves precise ones")
+    func saverRealignsFlexibleEntries() {
+        let energy = EnergyPolicySource()
+        let rig = Rig(energy: energy)
+        let log = RunLog()
+        rig.queue.insert(owner: "flex", after: .milliseconds(100)) { log.ran.append(100) }
+        rig.queue.insert(owner: "late", after: .milliseconds(450)) { log.ran.append(450) }
+        rig.queue.insert(owner: "precise", after: .milliseconds(30), policy: .precise) { log.ran.append(30) }
+        rig.queue.insert(owner: "seconds", after: .seconds(5)) { log.ran.append(5_000) }
+        #expect(rig.timer.arms.map(\.date) == [104 * Self.ms, 30 * Self.ms], "8 ms grid, then the exact precise date")
+        let armsBefore = rig.timer.arms.count
+
+        energy.update(EnergyPolicy(saverReason: .lowPowerMode))
+
+        #expect(rig.timer.arms.count == armsBefore, "the precise entry still fires first, at the same date: no re-arm")
+        rig.fire()
+        #expect(log.ran == [30])
+        #expect(rig.timer.arms.last == FakeTimer.Arm(date: 128 * Self.ms, tolerance: 4 * Self.ms),
+                "100 ms on the 32 ms grid (not 104 ms), inside its new 132 ms latest")
+        rig.fire()
+        #expect(rig.timer.arms.last == FakeTimer.Arm(date: 480 * Self.ms, tolerance: 2 * Self.ms))
+        rig.fire()
+        #expect(rig.timer.arms.last == FakeTimer.Arm(date: 5_000 * Self.ms, tolerance: 500 * Self.ms),
+                "a whole-second entry keeps its grid and its 10% leeway")
+        rig.fire()
+        #expect(log.ran == [30, 100, 450, 5_000])
+    }
+
+    @Test("Inserts use the alignment now; a switch back returns entries to 8 ms; cancel finds a moved entry")
+    func switchBackAndCancel() {
+        let energy = EnergyPolicySource(EnergyPolicy(saverReason: .setting))
+        let rig = Rig(energy: energy)
+        let moved = rig.queue.insert(owner: "a", after: .milliseconds(100)) {}
+        rig.queue.insert(owner: "b", after: .milliseconds(200)) {}
+        #expect(rig.timer.armedDate == 128 * Self.ms, "made under the saver: on the 32 ms grid")
+
+        energy.update(.normal)
+
+        #expect(rig.timer.armedDate == 104 * Self.ms, "back on the 8 ms grid: an earlier re-arm")
+        #expect(rig.queue.cancel(moved))
+        #expect(rig.timer.armedDate == 200 * Self.ms)
+    }
+
+    @Test("An explicit window keeps its grid; a change that keeps the alignment re-arms nothing")
+    func explicitWindowKeepsItsGrid() {
+        let energy = EnergyPolicySource()
+        let rig = Rig(energy: energy)
+        rig.queue.insert(owner: "explicit", at: 100 * Self.ms, window: .window(delay: .milliseconds(100))) {}
+        energy.update(EnergyPolicy(onBattery: true))
+        energy.update(EnergyPolicy(saverReason: .battery, onBattery: true))
+        #expect(rig.timer.arms.map(\.date) == [104 * Self.ms])
+    }
+
+    @Test("A released queue stops observing the energy policy")
+    func releasedQueueStopsObserving() {
+        let energy = EnergyPolicySource()
+        weak var released: MainWakeUpQueue?
+        do {
+            let rig = Rig(energy: energy)
+            released = rig.queue
+            #expect(energy.observerCount == 1)
+        }
+        #expect(released == nil)
+        #expect(energy.observerCount == 0)
+    }
+
     nonisolated private static func insertConcurrently(into queue: MainWakeUpQueue, log: RunLog) {
         DispatchQueue.concurrentPerform(iterations: 4) { thread in
             for index in 0..<1_000 {
@@ -199,9 +267,9 @@ private struct Rig {
     let ledger = WakeupLedger(uptime: { 0 })
     let queue: MainWakeUpQueue
 
-    init(alignment: Duration = WakeLeeway.defaultAlignment) {
+    init(energy: EnergyPolicySource = EnergyPolicySource()) {
         let timer = timer, uptime = uptime
-        queue = MainWakeUpQueue(alignment: alignment, ledger: ledger, uptime: { uptime.now }) { _ in timer }
+        queue = MainWakeUpQueue(energy: energy, ledger: ledger, uptime: { uptime.now }) { _ in timer }
     }
 
     /// Moves the uptime to the armed date and runs the timer's callout.
