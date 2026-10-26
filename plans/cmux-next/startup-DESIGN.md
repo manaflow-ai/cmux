@@ -196,7 +196,7 @@ awk '/func applicationDidFinishLaunching/,/^    func applicationShouldTerminate/
 | 67 | `services.observeBorders(` | afterFirstFrame | main | 029 | Window border style follow. |
 | 68 | `services.observeGlass(` | afterFirstFrame | main | 029 | Glass style follow. |
 | 69 | `services.openPanel.warmWhenIdle(` | afterStartup `OpenPanel.warmWhenIdle` | main | 016 | The file picker made ahead at idle (`LaunchFirstOpenWarmups`, after the icon picker). |
-| 70 | `services.palette.bindRegistryActions(` | afterFirstFrame | main | 023 | Palette bindings; a palette key before it builds the palette in the key's turn (023). |
+| 70 | `services.palettes.bindRegistryActions(` | wiring, then afterFirstFrame `Palette.build` | main | 023 | `services.palettes.bindRegistryActions()` (`PaletteOnDemand`) binds the palette's actions and argument collector to closures that resolve the palette at run (no build); `palettes.postBuild` posts `Palette.build` after the first frame; a palette key before it builds the palette in the key's turn (023). |
 | 71 | `services.projectsImport.start(` | afterFirstFrame if Home shows, else afterStartup | main | 027 | Projects import. |
 | 72 | `services.registerDeviceHubDebug(` | afterFirstFrame | main | 019 | Control method group (debug methods). |
 | 73 | `services.registerMacScreenDebug(` | afterFirstFrame | main | 019 | Control method group (debug methods). |
@@ -248,7 +248,7 @@ source order through O41; O42 to O46 were found later and follow at the end.
 | O28 | `NSAppleEventManager.shared().setEventHandler(... kAEGetURL)` | critical: `AppleEvents.getURL` | main | 029 | See the allowlist. |
 | O29 | `firstFrame.armBackstop(after: .seconds(3))` | deleted | - | 016 | Deleted with FirstFrameGate: the first window is made in the launch turn, so its commit ends the first-frame ref; the scheduler's failsafe and the `noWindow` reason replace the backstop (095). |
 | O30 | `WebUpdates.shared.prepare(...)` | main() read, then afterStartup | `.lane(.system, .bestEffort)` | 077 | Pointer read and verify as a LaunchRead before any page requests its entry; channel follow and network check after startup. |
-| O31 | `services.palette.sources.settings = SettingsPaletteSource(...)`, `PaletteShortcutEditor(...)` | afterFirstFrame | main | 079 | Palette settings source and shortcut editor. |
+| O31 | `services.palettes.sources.settings = SettingsPaletteSource(...)`, `PaletteShortcutEditor(...)` | afterFirstFrame | main | 079 | Palette settings source and shortcut editor; neither builds the palette (023). |
 | O32 | `services.themes.followChromeTheme(settings)` | critical: `Themes.start` | main | 079 | The app accent and page theme; posted with `themes.start`. |
 | O33 | `AgentPageChats.wirePager(...)` | afterFirstFrame if Home or an agent page shows, else afterStartup | main | 027 | Agent chat pager. |
 | O34 | `Task { feedGitHub ObservationStream }` | afterStartup | main | 079 | GitHub feed config; off by default. |
@@ -296,7 +296,7 @@ Target <= 3 (cache, windows, keyRouter).
 | Q1-4 | `_ = ssh` | onDemand | 021 | SSH machines start after startup (017). Done (021): made by the `SSH.start` post or a remote action; `AppServices.ssh` sets the install offer and the current policy when made. |
 | Q1-5 | `_ = cache` | keep | - | `TabContentCache`: every pane reads it. 024 makes its CEF engine a factory. |
 | Q1-6 | `_ = themes` | onDemand (built by the `Themes.start` post) | 022 (assigned here) | The spec's 020-024 lists leave it out; its first reader is critical anyway. |
-| Q1-7 | `_ = terminalColors` | keep (022 found it must stay) | - | `TerminalColorSync` is an observer with no reader before the first frame (`TerminalTheme.follow` does not read it; only a Ghostty config change does). Built late, the daemons answer the first terminals' OSC 10/11/12 queries without the painted colors. Making it lazy needs a reader in the Daemon.start post first. |
+| Q1-7 | `_ = terminalColors` | built by its reader at the daemon start (024) | 024 | `TerminalColorSync` is an observer with no reader before the first frame (`TerminalTheme.follow` does not read it; only a Ghostty config change does), and built late the daemons would answer the first terminals' OSC 10/11/12 queries without the painted colors. Done (024): `AppServices.startLocalDaemon` (Themes/TerminalColorSync.swift) builds it and applies the colors just before `daemon.start`. It is still built before the first frame (the daemon needs it), so this moves no launch work; it names its reader. |
 | Q1-8 | `_ = remoteLocalhost` | onDemand | 021 | Its follow runs after startup (Q2 74). Done (021): made by a remote machine's browser tab (its route, store or loopback chip), a machine browser, or a remote machine's connection; this Mac's pages ask `RemoteLocalhostService.routesToThisMac` and make none. It takes the current settings in the turn it is made, then follows them. |
 | Q1-9 | `_ = emptyWorkspaces` | onDemand; afterStartup `EmptyWorkspaceRepair.observe` on main | 022 | A window's content builds it before its frame; with no window shown, the post starts its store observation. |
 | Q1-10 | `_ = keyRouter` | keep | - | Keys work from the first frame. |
@@ -305,12 +305,12 @@ Target <= 3 (cache, windows, keyRouter).
 | Q1-13 | `_ = dragSession` | onDemand | 022 | First drag. |
 | Q1-14 | `_ = previews` | onDemand | 022 | First tab preview. |
 | Q1-15 | `_ = remoteTerminals` | onDemand (its start is S5) | 021 | Restored remote workspaces. Done (021). |
-| Q1-16 | `_ = palette` | onDemand | 023 | Bindings and hooks afterFirstFrame; a palette key before that builds it in the key's turn. |
+| Q1-16 | `_ = palette` | onDemand | 023 | Deleted: `AppServices.palettes` (`PaletteOnDemand`) builds the palette at its first read, then its `whenBuilt` hooks; `Palette.build` afterFirstFrame; a palette key before that builds it in the key's turn. |
 | Q1-17 | `_ = configActions` | onDemand (its start is Q2 54) | 022 | Custom actions. |
-| Q1-18 | `_ = chromiumWarmup` | onDemand | 024 | CEFEngine factory; the warm-up runs on the scheduler (018). |
+| Q1-18 | `_ = chromiumWarmup` | onDemand | 024 | Done (024): `TabContentCache.chromium` (`ChromiumEngineSlot`) builds the `CEFEngine` at its first read (a Chromium tab or page, the afterFirstFrame warm-up). The launch readers (`webUI`'s page host, `cefUnavailable`, the link-click, managed-policy, password, search and proxy followers) read the slot and apply through `whenBuilt`, so no engine is built before the first frame unless a Chromium page is opened then. |
 
-022 owns 8 builds (the spec says 6). The extra 2 are Q1-6 and Q1-7. 022 made 7 lazy and kept Q1-7 (above), so
-with 020's auth split for Q1-1, Q1 reaches 4, one above the spec's target of 3, until Q1-7 gets its reader. Without the auth split Q1-1 stays built before the
+022 owns 8 builds (the spec says 6). The extra 2 are Q1-6 and Q1-7. 022 made 7 lazy and kept Q1-7 (above);
+024 gave Q1-7 its daemon-start reader, so with 020's auth split for Q1-1, Q1 is 3 (cache, keyRouter, windows). Without the auth split Q1-1 stays built before the
 first frame (by the critical `ManagedPolicyBridge.start`), so it does not count toward the target.
 
 ## 7. Q1b stored initializers (42)

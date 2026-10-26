@@ -121,6 +121,33 @@ fn a_stream_request_on_the_line_path_is_refused() {
     assert_eq!(answer["error_code"], "params.invalid");
 }
 
+/// Each op decodes through the one `cmd`-tagged enum spec/sdk-schema.json
+/// types (p05-ipc-019): a missing or mistyped param is `params.invalid`,
+/// and a field no op reads is ignored, as before.
+#[test]
+fn each_op_decodes_its_params_by_its_cmd() {
+    let home = Home::new("decode");
+    std::fs::write(home.path.join("f"), b"hi").unwrap();
+    let service = home.service();
+    let answer =
+        |line: Value| answer_line(Some(&service), true, "owner", &home.map(&line.to_string()));
+    for line in [
+        json!({"id":1,"cmd":"fs.stat"}),
+        json!({"id":1,"cmd":"fs.read","path":"/home/cmux/f"}),
+        json!({"id":1,"cmd":"fs.read","path":"/home/cmux/f","max_bytes":"2"}),
+        json!({"id":1,"cmd":"fs.mkdir","path":"/home/cmux"}),
+        json!({"id":1,"cmd":"fs.delete","paths":"/home/cmux/f","permanent":true}),
+        json!({"id":1,"cmd":"fs.list","path":"/home/cmux","sort":{"key":"color"}}),
+    ] {
+        assert_eq!(answer(line.clone())["error_code"], "params.invalid", "{line}");
+    }
+    let read =
+        answer(json!({"id":2,"cmd":"fs.read","path":"/home/cmux/f","max_bytes":2,"extra":1}));
+    assert_eq!(read["data"]["text"], "hi", "{read}");
+    let stat = answer(json!({"id":3,"cmd":"fs.stat","path":"/home/cmux/f"}));
+    assert_eq!(stat["data"]["kind"], "file", "{stat}");
+}
+
 /// Replaces values that change per run (mtimes, revisions, listing ids)
 /// with fixed ones, so the recorded answers are stable.
 fn normalize(value: &mut Value) {

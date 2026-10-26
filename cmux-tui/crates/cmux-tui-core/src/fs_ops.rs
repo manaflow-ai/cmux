@@ -12,7 +12,7 @@
 mod entry;
 mod error;
 mod listing;
-mod ops;
+pub(crate) mod ops;
 mod resolve;
 pub mod stream;
 mod sweep;

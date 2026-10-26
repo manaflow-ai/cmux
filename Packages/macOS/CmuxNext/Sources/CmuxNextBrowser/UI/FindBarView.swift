@@ -9,6 +9,8 @@ import CmuxNextIcons
 final class FindBarView: NSView {
     var onClose: (() -> Void)?
     weak var tab: (any BrowserTab)?
+    /// What the bar searches for and the engine's last answer (its chrome view's).
+    let model: BrowserFindModel
 
     let pill: FindPillView
     private var findTask: Task<Void, Never>?
@@ -16,14 +18,15 @@ final class FindBarView: NSView {
     /// The pill's material: glass, or opaque under Reduce Transparency.
     var glass: OverlaySurfaceView? { pill.surface }
 
-    override init(frame: NSRect) {
+    init(model: BrowserFindModel) {
+        self.model = model
         let size = Metrics.smallIconSize - 1
         let icons = FindPillIcons(search: .icon(.browserOmniboxSearch, size: size), previous: .icon(.browserFindPrevious, size: size),
                                   next: .icon(.browserFindNext, size: size), close: .icon(.actionClose, size: size))
         let labels = FindPillLabels(placeholder: Strings.findPlaceholder, previous: Strings.findPrevious, next: Strings.findNext,
                                     close: Strings.findDone, matchCase: Strings.findMatchCase)
         pill = FindPillView(labels: labels, icons: icons, accessibilityPrefix: "cmux.browser.find")
-        super.init(frame: frame)
+        super.init(frame: .zero)
         translatesAutoresizingMaskIntoConstraints = false
         addSubview(pill)
         NSLayoutConstraint.activate([
@@ -67,10 +70,12 @@ final class FindBarView: NSView {
         guard let tab else { return }
         let text = pill.query
         let caseSensitive = pill.matchCase
+        model.setQuery(text)
         findTask = Task { [weak self] in
             let result = await tab.find(text, direction: direction, caseSensitive: caseSensitive)
-            guard !Task.isCancelled else { return }
-            self?.show(result, for: text)
+            guard !Task.isCancelled, let self else { return }
+            model.record(result, for: text)
+            show(result, for: text)
         }
     }
 

@@ -7,11 +7,14 @@
 // package name order, so parallel changes add lines and do not edit the same ones. It is its own type,
 // not an AppServices extension, so these lines never grow the AppServices god type.
 
+import CmuxNextBridge
 import CmuxNextCompat
 import CmuxNextFeatures
 import CmuxNextHibernation
+import CmuxNextHome
 import CmuxNextMemory
 import CmuxNextPages
+import CmuxNextTerminal
 import CmuxNextWakeups
 
 /// Runs the memory coordinator's release slices on a budgeted frame queue: on a later frame, after input
@@ -53,7 +56,40 @@ struct AppMemoryConsumers {
         // One line per package, sorted by package name, for example:
         // registerTabs()  // CmuxNextTabs
         registerInternalPageDiscards()  // CmuxNextApp
+        registerConversationDiscards()  // CmuxNextHibernation, CmuxNextHome
         registerPageLifecycle()  // CmuxNextPages
+        registerTerminalLastFrames()  // CmuxNextTerminal
+    }
+
+    /// `memoryTerminalLastFrames` (default off): evicted terminals' last frames are one lossless
+    /// consumer that drops them all at critical and reports their volatile bytes apart (p07-memory-035).
+    private func registerTerminalLastFrames() {
+        guard services.features.isEnabled(.memoryTerminalLastFrames) else { return }
+        services.cache.lastFrames.registerMemoryConsumer(with: services.memoryCoordinator)
+    }
+
+    /// `memoryDiscardConversations` (default off): hidden conversation tabs' laid-out transcripts go after 10 min.
+    private func registerConversationDiscards() {
+        guard services.features.isEnabled(.memoryDiscardConversations) else { return }
+        Self.conversationDiscards(ContentDiscardScheduler(kind: .conversation, memory: services.memoryCoordinator), on: services.cache) {
+            [weak services] key in services?.home.existingTabView(key)?.transcript
+        }
+    }
+
+    /// Conversation tabs' transcripts (`transcript`, by tab key) let their rows go on `cache`'s lifecycle, as
+    /// `scheduler` says; the cache's content owners keep the host.
+    static func conversationDiscards(_ scheduler: ContentDiscardScheduler, on cache: TabContentCache,
+                                     transcript: @escaping (String) -> HomeNativeTranscriptView?) {
+        let lifecycle = LayoutDiscardHost<ContentLifecycle<String>.Token>.Lifecycle(
+            isHidden: { [weak cache] key in cache?.phase(of: key) == .mountedHidden },
+            adopted: { [weak cache] key in cache?.ledger.setRetained(key, false) },
+            hibernate: { [weak cache] key in cache?.applyLifecycle(cache?.lifecycle.send(.hibernate(key)) ?? []) },
+            mounted: { [weak cache] key, token in cache?.applyLifecycle(cache?.lifecycle.send(.mounted(key, token)) ?? []) })
+        cache.contentOwners.add(LayoutDiscardHost(scheduler: scheduler, layout: { key in
+            transcript(key).map(HomeTranscriptLayout.init).map { rows in
+                DiscardableLayout(isReleased: { rows.isReleased }, isAtRest: { rows.isAtRest }, release: { rows.release() }, restore: { rows.restore() })
+            }
+        }, lifecycle: lifecycle))
     }
 
     /// `pageLifecycle` (default off): page tabs' reveal and conceal drive the page lifecycle

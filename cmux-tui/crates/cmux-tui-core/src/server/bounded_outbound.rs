@@ -30,6 +30,7 @@ use super::OutboundStream;
 use super::RENDER_ATTACH_MAX_BYTES;
 use crate::panic_free::RecoverPoison;
 use crate::platform::transport;
+use cmux_threads::checked::sync as waits;
 use std::collections::HashMap;
 use std::collections::VecDeque;
 use std::io::Read;
@@ -279,7 +280,7 @@ impl BoundedOutbound {
         state.control.push_back(ControlOutbound::Flush(flushed_tx));
         drop(state);
         self.changed.notify_one();
-        match flushed_rx.recv_timeout(timeout) {
+        match waits::recv_timeout(&flushed_rx, timeout) {
             Ok(()) => Ok(()),
             Err(std::sync::mpsc::RecvTimeoutError::Timeout) => Err(std::io::Error::new(
                 std::io::ErrorKind::TimedOut,
@@ -465,7 +466,7 @@ impl BoundedOutbound {
             if state.closed {
                 return None;
             }
-            state = self.changed.wait(state).recover_poison();
+            state = waits::wait(&self.changed, state).recover_poison();
         }
     }
 

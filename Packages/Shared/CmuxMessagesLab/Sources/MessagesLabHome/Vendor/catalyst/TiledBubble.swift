@@ -146,6 +146,16 @@ final class TileCache {
     }
     var count: Int { map.count }
     func removeAll() { Reclaimer.release(map.values.map(\.0)); map.removeAll(); bytes = 0 }
+    /// cmux: a hidden transcript released its rows (MessagesWindowView.releaseRows): the tiles of these long texts go
+    /// (freed off main).
+    func evict(lineages: Set<Int>) {
+        guard !lineages.isEmpty else { return }
+        let gone = map.filter { lineages.contains($0.key.lineage) }
+        guard !gone.isEmpty else { return }
+        for k in gone.keys { map.removeValue(forKey: k) } // dictionary write
+        bytes -= gone.values.reduce(0) { $0 + $1.1 }
+        Reclaimer.release(gone.values.map(\.0))
+    }
 }
 
 /// The long-text layers of one RowCell.

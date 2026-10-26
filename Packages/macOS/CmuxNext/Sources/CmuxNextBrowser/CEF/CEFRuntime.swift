@@ -23,7 +23,9 @@ final class CEFRuntime {
         case shutDown
     }
 
-    var state: State = .idle
+    var state: State = .idle { didSet { noteCrashKeyState() } }
+    /// The app's crash keys, which name Chromium's state (``attachCrashKeys(_:)``); nil names nothing.
+    var crashKeys: CrashKeySlots?
     private(set) var shim: CEFShimLibrary?
     private(set) var layout: CEFRuntimeLayout?
     private(set) var storage = CEFProfileStorage.forApplication(bundleIdentifier: Bundle.main.bundleIdentifier)
@@ -136,6 +138,9 @@ final class CEFRuntime {
     /// The managed preference domain Chromium reads Chrome enterprise policies
     /// from, asked at start (the App supplies it); nil reads none.
     var chromePolicyIDSetting: @MainActor () -> String? = { nil }
+    /// What the pump's input policy reads, from the engine made last (feature `cefPumpInputPolicy`,
+    /// ``CEFPumpInputPolicy``); read at start with ``input``. Nil: the pump never holds for input.
+    var pumpInput: CEFPumpInputSeams?
     /// True when this Chromium started with the built-in uBlock Origin.
     private(set) var builtInAdBlockerLoaded = false
     private var terminationObserver: (any NSObjectProtocol)?
@@ -159,9 +164,12 @@ final class CEFRuntime {
     private(set) var stores = BrowserSharedStores.inMemory()
     /// The App's sign-in tabs (`adopt`): the shim's AUTH_CALLBACK events go here.
     private(set) var signInCallbacks = CEFSignInCallbacks()
-    /// The engine's deadline queue for its pages' keyed waits (`adopt`); a queue of the runtime's own
-    /// until then (a spy runtime in tests).
-    private(set) var waitDeadlines = AlignedWakeups(queue: MainWakeUpQueue(energy: EnergyPolicySource()))
+    /// The main thread's one deadline queue (`MainWorkScheduler.wakeUps`, from the engine's `adopt`): the
+    /// pump's delayed fire dates and the pages' keyed waits. A queue of the runtime's own until then (a
+    /// spy runtime in tests).
+    private(set) var wakeUps = MainWakeUpQueue(energy: EnergyPolicySource())
+    /// The pages' keyed waits on ``wakeUps``.
+    var waitDeadlines: AlignedWakeups { AlignedWakeups(queue: wakeUps) }
 
     private init() {}
 
@@ -171,12 +179,13 @@ final class CEFRuntime {
     /// Takes the engine's stores, sign-in tabs and wait deadlines (the process has one Chromium, so the
     /// App's one engine hands them over before its first start or tab), and its host supervisor, which
     /// puts a runtime that has not started in host mode. Without `waitDeadlines` the runtime keeps its
-    /// own queue. Idempotent for the same stores.
+    /// own queue; the pump made at the start runs on the queue adopted before it. Idempotent for the
+    /// same stores.
     func adopt(stores: BrowserSharedStores, signInCallbacks: CEFSignInCallbacks, waitDeadlines: MainWakeUpQueue? = nil,
                hostSupervisor: (any ChromiumHostSupervising)? = nil) {
         if let hostSupervisor, hostStart == nil, state == .idle { hostStart = CEFHostStart(supervisor: hostSupervisor) }
         self.signInCallbacks = signInCallbacks
-        if let waitDeadlines { self.waitDeadlines = AlignedWakeups(queue: waitDeadlines) }
+        if let waitDeadlines { wakeUps = waitDeadlines }
         guard stores !== self.stores else { return }
         self.stores = stores
         // The pages profile belonged to the old stores: no key of these takes its spare.
@@ -410,12 +419,20 @@ final class CEFRuntime {
         self.shim = shim
         if case .inProcess(let loaded) = library {
             layout = loaded.layout
+            let forkAPI = shim.forkAPIVersion()
+            if forkAPI < CEFPumpSchedule.demandDrivenForkAPI {
+                logger.error("CEF fork API \(forkAPI) predates the demand-driven pump (\(CEFPumpSchedule.demandDrivenForkAPI)): work left after a time slice and delayed tasks posted during a pass wait for the next CEF request, so pages may stall")
+            }
             let pump = CEFMessagePump(
-                work: { [weak self] in CEFStartSteps.shared.pump(windowPending: self?.pendingWindows.isEmpty == false) { self?.shim?.doWork() } },
-                safetyNet: CEFPumpSchedule.safetyNet(forkAPIVersion: shim.forkAPIVersion()),
+                work: { [weak self] in CEFStartSteps.shared.pump(windowPending: self?.pendingWindows.isEmpty == false) { self?.pumpWork() } },
+                timer: CEFWakeUpQueuePumpTimer(queue: wakeUps),
                 gate: pumpGate
             )
             self.pump = pump
+            if let pumpInput, let input {
+                pump.setInputPolicy(CEFPumpInputPolicy(pending: pumpInput.pending, dispatches: CEFPumpTapDispatches(tap: input),
+                                                       refreshInterval: pumpInput.refreshInterval, frameTarget: pumpInput.frameTarget))
+            }
             pump.start()
         }
 

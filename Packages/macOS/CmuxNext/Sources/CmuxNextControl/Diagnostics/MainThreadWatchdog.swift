@@ -118,11 +118,11 @@ public final class MainThreadWatchdog: Sendable {
     public let log: HangLog
     /// Busy windows (CPU with no input, animation or output) share the log.
     public let busy: BusyWatchdog
-    /// Hang-watch scopes on other threads past their deadline (``attach(hangWatch:)``, kind `hang`): their
+    /// Hang-watch scopes on other threads past their deadline (``attach(hangWatch:crashKeys:)``, kind `hang`): their
     /// own log, so a lane that hangs again and again never pushes main-thread stalls out of ``log``.
     public let threadHangs = HangLog(capacity: 128)
-    /// The slot table ``attach(hangWatch:)`` connected; the watchdog thread reads the flag, then the sink once.
-    let hangWatchSink = Mutex<HangWatch?>(nil)
+    /// The slot table and crash keys ``attach(hangWatch:crashKeys:)`` connected; the watchdog thread reads the flag, then the sink once.
+    let hangWatchSink = Mutex<HangMonitor.Source?>(nil)
     let hangWatchAttached = Atomic<Bool>(false)
     private let thresholdNanos: UInt64
     /// `CLOCK_UPTIME_RAW` nanoseconds; tests inject a clock that moves only
@@ -316,7 +316,7 @@ public final class MainThreadWatchdog: Sendable {
     }
 
     public func stop() {
-        hangWatchSink.withLock { $0 }?.detachMonitor()
+        hangWatchSink.withLock { $0 }?.watch.detachMonitor()
         guard running.compareExchange(expected: true, desired: false, ordering: .acquiringAndReleasing).exchanged else { return }
         if let box = observer.withLock({ observer in defer { observer = nil }; return observer }) {
             for runLoopObserver in box.observers { CFRunLoopObserverInvalidate(runLoopObserver) }

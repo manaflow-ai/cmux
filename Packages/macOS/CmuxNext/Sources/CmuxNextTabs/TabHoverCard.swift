@@ -1,6 +1,6 @@
 import AppKit
 import CmuxNextCompat
-import CmuxNextDesign
+public import CmuxNextDesign
 import CmuxNextResources
 import QuartzCore
 
@@ -88,10 +88,7 @@ final class TabHoverCardController: HoverCardSource {
     }
 
     /// The strip's tab id for a target id of this strip.
-    private func tabID(_ id: HoverTargetID) -> TabID? {
-        let raw = id.rawValue
-        return raw.hasPrefix("tab:") ? TabID(String(raw.dropFirst(4))) : nil
-    }
+    private func tabID(_ id: HoverTargetID) -> TabID? { TabID(hoverCardTarget: id) }
 
     /// This strip's tab or chip whose card shows now.
     var shownID: TabID? {
@@ -335,4 +332,13 @@ extension TabHoverCardController: MemoryConsumer {
 
     /// How many tabs' samples it keeps now (tests).
     var rememberedReportCount: Int { lastReports.count }
+}
+
+public extension TabID {
+    /// The tab or chip of a strip's hover card target (`TabHoverCardController.targetID(_:)`); nil for any other
+    /// target.
+    nonisolated init?(hoverCardTarget id: HoverTargetID) {
+        guard id.rawValue.hasPrefix("tab:") else { return nil }
+        self.init(String(id.rawValue.dropFirst("tab:".count)))
+    }
 }

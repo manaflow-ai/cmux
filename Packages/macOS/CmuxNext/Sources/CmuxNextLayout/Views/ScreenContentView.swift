@@ -15,7 +15,13 @@ final class ScreenContentView: NSView {
     /// The same for the strip's dividers and column edges.
     var carriedDividers: [DividerHandleView.Kind: CGFloat] = [:]
     /// Frames before the rows' vertical offsets: what the springs target.
-    private(set) var baseGeometry: ScreenGeometry
+    private(set) var baseGeometry: ScreenGeometry {
+        didSet { restStripRange = stripRange(in: baseGeometry, beside: []) }
+    }
+    /// The strip's range beside the docks at rest (`PaneArrival.stripClip`), computed when the geometry is
+    /// (a row or a scroll area moves no dock and no clip edge), so a presentation with no dock growing in
+    /// computes none.
+    private(set) var restStripRange: CGRect?
     /// `baseGeometry` at the presented row and scroll area offsets (`shiftingRows`, `shiftingAreas`): what
     /// hit testing, drops, focus and the strip scroll read.
     var geometry: ScreenGeometry
@@ -65,6 +71,8 @@ final class ScreenContentView: NSView {
     /// Each horizontal scroll area keeps its own instance of the same rules
     /// (ScreenContentView+ScrollAreas.swift).
     var areaScrolls: [SplitID: ScrollAreaScroll] = [:]
+    /// Row and area offsets a remount gave before their scrolls were built (`restoreScroll`).
+    var pendingScroll = LayoutScreenScroll()
     /// A row divider drag's heights, shown until the next layout arrives
     /// (gesture state; the model keeps no copy, rows.md Z1).
     var rowDragPreview: (column: ColumnID, heights: [RowHeight])?
@@ -121,6 +129,9 @@ final class ScreenContentView: NSView {
     var visibilitySpan: (shift: CGFloat, span: PanVisibilitySpan)?
     /// Pane clips computed, cumulative (PaneMotionWorkTests): a spring or a pan beside docks computes none.
     var stripClipsComputed = 0
+    /// Strip ranges computed (`PaneArrival.stripClip`), cumulative (DockArrivalRenderMotionTests): a dock on
+    /// the render server computes them at plan apply only.
+    var stripRangesComputed = 0
     /// Moves on with any change to the hosts' frames, alphas, clips or order (`PaneHostView.pageCovers`).
     var coverVersion = 0
     /// The strip's panes sit in this view, which clips them to the strip's range by its bounds
@@ -138,6 +149,7 @@ final class ScreenContentView: NSView {
         self.motionBackends = MotionBackends(ScreenContentView.renderServerMotions, renderServer: context.rendersMotionOnServer)
         self.baseGeometry = ScreenGeometry.compute(layout, viewport: .zero, style: context.style)
         self.geometry = baseGeometry
+        self.restStripRange = PaneArrival.stripClip(baseGeometry, docks: [])
         super.init(frame: .zero)
         wantsLayer = true
         layer?.masksToBounds = true

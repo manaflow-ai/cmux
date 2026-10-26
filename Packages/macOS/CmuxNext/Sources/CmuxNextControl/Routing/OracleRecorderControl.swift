@@ -1,20 +1,50 @@
 #if DEBUG || CMUX_BENCH_HOOKS
 public import CmuxNextActions
 public import CmuxNextOracle
+public import Observation
 import CmuxNextSettings
 
 /// The turn recorder as the action registry's perform-turn observer: the App's composition root makes
 /// one and passes it to `ActionRegistry.standard(runTiming:turnObserver:)` and to
 /// ``OracleControl/methods(host:turns:)``, in DEV and bench builds only.
-@MainActor
+///
+/// It also counts the refused turns since launch for the `intents` facet (``OracleIntentsFacet``): a turn
+/// whose action did not run (`ran` false: a disabled feature, an unavailable or disabled action, a refused
+/// target) or whose handler refused (``noteRefusal()``). Observed, so `debug.oracle.wait_for` hears one.
+@MainActor @Observable
 public final class OracleActionTurns: ActionRunObserver {
-    public let recorder: OracleTurnRecorder
+    @ObservationIgnored public let recorder: OracleTurnRecorder
+    /// Refused perform turns since launch; only grows (the runner diffs two checkpoints).
+    public private(set) var refusedTurns = 0
+    /// The canonical action id of the last refused turn: the action the person or script ran, never the
+    /// reason, which is localized and can hold a name.
+    public private(set) var lastRefusedAction: String?
+    /// A handler of the turn in progress has started (``runStarted()``), so a refusal now is that turn's.
+    @ObservationIgnored private var inRun = false
+    @ObservationIgnored private var refusedInRun = false
 
     public init(recorder: OracleTurnRecorder = OracleTurnRecorder()) {
         self.recorder = recorder
     }
 
+    /// The registry is about to run a handler (its `willRunObservers`).
+    public func runStarted() {
+        inRun = true
+    }
+
+    /// The registry reported a refusal (its `refusalObserver`). Outside a handler run, after its turn
+    /// ended (a task the handler started), it belongs to no turn and is not counted.
+    public func noteRefusal() {
+        if inRun { refusedInRun = true }
+    }
+
     public func performTurnEnded(_ turn: ActionTurn) {
+        if !turn.ran || refusedInRun {
+            refusedTurns += 1
+            lastRefusedAction = turn.id.rawValue
+        }
+        inRun = false
+        refusedInRun = false
         recorder.turnEnded(action: turn.id.rawValue, origin: turn.origin.rawValue, ran: turn.ran)
     }
 }
@@ -37,7 +67,8 @@ public struct OracleRecorderControl: Sendable {
     public var methods: [ControlMethod] {
         [
             // Params: `clear` (empty the ring), `arm` (true: arm with `facets`, the facet names, all when
-            // absent; false: disarm), `mark` (a label: record a checkpoint of the armed facets now, the
+            // absent, and `paths`, the prefixes hashed path fields rewrite as `debug.oracle.snapshot` does; false:
+            // disarm), `mark` (a label: record a checkpoint of the armed facets now, the
             // runner's `settled`). Applied whole or not at all: a refused request changes nothing, and an
             // accepted one clears, then arms or disarms, then marks. The result is the status, plus
             // `checkpoint` for an arm or a mark.
@@ -69,7 +100,7 @@ public struct OracleRecorderControl: Sendable {
     }
 
     /// The `debug.oracle.recorder` params as one request. Refuses a param of the wrong type and
-    /// `facets` without `arm: true`; the recorder refuses the rest before it changes anything.
+    /// `facets` or `paths` without `arm: true`; the recorder refuses the rest before it changes anything.
     private static func request(_ params: [String: JSONValue],
                                 facets: OracleFacets) throws(ControlError) -> OracleRecorderRequest {
         let clear = try flag(params["clear"], name: "clear") ?? false
@@ -78,10 +109,12 @@ public struct OracleRecorderControl: Sendable {
         let arming: OracleRecorderRequest.Arming?
         switch arm {
         case true?:
-            arming = try .arm(facets, requested(params["facets"]))
+            arming = try .arm(facets.rewriting(OracleControl.paths(params["paths"])), requested(params["facets"]))
         case false?, nil:
-            if let names = params["facets"], !names.isNull {
-                throw ControlError.invalidParams("facets needs arm: true", data: ["param": "facets"])
+            for name in ["facets", "paths"] {
+                if let value = params[name], !value.isNull {
+                    throw ControlError.invalidParams("\(name) needs arm: true", data: ["param": .string(name)])
+                }
             }
             arming = arm == false ? .disarm : nil
         }

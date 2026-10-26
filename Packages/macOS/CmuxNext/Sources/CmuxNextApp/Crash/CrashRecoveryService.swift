@@ -3,6 +3,8 @@ import CmuxNextBrowser
 import Foundation
 import os
 import CmuxNextCompat
+import CmuxNextCrashReporting
+import CmuxNextWakeups
 
 /// Whole-app crash recovery and crash visibility (plans/cmux-next/browser-isolation.md):
 /// the run marker, the restart notice, crash reports for app and Chromium
@@ -17,6 +19,8 @@ final class CrashRecoveryService {
     private(set) var previousCrashLog: URL?
     /// Our own report of the previous run's end.
     private(set) var previousReport: URL?
+    /// The crash keys the previous run's crash path wrote (`run.crashkeys`), read off the main thread after launch.
+    private(set) var previousCrashKeys: CrashKeys?
     private var crashObserver: UUID?
     private weak var crashLog: BrowserCrashLog?
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "crash")
@@ -27,20 +31,24 @@ final class CrashRecoveryService {
     var recovery: LaunchRecovery { marker?.recovery ?? .clean }
 
     /// `marksRun` false (tests, tools that build AppServices) leaves no
-    /// marker and installs no signal handlers.
-    init(bundleID: String?, marksRun: Bool) {
+    /// marker and installs no signal handlers. With a marker, the crash
+    /// path writes `crashKeys` into the marker folder's `run.crashkeys`.
+    init(bundleID: String?, marksRun: Bool, crashKeys: CrashKeySlots? = nil) {
         marker = marksRun ? AppRunMarker(directory: AppRunMarker.standardDirectory(bundleID: bundleID)) : nil
+        if marker != nil, let crashKeys { CrashReporter.attachCrashKeys(crashKeys) }
         writer = CrashReportWriter.standard(bundleID: bundleID)
-        if let previous = marker?.recovery.previous {
+        if let previous = marker?.recovery.previous, let keysFile = marker?.previousCrashKeysFile {
             logger.error("previous run ended unexpectedly signal=\(previous.signal ?? 0) exception=\(previous.exception?.name ?? "none", privacy: .public) safe=\(self.recovery.skipsBrowserPages)")
-            reportTask = Task { [weak self, writer] in  // task-owner: stored in reportTask, cancelled with the service
-                // The DiagnosticReports listing and the report write stay off the main thread.
-                let found = await Task.detached(priority: .utility) {
-                    CrashRecoveryService.systemCrashLog(after: previous.launched)
+            reportTask = Task { [weak self, writer, logger] in  // task-owner: stored in reportTask, cancelled with the service
+                // The DiagnosticReports listing, the crash keys' read and the report write stay off the main thread.
+                let (found, keys) = await Task.detached(priority: .utility) {
+                    (CrashRecoveryService.systemCrashLog(after: previous.launched), AppRunMarker.readCrashKeys(keysFile))
                 }.value
+                // Numbers and catalog names only (CrashKeys), so the line needs no redaction.
+                logger.error("previous run crash keys: \(keys?.tagLine ?? "none", privacy: .public)")
                 guard let self else { return }
-                previousCrashLog = found
-                let data = CrashReportWriter.encode(appReport(previous))
+                (previousCrashLog, previousCrashKeys) = (found, keys)
+                let data = CrashReportWriter.encode(appReport(previous, crashKeys: keys))
                 previousReport = await Task.detached(priority: .utility) { writer.write(data, name: "app") }.value
             }
         }
@@ -96,7 +104,8 @@ final class CrashRecoveryService {
     @discardableResult
     func reportCrash() -> URL? {
         guard let previous = recovery.previous,
-              let url = CrashIssueReport(previous: previous, version: writer.version, bundleID: writer.bundleID).url else { return nil }
+              let url = CrashIssueReport(previous: previous, version: writer.version, bundleID: writer.bundleID,
+                                         crashKeys: previousCrashKeys).url else { return nil }
         let logger = logger
         NSWorkspace.shared.openInBackground(url) { opened in
             if !opened { logger.error("crash report page did not open") }
@@ -123,7 +132,9 @@ final class CrashRecoveryService {
         marker?.markCleanExit()
     }
 
-    func appReport(_ previous: PreviousRun) -> [String: Any] {
+    /// The previous run's app report: how it ended and, when its crash path wrote them, its crash keys
+    /// (`crash_keys`: the scrubbed `crash_key.<name>` tags, ``CrashKeys/tags``).
+    func appReport(_ previous: PreviousRun, crashKeys: CrashKeys? = nil) -> [String: Any] {
         var object: [String: Any] = [
             "kind": "app",
             "launched": CrashReportWriter.iso(previous.launched),
@@ -145,6 +156,7 @@ final class CrashRecoveryService {
             object["exception_frames"] = exception.frames
         }
         if let previousCrashLog { object["system_report"] = previousCrashLog.path }
+        if let tags = crashKeys?.tags, !tags.isEmpty { object["crash_keys"] = tags }
         return object
     }
 

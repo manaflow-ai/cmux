@@ -288,7 +288,7 @@ final class FocusEffectApplier: FocusEffectApplying {
         }
         publish(controller.focus.state.context)
         // The overlay host panel restores focus itself (`WindowOverlayHost.endModal`).
-        guard owned is NSPanel, !(owned is OverlayHostPanel), owned.sheetParent == nil, !services.palette.owns(owned),
+        guard owned is NSPanel, !(owned is OverlayHostPanel), owned.sheetParent == nil, services.palettes.built?.owns(owned) != true,
               overlayPanel == nil else { return }
         overlayPanel = owned
         controller.focus.send(.overlayOpened(.groupEditor))

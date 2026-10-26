@@ -155,6 +155,30 @@ struct WakeLeewayTests {
         #expect(early.fireTime(deadline: 5) == 0)
     }
 
+    @Test("An own-tolerance window keeps its tolerance and grid; the heap's Energy Saver alignment never moves it")
+    func ownToleranceIgnoresAlignment() {
+        let window = WakeLeeway.own(tolerance: .milliseconds(8), delay: .milliseconds(100))
+        #expect(window.policy == .flexibleNoSooner)
+        #expect(window.leeway == .milliseconds(8) && window.grid == .milliseconds(8))
+        #expect(!window.followsAlignment)
+        #expect(WakeLeeway.window(delay: .milliseconds(100)).followsAlignment)
+        #expect(!WakeLeeway.window(delay: .seconds(5)).followsAlignment)
+        let deadline = 2 * Self.second + 101 * Self.ms
+        var heap = MainWakeUpHeap<Int>()
+        heap.alignment = WakeLeeway.saverAlignment.nanosecondCount
+        heap.insert(.init(id: 1, deadline: deadline, window: window, owner: "own", payload: 1))
+        #expect(heap.wakeUp()?.date == 2 * Self.second + 104 * Self.ms, "its own 8 ms grid, not the saver's 32 ms")
+        #expect(heap.wakeUp()?.latest == 2 * Self.second + 109 * Self.ms)
+    }
+
+    @Test("An own-tolerance window with no tolerance or no delay is exact")
+    func ownToleranceZeroIsPrecise() {
+        for window in [WakeLeeway.own(tolerance: .zero, delay: .milliseconds(100)), .own(tolerance: .milliseconds(8), delay: .zero)] {
+            #expect(window.policy == .precise)
+            #expect(window.fireTime(deadline: 5 * Self.ms + 3) == 5 * Self.ms + 3)
+        }
+    }
+
     @Test("DelayPolicy.effective is Chromium's MaybeOverrideDelayPolicy")
     func effectivePolicy() {
         #expect(DelayPolicy.precise.effective(for: .milliseconds(35)) == .precise)

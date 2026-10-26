@@ -1631,6 +1631,8 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 .product(name: "CMUXMobileCore", package: "CMUXMobileCore"),
                 "CmuxNextTrace",
                 "CmuxNextMetrics",
+                // SwitchFrameTimerTests: the switch.* trace names.
+                "CmuxNextSignposts",
             ],
             swiftSettings: uiSwiftSettings
         ),
@@ -1833,7 +1835,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         ),
         .testTarget(
             name: "CmuxNextBrowserTests",
-            dependencies: ["CmuxNextBrowser", "CmuxNextCompat", "CmuxNextDesign", "CmuxNextInput", "CmuxNextInputCore", "CmuxNextRemoteFetch", "CmuxNextWakeups", "CmuxNextTrace", "CmuxNextMetrics"],
+            dependencies: ["CmuxNextBrowser", "CmuxNextCompat", "CmuxNextDesign", "CmuxNextInput", "CmuxNextInputCore", "CmuxNextRemoteFetch", "CmuxNextWakeups", "CmuxNextWakeupsTestSupport", "CmuxNextTrace", "CmuxNextMetrics"],
             swiftSettings: uiSwiftSettings
         ),
         // The WebKit driver for the Rust browser host (plans/cmux-next/browser-host.md).
@@ -1844,7 +1846,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         ),
         .testTarget(
             name: "CmuxNextBrowserAutomationTests",
-            dependencies: ["CmuxNextBrowserAutomation"],
+            dependencies: ["CmuxNextBrowser", "CmuxNextBrowserAutomation", "CmuxNextDesign", "CmuxNextWakeups", "CmuxNextWakeupsTestSupport"],
             swiftSettings: uiSwiftSettings
         ),
         // The app's provider bridge to the browser host (plans/cmux-next/browser-host.md, step c3).
@@ -1855,7 +1857,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         ),
         .testTarget(
             name: "CmuxNextBrowserHostTests",
-            dependencies: ["CmuxNextBrowser", "CmuxNextBrowserAutomation", "CmuxNextBrowserHost", "CmuxNextWakeups", "CmuxNextTrace", "CmuxNextMetrics"],
+            dependencies: ["CmuxNextBrowser", "CmuxNextBrowserAutomation", "CmuxNextBrowserHost", "CmuxNextWakeups", "CmuxNextWakeupsTestSupport", "CmuxNextTrace", "CmuxNextMetrics"],
             swiftSettings: uiSwiftSettings
         ),
         .target(
@@ -2067,7 +2069,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         ),
         .testTarget(
             name: "CmuxNextActionsTests",
-            dependencies: ["CmuxNextActions", "CmuxNextTrace", "CmuxNextMetrics"],
+            dependencies: ["CmuxNextActions", "CmuxNextTrace", "CmuxNextMetrics", "CmuxNextWakeups"],
             swiftSettings: uiSwiftSettings
         ),
     ] + [appFFI]

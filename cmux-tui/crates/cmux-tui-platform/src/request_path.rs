@@ -12,7 +12,7 @@
 //! asserts `ThreadRestrictions` and tells the thread's `BlockingObserver`
 //! (base/threading/scoped_blocking_call_internal.h):
 //! `cmux_threads::blocking` (may this thread block at all: a process-wide
-//! table of violation sites, `CMUX_DAEMON_BLOCKING=panic`) and this module's
+//! table of violation sites, a Debug panic unless `CMUX_DAEMON_BLOCKING=record`) and this module's
 //! per-daemon counters (what request handlers blocked on, allowed or not).
 //! The kind sets differ because the questions differ: request-path triage
 //! needs `journal_wait`, `proc_scan`, `child_process` and
