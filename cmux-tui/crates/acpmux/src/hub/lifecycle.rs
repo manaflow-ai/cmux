@@ -235,6 +235,8 @@ impl Hub {
                 return Err(RpcError::invalid_params(e.message().to_owned()));
             }
         }
+        // No `git` record exists yet; retain that baseline even if the chat grows before attach.
+        self.restore_git_branch(&session, session.meta().git_branch);
         self.append(&session, "mux", "created", json!({"harness": agent, "preset": preset_name}));
         if let Some(a) = &adopt {
             let adopted = if fork_from.is_some() {
