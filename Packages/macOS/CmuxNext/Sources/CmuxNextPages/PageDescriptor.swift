@@ -147,6 +147,10 @@ public nonisolated struct PageNativeOp {
     public static let popupHide = "cmux.app.popup.hide"
     /// Stream every page may subscribe to: the popup's `pick`, `highlight` and `dismiss`.
     public static let pagePopup = "cmux.page.popup"
+    /// Built in for every page (p13-webui-032): `{reason, on}` sets or ends one of the page's own
+    /// keep reasons (`user_edits`, ``PageKeepReasons/pageSettable``), which keep it from freezing or
+    /// being discarded while hidden. The page can only add reasons; they end with its document.
+    public static let keepAlive = "cmux.page.keepAlive"
     /// Built in for every page: a right-click menu (`ui/ContextMenu.tsx`) shown as a standard macOS
     /// menu (``WebContextMenu``); answers `{picked: id}` once it closes, `picked` null when dismissed.
     public static let contextMenu = "cmux.app.contextMenu.show"

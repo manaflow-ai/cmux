@@ -469,6 +469,8 @@ its QoS and its target.
   `cmux.remote-view.render` (user-interactive, closed list),
   `cmux.remote-view.rd-transport` (user-initiated; the visible session's input and frames, below the render queue),
   `cmux.remote-view.mock-host` (user-initiated; the Debug host stand-in), `cmux.next.mobile.unix-lane` (user-initiated),
+  `com.cmuxterm.next.phone-process.stdin` (the caller's QoS; a phone tool's stdin DispatchIO channel, whose
+  completions only close it: a large `simctl pbcopy` never holds a thread),
   `cmux.screen.capture` (user-interactive, closed list exception; CmuxVNCWebRTC)
 - Browser: `com.cmuxterm.next.browser-host.provider.write` (user-initiated), `cmux browser-host provider reader`,
   `com.cmuxterm.chromium-host.read` (user-initiated),

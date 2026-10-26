@@ -1,12 +1,13 @@
 import AppKit
 import CmuxNextInput
+import CmuxNextWakeups
 
 // The space bar's hover once per frame (feature `pointerFrameHover`, p04-input-033): with
 // `hoverFrameInput`, a frame interval's first move hovers at once and the rest once at its frame, at
 // the latest point (Chromium's rAF-aligned moves, main_thread_event_queue.cc); each at once without it.
 extension ProfileBarView {
     /// The windows' frame-aligned pointer input; nil: each move hovers at once.
-    var hoverFrameInput: PointerFrameCoalescers? {
+    var hoverFrameInput: FrameInputCoalescers? {
         get { hoverMoves.frames }
         set { hoverMoves.frames = newValue }
     }

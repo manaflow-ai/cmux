@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextActions
 import CmuxNextDesign
 
 /// A window the person closes (the close button, Close Window, Cmd-Shift-W) fades out as a whole
@@ -27,6 +28,13 @@ import CmuxNextDesign
 
     /// The opacity key path the fade springs.
     static let keyPath = "opacity"
+
+    /// Whether a close from `origin` is the person's (a click, a key, a page control they drew):
+    /// only that close fades. A script, the CLI, MCP or another client closes at once, so the
+    /// window has left when its `action.run` answers.
+    nonisolated static func isPersonsClose(_ origin: ActionOrigin) -> Bool {
+        origin == .user || origin == .page
+    }
 
     /// Whether a close of `window` fades: it shows on screen, motion is on, and its frame view
     /// has a layer to fade.

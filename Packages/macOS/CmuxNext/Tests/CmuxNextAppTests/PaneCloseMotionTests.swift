@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextActions
 import CmuxNextDesign
 @testable import CmuxNextApp
 @testable import CmuxNextLayout
@@ -291,5 +292,15 @@ struct PaneCloseMotionTests {
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 800, height: 600), styleMask: [.titled, .closable],
                               backing: .buffered, defer: true)
         #expect(!WindowCloseMotion.fades(window, animates: false))
+    }
+
+    /// Only the person's close fades: a scripted close (the oracle's reset, the CLI, MCP) has closed
+    /// the window when its `action.run` answers, so the next snapshot no longer lists it.
+    @Test func onlyThePersonsWindowCloseFades() {
+        #expect(WindowCloseMotion.isPersonsClose(.user))
+        #expect(WindowCloseMotion.isPersonsClose(.page))
+        for origin: ActionOrigin in [.script, .cli, .mcp, .remote] {
+            #expect(!WindowCloseMotion.isPersonsClose(origin), "a \(origin) close fades")
+        }
     }
 }

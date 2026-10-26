@@ -1,0 +1,153 @@
+import CmuxNextTrace
+import os
+
+/// One new tab's ``SignpostName/createTab`` interval, in every build (p09-observability task 030, PL-cef-tab):
+/// begun in the turn of the person's key (or click), ended once at the tab's first themed content frame, or
+/// when the tab closes or hides before that frame.
+///
+/// - The `os_signpost` interval carries `kind=<terminal|chromium|webkit|chat|page>` at its begin and
+///   `outcome=<shown|closed|hidden|missed>` at its end; only a shown one is mirrored to MetricKit (a tab that
+///   closed or hid first never drew for the person, and a missed commit holds idle time, so neither is a
+///   create latency).
+/// - The ring's async pair is keyed by the intent id (``intentID``): begin `arg0` the kind's code, end `arg0`
+///   the outcome (``Outcome``). An instant of the same name and id (``standInShown(afterCommit:)``) marks the
+///   commit of the stand-in, the tab the app shows before the daemon made it.
+///
+/// Chrome times the same span as one async trace event from the input to the presented frame of the new
+/// content, closed by `ContentToVisibleTimeReporter` (content/browser/renderer_host/visible_time_request_trigger.h);
+/// a tab hidden or closed before it presents ends its request without a sample
+/// (`ContentToVisibleTimeReporter::TabWasHidden`).
+///
+/// ```swift
+/// let create = CreateTabInterval(kind: .terminal)
+/// create.standInShown()
+/// session.whenFirstFrame { create.end(.shown) }
+/// ```
+@MainActor
+public final class CreateTabInterval {
+    /// What the new tab shows: the catalog's `kind` field.
+    public nonisolated enum Kind: UInt8, CaseIterable, Sendable {
+        case terminal, chromium, webkit, chat, page
+
+        /// The name in the begin message.
+        public var name: String {
+            switch self {
+            case .terminal: "terminal"
+            case .chromium: "chromium"
+            case .webkit: "webkit"
+            case .chat: "chat"
+            case .page: "page"
+            }
+        }
+
+        /// The kind's number in the ring's begin `arg0` and the stand-in instant's `arg0`: its position + 1, so
+        /// 0 stays "not given". Fixed: rings written by an older build decode with the same numbers.
+        public var traceCode: UInt64 { UInt64(rawValue) + 1 }
+    }
+
+    /// How the interval ended: the ring's end `arg0`.
+    public nonisolated enum Outcome: UInt64, Sendable {
+        /// The tab's first themed content frame.
+        case shown = 0
+        /// The tab closed before its first frame.
+        case closed = 1
+        /// The tab stopped showing before its first frame (another tab or workspace took its place): no sample,
+        /// as Chrome's `ContentToVisibleTimeReporter::TabWasHidden`.
+        case hidden = 2
+        /// The first frame was there, but the commit boundary that shows it fired only after the run loop slept
+        /// (``CommitBoundary/Outcome/missed``): the time holds idle time, so no sample.
+        case missed = 3
+
+        var name: String {
+            switch self {
+            case .shown: "shown"
+            case .closed: "closed"
+            case .hidden: "hidden"
+            case .missed: "missed"
+            }
+        }
+    }
+
+    /// What the tab shows.
+    public let kind: Kind
+    /// The intent's id: the ring pair's async id and the stand-in instant's `arg1`.
+    public let intentID: UInt64
+    /// How it ended; nil while open.
+    public private(set) var outcome: Outcome?
+    /// Whether the stand-in commit was marked.
+    public private(set) var standInMarked = false
+
+    private let signposter: Signposter
+    private let signpostID: OSSignpostID
+    private var interval: SignpostInterval?
+
+    /// Begins the interval now, in the intent's turn.
+    ///
+    /// - Parameters:
+    ///   - kind: What the new tab shows.
+    ///   - signposter: The `create` signposter (tests pass one on their own trace runtime).
+    public init(kind: Kind, signposter: Signposter = .create) {
+        self.kind = kind
+        self.signposter = signposter
+        let begun = signposter.beginCreateTab(kind)
+        interval = begun.interval
+        signpostID = begun.id
+        intentID = begun.intentID
+    }
+
+    /// Whether the interval has not ended.
+    public var isOpen: Bool { outcome == nil }
+
+    /// The stand-in shows in this turn: the instant goes at the end of the Core Animation commit that carries it
+    /// (`afterCommit`; nil: the main run loop's ``CommitBoundary``), unless the interval ended before or the
+    /// boundary missed that commit (its time would be a later wake's). Marks once.
+    public func standInShown(afterCommit: CreateTabTimings.AfterCommit? = nil) {
+        guard !standInMarked, isOpen else { return }
+        standInMarked = true
+        let after = afterCommit ?? { CommitBoundary().after($0) }
+        after { [self] commit in
+            guard commit == .committed, isOpen, let interval else { return }
+            signposter.createTabStandIn(kind, interval: interval, signpostID: signpostID, intentID: intentID)
+        }
+    }
+
+    /// Ends the interval with `outcome`. Only the first call ends it: a tab that drew and then closed stays shown.
+    public func end(_ outcome: Outcome) {
+        guard let interval else { return }
+        self.interval = nil
+        self.outcome = outcome
+        signposter.endCreateTab(interval, outcome: outcome)
+    }
+}
+
+extension Signposter {
+    /// Begins a ``SignpostName/createTab`` interval: the log system's (`kind=<kind>`), the MetricKit mirror's and,
+    /// while the `create` category is on, the ring's async begin keyed by the intent id (the begin's
+    /// `OSSignpostID`, as every async ring slice is keyed, ``asyncID(_:beginNanos:)``).
+    func beginCreateTab(_ kind: CreateTabInterval.Kind) -> (interval: SignpostInterval, id: OSSignpostID, intentID: UInt64) {
+        let name = SignpostName.createTab
+        assert(name.category == category, "\(name) is not in category \(category)")
+        let id = signposter.makeSignpostID()
+        let beginNanos = clock.nowNanos()
+        let state = signposter.beginInterval(name.staticName, id: id, "kind=\(kind.name, privacy: .public)")
+        let ring = traceBegin(name, id: id, beginNanos: beginNanos, arg0: kind.traceCode)
+        let interval = SignpostInterval(state: state, metricKitID: mirror.begin(name), beginUptimeNanos: beginNanos, ring: ring)
+        return (interval, id, Self.asyncID(id, beginNanos: beginNanos))
+    }
+
+    /// Ends a ``SignpostName/createTab`` interval with `outcome=<outcome>`; the ring's AE holds the outcome.
+    func endCreateTab(_ interval: SignpostInterval, outcome: CreateTabInterval.Outcome) {
+        let name = SignpostName.createTab
+        signposter.endInterval(name.staticName, interval.state, "outcome=\(outcome.name, privacy: .public)")
+        if outcome == .shown, let id = interval.metricKitID { mirror.end(name, id: id) } // closed, hidden, missed: no sample
+        closeInterval(name, interval, arg0: outcome.rawValue)
+    }
+
+    /// The stand-in commit of an open ``SignpostName/createTab`` interval: a log event on the interval's id and, when
+    /// its begin wrote a ring record, a ring instant with the kind in `arg0` and the intent id in `arg1`.
+    func createTabStandIn(_ kind: CreateTabInterval.Kind, interval: SignpostInterval, signpostID: OSSignpostID, intentID: UInt64) {
+        let name = SignpostName.createTab
+        signposter.emitEvent(name.staticName, id: signpostID, "stand_in kind=\(kind.name, privacy: .public)")
+        if interval.isTraced { trace.event(name, arg0: kind.traceCode, arg1: intentID) }
+    }
+}

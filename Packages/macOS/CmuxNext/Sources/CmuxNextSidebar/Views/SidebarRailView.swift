@@ -2,6 +2,7 @@ public import AppKit
 import CmuxNextCompat
 import CmuxNextDesign
 public import CmuxNextInput
+public import CmuxNextWakeups
 
 /// The thin rail (`sidebar.style` = rail, plans/cmux-next/minimal-sidebar.md): one short tick
 /// per workspace in sidebar order, a collapsed group as one tick, a gap between groups. The
@@ -145,7 +146,7 @@ public final class SidebarRailView: NSView {
 
     /// The windows' frame-aligned pointer input (feature `pointerFrameHover`): the cards follow a frame
     /// interval's first move at once and the rest once at its frame, at the latest point. Nil: each move.
-    public var hoverFrameInput: PointerFrameCoalescers? {
+    public var hoverFrameInput: FrameInputCoalescers? {
         get { hoverMoves.frames }
         set { hoverMoves.frames = newValue }
     }

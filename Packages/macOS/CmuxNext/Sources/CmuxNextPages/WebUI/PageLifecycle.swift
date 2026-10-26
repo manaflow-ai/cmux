@@ -53,17 +53,22 @@ package struct PageWebViewLifecycle: PageLifecycleTarget {
     package var lifecycleGroup: String? { view?.descriptor.processGroup.rawValue }
 
     /// Loading while its document loads (``PageLoadState``: Chrome's kLoading reads the
-    /// page's loading state, which also ends while the page is hidden), and focused while it holds its
-    /// window's first responder.
+    /// page's loading state, which also ends while the page is hidden), focused while it holds its
+    /// window's first responder, and the reasons of ``PageKeepReasons``: its document's
+    /// `cmux.page.keepAlive` and the host's holds (a confirmation sheet, a menu or popup, a drop it
+    /// reads, Web Inspector, dictation), each of which tells the lifecycle when it starts or ends.
     package var lifecycleKeepReasons: Set<PageLifecyclePlanner.KeepReason> {
         guard let view else { return [] }
-        var reasons: Set<PageLifecyclePlanner.KeepReason> = []
+        var reasons = view.keepReasons.current
         if view.loadState.isLoading { reasons.insert(.loading) }
         if let responder = view.window?.firstResponder as? NSView, responder.isDescendant(of: view) { reasons.insert(.focused) }
         return reasons
     }
 
-    package func reportsReasonChanges(to lifecycle: PageLifecycle) { view?.loadState.lifecycle = lifecycle }
+    package func reportsReasonChanges(to lifecycle: PageLifecycle) {
+        view?.loadState.lifecycle = lifecycle
+        view?.keepReasons.lifecycle = lifecycle
+    }
 
     package func keepHideSnapshot() { view?.keepHideSnapshot(encoder: encoder) }
     package func dropHideSnapshot() { view?.hideState.drop() }
@@ -223,8 +228,9 @@ package final class PageLifecycle {
     }
 
     /// `page`'s own reasons changed with no show or hide (its load started or ended,
-    /// ``PageLoadState``): a hidden page is looked at again now, so a load that ends
-    /// while the page is hidden lets it freeze, and one that starts thaws it.
+    /// ``PageLoadState``; its document's keepAlive or a host hold, ``PageKeepReasons``): a hidden
+    /// page is looked at again now, so a reason that ends while the page is hidden lets it freeze,
+    /// and one that starts thaws it.
     package func pageReasonsDidChange(_ page: AnyObject) {
         guard let key = keys[ObjectIdentifier(page)], entries[key]?.target.object === page,
               hiddenKeys.contains(key) else { return }

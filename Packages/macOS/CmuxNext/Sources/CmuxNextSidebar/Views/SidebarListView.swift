@@ -88,7 +88,7 @@ final class SidebarListView: NSView {
         self?.updateHover(point)
     }
     /// The windows' frame-aligned pointer input (feature `pointerFrameHover`); nil: each move hovers at once.
-    var hoverFrameInput: PointerFrameCoalescers? {
+    var hoverFrameInput: FrameInputCoalescers? {
         get { hoverMoves.frames }
         set { hoverMoves.frames = newValue }
     }

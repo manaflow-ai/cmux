@@ -1,7 +1,8 @@
 public import AppKit
 import CmuxNextInputCore
+public import CmuxNextWakeups
 
-/// A view's hover moves on its window's ``PointerFrameCoalescer``: the first move of a frame interval
+/// A view's hover moves on its window's ``FrameInputCoalescer``: the first move of a frame interval
 /// hovers in its own turn, the rest of the interval once at the frame, at the latest point, as Chromium
 /// delivers rAF-aligned mouse moves (`third_party/blink/renderer/platform/widget/input/main_thread_event_queue.cc`).
 /// With no ``frames`` (the feature off) or no window, each move hovers at once.
@@ -20,7 +21,7 @@ import CmuxNextInputCore
 public final class PointerFrameHover {
     /// The windows' coalescers (the App injects them); nil: each move hovers at once. A change drops
     /// the pending moves.
-    public var frames: PointerFrameCoalescers? {
+    public var frames: FrameInputCoalescers? {
         didSet { if frames !== oldValue { cancel() } }
     }
     private let owner: String
@@ -36,7 +37,7 @@ public final class PointerFrameHover {
     ///   - view: The view the moves are for: a delivery hovers only while it is still in the move's window.
     ///   - hover: Hovers at a point in window coordinates; the view hit-tests it at delivery, so a view that
     ///     scrolled since the move hit-tests where its content is now.
-    public init(owner: String, view: NSView, frames: PointerFrameCoalescers? = nil,
+    public init(owner: String, view: NSView, frames: FrameInputCoalescers? = nil,
                 hover: @escaping @MainActor (CGPoint) -> Void) {
         self.owner = owner
         self.view = view
