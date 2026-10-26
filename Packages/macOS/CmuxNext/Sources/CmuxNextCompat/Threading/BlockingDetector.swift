@@ -52,6 +52,16 @@ public struct BlockingDetector: Sendable {
         #endif
     }
 
+    /// What a violation on a shared pool thread does (``BlockingMode/record`` in every build but a Debug build
+    /// started with `CMUX_BLOCKING_TRAP_POOL=1`).
+    public var poolMode: BlockingMode {
+        #if DEBUG || CMUX_BLOCKING_CHECKS
+        table.poolMode
+        #else
+        .record
+        #endif
+    }
+
     /// Installs the sink that receives each new call site once, on the drain queue (the last call
     /// wins; nil removes it).
     public func install(sink: (any BlockingViolationSink)?) {
@@ -60,7 +70,7 @@ public struct BlockingDetector: Sendable {
         #endif
     }
 
-    /// The call sites that blocked the main thread and reached the drain queue, in the order they
+    /// The call sites that blocked the main thread or a shared pool thread and reached the drain queue, in the order they
     /// first did, with their current counts.
     public var sites: [BlockingSite] {
         #if DEBUG || CMUX_BLOCKING_CHECKS

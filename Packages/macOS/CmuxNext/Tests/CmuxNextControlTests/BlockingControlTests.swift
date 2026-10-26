@@ -41,6 +41,28 @@ struct BlockingControlTests {
         #expect(totalMs >= maxMs)
     }
 
+    /// A seam on the pool (a detached task) is a `pool` site; `contexts` splits the sites and calls by context.
+    @MainActor @Test func reportsSitesByContext() async throws {
+        let table = BlockingViolationTable(mode: .record, poolMode: .record)
+        BlockingViolationTable.$scoped.withValue(table) { _ = FileManager.checked.fileExists(atPath: "/") }
+        await Task.detached {
+            BlockingViolationTable.$scoped.withValue(table) {
+                for _ in 0..<2 { _ = FileManager.checked.fileExists(atPath: "/") }
+            }
+        }.value
+        await table.flush()
+
+        let report = BlockingControl.report([:], detector: BlockingDetector(table: table))
+        let sites = try #require(report.objectValue?["sites"]?.arrayValue)
+        #expect(Set(sites.compactMap { $0.objectValue?["context"]?.stringValue }) == ["main", "pool"])
+        let contexts = try #require(report.objectValue?["contexts"]?.objectValue)
+        #expect(contexts["main"]?.objectValue?["sites"]?.intValue == 1)
+        #expect(contexts["main"]?.objectValue?["count"]?.intValue == 1)
+        #expect(contexts["pool"]?.objectValue?["sites"]?.intValue == 1)
+        #expect(contexts["pool"]?.objectValue?["count"]?.intValue == 2)
+        #expect(report.objectValue?["pool_mode"]?.stringValue == "record")
+    }
+
     /// The report shows the table's mode, and the method reads only `reset`: a `mode` parameter changes
     /// nothing (trap mode comes only from `CMUX_BLOCKING_TRAP=1` at launch).
     @Test func theReportShowsTheModeAndReadsOnlyReset() async {

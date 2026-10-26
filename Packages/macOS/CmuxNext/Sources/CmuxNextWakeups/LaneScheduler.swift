@@ -4,7 +4,8 @@ import Dispatch
 /// The queue of one ``BlockingLane``: which item runs next, on which slot, at which QoS.
 ///
 /// A slot is a serial `DispatchQueue` that runs one item at a time at the item's QoS (`.enforceQoS`);
-/// GCD makes a thread only while a slot has work. A `perPriority` lane (files) has one slot per
+/// GCD makes a thread only while a slot has work. Each item runs with its thread marked
+/// ``CmuxNextCompat/BlockingContext/lane``, so the blocking detector allows its seams. A `perPriority` lane (files) has one slot per
 /// ``WorkPriority``, so each priority is serial and a best-effort write never sits in front of a
 /// user-blocking read. A `shared` lane (system, cpu) has `width` slots for every priority and starts the
 /// highest-priority pending item first.
@@ -173,7 +174,8 @@ final class LaneScheduler: Sendable {
     private func launch(_ starts: [Start]) {
         for start in starts {
             slots[start.slot].async(qos: start.priority.qos, flags: .enforceQoS) { [self] in
-                start.job.execute()
+                // The slot is a MayBlock() thread (Chrome's task_tracker.cc): seams in the item are allowed.
+                BlockingContext.run(as: .lane) { start.job.execute() }
                 finish(start.job.id, slot: start.slot)
             }
         }

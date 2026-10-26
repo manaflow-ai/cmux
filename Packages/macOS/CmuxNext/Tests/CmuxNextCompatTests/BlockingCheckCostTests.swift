@@ -7,6 +7,10 @@ import Testing
 /// The clean path of the configuration a Nightly will use (Release + `-DCMUX_BLOCKING_CHECKS`; bench builds use it today): a checked call that
 /// does not block the main thread costs under 50 ns (lead budget 2026-10-24). Compiled only in that
 /// configuration (scripts/measure/blocking-checks.sh runs it on the fleet), never in Debug or CI.
+///
+/// Off the main thread a call where blocking is allowed is classified first (p02-threads 005): on a named
+/// serial queue it reads the thread's flags and the queue label (one prefix compare, one suffix compare); on a
+/// lane it reads the flags only. A pool thread is a violation, so its cost is not the clean path's.
 @Suite(.serialized)
 struct BlockingCheckCostTests {
     /// The calls per timed run, and the runs (the fastest one counts: the others carry scheduler noise).
@@ -14,16 +18,23 @@ struct BlockingCheckCostTests {
     nonisolated private static let runs = 5
     private static let budgetNanos = 50.0
 
-    @Test func aCheckOffTheMainThreadCostsUnderTheBudget() async {
-        let nanos = await Task.detached { Self.fastestNanosPerCall() }.value
-        print("blocking-check cost: off the main thread \(String(format: "%.2f", nanos)) ns per call")
+    @Test func aCheckOnANamedQueueCostsUnderTheBudget() async {
+        let nanos = await Self.onNamedQueue { Self.fastestNanosPerCall() }
+        print("blocking-check cost: off the main thread (named queue) \(String(format: "%.2f", nanos)) ns per call")
         #expect(nanos < Self.budgetNanos)
     }
 
-    /// `blockingCall` off the main thread is the same `pthread_main_np()` and branch, and reads no clock.
-    @Test func aBlockingCallOffTheMainThreadCostsUnderTheBudget() async {
-        let nanos = await Task.detached { Self.fastestNanosPerBlockingCall() }.value
-        print("blocking-check cost: blockingCall off the main thread \(String(format: "%.2f", nanos)) ns per call")
+    /// `blockingCall` off the main thread is the same classification and reads no clock.
+    @Test func aBlockingCallOnANamedQueueCostsUnderTheBudget() async {
+        let nanos = await Self.onNamedQueue { Self.fastestNanosPerBlockingCall() }
+        print("blocking-check cost: blockingCall off the main thread (named queue) \(String(format: "%.2f", nanos)) ns per call")
+        #expect(nanos < Self.budgetNanos)
+    }
+
+    /// On a lane slot the thread's mark decides without the label.
+    @Test func aBlockingCallOnALaneCostsUnderTheBudget() async {
+        let nanos = await Self.onNamedQueue { BlockingContext.run(as: .lane) { Self.fastestNanosPerBlockingCall() } }
+        print("blocking-check cost: blockingCall on a lane \(String(format: "%.2f", nanos)) ns per call")
         #expect(nanos < Self.budgetNanos)
     }
 
@@ -34,6 +45,14 @@ struct BlockingCheckCostTests {
         print("blocking-check cost: a known site on the main thread \(String(format: "%.2f", nanos)) ns per call")
         #expect(nanos < Self.budgetNanos)
         #expect(BlockingDetector(table: table).sites.count == 1)
+    }
+
+    /// Runs `body` on a named serial queue (a dedicated context: not the cooperative pool or a GCD root queue).
+    nonisolated private static func onNamedQueue(_ body: @escaping @Sendable () -> Double) async -> Double {
+        let queue = DispatchQueue(label: "com.cmuxterm.tests.blocking-check-cost")
+        return await withCheckedContinuation { (done: CheckedContinuation<Double, Never>) in
+            queue.async { done.resume(returning: body()) }
+        }
     }
 
     nonisolated private static func fastestNanosPerCall() -> Double {
