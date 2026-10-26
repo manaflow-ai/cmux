@@ -169,7 +169,17 @@ async fn handle(
             let interrupt = params.get("interrupt").and_then(Value::as_bool).unwrap_or(false);
             let deliver = crate::hub::Delivery::parse(str_param(params, "deliver"), interrupt)?;
             let prompt_id = str_param(params, "promptId").map(str::to_owned);
-            hub.subsession_send(&caller, &target, text, deliver, prompt_id).await
+            // Files sent with it, as `send_message` reads them (`attach.rs`).
+            let attachments = match params.get("attachments") {
+                None | Some(Value::Null) => Vec::new(),
+                Some(Value::Array(blocks)) if crate::attach::all(blocks) => blocks.clone(),
+                Some(_) => {
+                    return Err(RpcError::invalid_params(
+                        "attachments must be attachment blocks (send_message reads the files)",
+                    ));
+                }
+            };
+            hub.subsession_send(&caller, &target, text, attachments, deliver, prompt_id).await
         }
         method::MUX_SUBSESSION_ANSWER => {
             let key = str_param(params, "sessionId")

@@ -29,6 +29,7 @@ import { ccRoute } from "../chief-brain-cc/vm.ts"
 import { ccNotes } from "../chief-brain-cc/turn.ts"
 import { toolFiles, toolsCall } from "../chief-brain-cc/tools.ts"
 import { wakeFire } from "../chief-brain-cc/wake.ts"
+import { chiefJobWake, type ChiefJob, type JobDelivery } from "../chief-brain-cc/jobs.ts"
 import { githubCall, githubDump, type GithubHost, githubPoll, type GithubStatus, githubTurn } from "../chief-brain-cc/github.ts"
 import { ccSandbox, ccSandboxPurge, ccSandboxRetire } from "../chief-brain-cc/sandbox.ts"
 import { type AppendBody, type AppendResult, IMPORT_SCHEMA, type ImportBody, type ImportFail, type ImportStatus, appendBatch, importBatch, importing, importStatus } from "./memory-import.ts"
@@ -504,6 +505,11 @@ export class ChiefBrainDO extends DurableObject<Env> {
   /** The Chief was deleted: its sandboxes are deleted and its Freestyle identity goes. */
   async ccSandboxPurge(): Promise<{ deleted: number; left: number; revoked: boolean }> {
     return ccSandboxPurge(this)
+  }
+
+  /** A run of one of this Chief's jobs (chief-brain-cc/jobs.ts, AutomationRunWorkflow): its note starts a turn here. */
+  async chiefJob(j: ChiefJob): Promise<JobDelivery> {
+    return chiefJobWake(this, j)
   }
 
   /** MuxDO forwards a committed wake here. Pulls the conversation's new messages as the chief and starts a turn. */

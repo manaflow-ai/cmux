@@ -94,6 +94,52 @@
   width: 26px;
   height: 2px;
 }
+/* The ticks' entrance (Leo 2026-10-25: "the animation ... those sort of lines pop up. There should
+   be a little bit more easing"): each new tick grows out from the rail's edge on the hover's spring
+   and fades in ease-out over the micro step, staggered down the rows on screen by their place in the
+   rail's room (--acpmux-minimap-row from --acpmux-minimap-first, over --acpmux-minimap-rows), so the
+   whole rail is in by the micro step plus TICK_STAGGER (72 ms), under 200 ms. It runs once per mounted
+   tick and stops at its end; it holds no timer and nothing to clean up. A scrolled-past row has a
+   negative place and starts at once. None under Reduce Motion (the system's, the app's motion gate,
+   or the rail's own check). The full-height map (ScrollMap.tsx) keeps its marks still. */
+.acpmux-minimap__tick {
+  --acpmux-minimap-stagger: clamp(
+    0ms,
+    calc((var(--acpmux-minimap-row, 0) - var(--acpmux-minimap-first, 0)) * 72ms / var(--acpmux-minimap-rows, 1)),
+    72ms
+  );
+}
+/* Only while the system allows motion: the media query, not a later override, so turning Reduce
+   Motion on with the rail mounted stops the entrance for every tick added after (the rail's own
+   `data-reduce` is read only at mount, hover and focus). */
+@media (prefers-reduced-motion: no-preference) {
+  .acpmux-minimap__rail:not(.acpmux-scrollmap) .acpmux-minimap__bar {
+    animation: acpmux-minimap-tick-in var(--cmux-motion-micro) cubic-bezier(0.25, 1, 0.5, 1) var(--acpmux-minimap-stagger) backwards;
+    animation: acpmux-minimap-tick-in var(--cmux-motion-micro) var(--acpmux-minimap-spring) var(--acpmux-minimap-stagger) backwards;
+  }
+  .acpmux-minimap__rail:not(.acpmux-scrollmap) .acpmux-minimap__dot {
+    animation: acpmux-minimap-dot-in var(--cmux-motion-micro) ease-out var(--acpmux-minimap-stagger) backwards;
+  }
+}
+@keyframes acpmux-minimap-tick-in {
+  from {
+    opacity: 0;
+    transform: scaleX(0);
+  }
+}
+@keyframes acpmux-minimap-dot-in {
+  from {
+    opacity: 0;
+  }
+}
+:root[data-cmux-motion="off"] .acpmux-minimap__bar,
+:root[data-cmux-motion="off"] .acpmux-minimap__dot,
+:root[data-cmux-motion="reduced"] .acpmux-minimap__bar,
+:root[data-cmux-motion="reduced"] .acpmux-minimap__dot,
+.acpmux-minimap__rail[data-reduce] .acpmux-minimap__bar,
+.acpmux-minimap__rail[data-reduce] .acpmux-minimap__dot {
+  animation: none;
+}
 /* The bookmark dot: 2 px round, 2 px past the tick's end; it moves with the tick. */
 .acpmux-minimap__dot {
   left: 2px;
@@ -120,6 +166,7 @@
   }
   .acpmux-minimap__bar,
   .acpmux-minimap__dot {
+    animation: none;
     transition: none;
   }
 }
@@ -188,10 +235,22 @@
 .acpmux-minimap__tick[data-tone="active"] .acpmux-minimap__bar {
   opacity: 1;
 }
-/* A bookmarked prompt draws its tick and dot at full opacity in its color. */
-.acpmux-minimap__tick[data-bookmarked] .acpmux-minimap__bar,
-.acpmux-minimap__tick[data-bookmarked] .acpmux-minimap__dot,
-.acpmux-minimap__rail[data-hovering] .acpmux-minimap__tick[data-bookmarked] .acpmux-minimap__bar {
+/* A bookmarked prompt, as ChatGPT's rail draws one (Leo 2026-10-25: "when I bookmark something, it
+   shouldn't be just at the full brightness ... It should be, like, grayed out"): its tick and dot stay
+   the resting grey, a step brighter than rest (--acpmux-minimap-mark, mark.experiment.ts), never the
+   text at full brightness. On the screen's band it is lit as its neighbours; hovered, scrubbed or
+   focused (data-tone active) its tick and dot turn the text, at once. */
+.acpmux-minimap__tick[data-bookmarked]:not([data-tone="current"]) .acpmux-minimap__bar {
+  opacity: var(--acpmux-minimap-mark, 0.7);
+}
+.acpmux-minimap__tick[data-bookmarked] .acpmux-minimap__dot {
+  opacity: var(--acpmux-minimap-mark-dot, 0.7);
+}
+.acpmux-minimap__tick[data-bookmarked][data-tone="current"] .acpmux-minimap__dot {
+  opacity: var(--acpmux-minimap-lit, 0.75);
+}
+.acpmux-minimap__tick[data-bookmarked][data-tone="active"] .acpmux-minimap__bar,
+.acpmux-minimap__tick[data-bookmarked][data-tone="active"] .acpmux-minimap__dot {
   opacity: 1;
 }
 /* The dot's hit area: the row's right end past the tick (26 px), so the tick keeps its click. It
@@ -383,8 +442,9 @@
 .acpmux-scrollmap__mark[data-tone="active"] .acpmux-minimap__bar {
   opacity: 1;
 }
-/* A bookmarked prompt's tick stays at full opacity on the full map too. */
-.acpmux-scrollmap__mark[data-bookmarked] .acpmux-minimap__bar,
-.acpmux-minimap__rail[data-hovering] .acpmux-scrollmap__mark[data-bookmarked] .acpmux-minimap__bar {
-  opacity: 1;
+/* A bookmarked prompt's tick on the full map: the same grey step as the compact rail's, the text
+   only when hovered or previewed. */
+.acpmux-scrollmap__mark[data-bookmarked]:not([data-tone="current"]):not([data-tone="active"]) .acpmux-minimap__bar,
+.acpmux-minimap__rail[data-hovering] .acpmux-scrollmap__mark[data-bookmarked]:not([data-tone="current"]):not([data-tone="active"]) .acpmux-minimap__bar {
+  opacity: var(--acpmux-minimap-mark, 0.7);
 }

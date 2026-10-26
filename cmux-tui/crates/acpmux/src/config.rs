@@ -827,7 +827,7 @@ pub struct Config {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub stalled_turn_end_ms: Option<u64>,
     /// `autoResumeDelaysMs`: the wait before each automatic continuation of a turn a
-    /// connection error cut off (`hub/auto_resume.rs`), one entry per attempt. Default
+    /// connection or capacity error cut off (`hub/auto_resume.rs`), one entry per attempt. Default
     /// `[10000, 60000, 300000, 1200000]`; `[]` turns it off. Checked on load: at most 4
     /// entries of 1 s to 1 h; anything else falls back to the default with a warning.
     #[serde(
@@ -1246,6 +1246,16 @@ pub fn write_atomic(path: &Path, bytes: &[u8]) -> Result<()> {
     static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
     let n = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let tmp = path.with_extension(format!("tmp-{}-{n}", std::process::id()));
+    let written = write_then_rename(&tmp, path, bytes);
+    // A failed write (a full disk) leaves no partial temporary file to hold
+    // the space it ran out of; every retry uses a new name.
+    if written.is_err() {
+        let _ = std::fs::remove_file(&tmp);
+    }
+    written
+}
+
+fn write_then_rename(tmp: &Path, path: &Path, bytes: &[u8]) -> Result<()> {
     // Owner-only from creation: these files hold tokens and session data.
     #[cfg(unix)]
     {
@@ -1257,7 +1267,7 @@ pub fn write_atomic(path: &Path, bytes: &[u8]) -> Result<()> {
             .truncate(true)
             .mode(0o600)
             .custom_flags(libc::O_NOFOLLOW)
-            .open(&tmp)
+            .open(tmp)
             .with_context(|| format!("write {}", tmp.display()))?;
         f.write_all(bytes).with_context(|| format!("write {}", tmp.display()))?;
         // On disk before the rename: a power loss never leaves an empty
@@ -1269,10 +1279,10 @@ pub fn write_atomic(path: &Path, bytes: &[u8]) -> Result<()> {
     {
         use std::io::Write;
         // A file a crashed process left under a reused pid is stale.
-        let mut f = match crate::owner_only::create_new(&tmp) {
+        let mut f = match crate::owner_only::create_new(tmp) {
             Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
-                std::fs::remove_file(&tmp).with_context(|| format!("remove {}", tmp.display()))?;
-                crate::owner_only::create_new(&tmp)
+                std::fs::remove_file(tmp).with_context(|| format!("remove {}", tmp.display()))?;
+                crate::owner_only::create_new(tmp)
             }
             other => other,
         }
@@ -1280,7 +1290,7 @@ pub fn write_atomic(path: &Path, bytes: &[u8]) -> Result<()> {
         f.write_all(bytes).with_context(|| format!("write {}", tmp.display()))?;
         f.sync_all().with_context(|| format!("sync {}", tmp.display()))?;
     }
-    std::fs::rename(&tmp, path).with_context(|| format!("rename to {}", path.display()))?;
+    std::fs::rename(tmp, path).with_context(|| format!("rename to {}", path.display()))?;
     // The rename itself is durable once its directory is synced.
     #[cfg(unix)]
     if let Some(dir) = path.parent()

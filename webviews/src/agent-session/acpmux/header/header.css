@@ -1,16 +1,24 @@
 /* The chat header's tools (header/ChatHeaderTools.tsx), as Claude Code desktop's top strip draws them (Leo 2026-10-21:
    "why do you still have this spacing and these separators"): 24px square buttons on a 26px pitch with no separators,
-   one 16px glyph size (HEADER_GLYPH), a soft neutral tint on hover and while a toggle's panel is open, nothing on press
-   (composer-no-hover-highlight). The "..." menu (src/ui Menu) sits on the menu surface. */
+   one 16px glyph size (HEADER_GLYPH), nothing on press (composer-no-hover-highlight). In the chat header's row they are
+   plain glyphs with no fill, border or shadow of their own in any state (Leo 2026-10-25: "why do the icons have their
+   own background border situation instead of just being, you know, good"): muted at rest, the text's ink on hover,
+   while a menu is open and while a toggle's panel is open; the 24px square stays the hit target. The "..." menu
+   (src/ui Menu) sits on the menu surface. */
 .acpmux-header-tools{flex:none;display:flex;align-items:center;gap:2px}
 .acpmux-header-tool-group{display:flex;align-items:center;gap:2px;min-width:0}
 .acpmux-header-tool{flex:none;display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;padding:0;border:0;border-radius:6px;background:none;color:inherit;font:inherit;cursor:default;transition:background-color var(--acpmux-motion-hover,80ms) var(--acpmux-motion-ease,ease-out)}
 .acpmux-header-tool:disabled{color:var(--agent-muted)}
-.acpmux-header-tool:not(:disabled):hover,.acpmux-header-tool[data-popup-open]{background:color-mix(in srgb,currentColor 8%,transparent)}
 .acpmux-header-tool:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:1px}
-/* On: a toggle whose panel is open (aria-pressed, cx-00n1), Claude's soft rounded tint in the text's own color. */
-.acpmux-header-tool[aria-pressed=true]{background:color-mix(in srgb,var(--agent-text) 11%,transparent);color:var(--agent-text)}
-.acpmux-header-tool[aria-pressed=true]:not(:disabled):hover{background:color-mix(in srgb,var(--agent-text) 14%,transparent)}
+.acpmux-header-tools .acpmux-header-tool{color:var(--agent-muted);transition:color var(--acpmux-motion-hover,80ms) var(--acpmux-motion-ease,ease-out)}
+.acpmux-header-tools .acpmux-header-tool:disabled{color:var(--agent-soft)}
+.acpmux-header-tools .acpmux-header-tool:not(:disabled):hover,.acpmux-header-tools .acpmux-header-tool[data-popup-open]{color:var(--agent-text)}
+/* On: a toggle whose panel is open (aria-pressed, cx-00n1): the text's ink, and the panel toggle's glyph its filled form. */
+.acpmux-header-tools .acpmux-header-tool[aria-pressed=true]{color:var(--agent-text)}
+/* Start Agent's floating chat (FloatingChat.tsx) borrows the tool's square and keeps its soft tint on hover and while on. */
+.acpmux-floating-header .acpmux-header-tool:not(:disabled):hover,.acpmux-floating-bar .acpmux-header-tool:not(:disabled):hover,.acpmux-floating-header .acpmux-header-tool[data-popup-open],.acpmux-floating-bar .acpmux-header-tool[data-popup-open]{background:color-mix(in srgb,currentColor 8%,transparent)}
+.acpmux-floating-header .acpmux-header-tool[aria-pressed=true],.acpmux-floating-bar .acpmux-header-tool[aria-pressed=true]{background:color-mix(in srgb,var(--agent-text) 11%,transparent);color:var(--agent-text)}
+.acpmux-floating-header .acpmux-header-tool[aria-pressed=true]:not(:disabled):hover,.acpmux-floating-bar .acpmux-header-tool[aria-pressed=true]:not(:disabled):hover{background:color-mix(in srgb,var(--agent-text) 14%,transparent)}
 .ui-popup.acpmux-chat-menu-popover{width:256px;max-height:var(--available-height,min(540px,70vh));overflow:auto;padding:var(--ui-popup-padding);box-sizing:border-box;border:0;border-radius:var(--ui-popup-radius);transform-origin:var(--transform-origin);color:var(--agent-text);font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text",system-ui,sans-serif;font-size:var(--text-control);line-height:var(--text-control--line-height);-webkit-user-select:none;user-select:none;cursor:default;outline:none}
 .ui-menu-item.acpmux-chat-menu-item{display:flex;align-items:center;gap:8px;width:100%;min-height:var(--ui-row-height);height:var(--ui-row-height);padding:0 var(--ui-row-padding-inline);box-sizing:border-box;border-radius:var(--ui-row-radius);color:inherit;cursor:default;transition:background-color var(--acpmux-motion-hover,80ms) var(--acpmux-motion-ease,ease-out)}
 .acpmux-chat-menu-item>svg{flex:none;color:var(--agent-muted)}

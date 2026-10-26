@@ -119,7 +119,7 @@ mod processes;
 mod pull_requests;
 pub(crate) mod questions;
 mod remote_floor;
-mod remote_sandbox;
+pub(crate) mod remote_sandbox;
 pub use remote_sandbox::vm_host_peer_approves;
 mod start_gate;
 pub(crate) use start_gate::host_label;
@@ -276,6 +276,11 @@ pub struct PromptOptions {
     /// A steer (`_meta.acpmux.interrupt`) that an agent which cannot steer takes as "stop the
     /// running turn and run this next" instead of waiting behind the queue.
     pub interrupt: bool,
+    /// With `interrupt`, the turn it was aimed at: only that turn stops. A send-now whose turn
+    /// ended before the agent took it still goes next, but a turn that began meanwhile (another
+    /// agent's message) runs on (Leo, 2026-10-21: "that might have accidentally swallowed up a
+    /// queued message").
+    pub interrupt_turn: Option<String>,
     /// Who sent the prompt, when not the person (`prompt_provenance.rs`).
     pub provenance: Option<Value>,
     /// Another agent's name when it sent the prompt with no provenance: the session a
@@ -430,6 +435,9 @@ pub struct Hub {
     pub(super) subsessions: subsessions::Index,
     /// Run slots of each session's sub-sessions (`subsession_runs.rs`).
     pub(super) subsession_runs: Arc<subsession_runs::Runs>,
+    /// `_acpmux/wait` requests subscribed and not yet answered (`server/wait.rs`), shown
+    /// as `_acpmux/status` `openWaits`.
+    pub(crate) open_waits: std::sync::atomic::AtomicUsize,
     /// Automatic continuations waiting to fire, by chat (`auto_resume.rs`).
     pub(super) auto_resumes: auto_resume::Pending,
     /// Fired by `set_transfer_lease`: each move's watch reads the new lease now.
@@ -532,6 +540,7 @@ impl Hub {
             offers: Default::default(),
             subsessions: Default::default(),
             subsession_runs: Default::default(),
+            open_waits: Default::default(),
             auto_resumes: Default::default(),
             transfer_lease_changed: Notify::new(),
             secrets: Default::default(),
