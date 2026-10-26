@@ -213,6 +213,10 @@ export function startModeChanged(): void {
 export function setStartModeSource(next: AskStartMode | undefined): void {
   if (ask === next) return;
   ask = next;
+  // What the previous connection's daemon said about full access is not this one's: forgotten,
+  // and an answer still on its way from it (an older ticket) changes nothing.
+  fullAccessAsked += 1;
+  fullAccessManaged = false;
   startModeChanged();
 }
 

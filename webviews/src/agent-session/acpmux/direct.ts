@@ -5238,8 +5238,8 @@ export class AcpmuxDirectClient {
   /// as acpmux decides it; undefined when it would set none, does not know, or predates the method.
   /// Rejects when it could not be asked (no socket, the request failed): that is no answer.
   async startMode(harness: string, cwd?: string): Promise<StartMode | undefined> {
+    const ticket = fullAccessTicket();
     try {
-      const ticket = fullAccessTicket();
       const answer = (await this.request("_acpmux/start_mode", cwd ? { harness, cwd } : { harness })) as {
         harness?: unknown;
         modeId?: unknown;
@@ -5266,7 +5266,11 @@ export class AcpmuxDirectClient {
       // that never reached it, or whose socket closed, answered nothing (startMode.ts keeps what it had).
       // The pane's host refusing to relay it (`data.origin: "native"`, such as a new workspace's home
       // folder outside the roots it relays) is one of those: acpmux never saw the ask.
-      if (error instanceof AcpmuxRpcError && !refusedByHost(error)) return undefined;
+      // Its refusal carries no `fullAccess` either: a daemon that predates it manages nothing.
+      if (error instanceof AcpmuxRpcError && !refusedByHost(error)) {
+        rememberFullAccess(undefined, ticket);
+        return undefined;
+      }
       throw error;
     }
   }
