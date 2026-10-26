@@ -38,7 +38,7 @@ extension GhosttyRuntime {
         guard app != nil, Self.themeOverrideLine(name) != nil else { return nil }
         var diagnostics: [String] = []
         var opacity: Double = 1
-        guard let config = Self.loadConfig(diagnostics: &diagnostics, opacity: &opacity, theme: name) else { return nil }
+        guard let config = Self.loadConfig(diagnostics: &diagnostics, opacity: &opacity, theme: name, files: launchFiles) else { return nil }
         let themed = GhosttyThemeConfig(config: config, themeName: name,
                                         colors: Self.themeColors(of: config, backgroundOpacity: opacity))
         themeConfigs[name] = themed

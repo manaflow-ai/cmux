@@ -136,7 +136,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         TerminalThemeSetting.prime(settingsRead.snapshot)
         DebugTimings.markLaunch("dfl.settings_read")
         // Chrome colors derive from the Ghostty theme; load it before any window.
-        ThemeBridge.start(store: ThemeScope.app.store)
+        ThemeBridge.start(store: ThemeScope.app.store, ghosttyConfig: environment.ghosttyConfig)
         // The diff page's files live in the app bundle (markdown-viewer/webviews-app).
         PageDescriptor.registerDiffRoot()
         PageDescriptor.registerFilePageRoots()
@@ -176,10 +176,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         services.palettes.bindRegistryActions()  // the palette itself is built after the first frame, or by the first palette key
         let ghosttyKeybinds = GhosttyKeybindSync(router: services.keyRouter, launchImages: launchImageHold)
         self.ghosttyKeybinds = ghosttyKeybinds
-        ghosttyKeybinds.start()
+        ghosttyKeybinds.start(after: order.startup)  // the first window needs no Ghostty keybind or config watch
         let ghosttyConfigLiveReload = GhosttyConfigLiveReload()
         self.ghosttyConfigLiveReload = ghosttyConfigLiveReload
-        ghosttyConfigLiveReload.start()
+        ghosttyConfigLiveReload.start(after: order.startup)
         // App-scoped Ghostty actions (quit, toggle_visibility, ...) arrive with no surface.
         TerminalHooks(services: services).install()
         // The terminal key path's input-source switch keys, read off main now and on each activation.

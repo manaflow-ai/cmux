@@ -3,6 +3,7 @@ import CmuxNextActions
 import CmuxNextTerminal
 import CmuxNextFocusUI
 import CmuxNextLaunch
+import CmuxNextWakeups
 
 /// The Ghostty config's keybinds as binding table entries (GHOSTTY-CONFIG,
 /// plans/cmux-next/ghostty-config.md "Keybinds"; PANE-FOCUS-RESIZE-KEYS-AND-
@@ -115,6 +116,11 @@ final class GhosttyKeybindSync {
     init(router: KeyRouter, launchImages: LaunchImageHold) {
         self.router = router
         self.launchImages = launchImages
+    }
+
+    /// ``start()`` right after the first frame (p08-startup-026): the first window needs no Ghostty keybind.
+    func start(after startup: StartupScheduler) {
+        startup.post(.afterFirstFrame, "Ghostty.keybindSync", on: .main) { [weak self] in self?.start() }
     }
 
     func start() {

@@ -84,7 +84,7 @@ extension GhosttyRuntime {
     /// The applied config's diagnostics snapshot; nil when none loaded.
     public var configDiagnosticsSnapshot: GhosttyConfigDiagnosticsSnapshot? {
         guard let config else { return nil }
-        return Self.snapshot(of: config)
+        return Self.snapshot(of: config, memory: configMemoryFiles)
     }
 
     /// The diagnostics of the file at `path` loaded alone with its includes,
@@ -103,8 +103,9 @@ extension GhosttyRuntime {
     /// each key, so includes and the last assignment count as in Ghostty;
     /// cmux's built-in defaults are not files and never show), libghostty's
     /// messages and the loaded files.
-    static func snapshot(of config: ghostty_config_t) -> GhosttyConfigDiagnosticsSnapshot {
-        let files = loadedFiles(of: config)
+    /// `memory`: the files it was loaded from in memory (``loadedFiles(of:memory:)``).
+    static func snapshot(of config: ghostty_config_t, memory: [String] = []) -> GhosttyConfigDiagnosticsSnapshot {
+        let files = loadedFiles(of: config, memory: memory)
         var order: [String: Int] = [:]
         for (index, file) in files.enumerated() where order[resolved(file)] == nil {
             order[resolved(file)] = index

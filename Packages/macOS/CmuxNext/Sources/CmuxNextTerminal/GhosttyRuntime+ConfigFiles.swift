@@ -6,9 +6,26 @@ import GhosttyNextKit
 /// order. Settings shows the first as the config's source; a reload watcher
 /// watches all of them.
 extension GhosttyRuntime {
+    /// The config files the launch read into memory (``GhosttyConfigFiles/prefetch(on:)``), set before the
+    /// first access to ``shared``: its first load takes them and reads no config file on the main thread.
+    /// Nil leaves that load to read the disk.
+    public static var launchConfigFiles: GhosttyConfigFiles?
+
+    /// ``launchConfigFiles``, taken once.
+    static func takeLaunchConfigFiles() -> GhosttyConfigFiles? {
+        defer { launchConfigFiles = nil }
+        return launchConfigFiles
+    }
+
+    /// Ends the launch's use of the files read in `main`: later loads read the disk, so they see every
+    /// change. Call it before the config files are watched (``liveReloadConfigFiles``).
+    public func endLaunchConfig() {
+        launchFiles = nil
+    }
+
     public var loadedConfigFiles: [String] {
         guard let config else { return [] }
-        return Self.loadedFiles(of: config)
+        return Self.loadedFiles(of: config, memory: configMemoryFiles)
     }
 
     /// The files that can change which Ghostty config is loaded. The finalized
@@ -52,10 +69,17 @@ extension GhosttyRuntime {
         return paths
     }
 
-    nonisolated static func loadedFiles(of config: ghostty_config_t) -> [String] {
-        (0..<ghostty_config_loaded_file_count(config)).compactMap { index in
+    /// The files `config` was loaded from: `memory`, the files loaded from memory
+    /// (``GhosttyConfigFiles``, which libghostty does not list), then the files
+    /// libghostty read itself (all of them on the disk path; the theme files,
+    /// read at finalize, on either), once each: the order libghostty lists
+    /// when it reads every file.
+    nonisolated static func loadedFiles(of config: ghostty_config_t, memory: [String] = []) -> [String] {
+        let read = (0..<ghostty_config_loaded_file_count(config)).compactMap { index in
             ghostty_config_loaded_file(config, index).map { String(cString: $0) }
         }
+        var seen = Set<String>()
+        return (memory + read).filter { seen.insert($0).inserted }
     }
 
     /// The files a config made of `path` and its includes reads, for tests.

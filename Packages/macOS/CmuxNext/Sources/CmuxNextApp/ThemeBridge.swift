@@ -20,7 +20,10 @@ enum ThemeBridge {
     }
 
     /// Feeds `store` (the app's, from the composition root) the Ghostty config now and on every reload.
-    static func start(store: ThemeStore) {
+    /// `ghosttyConfig`, the config files `main` read, goes to the runtime's first load when the read has
+    /// ended; it is never waited for (p08-startup-026).
+    static func start(store: ThemeStore, ghosttyConfig: LaunchRead<GhosttyConfigFiles?>? = nil) {
+        if let files = ghosttyConfig?.value ?? nil { GhosttyRuntime.launchConfigFiles = files }
         let runtime = GhosttyRuntime.shared
         let previous = runtime.onConfigChange
         runtime.onConfigChange = { [weak store] in

@@ -9,6 +9,8 @@ import CmuxNextWakeups
 final class GhosttyConfigLiveReload {
     private let files: @MainActor () -> [String]
     private let reload: @MainActor () -> Void
+    /// Ends the launch's in-memory config files (``GhosttyRuntime/endLaunchConfig()``) once the watch starts.
+    private let endLaunch: @MainActor () -> Void
     private let notifications: NotificationCenter
     private let reloadTimer = DemandTimer(owner: "GhosttyConfigLiveReload.reload")
     private var watchers: [ConfigFileWatcher] = []
@@ -18,10 +20,12 @@ final class GhosttyConfigLiveReload {
     init(
         files: @escaping @MainActor () -> [String] = { GhosttyRuntime.shared.liveReloadConfigFiles },
         reload: @escaping @MainActor () -> Void = { GhosttyRuntime.shared.reloadConfig() },
+        endLaunch: @escaping @MainActor () -> Void = { GhosttyRuntime.shared.endLaunchConfig() },
         notifications: NotificationCenter = .default
     ) {
         self.files = files
         self.reload = reload
+        self.endLaunch = endLaunch
         self.notifications = notifications
     }
 
@@ -35,9 +39,17 @@ final class GhosttyConfigLiveReload {
         }
     }
 
+    /// ``start()`` right after the first frame (p08-startup-026): until then the launch's loads use the
+    /// config files read in `main`, and no file is watched.
+    func start(after startup: StartupScheduler) {
+        startup.post(.afterFirstFrame, "Ghostty.configLiveReload", on: .main) { [weak self] in self?.start() }
+    }
+
     func start() {
         guard !started else { return }
         started = true
+        // From the watch on, every load reads the disk, so a change it reports is loaded.
+        endLaunch()
         observer = notifications.addObserver(forName: GhosttyRuntime.configDidChange, object: nil, queue: .main) { [weak self] _ in
             Task { @MainActor in self?.rearm() }
         }

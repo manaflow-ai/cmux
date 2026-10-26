@@ -1,6 +1,7 @@
 import CmuxNextCompat
 import CmuxNextControl
 import CmuxNextDaemon
+import CmuxNextDesign
 import CmuxNextHomeEngine
 import CmuxNextTerminal
 import Foundation
@@ -61,6 +62,9 @@ struct AppEnvironment: Sendable {
     /// it each `HomeService` uses a temporary folder of its own (tests that build `AppServices`), so
     /// no test reads a draft another test typed in the same conversation.
     var homeCachesDirectory: URL?
+    /// The Ghostty config files read from `main` (``GhosttyConfigFiles/prefetch(on:)``): only the real app
+    /// process sets it; without it the terminal runtime reads them itself.
+    var ghosttyConfig: LaunchRead<GhosttyConfigFiles?>?
 
     var tag: String? { launch.tag }
     /// The build whose state roots this app uses (per-build isolation, cx-is1kf).
