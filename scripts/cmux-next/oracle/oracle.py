@@ -32,8 +32,11 @@ A result is {"status": "Pass"|"Failure"|"Crash"|"Timeout", "checkpoints": [{"ste
 optional "uncertain": true, optional "notComparable": [facet, ...]}], "message": str,
 optional "step" (where a Crash or Timeout happened), optional "session_dirty": true (LeakedState
 or a lost process: the next case gets a fresh session), optional "switch_hits": {name: {arm:
-count}}}. This file hashes each snapshot (sha256 of its sorted-key compact JSON) and decides
-flakiness by hashes; diff.py compares the snapshot values.
+count}} (the per-site hit counters, by the arm each site ran), optional "switch_readback": {name:
+arm} (the arm the product reports: snapshot.switches for the app, identify for the daemon; task
+049)}. Switch names are registry names (plans/cmux-next/refactor-switches/<name>.json). This file
+hashes each snapshot (sha256 of its sorted-key compact JSON) and decides flakiness by hashes;
+diff.py compares the snapshot values.
 
 Run directory (`run --out DIR`; the format diff.py (014) reads, with the extra fields below):
     receipt.json       {"schema": "cmux-oracle-run-v1", "runId", "sha", "host": {"name", "os",
@@ -50,10 +53,22 @@ run format baselines.py (016) reads (a `cases` list, the case name without its s
 `baselines.py rebaseline` on it.
 
 `diff` exit codes: 0 no unexplained divergence, 1 divergences, 2 bad input, 3 refused (host
-mismatch, an incomplete or mismatched shard set, nothing compared), 4 diff.py internal error.
+mismatch, an incomplete or mismatched shard set, nothing compared, and for --switch:
+arm-not-applied, arm-not-exercised, arms-read-back-same, arms-differ-beyond-switch), 4 diff.py
+internal error. Every diff writes comparison.json and divergences.jsonl (one line per divergent
+case; empty when the comparison is refused or clean) in --out.
+
+`diff --switch NAME` (spec 3F.2, task 111) is the virtual suite of one refactor switch, like
+`run_web_tests.py --flag-specific=NAME`: the same build runs the switch's `suites` on arm old and
+arm new, shard by shard with the two arms back to back on this host (`--shards N` runs every
+shard here, `--shard I/N` one shard for a worker; `--base-run`/`--head-run` compare the old and
+new arm runs a worker wrote). The registry's expected_differences are its FlagExpectations. The
+comparison is evidence only when each arm read back its own arm, the arms read back differently
+in every snapshot (diff.py --arm-pointer), and the hit counters show each arm ran its own sites
+and none of the other's, with hits in every case that lists the switch.
 
 Sibling interfaces this file calls:
-    diff.py A_DIR B_DIR --out divergence.json [--expected FILE] [--case GLOB]       (014)
+    diff.py A_DIR B_DIR --out divergence.json [--expected FILE] [--arm-pointer P]   (014, 111)
     baselines.Store(root).read(suite, case, pdir, arm), platform_dir(platform, product),
         suite_class(suite), BaselineError; baselines.py rebaseline --run DIR         (016)
     expectations.Expectations.load_root(root), RunConfig, resolve, should_run, lint  (015)
@@ -65,6 +80,7 @@ from __future__ import annotations
 
 import argparse
 import concurrent.futures
+import contextlib
 import fnmatch
 import glob
 import hashlib
@@ -139,7 +155,7 @@ DEFAULT_BUILD = {"app": "bench"}
 # Products served by the cmux-tui binary that linux_run.sh builds per SHA.
 RUST_PRODUCTS = frozenset({"daemon", "cli", "mcp", "tui"})
 
-DIFF_OK, DIFF_DIVERGENT, DIFF_BAD_INPUT, DIFF_HOST_MISMATCH, DIFF_INTERNAL = 0, 1, 2, 3, 4
+DIFF_OK, DIFF_DIVERGENT, DIFF_BAD_INPUT, DIFF_HOST_MISMATCH, DIFF_INTERNAL, DIFF_ARMS_SAME = 0, 1, 2, 3, 4, 5
 EXIT_REFUSED = 3
 
 DELEGATES: Dict[str, Tuple[str, Tuple[str, ...], str]] = {
@@ -454,6 +470,7 @@ class Attempt:
     switch_hits: Dict[str, Dict[str, int]] = field(hash=False, compare=False)
     # Snapshot rows are kept for the first attempt only: it is the one checkpoints.jsonl holds.
     rows: Tuple[Dict[str, Any], ...] = field(default=(), hash=False, compare=False)
+    switch_readback: Dict[str, str] = field(default_factory=dict, hash=False, compare=False)
 
 
 @dataclass(frozen=True)
@@ -489,6 +506,9 @@ def coerce_result(raw: Any) -> Dict[str, Any]:
             if cp.get(extra):
                 row[extra] = cp[extra]
         rows.append(row)
+    readback = raw.get("switch_readback") or {}
+    if not (isinstance(readback, dict) and all(isinstance(k, str) and isinstance(v, str) for k, v in readback.items())):
+        return crash(f"driver returned a malformed switch_readback {readback!r:.200}")
     step = raw.get("step")
     return {
         "status": status,
@@ -498,6 +518,7 @@ def coerce_result(raw: Any) -> Dict[str, Any]:
         "step": step if isinstance(step, str) else None,
         "session_dirty": bool(raw.get("session_dirty")),
         "switch_hits": raw.get("switch_hits") or {},
+        "switch_readback": dict(readback),
     }
 
 
@@ -676,6 +697,7 @@ def execute(plan: Plan, options: RunOptions, open_session: SessionOpener, expect
                 Attempt(
                     work.case.id, iteration, attempt, phase, result["status"], result.get("step"), result["checkpoints"],
                     result["message"], ms, result.get("switch_hits") or {}, result["rows"] if first else (),
+                    result.get("switch_readback") or {},
                 )
             )
             statuses[work.case.id] = (result["status"], result.get("step"))
@@ -770,13 +792,25 @@ def sum_switch_hits(hit_maps: Iterable[Mapping[str, Mapping[str, int]]]) -> Dict
     return total
 
 
-def run_summary(cases: Mapping[str, Mapping[str, Any]], *, hits: Dict[str, Dict[str, int]], config: Mapping[str, Any],
+def count_readback(readbacks: Iterable[Mapping[str, str]]) -> Dict[str, Dict[str, int]]:
+    """Attempts per (switch, arm read back): the same shape as the hit counters, so shards sum."""
+    return sum_switch_hits({name: {arm: 1} for name, arm in (readback or {}).items()} for readback in readbacks)
+
+
+def arms_seen(counts: Mapping[str, Mapping[str, int]], name: str) -> List[str]:
+    return sorted(arm for arm, n in (counts.get(name) or {}).items() if n)
+
+
+def run_summary(cases: Mapping[str, Mapping[str, Any]], *, hits: Dict[str, Dict[str, int]],
+                readback: Dict[str, Dict[str, int]], config: Mapping[str, Any],
                 dry_run: bool, infra_errors: Sequence[str]) -> Dict[str, Any]:
     """The receipt fields that follow from its cases; one function for a shard and a merge."""
     arm_exercised: Optional[bool] = None
+    arm_applied: Optional[bool] = None
     switch, arm = config.get("switch"), config.get("arm")
     if switch and arm and not dry_run and any(r["attempts"] for r in cases.values()):
         arm_exercised = hits.get(switch, {}).get(arm, 0) > 0
+        arm_applied = arms_seen(readback, switch) == [arm]
     counts: Dict[str, int] = {}
     for record in cases.values():
         counts[record["outcome"]] = counts.get(record["outcome"], 0) + 1
@@ -787,8 +821,10 @@ def run_summary(cases: Mapping[str, Mapping[str, Any]], *, hits: Dict[str, Dict[
         "unexpected": unexpected,
         "unexpected_passes": sorted(cid for cid, r in cases.items() if r["outcome"] == "unexpected-pass"),
         "switch_hits": hits,
+        "switch_readback": readback,
         "arm_exercised": arm_exercised,
-        "ok": not unexpected and not infra_errors and arm_exercised is not False,
+        "arm_applied": arm_applied,
+        "ok": not unexpected and not infra_errors and arm_exercised is not False and arm_applied is not False,
     }
 
 
@@ -858,6 +894,9 @@ def perform_run(
             record = classify(by_case[case.id], exp)
         first = next((a for a in by_case[case.id] if a.iteration == 0 and a.attempt == 0), None)
         record.update(suite=case.suite, expected=sorted(exp.results), checkpoints=len(first.checkpoints) if first else 0)
+        if case.data.get("switches"):
+            # The compared attempt's hits: a case that lists a switch must hit it on each arm.
+            record.update(switches=sorted(case.data["switches"]), switch_hits=sum_switch_hits([first.switch_hits] if first else []))
         records[case.id] = record
         if first is not None:
             rows.extend(checkpoint_rows(case.id, first.rows, attempt=0, result=first.status))
@@ -886,7 +925,8 @@ def perform_run(
         "batches": len(plan.batches),
         "cases": records,
         "infra_errors": errors,
-        **run_summary(records, hits=sum_switch_hits(a.switch_hits for a in attempts), config=config,
+        **run_summary(records, hits=sum_switch_hits(a.switch_hits for a in attempts),
+                      readback=count_readback(a.switch_readback for a in attempts), config=config,
                       dry_run=options.dry_run, infra_errors=errors),
     }
     write_json(options.out / "receipt.json", receipt)
@@ -1014,7 +1054,8 @@ def merge_runs(directories: Sequence[Path], *, require_complete: bool) -> Tuple[
         "batches": sum(r["batches"] for r in loaded),
         "cases": cases,
         "infra_errors": infra,
-        **run_summary(cases, hits=sum_switch_hits(r.get("switch_hits") or {} for r in loaded), config=config,
+        **run_summary(cases, hits=sum_switch_hits(r.get("switch_hits") or {} for r in loaded),
+                      readback=sum_switch_hits(r.get("switch_readback") or {} for r in loaded), config=config,
                       dry_run=dry_run, infra_errors=infra),
     }
     merged["ok"] = merged["ok"] and complete and not errors
@@ -1061,11 +1102,14 @@ def comparability(a: RunView, b: RunView, *, partial: bool) -> Optional[str]:
     return None
 
 
-def run_diff_py(a_dir: Path, b_dir: Path, out: Path, expected: Sequence[Path]) -> Tuple[int, Dict[str, Any]]:
+def run_diff_py(a_dir: Path, b_dir: Path, out: Path, expected: Sequence[Path],
+                arm_pointers: Sequence[str] = ()) -> Tuple[int, Dict[str, Any]]:
     script = require_sibling("diff", "p15-oracle-014")
     command = [sys.executable, "-I", str(Path(script.__file__)), str(a_dir), str(b_dir), "--out", str(out)]
     for path in expected:
         command += ["--expected", str(path)]
+    for pointer in arm_pointers:
+        command += ["--arm-pointer", pointer]
     proc = subprocess.run(command, check=False, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
     try:
         document = json.loads(out.read_text(encoding="utf-8"))
@@ -1073,20 +1117,33 @@ def run_diff_py(a_dir: Path, b_dir: Path, out: Path, expected: Sequence[Path]) -
         raise UsageError(f"diff.py exited {proc.returncode} without a readable {out}: {proc.stderr.strip()[-500:]}") from None
     if proc.returncode == DIFF_BAD_INPUT:
         raise UsageError(f"diff.py refused its input: {document.get('error')}")
-    if proc.returncode not in (DIFF_OK, DIFF_DIVERGENT, DIFF_HOST_MISMATCH, DIFF_INTERNAL):
+    if proc.returncode not in (DIFF_OK, DIFF_DIVERGENT, DIFF_HOST_MISMATCH, DIFF_INTERNAL, DIFF_ARMS_SAME):
         raise UsageError(f"diff.py exited {proc.returncode}: {proc.stderr.strip()[-500:]}")
     return proc.returncode, document
+
+
+def write_divergences(path: Path, document: Mapping[str, Any], comparison: Mapping[str, Any]) -> None:
+    """One line per divergent case (diff.py's finding) with the comparison it came from: confirm.py
+    and route.py read these (MQ-divergences). Replaced on every diff, so no old finding survives."""
+    switch = (comparison.get("switch") or {}).get("name")
+    rows = ({**finding, "a_label": comparison["a"], "b_label": comparison["b"], "switch": switch,
+             "comparison": str(path.parent / "comparison.json")} for finding in document.get("divergences", []))
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temp = path.with_name(f".{path.name}.tmp")
+    write_jsonl(temp, rows)
+    temp.replace(path)
 
 
 def compare_views(a: RunView, b: RunView, *, a_dir: Path, b_dir: Path, out: Path, labels: Tuple[str, str],
                   partial: bool, expected: Sequence[Path], rules: Sequence[Dict[str, str]],
                   not_comparable: Optional[Dict[str, str]] = None, refused: Optional[str] = None,
-                  as_json: bool = False) -> int:
+                  as_json: bool = False, arm_pointers: Sequence[str] = (), switch: Optional[Dict[str, Any]] = None) -> int:
     """Checks that the sides are comparable, then hands every comparison to diff.py.
 
-    diff.py owns the host check, the first divergence per case and expected differences, so an
-    all-match comparison from two hosts is refused like a divergent one. Flaky cases are
-    reported as flaky by diff.py and never count as compared.
+    diff.py owns the host check, the first divergence per case, expected differences and the
+    snapshot readback of a switch's arms, so an all-match comparison from two hosts, or of two
+    arms that read back the same, is refused like a divergent one. Flaky cases are reported as
+    flaky by diff.py and never count as compared.
     """
     target = out / "divergence.json"
     target.unlink(missing_ok=True)
@@ -1098,9 +1155,14 @@ def compare_views(a: RunView, b: RunView, *, a_dir: Path, b_dir: Path, out: Path
         if rules:
             write_json(out / "expectation-rules.json", list(rules))
             files.append(out / "expectation-rules.json")
-        code, document = run_diff_py(a_dir, b_dir, target, files)
+        code, document = run_diff_py(a_dir, b_dir, target, files, arm_pointers)
         if code == DIFF_HOST_MISMATCH:
             refused = "host-mismatch: " + "; ".join(f"{k}: {', '.join(v)}" for k, v in sorted(document["mismatched"].items()))
+        elif code == DIFF_ARMS_SAME:
+            same = document["readback"]["same"]
+            refused = (f"arms-read-back-same: {document['readback']['sameCount']} snapshots read back the same arm, first "
+                       f"{same[0]['case']} {same[0]['step']} {same[0]['checkpoint']} {same[0]['pointer']}="
+                       f"{json.dumps(same[0]['value'], sort_keys=True)}")
     summary = document.get("summary") or {}
     statuses = {row["case"]: row["status"] for row in document.get("cases", [])}
     compared = sum(summary.get(k, 0) for k in ("equal", "explained", "divergent"))
@@ -1125,9 +1187,13 @@ def compare_views(a: RunView, b: RunView, *, a_dir: Path, b_dir: Path, out: Path
         "flaky_excluded": sorted(cid for cid, s in statuses.items() if s == "flaky"),
         "not_comparable": dict(sorted((not_comparable or {}).items())),
         "divergence": str(target) if target.is_file() else None,
+        "divergences": str(out / "divergences.jsonl"),
         "ok": refused is None and code == DIFF_OK,
     }
+    if switch is not None:
+        comparison["switch"] = {**switch, "readback_snapshots": (document.get("readback") or {}).get("differs")}
     write_json(out / "comparison.json", comparison)
+    write_divergences(Path(comparison["divergences"]), document if refused is None else {}, comparison)
     if as_json:
         print(json.dumps(comparison, indent=1, sort_keys=True))
     else:
@@ -1277,6 +1343,91 @@ def switch_expected_files(registry: Dict[str, Dict[str, Any]], names: Iterable[s
     return [root / f"{name}.json" for name in sorted(set(names)) if registry.get(name, {}).get("expected_differences")]
 
 
+def pointer_token(token: str) -> str:
+    return token.replace("~", "~0").replace("/", "~1")
+
+
+def switch_key(name: str, entry: Mapping[str, Any]) -> str:
+    """The key the product reports the switch under: its app_key or daemon_key (task 018)."""
+    return str(entry.get("app_key") or entry.get("daemon_key") or name)
+
+
+def arm_pointers(name: str, entry: Mapping[str, Any]) -> List[str]:
+    """Snapshot values that read back the switch's arm: the app facet and the daemon oracle-state.
+
+    The app passes its switches to the daemon it launches (task 180), so both can carry either key.
+    """
+    key = pointer_token(switch_key(name, entry))
+    return [f"/facets/switches/arms/{key}", f"/facets/daemon/oracle/switches/{key}"]
+
+
+def arm_under_test_rules(name: str) -> List[Dict[str, str]]:
+    """The per-site hit list differs by arm by construction; the receipt hit counters are checked instead."""
+    return [{"pointer": "/facets/switches/hits",
+             "reason": f"the sites each arm of {name} ran; checked through the receipts' switch_hits"}]
+
+
+# A switch diff is one build run twice: only the arm and per-run values (the shuffle seed and
+# shard index, which comparability() checks, and the job count) may differ between the arm receipts.
+ARM_FIELDS = frozenset({"switch", "arm", "switches"})
+PER_RUN_FIELDS = frozenset({"seed", "shard_index", "jobs"})
+
+
+def other_arm(arm: str) -> str:
+    return ARMS[1 - ARMS.index(arm)]
+
+
+def switch_verdict(name: str, views: Mapping[str, RunView]) -> Tuple[Optional[str], Dict[str, Any]]:
+    """Why the arm runs of one switch are no evidence, or None; and the record of what each arm showed.
+
+    Chrome's FeatureList passes the state to every child (`--enable-features`), so a test can trust
+    it; here the product must prove it: each arm reads back its own arm, the two read back
+    differently, each ran its own sites and none of the other's, and every case that lists the
+    switch hit it.
+    """
+    build = {}
+    for arm in ARMS:
+        config = views[arm].receipt["config"]
+        if config.get("switch") != name or config.get("arm") != arm:
+            raise UsageError(f"the {arm} side is not a --switch {name} --arm {arm} run "
+                             f"(it is switch {config.get('switch')!r} arm {config.get('arm')!r})")
+        build[arm] = {k: v for k, v in config.items() if k not in ARM_FIELDS and k not in PER_RUN_FIELDS}
+    block: Dict[str, Any] = {"name": name, "arms": {}}
+    reasons: List[str] = []
+    readback = {}
+    for arm in ARMS:
+        receipt = views[arm].receipt
+        hits = (receipt.get("switch_hits") or {}).get(name, {})
+        seen = arms_seen(receipt.get("switch_readback") or {}, name)
+        unexercised = sorted(
+            cid for cid, record in receipt["cases"].items()
+            if name in (record.get("switches") or ()) and record.get("outcome") not in ("skipped", "flaky")
+            and not (record.get("switch_hits") or {}).get(name, {}).get(arm, 0)
+        )
+        readback[arm] = seen
+        block["arms"][arm] = {"readback": seen, "hits": dict(sorted(hits.items())), "unexercised_cases": unexercised,
+                              "sha": receipt.get("sha"), "host": receipt.get("host")}
+        if seen and seen != [arm]:
+            reasons.append(f"arm-not-applied: {name} read back {', '.join(seen)} on the {arm} arm")
+        elif not seen:
+            reasons.append(f"arm-not-applied: no readback of {name} on the {arm} arm")
+        if hits.get(other_arm(arm), 0):
+            reasons.append(f"arm-not-applied: the {arm} arm ran {hits[other_arm(arm)]} {other_arm(arm)}-arm site hits")
+        if not hits.get(arm, 0):
+            reasons.append(f"arm-not-exercised: 0 hits of {name} on the {arm} arm")
+        elif unexercised:
+            reasons.append(f"arm-not-exercised: {len(unexercised)} cases that list {name} had 0 hits on the {arm} arm: "
+                           + ", ".join(unexercised[:5]))
+    beyond = sorted(k for k in set(build["old"]) | set(build["new"]) if build["old"].get(k) != build["new"].get(k))
+    if beyond:
+        reasons.insert(0, "arms-differ-beyond-switch: "
+                       + ", ".join(f"{k} {build['old'].get(k)!r} vs {build['new'].get(k)!r}" for k in beyond))
+    if readback["old"] == readback["new"]:
+        reasons.insert(0, f"arms-read-back-same: {name} read back {', '.join(readback['old']) or 'nothing'} on both arms")
+    block["refusals"] = reasons
+    return (reasons[0] if reasons else None), block
+
+
 def resolve_switches(registry: Dict[str, Dict[str, Any]], switch: Optional[str], arm: Optional[str]) -> Dict[str, str]:
     if switch:
         if switch not in registry:
@@ -1320,6 +1471,8 @@ def add_selection_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--flaky-out", type=Path, help="append flaky cases as JSON lines (MQ-flakes)")
     parser.add_argument("--dry-run", action="store_true", help="plan and write the receipt; run nothing")
     parser.add_argument("--run-id", help="default: UTC time plus 6 random characters")
+    parser.add_argument("--switch-registry", type=Path, default=SWITCH_REGISTRY,
+                        help="refactor switch registry dir (default plans/cmux-next/refactor-switches)")
     parser.add_argument("--json", action="store_true", help="print the receipt or comparison as JSON")
 
 
@@ -1415,6 +1568,9 @@ def print_run(receipt: Dict[str, Any], options: RunOptions, as_json: bool) -> No
         print(f"  flaky, left out of comparisons: {len(receipt['flaky'])}")
     for cid in receipt["unexpected"][:20]:
         print(f"  unexpected: {cid} ({receipt['cases'][cid]['status']})")
+    if receipt["arm_applied"] is False:
+        seen = arms_seen(receipt["switch_readback"], options.switch)
+        print(f"  arm-not-applied: {options.switch}={options.arm} read back {seen or 'nothing'}")
     if receipt["arm_exercised"] is False:
         print(f"  arm-not-exercised: {options.switch}={options.arm} had 0 hits")
     for error in receipt["infra_errors"][:10]:
@@ -1425,7 +1581,7 @@ def print_run(receipt: Dict[str, Any], options: RunOptions, as_json: bool) -> No
 def cmd_run(args: argparse.Namespace) -> int:
     run_id = args.run_id or new_run_id()
     out = args.out or DEFAULT_OUT_BASE / run_id
-    switches = resolve_switches(load_switch_registry(), args.switch, args.arm)
+    switches = resolve_switches(load_switch_registry(args.switch_registry), args.switch, args.arm)
     options = options_from_args(args, retry_default=None, out=out, run_id=run_id, switch=args.switch, arm=args.arm,
                                 switches=switches, ref=args.ref, binary=args.binary)
     receipt, code = run_one(options)
@@ -1464,16 +1620,102 @@ def diff_sides(args: argparse.Namespace, registry: Dict[str, Dict[str, Any]]) ->
         base_bin = args.base_binary or build_daemon(args.base)
         head_bin = args.head_binary or build_daemon(args.head)
         return (Side("base", None, None, {}, args.base, base_bin), Side("head", None, None, {}, args.head, head_bin)), []
-    if args.switch:
-        sides = tuple(Side(arm, args.switch, arm, resolve_switches(registry, args.switch, arm), args.ref, args.binary) for arm in ARMS)
-        return sides, switch_expected_files(registry, [args.switch])  # type: ignore[return-value]
     if args.arm == "launch-config":
         planned = resolve_switches(registry, None, "launch-config")
         return (
             Side("default", None, "default", {}, args.ref, args.binary),
             Side("launch-config", None, "launch-config", planned, args.ref, args.binary),
-        ), switch_expected_files(registry, planned)
+        ), switch_expected_files(registry, planned, args.switch_registry)
     raise UsageError("diff needs --base/--head, --switch NAME, --arm launch-config, --base-run/--head-run or --baselines")
+
+
+def shard_list(args: argparse.Namespace) -> List[Tuple[int, int]]:
+    """`--shards N`: every shard here, in order; else the one `--shard I/N` (a worker's share)."""
+    if args.shards is None:
+        return [parse_shard(args.shard)]
+    if args.shards < 1:
+        raise UsageError("--shards must be >= 1")
+    if args.shard != "0/1":
+        raise UsageError("--shards N runs every shard; --shard I/N runs one: pass one of them")
+    return [(index, args.shards) for index in range(args.shards)]
+
+
+def run_switch_arms(args: argparse.Namespace, registry: Dict[str, Dict[str, Any]], out: Path,
+                    open_session: Optional[SessionOpener]) -> Tuple[Dict[str, Path], Dict[str, RunView]]:
+    """Runs each shard on arm old, then the same shard on arm new, so the two arms of a case run
+    back to back on this host with the same build (spec 3F.1); then merges each arm's shards."""
+    name = args.switch
+    run_id = args.run_id or new_run_id()
+    runs: Dict[str, List[Path]] = {arm: [] for arm in ARMS}
+    # With --json, stdout holds only the comparison.
+    with contextlib.redirect_stdout(sys.stderr) if args.json else contextlib.nullcontext():
+        for index, total in shard_list(args):
+            for arm in ARMS:
+                options = options_from_args(args, retry_default=DEFAULT_RETRY_LIMIT, out=out / arm / f"shard-{index}",
+                                            run_id=f"{run_id}-{arm}-{index}", switch=name, arm=arm,
+                                            switches=resolve_switches(registry, name, arm), ref=args.ref, binary=args.binary)
+                options = replace(options, shard=(index, total))
+                receipt, _ = run_one(options, open_session=open_session)
+                print_run(receipt, options, False)
+                runs[arm].append(options.out)
+    return merge_arm_runs(runs, out)
+
+
+def merge_arm_runs(runs: Mapping[str, Sequence[Path]], out: Path) -> Tuple[Dict[str, Path], Dict[str, RunView]]:
+    views: Dict[str, RunView] = {}
+    dirs: Dict[str, Path] = {}
+    for arm in ARMS:
+        view, errors = merge_runs(list(runs[arm]), require_complete=False)
+        if errors:
+            raise UsageError(f"{arm} arm: " + "; ".join(errors))
+        views[arm] = view
+        dirs[arm] = write_merged(view, out / f"{arm}-merged")
+    return dirs, views
+
+
+def suites_not_run(listed: Sequence[str], view: RunView) -> List[str]:
+    ran = view.receipt["config"].get("suites") or ["all"]
+    return [] if "all" in ran else sorted(set(listed) - set(ran))
+
+
+def diff_switch(args: argparse.Namespace, out: Path, open_session: Optional[SessionOpener] = None) -> int:
+    """`diff --switch NAME`: the switch's suites on both arms of one build, compared through diff.py.
+
+    `open_session` is the product driver's (default: driver_<product>.py)."""
+    check_out_dir(out)
+    out.mkdir(parents=True, exist_ok=True)
+    registry = load_switch_registry(args.switch_registry)
+    name = args.switch
+    if name not in registry:
+        raise UsageError(f"--switch {name}: no plans/cmux-next/refactor-switches/{name}.json")
+    entry = registry[name]
+    listed = [str(suite) for suite in entry.get("suites") or ()]
+    if args.base_run or args.head_run:
+        if not (args.base_run and args.head_run):
+            raise UsageError("--switch with runs: --base-run is the old arm's run, --head-run the new arm's")
+        if args.shards is not None:
+            raise UsageError("--shards runs the arms; with --base-run/--head-run the runs are given")
+        dirs, views = merge_arm_runs({"old": args.base_run, "new": args.head_run}, out)
+    else:
+        if args.base or args.head or args.baselines:
+            raise UsageError("--switch compares two arms of one build: no --base/--head or --baselines")
+        if not args.suite:
+            args.suite = [",".join(listed)] if listed else None
+        if args.shuffle and args.seed is None:
+            args.seed = new_seed()  # one seed for both arms: they must run the same order
+        dirs, views = run_switch_arms(args, registry, out, open_session)
+    refused, block = switch_verdict(name, views)
+    block.update(suites=listed, suites_not_run=suites_not_run(listed, views["new"]))
+    if block["suites_not_run"]:
+        print(f"note: {name} lists suites this diff did not run: {', '.join(block['suites_not_run'])}", file=sys.stderr)
+    for reason in block["refusals"][1:]:
+        print(f"  also: {reason}", file=sys.stderr)
+    refused = comparability(views["old"], views["new"], partial=args.partial) or refused
+    return compare_views(views["old"], views["new"], a_dir=dirs["old"], b_dir=dirs["new"], out=out,
+                         labels=(f"{name}=old", f"{name}=new"), partial=args.partial,
+                         expected=switch_expected_files(registry, [name], args.switch_registry),
+                         rules=[*arm_under_test_rules(name), *comparison_rules(views["new"], args.expectations_root)],
+                         refused=refused, arm_pointers=arm_pointers(name, entry), switch=block, as_json=args.json)
 
 
 def comparison_rules(view: RunView, root: Path) -> List[Dict[str, str]]:
@@ -1489,6 +1731,10 @@ def cmd_diff(args: argparse.Namespace) -> int:
     out = args.out or DEFAULT_OUT_BASE / ("diff-" + new_run_id())
     check_out_dir(out)
     out.mkdir(parents=True, exist_ok=True)
+    if args.switch:
+        return diff_switch(args, out)
+    if args.shards is not None:
+        raise UsageError("--shards is for --switch; a base/head diff runs one --shard I/N")
     if args.head_run:
         head, head_errors = merge_runs(args.head_run, require_complete=False)
         if args.baselines:
@@ -1513,12 +1759,8 @@ def cmd_diff(args: argparse.Namespace) -> int:
         if not fleet.is_file():
             raise UsageError("app diffs run on the fleet through fleet.py, not on this branch yet (p15-oracle-050)")
         return subprocess.run([sys.executable, "-I", str(fleet), "diff", *args.raw_argv], check=False).returncode
-    registry = load_switch_registry()
+    registry = load_switch_registry(args.switch_registry)
     sides, expected = diff_sides(args, registry)
-    if args.switch and not args.suite:
-        minimum = registry[args.switch].get("minimum_suites")
-        if minimum:
-            args.suite = [",".join(minimum)]
     if args.shuffle and args.seed is None:
         args.seed = new_seed()  # one seed for both sides: they must run the same order
     run_id = args.run_id or new_run_id()
@@ -1767,7 +2009,8 @@ def build_parser() -> argparse.ArgumentParser:
     diff.add_argument("--head", help="head ref")
     diff.add_argument("--base-binary", help="prebuilt base binary instead of building --base")
     diff.add_argument("--head-binary", help="prebuilt head binary instead of building --head")
-    diff.add_argument("--switch", help="same build, arm old against arm new")
+    diff.add_argument("--switch", help="same build, arm old against arm new, on the switch's suites")
+    diff.add_argument("--shards", type=int, help="--switch: run every shard of N here, each on both arms back to back")
     diff.add_argument("--arm", choices=["launch-config"], help="every switch at its planned arm against all default")
     diff.add_argument("--ref", help="source ref recorded for --switch and --arm runs")
     diff.add_argument("--base-run", type=Path, action="append", help="existing run directory (repeat for shards)")
