@@ -34,6 +34,9 @@ final class AgentTabStore {
     /// The store record of agent tab `key` and the tree that lists it; nil for any other tab
     /// (AppServices looks in every machine's tree).
     var lookup: @MainActor (String) -> (record: AgentSessionRef, store: DaemonStore)? = { _ in nil }
+    var listMachines: @MainActor () async -> [String: Any] = { [:] }
+    var resumeMachine: @MainActor (String) -> Bool = { _ in false }
+    var openMachine: @MainActor (String) -> Bool = { _ in false }
     /// The pane holding tab `key` and its daemon (New side chat opens its fork there first).
     var locate: @MainActor (String) -> (pane: PaneID, daemon: DaemonService)? = { _ in nil }
     /// Main pane layout (``MainPaneLayout``): opens what chat tab `chat` opens beside it (through
@@ -432,6 +435,9 @@ final class AgentTabStore {
         model.onEditNewTab = { [weak self] edit in self?.pageHandler(provisional)?.edit(edit) }
         model.onJump = { [weak self] target, id in self?.newTabPage(provisional)?.handler.jump(target, id) }
         model.onEditShortcut = { [weak self] kind in self?.newTabPage(provisional)?.handler.editShortcut(kind) }
+        model.onListMachines = { [weak self] in await self?.listMachines() ?? [:] }
+        model.onResumeMachine = { [weak self] machine in self?.resumeMachine(machine) ?? false }
+        model.onOpenMachine = { [weak self] machine in self?.openMachine(machine) ?? false }
         model.onRunAction = { [weak self] id, arguments in
             guard let self else { return false }
             // On this tab's pane: the New Tab page opens beside the tab that asked.

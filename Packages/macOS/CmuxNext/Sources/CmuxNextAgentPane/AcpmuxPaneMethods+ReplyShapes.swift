@@ -31,6 +31,7 @@ nonisolated extension AcpmuxPaneMethods {
             "peers": .list(.object([
                 "name": .string, "transport": .scheme(from: "url"), "connected": .bool,
                 "state": .string, "lastSeen": .number, "attempts": .number,
+                "outdated": .bool, "needsLogin": .bool,
             ])),
         ]),
     ]

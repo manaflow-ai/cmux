@@ -87,6 +87,11 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     case editShortcut(AgentPaneTabKind)
     /// The new tab page asked the app to run a user facing action.
     case runAction(String)
+    /// Read-only Cloud inventory for the shared composer machine picker.
+    case machineList
+    /// A person resumes one Cloud machine through the existing native action.
+    case machineResume(String)
+    case machineOpen(String)
     /// The new-tab project picker asked for the explicit Browse… fallback.
     case browseProject
     /// "Choose Folder…" (`workspace.chooseFolder`): the native folder sheet that sets the

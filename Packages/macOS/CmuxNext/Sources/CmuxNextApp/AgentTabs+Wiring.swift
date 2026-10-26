@@ -1,3 +1,4 @@
+import CmuxNextActions
 import CmuxNextAgentPane
 import CmuxNextCompat
 import CmuxNextDaemon
@@ -148,6 +149,29 @@ extension AgentTabStore {
             return (page, handler)
         }
         tabs.onFirstPageToken = { [weak services] token in services?.keyRouter.newTabInputCoordinator.attachIncoming(token) }
+        tabs.listMachines = { [weak services] in
+            guard let services else { return ["loaded": false] }
+            let cloud = services.cloud
+            if cloud.auth.isRestoring { await cloud.auth.awaitRestored() }
+            let userID = cloud.auth.user?.id, teamID = cloud.auth.teamID
+            if cloud.isSignedIn, !cloud.hasLoadedCurrentMachines { await cloud.refresh() }
+            let loaded = cloud.isSignedIn && cloud.hasLoadedCurrentMachines
+                && cloud.auth.user?.id == userID && cloud.auth.teamID == teamID
+            let rows: [[String: Any]] = loaded ? services.machines.cloud.map { session in
+                ["id": session.machineID, "name": session.machine.title,
+                 "state": session.effectiveStatus.rawValue, "phase": session.stage.name, "connected": session.stage == .ready]
+            } : []
+            return ["loaded": loaded, "signedIn": cloud.isSignedIn, "machines": rows]
+        }
+        tabs.openMachine = { [weak services] machine in
+            guard let services, services.cloud.isSignedIn, services.cloud.hasLoadedCurrentMachines, services.machines.session(machine) != nil else { return false }
+            return services.registry.perform("cloudOpenMachine", invocation: ActionInvocation(target: ActionTargetRef(kind: .machine, id: machine), origin: .user))
+        }
+        tabs.resumeMachine = { [weak services] machine in
+            guard let services, services.cloud.isSignedIn, services.cloud.hasLoadedCurrentMachines,
+                  let session = services.machines.session(machine), session.effectiveStatus == .paused else { return false }
+            return services.registry.perform("cloudResumeMachine", invocation: ActionInvocation(target: ActionTargetRef(kind: .machine, id: machine), origin: .user))
+        }
         tabs.resolveLocalHost = { [weak services] in
             guard let services else { return nil }
             guard let id = try? services.cloud.localDeviceID() else { services.daemon.logger.error("agent tabs: no install id, new agent tabs are refused"); return nil }

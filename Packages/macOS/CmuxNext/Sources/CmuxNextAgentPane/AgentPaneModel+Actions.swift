@@ -4,10 +4,10 @@ extension AgentPaneModel {
     /// knows no plan), and a started chat's Move to Cloud and Bring Back Local (the tab menu's same
     /// actions, on this tab). webviews environments.ts CONNECT_ACTIONS names the same five.
     static let connectActions: Set<String> = [
-        "remote.connect", "newCloudMachine", "palette.openCloudPane", "cloudMove", "cloudBringBack",
+        "remote.connect", "newCloudMachine", "palette.openCloudPane", "device.add", "cloudMove", "cloudBringBack",
     ]
     /// The arguments a connect action runs with.
-    static let connectArguments: [String: [String: String]] = ["palette.openCloudPane": ["route": "/get"]]
+    static let connectArguments: [String: [String: String]] = ["palette.openCloudPane": ["route": "/get"], "device.add": ["way": "code"]]
     /// What runs when a connect is refused: signed out, cmux Cloud… starts sign-in.
     static let connectFallbacks: [String: String] = ["newCloudMachine": "palette.auth.signIn"]
 

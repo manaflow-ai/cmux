@@ -57,6 +57,11 @@ public final class AgentPaneModel {
     @ObservationIgnored public var onEditShortcut: ((AgentPaneTabKind) -> Void)?
     /// Runs an app action requested by an empty-state or new-tab control, with its string arguments.
     @ObservationIgnored public var onRunAction: ((String, [String: String]) -> Bool)?
+    /// Only the app's current-account Cloud inventory; no credentials or endpoints.
+    @ObservationIgnored public var onListMachines: (() async -> [String: Any])?
+    /// The app validates the selected Cloud machine and runs cloudResumeMachine.
+    @ObservationIgnored public var onResumeMachine: ((String) -> Bool)?
+    @ObservationIgnored public var onOpenMachine: ((String) -> Bool)?
     /// Resolves the explicit Browse… fallback in the project picker.
     @ObservationIgnored public var onBrowseProject: (() async -> String?)?
     /// Returns bounded project paths for the picker, optionally filtered by query.
@@ -260,7 +265,7 @@ public final class AgentPaneModel {
         // Boot traffic, and a request the host refused (it changed nothing), leave it untouched.
         case .ready, .reconnect, .uiPointerReport, .framePacing, .renderRate, .checkpointAvailability, .painted, .newTabInputReady, .newTabContext, .newTabWarm, .unsupported,
              .transportOpen, .transportSend, .transportClose, .transportGesture, .transportGestureRelease, .chatsPage, .quickFloatingState, .quickContext,
-             .tabRowTools, .projectIcon, .environment(.list): break
+             .tabRowTools, .projectIcon, .machineList, .environment(.list): break
         case .reply(let reply) where reply.isPassive: break
         default:
             if !userTouched { touchedBy = String(String(describing: request).prefix { $0 != "(" }) }
@@ -317,6 +322,17 @@ public final class AgentPaneModel {
         case .editNewTab(let edit): guard let onEditNewTab else { return Self.unsupported(edit.method) }; onEditNewTab(edit); return AgentPaneReply.success()
         case .nowPlaying(let command): return AgentPaneNowPlaying.shared.perform(command) ? AgentPaneReply.success() : Self.unsupported("nowPlaying.command")
         case .runAction(let id): return runAction(id)
+        case .machineList:
+            guard let onListMachines else { return Self.unsupported("machine.list") }
+            return AgentPaneReply.success(await onListMachines())
+        case .machineOpen(let machine):
+            guard transport.gestures.consume() else { return Self.transportFailure(.gestureRequired) }
+            guard onOpenMachine?(machine) == true else { return AgentPaneReply.failure(code: "unavailable", message: "The app did not open that Cloud machine.") }
+            return AgentPaneReply.success()
+        case .machineResume(let machine):
+            guard transport.gestures.consume() else { return Self.transportFailure(.gestureRequired) }
+            guard onResumeMachine?(machine) == true else { return AgentPaneReply.failure(code: "unavailable", message: "The app did not resume that Cloud machine.") }
+            return AgentPaneReply.success()
         case .jump(let target, let id): guard newTab != nil, let onJump else { return Self.unsupported("tab.jump") }; onJump(target, id); return AgentPaneReply.success()
         case .chooseFolder where remoteChat: return Self.unsupported("workspace.chooseFolder")
         case .chooseFolder: return await chooseFolder()

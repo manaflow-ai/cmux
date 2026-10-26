@@ -352,6 +352,12 @@ extension AgentPaneRequest {
             } else {
                 self = .unsupported(method)
             }
+        case "machine.list": self = .machineList
+        case "machine.resume", "machine.open":
+            if let machine = params?["machine"] as? String, !machine.isEmpty, machine.utf8.count <= 256,
+               !machine.unicodeScalars.contains(where: { CharacterSet.controlCharacters.contains($0) }) {
+                self = method == "machine.resume" ? .machineResume(machine) : .machineOpen(machine)
+            } else { self = .unsupported(method) }
         case "action.run":
             if let id = params?["id"] as? String, !id.isEmpty, id.count <= 128 {
                 self = .runAction(id)
