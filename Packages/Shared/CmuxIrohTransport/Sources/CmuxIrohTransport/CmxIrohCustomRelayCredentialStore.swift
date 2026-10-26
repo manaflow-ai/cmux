@@ -1,3 +1,4 @@
+import CmuxSafeConcurrency
 public import Foundation
 
 /// Device-local secure storage for user-provided custom relay tokens.
@@ -20,7 +21,7 @@ public actor CmxIrohCustomRelayCredentialStore {
     private static let recordVersion = 2
     private let secureStore: any CmxIrohSecureCredentialStoring
     private var busyAccounts: Set<String> = []
-    private var accountWaiters: [String: [CheckedContinuation<Void, Never>]] = [:]
+    private var accountWaiters: [String: [OnceContinuation<Void, Never>]] = [:]
 
     /// Creates an account-scoped custom relay credential repository.
     public init(
@@ -155,7 +156,7 @@ public actor CmxIrohCustomRelayCredentialStore {
             busyAccounts.insert(account)
             return
         }
-        await withCheckedContinuation { continuation in
+        await withOnceContinuation { continuation in
             accountWaiters[account, default: []].append(continuation)
         }
     }

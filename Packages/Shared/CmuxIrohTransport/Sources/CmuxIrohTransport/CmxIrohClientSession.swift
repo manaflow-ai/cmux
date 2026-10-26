@@ -1,4 +1,5 @@
 public import CMUXMobileCore
+import CmuxSafeConcurrency
 public import Foundation
 
 /// An admitted multistream client session over one Iroh QUIC connection.
@@ -29,7 +30,7 @@ public actor CmxIrohClientSession {
     private var controlReceiveBuffer = Data()
     private var terminalCloseAttribution: CmxIrohConnectionCloseAttribution?
     private var closed = false
-    private var closureWaiters: [UUID: CheckedContinuation<Void, Never>] = [:]
+    private var closureWaiters: [UUID: OnceContinuation<Void, Never>] = [:]
     private var cancelledClosureWaiters = Set<UUID>()
     private var closureWatcher: Task<Void, Never>?
 
@@ -228,7 +229,7 @@ public actor CmxIrohClientSession {
         if closed || cancelledClosureWaiters.remove(observationID) != nil {
             return
         }
-        await withCheckedContinuation { continuation in
+        await withOnceContinuation { continuation in
             if closed || cancelledClosureWaiters.remove(observationID) != nil {
                 continuation.resume()
             } else {

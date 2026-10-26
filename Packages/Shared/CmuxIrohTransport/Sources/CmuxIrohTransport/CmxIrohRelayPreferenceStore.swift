@@ -1,3 +1,4 @@
+import CmuxSafeConcurrency
 public import Foundation
 
 /// Secure account-scoped cache for requested and effective relay preferences.
@@ -10,7 +11,7 @@ public actor CmxIrohRelayPreferenceStore {
     private static let recordVersion = 2
     private let secureStore: any CmxIrohSecureCredentialStoring
     private var busyAccounts: Set<String> = []
-    private var accountWaiters: [String: [CheckedContinuation<Void, Never>]] = [:]
+    private var accountWaiters: [String: [OnceContinuation<Void, Never>]] = [:]
 
     /// Creates an isolated preference cache.
     public init(
@@ -93,7 +94,7 @@ public actor CmxIrohRelayPreferenceStore {
             busyAccounts.insert(account)
             return
         }
-        await withCheckedContinuation { continuation in
+        await withOnceContinuation { continuation in
             accountWaiters[account, default: []].append(continuation)
         }
     }

@@ -1,5 +1,6 @@
 public import CMUXMobileCore
 import CmuxIrohTransport
+import CmuxSafeConcurrency
 public import Foundation
 public import IrohLib
 
@@ -209,7 +210,7 @@ public actor IrxConnection {
     private var probeTask: Task<Bool, Never>?
     private var probeID: UUID?
     private var probeLane: IrxLaneStream?
-    private var closureWaiters: [UUID: CheckedContinuation<Void, Never>] = [:]
+    private var closureWaiters: [UUID: OnceContinuation<Void, Never>] = [:]
     private var cancelledClosureWaiters = Set<UUID>()
     private var closureWatcher: Task<Void, Never>?
 
@@ -287,7 +288,7 @@ public actor IrxConnection {
         if isClosed || cancelledClosureWaiters.remove(observationID) != nil {
             return
         }
-        await withCheckedContinuation { continuation in
+        await withOnceContinuation { continuation in
             if isClosed || cancelledClosureWaiters.remove(observationID) != nil {
                 continuation.resume()
             } else {

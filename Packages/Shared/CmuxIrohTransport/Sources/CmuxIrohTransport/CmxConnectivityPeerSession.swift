@@ -1,4 +1,5 @@
 import CMUXMobileCore
+import CmuxSafeConcurrency
 import Foundation
 
 /// Sole owner of dialing, admission, lanes, closure, and redial for one peer.
@@ -34,7 +35,7 @@ actor CmxConnectivityPeerSession {
         let id: UUID
         let ownerID: UUID
         let purpose: CmxTransportSessionPurpose
-        let continuation: CheckedContinuation<Void, Never>
+        let continuation: OnceContinuation<Void, Never>
     }
 
     /// A cancelled FFI dial normally settles immediately. This bound prevents
@@ -67,7 +68,7 @@ actor CmxConnectivityPeerSession {
     // repeated wedges cannot accumulate unowned tasks.
     private var retiredDialCleanupTasks: [UUID: Task<Void, Never>] = [:]
     private var retiredDialWaiters: [
-        UUID: CheckedContinuation<Void, Never>
+        UUID: OnceContinuation<Void, Never>
     ] = [:]
     private var retiredDialWaiterGenerations: [UUID: UInt64] = [:]
     private var retiredDialGeneration: UInt64 = 0
@@ -598,7 +599,7 @@ actor CmxConnectivityPeerSession {
             retiredDialWaiterGenerations.removeValue(forKey: waiterID)
         }
         await withTaskCancellationHandler {
-            await withCheckedContinuation { continuation in
+            await withOnceContinuation { continuation in
                 if Task.isCancelled {
                     expiredRetiredDialWaiters.remove(waiterID)
                     retiredDialWaiterGenerations.removeValue(forKey: waiterID)
@@ -680,7 +681,7 @@ actor CmxConnectivityPeerSession {
 
         let waiterID = UUID()
         await withTaskCancellationHandler {
-            await withCheckedContinuation { continuation in
+            await withOnceContinuation { continuation in
                 guard !Task.isCancelled else {
                     continuation.resume()
                     return

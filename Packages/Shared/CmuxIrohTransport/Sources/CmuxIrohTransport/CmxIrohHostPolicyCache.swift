@@ -1,3 +1,4 @@
+import CmuxSafeConcurrency
 import CryptoKit
 public import Foundation
 
@@ -10,7 +11,7 @@ public actor CmxIrohHostPolicyCache {
     private var lifecycleEpoch: UInt64 = 0
     private var deactivationCount = 0
     private var activeStorageMutationCount = 0
-    private var storageMutationDrainWaiters: [CheckedContinuation<Void, Never>] = []
+    private var storageMutationDrainWaiters: [OnceContinuation<Void, Never>] = []
 
     /// Creates a cache with injectable secure storage and signature verification.
     ///
@@ -184,7 +185,7 @@ public actor CmxIrohHostPolicyCache {
 
     private func waitForStorageMutations() async {
         guard activeStorageMutationCount > 0 else { return }
-        await withCheckedContinuation { continuation in
+        await withOnceContinuation { continuation in
             storageMutationDrainWaiters.append(continuation)
         }
     }

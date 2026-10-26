@@ -1,4 +1,5 @@
 import CMUXMobileCore
+import CmuxSafeConcurrency
 import CryptoKit
 public import Foundation
 
@@ -79,7 +80,7 @@ public actor CmxIrohBrokerBackpressureGate {
     private struct Waiter {
         let id: UUID
         let ownerID: UUID
-        let continuation: CheckedContinuation<Void, Never>
+        let continuation: OnceContinuation<Void, Never>
     }
 
     static let persistenceKey = "cmux.iroh.broker-backpressure.v1"
@@ -225,7 +226,7 @@ public actor CmxIrohBrokerBackpressureGate {
 
         let waiterID = UUID()
         await withTaskCancellationHandler {
-            await withCheckedContinuation { continuation in
+            await withOnceContinuation { continuation in
                 guard !Task.isCancelled else {
                     continuation.resume()
                     return

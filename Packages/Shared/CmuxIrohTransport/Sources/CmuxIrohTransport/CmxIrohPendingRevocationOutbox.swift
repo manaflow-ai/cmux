@@ -1,3 +1,4 @@
+import CmuxSafeConcurrency
 import CryptoKit
 import Foundation
 
@@ -9,7 +10,7 @@ public actor CmxIrohPendingRevocationOutbox {
 
     private let secureStore: any CmxIrohSecureCredentialStoring
     private var busyScopes: Set<String> = []
-    private var scopeWaiters: [String: [CheckedContinuation<Void, Never>]] = [:]
+    private var scopeWaiters: [String: [OnceContinuation<Void, Never>]] = [:]
 
     /// Creates an outbox backed by injected device-only secure storage.
     ///
@@ -206,7 +207,7 @@ public actor CmxIrohPendingRevocationOutbox {
             busyScopes.insert(scope)
             return
         }
-        await withCheckedContinuation { continuation in
+        await withOnceContinuation { continuation in
             scopeWaiters[scope, default: []].append(continuation)
         }
     }

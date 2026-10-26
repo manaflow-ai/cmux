@@ -1,4 +1,5 @@
 public import CMUXMobileCore
+import CmuxSafeConcurrency
 public import Foundation
 
 /// The control lane as a `CmxByteTransport`, the seam both the Mac host
@@ -57,7 +58,7 @@ public actor IrxControlByteTransport: CmxByteTransport {
 
     private struct ReadWaiter {
         let id: UUID
-        let continuation: CheckedContinuation<LaneReadOutcome, Never>
+        let continuation: OnceContinuation<LaneReadOutcome, Never>
     }
 
     private let establish: Establish
@@ -70,7 +71,7 @@ public actor IrxControlByteTransport: CmxByteTransport {
     private var connectInFlight: Task<(IrxConnection, IrxLaneStream), any Error>?
     private var isClosed = false
     private var controlTerminationObserved = false
-    private var closureObservationReadyWaiters: [CheckedContinuation<Void, Never>] = []
+    private var closureObservationReadyWaiters: [OnceContinuation<Void, Never>] = []
     /// Increments each time a replacement stream takes over the control lane.
     private var laneGeneration: UInt64 = 0
     /// Bytes from the current stream that do not yet complete a frame.
@@ -86,7 +87,7 @@ public actor IrxControlByteTransport: CmxByteTransport {
     /// replacing is expected (the peer retires it) and must not terminate the
     /// session until the replacement settles.
     private var laneReplacementInProgress = false
-    private var laneReplacementWaiters: [CheckedContinuation<Void, Never>] = []
+    private var laneReplacementWaiters: [OnceContinuation<Void, Never>] = []
     /// Identifies the client replacement attempt allowed to install its
     /// stream. Cleared when the attempt's deadline passes, so a late
     /// acknowledgement cannot install a stream nobody is waiting for.
@@ -286,7 +287,7 @@ public actor IrxControlByteTransport: CmxByteTransport {
     private func laneWasReplaced(since generation: UInt64) async -> Bool {
         if generation != laneGeneration { return true }
         guard laneReplacementInProgress else { return false }
-        await withCheckedContinuation { laneReplacementWaiters.append($0) }
+        await withOnceContinuation { laneReplacementWaiters.append($0) }
         return generation != laneGeneration
     }
 
@@ -324,7 +325,7 @@ public actor IrxControlByteTransport: CmxByteTransport {
         }
         let waiterID = UUID()
         return await withTaskCancellationHandler {
-            await withCheckedContinuation { continuation in
+            await withOnceContinuation(ifDropped: LaneReadOutcome.closed) { continuation in
                 if Task.isCancelled {
                     continuation.resume(returning: .cancelled)
                 } else if isClosed {
@@ -589,7 +590,7 @@ extension IrxControlByteTransport: CmxByteTransportClosureObserving {
 extension IrxControlByteTransport: CmxByteTransportClosureObservationReadiness {
     public func waitUntilTransportClosureObservationIsReady() async -> Bool {
         guard pair == nil, !isClosed else { return pair != nil }
-        await withCheckedContinuation { continuation in
+        await withOnceContinuation { continuation in
             if pair != nil || isClosed {
                 continuation.resume()
             } else {

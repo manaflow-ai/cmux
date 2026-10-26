@@ -1,3 +1,4 @@
+import CmuxSafeConcurrency
 import Darwin
 public import Foundation
 import Network
@@ -137,7 +138,9 @@ final class IrxTunnelNWChannel: IrxTunnelByteChannel, @unchecked Sendable {
         }
         defer { deadline.cancel() }
         let result: Result<Void, IrxTunnelOpenError> = await withTaskCancellationHandler {
-            await withCheckedContinuation { (continuation: CheckedContinuation<Result<Void, IrxTunnelOpenError>, Never>) in
+            await withOnceContinuation(
+                ifDropped: .failure(IrxTunnelOpenError(status: .failed))
+            ) { (continuation: OnceContinuation<Result<Void, IrxTunnelOpenError>, Never>) in
                 outcome.install(continuation)
                 connection.stateUpdateHandler = { state in
                     switch state {
@@ -188,7 +191,7 @@ final class IrxTunnelNWChannel: IrxTunnelByteChannel, @unchecked Sendable {
     }
 
     private func receiveOnce(maximumByteCount: Int) async throws -> Data? {
-        try await withCheckedThrowingContinuation { continuation in
+        try await withOnceThrowingContinuation { continuation in
             connection.receive(minimumIncompleteLength: 1, maximumLength: max(1, maximumByteCount)) {
                 data, _, isComplete, error in
                 if let data, !data.isEmpty {
@@ -205,7 +208,7 @@ final class IrxTunnelNWChannel: IrxTunnelByteChannel, @unchecked Sendable {
     }
 
     func send(_ data: Data) async throws {
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
+        try await withOnceThrowingContinuation { (continuation: OnceContinuation<Void, any Error>) in
             connection.send(content: data, completion: .contentProcessed { error in
                 if let error { continuation.resume(throwing: error) } else { continuation.resume() }
             })
@@ -213,7 +216,7 @@ final class IrxTunnelNWChannel: IrxTunnelByteChannel, @unchecked Sendable {
     }
 
     func finishSending() async {
-        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+        await withOnceContinuation { (continuation: OnceContinuation<Void, Never>) in
             connection.send(content: nil, contentContext: .finalMessage, isComplete: true, completion: .contentProcessed { _ in
                 continuation.resume()
             })
@@ -229,10 +232,10 @@ final class IrxTunnelNWChannel: IrxTunnelByteChannel, @unchecked Sendable {
 /// change, timeout, or cancellation comes first.
 private final class IrxTunnelConnectOutcome: @unchecked Sendable {
     private let lock = NSLock()
-    private var continuation: CheckedContinuation<Result<Void, IrxTunnelOpenError>, Never>?
+    private var continuation: OnceContinuation<Result<Void, IrxTunnelOpenError>, Never>?
     private var pending: Result<Void, IrxTunnelOpenError>?
 
-    func install(_ continuation: CheckedContinuation<Result<Void, IrxTunnelOpenError>, Never>) {
+    func install(_ continuation: OnceContinuation<Result<Void, IrxTunnelOpenError>, Never>) {
         lock.lock()
         if let pending {
             lock.unlock()

@@ -16,6 +16,7 @@ let package = Package(
     ],
     dependencies: [
         .package(path: "../CMUXMobileCore"),
+        .package(path: "../CmuxSafeConcurrency"),
         // Grant claims/verifier and terminal-envelope codecs are consumed as
         // stable data contracts; none of the legacy runtime machinery is used.
         .package(path: "../CmuxIrohTransport"),
@@ -29,6 +30,7 @@ let package = Package(
             name: "CmuxIrxTransport",
             dependencies: [
                 "CMUXMobileCore",
+                "CmuxSafeConcurrency",
                 "CmuxIrohTransport",
                 .product(name: "IrohLib", package: "iroh-ffi"),
             ],
