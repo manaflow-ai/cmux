@@ -6,7 +6,7 @@
           "index": 0,
           "seconds": {
             "T1": 23860,
-            "T2": 41100
+            "T2": 41580
           },
           "stories": {
             "T1": [
@@ -106,6 +106,7 @@
               "cmd-n-paint",
               "column-resize-live",
               "command-pan-stress",
+              "control-publish",
               "daemon-spawn",
               "devtools-resize-live",
               "drag-daemon",
@@ -129,6 +130,7 @@
               "sidebar-drag-live",
               "sidebar-drag-stress",
               "split-spring",
+              "stalls",
               "terminal-resize-stress",
               "tui-browser-frames",
               "typing-flood-stress"
@@ -146,7 +148,7 @@
         {
           "index": 0,
           "seconds": {
-            "T2": 41100
+            "T2": 41580
           },
           "stories": {
             "T2": [
@@ -181,6 +183,7 @@
               "cmd-n-paint",
               "column-resize-live",
               "command-pan-stress",
+              "control-publish",
               "daemon-spawn",
               "devtools-resize-live",
               "drag-daemon",
@@ -204,6 +207,7 @@
               "sidebar-drag-live",
               "sidebar-drag-stress",
               "split-spring",
+              "stalls",
               "terminal-resize-stress",
               "tui-browser-frames",
               "typing-flood-stress"
