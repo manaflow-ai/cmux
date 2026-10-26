@@ -46,6 +46,8 @@
 //! `--allow-dangerously-skip-permissions`.
 
 use super::*;
+#[cfg(target_os = "linux")]
+use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
 
 #[cfg(target_os = "linux")]
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -207,6 +209,14 @@ async fn claude_credential(
         }
     }
     if !cfg!(target_os = "macos") || !keychain_login_allowed() {
+        #[cfg(target_os = "linux")]
+        if keychain_login_allowed() {
+            if let Some(token) =
+                linux_credential_file(&dirs::home_dir().ok_or("no home directory")?)?
+            {
+                return Ok(Some(("CLAUDE_CODE_OAUTH_TOKEN", token)));
+            }
+        }
         return Ok(None);
     }
     let read = tokio::process::Command::new("/usr/bin/security")
@@ -387,6 +397,33 @@ fn own_dir(dir: &Path, uid: u32) -> Result<(), String> {
     }
 }
 
+#[cfg(target_os = "linux")]
+fn linux_secure_path(
+    path: &Path,
+    boundary: &Path,
+    uid: u32,
+    sticky_boundary: bool,
+) -> Result<(), String> {
+    let mut reached = false;
+    for ancestor in path.ancestors() {
+        let metadata = std::fs::symlink_metadata(ancestor)
+            .map_err(|e| format!("{}: {e}", ancestor.display()))?;
+        if metadata.uid() != uid && metadata.mode() & 0o022 != 0 {
+            return Err(format!("{} is writable by another user", ancestor.display()));
+        }
+        if metadata.mode() & 0o022 != 0
+            && !(sticky_boundary && ancestor == boundary && metadata.mode() & 0o1000 != 0)
+        {
+            return Err(format!("{} is group- or world-writable", ancestor.display()));
+        }
+        if ancestor == boundary {
+            reached = true;
+            break;
+        }
+    }
+    reached.then_some(()).ok_or_else(|| format!("{} is outside its trusted root", path.display()))
+}
+
 impl Bound {
     /// The bound for a session folder, its own temporary folder created
     /// (named for `session_id`); refused off macOS and for a folder that is
@@ -397,7 +434,11 @@ impl Bound {
         session_id: &str,
         endpoint: Option<Endpoint>,
     ) -> Result<Self, String> {
-        if !cfg!(target_os = "macos") {
+        #[cfg(target_os = "linux")]
+        let linux = LINUX_REMOTE_SANDBOX.load(Ordering::SeqCst);
+        #[cfg(not(target_os = "linux"))]
+        let linux = false;
+        if !cfg!(target_os = "macos") && !linux {
             return Err(
                 "a remote chain runs Claude Code only inside the macOS Seatbelt sandbox, and this platform has none".into(),
             );
@@ -406,6 +447,11 @@ impl Bound {
             |p: &Path| std::fs::canonicalize(p).map_err(|e| format!("{}: {e}", p.display()));
         let home = canon(&dirs::home_dir().ok_or("no home directory")?)?;
         let shared_tmp = canon(&std::env::temp_dir())?;
+        #[cfg(target_os = "linux")]
+        if linux {
+            crate::linux_sandbox::bwrap::probe(Path::new("/usr/bin/bwrap"))
+                .map_err(|e| format!("bwrap unavailable: {e}"))?;
+        }
         let cwd = canon(cwd)?;
         let path_dirs: Vec<PathBuf> = crate::chats::login_var("PATH")
             .unwrap_or_default()
@@ -435,11 +481,28 @@ impl Bound {
         let name = claude_project_name(&cwd);
         // Made here, so the profile never lets the sandbox make (or rename)
         // the shared scratch root.
-        let root = PathBuf::from(format!("/private/tmp/claude-{uid}"));
+        let root = if linux {
+            PathBuf::from(format!("/tmp/claude-{uid}"))
+        } else {
+            PathBuf::from(format!("/private/tmp/claude-{uid}"))
+        };
         let claude_tmp_project = root.join(&name);
         own_dir(&root, uid)?;
         own_dir(&claude_tmp_project, uid)?;
         let claude_project = home.join(".claude/projects").join(&name);
+        #[cfg(target_os = "linux")]
+        if linux {
+            let projects = home.join(".claude/projects");
+            own_dir(&home.join(".claude"), uid)?;
+            own_dir(&projects, uid)?;
+            own_dir(&claude_project, uid)?;
+            own_dir(&claude_project.join("memory"), uid)?;
+            let cwd_boundary = if cwd.starts_with(&home) { &home } else { &shared_tmp };
+            linux_secure_path(&cwd, cwd_boundary, uid, cwd_boundary == &shared_tmp)?;
+            linux_secure_path(&tmp, &shared_tmp, uid, true)?;
+            linux_secure_path(&claude_tmp_project, &shared_tmp, uid, true)?;
+            linux_secure_path(&claude_project, &home, uid, false)?;
+        }
         Ok(Bound {
             cwd,
             tmp,
@@ -496,18 +559,46 @@ impl Bound {
 }
 
 #[cfg(target_os = "linux")]
-fn linux_wrap(
-    _bound: &Bound,
-    _profile: &HarnessProfile,
-    _program: String,
-    _args: Vec<String>,
-) -> Result<(String, Vec<String>), String> {
-    Err("linux keeper wiring is not implemented".into())
-}
-
-#[cfg(target_os = "linux")]
-fn linux_credential_file(_home: &Path) -> Result<Option<String>, String> {
-    Ok(None)
+fn linux_credential_file(home: &Path) -> Result<Option<String>, String> {
+    let path = home.join(".claude/.credentials.json");
+    let file = match std::fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_CLOEXEC | libc::O_NOFOLLOW)
+        .open(&path)
+    {
+        Ok(file) => file,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(format!("cannot open {}: {error}", path.display())),
+    };
+    let metadata = file.metadata().map_err(|e| format!("cannot stat {}: {e}", path.display()))?;
+    if !metadata.is_file() {
+        return Err(format!("{} is not a regular file", path.display()));
+    }
+    if metadata.len() > 1024 * 1024 {
+        return Err(format!("{} exceeds the 1 MiB credential limit", path.display()));
+    }
+    let mut bytes = Vec::with_capacity(metadata.len() as usize);
+    std::io::Read::take(file, 1024 * 1024 + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|e| format!("cannot read {}: {e}", path.display()))?;
+    if bytes.len() > 1024 * 1024 {
+        return Err(format!("{} exceeds the 1 MiB credential limit", path.display()));
+    }
+    let value: Value =
+        serde_json::from_slice(&bytes).map_err(|e| format!("invalid Claude credentials: {e}"))?;
+    let token = value
+        .pointer("/claudeAiOauth/accessToken")
+        .and_then(Value::as_str)
+        .filter(|v| !v.is_empty());
+    let Some(token) = token else { return Ok(None) };
+    if value
+        .pointer("/claudeAiOauth/expiresAt")
+        .and_then(Value::as_u64)
+        .is_some_and(|ms| ms < now_ms() + 10 * 60 * 1000)
+    {
+        return Err("Claude's Linux login expires within 10 minutes (or has expired), and a remote chain cannot refresh it; run `claude setup-token` or refresh Claude Code".into());
+    }
+    Ok(Some(token.to_owned()))
 }
 
 /// The remote chain's Claude command line: its own settings and no MCP
@@ -518,8 +609,27 @@ pub(super) fn wrap(
     bound: &Bound,
     profile: &HarnessProfile,
     program: String,
-    mut args: Vec<String>,
+    args: Vec<String>,
 ) -> Result<(String, Vec<String>), String> {
+    let args = claude_args(bound, profile, args)?;
+    let mut out = bound.sandbox_args();
+    out.push("/usr/bin/env".into());
+    for k in REFUSED_ENV {
+        out.push("-u".into());
+        out.push((*k).into());
+    }
+    out.push(format!("TMPDIR={}", bound.tmp.display()));
+    out.push(format!("CLAUDE_CODE_TMPDIR={}", bound.tmp.display()));
+    out.push(program);
+    out.extend(args);
+    Ok((exec.to_string_lossy().into_owned(), out))
+}
+
+fn claude_args(
+    bound: &Bound,
+    profile: &HarnessProfile,
+    mut args: Vec<String>,
+) -> Result<Vec<String>, String> {
     let refused = |a: &String| {
         REFUSED_ARGS.iter().any(|r| a.as_str() == *r || a.starts_with(&format!("{r}=")))
     };
@@ -538,36 +648,93 @@ pub(super) fn wrap(
     args.push("--strict-mcp-config".into());
     args.push("--mcp-config".into());
     args.push(r#"{"mcpServers":{}}"#.into());
-    let mut out = bound.sandbox_args();
-    // The login environment the child gets may carry them too.
-    out.push("/usr/bin/env".into());
-    for k in REFUSED_ENV {
-        out.push("-u".into());
-        out.push((*k).into());
+    Ok(args)
+}
+
+#[cfg(target_os = "linux")]
+fn linux_keeper_args(
+    bound: &Bound,
+    program: String,
+    args: Vec<String>,
+) -> Result<(String, Vec<String>), String> {
+    let exe = std::fs::canonicalize(std::env::current_exe().map_err(|e| e.to_string())?)
+        .map_err(|e| format!("cannot resolve acpmux executable: {e}"))?;
+    linux_keeper_args_with_exe(bound, program, args, &exe)
+}
+
+#[cfg(target_os = "linux")]
+fn linux_keeper_args_with_exe(
+    bound: &Bound,
+    program: String,
+    args: Vec<String>,
+    exe: &Path,
+) -> Result<(String, Vec<String>), String> {
+    let mut out = vec!["__remote-sandbox-keeper".into()];
+    for (key, value) in [
+        ("--cwd", &bound.cwd),
+        ("--tmpdir", &bound.tmp),
+        ("--home", &bound.home),
+        ("--claude-tmp-project", &bound.claude_tmp_project),
+        ("--claude-project", &bound.claude_project),
+    ] {
+        out.push(key.into());
+        out.push(value.to_string_lossy().into_owned());
     }
-    out.push(format!("TMPDIR={}", bound.tmp.display()));
-    // Claude Code keeps its own temporary files (the Bash tool's working
-    // directory file `claude-<id>-cwd`, task output) under CLAUDE_CODE_TMPDIR,
-    // else the shared /tmp, which the profile never lets it write: every Bash
-    // command then failed with "operation not permitted: /tmp/claude-…-cwd".
-    out.push(format!("CLAUDE_CODE_TMPDIR={}", bound.tmp.display()));
-    out.push(program);
+    out.extend(["--proxy-port".into(), "8118".into()]);
+    if let Some((port, loopback)) = bound.api_port {
+        if loopback {
+            let host = bound
+                .endpoint
+                .as_ref()
+                .and_then(|e| e.url.split("//").nth(1))
+                .and_then(|authority| authority.split(['/', '?', '#']).next())
+                .unwrap_or_default();
+            if host.starts_with('[') || host == "::1" {
+                return Err("IPv6 loopback API routes are unavailable until the keeper handshake carries the family".into());
+            }
+            out.extend(["--api-port".into(), port.to_string(), "--api-loopback-v4".into()]);
+        }
+    }
+    out.push("--".into());
+    out.push("/usr/bin/env".into());
+    for key in REFUSED_ENV {
+        out.extend(["-u".into(), (*key).into()]);
+    }
+    out.extend([
+        format!("TMPDIR={}", bound.tmp.display()),
+        format!("CLAUDE_CODE_TMPDIR={}", bound.tmp.display()),
+        program,
+    ]);
     out.extend(args);
-    Ok((exec.to_string_lossy().into_owned(), out))
+    Ok((exe.to_string_lossy().into_owned(), out))
+}
+
+#[cfg(target_os = "linux")]
+fn linux_wrap(
+    bound: &Bound,
+    profile: &HarnessProfile,
+    program: String,
+    args: Vec<String>,
+) -> Result<(String, Vec<String>), String> {
+    linux_keeper_args(bound, program, claude_args(bound, profile, args)?)
 }
 
 /// The canary's shell: $1 a file outside the allowed folders, $2 a 127.0.0.1
-/// port, $3 the temporary folder, $4 a ::1 port (0: none).
+/// port, $3 the temporary folder, $4 a ::1 port (0: none), $5 a Unix socket.
 const CANARY: &str = r#": > "$1" 2>/dev/null; o=$?
 (exec 3<>"/dev/tcp/127.0.0.1/$2") 2>/dev/null; l=$?
 [ "$l" -ne 0 ] && { (exec 3<>"/dev/tcp/::1/$4") 2>/dev/null; [ $? -eq 0 ] && l=0; }
 t=$(mktemp "$3/acpmux-canary.XXXXXX" 2>/dev/null) && rm -f "$t"; i=$?
-echo "acpmux-canary outside=$o loopback=$l tmp=$i""#;
+u=1
+if [ -n "$5" ] && command -v python3 >/dev/null 2>&1; then
+  python3 -c 'import socket,sys; s=socket.socket(socket.AF_UNIX); s.connect(sys.argv[1])' "$5" 2>/dev/null; u=$?
+fi
+if [ -n "$5" ]; then echo "acpmux-canary outside=$o loopback=$l tmp=$i unix=$u"; else echo "acpmux-canary outside=$o loopback=$l tmp=$i"; fi"#;
 
 /// Run the canary under `exec` with the profile and `bound`; Ok only when
 /// the sandbox held: the outside write failed and left no file, the loopback
 /// connection failed and never arrived, and the temporary write worked.
-pub(super) async fn canary(exec: &Path, bound: &Bound) -> Result<(), String> {
+pub(super) async fn canary(exec: &Path, bound: &Bound, linux: bool) -> Result<(), String> {
     let listener =
         std::net::TcpListener::bind("127.0.0.1:0").map_err(|e| format!("listen: {e}"))?;
     listener.set_nonblocking(true).map_err(|e| format!("listen: {e}"))?;
@@ -579,16 +746,56 @@ pub(super) async fn canary(exec: &Path, bound: &Bound) -> Result<(), String> {
     }
     let port6 = listener6.as_ref().and_then(|l| l.local_addr().ok()).map_or(0, |a| a.port());
     let outside = bound.home.join(format!(".acpmux-sandbox-canary-{}", uuid::Uuid::now_v7()));
-    let mut cmd = tokio::process::Command::new(exec);
-    cmd.args(bound.sandbox_args())
-        .args(["/bin/bash", "-c", CANARY, "acpmux-canary"])
-        .arg(&outside)
-        .arg(port.to_string())
-        .arg(&bound.tmp)
-        .arg(port6.to_string())
-        .current_dir(&bound.cwd)
-        .stdin(std::process::Stdio::null())
-        .kill_on_drop(true);
+    #[cfg(unix)]
+    let socket_path = bound
+        .tmp
+        .parent()
+        .unwrap_or(Path::new("/tmp"))
+        .join(format!("acpmux-sandbox-canary-{}.sock", uuid::Uuid::now_v7()));
+    #[cfg(unix)]
+    let unix_listener = if linux {
+        Some(
+            std::os::unix::net::UnixListener::bind(&socket_path)
+                .map_err(|e| format!("listen unix: {e}"))?,
+        )
+    } else {
+        None
+    };
+    #[cfg(unix)]
+    if let Some(listener) = &unix_listener {
+        listener.set_nonblocking(true).map_err(|e| e.to_string())?;
+    }
+    #[cfg(unix)]
+    let socket_arg = if linux { socket_path.to_string_lossy().into_owned() } else { String::new() };
+    #[cfg(not(unix))]
+    let socket_arg = String::new();
+    let canary_args = ["/bin/bash", "-c", CANARY, "acpmux-canary"]
+        .into_iter()
+        .map(str::to_owned)
+        .chain([
+            outside.to_string_lossy().into_owned(),
+            port.to_string(),
+            bound.tmp.to_string_lossy().into_owned(),
+            port6.to_string(),
+        ])
+        .chain(std::iter::once(socket_arg))
+        .collect::<Vec<_>>();
+    #[cfg(target_os = "linux")]
+    let (program, args) = if linux {
+        linux_keeper_args_with_exe(bound, "/bin/bash".into(), canary_args, exec)?
+    } else {
+        (
+            exec.to_string_lossy().into_owned(),
+            bound.sandbox_args().into_iter().chain(canary_args).collect(),
+        )
+    };
+    #[cfg(not(target_os = "linux"))]
+    let (program, args) = (
+        exec.to_string_lossy().into_owned(),
+        bound.sandbox_args().into_iter().chain(canary_args).collect(),
+    );
+    let mut cmd = tokio::process::Command::new(program);
+    cmd.args(args).current_dir(&bound.cwd).stdin(std::process::Stdio::null()).kill_on_drop(true);
     let run = tokio::time::timeout(std::time::Duration::from_secs(20), cmd.output()).await;
     let landed = std::fs::symlink_metadata(&outside).is_ok();
     if landed {
@@ -596,6 +803,10 @@ pub(super) async fn canary(exec: &Path, bound: &Bound) -> Result<(), String> {
     }
     let arrived =
         listener.accept().is_ok() || listener6.as_ref().is_some_and(|l| l.accept().is_ok());
+    #[cfg(unix)]
+    let arrived_unix = unix_listener.as_ref().is_some_and(|l| l.accept().is_ok());
+    #[cfg(not(unix))]
+    let arrived_unix = false;
     let out = match run {
         Ok(Ok(out)) => out,
         Ok(Err(e)) => {
@@ -610,20 +821,22 @@ pub(super) async fn canary(exec: &Path, bound: &Bound) -> Result<(), String> {
             .and_then(|l| l.split_whitespace().find_map(|w| w.strip_prefix(&format!("{k}="))))
             .and_then(|v| v.parse::<i32>().ok())
     };
-    let (o, l, t) = (field("outside"), field("loopback"), field("tmp"));
+    let (o, l, t, u) = (field("outside"), field("loopback"), field("tmp"), field("unix"));
     let held = matches!(o, Some(c) if c != 0)
         && matches!(l, Some(c) if c != 0)
         && t == Some(0)
         && !landed
-        && !arrived;
+        && !arrived
+        && (!linux || (matches!(u, Some(c) if c != 0) && !arrived_unix));
     if held {
         return Ok(());
     }
     Err(format!(
-        "the sandbox canary shows no sandbox (outside write {}, loopback connect {}, temp write {}, file landed {landed}, connection arrived {arrived}; status {}, stderr {:?})",
+        "the sandbox canary shows no sandbox (outside write {}, loopback connect {}, temp write {}, unix connect {}, file landed {landed}, connection arrived {arrived}/{arrived_unix}; status {}, stderr {:?})",
         o.map_or("unknown".into(), |c| if c == 0 { "allowed".to_owned() } else { "denied".into() }),
         l.map_or("unknown".into(), |c| if c == 0 { "allowed".to_owned() } else { "denied".into() }),
         t.map_or("unknown".into(), |c| if c == 0 { "allowed".to_owned() } else { "denied".into() }),
+        u.map_or("unknown".into(), |c| if c == 0 { "allowed".to_owned() } else { "denied".into() }),
         out.status,
         String::from_utf8_lossy(&out.stderr).chars().take(300).collect::<String>(),
     ))
@@ -657,6 +870,26 @@ impl Hub {
         #[cfg(target_os = "linux")]
         LINUX_REMOTE_SANDBOX.store(enabled, Ordering::SeqCst);
         let _ = enabled;
+    }
+
+    /// Runs the Linux canary for the hosted integration test. Production
+    /// callers have no access to this path until G2 removes the refusal.
+    #[doc(hidden)]
+    pub async fn linux_sandbox_canary_for_tests(
+        &self,
+        cwd: PathBuf,
+        exec: PathBuf,
+    ) -> Result<(), String> {
+        #[cfg(target_os = "linux")]
+        {
+            let bound = Bound::for_session(&cwd, "integration-canary", None)?;
+            return canary(&exec, &bound, true).await;
+        }
+        #[cfg(not(target_os = "linux"))]
+        {
+            let _ = cwd;
+            Err("Linux sandbox canary is unavailable on this platform".into())
+        }
     }
 
     /// `plan` for this spawn: a remote chain's (remote-origin) Claude Code
@@ -760,10 +993,33 @@ impl Hub {
             user_settings.as_deref(),
             remote_login_value("ANTHROPIC_BASE_URL").as_deref(),
         );
+        #[cfg(target_os = "linux")]
+        let linux = LINUX_REMOTE_SANDBOX.load(Ordering::SeqCst);
+        #[cfg(not(target_os = "linux"))]
+        let linux = false;
         let result = async {
             let bound = Bound::for_session(&session.meta().cwd, &session.id, endpoint)?;
-            let plan = wrap(&exec, &bound, profile, program, args)?;
-            canary(&exec, &bound).await?;
+            let plan = if linux {
+                #[cfg(target_os = "linux")]
+                {
+                    linux_wrap(&bound, profile, program, args)?
+                }
+                #[cfg(not(target_os = "linux"))]
+                {
+                    unreachable!()
+                }
+            } else {
+                wrap(&exec, &bound, profile, program, args)?
+            };
+            #[cfg(target_os = "linux")]
+            let canary_exec = if linux {
+                std::env::current_exe().map_err(|e| e.to_string())?
+            } else {
+                exec.clone()
+            };
+            #[cfg(not(target_os = "linux"))]
+            let canary_exec = exec.clone();
+            canary(&canary_exec, &bound, linux).await?;
             Ok::<_, String>(plan)
         }
         .await;
@@ -1029,5 +1285,44 @@ mod endpoint_tests {
         .unwrap();
         assert_eq!(linux_credential_file(&home).unwrap().as_deref(), Some("linux-token"));
         let _ = std::fs::remove_dir_all(home);
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn linux_switch_off_keeps_the_platform_refusal() {
+        LINUX_REMOTE_SANDBOX.store(false, Ordering::SeqCst);
+        let error = Bound::for_session(Path::new("/"), "wire-off", None).unwrap_err();
+        assert!(error.contains("platform has none"), "{error}");
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn linux_group_writable_ancestor_is_refused() {
+        use std::os::unix::fs::PermissionsExt;
+        let root = std::env::temp_dir().join(format!("acpmux-linux-safe-{}", std::process::id()));
+        let child = root.join("project");
+        std::fs::create_dir_all(&child).unwrap();
+        let original = std::fs::metadata(&root).unwrap().permissions().mode();
+        let mut mode = std::fs::metadata(&root).unwrap().permissions();
+        mode.set_mode(original | 0o020);
+        std::fs::set_permissions(&root, mode).unwrap();
+        let uid = unsafe { libc::getuid() };
+        assert!(linux_secure_path(&child, &root, uid, false).is_err());
+        let mut restore = std::fs::metadata(&root).unwrap().permissions();
+        restore.set_mode(original);
+        let _ = std::fs::set_permissions(&root, restore);
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn linux_probe_failure_has_a_sandbox_refusal_reason() {
+        let error = crate::linux_sandbox::bwrap::probe(Path::new("/definitely/missing/bwrap"))
+            .unwrap_err()
+            .to_string();
+        assert!(
+            error.contains("bwrap not installed") || error.contains("probe did not start"),
+            "{error}"
+        );
     }
 }
