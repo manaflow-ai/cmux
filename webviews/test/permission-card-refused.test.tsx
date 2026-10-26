@@ -66,6 +66,7 @@ type Sent = { permissionId: string; optionId: string; settle: { resolve(): void;
 
 type Options = {
   reply?(optionId: string): unknown;
+  focusComposer?(): void;
   onDenyWithFeedback?(optionId: string, text: string): Promise<boolean>;
 };
 
@@ -88,6 +89,7 @@ async function mount(first: AcpmuxPermission, options: Options = {}) {
                 })
           }
           onDenyWithFeedback={options.onDenyWithFeedback}
+          focusComposer={options.focusComposer}
         />,
       ),
     );
@@ -110,6 +112,13 @@ async function mount(first: AcpmuxPermission, options: Options = {}) {
       if (!button) throw new Error(`no button ${label}`);
       button.click();
     });
+  const type = (text: string) =>
+    act(async () => {
+      const field = host.querySelector("textarea")!;
+      const set = Object.getOwnPropertyDescriptor(dom.window.HTMLTextAreaElement.prototype, "value")!.set!;
+      set.call(field, text);
+      field.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
+    });
   const flush = () => act(async () => void (await new Promise((resolve) => setTimeout(resolve, 0))));
   return {
     host,
@@ -120,6 +129,7 @@ async function mount(first: AcpmuxPermission, options: Options = {}) {
     settle,
     alert,
     click,
+    type,
     flush,
     unmount: () => act(async () => root.unmount()),
   };
@@ -291,30 +301,77 @@ for (const [how, fail] of [
     await card.unmount();
   });
 
-test("a deny with feedback refused late never touches the next ask's field", async () => {
-  const replies: Array<(ok: boolean) => void> = [];
-  const card = await mount(ask("p1"), {
-    onDenyWithFeedback: () => new Promise<boolean>((resolve) => replies.push(resolve)),
-  });
-  const type = (text: string) =>
-    act(async () => {
-      const field = card.host.querySelector("textarea")!;
-      const set = Object.getOwnPropertyDescriptor(dom.window.HTMLTextAreaElement.prototype, "value")!.set!;
-      set.call(field, text);
-      field.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
+for (const late of [false, true])
+  test(`a feedback deny ${late ? "taken" : "refused"} late never touches the next ask's field or focus`, async () => {
+    const replies: Array<(ok: boolean) => void> = [];
+    let composer = 0;
+    const card = await mount(ask("p1"), {
+      onDenyWithFeedback: () => new Promise<boolean>((resolve) => replies.push(resolve)),
+      focusComposer: () => void (composer += 1),
     });
+    await card.key("3");
+    await card.type("not that");
+    await card.click(translate("permission.feedbackSend"));
+    // The agent asks again before p1's deny is answered; the person starts telling p2 something else,
+    // then moves the keyboard away from the field.
+    await card.render(ask("p2"));
+    await card.key("3");
+    await card.type("try the cache");
+    const elsewhere = dom.window.document.createElement("button");
+    card.host.append(elsewhere);
+    elsewhere.focus();
+    const before = composer;
+    await act(async () => replies[0]!(late));
+    await card.flush();
+    const field = card.host.querySelector("textarea");
+    expect(field?.value).toBe("try the cache");
+    expect(field?.readOnly).toBe(false);
+    expect(card.alert()).toBeUndefined();
+    expect(dom.window.document.activeElement).toBe(elsewhere);
+    expect(composer).toBe(before);
+    await card.unmount();
+  });
+
+test("an ask shown again after its answer was taken is not answered again", async () => {
+  const card = await mount(ask("p1"));
+  await card.key("1");
+  await card.render(ask("p2", "p2-allow"));
+  await card.settle(0, true);
+  await card.render(ask("p1"));
+  await card.key("1");
+  await card.click(translate("permission.allowOnce"));
+  await card.click(translate("permission.deny"));
+  expect(card.sent.map((s) => s.optionId)).toEqual(["p1-yes"]);
+  await card.unmount();
+});
+
+test("an ask whose feedback deny is out cannot open a second one", async () => {
+  const replies: Array<(ok: boolean) => void> = [];
+  const denies: string[] = [];
+  const card = await mount(ask("p1"), {
+    onDenyWithFeedback: (_optionId, text) => {
+      denies.push(text);
+      return new Promise<boolean>((resolve) => replies.push(resolve));
+    },
+  });
   await card.key("3");
-  await type("not that");
+  await card.type("not that");
   await card.click(translate("permission.feedbackSend"));
-  // The agent asks again before p1's deny is answered; the person starts telling p2 something else.
+  // p2 comes and its field opens, then p1 is back on the card.
   await card.render(ask("p2"));
   await card.key("3");
-  await type("try the cache");
+  await card.render(ask("p1"));
+  // p1's deny is still out: neither Deny's click nor its key opens a field to send another.
+  await card.click(translate("permission.deny"));
+  await card.key("3");
+  expect(card.host.querySelector("textarea")).toBeNull();
+  // Refused: p1 can be denied again, with a fresh field.
   await act(async () => replies[0]!(false));
   await card.flush();
-  const field = card.host.querySelector("textarea");
-  expect(field?.value).toBe("try the cache");
-  expect(field?.readOnly).toBe(false);
-  expect(card.alert()).toBeUndefined();
+  expect(card.alert()).toBe(translate("permission.error.refused"));
+  await card.click(translate("permission.deny"));
+  await card.type("use the cache");
+  await card.click(translate("permission.feedbackSend"));
+  expect(denies).toEqual(["not that", "use the cache"]);
   await card.unmount();
 });
