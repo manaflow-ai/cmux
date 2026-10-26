@@ -110,10 +110,8 @@ impl Watches {
             hub.wait_startup().await;
             let mut refresh = true;
             loop {
-                if refresh {
-                    if let Err(e) = reconcile(&hub).await {
-                        tracing::error!("watch: {e}");
-                    }
+                if refresh && let Err(e) = reconcile(&hub).await {
+                    tracing::error!("watch: {e}");
                 }
                 refresh = tokio::select! {
                     () = hub.shutdown.notified() => break,

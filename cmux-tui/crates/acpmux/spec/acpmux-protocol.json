@@ -560,6 +560,24 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/watch_add",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/watch_ls",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/watch_rm",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/ask",
       "params": true,
       "result": true
