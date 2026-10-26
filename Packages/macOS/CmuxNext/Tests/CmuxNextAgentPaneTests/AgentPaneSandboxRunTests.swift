@@ -74,6 +74,38 @@ struct AgentPaneSandboxRunTests {
         #expect((noReceipt["error"] as? [String: Any])?["code"] as? String == "bad_response")
     }
 
+    @Test func onlyTheReceiptFieldsTheChatShowsCrossToThePage() async {
+        let receipt: [String: Any] = [
+            "schema": "cmux.run.receipt/v1", "runId": "run-7", "environment": "sandboxed", "status": "succeeded",
+            "image": ["id": "img-1", "version": "3"], "exitCode": 0, "signal": NSNull(), "timedOut": false,
+            "reply": "done", "error": "boot failed on vm-abc", "cleanup": "destroyed",
+            "artifacts": [["name": "a.md", "mediaType": "text/markdown", "sizeBytes": 3, "digest": "sha256:x"]],
+            "timings": ["createdAt": "t", "totalMs": 9, "bootMs": 2, "runMs": 7],
+            "cost": ["vmSeconds": 9, "vcpus": 2, "memoryMb": 512, "estimateUsd": 0.01],
+        ]
+        let reply = await AgentPaneReply.sandbox({ ["run": ["id": "run-7"], "receipt": receipt] }) { _ in "x" }
+        let page = (reply["value"] as? [String: Any])?["receipt"] as? [String: Any]
+        #expect(page?.keys.sorted() == ["artifacts", "cleanup", "cost", "exitCode", "reply", "status", "timedOut", "timings"])
+        #expect((page?["artifacts"] as? [[String: Any]])?.first?.keys.sorted() == ["name", "sizeBytes"])
+        #expect((page?["timings"] as? [String: Any])?.keys.sorted() == ["bootMs", "totalMs"])
+        #expect((page?["cost"] as? [String: Any])?.keys.sorted() == ["estimateUsd", "vmSeconds"])
+        // As JSON decodes it: a 0 exit code stays a number, `false` stays a boolean.
+        let decoded = try? JSONSerialization.jsonObject(with: Data(#"{"exitCode":0,"timedOut":false,"status":"failed"}"#.utf8))
+        let fromJSON = AgentPaneReply.pageReceipt(decoded as? [String: Any] ?? [:])
+        #expect((fromJSON["exitCode"] as? NSNumber)?.intValue == 0)
+        #expect(fromJSON["timedOut"] as? Bool == false)
+    }
+
+    @Test func theRunAPIsRequestRefusalsAreDefiniteAndNoOtherShapeIs() {
+        for code in ["run_task_required", "run_model_required", "run_task_invalid", "run_invalid_request"] {
+            #expect(AgentPaneReply.isRunRequestRefusal(code))
+            #expect(AgentPaneSandboxRuns.isDefiniteRefusal(AgentPaneReply.failure(code: code, message: code)))
+        }
+        for code in ["run_vm1_invalid", "run_invalid", "provider_vm_abc_invalid", "run_task_failed"] {
+            #expect(!AgentPaneReply.isRunRequestRefusal(code))
+        }
+    }
+
     @Test func aServerCodeThePageDoesNotWordReachesItAsUnavailable() async {
         // A code from the server's body or a header may name a provider handle: never forwarded.
         struct Failed: Error {}
