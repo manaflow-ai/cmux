@@ -50,7 +50,7 @@ final class CookieImportConsentPanel {
             finish = { continuation.resume(returning: $0) }
             limitNote.stringValue = CookieImportStrings.deadline(Int(limit.components.seconds))
             show(on: window)
-            deadline.schedule(after: limit) { @MainActor [weak self] in self?.answer(.timedOut) }
+            deadline.scheduleOnMain(after: limit) { [weak self] in self?.answer(.timedOut) }
         }
     }
 

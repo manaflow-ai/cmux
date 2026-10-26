@@ -51,7 +51,7 @@ extension MainPaneLayout {
                 return nil
             }
             let bound = DemandTimer(owner: "MainPaneLayout.tabListed")
-            bound.schedule(after: listLimit) { @MainActor in listed.cancel() }
+            bound.scheduleOnMain(after: listLimit) { listed.cancel() }
             let found = await listed.value
             bound.cancel()
             guard let tab = found, let controller else {
@@ -171,7 +171,7 @@ extension MainPaneLayout {
             return false
         }
         let bound = DemandTimer(owner: "MainPaneLayout.chatDock")
-        bound.schedule(after: listLimit) { @MainActor in moved.cancel() }
+        bound.scheduleOnMain(after: listLimit) { moved.cancel() }
         let found = await moved.value
         bound.cancel()
         return found ? services.locateTab(id)?.1 : nil

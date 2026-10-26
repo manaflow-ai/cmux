@@ -201,7 +201,7 @@ public final class ChromiumHostSession {
         if !send(ChromiumHostFrame(.quit)) { return }  // send ended the host already
         let launcher = launcher, pid = pid
         // A deadline, not a wait: hostEnded cancels it.
-        quitDeadline.schedule(after: quitLimit) { @MainActor [weak self] in
+        quitDeadline.scheduleOnMain(after: quitLimit) { [weak self] in
             guard let self, self.connection === connection else { return }
             launcher.kill(pid)
         }

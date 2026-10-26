@@ -77,7 +77,7 @@ final class DebugFrameProbe {
         clear()
         client.activate()
         watchMainRunLoop()
-        expiry.schedule(after: Self.maximumRun) { @MainActor [weak self] in self?.stop() }
+        expiry.scheduleOnMain(after: Self.maximumRun) { [weak self] in self?.stop() }
     }
 
     private func stop() {

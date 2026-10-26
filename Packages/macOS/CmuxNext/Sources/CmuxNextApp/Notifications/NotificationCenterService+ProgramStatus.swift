@@ -36,7 +36,7 @@ extension NotificationCenterService {
             self?.heldProgramAlerts.removeValue(forKey: id)?.cancel()
             deliver(found)
         }
-        hold.timer.schedule(after: Self.programAlertWait) { @MainActor in finish(nil) }
+        hold.timer.scheduleOnMain(after: Self.programAlertWait) { finish(nil) }
         heldProgramAlerts[id] = Task { @MainActor in // task-owner: heldProgramAlerts, cancelled by finish
             for await records in ObservationStream({ tab.programStatus }) {
                 if let found = ProgramStatusNotification.match(title: notification.title, body: notification.body,
