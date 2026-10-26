@@ -23,11 +23,14 @@ Per size it measures:
                 observations app-wide and the evaluations, applies and hosting bodies the one change cost;
                 `budget` checks armed SidebarRows <= on screen + one screen and 1 change -> <= 2 evaluations
 Traces go to OUT/traces/*.trace; OUT/results.json holds every number and the top main-thread frames.
+Every percentile block is perf_stats (linear interpolation; sidebar_bench_report.percentiles), and the
+raw samples behind the ms blocks are written as result-v1 (story sidebar-stress, series
+`sidebar_stress.<size>.<scenario>.<metric>`) into OUT.
 
 Usage (nx-remote --needs gui --app-from-fleet cmux --tag T --ref SHA):
   sidebar-stress-bench.py --app "$NX_APP" --tag "$NX_APP_TAG" --out "$NX_ARTIFACTS/stress" [--sizes 100,500,1000]
 """
-import argparse, glob, json, os, shutil, socket, statistics, subprocess, sys, tempfile, time
+import argparse, glob, json, os, shutil, socket, subprocess, sys, tempfile, time
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--app", required=True)
@@ -48,12 +51,12 @@ os.makedirs(os.path.join(OUT, "traces"), exist_ok=True)
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 from bench_idle import usage  # noqa: E402
-from bench_launch import launch_app  # noqa: E402
+from bench_launch import BenchApp  # noqa: E402
+import sidebar_bench_report as report  # noqa: E402
 
 SOCKET = f"/tmp/cmux-debug-{opts.tag}.sock"
 SCRATCH = tempfile.mkdtemp(prefix=f"sbstress-{opts.tag}-")
 CONFIG = os.path.join(SCRATCH, "cmux.json")
-GHOSTTY = os.path.join(SCRATCH, "ghostty")
 FLAG = os.path.join(SCRATCH, "ticking")
 DEBUG_CLI = os.path.join(HERE, "..", "cmux-debug-cli.sh")
 APP_CLI = os.path.join(opts.app, "Contents/Resources/bin/cmux")
@@ -138,13 +141,16 @@ def topology():
     return snap.get("topology") or snap
 
 
-def percentiles(values):
-    if not values:
-        return {}
-    s = sorted(values)
-    pick = lambda p: s[min(len(s) - 1, int(round((len(s) - 1) * p)))]
-    return {"n": len(s), "p50": round(pick(0.5), 3), "p95": round(pick(0.95), 3), "p99": round(pick(0.99), 3),
-            "max": round(s[-1], 3), "mean": round(statistics.fmean(s), 3)}
+# {(size, metric): [raw ms samples]} of every percentile block below that has a size: result-v1's samples.
+SAMPLES = {}
+
+
+def sample_block(values, size=None, metric=None):
+    """The {n, p50, p95, p99, max, mean} block of `values` (perf_stats); with `size` and `metric`, the values are
+    also kept for result-v1 as `sidebar_stress.<size>.<metric>`."""
+    if size is not None and metric:
+        SAMPLES.setdefault((size, metric), []).extend(values)
+    return report.percentiles(values)
 
 
 def cpu_share(pid, seconds):
@@ -377,7 +383,7 @@ def frames(action_name):
 
 
 def noop_ms(count=30):
-    return percentiles([timed_rpc("debug.frames", {"action": "read"})[0] for _ in range(count)])
+    return sample_block([timed_rpc("debug.frames", {"action": "read"})[0] for _ in range(count)])
 
 
 def list_point():
@@ -425,7 +431,8 @@ def scenario_scroll(pid, size, label, trace=True):
     stats = frames("stop")
     if tr:
         tr.__exit__(None, None, None)
-    return {"frames": stats, "event_rpc_ms": percentiles(handle), "events": len(handle), "wall_s": round(wall, 2),
+    return {"frames": stats, "event_rpc_ms": sample_block(handle, size, f"{label.replace('-', '_')}.event_rpc"),
+            "events": len(handle), "wall_s": round(wall, 2),
             "trace": os.path.relpath(tr.path, OUT) if tr else None, "profile": main_thread_profile(tr.path) if tr else None}
 
 
@@ -448,6 +455,8 @@ def scenario_ticks(pid, size):
     per_tick = None
     if profile and profile.get("main_samples"):
         per_tick = round(profile["main_samples"] / ticks, 3) if ticks else None  # 1 ms per Time Profiler sample
+    if per_tick is not None:
+        SAMPLES.setdefault((size, "ticks.main_per_tick"), []).append(per_tick)
     return {"tickers": len(made["tickers"]), "tick_hz_each": 1 / TICK_S, "idle": idle, "ticking": busy,
             "trace_window_s": 12, "ticks_in_trace": round(ticks), "main_ms_per_tick": per_tick,
             "main_ms_per_s": round(profile["main_samples"] / 12, 1) if profile and profile.get("main_samples") else None,
@@ -538,7 +547,8 @@ def scenario_switch(pid, size, count=24):
     stats = frames("stop")
     tr.__exit__(None, None, None)
     selected = [r.get("title") for r in workspace_rows() if r.get("selected")]
-    return {"clicks": count, "click_to_idle_ms": percentiles(lat), "noop_rpc_ms": noop_ms(), "frames": stats,
+    return {"clicks": count, "click_to_idle_ms": sample_block(lat, size, "switch.click_to_idle"), "noop_rpc_ms": noop_ms(),
+            "frames": stats,
             "selected_after": selected[:3], "trace": os.path.relpath(tr.path, OUT), "profile": main_thread_profile(tr.path)}
 
 def switch_targets():
@@ -625,17 +635,18 @@ def scenario_switch_matrix(pid, size):
                 if i % 4 == 3 and selected_title() != target:
                     wrong += 1
                 time.sleep(0.2)
-            entry = {"switches": len(lat), "input_to_idle_ms": percentiles(lat),
-                     "longest_frame_ms": percentiles(longest), "wrong_selection_checks": wrong}
+            entry = {"switches": len(lat), "input_to_idle_ms": sample_block(lat, size, f"switch_matrix.{kind}.{how}.input_to_idle"),
+                     "longest_frame_ms": sample_block(longest, size, f"switch_matrix.{kind}.{how}.longest_frame"),
+                     "wrong_selection_checks": wrong}
             if timed:
                 samples = (rpc("debug.workspace_switch", {"action": "stop"}) or {}).get("switches") or []
                 entry["app_samples"] = samples
                 commit = [x["commit_ms"] + x.get("input_ms", 0) for x in samples if isinstance(x.get("commit_ms"), (int, float))]
-                entry["input_to_commit_ms"] = percentiles(commit)
+                entry["input_to_commit_ms"] = sample_block(commit, size, f"switch_matrix.{kind}.{how}.input_to_commit")
                 for stage in ("input", "park", "content", "sidebar", "root", "theme", "did_show", "apply", "commit"):
                     vals = [x[stage + "_ms"] for x in samples if isinstance(x.get(stage + "_ms"), (int, float))]
                     if vals:
-                        entry.setdefault("stages_ms", {})[stage] = percentiles(vals)
+                        entry.setdefault("stages_ms", {})[stage] = sample_block(vals)
             out[f"{kind}.{how}"] = entry
             note(f"switch matrix {kind} {how}: {out[f'{kind}.{how}']['input_to_idle_ms']}")
     tr.__exit__(None, None, None)
@@ -681,7 +692,8 @@ def scenario_drag(pid, size, moves=180):
     per_move = round(profile["main_samples"] / moves, 3) if profile and profile.get("main_samples") else None
     time.sleep(1)
     action("undo")  # a drop may have moved the row; put it back
-    return {"moves": moves, "drag_engaged": dragging, "post_rpc_ms": percentiles(times), "main_ms_per_move_upper_bound": per_move,
+    return {"moves": moves, "drag_engaged": dragging, "post_rpc_ms": sample_block(times, size, "drag.post_rpc"),
+            "main_ms_per_move_upper_bound": per_move,
             "frames": stats, "trace": os.path.relpath(tr.path, OUT), "profile": profile}
 
 
@@ -717,7 +729,8 @@ def scenario_hitches(pid, size):
                     ours += 1
                     if duration is not None and (duration.text or "").isdigit():
                         durations.append(int(duration.text) / 1e6)
-            hitches = {"rows_for_app": ours, "duration_ms": percentiles(durations), "total_ms": round(sum(durations), 1)}
+            hitches = {"rows_for_app": ours, "duration_ms": sample_block(durations, size, "scroll_hitches.hitch"),
+                       "total_ms": round(sum(durations), 1)}
         except ET.ParseError as error:
             hitches = {"error": str(error)}
     return {"frames": stats, "trace": os.path.relpath(tr.path, OUT), "hitches": hitches}
@@ -726,18 +739,18 @@ def scenario_hitches(pid, size):
 def main():
     global SOCKET
     sizes = [int(s) for s in opts.sizes.split(",")]
-    with open(CONFIG, "w") as f:
-        json.dump({"appearance": {"theme": "Catppuccin Mocha"}}, f)
-    open(GHOSTTY, "w").write("")
-    if os.path.exists(SOCKET):
-        os.unlink(SOCKET)
-    env = {"HOME": os.environ["HOME"], "USER": os.environ.get("USER", ""), "TMPDIR": os.environ.get("TMPDIR", "/tmp"),
-           "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "CMUX_NEXT_NO_ACTIVATE": "1", "CMUX_NEXT_SOCKET_MODE": "automation",
-           "CMUX_NEXT_CONFIG_FILE": CONFIG, "CMUX_NEXT_GHOSTTY_CONFIG": GHOSTTY, "CMUX_NEXT_CHIEF_ISOLATED": "1",
-           "CMUX_NEXT_CHIEF_HOME": os.path.join(SCRATCH, "chief"), "CMUX_NEXT_TEST_WINDOW_FRAME": ",".join(map(str, WINDOW))}
+    config = {"appearance": {"theme": "Catppuccin Mocha"}}
+    with open(CONFIG, "w") as f:  # the CLI's config (cli()); the app gets the same keys from BenchApp
+        json.dump(config, f)
     results["load_at_start"] = os.getloadavg()
-    # One launch path (bench_launch.py): socket in the state folder, bench env, the reason when it does not come up.
-    app, SOCKET = launch_app(opts.app, env, os.path.join(OUT, "app.log"), timeout=180)
+    # One launch path (bench_launch.py): the bench env (no activation, automation socket, isolated Chief), `config`
+    # as the app's cmux.json, the window frame, a leftover socket removed only when nothing listens, and the reason
+    # when it does not come up. With --stop it also quits the app and ends the tag's daemons; without it the job's
+    # own stop does.
+    bench = BenchApp(opts.app, out=OUT, config=config, window=WINDOW, screen=None, log_name="app.log",
+                     teardown=opts.stop, perf_session=report.SESSION)
+    bench.launch(timeout=180)
+    app, SOCKET = bench.process, bench.socket
     note(f"launched pid {app.pid}")
     try:
         # A fresh profile may open on Home with no workspace yet: make one, so the list has a row to measure.
@@ -804,15 +817,11 @@ def main():
     finally:
         ticking(False)
         results["made"] = {k: len(v) for k, v in made.items()}
+        results["result_v1"] = report.record_all(bench, report.stress_series(SAMPLES))
         with open(os.path.join(OUT, "results.json"), "w") as f:
             json.dump(results, f, indent=1, default=str)
         if opts.stop:
-            reply = rpc("action.run", {"action": "quitEndSessions", "origin": "script"})
-            note(f"quitEndSessions -> {json.dumps(reply)[:160]}")
-            try:
-                app.wait(timeout=30)
-            except subprocess.TimeoutExpired:
-                app.terminate()
+            bench.stop()  # debug.quit with end-sessions, then TERM of its own PID, then the tag's daemons
 
 
 main()
