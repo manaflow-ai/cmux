@@ -292,6 +292,30 @@ def test_same_repo_branch_pushes_publish_their_trees() -> None:
     assert '"ref": os.environ["GITHUB_REF"]' in tree
 
 
+def test_ci_never_suggests_pushing_a_pr_merge_commit_to_a_pin_branch() -> None:
+    """A PR merge commit must not be turned into a privileged pin push."""
+    unsafe = re.compile(r"git\s+push\s+origin\b[^\n]*(?:cmux-tui-pin|refs/heads/cmux-tui-pin)", re.IGNORECASE)
+    offenders: list[str] = []
+    for root in (ROOT / ".github" / "workflows", ROOT / "scripts"):
+        for path in root.rglob("*"):
+            if not path.is_file():
+                continue
+            try:
+                text = path.read_text(encoding="utf-8")
+            except UnicodeDecodeError:
+                continue
+            if unsafe.search(text):
+                offenders.append(str(path.relative_to(ROOT)))
+    assert not offenders, "CI guidance must use trusted publication, not pin pushes: " + ", ".join(offenders)
+
+    artifacts = workflow("cmux-tui-artifacts.yml")
+    tree_request = workflow("cmux-tui-tree-request.yml")
+    pin = (ROOT / "scripts/cmux-next/pin-cmux-tui.sh").read_text()
+    assert "This tree has no artifact yet; re-run after" in artifacts
+    assert "This tree has no artifact yet; re-run after" in tree_request
+    assert "This tree has no artifact yet; re-run after" in pin
+
+
 def test_feat_push_concurrency_cannot_drop_an_unpublished_tree_key() -> None:
     artifacts = workflow("cmux-tui-artifacts.yml")
     assert "format('sha-{0}', github.sha)" in artifacts
