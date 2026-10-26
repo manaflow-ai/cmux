@@ -369,7 +369,7 @@ public final class RenderStats {
     }
 }
 
-private extension CAAnimation {
+extension CAAnimation {
     var loopsForever: Bool {
         repeatCount >= .greatestFiniteMagnitude || repeatDuration >= .greatestFiniteMagnitude
     }
