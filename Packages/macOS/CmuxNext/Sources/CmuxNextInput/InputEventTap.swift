@@ -16,12 +16,14 @@ public import CmuxNextInputCore
 /// the dispatch after it, on every path:
 ///
 /// ```swift
+/// tap.sendEventBegan(event)                            // first: the action event's floor (``actionEvent``)
 /// tap.dispatching {
 ///     tap.deliverObserve(event)                        // before the key router
 ///     if tap.deliverIntercepts(event) == .pass { super.sendEvent(event) }
 ///     tap.deliverAfterDispatch(event)
 /// }
 /// tap.deliverDispatchEnd(event, outcome: delivered ? .delivered : .consumed)
+/// tap.sendEventEnded()                                 // last, on every path
 /// ```
 ///
 /// Subscribing, cancelling or releasing a subscription inside a handler is safe: a list is never
@@ -71,6 +73,15 @@ public final class InputEventTap: InputObserving {
     /// The last button, move, drag or scroll event the app dispatched, nil before the first: where the
     /// pointer is. Its modifiers are that event's; read the current ones from ``lastDispatched``.
     public private(set) var lastPointer: InputEventRecord?
+    /// The event the app dispatches now, nil between dispatches: the App's `InputDispatchContext.event`
+    /// (`sendEvent` and the key router's own keys). Set once by the composition root; ``actionEvent`` reads it.
+    public var dispatchedEvent: @MainActor () -> NSEvent? = { nil }
+    /// AppKit's current event, the one a menu or control's tracking loop chose an action with: ``actionEvent``
+    /// reads it only through ``actionGate``. The app keeps the default; tests set their own.
+    public var currentEvent: @MainActor () -> NSEvent? = { NSApplication.shared.currentEvent } // current-event: target-action
+    /// When ``currentEvent`` answers an action (``InputActionEventGate``): `sendEvent` and the menu item action
+    /// sends (``menuActionBegan()``) feed it.
+    public internal(set) var actionGate = InputActionEventGate()
     /// Owner-set states that per-key work checks in O(1) instead of searching for (``Flags``).
     public private(set) var flags: Flags = []
     /// The holders of each held flag (``holdFlag(_:)``).
