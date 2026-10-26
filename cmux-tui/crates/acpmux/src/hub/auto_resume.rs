@@ -390,7 +390,9 @@ impl Hub {
             pending.get(&session.id),
             Some(Mark::Waiting { .. } | Mark::Firing(_) | Mark::Ending(_))
         );
-        if exclusive && (continuation || session.harness_turn.load(std::sync::atomic::Ordering::SeqCst)) {
+        if exclusive
+            && (continuation || session.harness_turn.load(std::sync::atomic::Ordering::SeqCst))
+        {
             return Err(retry_turn::busy());
         }
         if let Some(cut) = after {
