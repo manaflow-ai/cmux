@@ -1682,6 +1682,10 @@ path = "tests/test_pr_status.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_github_token_budget.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_main_regression_bisect.py"
 lane = "linux-guard"
 
