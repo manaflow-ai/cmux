@@ -10,6 +10,9 @@ import contextlib
 import importlib.util
 import io
 import json
+import os
+import re
+import stat
 import sys
 import tempfile
 import unittest
@@ -34,7 +37,10 @@ lab = _load("perf_lab_lab", "lab.py")
 dashboard = _load("perf_lab_dashboard", "dashboard.py")
 
 PASSWORD = "pscale_pw_S3cret+/x"
-URL = f"postgresql://field-ro.abc:{PASSWORD.replace('+', '%2B').replace('/', '%2F')}@aws.connect.psdb.cloud:5432/postgres?sslmode=verify-full"
+ENCODED_PASSWORD = PASSWORD.replace('+', '%2B').replace('/', '%2F')
+URL = (f"postgresql://field-ro.{field.BRANCH_ID}:{ENCODED_PASSWORD}@us-east-3.pg.psdb.cloud:5432/postgres"
+       "?sslmode=verify-full")
+BEGIN = "BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY"
 ENVIRON = {field.URL_ENV: URL, "PATH": "/usr/bin", "HOME": "/home/lab", "UNRELATED_TOKEN": "nope"}
 
 
@@ -47,15 +53,20 @@ def interval(category, name, *buckets, count=None):
             "buckets": stall(*buckets)}
 
 
-def row(*, version="0.71.0", build="2001", chip="Apple M4 Pro", memory=24, install="a", stalls=(), active=None,
+def row(*, version="0.71.0", build="2001", chip="Apple M4 Pro", memory=24, stalls=(), active=None,
         intervals=(), features=None):
-    out = {"app_version": version, "app_build": build, "chip": chip, "memory_gb": memory, "install": install,
+    out = {"kind": "report", "app_version": version, "app_build": build, "chip": chip, "memory_gb": memory,
            "stall_histogram": stall(*stalls), "intervals": list(intervals)}
     if active is not None:
         out["active_seconds"] = active
     if features is not None:
         out["features_hash"] = features
     return out
+
+
+def installs(count, *, version="0.71.0", build="2001", chip="Apple M4 Pro", memory=24, features=None):
+    return {"kind": "installs", "app_version": version, "app_build": build, "chip": chip, "memory_gb": memory,
+            "features_hash": features, "installs": count}
 
 
 class FakePsql:
@@ -81,17 +92,18 @@ class SelectOnlyTests(unittest.TestCase):
     def test_generated_queries_pass(self):
         for script in (field.privilege_query(), field.reports_query(since_hours=168, channel="nightly")):
             statements = field.assert_select_only(script)
-            self.assertEqual(statements[0], "BEGIN TRANSACTION READ ONLY")
+            self.assertEqual(statements[0], "BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY")
             self.assertEqual(statements[-1], "ROLLBACK")
             self.assertTrue(all(s.startswith("SELECT ") for s in statements[1:-1]))
 
     def test_refuses_writes_and_meta_commands(self):
         bad = [
-            "BEGIN TRANSACTION READ ONLY; INSERT INTO hang_reports VALUES (1); ROLLBACK;",
-            "BEGIN TRANSACTION READ ONLY; SELECT 1; DROP TABLE hang_reports; ROLLBACK;",
-            "BEGIN TRANSACTION READ ONLY; SELECT * INTO copy_t FROM hang_reports; ROLLBACK;",
-            "BEGIN TRANSACTION READ ONLY; SELECT 1 \\gexec ROLLBACK;",
-            "BEGIN TRANSACTION READ ONLY; SELECT set_config('x', 'y', false); SET ROLE postgres; ROLLBACK;",
+            f"{BEGIN}; INSERT INTO hang_reports VALUES (1); ROLLBACK;",
+            f"{BEGIN}; SELECT 1; DROP TABLE hang_reports; ROLLBACK;",
+            f"{BEGIN}; SELECT * INTO copy_t FROM hang_reports; ROLLBACK;",
+            BEGIN + "; SELECT 1 \\gexec ROLLBACK;",
+            "BEGIN TRANSACTION READ ONLY; SELECT 1; ROLLBACK;",
+            f"{BEGIN}; SELECT set_config('x', 'y', false); SET ROLE postgres; ROLLBACK;",
             "SELECT 1;",
             "BEGIN; SELECT 1; COMMIT;",
             "",
@@ -101,7 +113,8 @@ class SelectOnlyTests(unittest.TestCase):
                 field.assert_select_only(script)
 
     def test_literal_keywords_are_data(self):
-        field.assert_select_only("BEGIN TRANSACTION READ ONLY; SELECT 'INSERT; DROP' AS x; ROLLBACK;")
+        field.assert_select_only("BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY; "
+                                 "SELECT 'INSERT; DROP' AS x; ROLLBACK;")
 
     def test_reports_query_takes_only_closed_values(self):
         with self.assertRaises(field.FieldError):
@@ -110,20 +123,22 @@ class SelectOnlyTests(unittest.TestCase):
             with self.subTest(hours=hours), self.assertRaises(field.FieldError):
                 field.reports_query(since_hours=hours, channel="nightly")
 
-    def test_reports_query_reads_no_frames_and_no_raw_install_id(self):
+    def test_reports_query_reads_no_frames_and_install_ids_only_as_a_count(self):
         script = field.reports_query(since_hours=24, channel="nightly")
         self.assertNotIn("frames", script)
         self.assertNotIn("'hangs'", script)
-        self.assertIn("md5(install_id::text)", script)
-        self.assertNotIn("'install_id', install_id", script)
+        self.assertNotIn("md5", script)
+        self.assertEqual(script.count("install_id"), 1)
+        self.assertIn("'installs', count(DISTINCT install_id)", script)
+        self.assertIn("GROUP BY app_version, app_build, chip, memory_gb, COALESCE(", script)
 
 
 class CredentialTests(unittest.TestCase):
     def test_url_becomes_pg_variables(self):
         credential = field.credential_from_url(URL)
         self.assertEqual(credential.env["PGPASSWORD"], PASSWORD)
-        self.assertEqual(credential.env["PGUSER"], "field-ro.abc")
-        self.assertEqual(credential.env["PGHOST"], "aws.connect.psdb.cloud")
+        self.assertEqual(credential.env["PGUSER"], f"field-ro.{field.BRANCH_ID}")
+        self.assertEqual(credential.env["PGHOST"], "us-east-3.pg.psdb.cloud")
         self.assertEqual(credential.env["PGSSLMODE"], "verify-full")
         self.assertIn("default_transaction_read_only=on", credential.env["PGOPTIONS"])
         self.assertNotIn(PASSWORD, repr(credential))
@@ -134,6 +149,39 @@ class CredentialTests(unittest.TestCase):
         for url in ("mysql://u:p@h/db", "postgres://h/db", "postgres://user@h/db"):
             with self.subTest(url=url), self.assertRaises(field.FieldError):
                 field.credential_from_url(url)
+
+    def test_a_url_for_another_branch_database_or_host_is_refused_before_psql(self):
+        staging = URL.replace(f".{field.BRANCH_ID}:", ".qjkoajlaike8:")  # cmux-prod/staging
+        refused = {
+            "staging branch": staging,
+            "no branch suffix": URL.replace(f"field-ro.{field.BRANCH_ID}:", "field-ro:"),
+            "not PlanetScale": URL.replace("us-east-3.pg.psdb.cloud", "db.example.com"),
+            "look-alike host": URL.replace("us-east-3.pg.psdb.cloud", "us-east-3.pg.psdb.cloud.evil.test"),
+        }
+        for name, url in refused.items():
+            psql = FakePsql(rows=[row()])
+            with self.subTest(name), self.assertRaisesRegex(field.FieldError, "refusing") as caught:
+                field.field_command(argparse.Namespace(since="7d", channel="nightly", fixture=None, out=None,
+                                                       json=True),
+                                    runner=psql, environ=ENVIRON | {field.URL_ENV: url}, out=io.StringIO())
+            self.assertEqual(psql.calls, [])
+            self.assertNotIn(PASSWORD, str(caught.exception))
+        with self.assertRaisesRegex(field.FieldError, "cmux/cmux-prod/main .*'qjkoajlaike8'"):
+            field.credential_from_url(staging)
+
+    def test_branch_id_matches_the_release_rails_pin(self):
+        trees = (LAB.parent / "cmux-next" / "release" / "trees.ts").read_text(encoding="utf-8")
+        match = re.search(r'database: "cmux-prod",.*?branches: \{[^}]*production: "main"[^}]*\},\s*'
+                          r'branchIds: \{[^}]*production: "([a-z0-9]+)"', trees, re.DOTALL)
+        self.assertIsNotNone(match)
+        self.assertEqual(match.group(1), field.BRANCH_ID)
+
+    def test_report_source_names_the_target(self):
+        out = io.StringIO()
+        args = argparse.Namespace(since="7d", channel="nightly", fixture=None, out=None, json=True)
+        field.field_command(args, runner=FakePsql(rows=[row()]), environ=ENVIRON, out=out)
+        self.assertEqual(json.loads(out.getvalue())["source"],
+                         "hang_reports (org cmux, database cmux-prod, branch main)")
 
     def test_credential_never_in_argv_and_url_env_not_passed(self):
         psql = FakePsql(rows=[row()])
@@ -183,17 +231,40 @@ class AggregationTests(unittest.TestCase):
         self.assertEqual(field.percentile(histogram, 1.0), 20.0)
         self.assertIsNone(field.percentile({}, 0.5))
 
+    def test_overlapping_buckets_give_monotone_quantiles(self):
+        # Report A's MetricKit bucket (0, 100) covers report B's (10, 20): walking (low, high) order gave
+        # p50 = 100 and p95 = 19. On the union edges A's 10 share out 1 / 1 / 8 over (0,10), (10,20), (20,100).
+        histogram = {}
+        field.merge(histogram, [(0, 100, 10)])
+        field.merge(histogram, [(10, 20, 10)])
+        self.assertEqual(field.disjoint(histogram), [(0, 10, 1.0), (10, 20, 11.0), (20, 100, 8.0)])
+        p50, p95, p99 = (field.percentile(histogram, q) for _, q in field.PERCENTILES)
+        self.assertLessEqual(p50, p95)
+        self.assertLessEqual(p95, p99)
+        self.assertAlmostEqual(p50, 10 + 10 * 9 / 11)
+        self.assertAlmostEqual(p95, 90.0)
+        mixed = {(0, 4): 3, (2, 8): 6, (5, 5): 2, (4, 16): 4, (8, 8): 1}
+        quantiles = [field.percentile(mixed, step / 100) for step in range(1, 101)]
+        self.assertEqual(quantiles, sorted(quantiles))
+        self.assertAlmostEqual(sum(share for _, _, share in field.disjoint(mixed)), sum(mixed.values()))
+
     def test_rate_per_build_hardware_class_and_arm(self):
         rows = [
             # 2 hangs (>= 250 ms) in 1 h, plus stalls under 250 ms that do not count.
-            row(install="a", stalls=[(50, 100, 9), (100, 250, 4), (250, 500, 1), (2000, 5000, 1)], active=3600),
-            # 1 hang in 1 h, another install.
-            row(install="b", stalls=[(500, 1000, 1)], active=3600),
+            row(stalls=[(50, 100, 9), (100, 250, 4), (250, 500, 1), (2000, 5000, 1)], active=3600),
+            # 1 hang in 1 h.
+            row(stalls=[(500, 1000, 1)], active=3600),
             # no active time: counted, but not in the rate.
-            row(install="b", stalls=[(1000, 2000, 7)]),
-            row(version="0.71.1", build="2002", install="c", stalls=[(250, 500, 2)], active=7200),
-            row(chip="Apple M1", memory=16, install="d", stalls=[(250, 500, 1)]),
-            row(install="e", stalls=[(250, 500, 4)], active=1800, features="f00d"),
+            row(stalls=[(1000, 2000, 7)]),
+            row(version="0.71.1", build="2002", stalls=[(250, 500, 2)], active=7200),
+            row(chip="Apple M1", memory=16, stalls=[(250, 500, 1)]),
+            row(stalls=[(250, 500, 4)], active=1800, features="f00d"),
+            # The distinct install counts, one row per raw key; two raw chip spellings land in one class.
+            installs(1),
+            installs(1, chip="apple m4 pro"),
+            installs(1, version="0.71.1", build="2002"),
+            installs(1, chip="Apple M1", memory=16),
+            installs(1, features="f00d"),
         ]
         groups = {(g.build, g.hardware_class, g.arm): g for g in field.aggregate(rows)}
         self.assertEqual(set(groups), {
@@ -203,7 +274,7 @@ class AggregationTests(unittest.TestCase):
             ("0.71.0 (2001)", "apple-m4-pro/24gb", "f00d"),
         })
         main = groups[("0.71.0 (2001)", "apple-m4-pro/24gb", field.NO_ARM)]
-        self.assertEqual((main.reports, len(main.installs)), (3, 2))
+        self.assertEqual((main.reports, main.installs), (3, 2))
         self.assertEqual(main.hangs_over_250ms, 10)
         self.assertEqual(main.timed_reports, 2)
         self.assertAlmostEqual(main.hangs_per_1000_active_hours, 3 / 2 * 1000)
@@ -288,6 +359,46 @@ class CommandTests(unittest.TestCase):
         self.assertIn("action.workspace.create.p50", text)
         self.assertNotIn(PASSWORD, text)
         self.assertIn("make_interval(hours => 168)", psql.calls[1][2])
+
+    def _run_fixture(self, fixture, out=None):
+        stderr, stdout = io.StringIO(), io.StringIO()
+        args = argparse.Namespace(since="7d", channel="nightly", fixture=str(fixture), out=out, json=True)
+        with contextlib.redirect_stderr(stderr), contextlib.redirect_stdout(stdout):
+            code = field.run("field", args)
+        return code, stderr.getvalue()
+
+    def test_a_fixture_that_is_not_utf8_exits_2(self):
+        with tempfile.TemporaryDirectory() as directory:
+            fixture = Path(directory) / "rows.jsonl"
+            fixture.write_bytes(b'{"app_version": "\xff"}\n')
+            code, stderr = self._run_fixture(fixture)
+        self.assertEqual(code, 2)
+        self.assertIn("lab.py field: the fixture is not UTF-8", stderr)
+
+    def test_an_unwritable_out_exits_2(self):
+        with tempfile.TemporaryDirectory() as directory:
+            fixture = Path(directory) / "rows.jsonl"
+            fixture.write_text(json.dumps(row()) + "\n")
+            blocker = Path(directory) / "file"
+            blocker.write_text("")
+            code, stderr = self._run_fixture(fixture, out=str(blocker / "sub" / "field.json"))
+        self.assertEqual(code, 2)
+        self.assertIn("lab.py field: cannot write --out:", stderr)
+
+    def test_a_failed_replace_leaves_no_temporary_file(self):
+        with tempfile.TemporaryDirectory() as directory:
+            target = Path(directory) / "field.json"
+            with unittest.mock.patch.object(field.os, "replace", side_effect=OSError(28, "No space left on device")):
+                with self.assertRaises(OSError):
+                    field.write_atomically(target, "{}\n")
+            self.assertEqual(list(Path(directory).iterdir()), [])
+
+    def test_out_is_readable_by_other_users(self):
+        with tempfile.TemporaryDirectory() as directory:
+            target = Path(directory) / "field.json"
+            field.write_atomically(target, "{}\n")
+            self.assertEqual(stat.S_IMODE(os.stat(target).st_mode), 0o644)
+            self.assertEqual([p.name for p in Path(directory).iterdir()], ["field.json"])
 
     def test_no_credential_exits_2_without_running_psql(self):
         stderr = io.StringIO()

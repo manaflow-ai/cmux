@@ -17,7 +17,7 @@ Nightly build, hardware class and features arm it reports:
 - turn histograms when present: the `main_turn` and `input_queueing` intervals (task 031's histograms,
   sent by task 043 as interval entries).
 
-Rules (R10): SELECT only, counts only. Every query runs in `BEGIN TRANSACTION READ ONLY` with
+Rules (R10): SELECT only, counts only. Every query runs in one read-only repeatable-read transaction with
 `default_transaction_read_only=on`, and `assert_select_only` refuses any other statement before psql starts.
 The import first checks that its role cannot write `hang_reports` and stops if it can. The credential is the
 connection URL of a read-only role, read from the environment variable CMUX_FIELD_DATABASE_URL. It reaches
@@ -26,12 +26,18 @@ The operator makes the role once, with no write grant:
 
     pscale role create cmux-prod main field-ro --org cmux --inherited-roles pg_read_all_data
 
-The SELECT reads no frames, install ids leave the query only as a count, and the output is aggregates.
-Field rows are reported on the dashboard (/field) and in done check 18; they are never judged.
+The URL must be for org `cmux`, database `cmux-prod`, branch `main`: a PlanetScale Postgres user name ends in
+`.<branch id>` (the release rails' check, scripts/cmux-next/release/db-release.ts), so a staging, development
+or other-database URL is refused before psql starts, and the report's `source` names the target.
+
+The SELECT reads no frames, install ids leave the database only as count(DISTINCT install_id) per build,
+hardware and features key, and the output is aggregates. Field rows are reported on the dashboard (/field)
+and in done check 18; they are never judged.
 """
 from __future__ import annotations
 
 import argparse
+import bisect
 import json
 import math
 import os
@@ -50,6 +56,13 @@ LAB_COMMANDS = {"field": "Nightly field data: hangs > 250 ms per 1000 active hou
                          "per build and hardware class (read-only hang_reports)."}
 
 URL_ENV = "CMUX_FIELD_DATABASE_URL"
+ORG = "cmux"
+DATABASE = "cmux-prod"
+BRANCH = "main"
+# cmux-prod/main's id, the same pin as scripts/cmux-next/release/trees.ts (TREES["cmux-vm"].branchIds.production).
+BRANCH_ID = "pj68ww4tuq8x"
+PLANETSCALE_PG_HOST_SUFFIX = ".pg.psdb.cloud"
+SOURCE = f"hang_reports (org {ORG}, database {DATABASE}, branch {BRANCH})"
 PSQL_ENV = "CMUX_FIELD_PSQL"
 TABLE = "public.hang_reports"
 CHANNELS = ("nightly", "dev", "rc", "release")
@@ -73,7 +86,8 @@ class FieldError(RuntimeError):
 # --- SQL ----------------------------------------------------------------------------------------------------------
 
 _STRING_LITERAL = re.compile(r"'(?:[^']|'')*'")
-_ALLOWED_FRAMING = frozenset({"BEGIN TRANSACTION READ ONLY", "ROLLBACK"})
+_BEGIN = "BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY"
+_ALLOWED_FRAMING = frozenset({_BEGIN, "ROLLBACK"})
 _FORBIDDEN = re.compile(
     r"\b(INSERT|UPDATE|DELETE|MERGE|UPSERT|DROP|ALTER|CREATE|GRANT|REVOKE|TRUNCATE|COPY|CALL|DO|SET|RESET|"
     r"VACUUM|ANALYZE|LOCK|COMMIT|PREPARE|EXECUTE|LISTEN|NOTIFY|INTO)\b|\\", re.IGNORECASE)
@@ -98,13 +112,13 @@ def assert_select_only(script: str) -> list[str]:
         forbidden = _FORBIDDEN.search(statement)
         if forbidden:
             raise FieldError(f"refused a SELECT with {forbidden.group(0)!r}")
-    if statements[0].upper() != "BEGIN TRANSACTION READ ONLY" or statements[-1].upper() != "ROLLBACK":
-        raise FieldError("the query must run inside BEGIN TRANSACTION READ ONLY ... ROLLBACK")
+    if statements[0].upper() != _BEGIN or statements[-1].upper() != "ROLLBACK":
+        raise FieldError(f"the query must run inside {_BEGIN} ... ROLLBACK")
     return statements
 
 
 def _read_only(*selects: str) -> str:
-    return "BEGIN TRANSACTION READ ONLY;\n" + "".join(f"{select};\n" for select in selects) + "ROLLBACK;\n"
+    return f"{_BEGIN};\n" + "".join(f"{select};\n" for select in selects) + "ROLLBACK;\n"
 
 
 def privilege_query() -> str:
@@ -113,24 +127,29 @@ def privilege_query() -> str:
     return _read_only(f"SELECT json_build_object({pairs})::text")
 
 
+_FEATURES_HASH = "COALESCE(payload->>'featuresHash', payload->>'features_hash')"
+_KEY_COLUMNS = ("app_version", "app_build", "chip", "memory_gb")
+
+
 def reports_query(*, since_hours: int, channel: str) -> str:
-    """One JSON row per report in the window: build, hardware class, and the payload parts this module counts."""
+    """JSON rows of the window, in one snapshot: kind `report` per report (build, hardware class and the payload
+    parts this module counts), and kind `installs` per build, hardware and features key (a distinct count)."""
     if not isinstance(since_hours, int) or not 1 <= since_hours <= MAX_SINCE_HOURS:
         raise FieldError(f"since must be 1 h to {MAX_SINCE_HOURS} h")
     if channel not in CHANNELS:
         raise FieldError(f"channel must be one of {', '.join(CHANNELS)}")
-    columns = ", ".join([
-        "'app_version', app_version", "'app_build', app_build", "'chip', chip", "'memory_gb', memory_gb",
-        "'install', md5(install_id::text)",
-        "'stall_histogram', payload->'stallHistogram'",
-        "'intervals', payload->'intervals'",
-        "'active_seconds', COALESCE(payload->'activeSeconds', payload->'active_seconds')",
-        "'features_hash', COALESCE(payload->>'featuresHash', payload->>'features_hash')",
-    ])
+    key = [f"'{column}', {column}" for column in _KEY_COLUMNS] + [f"'features_hash', {_FEATURES_HASH}"]
+    report_columns = ", ".join(["'kind', 'report'", *key,
+                                "'stall_histogram', payload->'stallHistogram'",
+                                "'intervals', payload->'intervals'",
+                                "'active_seconds', COALESCE(payload->'activeSeconds', payload->'active_seconds')"])
+    install_columns = ", ".join(["'kind', 'installs'", *key, "'installs', count(DISTINCT install_id)"])
+    window = (f"FROM {TABLE} WHERE received_at >= now() - make_interval(hours => {since_hours}) "
+              f"AND channel = '{channel}'")
     return _read_only(
-        f"SELECT json_build_object({columns})::text FROM {TABLE} "
-        f"WHERE received_at >= now() - make_interval(hours => {since_hours}) AND channel = '{channel}' "
-        "ORDER BY received_at")
+        f"SELECT json_build_object({report_columns})::text {window} ORDER BY received_at",
+        f"SELECT json_build_object({install_columns})::text {window} "
+        f"GROUP BY {', '.join(_KEY_COLUMNS)}, {_FEATURES_HASH}")
 
 
 # --- the credential and psql -----------------------------------------------------------------------------------------
@@ -159,12 +178,19 @@ def credential_from_url(url: str) -> Credential:
         raise FieldError(f"{URL_ENV} is not a postgres URL with a host and a user")
     if not parts.password:
         raise FieldError(f"{URL_ENV} has no password")
+    user = unquote(parts.username)
+    if not parts.hostname.endswith(PLANETSCALE_PG_HOST_SUFFIX):
+        raise FieldError(f"{URL_ENV} is not a PlanetScale Postgres host (*{PLANETSCALE_PG_HOST_SUFFIX}); refusing")
+    branch_id = user.rsplit(".", 1)[1] if "." in user else "none"
+    if branch_id != BRANCH_ID:
+        raise FieldError(f"{URL_ENV} is not for {ORG}/{DATABASE}/{BRANCH} (its user's branch id is {branch_id!r}, "
+                         f"want {BRANCH_ID!r}); refusing")
     password = unquote(parts.password)
     query = {key: values[-1] for key, values in parse_qs(parts.query).items() if values}
     env = {
         "PGHOST": parts.hostname,
         "PGPORT": str(port or 5432),
-        "PGUSER": unquote(parts.username),
+        "PGUSER": user,
         "PGPASSWORD": password,
         "PGDATABASE": unquote(parts.path.lstrip("/")) or "postgres",
         "PGSSLMODE": query.get("sslmode", "verify-full"),
@@ -281,22 +307,40 @@ def merge(histogram: dict[tuple[int, int], int], buckets: Iterable[tuple[int, in
         histogram[(low, high)] = histogram.get((low, high), 0) + count
 
 
-def percentile(histogram: Mapping[tuple[int, int], int], q: float) -> float | None:
-    """The q-quantile, interpolated inside the rank's bucket (as task 031's MainTurnHistogram); None when empty.
+def disjoint(histogram: Mapping[tuple[int, int], int]) -> list[tuple[int, int, float]]:
+    """The histogram on the union of its edges: each bucket's count is shared out over the union intervals it
+    covers, in proportion to their width, so no two buckets overlap. A zero-width bucket stays a point.
 
-    Bucket edges from different reports may overlap; buckets are walked in (low, high) order, which is exact for
-    the shared edge sets the client sends.
+    MetricKit's bucket ranges differ across reports and OS versions, and Chrome never merges histograms whose
+    bucket ranges differ (base/metrics/histogram.cc, HasConstructionArguments); rebucketing onto shared edges
+    keeps every quantile monotone in q.
     """
-    total = sum(histogram.values())
+    edges = sorted({edge for low_high in histogram for edge in low_high})
+    shares: dict[tuple[int, int], float] = {}
+    for (low, high), count in histogram.items():
+        if low == high:
+            shares[(low, low)] = shares.get((low, low), 0.0) + count
+            continue
+        start, end = bisect.bisect_left(edges, low), bisect.bisect_left(edges, high)
+        for left, right in zip(edges[start:end], edges[start + 1:end + 1]):
+            shares[(left, right)] = shares.get((left, right), 0.0) + count * (right - left) / (high - low)
+    return [(low, high, share) for (low, high), share in sorted(shares.items()) if share > 0]
+
+
+def percentile(histogram: Mapping[tuple[int, int], int], q: float) -> float | None:
+    """The q-quantile of the disjoint histogram, interpolated inside the rank's bucket (as task 031's
+    MainTurnHistogram); None when empty."""
+    buckets = disjoint(histogram)
+    total = sum(share for _, _, share in buckets)
     if total <= 0:
         return None
     rank = q * total
-    seen = 0
-    for (low, high), count in sorted(histogram.items()):
-        if seen + count >= rank:
-            return low + (high - low) * max(0.0, rank - seen) / count
-        seen += count
-    return float(max(histogram)[1])
+    seen = 0.0
+    for low, high, share in buckets:
+        if seen + share >= rank:
+            return low + (high - low) * max(0.0, rank - seen) / share
+        seen += share
+    return float(buckets[-1][1])
 
 
 def hardware_class(chip: object, memory_gb: object) -> str:
@@ -317,7 +361,7 @@ class Group:
     hardware_class: str
     arm: str
     reports: int = 0
-    installs: set[str] = field(default_factory=set)
+    installs: int = 0
     hangs_over_250ms: int = 0
     timed_reports: int = 0
     timed_hangs_over_250ms: int = 0
@@ -343,7 +387,9 @@ def _active_seconds(value: object) -> float | None:
 
 
 def aggregate(rows: Iterable[Mapping[str, Any]]) -> list[Group]:
-    """Groups by (build, hardware class, features arm), in that order."""
+    """Groups by (build, hardware class, features arm), in that order. A row of kind `installs` adds its distinct
+    count; any other row is one report. One Mac sends one chip and memory value, so the raw keys that land in a
+    group never share an install and their counts add."""
     groups: dict[tuple[str, str, str], Group] = {}
     for row in rows:
         arm = row.get("features_hash") if isinstance(row.get("features_hash"), str) and row.get("features_hash") \
@@ -353,9 +399,10 @@ def aggregate(rows: Iterable[Mapping[str, Any]]) -> list[Group]:
         group = groups.get(key)
         if group is None:
             group = groups[key] = Group(*key)
+        if row.get("kind") == "installs":
+            group.installs += _count(row.get("installs"))
+            continue
         group.reports += 1
-        if isinstance(row.get("install"), str):
-            group.installs.add(row["install"])
         hangs = sum(count for low, _, count in _buckets(row.get("stall_histogram")) if low >= HANG_MS)
         group.hangs_over_250ms += hangs
         active = _active_seconds(row.get("active_seconds"))
@@ -388,7 +435,7 @@ def field_rows(groups: Sequence[Group]) -> list[dict[str, Any]]:
 
     for group in groups:
         add(group, "reports", group.reports, "count", group.reports)
-        add(group, "installs", len(group.installs), "count", group.reports)
+        add(group, "installs", group.installs, "count", group.reports)
         add(group, "hangs_over_250ms", group.hangs_over_250ms, "count", group.reports)
         add(group, "active_hours", group.active_hours if group.timed_reports else None, "h", group.timed_reports)
         add(group, "hangs_over_250ms_per_1000_active_hours", group.hangs_per_1000_active_hours, "per 1000 h",
@@ -413,7 +460,7 @@ def report(groups: Sequence[Group], *, since_hours: int | None, channel: str, so
         "reports": sum(group.reports for group in groups),
         "groups": [{
             "build": group.build, "hardware_class": group.hardware_class, "arm": group.arm,
-            "reports": group.reports, "installs": len(group.installs),
+            "reports": group.reports, "installs": group.installs,
             "hangs_over_250ms": group.hangs_over_250ms, "timed_reports": group.timed_reports,
             "active_hours": round(group.active_hours, 4) if group.timed_reports else None,
             "hangs_over_250ms_per_1000_active_hours": (None if group.hangs_per_1000_active_hours is None
@@ -440,13 +487,24 @@ def parse_since(text: str) -> int:
     return hours
 
 
+REPORT_MODE = 0o644
+
+
 def write_atomically(path: Path, text: str) -> None:
+    """Replaces `path` with `text`, mode 0644 (aggregates only; the dashboard may run as another user). A failed
+    write leaves no temporary file behind."""
     path.parent.mkdir(parents=True, exist_ok=True)
-    with tempfile.NamedTemporaryFile("w", encoding="utf-8", dir=path.parent, prefix=f".{path.name}.",
-                                     delete=False) as handle:
-        handle.write(text)
-        temporary = Path(handle.name)
-    os.replace(temporary, path)
+    handle = tempfile.NamedTemporaryFile("w", encoding="utf-8", dir=path.parent, prefix=f".{path.name}.",
+                                         delete=False)
+    temporary = Path(handle.name)
+    try:
+        with handle:
+            handle.write(text)
+        os.chmod(temporary, REPORT_MODE)
+        os.replace(temporary, path)
+    except BaseException:
+        temporary.unlink(missing_ok=True)
+        raise
 
 
 def render_text(result: Mapping[str, Any]) -> str:
@@ -475,16 +533,21 @@ def field_command(args: argparse.Namespace, *, runner: PsqlRunner = subprocess_r
             rows = parse_rows(Path(args.fixture).read_text(encoding="utf-8"))
         except OSError as error:
             raise FieldError(f"cannot read the fixture: {error.strerror or error}") from None
+        except UnicodeDecodeError as error:
+            raise FieldError(f"the fixture is not UTF-8 (byte {error.start})") from None
         result = report(aggregate(rows), since_hours=None, channel=args.channel, source="fixture")
     else:
         since_hours = parse_since(args.since)
         credential = credential_from_environment(environ)
         rows = fetch_reports(since_hours=since_hours, channel=args.channel, credential=credential, runner=runner,
                              environ=environ)
-        result = report(aggregate(rows), since_hours=since_hours, channel=args.channel, source="hang_reports")
+        result = report(aggregate(rows), since_hours=since_hours, channel=args.channel, source=SOURCE)
     text = json.dumps(result, indent=2, sort_keys=True)
     if args.out:
-        write_atomically(Path(args.out), text + "\n")
+        try:
+            write_atomically(Path(args.out), text + "\n")
+        except OSError as error:
+            raise FieldError(f"cannot write --out: {error.strerror or error}") from None
     print(text if args.json else render_text(result), file=out)
     return 0
 
