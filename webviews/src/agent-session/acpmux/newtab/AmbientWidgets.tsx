@@ -38,7 +38,7 @@ export function AmbientWidgets({
 }) {
   const nt = useNt();
   const list = machines ? newTabMachines(snapshot, snapshot.peerKinds ?? {}, localName) : [];
-  const hasCloud = list.some((machine) => machine.kind === "cloud");
+  const hasCloud = snapshot.machines?.some((machine) => machine.native) === true;
   if (!weather && !list.length) return null;
   const stale = weather ? weatherIsStale(weather, now) : false;
   return (
@@ -98,7 +98,7 @@ export function AmbientWidgets({
                 +
               </span>
               <span className="nt-ambient-machine-name">
-                {hasCloud ? t("composer.add") : t("composer.newCloudMachine")}
+                {hasCloud ? t("composer.add") : t("composer.tryCloudMachine")}
               </span>
             </button>
           )}

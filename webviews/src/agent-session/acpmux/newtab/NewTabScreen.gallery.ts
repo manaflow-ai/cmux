@@ -115,6 +115,8 @@ const ambientSnapshot = () => {
   return {
     ...snapshot,
     peers: ["build-box"],
+    peerConnected: { "build-box": true },
+    peerStatus: { "build-box": { state: "connected", connected: true } },
     peerKinds: { "build-box": "ssh" as const },
     sessions: first
       ? [...snapshot.sessions, { ...first, sessionId: "cloud-old", hostKind: "cloud" as const, host: "cloud-dev" }]
@@ -508,7 +510,9 @@ export default agentPaneEntry({
       }),
       snapshot: ambientSnapshot(),
       play: async (ctx: PlayContext) => {
-        await ctx.waitFor(() => ctx.document.querySelectorAll(".nt-ambient-machine").length === 3);
+        await ctx.waitFor(
+          () => ctx.document.querySelectorAll(".nt-ambient-machine:not(.nt-ambient-machine-add)").length === 3,
+        );
         if (ctx.document.querySelector(".nt-ambient-weather[data-stale]")) throw new Error("a fresh reading is dimmed");
         const field = ctx.document.querySelector(".nt-field")?.getBoundingClientRect();
         const row = ctx.document.querySelector(".nt-ambient")?.getBoundingClientRect();
