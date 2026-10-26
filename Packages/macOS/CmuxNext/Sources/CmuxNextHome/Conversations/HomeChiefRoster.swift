@@ -58,10 +58,14 @@ public nonisolated struct HomeChiefRoster: Hashable, Sendable, Codable {
     /// This roster while the cloud Chiefs are not read yet (launch): the last launch's main Chief and
     /// places for the Chiefs listed now, so the first frame does not tag them "This Mac" and move
     /// "Main" when the read lands. A Chief the last launch did not know keeps this roster's place.
-    public func launching(last: HomeChiefRoster) -> HomeChiefRoster {
+    /// - Parameter keepsMain: this roster's Main is the user's current choice and the last launch's
+    ///   must not replace it (This Mac is picked and its Chief is listed). A cloud read that fails
+    ///   leaves the caller on this path for the whole launch, so a cached cloud Main would stay.
+    public func launching(last: HomeChiefRoster, keepsMain: Bool = false) -> HomeChiefRoster {
         var places = self.places
         for id in places.keys { if let place = last.places[id] { places[id] = place } }
-        let main = last.main.flatMap { places[$0] != nil ? $0 : nil } ?? self.main
+        let cached = last.main.flatMap { places[$0] != nil ? $0 : nil }
+        let main = keepsMain ? self.main ?? cached : cached ?? self.main
         return HomeChiefRoster(main: main, places: places)
     }
 

@@ -14,7 +14,10 @@ extension HomeService {
         let live = liveChiefRoster
         // Until the cloud Chiefs are read, the last launch's Main and places (HomeService+LaunchList).
         guard !cloudChiefsRead, let last = launchRoster else { return live }
-        return live.launching(last: last)
+        // With This Mac picked and its Chief listed, that Main is the current answer, not a guess
+        // waiting on the cloud read: the last launch's cached cloud Main must not take it back.
+        let keepsMain = prefersLocalChief && live.main.map { live.places[$0] == .thisMac } == true
+        return live.launching(last: last, keepsMain: keepsMain)
     }
 
     private var liveChiefRoster: HomeChiefRoster {

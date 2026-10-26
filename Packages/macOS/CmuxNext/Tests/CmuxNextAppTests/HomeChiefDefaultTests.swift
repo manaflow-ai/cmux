@@ -60,6 +60,27 @@ struct HomeChiefDefaultTests {
             == HomeConversationStrings.mainChief + " \u{00B7} " + HomeConversationStrings.placeThisMac)
     }
 
+    /// A failed cloud read leaves `cloudChiefsRead` false for the whole launch, so the last
+    /// launch's cached Main is applied the whole time. With This Mac picked and its Chief listed,
+    /// that cached cloud Main must not take Main back (review of #23984).
+    @Test func thisMacsMainSurvivesACachedCloudMainFromTheLastLaunch() {
+        let rows = HomeChiefRosterTests.rows
+        let live = HomeChiefRoster.make(rows: rows, local: HomeChiefRosterTests.local, hosted: HomeChiefRosterTests.hosted,
+                                        placed: HomeChiefRosterTests.placed, server: "cmux20", showsPlaced: false,
+                                        prefersLocal: true)
+        #expect(live.main == HomeChiefRosterTests.local, "This Mac is picked and its Chief is listed")
+        // The last launch ran on the Hosted Chief, and its roster is still the cache.
+        let last = HomeChiefRoster(main: HomeChiefRosterTests.hosted,
+                                   places: [HomeChiefRosterTests.hosted: .cloud,
+                                            HomeChiefRosterTests.placed: .server("cmux20")])
+        #expect(live.launching(last: last, keepsMain: true).main == HomeChiefRosterTests.local,
+                "the cached cloud Main does not take Main back from This Mac")
+        // Its places still come from the cache, so the first frame does not mistag them.
+        #expect(live.launching(last: last, keepsMain: true).places[HomeChiefRosterTests.placed] == .server("cmux20"))
+        // Without the current pick, the cache still leads, as it did before.
+        #expect(live.launching(last: last).main == HomeChiefRosterTests.hosted)
+    }
+
     // MARK: Home's pick
 
     @Test func autoPicksThisMacsChiefWhileItsBrainRunsElseHosted() {

@@ -163,6 +163,50 @@ import Testing
         watch.stop()
     }
 
+    /// A launch that printed its pid is watched straight away, but the host writes that pid into
+    /// the lock a moment later, and a reader of the brain's liveness (Home's default Chief) reads
+    /// the lock, not the process. So the lock watch must stay armed until the lock names the host,
+    /// and the write that names it must tell the reader again — otherwise Auto reads "no local
+    /// Chief" and stays on the Hosted one for the whole launch (review of #23984).
+    @Test func aLaunchPIDWhoseLockComesLaterTellsTheReaderAgain() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("chief-watch-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let home = ChiefHome(root: root, isolated: true)
+        let state = root.appendingPathComponent("state")
+        try FileManager.default.createDirectory(at: state, withIntermediateDirectories: true)
+        let brain = Process()
+        brain.executableURL = URL(fileURLWithPath: "/bin/sleep")
+        brain.arguments = ["30"]
+        try brain.run()
+        defer { brain.terminate() }
+        let isHost: (pid_t) -> Bool = { $0 == brain.processIdentifier }
+        var seen: [pid_t?] = []
+        let watch = ChiefBrainWatch(home: home, restart: { nil }, watching: { seen.append($0) },
+                                    isChiefHost: isHost)
+        // The shell printed the pid; nothing holds the lock yet.
+        #expect(ChiefHostStop.runningHostPID(home: home, isChiefHost: isHost) == nil)
+        watch.watch(brain.processIdentifier)
+        #expect(seen == [brain.processIdentifier], "the pid is watched at once")
+        #expect(watch.lockSourceOpens >= 1, "the lock watch stays armed for the lock still to come")
+
+        // The host takes the lock, which is what a reader of its liveness looks at.
+        try Data("\(brain.processIdentifier)\n".utf8).write(to: state.appendingPathComponent("host.lock"))
+        let deadline = ContinuousClock.now + .seconds(5)
+        while seen.count < 2, ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        #expect(seen == [brain.processIdentifier, brain.processIdentifier],
+                "the reader is told again once the lock names the host")
+        // The lock is readable now, so nothing is left watching it.
+        let opens = watch.lockSourceOpens
+        try Data("x".utf8).write(to: state.appendingPathComponent("other"))
+        try await Task.sleep(for: .milliseconds(200))
+        #expect(watch.lockSourceOpens == opens, "the lock watch ends once the lock names the host")
+        #expect(seen.count == 2, "and reports nothing more")
+        watch.stop()
+    }
+
     /// ``ChiefBrainWatch.armOnLock`` hops to the main actor, so a folder event can be queued before
     /// the lock file's event finds the host and run after it. Such a late arm must open nothing:
     /// otherwise every folder change for the rest of the host's life reopens both descriptors and

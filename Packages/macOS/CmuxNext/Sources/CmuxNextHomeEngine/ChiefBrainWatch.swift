@@ -28,6 +28,9 @@ public final class ChiefBrainWatch {
     /// How many descriptors the lock watch has opened. An arm that replaces a source it already
     /// holds raises it, which is the window ``armOnLock`` must not open; the tests read it.
     private(set) var lockSourceOpens = 0
+    /// The watched host whose lock does not name it yet (see ``watch(_:)``); nil when the lock is
+    /// readable, which is every case but a launch that printed its pid.
+    private var pendingLockPID: pid_t?
     /// The process the armed source watches; an event for another pid is stale.
     private var watchedPID: pid_t?
     private var deaths: [ContinuousClock.Instant] = []
@@ -54,11 +57,22 @@ public final class ChiefBrainWatch {
         source = nil
         guard let pid = pid ?? ChiefHostStop.runningHostPID(home: home, isChiefHost: isChiefHost) else {
             logger.info("chief brain watch: no host process to watch")
+            pendingLockPID = nil
             setWatched(nil)
             armOnLock()
             return
         }
-        cancelLockSources()
+        // A launch that printed its pid is watched before the host writes that pid into the lock,
+        // and a reader of the brain's liveness reads the lock, not this process source. So the lock
+        // watch stays armed until the lock names this host, and the write that names it tells the
+        // reader again (``lockChanged(folder:)``).
+        if ChiefHostStop.runningHostPID(home: home, isChiefHost: isChiefHost) == pid {
+            pendingLockPID = nil
+            cancelLockSources()
+        } else {
+            pendingLockPID = pid
+            ensureLockSources()
+        }
         setWatched(pid)
         let source = DispatchSource.makeProcessSource(identifier: pid, eventMask: .exit, queue: .main)
         weak let weakSelf = self
@@ -104,18 +118,43 @@ public final class ChiefBrainWatch {
     /// ``watch(_:)`` found a host must not open these descriptors again for that host's lifetime.
     func armOnLock() {
         guard !stopped, source == nil else { return }
-        let state = home.root.appendingPathComponent("state")
-        if lockFolderSource == nil {
-            lockFolderSource = lockSource(at: state) { $0.armOnLock() }
-        }
-        if lockFileSource == nil {
-            lockFileSource = lockSource(at: state.appendingPathComponent("host.lock")) { $0.lockMayHaveAHost() }
-        }
-        if lockFolderSource == nil, lockFileSource == nil {
-            logger.info("chief brain watch: no host, and no lock or state folder to watch")
-        }
+        ensureLockSources()
         // The host may have taken the lock between the read that found none and this arming.
         lockMayHaveAHost()
+    }
+
+    /// Opens the lock file's source and the state folder's, each only when it is missing.
+    private func ensureLockSources() {
+        let state = home.root.appendingPathComponent("state")
+        if lockFolderSource == nil {
+            lockFolderSource = lockSource(at: state) { $0.lockChanged(folder: true) }
+        }
+        if lockFileSource == nil {
+            lockFileSource = lockSource(at: state.appendingPathComponent("host.lock")) { $0.lockChanged(folder: false) }
+        }
+        if lockFolderSource == nil, lockFileSource == nil {
+            logger.info("chief brain watch: no lock and no state folder to watch")
+        }
+    }
+
+    /// The lock, or the folder holding it, changed.
+    private func lockChanged(folder: Bool) {
+        guard !stopped else { return }
+        guard let pending = pendingLockPID else {
+            // A folder change may be the lock's creation: arm again, which adds the file.
+            if folder { armOnLock() } else { lockMayHaveAHost() }
+            return
+        }
+        // A host is watched, but its lock did not name it yet. Once it does, a reader that reads
+        // the lock (Home's default Chief) hears it; the pid has not changed, so ``setWatched`` would
+        // drop it and `watching` is told directly.
+        guard ChiefHostStop.runningHostPID(home: home, isChiefHost: isChiefHost) == pending else {
+            if folder { ensureLockSources() }
+            return
+        }
+        pendingLockPID = nil
+        cancelLockSources()
+        watching?(pending)
     }
 
     /// One `.write` source on `url`, or nil when it cannot be opened (no such file yet).
@@ -140,6 +179,7 @@ public final class ChiefBrainWatch {
     }
 
     private func cancelLockSources() {
+        pendingLockPID = nil
         lockFileSource?.cancel()
         lockFileSource = nil
         lockFolderSource?.cancel()
