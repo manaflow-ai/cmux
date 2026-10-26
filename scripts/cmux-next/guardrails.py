@@ -1809,20 +1809,46 @@ FILE_OPS = (r"fileExists|isReadableFile|isWritableFile|isExecutableFile|createDi
             r"subpathsOfDirectory|enumerator|createFile|contents|contentsEqual|attributesOfItem|attributesOfFileSystem|"
             r"setAttributes|moveItem|copyItem|linkItem|replaceItemAt|destinationOfSymbolicLink|createSymbolicLink|"
             r"trashItem|url")
-# Raw blocking primitives: each has a checked seam in CmuxNextCompat/Threading. A `.wait(` preceded by `await`
-# in its statement is an async wait (Backoff.wait, a continuation), never a blocking one: see blocking_match.
+# Raw blocking primitives: most have a checked seam in CmuxNextCompat/Threading; the rest (sync XPC proxies,
+# AppleScript, condition locks, asyncAndWait, LSCopy*) move to an async API. A `.wait(` or an SMAppService
+# `.unregister()` preceded by `await` in its statement is the async overload (Backoff.wait, a continuation,
+# `try await service.unregister()`), never a blocking one: see blocking_match.
+# Process launch matches any receiver chain (`try box.process.run()`, ProcessRunner.swift:74).
+# The system calls wait on another process: securityd, the AX server, mDNSResponder, the window server, lsd,
+# launchd, authd (p02-threads.md "Not seen by any rule").
+CALL_ARGS = r"\((?:[^()]|\([^()]*\))*\)"  # one argument list, one nested call deep: `.daemon(plistName: C().name)`
 RAW_BLOCKING = re.compile(
     r"\bData\(contentsOf:|\bString\(contentsOf(File)?:|\bNS(Data|String|Dictionary|Array|Image)\(contentsOf(File|URL)?:"
     r"|\bFileManager\.default\.(" + FILE_OPS + r")\("
     r"|\.write\(to:|\.waitUntilExit\(\)|\.readDataToEndOfFile\(\)|\.readToEnd\(\)|\.availableData\b|\.readData\(ofLength:"
     r"|\.resourceValues\(forKeys:|\bxpc_connection_send_message_with_reply_sync\(|\bposix_spawnp?\(|(?<![\w.])fork\(\)"
     r"|(?P<wait>(?<=[\w)\]])\.wait\((timeout:|wallTimeout:|until:)?[^)]*\))"
-    r"|\.sync\s*(\{|\(execute:)")
+    r"|\.sync\s*(\{|\(execute:)"
+    # process launch, queue and thread waits
+    r"|\btry[?!]?\s+[\w.]+\.run\(\)|(?<=[\w)\]])(?<!\bself)\.launch\(\)"
+    r"|\.waitUntilAllOperationsAreFinished\(\)|\.asyncAndWait\s*(\{|\()"
+    r"|\bpthread_(join|cond_wait|cond_timedwait)\(|\bNSConditionLock\(|\.lock\(whenCondition:"
+    # synchronous system calls
+    r"|\bSec(Item(CopyMatching|Add|Update|Delete)|TrustEvaluate(WithError)?|StaticCodeCheckValidity(WithErrors)?"
+    r"|CodeCopy\w+)\("
+    r"|\bAXUIElement(Copy\w+|PerformAction|SetAttributeValue|GetAttributeValueCount)\(|\bgetaddrinfo\("
+    r"|\bCGWindowList(Copy|Create)\w*\(|\bLSCopy\w+\("
+    r"|\.urls?ForApplications?\((withBundleIdentifier|toOpen):|\.icon\(forFiles?:"
+    r"|\b(NSWorkspace\.shared|[wW]orkspace)\.icon\(for:"
+    r"|\bSMAppService\.(mainApp|(agent|daemon|loginItem)" + CALL_ARGS + r")\.(status\b|register\(\)"
+    r"|(?P<unregister>unregister\(\)))"
+    r"|\bAuthorizationCopyRights\(|\.synchronousRemoteObjectProxyWithErrorHandler\b|\.executeAndReturnError\(")
+# Named groups whose match is the async overload when an `await` comes before it in the statement.
+AWAITABLE = ("wait", "unregister")
 # The checked seams: fine off the main thread, a violation on it.
 SEAM_BLOCKING = re.compile(
     r"\bFileManager\.checked\.|\bblockingContentsOf(File)?:|\.blockingResourceValues\(|\.blocking(ReadToEnd|Read|Write|"
     r"AvailableData|ReadDataToEndOfFile|Wait|WaitUntilExit|Sync|Run)\b|\bblocking(Read|Recv|Write|Send|XPCSendWithReply|"
-    r"PosixSpawn)\(")
+    r"PosixSpawn)\("
+    # the system-call seams (p02-threads-003)
+    r"|\bblocking(SecItem(CopyMatching|Add|Update|Delete)|SecTrustEvaluate|SecStaticCodeCheckValidity|SecCodeCopy\w+"
+    r"|AX(CopyAttributeValue|SetAttributeValue|PerformAction)|Getaddrinfo|WindowList(CopyWindowInfo|CreateImage\w*)"
+    r"|URLForApplication|URLsForApplications|Icon|SMAppService(Status|Register|Unregister)|AuthorizationCopyRights)\(")
 # Never on any thread of the app: a main-queue sync hop deadlocks from main and stalls it from elsewhere; a
 # sleep holds a thread to wait for time.
 ALWAYS_BLOCKING = re.compile(r"DispatchQueue\.main\.sync\b|\bThread\.sleep\b|(?<![\w.])(usleep|nanosleep)\(")
@@ -1875,7 +1901,10 @@ class Prefiltered:
 
 
 BLOCKING_KEYS = ("contentsOf", "FileManager", ".wait(", "waitUntilExit", ".sync", "readToEnd", "availableData", "readData",
-                 "esourceValues", "xpc_", "blocking", "write(to:", "posix_spawn", "fork(")
+                 "esourceValues", "xpc_", "blocking", "write(to:", "posix_spawn", "fork(", ".run()", ".launch()",
+                 "waitUntilAll", "asyncAndWait", "pthread_", "NSConditionLock", "whenCondition", "SecItem", "SecTrust",
+                 "SecStaticCode", "SecCode", "AXUIElement", "getaddrinfo", "CGWindowList", "LSCopy", "ForApplication",
+                 "icon(", "SMAppService", "AuthorizationCopyRights", "synchronousRemoteObjectProxy", "executeAndReturnError")
 RAW_SCAN = Prefiltered(RAW_BLOCKING, BLOCKING_KEYS)
 MAIN_SCAN = Prefiltered(re.compile(RAW_BLOCKING.pattern + "|" + SEAM_BLOCKING.pattern), BLOCKING_KEYS)
 ALWAYS_SCAN = Prefiltered(ALWAYS_BLOCKING, ("main.sync", "sleep"))
@@ -1884,8 +1913,9 @@ THREAD_SCAN = Prefiltered(re.compile(THREAD_CREATE.pattern + "|" + ALLOWANCE_DEC
 
 
 def blocking_match(scan: Prefiltered, code: str) -> bool:
-    """Whether CODE holds a blocking call SCAN names. A `.wait(` whose statement has an `await` before it is an
-    async wait (`try await backoff.wait(owner:)`), not a blocking one."""
+    """Whether CODE holds a blocking call SCAN names. An AWAITABLE match whose statement has an `await` before it
+    is the async overload (`try await backoff.wait(owner:)`, `try await service.unregister()`), not a blocking
+    one."""
     answer = scan.answers.get(code)
     if answer is None:
         answer = scan.answers[code] = _blocking_match(scan, code)
@@ -1895,7 +1925,8 @@ def blocking_match(scan: Prefiltered, code: str) -> bool:
 def _blocking_match(scan: Prefiltered, code: str) -> bool:
     match = scan.search(code)
     while match is not None:
-        if match.groupdict().get("wait") is None:
+        groups = match.groupdict()
+        if not any(groups.get(name) for name in AWAITABLE):
             return True
         before = code[:match.start()]
         statement = before[max((m.end() for m in STATEMENT_START.finditer(before)), default=0):]
@@ -2137,8 +2168,8 @@ def load_blocking_context(texts: dict[tuple[str, str], str], head: str) -> None:
             BLOCKING_CONTEXT[key] = texts[(head, path)]
 
 BLOCKING_RULES = (
-    Rule("main-blocking", "A blocking call on the main thread (file I/O, a socket read, a wait, a process wait or a "
-         "sync hop directly in main-actor code; `DispatchQueue.main.sync`, `Thread.sleep`, `usleep` anywhere)",
+    Rule("main-blocking", "A blocking call on the main thread (file I/O, a socket read, a wait, a process launch or wait, a "
+         "synchronous system call or a sync hop directly in main-actor code; `DispatchQueue.main.sync`, `Thread.sleep`, `usleep` anywhere)",
          "the main thread never blocks (plans/cmux-next/threading-model.md, Chrome's ScopedBlockingCall): one disk, "
          "lock or process wait on it drops frames and delays the next input; in Debug the runtime detector reports it",
          "move the work off the main thread (an actor, `Task.detached`, a `nonisolated` async function, the daemon) "
@@ -2147,13 +2178,19 @@ BLOCKING_RULES = (
          "// blocking-allow: <why this cannot leave the main thread, and its reviewed allowBlocking reason>",
          blocking_on_main),
     Rule("raw-blocking", "A raw blocking primitive (file read/write, `.write(to:)`, `FileManager.default.<disk op>`, "
-         "`.wait()`, `.sync {`, `waitUntilExit()`, `readToEnd()`, sync XPC, `posix_spawn`, `fork()`) instead of its "
+         "`.wait()`, `.sync {`, `asyncAndWait`, `waitUntilExit()`, `readToEnd()`, `try process.run()`, sync XPC, "
+         "`posix_spawn`, `fork()`, pthread and condition-lock waits, Security, AX, `getaddrinfo`, CGWindowList, "
+         "LSCopy, NSWorkspace app and icon queries, SMAppService, AuthorizationCopyRights, AppleScript) instead of its "
          "checked seam",
          "the runtime detector sees only the seams in CmuxNextCompat/Threading: a raw call that later runs on the "
          "main thread blocks it unseen",
          "use the seam: `FileManager.checked.<op>`, `Data(blockingContentsOf:)`, `String(blockingContentsOf:)`, "
          "`url.blockingResourceValues`, `handle.blockingReadToEnd()`, `semaphore.blockingWait()`, "
-         "`queue.blockingSync`, `process.blockingWaitUntilExit()`, `blockingRead/Recv/Write/Send`",
+         "`queue.blockingSync`, `process.blockingWaitUntilExit()`, `process.blockingRun()`, "
+         "`blockingRead/Recv/Write/Send`, `blockingSecItem*`, `blockingAX*`, `blockingGetaddrinfo`, "
+         "`blockingWindowList*`, `workspace.blockingURLForApplication/blockingIcon`, `blockingSMAppService*`, "
+         "`blockingAuthorizationCopyRights`; with no seam (sync XPC proxy, AppleScript, condition locks, "
+         "`asyncAndWait`, LSCopy) use the async API",
          "// blocking-allow: <why the seam does not fit>",
          raw_blocking),
     Rule("maybe-main-blocking", "A blocking call in a caller-isolated async function (warning only)",
