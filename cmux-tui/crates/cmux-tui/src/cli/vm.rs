@@ -75,7 +75,11 @@ pub(super) fn plan(rest: &[String], output: OutputMode) -> Result<Vec<String>, U
         plan.push("--json".to_owned());
     }
     plan.push(mapped.to_owned());
-    if verb == "snapshot" {
+    if verb == "snapshot"
+        && !tail.first().is_some_and(|subcommand| {
+            matches!(subcommand.as_str(), "create" | "get" | "list" | "delete")
+        })
+    {
         plan.push("create".to_owned());
     }
     plan.extend(tail.iter().cloned());

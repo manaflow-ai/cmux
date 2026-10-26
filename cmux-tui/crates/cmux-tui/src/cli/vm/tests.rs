@@ -68,6 +68,10 @@ fn snapshot_defaults_to_create() {
         planned(&["vm", "snapshot", "vm_1"]).unwrap(),
         args(&["snapshot", "create", "vm_1"])
     );
+    assert_eq!(
+        planned(&["vm", "snapshot", "list", "--limit", "2"]).unwrap(),
+        args(&["snapshot", "list", "--limit", "2"])
+    );
 }
 
 #[test]
