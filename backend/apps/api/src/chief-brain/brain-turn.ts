@@ -7,7 +7,7 @@ import { AUTH_FAILED, claudeAuthFor } from "./claude-auth.ts"
 import { prunePiEntries } from "./pi-prune.ts"
 import { RETRY_MS } from "./memory.ts"
 import { creditsCanStart, creditsNotice, turnFailedNotice, isClaude, isMetered, liveOf, pickTurnModel } from "./models.ts"
-import { clipReply, formatMessage, isNoReply, replyTarget } from "./brain-text.ts"
+import { clipReply, formatMessage, isNoReply, linkIds, replyTarget } from "./brain-text.ts"
 import { turnThread } from "./brain-spawn.ts"
 import { ccRoute } from "../chief-brain-cc/vm.ts"
 import { ccTurn } from "../chief-brain-cc/turn.ts"
@@ -382,7 +382,7 @@ export async function runTurn(b: ChiefBrainDO, id: string): Promise<void> {
   if (child) return b.childEnd(id, ok, reason)
   const reply = ok ? lastTalk(b.sql, id) : ""
   const post = !ok ? "none" : reply === "" || isNoReply(reply) ? "no_reply" : "pending"
-  b.sql.exec(`UPDATE cb_turn SET status = ?, reason = ?, ended = ?, input = NULL, reply = ?, post = ? WHERE id = ?`, ok ? "done" : "failed", reason, Date.now(), post === "pending" ? clipReply(reply) : null, post, id)
+  b.sql.exec(`UPDATE cb_turn SET status = ?, reason = ?, ended = ?, input = NULL, reply = ?, post = ? WHERE id = ?`, ok ? "done" : "failed", reason, Date.now(), post === "pending" ? clipReply(linkIds(reply)) : null, post, id)
   b.sql.exec(`UPDATE cb_inbox SET state = ? WHERE turn = ?`, ok ? "done" : "failed", id)
   if (!ok) [console.warn(JSON.stringify({ msg: "chief_brain.turn_failed", run: id, reason: String(reason).slice(0, 300), error: runError(b.sql, id)?.slice(0, 300) })), await turnFailedNotice(b.doEnv, b.sql, b.config(), row.conversation, id, String(reason), runError(b.sql, id))]
   b.announce(id, [])
