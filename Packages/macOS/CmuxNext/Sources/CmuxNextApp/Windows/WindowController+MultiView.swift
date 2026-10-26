@@ -142,8 +142,11 @@ extension WindowController {
     private func companion(_ id: String) -> WorkspaceContentController? {
         guard let (workspace, daemon) = services.machines.workspace(id: id) else { return nil }
         if let kept = parked[id], kept.workspace === workspace, kept.daemon === daemon { return kept }
+        let unmounted = unmountedViews.removeValue(forKey: id)
+        let record = parked[id]?.viewRecord() ?? unmounted
         parked[id]?.teardown()
-        let controller = WorkspaceContentController(workspace: workspace, daemon: daemon, services: services, state: state, parked: true)
+        let controller = WorkspaceContentController(workspace: workspace, daemon: daemon, services: services, state: state, parked: true,
+                                                    restoring: record)
         park(controller)
         return controller
     }

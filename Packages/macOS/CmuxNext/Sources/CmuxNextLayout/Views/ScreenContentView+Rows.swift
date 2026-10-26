@@ -42,6 +42,7 @@ extension ScreenContentView {
         for (id, stack) in scrolling {
             guard let column = layout.columns.first(where: { $0.id == id }) else { continue }
             var scroll = rowScrolls[id] ?? RowScroll()
+            if rowScrolls[id] == nil { scroll.state.pendingRestore = pendingScroll.rows.removeValue(forKey: id) }
             let strip = scroll.strip(rows: stack, column: column, panes: baseGeometry.panes)
             let effects = scroll.state.reduce(.sync(strip, focused: focused, source: source, animated: animated, reveals: reveals))
             rowScrolls[id] = scroll
