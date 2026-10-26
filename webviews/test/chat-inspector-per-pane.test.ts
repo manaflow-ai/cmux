@@ -61,6 +61,25 @@ await requireBrowserLane("chat-inspector-per-pane.test.ts", async () => {
     });
   const shown = (page: Page) => page.locator('aside.acpmux-chat-inspector[data-presence="shown"]');
   const toggle = (page: Page) => page.locator("button.acpmux-chat-inspector-toggle");
+  /// Waits until `page` sees another page's toggle (the last choice, `open`, in the storage they
+  /// share; its storage event comes with it) and has painted two frames after it, so a pane that
+  /// followed the event would show it.
+  const seenAndPainted = async (page: Page, open: "0" | "1") => {
+    await page.waitForFunction((value) => localStorage.getItem("cmux.agentPane.inspector.open") === value, open, {
+      timeout: 5_000,
+    });
+    await page.evaluate(
+      () =>
+        new Promise<void>((resolve) => {
+          let painted = 0;
+          window.cmuxAfterPaint(() => {
+            if (++painted < 2) return true;
+            resolve();
+            return false;
+          });
+        }),
+    );
+  };
 
   for (const name of browsers.keys())
     test(`${name}: closing Session Info in one pane leaves the other pane's open`, async () => {
@@ -74,8 +93,8 @@ await requireBrowserLane("chat-inspector-per-pane.test.ts", async () => {
         }
         await toggle(left).click();
         await shown(left).waitFor({ state: "detached", timeout: 5_000 });
-        // The left page's write reached the right page's storage event by now: give it frames to act.
-        await right.evaluate(() => new Promise((resolve) => setTimeout(resolve, 500)));
+        // The left page's write has reached the right page, and the right page has painted twice since.
+        await seenAndPainted(right, "0");
         const state = async (page: Page) => ({
           panel: await shown(page).count(),
           pressed: await toggle(page).getAttribute("aria-pressed"),
@@ -95,7 +114,7 @@ await requireBrowserLane("chat-inspector-per-pane.test.ts", async () => {
         await shown(right).waitFor({ state: "detached", timeout: 5_000 });
         await toggle(right).click();
         await shown(right).waitFor({ timeout: 5_000 });
-        await left.evaluate(() => new Promise((resolve) => setTimeout(resolve, 500)));
+        await seenAndPainted(left, "1");
         expect(await shown(left).count()).toBe(0);
       } finally {
         await context.close();
