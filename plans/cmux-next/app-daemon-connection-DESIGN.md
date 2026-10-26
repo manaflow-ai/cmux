@@ -353,3 +353,33 @@ touched: `CmuxNextTerminal` (TerminalSession, TerminalOutputLane, TerminalSurfac
 | Date | Row | Host / sha / Hz | Light | STRESS | Note |
 |---|---|---|---|---|---|
 | | | | | | |
+
+### 9.1 Incremental build timing (p05-ipc-194)
+
+The generated wire (p05-ipc-025 leaf targets `CmuxNextDaemonWire` and `CmuxNextIPC`, p05-ipc-027 build-time
+generator) must not slow the edit-build loop. `scripts/cmux-next/build-timing.sh` measures a warm
+`swift build --target CmuxNextApp` after two edits, three samples each, each sample a different edit:
+
+- Leaf edit: a private function body appended to `DaemonRequest.swift` (in `CmuxNextDaemonWire` after 025,
+  in `CmuxNextDaemon` before). No module interface changes. Budget: every sample under 30 s, and the wire
+  generator does not run.
+- Schema edit: one optional request field added to one command of `cmux-tui/spec/sdk-schema.json` (the first
+  `clients: macos` command, `ping` before 011 adds `clients`). Recorded: seconds, the rebuilt target count and
+  names, and whether the generator ran. `--rust` also times `cargo build -p cmux-tui`.
+
+Targets rebuilt come from SwiftPM's `Compiling <module>` and `Emitting module <module>` lines. The script
+writes `artifacts/build-timing/<sha>.json`, prints the rows below, and puts every edited file back. It refuses
+to run outside a fleet step. Run it at the last sha before 025/027 and at the first sha with both, on the same
+host class:
+
+```
+cmux-ci run --class isolated --ref SHA --script 'scripts/cmux-next/build-timing.sh --leaf-edit --schema-edit --label "before 025/027"'
+cmux-ci run --class isolated --ref SHA --script 'scripts/cmux-next/build-timing.sh --leaf-edit --schema-edit --rust --label "after 025/027"'
+```
+
+| Date | Edit | Layout | Host / cores / macOS | sha | Seconds p50 / max | Targets rebuilt | Generator ran | Note |
+|---|---|---|---|---|---|---|---|---|
+| | leaf (swift) | before-025/027 | | | | | | not run yet |
+| | schema (swift) | before-025/027 | | | | | | not run yet |
+| | leaf (swift) | after-025/027 | | | | | | waits for 025 and 027 |
+| | schema (swift) | after-025/027 | | | | | | waits for 025 and 027 |
