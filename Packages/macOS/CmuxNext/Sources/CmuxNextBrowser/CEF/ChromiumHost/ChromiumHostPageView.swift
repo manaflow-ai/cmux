@@ -10,13 +10,17 @@ import QuartzCore
 /// CONTEXT frame of the Chromium host app, or fork API 26's
 /// `cmux_shim_browser_set_layer_hosting` in process), so the page moves,
 /// clips, hides and shows in the same Core Animation transaction as the panes
-/// around it, with no WindowServer round trip and no `NSWindow` per page in
-/// cmux. A context id is a WindowServer name, not a pointer: the same view
-/// shows a page whose browser runs in another process. Chromium shows its GPU
-/// process's output the same way (`ui/accelerated_widget_mac/display_ca_layer_tree.mm`).
+/// around it, with no WindowServer round trip for its pixels. A context id is
+/// a WindowServer name, not a pointer: the same view shows a page whose
+/// browser runs in another process. Chromium shows its GPU process's output
+/// the same way (`ui/accelerated_widget_mac/display_ca_layer_tree.mm`).
 ///
-/// Around the pixels: the page's background fill while no context shows (a
-/// host starting or restarting), a crash overlay slot over the page, and the
+/// Views: this view is layer-backed. The pixels live in ``surface``, a
+/// layer-hosting subview with no subviews of its own; the crash overlay is a
+/// sibling above it, so AppKit orders their layers as it orders the views.
+///
+/// Around the pixels: the page's background fill (shown wherever the page's
+/// own pixels are not), a crash overlay slot over the page (host mode), and the
 /// geometry the page's owner needs, reported only when the presented rect
 /// changed (PATTERNS P8).
 ///
@@ -42,32 +46,20 @@ public final class ChromiumHostPageView: NSView {
     /// The view left its window (its pane closed, or it moved out of every window).
     var onLeftWindow: (() -> Void)?
     /// The shown context, 0 while none.
-    private(set) var contextID: UInt32 = 0
+    var contextID: UInt32 { surface.contextID }
     /// The page's background, shown wherever the page's own pixels are not
-    /// (no context yet, a restart). Nil is see-through, as the in-process page
-    /// window needs. Chromium fills its page view the same way
-    /// (`RenderWidgetHostNSViewBridge::SetBackgroundColor`,
+    /// (no context yet, a host starting or restarting). Nil is see-through, as
+    /// the in-process page window needs. Chromium fills its page view the same
+    /// way (`RenderWidgetHostNSViewBridge::SetBackgroundColor`,
     /// `content/app_shim_remote_cocoa/render_widget_host_ns_view_bridge.mm`).
     var backgroundFill: CGColor? {
-        didSet {
-            CATransaction.begin()
-            CATransaction.setDisableActions(true)
-            root.backgroundColor = backgroundFill
-            CATransaction.commit()
-        }
+        get { surface.fill }
+        set { surface.fill = newValue }
     }
-    /// A view over the page that fills it (the crash page, p01-process-082); nil shows the page.
-    /// It takes the mouse even while the page window takes the page's input.
-    var crashOverlay: NSView? {
-        didSet {
-            guard crashOverlay !== oldValue else { return }
-            oldValue?.removeFromSuperview()
-            guard let crashOverlay else { return }
-            crashOverlay.frame = bounds
-            crashOverlay.autoresizingMask = [.width, .height]
-            addSubview(crashOverlay)
-        }
-    }
+    /// The view over the page that fills it (the crash page, p01-process-082); nil shows the page.
+    private(set) var crashOverlay: NSView?
+    /// The layer-hosting view that shows the context, under every other subview.
+    let surface: Surface
 
     #if DEBUG || CMUX_BENCH_HOOKS
     /// Where frames for the host go (``InputTarget/view`` only).
@@ -75,14 +67,12 @@ public final class ChromiumHostPageView: NSView {
     private var tracking: NSTrackingArea?
     #endif
 
-    private let root = CALayer()
-    /// Holds the remote layer under every subview's layer (the crash overlay's).
-    private let content = CALayer()
-    private var remote: CALayer?
-    private let makeLayerHost: (UInt32) -> CALayer?
     private var lastGeometry: ChromiumHostGeometry?
-    /// The window's moves and screen changes: they move the page on screen
-    /// without changing this view's frame.
+    /// What moves the page on screen without changing this view's frame: the
+    /// window's moves and screen changes, and the window's page update request
+    /// (``Foundation/Notification/Name/browserChildWindowPagesNeedUpdate``) that
+    /// the window's layout owner posts after panes, dividers or the sidebar
+    /// moved; the in-process `CEFHostView` re-places its page on the same request.
     private var windowObservations: [MainActorObservation] = []
 
     /// - Parameters:
@@ -92,19 +82,11 @@ public final class ChromiumHostPageView: NSView {
     init(frame: NSRect, inputTarget: InputTarget,
          makeLayerHost: @escaping (UInt32) -> CALayer? = { ChromiumHostPageView.layerHost(contextID: $0) }) {
         self.inputTarget = inputTarget
-        self.makeLayerHost = makeLayerHost
+        surface = Surface(frame: NSRect(origin: .zero, size: frame.size), makeLayerHost: makeLayerHost)
         super.init(frame: frame)
-        // Layer-hosting view (layer set before wantsLayer): AppKit sizes the
-        // root with the view and never touches the remote layer under it.
-        root.masksToBounds = true
-        root.actions = Self.noActions
-        content.anchorPoint = .zero
-        content.position = .zero
-        content.actions = Self.noActions
-        root.addSublayer(content)
-        layer = root
         wantsLayer = true
         autoresizingMask = [.width, .height]
+        addSubview(surface)
     }
 
     /// A host-mode page view: the page's input target.
@@ -121,13 +103,27 @@ public final class ChromiumHostPageView: NSView {
     public override func acceptsFirstMouse(for event: NSEvent?) -> Bool { inputTarget == .view }
     public override func isAccessibilityElement() -> Bool { false }
 
-    /// With ``InputTarget/pageWindow`` only the crash overlay takes the mouse;
-    /// the page's input goes to the page window above.
+    /// With ``InputTarget/pageWindow`` nothing here takes the mouse: the
+    /// WindowServer gives every click in the page's rect to the page window above.
     public override func hitTest(_ point: NSPoint) -> NSView? {
-        switch inputTarget {
-        case .view: super.hitTest(point)
-        case .pageWindow: crashOverlay.flatMap { $0.hitTest(convert(point, from: superview)) }
-        }
+        inputTarget == .view ? super.hitTest(point) : nil
+    }
+
+    /// Shows `overlay` over the page, filling it; nil removes it. Host mode
+    /// only: with ``InputTarget/pageWindow`` it returns false and shows
+    /// nothing, because the fork's page window above the pane would take every
+    /// click meant for the overlay.
+    @discardableResult
+    func setCrashOverlay(_ overlay: NSView?) -> Bool {
+        guard overlay !== crashOverlay else { return true }
+        guard overlay == nil || inputTarget == .view else { return false }
+        crashOverlay?.removeFromSuperview()
+        crashOverlay = overlay
+        guard let overlay else { return true }
+        overlay.frame = bounds
+        overlay.autoresizingMask = [.width, .height]
+        addSubview(overlay, positioned: .above, relativeTo: surface)
+        return true
     }
 
     /// Shows context `id` (0 shows nothing: the page went away, or its host
@@ -136,22 +132,7 @@ public final class ChromiumHostPageView: NSView {
     /// instead of leaving it blank.
     @discardableResult
     func show(contextID id: UInt32) -> Bool {
-        guard id != contextID else { return true }
-        CATransaction.begin()
-        CATransaction.setDisableActions(true)
-        remote?.removeFromSuperlayer()
-        remote = nil
-        contextID = 0
-        if id != 0, let layerHost = makeLayerHost(id) {
-            layerHost.anchorPoint = .zero
-            layerHost.position = .zero
-            layerHost.actions = Self.noActions
-            content.addSublayer(layerHost)
-            remote = layerHost
-            contextID = id
-        }
-        CATransaction.commit()
-        return contextID == id
+        surface.show(contextID: id)
     }
 
     /// `CALayerHost` is QuartzCore SPI, the class Chromium itself uses to
@@ -202,11 +183,9 @@ public final class ChromiumHostPageView: NSView {
         presentedRectDidChange()
     }
 
-    /// The page's rect on screen may have changed without this view's frame
-    /// changing (an ancestor moved, the pane's presented rect moved): the
-    /// owner calls this for the panes whose rect changed (P8), and a rect
-    /// equal to the last one reported costs one comparison.
-    func presentedRectDidChange() {
+    /// Reports the page's screen rect when it differs from the last one
+    /// reported; an unchanged rect costs one comparison.
+    private func presentedRectDidChange() {
         guard let onGeometry, let window, bounds.width >= 1, bounds.height >= 1 else { return }
         let screen = window.convertToScreen(convert(bounds, to: nil))
         let geometry = ChromiumHostGeometry(screenRect: screen, scale: window.backingScaleFactor)
@@ -215,21 +194,82 @@ public final class ChromiumHostPageView: NSView {
         onGeometry(geometry)
     }
 
-    /// Follows the window's moves and screen changes only while someone takes the geometry.
+    /// Follows what moves the page on screen only while someone takes the geometry.
     private func observeWindow() {
         guard onGeometry != nil, let window else {
             windowObservations = []
             return
         }
-        windowObservations = [NSWindow.didMoveNotification, NSWindow.didChangeScreenNotification].map { name in
+        let names = [NSWindow.didMoveNotification, NSWindow.didChangeScreenNotification,
+                     Notification.Name.browserChildWindowPagesNeedUpdate]
+        windowObservations = names.map { name in
             MainActorObservation(name, object: window) { [weak self] in self?.presentedRectDidChange() }
         }
     }
 
-    private static let noActions: [String: any CAAction] = [
+    fileprivate static let noActions: [String: any CAAction] = [
         "position": NSNull(), "bounds": NSNull(), "sublayers": NSNull(), "contents": NSNull(), "hidden": NSNull(),
         "backgroundColor": NSNull(),
     ]
+
+    /// The page's pixels: a layer-hosting view (its layer is set before
+    /// `wantsLayer`, so AppKit sizes the root with the view and never touches
+    /// the remote layer under it). It has no subviews, as Apple asks of a
+    /// layer-hosting view, and never takes the mouse.
+    final class Surface: NSView {
+        /// The shown context, 0 while none.
+        private(set) var contextID: UInt32 = 0
+        /// The root layer's background (``ChromiumHostPageView/backgroundFill``).
+        var fill: CGColor? {
+            didSet {
+                CATransaction.begin()
+                CATransaction.setDisableActions(true)
+                root.backgroundColor = fill
+                CATransaction.commit()
+            }
+        }
+        private let root = CALayer()
+        private var remote: CALayer?
+        private let makeLayerHost: (UInt32) -> CALayer?
+
+        init(frame: NSRect, makeLayerHost: @escaping (UInt32) -> CALayer?) {
+            self.makeLayerHost = makeLayerHost
+            super.init(frame: frame)
+            root.masksToBounds = true
+            root.actions = ChromiumHostPageView.noActions
+            layer = root
+            wantsLayer = true
+            autoresizingMask = [.width, .height]
+        }
+
+        @available(*, unavailable)
+        required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+
+        /// Unflipped: the page's root layer has its origin at the bottom left.
+        override var isFlipped: Bool { false }
+        override func hitTest(_ point: NSPoint) -> NSView? { nil }
+        override func isAccessibilityElement() -> Bool { false }
+
+        /// ``ChromiumHostPageView/show(contextID:)``.
+        func show(contextID id: UInt32) -> Bool {
+            guard id != contextID else { return true }
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            remote?.removeFromSuperlayer()
+            remote = nil
+            contextID = 0
+            if id != 0, let layerHost = makeLayerHost(id) {
+                layerHost.anchorPoint = .zero
+                layerHost.position = .zero
+                layerHost.actions = ChromiumHostPageView.noActions
+                root.addSublayer(layerHost)
+                remote = layerHost
+                contextID = id
+            }
+            CATransaction.commit()
+            return contextID == id
+        }
+    }
 }
 
 #if DEBUG || CMUX_BENCH_HOOKS
