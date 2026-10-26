@@ -20,7 +20,8 @@ Routes (pages link to each other with relative URLs only):
     /<name>.html            a page of tests/oracle/fixtures/web/ (load, other, beforeunload, popup,
                             popup-target, download, crash); the query is ignored, so popup.html?auto works
     /slow.html?ms=N         the headers come after N ms (default 1000, at most 30000): default_handlers.cc /slow
-    /status/404, /status/500 and any unknown path give that status with a fixed page
+    /status/404, /status/500 give that status with a fixed page; any unknown path gives the same 404 page
+                            with `Response.known` false (the bytes do not differ)
     /download/fixture.bin   64 KiB of fixed bytes, Content-Disposition: attachment
     /long-dom.html?n=N      a page of N list items (default 10000, at most 100000)
     /favicon.ico            204 No Content, as default_handlers.cc /nocontent
@@ -108,6 +109,8 @@ class Response:
     content_type: Optional[str] = HTML
     headers: Tuple[Tuple[str, str], ...] = ()
     delay_ms: int = 0
+    # False only for the unknown-path fallback: a 404 or 500 of /status/N is a route the fixture serves.
+    known: bool = True
 
 
 def _page(title: str, body: str) -> bytes:
@@ -115,9 +118,9 @@ def _page(title: str, body: str) -> bytes:
             f"<body>\n{body}</body>\n</html>\n").encode("utf-8")
 
 
-def _status_page(status: int) -> Response:
+def _status_page(status: int, known: bool = True) -> Response:
     phrase = http.HTTPStatus(status).phrase
-    return Response(status, _page(phrase, f"<h1>{phrase}</h1>\n<p id=\"status\">{status}</p>\n"))
+    return Response(status, _page(phrase, f"<h1>{phrase}</h1>\n<p id=\"status\">{status}</p>\n"), known=known)
 
 
 def _bounded_int(query: str, key: str, default: int, maximum: int) -> Optional[int]:
@@ -150,7 +153,9 @@ def respond(target: str, root: Path = FIXTURE_DIR) -> Response:
         return Response(200, _page(f"Long DOM {count}", f'<h1>Long DOM {count}</h1>\n<ol id="items">\n{items}</ol>\n'))
     if path.startswith("/status/"):
         code = path[len("/status/"):]
-        return _status_page(int(code) if code in {str(status) for status in ERROR_STATUSES} else 404)
+        if code in {str(status) for status in ERROR_STATUSES}:
+            return _status_page(int(code))
+        return _status_page(404, known=False)
     if path == "/download/fixture.bin":
         return Response(200, DOWNLOAD_BYTES, "application/octet-stream",
                         (("Content-Disposition", 'attachment; filename="fixture.bin"'),))
@@ -161,7 +166,7 @@ def respond(target: str, root: Path = FIXTURE_DIR) -> Response:
         page = root / name
         if page.is_file():
             return Response(200, page.read_bytes())
-    return _status_page(404)
+    return _status_page(404, known=False)
 
 
 class _Server(http.server.ThreadingHTTPServer):

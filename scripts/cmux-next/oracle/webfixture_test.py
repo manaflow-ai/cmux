@@ -179,6 +179,20 @@ class TokenTest(unittest.TestCase):
         rewriter = normalize._Rewriter(normalize.Context(web=(args[1],)))
         self.assertEqual(rewriter.apply("url", url)[0], "$WEB/popup.html?auto")
 
+    def test_known_marks_only_the_unknown_path_fallback(self) -> None:
+        # A journey may open an error route on purpose; only a path the fixture does not serve is a corpus mistake.
+        for target, status in (("/status/404", 404), ("/status/500", 500), ("/favicon.ico", 204), ("/load.html", 200),
+                               ("/slow.html?ms=0", 200), ("/long-dom.html?n=3", 200), ("/download/fixture.bin", 200)):
+            with self.subTest(target):
+                response = webfixture.respond(target)
+                self.assertEqual(response.status, status)
+                self.assertTrue(response.known)
+        for target in ("/no-such.html", "/status/418", "/nested/load.html", "/.hidden.html"):
+            with self.subTest(target):
+                response = webfixture.respond(target)
+                self.assertEqual(response.status, 404)
+                self.assertFalse(response.known)
+
     def test_every_corpus_url_is_served(self) -> None:
         targets = set()
         for path in sorted(CORPUS.rglob("*.json")):
@@ -186,7 +200,7 @@ class TokenTest(unittest.TestCase):
         self.assertIn("/load.html", targets, "the tabs-and-browser journey opens $WEB/load.html")
         for target in sorted(targets):
             with self.subTest(target):
-                self.assertEqual(webfixture.respond(target).status, 200)
+                self.assertTrue(webfixture.respond(target).known, f"$WEB{target} is not a route of webfixture.py")
 
 
 if __name__ == "__main__":
