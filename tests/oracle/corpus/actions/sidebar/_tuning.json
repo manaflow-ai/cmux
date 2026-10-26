@@ -1,5 +1,5 @@
 {
-  "$comment": "p15-oracle-075: the sidebar and workspaceGroup action families (every non-excluded id of plans/cmux-next/action-surfaces.json whose family_of is sidebar: 93 today, the design's 88 plus ids added since). gen_actions.py (p15-oracle-071) reads this file (load_tuning: only $comment and actions; each spec's keys in TUNING_KEYS) and writes one flat case per action; regeneration keeps it byte-stable. Each entry was reviewed against its handler (WorkspaceGroupHandlers, WorkspaceVerbHandlers, WorkspaceSetVerbs, WindowMembershipHandlers, StashHandlers, SidebarArchiveActions, SidebarSectionHandlers, SidebarHiddenSections, SidebarDensityActions, SidebarGroupByActions, SidebarWorkspaceTabsToggle, SidebarPriorityFeed, ProfileMenuHandlers). Legacy registry.bind handlers report action.done; the two archive toggles are bindEffect and name no receipt. Group actions act on the shown workspace's group, which each case makes first (make-group); section and item actions have no target kind in case-v1, so they run their typed refusal until p15-oracle-270, and the group's color, icon and archived mark are not facet fields until p15-oracle-271. Not tuned: workspaceGroup.delete (excluded), the gaps workspaceGroup.addToSection, workspaceGroup.moveToSpace and sidebar.priority.* (p15-oracle-086), workspaceGroup.moveToWindow (its window argument is a live value), and the destructive workspaceGroup.closeWorkspaces, workspaceGroup.closeOthers, sidebar.section.remove, sidebar.section.closeWorkspaces and sidebar.layout.reset (the sweep's plan blocks them by flag). Chromium: a case per command on one fixture browser, as chrome/browser/ui/tabs/tab_strip_model_unittest.cc tests each TabStripModel command on its own model; the sidebar facet reads the model the same way (SidebarSnapshot.oracleFacet).",
+  "$comment": "p15-oracle-075: the sidebar and workspaceGroup action families (every non-excluded id of plans/cmux-next/action-surfaces.json whose family_of is sidebar: 93 today, the design's 88 plus ids added since). gen_actions.py (p15-oracle-071) reads this file (load_tuning: only $comment and actions; each spec's keys in TUNING_KEYS) and writes one flat case per action; regeneration keeps it byte-stable. Each entry was reviewed against its handler (WorkspaceGroupHandlers, WorkspaceVerbHandlers, WorkspaceSetVerbs, WindowMembershipHandlers, StashHandlers, SidebarArchiveActions, SidebarSectionHandlers, SidebarHiddenSections, SidebarDensityActions, SidebarGroupByActions, SidebarWorkspaceTabsToggle, SidebarPriorityFeed, ProfileMenuHandlers). Legacy registry.bind handlers report action.done; the two archive toggles are bindEffect and name no receipt. Group actions act on the shown workspace's group, which each case makes first (make-group); section and item actions have no target kind in case-v1, so they run their typed refusal until p15-oracle-270, except the five section and item toggles, which are blocked live-value until then (gen_actions.py restores a toggle by running it again, which a refused toggle fails); the group's color, icon and archived mark are not facet fields until p15-oracle-271, and the items of the top band (Home, an added item) not until p15-oracle-272. sidebar.chat.togglePin's silent no-op with no target is p15-oracle-273's to fix. Not tuned: workspaceGroup.delete (excluded), the gaps workspaceGroup.addToSection, workspaceGroup.moveToSpace and sidebar.priority.* (p15-oracle-086), workspaceGroup.moveToWindow (its window argument is a live value), and the destructive workspaceGroup.closeWorkspaces, workspaceGroup.closeOthers, sidebar.section.remove, sidebar.section.closeWorkspaces and sidebar.layout.reset (the sweep's plan blocks them by flag). Chromium: a case per command on one fixture browser, as chrome/browser/ui/tabs/tab_strip_model_unittest.cc tests each TabStripModel command on its own model; the sidebar facet reads the model the same way (SidebarSnapshot.oracleFacet).",
   "actions": {
     "sidebar.chat.togglePin": {
       "receipt": "action.done",
@@ -9,7 +9,7 @@
       "untested": [
         "pinning a chat: a sidebar-item target names one (p15-oracle-270) and the case needs a history chat (p15-oracle-086)"
       ],
-      "note": "divergence chat-pin-silent-no-target: the case records today's ok so a fix shows as a base/head difference"
+      "note": "divergence chat-pin-silent-no-target, owned by p15-oracle-273: the case records today's ok; 273 makes the handler refuse with noSuchItem and turns this spec into error control.unavailable"
     },
     "sidebar.chief.toggleIdleSubagents": {
       "receipt": "action.done",
@@ -170,35 +170,24 @@
           "expect": {
             "outcome": "ok",
             "noReceiptReason": "a setup step: the case checks the action under test, not its setup"
-          },
-          "waitFor": {
-            "pointer": "/sidebar/rows",
-            "predicate": "changed",
-            "maxMs": 5000
           }
         }
       ],
-      "waitFor": {
-        "pointer": "/sidebar/rows",
-        "predicate": "changed",
-        "maxMs": 5000
-      },
       "invariants": [
-        "after Remove Home, Add Home puts the Home app row back on top: the sidebar rows change"
+        "after Remove Home, Add Home answers ok with action.done (the setup's Remove Home made it available: homeAlreadyShown refuses it otherwise)"
       ],
       "untested": [
+        "the Home item back on top: the sidebar facet does not list the items of the sections before the machine lists (sec_top: Home, an added item), so no facet value changes and the step has no waitFor (p15-oracle-272 lists them and adds the waitFor)",
         "the refusal when Home already shows (homeAlreadyShown)"
       ]
     },
     "sidebar.home.remove": {
       "receipt": "action.done",
-      "waitFor": {
-        "pointer": "/sidebar/rows",
-        "predicate": "changed",
-        "maxMs": 5000
-      },
       "invariants": [
-        "the Home row leaves the sidebar: the sidebar rows change"
+        "Remove Home answers ok with action.done (Home shows in the default layout, so homeNotShown does not refuse it)"
+      ],
+      "untested": [
+        "the Home item leaving the top: the sidebar facet does not list the items of the sections before the machine lists (sec_top: Home, an added item), so no facet value changes and the step has no waitFor (p15-oracle-272 lists them and adds the waitFor)"
       ]
     },
     "sidebar.item.add": {
@@ -206,15 +195,11 @@
       "params": {
         "item": "history"
       },
-      "waitFor": {
-        "pointer": "/sidebar/rows",
-        "predicate": "changed",
-        "maxMs": 5000
-      },
       "invariants": [
-        "History lands on top (SidebarLayoutPlanner.add, region top): the sidebar rows gain an item row"
+        "History goes on top (SidebarLayoutPlanner.add, region top): the run answers ok with action.done (alreadyOnTop or noSuchItem would refuse it)"
       ],
       "untested": [
+        "History in the top band: the sidebar facet does not list the items of the sections before the machine lists (sec_top: Home, an added item), so no facet value changes and the step has no waitFor (p15-oracle-272 lists them and adds the waitFor)",
         "an item into a named section, a workspace or app ref, a link"
       ]
     },
@@ -250,23 +235,33 @@
     },
     "sidebar.item.toggleArchive": {
       "entry": "action",
-      "error": "control.unavailable",
+      "params": {
+        "target": "<fixture sidebar-item:itm_home>"
+      },
       "invariants": [
-        "Archive Item with no sidebar-item target refuses (noSuchItem) and no facet changes"
+        "on itm_home the item is archived or unarchived, and restore-1 puts it back"
       ],
       "untested": [
-        "the success path on a named item: case-v1 has no sidebar-item target kind and gen_actions.py no tuned target, so action.run carries none (p15-oracle-270 gives both and turns this case into a success case on itm_home)"
-      ]
+        "the noSuchItem refusal with no target: SidebarArchiveActions checks the target itself, so no other case checks this refusal while the case is blocked",
+        "the facet value the toggle changes: p15-oracle-270 names it with the target",
+        "the receipt: the handler is bindEffect (SidebarArchiveActions); 270 names its ActionEffect kind"
+      ],
+      "note": "blocked live-value until p15-oracle-270: params.target stands for the step target case-v1 cannot name yet (270 moves it to the action step's target). Without a target the action refuses, and gen_actions.py's restore of a toggle runs it again expecting ok, so the case could not be green"
     },
     "sidebar.item.toggleLabel": {
       "entry": "action",
-      "error": "control.unavailable",
+      "params": {
+        "target": "<fixture sidebar-item:itm_home>"
+      },
+      "receipt": "action.done",
       "invariants": [
-        "Show/Hide Label with no sidebar-item target refuses (noSuchItem) and no facet changes"
+        "on itm_home (an inline section) the item's label shows or hides, and restore-1 puts it back"
       ],
       "untested": [
-        "the success path on a named item: case-v1 has no sidebar-item target kind and gen_actions.py no tuned target, so action.run carries none (p15-oracle-270 gives both and turns this case into a success case on itm_home)"
-      ]
+        "the noSuchItem refusal with no target: sidebar.item.remove and removeEverywhere check the same SidebarSectionResolve.item refusal",
+        "the facet value the toggle changes: p15-oracle-270 names it with the target"
+      ],
+      "note": "blocked live-value until p15-oracle-270: params.target stands for the step target case-v1 cannot name yet (270 moves it to the action step's target). Without a target the action refuses, and gen_actions.py's restore of a toggle runs it again expecting ok, so the case could not be green"
     },
     "sidebar.priorityView.toggle": {
       "receipt": "action.done",
@@ -552,33 +547,48 @@
     },
     "sidebar.section.toggleCollapsed": {
       "entry": "action",
-      "error": "control.unavailable",
+      "params": {
+        "target": "<fixture sidebar-section:sec_top>"
+      },
+      "receipt": "action.done",
       "invariants": [
-        "with no sidebar-section target the action refuses (SidebarSectionResolve: noSuchSection) and no facet changes"
+        "on sec_top the section folds or unfolds (toggleLayoutSection), and restore-1 puts it back"
       ],
       "untested": [
-        "the success path on a named section: case-v1 has no sidebar-section target kind and gen_actions.py no tuned target, so action.run carries none (p15-oracle-270 gives both and turns this case into a success case on sec_top)"
-      ]
+        "the noSuchSection refusal with no target: the other section cases (sidebar.section.rename and siblings) check the same SidebarSectionResolve.section refusal",
+        "the facet value the toggle changes: p15-oracle-270 names it with the target"
+      ],
+      "note": "blocked live-value until p15-oracle-270: params.target stands for the step target case-v1 cannot name yet (270 moves it to the action step's target). Without a target the action refuses, and gen_actions.py's restore of a toggle runs it again expecting ok, so the case could not be green"
     },
     "sidebar.section.toggleSpaceScope": {
       "entry": "action",
-      "error": "control.unavailable",
+      "params": {
+        "target": "<fixture sidebar-section:sec_top>"
+      },
+      "receipt": "action.done",
       "invariants": [
-        "with no sidebar-section target the action refuses (SidebarSectionResolve: noSuchSection) and no facet changes"
+        "on sec_top the section's space scope sets to the shown window's space or clears, and restore-1 puts it back"
       ],
       "untested": [
-        "the success path on a named section: case-v1 has no sidebar-section target kind and gen_actions.py no tuned target, so action.run carries none (p15-oracle-270 gives both and turns this case into a success case on sec_top)"
-      ]
+        "the noSuchSection refusal with no target: the other section cases (sidebar.section.rename and siblings) check the same SidebarSectionResolve.section refusal",
+        "the facet value the toggle changes: p15-oracle-270 names it with the target"
+      ],
+      "note": "blocked live-value until p15-oracle-270: params.target stands for the step target case-v1 cannot name yet (270 moves it to the action step's target). Without a target the action refuses, and gen_actions.py's restore of a toggle runs it again expecting ok, so the case could not be green"
     },
     "sidebar.section.toggleTitle": {
       "entry": "action",
-      "error": "control.unavailable",
+      "params": {
+        "target": "<fixture sidebar-section:sec_top>"
+      },
+      "receipt": "action.done",
       "invariants": [
-        "with no sidebar-section target the action refuses (SidebarSectionResolve: noSuchSection) and no facet changes"
+        "on sec_top the section's title shows or hides (SectionPatch showsTitle), and restore-1 puts it back"
       ],
       "untested": [
-        "the success path on a named section: case-v1 has no sidebar-section target kind and gen_actions.py no tuned target, so action.run carries none (p15-oracle-270 gives both and turns this case into a success case on sec_top)"
-      ]
+        "the noSuchSection refusal with no target: the other section cases (sidebar.section.rename and siblings) check the same SidebarSectionResolve.section refusal",
+        "the facet value the toggle changes: p15-oracle-270 names it with the target"
+      ],
+      "note": "blocked live-value until p15-oracle-270: params.target stands for the step target case-v1 cannot name yet (270 moves it to the action step's target). Without a target the action refuses, and gen_actions.py's restore of a toggle runs it again expecting ok, so the case could not be green"
     },
     "sidebar.section.useBuiltInLook": {
       "entry": "action",
