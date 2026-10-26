@@ -357,6 +357,20 @@ export default componentEntry<GalleryProps>({
     // Three captures keep the menu comparison concrete: default Effort submenu, opt-in slider, and
     // the harness-only rail with no machine/session initials.
     "quick-menu": { props: quick, play: openQuick },
+    // An agent CLI update on offer: a quiet footer below the model choices, out of the numbered list.
+    "quick-update-offer": { props: { ...quick, update }, play: openQuick },
+    // The same footer on a started chat's menu, which has no rail.
+    "started-chat-update-offer": {
+      props: {
+        ...quick,
+        harness: "codex",
+        model: "gpt-6.1-sol",
+        label: "GPT-6.1 Sol",
+        harnessFixed: true,
+        update,
+      },
+      play: openQuick,
+    },
     "quick-menu-slider": { props: quickSlider, play: openQuickSlider },
     // A new chat on a Mac with a second Claude account: one Claude tab, its accounts under Account.
     "quick-menu-accounts": {

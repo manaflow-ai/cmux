@@ -29,18 +29,21 @@ class ReleaseBuildRetentionTests(unittest.TestCase):
         self.write_executable(self.bin / "xcodebuild", '#!/bin/bash\nprintf "%s\\n" "$STUB_XCODE_VERSION"\n')
         self.write_executable(self.bin / "xcrun", '#!/bin/bash\nprintf "%s\\n" "$STUB_SDK_BUILD"\n')
         self.write_executable(self.bin / "du", '#!/bin/bash\nprintf "%s\\t%s\\n" "${STUB_DU_KIB:-1}" "$2"\n')
+        self.write_executable(self.bin / "ditto", '#!/bin/bash\ntouch "${@: -1}"\n')
         build = '''#!/bin/bash
 set -eu
 printf '%s\\n' "$1" > "$TEST_PATH"
 if [[ -f "$1/compiled.o" ]]; then echo incremental; else echo cold; fi > "$TEST_MODE"
-mkdir -p "$1"
+mkdir -p "$1/Build/Products/Release/cmux NEXT DEV.app"
 touch "$1/compiled.o"
 '''
         for name in ("check-release-compile.sh", "check-cmux-scheme-compile.sh"):
             self.write_executable(scripts / name, build)
-        selector = ROOT / "scripts/cmux-next/release-derived-data-path.sh"
-        if selector.exists():
-            shutil.copy2(selector, scripts / selector.name)
+        self.write_executable(scripts / "check-app-personalities.sh", "#!/bin/bash\n")
+        # The DEV step builds through compile-dev-release.sh; without the compilation cache (unset
+        # here) it builds per runner instance, the path these tests pin.
+        for name in ("release-derived-data-path.sh", "compile-dev-release.sh", "host_build_lock.py"):
+            shutil.copy2(ROOT / "scripts/cmux-next" / name, scripts / name)
         self.job_number = 0
 
     @staticmethod
@@ -51,7 +54,7 @@ touch "$1/compiled.o"
     def run_build(self, lane="package", **overrides):
         job, step, build = {
             "package": ("release-compile", "Release compile", "check-release-compile.sh"),
-            "dev": ("cmux-scheme-compile", "Compile the cmux NEXT DEV Release app", "check-cmux-scheme-compile.sh"),
+            "dev": ("cmux-scheme-compile", "Compile the cmux NEXT DEV Release app", "compile-dev-release.sh"),
         }[lane]
         step = next(s for s in WORKFLOW["jobs"][job]["steps"] if s.get("name") == step)
         # Run through the compiler invocation; packaging has its own tests.
@@ -80,6 +83,7 @@ touch "$1/compiled.o"
             # The DEV step's env always defines this; it is empty when the
             # compiled-product lookup missed, which is the path compiled here.
             "REUSED_ARCHIVE": "",
+            "DEV_DAILY_SHA": "a" * 40,
         }
         env.update(overrides)
         result = subprocess.run(["/bin/bash", "-eu", "-c", "\n".join(lines)], cwd=self.workspace,

@@ -1,0 +1,44 @@
+{
+  "id": "acp-a672-tell-running",
+  "owner": "a672",
+  "about": "an instruction for a running subagent goes to it with tell, not a new spawn",
+  "history": [
+    {
+      "kind": "user",
+      "text": "fix the flaky terminal resize test"
+    },
+    {
+      "kind": "tool",
+      "text": "mcp__optchat__spawn {\"tasks\":[\"Title: Flaky resize test\\nFix it.\"]}"
+    },
+    {
+      "kind": "echo",
+      "text": "a901 spawned in /home/person/fun/cmux, workspace \"Flaky resize test\" (ws_6d1f0e2a9b3c4d5e6f708192a3b4c5d6)"
+    },
+    {
+      "kind": "talk",
+      "text": "- a901: [Flaky resize test](cmux://workspace/ws_6d1f0e2a9b3c4d5e6f708192a3b4c5d6)"
+    }
+  ],
+  "turns": [
+    {
+      "text": "tell it to also run the Linux variant",
+      "tail": "Subagents at work now: a901.",
+      "checks": [
+        {
+          "type": "called",
+          "cmd": "tell",
+          "match": "a901"
+        },
+        {
+          "type": "not_called",
+          "cmd": "spawn"
+        },
+        {
+          "type": "max_words",
+          "n": 40
+        }
+      ]
+    }
+  ]
+}

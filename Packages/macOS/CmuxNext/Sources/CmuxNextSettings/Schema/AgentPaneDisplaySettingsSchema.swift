@@ -40,6 +40,12 @@ nonisolated enum AgentPaneDisplaySettingsSchema {
             row(["fullWidth"], SettingsText.keyed("settings.agentPane.display.fullWidth", "Chat Full Width"),
                 help: SettingsText.keyed("settings.agentPane.display.fullWidth.help", "The chat fills the whole pane instead of the text width."),
                 .toggle, .bool(false), ["full", "width", "wide"]),
+            // The VS Code-style picture of the whole chat at its right edge (webviews chatMinimap/ChatMinimap.tsx).
+            // Off by default; the thread rail at the left (Toggle Thread Minimap) is its own thing.
+            row(["vscodeMinimap"], SettingsText.keyed("settings.agentPane.display.vscodeMinimap", "VS Code Minimap"),
+                help: SettingsText.keyed("settings.agentPane.display.vscodeMinimap.help",
+                                         "A small picture of the whole chat at its right edge, as in VS Code. Click or drag it to scroll."),
+                .toggle, .bool(false), ["minimap", "vscode", "vs code", "code", "map", "overview", "scroll", "scrollbar", "right", "toggle"]),
             row(["font", "preset"], SettingsText.keyed("settings.agentPane.display.font", "Chat Font"),
                 .choice([
                     SettingChoice("markdown", SettingsText.keyed("settings.choice.agentChatFontMarkdown", "Same as Markdown Viewer")),

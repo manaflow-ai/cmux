@@ -37,6 +37,9 @@ pub struct SubOpts {
     pub filter: EventFilter,
     /// Attached without showing the chat (`view.rs`).
     pub hidden: bool,
+    /// A peer's chat, attached through this daemon (`peer_forward.rs`): this daemon's presence
+    /// for the same raw id is never its (`hub/presence.rs`).
+    pub remote: bool,
 }
 
 pub struct Conn {
@@ -52,6 +55,8 @@ pub struct Conn {
     raw_text: bool,
     name: StdMutex<String>,
     out: mpsc::Sender<String>,
+    /// True once the client stopped sending (its read side ended): it exited or hung up.
+    ended: tokio::sync::watch::Sender<bool>,
     /// Serializes the capacity check and enqueue across request and watch tasks.
     outbound_lock: Arc<StdMutex<()>>,
     /// Number of notifications rejected because the reader fell behind.
@@ -90,6 +95,9 @@ pub struct Conn {
     ephemeral: StdMutex<Option<Vec<String>>>,
     /// The media files it opened (`hub/media_read.rs`), closed when it closes.
     media: crate::hub::media_handles::Handles,
+    /// The media files of peers' chats it opened, closed on the peer when it closes
+    /// (`media_forward.rs`).
+    pub(super) remote_media: media_forward::RemoteMedia,
 }
 
 // Bound only request handlers that do finite work on behalf of the connection.
@@ -261,6 +269,17 @@ impl Conn {
         }
     }
 
+    /// Resolves once the client is gone: nobody reads its replies any more, or it stopped
+    /// sending. A unix socket's writer learns of a closed socket only when it writes, so the
+    /// read side ending counts too.
+    async fn closed(&self) {
+        let mut ended = self.ended.subscribe();
+        tokio::select! {
+            () = self.out.closed() => {}
+            _ = ended.wait_for(|ended| *ended) => {}
+        }
+    }
+
     fn send(&self, msg: &Message) {
         let control = matches!(msg, Message::Response { .. });
         let masked = (!self.raw_text).then(|| peer_text::masked(msg)).flatten();
@@ -300,6 +319,11 @@ impl Conn {
     fn sub_opts(&self, session_id: &str) -> Option<SubOpts> {
         self.subs.lock_or_recover().get(session_id).cloned()
     }
+    /// This daemon's own chats this connection is attached to.
+    fn local_attached_ids(&self) -> Vec<String> {
+        let subs = self.subs.lock_or_recover();
+        subs.iter().filter(|(_, opts)| !opts.remote).map(|(id, _)| id.clone()).collect()
+    }
     pub(super) fn bind_mailbox_receipt(&self, receipt: SessionReceipt) {
         self.mailbox_bindings.lock_or_recover().insert(receipt.mux_session_id.clone(), receipt);
     }
@@ -322,10 +346,6 @@ impl Conn {
         }
         subs.insert(session_id.to_owned(), SubOpts::default());
         true
-    }
-    /// Subscribe, replacing any options. True when the subscription is new.
-    fn subscribe_with(&self, session_id: &str, opts: SubOpts) -> bool {
-        self.subs.lock_or_recover().insert(session_id.to_owned(), opts).is_none()
     }
     fn label(&self) -> String {
         let n = self.name.lock_or_recover().clone();
@@ -591,6 +611,12 @@ pub struct WsAuth {
 /// is the local app (`local_app.rs`); after it, it is remote-origin.
 const FIRST_FRAME: std::time::Duration = std::time::Duration::from_secs(10);
 
+/// Bound pre-authentication work separately from the per-connection request budget.
+/// A client can otherwise hold a task and file descriptor while it dribbles out
+/// an HTTP upgrade request.
+const WS_HANDSHAKE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
+const WS_HANDSHAKE_CONCURRENCY: usize = 64;
+
 /// The largest WebSocket frame or message a connection reads. The app's agent pane sends a frame
 /// of up to 32 MiB (`AcpmuxPaneMethods.maximumFrameBytes`); a prompt with a few screenshots is
 /// past tungstenite's 16 MiB frame default, which ended the read with no log line and reset the
@@ -630,6 +656,7 @@ pub async fn serve_ws_with(
     // (`hub/web_token.rs`) applies from the next one on. The daemon set it
     // already; a caller that did not (tests) gets `token`.
     hub.web_token.set_if_unset(token);
+    let handshake_slots = Arc::new(Semaphore::new(WS_HANDSHAKE_CONCURRENCY));
     loop {
         let (stream, peer) = match listener.accept().await {
             Ok(s) => s,
@@ -639,6 +666,14 @@ pub async fn serve_ws_with(
             }
         };
         tune_ws_socket(&stream);
+        let handshake_slot = match handshake_slots.clone().try_acquire_owned() {
+            Ok(slot) => slot,
+            Err(_) => {
+                tracing::warn!(peer = %peer, error = "handshake_capacity", "rejecting websocket handshake");
+                tokio::spawn(refuse_ws_transport(stream, 503, "handshake_capacity"));
+                continue;
+            }
+        };
         let hub = hub.clone();
         // Read and subscribed before the handshake, so a rotation during it
         // still closes a connection that presented the old token.
@@ -647,13 +682,9 @@ pub async fn serve_ws_with(
         let local_app = auth.local_app.clone();
         let peer_auth = auth.peer.clone();
         tokio::spawn(async move {
+            let _handshake_slot = handshake_slot;
             let mut head = [0u8; 4096];
-            let n = match tokio::time::timeout(
-                std::time::Duration::from_secs(5),
-                stream.peek(&mut head),
-            )
-            .await
-            {
+            let n = match tokio::time::timeout(WS_HANDSHAKE_TIMEOUT, stream.peek(&mut head)).await {
                 Ok(Ok(n)) => n,
                 _ => return,
             };
@@ -709,19 +740,29 @@ pub async fn serve_ws_with(
                 *record_admitted.lock().unwrap_or_else(|e| e.into_inner()) = proof.map_err(refuse)?;
                 Ok(resp)
             };
-            let ws = match tokio_tungstenite::accept_hdr_async_with_config(
-                stream,
-                callback,
-                Some(ws_config()),
+            let ws = match tokio::time::timeout(
+                WS_HANDSHAKE_TIMEOUT,
+                tokio_tungstenite::accept_hdr_async_with_config(
+                    stream,
+                    callback,
+                    Some(ws_config()),
+                ),
             )
             .await
             {
-                Ok(ws) => ws,
-                Err(e) => {
+                Err(_) => {
+                    tracing::warn!(peer = %peer, error = "handshake_timeout", "closing stalled websocket handshake");
+                    return;
+                }
+                Ok(Ok(ws)) => ws,
+                Ok(Err(e)) => {
                     tracing::warn!("ws handshake from {peer} rejected: {e}");
                     return;
                 }
             };
+            // Only the HTTP upgrade is admission-controlled; an established
+            // connection is governed by its authenticated request budget.
+            drop(_handshake_slot);
             let admitted = std::mem::take(&mut *admitted.lock().unwrap_or_else(|e| e.into_inner()));
             let device = match admitted {
                 pairing::Admitted::Ticket(secret) => {
@@ -848,6 +889,20 @@ pub async fn serve_ws_with(
             reader.abort();
         });
     }
+}
+
+async fn refuse_ws_transport(mut stream: tokio::net::TcpStream, status: u16, error: &str) {
+    let reason = match status {
+        503 => "Service Unavailable",
+        _ => "Bad Request",
+    };
+    let body = format!("{{\"error\":\"{error}\"}}\n");
+    let response = format!(
+        "HTTP/1.1 {status} {reason}\r\ncontent-type: application/json\r\ncontent-length: {}\r\ncache-control: no-store\r\nconnection: close\r\n\r\n{body}",
+        body.len()
+    );
+    let _ = stream.write_all(response.as_bytes()).await;
+    let _ = stream.shutdown().await;
 }
 
 /// Check the `Host` and `Origin` values of a complete request head.
@@ -1072,7 +1127,15 @@ async fn serve_connection_from(
         unproven_caller: std::sync::OnceLock::new(),
         peer_leases: StdMutex::new(Some(Vec::new())),
         ephemeral: StdMutex::new(Some(Vec::new())),
-        media: crate::hub::media_handles::Handles::default(),
+        ended: tokio::sync::watch::Sender::new(false),
+        // A peer daemon's link carries all its clients' reads, which it caps one by one
+        // (`media_forward.rs`).
+        media: if auth == ConnAuth::PeerToken {
+            crate::hub::media_handles::Handles::for_peer_link()
+        } else {
+            crate::hub::media_handles::Handles::default()
+        },
+        remote_media: media_forward::RemoteMedia::default(),
     });
     tracing::debug!(conn = %conn.id, "client connected");
 
@@ -1134,7 +1197,11 @@ async fn serve_connection_from(
                     let result = chats::route(&hub, &conn, &m, params.unwrap_or(Value::Null)).await;
                     conn.send(&match result {
                         Ok(v) => Message::ok(id, v),
-                        Err(e) => Message::err(id, e),
+                        Err(mut e) => {
+                            // What kind of failure, and what to do (`recovery.rs`).
+                            crate::recovery::annotate(&mut e, None);
+                            Message::err(id, e)
+                        }
                     });
                 });
             }
@@ -1180,6 +1247,7 @@ async fn serve_connection_from(
             }
         }
     }
+    conn.ended.send_replace(true);
     // Cancellation has to reach the hub even when ordinary notifications are
     // still draining. Its worker is bounded independently and must never be
     // aborted by connection cleanup.
@@ -1217,6 +1285,7 @@ async fn serve_connection_from(
     }
     fan.abort();
     conn.media.close_all();
+    conn.remote_media.close_all();
     view::release_all(&hub, &conn);
     // Leases first: ending one is cheap and synchronous, while the ephemeral
     // release awaits each session's kill. A leased peer must not keep
@@ -1392,11 +1461,14 @@ pub mod conn_auth;
 mod ephemeral;
 mod fanout;
 mod forum;
+mod media_forward;
 pub use conn_auth::ConnAuth;
 mod fork_through;
 mod harness_admin;
 mod harness_enable;
 mod inventory_watch;
+mod lane_parent;
+use lane_parent::lane_parent;
 pub mod local_app;
 pub(crate) mod machine_health;
 mod models_fanout;
@@ -1424,7 +1496,7 @@ mod stream;
 mod subsessions;
 pub(crate) mod trust_gate;
 mod view;
-mod wait;
+pub(crate) mod wait;
 #[cfg(windows)]
 mod windows_socket;
 use requests::handle_notification;
