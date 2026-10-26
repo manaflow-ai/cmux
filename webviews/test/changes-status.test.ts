@@ -39,30 +39,28 @@ const linked = (fields: Partial<LinkedPullRequest>): LinkedPullRequest => ({
 });
 
 test("an answer becomes the row's title, state, conflicts, lines by kind and failing checks", () => {
-  const status = changesStatus(
-    {
-      pullRequest: linked({
-        state: "draft",
-        mergeable: "conflicting",
-        additions: 758,
-        deletions: 265,
-        files: [
-          { path: "webviews/src/agent-session/acpmux/inspector/ChangesSection.tsx", additions: 700, deletions: 260 },
-          { path: "webviews/test/chat-inspector-changes.test.tsx", additions: 58, deletions: 5 },
-        ],
-        comments: 13,
-        checks: { state: "failing", passed: 1, total: 3, failingOnBase: 1 },
-        checkList: [
-          { name: "lint", state: "failed", onBase: true },
-          { name: "test", state: "failed" },
-          { name: "build", state: "passed" },
-        ],
-      }),
-      fetchedAt: 1_700_000_000,
-      readFrom: 1_699_999_990,
-      reading: false,
-    },
-  );
+  const status = changesStatus({
+    pullRequest: linked({
+      state: "draft",
+      mergeable: "conflicting",
+      additions: 758,
+      deletions: 265,
+      files: [
+        { path: "webviews/src/agent-session/acpmux/inspector/ChangesSection.tsx", additions: 700, deletions: 260 },
+        { path: "webviews/test/chat-inspector-changes.test.tsx", additions: 58, deletions: 5 },
+      ],
+      comments: 13,
+      checks: { state: "failing", passed: 1, total: 3, failingOnBase: 1 },
+      checkList: [
+        { name: "lint", state: "failed", onBase: true },
+        { name: "test", state: "failed" },
+        { name: "build", state: "passed" },
+      ],
+    }),
+    fetchedAt: 1_700_000_000,
+    readFrom: 1_699_999_990,
+    reading: false,
+  });
   expect(status).toEqual({
     title: "cmux-next: backgrounds batch",
     state: "draft",

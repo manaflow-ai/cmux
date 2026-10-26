@@ -12,9 +12,8 @@
 // open and shown it registers again, so a row the chat no longer touches still follows a merge, a
 // push or a new comment: one batched read per minute for the links gone stale. A transcript
 // update that names no new pull request does nothing here. Nothing registers or asks while
-// Changes is folded, the Inspector is closed or the page is hidden; the timers and the
-// visibility listener stop when it folds, closes or unmounts, and a page shown again registers
-// at once. The header's pull request (the chat folder's, which the App reads live) wins over
+// Changes is folded, the Inspector is closed or the page is hidden; the timers stop when it folds,
+// closes or unmounts, and a page shown again waits for the next minute. The header's pull request (the chat folder's, which the App reads live) wins over
 // the cache.
 import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { kindTotals } from "../../../fileKinds";
@@ -167,20 +166,13 @@ function statusesOf(key: string): ChangesStatuses {
   return cache.value;
 }
 
-/// Registers `urls` again every `every` ms while the page is shown, and at once when a hidden page
-/// is shown again, so a row follows its pull request while the chat is quiet. Stops when the
-/// returned function runs (the list folded, closed or unmounted); a minute while the page is
-/// hidden is skipped, not caught up.
+/// Registers `urls` again every `every` ms while the page is shown, so a row follows its pull
+/// request while the chat is quiet. Stops when the returned function runs (the list folded, closed
+/// or unmounted); a minute while the page is hidden is skipped, not caught up, and a switch back
+/// to the page reads nothing of its own (shared-projections.md): the next minute does.
 export function keepChangesFresh(urls: readonly string[], every = REGISTER_EVERY_MS): () => void {
   const timer = setInterval(() => refreshChanges(urls), every);
-  const shown = () => {
-    if (!hidden()) refreshChanges(urls);
-  };
-  if (typeof document !== "undefined") document.addEventListener("visibilitychange", shown);
-  return () => {
-    clearInterval(timer);
-    if (typeof document !== "undefined") document.removeEventListener("visibilitychange", shown);
-  };
+  return () => clearInterval(timer);
 }
 
 /// What the App's cache has for `urls` while `shown` (the Inspector drawn); registered and asked
