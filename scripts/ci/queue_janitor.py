@@ -1821,8 +1821,12 @@ def build_plan(
         branch = str(run.get("head_branch") or "")
         lost_verdict = None
         held_category = "lost"
-        # A run holding a Blacksmith leg is re-run only by an App, whichever category cancels it.
-        app_actor = any(unassigned(job) and blacksmith_leg(run, job) for job in jobs_by_run.get(run["id"], ()))
+        # A cmux-next run holding a Blacksmith leg is re-run only by an App, whichever category cancels
+        # it: a GITHUB_TOKEN re-run is github-actions[bot]'s, whose attempt 2 keeps attempt 1's placement.
+        # No earlier snapshot's pending entry names a cmux-next run: none was listed before.
+        app_actor = run.get("path") == rescue.CMUX_NEXT_WORKFLOW_PATH and any(
+            unassigned(job) and any(BLACKSMITH_MACOS_LABEL.fullmatch(str(label)) for label in job.get("labels") or ())
+            for job in jobs_by_run.get(run["id"], ()))
         if run["id"] in lost or run["id"] in unclaimed:
             # A newer run at its head, or a later CI run waiting to take over ci-status.
             newer = newer_run_at_head(run, runs) or next(
@@ -2152,6 +2156,10 @@ def orphan_protected_reason(run: Mapping[str, Any]) -> str | None:
         return f"tag-like ref {branch}"
     if ORPHAN_PROTECTED_WORKFLOW.search(" ".join(str(run.get(key) or "") for key in ("name", "path"))):
         return "release/publish workflow"
+    if event == "push" and branch in PROTECTED_PUSH_BRANCHES - {"main"}:
+        # Listed since follows_another_copy(): a feat-cmux-next push gates the nightly-next build,
+        # which is cancelled only when stuck past its timeout (ci.yml's main pushes are listed as before).
+        return f"push to {branch}"
     return None
 
 

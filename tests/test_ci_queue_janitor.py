@@ -2632,6 +2632,25 @@ class BlacksmithLegTests(unittest.TestCase):
             self.assertEqual(fake.runs[run["id"]]["triggering_actor"], {"login": "cmux-bot[bot]"})
             self.assertEqual(fake.snapshots[-1]["lost_reruns"], [])
 
+    def test_a_lost_gui_job_on_blacksmith_also_needs_an_app(self):
+        run, jobs = self.world(age=40)
+        jobs[run["id"]][0]["name"] = "cmux-next swift test"
+        jobs[run["id"]][0]["labels"] = ["blacksmith-6vcpu-macos-26"]
+        other = make_run(path=NEXT_PATH, name="cmux-next", branch="lane/other", status="in_progress", age=20)
+        jobs[other["id"]] = [started_job(age=10, label="blacksmith-6vcpu-macos-26")]
+        lost = janitor.find_lost([run, other], jobs, now=NOW)
+        prs = {run["head_branch"]: [make_pr(24021, head=run["head_sha"])], "lane/other": [make_pr(9)]}
+        result = janitor.build_plan([run, other], jobs, prs, threshold=6, max_cancels=10,
+                                    pull_request_policy="compile-only", now=NOW, lost=lost, unclaimed={},
+                                    branch_heads={}, app_rerun=False)
+        self.assertEqual(decision_for(result, run).action, "skip")
+
+    def test_a_feat_cmux_next_push_is_never_an_orphan_to_cancel(self):
+        push = make_run(event="push", path=NEXT_PATH, name="cmux-next", branch=NEXT_BRANCH)
+        self.assertIn("push to", janitor.orphan_protected_reason(push))
+        main_push = make_run(event="push", path=".github/workflows/ci.yml", branch="main")
+        self.assertIsNone(janitor.orphan_protected_reason(main_push))
+
     def test_only_same_repository_pull_request_cascade_jobs_count(self):
         run, jobs = self.world(age=60)
         self.assertIsNotNone(janitor.blacksmith_leg(run, jobs[run["id"]][0]))
