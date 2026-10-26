@@ -15,6 +15,17 @@ only after its progression task stops reproducing the crash on newer builds
                                             "sha": "<build sha, default tip>", "at": "<iso time>",
                                             "repro": {"minimal": URL, "seed": S, "test_id": T, "fuzz_input": URL},
                                             "source": "<artifact name, or sentry>"}, ...]}
+  sentry HEALTH.json       import the top Sentry issues of stability-health.py --json (task 034) as signatures with
+                           source sentry; '-' reads stdin. HEALTH.json:
+                             {"env": "nightly-next",
+                              "releases": [{"version": V, "sha": "<commit>", "sessions": N}, ...],
+                              "top_issues": [{"id": "<sentry issue id>", "short_id": S, "permalink": URL,
+                                              "title": T, "culprit": C, "count": N, "users": N,
+                                              "first_seen": ISO, "last_seen": ISO, "last_release": V,
+                                              "last_release_sha": SHA, "release_shas": [SHA, ...],
+                                              "hash12": "<crash_signature hash12, optional>",
+                                              "kind": K, "process": P}, ...]}
+                           (Sentry's own names shortId, userCount, firstSeen, lastSeen and "issues" are accepted.)
   bisect-result --hash12   record stability_bisect.py's verdict: the first bad commit, or flaky (1-2 of 3 replays).
   fix-verified --hash12    record the fix commit once its repro no longer reproduces on a build that has it.
 
@@ -38,6 +49,15 @@ Rules:
     both. Every write counts against --max-writes and that budget, label creates too; writes beyond them are
     deferred per signature, exit 75, and the same sync applies them later.
 
+Sentry issues join the same flow:
+  * One Sentry issue maps to exactly one GitHub issue, and its link is never dropped. The issue whose state already
+    links the Sentry id keeps it; otherwise the entry's hash12 (a lab signature of the same crash) or a hash12 of the
+    Sentry id ("sentry:<id>") names the signature. Counts are Sentry's totals, so an import is idempotent.
+  * Field events come from every installed build, not only tips, so they reset a verified fix (and reopen an issue
+    closed as completed) only when a release they were seen in (release_shas, else last_release_sha) contains the
+    fix. A release with the fix and at least 100 sessions in the report, absent from every linked issue's
+    release_shas, counts as a clean tip; without release_shas no release counts.
+
 The issue body is generated; a person comments instead of editing it. Its last line holds the state as JSON.
 
     python3 scripts/cmux-next/stability_issues.py sync run.json --dry-run
@@ -48,6 +68,7 @@ from __future__ import annotations
 import argparse
 import copy
 import fcntl
+import hashlib
 import json
 import os
 import re
@@ -69,7 +90,9 @@ EX_TEMPFAIL = 75
 GH_TIMEOUT_SECONDS = 120
 GIT_FETCH_TIMEOUT_SECONDS = 300
 PERSON_CLOSE_REASONS = {"NOT_PLANNED": "not planned", "DUPLICATE": "duplicate"}
+CLEAN_RELEASE_MIN_SESSIONS = 100
 HASH12 = re.compile(r"^[0-9a-f]{12}$")
+SENTRY_LINK = re.compile(r"https://[A-Za-z0-9.-]+(/[A-Za-z0-9._~%/?=&+-]*)?")
 STATE_RE = re.compile(r"<!-- stability-sig-state: (\{.*?\}) -->", re.S)
 ROOT = Path(__file__).resolve().parent.parent.parent
 
@@ -311,6 +334,16 @@ def render_body(state: dict) -> str:
                   f"Clean tips with the fix: {len(state['clean_tips'])}/{CLEAN_TIPS_TO_CLOSE} ({tips})."]
     else:
         lines += ["", f"Fix: none verified. The issue closes after a verified fix and {CLEAN_TIPS_TO_CLOSE} clean tips."]
+    if state.get("sentry"):
+        lines += ["", "Sentry:"]
+        for sentry_id, link in sorted(state["sentry"].items()):
+            name = re.sub(r"[^A-Za-z0-9_-]+", "", str(link.get("short_id") or "")) or f"issue {sentry_id}"
+            url = str(link.get("url") or "")
+            lines.append(f"- {f'[{name}]({url})' if SENTRY_LINK.fullmatch(url) else name} "
+                         f"({code(link.get('env') or '-')}): {link.get('events', 0)} events, "
+                         f"{link.get('users', 0)} users, first seen {link.get('first_seen') or '-'}, "
+                         f"last seen {link.get('last_seen') or '-'}, last release {code(link.get('release') or '-')}: "
+                         f"{code(link.get('title') or '-')}")
     for old in state["fix_history"][-3:]:
         lines.append(f"- Earlier fix {short(old['sha'])} did not hold: seen again on {short(old['recurred_on'])}.")
     lines += ["", f"<!-- stability-sig-state: {encode_state(state)} -->"]
@@ -408,6 +441,8 @@ def merge_state(into: dict, other: dict) -> None:
     if not into["bisect"] and other.get("bisect"):
         into["bisect"] = other["bisect"]
     into["runs"] = list(dict.fromkeys(into["runs"] + list(other.get("runs") or [])))[-RUNS_KEPT:]
+    for sentry_id, link in (other.get("sentry") or {}).items():
+        into.setdefault("sentry", {}).setdefault(sentry_id, link)
 
 
 def merge_duplicates(t: Tracked, duplicates: list[Issue]) -> None:
@@ -551,6 +586,136 @@ def plan_sync(issues: list[Issue], run: dict,
     return out, notes
 
 
+def sentry_field(entry: dict, *names: str) -> object:
+    return next((entry[name] for name in names if entry.get(name) not in (None, "")), None)
+
+
+def sentry_int(value: object) -> int:
+    try:
+        return int(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return 0
+
+
+def sentry_hash12(sentry_id: str) -> str:
+    return hashlib.sha256(f"sentry:{sentry_id}".encode()).hexdigest()[:12]
+
+
+def sentry_link(entry: dict, env: str) -> dict:
+    return {
+        "short_id": str(sentry_field(entry, "short_id", "shortId") or ""),
+        "url": str(entry.get("permalink") or ""), "env": env, "title": str(entry.get("title") or ""),
+        "events": sentry_int(entry.get("count")), "users": sentry_int(sentry_field(entry, "users", "userCount")),
+        "first_seen": str(sentry_field(entry, "first_seen", "firstSeen") or ""),
+        "last_seen": str(sentry_field(entry, "last_seen", "lastSeen") or ""),
+        "release": str(sentry_field(entry, "last_release", "lastRelease") or ""),
+    }
+
+
+def validate_health(report: object) -> list[dict]:
+    if not isinstance(report, dict):
+        raise StabilityIssueError("the Sentry report is not a JSON object")
+    entries = report.get("top_issues", report.get("issues"))
+    if not isinstance(entries, list):
+        raise StabilityIssueError("the Sentry report has no top_issues list (stability-health.py --json)")
+    for entry in entries:
+        if not isinstance(entry, dict) or not str(entry.get("id") or "").strip():
+            raise StabilityIssueError(f"Sentry issue without an id: {entry!r}")
+        if entry.get("hash12") not in (None, "") and not HASH12.match(str(entry["hash12"])):
+            raise StabilityIssueError(f"Sentry issue {entry['id']} has a hash12 that is not 12 hex: {entry['hash12']!r}")
+    return entries
+
+
+def plan_sentry(issues: list[Issue], report: dict,
+                is_ancestor: Callable[[str, str], bool | None]) -> tuple[list[Tracked], list[str]]:
+    """What one stability-health.py report changes. Pure, like plan_sync."""
+    entries = validate_health(report)
+    env = str(report.get("env") or "")
+    where = f"the field ({env})" if env else "the field"
+    by_hash, duplicates = index_issues(issues)
+    linked: dict[str, str] = {}
+    for issue in sorted(issues, key=lambda item: item.number):
+        state = read_state(issue.body)
+        for sentry_id in (state or {}).get("sentry") or {}:
+            linked.setdefault(sentry_id, state["hash12"])
+    groups: dict[str, list[dict]] = {}
+    for entry in entries:
+        sentry_id = str(entry["id"]).strip()
+        hash12 = linked.get(sentry_id) or str(entry.get("hash12") or "") or sentry_hash12(sentry_id)
+        groups.setdefault(hash12, []).append(entry)
+    releases = [(str(rel.get("sha") or ""), sentry_int(rel.get("sessions")))
+                for rel in report.get("releases") or [] if isinstance(rel, dict)]
+
+    notes: list[str] = []
+    out: list[Tracked] = []
+    for hash12, group in sorted(groups.items()):
+        first = group[0]
+        culprit = str(first.get("culprit") or "")
+        sig = {"hash12": hash12, "kind": first.get("kind") or "sentry", "process": first.get("process") or "",
+               "exception": str(first.get("title") or ""), "frames": [culprit] if culprit else [], "source": "sentry"}
+        t = track(hash12, by_hash, sig)
+        merge_duplicates(t, duplicates.get(hash12, []))
+        state = t.state
+        links = state.setdefault("sentry", {})
+        seen_in_releases: set[str] = set()
+        releases_known = True
+        for entry in group:
+            link = sentry_link(entry, env)
+            links[str(entry["id"]).strip()] = link
+            listed = entry.get("release_shas")
+            releases_known = releases_known and isinstance(listed, list)
+            last_sha = str(entry.get("last_release_sha") or "")
+            seen_in_releases |= {str(sha) for sha in listed if sha} if isinstance(listed, list) else set()
+            if last_sha:
+                seen_in_releases.add(last_sha)
+            if link["first_seen"] and (not state["first_seen"] or link["first_seen"] < state["first_seen"]):
+                state["first_seen"] = link["first_seen"]
+            if link["last_seen"] > state["last_seen"]:
+                state["last_seen"] = link["last_seen"]
+                if last_sha:
+                    state["last_sha"] = last_sha
+                    state["first_sha"] = state["first_sha"] or last_sha
+        # A Sentry id linked earlier but outside this report's top N may have events in any release.
+        releases_known = releases_known and set(links) <= {str(entry["id"]).strip() for entry in group}
+
+        fix = state["fix"]
+        note = ""
+        if fix:
+            ancestry = {sha: is_ancestor(fix["sha"], sha) for sha in sorted(seen_in_releases)}
+            recurred = [sha for sha, has_fix in ancestry.items() if has_fix is not False]
+            if recurred:
+                on = recurred[0]
+                state["fix_history"].append({"sha": fix["sha"], "recurred_on": on, "run": f"sentry:{env}"})
+                state["fix"], state["clean_tips"] = None, []
+                if ancestry[on] is None:
+                    notes.append(f"{hash12}: git could not tell whether release {on} contains fix {fix['sha']}; "
+                                 "counted as a recurrence")
+                    note = f" git could not tell whether release {on} contains the fix {fix['sha']}, so"
+                else:
+                    note = f" Sentry saw it in release {on}, which contains the fix {fix['sha']}, so"
+                note += f" the fix is reset; closing needs a new verified fix and {CLEAN_TIPS_TO_CLOSE} clean tips."
+            elif releases_known and t.issue is not None and t.issue.state == "OPEN":
+                for sha, sessions in releases:
+                    if (sha and sessions >= CLEAN_RELEASE_MIN_SESSIONS and sha not in seen_in_releases
+                            and sha not in state["clean_tips"] and is_ancestor(fix["sha"], sha)):
+                        state["clean_tips"].append(sha)
+                if len(state["clean_tips"]) >= CLEAN_TIPS_TO_CLOSE:
+                    t.close = (f"Fix {fix['sha']} verified and {len(state['clean_tips'])} clean tips "
+                               f"({', '.join(short(sha) for sha in state['clean_tips'])}) ran without this "
+                               "signature. Closed by stability_issues.py; a recurrence reopens it.")
+        if note and t.is_closed and t.issue and t.issue.state_reason in ("COMPLETED", ""):
+            t.reopen = f"Recurred in {where}. Reopened by stability_issues.py.{note}"
+        elif note and t.is_closed and t.issue and t.issue.state_reason in PERSON_CLOSE_REASONS:
+            t.comments.append(f"Seen again in {where}. The issue stays closed as "
+                              f"{PERSON_CLOSE_REASONS[t.issue.state_reason]}; reopen it to track the signature "
+                              f"again.{note}")
+        elif note:
+            t.comments.append(f"Seen again in {where}.{note}")
+        if t.writes():
+            out.append(t)
+    return out, notes
+
+
 def plan_bisect(issues: list[Issue], hash12: str, result: dict) -> Tracked:
     t = track(hash12, index_issues(issues)[0])
     t.state["bisect"] = result
@@ -659,6 +824,13 @@ def plan(args: argparse.Namespace, github: GitHub,
         except (OSError, json.JSONDecodeError) as error:
             raise StabilityIssueError(f"cannot read {args.run}: {error}") from error
         return plan_sync(github.list_issues(LABEL), run, is_ancestor)
+    if args.cmd == "sentry":
+        try:
+            report = json.loads(sys.stdin.read() if str(args.report) == "-" else args.report.read_text())
+        except (OSError, json.JSONDecodeError) as error:
+            raise StabilityIssueError(f"cannot read {args.report}: {error}") from error
+        validate_health(report)  # refuse a bad report before the issue read
+        return plan_sentry(github.list_issues(LABEL), report, is_ancestor)
     if not HASH12.match(args.hash12):
         raise StabilityIssueError(f"--hash12 must be 12 lowercase hex characters, got {args.hash12!r}")
     if args.cmd == "bisect-result":
@@ -686,6 +858,8 @@ def main(argv: list[str] | None = None, github: GitHub | None = None,
     sub = parser.add_subparsers(dest="cmd", required=True)
     sync = sub.add_parser("sync", help="apply one cmux-stability-run/v1 file")
     sync.add_argument("run", type=Path)
+    sentry = sub.add_parser("sentry", help="import stability-health.py --json top issues as signatures")
+    sentry.add_argument("report", type=Path, help="stability-health.py --json output, or - for stdin")
     bisect = sub.add_parser("bisect-result", help="record stability_bisect.py's verdict")
     bisect.add_argument("--hash12", required=True)
     verdict = bisect.add_mutually_exclusive_group(required=True)

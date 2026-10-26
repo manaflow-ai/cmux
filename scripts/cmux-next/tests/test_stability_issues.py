@@ -15,6 +15,9 @@
    a sync holds the host repo lock while it reads and writes.
 8. The gh CLI adapter, end to end against a fake `gh` executable: one issue list read per sync, labels created only
    when an issue is created, the run file applied once, and both rate buckets read.
+9. Sentry import (task 035): one Sentry issue is one GitHub issue and keeps its link through re-imports, lab syncs,
+   hash12 changes and duplicate merges; a release with the fix that saw it resets the fix and reopens; 3 clean
+   releases with the fix close; a report without an id is refused before any read.
 
     python3 -I -m pytest scripts/cmux-next/tests/test_stability_issues.py
     python3 -I -m unittest discover -s scripts/cmux-next/tests -p test_stability_issues.py
@@ -485,6 +488,132 @@ class DuplicateIssueTests(Harness):
         self.sync(run("c", sha(3), []))
         self.assertEqual(self.gh.issues[2].state, "CLOSED")
         self.assertEqual(self.gh.state(1)["count"], 2)
+
+
+def sentry_issue(sentry_id: str = "4501", **extra) -> dict:
+    out = {"id": sentry_id, "shortId": f"CMUX-NEXT-{sentry_id}", "permalink": f"https://sentry.io/issues/{sentry_id}/",
+           "title": "EXC_BAD_ACCESS: Workspace.close", "culprit": "Workspace.close(_:)", "count": "12",
+           "userCount": 3, "firstSeen": "2026-10-20T00:00:00Z", "lastSeen": "2026-10-24T00:00:00Z",
+           "lastRelease": "0.70.0-nightly.5", "last_release_sha": sha(5)}
+    out.update(extra)
+    return out
+
+
+def health(issues: list[dict], releases: list[tuple[str, int]] = ()) -> dict:
+    return {"env": "nightly-next", "releases": [{"version": f"v-{rel}", "sha": rel, "sessions": sessions}
+                                                for rel, sessions in releases], "top_issues": issues}
+
+
+class SentryTests(Harness):
+    """stability-health.py's top Sentry issues become signatures with source sentry."""
+
+    def sentry(self, report: dict, *flags: str) -> tuple[int, dict, str]:
+        path = self.tmp / "health.json"
+        path.write_text(json.dumps(report))
+        return self.cli(*flags, "sentry", str(path))
+
+    def test_one_sentry_issue_is_one_github_issue_with_its_link(self) -> None:
+        code, _, _ = self.sentry(health([sentry_issue()]))
+        self.assertEqual(code, 0)
+        self.assertEqual(len(self.gh.issues), 1)
+        issue, state = self.gh.issues[1], self.gh.state()
+        self.assertEqual(state["hash12"], si.sentry_hash12("4501"))
+        self.assertEqual(state["source"], "sentry")
+        self.assertIn("stability-kind:sentry", issue.labels)
+        self.assertIn("[CMUX-NEXT-4501](https://sentry.io/issues/4501/)", issue.body)
+        self.assertIn("12 events, 3 users", issue.body)
+        self.assertEqual(state["sentry"]["4501"]["url"], "https://sentry.io/issues/4501/")
+        self.assertEqual(state["last_sha"], sha(5))
+        self.assertIn("Workspace.close(_:)", issue.title)
+
+    def test_import_is_idempotent_and_updates_counts_in_place(self) -> None:
+        report = health([sentry_issue()])
+        self.sentry(report)
+        self.gh.calls.clear()
+        self.sentry(report)
+        self.assertEqual(self.gh.writes(), [])
+        self.sentry(health([sentry_issue(count="40", lastSeen="2026-10-25T00:00:00Z")]))
+        self.assertEqual(len(self.gh.issues), 1)
+        self.assertEqual(self.gh.calls.count("create"), 0)
+        self.assertEqual(self.gh.state()["sentry"]["4501"]["events"], 40)
+        self.assertEqual(self.gh.state()["last_seen"], "2026-10-25T00:00:00Z")
+
+    def test_two_sentry_issues_are_two_github_issues(self) -> None:
+        self.sentry(health([sentry_issue("1"), sentry_issue("2")]))
+        self.assertEqual(len(self.gh.issues), 2)
+        self.assertEqual(sorted(link for n in self.gh.issues for link in self.gh.state(n)["sentry"]), ["1", "2"])
+
+    def test_a_lab_signature_keeps_its_issue_and_gains_the_link(self) -> None:
+        self.sync(run("r1", sha(1), [finding()]))
+        self.sentry(health([sentry_issue(hash12=H1)]))
+        self.assertEqual(len(self.gh.issues), 1)
+        state = self.gh.state()
+        self.assertEqual((state["source"], state["count"]), ("lab", 1))
+        self.assertIn("4501", state["sentry"])
+        # A lab sync after the import keeps the link.
+        self.sync(run("r2", sha(2), [finding()]))
+        self.assertIn("https://sentry.io/issues/4501/", self.gh.issues[1].body)
+
+    def test_a_linked_sentry_issue_stays_on_its_issue_when_its_hash12_changes(self) -> None:
+        self.sentry(health([sentry_issue()]))
+        self.sentry(health([sentry_issue(hash12=H2)]))
+        self.assertEqual(len(self.gh.issues), 1)
+        self.assertEqual(self.gh.state()["hash12"], si.sentry_hash12("4501"))
+
+    def test_the_link_survives_a_duplicate_merge(self) -> None:
+        self.sentry(health([sentry_issue()]))
+        other = FakeGitHub()
+        first, self.gh = self.gh, other
+        self.sentry(health([sentry_issue("4502", hash12=si.sentry_hash12("4501"))]))
+        self.gh = first
+        dup = other.issues[1]
+        self.gh.issues[2] = si.Issue(2, "OPEN", "", dup.title, dup.body, list(dup.labels))
+        self.sentry(health([sentry_issue()]))
+        self.assertEqual(self.gh.issues[2].state, "CLOSED")
+        self.assertEqual(sorted(self.gh.state(1)["sentry"]), ["4501", "4502"])
+
+    def test_events_in_a_release_with_the_fix_reset_it_and_reopen(self) -> None:
+        self.sentry(health([sentry_issue()]))
+        hash12 = si.sentry_hash12("4501")
+        self.cli("fix-verified", "--hash12", hash12, "--fix", FIX, "--evidence", "job 9")
+        self.gh.issues[1].state, self.gh.issues[1].state_reason = "CLOSED", "COMPLETED"
+        self.sentry(health([sentry_issue(release_shas=[sha(5)])]))  # sha(5) lacks the fix
+        self.assertEqual(self.gh.issues[1].state, "CLOSED")
+        self.assertEqual(self.gh.state()["fix"]["sha"], FIX)
+        self.fixed.add(sha(6))
+        self.sentry(health([sentry_issue(release_shas=[sha(5), sha(6)], last_release_sha=sha(6))]))
+        self.assertEqual(self.gh.issues[1].state, "OPEN")
+        self.assertIsNone(self.gh.state()["fix"])
+        self.assertIn("contains the fix", self.gh.comments[1][-1])
+
+    def test_three_clean_releases_with_the_fix_close(self) -> None:
+        self.sentry(health([sentry_issue()]))
+        self.cli("fix-verified", "--hash12", si.sentry_hash12("4501"), "--fix", FIX, "--evidence", "job 9")
+        self.fixed |= {sha(6), sha(7), sha(8), sha(9)}
+        seen = sentry_issue(release_shas=[sha(5)])
+        self.sentry(health([seen], releases=[(sha(6), 500), (sha(7), 50), (sha(8), 500)]))
+        self.assertEqual(self.gh.state()["clean_tips"], [sha(6), sha(8)])  # sha(7) has too few sessions
+        self.assertEqual(self.gh.issues[1].state, "OPEN")
+        self.sentry(health([seen], releases=[(sha(6), 500), (sha(9), 500)]))
+        self.assertEqual(self.gh.issues[1].state, "CLOSED")
+
+    def test_no_clean_release_without_release_shas(self) -> None:
+        self.sentry(health([sentry_issue()]))
+        self.cli("fix-verified", "--hash12", si.sentry_hash12("4501"), "--fix", FIX, "--evidence", "job 9")
+        self.fixed |= {sha(6), sha(7), sha(8)}
+        self.sentry(health([sentry_issue()], releases=[(sha(6), 500), (sha(7), 500), (sha(8), 500)]))
+        self.assertEqual(self.gh.state()["clean_tips"], [])
+
+    def test_bad_report_is_refused_before_any_read(self) -> None:
+        code, _, err = self.sentry({"env": "nightly-next", "top_issues": [{"title": "no id"}]})
+        self.assertEqual(code, 1)
+        self.assertIn("without an id", err)
+        self.assertEqual(self.gh.calls, [])
+
+    def test_a_link_that_is_not_https_is_not_rendered_as_a_link(self) -> None:
+        self.sentry(health([sentry_issue(permalink="javascript:alert(1)")]))
+        self.assertNotIn("](javascript", self.gh.issues[1].body)
+        self.assertIn("CMUX-NEXT-4501", self.gh.issues[1].body)
 
 
 class LockTests(Harness):
