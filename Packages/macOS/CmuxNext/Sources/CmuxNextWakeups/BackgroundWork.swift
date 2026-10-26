@@ -127,15 +127,14 @@ public final class BackgroundWork: Sendable {
         self.onRan = onRan
         self.uptimeNanos = uptimeNanos ?? { clock_gettime_nsec_np(CLOCK_UPTIME_RAW) }
         lanes = BlockingLane.allCases.map { lane in
-            let traits: (policy: LaneScheduler.Policy, mayBlock: Bool) = switch lane {
-            case .files: (.perPriority, true)
-            case .system: (.shared(width: Self.systemWidth, reserved: Self.systemReserved), true)
+            let traits: (policy: LaneScheduler.Policy, mayBlock: Bool, caps: [LaneCap: Int]) = switch lane {
+            case .files: (.perPriority, true, [:])
+            case .system: (.shared(width: Self.systemWidth, reserved: Self.systemReserved), true, [.hostResolution: Self.hostResolutionCap])
             // The .cpu lane is sized to the cores: a blocking seam in one of its items is a wrong-lane violation.
-            case .cpu: (.shared(width: max(1, cpuWidth)), false)
+            case .cpu: (.shared(width: max(1, cpuWidth)), false, [:])
             }
             let watched = hangs.map { HangWatchedLane(Self.hangScopeName(lane), deadline: Self.hangDeadline(lane), on: $0) }
-            let caps: [LaneCap: Int] = lane == .system ? [.hostResolution: Self.hostResolutionCap] : [:]
-            return LaneScheduler(label: "\(label).\(lane)", policy: traits.policy, mayBlock: traits.mayBlock, caps: caps,
+            return LaneScheduler(label: "\(label).\(lane)", policy: traits.policy, mayBlock: traits.mayBlock, caps: traits.caps,
                                  hangWatched: watched)
         }
     }
@@ -158,20 +157,6 @@ public final class BackgroundWork: Sendable {
         case .cpu: "lane.cpu"
         }
     }
-
-    /// How many ``BlockingLane/system`` items run at once: Chrome's limit for concurrent system DNS
-    /// lookups (`kDefaultMaxSystemTasks`, net/dns/host_resolver_manager.cc). A system call can hang for
-    /// its own timeout (`getaddrinfo` up to 30 s); one hung call must not hold every later one.
-    public static let systemWidth = 6
-
-    /// How many of the ``systemWidth`` slots only a ``WorkPriority/userBlocking`` item takes: lower work that
-    /// hangs never holds the slot a person's keychain read or Accessibility call needs (Chrome's
-    /// `PrioritizedDispatcher::Limits::reserved_slots`, net/base/prioritized_dispatcher.h).
-    public static let systemReserved = 1
-
-    /// How many host resolutions (``runHostResolution(_:shutdown:fileID:line:_:)``) run at once inside
-    /// ``BlockingLane/system``: a hung resolver holds at most this many slots, never the keychain's or AX's.
-    public static let hostResolutionCap = 4
 
     /// The number of performance cores minus one (at least one), so CPU-bound background work always
     /// leaves a performance core to the main thread and the render threads.

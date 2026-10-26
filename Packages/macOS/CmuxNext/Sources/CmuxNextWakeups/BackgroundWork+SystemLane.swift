@@ -1,4 +1,18 @@
 extension BackgroundWork {
+    /// How many ``BlockingLane/system`` items run at once: Chrome's limit for concurrent system DNS
+    /// lookups (`kDefaultMaxSystemTasks`, net/dns/host_resolver_manager.cc). A system call can hang for
+    /// its own timeout (`getaddrinfo` up to 30 s); one hung call must not hold every later one.
+    public static let systemWidth = 6
+
+    /// How many of the ``systemWidth`` slots only a ``WorkPriority/userBlocking`` item takes: lower work that
+    /// hangs never holds the slot a person's keychain read or Accessibility call needs (Chrome's
+    /// `PrioritizedDispatcher::Limits::reserved_slots`, net/base/prioritized_dispatcher.h).
+    public static let systemReserved = 1
+
+    /// How many host resolutions (``runHostResolution(_:shutdown:fileID:line:_:)``) run at once inside
+    /// ``BlockingLane/system``: a hung resolver holds at most this many slots, never the keychain's or AX's.
+    public static let hostResolutionCap = 4
+
     /// Runs a host name resolution (`blockingGetaddrinfo`) on ``BlockingLane/system`` at `priority`, boosted
     /// to the caller's priority at the call, and returns its result.
     ///
