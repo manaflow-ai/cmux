@@ -2,6 +2,7 @@ import CmuxNextBridge
 import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextLayout
+import CmuxNextWakeups
 import Observation
 
 extension NewChatPlacement {
@@ -61,10 +62,10 @@ extension NewChatPlacement {
     /// failed move shows it where it is.
     @MainActor static func dock(_ key: String, from controller: PaneController) {
         let services = controller.services
-        // The wait reads the tab index again only when it moves; the move starts in one visible task.
-        services.registry.trackWork(.visible, owner: "NewChatPlacement.dock", on: services.mainWork) {
+        // The wait reads the tab index again only when it moves; the move starts in one task of the run's completion.
+        services.registry.trackWork(owner: "NewChatPlacement.dock", on: services.mainWork) {
             // view-observation-allow: one MachineTabIndex lookup (p06-scheduler-051) per read
-            await listed("NewChatPlacement.dock", services: services) { services.locateTab(key) }
+            await listed("NewChatPlacement.dock", on: services.mainWork, deadlines: services.mainDeadlines) { services.locateTab(key) }
         } then: { [weak controller] result in
             guard case let .success((tab, pane)?) = result else {
                 // Never listed within the bound: the strip lists the chat where it is if it ever shows.
@@ -85,8 +86,8 @@ extension NewChatPlacement {
     /// `source`, the pane it moved from (the store may still list it there).
     @MainActor static func focusWhenShown(_ key: String, in content: WorkspaceContentController,
                                                   leaving source: LayoutPaneID, services: AppServices) {
-        services.registry.trackWork(.visible, owner: "NewChatPlacement.focusWhenShown", on: services.mainWork) {
-            await listed("NewChatPlacement.focusWhenShown", services: services) { () -> LayoutPaneID? in
+        services.registry.trackWork(owner: "NewChatPlacement.focusWhenShown", on: services.mainWork) {
+            await listed("NewChatPlacement.focusWhenShown", on: services.mainWork, deadlines: services.mainDeadlines) { () -> LayoutPaneID? in
                 // view-observation-allow: one MachineTabIndex lookup (p06-scheduler-051) per read
                 guard let model = services.locateTab(key)?.1,
                       let id = services.paneController(for: model)?.layoutPaneID, id != source else { return nil }
@@ -98,12 +99,12 @@ extension NewChatPlacement {
         }
     }
 
-    /// `read` once it is non-nil (at once when it is now), else nil after ``MainPaneLayout/listLimit``: one
-    /// `ObservedCondition` (a `ServiceObservation`) reads it again only when something it read changed.
-    @MainActor private static func listed<Value: Sendable>(_ owner: String, services: AppServices,
-                                                           _ read: @escaping @MainActor () -> Value?) async -> Value? {
-        await ObservedCondition(owner: owner, .visible, on: services.mainWork)
-            .until(timeout: MainPaneLayout.listLimit, deadlines: services.mainDeadlines) { read() != nil }
+    /// `read` once it is non-nil (at once when it is now), else nil after ``MainPaneLayout/listLimit`` on `deadlines`:
+    /// one `ObservedCondition` (a `ServiceObservation`) reads it again only when something it read changed.
+    @MainActor static func listed<Value: Sendable>(_ owner: String, on work: MainWorkScheduler, deadlines: MainDeadlineScheduler,
+                                                   _ read: @escaping @MainActor () -> Value?) async -> Value? {
+        await ObservedCondition(owner: owner, .visible, on: work)
+            .until(timeout: MainPaneLayout.listLimit, deadlines: deadlines) { read() != nil }
         return read()
     }
 }

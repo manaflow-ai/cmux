@@ -85,14 +85,14 @@ enum RemoteGroupHandlers {
     /// Marks `session`'s machine section a remote group once its daemon names its session; gives up
     /// when the machine stops connecting.
     static func markWhenNamed(_ session: SSHMachineSession, services: AppServices) {
-        let daemon = session.daemon, mainWork = services.mainWork
+        let daemon = session.daemon, mainWork = services.mainWork, end = services.registry.completion(on: mainWork)
         // Ends when the daemon names its session or the machine stops connecting: one ServiceObservation reads both
-        // again only when one changes; the mark (a sidebar section) is one visible task.
-        services.work.task(.userVisible) {
+        // again only when one changes; the mark (a sidebar section) is one task of the run's completion.
+        end.start {
             await ObservedCondition(owner: "RemoteGroupHandlers.markWhenNamed", .visible, on: mainWork).until {
                 daemon.store.registryID != nil || RemoteHandlers.stoppedConnecting(session.linkStatus)
             }
-            mainWork.postFromAnyThread(.visible, owner: "RemoteGroupHandlers.mark") {
+            end.post(owner: "RemoteGroupHandlers.mark") {
                 if let name = daemon.store.registryID { mark(session: name) }
             }
         }

@@ -67,7 +67,7 @@ enum RoomMoveHandlers {
         let spawn = WorkspaceSpawn(cwd: directories.first ?? nil, name: workspace.displayName, profile: room)
         let daemon = daemon(of: workspace, context)
         // The create and each terminal after it are awaited off main, in order; the run's result is one task on main.
-        context.registry.trackWork(invocation.completionClass, owner: "RoomMoveHandlers.duplicate", on: context.services.mainWork) {
+        context.registry.trackWork(owner: "RoomMoveHandlers.duplicate", on: context.services.mainWork) {
             let id = try await windows.createWorkspace(spawn, on: daemon, into: target)
             guard let connection = await daemon.connection, directories.count > 1 else { return }
             for cwd in directories.dropFirst() {

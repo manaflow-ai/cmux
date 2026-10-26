@@ -79,8 +79,8 @@ enum WorkspaceChecklistHandlers {
     /// then they join the item's current attachments.
     private static func pickImages(for item: String, target: Target, registry: ActionRegistry, services: AppServices) {
         let picker = services.viewers.picker, options = CmuxPicker.OpenOptions(choose: .files, allowsMultiple: true, types: [.image])
-        // The person's pick is awaited off main; the item takes the images in one visible task.
-        registry.trackWork(.visible, owner: "WorkspaceChecklistHandlers.pickImages", on: services.mainWork) {
+        // The person's pick is awaited off main; the item takes the images in the run's completion.
+        registry.trackWork(owner: "WorkspaceChecklistHandlers.pickImages", on: services.mainWork) {
             await picker.open(options)
         } then: { result in
             guard case .success(let urls?) = result, !urls.isEmpty,

@@ -39,7 +39,7 @@ enum TabLifecycle {
                 ?? NewTerminalStart.inherited(besides: selected, in: focused, services: ctx.services) ?? selected?.cwd ?? focused.tabs.first?.cwd
             let spawn = WorkspaceSpawn(cwd: start, keep: keep == true)
             // The create is awaited off main (WindowManager shows the workspace); nothing is left for main after it.
-            ctx.registry.trackWork(invocation.completionClass, owner: "TabLifecycle.newTerminalWorkspace", on: ctx.services.mainWork) {
+            ctx.registry.trackWork(owner: "TabLifecycle.newTerminalWorkspace", on: ctx.services.mainWork) {
                 _ = try? await windows.createWorkspace(spawn, on: daemon, into: windowID)
             } then: { _ in nil }
             return
@@ -124,7 +124,7 @@ enum TabLifecycle {
             let page = invocation.origin == .user && followsSetting && !NewTabKind.terminalFirst(services)
                 && services.agentTabs.opensFirstPage(on: daemon)
             // The first tab's create is awaited off main; the repair owner runs it on main.
-            ctx.registry.trackWork(invocation.completionClass, owner: "TabLifecycle.fillFirstTab", on: services.mainWork) {
+            ctx.registry.trackWork(owner: "TabLifecycle.fillFirstTab", on: services.mainWork) {
                 try await fillFirstTab(key, of: workspace, page: page, repair: repair, on: daemon, connection, services)
             } then: { result in
                 guard case .failure = result else { return nil }
@@ -287,7 +287,7 @@ enum TabLifecycle {
         case .agent:
             let profiles = ctx.services.browserProfiles, placed = agentTab
             // The agent profile is made off main if needed; the tab opens in it in one task on main.
-            ctx.registry.trackWork(invocation.completionClass, owner: "TabLifecycle.agentProfile", on: ctx.services.mainWork) {
+            ctx.registry.trackWork(owner: "TabLifecycle.agentProfile", on: ctx.services.mainWork) {
                 try await AgentBrowserProfile.ensure(profiles)
             } then: { result in
                 switch result {
@@ -365,8 +365,8 @@ enum TabLifecycle {
         }
         let address = url?.absoluteString ?? ctx.services.newTabAddress(for: choice)
         let logger = ctx.services.daemon.logger
-        // The open is awaited off main; the caller's placement of the new tab is one visible task.
-        ctx.registry.trackWork(.visible, owner: "TabLifecycle.openOffscreen", on: ctx.services.mainWork) {
+        // The open is awaited off main; the caller's placement of the new tab is the run's completion.
+        ctx.registry.trackWork(owner: "TabLifecycle.openOffscreen", on: ctx.services.mainWork) {
             try await browserTabs.open(choice, in: pane, url: address, profile: profile)
         } then: { result in
             switch result {

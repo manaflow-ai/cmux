@@ -34,7 +34,7 @@ enum VaultHandlers {
             let spawn = WorkspaceSpawn(cwd: session.cwd, name: session.cwd.flatMap(WorkspaceSpawn.folderName), command: command)
             let windows = services.windows
             // The create is awaited off main; its failure is the run's, in one task on main.
-            services.registry.trackWork(invocation.completionClass, owner: "VaultHandlers.resume", on: services.mainWork) {
+            services.registry.trackWork(owner: "VaultHandlers.resume", on: services.mainWork) {
                 _ = try await windows.createWorkspace(spawn, on: daemon)
             } then: { result in
                 guard case .failure(let error) = result else { return nil }
@@ -51,7 +51,7 @@ enum VaultHandlers {
             let pullRequests = services.vault.pullRequests, vault = services.vault
             let provider = session.provider, sessionID = session.sessionID
             // The lookup is awaited off main; the page opens (or the run is refused) in one task on main.
-            services.registry.trackWork(invocation.completionClass, owner: "VaultHandlers.pullRequest", on: services.mainWork) {
+            services.registry.trackWork(owner: "VaultHandlers.pullRequest", on: services.mainWork) {
                 await pullRequests.url(provider: provider, sessionID: sessionID)
             } then: { result in
                 guard case .success(let url?) = result else { return ActionWorkFailure(VaultStrings.noPullRequest) }

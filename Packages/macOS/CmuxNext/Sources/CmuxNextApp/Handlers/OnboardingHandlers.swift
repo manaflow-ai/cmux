@@ -17,12 +17,13 @@ enum OnboardingHandlers {
         registry.bind("importFromBrowser", run: { _ in services.onboarding.show(step: .importData) })
         registry.bind("browserProfile.removeImportedData", run: { invocation in
             let record = try context.browserProfile(invocation), sync = services.onboarding.historySync
-            let profile = record.id, name = record.name, sink = services.importedBookmarkSink, mainWork = services.mainWork
+            let profile = record.id, name = record.name, sink = services.importedBookmarkSink
+            let end = registry.completion(on: services.mainWork)
             // One removal the person asked for, on the import store's actor; the toast reports it (or that it
-            // failed) in one visible task.
-            services.work.task(.userBlocking) {
+            // failed) as the run's completion.
+            end.start {
                 let counts = try? await sync.removeImported(profile: profile, bookmarks: sink)
-                mainWork.postFromAnyThread(.visible, owner: "OnboardingHandlers.removeImported") {
+                end.post(owner: "OnboardingHandlers.removeImported", answering: true) {
                     BrowserFileImport.toast(services, id: "browser-import-removed", counts.removalText(profile: name))
                 }
             }
@@ -64,24 +65,24 @@ enum OnboardingHandlers {
         // Every entrypoint previews the exact snapshot and waits for the
         // person's answer before any browser, SSH host or agent is restored.
         // The preview and the person's answer are awaited off main; the run's result is one task on main.
-        registry.bind("workspace.importClassic", run: { invocation in
+        registry.bind("workspace.importClassic", run: { _ in
             let window = NSApp.keyWindow ?? NSApp.mainWindow
-            registry.trackWork(invocation.completionClass, owner: "OnboardingHandlers.importClassic", on: services.mainWork) {
+            registry.trackWork(owner: "OnboardingHandlers.importClassic", on: services.mainWork) {
                 _ = try await importClassic(services, in: window)
             } then: { result in
                 guard case .failure(let error) = result else { return nil }
                 return ActionWorkFailure("import-classic: \(error)")
             }
         })
-        registry.bind("palette.makeDefaultTerminal", run: { invocation in
-            registry.trackWork(invocation.completionClass, owner: "OnboardingHandlers.makeDefaultTerminal", on: services.mainWork) {
+        registry.bind("palette.makeDefaultTerminal", run: { _ in
+            registry.trackWork(owner: "OnboardingHandlers.makeDefaultTerminal", on: services.mainWork) {
                 try await claimDefaults(terminal: true, services)
             } then: { result in
                 defaultFailure(result, label: "make-default-terminal")
             }
         })
-        registry.bind("palette.makeDefaultBrowser", run: { invocation in
-            registry.trackWork(invocation.completionClass, owner: "OnboardingHandlers.makeDefaultBrowser", on: services.mainWork) {
+        registry.bind("palette.makeDefaultBrowser", run: { _ in
+            registry.trackWork(owner: "OnboardingHandlers.makeDefaultBrowser", on: services.mainWork) {
                 try await claimDefaults(terminal: false, services)
             } then: { result in
                 defaultFailure(result, label: "make-default-browser")

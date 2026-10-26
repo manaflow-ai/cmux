@@ -41,13 +41,14 @@ extension MainPaneLayout {
         let reveal: @MainActor @Sendable (PaneController, TabModel) -> Void = { pane, tab in
             if focus { pane.select(StripTabID(tab.id)) } else { pane.selectWhenReportedKeepingFocus(surface: surface) }
         }
-        // The waits are awaited off main; each step on main is one visible task (the chat's move and the
-        // tab's selection show on screen).
-        services.registry.trackWork(.visible, owner: "MainPaneLayout.dockChat", on: mainWork) { [weak controller] () -> (DockStep, PaneModel?) in
+        // The waits are awaited off main; each step on main is one task of the run's completion class (the chat's
+        // move and the tab's selection show on screen), with the run's scopes.
+        let end = services.registry.completion(on: mainWork)
+        services.registry.trackWork(owner: "MainPaneLayout.dockChat", on: mainWork) { [weak controller] () -> (DockStep, PaneModel?) in
             // StoreWaiters: read again only when the store keys `surface`.
             let listed = await store.waitForTab(surface: surface, timeout: limit)
             let step = await withCheckedContinuation { (done: CheckedContinuation<DockStep, Never>) in
-                mainWork.postFromAnyThread(.visible, owner: "MainPaneLayout.dockChat.move") { [weak controller] in
+                end.post(owner: "MainPaneLayout.dockChat.move") { [weak controller] in
                     guard let tab = listed, let controller else { return done.resume(returning: .notOpened) }
                     guard let chat = anchor.tabs.first(where: { $0.id != tab.id && ChatColumnPlacement.isChat($0, services: services) }) else {
                         return done.resume(returning: .noChat(tab))
@@ -155,13 +156,13 @@ extension MainPaneLayout {
             // view-observation-allow: one MachineTabIndex lookup (p06-scheduler-051) per read of TabMirror's wait
             services.locateTab(key).map { (pane: $0.1.handle, daemon: services.machines.daemon(forTab: $0.0)) }
         }
-        let mainWork = services.mainWork
-        // One tab creation and its mirror are awaited off main, then one visible task selects it (or docks the chat).
-        services.work.task(.userBlocking) { [weak target] in
+        let end = services.registry.completion(on: services.mainWork)
+        // One tab creation and its mirror are awaited off main, then the run's completion selects it (or docks the chat).
+        end.start { [weak target] in
             var listed: AgentTabCreated?
             if let tab = try? await pending.value(), await TabMirror.reaches(tab.key, in: locate) { listed = tab }
             let shown = listed
-            mainWork.postFromAnyThread(.visible, owner: "MainPaneLayout.openAgentTab") { [weak target] in
+            end.post(owner: "MainPaneLayout.openAgentTab", answering: true) { [weak target] in
                 place(listed: shown, in: target, from: controller, focus: focus, services: services,
                       outbound: outbound, created: created, finished: finished)
             }

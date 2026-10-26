@@ -2,7 +2,6 @@ import AppKit
 import CmuxNextActions
 import CmuxNextDaemon
 import CmuxNextDesign
-import CmuxNextWakeups
 
 /// Rooms (plans/cmux-next/data-model.md 8; the daemon calls them profiles):
 /// create, edit, delete, reorder, switch, and the workspace and group moves.
@@ -23,9 +22,9 @@ enum RoomHandlers {
             let windows = context.services.windows
             let windowID = UUID().uuidString.lowercased()
             windows.state(for: windowID).enterProfile(room.id)
-            // The window's first workspace, awaited off main.
+            // The window's first workspace, awaited off main in the run's scopes (the CLI waits for its command).
             let newTabPage = invocation.origin == .user
-            context.services.work.task(invocation.completionPriority) { _ = await windows.createWorkspace(into: windowID, newTabPage: newTabPage) }
+            registry.completion(on: context.services.mainWork).start { _ = await windows.createWorkspace(into: windowID, newTabPage: newTabPage) }
         }
         bind("space.newWorkspace") { invocation in
             let room = try context.room(invocation)
@@ -34,7 +33,9 @@ enum RoomHandlers {
             var spawn = WorkspaceSpawn(profile: room.id)
             spawn.opensNewTabPage = invocation.origin == .user
             let workspace = spawn
-            context.services.work.task(invocation.completionPriority) { _ = try? await windows.createWorkspace(workspace, into: target) }
+            // In the run's scopes: its command keys derive from the CLI's idempotency key, and a run without
+            // `focus` files the workspace without showing it.
+            registry.completion(on: context.services.mainWork).start { _ = try? await windows.createWorkspace(workspace, into: target) }
         }
         bind("space.rename") { invocation in
             let room = try context.room(invocation)
@@ -166,17 +167,18 @@ enum RoomHandlers {
         let browser = active.flatMap { store.profile($0.profileID)?.browserProfileID }
         let id = ProfileID.generate()
         let services = context.services, home = services.machines.local, windows = services.windows
-        let mainWork = services.mainWork, workClass = invocation.completionClass, activeID = active?.id
-        // The create and the home store's mirror are awaited off main; entering the space is one task on main.
-        services.registry.trackWork(workClass, owner: "RoomHandlers.create", on: mainWork) {
+        let mainWork = services.mainWork, end = services.registry.completion(on: mainWork), activeID = active?.id
+        // The create and the home store's mirror are awaited off main; entering the space is one task of the run's
+        // completion on main.
+        services.registry.trackWork(owner: "RoomHandlers.create", on: mainWork) {
             guard let connection = await home.connection else { throw DaemonError.notConnected }
             _ = try await connection.createProfile(name: name, id: id, color: color.rawValue, icon: icon, browserProfileID: browser)
             // The reply comes before the home store mirrors the room
             // (`personal-changed`, then a resync). Entering it earlier
             // files the new workspace unpinned (so in `default`) and
             // the window falls back as from a deleted room (cx-d8x5).
-            await roomMirrored(id, on: home, mainWork: mainWork)
-            let entered = await mainWork.apply(workClass, owner: "RoomHandlers.enter") { () -> Bool in
+            await home.store.mirrored(profile: id, on: mainWork)
+            let entered = await end.apply(owner: "RoomHandlers.enter") { () -> Bool in
                 guard let enter, let activeID, let state = windows.states[activeID] else { return false }
                 enter(id, state)
                 return true
@@ -185,15 +187,6 @@ enum RoomHandlers {
         } then: { result in
             guard case .failure(let error) = result else { return nil }
             return ActionWorkFailure(action.rawValue, error)
-        }
-    }
-
-    /// Returns once `home`'s store holds room `id`, or its connection changed: one ServiceObservation reads
-    /// both again only when one changes (`visible`: the person waits to enter the new room).
-    private static func roomMirrored(_ id: ProfileID, on home: DaemonService, mainWork: MainWorkScheduler) async {
-        let store = home.store, state = store.connectionState
-        await ObservedCondition(owner: "RoomHandlers.roomMirrored", .visible, on: mainWork).until {
-            store.profile(id) != nil || store.connectionState != state
         }
     }
 

@@ -119,7 +119,7 @@ enum WorkspaceVerbHandlers {
         spawn.firstChat = firstChat
         let daemon = anchor.flatMap { context.services.machines.daemon(forWorkspace: $0.id) }, created = spawn
         // The create is awaited off main; its failure is the run's, in one task on main.
-        context.services.registry.trackWork(ActionRunScope.completionClass, owner: "WorkspaceVerbHandlers.spawn",
+        context.services.registry.trackWork(owner: "WorkspaceVerbHandlers.spawn",
                                             on: context.services.mainWork) {
             _ = try await windows.createWorkspace(created, on: daemon, into: target)
         } then: { result in
@@ -138,7 +138,7 @@ enum WorkspaceVerbHandlers {
         let target = windows.targetWindow(preferring: context.activeWindow?.state.id)
         let spawn = WorkspaceSpawn(newTabPage: invocation.origin == .user)
         // The create and the store's catch-up are awaited off main; the answer is read in one task on main.
-        services.registry.trackResultWork(invocation.completionClass, owner: "WorkspaceVerbHandlers.newWorkspaceOnMachine",
+        services.registry.trackResultWork(owner: "WorkspaceVerbHandlers.newWorkspaceOnMachine",
                                           on: services.mainWork) {
             let id = try await windows.createWorkspace(spawn, on: daemon, into: target)
             // The store lists it (its `ws_` id and name) once it applied the create's events.

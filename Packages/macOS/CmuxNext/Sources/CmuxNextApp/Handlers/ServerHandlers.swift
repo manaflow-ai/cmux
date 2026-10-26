@@ -22,7 +22,7 @@ enum ServerHandlers {
         registry.bind("server.stopServing", run: { invocation in
             menuBar.hide()
             // The reverts and the unregisters are awaited off main; the failure is the run's, in one task on main.
-            registry.trackWork(invocation.completionClass, owner: "ServerHandlers.stopServing", on: mainWork) {
+            registry.trackWork(owner: "ServerHandlers.stopServing", on: mainWork) {
                 try await stopServing()
             } then: { result in
                 guard case .failure(let error) = result else { return nil }
@@ -40,7 +40,7 @@ enum ServerHandlers {
             }
             let services = context.services
             // The pairing's cloud calls are awaited off main; the refusal is the run's, in one task on main.
-            registry.trackWork(invocation.completionClass, owner: "ServerHandlers.addServer", on: mainWork) {
+            registry.trackWork(owner: "ServerHandlers.addServer", on: mainWork) {
                 await approve(code: code, invocation, services)
             } then: { result in
                 guard case .success(let reject?) = result else { return nil }

@@ -52,8 +52,10 @@ enum WorkspaceGroupClose {
         let handle = CmuxToastCenter.shared.show(CmuxToast(id: id, message: message, action: .undo()), in: window)
         handle.onAction = { [weak services] in
             guard let services else { return }
-            // One undo, bounded by `arrivalLimit`: the waits are awaited off main, each reopen runs on main.
-            services.work.task(.userBlocking) { for (group, names) in groups { await reopen(group: group, names: names, after: seen, services) } }
+            // One undo (the person's click), bounded by `arrivalLimit`: the waits are awaited off main, each reopen runs on main.
+            services.registry.completion(on: services.mainWork).start {
+                for (group, names) in groups { await reopen(group: group, names: names, after: seen, services) }
+            }
         }
     }
 

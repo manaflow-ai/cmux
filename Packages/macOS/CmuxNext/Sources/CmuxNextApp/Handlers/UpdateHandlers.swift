@@ -38,7 +38,7 @@ enum UpdateHandlers {
             let awaited = registry.isCapturingWork, dropBack = UpdateDropBack(updater), directories = stateDirectories()
             // The drop back is awaited off main; its refusal is one task on main: a palette or menu run nobody waits
             // on shows it, a CLI run returns it.
-            registry.trackWork(invocation.completionClass, owner: "UpdateHandlers.rollback", on: mainWork) {
+            registry.trackWork(owner: "UpdateHandlers.rollback", on: mainWork) {
                 await dropBack.failure(to: nil, stateDirectories: directories)
             } then: { [weak registry] result in
                 guard case .success(let why?) = result else { return nil }
@@ -50,7 +50,7 @@ enum UpdateHandlers {
         registry.bind("palette.switchAppChannel", unavailable: { updater.channelSwitchUnavailableReason }, invoke: { [weak registry] invocation in
             do {
                 let work = try updater.switchChannel(named: invocation["channel"]?.stringValue)
-                registry?.trackWork(invocation.completionClass, owner: "UpdateHandlers.switchChannel", on: mainWork) {
+                registry?.trackWork(owner: "UpdateHandlers.switchChannel", on: mainWork) {
                     await work.value
                 } then: { result in
                     guard case .success(let failure?) = result else { return nil }

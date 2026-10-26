@@ -197,7 +197,7 @@ enum WorkspaceStructureHandlers {
         let rest = Array(pane.tabs.dropFirst())
         // The moves are awaited off main; the new workspace is placed (or its window opens) in one task on main.
         // A new window's move is not awaited by the CLI.
-        services.registry.trackWork(invocation.completionClass, owner: "WorkspaceStructureHandlers.movePane", on: services.mainWork,
+        services.registry.trackWork(owner: "WorkspaceStructureHandlers.movePane", on: services.mainWork,
                                     tracked: !newWindow) { () -> WorkspaceKey? in
             guard let key = await TabMoves.toNewWorkspace(first, services: services) else { return nil }
             if newWindow { await TabMoves.join(rest[...], workspace: key, services: services) }

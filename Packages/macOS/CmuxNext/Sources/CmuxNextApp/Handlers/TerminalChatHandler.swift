@@ -38,7 +38,7 @@ enum TerminalChatHandler {
             pane.selectWhenReported(surface: pending.surface)
             let logger = pane.daemon.logger
             // The chat's creation is awaited off main; its failure is the run's, told in one task on main.
-            context.registry.trackWork(invocation.completionClass, owner: "TerminalChatHandler.open", on: services.mainWork) {
+            context.registry.trackWork(owner: "TerminalChatHandler.open", on: services.mainWork) {
                 _ = try await pending.value()
             } then: { result in
                 // A cancellation: the person closed the tab first.

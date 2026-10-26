@@ -28,7 +28,7 @@ enum PictureInPictureHandlers {
             let awaited = registry.isCapturingWork
             // The page's answer is awaited off main; its refusal is one task on main: a palette or menu run nobody
             // waits on shows it, a CLI or MCP run returns it.
-            registry.trackWork(invocation.completionClass, owner: "PictureInPictureHandlers.toggle", on: services.mainWork) {
+            registry.trackWork(owner: "PictureInPictureHandlers.toggle", on: services.mainWork) {
                 () -> (enabled: Bool, answer: BrowserPictureInPicture?) in
                 // Turned off between the run and this work: nothing floats.
                 guard await enabled() else { return (false, nil) }

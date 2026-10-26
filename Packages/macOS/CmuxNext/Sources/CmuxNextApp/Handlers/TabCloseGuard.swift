@@ -31,24 +31,36 @@ enum TabCloseGuard {
         guard CloseUndoToasts.isUserClose, window != nil, asks(tabs, services: services) else { return close([:]) }
         // A second close of tabs this close is already asking about (a double click on a close button) is the same close.
         guard tabs.contains(where: { !asking.contains($0.id) }) else { return }
-        let ids = Set(tabs.map(\.id))
+        let ids = Set(tabs.map(\.id)), terminals = askedTerminals(closing: tabs, services: services)
+        // No terminal to ask (the program warning is off, or only agents work): the close, or the agent's
+        // question, in the person's own turn.
+        guard !terminals.isEmpty else { return answer(tabs, ids: ids, asked: [:], window: window, services: services, close: close) }
         asking.formUnion(ids)
         reading.formUnion(ids)
-        let mainWork = services.mainWork
-        // The person's close: the terminals are asked off main; the close or the question is one visible task.
-        services.work.task(.userBlocking) {
-            let asked = await askedPrograms(closing: tabs, on: daemon, services: services)
-            mainWork.postFromAnyThread(.visible, owner: "TabCloseGuard.close") {
+        // Only the daemon's read is awaited, off main; the close or the question is the person's completion, one
+        // userBlocking task that answers the press.
+        let end = services.registry.completion(on: services.mainWork)
+        end.start {
+            let asked = await DestructiveConfirmation.runningPrograms(bySurface: terminals, on: daemon)
+            end.post(owner: "TabCloseGuard.close", answering: true) {
                 reading.subtract(ids)
-                guard let prompt = question(closing: tabs, asked: asked, services: services) else {
-                    asking.subtract(ids)
-                    return close(asked)
-                }
-                DestructiveConfirmation.present(prompt, in: window, settings: services.settings) {
-                    asking.subtract(ids)
-                    if $0 { close(asked) }
-                }
+                answer(tabs, ids: ids, asked: asked, window: window, services: services, close: close)
             }
+        }
+    }
+
+    /// Closes `tabs` now, or asks the question for them and closes on the person's yes. `asked`: what the
+    /// terminals answered (``askedTerminals(closing:services:)``).
+    private static func answer(_ tabs: [TabModel], ids: Set<String>, asked: RunningPrograms, window: NSWindow?, services: AppServices,
+                               close: @escaping @MainActor (_ asked: RunningPrograms) -> Void) {
+        guard let prompt = question(closing: tabs, asked: asked, services: services) else {
+            asking.subtract(ids)
+            return close(asked)
+        }
+        asking.formUnion(ids)
+        DestructiveConfirmation.present(prompt, in: window, settings: services.settings) {
+            asking.subtract(ids)
+            if $0 { close(asked) }
         }
     }
 
@@ -125,10 +137,16 @@ enum TabCloseGuard {
     /// The closing terminals the question asks about, each with its foreground program: the terminals
     /// without a working agent (an agent's terminal is that agent's question), when `app.warnBeforeClosingTab` is on.
     static func askedPrograms(closing tabs: [TabModel], on daemon: DaemonService, services: AppServices) async -> RunningPrograms {
-        let warnTab = services.settings?.snapshot.warnBeforeClosingTab ?? CmuxConfigSnapshot.closeWarningFallback
-        let others = tabs.filter { $0.kind == .pty && !$0.dead && workingAgent($0) == nil }
-        guard warnTab, !others.isEmpty else { return [:] }
+        let others = askedTerminals(closing: tabs, services: services)
+        guard !others.isEmpty else { return [:] }
         return await DestructiveConfirmation.runningPrograms(bySurface: others, on: daemon)
+    }
+
+    /// The closing terminals ``askedPrograms(closing:on:services:)`` asks: the live ones without a working agent,
+    /// when `app.warnBeforeClosingTab` is on. Empty: the close needs no daemon read.
+    static func askedTerminals(closing tabs: [TabModel], services: AppServices) -> [TabModel] {
+        guard services.settings?.snapshot.warnBeforeClosingTab ?? CmuxConfigSnapshot.closeWarningFallback else { return [] }
+        return tabs.filter { $0.kind == .pty && !$0.dead && workingAgent($0) == nil }
     }
 
     /// The question for closing `tabs` once the terminals answered (`asked`), or nil to close at once.

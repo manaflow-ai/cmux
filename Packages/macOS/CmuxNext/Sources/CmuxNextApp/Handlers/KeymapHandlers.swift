@@ -20,35 +20,37 @@ enum KeymapHandlers {
             }
             let window = context.activeWindow?.window
             let user = invocation.origin == .user
-            let work = context.services.work, mainWork = context.services.mainWork, workClass = invocation.completionClass
-            // One write off main, then the watcher applies it; the toast (a person's run) or the refusal is one task on main.
-            work.task(invocation.completionPriority) {
+            let mainWork = context.services.mainWork, end = registry.completion(on: mainWork)
+            // One write off main, then the watcher applies it; the toast (a person's run) or the refusal is the run's
+            // completion on main (userBlocking for the person, automation for the CLI).
+            end.start {
                 do {
                     let plan = try await settings.keymapPlan(preset)
                     let undo = try await settings.applyUndoably(plan)
                     guard user else { return }
-                    mainWork.postFromAnyThread(.visible, owner: "KeymapHandlers.toast") {
+                    end.post(owner: "KeymapHandlers.toast", answering: true) {
                         toast(plan, registry: registry, in: window) {
-                            restore(undo, settings: settings, registry: registry, work: work, mainWork: mainWork)
+                            restore(undo, settings: settings, registry: registry, mainWork: mainWork)
                         }
                     }
                 } catch {
                     let reason = String(describing: error)
-                    mainWork.postFromAnyThread(workClass, owner: "KeymapHandlers.refuse") { registry.refuse(reason) }
+                    end.post(owner: "KeymapHandlers.refuse", answering: true) { registry.refuse(reason) }
                 }
             }
         })
     }
 
-    /// The toast's Undo: one write back off main; a failure is refused in a visible task.
+    /// The toast's Undo (the person's click): one write back off main; a failure is refused in the click's completion.
     private static func restore(_ undo: ShortcutKeymapUndo, settings: SettingsController, registry: ActionRegistry,
-                                work: BackgroundWork, mainWork: MainWorkScheduler) {
-        work.task(.userBlocking) {
+                                mainWork: MainWorkScheduler) {
+        let end = registry.completion(on: mainWork)
+        end.start {
             do {
                 try await settings.restore(undo)
             } catch {
                 let reason = String(describing: error)
-                mainWork.postFromAnyThread(.visible, owner: "KeymapHandlers.refuse") { registry.refuse(reason) }
+                end.post(owner: "KeymapHandlers.refuse", answering: true) { registry.refuse(reason) }
             }
         }
     }

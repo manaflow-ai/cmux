@@ -318,8 +318,8 @@ enum TabHandlers {
     /// Optimistic rename; an empty name clears it on the daemon.
     static func rename(_ surface: SurfaceID, to name: String?, ctx: AppActionContext, pane: PaneController) {
         let daemon = ctx.services.activeDaemon
-        // The intent's command is awaited off main; a rejection re-pushes the strip in one visible task.
-        ctx.registry.trackWork(.visible, owner: "TabHandlers.rename", on: ctx.services.mainWork) {
+        // The intent's command is awaited off main; a rejection re-pushes the strip in the run's completion.
+        ctx.registry.trackWork(owner: "TabHandlers.rename", on: ctx.services.mainWork) {
             await daemon.intend("rename-surface", .renameTab(surface: surface, name: name)) { connection in
                 try await connection.renameTab(surface, to: name ?? "")
             }

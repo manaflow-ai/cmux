@@ -74,7 +74,7 @@ extension TabHandlers {
         let services = ctx.services, first = tabs.first ?? tab, rest = tabs.dropFirst()
         // The moves are awaited off main, in order; placing the new workspace is one task on main. A new window's
         // move is not awaited by the CLI.
-        ctx.registry.trackWork(invocation.completionClass, owner: "TabHandlers.moveToNewWorkspace", on: services.mainWork,
+        ctx.registry.trackWork(owner: "TabHandlers.moveToNewWorkspace", on: services.mainWork,
                                tracked: !newWindow) { () -> WorkspaceKey? in
             guard let key = await TabMoves.toNewWorkspace(first, services: services) else { return nil }
             await TabMoves.join(rest, workspace: key, services: services)
@@ -95,13 +95,13 @@ extension TabHandlers {
                 let daemon = ctx.services.daemon(for: pane)
                 let mark = AgentChatMarkUnread(acpmux: { await AgentPaneMarkUnread(view.model).run() },
                                                daemon: { try TabUnreadMark.set(true, tab: tab, daemon: daemon) })
-                // One mark, awaited off main until acpmux or the daemon answers; a refusal shows in one visible task.
-                let mainWork = ctx.services.mainWork
-                ctx.services.work.task(.userBlocking) {
+                // One mark, awaited off main until acpmux or the daemon answers; a refusal shows as the run's completion.
+                let end = ctx.registry.completion(on: ctx.services.mainWork)
+                end.start {
                     do {
                         try await mark.run()
                     } catch {
-                        mainWork.postFromAnyThread(.visible, owner: "TabHandlers.markUnread") {
+                        end.post(owner: "TabHandlers.markUnread", answering: true) {
                             ctx.refuse((error as? ActionFailure)?.message ?? RefusalStrings.describe(error))
                         }
                     }

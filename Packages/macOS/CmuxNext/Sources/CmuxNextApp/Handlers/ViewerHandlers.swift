@@ -35,7 +35,7 @@ enum ViewerHandlers {
             // change the view, as a person's click on the chat header's Changes may; an agent or
             // the CLI without focus gets needsFocus).
             // The diff's repository read is awaited off main; the picker (no repository there) shows in one task on main.
-            registry.trackWork(invocation.completionClass, owner: "ViewerHandlers.openDiff", on: services.mainWork) {
+            registry.trackWork(owner: "ViewerHandlers.openDiff", on: services.mainWork) {
                 try await viewers.openDiff(folder, turn: turn, showTurn: showTurn, in: pane, focus: focus, created: created)
             } then: { result in
                 guard case .failure = result else { return nil }
