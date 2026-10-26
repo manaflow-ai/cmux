@@ -372,8 +372,10 @@ final class ChatController: NSObject, NSTextViewDelegate {
     let wake: ChatWakeScheduler
     private var wakeAt = Double.infinity
     private var viewWakeAt = Double.infinity
+    /// cmux: where the pane's display frames come from (CmuxNext: its FrameScheduler).
+    private let frameSource: any FrameTickSource
     /// The next display frame of the pane's screen (MessagesLab bd65bbf FrameTick).
-    private(set) lazy var frameTick = FrameTick(view: host)
+    private(set) lazy var frameTick = FrameTick(view: host, source: frameSource)
     /// Runs work at the start of the next display frame (FrameTick; tests capture it).
     /// Off screen (no window: captures, the harness) there is no display frame: now.
     lazy var nextFrame: (@escaping () -> Void) -> Void = { [weak self] f in
@@ -465,10 +467,12 @@ final class ChatController: NSObject, NSTextViewDelegate {
     /// `--follow-key-state` argument turns it on for parity runs.
     var followsKeyWindow = ChatController.args.contains("--follow-key-state")
 
-    init(host: HostView = HostView(frame: NSRect(origin: .zero, size: Fixture.windowSize)), wake: ChatWakeScheduler) {
+    init(host: HostView = HostView(frame: NSRect(origin: .zero, size: Fixture.windowSize)), wake: ChatWakeScheduler,
+         frames: any FrameTickSource = DisplayLinkFrameTicks()) {
         HomeMarkdownPolicy.install()  // cmux: before the first Markdown parse
         self.host = host
         self.wake = wake
+        self.frameSource = frames
         super.init()
         host.controller = self
         host.fieldChrome.onEmoji = { [weak self] in self?.roundButtonClicked() }
