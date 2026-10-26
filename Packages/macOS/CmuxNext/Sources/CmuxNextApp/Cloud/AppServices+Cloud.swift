@@ -34,7 +34,12 @@ extension AppServices {
         return {
             guard let token = cloud.desktopRdTokens[key] else { return nil }
             let hello = RemoteRdHello(user: "cmux", install: "cmux-next-\(ProcessInfo.processInfo.processIdentifier)", token: token)
-            let carrier = HubTunnelCarrier { try await opener.openTunnel(host: "localhost", port: Self.cloudDesktopRdPort) }
+            let carrier = RemoteRdStreamCarrier {
+                let tunnel = try await opener.openTunnel(host: "localhost", port: Self.cloudDesktopRdPort)
+                let reader = LoopbackTunnelReader(tunnel)
+                return RemoteRdByteStream(read: { try? await reader.read() }, write: { try await tunnel.write($0) },
+                                          close: { tunnel.close() })
+            }
             return RemoteRdStreamTransport(carrier: carrier, hello: hello, startKey: UUID().uuidString, control: control)
         }
     }
