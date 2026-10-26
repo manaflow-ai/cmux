@@ -101,16 +101,21 @@ export function inlineTokenIds(text: string): string[] {
   return [...text.matchAll(INLINE_TOKEN)].map((match) => decodeInlineId(match[1]!));
 }
 
-type InlineRun = { type: "text"; text: string } | { type: "token"; id: string };
+/// A token-shaped run of a text (`inlineTokenSpans`): `place`, an attachment's place; otherwise a
+/// token whose attachment is not there (gone, or a second of one id).
+export type InlineTokenSpan = { from: number; to: number; id: string; place: boolean };
 
-/// `text` read against the ids of `attachments`: the first token of each one's id is its place,
-/// any other token (a second of one id, one whose attachment is gone) goes as nothing, and every
-/// other U+FFFC is the person's text. A mark that opens a token-shaped run whose closing mark opens
-/// an attachment's own token is the person's too, so their U+FFFC before a place never takes it.
-function inlineRuns(text: string, attachments: readonly { id: string }[]): InlineRun[] {
-  const runs: InlineRun[] = [];
-  if (!text.includes(INLINE_ATTACHMENT_MARK)) return text ? [{ type: "text", text }] : runs;
-  const known = new Set(attachments.map((attachment) => attachment.id));
+/// The tokens in `text`, in order, read against `opens`: whether a token of `id` is an attachment's
+/// place, given the ids placed before it. Every other U+FFFC is the person's text. A mark that opens
+/// a token-shaped run whose closing mark opens a place is the person's too, so their U+FFFC before
+/// a place (`x `, U+FFFC, `before`, then the token) never takes the place's opening mark. Read
+/// against no ids, mark `a` mark `b` mark could be either token: only the ids tell.
+export function inlineTokenSpans(
+  text: string,
+  opens: (id: string, placed: ReadonlySet<string>) => boolean,
+): InlineTokenSpan[] {
+  const spans: InlineTokenSpan[] = [];
+  if (!text.includes(INLINE_ATTACHMENT_MARK)) return spans;
   const placed = new Set<string>();
   const tokenAt = (at: number) => {
     TOKEN_AT.lastIndex = at;
@@ -119,27 +124,36 @@ function inlineRuns(text: string, attachments: readonly { id: string }[]): Inlin
   };
   const opensPlace = (at: number) => {
     const token = tokenAt(at);
-    return token !== undefined && known.has(token.id) && !placed.has(token.id);
-  };
-  let start = 0;
-  const flush = (at: number) => {
-    if (at > start) runs.push({ type: "text", text: text.slice(start, at) });
+    return token !== undefined && opens(token.id, placed);
   };
   for (let at = text.indexOf(INLINE_ATTACHMENT_MARK); at >= 0;) {
     const token = tokenAt(at);
-    if (token && known.has(token.id) && !placed.has(token.id)) {
-      flush(at);
-      runs.push({ type: "token", id: token.id });
-      placed.add(token.id);
-      start = token.end;
-      at = text.indexOf(INLINE_ATTACHMENT_MARK, token.end);
-    } else if (token && !opensPlace(token.end - 1)) {
-      flush(at);
-      start = token.end;
+    const place = token !== undefined && opens(token.id, placed);
+    if (token && (place || !opensPlace(token.end - 1))) {
+      spans.push({ from: at, to: token.end, id: token.id, place });
+      if (place) placed.add(token.id);
       at = text.indexOf(INLINE_ATTACHMENT_MARK, token.end);
     } else at = text.indexOf(INLINE_ATTACHMENT_MARK, at + 1);
   }
-  flush(text.length);
+  return spans;
+}
+
+type InlineRun = { type: "text"; text: string } | { type: "token"; id: string };
+
+/// `text` read against the ids of `attachments` (`inlineTokenSpans`): the first token of each one's
+/// id is its place, any other token (a second of one id, one whose attachment is gone) goes as
+/// nothing, and every other U+FFFC is the person's text.
+function inlineRuns(text: string, attachments: readonly { id: string }[]): InlineRun[] {
+  const runs: InlineRun[] = [];
+  if (!text.includes(INLINE_ATTACHMENT_MARK)) return text ? [{ type: "text", text }] : runs;
+  const known = new Set(attachments.map((attachment) => attachment.id));
+  let start = 0;
+  for (const span of inlineTokenSpans(text, (id, placed) => known.has(id) && !placed.has(id))) {
+    if (span.from > start) runs.push({ type: "text", text: text.slice(start, span.from) });
+    if (span.place) runs.push({ type: "token", id: span.id });
+    start = span.to;
+  }
+  if (text.length > start) runs.push({ type: "text", text: text.slice(start) });
   return runs;
 }
 
