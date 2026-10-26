@@ -128,6 +128,43 @@
   outline: 1px solid color-mix(in srgb, var(--agent-text) 45%, transparent);
   outline-offset: -1px;
 }
+/* An attached video (composer/VideoAttachmentTile.tsx): its poster in the image's tile, a small glass
+   play glyph in its middle and its length on a dark scrim in a corner, as a reply's video thumbnail
+   (chips/chips.css .cv-media__duration). A click plays it. */
+.acpmux-attachment-video-open {
+  position: relative;
+  cursor: pointer;
+}
+.acpmux-attachment-video-play {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  color: var(--agent-text);
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+/* The triangle's visual center is right of its box's. */
+.acpmux-attachment-video-play svg {
+  transform: translateX(1px);
+}
+.acpmux-attachment-video-length {
+  position: absolute;
+  right: 4px;
+  bottom: 4px;
+  padding: 0 4px;
+  border-radius: 4px;
+  color: #fff; /* theme-fixed: on its own black scrim over media */
+  background: rgb(0 0 0 / 0.55);
+  font-size: var(--text-detail);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.4;
+  pointer-events: none;
+}
 /* An image the engine could not draw: the thumbnail's own size, a picture glyph over a short note,
    never an empty checker that reads like a transparent image. */
 .acpmux-attachment-image-failed {
@@ -148,6 +185,71 @@
 .acpmux-attachment-failed-text {
   font-size: var(--text-caption);
   line-height: 1.2;
+}
+/* A pasted or dropped file still being read (composer/attachmentIntake.tsx PendingChip): there in
+   the paste's frame, an image as a thumbnail-sized tile with a dimmed picture glyph, so the strip
+   does not jump when the thumbnail replaces it. */
+.acpmux-attachment-pending {
+  color: var(--agent-muted);
+}
+.acpmux-attachment-image.acpmux-attachment-pending {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 104px;
+}
+.acpmux-attachment-file.acpmux-attachment-pending {
+  gap: 4px;
+}
+/* Its spinner says it is loading (Leo, 2026-10-24: "why don't you put a spinner on the attachment
+   rather than this placeholder that doesn't do anything"); its × cancels it. */
+.acpmux-attachment-spinner {
+  flex: none;
+}
+/* A file that could not be attached: why, cut to the tile (its tooltip has all of it), Retry, and
+   its × (composer/attachmentIntake.tsx PendingChip). */
+.acpmux-attachment-failed {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 0 8px;
+  color: var(--agent-muted);
+  text-align: center;
+}
+.acpmux-attachment-image.acpmux-attachment-failed {
+  width: 104px;
+}
+.acpmux-attachment-file.acpmux-attachment-failed {
+  flex-direction: row;
+  max-width: min(260px, 70vw);
+  /* Room for its x on the right, as a file chip has. */
+  padding: 0 32px 0 8px;
+}
+.acpmux-attachment-failed .acpmux-attachment-failed-text {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+}
+.acpmux-attachment-retry {
+  flex: none;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--agent-text) 12%, transparent);
+  color: var(--agent-text);
+  font: inherit;
+  font-size: var(--text-caption);
+  cursor: pointer;
+}
+.acpmux-attachment-retry:hover {
+  background: color-mix(in srgb, var(--agent-text) 20%, transparent);
+}
+.acpmux-attachment-retry:focus-visible {
+  outline: 1.5px solid var(--agent-text);
+  outline-offset: 1px;
 }
 .acpmux-attachment-file {
   display: flex;
@@ -262,13 +364,17 @@
   width: min(520px, calc(100vw - 32px));
   padding: 0 0 16px;
   overflow: hidden;
-  border: var(--cmux-hairline, 0.5px) solid var(--agent-border-strong);
+  /* The width stays, the line is clear: the glass rim draws the one edge (.ui-glass). */
+  border: var(--cmux-hairline, 0.5px) solid transparent;
   border-radius: 12px;
-  background: var(--agent-page-bg);
+  /* Glass, not the page color: a translucent window's page color is clear, so the chat read
+     through the viewer (as the Add project dialog, addProject.css). */
+  --glass-elevation: var(--elevation-2);
+  /* glass-opaque-allow: the Reduce Transparency fill only */
+  --glass-opaque: var(--surface-popup);
   color: var(--agent-text);
   font-size: var(--text-body);
   line-height: var(--text-body--line-height);
-  box-shadow: var(--elevation-2);
 }
 .acpmux-pdf-viewer-bar {
   display: flex;
@@ -400,4 +506,18 @@ button.acpmux-attachment-pasted-open:hover {
 }
 .acpmux-attachment-pasted .acpmux-attachment-remove {
   top: 14px;
+}
+/* Dragging a staged chip moves it along the strip (composer/stripReorder.ts): its slot draws
+   nothing of its own, the chip being dragged lifts a little, and the strip says it can be grabbed. */
+.acpmux-attachment-slot {
+  display: contents;
+}
+.acpmux-attachments[data-reorder] .acpmux-attachment-slot .acpmux-attachment {
+  cursor: grab;
+}
+.acpmux-attachment-slot[data-dragging] .acpmux-attachment {
+  cursor: grabbing;
+  opacity: 0.85;
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px color-mix(in srgb, #000 30%, transparent);
 }

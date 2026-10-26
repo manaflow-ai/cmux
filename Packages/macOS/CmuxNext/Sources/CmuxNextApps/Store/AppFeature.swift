@@ -23,21 +23,54 @@ public nonisolated struct AppFeature: Sendable, Hashable, Identifiable {
 
     public enum Category: String, Sendable, Hashable, CaseIterable {
         case backgrounds
+        case appearance
         case chief
         case newTab
         case sidebar
         case media
+        case editor
+        case devices
         case browser
         case layout
+
+        /// `appStore.show`'s `category` argument (`newTab`, any case); nil for an empty or unknown name.
+        public init?(argument: String) {
+            let name = argument.trimmingCharacters(in: .whitespaces).lowercased()
+            guard let category = Self.allCases.first(where: { $0.rawValue.lowercased() == name }) else { return nil }
+            self = category
+        }
     }
 
     /// What the card shows above its name.
     public enum Preview: Sendable, Hashable {
-        case icon(IconName)
+        /// A small cmux window with `Area` lit and the feature's icon placed in it.
+        case window(Area, IconName)
         /// One of the bundled paintings' thumbnails (`BackdropArt.thumbnailURL`).
         case painting
         /// A few sidebar rows drawn at this density, so a view toggle shows what it changes.
         case sidebarRows(SidebarDensity)
+    }
+
+    /// The part of the window a `.window` preview lights.
+    public enum Area: Sendable, Hashable {
+        /// Behind the window: the backdrop shows through it.
+        case background
+        /// The whole sidebar.
+        case sidebar
+        /// One new row at the top of the sidebar.
+        case sidebarItem
+        /// A row at the bottom of the sidebar.
+        case sidebarBottom
+        /// The tab bar.
+        case tabBar
+        /// The pane: one surface.
+        case pane
+        /// Two panes side by side.
+        case panes
+        /// A New Tab page's widget.
+        case newTab
+        /// A browser's toolbar.
+        case browser
     }
 
     /// Stable id (`appStore.feature.<id>` in accessibility and tests).

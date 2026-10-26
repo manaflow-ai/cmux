@@ -27,8 +27,10 @@ pub mod host {
     }
 }
 pub mod link;
+pub mod program_wait;
 #[cfg(unix)]
 pub(crate) mod record_watch;
+pub(crate) mod scope;
 pub mod sweep;
 #[cfg(unix)]
 pub(crate) mod tree;
@@ -187,6 +189,10 @@ pub struct SpawnSpec {
     /// a write end for its whole life (`daemon::router_owner_fifo`).
     #[serde(default)]
     pub router_owner_fifo: Option<PathBuf>,
+    /// The folder the harness must exec in, by identity: a sub-session's checked folder
+    /// (`cwd_pin.rs`). The host's harness spawn fails when `cwd` leads elsewhere by then.
+    #[serde(default)]
+    pub cwd_pin: Option<crate::cwd_pin::CwdPin>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -302,11 +308,11 @@ pub fn ensure_private_dir(dir: &Path) -> Result<()> {
     Ok(crate::owner_only::private_dir(dir)?)
 }
 
-/// Random lowercase hex.
-pub fn random_hex(bytes: usize) -> String {
+/// Random lowercase hex; an error when the OS random generator fails.
+pub fn random_hex(bytes: usize) -> Result<String> {
     let mut buf = vec![0u8; bytes];
-    getrandom::fill(&mut buf).expect("the OS random generator");
-    buf.iter().map(|b| format!("{b:02x}")).collect()
+    getrandom::fill(&mut buf).map_err(|e| anyhow!("the OS random generator: {e}"))?;
+    Ok(buf.iter().map(|b| format!("{b:02x}")).collect())
 }
 
 /// Every record in `dir`: those this build reads, and those it cannot.

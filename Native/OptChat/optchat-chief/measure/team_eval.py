@@ -944,7 +944,8 @@ def run_lossy(opts):
         if extra.get("OPTCHAT_CHIEF_MODEL"):
             args += ["--model", extra["OPTCHAT_CHIEF_MODEL"]]
         proc = subprocess.Popen(args, cwd=repo_dir, env=env, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-                                stderr=open(os.path.join(out, "claude.stderr"), "w"), text=True, bufsize=1,
+                                stderr=open(os.path.join(out, "claude.stderr"), "w"), encoding="utf-8",
+                                errors="replace", bufsize=1,
                                 start_new_session=True)
         events = []
         debug_lines = []
@@ -1472,11 +1473,18 @@ def campaign(opts):
                f"--arg=base_url={opts.base_url}", f"--arg=task={task}", f"--arg=arm={arm}", f"--arg=budget={budget}",
                f"--arg=minutes={opts.minutes}",
                "--artifact", ".build/team-eval/out.tgz", "--timeout", str(int(opts.minutes) * 60 + 3600), "--key", key]
+        cmd += [f"--label={label}" for label in opts.label]
         while True:
             worker = free.get() if opts.worker else None
             # Again with the worker in hand: the wait for it may have been long,
             # and a live reading may have taken the headroom under the line.
-            if headroom.ok():
+            try:
+                ok = headroom.ok()
+            except BaseException:
+                if worker:
+                    free.put(worker)
+                raise
+            if ok:
                 break
             if worker:
                 free.put(worker)
@@ -1504,7 +1512,8 @@ def campaign(opts):
         os.makedirs(os.path.join(out, key), exist_ok=True)
         log = r.stdout
         if step and "TEAM-EVAL {" not in log:
-            log += subprocess.run(["cmux-ci", "log", step], capture_output=True, text=True).stdout
+            log += subprocess.run(["cmux-ci", "log", step], capture_output=True, encoding="utf-8",
+                                  errors="replace").stdout
         with open(os.path.join(out, key, "step.log"), "w") as f:
             f.write(log + "\n--- stderr\n" + r.stderr)
         spent = step_spend(log)
@@ -1574,6 +1583,9 @@ def main():
     c.add_argument("--worker", nargs="+", default=[],
                    help="controller workers to run on (names from cmux-ci workers) that can reach --base-url; "
                         "each step takes a free one")
+    c.add_argument("--label", action="append", default=[],
+                   help="a worker label each step also needs, on top of the script's own (repeatable); "
+                        "cmux20-bench, for example, runs only steps labeled bench")
     c.add_argument("--max-concurrent", type=positive, default=4,
                    help="steps in flight at most, even when more workers are free")
     c.add_argument("--headroom-cmd", default=None,

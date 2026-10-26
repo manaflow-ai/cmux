@@ -222,7 +222,8 @@ describe("one subtle elevation scale", () => {
     // A tooltip is small and close to its control: elevation 1 (--tooltip-shadow, TooltipSurface.shadow).
     ["pages/shared/desktop.css", ".ui-title-tooltip", "--elevation-1"],
     ["pages/shared/pageBase.css", ".page-menu", "--elevation-2"],
-    ["pages/markdown/styles.css", ".md-link-popover", "--elevation-2"],
+    // The link editor (.md-link-popover) is a ui/Popover, so .ui-popup casts its drop; the hover bubble is solid.
+    ["pages/markdown/styles.css", ".md-link-bubble", "--elevation-2"],
     ["pages/cloud/styles.css", ".cloud-create-sheet", "--elevation-2"],
     ["pages/home-channels/ledger.css", ".lg-palette", "--elevation-2"],
     ["pages/home-channels/ledger.css", ".lg-form", "--elevation-2"],

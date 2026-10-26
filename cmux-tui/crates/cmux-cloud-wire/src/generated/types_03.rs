@@ -5,6 +5,80 @@
 use super::*;
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct StepNote {
+    pub r#type: LitNote,
+    pub text: String,
+}
+
+wire_enum! {
+    StepOpOp {
+        AutomationList = "automation.list",
+        AutomationGet = "automation.get",
+        AutomationRunsList = "automation.runs.list",
+        AutomationRun = "automation.run",
+        UsageSummary = "usage.summary",
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct StepOp {
+    pub r#type: LitOp,
+    pub op: StepOpOp,
+    pub params: Value,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct StepMachine {
+    pub r#type: LitMachine,
+    pub machine: MachineId,
+    pub command: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub input_from: Option<i64>,
+    pub timeout_seconds: i64,
+}
+
+wire_enum! {
+    StepAgentHarness {
+        Claude = "claude",
+        Codex = "codex",
+        Opencode = "opencode",
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct StepAgent {
+    pub r#type: LitAgent,
+    pub machine: MachineId,
+    pub harness: StepAgentHarness,
+    pub prompt: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub input_from: Option<i64>,
+    pub timeout_seconds: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(untagged)]
+pub enum TargetPolicy {
+    CloudVm(TargetPolicyCloudVm),
+    Host(TargetPolicyHost),
+    /// A member this build does not know (a newer backend), kept verbatim.
+    Unknown(Value),
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TargetPolicyCloudVm {
+    pub kind: LitCloudVm,
+}
+
+wire_enum! {
+    TargetPolicyHostFallback {
+        CloudVm = "cloud_vm",
+        Wait = "wait",
+        Fail = "fail",
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct TargetPolicyHost {
     pub kind: LitHost,
     pub host: HostId,
@@ -110,6 +184,8 @@ pub struct TeamIntegrationPolicyGithub {
     pub scope: TeamIntegrationPolicyGithubScope,
     pub require_org_admin: bool,
     pub repo_allowlist: Option<Vec<RepoPattern>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub allow_workflows: Option<bool>,
 }
 
 wire_enum! {
@@ -155,6 +231,8 @@ pub struct TeamPolicyValues {
     pub github_require_org_admin: Option<TeamPolicyValuesGithubRequireOrgAdmin>,
     #[serde(rename = "github.repoAllowList", default, skip_serializing_if = "Option::is_none")]
     pub github_repo_allow_list: Option<TeamPolicyValuesGithubRepoAllowList>,
+    #[serde(rename = "github.allowWorkflows", default, skip_serializing_if = "Option::is_none")]
+    pub github_allow_workflows: Option<TeamPolicyValuesGithubAllowWorkflows>,
     #[serde(rename = "integrations.allowedProviders", default, skip_serializing_if = "Option::is_none")]
     pub integrations_allowed_providers: Option<TeamPolicyValuesIntegrationsAllowedProviders>,
     #[serde(rename = "mcp.server", default, skip_serializing_if = "Option::is_none")]
@@ -240,6 +318,12 @@ pub enum TeamPolicyValuesGithubRepoAllowListValue {
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct TeamPolicyValuesGithubRepoAllowList {
     pub value: TeamPolicyValuesGithubRepoAllowListValue,
+    pub mode: PolicyMode,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamPolicyValuesGithubAllowWorkflows {
+    pub value: bool,
     pub mode: PolicyMode,
 }
 

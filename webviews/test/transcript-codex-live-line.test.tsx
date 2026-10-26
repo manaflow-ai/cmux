@@ -88,7 +88,7 @@ test("the live line carries the turn's tokens while it times the turn, not besid
         <WorkingCountsContext.Provider value={{ ...counts, tokens: 2_140_000 }}>{node}</WorkingCountsContext.Provider>,
       ),
     );
-  expect(drawn(<Thinking since={start} now={() => start + 354_000} />)).toBe("Thinking 5m 54s · 2.1M tokens");
+  expect(drawn(<Thinking since={start} now={() => start + 354_000} />)).toBe("Thinking 5m 54s · 2.1M out");
   expect(drawn(<Thinking doing="cargo test" doingShell doingAt={start} now={() => start + 4_000} />)).toBe(
     "Running cargo test 4s",
   );
@@ -100,9 +100,9 @@ test("with the tray off the live line counts the work still going, beside a call
   const drawn = (node: ReactElement) =>
     words(renderToStaticMarkup(<WorkingCountsContext.Provider value={counts}>{node}</WorkingCountsContext.Provider>));
   expect(drawn(<Thinking doing="Read app.ts" doingAt={start} now={() => start + 3_000} />)).toBe(
-    "Read app.ts 3s · 2 agents · 1 command",
+    "Read app.ts 3s · 2 subagents · 1 command",
   );
-  expect(drawn(<Thinking since={start} now={() => start + 18_000} />)).toBe("Thinking 18s · 2 agents · 1 command");
+  expect(drawn(<Thinking since={start} now={() => start + 18_000} />)).toBe("Thinking 18s · 2 subagents · 1 command");
   // Not on the start status line, before the agent runs.
   expect(drawn(<Thinking status="Starting Claude Code…" />)).toBe("Starting Claude Code…");
 });
@@ -299,4 +299,77 @@ test("with a todo list the activity line under it is the live line", () => {
   );
   expect(kinds(shaped).slice(-2)).toEqual(["plan", "activityLine"]);
   expect(shaped.at(-1)!.text).toContain("bun test");
+});
+
+// Leo 2026-10-21 (ask-650c3502bd): calls in flight with nothing to show yet stacked as rows of
+// their own ("Ran 2 commands" over three bare command rows, four under "Worked for 1s" while a
+// task notification's work ran). They replace each other on the one live line, as Thinking does.
+const draft = (id: string) => call(id, "pending", { title: "Bash", command: undefined });
+const callIds = (rows: AcpmuxRow[]) =>
+  rows.flatMap((entry) => (entry.kind === "activity" ? (entry.items ?? []) : [])).map((item) => item.tool?.id);
+
+test("calls Claude has not written yet draw no rows in an earlier run", () => {
+  const shaped = codex([
+    row("u", "user"),
+    row("run", "activity", { items: [call("git log"), call("git diff"), draft("b1"), draft("b2"), draft("b3")] }),
+    // A paragraph, not a short note: the runs stay apart (mergeShortNotes).
+    row("a", "assistant", { text: "The diff is clean.\n\nChecking the logs next." }),
+    row("run2", "activity", { items: [call("cat log.txt"), draft("b4")] }),
+  ]);
+  expect(callIds(shaped)).toEqual(["git log", "git diff", "cat log.txt"]);
+  expect(shaped.filter((entry) => entry.kind === THINKING)).toHaveLength(1);
+  expect(shaped.at(-1)).toMatchObject({ kind: THINKING, doingDraft: true });
+});
+
+test("work after the turn's summary (a task notification's) is one live line, not a stack", () => {
+  const head = [
+    row("u", "user"),
+    row("run", "activity", { items: [call("git log")] }),
+    row("a", "assistant", { text: "Started the build in the background." }),
+    row("s", "turnSummary", { status: "completed", toolCount: 1 }),
+  ];
+  const drafts = codex([...head, row("late", "activity", { items: [draft("b1"), draft("b2"), draft("b3")] })]);
+  expect(callIds(drafts)).not.toContain("b1");
+  expect(drafts.filter((entry) => entry.kind === THINKING)).toHaveLength(1);
+  expect(drafts.at(-1)).toMatchObject({ id: "thinking-live", kind: THINKING, below: true, doingDraft: true });
+  // Each next call replaces the last on the line; a finished one stays in the run over it.
+  const running = codex([
+    ...head,
+    row("late", "activity", { items: [call("cat build.log"), call("bun test", "in_progress")] }),
+  ]);
+  expect(callIds(running)).toEqual(["cat build.log"]);
+  expect(running.at(-1)).toMatchObject({ kind: THINKING, doing: "bun test", doingShell: true });
+});
+
+test("an ended turn draws no row for a call that never got its input", () => {
+  const ended = turnView(
+    [
+      row("u", "user"),
+      row("a", "assistant", { text: "Done." }),
+      row("s", "turnSummary", { status: "completed", toolCount: 0 }),
+      row("late", "activity", { items: [call("git status"), draft("b1"), draft("b2")] }),
+    ],
+    new Set(),
+    { liveRuns: true, lineBelow: true },
+  );
+  expect(callIds(ended)).toEqual(["git status"]);
+  const stopped = turnView([row("u", "user"), row("run", "activity", { items: [draft("b1")] })], new Set(), {
+    liveRuns: true,
+    lineBelow: true,
+  });
+  expect(stopped.some((entry) => entry.kind === "activity")).toBe(false);
+});
+
+test("a call that takes no input keeps its row in an ended turn", () => {
+  const noArgs = call("mcp", "pending", {
+    title: "cmux: list_workspaces",
+    kind: "other",
+    command: undefined,
+    inputSummary: "{}",
+  });
+  const ended = turnView([row("u", "user"), row("run", "activity", { items: [noArgs, draft("b1")] })], new Set(), {
+    liveRuns: true,
+    lineBelow: true,
+  });
+  expect(callIds(ended)).toEqual(["mcp"]);
 });

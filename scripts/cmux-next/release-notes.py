@@ -17,6 +17,14 @@ matter (lines before the first blank line):
 
     title: Updates you barely notice
     action: palette.checkForUpdates | Try it      (optional "Try it" button)
+    clip: https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/whats-new/ID/HASH.webp | SHA256
+                                                  (optional; written by media/whats-new-clips.py)
+
+A highlight's clip is its looping demo (scripts/cmux-next/media/whats-new-clips.py records it from
+release-notes/next/clips/ID.json, whose caption becomes its alt). It wins over --pr-media's picture,
+and a clip added to a highlight of the last CLIP_REANNOUNCE_DAYS rides along with the next build (its
+highlights and its What's New digest), so an update that already listed the item shows it again with
+its clip (the page keeps one copy). A malformed clip line is left out with a report.
 
 The rest is the body (Markdown). A build with no new highlight file uses its
 user-facing summary for the What's New digest. Each commit is
@@ -30,7 +38,7 @@ with internal commits (ci, test, refactor, docs, chore, red tests, lint and
 fleet work) left out. The update cards show its first lines, and `appcast`
 writes the same lines as plain text into the build's appcast <description>.
 
-  release-notes.py build --build B --short S --date D --head SHA [--since SHA] [--out DIR]
+  release-notes.py build --build B --short S --date D --head SHA [--since SHA] [--out DIR] [--pr-media]
   release-notes.py appcast --head SHA [--since SHA] --appcasts DIR --build B --feeds F...
   release-notes.py prs --head SHA [--since SHA] [--repo O/R] [--limit N]   the GitHub release's "PRs in this build"
   release-notes.py index --notes DIR/B.json [--previous index.json] [--keep 50] --out DIR/index.json
@@ -40,7 +48,7 @@ writes the same lines as plain text into the build's appcast <description>.
   release-notes.py verify --public-key BASE64 FILE  checks FILE.sig
   release-notes.py check --notes DIR/B.json         the release gate: fails a build with no or bad What's New entries
 """
-import argparse, base64, json, os, re, subprocess, sys, tempfile
+import argparse, base64, hashlib, json, os, re, subprocess, sys, tempfile, time
 from pathlib import Path
 
 HIGHLIGHTS = "release-notes/next/highlights"
@@ -54,7 +62,8 @@ INTERNAL_TYPES = {"ci", "test", "tests", "refactor", "docs", "doc", "chore", "st
 # Scopes of fix/feat commits that are about the pipeline or plumbing, not the app.
 INTERNAL_SCOPES = {"ci", "nightly", "fleet", "release", "build", "tests", "test", "gallery", "crash", "lint", "docs",
                    "feat-cmux-next", "browser-parity", "first-party-apps", "browser-automation", "automation", "daemon",
-                   "protocol", "sdk", "cmux-tui", "app-ffi", "backend", "nightly-next", "e2e", "harness", "deps"}
+                   "protocol", "sdk", "cmux-tui", "app-ffi", "backend", "nightly-next", "e2e", "harness", "deps",
+                   "cmux-git", "cmux-tui-core"}
 # Subject words that mark internal work even without a type.
 INTERNAL_WORDS = re.compile(
     r"\b(red|unit tests?|tests?|godfile|crash ratchet|baseline|index_subscript|int_conversion|lint|repin|re-pin|pin|"
@@ -64,11 +73,17 @@ INTERNAL_WORDS = re.compile(
     r"frame budget|osc \d+|terminal host|seed|record\w*|nightly|headless|ffi|rust|regenerate|decode|renderer|texture|"
     r"machine code|scene captures?|policy log|host log|force unwrap|store intent|property model|false positive|inventory|"
     r"boundary|on the wire|debug reports?|dom events?|keybind actions?|main actor|shims?|"
-    r"consumers?|metrics|review fixes)\b", re.I)
-# Product names whose casing is not code.
-BRANDS = re.compile(r"\b(?:macOS|iOS|iPadOS|iCloud|iPhone|iPad|GitHub|YouTube|SwiftUI|WebKit|JavaScript|TypeScript|ChatGPT|OpenAI)\b")
-# Code-looking subjects (dotted names, snake_case, versioned ids, backticks) are internal.
-CODE_LIKE = re.compile(r"`|\b[A-Za-z_]\w*\.[A-Za-z_]\w*\b|\w_\w|\w-v\d\b|\[cx-|\b[a-z]+[A-Z]\w*|\b[A-Z][a-z]+[A-Z]\w*|\b[A-Z]{2,}(?:-[A-Z]+)+\b|\{\w+\}")
+    r"consumers?|metrics|review fixes|base reds?|feat-cmux-next|compile fix(?:es)?|byte limit)\b", re.I | re.A)
+# Product names whose casing is not code ("MacOS": a title capitalized before LEADING_BRAND).
+BRANDS = re.compile(r"\b(?:[Mm]acOS|[Ii]OS|[Ii]PadOS|[Ii]Cloud|[Ii]Phone|[Ii]Pad|GitHub|YouTube|SwiftUI|WebKit|JavaScript|TypeScript|ChatGPT|OpenAI)\b")
+# Code-looking subjects (dotted names, snake_case, versioned ids, bead ids, backticks) are internal.
+# ASCII classes, as JavaScript reads them in readableChange.ts.
+CODE_LIKE = re.compile(r"`|\b[A-Za-z_]\w*\.[A-Za-z_]\w*\b|\w_\w|\w-v\d\b|\[cx-|\bcx-[a-z0-9]{3,}|\b[a-z]+[A-Z]\w*|\b[A-Z][a-z]+[A-Z]\w*|\b[A-Z]{2,}(?:-[A-Z]+)+\b|\{\w+\}", re.A)
+# Work no user sees by its shape (readableChange.ts TOOL_NAME, PR_NUMBER, SQUASH_REPAIR): a tool name
+# of three or more hyphenated parts, a pull request number, a repair after a squash.
+TOOL_NAME = re.compile(r"(?<!\S)(?!(?:[a-z0-9]+-)*(?:to|by|of|and|in|the|a|an|on|for|or|at|with|up|not|per|one|two|three|four|five|six|seven|eight|nine|ten|cmd|command|shift|ctrl|control|alt|option|opt|fn|[a-z]|\d+)(?![a-z0-9]))[a-z][a-z0-9]*(?:-[a-z0-9]+){2,}(?=[\s,.;:!?)]|$)", re.I | re.A)
+PR_NUMBER = re.compile(r"(?<!\S)#(?:N|\d{3,})(?![\w-])", re.A)
+SQUASH_REPAIR = re.compile(r"\bsquash(?:ed)? (?:merge|commit)\b|\bsquash$", re.I | re.A)
 CONVENTIONAL = re.compile(r"^(?P<type>[A-Za-z-]+)(?:\((?P<scope>[^)]*)\))?!?:\s*(?P<rest>.+)$")
 AREA_PREFIX = re.compile(r"^(cmux-next(?: \w+){0,2}|cmuxnext|cmux next|acpmux|apps?|browser|gallery|release notes?|cx-[\w.]+|feed [\d.]+|cmux-tui)\s*:\s*", re.I)
 # "area words: rest" after the conventional type: "cmux NEXT perf-split: review: …", "cmux-next strip: …".
@@ -76,11 +91,20 @@ LABEL = re.compile(r"^(?P<area>[A-Za-z][\w-]*(?: [A-Za-z][\w-]*){0,2})(?:\((?P<s
 # Work streams that measure or check the app (perf-split, perf-gate, motion-record, strip-scroll-check).
 INTERNAL_AREA_SHAPE = re.compile(r"^(?:perf-[\w-]+|[\w-]+-(?:check|record|gate|bench|probe)|motion-record|review|gate|base-red)$", re.I)
 PRODUCT_WORDS = {"cmux", "next", "cmux-next", "cmuxnext"}
-# "(#123)", "(hq#45)", "(cx-abc)", "(cx-2y2 items 6, 10)", "(red)", anywhere in the subject, and a
-# bead reference cut off at the end.
+# "(#123)", "(hq#45)", "(cx-abc)", "(cx-2y2 items 6, 10)", "(red)", "(review)", anywhere in the
+# subject, and a bead reference cut off at the end.
 # Also "(a283)", "(u3320)", "(a121, a211)": the Chief's agent and prompt ids, never for users.
-REFS = re.compile(r"\s*\((?:[^()]*\bcx-[\w.]+[^()]*|[\w-]*#\d+|red)\)|\s*\((?:[^()]*\b)?cx-[\w.]*$"
+REFS = re.compile(r"\s*\((?:[^()]*\bcx-[\w.]+[^()]*|[\w-]*#\d+|red|review)\)|\s*\((?:[^()]*\b)?cx-[\w.]*$"
                   r"|\s*\([au]\d+(?:\s*[,/]\s*[au]?\d+)*\)", re.I)
+
+# A brand that starts lowercase keeps its casing at the start of a title: "macOS 26 …".
+LEADING_BRAND = re.compile(r"^(?:macOS|iOS|iPadOS|iCloud|iPhone|iPad)\b")
+
+
+def capitalized(text):
+    """The text with a capital first letter, unless it starts with a lowercase brand."""
+    return text if LEADING_BRAND.match(text) else text[:1].upper() + text[1:]
+
 
 def summary_entry(subject):
     """(group, title) for a user-facing commit subject, else None."""
@@ -102,19 +126,21 @@ def summary_entry(subject):
     while (label := LABEL.match(text)):
         words = [w for w in label["area"].lower().split() if w not in PRODUCT_WORDS]
         scopes = [s.strip() for s in (label["scope"] or "").lower().split(",") if s.strip()]
-        if any(INTERNAL_AREA_SHAPE.match(w) for w in words + scopes):
+        # "acpmux test: …", "sidebar ci: …": a label that names test or CI work is internal too.
+        if any(INTERNAL_AREA_SHAPE.match(w) or w in INTERNAL_TYPES for w in words + scopes):
             return None
         text = label["rest"]
     text = AREA_PREFIX.sub("", text)
     text = REFS.sub("", text).strip(" .")
-    if not text or INTERNAL_WORDS.search(text) or CODE_LIKE.search(BRANDS.sub("", text)):
+    if (not text or INTERNAL_WORDS.search(text) or CODE_LIKE.search(BRANDS.sub("", text))
+            or TOOL_NAME.search(text) or PR_NUMBER.search(text) or SQUASH_REPAIR.search(text)):
         return None
     if group == "changed" and re.match(r"^(add|adds|new|introduce|support|show)\b", text, re.I):
         group = "new"
     elif group == "changed" and re.match(r"^(fix|fixes|repair|stop|keep)\b", text, re.I):
         group = "fixed"
     # Whole: the page wraps a long line, and short_title gives the digest a title that fits.
-    return group, text[:1].upper() + text[1:]
+    return group, capitalized(text)
 
 
 CLAUSE = re.compile(r",|;| —| - | \(| so | because | while ")
@@ -142,7 +168,7 @@ def title_tail(full, title):
     tail = full[len(title):].lstrip(" ,;:—-").strip()
     if tail.startswith("(") and tail.endswith(")"):
         tail = tail[1:-1]
-    return tail[:1].upper() + tail[1:]
+    return capitalized(tail)
 
 
 def summarize_changes(subjects, limit=SUMMARY_LIMIT):
@@ -196,10 +222,131 @@ def parse_highlight(path, text):
     if meta.get("action"):
         action_id, _, title = meta["action"].partition("|")
         item["action"] = {"id": action_id.strip(), "title": (title.strip() or "Try it")}
+    clip = CLIP.fullmatch(meta.get("clip", ""))
+    if clip:
+        item["media"] = [{"url": clip["url"], "sha256": clip["sha256"], "kind": "image", "alt": meta["title"]}]
+    elif "clip" in meta:
+        # Left out, never a failed build: CI's whats-new-clips.py check holds the line to its shape.
+        print(f"{path}: 'clip:' is not '{CLIP_PREFIX}ID/NAME.webp | SHA256'; left out", file=sys.stderr)
     return item
 
 
+# A clip (whats-new-clips.py publish): an animated WebP on pr-media's whats-new/ folder and its hash, which the
+# app checks before it shows it, as for --pr-media pictures.
+CLIP_PREFIX = "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/whats-new/"
+CLIP = re.compile(r"(?P<url>" + re.escape(CLIP_PREFIX) + r"[a-z0-9][a-z0-9-]*/[0-9a-f]{12}\.webp)\s*\|\s*(?P<sha256>[0-9a-f]{64})")
+CLIPS = "release-notes/next/clips"
+CLIP_REANNOUNCE_DAYS = 7
+
+
+def clip_caption(highlight, head):
+    """The clip's caption (its spec's), else the highlight's title, as the clip's alt."""
+    try:
+        spec = json.loads(git("show", f"{head}:{CLIPS}/{highlight['id']}.json"))
+    except (subprocess.CalledProcessError, ValueError):
+        return
+    caption = spec.get("caption") if isinstance(spec, dict) else None
+    if isinstance(caption, str) and caption.strip():
+        highlight["media"][0]["alt"] = caption.strip()
+
+
+def reannounced(since, head, added):
+    """Highlights added before the span, of the last CLIP_REANNOUNCE_DAYS, whose clip line the span set."""
+    if not since:
+        return []
+    head_time = int(git("show", "-s", "--format=%ct", head).strip())
+    out = []
+    for path in git("diff", "--name-only", "--diff-filter=M", since, head, "--", HIGHLIGHTS).split():
+        if not path.endswith(".md") or path in added:
+            continue
+        before = parse_highlight(path, git("show", f"{since}:{path}"))
+        after = parse_highlight(path, git("show", f"{head}:{path}"))
+        clip = lambda h: [(m["url"], m["sha256"]) for m in h["media"]]
+        if not after["media"] or clip(before) == clip(after):  # a new title alone re-announces nothing
+            continue
+        born = git("log", "--diff-filter=A", "--format=%ct", "-1", head, "--", path).strip()
+        if born and head_time - int(born) <= CLIP_REANNOUNCE_DAYS * 86400:
+            out.append(path)
+    return out
+
+
 PR_SUFFIX = re.compile(r"^(?P<title>.*?)\s*\(#(?P<pr>\d+)\)\s*$")
+
+# --pr-media: a highlight shows the first picture of the pull request that added it (Leo 2026-10-21,
+# What's New design pass), when that picture is one this repository published to pr-media
+# (scripts/pr-media.py). The notes carry its URL and hash; the app fetches it and shows it only when
+# the bytes match (ReleaseMediaStore.highlightData). Anything else leaves the highlight without one.
+PR_MEDIA_PREFIX = "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/"
+PR_MEDIA_IMAGE = re.compile(r"""(?:!\[[^\]]*\]\(\s*|<img\b[^>]*?\bsrc=["'])(?P<url>https://[^\s)"'>]+)""", re.I)
+# The app's limit (ReleaseMediaStore.maxImageBytes) and the picture types it decodes.
+PR_MEDIA_MAX_BYTES = 4 << 20
+PR_MEDIA_SIGNATURES = (b"\x89PNG\r\n\x1a\n", b"\xff\xd8\xff", b"GIF87a", b"GIF89a")
+# Each call waits at most PR_MEDIA_TIMEOUT seconds, and all of them together PR_MEDIA_BUDGET, so a slow
+# GitHub leaves later highlights without pictures instead of running the signing job out of time.
+PR_MEDIA_TIMEOUT = 10
+PR_MEDIA_BUDGET = 120
+
+
+def pr_media_picture(data):
+    """True for bytes the app would show: a PNG, JPEG, GIF or WebP within its size limit."""
+    webp = data[:4] == b"RIFF" and data[8:12] == b"WEBP"
+    return 12 <= len(data) <= PR_MEDIA_MAX_BYTES and (webp or data.startswith(PR_MEDIA_SIGNATURES))
+
+
+def pr_body(pr, fixture):
+    if fixture is not None:
+        return fixture["bodies"].get(str(pr), "")
+    result = subprocess.run(["gh", "api", f"repos/manaflow-ai/cmux/pulls/{pr}", "--jq", ".body // \"\""],
+                            capture_output=True, text=True, timeout=PR_MEDIA_TIMEOUT)
+    return result.stdout if result.returncode == 0 else ""
+
+
+def pr_download(url, fixture):
+    if fixture is not None:
+        path = fixture["files"].get(url)
+        return Path(path).read_bytes() if path else None
+    import urllib.request
+
+    class NoRedirect(urllib.request.HTTPRedirectHandler):
+        def redirect_request(self, *args):
+            return None
+
+    request = urllib.request.Request(url, headers={"User-Agent": "cmux-release-notes/1"})
+    with urllib.request.build_opener(NoRedirect).open(request, timeout=PR_MEDIA_TIMEOUT) as response:
+        return response.read(PR_MEDIA_MAX_BYTES + 1)
+
+
+def add_pr_media(highlight, path, head, deadline):
+    """Gives `highlight` the first pr-media picture of the pull request whose commit added `path`.
+    Any failure (a timeout, a missing gh, a URL urllib rejects, a cut-off download) only leaves the
+    highlight without a picture: a PR body anyone can edit must never stop the notes."""
+    if time.monotonic() > deadline:
+        print(f"pr-media: {path}: out of time; left out", file=sys.stderr)
+        return
+    try:
+        find_pr_media(highlight, path, head)
+    except Exception as error:
+        print(f"pr-media: {path}: {type(error).__name__}: {error}; left out", file=sys.stderr)
+
+
+def find_pr_media(highlight, path, head):
+    fixture_path = os.environ.get("CMUX_RELEASE_NOTES_PR_FIXTURE")
+    fixture = json.loads(Path(fixture_path).read_text()) if fixture_path else None
+    subject = git("log", "--diff-filter=A", "--format=%s", "-1", head, "--", path).strip()
+    match = PR_SUFFIX.match(subject)
+    if not match:
+        return
+    for found in PR_MEDIA_IMAGE.finditer(pr_body(int(match["pr"]), fixture)):
+        url = found["url"]
+        if not url.startswith(PR_MEDIA_PREFIX):
+            continue
+        data = pr_download(url, fixture)
+        if data is None or not pr_media_picture(data):
+            print(f"pr-media: {path}: #{match['pr']} {url} is not a picture the app shows; left out", file=sys.stderr)
+            return
+        highlight["media"] = [{"url": url, "sha256": hashlib.sha256(data).hexdigest(), "kind": "image",
+                               "alt": highlight["title"]}]
+        return
 
 
 def change_item(subject, author):
@@ -212,13 +359,13 @@ def change_item(subject, author):
     return {k: v for k, v in item.items() if v is not None}
 
 
-def whats_new_digest(args):
+def whats_new_digest(args, also=()):
     """The What's New nightly digest of the same highlights (scripts/whats-new/digest.py),
     or None when it is empty or does not validate: the notes still publish."""
     sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "whats-new"))
     try:
         import digest, validate
-        document = digest.build(args.short, args.date, args.head, args.since)
+        document = digest.build(args.short, args.date, args.head, args.since, also=also)
     except (ImportError, ValueError, subprocess.CalledProcessError) as error:
         print(f"whats-new digest skipped: {error}", file=sys.stderr)
         return None
@@ -255,11 +402,13 @@ def summary_whats_new_digest(args, lines):
     document = {"schemaVersion": 1, "version": args.short, "channel": "nightly", "date": args.date,
                 "headline": {"en": "Fixes and improvements"}, "entries": []}
     categories = {"new": "new", "fixed": "fixed", "changed": "improved"}
+    titles = set()
     for index, line in enumerate(lines):
         # A line with no clause short enough stays out of the digest; the page shows it whole
         # from the summary lines.
         title = short_title(line.get("title", ""), validate.LIMITS["title"])
-        if not title or line.get("group") not in categories:
+        # Two long lines can share a first clause; the digest shows each title once.
+        if not title or line.get("group") not in categories or title.lower() in titles:
             continue
         # The summary says what the title leaves out, or repeats a title that is the whole line.
         full = " ".join(line["title"].split()).rstrip(". ")
@@ -271,6 +420,7 @@ def summary_whats_new_digest(args, lines):
             print(f"whats-new summary: dropped {entry['id']}:\n" + "\n".join(problems), file=sys.stderr)
             continue
         document["entries"].append(entry)
+        titles.add(title.lower())
     if not document["entries"]:
         return None
     document["headline"] = {"en": document["entries"][0]["title"]["en"]}
@@ -336,13 +486,21 @@ def build(args):
     items = [change_item(subject, author) for subject, author in commits]
     added = git("log", "--diff-filter=A", "--name-only", "--format=", span, "--", HIGHLIGHTS).split()
     highlights = []
-    for path in sorted(set(p for p in added if p.endswith(".md"))):
-        highlights.append(parse_highlight(path, git("show", f"{args.head}:{path}")))
+    deadline = time.monotonic() + PR_MEDIA_BUDGET
+    added = set(p for p in added if p.endswith(".md"))
+    again = reannounced(args.since, args.head, added)
+    for path in sorted(added | set(again)):
+        highlight = parse_highlight(path, git("show", f"{args.head}:{path}"))
+        if highlight["media"]:
+            clip_caption(highlight, args.head)
+        elif args.pr_media:
+            add_pr_media(highlight, path, args.head, deadline)
+        highlights.append(highlight)
     # "head": the commit these notes end at; the next build's span starts there (`since`), so a
     # build whose notes never published loses no change to the build after it.
     notes = {"version": 1, "build": args.build, "shortVersion": args.short, "date": args.date, "head": args.head,
              "highlights": highlights, "changes": changes, "items": items, "summary": summarize_changes(changes)}
-    digest = whats_new_digest(args)
+    digest = whats_new_digest(args, again)
     if digest is None:
         digest = summary_whats_new_digest(args, notes["summary"])
     if digest is not None:
@@ -507,6 +665,8 @@ def main():
     b.add_argument("--head", required=True)
     b.add_argument("--since", default="")
     b.add_argument("--out", default="notes")
+    b.add_argument("--pr-media", action="store_true",
+                   help="give each highlight the first pr-media picture of the pull request that added it (needs gh)")
     a = sub.add_parser("appcast")
     a.add_argument("--head", required=True)
     a.add_argument("--since", default="")

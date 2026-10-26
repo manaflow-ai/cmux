@@ -14,10 +14,13 @@ extension UpdatesSettings {
     public nonisolated static let checkIntervalRange: ClosedRange<Double> = 900...604_800
     /// `updates.downloadAutomatically`.
     public nonisolated static let downloadAutomaticallyPath = ["updates", "downloadAutomatically"]
-    public nonisolated static let downloadAutomaticallyDefault = true
+    public nonisolated static let downloadAutomaticallyDefault = false
     /// `updates.meteredNetwork`: What automatic downloads do on a metered link.
     public nonisolated static let meteredNetworkPath = ["updates", "meteredNetwork"]
     public nonisolated static let meteredNetworkDefault: UpdatesMeteredSetting = .deferLowData
+    /// `updates.web`: Web UI updates between app updates (plans/cmux-next/web-ota.md): NIGHTLY builds follow the signed channel; Release and RC builds ship their own web UI.
+    public nonisolated static let webPath = ["updates", "web"]
+    public nonisolated static let webDefault: UpdatesWebSetting = .everyMerge
     /// `updates.installOnQuit`.
     public nonisolated static let installOnQuitPath = ["updates", "installOnQuit"]
     public nonisolated static let installOnQuitDefault = true
@@ -33,7 +36,7 @@ extension UpdatesSettings {
     public nonisolated static let showWhatsNewDefault = true
     /// `updates.idleInstallMaxWaitSeconds`: Nightly idle install (#20295): the longest it waits for agent turns, foreground commands and input before installing anyway; the relaunch keeps every terminal and agent.
     public nonisolated static let idleInstallMaxWaitPath = ["updates", "idleInstallMaxWaitSeconds"]
-    public nonisolated static let idleInstallMaxWaitDefault: Double = 900
+    public nonisolated static let idleInstallMaxWaitDefault: Double = 600
     public nonisolated static let idleInstallMaxWaitRange: ClosedRange<Double> = 60...7200
     /// `updates.idleInstallQuietSeconds`: Nightly idle install (#20295): how long keyboard and pointer input must be quiet before it installs.
     public nonisolated static let idleInstallQuietPath = ["updates", "idleInstallQuietSeconds"]
@@ -93,8 +96,8 @@ nonisolated enum UpdateSettingsSchema {
                 UpdatesSettings.downloadAutomaticallyPath,
                 section: .general,
                 group: group,
-                title: SettingsText.keyed("settings.updates.downloadAutomatically", "Download Updates Automatically"),
-                help: SettingsText.keyed("settings.updates.downloadAutomatically.help", "Off: a found update waits, and one click downloads and installs it."),
+                title: SettingsText.keyed("settings.updates.downloadAutomatically", "Download and Install Updates Automatically"),
+                help: SettingsText.keyed("settings.updates.downloadAutomatically.help", "Off: cmux still checks for updates and shows Update Available; one click downloads and installs it. On by default in NIGHTLY and DEV builds."),
                 kind: .toggle,
                 default: .bool(UpdatesSettings.downloadAutomaticallyDefault),
                 keywords: ["update", "download", "background", "metered"]
@@ -112,6 +115,20 @@ nonisolated enum UpdateSettingsSchema {
                 ]),
                 default: .string(UpdatesSettings.meteredNetworkDefault.rawValue),
                 keywords: ["update", "metered", "cellular", "low data", "hotspot"]
+            ),
+            SettingDescriptor(
+                UpdatesSettings.webPath,
+                section: .general,
+                group: group,
+                title: SettingsText.keyed("settings.updates.web", "Web UI Updates"),
+                help: SettingsText.keyed("settings.updates.web.help", "Every Merge: changes to the web UI arrive minutes after they land, without waiting for the next app update. Off: the web UI this app shipped with."),
+                kind: .choice([
+                    SettingChoice(UpdatesWebSetting.everyMerge.rawValue, SettingsText.keyed("settings.choice.updatesWebEveryMerge", "Every Merge")),
+                    SettingChoice(UpdatesWebSetting.nightly.rawValue, SettingsText.keyed("settings.choice.updatesWebNightly", "With Nightly")),
+                    SettingChoice(UpdatesWebSetting.off.rawValue, SettingsText.keyed("settings.choice.updatesWebOff", "Off")),
+                ]),
+                default: .string(UpdatesSettings.webDefault.rawValue),
+                keywords: ["update", "web", "ota", "hot reload", "bundle", "nightly", "merge"]
             ),
             SettingDescriptor(
                 UpdatesSettings.installOnQuitPath,

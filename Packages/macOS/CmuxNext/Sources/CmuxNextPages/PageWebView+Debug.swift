@@ -1,4 +1,4 @@
-#if DEBUG
+#if DEBUG || CMUX_BENCH_HOOKS
 public import CmuxNextSettings
 import CmuxNextDesign
 public import Foundation
@@ -130,7 +130,7 @@ extension PageWebView {
     /// DevTools `mouseMoved` (real `:hover`, `mouseenter`); WebKit gets page-script `mouseover`,
     /// `mouseenter` and `mousemove` (React's `onMouseEnter` listens to `mouseover`, so it runs, but
     /// `:hover` styles do not apply). Scrolling the element into view also scrolls its scrollers.
-    /// `{hovered, native, x, y}` in CSS pixels; `{hovered: false}` when nothing matches or another
+    /// `{hovered, native, x, y, width, height}` in CSS pixels; `{hovered: false}` when nothing matches or another
     /// element (an overlay, a clipping scroller) is at the element's center.
     public func debugHover(_ selector: String) async -> JSONValue {
         let script = """
@@ -150,8 +150,7 @@ extension PageWebView {
         let native = page != nil
         guard let text = await callPageFunction(script, arguments: ["selector": selector, "native": native]) as? String,
               case .object(let point)? = try? JSONValue.parse(Data(text.utf8)),
-              case .number(let x)? = point["x"], case .number(let y)? = point["y"],
-              case .number(let width)? = point["w"], case .number(let height)? = point["h"] else { return ["hovered": false] }
+              case .number(let x)? = point["x"], case .number(let y)? = point["y"] else { return ["hovered": false] }
         guard point["hit"] == true else { return ["hovered": false, "error": "another element is at its center"] }
         if let page {
             // DevTools input is in the viewport's CSS pixels, as `getBoundingClientRect` gives them:
@@ -167,7 +166,13 @@ extension PageWebView {
                 return ["hovered": false, "error": "the element is not hovered after the move"]
             }
         }
-        return ["hovered": true, "native": .bool(native), "x": .number(x), "y": .number(y), "width": .number(width), "height": .number(height)]
+        var hovered: [String: JSONValue] = ["hovered": true, "native": .bool(native), "x": .number(x), "y": .number(y)]
+        // The element's size, for a caller checking the point against it; it never decides the hover.
+        if case .number(let width)? = point["w"], case .number(let height)? = point["h"] {
+            hovered["width"] = .number(width)
+            hovered["height"] = .number(height)
+        }
+        return .object(hovered)
     }
 
     /// The zoom the page shows at in either engine (UI scale times the page's own zoom): page

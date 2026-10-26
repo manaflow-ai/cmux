@@ -700,12 +700,15 @@ jobs:
           CMUX_CI_XCODE_APP_PR: ${{ (github.event_name == 'pull_request' && (github.event.pull_request.head.repo.full_name == github.repository || contains(fromJSON(env.CI_OWNED_HEAD_REPOS), github.event.pull_request.head.repo.full_name)) || github.event_name == 'workflow_dispatch') && vars.CMUX_CI_XCODE_APP_PR || '' }}
           # Handed to the macOS 15 pool's jobs only when the run lands there.
           CMUX_CI_XCODE_APP_MACOS_15: ${{ vars.CMUX_CI_XCODE_APP_MACOS_15 }}
-          # The run's machine count. A chosen label is never split.
-          RUN_MACOS: ${{ steps.detect.outputs.macos }}
-          RUN_FULL_SUITE: ${{ steps.suite.outputs.full_suite }}
+          # The run's machine count. A chosen label is never split. Read the
+          # routes the job outputs carry: next-route turns the macOS lanes off
+          # for a feat-cmux-next pull request, and with no macOS job planned
+          # the picker makes no API call.
+          RUN_MACOS: ${{ steps.next-route.outputs.macos || steps.detect.outputs.macos }}
+          RUN_FULL_SUITE: ${{ steps.next-route.outputs.full_suite || steps.suite.outputs.full_suite }}
           RUN_REMOTE_DAEMON: ${{ steps.standalone.outputs.remote_daemon }}
-          RUN_SWIFT_PACKAGES: ${{ steps.detect.outputs.swift_packages }}
-          RUN_RELEASE_BUILD: ${{ steps.detect.outputs.release_build }}
+          RUN_SWIFT_PACKAGES: ${{ steps.next-route.outputs.swift_packages || steps.detect.outputs.swift_packages }}
+          RUN_RELEASE_BUILD: ${{ steps.next-route.outputs.release_build || steps.detect.outputs.release_build }}
           MERGED_ONTO: ${{ steps.source-identity.outputs.parent1 || github.event.pull_request.base.sha }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
           OWNED_WARM: ${{ vars.CI_OWNED_WARM }}
@@ -937,12 +940,30 @@ jobs:
           retention-days: 7
           overwrite: true
 
+      # compile_admitted only matters while the macOS route is on. next-route
+      # turns it off for every feat-cmux-next pull request, so the lookup's
+      # runs listing and per-run jobs reads would answer nothing there.
+      # Reads go through the manaflow-glaeda-route App's own budget, not the GITHUB_TOKEN
+      # budget every workflow shares (it ran out on 2026-10-25 and the nightly publish
+      # failed). No key (a fork) or a failed mint leaves it empty: GITHUB_TOKEN reads.
+      - name: Mint the glaeda read token
+        id: admitted-read-token
+        if: ${{ (steps.inputs.outputs.fingerprint != '' && steps.suite.outputs.full_suite == 'false' && steps.unchanged_inputs.outputs.compile_admitted != 'true' && steps.next-route.outputs.macos != 'false') && vars.GLAEDA_ROUTE_APP_ID != '' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          permission-actions: read
+          permission-pull-requests: read
+
       - name: Look for an earlier run that compiled these inputs
         id: admitted
         continue-on-error: true
-        if: ${{ steps.inputs.outputs.fingerprint != '' && steps.suite.outputs.full_suite == 'false' && steps.unchanged_inputs.outputs.compile_admitted != 'true' }}
+        if: ${{ steps.inputs.outputs.fingerprint != '' && steps.suite.outputs.full_suite == 'false' && steps.unchanged_inputs.outputs.compile_admitted != 'true' && steps.next-route.outputs.macos != 'false' }}
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ steps.admitted-read-token.outputs.token || github.token }}
           BRANCH: ${{ github.head_ref }}
           FINGERPRINT: ${{ steps.inputs.outputs.fingerprint }}
         run: |
@@ -1517,6 +1538,8 @@ jobs:
       contents: read
       pull-requests: write
     uses: ./.github/workflows/pr-red-checks-comment.yml
+    with:
+      own_checks_green: ${{ !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') }}
 
   ci-timing:
     # The run's timing readout in the job summary: the chain of jobs that set

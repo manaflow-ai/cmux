@@ -108,14 +108,14 @@
           "key": "updates.downloadAutomatically",
           "title": {
             "key": "settings.updates.downloadAutomatically",
-            "text": "Download Updates Automatically"
+            "text": "Download and Install Updates Automatically"
           },
           "help": {
             "key": "settings.updates.downloadAutomatically.help",
-            "text": "Off: a found update waits, and one click downloads and installs it."
+            "text": "Off: cmux still checks for updates and shows Update Available; one click downloads and installs it. On by default in NIGHTLY and DEV builds."
           },
           "kind": "toggle",
-          "default": true,
+          "default": false,
           "keywords": [
             "update",
             "download",
@@ -165,6 +165,52 @@
             "cellular",
             "low data",
             "hotspot"
+          ]
+        },
+        {
+          "key": "updates.web",
+          "note": "Web UI updates between app updates (plans/cmux-next/web-ota.md): NIGHTLY builds follow the signed channel; Release and RC builds ship their own web UI.",
+          "title": {
+            "key": "settings.updates.web",
+            "text": "Web UI Updates"
+          },
+          "help": {
+            "key": "settings.updates.web.help",
+            "text": "Every Merge: changes to the web UI arrive minutes after they land, without waiting for the next app update. Off: the web UI this app shipped with."
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "every-merge",
+              "title": {
+                "key": "settings.choice.updatesWebEveryMerge",
+                "text": "Every Merge"
+              }
+            },
+            {
+              "value": "nightly",
+              "title": {
+                "key": "settings.choice.updatesWebNightly",
+                "text": "With Nightly"
+              }
+            },
+            {
+              "value": "off",
+              "title": {
+                "key": "settings.choice.updatesWebOff",
+                "text": "Off"
+              }
+            }
+          ],
+          "default": "every-merge",
+          "keywords": [
+            "update",
+            "web",
+            "ota",
+            "hot reload",
+            "bundle",
+            "nightly",
+            "merge"
           ]
         },
         {
@@ -286,7 +332,7 @@
             "step": 60,
             "unit": "seconds"
           },
-          "default": 900,
+          "default": 600,
           "keywords": [
             "update",
             "install",

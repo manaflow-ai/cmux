@@ -27,16 +27,22 @@ mod auto_resume;
 mod cursor_requests;
 #[path = "hub_integration/drafts.rs"]
 mod drafts;
+#[path = "hub_integration/full_access_guards.rs"]
+mod full_access_guards;
 #[path = "hub_integration/lanes.rs"]
 mod lanes;
 #[path = "hub_integration/permission_groups.rs"]
 mod permission_groups;
+#[path = "hub_integration/presence.rs"]
+mod presence;
 #[path = "hub_integration/prompt_context.rs"]
 mod prompt_context;
 #[path = "hub_integration/prompt_ledger.rs"]
 mod prompt_ledger;
 #[path = "hub_integration/prompt_provenance.rs"]
 mod prompt_provenance;
+#[path = "hub_integration/prompt_supersede.rs"]
+mod prompt_supersede;
 #[path = "hub_integration/prompt_withdraw.rs"]
 mod prompt_withdraw;
 #[path = "hub_integration/protocol_serve.rs"]
@@ -47,6 +53,8 @@ mod purged_stays_purged;
 mod questions;
 #[path = "hub_integration/restart.rs"]
 mod restart;
+#[path = "hub_integration/run_parent.rs"]
+mod run_parent;
 #[path = "hub_integration/secrets.rs"]
 mod secrets;
 #[path = "hub_integration/seen.rs"]
@@ -55,6 +63,8 @@ mod seen;
 mod session_offers;
 #[path = "hub_integration/silent_turn.rs"]
 mod silent_turn;
+#[path = "hub_integration/stalled_turn.rs"]
+mod stalled_turn;
 #[path = "hub_integration/status_indicator.rs"]
 mod status_indicator;
 #[path = "hub_integration/steer_now.rs"]
@@ -63,10 +73,14 @@ mod steer_now;
 mod steer_only;
 #[path = "hub_integration/stop.rs"]
 mod stop;
+#[path = "hub_integration/subagent_retry.rs"]
+mod subagent_retry;
 #[path = "hub_integration/surfaces.rs"]
 mod surfaces;
 #[path = "hub_integration/tags_rules.rs"]
 mod tags_rules;
+#[path = "hub_integration/tasks.rs"]
+mod tasks;
 #[path = "hub_integration/xai_requests.rs"]
 mod xai_requests;
 
@@ -123,6 +137,15 @@ async fn setup_env(
     policy: PermissionPolicy,
     env: BTreeMap<String, String>,
 ) -> (Arc<Hub>, TestClient) {
+    setup_defaults_env(policy, env, BTreeMap::new()).await
+}
+
+/// `setup_env` with the fake family's `defaults.env` too.
+async fn setup_defaults_env(
+    policy: PermissionPolicy,
+    env: BTreeMap<String, String>,
+    defaults_env: BTreeMap<String, String>,
+) -> (Arc<Hub>, TestClient) {
     let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
     let mut agents = BTreeMap::new();
     agents.insert(
@@ -144,6 +167,10 @@ async fn setup_env(
         Config { harnesses: agents, default_harness: Some("fake".into()), ..Default::default() };
     cfg.store.mode = StoreMode::Memory;
     cfg.permission_policy = policy;
+    if !defaults_env.is_empty() {
+        let defaults = acpmux::config::SessionDefaults { env: defaults_env, ..Default::default() };
+        cfg.defaults.insert("fake".into(), defaults);
+    }
     let store = acpmux::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();
     let hub = Hub::new(cfg, store);
     // These clients stand for the person at the app (`hub/person.rs`).
@@ -389,9 +416,11 @@ async fn an_agents_bare_fork_error_names_the_harness() {
 }
 
 /// An agent that fails a fork while the chat's turn runs (OMP answers a bare "Internal
-/// error"): the reason says the chat is working and to fork when the turn ends.
+/// error"): the fork is never refused. It is made now from acpmux's copy of the chat, on a
+/// new agent session that gets the chat's transcript with its first prompt, and it says so
+/// in one line. The chat's turn goes on.
 #[tokio::test]
-async fn an_agents_fork_error_while_the_chat_works_says_to_fork_when_the_turn_ends() {
+async fn an_agent_that_fails_a_fork_while_the_chat_works_forks_from_the_chats_transcript() {
     let env = BTreeMap::from([("FAKE_FORK_ERROR".to_owned(), "1".to_owned())]);
     let (hub, mut c) = setup_env(PermissionPolicy::ApproveAll, env).await;
     let s = c
@@ -404,7 +433,7 @@ async fn an_agents_fork_error_while_the_chat_works_says_to_fork_when_the_turn_en
     let id = s["sessionId"].as_str().unwrap().to_owned();
     c.request(
         method::SESSION_PROMPT,
-        json!({"sessionId": id, "prompt": [{"type": "text", "text": "first"}]}),
+        json!({"sessionId": id, "prompt": [{"type": "text", "text": "first ZEBRA-7"}]}),
     )
     .await
     .unwrap();
@@ -414,11 +443,59 @@ async fn an_agents_fork_error_while_the_chat_works_says_to_fork_when_the_turn_en
     )
     .await;
     c.wait_for(method::SESSION_UPDATE, |p| p["update"]["content"]["text"] == "running").await;
-    let err = c
+    let f = c
         .request(method::SESSION_FORK, json!({"sessionId": id, "cwd": cwd()}))
         .await
-        .expect_err("the agent fails the fork");
-    assert!(err.contains("fake could not fork this chat") && err.contains("turn ends"), "{err}");
+        .unwrap_or_else(|e| panic!("a working chat forks, whatever its agent says: {e}"));
+    let fid = f["sessionId"].as_str().unwrap().to_owned();
+    let forked: Vec<Value> = hub
+        .events(&fid, 0, 1000)
+        .unwrap()
+        .into_iter()
+        .filter(|e| e.kind == "forked")
+        .map(|e| e.msg)
+        .collect();
+    assert!(
+        forked.iter().any(|m| m["note"].as_str().is_some_and(|n| n.contains("transcript"))),
+        "the fork says how it was made: {forked:?}"
+    );
+    let results: Vec<Value> = hub
+        .events(&fid, 0, 1000)
+        .unwrap()
+        .into_iter()
+        .filter(|e| e.kind == "turn_result")
+        .map(|e| e.msg)
+        .collect();
+    assert_eq!(
+        results.last().map(|r| r["status"].clone()),
+        Some(json!("cancelled")),
+        "{results:?}"
+    );
+    assert_eq!(
+        hub.resolve(&id).unwrap().meta().status,
+        acpmux::store::SessionStatus::Running,
+        "the chat's turn goes on"
+    );
+    let r = c
+        .request(
+            method::SESSION_PROMPT,
+            json!({"sessionId": fid, "prompt": [{"type": "text", "text": "what word?"}]}),
+        )
+        .await
+        .unwrap();
+    assert_eq!(r["stopReason"], "end_turn", "{r}");
+    let reply: String = hub
+        .events(&fid, 0, 1000)
+        .unwrap()
+        .iter()
+        .filter(|e| e.kind == "agent_message_chunk")
+        .filter_map(|e| e.msg.pointer("/params/update/content/text").and_then(Value::as_str))
+        .collect();
+    assert!(
+        reply.contains("ZEBRA-7") && reply.contains("what word?"),
+        "the fork's agent got the chat's transcript with its first prompt: {reply}"
+    );
+    c.send(method::SESSION_CANCEL, json!({"sessionId": id})).await;
     hub.shutdown_all().await;
 }
 
@@ -1380,6 +1457,8 @@ async fn watchers_get_permission_pending_and_auto_approvals() {
     assert!(c.response(rid).await.0.is_ok());
 }
 
+#[path = "hub_integration/event_log_fds.rs"]
+mod event_log_fds;
 #[path = "hub_integration/handoff.rs"]
 mod handoff;
 #[path = "hub_integration/transcript_events.rs"]

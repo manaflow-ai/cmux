@@ -1,19 +1,24 @@
 // The pieces every changelog design shares (cx-urd.61): release meta, the hero, the grouped
 // change rows and the folded commit list by area. Colors are theme tokens, sizes the type scale
 // (styles.css); nothing here knows which design it sits in.
-import { useState, useSyncExternalStore } from "react";
+import { useRef, useState, useSyncExternalStore } from "react";
+import { Dialog } from "../../ui/Dialog";
+import { DialogButton } from "../../ui/DialogButton";
 import type { Strings } from "../shared/i18n";
 import { getColorScheme, subscribeColorScheme } from "./colorScheme";
 import { byArea } from "./areas";
 import { formatReleaseDate, type AreaChange, type MediaRef, type ReleaseItem, type ReleaseView } from "./model";
-import type { ChangeItem, IndexEntry, WhatsNewCategory } from "./types";
+import type { ChangeItem, IndexEntry, NewsLayout, WhatsNewCategory } from "./types";
 import { cardVersion } from "./UpdateSurfaces";
+import { ChangePullRequest } from "./ChangePullRequest";
 
 export interface PartsContext {
   strings: Strings;
   onTry: (action: string) => void;
   /** Each change is a wide row with its whole description and its picture beside it (the Ledger). */
   rowMedia?: boolean;
+  /** How the update's news shows its clips (SpanNews.tsx); grid when unset. */
+  news?: NewsLayout;
 }
 
 export function categoryLabel(strings: Strings, category: WhatsNewCategory): string {
@@ -31,18 +36,74 @@ export function ReleaseMeta({ date, version, strings }: { date: string; version:
   );
 }
 
-/** The release's picture in the theme's scheme; the box keeps its ratio before the file arrives. */
-export function Media({ media, className }: { media: MediaRef; className?: string }) {
+/** The release's picture in the theme's scheme; the box keeps its ratio before the file arrives. It
+    loads as it nears the viewport. Given `strings`, a click (or Return) opens it enlarged. */
+export function Media({ media, className, strings }: { media: MediaRef; className?: string; strings?: Strings }) {
   const scheme = useSyncExternalStore(subscribeColorScheme, getColorScheme, () => "light" as const);
   const src = scheme === "dark" ? media.dark : media.light;
+  const [open, setOpen] = useState(false);
+  const picture = media.video ? (
+    <video key={src} src={src} aria-label={media.alt} muted loop playsInline autoPlay preload="none" />
+  ) : (
+    <img key={src} src={src} alt={media.alt} loading="lazy" decoding="async" />
+  );
   return (
     <figure className={`cl-media${className ? ` ${className}` : ""}`}>
-      {media.video ? (
-        <video key={src} src={src} aria-label={media.alt} muted loop playsInline autoPlay preload="none" />
+      {strings ? (
+        <button
+          type="button"
+          className="cl-media-open"
+          aria-label={
+            media.alt ? `${strings.t("changelog.page.enlarge")}: ${media.alt}` : strings.t("changelog.page.enlarge")
+          }
+          onClick={() => setOpen(true)}
+        >
+          {picture}
+        </button>
       ) : (
-        <img key={src} src={src} alt={media.alt} loading="lazy" decoding="async" />
+        picture
       )}
+      {strings && open && <MediaLightbox media={media} src={src} strings={strings} onClose={() => setOpen(false)} />}
     </figure>
+  );
+}
+
+/** A picture enlarged to the window, on glass over the page; Escape, Close or a press outside closes it. */
+function MediaLightbox({
+  media,
+  src,
+  strings,
+  onClose,
+}: {
+  media: MediaRef;
+  src: string;
+  strings: Strings;
+  onClose(): void;
+}) {
+  const close = useRef<HTMLButtonElement | null>(null);
+  return (
+    <Dialog
+      open
+      onOpenChange={(open) => !open && onClose()}
+      label={media.alt}
+      className="cl-lightbox"
+      backdropClassName="cl-lightbox-backdrop"
+      initialFocus={close}
+    >
+      <header className="cl-lightbox-bar">
+        <span className="cl-lightbox-alt">{media.alt}</span>
+        <DialogButton ref={close} dialogKey="escape" className="cl-button" onClick={onClose}>
+          {strings.t("changelog.page.close")}
+        </DialogButton>
+      </header>
+      <div className="cl-lightbox-stage">
+        {media.video ? (
+          <video src={src} aria-label={media.alt} muted loop playsInline autoPlay controls />
+        ) : (
+          <img src={src} alt={media.alt} />
+        )}
+      </div>
+    </Dialog>
   );
 }
 
@@ -123,7 +184,7 @@ export function Hero({
             {p}
           </p>
         ))}
-      {item.media && <Media media={item.media} />}
+      {item.media && <Media media={item.media} strings={ctx.strings} />}
       <ItemActions item={item} ctx={ctx} />
     </>
   );
@@ -191,7 +252,7 @@ function WideRow({ item, ctx }: { item: ReleaseItem; ctx: PartsContext }) {
           </p>
         ))}
       </div>
-      {item.media && <Media media={item.media} className="cl-row-media" />}
+      {item.media && <Media media={item.media} className="cl-row-media" strings={ctx.strings} />}
     </li>
   );
 }
@@ -252,12 +313,7 @@ function ChangeList({ changes }: { changes: ChangeItem[] }) {
     <ul>
       {changes.map((c, i) => (
         <li key={c.pr ?? `t${i}`}>
-          <span>{c.title}</span>
-          {c.pr !== undefined && (
-            <a className="cl-pr" href={`https://github.com/manaflow-ai/cmux/pull/${c.pr}`} rel="noreferrer">
-              #{c.pr}
-            </a>
-          )}
+          {c.pr === undefined ? <span>{c.title}</span> : <ChangePullRequest pr={c.pr} title={c.title} />}
         </li>
       ))}
     </ul>

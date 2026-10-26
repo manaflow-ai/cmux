@@ -396,6 +396,13 @@ impl Host {
         }
         match serde_json::from_slice::<RdControl>(payload) {
             Ok(RdControl::Service { body, .. }) => {
+                // The streaming viewer's file policy (file_policy.rs): set here, checked by
+                // the shim on the UI and IO threads.
+                if let Some(policy) = crate::file_policy::FilePolicy::parse(&body) {
+                    eprintln!("serve: file policy set");
+                    crate::file_policy::set(policy);
+                    return;
+                }
                 let Ok(msg) = serde_json::from_value::<Control>(body) else { return };
                 let replies = self.tab.control(VIEWER, &msg, &mut ShimPresentation);
                 self.send_rb(replies);
@@ -543,6 +550,48 @@ unsafe extern "C" fn on_open_tab(
             eprintln!("serve: page open with disposition {disposition} opens no tab");
         }
         h.send_rb(out.into_iter().collect());
+    });
+}
+
+/// May this `file:` URL load (the shim's check before every file navigation or
+/// subresource; any thread)?
+unsafe extern "C" fn on_file_load(_: *mut c_void, url: *const c_char) -> c_int {
+    let url = text(url).unwrap_or_default();
+    let allowed = crate::file_policy::check(&url);
+    if !allowed {
+        eprintln!("serve: refused a file load outside the policy");
+    }
+    c_int::from(allowed)
+}
+
+/// The focused field changed: the viewer raises its keyboard and keeps the
+/// caret in view (`rb.text_input`).
+unsafe extern "C" fn on_text_input(
+    _: *mut c_void,
+    _browser: c_int,
+    input_type: c_int,
+    rects: *const c_int,
+    rect_count: c_int,
+    caret: *const c_int,
+) {
+    let count = usize::try_from(rect_count).unwrap_or(0).min(64);
+    let rects: Vec<[i32; 4]> = if rects.is_null() || count == 0 {
+        Vec::new()
+    } else {
+        // SAFETY: the shim passes `rect_count` rects of four ints, valid for the call.
+        unsafe { std::slice::from_raw_parts(rects, count * 4) }
+            .chunks_exact(4)
+            .map(|r| [r[0], r[1], r[2], r[3]])
+            .collect()
+    };
+    let caret = (!caret.is_null()).then(|| {
+        // SAFETY: a non-NULL caret is four ints, valid for the call.
+        let c = unsafe { std::slice::from_raw_parts(caret, 4) };
+        [c[0], c[1], c[2], c[3]]
+    });
+    let body = crate::file_policy::text_input(input_type, &rects, caret);
+    dispatch(move |h| {
+        h.send_rd(&RdControl::Service { service: SERVICE_REMOTE_BROWSER.into(), body });
     });
 }
 
@@ -878,6 +927,8 @@ pub fn run(argv: &mut [*mut c_char], opts: Options) -> i32 {
         on_loading_state: Some(on_loading_state),
         on_cursor: Some(on_cursor),
         on_open_tab: Some(on_open_tab),
+        on_file_load: Some(on_file_load),
+        on_text_input: Some(on_text_input),
     };
     // SAFETY: argv, the strings and the callbacks outlive the call.
     unsafe {

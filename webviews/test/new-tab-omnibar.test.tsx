@@ -1,8 +1,10 @@
 // The New Tab field is an omnibar (Leo 2026-10-12): typing "reddit" showed nothing, the rows that
 // did show pushed the page down, and blank browser tabs were offered as "about:blank workspace-N".
 // Now the rows float in a popover under the composer: URL completions from visited pages and top
-// sites, open tabs and workspaces, "Search the web for …" and "Ask <agent>", the top row highlighted
-// and taken by Return.
+// sites, open tabs and workspaces, "Ask <agent>" and "Search the web for …", the top row highlighted
+// and taken by Return. Leo 2026-10-24 ("Search the web. Do you really want that first?"): a
+// completion leads only for a site's whole name ("reddit") or a host ("reddit.c"); a partial word
+// asks the agent.
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
@@ -132,11 +134,24 @@ test('typing "reddit" offers reddit.com first, highlighted, and Return opens it 
 test("Right accepts the inline URL completion without opening it", async () => {
   const calls: unknown[][] = [];
   await render(calls);
-  const field = await type("reddi");
+  const field = await type("reddit.c");
   field.focus();
   field.setSelectionRange(field.value.length, field.value.length);
   await act(async () => field.dispatchEvent(new window.KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true })));
   expect(field.value).toBe("reddit.com");
+  expect(calls).toEqual([]);
+});
+
+test("a partial word asks first: the completion is one row down and Right leaves the text", async () => {
+  const calls: unknown[][] = [];
+  await render(calls);
+  const field = await type("reddi");
+  expect(label(rows()[0]!)).toBe("Ask Claude Code");
+  expect(rows().map(label)).toContain("reddit.com");
+  field.focus();
+  field.setSelectionRange(field.value.length, field.value.length);
+  await act(async () => field.dispatchEvent(new window.KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true })));
+  expect(field.value).toBe("reddi");
   expect(calls).toEqual([]);
 });
 
@@ -150,7 +165,7 @@ test("End accepts the inline URL completion and Tab only advances a keyboard-hig
   expect(field.value).toBe("reddit.com");
 
   // A fresh query has multiple rows; once Down highlights one, Tab moves the highlight and never submits.
-  await type("why is the reddit scraper slow");
+  await type("reddi");
   field.focus();
   field.setSelectionRange(field.value.length, field.value.length);
   await act(async () => field.dispatchEvent(new window.KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true })));
@@ -187,7 +202,7 @@ test("Tab with suggestions showing steps from Return's row", async () => {
 test("Right inline-accepts a visited-page (history) row without opening it", async () => {
   const calls: unknown[][] = [];
   await render(calls, [{ url: "https://zulip.example.com/" }]);
-  const field = await type("zuli");
+  const field = await type("zulip");
   expect(rows()[0]?.getAttribute("data-type")).toBe("history");
   field.focus();
   field.setSelectionRange(field.value.length, field.value.length);

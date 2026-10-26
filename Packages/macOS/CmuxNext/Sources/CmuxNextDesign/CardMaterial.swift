@@ -1,10 +1,11 @@
 public import CmuxTheme
 public import Foundation
+public import CmuxNextDesignTokens
 
-/// The one material of every floating card that carries text (popovers, the
-/// palette, dialogs, find and prompt bars; the hover card window, which shows
-/// the workspace and tab cards and the Update Ready highlights, stays bare
-/// glass, Leo 2026-10-21):
+/// The card fill a floating surface may lay on its glass (`makeOverlayPanel(cardFill:
+/// true)`; the web pages' `--cmux-card-tint`). No native overlay uses it since Leo
+/// 2026-10-21 ("STOP DOING SOLID. WE HAVE GLASS, SO JUST USE GLASS."): overlays
+/// are the shared glass alone. As a fill it is:
 /// the opaque popup surface laid on the glass or blur at `opacity`, with a
 /// visible rim.
 ///

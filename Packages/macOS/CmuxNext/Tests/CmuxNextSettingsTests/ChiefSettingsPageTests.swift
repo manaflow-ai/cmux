@@ -11,9 +11,21 @@ struct ChiefSettingsPageTests {
     @Test func settingsHasAChiefPageWithEveryChiefSetting() throws {
         let categories = SettingsPageLayout().categories()
         let chief = try #require(categories.first { $0.spec.id == "chief" }, "the sidebar has a Chief entry")
-        #expect(chief.spec.lead == [.chiefs, .chiefPet], "the Chiefs list opens the page, then the pet card")
+        #expect(chief.spec.lead == [.chiefs, .chiefPet, .voiceInput],
+                "the Chiefs list opens the page, then the pet card, then Voice input (only where home.voiceInput exists)")
         let rows = chief.groups.flatMap(\.rows)
         for key in Self.chiefRows { #expect(rows.contains(key), "\(key) is on the Chief page") }
+    }
+
+    /// Leo's list: the Chief's notices are the app's notifications. The page ends with a Notices row
+    /// that opens Settings > Notifications; it holds none of Notifications' rows, which have one home.
+    @Test func chiefEndsWithANoticesLinkAndNoNotificationRows() throws {
+        let categories = SettingsPageLayout().categories()
+        let chief = try #require(categories.first { $0.spec.id == "chief" })
+        let notifications = try #require(categories.first { $0.spec.id == "notifications" })
+        #expect(chief.spec.trail == [.notices])
+        let shared = Set(chief.groups.flatMap(\.rows)).intersection(notifications.groups.flatMap(\.rows))
+        #expect(shared.isEmpty, "Notifications' rows stay on Notifications")
     }
 
     @Test func agentsNoLongerHoldsTheChief() throws {

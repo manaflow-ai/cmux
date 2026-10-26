@@ -7,7 +7,7 @@
 //    commit's subject alone, 2026-10-20), the count of the changes not listed and one button on one
 //    row. An update with nothing a person would notice says "Maintenance and fixes"; "What's new in
 //    this build" is the last resort while nothing is known. The x shows only on hover or keyboard
-//    focus. A change has no tooltip, even cut off (Leo 2026-10-19: no hover preview on change
+//    focus; in the sidebar the host draws it natively (SidebarUpdatedCardHost) and Escape closes it. A change has no tooltip, even cut off (Leo 2026-10-19: no hover preview on change
 //    titles). Share cmux is the palette's (app.shareCmux).
 //  - UpdateReadyHighlights (hovering the staged "Restart to Update" card): only what the card lacks
 //    (Leo 2026-10-13; the card has Update Ready, the short version and the date): a quiet "What's
@@ -21,7 +21,7 @@
 import { useEffect, useId, useRef, useSyncExternalStore } from "react";
 import { CARD_SCROLL_ATTRIBUTE, installScrollEdges } from "../../scrollers";
 import { getColorScheme, subscribeColorScheme } from "./colorScheme";
-import { distinctSummary } from "./model";
+import { distinctSummary, readableUpdate } from "./model";
 import type { Strings } from "../shared/i18n";
 import type { ReleaseNotes } from "./types";
 import type { UpdateHighlightMedia, UpdateHighlights, UpdateSurfaceActions } from "./updateHighlights";
@@ -60,15 +60,18 @@ export function UpdatedCard({
   span,
   strings,
   actions,
+  closeButton = true,
 }: {
   data: UpdateHighlights;
   /** The notes of every build after the previous version, newest first; absent until they load. */
   span?: ReleaseNotes[];
   strings: Strings;
   actions: UpdateSurfaceActions;
+  /** Draws the x (with `actions.dismiss`); false where the host draws its own (the sidebar's). */
+  closeButton?: boolean;
 }) {
   const titleId = useId();
-  const summary = span ? summarizeUpdate(span, strings.language) : summarizeHighlights(data);
+  const summary = span ? summarizeUpdate(span, strings.language) : summarizeHighlights(readableUpdate(data));
   const empty = strings.t(span ? "changelog.page.maintenance" : "updates.card.whatsNewInBuild");
   return (
     <section className="ui-glass wn-card" aria-labelledby={titleId}>
@@ -76,7 +79,7 @@ export function UpdatedCard({
       <div className="wn-card-eyebrow" id={titleId} title={data.version}>
         {strings.format("updates.card.updatedTo", cardLabel(data.version, data.date, strings))}
       </div>
-      {actions.dismiss && (
+      {closeButton && actions.dismiss && (
         <button
           type="button"
           className="wn-card-close"
@@ -123,7 +126,9 @@ export function UpdateReadyHighlights({
 }) {
   const titleId = useId();
   const scroller = useRef<HTMLElement>(null);
-  const rest = data.rest ?? null;
+  const readable = readableUpdate(data);
+  const items = readable.items;
+  const rest = readable.rest ?? null;
   useEffect(() => (scroller.current ? installScrollEdges(scroller.current) : undefined), [data]);
   return (
     <section className="wn-pop" aria-labelledby={titleId} ref={scroller} {...{ [CARD_SCROLL_ATTRIBUTE]: "" }}>
@@ -134,9 +139,9 @@ export function UpdateReadyHighlights({
       {data.fromVersion && data.fromVersion !== data.version && (
         <div className="wn-pop-from">{strings.format("updates.popover.from", cardVersion(data.fromVersion))}</div>
       )}
-      {data.items.length > 0 && (
+      {items.length > 0 && (
         <ol className="wn-pop-list">
-          {data.items.map((item, index) => (
+          {items.map((item, index) => (
             <li key={item.id}>
               <span className="wn-pop-n" aria-hidden="true">
                 {index + 1}
@@ -179,7 +184,9 @@ export function UpdateReadyHighlights({
           <span className="wn-pop-more">{strings.format("updates.card.more", String(data.moreCount))}</span>
         )}
         <button type="button" className="wn-pop-all" onClick={actions.openChangelog}>
-          {strings.t(data.items.length > 0 ? "updates.popover.seeAll" : "updates.popover.seeReleaseNotes")}
+          {strings.t(
+            items.length > 0 || (rest?.length ?? 0) > 0 ? "updates.popover.seeAll" : "updates.popover.seeReleaseNotes",
+          )}
           <span aria-hidden="true"> →</span>
         </button>
       </div>

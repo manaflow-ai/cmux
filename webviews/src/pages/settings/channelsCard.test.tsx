@@ -1,7 +1,7 @@
 // Settings > Updates: its own category with the updates rows and the Channels card, which draws
 // every channel's track from the host's `cmux.settings.channels.state` and no text of its own.
 import { afterAll, expect, test } from "bun:test";
-import { mockChannels } from "./mockChannels";
+import { mockChannels, mockGoBack } from "./mockChannels";
 import { installDom } from "./testDom";
 
 const restore = installDom();
@@ -68,6 +68,33 @@ test("each build shows its health and pull reason and links to its commit, PRs a
   page.unmount();
 });
 
+test("picking Nightly on a Dev build Nightly has not reached offers Go Back into the kept Nightly build", async () => {
+  const page = await renderPage({
+    path: "/settings/updates",
+    setup: (provider) => {
+      provider.channelSwitch = mockGoBack;
+    },
+  });
+  await settle();
+  await run(() => page.store.set("updates.channel", "dev"));
+  await settle();
+  expect(card(page.container)?.querySelector("[data-channel-switch]")).toBeNull();
+  await run(() => page.store.set("updates.channel", "nightly"));
+  await settle();
+  const way = card(page.container)!.querySelector<HTMLElement>('[data-channel-switch="nightly"]')!;
+  expect(way.textContent).toContain("Restarts once into 1.0.0-nightly.3418, kept on this Mac.");
+  const button = way.querySelector<HTMLButtonElement>("[data-channel-go-back]")!;
+  expect(button.textContent).toBe("Go Back to Nightly");
+  await run(() => button.click());
+  await settle();
+  expect(page.provider.wentBack).toBe("3418");
+  // A reply that carries another channel's way back (a read for an earlier pick) offers no button.
+  await run(() => page.store.set("updates.channel", "dev"));
+  await settle();
+  expect(card(page.container)!.querySelector("[data-channel-go-back]")).toBeNull();
+  page.unmount();
+});
+
 test("a host with no updater shows no Channels card", async () => {
   const page = await renderPage({
     path: "/settings/updates",
@@ -79,4 +106,28 @@ test("a host with no updater shows no Channels card", async () => {
   expect(card(page.container)).toBeNull();
   expect(mockChannels.tracks.length).toBe(4);
   page.unmount();
+});
+
+test("the card names the app's acpmux daemon's build and whether it is up to date, as the host says", async () => {
+  const page = await renderPage({
+    path: "/settings/updates",
+    setup: (provider) => {
+      provider.channels = { ...mockChannels, daemon: { title: "acpmux daemon", value: "abc123 (restarting…)" } };
+    },
+  });
+  await settle();
+  const row = card(page.container)!.querySelector<HTMLElement>("[data-channel-daemon]")!;
+  expect(row.textContent).toContain("acpmux daemon");
+  expect(row.textContent).toContain("abc123 (restarting…)");
+  page.unmount();
+  // A host without a local daemon sends none, and the card has no such row.
+  const none = await renderPage({
+    path: "/settings/updates",
+    setup: (provider) => {
+      provider.channels = { ...mockChannels, daemon: null };
+    },
+  });
+  await settle();
+  expect(card(none.container)!.querySelector("[data-channel-daemon]")).toBeNull();
+  none.unmount();
 });

@@ -6,6 +6,7 @@
 // a control with no other name keeps it as its `aria-label`. Controls built on ./Tooltip keep theirs.
 // A `data-tooltip-shortcut` shows after the text in the secondary ink, like the native tooltip's;
 // a `data-tooltip-detail` on a line under it, also secondary (Fork from here, Claude's).
+// A `data-tooltip-side="top"` puts it above the element rather than below (a message's time).
 // Text the element cuts off shows in full, as wide as the element (`tooltipWidth`).
 import { HOVER_INTENT, HoverGroup, HoverIntent, tooltipGroup, type HoverClock } from "./hoverIntent";
 
@@ -56,14 +57,25 @@ function clips(element: Element): boolean {
 }
 
 /// Where a `size` tooltip for `anchor` goes in a `view` window: below and centered, above when
-/// there is no room below, and shifted to stay inside the edges.
+/// there is no room below, and shifted to stay inside the edges. `side` "top" (an element's
+/// `data-tooltip-side="top"`: a message's time, as Claude's) puts it above, below only when there
+/// is no room above.
 export function tooltipPosition(
   anchor: Box,
   size: { width: number; height: number },
   view: { width: number; height: number },
+  side: "top" | "bottom" = "bottom",
 ) {
   const below = anchor.top + anchor.height + GAP;
-  const top = below + size.height + EDGE <= view.height ? below : Math.max(EDGE, anchor.top - GAP - size.height);
+  const above = anchor.top - GAP - size.height;
+  const top =
+    side === "top"
+      ? above >= EDGE || below + size.height + EDGE > view.height
+        ? Math.max(EDGE, above)
+        : below
+      : below + size.height + EDGE <= view.height
+        ? below
+        : Math.max(EDGE, above);
   const centered = anchor.left + anchor.width / 2 - size.width / 2;
   const left = Math.min(Math.max(EDGE, centered), Math.max(EDGE, view.width - EDGE - size.width));
   return { left: Math.round(left), top: Math.round(top) };
@@ -85,7 +97,8 @@ export function installTooltips(
   const win = doc.defaultView;
   if (!win) return () => {};
   const tip = doc.createElement("div");
-  tip.className = "ui-title-tooltip";
+  // The liquid glass, as every tooltip (ui/Tooltip.tsx; glass.css gives it the tooltip's shadow).
+  tip.className = "ui-title-tooltip ui-glass";
   tip.setAttribute("role", "tooltip");
   tip.hidden = true;
   doc.body.append(tip);
@@ -179,10 +192,12 @@ export function installTooltips(
     });
     tip.style.minWidth = `${width.min}px`;
     tip.style.maxWidth = `${width.max}px`;
-    const position = tooltipPosition(anchor, tip.getBoundingClientRect(), {
-      width: doc.documentElement.clientWidth,
-      height: doc.documentElement.clientHeight,
-    });
+    const position = tooltipPosition(
+      anchor,
+      tip.getBoundingClientRect(),
+      { width: doc.documentElement.clientWidth, height: doc.documentElement.clientHeight },
+      target.getAttribute("data-tooltip-side") === "top" ? "top" : "bottom",
+    );
     tip.style.left = `${position.left}px`;
     tip.style.top = `${position.top}px`;
     if (fadeIn) {

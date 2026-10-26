@@ -6,6 +6,7 @@ import CmuxNextPages
 import CmuxNextDesign
 import CmuxNextSettings
 import CmuxNextUpdater
+import CmuxNextWebUpdates
 import Observation
 
 extension UpdaterService {
@@ -20,17 +21,15 @@ extension UpdaterService {
         relaunchBlockers = { [weak self, weak services, activity = UpdateAgentActivity(environment: QuitAgents.environment(services))] in services.map { activity.applying(to: $0.machines.local.currentRelaunchBlockers(quietInput: self?.idleInstallQuiet)) } ?? .daemonUnavailable }
         // The click: the windows leave the screen at once (S1); a failed
         // install brings them back.
-        let handoff = UpdateWindowHandoff()
+        let handoff = UpdateWindowHandoff(unsaved: services.quitUnsaved)
         willInstallStaged = { _ = handoff.hide() }
         installAbandoned = { handoff.restore() }
         isSheetPresented = { sheet.isPresented }
+        sheet.onDismiss = { [weak self] in self?.updateSheetClosed() }
         // The check's progress and result show on the sidebar's notice card; with the
         // active window's sidebar hidden (or no window) nothing would show, so the sheet
         // answers instead (never a check with no visible feedback).
-        showsIndicator = { [weak services] in
-            guard let window = services?.windows.active else { return false }
-            return !window.state.sidebarHidden
-        }
+        showsIndicator = { [weak services] in (services?.windows.active).map { !$0.state.sidebarHidden } ?? false }
         openChangelog = { [weak services] in services.map { ChangelogPageTab.open($0) } ?? false }
         // "See What's New" on the Updated card: the React changelog page
         // for the releases this update crossed (`#/?from=&to=`).
@@ -50,7 +49,7 @@ extension UpdaterService {
         }
         attachTips(registry: services.registry)
         UpdateSimulation(updater: self).follow(simulating)
-        #if DEBUG
+        #if DEBUG || CMUX_BENCH_HOOKS
         UpdateHarnessProbe.install(updater: self)
         #endif
     }
@@ -104,6 +103,7 @@ extension UpdaterService {
     }
 
     func apply(_ updates: UpdatesSettings) {
+        WebUpdates.shared.follow(updates)
         let preferences = UpdatePreferences(
             installOnQuit: updates.installOnQuit,
             notify: UpdateNotifyMode(rawValue: updates.notify.rawValue) ?? .badge,

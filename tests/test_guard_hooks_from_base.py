@@ -10,7 +10,8 @@ A merge is judged by the landing gate installed from cmuxterm-hq main (tools/age
 which guards-sync keeps current every 10 minutes), never by a copy in this repository: a copy here reached a
 worktree only through a base merge or a fetch, and after hq#2830 #23472 still ran a guard without its gh-throttle
 fix (deputy-2, 2026-10-21). guards-from-base.sh defers to the installed gate when this account registers it, runs it
-when only the file is there, and refuses the merge when it is not installed.
+when only the file is there, and lets the merge through with a warning when it is not installed: no guard blocks a
+merge it can't judge, only a compile that finished red (2026-10-21, #24265).
 """
 from __future__ import annotations
 
@@ -19,6 +20,7 @@ import os
 import shutil
 import subprocess
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -37,7 +39,20 @@ case $input in *"pr merge"*) printf '%s\\n' '{"hookSpecificOutput": {"hookEventN
   "permissionDecision": "deny", "permissionDecisionReason": "installed landing gate"}}' ;; esac
 exit 0
 """
+# A stand-in gate that lets the merge through with a warning, as the real gate does for a pending compile.
+GATE_HOLD = """#!/bin/bash
+printf '%s\\n' '{"systemMessage": "installed landing gate holds nothing; merging anyway",
+  "hookSpecificOutput": {"hookEventName": "PreToolUse",
+  "additionalContext": "installed landing gate holds nothing; merging anyway"}}'
+"""
+# A refusal written with other JSON spacing than GATE's.
+GATE_SPACED = """#!/bin/bash
+printf '%s\\n' '{
+  "hookSpecificOutput":  {"hookEventName":  "PreToolUse",
+    "permissionDecision":    "deny",   "permissionDecisionReason":  "installed landing gate"}}'
+"""
 MERGE = "gh pr merge 5 -R manaflow-ai/cmux --squash"
+UPDATE = "gh api -X PUT repos/manaflow-ai/cmux/pulls/5/update-branch"
 
 
 def git(cwd: Path, *args: str) -> str:
@@ -95,13 +110,13 @@ class GuardsRunFromTheBase(unittest.TestCase):
     def guards(self, label: str) -> None:
         (self.seed / "scripts/ci/base_merge_warning.py").write_text(WARNING % label)
 
-    def install_gate(self, file: bool = True, registered_in: Path | None = None) -> Path:
+    def install_gate(self, file: bool = True, registered_in: Path | None = None, text: str = GATE) -> Path:
         """The gate as tools/agent-guards/install.py installs it: the hook in ~/.claude/hooks/, registered as a
         PreToolUse(Bash) command in a config directory's settings.json."""
         gate = self.home / ".claude/hooks/require-cmux-guards.sh"
         if file:
             gate.parent.mkdir(parents=True, exist_ok=True)
-            gate.write_text(GATE)
+            gate.write_text(text)
         if registered_in is not None:
             registered_in.mkdir(parents=True, exist_ok=True)
             (registered_in / "settings.json").write_text(json.dumps({"hooks": {"PreToolUse": [
@@ -127,6 +142,14 @@ class GuardsRunFromTheBase(unittest.TestCase):
         for word in words:
             self.assertIn(word, out["hookSpecificOutput"]["permissionDecisionReason"])
 
+    def assert_let_through(self, out: dict | None, *words: str) -> None:
+        """A warning the person (systemMessage) and the agent (additionalContext) both see, and no decision."""
+        self.assertIsNotNone(out, "the merge went ahead without a word")
+        self.assertNotIn("permissionDecision", out["hookSpecificOutput"])
+        for word in words:
+            self.assertIn(word, out["systemMessage"])
+            self.assertIn(word, out["hookSpecificOutput"]["additionalContext"])
+
     def test_a_merge_defers_to_the_installed_landing_gate_this_account_registers(self):
         """Claude Code runs the registered gate itself; judging the merge here too would read GitHub twice."""
         self.install_gate(registered_in=self.home / ".claude")
@@ -147,20 +170,20 @@ class GuardsRunFromTheBase(unittest.TestCase):
         self.assert_refused(self.hook(MERGE, env={"CLAUDE_CONFIG_DIR": str(self.tmp / "other")})[1],
                             "installed landing gate")
 
-    def test_a_merge_with_no_installed_landing_gate_is_refused(self):
-        """The gate fails closed (it refuses a merge it can't judge), so a merge with no gate to judge it is refused
-        too, saying how to install it."""
+    def test_a_merge_with_no_installed_landing_gate_goes_ahead_with_a_warning(self):
+        """No guard blocks a merge it can't judge (#24265): a merge with no gate to judge it goes ahead, saying how to
+        install the gate."""
         for registered_in in (None, self.home / ".claude"):  # a registration whose file is gone runs nothing
             with self.subTest(registered=registered_in is not None):
                 self.install_gate(file=False, registered_in=registered_in)
                 code, out, err = self.hook(MERGE)
                 self.assertEqual(code, 0, err)
-                self.assert_refused(out, "require-cmux-guards", "guards-sync", "install.py")
+                self.assert_let_through(out, "require-cmux-guards", "guards-sync", "install.py", "merging anyway")
 
     def test_the_pull_requests_copy_of_the_launcher_does_not_judge_its_merge(self):
         code, out, err = self.hook(MERGE)
         self.assertEqual(code, 0, err)
-        self.assert_refused(out, "not installed")
+        self.assert_let_through(out, "not installed")
 
     def test_no_merge_guard_runs_from_this_repository(self):
         """The landing gate lives in cmuxterm-hq; a copy here would judge a merge by a stale rule again."""
@@ -191,19 +214,88 @@ class GuardsRunFromTheBase(unittest.TestCase):
         self.assertEqual(code, 0, err)
         self.assert_refused(out, "installed landing gate")
 
-    def test_a_merge_whose_guards_cannot_be_read_is_refused(self):
-        """A merge the hook can't judge is denied, never let through with only a stderr line."""
+    def test_a_merge_whose_guards_cannot_be_read_goes_ahead_with_a_warning(self):
+        """A merge the hook can't judge goes ahead with a warning the agent and the person both see, never with only a
+        stderr line (2026-10-21: timed-out reads held #23660 and #23371 for hours with every gate met)."""
         self.install_gate()
         old = self.old_base()
         git(self.lane, "remote", "set-url", "origin", str(self.tmp / "gone.git"))
         git(self.lane, "update-ref", "refs/remotes/origin/feat-cmux-next", old)
         code, out, err = self.hook(MERGE)
         self.assertEqual(code, 0, err)
-        self.assert_refused(out, "merge guards did not run")
+        self.assert_let_through(out, "merge guards did not run")
         # The update-branch warning only warns: unreadable, it does not block.
         code, out, err = self.hook("gh api -X PUT repos/manaflow-ai/cmux/pulls/5/update-branch")
         self.assertIsNone(out)
         self.assertNotEqual(code, 2)
+
+    def land_on_base(self, path: str, text: str) -> None:
+        (self.seed / path).write_text(text)
+        git(self.seed, "commit", "-qam", f"the base changes {path}")
+        git(self.seed, "push", "-q", "origin", "feat-cmux-next")
+
+    def test_a_base_without_the_warning_lets_a_merge_through_with_a_warning(self):
+        """guards-from-base.sh itself is on the base but the update-branch warning is not (`git archive` fails)."""
+        self.install_gate(registered_in=self.home / ".claude")
+        git(self.seed, "rm", "-q", "scripts/ci/base_merge_warning.py")
+        git(self.seed, "commit", "-qm", "the warning leaves the base")
+        git(self.seed, "push", "-q", "origin", "feat-cmux-next")
+        code, out, err = self.hook(MERGE)
+        self.assertEqual(code, 0, err)
+        self.assert_let_through(out, "cannot read the guards")
+
+    def test_a_gate_or_warning_that_crashes_never_blocks_a_merge(self):
+        """Codex review of #24265: a hook that exits 2 (a bash syntax error does) blocks the tool call in Claude
+        Code, though no compile finished red. Every failure of a guard is a warning."""
+        for broken in ("if then fi\n", "exit 2\n", "exit 3\n"):
+            with self.subTest(gate=broken):
+                self.install_gate(text=broken)
+                code, out, err = self.hook(MERGE)
+                self.assertNotEqual(code, 2, err)
+                self.assert_let_through(out, "require-cmux-guards.sh exited", "merging anyway")
+        self.land_on_base("scripts/ci/base-merge-warning-hook.sh", "exit 2\n")
+        code, out, err = self.hook(UPDATE)
+        self.assertNotEqual(code, 2, err)
+
+    def test_the_settings_hook_never_exits_2_when_the_launcher_itself_breaks(self):
+        self.land_on_base("scripts/ci/guards-from-base.sh", "exit 2\n")
+        code, out, err = self.hook(MERGE)
+        self.assertNotEqual(code, 2, err)
+
+    def test_a_merge_warning_does_not_hide_the_update_branch_warning(self):
+        """Codex review of #24265: with `gh pr merge ...; gh api .../update-branch` the merge may go ahead with a
+        warning, and the update-branch warning must still be said."""
+        self.install_gate(text=GATE_HOLD)
+        code, out, err = self.hook(f"{MERGE}; {UPDATE}")
+        self.assertEqual(code, 0, err)
+        self.assert_let_through(out, "installed landing gate holds nothing")
+        self.assertIn("base merge warning base v1", out["hookSpecificOutput"]["additionalContext"])
+
+    def test_a_refusal_still_wins_over_a_warning(self):
+        self.install_gate()
+        code, out, err = self.hook(f"{MERGE}; {UPDATE}")
+        self.assertEqual(code, 0, err)
+        self.assert_refused(out, "installed landing gate")
+
+    def test_a_refusal_in_any_json_spacing_still_refuses(self):
+        """Codex review of #24265 (round 2): a refusal matched as text was lost when written with other spacing."""
+        self.install_gate(text=GATE_SPACED)
+        for command in (MERGE, f"{MERGE}; {UPDATE}"):
+            with self.subTest(command=command):
+                code, out, err = self.hook(command)
+                self.assertEqual(code, 0, err)
+                self.assert_refused(out, "installed landing gate")
+
+    def test_a_refusal_never_waits_for_the_update_branch_warning(self):
+        """Codex review of #24265 (round 3): a slow update-branch warning must not run the hook past its timeout with
+        the gate's refusal unprinted."""
+        self.install_gate()
+        self.land_on_base("scripts/ci/base-merge-warning-hook.sh", "sleep 30\n")
+        started = time.monotonic()
+        code, out, err = self.hook(f"{MERGE}; {UPDATE}")
+        self.assertLess(time.monotonic() - started, 20)
+        self.assertEqual(code, 0, err)
+        self.assert_refused(out, "installed landing gate")
 
     def old_base(self) -> str:
         """A commit on the base from before the launcher existed."""

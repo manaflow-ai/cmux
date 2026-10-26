@@ -33,6 +33,7 @@ import { VmImageList } from "../api/images.ts";
 import { visibleVmImages, vmImageAllowed, vmImageEvidenceOf, type VmImageAllowed } from "../proofs/vm-image.ts";
 import { CmuxVmApi, CreatedVm, Vm, VmList, type CreateVmRequest, type ForkVmRequest, type VmState } from "../api.ts";
 import { OwnershipStore } from "../db/stores.ts";
+import { agentBudgetAllows, revokeVmClientSessions, withAgentLabels } from "./agent-sandboxes.ts";
 import { actorRef, carriesRequiredLabels, CurrentPrincipal, type Principal } from "../domain/principal.ts";
 import {
   badRequest,
@@ -301,11 +302,13 @@ const replayRecordedAttempt = <C>(caller: Named<C, Principal>, scope: KeyHasScop
 
 const resumeSlot = (key: string | null, prior: IdempotencyProgress | null) => key !== null && (prior?.phase === "creating" || prior?.phase === "capturing") ? { key, vmId: prior.vmId } : undefined;
 
-const createVm = (payload: CreateVmRequest, idempotencyKey: string | undefined) =>
+const createVm = (requested: CreateVmRequest, idempotencyKey: string | undefined) =>
   withCaller("vm:write", "write", (caller, scope) =>
     Effect.gen(function* () {
       const principal = caller.value;
       yield* forbidAllowlisted(principal);
+      // An agent key's VMs get its labels without asking; a label naming another agent is refused.
+      const payload = yield* withAgentLabels(principal, requested);
       yield* requireServiceLabels(principal, payload.labels ?? {});
       if (payload.image !== undefined && payload.snapshotId !== undefined) return yield* Effect.fail(badRequest("Choose either an approved image or a tenant snapshot"));
       const network = payload.initialNetwork === undefined ? undefined : yield* vmNetworkAllowed(caller, payload.initialNetwork);
@@ -351,6 +354,8 @@ const createVm = (payload: CreateVmRequest, idempotencyKey: string | undefined) 
             const existing = yield* replayRecordedAttempt(caller, scope, prior, key);
             if (existing !== null) return existing;
             if (key === null) return yield* Effect.fail(unavailable());
+            // A fresh allocation by an agent key must fit its live-VM and $/h budget; a resumed one already counted.
+            if (resumeSlot(key, prior) === undefined) yield* agentBudgetAllows(caller, scope, payload.resources);
             const attempt = { key, prior };
             if (payload.snapshotId === undefined) {
               return yield* withCreateSlot(caller, (mayCreate) => createRecorded(caller, spec, { mayCreate, scope, ...(network === undefined ? {} : { network }), ...(image === undefined ? {} : { image }) }, attempt), resumeSlot(key, prior));
@@ -394,6 +399,9 @@ const forkVm = (rawVmId: string, payload: ForkVmRequest, idempotencyKey: string 
       if (Option.isNone(parsedSource)) return yield* Effect.fail(vmNotFound());
       return yield* name(parsedSource.value, (source) => Effect.gen(function* () {
         const principal = caller.value;
+        if (principal.agent !== undefined) {
+          return yield* Effect.fail(new Forbidden({ message: "An agent key cannot fork; create a VM instead" }));
+        }
         const request = [
           "forkVm",
           source.value,
@@ -587,6 +595,43 @@ const deletedEarlier = (rawId: string) =>
     }));
   });
 
+/**
+ * Deletes one VM the current principal owns: fences an uncommitted creation,
+ * deletes it upstream, records the tombstone, settles its creation intent and
+ * revokes its client sessions. Idempotent for the caller's own deleted VM.
+ * The HTTP handler and the agent reaper share it.
+ */
+export const deleteVmById = (rawVmId: string) =>
+  audited(
+    "vm.delete",
+    auditableVmId(rawVmId),
+    withOwnedVm(rawVmId, "vm:write", "write", (caller, vm, proofs) =>
+      Effect.gen(function* () {
+        const upstream = yield* UpstreamClient;
+        const store = yield* OwnershipStore;
+        const limits = yield* TenantLimits;
+        const tenantId = TenantId.make(caller.value.tenantId);
+        // Deleting an uncommitted VM cancels its creation: fence the intent first so a retry cannot commit it.
+        const pending = proofs.owns.committed ? null : yield* store.creationKey(tenantId, vm.value).pipe(Effect.mapError(() => unavailable()));
+        if (pending !== null) yield* limits.cancelCreation(tenantId, pending, vm.value).pipe(Effect.mapError(() => unavailable()));
+        // "gone" (already deleted upstream) still forgets the VM here.
+        yield* upstream.deleteVm(vm, proofs).pipe(Effect.mapError(() => unavailable()));
+        const now = new Date(yield* Clock.currentTimeMillis);
+        yield* store
+          .markDeleted(tenantId, "vm", vm.value, now)
+          .pipe(Effect.mapError(() => unavailable()));
+        yield* settleDeletedCreation(caller, proofs.scope, vm.value);
+        // Its client-session tokens die with it; a failed revoke is retried by the reaper.
+        yield* revokeVmClientSessions(tenantId, vm.value).pipe(Effect.ignore);
+      }),
+    ).pipe(
+      // Idempotent: the caller's own already-deleted VM answers 204 again, so a lost 204 never wedges the retry.
+      Effect.catchTag("NotFound", (missing) =>
+        deletedEarlier(rawVmId).pipe(Effect.flatMap((gone) => (gone ? Effect.void : Effect.fail(missing)))),
+      ),
+    ),
+  );
+
 export const vmsHandlers = HttpApiBuilder.group(CmuxVmApi, "vms", (handlers) =>
   handlers
     .handle("getVmInstanceIdentity", ({ path, urlParams }) => withOwnedVm(path.vmId, "vm:read", "read", (_caller, vm, proofs) => Effect.gen(function* () {
@@ -694,33 +739,5 @@ export const vmsHandlers = HttpApiBuilder.group(CmuxVmApi, "vms", (handlers) =>
         (error) => (error instanceof ForkIncomplete ? error.snapshotId : null),
       ),
     )
-    .handle("deleteVm", ({ path }) =>
-      audited(
-        "vm.delete",
-        auditableVmId(path.vmId),
-        withOwnedVm(path.vmId, "vm:write", "write", (caller, vm, proofs) =>
-          Effect.gen(function* () {
-            const upstream = yield* UpstreamClient;
-            const store = yield* OwnershipStore;
-            const limits = yield* TenantLimits;
-            const tenantId = TenantId.make(caller.value.tenantId);
-            // Deleting an uncommitted VM cancels its creation: fence the intent first so a retry cannot commit it.
-            const pending = proofs.owns.committed ? null : yield* store.creationKey(tenantId, vm.value).pipe(Effect.mapError(() => unavailable()));
-            if (pending !== null) yield* limits.cancelCreation(tenantId, pending, vm.value).pipe(Effect.mapError(() => unavailable()));
-            // "gone" (already deleted upstream) still forgets the VM here.
-            yield* upstream.deleteVm(vm, proofs).pipe(Effect.mapError(() => unavailable()));
-            const now = new Date(yield* Clock.currentTimeMillis);
-            yield* store
-              .markDeleted(tenantId, "vm", vm.value, now)
-              .pipe(Effect.mapError(() => unavailable()));
-            yield* settleDeletedCreation(caller, proofs.scope, vm.value);
-          }),
-        ).pipe(
-          // Idempotent: the caller's own already-deleted VM answers 204 again, so a lost 204 never wedges the retry.
-          Effect.catchTag("NotFound", (missing) =>
-            deletedEarlier(path.vmId).pipe(Effect.flatMap((gone) => (gone ? Effect.void : Effect.fail(missing)))),
-          ),
-        ),
-      ),
-    ),
+    .handle("deleteVm", ({ path }) => deleteVmById(path.vmId))
 );
