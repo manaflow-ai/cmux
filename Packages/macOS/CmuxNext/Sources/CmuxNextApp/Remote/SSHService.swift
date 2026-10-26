@@ -418,11 +418,11 @@ final class SSHService {
             session.lastError = nil
         }
         do {
-            session.installPhase = .manifest
+            let run = session.beginInstall()
             var plan = try await installer.plan(commit: commit, treeKey: BundledCmuxTUI.treeKey(binary: binary), platform: platform,
                                                 remoteBinary: host.remoteBinary)
             if let automatic {
-                session.installPhase = nil
+                session.showInstallStep(nil, of: run)
                 guard plan.commit != automatic.lowercased() else {
                     logger.info("update of \(host.destination.description, privacy: .public) skipped: it already runs \(plan.commit, privacy: .public), the build this app installs")
                     return
@@ -434,10 +434,10 @@ final class SSHService {
             lockedPlan = plan
             let mainWork = mainWork
             try await installer.install(plan, on: host, daemonPID: daemonPID, environment: environment, priority: priority) { phase in
-                // One visible task per install step: the sidebar header shows it.
-                mainWork.postFromAnyThread(.visible, owner: "SSH.installPhase") { session.installPhase = phase }
+                // One visible task per install step: the sidebar header shows it while this install runs.
+                mainWork.postFromAnyThread(.visible, owner: "SSH.installPhase") { session.showInstallStep(phase, of: run) }
             }
-            session.installPhase = nil
+            session.endInstall()
             logger.info("installed cmux-tui \(plan.commit, privacy: .public) on \(host.destination.description, privacy: .public)")
             session.updateOffered = false
             if automatic == nil { await link.handle(.installFinished(.success)) }
@@ -448,7 +448,7 @@ final class SSHService {
             reconnect(session)
         } catch {
             if let lockedPlan { await installer.releaseLock(lockedPlan, on: host, environment: environment) }
-            session.installPhase = nil
+            session.endInstall()
             if automatic != nil {
                 // The machine keeps its old build and its link; the restart may have run, so link again.
                 reconnect(session)

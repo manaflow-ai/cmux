@@ -21,8 +21,11 @@ final class SSHMachineSession {
     @ObservationIgnored let emptyWorkspaces: EmptyWorkspaceRepair
     /// The link's gate status (`SSHConnectionMachine`), mirrored from the actor.
     var linkStatus: SSHConnectionMachine.Status = .offline
-    /// The install step in progress, for the header's detail.
-    var installPhase: RemoteInstaller.Phase?
+    /// The install step in progress, for the header's detail: only the running install's steps show
+    /// (``beginInstall()``, ``showInstallStep(_:of:)``, ``endInstall()``).
+    private(set) var installPhase: RemoteInstaller.Phase?
+    /// Counts installs, so a step posted by an install that already ended is dropped.
+    @ObservationIgnored private var installRun = 0
     /// The last install or connect failure worth showing.
     var lastError: String?
     /// cx-3r9mt: an older cmux-tui on a machine that is not idle: the sidebar says "Update
@@ -51,6 +54,25 @@ final class SSHMachineSession {
     @ObservationIgnored private var startupWatch: ServiceObservation<DaemonStartupState>?
     /// The app's main-thread scheduler: the link output's answer is a task on it.
     @ObservationIgnored private let mainWork: MainWorkScheduler
+
+    /// An install starts at its first step; the run it returns tags the install's later steps.
+    func beginInstall() -> Int {
+        installRun &+= 1
+        installPhase = .manifest
+        return installRun
+    }
+
+    /// A step of install `run` reached the main thread: it shows while that install still runs.
+    func showInstallStep(_ phase: RemoteInstaller.Phase?, of run: Int) {
+        guard run == installRun else { return }
+        installPhase = phase
+    }
+
+    /// The install ended: no step shows, and the steps it posted that have not run yet are dropped.
+    func endInstall() {
+        installRun &+= 1
+        installPhase = nil
+    }
 
     /// - Parameter mainWork: The app's main-thread scheduler (the local daemon's), for the machine's event batches.
     init(host: SSHHost, binary: URL, paths: SSHPaths, environment: @escaping @Sendable () async -> [String: String],

@@ -22,10 +22,16 @@ final class MachineBrowserHosts {
     /// whether or not anything shows).
     private var observation: ServiceObservation<[MachineLink]>?
 
-    /// One remote machine's daemon and whether it has a connection now.
-    private nonisolated struct MachineLink: Equatable, Sendable {
+    /// One remote machine's daemon and its connection now, by identity: a dropped and remade connection, or one
+    /// replaced by another, is a new value, so the status is read again for it.
+    nonisolated struct MachineLink: Equatable, Sendable {
         let machine: String
-        let connected: Bool
+        let connection: ObjectIdentifier?
+
+        init(machine: String, connection: AnyObject?) {
+            self.machine = machine
+            self.connection = connection.map { ObjectIdentifier($0) }
+        }
     }
 
     init(machines: MachineRegistry, mainWork: MainWorkScheduler, localhost: @escaping @MainActor () -> RemoteLocalhostService?) {
@@ -34,9 +40,9 @@ final class MachineBrowserHosts {
         self.localhost = localhost
         #if DEBUG
         observation = ServiceObservation(.visible, owner: "MachineBrowserHosts.links", on: mainWork) {
-            machines.daemons.filter { !$0.isLocal }.map { MachineLink(machine: $0.machineID, connected: $0.connection != nil) }
+            machines.daemons.filter { !$0.isLocal }.map { MachineLink(machine: $0.machineID, connection: $0.connection) }
         } apply: { [weak self] links in
-            for link in links where link.connected && self?.installed(link.machine) == nil { self?.refresh(link.machine) }
+            for link in links where link.connection != nil && self?.installed(link.machine) == nil { self?.refresh(link.machine) }
         }
         #endif
     }
@@ -68,10 +74,17 @@ final class MachineBrowserHosts {
         Task { @concurrent [weak self] in
             let status = try? await client.browserRuntimeStatus()
             mainWork.postFromAnyThread(.visible, owner: "MachineBrowserHosts.status") { [weak self] in
-                self?.probing.remove(machine)
-                self?.known[machine] = (connection, status)
+                self?.probed(machine, on: connection, status: status)
             }
         }
+    }
+
+    /// A status read ended: kept for the connection it was read on. A connection that replaced that one while it
+    /// read is read now (its links change came while the read held `probing`).
+    private func probed(_ machine: String, on connection: ObjectIdentifier, status: BrowserRuntimeStatus?) {
+        probing.remove(machine)
+        known[machine] = (connection, status)
+        if let current = self.connection(of: machine), current != connection { refresh(machine) }
     }
 
     /// Starts a browser on the machine; the answer updates `available`.
