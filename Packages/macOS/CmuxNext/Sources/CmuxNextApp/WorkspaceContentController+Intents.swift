@@ -2,7 +2,6 @@ import AppKit
 import CmuxNextBridge
 import CmuxNextDaemon
 import CmuxNextLayout
-import CmuxNextWakeups
 
 // Layout intents -> daemon commands. A divider or column drag is local until
 // it ends: its one command (the final value, one daemon `transaction`)
@@ -141,29 +140,27 @@ extension WorkspaceContentController {
                                                             tab: provisional.tabID)
         let send = BenchSpans.measure("\(label).intend") { intend() }
         BenchSpans.measure("\(label).layout") { applyCurrent() }
-        let logger = daemon.logger, mainWork = services.mainWork
-        // After the create before it (a fast second press may target its stand-in). The reply is awaited off
-        // main; what it lands is one posted task, the rest of the person's key.
+        let logger = daemon.logger
+        // After the create before it (a fast second press may target its stand-in). What it lands is the rest
+        // of the person's key (`personAction`).
         let previous = pendingCreate
-        // [services, state]: the task pins this controller's owners until it ends (cx-6so P1b).
-        let landedOn: @MainActor (Bool) -> Void = { [services, state] landed in
+        pendingCreate = services.mainWork.personAction(owner: "WorkspaceContent.createLanded") { () async -> Bool in
+            await previous?.value
+            do {
+                _ = try await send()
+                return true
+            } catch {
+                logger.error("\(label, privacy: .public) failed: \(String(describing: error), privacy: .public)")
+                return false
+            }
+        } then: { [services, state] landed in
             if landed {
                 BenchSpans.mark("\(label).reply.optimistic")
                 then?()
             }
             keyRouter.creationInputCoordinator.resolve(keys, landed: landed, in: window)
+            // [services, state]: the task pins this controller's owners until it ends (cx-6so P1b).
             withExtendedLifetime((services, state)) {}
-        }
-        pendingCreate = Task { @concurrent in
-            await previous?.value
-            var landed = false
-            do {
-                _ = try await send()
-                landed = true
-            } catch {
-                logger.error("\(label, privacy: .public) failed: \(String(describing: error), privacy: .public)")
-            }
-            await mainWork.apply(.visible, owner: "WorkspaceContent.createLanded") { [landed] in landedOn(landed) }
         }
     }
 
@@ -174,21 +171,21 @@ extension WorkspaceContentController {
         guard let connection = daemon.connection else { return }
         let intent = beginFocusIntent()
         // [services, state]: the task pins this controller's owners until it ends (cx-6so P1b). The
-        // controller itself is weak: a reply that never comes keeps no torn-down workspace alive. The reply is
-        // awaited off main; the focus it lands is one posted task.
-        let logger = daemon.logger, mainWork = services.mainWork
-        Task { @concurrent [weak self, services, state] in
+        // controller itself is weak: a reply that never comes keeps no torn-down workspace alive. The focus it
+        // lands is the rest of the person's action (`personAction`).
+        let logger = daemon.logger
+        services.mainWork.personAction(owner: "WorkspaceContent.paneSpawned") { () async -> SurfaceCreated? in
             do {
-                let surface = try await body(connection).surface
-                await mainWork.apply(.visible, owner: "WorkspaceContent.paneSpawned") { [weak self] in
-                    guard let self, !isTornDown else { return } // it left the window: no focus, no resize
-                    expectFocus(on: surface, generation: intent)
-                    then?()
-                }
+                return try await body(connection)
             } catch {
                 logger.error("\(label, privacy: .public) failed: \(String(describing: error), privacy: .public)")
+                return nil
             }
+        } then: { [weak self, services, state] created in
             withExtendedLifetime((services, state)) {}
+            guard let created, let self, !isTornDown else { return } // it left the window: no focus, no resize
+            expectFocus(on: created.surface, generation: intent)
+            then?()
         }
     }
 
@@ -206,13 +203,12 @@ extension WorkspaceContentController {
         // The daemon echoes the uint64 transaction as a decimal string in
         // the commit's screen-changed delta, which settles the intent.
         let wire = RowCommands.makeTransaction()
-        let intent = Intent.setRowHeights(column: handle, heights: values), transaction = ClientTransactionID(rawValue: String(wire))
-        // The daemon's intent log takes it on its own actor; this task only awaits.
-        Task { @concurrent [daemon] in
-            _ = await daemon.intend("set-row-heights", intent, transaction: transaction) { connection in
-                try await RowCommands(connection).setRowHeights(column: handle, heights: values, fit: fit, transaction: wire)
-            }
+        // The intent shows in the release's turn; its command goes out in the order of the person's releases.
+        let send = daemon.intendNow("set-row-heights", .setRowHeights(column: handle, heights: values),
+                                    transaction: ClientTransactionID(rawValue: String(wire))) { connection in
+            try await RowCommands(connection).setRowHeights(column: handle, heights: values, fit: fit, transaction: wire)
         }
+        services.mainWork.personAction(owner: "WorkspaceContent.rowHeights") { _ = await send() } then: { _ in }
     }
 
     private func nextDaemonTransaction() -> UInt64 {
@@ -222,13 +218,12 @@ extension WorkspaceContentController {
 
     /// Sends a gesture's one command; its result settles or rolls back the layout's override.
     private func sendGesture(_ transaction: LayoutTransactionID, label: String, _ body: @escaping DaemonCommandBody) {
-        // The command is awaited off main; settling or rolling back the gesture's override is one posted task.
-        let mainWork = services.mainWork
-        Task { @concurrent [daemon, layoutModel] in
-            let sent = await daemon.run(label, body)
-            await mainWork.apply(.visible, owner: "WorkspaceContent.gestureSettled") {
-                if sent { layoutModel.settleTransaction(transaction) } else { layoutModel.rejectTransaction(transaction) }
-            }
+        // The command goes out in the order of the person's gestures; settling or rolling back the override is the
+        // rest of the gesture (`personAction`).
+        services.mainWork.personAction(owner: "WorkspaceContent.gestureSettled") { [daemon] in
+            await daemon.run(label, body)
+        } then: { [layoutModel] sent in
+            if sent { layoutModel.settleTransaction(transaction) } else { layoutModel.rejectTransaction(transaction) }
         }
     }
 

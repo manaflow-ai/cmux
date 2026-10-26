@@ -68,11 +68,11 @@ final class TerminalHostDelegate: TerminalSessionDelegate {
     /// Ghostty asks from inside its mouse-release handler with the
     /// terminal's renderer lock held (cx-7xss), so the open runs after the
     /// click returns: a browser tab or an app launch never stalls the
-    /// terminal's output and drawing. The open is the rest of the person's click: a posted visible task.
+    /// terminal's output and drawing. The open is the rest of the person's click (`personAction`).
     func terminalSession(_ session: TerminalSession, open url: URL) -> Bool {
         guard let services, case .url(let safeURL)? = TerminalLinkResolver.resolve(url.absoluteString, cwd: nil, allowsLocalFiles: false) else { return false }
         let request = linkRequest(session)
-        services.mainWork.post(.visible, owner: "TerminalHostDelegate.openURL") { [weak self] in self?.openWeb(safeURL, request) }
+        services.mainWork.personAction(owner: "TerminalHostDelegate.openURL") {} then: { [weak self] _ in self?.openWeb(safeURL, request) }
         return true
     }
 
@@ -84,10 +84,13 @@ final class TerminalHostDelegate: TerminalSessionDelegate {
         guard let services else { return false }
         let request = linkRequest(session), cwd = cwd(of: session)
         let canOpenLocalFiles = allowsLocalFiles(session, services: services)
-        // The path check on the files lane, then the open as the rest of the person's click (Chrome's PostTaskAndReply).
-        services.work.run(.userBlocking, mayBlock: .files) {
-            TerminalLinkResolver.resolve(text, cwd: cwd, allowsLocalFiles: canOpenLocalFiles)
-        }.reply(on: services.mainWork, class: .visible, owner: "TerminalHostDelegate.openLink") { [weak self] target in
+        // The path check on the files lane, then the open as the rest of the person's click (`personAction`).
+        let work = services.work
+        services.mainWork.personAction(owner: "TerminalHostDelegate.openLink") {
+            try? await work.run(.userBlocking, mayBlock: .files) {
+                TerminalLinkResolver.resolve(text, cwd: cwd, allowsLocalFiles: canOpenLocalFiles)
+            }
+        } then: { [weak self] target in
             self?.open(target, text: text, request)
         }
         return true
