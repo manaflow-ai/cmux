@@ -111,7 +111,8 @@ impl UserGit<'_> {
             .envs(extra.iter().copied())
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
-            .stderr(Stdio::piped());
+            .stderr(Stdio::piped())
+            .qos(cmux_threads::HELPER_CHILD);
         // A new session has no controlling terminal, so ssh and git cannot
         // prompt, and git leads the group the deadline stops.
         #[cfg(unix)]

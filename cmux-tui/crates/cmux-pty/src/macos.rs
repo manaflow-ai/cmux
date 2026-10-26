@@ -213,8 +213,8 @@ pub(crate) fn spawn(
     }
     // A PTY child is a user shell or agent: it starts at Default, not at the
     // calling thread's class (an echo or request thread; p02-threads 223).
-    let child = cmux_threads::spawn_user_child(|| process.spawn())
-        .context("failed to spawn PTY command")?;
+    process.qos(cmux_threads::USER_CHILD);
+    let child = process.spawn().context("failed to spawn PTY command")?;
     Ok(Box::new(NativePtyChild(child)))
 }
 

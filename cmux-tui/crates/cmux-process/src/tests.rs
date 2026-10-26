@@ -146,3 +146,42 @@ fn wait_timeout_without_pidfd_open_waits_for_the_exit() {
     let status = quick.wait_timeout(Duration::from_secs(10)).unwrap().expect("child ended");
     assert_eq!(status.code(), Some(3));
 }
+
+/// macOS: a child spawned from a UserInteractive thread with
+/// `qos(USER_CHILD)` runs at Default and one with `qos(HELPER_CHILD)` at
+/// Utility, while the spawning thread stays UserInteractive throughout (the
+/// class goes in the spawn attributes). One spawned without `qos` inherits
+/// UserInteractive: the bug `qos` fixes (p02-threads 223).
+#[cfg(target_vendor = "apple")]
+#[test]
+fn qos_sets_the_childs_class_and_leaves_the_spawning_thread_alone() {
+    use cmux_threads::process::probe;
+    use cmux_threads::{HELPER_CHILD, LiveQos, QosChange, ThreadQos, USER_CHILD, current};
+
+    let at = |qos| probe::base_priority_at(qos).unwrap();
+    let (default, utility, interactive) =
+        (at(ThreadQos::Default), at(ThreadQos::Utility), at(ThreadQos::UserInteractive));
+    assert!(utility < default && default < interactive, "{utility} {default} {interactive}");
+    let child_priority = |qos: Option<ThreadQos>| {
+        let mut command = Command::new("/bin/sleep");
+        command.arg("30");
+        if let Some(qos) = qos {
+            command.qos(qos);
+        }
+        let mut child = command.spawn().unwrap();
+        assert_eq!(current(), LiveQos::Class(ThreadQos::UserInteractive));
+        let priority = probe::first_thread_base_priority(child.id() as libc::pid_t);
+        let _ = child.kill();
+        let _ = child.wait();
+        priority.unwrap()
+    };
+    let (user, helper, unset) = std::thread::spawn(move || {
+        assert_eq!(cmux_threads::set_current(ThreadQos::UserInteractive), QosChange::Applied);
+        (child_priority(Some(USER_CHILD)), child_priority(Some(HELPER_CHILD)), child_priority(None))
+    })
+    .join()
+    .unwrap();
+    assert_eq!(user, default, "user child {user}: default {default}, ui {interactive}");
+    assert_eq!(helper, utility, "helper child {helper}: utility {utility}, ui {interactive}");
+    assert_eq!(unset, interactive, "a child without qos inherits the thread's class");
+}

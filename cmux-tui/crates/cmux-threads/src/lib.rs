@@ -23,9 +23,8 @@
 //! Blocking work runs on [`work`] lanes by kind, priority and shutdown
 //! behavior (Chrome's base/task/thread_pool).
 //!
-//! Child processes never inherit an echo thread's QoS: a spawn runs inside
-//! [`spawn_user_child`] (Default) or [`spawn_helper`] (Utility), see
-//! [`process`].
+//! Child processes never inherit an echo thread's QoS: a spawn names
+//! [`USER_CHILD`] (Default) or [`HELPER_CHILD`] (Utility), see [`process`].
 
 pub mod blocking;
 pub mod checked;
@@ -48,7 +47,7 @@ pub use blocking::{
 pub use lock_wait::{
     LOCK_WAIT_BUDGET, LockHolder, LockWait, LockWaitSnapshot, lock_waits, set_holder_tracking,
 };
-pub use process::{HELPER_CHILD, USER_CHILD, spawn_helper, spawn_qos, spawn_user_child};
+pub use process::{HELPER_CHILD, USER_CHILD};
 pub use qos::{LiveQos, QosChange, ThreadQos, current, refused_changes, set_current, with_qos};
 pub use registry::{
     QosSlot, ThreadInfo, current_slot, deregister_current, register_current, snapshot,

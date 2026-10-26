@@ -13,13 +13,15 @@
 //! | A user shell or agent ([`USER_CHILD`])    | Default |
 //! | git, ss/netstat, hooks ([`HELPER_CHILD`]) | Utility |
 //!
-//! A spawn through `posix_spawn` or a multi-threaded `fork` runs inside
-//! [`spawn_qos`], which restores the calling thread's QoS after it. A
-//! single-threaded process that forks (cmux-holder) sets the class in the
-//! child before `execve` with `pthread_set_qos_class_self_np`.
+//! A `posix_spawn` names the class in its attributes
+//! (`posix_spawnattr_set_qos_class_np`, through `cmux_process::Command::qos`),
+//! so the spawning thread's own class never changes. A single-threaded
+//! process that forks (cmux-holder) has no attributes: it sets the class in
+//! the child before `execve` with `pthread_set_qos_class_self_np`.
 //!
-//! Linux is unchanged: a child inherits its creator's nice value, and the
-//! classes children start at are nice 0 like the echo and request threads.
+//! Linux does not apply these classes: a child keeps its creator's nice
+//! value, so a helper started from a nice-0 request thread runs at nice 0,
+//! not at Utility's nice 5.
 
 use crate::qos::ThreadQos;
 
@@ -28,31 +30,6 @@ pub const USER_CHILD: ThreadQos = ThreadQos::Default;
 
 /// The class a helper command (git, ss/netstat, hooks) starts at.
 pub const HELPER_CHILD: ThreadQos = ThreadQos::Utility;
-
-/// Runs `spawn` (a fork, `posix_spawn` or `Command::spawn`) so the child it
-/// starts runs at `qos`, then restores the calling thread's QoS, also when
-/// `spawn` panics. macOS only; elsewhere `spawn` runs unchanged.
-pub fn spawn_qos<R>(qos: ThreadQos, spawn: impl FnOnce() -> R) -> R {
-    #[cfg(target_vendor = "apple")]
-    {
-        crate::qos::with_qos(qos, spawn)
-    }
-    #[cfg(not(target_vendor = "apple"))]
-    {
-        let _ = qos;
-        spawn()
-    }
-}
-
-/// [`spawn_qos`] at [`USER_CHILD`]: for a user shell or agent.
-pub fn spawn_user_child<R>(spawn: impl FnOnce() -> R) -> R {
-    spawn_qos(USER_CHILD, spawn)
-}
-
-/// [`spawn_qos`] at [`HELPER_CHILD`]: for git, ss/netstat and hooks.
-pub fn spawn_helper<R>(spawn: impl FnOnce() -> R) -> R {
-    spawn_qos(HELPER_CHILD, spawn)
-}
 
 /// Reads the QoS a process's thread runs at (macOS), for tests of spawn
 /// paths. The QoS class of another process's thread cannot be read; its base
@@ -121,86 +98,5 @@ pub mod probe {
                 .join()
                 .unwrap_or_else(|_| Err(io::Error::other("priority probe panicked")))
         })
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn spawn_qos_returns_the_spawn_result() {
-        assert_eq!(spawn_user_child(|| 7), 7);
-        assert_eq!(spawn_helper(|| "helper"), "helper");
-    }
-
-    #[test]
-    fn the_child_table_is_default_for_users_and_utility_for_helpers() {
-        assert_eq!(USER_CHILD, ThreadQos::Default);
-        assert_eq!(HELPER_CHILD, ThreadQos::Utility);
-    }
-
-    /// Linux: a spawn changes neither the thread's nice value nor the
-    /// refusal count.
-    #[cfg(any(target_os = "linux", target_os = "android"))]
-    #[test]
-    fn linux_spawns_leave_the_thread_unchanged() {
-        use crate::qos::{current, refused_changes};
-        std::thread::spawn(|| {
-            let before = current();
-            let refused = refused_changes();
-            assert_eq!(spawn_helper(current), before);
-            assert_eq!(spawn_user_child(current), before);
-            assert_eq!(current(), before);
-            assert_eq!(refused_changes(), refused);
-        })
-        .join()
-        .unwrap();
-    }
-
-    /// macOS: a spawn from a UserInteractive thread runs at the child's class
-    /// and the thread is back at UserInteractive after.
-    #[cfg(target_vendor = "apple")]
-    #[test]
-    fn macos_spawn_runs_at_the_child_class_and_restores_the_thread() {
-        use crate::qos::{LiveQos, QosChange, current, set_current};
-        std::thread::spawn(|| {
-            assert_eq!(set_current(ThreadQos::UserInteractive), QosChange::Applied);
-            assert_eq!(spawn_user_child(current), LiveQos::Class(ThreadQos::Default));
-            assert_eq!(current(), LiveQos::Class(ThreadQos::UserInteractive));
-            assert_eq!(spawn_helper(current), LiveQos::Class(ThreadQos::Utility));
-            assert_eq!(current(), LiveQos::Class(ThreadQos::UserInteractive));
-        })
-        .join()
-        .unwrap();
-    }
-
-    /// macOS: a child spawned inside [`spawn_user_child`] from a
-    /// UserInteractive thread runs at Default and the thread is restored;
-    /// one spawned outside it inherits UserInteractive (the bug).
-    #[cfg(target_vendor = "apple")]
-    #[test]
-    fn macos_a_user_child_of_an_echo_thread_runs_at_default() {
-        use crate::qos::{LiveQos, QosChange, current, set_current};
-        let default = probe::base_priority_at(ThreadQos::Default).unwrap();
-        let interactive = probe::base_priority_at(ThreadQos::UserInteractive).unwrap();
-        assert_ne!(default, interactive);
-        let sleep = || std::process::Command::new("/bin/sleep").arg("30").spawn().unwrap();
-        let read = |mut child: std::process::Child| {
-            let priority = probe::first_thread_base_priority(child.id() as libc::pid_t);
-            let _ = child.kill();
-            let _ = child.wait();
-            priority.unwrap()
-        };
-        let (wrapped, raw) = std::thread::spawn(move || {
-            assert_eq!(set_current(ThreadQos::UserInteractive), QosChange::Applied);
-            let wrapped = read(spawn_user_child(sleep));
-            assert_eq!(current(), LiveQos::Class(ThreadQos::UserInteractive));
-            (wrapped, read(sleep()))
-        })
-        .join()
-        .unwrap();
-        assert_eq!(wrapped, default, "user child {wrapped}: default {default}, ui {interactive}");
-        assert_eq!(raw, interactive, "an unwrapped child inherits the thread's class");
     }
 }

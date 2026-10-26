@@ -9,6 +9,8 @@ use std::os::fd::{BorrowedFd, OwnedFd, RawFd};
 use std::path::{Path, PathBuf};
 use std::process::{ExitStatus, Output};
 
+use cmux_threads::ThreadQos;
+
 use crate::child::Child;
 use crate::stdio::Stdio;
 
@@ -56,6 +58,9 @@ pub struct Command {
     /// [`Command::creation_flags`].
     #[cfg(windows)]
     pub(crate) creation_flags: u32,
+    /// macOS: [`Command::qos`].
+    #[cfg(target_vendor = "apple")]
+    pub(crate) qos: Option<ThreadQos>,
 }
 
 impl Command {
@@ -89,6 +94,8 @@ impl Command {
             open_file_limit: None,
             #[cfg(windows)]
             creation_flags: 0,
+            #[cfg(target_vendor = "apple")]
+            qos: None,
         }
     }
 
@@ -306,6 +313,23 @@ impl Command {
         {
             self.inherit_like_std = true;
         }
+        self
+    }
+
+    /// The QoS class the child's first thread starts at (macOS:
+    /// `posix_spawnattr_set_qos_class_np`), instead of the spawning thread's
+    /// class, which a child otherwise keeps across its exec: a shell spawned
+    /// from a UserInteractive echo thread would run at UserInteractive for
+    /// its life. The spawning thread's own class is not touched. Callers name
+    /// `cmux_threads::USER_CHILD` or `cmux_threads::HELPER_CHILD`. Linux and
+    /// Windows: no effect; the child keeps its creator's nice value.
+    pub fn qos(&mut self, qos: ThreadQos) -> &mut Self {
+        #[cfg(target_vendor = "apple")]
+        {
+            self.qos = Some(qos);
+        }
+        #[cfg(not(target_vendor = "apple"))]
+        let _ = qos;
         self
     }
 
