@@ -24,6 +24,9 @@ let ask: AskStartMode | undefined;
 let generation = 0;
 /// Bumped whenever a kept answer changed: every pending chat draws it.
 let version = 0;
+/// The generation the last ask was sent in: a managed-access probe (useFullAccessProbe) asks only
+/// when no other ask went out in this generation.
+let askedGeneration = -1;
 /// The kept answers, read from storage once per page (each pane asks acpmux itself; storage only
 /// gives a new page its first frame).
 let memory: Record<string, StartMode | null> | undefined;
@@ -132,10 +135,68 @@ export function rememberStartMode(harness: string, cwd: string | undefined, mode
   save(all);
 }
 
+/// #23322: acpmux's last answer said full access is managed off (`"fullAccess": "managed"`: MDM or a
+/// team policy forces `sessions.allowFullAccess` off, an upper bound the person can't override).
+/// Pane-wide, read from every answer, a mode-less one too; an answer without the field (MDM unset,
+/// MDM true, an older daemon) turns it off.
+let fullAccessManaged = false;
+/// The last ask's ticket: only the newest ask's answer counts. An answer to an older ask (two asks in
+/// flight across a push) changes nothing, also when the newer ask failed: what was kept stays.
+let fullAccessAsked = 0;
+
+/// A ticket for an `_acpmux/start_mode` ask about to be sent (direct.ts `startMode`).
+export function fullAccessTicket(): number {
+  fullAccessAsked += 1;
+  return fullAccessAsked;
+}
+
+/// Keeps what an answer's `fullAccess` field says (direct.ts `startMode`), unless a newer ask was
+/// sent since. No ticket (the gallery): the newest.
+export function rememberFullAccess(field: unknown, ticket: number = fullAccessTicket()): void {
+  if (ticket < fullAccessAsked) return;
+  const next = field === "managed";
+  if (next === fullAccessManaged) return;
+  fullAccessManaged = next;
+  notify();
+}
+
+/// Whether full access is managed off: the mode menu disables its full-access rows.
+export function useFullAccessManaged(): boolean {
+  return useSyncExternalStore(
+    subscribe,
+    () => fullAccessManaged,
+    () => fullAccessManaged,
+  );
+}
+
+/// A shown chat whose menu has a full-access row learns whether full access is managed off: once
+/// per generation (a connect, `_acpmux/start_mode_changed`, a pick), and only when no pending chat
+/// asked in it, so a push costs acpmux one ask, not one per composer (#23322).
+export function useFullAccessProbe(harness: string | undefined, cwd: string | undefined, enabled: boolean): void {
+  const asked = useSyncExternalStore(
+    subscribe,
+    () => generation,
+    () => generation,
+  );
+  useEffect(() => {
+    if (!enabled || !harness) return;
+    let live = true;
+    // After this commit's other effects: a pending chat's ask in the same generation answers it.
+    queueMicrotask(() => {
+      if (live && ask && askedGeneration !== generation) void askStartMode(harness, cwd);
+    });
+    return () => {
+      live = false;
+    };
+  }, [enabled, harness, cwd, asked]);
+}
+
 /** Test seam: forget the kept answers this module read or wrote. A test file that clears
  * localStorage must also call this, or the next file in the same bun process starts with them. */
 export function resetStartModesForTests(): void {
   memory = undefined;
+  fullAccessManaged = false;
+  fullAccessAsked = 0;
   version += 1;
   notify();
 }
@@ -159,6 +220,7 @@ export function setStartModeSource(next: AskStartMode | undefined): void {
 export async function askStartMode(harness: string, cwd?: string): Promise<StartMode | undefined> {
   const source = ask;
   if (!source) return exactStartMode(harness, cwd);
+  askedGeneration = generation;
   let mode: StartMode | undefined;
   try {
     mode = await source(harness, cwd);

@@ -209,12 +209,27 @@ impl Hub {
             {
                 continue;
             }
+            // MDM forces full access off (start-mode.json, loaded with the hub): a host left
+            // running in it is ended, never adopted (#23322), a mode it reported without
+            // declaring modes included.
+            if self.end_if_runs_full_access(&session).await {
+                continue;
+            }
             if let Err(e) = self.adopt_one(&session, record).await {
                 tracing::warn!(session = %session.id, "agent host adoption failed: {e:#}");
             }
         }
         for unreadable in bad {
             if let Some(session) = self.session_by_id(&unreadable.session_id) {
+                // MDM forces full access off (#23322): a live host this build cannot adopt ends
+                // too when its chat runs in full access (`end_unadopted_host`: its nonce proves it).
+                let ended = {
+                    let _spawning = session.spawn_lock.lock().await;
+                    self.end_if_runs_full_access(&session).await
+                };
+                if ended && !Self::host_record_live(&session.id) {
+                    continue;
+                }
                 self.mark_unadoptable(
                     &session,
                     json!({"recordVersion": unreadable.record_version, "reason": unreadable.reason}),

@@ -811,6 +811,7 @@ async fn dispatch_request(
             let policy = pick("policy")
                 .map(|p| p.parse::<PermissionPolicy>().map_err(RpcError::invalid_params))
                 .transpose()?;
+            refuse_full_access_policy(hub, policy)?;
             let env = crate::session_env::parse(meta)?;
             let route = pick("route");
             if let Some(r) = &route
@@ -874,6 +875,7 @@ async fn dispatch_request(
                         cfg!(target_os = "macos"),
                         super::remote_guard::control_of(conn.origin, conn.auth, &params)
                             == crate::hub::Control::Peer,
+                        hub.full_access_allowed(),
                     )
                 {
                     hub.set_policy(&s, crate::config::PermissionPolicy::ApproveAll).await;
@@ -1219,6 +1221,7 @@ async fn dispatch_request(
                 .ok_or_else(|| RpcError::invalid_params("policy is required"))?
                 .parse()
                 .map_err(RpcError::invalid_params)?;
+            refuse_full_access_policy(hub, Some(policy))?;
             {
                 let mut cfg = hub.config.write().await;
                 cfg.permission_policy = policy;
@@ -1685,6 +1688,7 @@ async fn dispatch_request(
                 .ok_or_else(|| RpcError::invalid_params("policy is required"))?
                 .parse()
                 .map_err(RpcError::invalid_params)?;
+            refuse_full_access_policy(hub, Some(policy))?;
             hub.set_policy_unless_moving(&s, policy).await?;
             Ok(hub.session_summary(&s))
         }
@@ -1773,6 +1777,19 @@ async fn dispatch_request(
             Err(RpcError::method_not_found(other))
         }
     }
+}
+
+/// `sessions.allowFullAccess` off: a request for the approve-all policy (`approve-all`, `yolo`)
+/// on `session/new`, `_acpmux/set_policy` or `_acpmux/set_default_policy` is refused, as a
+/// switch into a full-access mode is (`full_access_off`). A stored approve-all runs as `ask`
+/// meanwhile (`Hub::policy_for`).
+fn refuse_full_access_policy(hub: &Hub, policy: Option<PermissionPolicy>) -> Result<(), RpcError> {
+    if policy.is_some_and(crate::hub::full_access_bound::policy_is_full_access)
+        && !hub.full_access_allowed()
+    {
+        return Err(crate::hub::start_mode::full_access_off());
+    }
+    Ok(())
 }
 
 #[cfg(test)]
