@@ -252,6 +252,7 @@ public final class AgentPaneView: NSView {
             return event
         }
         installTransport()
+        AgentPaneVisibilityEdges.install(on: self)
         installContextMenu()
         if page == nil {
             navigation.view = self
@@ -354,8 +355,7 @@ public final class AgentPaneView: NSView {
     }
 
     public let renderRate: AgentPaneRenderRate
-    /// The display's refresh rate when the pane has no window screen to ask
-    /// (tests set it).
+    /// The display's refresh rate when the pane has no window screen to ask (tests set it).
     var displayFramesPerSecond: () -> Int = { NSScreen.main?.maximumFramesPerSecond ?? 60 }
 
     /// The re-apply of the last rate change, while it runs.
