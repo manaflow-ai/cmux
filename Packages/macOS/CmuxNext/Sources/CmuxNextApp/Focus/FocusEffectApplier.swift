@@ -7,6 +7,7 @@ import CmuxNextFocus
 import CmuxNextFocusUI
 import CmuxNextTerminal
 import CmuxNextCompat
+import CmuxNextWakeups
 
 /// Makes one window's AppKit first responder, WebKit/CEF page focus,
 /// `LayoutModel` focus and the registry context match its `FocusState`
@@ -23,31 +24,40 @@ final class FocusEffectApplier: FocusEffectApplying {
     }
     /// The tab whose docked DevTools this window gave focus to.
     private weak var focusedDevTools: (any BrowserDevToolsHosting)?
-    private var observers: [MainActorObservation] = []
+    /// Any window's key change and the app's activation, through the app's one observer per notice
+    /// (`AppServices.appEvents`). Focus follows them while the window is hidden too: no node.
+    private var subscriptions: [EventSubscription] = []
     /// The panel bubble over this window that has the keyboard (group editor).
     private weak var overlayPanel: NSWindow?
-    private var overlayPanelObserver: MainActorObservation?
+    private var overlayPanelSubscription: EventSubscription?
 
     init(controller: WindowController) {
         self.controller = controller
-        let center = NotificationCenter.default
-        observers.append(MainActorObservation(NSWindow.didBecomeKeyNotification, center: center, read: { $0.object as? NSWindow }) { [weak self] window in
-            guard let window else { return }
-            self?.ownedWindowDidBecomeKey(window)
-            self?.childWindowDidBecomeKey(window)
-        })
-        for (name, active) in [(NSApplication.didBecomeActiveNotification, true), (NSApplication.didResignActiveNotification, false)] {
-            observers.append(MainActorObservation(name, center: center) { [weak self] in
-                self?.controller.focus.send(.appActive(active))
-                if active { self?.reclaimKeyAfterActivation() }
-            })
-        }
+        let events = controller.services.appEvents
+        let owner = "FocusEffectApplier"
+        subscriptions = [
+            // AppKit sets the key window before it posts the notice: the window that became key is NSApp's key window.
+            events.subscribe(NSWindow.didBecomeKeyNotification, owner: owner) { [weak self] in
+                guard let window = NSApp.keyWindow else { return }
+                self?.ownedWindowDidBecomeKey(window)
+                self?.childWindowDidBecomeKey(window)
+            },
+            events.subscribe(NSApplication.didBecomeActiveNotification, owner: owner) { [weak self] in self?.appActiveChanged(true) },
+            events.subscribe(NSApplication.didResignActiveNotification, owner: owner) { [weak self] in self?.appActiveChanged(false) },
+        ]
         controller.services.input.observeFocus(of: controller)
     }
 
     func teardown() {
-        observers.removeAll()
-        overlayPanelObserver = nil
+        subscriptions.forEach { $0.cancel() }
+        subscriptions.removeAll()
+        overlayPanelSubscription?.cancel()
+        overlayPanelSubscription = nil
+    }
+
+    private func appActiveChanged(_ active: Bool) {
+        controller.focus.send(.appActive(active))
+        if active { reclaimKeyAfterActivation() }
     }
 
     /// The content the state describes. While a workspace switch is in
@@ -109,7 +119,7 @@ final class FocusEffectApplier: FocusEffectApplying {
             blurChildWindowPage()
             // Not a bar leaving the window (its pane mid-move): an edit begun there ends at once (cx-p0fz).
             let bar = entry.chrome.addressBar
-            if bar.window === window, !bar.isHiddenOrHasHiddenAncestor, !responder(of: window, isInside: bar) { bar.focus() }
+            if bar.window === window, bar.isShownForInput, !responder(of: window, isInside: bar) { bar.focus() }
         case .findBar(let pane, let tab):
             guard case .browser(let entry)? = presented(pane: pane, tab: tab) else { return }
             blurChildWindowPage()
@@ -293,7 +303,7 @@ final class FocusEffectApplier: FocusEffectApplying {
               overlayPanel == nil else { return }
         overlayPanel = owned
         controller.focus.send(.overlayOpened(.groupEditor))
-        overlayPanelObserver = MainActorObservation(NSWindow.didResignKeyNotification, object: owned) { [weak self] in
+        overlayPanelSubscription = WindowEvents.of(owned).subscribe(NSWindow.didResignKeyNotification, owner: "FocusEffectApplier.overlayPanel") { [weak self] in
             self?.overlayPanelDidResignKey()
         }
     }
@@ -306,7 +316,8 @@ final class FocusEffectApplier: FocusEffectApplying {
 
     /// The bubble dismisses when it loses the keys.
     private func overlayPanelDidResignKey() {
-        overlayPanelObserver = nil
+        overlayPanelSubscription?.cancel()
+        overlayPanelSubscription = nil
         overlayPanel = nil
         controller.focus.send(.overlayClosed(.groupEditor))
     }
