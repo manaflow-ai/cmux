@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextCompat
+import CmuxNextDesign
 @testable import CmuxNextHome
 import CmuxNextWakeups
 @testable import MessagesLabHome
@@ -143,6 +144,46 @@ import Testing
         rig.advance(by: .seconds(60))
         rig.fireAtNow()
         #expect(!caches.isIdle && caches.memoryBytes == full)
+    }
+
+    /// The Home page stays in its window while the window is covered, miniaturized or in a hidden app (Cmd-H).
+    /// Before, the split counted its own root node, visible whenever it was in a window and not hidden, so the
+    /// idle deadline never armed and the caches kept their whole budget. Now the page's node, under its
+    /// window's (`ViewVisibility`, as `TopHomePageView` passes it), is the one tracked.
+    @Test func aCoveredOrMiniaturizedWindowEmptiesTheCachesThoughTheHomePageStaysInIt() throws {
+        _ = NSApplication.shared
+        let caches = consumer()
+        let page = NSView(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
+        let pageVisibility = ViewVisibility("test.topHome")
+        let split = HomeSidebarSplitView(sidebar: HomeSidebarView(), content: NSView(), mainWork: linklessMainWork(),
+                                         caches: caches, page: pageVisibility.node)
+        split.frame = page.bounds
+        page.addSubview(split)
+        let window = NSWindow(contentRect: page.frame, styleMask: [.borderless], backing: .buffered, defer: true)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        let source = WindowVisibilitySource.of(window, read: { _ in .visible })
+        window.contentView = page
+        pageVisibility.place(in: window)
+        try fill()
+        #expect(caches.memoryBytes > 0)
+        #expect(!rig.hasArmedWake, "a shown Home page armed the idle deadline")
+
+        source.node.set(.occluded)
+        #expect(split.window === window && !split.isHiddenOrHasHiddenAncestor)
+        #expect(rig.hasArmedWake, "a covered window's Home page still counts as shown")
+        rig.fireAndRun()
+        #expect(caches.isIdle && caches.memoryBytes == 0, "the caches kept \(caches.memoryBytes) bytes in a covered window")
+
+        source.node.set(.visible)
+        #expect(!caches.isIdle && !rig.hasArmedWake)
+        try fill()
+        #expect(caches.memoryBytes > 0 && caches.allowedBytes == Self.budget, "the shown Home page did not get its budget back")
+
+        source.node.set(.hidden)
+        #expect(rig.hasArmedWake, "a miniaturized window's Home page still counts as shown")
+        rig.fireAndRun()
+        #expect(caches.isIdle && caches.memoryBytes == 0)
     }
 
     @Test func eachHomeListGetsItsShareAndTrimsWithTheCaches() throws {

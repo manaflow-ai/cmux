@@ -42,10 +42,13 @@ public final class HomeSidebarSplitView: NSSplitView, NSSplitViewDelegate {
     private var loneRailWatch: FrameObservation<Bool>?
 
     /// - Parameter mainWork: the app's main-thread scheduler; a Debug Settings change lays out on its frames.
-    /// - Parameter caches: Home's cache consumer (`memoryHomeLabCaches`): the list's bitmaps join it, and the
-    ///   split counts as a shown Home view while it is in a window and not hidden; nil keeps MessagesLab's sizes.
+    /// - Parameter caches: Home's cache consumer (`memoryHomeLabCaches`): the list's bitmaps join it; nil keeps
+    ///   MessagesLab's sizes.
+    /// - Parameter page: The Home page's node, under its window's (`ViewVisibility`): the consumer counts the page
+    ///   as shown only while its window shows (not occluded, miniaturized or in a hidden app). The split's own
+    ///   node is no window's child, so it is not the one tracked.
     public init(sidebar: HomeSidebarView, content: NSView, widths: HomeSidebarWidth = HomeSidebarWidth(), mainWork: MainWorkScheduler,
-                caches: MessagesLabMemoryConsumer? = nil) {
+                caches: MessagesLabMemoryConsumer? = nil, page: VisibilityNode? = nil) {
         self.widths = widths
         self.mainWork = mainWork
         list = sidebar
@@ -62,8 +65,10 @@ public final class HomeSidebarSplitView: NSSplitView, NSSplitViewDelegate {
         setAccessibilityIdentifier("cmux.home.split")
         sidebar.onContentChange = { [weak self] in self?.foldMayHaveChanged() }
         loneRailWatch = followLoneConversationTunable()
-        caches?.track(visibility)
-        caches?.track(sidebar: sidebar)
+        if let caches {
+            if let page { caches.track(page) }
+            caches.track(sidebar: sidebar)
+        }
     }
 
     @available(*, unavailable)

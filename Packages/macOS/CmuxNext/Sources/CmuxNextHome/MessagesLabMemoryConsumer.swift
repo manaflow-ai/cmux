@@ -78,7 +78,8 @@ public final class MessagesLabMemoryConsumer {
     }
 
     /// Counts `node` (a Home view's place in the visibility tree) as a Home view the person may see.
-    /// Tracking a node again does nothing; a released node stops counting.
+    /// Track a node under its window's node (`ViewVisibility`), so an occluded or miniaturized window and
+    /// a hidden app count as not shown. Tracking a node again does nothing; a released node stops counting.
     ///
     /// - Parameter node: The view's node.
     public func track(_ node: VisibilityNode) {

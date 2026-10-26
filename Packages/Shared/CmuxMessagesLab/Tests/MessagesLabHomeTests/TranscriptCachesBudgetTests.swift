@@ -106,20 +106,21 @@ import Testing
         #expect(media.budget == MediaCache.labBudget ?? share.media)
     }
 
-    @Test func theMarkdownLineCacheCountsItsBytesAndEmptiesOnATrim() {
+    /// The line cache is outside the host's consumer (it lives only while its reply streams): its fixed byte
+    /// cap is its bound, and a line over the cap is rendered but not kept.
+    @Test func theMarkdownLineCacheCountsItsBytesAndStaysUnderItsCap() {
         let lines = HomeMarkdownLineCache(chips: false)
+        #expect(lines.budget == HomeMarkdownLineCache.defaultBudget)
         for n in 0..<20 { _ = lines.rendered("line \(n) with **bold** words"[...]) }
         #expect(lines.count == 20)
         #expect(lines.bytes > 0)
-        lines.trim(toFraction: 1)
-        #expect(lines.count == 20, "a trim to everything dropped lines")
-        lines.trim(toFraction: 0.5)
-        #expect(lines.count == 0)
-        #expect(lines.bytes == 0)
 
-        lines.setBudget(bytes: 64)
-        for n in 0..<20 { _ = lines.rendered("line \(n) with **bold** words"[...]) }
-        #expect(lines.bytes <= 64, "the line cache kept \(lines.bytes) bytes over its 64-byte budget")
+        let small = HomeMarkdownLineCache(budget: 64, chips: false)
+        for n in 0..<20 { _ = small.rendered("line \(n) with **bold** words"[...]) }
+        #expect(small.bytes <= 64, "the line cache kept \(small.bytes) bytes over its 64-byte budget")
+        let long = String(repeating: "word ", count: 40)
+        #expect(small.rendered(long[...]).text == lines.rendered(long[...]).text, "a line over the cap rendered differently")
+        #expect(small.bytes == 0 && small.count == 0, "a line over the cap was kept")
     }
 
     @Test func aTrimTargetNeverFreesMoreThanAskedOrTraps() {
