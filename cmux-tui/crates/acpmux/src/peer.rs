@@ -57,6 +57,8 @@ pub enum PeerNotice {
     Notification {
         method: String,
         params: Value,
+        /// The link it came on (`Peer::link_epoch` when it was read).
+        link: u64,
     },
 }
 
@@ -825,7 +827,7 @@ impl Peer {
                                     seq: p.get("seq").and_then(Value::as_u64).unwrap_or(0),
                                 }
                             } else {
-                                PeerNotice::Notification { method: m, params: p }
+                                PeerNotice::Notification { method: m, params: p, link: self.link_epoch() }
                             };
                             if self.notices.send((self.name.clone(), self.generation, notice)).await.is_err() {
                                 break Ok(());
