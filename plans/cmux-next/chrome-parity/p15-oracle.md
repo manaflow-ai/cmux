@@ -1046,7 +1046,7 @@ already show (I3). Creates whose handler waits for the daemon before anything sh
 one of these follow-ups; invariants.py is not yet part of a run, so the cases stay green on their outcome and waitFor
 checks until it is.
 
-**310 I3 pairs a stand-in with the object that replaced it.** Files: `OracleIntentsFacet.swift`,
+**320 I3 pairs a stand-in with the object that replaced it.** Files: `OracleIntentsFacet.swift`,
 `snapshot-v1.schema.json`, `invariants.py`, `OracleIntentsFacetTests.swift`. An optimistic create shows a stand-in in
 its turn (NewTerminalTabCommand.intendNow: a `pending_tab_` id, a provisional surface, no title or size; a page or
 workspace stand-in the same way) and the daemon's tab takes its place at settle (ProvisionalTab.created, echoed). I3
@@ -1059,7 +1059,7 @@ stand-in because the daemon owns the id. Test: invariants.py --selftest (a stand
 vanished or a field the stand-in claimed that changed fails); OracleIntentsFacetTests; fleet, newSurface, newTab and
 newColumn green on I3.
 
-**311 A positioned new tab is in its slot in its turn.** Files: `NewTabSlot.swift`, `NewTerminalTabCommand.swift`,
+**321 A positioned new tab is in its slot in its turn.** Files: `NewTabSlot.swift`, `NewTerminalTabCommand.swift`,
 `Intent.swift`, `NewTabPositionSlotTests.swift`. NewTabSlot makes the tab at the end and moves it into its slot
 (TabMoves.move) once the pane lists it; NewTabSuccession places it in the strip only, so the store's order, which the
 topology and every client read, has it last in the turn. Give the create intent the index (the stand-in is inserted
@@ -1067,7 +1067,7 @@ there) and send it with new-tab, as Chrome inserts at the index in one call (Tab
 NewTabPositionSlotTests (the stand-in is at its index in the turn); fleet, newTab.atStart, afterCurrent and toRight
 green on I3.
 
-**312 Tab group writes are store intents.** Files: `TabGroupHandlers.swift`, `TabGroupHandlers+Moves.swift`,
+**322 Tab group writes are store intents.** Files: `TabGroupHandlers.swift`, `TabGroupHandlers+Moves.swift`,
 `Intent.swift`, `TabGroupIntentTests.swift`. TabGroupHandlers.run passes no intent except for collapse, so create,
 addTab, removeTab, newTab, rename, setColor and color.*, ungroup, close and moveLeft/Right change nothing until the
 daemon's echo. Add an intent per write, applied to the pane's tab groups in the turn and rolled back on a refusal
@@ -1075,7 +1075,7 @@ daemon's echo. Add an intent per write, applied to the pane's tab groups in the 
 RemoveFromGroup, MoveGroupTo and TabGroup::SetVisualData change the model at once. Test: TabGroupIntentTests (each
 write shows in the turn; a refusal restores it); fleet, the tab group cases green on I3.
 
-**313 Windows, workspaces and reopens show in their turn.** Files: `WindowManager+Creation.swift`,
+**323 Windows, workspaces and reopens show in their turn.** Files: `WindowManager+Creation.swift`,
 `WindowManager+Incognito.swift`, `WorkspaceHandlers.swift`, `PaneController+Intents.swift`,
 `DaemonClosedHistory.swift`, `TabGroupHandlers.swift`, `OptimisticCreateTests.swift`. newWindow and
 newIncognitoWindow open their window after createWorkspace returns, newBrowserWorkspace creates in createAndShow's
@@ -1087,7 +1087,7 @@ chrome::NewIncognitoWindow (chrome/browser/ui/browser_commands.cc), TabRestoreSe
 (components/sessions/core/tab_restore_service_helper.cc). Test: OptimisticCreateTests; fleet, those cases green on
 I3.
 
-**314 Tab and group moves into new containers show in their turn.** Files: `TabMoves.swift`, `TabGroupMoves.swift`,
+**324 Tab and group moves into new containers show in their turn.** Files: `TabMoves.swift`, `TabGroupMoves.swift`,
 `TabGroupHandlers+Moves.swift`, `TabHandlers+More.swift`, `TabMoveIntentTests.swift`. TabMoves.toNewSplit,
 toNewColumn, toNewDockColumn and toNewWorkspace and the group moves await the daemon (only TabMoves.toWorkspace is an
 intent); TabGroupHandlers.moveToNewWorkspace runs in an untracked Task, so action.run answers before the move. Make
@@ -1095,14 +1095,14 @@ each a store intent with a provisional pane, column or workspace, as the splits 
 Chrome: TabStripModel::DetachWebContentsAtForInsertion then InsertDetachedTabAt, chrome::MoveTabsToNewWindow. Test:
 TabMoveIntentTests; fleet, the move cases green on I3.
 
-**315 Facets: tab and group icons, tab tint, saved tab groups.** Files: `ControlTopology+JSON.swift`,
+**325 Facets: tab and group icons, tab tint, saved tab groups.** Files: `ControlTopology+JSON.swift`,
 `ControlTopologyMapper.swift`, `snapshot-v1.schema.json`, CmuxNextControlTests. The topology's tab and tab group have
 no icon, a tab's own tint is in no facet and no facet lists the daemon's saved tab groups, so tab.setIcon,
 tab.clearIcon, tab.setTint, tabGroup.setIcon, clearIcon, save and unsave are checked on their ok answer only. Add
 `icon` (null, or `set`: an icon is user text) to both, the tab's own `tint`, and the saved groups (id, open group,
 name); the cases gain a waitFor. Test: CmuxNextControlTests on the JSON; fleet, the seven cases green twice.
 
-**316 A tab-group target and the groups a run made.** Files: `PublicIDTargetResolver.swift`,
+**326 A tab-group target and the groups a run made.** Files: `PublicIDTargetResolver.swift`,
 `ControlRouter+ActionRun.swift`, `case-v1.schema.json`, `driver_app.py`, `driver_app_test.py`, the tabs tuning.
 action.run's `created` lists no tab group or saved group, and case-v1 has no tab-group target kind (270 adds the
 sidebar's), so tabGroup.addTab and tabGroup.reopenSaved are blocked `live-value` and the group actions act only on the
