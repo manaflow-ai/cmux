@@ -814,10 +814,9 @@ button.acpmux-chat-inspector-port:focus-visible {
   appearance: none;
   cursor: default;
 }
-.acpmux-chat-inspector-fold:focus-visible {
-  outline: var(--cmux-focus-ring-width, 1.5px) solid var(--cmux-focus-ring-color, var(--agent-text));
-  outline-offset: calc(-1 * var(--cmux-focus-ring-width, 1.5px));
-}
+/* No hover fill (Leo: plain text, no hover pill) and no focus rule of its own: keyboard focus takes
+   the agent pane's soft pill (agent-session/shared/styles.css), the wider ring under Increase
+   Contrast (pages/shared/desktop.css). test/chat-inspector-fold-rows.test.ts. */
 /* Subagents (SubagentsSection.tsx): the running ones' lines, "Show more" under them, then the one
    row of the ended ones, which opens into their lines. */
 .acpmux-chat-inspector-subagents__more {

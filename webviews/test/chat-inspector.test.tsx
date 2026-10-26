@@ -424,16 +424,6 @@ test("the overlay handoff honors the app's reduced-motion policy", () => {
   expect(css).toContain(':root[data-cmux-motion="off"]');
 });
 
-test("Session Info folds are plain whole-row controls with token focus rings", () => {
-  const css = readFileSync(new URL("../src/agent-session/acpmux/inspector/inspector.css", import.meta.url), "utf8");
-  const fold = css.match(/\.acpmux-chat-inspector-fold \{([^}]*)\}/)?.[1] ?? "";
-  expect(fold).toContain("width: 100%");
-  expect(fold).toContain("text-align: left");
-  expect(fold).toContain("appearance: none");
-  expect(css).toContain("var(--cmux-focus-ring-color, var(--agent-text))");
-  expect(css).not.toMatch(/\.acpmux-chat-inspector-fold:hover[^}]*background/);
-});
-
 test("an output whose diff split leaves no room to push the chat closes the Inspector until the toggle", async () => {
   setChatDisplay({ [INSPECTOR_PLACEMENT_KEY]: "push" });
   const container = installDom(true);
