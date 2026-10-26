@@ -1,6 +1,14 @@
 /* The composer's model picker (ModelPicker.tsx): a harness rail beside the model list. It builds
    on the composer menu (.acpmux-menu, .acpmux-menu-item, .acpmux-menu-active).
    Theme tokens only; motion only for viewers who allow it. */
+/* Base UI normally supplies a length for --available-height. A typed room keeps a malformed token
+   from discarding the independent viewport ceiling below. The large initial value is reduced by
+   that ceiling whenever no usable room was published. */
+@property --acpmux-quick-room {
+  syntax: "<length>";
+  inherits: false;
+  initial-value: 100000px;
+}
 .acpmux-mp {
   --acpmux-mp-press: color-mix(in srgb, var(--agent-text) 20%, var(--acpmux-base));
   --acpmux-mp-gap: 4px;
@@ -104,15 +112,19 @@
    column (Base UI's --available-width, MenuPopup `boundary`), its floor giving way in a narrow one;
    submenus are the same surface and keep to theirs. */
 .acpmux-quick-menu {
+  /* Never past the room on its side (Base UI's --available-height, cx-m6jn0) nor the window, when a
+     positioner publishes no room or too much (Lawrence: "model picker too tall"): the list scrolls. */
+  --acpmux-quick-room: min(var(--available-height, 100vh), calc(100vh - 16px));
   width: max-content;
   min-width: min(220px, var(--available-width, calc(100vw - 24px)));
   max-width: min(300px, var(--available-width, calc(100vw - 24px)));
   padding: 6px;
   border: 0;
   border-radius: 12px;
-  /* Never past the room on its side (Base UI's --available-height, cx-m6jn0): the list scrolls. */
-  max-height: var(--available-height, none);
+  max-height: calc(100vh - 16px);
+  max-height: min(calc(100vh - 16px), var(--acpmux-quick-room));
   overflow-y: auto;
+  overscroll-behavior: contain;
 }
 .acpmux-quick-menu .ui-menu-group-label {
   display: block;
@@ -254,9 +266,18 @@
    icon tabs on a hairline; the chosen tab keeps the row wash. The list keeps Claude Code's rows. */
 .acpmux-quick-railed { display: flex; flex-direction: column; max-width: min(360px, var(--available-width, calc(100vw - 24px))); padding: 0; overflow: hidden; }
 /* A rail or list taller than the room scrolls on its own; the other stays put. */
-.acpmux-quick-layout { display: flex; align-items: stretch; min-height: 0; max-height: var(--available-height, none); }
+.acpmux-quick-layout {
+  display: flex;
+  align-items: stretch;
+  min-height: 0;
+  /* Search and the optional update footer are fixed siblings of this layout. Let the list give up
+     its height first so both stay visible when the popup reaches its window cap. */
+  flex: 1 1 auto;
+  max-height: calc(100vh - 16px);
+  max-height: min(calc(100vh - 16px), var(--acpmux-quick-room));
+}
 .acpmux-quick-rail,
-.acpmux-quick-body { overflow-y: auto; }
+.acpmux-quick-body { min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
 .acpmux-quick-rail {
   flex: none;
   min-inline-size: 0;
