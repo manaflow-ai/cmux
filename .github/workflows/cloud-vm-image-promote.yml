@@ -110,8 +110,10 @@ jobs:
           IFS=$'\t' read -r wf branch event conclusion repo < "$RUNNER_TEMP/bake-run.tsv"
           echo "bake run $BAKE_RUN: $wf on $branch ($event, $conclusion, $repo)"
           [ "${wf%%@*}" = .github/workflows/cloud-vm-image-bake.yml ] || { echo "::error title=Bake run::$BAKE_RUN is $wf, not cloud-vm-image-bake.yml"; exit 1; }
-          [ "$branch" = feat-cmux-next ] && [ "$event" = workflow_dispatch ] && [ "$repo" = "$GITHUB_REPOSITORY" ] \
-            || { echo "::error title=Bake run::$BAKE_RUN is not a feat-cmux-next dispatch in $GITHUB_REPOSITORY"; exit 1; }
+          if [ "$branch" != feat-cmux-next ] || [ "$event" != workflow_dispatch ] || [ "$repo" != "$GITHUB_REPOSITORY" ]; then
+            echo "::error title=Bake run::$BAKE_RUN is not a feat-cmux-next dispatch in $GITHUB_REPOSITORY"
+            exit 1
+          fi
           [ "$conclusion" = success ] || { echo "::error title=Bake run::$BAKE_RUN concluded $conclusion"; exit 1; }
 
       - name: Download the bake candidate
