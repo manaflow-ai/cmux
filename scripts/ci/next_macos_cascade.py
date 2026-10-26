@@ -452,30 +452,30 @@ def read(env: Mapping[str, str], pool: Any, *, now: dt.datetime, log: Callable[[
     found: Seen | None = None
     if skipped(env):
         return live, waiting, found
-    route, repository = env.get("ROUTE_TOKEN", ""), env.get("GITHUB_REPOSITORY", "")
-    if route and repository:
+    repository = env.get("GITHUB_REPOSITORY", "")
+    # The routing App first, then cmux-bot (ROUTE_TOKEN_FALLBACK) when the first read is refused.
+    for name in ("ROUTE_TOKEN", "ROUTE_TOKEN_FALLBACK"):
+        route = env.get(name, "")
+        if not (route and repository):
+            continue
         try:
             live = Api(route, repository).in_flight()
             if live is None:
                 log("::warning title=macOS cascade::no `Blacksmith scale sets - <label>` runner group is visible")
+            break
         except Exception as error:  # noqa: BLE001 - fail closed: nothing leaves the minis' queue
-            log(f"::warning title=macOS cascade::could not list Blacksmith's runner groups ({error})")
+            log(f"::warning title=macOS cascade::could not list Blacksmith's runner groups with {name} ({error})")
     snapshot_token = env.get("SNAPSHOT_TOKEN", "")
     if clock() - started > READ_BUDGET_SECONDS:
         log("::warning title=macOS cascade::the runner groups took too long; the pool snapshot is not read")
         return live, None, None
-    if snapshot_token and repository:
+    # The snapshot never stands in for the runner groups: it counts this repository's jobs, while the pool is
+    # the organization's, so a refused runner read leaves `live` None and only FRESH_JOBS move (place()).
+    if live is not None and snapshot_token and repository:
         try:
             snapshot = pool.GitHub(snapshot_token, repository).snapshot(now=now)
             waiting, found = queued(snapshot, now), seen(snapshot, now)
-            if live is None and waiting is not None:
-                # The route token's runner read was refused (403s on 2026-10-26 from 22:47Z): the fresh
-                # snapshot's own running counts stand in, read with the snapshot's token, a second identity.
-                log("::notice title=macOS cascade::in flight counted from the pool snapshot, since the runner "
-                    "groups could not be read")
-                live = {label: 0 for label in LABELS} | with_running({}, snapshot, now)
-            elif live is not None:
-                live = with_running(live, snapshot, now)
+            live = with_running(live, snapshot, now)
         except Exception as error:  # noqa: BLE001 - fail closed, as above
             log(f"::warning title=macOS cascade::could not read the pool snapshot ({error})")
     return live, waiting, found

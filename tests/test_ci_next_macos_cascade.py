@@ -373,19 +373,29 @@ class Place(unittest.TestCase):
             self.assertEqual(cascade.read(live_env, pool, now=NOW, log=lambda _: None),
                              ({LARGE: 2, SMALL: 3}, {LARGE: 1, SMALL: 0},
                               cascade.Seen(waits={LARGE: 5.0, SMALL: 0.0}, hosted=0, age=2.0)))
-        # A refused runner read (the route token's 403s, 2026-10-26 22:47Z) counts in flight from the fresh
-        # snapshot, which the snapshot's own token reads.
+        # A refused runner read (the route token's 403s, 2026-10-26 22:47Z) is not replaced by the snapshot,
+        # which counts only this repository's share of the organization's pool.
         with mock.patch.object(cascade.Api, "in_flight", side_effect=OSError("HTTP Error 403: Forbidden")):
-            live, waiting, found = cascade.read(live_env, pool, now=NOW, log=lambda _: None)
-            self.assertEqual((live[LARGE], live[SMALL], waiting), (0, 0, {LARGE: 1, SMALL: 0}))
-            self.assertIsNotNone(found)
-        # Both refused, or the snapshot stale: nothing is counted.
-        pool.GitHub.return_value.snapshot.return_value = snapshot(minutes_old=40)
-        with mock.patch.object(cascade.Api, "in_flight", side_effect=OSError("boom")):
             self.assertEqual(cascade.read(live_env, pool, now=NOW, log=lambda _: None), (None, None, None))
+        # cmux-bot's token (ROUTE_TOKEN_FALLBACK) reads again when the routing App's read is refused.
+        tokens = []
+
+        def in_flight(api):
+            tokens.append(api.route_token)
+            if api.route_token == "t":
+                raise OSError("HTTP Error 403: Forbidden")
+            return {LARGE: 2, SMALL: 3}
+
+        with mock.patch.object(cascade.Api, "in_flight", autospec=True, side_effect=in_flight):
+            live, waiting, _ = cascade.read({**live_env, "ROUTE_TOKEN_FALLBACK": "bot"}, pool, now=NOW,
+                                            log=lambda _: None)
+        self.assertEqual((tokens, live, waiting), (["t", "bot"], {LARGE: 2, SMALL: 3}, {LARGE: 1, SMALL: 0}))
+        tokens.clear()
+        with mock.patch.object(cascade.Api, "in_flight", autospec=True, side_effect=in_flight):
+            cascade.read({**live_env, "ROUTE_TOKEN": "ok", "ROUTE_TOKEN_FALLBACK": "bot"}, pool, now=NOW,
+                         log=lambda _: None)
+        self.assertEqual(tokens, ["ok"])
         pool.GitHub.return_value.snapshot.side_effect = OSError("boom")
-        with mock.patch.object(cascade.Api, "in_flight", side_effect=OSError("boom")):
-            self.assertEqual(cascade.read(live_env, pool, now=NOW, log=lambda _: None), (None, None, None))
         with mock.patch.object(cascade.Api, "in_flight", return_value={LARGE: 2, SMALL: 3}):
             self.assertEqual(cascade.read(live_env, pool, now=NOW, log=lambda _: None),
                              ({LARGE: 2, SMALL: 3}, None, None))

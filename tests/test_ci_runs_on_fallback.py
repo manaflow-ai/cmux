@@ -42,13 +42,55 @@ SINGLE_HOST = re.compile(
 )
 # A repository variable naming one trusted runner (vars.CI_NIGHTLY_TRUSTED_RUNNER and the like).
 SINGLE_HOST_VAR = re.compile(r"\bvars\.([A-Z0-9_]*TRUSTED_RUNNER)\b")
+# What may follow a single-host variable as its fallback: `||` then a non-empty label literal, or a variable
+# that is not another single-host one. A configured variable naming a dead host still never falls through;
+# the controller's fall-through and the queue rescue cover that at run time.
+POOL_FALLBACK = re.compile(r"\|\|\s*(?:'[^'\s]+'|vars\.(?![A-Z0-9_]*TRUSTED_RUNNER\b)[A-Z0-9_]+)")
 # A job that compiles, or is a fallback route for one.
 COMPILE_OR_FALLBACK = re.compile(r"compile|fallback", re.IGNORECASE)
-# Keys that scope a group to one pull request, commit, run or branch.
-HEAD_KEYS = ("github.run_id", "github.sha", "head_sha", "head.sha", "inputs.sha", "pull_request.number",
-             "github.event.number", "inputs.pr", "github.head_ref", "github.ref")
+# Keys that scope a group to one pull request, commit, run or branch, as whole identifiers
+# (github.ref_type or inputs.profile are no key).
+HEAD_KEY = re.compile(r"(?<![\w.])(?:github\.(?:run_id|sha|head_ref|ref|ref_name)|[\w.]*\.head_sha|[\w.]*\.head\.sha"
+                      r"|inputs\.(?:sha|pr)|[\w.]*\.pull_request\.number|github\.event\.number)(?![\w.])")
 # Keys under which a cancel only ever hits a superseded head of the same pull request or branch.
-SUPERSEDE_KEYS = ("pull_request.number", "github.event.number", "inputs.pr", "github.head_ref", "github.ref")
+SUPERSEDE_KEY = re.compile(r"(?<![\w.])(?:github\.(?:head_ref|ref|ref_name)|inputs\.pr|[\w.]*\.pull_request\.number"
+                           r"|github\.event\.number)(?![\w.])")
+# An alternative taken only on one named branch (`github.ref == 'refs/heads/main' && 'main'`) is a group per
+# branch tip, like a github.ref key: a newer tip of that branch is what replaces its pending run.
+PINNED_REF = re.compile(r"(?<![\w.])github\.(?:ref|ref_name)\s*==\s*'[^']+'")
+EXPRESSION = re.compile(r"\$\{\{(.*?)\}\}", re.DOTALL)
+
+
+def split_top(text: str, operator: str) -> list[str]:
+    """`text` split on `operator` outside parentheses and quotes."""
+    parts, depth, quoted, start, index = [], 0, False, 0, 0
+    while index < len(text):
+        char = text[index]
+        if char == "'":
+            quoted = not quoted
+        elif not quoted and char == "(":
+            depth += 1
+        elif not quoted and char == ")":
+            depth -= 1
+        elif not quoted and depth == 0 and text.startswith(operator, index):
+            parts.append(text[start:index])
+            index += len(operator)
+            start = index
+            continue
+        index += 1
+    parts.append(text[start:])
+    return parts
+
+
+def keyed(group: str, key: re.Pattern) -> bool:
+    """Whether every value `group` can take carries `key`: in its literal text, or in the value of every
+    `||` alternative of one of its expressions (an alternative's value is its last `&&` operand)."""
+    if key.search(EXPRESSION.sub("", group)):
+        return True
+    return any(all(key.search(split_top(branch, "&&")[-1]) or PINNED_REF.search(branch)
+                   for branch in split_top(body, "||"))
+               for body in EXPRESSION.findall(group))
+
 
 # Groups shared across heads on purpose, each with why no fallback compile waits in it.
 SHARED_GROUP_ALLOWED = {
@@ -70,7 +112,8 @@ def load(path: Path) -> dict:
 def runs_on_text(job: dict) -> str:
     value = job.get("runs-on")
     if isinstance(value, dict):
-        value = [value.get("group", ""), *(value.get("labels") or [])]
+        labels = value.get("labels") or []
+        value = [value.get("group", ""), *([labels] if isinstance(labels, str) else labels)]
     if isinstance(value, list):
         return " ".join(str(item) for item in value)
     return str(value or "")
@@ -92,9 +135,9 @@ def evicting(name: str, concurrency: object) -> str | None:
     group, cancel = found
     if (name, group) in SHARED_GROUP_ALLOWED:
         return None
-    if not any(key in group for key in HEAD_KEYS):
+    if not keyed(group, HEAD_KEY):
         return f"group {group!r} is shared by every head"
-    if cancel not in ("false", "") and not any(key in group for key in SUPERSEDE_KEYS):
+    if cancel not in ("false", "") and not keyed(group, SUPERSEDE_KEY):
         return f"group {group!r} cancels in progress without a pull request or ref key"
     return None
 
@@ -118,7 +161,7 @@ class RunsOnFallbackTests(unittest.TestCase):
             for job_id, job in (load(path).get("jobs") or {}).items():
                 text = runs_on_text(job)
                 for match in SINGLE_HOST_VAR.finditer(text):
-                    if "||" not in text[match.end():]:
+                    if not POOL_FALLBACK.search(text[match.end():]):
                         failures.append(f"{path.name} {job_id}: vars.{match.group(1)} is the last alternative")
         self.assertEqual(failures, [], "a single-host runner variable needs a later `||` pool fallback")
 
@@ -146,6 +189,21 @@ class RunsOnFallbackTests(unittest.TestCase):
                                              "cancel-in-progress": "true"}))
         self.assertIsNone(evicting("x.yml", {"group": "fallback-${{ inputs.pr }}-${{ inputs.sha }}",
                                              "cancel-in-progress": "false"}))
+        # A shared dispatch group can hide behind another branch's key, and keys match whole identifiers.
+        self.assertIsNotNone(evicting("x.yml", {"group": "${{ github.event_name == 'workflow_dispatch' && "
+                                                         "'shadow-release-compile' || github.sha }}"}))
+        self.assertIsNotNone(evicting("x.yml", {"group": "c-${{ github.ref_type }}-${{ inputs.profile }}"}))
+        self.assertIsNone(evicting("x.yml", {"group": "${{ inputs.fallback && format('f-{0}-{1}', inputs.pr, "
+                                                      "inputs.sha) || format('s-{0}', github.run_id) }}"}))
+        self.assertIsNone(evicting("x.yml", {"group": "t-${{ github.ref == 'refs/heads/main' && 'main' || "
+                                                      "format('sha-{0}', github.sha) }}"}))
+        # A scalar `labels` is one label, and an empty or single-host alternative is no fallback.
+        self.assertIn("glaeda-runner-cmux15", runs_on_text({"runs-on": {"group": "mac",
+                                                                        "labels": "glaeda-runner-cmux15"}}))
+        self.assertIsNone(POOL_FALLBACK.search(" || ''"))
+        self.assertIsNone(POOL_FALLBACK.search(" || vars.CI_SEED_TRUSTED_RUNNER"))
+        self.assertIsNotNone(POOL_FALLBACK.search(" || 'blacksmith-6vcpu-macos-26'"))
+        self.assertIsNotNone(POOL_FALLBACK.search(" || vars.MACOS_RUNNER_26 || 'x'"))
         self.assertTrue(SINGLE_HOST.search("glaeda-runner-cmux15"))
         self.assertTrue(SINGLE_HOST.search("runs-on: cmux22"))
         self.assertFalse(SINGLE_HOST.search("glaeda-side-std-xcode-26.6"))
