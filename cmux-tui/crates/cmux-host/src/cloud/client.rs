@@ -300,6 +300,12 @@ impl<H: Http> CloudClient<H> {
         Answer::Http { status, body: answer }
     }
 
+    /// One JSON POST to `path` with the bearer token, the same token
+    /// handling as [`CloudClient::op`] (the trajectory routes, `trajectory.rs`).
+    pub fn post_json(&mut self, path: &str, body: &Value, now_wall_ms: u64) -> Answer {
+        self.post_with_token(path, body, now_wall_ms)
+    }
+
     /// A GitHub token for this machine (`POST /v1/integrations/github/token`
     /// as its `vm` install, the machine's team). Only a 401 or an `auth.*`
     /// 403 drops the cached bearer and retries once: a `policy.denied` is
