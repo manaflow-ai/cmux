@@ -439,6 +439,7 @@ pub(crate) async fn self_update(channel: &str, json_out: bool) -> Result<()> {
         println!("{name} (local): {}", up.line());
     }
     if up.outcome.failed() {
+        // crash-allow: the row above is the whole output; exit 1 is the documented failure code, as in `host update`
         std::process::exit(1);
     }
     Ok(())

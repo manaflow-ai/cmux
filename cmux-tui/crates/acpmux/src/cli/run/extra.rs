@@ -468,7 +468,11 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                     return crate::cli::hosts::setup(client, &host, name, port, auto, json_out)
                         .await;
                 }
-                PeerCmd::SelfUpdate { .. } => unreachable!("dispatched before the connect"),
+                // Dispatched before the connect (above); kept here so the
+                // match stays total without a panic.
+                PeerCmd::SelfUpdate { channel } => {
+                    return crate::cli::hosts::self_update(&channel, json_out).await;
+                }
                 PeerCmd::Update { name, all, binary_dir, if_idle } => {
                     // Run from a session, `--if-idle` never waits on that session's own turn.
                     let caller = match std::env::var("ACPMUX_SESSION_ID") {
