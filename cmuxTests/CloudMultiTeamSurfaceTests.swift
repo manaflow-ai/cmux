@@ -151,6 +151,41 @@ struct CloudMultiTeamSurfaceTests {
         await registry.accessDidEnd()
     }
 
+    @Test("A restored pane leaves when the saved team's read answers 404 and the selected team's answers 403")
+    func restoredPaneLeavesOnSelectedTeamForbidden() async throws {
+        defer { live.tearDown() }
+        let catalog = SurfaceCatalog(live: live)
+        var statusReads: [String] = []
+        let registry = CmuxTuiSurfaceProviderRegistry(
+            links: CloudMachineLinkManager(clientURL: nil, hub: nil, hostThemeColors: { nil }),
+            allowsBackgroundWork: { false },
+            listPage: { VMListPage(vms: [], limits: nil) },
+            activeTeamID: { "team-b" },
+            loadMachineStatus: { _, teamID in
+                statusReads.append(teamID)
+                if teamID == "team-a" {
+                    throw VMClientError.httpStatus(404, #"{"error":"vm_not_found"}"#)
+                }
+                throw VMClientError.httpStatus(403, #"{"error":"forbidden"}"#)
+            },
+            refreshProvider: { _, _ in true }
+        )
+        catalog.restore([SurfaceProjectionRecord(
+            panelID: UUID(), resource: SurfaceResourceID(machine: .cloud("vm-a"), kind: .terminal, key: "term_a")
+        )], workspaceID: live.id())
+        registry.adoptOwnerTeam("team-a", forMachineID: "vm-a")
+        registry.start(catalog: catalog)
+
+        #expect(await registry.refresh(force: true))
+        #expect(statusReads == ["team-a", "team-b"])
+        #expect(registry.provider(machineID: "vm-a") == nil)
+        #expect(registry.ownerTeamID(forMachineID: "vm-a") == nil)
+        #expect(catalog.pendingRestoredMachineIDs.isEmpty)
+        #expect(await registry.refresh(force: true))
+        #expect(statusReads == ["team-a", "team-b"])
+        await registry.accessDidEnd()
+    }
+
     @Test("A restored pane whose team access is gone does not keep reconnecting")
     func restoredForeignTeamPaneWithLostAccessLeaves() async throws {
         defer { live.tearDown() }
