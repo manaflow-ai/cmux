@@ -1,0 +1,76 @@
+name: CLA quota re-run
+
+# CLA Assistant and CLA policy guard fail when the repository's GITHUB_TOKEN
+# budget is spent ("API rate limit exceeded for installation") and stay red
+# until someone re-runs them. Each pass re-runs the ones that failed for that
+# reason (scripts/ci/cla_quota_rerun.py): CLA Assistant on its rate-limit
+# error, and a CLA policy guard reject only with evidence of an API failure,
+# on open pull requests into main and feat-cmux-next, at their current heads.
+# A re-run changes no policy: the same trusted workflow runs again.
+#
+# The budget resets hourly and push-triggered workflows drain it again within
+# minutes, so when the reset is under 15 minutes away a pass sleeps until just
+# after it and runs then: one planned pass per reset, not a loop. Cost: free
+# rate_limit reads of GITHUB_TOKEN; reads and re-runs on the glaeda-route
+# App's own budget. Its own workflow and concurrency group (moved out of
+# ci-queue-janitor.yml), so a pass waiting for the reset never holds the
+# macOS sweep.
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Report what would be re-run without re-running anything"
+        required: true
+        default: true
+        type: boolean
+
+permissions: {}
+
+# One pass at a time; a pass waiting for the reset is never cancelled.
+concurrency:
+  group: ci-cla-quota-rerun
+  cancel-in-progress: false
+
+jobs:
+  cla-quota-rerun:
+    name: Re-run CLA checks the spent budget failed
+    if: vars.GLAEDA_ROUTE_APP_ID != ''
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 22
+    continue-on-error: true
+    permissions:
+      contents: read
+    steps:
+      # An installation token lives an hour, longer than the pass's wait for the reset.
+      - name: Mint the glaeda-route token
+        id: glaeda-token
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+          permission-actions: write
+          # Lists open pull requests into main and feat-cmux-next, forks included.
+          permission-pull-requests: read
+
+      - name: Check out the CLA quota re-run
+        if: steps.glaeda-token.outputs.token != ''
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          sparse-checkout: scripts/ci/cla_quota_rerun.py
+          sparse-checkout-cone-mode: false
+
+      # Waits at most WAIT_FOR_RESET (15 minutes) for a near reset, then one pass.
+      - name: Re-run CLA checks the spent budget failed
+        if: steps.glaeda-token.outputs.token != ''
+        timeout-minutes: 19
+        env:
+          GH_TOKEN: ${{ steps.glaeda-token.outputs.token }}
+          RATE_TOKEN: ${{ github.token }}
+        run: python3 scripts/ci/cla_quota_rerun.py ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run && '--dry-run' || '' }}
