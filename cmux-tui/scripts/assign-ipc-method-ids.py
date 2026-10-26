@@ -130,8 +130,9 @@ FAMILIES: dict[str, tuple[int, str, tuple[str, ...]]] = {
         "forget-session", "set-session-icon", "import-session-organization",
         "*-personal-group", "set-personal-*",
     )),
-    "agents": (0x0E, "Agents in terminals, the local feed and agent CLI updates.", (
+    "agents": (0x0E, "Agents in terminals, the local feed, agent CLI updates and the agent CLI inventory.", (
         "list-agents", "report-agent", "feed-local-*", "agent-cli-intents-*", "agent-cli-update-job*",
+        "agent-inventory", "agent-inventory-*",
     )),
     "conversations": (0x0F, "Local conversations, runs, attachments, inbox and search.", (
         "conversation-*", "home-inbox", "history-search", "chief-inspect",
@@ -191,9 +192,10 @@ EVENT_FAMILIES: dict[str, tuple[int, str, tuple[str, ...]]] = {
 # bulk: large reads (journal and history reads, attachment bytes, icon
 # assets); a write stays control, so a later control command that names what
 # it wrote cannot pass it, unless BULK_STREAM_WRITES names it. background:
-# stats; else control. An agent chat's prompt, cancel and permission answer
-# are the person's input to the attached session (p05-ipc-018: input for
-# attach data, control otherwise).
+# stats and the agent inventory registry refresh, which waits on the network
+# for seconds; else control. An agent chat's prompt, cancel and permission
+# answer are the person's input to the attached session (p05-ipc-018: input
+# for attach data, control otherwise).
 
 COMMAND_PRIORITY: dict[str, tuple[str, ...]] = {
     "input": (
@@ -217,7 +219,7 @@ COMMAND_PRIORITY: dict[str, tuple[str, ...]] = {
         # that control command pass the bytes it names.
         "fs.read", "agent-transfer-read",
     ),
-    "background": ("server-stats", "machine-usage", "terminal-resources"),
+    "background": ("server-stats", "machine-usage", "terminal-resources", "agent-inventory-refresh"),
 }
 
 # Bulk writes: the bytes of a data stream and its half close, like a Mojo
@@ -295,6 +297,8 @@ READ_ONLY = (
     "agent-transfer-read",
     # Asks this machine's acpmux; a plan never starts it.
     "agent-update-plan",
+    # Ask this machine's acpmux owner; nothing in the daemon changes.
+    "agent-inventory", "agent-inventory-refresh",
 )
 MEMORY = (
     "send", "send-key", "paste-image", "copy", "scroll-surface", "browser-key", "browser-key-press",
@@ -307,7 +311,7 @@ MEMORY = (
     "mint-terminal-renderer", "mint-terminal-renderer-by-terminal", "set-cell-pixels",
     "set-client-info", "client-focus", "report-focus", "detach-client", "set-window-title",
     "clear-window-title", "reload-config", "shutdown-daemon", "ws-listen", "page-credential",
-    "subscribe-activity",
+    "subscribe-activity", "agent-inventory-watch",
     # Start or stop a trace recording: process memory and ring files, never the journal.
     "trace-start", "trace-stop",
     # The app supervisor's connection state: every apps-* request registers
