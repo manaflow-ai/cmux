@@ -100,6 +100,7 @@ public struct WindowPlacement {
     /// whose constraints need more room grows now, not after placement), so
     /// the placed frame is the final one.
     private static func fitToContent(_ window: NSWindow) {
+        // sync-layout: `present` places the window from its frame, grown to its content here.
         window.contentView?.layoutSubtreeIfNeeded()
     }
 
