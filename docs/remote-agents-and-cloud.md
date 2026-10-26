@@ -129,16 +129,14 @@ Stop preserves the session log. Adding `--purge` deletes it; do not use purge
 to repair a connection. Closing an app tab closes a viewer. `session resume`
 resumes held queued prompts; it is not a machine-resume command.
 
-The daemon supports durable wake subscriptions through the local socket methods
-`_acpmux/watch_add`, `_acpmux/watch_ls`, and `_acpmux/watch_rm` (`durable-watches-v1`).
-Add takes `to`, explicit nonempty `sessions` (including `HOST/name`), `until`, optional
-`match`, and `once` (only true is supported). It delivers batched ordinary messages with reply excerpts
-and inspection commands. Watches and undelivered messages survive restart; an offline peer
-produces one notice without resolving. Failed deliveries remain visible in the list and retry
-on a relevant session/peer change or restart. A one-shot watch is removed after delivery.
-Unreadable watch state is preserved as `watches.json.bad-<timestamp>`; the daemon starts
-with no watches. Older cursor fields default safely. Peer replay uses eight workers.
-The CLI and MCP watch tools are not exposed yet; `acpmux wait` remains the script interface.
+Durable one-shot wake subscriptions use the local socket methods `_acpmux/watch_add`,
+`_acpmux/watch_ls`, and `_acpmux/watch_rm` (`durable-watches-v1`). Add takes `to`, nonempty
+local or `HOST/name` sessions, `until`, optional `match`, and `once: true`; it delivers batched
+messages with excerpts and inspection commands. State and undelivered messages survive restart;
+offline peers notify once, failed deliveries retry, and a one-shot watch is removed after delivery.
+Unreadable state is quarantined as `watches.json.bad-<timestamp>`; older cursors default safely;
+peer replay uses eight workers. The CLI and MCP tools are follow-ups; `acpmux wait` remains the
+script interface.
 
 ## Use cmux Cloud
 

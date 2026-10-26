@@ -43,11 +43,27 @@ struct Inner {
     saved: Saved,
     path: Option<PathBuf>,
 }
+const REMOTE_WORKERS: usize = 8;
 #[derive(Default)]
 struct Jobs {
     ready: VecDeque<String>,
     // Dirty while running, plus consecutive failures; one entry per peer/session.
     pending: BTreeMap<String, (bool, u8)>,
+}
+impl Jobs {
+    fn enqueue(&mut self, key: String) {
+        if let Some((dirty, _)) = self.pending.get_mut(&key) {
+            *dirty = true;
+        } else {
+            self.pending.insert(key.clone(), (false, 0));
+            self.ready.push_back(key);
+        }
+    }
+    fn take(&mut self) -> Option<String> {
+        let key = self.ready.pop_front()?;
+        self.pending.get_mut(&key).unwrap().0 = false;
+        Some(key)
+    }
 }
 #[derive(Default)]
 pub struct Watches {
@@ -111,7 +127,7 @@ impl Watches {
         self.change(|s| s.watches.remove(id).is_some())
     }
     pub fn start(hub: &Arc<Hub>) {
-        for _ in 0..8 {
+        for _ in 0..REMOTE_WORKERS {
             tokio::spawn(remote_worker(Arc::clone(hub)));
         }
         let mut events = hub.subscribe(); // Subscribe before startup/reconciliation.
@@ -274,12 +290,7 @@ async fn reconcile(hub: &Arc<Hub>) -> Result<(), RpcError> {
     drain(hub, true); // Dispatch local wakes before starting any remote read.
     let mut jobs = hub.watches.jobs.lock().unwrap_or_else(|e| e.into_inner());
     for key in watches.into_iter().flat_map(|w| w.sessions).filter(|k| k.contains('/')) {
-        if let Some((dirty, _)) = jobs.pending.get_mut(&key) {
-            *dirty = true;
-        } else {
-            jobs.pending.insert(key.clone(), (false, 0));
-            jobs.ready.push_back(key);
-        }
+        jobs.enqueue(key);
     }
     hub.watches.available.notify_one();
     Ok(())
@@ -287,14 +298,7 @@ async fn reconcile(hub: &Arc<Hub>) -> Result<(), RpcError> {
 async fn remote_worker(hub: Arc<Hub>) {
     loop {
         let available = hub.watches.available.notified();
-        let key = {
-            let mut jobs = hub.watches.jobs.lock().unwrap_or_else(|e| e.into_inner());
-            let key = jobs.ready.pop_front();
-            if let Some(key) = &key {
-                jobs.pending.get_mut(key).unwrap().0 = false;
-            }
-            key
-        };
+        let key = hub.watches.jobs.lock().unwrap_or_else(|e| e.into_inner()).take();
         let Some(key) = key else {
             tokio::select! { () = hub.shutdown.notified() => return, () = available => {} }
             continue;
@@ -366,5 +370,45 @@ fn drain(hub: &Arc<Hub>, retry: bool) {
                 crate::server::outbox::resume(hub, vec![d]);
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use tokio::time::{Duration, sleep};
+
+    #[tokio::test]
+    async fn remote_pool_has_eight_workers_and_coalesces_keys() {
+        let jobs = Arc::new(Mutex::new(Jobs::default()));
+        for n in 0..100 {
+            let key = format!("peer/session-{n}");
+            jobs.lock().unwrap().enqueue(key.clone());
+            jobs.lock().unwrap().enqueue(key);
+        }
+        let active = Arc::new(AtomicUsize::new(0));
+        let maximum = Arc::new(AtomicUsize::new(0));
+        let reads = Arc::new(Mutex::new(BTreeSet::new()));
+        let mut workers = Vec::new();
+        for _ in 0..REMOTE_WORKERS {
+            let (jobs, active, maximum, reads) =
+                (jobs.clone(), active.clone(), maximum.clone(), reads.clone());
+            workers.push(tokio::spawn(async move {
+                loop {
+                    let Some(key) = ({ jobs.lock().unwrap().take() }) else { break };
+                    let now = active.fetch_add(1, Ordering::SeqCst) + 1;
+                    maximum.fetch_max(now, Ordering::SeqCst);
+                    reads.lock().unwrap().insert(key);
+                    sleep(Duration::from_millis(1)).await;
+                    active.fetch_sub(1, Ordering::SeqCst);
+                }
+            }));
+        }
+        for worker in workers {
+            worker.await.unwrap();
+        }
+        assert_eq!(reads.lock().unwrap().len(), 100);
+        assert!(maximum.load(Ordering::SeqCst) <= REMOTE_WORKERS);
     }
 }
