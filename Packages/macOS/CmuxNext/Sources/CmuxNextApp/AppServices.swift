@@ -133,8 +133,8 @@ final class AppServices {
     var observations: ObservationLedger { mainWork.observations }
     /// Sparkle updates (release builds) or read-only feed probes (DEV).
     let updater: UpdaterService
-    /// The file picker made ahead of the click, the app's one: agent panes, page file inputs and Home's "+" take it.
-    let openPanel = MadeAheadOpenPanel()
+    /// The app's one file picker made ahead of the click (agent panes, page inputs, Home's "+") and agent page WebKit warm-up.
+    let openPanel = MadeAheadOpenPanel(), agentPageWarmup = AgentPageWarmup()
     /// "Restart cmux-tui to use new features" (plans/cmux-next/server-updates-DESIGN.md).
     private(set) lazy var serverUpdates = ServerUpdatePresenter(daemon: daemon, defaults: .standard,
                                                                  activeWindow: { [weak self] in self?.windows.active?.window })

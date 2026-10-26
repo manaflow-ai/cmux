@@ -59,6 +59,7 @@ public final class AgentPaneView: NSView {
     /// host's pushes.
     let page: PageWebView
     let pageEvents: AgentPageProvider
+    let warmup: AgentPageWarmup? // the app's agent page WebKit warm-up (init's `warmup`)
     /// Whether the page can take typing yet (the key dispatcher queues keys until then).
     public let inputReadiness: PageInputReadiness
     /// Re-pushes the theme when ui.animationSpeed or Reduce Motion changes, so the
@@ -115,17 +116,16 @@ public final class AgentPaneView: NSView {
     ///     Chromium host and the page policy pick (tests pass one with a fake Chromium host).
     ///   - openPanel: The app's made-ahead open panel (`AppServices.openPanel`) for Add Files and Attach,
     ///     warmed when the pane reaches a window; nil (tests) shows no file picker and warms none.
+    ///   - warmup: The app's agent page WebKit warm-up (`AppServices.agentPageWarmup`), which this page replaces.
     ///   - gestures: The app's gesture router over its input tap: the person's presses in this pane grant
     ///     its page a gesture, and its dictation's hold-to-talk hears the key-up.
     public init?(model: AgentPaneModel, source: AgentPaneSource? = nil, renderRate: AgentPaneRenderRate = .capped,
-                 webUI: WebUIHost, openPanel: MadeAheadOpenPanel? = nil, gestures: AgentPaneGestureRouter) {
+                 webUI: WebUIHost, openPanel: MadeAheadOpenPanel? = nil, warmup: AgentPageWarmup? = nil, gestures: AgentPaneGestureRouter) {
         guard let source = source ?? Self.bundledPage.map({ AgentPaneSource.bundled($0) }) else { return nil }
         gestureRouter = gestures
         self.openPanel = openPanel
-        self.model = model
-        self.source = source
-        self.renderRate = renderRate
-        Self.warmupNoLongerNeeded = true
+        (self.model, self.source, self.renderRate, self.warmup) = (model, source, renderRate, warmup)
+        warmup?.agentPageMade()
         let provider = AgentPageProvider { [weak model] _ in model }
         // Needs you reads the pane's own acpmux (a Chief chat's is the Chief home's), never another.
         provider.pendingAsksSocket = { [weak model] in model?.pendingAsksSocket }
