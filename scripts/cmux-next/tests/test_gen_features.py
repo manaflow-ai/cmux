@@ -564,6 +564,15 @@ class GeneratedFileTests(unittest.TestCase):
         self.assertIn(".bool(default: true)", swift)
         self.assertIn("expires: nil", swift)
 
+    def test_swift_carries_replaces_only_where_declared(self):
+        """A feature's `replaces` reaches the Swift handle (the App maps those tunables to its local override);
+        a feature without one keeps the label out, so its block is unchanged."""
+        self.repo.run()
+        swift = self.repo.read(gen.SWIFT_OUT)
+        self.assertIn('runtimeMutable: false,\n        replaces: ["browserResize.layerHosting"]\n    )', swift)
+        self.assertIn('runtimeMutable: false,\n        replaces: ["CMUX_TUI_TERMINAL_HOST_MODEL"]\n    )', swift)
+        self.assertEqual(swift.count("replaces: ["), 2)
+
     def test_bench_only_features_are_compiled_out_of_shipped_builds(self):
         """A benchOnly handle and its registry slot exist only under DEBUG || CMUX_BENCH_HOOKS, after every
         shipped feature, so a Release registry is dense and keeps the shipped features' indices."""

@@ -84,9 +84,21 @@ public nonisolated enum TunableFile {
         return values
     }
 
+    /// The Bool values of `keys` in the file at `url`; a missing file, or a key without a Bool value, is left out.
+    /// The launch's features read the tunables they replaced this way. Blocking file IO: off the main actor only.
+    public static func bools(at url: URL, keys: [String]) -> [String: Bool] {
+        let raw = readRaw(url)
+        var values: [String: Bool] = [:]
+        for key in keys {
+            guard let json = raw[key], case .bool(let flag)? = value(json, as: .bool) else { continue }
+            values[key] = flag
+        }
+        return values
+    }
+
     /// Reads `url`. Blocking file IO: call it off the main actor only.
     package static func readRaw(_ url: URL) -> [String: Any] {
-        // concurrency-allow: called from TunableStore.activate's detached task, never on the main actor
+        // concurrency-allow: called from TunableStore.activate's detached task and the launch's files lane, never on the main actor
         guard let data = try? Data(contentsOf: url) else { return [:] }
         return decode(data)
     }

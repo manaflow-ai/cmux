@@ -316,12 +316,14 @@ final class AppServices {
     var features: FeatureList
 
     /// Every declared feature's value for this launch: this build's channel, the launch
-    /// environment (`CMUX_ENABLE_FEATURES`, `CMUX_DISABLE_FEATURES`) and the Labs page's local choices
-    /// when their launch read has ended. The composition root builds it once, before anything that reads a feature.
+    /// environment (`CMUX_ENABLE_FEATURES`, `CMUX_DISABLE_FEATURES`) and the local overrides whose launch read has
+    /// ended: the Labs page's choices, then the Debug tunables a feature `replaces`. The Labs page names the feature
+    /// itself, so its choice goes first. The composition root builds it once, before anything that reads a feature.
     static func launchFeatures(_ environment: AppEnvironment) -> FeatureList {
-        FeatureList(registry: FeatureRegistry(), channel: Feature.Channel(environment.build.kind),
-                    overrides: FeatureOverrides(environment: ProcessInfo.processInfo.environment),
-                    local: environment.featureLocalOverrides?.value)
+        let local: [(any FeatureLocalOverrideProvider)?] = [environment.featureLocalOverrides?.value, environment.featureTunableOverrides?.value]
+        return FeatureList(registry: FeatureRegistry(), channel: Feature.Channel(environment.build.kind),
+                           overrides: FeatureOverrides(environment: ProcessInfo.processInfo.environment),
+                           local: FeatureLocalOverrideLayers(local.compactMap { $0 }))
     }
     /// The Feature Flags card's local choices (feature `featureFlagsCard`): this launch's, and the next one's it writes.
     private(set) lazy var featureLocalOverrides = FeatureLocalOverrideStore(registry: features.registry, channel: features.channel,

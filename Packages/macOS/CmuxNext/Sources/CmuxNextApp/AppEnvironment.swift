@@ -65,6 +65,10 @@ struct AppEnvironment: Sendable {
     /// Release and in tests that build `AppServices`.
     var featureLocalOverridesFile: URL?
     var featureLocalOverrides: LaunchRead<FeatureLocalOverrides>?
+    /// The Debug tunables a feature `replaces` (``FeatureTunableOverrides``), read from Debug Settings' file next in
+    /// that launch sequence: the launch's features take them as their local override. Only where the launch loads
+    /// tunables (``DebugSettingsService/launchFile(launch:environment:)``); nil in Release and in tests.
+    var featureTunableOverrides: LaunchRead<FeatureTunableOverrides>?
     /// This Mac's layout templates (`LayoutTemplateRepository`): only the real app process sets
     /// it; without it templates live in memory only (tests that build `AppServices`).
     var layoutTemplatesFile: URL?

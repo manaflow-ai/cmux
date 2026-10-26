@@ -116,9 +116,12 @@ public nonisolated struct Feature: Sendable, Hashable {
     public let sticky: Bool
     /// The feature has a tested live-teardown path.
     public let runtimeMutable: Bool
+    /// The Debug tunable keys and env switches this feature took over (`replaces`): a tunable's
+    /// launch value is the feature's local override (``FeatureTunableOverrides``).
+    public let replaces: [String]
 
     /// The generated registry (`Features.generated.swift`) calls this with
-    /// every label, in this order (schemas/features/README.md).
+    /// every label, in this order (schemas/features/README.md); `replaces` only when the feature has one.
     public init(
         index: Int,
         name: String,
@@ -132,7 +135,8 @@ public nonisolated struct Feature: Sendable, Hashable {
         params: [FeatureParamSpec],
         stories: [String],
         sticky: Bool,
-        runtimeMutable: Bool
+        runtimeMutable: Bool,
+        replaces: [String] = []
     ) {
         self.index = index
         self.name = name
@@ -147,6 +151,7 @@ public nonisolated struct Feature: Sendable, Hashable {
         self.stories = stories
         self.sticky = sticky
         self.runtimeMutable = runtimeMutable
+        self.replaces = replaces
     }
 
     /// Duration param `name`'s value, to the microsecond: its declared default, since params have no
@@ -236,6 +241,10 @@ public nonisolated struct FeatureRegistry: Sendable {
     }
 
     public var count: Int { features.count }
+
+    /// Every tunable key and env switch a feature `replaces`, in registry order: what the launch reads from the
+    /// Debug tunables file for ``FeatureTunableOverrides``.
+    public var replacedKeys: [String] { features.flatMap(\.replaces) }
 
     /// The feature named `name`, for names read from text (env, policy,
     /// remote document, CLI). Code holds the generated handles instead.

@@ -15,10 +15,9 @@ extension WindowRootView {
     /// reads it through the window, so it holds for every view in the window.
     var isContentAreaInMotion: Bool { sidebar.isWidthAnimating }
 
-    /// The window's ``slideHoldsContent``: feature `sidebarSlideHoldsContent` of `features`, with Debug
-    /// Settings' `sidebar.slideHoldsContent` as its local override, read at each slide's start.
+    /// The window's ``slideHoldsContent``: feature `sidebarSlideHoldsContent` of `features`.
     static func slideHoldsContent(in features: FeatureList) -> @MainActor () -> Bool {
-        { features.isEnabled(.sidebarSlideHoldsContent, overriddenBy: SidebarTunables.slideHoldsContent.override) }
+        { features.isEnabled(.sidebarSlideHoldsContent) }
     }
 
     /// Tells the window's content when the sidebar's motion lands, so what held

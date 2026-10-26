@@ -57,21 +57,12 @@ struct SidebarSlideHoldsContentTests {
         return (window, root, content)
     }
 
-    /// A private tunable store (never the shared one) holding `value` for `sidebar.slideHoldsContent`, or nothing.
-    private func tunables(_ value: Bool?) -> TunableStore {
-        let store = TunableStore()
-        store.register(SidebarTunables.all)
-        store.activate(file: nil)
-        store.set(SidebarTunables.slideHoldsContent.key, value.map(TunableValue.bool))
-        return store
-    }
-
     /// The window's switch as the app builds it (`WindowRootView.slideHoldsContent(in:)`): on `channel` with
-    /// `overrides`, and the Debug tunable at `tunable`.
+    /// `overrides`, and the launch's Debug tunable `sidebar.slideHoldsContent` at `tunable`.
     private func holds(_ channel: Feature.Channel, _ overrides: FeatureOverrides = FeatureOverrides(), tunable: Bool?) -> Bool {
-        let features = FeatureList(registry: FeatureRegistry(), channel: channel, overrides: overrides)
-        let store = tunables(tunable)
-        return features.isEnabled(.sidebarSlideHoldsContent, overriddenBy: SidebarTunables.slideHoldsContent.override(in: store))
+        let tunables = FeatureTunableOverrides(values: tunable.map { [SidebarTunables.slideHoldsContent.key: $0] } ?? [:])
+        let features = FeatureList(registry: FeatureRegistry(), channel: channel, overrides: overrides, local: tunables)
+        return WindowRootView.slideHoldsContent(in: features)()
     }
 
     /// Steps the sidebar's width the way its animator does, one window layout per frame.
@@ -88,8 +79,8 @@ struct SidebarSlideHoldsContentTests {
         }
     }
 
-    /// The Debug tunable `sidebar.slideHoldsContent` is the feature's local override on DEV and NIGHTLY, under
-    /// policy and the environment lists; Release never reads it.
+    /// The Debug tunable `sidebar.slideHoldsContent`, read at launch, is the feature's local override on DEV and
+    /// NIGHTLY, under policy and the environment lists; Release never takes it.
     @Test func theDebugTunableOverridesTheFeatureOnDevAndNightlyOnly() {
         let name = Feature.sidebarSlideHoldsContent.name
         #expect(!holds(.dev, tunable: false))

@@ -8,6 +8,7 @@ import CmuxNextBridge
 import CmuxNextBrowser
 import CmuxNextChiefViews
 import CmuxNextCompat
+import CmuxNextControl
 import CmuxNextDesign
 import CmuxNextFeed
 import CmuxNextFloating
@@ -81,20 +82,25 @@ final class DebugSettingsService: InternalPageProvider {
 
     /// Registers the catalog and activates the store (dev tools, or a bench run's override file).
     func start() {
-        let environment = ProcessInfo.processInfo.environment
-        let launch = services.environment.launch
-        guard Self.loadsTunables(devTools: isAvailable, benchBuild: Self.isBenchBuild,
-                                 bundleID: launch.bundleID, environment: environment) else { return }
+        guard let url = Self.launchFile(launch: services.environment.launch, environment: ProcessInfo.processInfo.environment) else { return }
         let store = TunableStore.shared
         store.register(TunableCatalog.all)
-        let url = Self.fileURL(environment: environment, tag: launch.tag,
-                               bundleID: launch.bundleID, build: launch.build)
         fileURL = url
         store.activate(file: url)
         // CmuxNextCloud does not see tunables; Release keeps CloudAuth's default (automatic).
         services.cloud.auth.signInWindow = { .init(rawValue: AccountTunables.signInWindow.value.rawValue) ?? .automatic }
         // The store loads the file off the main actor, after the first icons draw: the family is read here.
         IconPack.useOverlay(Self.launchIconFamily(url).overlay)
+    }
+
+    /// The tunables file this launch loads (``fileURL(environment:tag:bundleID:build:home:)``), or nil when it loads
+    /// none (``loadsTunables(devTools:benchBuild:bundleID:environment:)``). The store and the launch's features
+    /// (``FeatureTunableOverrides``) read the same file.
+    nonisolated static func launchFile(launch: LaunchIdentity, environment: [String: String]) -> URL? {
+        guard loadsTunables(devTools: DevTools.isEnabled, benchBuild: isBenchBuild, bundleID: launch.bundleID, environment: environment) else {
+            return nil
+        }
+        return fileURL(environment: environment, tag: launch.tag, bundleID: launch.bundleID, build: launch.build)
     }
 
     /// Whether launch activates the tunable store: with dev tools, or in a bench build

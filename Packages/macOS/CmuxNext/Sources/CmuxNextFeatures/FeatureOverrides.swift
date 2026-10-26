@@ -1,7 +1,8 @@
 import Foundation
 
-/// Local Labs and Debug overrides (resolution step 3). The App adapts
-/// `TunableStore` to it for the perfPath keys that were tunables; the
+/// Local Labs and Debug overrides (resolution step 3): the Labs page's
+/// ``FeatureLocalOverrides``, then the Debug tunables a feature replaced
+/// (``FeatureTunableOverrides``), in ``FeatureLocalOverrideLayers``; the
 /// ``FeatureList`` asks it only on DEV and NIGHTLY, so Release never reads it.
 public protocol FeatureLocalOverrideProvider: Sendable {
     /// The value the developer chose for `feature`, or nil for none.

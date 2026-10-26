@@ -109,7 +109,7 @@ final class WindowRootView: NSView, WindowSurfacePainting {
     /// - Parameter applyWindowBlur: Sets the window's behind-window blur radius (the backdrop's ``WindowBackdrop/windowBlurRadius``).
     /// - Parameter revealDeadlines: Times the collapsed band's close delay (the app's ``MainDeadlineScheduler``).
     /// - Parameter signals: Where display option changes come from (the composition root's ``AppearanceSignals``).
-    /// - Parameter slideHoldsContent: Feature `sidebarSlideHoldsContent` with its Debug override (the app's); on by default.
+    /// - Parameter slideHoldsContent: Feature `sidebarSlideHoldsContent` (the app's); on by default.
     init(sidebar: SidebarContainerView,
          reduceTransparency: @escaping @MainActor () -> Bool = { NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency },
          applyWindowBlur: @escaping @MainActor (NSWindow, Int) -> Void = { $0.setBackgroundBlurRadius($1) },

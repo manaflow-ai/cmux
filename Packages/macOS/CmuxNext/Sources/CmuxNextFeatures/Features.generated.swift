@@ -918,7 +918,8 @@ nonisolated extension Feature {
         params: [],
         stories: ["motion", "pane-zoom", "anim-perf"],
         sticky: false,
-        runtimeMutable: false
+        runtimeMutable: false,
+        replaces: ["motion.pane.holdContent"]
     )
 
     /// Pane divider, column edge, row edge, both sidebar edges and the DevTools divider move on the first drag event of a display frame and once more at the frame, to the latest pointer point; every drag event still counts toward the release velocity.
@@ -1088,7 +1089,8 @@ nonisolated extension Feature {
         params: [],
         stories: ["anim-perf", "sidebar"],
         sticky: false,
-        runtimeMutable: false
+        runtimeMutable: false,
+        replaces: ["sidebar.slideHoldsContent"]
     )
 
     /// A trackpad pan of the column strip on its motion container shows once per display frame, at the offset resampled at the frame's time as Chromium resamples scroll updates (5 ms behind the frame, at most 8 ms of prediction); the snap and the fling read the real events.
