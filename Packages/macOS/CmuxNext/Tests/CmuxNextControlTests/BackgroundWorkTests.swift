@@ -47,7 +47,7 @@ import Testing
         var iterator = reports.makeAsyncIterator()
         let seen = try #require(await iterator.next())
         #expect(seen.queue.hasPrefix("test.work.\(lane)."), "ran on \(seen.queue)")
-        if lane == .files { #expect(seen.queue == "test.work.files.\(priority)") }
+        if lane == .files { #expect(seen.queue.hasPrefix("test.work.files.\(priority)."), "ran on \(seen.queue)") }
         #expect(!seen.queue.contains("cooperative"))
         #expect(seen.qos == priority.qos.qosClass.rawValue)
     }
@@ -97,10 +97,10 @@ import Testing
     }
 
     @Test func aWaiterAbovePriorityBoostsTheItemPastBlockedLowerWork() async throws {
-        let work = BackgroundWork(label: "test.boost")
+        let work = BackgroundWork(filesWidths: .serial, label: "test.boost")
         let release = DispatchSemaphore(value: 0)
         let blocked = Started()
-        // The best-effort slot of the files lane is held.
+        // The one best-effort slot of the files lane is held.
         work.post(.bestEffort, mayBlock: .files) {
             blocked.signal()
             release.wait()
@@ -112,7 +112,7 @@ import Testing
         let seen = try await Task(priority: .high) { () async throws -> Seen in
             try await work.run(.bestEffort, mayBlock: .files) { Seen.here() }
         }.value
-        #expect(seen.queue == "test.boost.files.userBlocking")
+        #expect(seen.queue.hasPrefix("test.boost.files.userBlocking."), "ran on \(seen.queue)")
         #expect(seen.qos == QOS_CLASS_USER_INITIATED)
         release.signal()
     }
@@ -136,7 +136,8 @@ import Testing
 
     @Test func aCancelledQueuedItemNeverRuns() async throws {
         let queued = Started()
-        let work = BackgroundWork(label: "test.cancel", onQueued: { _, _ in queued.signal() })
+        // One slot per priority, so the item behind the held one queues.
+        let work = BackgroundWork(filesWidths: .serial, label: "test.cancel", onQueued: { _, _ in queued.signal() })
         let release = DispatchSemaphore(value: 0)
         let blocked = Started()
         work.post(.bestEffort, mayBlock: .files) {
@@ -160,7 +161,8 @@ import Testing
     }
 
     @Test func shutdownWaitsForBlockShutdownItemsAndDropsTheRest() async throws {
-        let work = BackgroundWork(label: "test.shutdown")
+        // One slot per priority, so the items behind the held one queue.
+        let work = BackgroundWork(filesWidths: .serial, label: "test.shutdown")
         let release = DispatchSemaphore(value: 0)
         let blocked = Started()
         let log = OSAllocatedUnfairLock<[String]>(initialState: [])

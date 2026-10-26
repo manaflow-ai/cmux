@@ -36,7 +36,8 @@ import Testing
         let hangs = RecordingHangWatch()
         let (queued, queue) = AsyncStream.makeStream(of: Void.self)
         let (started, start) = AsyncStream.makeStream(of: Void.self)
-        let work = BackgroundWork(label: "test.hang-scope-queued", hangs: hangs, onQueued: { _, _ in queue.yield() })
+        let work = BackgroundWork(filesWidths: .serial, label: "test.hang-scope-queued", hangs: hangs,
+                                  onQueued: { _, _ in queue.yield() })
         let gate = DispatchSemaphore(value: 0)
         work.post(.userVisible, mayBlock: .files) {
             start.yield()

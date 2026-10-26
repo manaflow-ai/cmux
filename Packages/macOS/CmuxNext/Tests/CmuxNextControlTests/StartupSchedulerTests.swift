@@ -273,7 +273,7 @@ import Testing
         f.startup.post(.afterStartup, "Launch.cleanup", on: .lane(.files, .bestEffort)) {
             report.yield("Launch.cleanup main=\(Thread.isMainThread)")
         }
-        // The files lane is serial per priority: had the afterStartup post been submitted, it would run first.
+        // The fixture's files lane is serial per priority: had the afterStartup post been submitted, it would run first.
         f.startup.post(.critical, "Settings.read", on: .lane(.files, .bestEffort)) {
             report.yield("Settings.read main=\(Thread.isMainThread)")
         }
@@ -346,7 +346,7 @@ import Testing
         f.complete()
         let (lane, report) = AsyncStream.makeStream(of: String.self)
         let release = DispatchSemaphore(value: 0)
-        // The files lane is serial per priority: this item holds it, so the items after it queue behind it.
+        // The fixture's files lane is serial per priority: this item holds it, so the items after it queue behind it.
         f.background.post(.bestEffort, mayBlock: .files) {
             report.yield("blocker")
             // concurrency-allow: a files-lane thread in a test, released below right after beginQuit.
@@ -397,7 +397,9 @@ private final class StartupFixture {
     init(phase: StartupPhase = .settled()) {
         let input = StartupTestInput()
         self.input = input
-        scheduler = StartupTestScheduler(phase: phase, input: input, criticalAllowlist: ["Theme.apply", "Settings.read"])
+        // One files slot per priority, so an item that holds it queues the posts behind it.
+        scheduler = StartupTestScheduler(phase: phase, input: input, criticalAllowlist: ["Theme.apply", "Settings.read"],
+                                         background: BackgroundWork(filesWidths: .serial, label: "test.startup"))
     }
 
     /// One display frame, 17 ms after the last.

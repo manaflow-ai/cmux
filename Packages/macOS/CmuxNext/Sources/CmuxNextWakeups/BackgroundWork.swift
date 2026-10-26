@@ -25,6 +25,10 @@ import Dispatch
 /// To keep work low, post it, or await it from a task that is itself low
 /// (`Task(priority: WorkPriority.bestEffort.taskPriority)`).
 ///
+/// Order: items that run at once on a lane are not ordered, the items of one priority neither (the files lane
+/// runs several at each priority, ``FilesLaneWidths``). Work that must run in order, writes to one file or one
+/// store, goes through one ``sequence(_:mayBlock:)``.
+///
 /// Startup fence: between ``beginBestEffortFence()`` and ``endBestEffortFence()`` posted
 /// ``WorkPriority/idle`` and ``WorkPriority/bestEffort`` items wait, so they do not compete with launch.
 /// An awaited item is never held: someone waits for it, so it runs at once at its own priority.
@@ -36,6 +40,8 @@ import Dispatch
 /// let data = try await work.run(.userVisible, mayBlock: .files) { try Data(contentsOf: url) }
 /// work.post(.bestEffort, mayBlock: .files, shutdown: .blockShutdown) { try? data.write(to: url, options: .atomic) }
 /// let addresses = try await work.run(.userBlocking, mayBlock: .system) { resolve(host) }
+/// let saves = work.sequence("journal")  // in order, one at a time, on any files slot
+/// saves.post(.bestEffort, shutdown: .blockShutdown) { try? journal.append(entry) }
 /// // Main-actor callers: the result comes back as a posted, attributed main task (PostTaskAndReply).
 /// work.run(.userVisible, mayBlock: .files) { parse(url) }
 ///     .reply(on: mainWork, class: .visible, owner: "preview.load") { preview.show($0) }
@@ -51,10 +57,13 @@ import Dispatch
 public final class BackgroundWork: Sendable {
     /// How many ``BlockingLane/cpu`` items run at once.
     public let cpuWidth: Int
+    /// How many ``BlockingLane/files`` items of each priority run at once.
+    public let filesWidths: FilesLaneWidths
     /// The label prefix of every lane slot's dispatch queue (`<label>.<lane>.<priority or slot>`).
     public let label: String
-    private let lanes: [LaneScheduler]
-    private let onQueued: @Sendable (BlockingLane, WorkPriority) -> Void
+    /// One scheduler per ``BlockingLane``, by `rawValue`.
+    let lanes: [LaneScheduler]
+    let onQueued: @Sendable (BlockingLane, WorkPriority) -> Void
     private let onRan: (@Sendable (BlockingLane, WorkPriority, UInt64, UInt64) -> Void)?
     /// False after ``stopReportingRuns()``: items submitted later skip `onRan` and the clock.
     private let reportsRuns = Atomic<Bool>(true)
@@ -93,6 +102,9 @@ public final class BackgroundWork: Sendable {
     ///
     /// - Parameters:
     ///   - cpuWidth: how many ``BlockingLane/cpu`` items run at once; default ``defaultCPUWidth``.
+    ///   - filesWidths: how many ``BlockingLane/files`` items of each priority run at once; default
+    ///     ``FilesLaneWidths/standard``. Tests that hold a slot so that the next item queues pass
+    ///     ``FilesLaneWidths/serial``.
     ///   - label: the dispatch queue label prefix, which shows in traces and crash reports.
     ///   - onQueued: called with the lane and the priority each time an item has to wait for a slot (it
     ///     did not start at once), after it is queued and before it can start; default nothing. Traces
@@ -106,29 +118,31 @@ public final class BackgroundWork: Sendable {
     ///     (``stopReportingRuns()``).
     ///   - uptimeNanos: the clock a block-shutdown item's run time is measured with, in nanoseconds; nil is
     ///     `CLOCK_UPTIME_RAW`. Tests pass their own.
-    public convenience init(cpuWidth: Int = BackgroundWork.defaultCPUWidth, label: String = "com.cmuxterm.next.work",
+    public convenience init(cpuWidth: Int = BackgroundWork.defaultCPUWidth, filesWidths: FilesLaneWidths = .standard,
+                            label: String = "com.cmuxterm.next.work",
                             hangs: (any HangWatchScoping)? = nil,
                             onQueued: @escaping @Sendable (BlockingLane, WorkPriority) -> Void = { _, _ in },
                             onRan: (@Sendable (BlockingLane, WorkPriority, UInt64, UInt64) -> Void)? = nil,
                             uptimeNanos: (@Sendable () -> UInt64)? = nil) {
-        self.init(cpuWidth: cpuWidth, label: label, hangs: hangs, onQueued: onQueued, onRan: onRan,
-                  uptimeNanos: uptimeNanos, taskHooks: .none)
+        self.init(cpuWidth: cpuWidth, filesWidths: filesWidths, label: label, hangs: hangs, onQueued: onQueued,
+                  onRan: onRan, uptimeNanos: uptimeNanos, taskHooks: .none)
     }
 
     /// The designated init; tests pass ``TaskHooks`` to stop a task between its steps.
-    init(cpuWidth: Int, label: String, hangs: (any HangWatchScoping)? = nil,
+    init(cpuWidth: Int, filesWidths: FilesLaneWidths = .standard, label: String, hangs: (any HangWatchScoping)? = nil,
          onQueued: @escaping @Sendable (BlockingLane, WorkPriority) -> Void,
          onRan: (@Sendable (BlockingLane, WorkPriority, UInt64, UInt64) -> Void)? = nil,
          uptimeNanos: (@Sendable () -> UInt64)?, taskHooks: TaskHooks) {
         self.taskHooks = taskHooks
         self.cpuWidth = max(1, cpuWidth)
+        self.filesWidths = filesWidths
         self.label = label
         self.onQueued = onQueued
         self.onRan = onRan
         self.uptimeNanos = uptimeNanos ?? { clock_gettime_nsec_np(CLOCK_UPTIME_RAW) }
         lanes = BlockingLane.allCases.map { lane in
             let traits: (policy: LaneScheduler.Policy, mayBlock: Bool, caps: [LaneCap: Int]) = switch lane {
-            case .files: (.perPriority, true, [:])
+            case .files: (.perPriority(widths: WorkPriority.allCases.map(filesWidths.width)), true, [:])
             case .system: (.shared(width: Self.systemWidth, reserved: Self.systemReserved), true, [.hostResolution: Self.hostResolutionCap])
             // The .cpu lane is sized to the cores: a blocking seam in one of its items is a wrong-lane violation.
             case .cpu: (.shared(width: max(1, cpuWidth)), false, [:])
@@ -356,8 +370,6 @@ public final class BackgroundWork: Sendable {
         state.withLock { $0.takeID() }
     }
 
-    /// The lane job for an item; nil for a block-shutdown item that came after ``shutdown()`` returned
-    /// (recorded, never run).
     /// Items submitted from now on no longer call `onRan` or read the clock for it (one relaxed load per
     /// item); items already queued still report. The startup trace calls it when it closes.
     public func stopReportingRuns() {
@@ -376,12 +388,16 @@ public final class BackgroundWork: Sendable {
         }
     }
 
-    private func makeJob(id: UInt64, lane: BlockingLane, priority: WorkPriority, shutdown: ShutdownBehavior,
-                         site: CallSite, work unreported: @escaping @Sendable () -> Void,
-                         abandoned: @escaping @Sendable () -> Void) -> LaneJob? {
+    /// The lane job for an item; nil for a block-shutdown item that came after ``shutdown()`` returned
+    /// (recorded, never run). `finished` runs once the item ran or was abandoned, after its shutdown count
+    /// dropped (a ``WorkSequence`` starts its next item then).
+    func makeJob(id: UInt64, lane: BlockingLane, priority: WorkPriority, shutdown: ShutdownBehavior,
+                 site: CallSite, work unreported: @escaping @Sendable () -> Void,
+                 abandoned: @escaping @Sendable () -> Void,
+                 finished: @escaping @Sendable () -> Void = {}) -> LaneJob? {
         let work = reporting(unreported, lane: lane, priority: priority)
         guard shutdown == .blockShutdown else {
-            return LaneJob(id: id, shutdown: shutdown, work: work, abandoned: abandoned, done: {})
+            return LaneJob(id: id, shutdown: shutdown, work: work, abandoned: abandoned, done: finished)
         }
         let taken = state.withLock { state -> Bool in
             guard !state.drained else { return false }
@@ -396,7 +412,10 @@ public final class BackgroundWork: Sendable {
             let start = blockShutdownStarted()
             work()
             blockShutdownEnded(site, since: start)
-        }, abandoned: abandoned, done: { [self] in blockItemFinished() })
+        }, abandoned: abandoned, done: { [self] in
+            blockItemFinished()
+            finished()
+        })
     }
 
     /// One block-shutdown item (lane item or task) finished or was abandoned: resumes ``shutdown()`` when it

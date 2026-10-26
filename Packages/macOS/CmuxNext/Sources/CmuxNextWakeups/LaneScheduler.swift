@@ -8,10 +8,12 @@ import Dispatch
 /// GCD makes a thread only while a slot has work. Each item of a lane that may block (files, system) runs with
 /// its thread marked ``CmuxNextCompat/BlockingContext/lane``, so the blocking detector allows its seams; an item of
 /// the cpu lane runs marked ``CmuxNextCompat/BlockingContext/cpuLane``, where a seam records a
-/// ``CmuxNextCompat/BlockingKind/wrongLane`` site (Debug and bench-checks builds). A `perPriority` lane (files) has one slot per
-/// ``WorkPriority``, so each priority is serial and a best-effort write never sits in front of a
-/// user-blocking read. A `shared` lane (system, cpu) has `width` slots for every priority and starts the
-/// highest-priority pending item first. `reserved` of them run only ``WorkPriority/userBlocking`` items of no
+/// ``CmuxNextCompat/BlockingKind/wrongLane`` site (Debug and bench-checks builds). A `perPriority` lane (files) has its own
+/// slots for each ``WorkPriority`` (``FilesLaneWidths``), so a best-effort write never sits in front of a
+/// user-blocking read and one slow read does not hold the next one; each level starts its items in post order.
+/// Nothing here orders items that run at once: a ``WorkSequence`` does (Chrome's `SequencedTaskRunner`). A
+/// `shared` lane (system, cpu) has `width` slots for every priority and starts the highest-priority pending
+/// item first. `reserved` of them run only ``WorkPriority/userBlocking`` items of no
 /// ``LaneCap`` class: any other item starts only while fewer than `width - reserved` slots are busy, whatever
 /// the busy slots run, so neither hung lower work nor hung capped work (a resolver at user-blocking) holds the
 /// last slot a person waits for. Chrome's `PrioritizedDispatcher` (net/base/prioritized_dispatcher.cc), which
@@ -27,7 +29,8 @@ import Dispatch
 /// in `TaskTracker::RunTask`, base/task/thread_pool/task_tracker.cc); the wait for a slot is not.
 final class LaneScheduler: Sendable {
     enum Policy: Sendable {
-        case perPriority
+        /// `widths[level.rawValue]` slots for each ``WorkPriority``, run only by items of that level.
+        case perPriority(widths: [Int])
         /// `width` slots for every priority, `reserved` of them (at most `width - 1`) for user-blocking items of no
         /// capped class only.
         case shared(width: Int, reserved: Int = 0)
@@ -112,6 +115,8 @@ final class LaneScheduler: Sendable {
     /// The lane's hang-watch slot; each item runs in one scope of it. nil watches nothing.
     private let hangWatched: HangWatchedLane?
     private let slots: [DispatchQueue]
+    /// For a `perPriority` lane, the slots of each level (by `rawValue`); empty for a `shared` lane.
+    private let levelSlots: [Range<Int>]
     // concurrency-allow: a short non-blocking critical section over the pending lists, taken from lane threads, cancel handlers and submitters that must not await (lock carve-out).
     private let state: Mutex<State>
 
@@ -121,15 +126,19 @@ final class LaneScheduler: Sendable {
         self.policy = policy
         self.mayBlock = mayBlock
         self.hangWatched = hangWatched
-        let names: [String], reserved: Int
+        var names: [String] = [], levelSlots: [Range<Int>] = [], reserved = 0
         switch policy {
-        case .perPriority:
-            names = WorkPriority.allCases.map { "\(label).\($0)" }
-            reserved = 0
+        case .perPriority(let widths):
+            for level in WorkPriority.allCases {
+                let width = max(1, widths.indices.contains(level.rawValue) ? widths[level.rawValue] : 1)
+                levelSlots.append(names.count..<(names.count + width))
+                names += (0..<width).map { "\(label).\(level).\($0)" }
+            }
         case .shared(let width, let wanted):
             names = (0..<max(1, width)).map { "\(label).\($0)" }
             reserved = min(max(0, wanted), names.count - 1)
         }
+        self.levelSlots = levelSlots
         // The item's QoS (`.enforceQoS`) sets the thread's QoS; the queue itself has none.
         slots = names.map { DispatchQueue(label: $0, qos: .unspecified, autoreleaseFrequency: .workItem) }
         state = Mutex(State(running: Array(repeating: nil, count: names.count), reserved: reserved,
@@ -222,9 +231,11 @@ final class LaneScheduler: Sendable {
         var starts: [Start] = []
         switch policy {
         case .perPriority:
-            for level in WorkPriority.allCases where state.running[level.rawValue] == nil {
-                guard let index = state.next(at: level, full: state.fullCaps) else { continue }
-                starts.append(claim(level, index, slot: level.rawValue, in: &state))
+            for level in WorkPriority.allCases {
+                for slot in levelSlots[level.rawValue] where state.running[slot] == nil {
+                    guard let index = state.next(at: level, full: state.fullCaps) else { break }
+                    starts.append(claim(level, index, slot: slot, in: &state))
+                }
             }
         case .shared:
             // Each pick marks its slot busy first, so the next pick sees the reserve and the caps it took.
