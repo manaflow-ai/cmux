@@ -105,8 +105,14 @@ test("new user and assistant rows enter once, while streamed versions stay still
     ]);
     const promptAfter = dom.window.document.querySelector<HTMLElement>('[data-row-id="prompt-2"]');
     const replyAfter = dom.window.document.querySelector<HTMLElement>('[data-row-id="reply-2"]');
+    const promptPresentation = promptNode?.querySelector<HTMLElement>(".acpmux-row__message-presentation");
+    const replyPresentation = replyNode?.querySelector<HTMLElement>(".acpmux-row__message-presentation");
+    const promptPresentationAfter = promptAfter?.querySelector<HTMLElement>(".acpmux-row__message-presentation");
+    const replyPresentationAfter = replyAfter?.querySelector<HTMLElement>(".acpmux-row__message-presentation");
     expect(promptAfter).toBe(promptNode);
     expect(replyAfter).toBe(replyNode);
+    expect(promptPresentationAfter).toBe(promptPresentation);
+    expect(replyPresentationAfter).toBe(replyPresentation);
     expect(promptAfter?.classList.contains("acpmux-row--message-enter")).toBe(promptEntered);
     expect(replyAfter?.classList.contains("acpmux-row--message-enter")).toBe(replyEntered);
   } finally {

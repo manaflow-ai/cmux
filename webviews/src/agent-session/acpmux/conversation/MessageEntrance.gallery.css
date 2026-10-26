@@ -56,11 +56,11 @@
 }
 
 @media (prefers-reduced-motion: no-preference) {
-  .message-entrance-gallery[data-variant="translate"] .acpmux-row--message-enter {
+  .message-entrance-gallery[data-variant="translate"] .acpmux-row--message-enter .acpmux-row__message-presentation {
     animation-name: cv-gallery-message-translate;
   }
 
-  .message-entrance-gallery[data-variant="scale-y"] .acpmux-row--message-enter {
+  .message-entrance-gallery[data-variant="scale-y"] .acpmux-row--message-enter .acpmux-row__message-presentation {
     transform-origin: center bottom;
     animation-name: cv-gallery-message-scale-y;
   }

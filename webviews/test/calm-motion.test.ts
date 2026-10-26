@@ -63,16 +63,16 @@ await requireBrowserLane("calm-motion.test.ts", async () => {
 
   test("a new message uses the subtle entrance and appears instantly under Reduce Motion", async () => {
     const style = `:root{--agent-motion-in:180ms}${desktop}${conversation}`;
-    const normal = await page(style, `<div class="acpmux-row--message-enter">message</div>`, "no-preference");
-    const normalMotion = await normal.$eval(".acpmux-row--message-enter", (row) => ({
+    const normal = await page(style, `<div class="acpmux-row__message-presentation">message</div>`, "no-preference");
+    const normalMotion = await normal.$eval(".acpmux-row__message-presentation", (row) => ({
       name: getComputedStyle(row).animationName,
       duration: getComputedStyle(row).animationDuration,
     }));
     await normal.close();
     expect(normalMotion).toEqual({ name: "cv-message-enter", duration: "0.18s" });
 
-    const reduced = await page(style, `<div class="acpmux-row--message-enter">message</div>`, "reduce");
-    const reducedMotion = await reduced.$eval(".acpmux-row--message-enter", (row) => ({
+    const reduced = await page(style, `<div class="acpmux-row__message-presentation">message</div>`, "reduce");
+    const reducedMotion = await reduced.$eval(".acpmux-row__message-presentation", (row) => ({
       name: getComputedStyle(row).animationName,
       duration: getComputedStyle(row).animationDuration,
     }));
@@ -83,7 +83,7 @@ await requireBrowserLane("calm-motion.test.ts", async () => {
   test("a message text update keeps its entrance animation object and start time", async () => {
     const p = await page(
       `:root{--agent-motion-in:180ms}${desktop}${conversation}`,
-      `<div class="acpmux-row--message-enter" data-message>first token</div>`,
+      `<div class="acpmux-row__message-presentation" data-message>first token</div>`,
       "no-preference",
     );
     await p.waitForFunction(() => document.querySelector<HTMLElement>("[data-message]")?.getAnimations().length === 1);
