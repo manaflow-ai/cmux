@@ -109,7 +109,7 @@ pub(crate) fn verify_dir(fd: BorrowedFd<'_>) -> Result<(), String> {
     let readable = unsafe {
         libc::openat(
             fd.as_raw_fd(),
-            b".\0".as_ptr().cast(),
+            c".".as_ptr(),
             libc::O_RDONLY | libc::O_DIRECTORY | libc::O_CLOEXEC | libc::O_NONBLOCK,
         )
     };
@@ -150,6 +150,7 @@ pub(crate) fn verify_dir(fd: BorrowedFd<'_>) -> Result<(), String> {
 mod tests {
     use super::*;
     use libc::{EACCES, EIO, ENOTTY, EOPNOTSUPP};
+    use std::os::fd::AsFd;
 
     #[test]
     fn refuses_unverified_filesystems() {
