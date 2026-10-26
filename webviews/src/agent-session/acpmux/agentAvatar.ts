@@ -31,13 +31,6 @@ function src(reply: unknown): string | null {
   return typeof value === "string" && value.startsWith("data:image/") ? value : null;
 }
 
-function changed(sessionId: string, value: string | null): void {
-  changes.set(sessionId, (changes.get(sessionId) ?? 0) + 1);
-  pending.delete(sessionId);
-  avatars.set(sessionId, value);
-  for (const listener of listeners) listener();
-}
-
 /// Asks the host for the session's avatar once at a time (exported for tests).
 export function loadAgentAvatar(sessionId: string): Promise<string | null> {
   const started = pending.get(sessionId);
@@ -66,29 +59,34 @@ export function loadAgentAvatar(sessionId: string): Promise<string | null> {
   return request;
 }
 
-/// The host says session `sessionId`'s avatar was set or removed (in this pane or another): a read
-/// that started before keeps nothing, and a session a card draws is asked for again; its old
+/// Forgets what the page knew of session `sessionId` (a read that started before keeps nothing) and,
+/// when `always` or a card draws the session or waits on it, asks the host for it afresh. The old
 /// picture stays until the answer comes, so nothing flashes.
-export function agentAvatarChanged(sessionId: string): void {
-  const asked = avatars.has(sessionId) || pending.has(sessionId);
+function refresh(sessionId: string, always: boolean): Promise<unknown> {
+  const asked = always || avatars.has(sessionId) || pending.has(sessionId);
   changes.set(sessionId, (changes.get(sessionId) ?? 0) + 1);
   pending.delete(sessionId);
-  if (!asked) return;
-  void loadAgentAvatar(sessionId).then(() => {
+  if (!asked) return Promise.resolve();
+  return loadAgentAvatar(sessionId).then(() => {
     for (const listener of listeners) listener();
   });
 }
 
-/// Set Avatar…: the host's open panel, then every card of the session draws the new picture.
-export async function setAgentAvatar(sessionId: string): Promise<void> {
-  const value = src(await call("agent.avatar.set", { sessionId }));
-  if (value) changed(sessionId, value);
+/// The host says session `sessionId`'s avatar was set or removed (in this pane or another).
+export function agentAvatarChanged(sessionId: string): void {
+  void refresh(sessionId, false);
 }
 
-/// Remove Avatar: the session's harness mark again.
+/// Set Avatar…: the host's open panel, then every card of the session draws what the host keeps
+/// now. The reply itself is never kept: a slow one could undo a change made after it.
+export async function setAgentAvatar(sessionId: string): Promise<void> {
+  if (src(await call("agent.avatar.set", { sessionId }))) await refresh(sessionId, true);
+}
+
+/// Remove Avatar: the session's harness mark again, once the host says it keeps none.
 export async function removeAgentAvatar(sessionId: string): Promise<void> {
   await call("agent.avatar.remove", { sessionId });
-  changed(sessionId, null);
+  await refresh(sessionId, true);
 }
 
 /// Whether the session has an avatar the page knows of (the menu offers Remove Avatar then).

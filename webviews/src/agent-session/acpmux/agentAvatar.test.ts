@@ -6,14 +6,41 @@ const PNG = "data:image/png;base64,AAAA";
 
 afterEach(() => setAgentAvatarHost(undefined));
 
+/// A host that keeps one picture per session, as AgentAvatars does: Set stores the chosen one, Remove
+/// deletes it, and `agent.avatar` answers what is kept. `hold` delays the named method's replies.
+function host(choose: () => unknown = () => ({ src: PNG })) {
+  const kept = new Map<string, string>();
+  const held: (() => void)[] = [];
+  const state = { hold: "" as string, connected: true, asked: [] as string[] };
+  const reply = async (method: string, params: Record<string, unknown>) => {
+    state.asked.push(method);
+    if (!state.connected) throw new Error("page not connected");
+    const id = String(params.sessionId);
+    if (method === "agent.avatar.set") {
+      const picked = choose() as { src?: unknown } | undefined;
+      if (typeof picked?.src === "string") kept.set(id, picked.src);
+      return picked;
+    }
+    if (method === "agent.avatar.remove") {
+      kept.delete(id);
+      return {};
+    }
+    return { src: kept.get(id) ?? null };
+  };
+  setAgentAvatarHost((method, params) => {
+    const answer = reply(method, params);
+    if (method !== state.hold) return answer;
+    return new Promise((resolve) => held.push(() => resolve(answer)));
+  });
+  return { kept, held, state };
+}
+
+const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
+
 describe("agent avatars", () => {
-  test("Set Avatar… keeps the host's picture, Remove forgets it, and a non-image answer is ignored", async () => {
-    const asked: [string, Record<string, unknown>][] = [];
+  test("Set Avatar… draws what the host keeps, Remove forgets it, and a non-image answer is ignored", async () => {
     let answer: unknown = { src: PNG };
-    setAgentAvatarHost(async (method, params) => {
-      asked.push([method, params]);
-      return method === "agent.avatar.set" ? answer : {};
-    });
+    const { state } = host(() => answer);
     await setAgentAvatar("s1");
     expect(hasAgentAvatar("s1")).toBe(true);
     await removeAgentAvatar("s1");
@@ -21,49 +48,74 @@ describe("agent avatars", () => {
     answer = { src: "javascript:alert(1)" };
     await setAgentAvatar("s1");
     expect(hasAgentAvatar("s1")).toBe(false);
-    expect(asked.map(([method]) => method)).toEqual(["agent.avatar.set", "agent.avatar.remove", "agent.avatar.set"]);
-    expect(asked[0]?.[1]).toEqual({ sessionId: "s1" });
+    expect(state.asked).toEqual(["agent.avatar.set", "agent.avatar", "agent.avatar.remove", "agent.avatar", "agent.avatar.set"]);
   });
 
   test("a read that started before Remove or Set keeps nothing", async () => {
-    const reads: ((reply: unknown) => void)[] = [];
-    setAgentAvatarHost((method) =>
-      method === "agent.avatar"
-        ? new Promise((resolve) => reads.push(resolve))
-        : Promise.resolve(method === "agent.avatar.set" ? { src: `${PNG}B` } : {}),
-    );
+    const { kept, held, state } = host(() => ({ src: `${PNG}B` }));
+    kept.set("s1", PNG);
+    state.hold = "agent.avatar";
     const stale = loadAgentAvatar("s1");
-    await Promise.resolve();
+    await tick();
+    state.hold = "";
     await removeAgentAvatar("s1");
-    reads[0]?.({ src: PNG });
+    held.shift()?.();
     await stale;
     expect(hasAgentAvatar("s1")).toBe(false);
+    kept.set("s1", PNG);
+    state.hold = "agent.avatar";
     const older = loadAgentAvatar("s1");
-    await Promise.resolve();
+    await tick();
+    state.hold = "";
     await setAgentAvatar("s1");
-    reads[1]?.({ src: PNG });
+    held.shift()?.();
     expect(await older).toBe(`${PNG}B`);
     expect(hasAgentAvatar("s1")).toBe(true);
   });
 
+  test("a slow Set reply after another pane's Remove, or a slow Remove after a Set, never undoes the newer change", async () => {
+    const { kept, held, state } = host(() => ({ src: PNG }));
+    state.hold = "agent.avatar.set";
+    const slowSet = setAgentAvatar("s4");
+    await tick();
+    state.hold = "";
+    kept.delete("s4");
+    agentAvatarChanged("s4");
+    held.shift()?.();
+    await slowSet;
+    await tick();
+    expect(hasAgentAvatar("s4")).toBe(false);
+
+    kept.set("s5", PNG);
+    expect(await loadAgentAvatar("s5")).toBe(PNG);
+    state.hold = "agent.avatar.remove";
+    const slowRemove = removeAgentAvatar("s5");
+    await tick();
+    state.hold = "";
+    kept.set("s5", `${PNG}C`);
+    agentAvatarChanged("s5");
+    await tick();
+    held.shift()?.();
+    await slowRemove;
+    await tick();
+    expect(hasAgentAvatar("s5")).toBe(true);
+    expect(await loadAgentAvatar("s5")).toBe(`${PNG}C`);
+  });
+
   test("a change in another pane is asked for again; the old picture stays until the answer, and a failed answer keeps none", async () => {
-    let stored: string | null = PNG;
-    let connected = true;
-    setAgentAvatarHost(async (method) => {
-      if (!connected) throw new Error("page not connected");
-      return method === "agent.avatar" ? { src: stored } : {};
-    });
+    const { kept, state } = host();
+    kept.set("s2", PNG);
     expect(await loadAgentAvatar("s2")).toBe(PNG);
-    stored = null;
+    kept.delete("s2");
     agentAvatarChanged("s2");
     expect(hasAgentAvatar("s2")).toBe(true);
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    await tick();
     expect(hasAgentAvatar("s2")).toBe(false);
-    stored = PNG;
+    kept.set("s3", PNG);
     expect(await loadAgentAvatar("s3")).toBe(PNG);
-    connected = false;
+    state.connected = false;
     agentAvatarChanged("s3");
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    await tick();
     expect(hasAgentAvatar("s3")).toBe(false);
     agentAvatarChanged("never-drawn");
     expect(hasAgentAvatar("never-drawn")).toBe(false);
