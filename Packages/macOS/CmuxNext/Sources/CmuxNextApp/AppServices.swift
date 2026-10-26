@@ -284,9 +284,11 @@ final class AppServices {
                                     overrides: FeatureOverrides(environment: ProcessInfo.processInfo.environment))
     /// The windows' frame-aligned pointer input for resize drags (feature `pointerFrameDrags`): pane dividers,
     /// column and row edges, both sidebars' resize edges and the DevTools divider move on a frame interval's first
-    /// drag event and once more at its frame (p04-input-030). Nil while it is off: each drag event moves them.
-    private(set) lazy var dragFrameInput: PointerFrameCoalescers? =
-        features.isEnabled(.pointerFrameDrags) ? PointerFrameCoalescers(tap: inputTap, mainWork: mainWork) : nil
+    /// drag event and once more at its frame (p04-input-030). It is the application's own `frameInput`, the one
+    /// `sendEvent` flushes before discrete input (a test's app has none: its own). Nil while it is off: each drag
+    /// event moves them.
+    private(set) lazy var dragFrameInput: FrameInputCoalescers? =
+        features.isEnabled(.pointerFrameDrags) ? ((NSApp as? CmuxApplication)?.frameInput ?? FrameInputCoalescers()) : nil
     /// The Task Manager page and Kill Process (`TaskManagerPageService`).
     private(set) lazy var taskManager = TaskManagerPageService(services: self)
     /// The Todo page: a workspace's checklist (`workspace-checklist-v1`).

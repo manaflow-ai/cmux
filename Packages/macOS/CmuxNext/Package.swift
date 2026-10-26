@@ -49,7 +49,7 @@ import PackageDescription
 //     composition root builds and the snapshot capture; Control serves it as debug.oracle.snapshot;
 //     every source is under DEBUG || CMUX_BENCH_HOOKS, so Release builds an empty module; p15-oracle.md section 3A)
 //   CmuxNextInput -> InputCore, Wakeups (the one input tap: typed subscriptions by class, phase and window;
-//     globalObserve; p04-input.md section 3 (A); the PointerFrameCoalescer on the window's FrameScheduler, (C))
+//     globalObserve; p04-input.md section 3 (A); PointerFrameConsumer.post(NSEvent) into Wakeups, (C))
 //   CmuxNextIPC -> CmuxNextWireDigest (the app-daemon wire; its bindings are built from cmux-tui/spec by
 //     CmuxNextWireGenPlugin running the host tool CmuxNextWireGen, which shares that digest; p05-ipc.md section 3.3)
 //   CmuxNextWireDigest -> nothing (FNV-1a 64, the schema digest CmuxNextIPC and CmuxNextWireGen share)
@@ -1585,8 +1585,8 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         // The only target besides the App that sees NSEvent for input routing; core and service
         // packages take its InputObserving face from CmuxNextInputCore. It depends on nothing above the
         // core, so every ui package (CmuxNextDesign's popups, overlays, tooltips and hover cards too)
-        // subscribes to it instead of installing AppKit event monitors. Wakeups (core): the
-        // PointerFrameCoalescer ticks on its window's FrameScheduler and arms a DemandTimer fallback.
+        // subscribes to it instead of installing AppKit event monitors. Wakeups (core): its
+        // PointerFrameConsumer.post(NSEvent) feeds the window's FrameInputCoalescer.
         .target(
             name: "CmuxNextInput",
             dependencies: ["CmuxNextInputCore", "CmuxNextWakeups"],
