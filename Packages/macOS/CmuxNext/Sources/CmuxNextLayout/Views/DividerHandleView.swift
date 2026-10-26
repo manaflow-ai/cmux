@@ -51,8 +51,8 @@ final class DividerHandleView: NSView {
     /// The handle's frame is at rest and Core Animation shows it springing there: it takes no hover and
     /// shows no resize cursor until it lands (``ScreenDividers/refreshHover(at:)``).
     var isOnRenderSpring: Bool { renderSpringsInFlight > 0 }
-    /// Frame assignments since the handle was made (tests: a render-server spring sets none between its
-    /// start and its landing, p03-rendering-024).
+    /// Frame assignments since the handle was made (tests: a render-server spring sets one, in its start's
+    /// turn, and none until it lands, p03-rendering-024).
     private(set) var frameSetCount = 0
     override var frame: NSRect { didSet { frameSetCount += 1 } }
 
@@ -170,11 +170,14 @@ final class DividerHandleView: NSView {
         convert(lineFrame, to: superview)
     }
 
-    private var lineFrame: CGRect {
+    private var lineFrame: CGRect { lineRect(in: bounds.size) }
+
+    /// The line's frame in a handle of `size`: centered across the axis, the handle's whole length along it.
+    private func lineRect(in size: CGSize) -> CGRect {
         let t = isColumnEdge ? LayoutStyle.columnEdgeLineThickness(dividerThickness: lineThickness) : lineThickness
         return switch axis {
-        case .horizontal: CGRect(x: (bounds.width - t) / 2, y: 0, width: t, height: bounds.height)
-        case .vertical: CGRect(x: 0, y: (bounds.height - t) / 2, width: bounds.width, height: t)
+        case .horizontal: CGRect(x: (size.width - t) / 2, y: 0, width: t, height: size.height)
+        case .vertical: CGRect(x: 0, y: (size.height - t) / 2, width: size.width, height: t)
         }
     }
 
@@ -205,39 +208,58 @@ final class DividerHandleView: NSView {
             isDragging = false
             isHovered = false
             // Its render-server springs end now; their landings still run (``springOnRenderServer``).
-            if let layer, isOnRenderSpring { for keyPath in Self.renderSpringKeyPaths { RenderSpring.stop(layer, keyPath) } }
+            if let layer, isOnRenderSpring {
+                for keyPath in Self.renderSpringKeyPaths {
+                    RenderSpring.stop(layer, keyPath)
+                    RenderSpring.stop(line, keyPath)
+                }
+            }
         }
     }
 
-    /// The key paths a render-server spring of the handle animates on its backing layer.
+    /// The key paths a render-server spring of the handle animates, on its backing layer and on its line.
     static let renderSpringKeyPaths = ["position", "bounds.size", "opacity"]
 
-    /// Moves the handle to `rest` (its superview's coordinates, alpha `restAlpha`) in this turn, its one frame
-    /// set until it lands, and lets the render server show it springing there from `from` (alpha `fromAlpha`)
-    /// on `spring`, the token of the panes beside it: additive springs of its backing layer's position, size
-    /// and opacity, as Chromium's compositor runs a transform animation off the main thread
+    /// Lets the render server show the handle springing to its frame from `from` (its superview's
+    /// coordinates, alpha `fromAlpha`) on `spring`, the token of the panes beside it. The frame, alpha, hidden
+    /// state and clips are at rest already: ``ScreenDividers/place(_:_:at:alpha:uncovered:force:)`` set them in
+    /// this turn, the handle's one frame set until it lands. Additive springs of its backing layer's position,
+    /// size and opacity and of its line's position and size (the line does not scale with the layer) start
+    /// from one begin time, as Chromium's compositor runs a layer's transform animation off the main thread
     /// (`cc/animation/animation_host.h`). A spring on a handle already springing retargets; the springs still
     /// running keep their velocity. `landed` runs once, when this call's springs ended or a newer call took
     /// over (`RenderSpring.Completion`), after the handle's cursor rects follow its rest frame again.
-    func springOnRenderServer(from: CGRect, alpha fromAlpha: CGFloat, to rest: CGRect, alpha restAlpha: CGFloat,
-                              spring: RenderSpring, landed: @escaping @MainActor @Sendable () -> Void) {
+    func springOnRenderServer(from: CGRect, alpha fromAlpha: CGFloat, spring: RenderSpring,
+                              landed: @escaping @MainActor @Sendable () -> Void) {
         renderSpringsInFlight += 1
-        // AppKit maps the frame to the layer: the springs start from the layer geometry it writes for `from`.
-        frame = from
-        let start = (position: layer?.position ?? .zero, size: layer?.bounds.size ?? .zero)
-        frame = rest
-        alphaValue = restAlpha
         window?.invalidateCursorRects(for: self)
         let finish: RenderSpring.Completion = { [weak self] _ in
             self?.renderSpringLanded()
             landed()
         }
         guard let layer else { return finish(true) }
-        var moves = [RenderSpring.Move(layer, "position", from: start.position, to: layer.position),
-                     RenderSpring.Move(layer, "bounds.size", from: start.size, to: layer.bounds.size)]
-        if fromAlpha != restAlpha { moves.append(RenderSpring.Move(layer, "opacity", from: fromAlpha, to: restAlpha)) }
+        // AppKit keeps a layer-backed view's layer frame equal to its frame: `from` is the layer's start frame.
+        let rest = frame
+        let restLine = lineRect(in: rest.size), fromLine = lineRect(in: from.size)
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        line.frame = restLine
+        CATransaction.commit()
+        var moves = [RenderSpring.Move(layer, "position", from: Self.position(of: from, anchor: layer.anchorPoint), to: layer.position),
+                     RenderSpring.Move(layer, "bounds.size", from: from.size, to: layer.bounds.size),
+                     RenderSpring.Move(line, "position", from: Self.position(of: fromLine, anchor: line.anchorPoint), to: line.position),
+                     RenderSpring.Move(line, "bounds.size", from: fromLine.size, to: line.bounds.size)]
+        if fromAlpha != alphaValue { moves.append(RenderSpring.Move(layer, "opacity", from: fromAlpha, to: alphaValue)) }
         spring.animateGroup(moves, in: self, completion: finish)
     }
+
+    /// A layer's position for `frame` with `anchor` (unit coordinates of its bounds).
+    private static func position(of frame: CGRect, anchor: CGPoint) -> CGPoint {
+        CGPoint(x: frame.minX + anchor.x * frame.width, y: frame.minY + anchor.y * frame.height)
+    }
+
+    /// The line's layer, for tests: it springs with the handle (``springOnRenderServer``).
+    var lineLayer: CALayer { line }
 
     /// One render-server spring call landed: after the last, the resize cursor shows at the rest frame.
     private func renderSpringLanded() {

@@ -20,9 +20,11 @@ extension ScreenContentView {
     /// The change's turn started a split (a pane growing in from its neighbour's edge, ``arriving``),
     /// possibly while the last split still springs: its pane and divider springs go to the render server,
     /// and their CPU springs rest. A close (task 022b), a zoom (027) and a new dock column (028) stay on
-    /// the CPU step. Returns whether it took the motion.
+    /// the CPU step, and so does a split whose turn also moves a camera on the CPU (the strip's reveal of
+    /// the new pane, a row column's or a scroll area's): each of its frames places every pane and divider at
+    /// the camera's shift. Returns whether it took the motion.
     func springSplitOnRenderServer() -> Bool { // perf-hot: 4ms motion-frame
-        guard !arriving.isEmpty, newDockColumns.isEmpty, zoomMotion.pane == nil, !scrollRidesFrames else { return false }
+        guard !arriving.isEmpty, newDockColumns.isEmpty, zoomMotion.pane == nil, !scrollRidesFrames, !camerasMove else { return false }
         let strip = stripShift, scale = self.scale
         let panes = SplitMotion.renderMoves(paneFrames.filter { context.hosts[$0.key]?.superview === self }) { pane, rect in
             shownRect(rect, of: pane, strip: strip, scale: scale)
@@ -47,16 +49,23 @@ extension ScreenContentView {
             host.springOnRenderServer(from: move.from, alpha: move.fromAlpha, to: move.to, alpha: move.toAlpha, spring: spring,
                                       laysOut: laysOut && move.to.width >= 1 && move.to.height >= 1, landed: landed)
         }
-        // Each divider is a layer on the panes' spring (p03-rendering-024): its frame is set to rest here, once,
-        // and nothing sets it again before it lands. The change turn's presentation pass places its clips.
+        // Each divider is a layer on the panes' spring (p03-rendering-024): the one placement path puts it at
+        // rest here (frame, alpha, hidden state, clips), its one frame set before it lands.
+        let placement = ScreenDividers(screen: self), uncovered = uncoveredRect
         for (kind, move) in dividers {
             guard let view = dividerViews[kind] else { continue }
             renderSpringsInFlight += 1
-            view.springOnRenderServer(from: move.from, alpha: move.fromAlpha, to: move.to, alpha: move.toAlpha,
-                                      spring: spring, landed: landed)
+            placement.place(view, kind, at: move.to, alpha: move.toAlpha, uncovered: uncovered, force: true)
+            view.springOnRenderServer(from: move.from, alpha: move.fromAlpha, spring: spring, landed: landed)
         }
         renderSpringLanded()
         return true
+    }
+
+    /// A camera springs on the CPU: the strip's (not under a pan), a row column's, a scroll area's or the canvas's.
+    var camerasMove: Bool {
+        (!isUserScrolling && (scroll.value != scroll.target || scroll.velocity != 0)) || rowsMoving || areasMoving
+            || canvasState.camera.isMoving
     }
 
     /// One render-server spring call of this screen landed. After the last, the dividers' clips follow the
