@@ -29,5 +29,11 @@ struct CaptureScenePageCompositedTests {
         ]))
         #expect(!CaptureSceneRegistry.pageComposited([:]))
     }
+
+    @Test func chromiumPageMaySettleWhileBackingWebViewLoads() {
+        #expect(CaptureSceneRegistry.agentPageCanSettle(attached: true, loading: true))
+        #expect(CaptureSceneRegistry.agentPageCanSettle(attached: true, loading: false))
+        #expect(!CaptureSceneRegistry.agentPageCanSettle(attached: false, loading: true))
+    }
 }
 #endif

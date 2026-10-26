@@ -70,7 +70,7 @@ final class CaptureSceneRegistry {
                     && self.services.windows.controller(for: targetWindowID)?.sidebar.model.sections.flatMap(\.workspaces).contains { !$0.rowState.isPending } == true
                     && self.services.showcase.agentTabs.values.contains {
                     guard let view = self.services.agentTabs.existingView($0) else { return false }
-                    return view.webView.window != nil && !view.webView.isLoading
+                    return Self.agentPageCanSettle(attached: view.webView.window != nil, loading: view.webView.isLoading)
                 }
             },
             start: start,
@@ -196,6 +196,14 @@ final class CaptureSceneRegistry {
     /// so this only refuses a still in which no page drew at all.
     static func pageComposited(_ snapshot: [String: JSONValue]) -> Bool {
         (snapshot["webviews_composited"]?.intValue ?? 0) + (snapshot["chromium_pages_composited"]?.intValue ?? 0) > 0
+    }
+
+    /// A Chromium agent can have a live, ready DOM while its backing WKWebView still reports loading
+    /// an asynchronous resource. The readiness probe below checks body, transcript and composer;
+    /// this frame gate only needs the page attached to the window.
+    static func agentPageCanSettle(attached: Bool, loading: Bool) -> Bool {
+        _ = loading
+        return attached
     }
 
     private func readinessIsComplete(_ readiness: JSONValue) -> Bool {
