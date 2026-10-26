@@ -638,12 +638,16 @@ fn keep_newer_leaves_a_later_or_own_build_and_updates_an_older_one() {
 
 #[test]
 fn a_build_is_kept_over_an_older_days_or_as_someones_own() {
-    assert_eq!(keeps_over("fedcba987 2026-10-25", NEW), Some("newer"));
-    assert_eq!(keeps_over("fedcba987+dirty.0badf00d 2026-10-01", NEW), Some("ownBuild"));
-    assert_eq!(keeps_over(NEW, NEW), None, "the same day is not newer");
-    assert_eq!(keeps_over(OLD, NEW), None);
-    assert_eq!(keeps_over("fedcba987", NEW), None, "no date is not newer");
-    assert_eq!(keeps_over("fedcba987 2026-10-25", "a1b2c3d4e"), None);
+    let new = Some(NEW);
+    assert_eq!(keeps_over("fedcba987 2026-10-25", new), Some("newer"));
+    assert_eq!(keeps_over("fedcba987+dirty.0badf00d 2026-10-01", new), Some("ownBuild"));
+    assert_eq!(keeps_over(NEW, new), None, "the same day is not newer");
+    assert_eq!(keeps_over(OLD, new), None);
+    assert_eq!(keeps_over("fedcba987", new), None, "no date is not newer");
+    assert_eq!(keeps_over("fedcba987 2026-10-25", Some("a1b2c3d4e")), None);
+    let own = "fedcba987+dirty.0badf00d 2026-10-01";
+    assert_eq!(keeps_over(own, None), Some("ownBuild"), "own, whatever is pushed");
+    assert_eq!(keeps_over("fedcba987 2026-10-25", None), None, "no pushed date: not newer");
 }
 
 #[test]

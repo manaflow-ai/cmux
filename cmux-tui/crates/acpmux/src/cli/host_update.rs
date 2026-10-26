@@ -259,8 +259,10 @@ fn build_commit(build: &str) -> Option<&str> {
 /// Whether the build `running` must not be replaced by `pushing` under
 /// `--keep-newer`: it has local changes (`+dirty`, someone's own build), or
 /// it was built on a later day than `pushing` (a host's self-update timer
-/// moved it past the build being pushed). A build with no date is not newer.
-fn keeps_over(running: &str, pushing: &str) -> Option<&'static str> {
+/// moved it past the build being pushed). An own build is kept whatever is
+/// pushed, also a binary that names no build (`pushing` is `None`); a build
+/// with no date, or a pushed binary with none, is not newer.
+fn keeps_over(running: &str, pushing: Option<&str>) -> Option<&'static str> {
     let head = running.split_whitespace().next()?;
     if head.contains("+dirty.") {
         return Some("ownBuild");
@@ -268,7 +270,7 @@ fn keeps_over(running: &str, pushing: &str) -> Option<&'static str> {
     fn date(build: &str) -> Option<&str> {
         build.split_whitespace().nth(1).filter(|d| d.len() == 10)
     }
-    match (date(running), date(pushing)) {
+    match (date(running), pushing.and_then(date)) {
         (Some(running), Some(pushing)) if running > pushing => Some("newer"),
         _ => None,
     }
@@ -566,9 +568,10 @@ fn update_peer(remote: &dyn Remote, opts: &UpdateOptions) -> PeerUpdate {
     // Read under the host's update lock, so a self-update that ran since the
     // caller looked is seen here and never undone.
     if opts.keep_newer
-        && let (Some(running), Some(pushing)) = (&probe.build, &binary_build)
-        && let Some(reason) = keeps_over(running, pushing)
+        && let Some(running) = &probe.build
+        && let Some(reason) = keeps_over(running, binary_build.as_deref())
     {
+        let pushing = binary_build.as_deref().unwrap_or("a binary with no build id");
         let why = format!("{} runs {running}, kept over {pushing}", remote.host());
         return up.end(Outcome::Current, reason, why);
     }
