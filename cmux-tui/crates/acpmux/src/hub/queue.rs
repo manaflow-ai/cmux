@@ -854,7 +854,7 @@ impl Hub {
             // A record from before `fromAgent` names an agent by its provenance (`digest.rs`).
             let from_agent = e.msg.get("fromAgent").and_then(Value::as_str);
             let agent = super::digest::agent_sender(provenance.as_ref(), from_agent);
-            let supersede = e.msg.get("supersede").and_then(Value::as_str).map(str::to_owned);
+            let supersede = crate::author::restored_supersede(&e.msg).map(str::to_owned);
             restored.push((prompt_id.clone(), turn_id.clone()));
             queue.push(QueuedPrompt {
                 prompt_id: prompt_id.clone(),

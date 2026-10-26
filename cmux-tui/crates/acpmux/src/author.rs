@@ -142,6 +142,14 @@ pub fn of_provenance(provenance: Option<&Value>) -> Option<&str> {
         .flatten()
 }
 
+/// The supersede key a restored `queued` record runs under (`hub/queue.rs` restore): none for a
+/// person's prompt, which a key never replaces (`supersede.rs` knows agents and the owner only),
+/// whatever an older daemon wrote.
+pub fn restored_supersede(queued: &Value) -> Option<&str> {
+    let person = of_provenance(queued.pointer("/_meta/provenance")).is_some();
+    queued.get("supersede").and_then(Value::as_str).filter(|_| !person)
+}
+
 /// `answeredBy` on a `permission_decision`: a paired device's `{device, feedItem}`
 /// (`hub/person.rs` answered_by), with the person's `{id, name}` added when one answered.
 pub fn answered_by(device: Option<Value>, author: Option<&Author>) -> Option<Value> {
@@ -198,6 +206,18 @@ mod tests {
             let e = author(&with(bad.clone())).expect_err(&bad.to_string());
             assert_eq!(e.data.unwrap()["reason"], "author.value_refused", "{bad}");
         }
+    }
+
+    #[test]
+    fn a_restored_persons_prompt_takes_no_supersede_key() {
+        let person = json!({"kind": PERSON_MESSAGE, "from": "user_1", "fromName": "Ana"});
+        let keyed = json!({"supersede": "status", "_meta": {"provenance": person}});
+        assert_eq!(restored_supersede(&keyed), None);
+        let agent =
+            json!({"supersede": "status", "_meta": {"provenance": {"kind": "agent_message"}}});
+        assert_eq!(restored_supersede(&agent), Some("status"));
+        assert_eq!(restored_supersede(&json!({"supersede": "status"})), Some("status"));
+        assert_eq!(restored_supersede(&json!({})), None);
     }
 
     #[test]
