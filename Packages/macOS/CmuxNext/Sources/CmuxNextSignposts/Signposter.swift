@@ -288,7 +288,7 @@ public nonisolated struct Signposter: Sendable {
     /// both in microseconds.
     ///
     /// - Parameters:
-    ///   - lateMilliseconds: How long after the frame's vsync the commit ended.
+    ///   - lateMilliseconds: How long past its turn's deadline the commit ended.
     ///   - turnMilliseconds: The run-loop turn's start to the commit's end.
     public func lateCommit(lateMilliseconds: Double, turnMilliseconds: Double) {
         assert(SignpostName.motionLateCommits.category == category, "motion.late_commits is not in category \(category)")

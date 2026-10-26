@@ -38,6 +38,8 @@ public final class MotionClock {
     private var steppingRearmed = false
     /// Frames delivered while something moved (debug).
     public private(set) var frames: UInt64 = 0
+    /// Frames a step keeps ``MotionActivity`` running for: up to the next step, and the last step's commit.
+    private static let activityFrames: Double = 2
 
     convenience init(window: NSWindow?) {
         self.init(scheduler: { [weak window] in window.map(FrameScheduler.forWindow) ?? .app })
@@ -81,6 +83,7 @@ public final class MotionClock {
         if !order.contains(id) { order.append(id) }
         MotionTrace.begin(trace, id: id)
         client.activate()
+        MotionActivity.began(seconds: Self.activityFrames * FrameTick.defaultRefreshInterval)
     }
 
     /// Stops stepping `animator` (it left its window).
@@ -107,6 +110,7 @@ public final class MotionClock {
 
     private func step(_ tick: FrameTick) -> Bool {
         frames &+= 1
+        MotionActivity.began(seconds: Self.activityFrames * (tick.refreshInterval ?? FrameTick.defaultRefreshInterval))
         if MotionTrace.isEnabled { MotionTrace.sample("clock.dt_ms", tick.elapsed * 1000) }
         // Animators started during this frame step from the next one.
         for id in order {

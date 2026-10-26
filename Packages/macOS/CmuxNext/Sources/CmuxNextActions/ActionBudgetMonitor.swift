@@ -25,8 +25,9 @@ public import CmuxNextSignposts
 ///
 /// - With a vsync source (``newestFrame``), each committed run also records its estimated present
 ///   (``recordPresentEstimate(_:start:commitEnd:inputAgeMilliseconds:)``, the `action.presented_estimate`
-///   event): the target timestamp of the first display-link tick after the commit, read from the newest tick
-///   a frame scheduler delivered. No link starts for it and nothing waits for a frame.
+///   event): the target timestamp of the first display-link tick after the commit, on the grid of the last tick
+///   of the key window's display (the person acts in the key window). No link starts for it and nothing waits
+///   for a frame.
 ///
 /// ```swift
 /// let budget = ActionBudgetMonitor()
@@ -66,7 +67,8 @@ public final class ActionBudgetMonitor {
     /// run past ``budgetNanos`` and records it, with its stack, as an `over_budget` task named by the
     /// action id. Nil publishes nothing.
     public let board: MainTaskBoard?
-    /// The vsync grid an estimated present is placed on (the app's `DisplayClock.newestFrame()`); nil records no estimate.
+    /// The vsync grid an estimated present is placed on (the key display's, `DisplayClock.newestFrame()`); nil records
+    /// no estimate.
     public let newestFrame: (@MainActor () -> DisplayFrameSample?)?
     /// Where each estimate goes (the `action.presented_estimate` signpost).
     private let presentEstimates: @MainActor (ActionPresentSignpostMessage) -> Void
@@ -108,6 +110,16 @@ public final class ActionBudgetMonitor {
         self.capacity = ring.capacity
         batchSize = ring.capacity / 2
         batchMask = UInt64(batchSize - 1)
+    }
+
+    /// The app's monitor: runs published on `board`, each committed run's estimated present placed on the grid of
+    /// the key window's display (``DisplayClock/newestFrame()``, read only: no link starts for it).
+    ///
+    /// - Parameters:
+    ///   - board: The main-thread task board runs are published on (``board``).
+    ///   - displays: The app's display clock.
+    public convenience init(board: MainTaskBoard?, displays: DisplayClock) {
+        self.init(board: board, newestFrame: { displays.newestFrame() })
     }
 
     /// `CLOCK_UPTIME_RAW` nanoseconds: the clock of ``ActionTimingSample/startUptimeNanos``, the
@@ -161,7 +173,7 @@ public final class ActionBudgetMonitor {
     ///   - commitEnd: ``now()`` at the end of its commit.
     ///   - inputAgeMilliseconds: The person's input event's age at the start, or -1.
     /// - Returns: The recorded estimate, or nil.
-    @discardableResult
+    @discardableResult @MainActor
     public func recordPresentEstimate(_ index: UInt32, start: UInt64, commitEnd: UInt64,
                                       inputAgeMilliseconds: Double) -> ActionPresentSignpostMessage? {
         guard let newestFrame else { return nil }

@@ -1,16 +1,16 @@
 public import QuartzCore
 public import CmuxNextSignposts
 
-/// The newest display-link frame a ``DisplayClock`` delivered: a vsync time and the refresh period, so a time
-/// can be placed on the display's vsync grid without a display link (nothing asks for a frame to read it).
+/// The last display-link frame one display's link delivered (``DisplayClock/newestFrame(for:)``): a vsync time and
+/// the refresh period, so a time can be placed on that display's vsync grid without a display link (nothing asks for a frame to read it).
 ///
 /// Chrome's compositor does the same with its `BeginFrameArgs`: `frame_time + n * interval` is a later vsync of
 /// the same source (components/viz/common/frame_sinks/begin_frame_args.h, `BeginFrameArgs::interval`), and
 /// presentation feedback without a hardware time is that estimate (ui/gfx/presentation_feedback.h).
 ///
 /// ```swift
-/// let sample = displays.newestFrame()
-/// let deadline = sample?.vsync(after: turnStart)   // the end of the frame the turn began in
+/// let sample = displays.newestFrame(for: window)
+/// let shown = sample?.presentEstimate(afterCommit: commitEnd)   // the target of the first tick after the commit
 /// ```
 public nonisolated struct DisplayFrameSample: Sendable, Equatable {
     /// How old a tick may be for its grid to place a time when no link runs: one second (the period of a
@@ -32,10 +32,17 @@ public nonisolated struct DisplayFrameSample: Sendable, Equatable {
         self.linkRunning = linkRunning
     }
 
-    /// Where the grid comes from for a time `time`.
+    /// How many periods old a running link's tick may be and still be its current grid. An unpaused link whose
+    /// tick is older is stalling (the displays sleep, the screen went away; ``DisplayClock`` rebuilds it after
+    /// three stalls), so its grid is only ``VsyncPhase/recent`` or ``VsyncPhase/unknown``.
+    public static let maxRunningPeriods: Double = 4
+
+    /// Where the grid comes from for a time `time`: running while the link runs and its tick is under
+    /// ``maxRunningPeriods`` old, recent while the tick is under ``maxPhaseAge`` old, else unknown.
     public func phase(at time: CFTimeInterval) -> VsyncPhase {
-        if linkRunning { return .running }
-        return abs(time - timestamp) <= Self.maxPhaseAge ? .recent : .unknown
+        let age = abs(time - timestamp)
+        if linkRunning, age <= Self.maxRunningPeriods * interval { return .running }
+        return age <= Self.maxPhaseAge ? .recent : .unknown
     }
 
     /// The first vsync strictly after `time`: the deadline of the frame `time` falls in.

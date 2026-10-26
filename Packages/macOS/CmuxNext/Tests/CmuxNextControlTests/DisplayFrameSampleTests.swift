@@ -42,6 +42,17 @@ import Testing
         #expect(abs(none.time - (12 + 1.5 * FrameTick.defaultRefreshInterval)) < 1e-9)
     }
 
+    /// An unpaused link that stopped ticking (the displays sleep, the screen went away) is not a running grid: past
+    /// a few periods its tick is recent, past a second unknown.
+    @Test func anUnpausedLinkWithAnOldTickIsNotRunning() throws {
+        let stalling = try #require(DisplayFrameSample(timestamp: 10, interval: Self.hz120, linkRunning: true))
+        #expect(stalling.phase(at: 10 + 2 * Self.hz120) == .running)
+        #expect(stalling.phase(at: 10 + DisplayFrameSample.maxRunningPeriods * Self.hz120 + 0.001) == .recent)
+        #expect(stalling.phase(at: 10.5) == .recent)
+        #expect(stalling.phase(at: 30) == .unknown)
+        #expect(DisplayFrameSample.presentEstimate(afterCommit: 30, from: stalling).phase == .unknown)
+    }
+
     @Test func aBadPeriodIsNoSample() {
         #expect(DisplayFrameSample(timestamp: 3, interval: 0, linkRunning: true) == nil)
         #expect(DisplayFrameSample(timestamp: 3, interval: .infinity, linkRunning: true) == nil)

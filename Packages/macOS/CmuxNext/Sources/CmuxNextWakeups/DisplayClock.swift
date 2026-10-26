@@ -110,17 +110,24 @@ public final class DisplayClock {
     /// The last frame stall `display` saw.
     public func lastStall(on display: CGDirectDisplayID) -> FrameStall? { displays[display]?.lastStall }
 
-    /// The newest link frame of any display, with whether that display's link runs now: the vsync grid that late
-    /// commits and estimated presents are placed on (``DisplayFrameSample``). Reads only: no link is made or
-    /// resumed, and a display keeps its last frame when its link stops. Nil before the first link frame.
-    public func newestFrame() -> DisplayFrameSample? {
-        var newest: DisplayFrameSample?
-        for display in displays.values {
-            guard let vsync = display.lastVsync, newest.map({ vsync.timestamp > $0.timestamp }) ?? true else { continue }
-            newest = DisplayFrameSample(timestamp: vsync.timestamp, interval: vsync.interval,
-                                        linkRunning: display.link.map { !$0.isPaused } ?? false) ?? newest
+    /// The last link frame of the key window's display (``newestFrame(for:)`` with no window): the grid an action's
+    /// estimated present and a late motion commit are placed on, as the person acts in and watches the key window.
+    public func newestFrame() -> DisplayFrameSample? { newestFrame(for: nil) }
+
+    /// The last link frame of the display `window` is on (nil: the key window's), with whether that display's link
+    /// runs now: the vsync grid ``DisplayFrameSample`` places a time on, as Chrome's compositor reads the
+    /// `BeginFrameSource` of its own display (ui/display/mac/display_link_mac.h, one link per display). Nil when
+    /// that display had no link frame yet. With no screen at all, the newest frame of any display, never marked
+    /// running (its phase is another display's). Reads only: no link is made or resumed, and a display keeps its
+    /// last frame when its link stops.
+    public func newestFrame(for window: NSWindow?) -> DisplayFrameSample? {
+        if let id = displayOf(window) {
+            guard let display = displays[id], let vsync = display.lastVsync else { return nil }
+            return DisplayFrameSample(timestamp: vsync.timestamp, interval: vsync.interval,
+                                      linkRunning: display.link.map { !$0.isPaused } ?? false)
         }
-        return newest
+        let newest = displays.values.compactMap { $0.lastVsync }.max { $0.timestamp < $1.timestamp }
+        return newest.flatMap { DisplayFrameSample(timestamp: $0.timestamp, interval: $0.interval, linkRunning: false) }
     }
 
     // MARK: Subscribers
@@ -366,7 +373,7 @@ public final class DisplayClock {
         var lastFrame: CFTimeInterval = 0
         var stallTimerArms = 0
         var lastStall: FrameStall?
-        /// The last link frame's vsync time and refresh period (``DisplayClock/newestFrame()``), kept when the link stops.
+        /// The last link frame's vsync time and refresh period (``DisplayClock/newestFrame(for:)``), kept when the link stops.
         var lastVsync: (timestamp: CFTimeInterval, interval: Double)?
         /// A next-turn tick is queued for subscribers that came while the display had no link.
         var linklessTickQueued = false

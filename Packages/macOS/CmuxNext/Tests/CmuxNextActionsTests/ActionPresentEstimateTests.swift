@@ -32,6 +32,25 @@ import Testing
         #expect(monitor.presentEstimateCount == 1)
     }
 
+    /// The app's monitor reads the key display's last tick from the display clock, and makes no link to read it.
+    @Test func theAppMonitorReadsTheKeyDisplaysLastTick() throws {
+        var made = 0
+        let scheduler = FrameScheduler.testing(mediaTime: { 50 }) { _ in
+            made += 1
+            return EstimateFakeLink()
+        }
+        let client = FrameClient(owner: "spring", on: scheduler) { _ in true }
+        client.activate()
+        scheduler.frameDidFire(timestamp: 50, refreshInterval: 0.01, targetTimestamp: 50.01)
+        client.deactivate()
+        let monitor = ActionBudgetMonitor(board: nil, displays: scheduler.displayClock)
+        let message = try #require(monitor.recordPresentEstimate(monitor.intern("tab.new"), start: 50_001 * Self.ms,
+                                                                 commitEnd: 50_004 * Self.ms, inputAgeMilliseconds: -1))
+        #expect(message.phase == .recent, "the link stopped: its last tick still holds the grid")
+        #expect(abs(Int64(message.estimateUptimeNanos) - 50_020_000_000) < 1_000)
+        #expect(made == 1 && !scheduler.hasLink)
+    }
+
     @Test func aMonitorWithoutAVsyncSourceRecordsNoEstimate() {
         var heard = 0
         let monitor = ActionBudgetMonitor(presentEstimates: { _ in heard += 1 })
@@ -79,4 +98,9 @@ import Testing
         _ = CFRunLoopRunInMode(.defaultMode, 0, false)
         CFRunLoopTimerInvalidate(timer)
     }
+}
+
+private final class EstimateFakeLink: FrameLink {
+    var isPaused = false
+    func invalidate() {}
 }

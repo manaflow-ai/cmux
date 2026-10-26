@@ -59,13 +59,31 @@ class PerfSignpostsPresentedTests(unittest.TestCase):
 
     def test_presented_timeline_gives_the_error_in_frames(self) -> None:
         timeline = Path(self.dir.name) / "presented.json"
-        timeline.write_text(json.dumps({"presented_s": [1.005, 1.0125, 2.0105, 2.03], "refresh_hz": 120}))
+        timeline.write_text(json.dumps({"presented_s": [0.9, 1.0125, 2.0105, 2.03], "refresh_hz": 120}))
         report = self.run_script("--presented", str(timeline))
         rows = {(r["name"], r["detail"]): r for r in report["rows"]}
         self.assertEqual(rows[("action.presented_estimate.error", "*")]["count"], 2)
         self.assertAlmostEqual(rows[("action.presented_estimate.error", "*")]["max_ms"], 2.5)
         # p95 of |error| is 2.5 ms; one 120 Hz frame is 8.333 ms.
         self.assertAlmostEqual(report["estimate_error_p95_frames"], 0.3, places=3)
+        self.assertEqual(report["estimate_pairing"], {"paired": 2, "busy": 0, "unshown": 0})
+
+    def test_a_frame_at_every_vsync_pairs_no_estimate(self) -> None:
+        """While the screen changes every frame the next changed frame may be anyone's: pairing with it would score
+        every estimate one frame off, right or wrong. Those estimates are counted busy, never scored."""
+        timeline = Path(self.dir.name) / "presented.json"
+        timeline.write_text(json.dumps({"presented_s": [1 + k / 120 for k in range(150)], "refresh_hz": 120}))
+        report = self.run_script("--presented", str(timeline))
+        self.assertEqual(report["estimate_pairing"], {"paired": 0, "busy": 2, "unshown": 0})
+        self.assertIsNone(report["estimate_error_p95_frames"])
+        self.assertFalse(any(r["name"] == "action.presented_estimate.error" for r in report["rows"]))
+
+    def test_an_estimate_two_frames_off_fails_dc14(self) -> None:
+        timeline = Path(self.dir.name) / "presented.json"
+        timeline.write_text(json.dumps({"presented_s": [1.014 + 2 / 120, 2.013 + 2 / 120], "refresh_hz": 120}))
+        report = self.run_script("--presented", str(timeline))
+        self.assertAlmostEqual(report["estimate_error_p95_frames"], 2.0, places=3)
+        self.assertGreater(report["estimate_error_p95_frames"], 1)
 
     def test_a_stream_without_presentation_events_reports_none(self) -> None:
         self.stream.write_text("\n".join(line for line in self.module.SAMPLE.splitlines()

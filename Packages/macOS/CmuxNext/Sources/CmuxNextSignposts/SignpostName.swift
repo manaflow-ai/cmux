@@ -303,15 +303,16 @@ public nonisolated enum SignpostName: UInt16, Sendable, Hashable, CaseIterable, 
     case webuiScheme = 72
 
     // MARK: presentation (p03-rendering 004: what a Release build can say about frames it does not watch)
-    /// A main-thread Core Animation commit, made while a Motion animation runs (`MotionInFlight`), that ended after
-    /// the vsync of the frame its run-loop turn began in (`MotionLateCommits`): the change it holds missed that
-    /// frame. The vsync comes from the newest display-link tick a frame scheduler delivered; the counter starts no
-    /// link and asks for no frame, so a commit with no recent tick is not judged. Message: `late_ms=<past the vsync>
-    /// turn_ms=<turn start to commit end>`. Ring: instant; arg0 the lateness in us, arg1 the turn in us.
+    /// A main-thread Core Animation commit, made while a Motion animation runs (`MotionActivity`), that ended past a
+    /// deadline its run-loop turn could have met (`MotionLateCommits`): a display-link tick's turn, the tick's target
+    /// timestamp; any other turn, one period past the first vsync after it began. The grid is the key window's
+    /// display's last link tick; the counter starts no link and asks for no frame, so a commit with no recent tick
+    /// is not judged. Message: `late_ms=<past the deadline> turn_ms=<turn start to commit end>`. Ring: instant;
+    /// arg0 the lateness in us, arg1 the turn in us.
     case motionLateCommits = 73
     /// The estimated time an action's committed change is shown, recorded at its commit (`ActionBudgetMonitor`):
     /// the target timestamp of the first display-link tick after the commit, placed on the vsync grid of the
-    /// newest tick a frame scheduler delivered (no link is started for it). Message: `id=<action id>
+    /// key window's display's last tick (no link is started for it). Message: `id=<action id>
     /// present_ms=<run start to the estimate> commit_ms=<run start to the commit> input_age_ms=<age> phase=<running|
     /// recent|unknown>`, where `phase` says where the grid came from (a running link, a tick under a second old,
     /// none: then the estimate is the commit plus 1.5 refresh periods). Ring: instant with the "estimated" flag;

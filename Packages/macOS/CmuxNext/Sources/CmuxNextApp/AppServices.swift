@@ -107,9 +107,10 @@ final class AppServices {
     /// iPhone connections for the cmux-next iPhone app (cmux-next-ios, Settings > Mobile).
     let iphone = IPhoneHostService()
     /// Every action run's perform-to-commit time against the 10 ms budget (always on; zero-latency.md),
-    /// each run published on the board of the app's ``MainWorkScheduler`` so the watchdog samples a slow one; and
-    /// `motion.late_commits`, the main commits that miss their frame while a Motion animation runs.
-    let actionBudget: ActionBudgetMonitor, motionLateCommits: MotionLateCommits
+    /// each run published on the board of the app's ``MainWorkScheduler`` so the watchdog samples a slow one.
+    let actionBudget: ActionBudgetMonitor
+    /// `motion.late_commits`: the main commits that miss their frame while a Motion animation runs (starts no link).
+    let motionLateCommits = MotionLateCommits(displays: FrameScheduler.appDisplays)
     /// Every action; timed by the always-on `action.*` signposts and `actionBudget`, in Debug and Release.
     let registry: ActionRegistry
     /// The main-thread blocking detector's handle (threading-model.md): the Debug menu, `debug.blocking` (the Nightly sink to come).
@@ -455,8 +456,8 @@ final class AppServices {
         // on; the ring file opens on `.files`, never on main.
         traceBlackBox = environment.marksRun ? TraceBlackBoxFileSteps.startApp(bundleID: environment.launch.bundleID, work: work) : nil
         (self.launchImages, self.relaunchWake) = (launchImages, relaunchWake)
-        // Estimated presents and late motion commits read the frame schedulers' newest tick; neither starts a link.
-        (actionBudget, motionLateCommits) = (ActionBudgetMonitor(board: mainWork.budget.board, newestFrame: { FrameScheduler.appDisplays.newestFrame() }), MotionLateCommits(newestFrame: { FrameScheduler.appDisplays.newestFrame() }))
+        // Estimated presents read the key display's last tick; no link starts for them.
+        actionBudget = ActionBudgetMonitor(board: mainWork.budget.board, displays: FrameScheduler.appDisplays)
         updater = UpdaterService(work: work)
         registry = ActionRegistry.standard(runTiming: SignpostActionRunTiming(monitor: actionBudget))
         DaemonService.launchMark = { DebugTimings.markLaunch($0) }  // before any daemon service starts
