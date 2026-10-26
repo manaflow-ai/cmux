@@ -1481,6 +1481,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: python3 tests/test_nightly_unsigned_resume.py
 
+      - name: Validate the nightly signing jobs take a Blacksmith label with a moving queue
+        if: ${{ !cancelled() && matrix.group == 'release-notary' }}
+        run: python3 tests/test_nightly_sign_runner.py
+
       - name: Validate test compilation cache seeding
         if: ${{ !cancelled() && matrix.group == 'quality-sharding' }}
         run: |
