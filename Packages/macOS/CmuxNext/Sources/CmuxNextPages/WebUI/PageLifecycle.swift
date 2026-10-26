@@ -304,7 +304,7 @@ package final class PageLifecycle {
                 // Refused (its engine page is still starting, or still counts it visible): asked
                 // again after one recently visible window, as BrowserHibernation asks a refused
                 // page again after freezeSeconds. The plan's own deadline may be the discard, or none.
-                let retry = planner.timing.visibleWindow(lowPowerMode: conditions.lowPowerMode)
+                let retry = planner.timing.visibleWindow(energySaver: conditions.energySaver)
                 arm(at: uptime() + .seconds(retry))
                 return
             }
