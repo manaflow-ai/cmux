@@ -51,6 +51,9 @@ class FakeApp:
         self.fail_launch = False
         self.stops = 0
         self.hang: set = set()
+        self.pid = 4242
+        # The web fixture origin the case's action.run args name (FakeApp's page loads).
+        self.loaded: List[str] = []
 
     # -- the port
 
@@ -156,6 +159,14 @@ class FakeApp:
                                        "checkpoints": [c for c in self.ring if c["sequence"] > after]}}
 
     def m_action_run(self, params):
+        if params["action"] == "page.crash":
+            # A renderer crash the app survives (pid unchanged), or with `takeApp` one that relaunched it.
+            if params["args"].get("takeApp"):
+                self.pid += 1
+            return {"ok": True, "result": {"action": params["action"], "ran": True, "sequence": self.sequence}}
+        if params["action"] == "page.open":
+            self.loaded.append(params["args"]["url"])
+            return {"ok": True, "result": {"action": params["action"], "ran": True, "sequence": self.sequence}}
         if params["action"] != "workspace.new":
             return {"ok": False, "error": {"code": "not_found", "message": "no such action"}}
         self.turn(params["action"])
@@ -179,6 +190,30 @@ def identity(app: str):
 
 def identity_canonicalizer():
     return (lambda snapshots, paths, labels: [json.loads(json.dumps(s)) for s in snapshots]), {}
+
+
+class FakeWeb:
+    """webfixture.WebFixture's surface as the driver uses it."""
+
+    origin = "http://127.0.0.1:43123"
+
+    def __init__(self, fail: bool = False):
+        self.fail = fail
+        self.started = self.stopped = 0
+
+    def start(self) -> str:
+        if self.fail:
+            raise OSError("cannot listen on 127.0.0.1:0")
+        self.started += 1
+        return self.origin
+
+    def stop(self) -> None:
+        self.stopped += 1
+
+    def expand(self, value):
+        import webfixture
+
+        return webfixture.expand(value, self.origin)
 
 
 class Recorder:
@@ -219,7 +254,7 @@ class AppSessionTest(unittest.TestCase):
         self.apps: List[FakeApp] = []
         self.run_proc = Recorder()
 
-    def session(self, run=None, canonicalizer=None, **ctx) -> driver_app.AppSession:
+    def session(self, run=None, canonicalizer=None, make_web=None, **ctx) -> driver_app.AppSession:
         def make(app, out, env):
             fake = FakeApp(app, out, env)
             self.apps.append(fake)
@@ -230,7 +265,7 @@ class AppSessionTest(unittest.TestCase):
                                      canonicalizer=canonicalizer or identity_canonicalizer(),
                                      run=run or self.run_proc,
                                      host=lambda: {"os": "macOS 26.1", "arch": "arm64", "model": "Mac16,10"},
-                                     root_base=Path(self.tmp.name) / "o")
+                                     root_base=Path(self.tmp.name) / "o", make_web=make_web)
 
     def test_action_run_records_before_turn_and_settled(self) -> None:
         session = self.session()
@@ -331,6 +366,68 @@ class AppSessionTest(unittest.TestCase):
         self.assertEqual(session.run_case(case(unmet), {"case_id": "actions/c"})["status"], "Timeout")
         daemon_wait = dict(waiting, waitFor={"pointer": "/daemon/session", "predicate": "exists", "maxMs": 100})
         self.assertEqual(session.run_case(case(daemon_wait), {"case_id": "actions/c"})["status"], "Crash")
+
+    def test_shift_alone_types_the_shifted_symbol(self) -> None:
+        # A US keyboard: Shift-; is `:`, so a case types chrome:// without a `:` keystroke (case-v1 has none).
+        self.assertEqual(driver_app.debug_key("shift+;", "k"), {"key": ":", "modifiers": []})
+        self.assertEqual(driver_app.debug_key("shift+/", "k"), {"key": "?", "modifiers": []})
+        self.assertEqual(driver_app.debug_key("shift+1", "k"), {"key": "!", "modifiers": []})
+        # With another modifier it is a shortcut on the base key, as before; letters keep their Shift flag.
+        self.assertEqual(driver_app.debug_key("cmd+shift+[", "k"), {"key": "[", "modifiers": ["cmd", "shift"]})
+        self.assertEqual(driver_app.debug_key("shift+a", "k"), {"key": "a", "modifiers": ["shift"]})
+        self.assertEqual(driver_app.debug_key(";", "k"), {"key": ";", "modifiers": []})
+
+    def test_web_fixture_expands_web_and_rewrites_it_back(self) -> None:
+        seen: List[Any] = []
+
+        def canonical(snapshots, paths, labels):
+            seen.append(paths.web)
+            return [json.loads(json.dumps(s)) for s in snapshots]
+
+        webs: List[FakeWeb] = []
+
+        def make_web() -> FakeWeb:
+            webs.append(FakeWeb())
+            return webs[-1]
+
+        session = self.session(canonicalizer=(canonical, {}), make_web=make_web)
+        opened = step("open", "action.run", target={"window": "current"},
+                      args={"action": "page.open", "params": {"url": "$WEB/load.html"}},
+                      expect={"outcome": "ok", "receipt": "action.done"})
+        web_fixture = {"seed": "s", "network": "offline", "clock": "fixed", "web": True}
+        result = session.run_case(case(opened, fixture=web_fixture), {"case_id": "journeys/c"})
+        self.assertEqual(result["status"], "Pass", result["message"])
+        self.assertEqual(self.apps[0].loaded, [FakeWeb.origin + "/load.html"], "the app gets the case's own origin")
+        self.assertEqual(seen, [(FakeWeb.origin,)], "normalize.py rewrites the origin back to $WEB")
+        self.assertEqual((webs[0].started, webs[0].stopped), (1, 1), "the server lives for the case only")
+        # A case without fixture.web starts no server and rewrites no origin.
+        session.run_case(case(NEW_WORKSPACE), {"case_id": "actions/c"})
+        self.assertEqual((len(webs), seen[-1]), (1, ()))
+        broken = self.session(make_web=lambda: FakeWeb(fail=True))
+        result = broken.run_case(case(opened, fixture=web_fixture), {"case_id": "journeys/c"})
+        self.assertEqual((result["status"], result.get("step")), ("Crash", "setup"), result["message"])
+        self.assertIn("web fixture", result["message"])
+
+    def test_real_web_fixture_serves_the_case_on_loopback(self) -> None:
+        web = driver_app.default_web_fixture()
+        origin = web.start()
+        try:
+            self.assertRegex(origin, r"^http://127\.0\.0\.1:[0-9]+$")
+            self.assertEqual(web.expand({"u": "$WEB/load.html"}), {"u": origin + "/load.html"})
+        finally:
+            web.stop()
+
+    def test_a_child_crash_that_takes_the_app_with_it_fails_the_case(self) -> None:
+        session = self.session()
+        crash = step("crash", "action.run", target={"window": "current"}, args={"action": "page.crash"},
+                     expect={"outcome": "ok", "receipt": "action.done"})
+        allow = [{"kind": "renderer", "reason": "the step crashes the page on purpose", "steps": ["crash"]}]
+        result = session.run_case(case(crash, allow_crashes=allow), {"case_id": "journeys/c"})
+        self.assertEqual(result["status"], "Pass", result["message"])
+        relaunched = dict(crash, args={"action": "page.crash", "params": {"takeApp": True}})
+        result = session.run_case(case(relaunched, allow_crashes=allow), {"case_id": "journeys/c"})
+        self.assertEqual((result["status"], result.get("step")), ("Crash", "crash"), result["message"])
+        self.assertIn("pid 4242, now 4243", result["message"])
 
     def test_key_steps_go_through_debug_key(self) -> None:
         self.assertEqual(driver_app.debug_key("cmd+shift+d", "k"), {"key": "d", "modifiers": ["cmd", "shift"]})

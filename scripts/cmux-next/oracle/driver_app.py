@@ -18,7 +18,8 @@ any Release bundle (it has no `debug.oracle.*`). The driver never starts, quits 
 or a `com.cmuxterm.app` bundle: bench_launch takes only `cmux DEV <tag>.app`, and the session checks again.
 
 Steps: action.run (`action.run`), key (`debug.key`, one request per keystroke, through the app's real key
-path, to the focused pane of the step's window), cli (the bundle's own `cmux --app-socket`), mcp (`cmux mcp
+path, to the focused pane of the step's window; Shift alone on a digit or symbol types its shifted character, as on a
+US keyboard, so `shift+;` is `:`), cli (the bundle's own `cmux --app-socket`), mcp (`cmux mcp
 serve --all-tools` over stdio), settle (`debug.oracle.settle`), snapshot. Any step may carry `waitFor`
 (`debug.oracle.wait_for`, resolved from facet change signals; `changed` compares with the value read before the step). Checkpoints: `before`; `turn` for
 action.run and key (the turn recorder armed for that step, `debug.oracle.recorder` and `debug.oracle.turns`);
@@ -31,6 +32,10 @@ fixture.clock virtual, a named fixture handle (no seeding reaches the app) and a
 Expect: `result` is the action's own value (action.run's `result` member, never the run's sequence or ids).
 `receipt` needs the ActionEffect kind, which no app reply carries yet: the driver checks that an action ran,
 marks that step's checkpoints uncertain (never baselined) and says so in the result message.
+
+Web: a case with `fixture.web` gets its own webfixture.py server on a loopback port for the case, its `$WEB`
+strings expanded to that origin before the first step, and the origin rewritten back to `$WEB` in its checkpoints.
+The app's pid at the case start must hold to the end: a child crash the case allows never takes the app with it.
 
 Facets: `debug.oracle.snapshot` gives the app's facets (a facet with no provider in the build comes back
 not-comparable from the app); the `daemon` facet is read from the tag's own cmux-tui (the `--socket` of its
@@ -54,6 +59,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import dataclasses
 import importlib
 import json
 import os
@@ -110,6 +116,10 @@ SOCKET_ORIGINS = ("cli", "mcp", "script", "remote")
 MODIFIERS = {"cmd": "cmd", "ctrl": "control", "opt": "option", "alt": "option", "shift": "shift"}
 # case-v1 key names -> debug.key names (DebugKey.named); function keys are not synthesized by debug.key.
 KEY_NAMES = {"plus": "+", "backspace": "delete", "delete": "forwarddelete"}
+# The US keyboard's shift layer (DebugKey.shiftedSymbols, inverted): Shift alone on a digit or symbol key types the
+# shifted character, as a real keyboard does, so a case types `chrome://` as `shift+;` (case-v1 keystrokes have no
+# `:`). debug.key sends the character with the base key's code and Shift.
+SHIFTED = dict(zip("`1234567890-=[]\\;',./", "~!@#$%^&*()_+{}|:\"<>?"))
 OTHER_DRIVERS = {
     "resource.call": "driver_daemon.py (p15-oracle-023)",
     "kill": "driver_daemon.py (p15-oracle-023); app child kills are p15-oracle-188",
@@ -161,9 +171,10 @@ class LaunchSpec:
 @dataclass(frozen=True)
 class OraclePaths:
     """The session's hermetic prefixes: the root normalize.py rewrites to $ROOT (with its realpath alias) and
-    the HOME it rewrites to $HOME."""
+    the HOME it rewrites to $HOME; and a case's web fixture origin, which it rewrites to $WEB."""
 
     root: Path
+    web: Tuple[str, ...] = ()
 
     @property
     def home(self) -> Path:
@@ -291,6 +302,8 @@ def debug_key(stroke: str, step: str) -> Dict[str, Any]:
     if re.fullmatch(r"f[0-9]+", key):
         raise CaseError("Crash", f"debug.key does not synthesize function keys ({stroke})", step)
     modifiers = list(dict.fromkeys(MODIFIERS[m] for m in mods))
+    if modifiers == ["shift"] and key in SHIFTED:
+        return {"key": SHIFTED[key], "modifiers": []}
     return {"key": KEY_NAMES.get(key, key), "modifiers": modifiers}
 
 
@@ -395,6 +408,10 @@ class BenchAppPort:
         return self.bench is not None and self.bench.process is not None and self.bench.process.poll() is None
 
     @property
+    def pid(self) -> Optional[int]:
+        return self.bench.process.pid if self.bench is not None and self.bench.process is not None else None
+
+    @property
     def socket_path(self) -> str:
         return self.bench.socket
 
@@ -493,6 +510,11 @@ class CaseRun:
         self.at: Optional[str] = None
         self.unchecked_receipts: Dict[str, str] = {}
         self.dirty = False
+        # The app's process at the case start: a child crash (allow_crashes) must leave it running (CrashTab's
+        # contract, content/public/test/browser_test_utils.h), so a new pid fails the case like an exit does.
+        self.pid: Optional[int] = None
+        # The web fixture's origin while the case runs one (fixture.web).
+        self.web: Tuple[str, ...] = ()
         self.ops: Dict[str, Callable[[int, Mapping[str, Any]], Tuple[Tuple[str, Any], Any]]] = {
             "action.run": self.op_action_run,
             "key": self.op_key,
@@ -526,11 +548,13 @@ class CaseRun:
     def run(self) -> Dict[str, Any]:
         status, message, at = "Pass", "", None
         teardown = None
+        web = None
         try:
             fixture = self.case.get("fixture") or {}
-            if fixture.get("web"):
-                raise CaseError("Crash", "driver_app has no loopback web fixture yet (fixture.web)")
             self.at = "setup"
+            if fixture.get("web"):
+                web = self.start_web()
+            self.pid = self.app.pid
             self.settle("sync", DEFAULT_SETTLE_MS, "setup")
             teardown = self.setup_fixture(fixture.get("setup"))
             for index, step in enumerate(self.case.get("steps") or ()):
@@ -547,6 +571,8 @@ class CaseRun:
                 except Exception as error:  # noqa: BLE001 - a fixture teardown failure fails the case
                     status = "Crash"
                     message = "; ".join(filter(None, [message, f"fixture teardown: {error!r}"]))
+            if web is not None:
+                web.stop()
         result: Dict[str, Any] = {"status": status, "message": message, "checkpoints": []}
         if at:
             result["step"] = at
@@ -558,13 +584,25 @@ class CaseRun:
             result["message"] = "; ".join(filter(None, [message, f"receipt kind not compared (the app reply has no "
                                                                  f"ActionEffect kind): {notes}"]))
         try:
-            result["checkpoints"] = self.session.canonical(self.case_id, self.state.captures)
+            result["checkpoints"] = self.session.canonical(self.case_id, self.state.captures, self.web)
         except Exception as error:  # noqa: BLE001 - a snapshot normalize refuses is this case's Crash
             result.update(status="Crash", message="; ".join(filter(None, [message, f"snapshot refused: {error}"])))
         for checkpoint in result["checkpoints"]:
             if checkpoint["step"] in self.unchecked_receipts:
                 checkpoint["uncertain"] = True
         return result
+
+    def start_web(self) -> Any:
+        """The case's loopback web fixture (webfixture.py, net::EmbeddedTestServer's analog): its own port, the
+        case's `$WEB` expanded to its origin, and that origin rewritten back to `$WEB` in every checkpoint."""
+        web = self.session.make_web()
+        try:
+            web.start()
+        except Exception as error:  # noqa: BLE001 - a server that cannot listen is this case's Crash
+            raise CaseError("Crash", f"web fixture: {error}", "setup") from None
+        self.case = web.expand(self.case)
+        self.web = (web.origin,)
+        return web
 
     def rpc(self, method: str, params: Optional[Mapping[str, Any]] = None) -> Any:
         """The fixtures' control call: the result, or the error object as {"error": ...}."""
@@ -633,6 +671,9 @@ class CaseRun:
     def check_alive(self, step: str) -> None:
         if not self.app.alive():
             raise CaseError("Crash", "the app exited during the case", step)
+        if self.pid is not None and self.app.pid != self.pid:
+            raise CaseError("Crash", f"the app process changed during the case (pid {self.pid}, now {self.app.pid})",
+                            step)
 
     # -- barriers
 
@@ -917,10 +958,17 @@ def normalize_canonicalizer(schema_path: Optional[str] = None) -> Tuple[Canonica
         raise ValueError(f"normalize.py refuses the snapshot schema, so no snapshot can be canonical: {error}") from None
 
     def canonicalize(snapshots: Sequence[Dict[str, Any]], paths: OraclePaths, labels: Sequence[str]) -> List[Any]:
-        ctx = normalize.Context(root=paths.roots, home=(str(paths.home),))
+        ctx = normalize.Context(root=paths.roots, home=(str(paths.home),), web=paths.web)
         return [r.value for r in normalize.canonicalize_case(list(snapshots), schema, ctx, list(labels))]
 
     return canonicalize, schema.doc
+
+
+def default_web_fixture() -> Any:
+    """A fresh webfixture.WebFixture (p15-oracle-222) on an OS-chosen loopback port."""
+    import webfixture
+
+    return webfixture.WebFixture()
 
 
 def app_identity(app: str) -> Tuple[str, Optional[str], str, str]:
@@ -948,7 +996,8 @@ class AppSession:
                  canonicalizer: Optional[Tuple[Canonicalize, Dict[str, Any]]] = None,
                  run: Callable[..., subprocess.CompletedProcess] = subprocess.run,
                  read_daemon: Callable[[str, Mapping[str, Any]], Dict[str, Any]] = read_daemon_facet,
-                 host: Callable[[], Dict[str, str]] = host_meta, root_base: Path = Path("/tmp/o")):
+                 host: Callable[[], Dict[str, str]] = host_meta, root_base: Path = Path("/tmp/o"),
+                 make_web: Optional[Callable[[], Any]] = None):
         app = session_ctx.get("binary")
         if not app:
             raise ValueError("the app driver needs --binary \"PATH/cmux DEV <tag>.app\" (a --config bench build)")
@@ -971,6 +1020,7 @@ class AppSession:
         self.tag = tag
         self.run = run
         self.read_daemon = read_daemon
+        self.make_web = make_web or default_web_fixture
         self.host = host()
         root_base.mkdir(parents=True, exist_ok=True)
         self.paths = OraclePaths(Path(tempfile.mkdtemp(prefix="a", dir=str(root_base))))
@@ -1041,10 +1091,10 @@ class AppSession:
         except Exception as error:  # noqa: BLE001 - an SDK or reply failure is this case's Crash
             raise CaseError("Crash", f"daemon facet from {socket_path}: {error!r}", step) from None
 
-    def canonical(self, case_id: str, captures: Sequence[Capture]) -> List[Dict[str, Any]]:
+    def canonical(self, case_id: str, captures: Sequence[Capture], web: Tuple[str, ...] = ()) -> List[Dict[str, Any]]:
         if not captures:
             return []
-        values = self.canonicalize([c.snapshot for c in captures], self.paths,
+        values = self.canonicalize([c.snapshot for c in captures], dataclasses.replace(self.paths, web=web),
                                    [f"{c.step}/{c.checkpoint}" for c in captures])
         return [{"step": c.step, "checkpoint": c.checkpoint, "snapshot": v} for c, v in zip(captures, values)]
 

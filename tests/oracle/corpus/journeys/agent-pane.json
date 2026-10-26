@@ -1,0 +1,278 @@
+{
+  "$schema": "../../../../schemas/oracle/case-v1.schema.json",
+  "corpusVersion": 1,
+  "id": "agent-pane",
+  "suite": "journeys",
+  "title": "Agent pane: open a chat, send a prompt to the mock agent, stop, allow and deny, leave and resume it",
+  "journey": "agent-pane",
+  "priority": "P0",
+  "surface": "cmux-next-native",
+  "source": {
+    "repo": "manaflow-ai/cmux",
+    "ref": "$RUN",
+    "artifact": "$RUN"
+  },
+  "environment": {
+    "viewport": {
+      "width": 1440,
+      "height": 900
+    }
+  },
+  "fixture": {
+    "seed": "agent-pane-v1",
+    "network": "offline",
+    "clock": "fixed",
+    "agent": "mock"
+  },
+  "preconditions": [
+    "private scratch config (driver_app: bench config, ui.animations.enabled false)",
+    "tagged bench build",
+    "no unrelated app instance",
+    "a fresh saved session: one workspace, one terminal tab"
+  ],
+  "requires": [
+    "actions",
+    "keys",
+    "gui"
+  ],
+  "platforms": [
+    "mac"
+  ],
+  "steps": [
+    {
+      "id": "open-chat",
+      "op": "key",
+      "target": {
+        "window": "current"
+      },
+      "args": {
+        "keys": [
+          "cmd+i"
+        ]
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "action.done"
+      },
+      "waitFor": {
+        "pointer": "/focus/context/agent",
+        "equals": true,
+        "maxMs": 15000
+      },
+      "checkpoint": [
+        "before",
+        "turn",
+        "settled"
+      ],
+      "settleMaxMs": 10000,
+      "note": "a person's Cmd-I docks the workspace's agent chat on the left and focuses it (DockedAgentChat.open); the bench launch runs the mock agent (CMUX_NEXT_AGENT_PANE_MOCK=1)"
+    },
+    {
+      "id": "chat-listed",
+      "op": "settle",
+      "waitFor": {
+        "pointer": "/agents/sessions",
+        "predicate": {
+          "op": "lengthEquals",
+          "value": 1
+        },
+        "maxMs": 10000
+      },
+      "settleMaxMs": 10000,
+      "note": "one chat tab, a new chat with no session yet"
+    },
+    {
+      "id": "type-prompt",
+      "op": "key",
+      "target": {
+        "window": "current"
+      },
+      "args": {
+        "keys": [
+          "h",
+          "e",
+          "l",
+          "l",
+          "o"
+        ]
+      },
+      "expect": {
+        "outcome": "ok",
+        "noReceiptReason": "typing into the chat composer runs no registry action"
+      },
+      "settleMaxMs": 5000,
+      "note": "the composer's draft is hashed only (agents and webviews draftSha256)"
+    },
+    {
+      "id": "send-prompt",
+      "op": "key",
+      "target": {
+        "window": "current"
+      },
+      "args": {
+        "keys": [
+          "return"
+        ]
+      },
+      "expect": {
+        "outcome": "ok",
+        "noReceiptReason": "Return sends the composer's prompt to the page's agent, not a registry action"
+      },
+      "settleMaxMs": 10000,
+      "note": "the mock agent answers in the page; the app sees no session (the untested entry)"
+    },
+    {
+      "id": "stop-turn",
+      "op": "action.run",
+      "target": {
+        "window": "current"
+      },
+      "args": {
+        "action": "agentPane.stopTurn"
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "action.done"
+      },
+      "checkpoint": [
+        "before",
+        "settled"
+      ],
+      "settleMaxMs": 5000,
+      "note": "Stop Agent Turn on the focused chat: with no running turn it changes nothing"
+    },
+    {
+      "id": "approve",
+      "op": "key",
+      "target": {
+        "window": "current"
+      },
+      "args": {
+        "keys": [
+          "cmd+opt+1"
+        ]
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "action.done"
+      },
+      "checkpoint": [
+        "before",
+        "settled"
+      ],
+      "settleMaxMs": 5000,
+      "note": "a person's Allow Once (agentPane.permission.allowOnce); no permission is pending, so nothing changes"
+    },
+    {
+      "id": "reject",
+      "op": "key",
+      "target": {
+        "window": "current"
+      },
+      "args": {
+        "keys": [
+          "cmd+opt+3"
+        ]
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "action.done"
+      },
+      "checkpoint": [
+        "before",
+        "settled"
+      ],
+      "settleMaxMs": 5000,
+      "note": "a person's Deny (agentPane.permission.deny); no permission is pending, so nothing changes"
+    },
+    {
+      "id": "leave-chat",
+      "op": "key",
+      "target": {
+        "window": "current"
+      },
+      "args": {
+        "keys": [
+          "cmd+opt+right"
+        ]
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "action.done"
+      },
+      "waitFor": {
+        "pointer": "/focus/context/terminal",
+        "equals": true,
+        "maxMs": 5000
+      },
+      "note": "Cmd-Opt-Right (Ghostty's focus-pane key) to the terminal right of the docked chat"
+    },
+    {
+      "id": "resume-chat",
+      "op": "key",
+      "target": {
+        "window": "current"
+      },
+      "args": {
+        "keys": [
+          "cmd+i"
+        ]
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "action.done"
+      },
+      "waitFor": {
+        "pointer": "/focus/context/agent",
+        "equals": true,
+        "maxMs": 10000
+      },
+      "checkpoint": [
+        "before",
+        "turn",
+        "settled"
+      ],
+      "note": "Cmd-I again focuses the docked chat that is there; it opens no second chat (DockedAgentChat.open)"
+    },
+    {
+      "id": "no-duplicate",
+      "op": "settle",
+      "waitFor": {
+        "pointer": "/agents/sessions",
+        "predicate": {
+          "op": "lengthEquals",
+          "value": 1
+        },
+        "maxMs": 5000
+      }
+    },
+    {
+      "id": "final",
+      "op": "snapshot",
+      "args": {
+        "facets": [
+          "topology",
+          "focus",
+          "layout",
+          "agents",
+          "webviews",
+          "notifications",
+          "invariants"
+        ]
+      }
+    }
+  ],
+  "invariants": [
+    "chat identity is stable: the chat the first Cmd-I opened is the one the second Cmd-I focuses (agents.sessions has one row from chat-listed to the end, the same tab)",
+    "stop, allow and deny with nothing pending change no chat state: their before and settled checkpoints agree on agents and topology",
+    "the person's chat keys run their registry actions (receipts), and focus returns to the chat on resume"
+  ],
+  "teardown": [
+    "quit the tagged app the run started and its tag's daemons (TagTeardown)",
+    "verify its debug socket is gone"
+  ],
+  "untested": [
+    "a started turn, streamed tool progress, expanding and collapsing output, and answering a pending permission: the mock agent pane never gives the app a session (webviews agent-session/acpmux/App.tsx persistSession skips the mock), so AgentPaneModel.sessionId stays nil; a fixture agent with a session the app sees is the follow-up",
+    "Session Info (agentPane.toggleInspector) needs a run that may change the view"
+  ]
+}
