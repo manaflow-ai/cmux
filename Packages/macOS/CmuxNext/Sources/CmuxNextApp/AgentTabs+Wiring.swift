@@ -328,4 +328,10 @@ extension AgentTabStore {
         services.madeAgentTabs = tabs
         return tabs
     }
+
+    /// Every agent page asks for session `session`'s avatar again: a Set or Remove in one pane
+    /// reaches the cards and chips that other panes draw of the same session.
+    func agentAvatarChanged(_ session: String) {
+        for view in views.values { view.agentAvatarChanged(session) }
+    }
 }

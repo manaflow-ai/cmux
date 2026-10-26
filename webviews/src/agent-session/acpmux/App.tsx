@@ -358,7 +358,7 @@ import { configureNativeSidebarPreviewVariant, configureSidebarPreviewVariant } 
 import { configureTurnActionsPlacement } from "./turnActionsPlacement";
 import { archiveRow, markUnreadRow } from "./header/archiveRow";
 import { avatarRows } from "./header/avatarRow";
-import { hasAgentAvatar, removeAgentAvatar, setAgentAvatar, useAgentAvatar } from "./agentAvatar";
+import { agentAvatarChanged, hasAgentAvatar, removeAgentAvatar, setAgentAvatar, useAgentAvatar } from "./agentAvatar";
 import { copyRow } from "./header/copyRow";
 import { recordedConversationMarkdown } from "./conversation/exportMarkdown";
 import { instructionsRow, projectFilesRow } from "./header/instructionsRow";
@@ -521,6 +521,8 @@ declare global {
       /// Claude Code desktop's in-session status (the live plan card, the recap card) on or off: the
       /// Debug Settings toggle `agent.sessionStatus`, off by default (sessionStatus.ts).
       applySessionStatus?(on: boolean): void;
+      /// Session `sessionId`'s avatar was set or removed in some pane: ask for it again (agentAvatar.ts).
+      agentAvatarChanged?(sessionId: string): void;
       /// Suggested tasks on or off (Settings > Suggest Follow-Up Tasks, on by default, or the Debug
       /// toggle `agent.suggestedTasks` forcing them on): an agent's offers draw as the suggested tasks
       /// card (offer/offersShown.ts).
@@ -6676,6 +6678,9 @@ function AcpmuxPane() {
       },
       applySessionStatus(on) {
         setSessionStatus(on === true);
+      },
+      agentAvatarChanged(sessionId) {
+        if (typeof sessionId === "string") agentAvatarChanged(sessionId);
       },
       applySuggestedTasks(on) {
         if (setSuggestedTasks(on === true)) directClient.current?.suggestedTasksChanged();

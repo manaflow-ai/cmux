@@ -2,7 +2,8 @@
 // the avatars"): the person's own picture for a session, which its cards and sender chip draw in
 // place of the harness mark. The host keeps it on this Mac and answers a small data URL
 // (`agent.avatar {sessionId}`, AgentAvatars.swift); the chat's ⋯ menu sets and removes it
-// (`agent.avatar.set`, `agent.avatar.remove`). An answer is kept for the page, a change is told to
+// (`agent.avatar.set`, `agent.avatar.remove`), and the host tells every pane's page of a change
+// (`cmuxAcpmuxBridge.agentAvatarChanged`). An answer is kept for the page, a change is told to
 // every card at once, and a failed ask (an older host, the page not yet connected) is not kept.
 import { useEffect, useState } from "react";
 import { postNative } from "./native";
@@ -58,6 +59,19 @@ export function loadAgentAvatar(sessionId: string): Promise<string | null> {
     });
   pending.set(sessionId, request);
   return request;
+}
+
+/// The host says session `sessionId`'s avatar was set or removed (in this pane or another): a read
+/// that started before keeps nothing, and a session a card draws is asked for again; its old
+/// picture stays until the answer comes, so nothing flashes.
+export function agentAvatarChanged(sessionId: string): void {
+  const asked = avatars.has(sessionId) || pending.has(sessionId);
+  changes.set(sessionId, (changes.get(sessionId) ?? 0) + 1);
+  pending.delete(sessionId);
+  if (!asked) return;
+  void loadAgentAvatar(sessionId).then(() => {
+    for (const listener of listeners) listener();
+  });
 }
 
 /// Set Avatar…: the host's open panel, then every card of the session draws the new picture.

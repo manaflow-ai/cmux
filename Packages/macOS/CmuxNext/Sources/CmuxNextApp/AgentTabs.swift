@@ -455,9 +455,14 @@ final class AgentTabStore {
         model.onAgentAvatar = { [weak self] session in await self?.agentAvatars?.avatar(session) }
         model.onSetAgentAvatar = { [weak self] session in
             guard let self, let agentAvatars else { return nil }
-            return await agentAvatars.choose(session, window: views[resolve(provisional)]?.window)
+            let src = await agentAvatars.choose(session, window: views[resolve(provisional)]?.window)
+            if src != nil { agentAvatarChanged(session) }
+            return src
         }
-        model.onRemoveAgentAvatar = { [weak self] session in self?.agentAvatars?.remove(session) }
+        model.onRemoveAgentAvatar = { [weak self] session in
+            self?.agentAvatars?.remove(session)
+            self?.agentAvatarChanged(session)
+        }
         model.onBrowseProject = { [weak self] in
             guard let self, let handler = newTabPages[resolve(provisional)]?.handler ?? blankChatHandler?(resolve(provisional)) else { return nil }
             return await handler.browseProject()

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { hasAgentAvatar, loadAgentAvatar, removeAgentAvatar, setAgentAvatar, setAgentAvatarHost } from "./agentAvatar";
+import { agentAvatarChanged, hasAgentAvatar, loadAgentAvatar, removeAgentAvatar, setAgentAvatar, setAgentAvatarHost } from "./agentAvatar";
 import { avatarRows } from "./header/avatarRow";
 
 const PNG = "data:image/png;base64,AAAA";
@@ -44,6 +44,19 @@ describe("agent avatars", () => {
     reads[1]?.({ src: PNG });
     expect(await older).toBe(`${PNG}B`);
     expect(hasAgentAvatar("s1")).toBe(true);
+  });
+
+  test("a change in another pane is asked for again, and the old picture stays until the answer", async () => {
+    let stored: string | null = PNG;
+    setAgentAvatarHost(async (method) => (method === "agent.avatar" ? { src: stored } : {}));
+    expect(await loadAgentAvatar("s2")).toBe(PNG);
+    stored = null;
+    agentAvatarChanged("s2");
+    expect(hasAgentAvatar("s2")).toBe(true);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(hasAgentAvatar("s2")).toBe(false);
+    agentAvatarChanged("never-drawn");
+    expect(hasAgentAvatar("never-drawn")).toBe(false);
   });
 
   test("the menu offers Set Avatar…, Remove Avatar only with one, and nothing without a session", () => {
