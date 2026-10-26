@@ -150,13 +150,18 @@ final class DaemonPageRelay: PageProvider {
             let cancel = try await PageRelayChannel.shared(for: services.machines.local, page: context.page).listen(event: event) { payload in
                 onEvent((try? Self.pageValue(payload)) ?? .object([:]))
             }
-            return PageSubscription(onCancel: cancel)
+            return PageSubscription(frozenDelivery: Self.frozenDelivery, onCancel: cancel)
         } catch is PageRelayChannel.NoSuchEvent {
             throw PageError.unknownOp(stream)
         } catch let error as DaemonError {
             throw Self.pageError(error)
         }
     }
+
+    /// Daemon page events are change notices the page answers with a fresh read (the relay sends
+    /// `{resync: true}` after an overflow), so a frozen page keeps only the newest and a gap mark
+    /// when older ones dropped. Never `.latest`: that would hide the lost changes.
+    static let frozenDelivery: PageFrozenDelivery = .resync
 
     /// The v2 idempotency key: the page's own, else its operation id (decision 31), so a resend
     /// after a reconnect replays the daemon's first answer instead of applying twice.
@@ -207,6 +212,8 @@ final class PolicyGatedPageProvider: PageProvider {
         return try await inner.call(op, params: params, context: context)
     }
 
+    /// Frozen delivery: the wrapped provider's own policy, unchanged (the gate refuses or forwards a
+    /// stream, never changes what it keeps while the page is frozen).
     func subscribe(_ stream: String, filter: CmuxNextSettings.JSONValue, context: PageCallContext,
                    onEvent: @escaping @MainActor (CmuxNextSettings.JSONValue) -> Void) async throws -> PageSubscription {
         if let reason = turnedOff() { throw PageError(code: "cmux.policy.turned_off", message: reason) }
