@@ -1059,15 +1059,13 @@ async fn handshake(
                     "session/new failed; see the harness output below".into()
                 }),
             );
-            if protocol_mismatch {
-                if let Some(step) = r.steps.last_mut() {
-                    step.reason = Some("harness_protocol_mismatch");
-                    let mut data = json!({"try": "acpmux daemon harnesses"});
-                    if codex {
-                        data["next"] = json!("acpmux new --host HOST -m codex -d");
-                    }
-                    step.data = Some(data);
+            if protocol_mismatch && let Some(step) = r.steps.last_mut() {
+                step.reason = Some("harness_protocol_mismatch");
+                let mut data = json!({"try": "acpmux daemon harnesses"});
+                if codex {
+                    data["next"] = json!("acpmux new --host HOST -m codex -d");
                 }
+                step.data = Some(data);
             }
             return false;
         }

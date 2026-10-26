@@ -125,9 +125,12 @@ raw.
 
 ### Remote ergonomics
 
-Use a non-interactive SSH probe before saving a peer. `acpmux host add` exits
-with `peer_unreachable` when the first attempt is offline and its JSON error
-includes the exact `ssh -o BatchMode=yes HOST true`, add, and doctor commands.
+Use a non-interactive SSH probe before saving a peer. If the first attempt is
+offline, `acpmux host add` saves the peer, exits 0, and prints a warning to
+stderr. With `--json`, the response instead includes a `warning` object with
+`reason: "peer_unreachable"`, the exact `ssh -o BatchMode=yes HOST true` probe
+in `try`, and `detail: "the peer was saved and will keep reconnecting"`.
+For WebSocket URLs, `try` is `acpmux host ls`. Saving failures remain errors.
 Peer requests that cannot be sent include `acpmux host ls` and state that the
 request was not sent. A method rejected by an older peer is reported as
 `peer_version_skew` with `acpmux host update NAME`.

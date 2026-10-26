@@ -446,40 +446,39 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                         })
                         .and_then(|peer| peer.get("connected").and_then(Value::as_bool))
                         .unwrap_or(false);
-                    if !connected {
+                    let warning = if !connected {
                         let host = url
                             .strip_prefix("ssh://")
                             .unwrap_or(&url)
                             .split(':')
                             .next()
                             .unwrap_or(&name);
-                        let (message, data) = if url.starts_with("ssh://") && has_token {
+                        let (message, warning) = if url.starts_with("ssh://") && has_token {
                             (
                                 format!(
-                                    "peer {name} is offline; verify the SSH alias, then run `acpmux host ls` and retry after it shows connected (the saved WebSocket token is retained)"
+                                    "peer {name} was saved and will keep reconnecting; verify the SSH alias with `ssh -o BatchMode=yes {host} true`, then run `acpmux host ls` and retry after it shows connected (the saved WebSocket token is retained)"
                                 ),
                                 json!({
                                     "reason": "peer_unreachable",
-                                    "try": "acpmux host ls",
-                                    "detail": "the peer is offline; the saved WebSocket token is retained"
+                                    "try": format!("ssh -o BatchMode=yes {host} true"),
+                                    "detail": "the peer was saved and will keep reconnecting"
                                 }),
                             )
                         } else if url.starts_with("ssh://") {
                             (
                                 format!(
-                                    "peer {name} is offline; verify the SSH alias, then run `ssh -o BatchMode=yes {host} true`, `acpmux host add {name} {url}`, and `acpmux host doctor {name} --json`"
+                                    "peer {name} was saved and will keep reconnecting; verify the SSH alias with `ssh -o BatchMode=yes {host} true`, then run `acpmux host doctor {name} --json`"
                                 ),
                                 json!({
                                     "reason": "peer_unreachable",
                                     "try": format!("ssh -o BatchMode=yes {host} true"),
-                                    "then": format!("acpmux host add {name} {url}"),
-                                    "doctor": format!("acpmux host doctor {name} --json")
+                                    "detail": "the peer was saved and will keep reconnecting"
                                 }),
                             )
                         } else {
                             (
                                 format!(
-                                    "peer {name} is offline; run `acpmux host ls` and retry after it shows connected"
+                                    "peer {name} was saved and will keep reconnecting; run `acpmux host ls` and retry after it shows connected"
                                 ),
                                 json!({
                                     "reason": "peer_unreachable",
@@ -488,14 +487,16 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                                 }),
                             )
                         };
-                        return Err(crate::cli::errors::AppError::new(
-                            crate::cli::errors::Code::Runtime,
-                            "peer_unreachable",
-                            message,
-                        )
-                        .retryable()
-                        .with_data(data)
-                        .into());
+                        if !json_out {
+                            eprintln!("warning: {message}");
+                        }
+                        Some(warning)
+                    } else {
+                        None
+                    };
+                    let mut reply = reply;
+                    if let Some(warning) = warning {
+                        reply["warning"] = warning;
                     }
                     reply
                 }

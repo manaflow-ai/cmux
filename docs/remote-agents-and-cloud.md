@@ -66,8 +66,12 @@ acpmux host ls
 acpmux host doctor my-linux --json
 ```
 
-Run the SSH probe before adding a host. `host add` now fails when the first
-connection is offline and prints the probe and doctor commands to run next:
+Run the SSH probe before adding a host. If the first connection is offline,
+`host add` saves the peer, exits 0, and prints a warning to stderr with the
+SSH probe and doctor commands to run next. With `--json`, the response includes
+`warning: {"reason":"peer_unreachable","try":"ssh -o BatchMode=yes HOST true",
+"detail":"the peer was saved and will keep reconnecting"}`. WebSocket URLs
+use `acpmux host ls` as the next command. Saving failures remain errors:
 
 ```sh
 ssh -o BatchMode=yes my-linux true
