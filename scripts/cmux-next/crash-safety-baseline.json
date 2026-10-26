@@ -74,8 +74,6 @@
   },
   "unchecked": {
    "CMUXMobileCore": 7,
-   "CmuxHomeCore": 1,
-   "CmuxHomeRender": 5,
    "CmuxIrohTransport": 7,
    "CmuxIrxTransport": 14,
    "CmuxMobileRPC": 3,
@@ -88,8 +86,7 @@
    "CmuxNextBrowserImport": 1,
    "CmuxNextDictation": 6,
    "CmuxNextServerHelper": 5,
-   "CmuxNextTerminal": 7,
-   "MessagesLabSidebar": 1
+   "CmuxNextTerminal": 7
   }
  },
  "waived": {
@@ -140,6 +137,7 @@
    "unchecked": {
     "CMUXMobileCore": 1,
     "CmuxAppAttest": 1,
+    "CmuxHomeRender": 1,
     "CmuxNextAgentActivity": 1,
     "CmuxNextAgentPane": 6,
     "CmuxNextApp": 7,
@@ -172,7 +170,8 @@
     "CmuxVNC": 2,
     "CmuxVNCDemoServer": 3,
     "CmuxVNCWebRTC": 19,
-    "MessagesLabHome": 5
+    "MessagesLabHome": 5,
+    "MessagesLabSidebar": 1
    }
   }
  }
