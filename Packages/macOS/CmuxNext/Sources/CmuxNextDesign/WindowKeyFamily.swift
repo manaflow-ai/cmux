@@ -108,9 +108,13 @@ final class WindowKeyFamily {
             if active, holds { self.familyHeldKey = true }
             guard inactive != self.isInactive else { return }
             self.isInactive = inactive
-            // No fade: the wash switches with the glass and the window chrome, in this pass's
-            // transaction (``WindowMaterialView/updateInactiveTint(fades:)``).
-            self.forEachView { $0.updateInactiveTint(fades: false) }
+            // Settled (another app is active, or a window holds the keys): no fade, so the wash
+            // switches with the glass and the window chrome in this pass's transaction
+            // (``WindowMaterialView/updateInactiveTint(fades:)``). An active app with no key
+            // window may be between a resign and a become that a later pass posts: the wash
+            // eases then, so a reversal one pass later does not flash.
+            let settled = !active || key != nil
+            self.forEachView { $0.updateInactiveTint(fades: !settled) }
         }
     }
 
