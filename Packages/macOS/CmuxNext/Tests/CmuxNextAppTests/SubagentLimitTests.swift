@@ -1,3 +1,4 @@
+import CmuxNextActions
 @testable import CmuxNextApp
 import CmuxNextDesign
 import Foundation
@@ -141,5 +142,11 @@ import Testing
         #expect(await none.run(.chat("s-1"))?.message == SubagentLimitStrings.unreadable)
         #expect(!asked)
         #expect(SubagentLimitStrings.unreadable != SubagentLimitStrings.unsupported)
+    }
+
+    /// The dialog sends its change on a person connection, so the socket must not start it.
+    @Test func onlyAPersonOpensTheDialog() throws {
+        let descriptor = try #require(ActionRegistry.standard().descriptor(for: "agentChat.subagentLimit"))
+        #expect(descriptor.isPersonOnly, "a socket caller cannot open it and have the person line submit for it")
     }
 }
