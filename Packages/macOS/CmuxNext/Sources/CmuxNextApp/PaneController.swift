@@ -99,7 +99,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
         view.stripView.previewProvider = services.previews
         view.stripView.resourceSource = services.resources
         view.stripView.contextMenuProvider = { [weak self] target in self?.contextMenu(for: target) }
-        view.stripView.hoverCards = services.hoverCards
+        view.stripView.attachHoverCards(services.hoverCards, memory: services.memoryCoordinator) // p07-memory-005
         view.stripView.onHoverTab = { [weak self] id in self?.noteHover(id) }
         view.stripView.newTabShortcut = { [weak services] in services?.registry.shortcutDisplay(for: StripNewTab.action) }
         view.onResize = { [weak services, weak paneView = view] in
