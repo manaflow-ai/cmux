@@ -477,8 +477,12 @@
             {
               "tab": "tab_000000000000000000000000000000e2",
               "kind": "browser",
+              "page": null,
+              "pinned": false,
+              "engine": "cef",
               "url": "$WEB/index.html",
               "title": "sha256:2ab25f10948b26d75da5b1623465c24e8ad39e11a3295c95c810e99dfa56e462",
+              "loadState": "finished",
               "loading": false,
               "canGoBack": false,
               "canGoForward": false,
@@ -486,7 +490,7 @@
               "muted": false,
               "audible": false,
               "crashed": false,
-              "findActive": false
+              "hibernated": false
             }
           ]
         }

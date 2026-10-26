@@ -911,9 +911,10 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         ),
         // Browser tabs (the App's browser tab domain, moved out leaf-first): the engine a new tab
         // gets (BrowserEngineResolver) and where it goes (BrowserTabRoute). Pure; the App composes it.
+        // CmuxNextOracle: the tabs facet's values read through BrowserTab (DEV and bench only).
         .target(
             name: "CmuxNextBrowserTabs",
-            dependencies: ["CmuxNextBrowser", "CmuxNextDaemon", "CmuxNextSettings"],
+            dependencies: ["CmuxNextBrowser", "CmuxNextDaemon", "CmuxNextSettings", "CmuxNextOracle"],
             swiftSettings: uiSwiftSettings
         ),
         .target(

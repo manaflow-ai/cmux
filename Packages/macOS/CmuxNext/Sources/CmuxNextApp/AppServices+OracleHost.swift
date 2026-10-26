@@ -15,6 +15,7 @@ extension AppServices: OracleHost {
                 return OracleInvariantsFacet.Reading(violations: result.violations.map(\.invariant.rawValue),
                                                      windowInvariants: WindowInvariants.problems(windows), checks: monitor.checks)
             },
+            OracleTabsFacet { [weak self] in self?.oracleTabPanes() ?? [] },
         ])
     }
 
