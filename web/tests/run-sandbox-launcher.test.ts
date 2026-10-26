@@ -218,6 +218,13 @@ describe("sandbox run lifecycle", () => {
     expect(calls.steps.slice(-3)).toEqual(["outcome", "scheduleCleanup:vm-1", "destroy"]);
   });
 
+  test("a launch whose budget is already spent creates no VM", async () => {
+    const { calls, ports: p } = ports();
+    await runSandboxAttempt({ ...input, timeoutMs: 1_000, requestedAt: Date.now() - 5_000 }, p);
+    expect(calls.steps).not.toContain("createVm");
+    expect(calls.outcomes[0]).toMatchObject({ timedOut: true });
+  });
+
   test("a create the deadline abandoned is still handed to the reaper when it finishes", async () => {
     const { calls, ports: p } = ports({ createVmAfterMs: 200 });
     await runSandboxAttempt({ ...input, timeoutMs: 50 }, p);
@@ -241,7 +248,7 @@ describe("sandbox run lifecycle", () => {
     expect(stopped?.aborted).toBe(true);
   });
 
-  test("the kept tail holds whole lines only, so a cut never splits a secret from its prefix", () => {
+  test("the kept tail is redacted line by line, so evicting old lines never separates a secret from its context", async () => {
     const tail = (chunks: string[]) => {
       const kept = new OutputTail();
       for (const chunk of chunks) kept.append(chunk);
@@ -253,6 +260,15 @@ describe("sandbox run lifecycle", () => {
     const split = tail(["x".repeat(32_768), "x".repeat(32_768), " password=", "example-pass-123!\n", "after\n"]);
     expect(split).toBe("after\n");
     expect(sandboxReply(split)).not.toContain("example-pass-123!");
+    // A private key whose BEGIN line would be evicted: the key never survives.
+    const { generateKeyPairSync } = await import("node:crypto");
+    const pem = generateKeyPairSync("ed25519").privateKey.export({ format: "pem", type: "pkcs8" }).toString();
+    const body = pem.split("\n").slice(1, -2).join("\n");
+    const evicted = tail([pem, `${"pad\n".repeat(20_000)}`, "done\n"]);
+    expect(evicted).not.toContain(body);
+    expect(tail(["log\n", pem, "done\n"])).toBe("log\n[redacted private key]\ndone\n");
+    // Cut off mid-line by a timeout: the unfinished line is redacted too.
+    expect(tail(['echo PASSWORD="example-pass-123!'])).not.toContain("example-pass-123!");
   });
 
   test("a failure is redacted whole before it is cut to 500 characters", async () => {

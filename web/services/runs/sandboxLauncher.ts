@@ -15,13 +15,18 @@ const SANDBOX_DRAIN_MS = 15_000;
 const SANDBOX_LATE_CREATE_MS = 60_000;
 
 /**
- * The last part of the output, kept whole lines only: a cut inside a line could split a secret
- * from the prefix (`ghp_`, `password=`) that redaction recognizes it by. Once a line is cut, the
- * rest of it is dropped too, across chunks, until its newline arrives.
+ * The last part of the output, already redacted. Each line is redacted as it completes (a private
+ * key block is held whole until its END line), so dropping old lines to stay inside the window
+ * can never separate a secret from the prefix or header that redaction recognizes it by. A line
+ * longer than the window is dropped, with the rest of it as it arrives.
  */
 export class OutputTail {
-  private text = "";
+  private kept = "";
+  private pending = "";
   private skippingLine = false;
+  private inKeyBlock = false;
+
+  constructor(private readonly handles: () => readonly (string | null | undefined)[] = () => []) {}
 
   append(chunk: string): void {
     let next = chunk;
@@ -31,24 +36,44 @@ export class OutputTail {
       next = next.slice(end + 1);
       this.skippingLine = false;
     }
-    const joined = this.text + next;
-    if (joined.length <= SANDBOX_OUTPUT_TAIL_CHARS) {
-      this.text = joined;
-      return;
+    this.pending += next;
+    let newline = this.pending.indexOf("\n");
+    while (newline >= 0) {
+      this.complete(this.pending.slice(0, newline + 1));
+      this.pending = this.pending.slice(newline + 1);
+      newline = this.pending.indexOf("\n");
     }
-    const cut = joined.slice(-SANDBOX_OUTPUT_TAIL_CHARS);
-    const lineStart = cut.indexOf("\n");
-    if (lineStart < 0) {
-      // One line longer than the whole window: drop it, and whatever of it is still to come.
-      this.text = "";
+    if (this.pending.length > SANDBOX_OUTPUT_TAIL_CHARS) {
+      this.pending = "";
       this.skippingLine = true;
+    }
+  }
+
+  private complete(line: string): void {
+    // A private key's lines are dropped from its BEGIN line through its END line.
+    if (/-----BEGIN [A-Z0-9 ]*PRIVATE KEY/.test(line)) this.inKeyBlock = true;
+    if (this.inKeyBlock) {
+      if (/-----END [A-Z0-9 ]*PRIVATE KEY/.test(line)) {
+        this.inKeyBlock = false;
+        this.keep("[redacted private key]\n");
+      }
       return;
     }
-    this.text = cut.slice(lineStart + 1);
+    this.keep(redactReceiptText(line, this.handles()));
+  }
+
+  private keep(line: string): void {
+    this.kept += line;
+    if (this.kept.length <= SANDBOX_OUTPUT_TAIL_CHARS) return;
+    const cut = this.kept.slice(-SANDBOX_OUTPUT_TAIL_CHARS);
+    const lineStart = cut.indexOf("\n");
+    this.kept = lineStart < 0 ? "" : cut.slice(lineStart + 1);
   }
 
   toString(): string {
-    return this.text;
+    // The unfinished last line is redacted too; an unfinished key block shows only its marker.
+    const tail = this.inKeyBlock ? "[redacted private key]" : redactReceiptText(this.pending, this.handles());
+    return this.kept + tail;
   }
 }
 
@@ -172,7 +197,7 @@ class SandboxRun {
   private handles: { readonly workspaceId: string; readonly terminalId: string } | undefined;
   private bootMs: number | null = null;
   private sequence = 0;
-  private readonly tail = new OutputTail();
+  private readonly tail = new OutputTail(() => [this.providerVmId, this.handles?.workspaceId, this.handles?.terminalId]);
   private exitCode: number | null = null;
   private signal: number | null = null;
   private timedOut = false;
@@ -202,6 +227,8 @@ class SandboxRun {
 
   async execute(): Promise<void> {
     const { input, ports, lease } = this;
+    // A launch that starts with its budget already spent pays for no VM.
+    if (ports.now() >= this.deadline) throw new SandboxDeadlineError(input.timeoutMs);
     const creating = ports.createVm();
     this.lateCreate = creating;
     const providerVmId = (await this.step(creating)).providerVmId;
