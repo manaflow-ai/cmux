@@ -82,7 +82,7 @@ public struct BrowserImportTurnedOff: LocalizedError {
 
 /// Tells a detached import scan to stop: set from its task's cancellation handler, read by the scan
 /// before each source (`ImportScanner.shouldStop`).
-final class ImportScanStop: Sendable {
+nonisolated final class ImportScanStop: Sendable {
     private let flag = OSAllocatedUnfairLock(initialState: false)
 
     var isSet: Bool { flag.withLock { $0 } }

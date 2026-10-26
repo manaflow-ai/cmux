@@ -136,7 +136,10 @@ public final class ImportSuggestionsCenter {
             guard let self, generation == scanGeneration else { return }
             isScanning = false
             scanning = nil
-            guard isEnabled else { return then?() }
+            guard isEnabled else {
+                then?()
+                return
+            }
             findings = found
             icons.load(deck.list().cards.compactMap(\.app))
             then?()
