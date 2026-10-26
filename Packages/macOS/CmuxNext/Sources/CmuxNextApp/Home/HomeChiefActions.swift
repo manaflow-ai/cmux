@@ -66,6 +66,7 @@ enum HomeChiefActions {
         let registry = context.registry
         let interactive = !registry.isCapturingRefusal
         let services = context.services
+        // main-hop-allow: the action's userBlocking rest (p06 rule 2): it awaits the main-actor HomeChiefControl; post has no userBlocking class
         let work: ActionWork = Task {
             guard let error = await control.stop() else { return nil }
             if interactive { services.refusalHUD.show(error.text, in: services.windows.active?.window ?? NSApp.keyWindow) }
