@@ -1,8 +1,14 @@
 import type { AcpmuxRow, ConversationLayout } from "../model";
 
-/** Follow intent has a deadband; the final landing must use the actual rounded DOM end. */
-export function settleFollowBottom(node: Pick<HTMLElement, "scrollTop" | "scrollHeight" | "clientHeight">): boolean {
-  const end = Math.max(0, node.scrollHeight - node.clientHeight);
+/** Follow intent has a deadband; the final landing must use the actual rounded DOM end.
+ * `fallbackEnd` keeps DOM-free transcript tests and a pre-layout browser pass deterministic; a
+ * nonzero scrollHeight always wins once the scroller has painted its content. */
+export function settleFollowBottom(
+  node: Pick<HTMLElement, "scrollTop" | "scrollHeight" | "clientHeight">,
+  fallbackEnd = 0,
+): boolean {
+  const domEnd = node.scrollHeight - node.clientHeight;
+  const end = Math.max(0, node.scrollHeight > 0 ? domEnd : fallbackEnd);
   if (end === node.scrollTop) return false;
   node.scrollTop = end;
   return true;
