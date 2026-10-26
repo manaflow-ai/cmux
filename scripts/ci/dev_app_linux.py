@@ -41,7 +41,29 @@ def fail(message: str) -> None:
 
 
 def unzip(archive: str, dest: str) -> None:
+    # A fresh destination: nothing in it can be a link an entry is written through.
+    os.makedirs(dest, exist_ok=True)
+    if os.listdir(dest):
+        fail(f"{dest} is not empty")
     root = os.path.realpath(dest)
+
+    def inside(path: str) -> bool:
+        return os.path.realpath(path).startswith(root + os.sep)
+
+    def safe_parent(target: str) -> None:
+        # Every existing directory between root and target is a real directory inside root (no link),
+        # so a file or directory is never created through a link, whatever made it.
+        parent = os.path.dirname(target)
+        os.makedirs(parent, exist_ok=True)
+        rel = os.path.relpath(parent, root)
+        cur = root
+        for part in ([] if rel == "." else rel.split(os.sep)):
+            cur = os.path.join(cur, part)
+            if os.path.islink(cur) or not os.path.isdir(cur):
+                fail(f"archive entry {target} would be written through {cur}")
+        if not inside(target) and os.path.realpath(parent) != root:
+            fail(f"archive entry {target} leaves the archive")
+
     links, dirs = [], []
     with zipfile.ZipFile(archive, metadata_encoding="utf-8") as zf:
         names = {info.filename.rstrip("/") for info in zf.infolist()}
@@ -56,21 +78,24 @@ def unzip(archive: str, dest: str) -> None:
             if stat.S_ISLNK(mode):
                 links.append((target, zf.read(info).decode()))
             elif info.is_dir():
+                safe_parent(target)
+                if os.path.islink(target):
+                    fail(f"archive entry {target} would be written through a link")
                 os.makedirs(target, exist_ok=True)
                 dirs.append((target, stat.S_IMODE(mode) or 0o755))
             else:
-                os.makedirs(os.path.dirname(target), exist_ok=True)
-                with zf.open(info) as src, open(target, "xb") as out:
+                safe_parent(target)
+                fd = os.open(target, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+                with zf.open(info) as src, os.fdopen(fd, "wb") as out:
                     while chunk := src.read(1 << 20):
                         out.write(chunk)
                 os.chmod(target, (stat.S_IMODE(mode) & 0o777) or 0o644)
-    def inside(path: str) -> bool:
-        return os.path.realpath(path).startswith(root + os.sep)
-
     for target, link in links:
-        if os.path.isabs(link) or not inside(os.path.dirname(target)):
+        if os.path.isabs(link):
             fail(f"symlink {target} -> {link} leaves the archive")
-        os.makedirs(os.path.dirname(target), exist_ok=True)
+        safe_parent(target)
+        if os.path.lexists(target):
+            fail(f"symlink {target} would replace another archive entry")
         os.symlink(link, target)
         if not inside(target):
             fail(f"symlink {target} -> {link} leaves the archive")

@@ -25,8 +25,14 @@ import sys
 from pathlib import Path
 
 PERSONAL_INFORMATION = ("addressbook", "calendars", "location", "photos-library")
-# Thin 32/64-bit Mach-O in either byte order, and universal (fat) binaries.
-MACHO_MAGIC = {bytes.fromhex(m) for m in ("feedface", "feedfacf", "cefaedfe", "cffaedfe", "cafebabe", "bebafeca")}
+# Thin 32/64-bit Mach-O in either byte order. Universal (fat) files start with
+# cafebabe (or bebafeca, fat64 cafebabf), which is also a Java class file's
+# magic: a fat header is told apart by its architecture count, a big-endian
+# uint32 that is small (a few arches), where a class file has its minor and
+# major version there (major >= 45, so the count would be >= 45).
+THIN_MAGIC = {bytes.fromhex(m) for m in ("feedface", "feedfacf", "cefaedfe", "cffaedfe")}
+FAT_MAGIC = {bytes.fromhex(m) for m in ("cafebabe", "cafebabf", "bebafeca", "bfbafeca")}
+MAX_FAT_ARCHES = 20
 
 
 def codesign(*args: str) -> subprocess.CompletedProcess:
@@ -44,7 +50,13 @@ def macho(path: Path) -> bool:
     if path.is_symlink() or not path.is_file() or not os.access(path, os.X_OK):
         return False
     with path.open("rb") as handle:
-        return handle.read(4) in MACHO_MAGIC
+        head = handle.read(8)
+    if head[:4] in THIN_MAGIC:
+        return True
+    if head[:4] in FAT_MAGIC and len(head) == 8:
+        order = "big" if head[:2] == b"\xca\xfe" else "little"
+        return 0 < int.from_bytes(head[4:8], order) <= MAX_FAT_ARCHES
+    return False
 
 
 def main(app: Path, wanted_file: str) -> list[str]:
@@ -73,7 +85,11 @@ def main(app: Path, wanted_file: str) -> list[str]:
         if codesign("--verify", "--strict", "--verbose=2", str(computer_use)).returncode:
             errors.append("the nested Computer Use app fails codesign --verify --strict")
     for code in (app, *nested):
-        details = codesign("-d", "--verbose=4", str(code)).stderr.decode(errors="replace")
+        shown = codesign("-d", "--verbose=4", str(code))
+        if shown.returncode:
+            errors.append(f"codesign -d failed on {code.name} (exit {shown.returncode})")
+            continue
+        details = shown.stderr.decode(errors="replace")
         if not re.search(r"flags=0x[0-9a-f]+\([^)]*runtime", details):
             errors.append(f"{code.name} is not signed with the hardened runtime")
         if "Authority=Developer ID Application:" not in details:

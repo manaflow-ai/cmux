@@ -28,12 +28,15 @@ FAKE_CODESIGN = textwrap.dedent("""\
     import json, os, plistlib, sys
     data = json.load(open(os.environ["FAKE_CODESIGN_DATA"]))
     entry = data.get(os.path.realpath(sys.argv[-1]), {})
+    with open(os.environ["FAKE_CODESIGN_DATA"] + ".log", "a") as log:
+        log.write(json.dumps(sys.argv[1:]) + "\\n")
     if "--verify" in sys.argv:
         sys.exit(entry.get("verify", 0))
     if "--entitlements" in sys.argv:
         sys.stdout.buffer.write(plistlib.dumps(entry.get("entitlements", {})))
     elif "-d" in sys.argv or "--display" in sys.argv or any(a.startswith("-dv") for a in sys.argv):
         sys.stderr.write(entry.get("display", ""))
+        sys.exit(entry.get("display_exit", 0))
     """)
 WANTED = {"com.apple.security.cs.allow-jit": True,
           **{f"com.apple.security.personal-information.{k}": True
@@ -68,6 +71,16 @@ class VerifySignedDevApp(unittest.TestCase):
         self.data[str(self.app.resolve())] = {"display": GOOD_DISPLAY, "entitlements": dict(WANTED)}
         self.env = {**os.environ, "PATH": f"{bin_dir}{os.pathsep}{os.environ['PATH']}", "CODESIGN": "codesign",
                     "FAKE_CODESIGN_DATA": str(self.tmp / "data.json")}
+
+    def add_tool(self, name: str, head: bytes) -> Path:
+        path = self.app / "Contents/Resources/bin" / name
+        path.write_bytes(head + bytes(24))
+        path.chmod(0o755)
+        return path
+
+    def codesign_paths(self) -> list:
+        log = (self.tmp / "data.json.log").read_text().splitlines()
+        return [os.path.realpath(json.loads(line)[-1]) for line in log]
 
     def entry(self, path: Path) -> dict:
         return self.data[str(path.resolve())]
@@ -126,6 +139,31 @@ class VerifySignedDevApp(unittest.TestCase):
     def test_computer_use_failing_strict_verify_fails(self):
         self.entry(self.cu)["verify"] = 1
         self.assert_fails("the nested Computer Use app fails codesign --verify --strict")
+
+    def test_codesign_display_failing_fails_even_with_good_output(self):
+        self.entry(self.app)["display_exit"] = 1
+        self.assert_fails("codesign -d failed on cmux NEXT DEV.app (exit 1)")
+
+    def test_codesign_display_failing_on_a_helper_fails(self):
+        self.entry(self.app / "Contents/Resources/libexec/helper")["display_exit"] = 1
+        self.assert_fails("codesign -d failed on helper (exit 1)")
+
+    def test_fat_binaries_are_checked(self):
+        # Universal binaries, big-endian header (2 arches, fat and fat64) and the little-endian magics.
+        for name, head in (("fat", "cafebabe00000002"), ("fat64", "cafebabf00000002"),
+                           ("fatle", "bebafeca02000000"), ("fat64le", "bfbafeca02000000")):
+            with self.subTest(name):
+                self.add_tool(name, bytes.fromhex(head))  # no fixture entry: the fake shows no Developer ID
+                self.assert_fails(f"{name} is not Developer ID signed")
+                self.add_tool(name, b"#!/bin/sh\n")
+
+    def test_a_java_class_file_is_not_mach_o(self):
+        # A class file shares the fat magic, but minor/major version (major 65) follow, not an arch count.
+        java = self.add_tool("Tool.class", bytes.fromhex("cafebabe00000041"))
+        result = self.run_check()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn(str(java.resolve()), self.codesign_paths())
+        self.assertIn(str((self.app / "Contents/Resources/bin/cmux").resolve()), self.codesign_paths())
 
 
 if __name__ == "__main__":
