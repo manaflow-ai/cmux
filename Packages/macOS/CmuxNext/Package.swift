@@ -1851,6 +1851,8 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextMemory",
                 "CmuxNextMetrics",
                 "CmuxNextNowPlaying",
+                // InternalPageDiscardTests shows a page in a fake Chromium host.
+                "CmuxNextPagesTestSupport",
                 "CmuxNextPalette",
                 "CmuxNextProcessEnvironment",
                 "CmuxNextRemote",
