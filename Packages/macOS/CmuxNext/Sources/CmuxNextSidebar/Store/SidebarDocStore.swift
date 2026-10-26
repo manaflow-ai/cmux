@@ -41,17 +41,23 @@ public final class SidebarDocStore {
     @ObservationIgnored private let remote: (any SidebarDocRemote)?
     /// A refusal or failure to show (the refusal HUD).
     @ObservationIgnored public var onRefused: @MainActor (String) -> Void = { _ in }
-    /// Posted when a change was refused (by the mirror or the daemon), with its `key` in userInfo:
-    /// a list holding that drop's look lets it go.
-    nonisolated public static let refusedNotification = Notification.Name("cmux.sidebar.docRefused")
-    /// Posted when a change changed nothing (a no-op move echoes no batch), with its `key`: a list holding its look lets it go.
-    nonisolated public static let settledNotification = Notification.Name("cmux.sidebar.docSettled")
-    /// The idempotency key of the last change sent (a list matches a drop's notifications by it).
+    /// The idempotency key of the last change sent (a list matches a drop's events by it).
     public private(set) var lastIntentKey: String?
+    /// The lists told this store's events (`observe(_:)`): a direct subscriber registry, no app-wide broadcast.
+    @ObservationIgnored private let observers = SidebarDocObservers()
+
+    /// Tells `handler` each event of this store, synchronously, until the returned observation is cancelled.
+    public func observe(_ handler: @escaping @MainActor (SidebarDocEvent) -> Void) -> SidebarDocObservation {
+        observers.add(handler, of: self)
+    }
+
+    /// The favicons link rows draw changed (one arrived, or an item's icon address moved): every list configures its
+    /// realized link rows again.
+    public func faviconsChanged() { observers.tell(.faviconsChanged) }
 
     /// Tells the App and every list that the change `key` was refused.
     private func refuse(_ message: String, key: String? = nil) {
-        NotificationCenter.default.post(name: Self.refusedNotification, object: self, userInfo: ["key": key ?? lastIntentKey ?? ""])
+        observers.tell(.refused(key: key ?? lastIntentKey ?? ""))
         onRefused(message)
     }
     /// A user's move that can be undone: the title and the undo. The App
@@ -305,7 +311,7 @@ public final class SidebarDocStore {
                         _ body: @escaping @MainActor (any SidebarDocRemote, String, Data?) async throws -> SidebarDocReply) throws(SidebarDocSendRefusal) {
         lastIntentKey = intent.idempotencyKey
         func refused(_ message: String) -> SidebarDocSendRefusal {
-            NotificationCenter.default.post(name: Self.refusedNotification, object: self, userInfo: ["key": intent.idempotencyKey])
+            observers.tell(.refused(key: intent.idempotencyKey))
             return SidebarDocSendRefusal(message: message)
         }
         guard isActive, let mirror, let remote else { throw refused(SidebarDocStrings.unavailable) }
@@ -336,7 +342,7 @@ public final class SidebarDocStore {
                     // A no-op change echoes no batch: its intent must not stay pending.
                     if !reply.hasInverse {
                         self.drop(key, redraws: redraws)
-                        NotificationCenter.default.post(name: Self.settledNotification, object: self, userInfo: ["key": key])
+                        self.observers.tell(.settled(key: key))
                     }
                     if undoable, reply.hasInverse {
                         let inverse = reply.inverse

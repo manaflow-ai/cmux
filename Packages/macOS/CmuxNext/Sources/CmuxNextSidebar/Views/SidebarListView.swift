@@ -165,30 +165,31 @@ final class SidebarListView: NSView {
         model.onGroupFolded = { [weak self] group in self?.foldGroup(group) }
         // A close's successor is the next row drawn here (FocusAfterClose.workspace).
         model.drawnWorkspaceOrder = { [weak self] in self?.visibleWorkspaceOrder ?? [] }
-        // A refused change: a settling drop lets go and the rows spring back.
-        // A no-op drop settles the same way (nothing will change the model).
-        for name in [SidebarDocStore.refusedNotification, SidebarDocStore.settledNotification] {
-            settleObservers.append(NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self] note in
-                let key = note.userInfo?["key"] as? String
-                MainActor.assumeIsolated { // main-proof: observer on queue: .main
-                    // Only this list's drop: its key, or a refusal inside its own drop call (no key recorded yet).
-                    guard let self, let settling = self.settling, settling.key == nil || settling.key == key else { return }
-                    self.settling = nil
-                    // The rows spring back from the drop's look and the card flies back to its source slot.
-                    self.reload(animated: true, adopt: true)
-                    self.land(settling.drag, then: settling.then)
-                }
-            })
-        }
-        // A favicon arrived: the link rows draw it (one configure per realized link row).
-        faviconObserver = NotificationCenter.default.addObserver(forName: SidebarModel.itemFaviconsChanged, object: nil, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { // main-proof: observer on queue: .main
-                guard let self else { return }
-                // The realized link rows only: a launch's favicons arrive one by one, and each visited every row.
-                for (key, view) in self.rowViews {
-                    guard case .item = key, let row = self.displayed.row(for: key) else { continue }
-                    self.configure(view, row: row, animated: false)
-                }
+        followDocStore()
+    }
+    /// Observes the app's document store, once per store: a drop sent to it settles on its events and the link rows
+    /// redraw on its favicons. Called again before each drop and on each move to a window, in case the store changed.
+    func followDocStore(_ store: SidebarDocStore? = SidebarDocStore.current) {
+        guard docObservation?.observed !== store else { return }
+        docObservation?.cancel()
+        docObservation = store?.observe { [weak self] event in self?.docStoreEvent(event) }
+    }
+    private func docStoreEvent(_ event: SidebarDocEvent) {
+        switch event {
+        case .refused(let key), .settled(let key):
+            // A refused change: a settling drop lets go and the rows spring back.
+            // A no-op drop settles the same way (nothing will change the model).
+            // Only this list's drop: its key, or a refusal inside its own drop call (no key recorded yet).
+            guard let settling, settling.key == nil || settling.key == key else { return }
+            self.settling = nil
+            // The rows spring back from the drop's look and the card flies back to its source slot.
+            reload(animated: true, adopt: true)
+            land(settling.drag, then: settling.then)
+        case .faviconsChanged:
+            // The realized link rows only: a launch's favicons arrive one by one, and each visited every row.
+            for (key, view) in rowViews {
+                guard case .item = key, let row = displayed.row(for: key) else { continue }
+                configure(view, row: row, animated: false)
             }
         }
     }
@@ -201,16 +202,16 @@ final class SidebarListView: NSView {
             // Leave the frame client alone: an active one goes idle on its next tick
             // once self is gone (touching the lazy property here would create one).
             if let occlusionObserver { NotificationCenter.default.removeObserver(occlusionObserver) }
-            if let faviconObserver { NotificationCenter.default.removeObserver(faviconObserver) }
-            for observer in settleObservers + focusObservers { NotificationCenter.default.removeObserver(observer) }
+            docObservation?.cancel()
+            for observer in focusObservers { NotificationCenter.default.removeObserver(observer) }
             for subscription in pointerEnds { subscription.cancel() }
         }
     }
     // MARK: - Window occlusion
     private var observedWindow: NSWindow?
     private var occlusionObserver: (any NSObjectProtocol)?
-    private var faviconObserver: (any NSObjectProtocol)?
-    private var settleObservers: [any NSObjectProtocol] = []
+    /// This list's observation of the document store (`followDocStore`).
+    private(set) var docObservation: SidebarDocObservation?
     private var focusObservers: [any NSObjectProtocol] = []
     /// The app's one input tap (the App injects it; nil hears no press or release outside the list).
     var inputTap: InputEventTap? {
@@ -230,7 +231,7 @@ final class SidebarListView: NSView {
         super.viewDidMoveToWindow()
         // A move to another window (or none) ends this list's card only.
         hoverCards.unregister(hoverCard)
-        if window != nil { hoverCards.register(hoverCard) }
+        if window != nil { hoverCards.register(hoverCard); followDocStore() }
         guard observedWindow !== window else { return }
         let center = NotificationCenter.default
         if let occlusionObserver { center.removeObserver(occlusionObserver) }

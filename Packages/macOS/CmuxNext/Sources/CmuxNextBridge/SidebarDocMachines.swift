@@ -92,7 +92,7 @@ public struct SidebarDocMachines {
             var last: [String: String]?
             var lastVersion: UInt64?
             for await (_, version, origins) in ObservationStream({ (revision(), store.version, byOrigin()) }) {
-                NotificationCenter.default.post(name: SidebarModel.itemFaviconsChanged, object: nil)
+                store.faviconsChanged() // every list draws its link rows again
                 guard origins != last || version != lastVersion else { continue } // a tab change that moves no favicon address
                 (last, lastVersion) = (origins, version)
                 store.storeIconURLs { page in URL(string: page).flatMap(faviconKey).flatMap { origins[$0] } }

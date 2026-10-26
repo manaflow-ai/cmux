@@ -132,6 +132,7 @@ extension SidebarListViewComponents {
             // focused row moved or was pushed out of view (sidebar-focused-visible, `ListViewport.settle`).
             revealedActive = selectionRevealKey
             let sentBefore = SidebarDocStore.current?.lastIntentKey
+            followDocStore() // the store's refusal or no-op of this drop ends the settle (`docStoreEvent`)
             doc.drop(items, target)
             settling?.key = SidebarDocStore.current?.lastIntentKey // nil already: refused inside the call
             // The drop sent nothing (no intent, e.g. an adopt still on the way): nothing will end a settle, so the
