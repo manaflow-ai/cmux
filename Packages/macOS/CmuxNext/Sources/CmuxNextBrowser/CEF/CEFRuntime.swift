@@ -146,6 +146,8 @@ final class CEFRuntime {
     var pumpInput: CEFPumpInputSeams?
     /// True when this Chromium started with the built-in uBlock Origin.
     private(set) var builtInAdBlockerLoaded = false
+    /// True when this Chromium started with `cmux-process-reuse-per-renderer-devtools` (`debug.cef` `windows`).
+    private(set) var processReusePerRendererDevTools = false
     private var terminationObserver: (any NSObjectProtocol)?
     private var switchStorage: [UnsafeMutablePointer<CChar>?] = []
     /// The off-main library load; every concurrent first tab awaits it.
@@ -449,6 +451,7 @@ final class CEFRuntime {
             builtInExtensions: builtInPlan.folders, keepsUnpackedEnabled: builtInPlan.keepsUnpackedEnabled
         )
         builtInAdBlockerLoaded = !switchSet.builtInExtensions.isEmpty
+        processReusePerRendererDevTools = switchSet.arguments.contains(CEFSwitches.processReusePerRendererDevTools)
         logger.notice("built-in extensions: \(switchSet.builtInExtensions.count, privacy: .public)")
         loadsUnpackedExtensions = !switchSet.loadExtensions.isEmpty
         shim.setExtensionDeveloperMode(loadsUnpackedExtensions ? 1 : 0)
