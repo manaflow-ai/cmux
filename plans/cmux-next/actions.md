@@ -45,13 +45,13 @@ Declare its placements (menu, group, rank) and whether the CLI offers it, or nam
 - `sidebar`: 87
 - `notifications`: 21
 - `agents`: 93
-- `cloud`: 55
+- `cloud`: 60
 - `remote`: 18
 - `settings`: 123
 
-## Counts (1204 actions)
+## Counts (1209 actions)
 
-Palette 1154, CLI verbs 689, right-click 574, MCP tools 607.
+Palette 1159, CLI verbs 694, right-click 578, MCP tools 612.
 
 ## Menus
 
@@ -68,7 +68,7 @@ Palette 1154, CLI verbs 689, right-click 574, MCP tools 607.
 - **browserLink**: browser.link.openInNewTab browser.link.openInNewWindow browser.link.openInNewSpace browser.link.openInNewWorkspace browser.link.openInSplit openLinkInDefaultBrowser | browser.link.openInIncognitoWindow | browser.link.saveAs browser.link.copy browser.link.copyText
 - **browserImage**: browser.image.openInNewTab | browser.image.saveAs browser.image.copy browser.image.copyAddress
 - **browserSelection**: browser.selection.copy home.sendSelectionToChief home.sendSelectionTo | browser.selection.search browser.selection.lookUp
-- **cloudMachine**: cloudNewTerminal cloudOpenMachine cloudSSH cloudSetupGitHub | cloudRenameMachine | [connection] > (cloudResizeMachine palette.cloud.status palette.cloud.snapshot palette.cloud.fork palette.cloud.handoff palette.cloud.ports palette.cloud.promoteTemplate palette.cloud.restore cloudPauseMachine cloudResumeMachine cloudSetIdlePause | palette.cloud.deleteSnapshot) | [copy] > (cloudCopyMachineID cloudCopyLink cloudCopyPort) [tools] > (cloudFilesList cloudFileRead cloudFileWrite cloudFileMkdir cloudFileRemove cloudFileStat cloudPrepareSCP cloudTunnelAttach cloudTunnelDetach cloudTunnelRotateKey cloudNetworkList cloudFirewallList cloudFirewallGet cloudFirewallCreate cloudFirewallDelete | palette.cloud.tools) | cloudKillMachine
+- **cloudMachine**: cloudNewTerminal cloudOpenMachine cloudSSH cloudSetupGitHub | cloudRenameMachine | [connection] > (cloudResizeMachine palette.cloud.status palette.cloud.snapshot palette.cloud.fork palette.cloud.handoff palette.cloud.ports palette.cloud.promoteTemplate palette.cloud.restore cloudPauseMachine cloudResumeMachine cloudSetIdlePause cloudOpenBrowser cloudPortList cloudPortForward cloudPortClose | palette.cloud.deleteSnapshot) | [copy] > (cloudCopyMachineID cloudCopyLink cloudCopyPort) [tools] > (cloudFilesList cloudFileRead cloudFileWrite cloudFileMkdir cloudFileRemove cloudFileStat cloudPrepareSCP cloudTunnelAttach cloudTunnelDetach cloudTunnelRotateKey cloudNetworkList cloudFirewallList cloudFirewallGet cloudFirewallCreate cloudFirewallDelete | palette.cloud.tools) | cloudKillMachine
 - **sshMachine**: remote.newWorkspace | remote.reconnect remote.disconnect remote.install machine.doctor | remote.copyError | remote.forget
 - **machineSection**: [appearance] > (machine.setIcon machine.clearIcon) | machine.reconnect | remote.removeGroup
 - **newTab**: newSurface openBrowser.chromium palette.newAgentChat macScreen.open | browserProfile.newTab newTab.page | agentPane.togglePointerInspector
@@ -152,7 +152,7 @@ Palette 1154, CLI verbs 689, right-click 574, MCP tools 607.
 
 **secondaryEngine** (2): `openBrowser.webkit`, `browser.openInWebKit`
 
-**duplicateOfDefault** (4): `newTab.default`, `newTab.afterCurrent`, `newTab.horizontal`, `newTab.submit`
+**duplicateOfDefault** (5): `newTab.default`, `newTab.afterCurrent`, `newTab.horizontal`, `newTab.submit`, `cloudMachineLink`
 
 **minimalMenu** (2): `space.setDefaults`, `browserProfile.clearSpaceDefault`
 
