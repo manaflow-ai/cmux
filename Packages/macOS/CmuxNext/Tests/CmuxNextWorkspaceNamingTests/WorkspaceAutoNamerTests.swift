@@ -25,6 +25,10 @@ struct WorkspaceAutoNamerTests {
         var isNewTabPage = false
         var sent: [String] = []
         var defersSend = false
+        var rejectsQueue = false
+        var includesWorkspace = true
+        var attempts: [String] = []
+        var onAttempt: ((String) -> Void)?
         var queued: [(name: String, maySend: @MainActor @Sendable () -> Bool)] = []
 
         init(name: String = "workspace-7", source: WorkspaceNameSource = .auto,
@@ -66,7 +70,7 @@ struct WorkspaceAutoNamerTests {
             return WorkspaceAutoNamer(
                 names: reader,
                 workspaces: { [weak self] in
-                    guard let self else { return [] }
+                    guard let self, includesWorkspace else { return [] }
                     return [.init(machineID: DaemonCommandScope.localMachine, workspace: workspace,
                                   supportsNameSource: true, daemonGeneration: nil,
                                   nameSource: workspace.nameSource, nameRevision: workspace.nameRevision)]
@@ -74,6 +78,9 @@ struct WorkspaceAutoNamerTests {
                 selection: { [weak self] _, _ in self?.selectedTab },
                 rename: { [weak self] _, name, maySend in
                     guard let self else { return false }
+                    attempts.append(name)
+                    onAttempt?(name)
+                    if rejectsQueue { return false }
                     if defersSend { queued.append((name, maySend)); return true }
                     guard maySend() else { return false }
                     sent.append(name)
@@ -198,6 +205,42 @@ struct WorkspaceAutoNamerTests {
         fixture.defersSend = false
         fixture.namer.apply(fixture.namer.pending())
         #expect(fixture.sent == ["Chat one"])
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func aQueueRefusalStaysIdleUntilRealDataChanges() async throws {
+        let fixture = Fixture()
+        fixture.title("First title")
+        fixture.rejectsQueue = true
+        let events = AsyncStream<String>.makeStream()
+        fixture.onAttempt = { events.continuation.yield($0) }
+        let worker = Task { await fixture.namer.run() }
+        defer { worker.cancel(); events.continuation.finish() }
+        var iterator = events.stream.makeAsyncIterator()
+        #expect(await iterator.next() == "First title")
+
+        // The quiet interval is the oracle: a refused queue must not schedule itself.
+        try await Task.sleep(for: .milliseconds(30))
+        #expect(fixture.attempts == ["First title"])
+
+        fixture.title("Second title")
+        #expect(await iterator.next() == "Second title")
+        try await Task.sleep(for: .milliseconds(30))
+        #expect(fixture.attempts == ["First title", "Second title"])
+        worker.cancel()
+        await worker.value
+    }
+
+    @Test func aRemovedTargetDoesNotKeepALifetimeSubmission() {
+        let fixture = Fixture()
+        fixture.title("First title")
+        fixture.namer.apply(fixture.namer.pending())
+        #expect(fixture.sent == ["First title"])
+        fixture.includesWorkspace = false
+        #expect(fixture.namer.pending().isEmpty)
+        fixture.includesWorkspace = true
+        fixture.namer.apply(fixture.namer.pending())
+        #expect(fixture.sent == ["First title", "First title"])
     }
 
     @Test func aQueuedRenameIsDroppedWhenTheSettingTurnsOff() {
