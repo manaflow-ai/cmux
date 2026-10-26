@@ -528,10 +528,10 @@ fn the_host_stops_when_its_supervisor_goes() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-/// A host binary that cannot run fails the start with the exec error at
-/// once. The descriptor step used to close `Command::spawn`'s exec-error
-/// pipe: the child aborted ("crashed on child side of fork pre-exec") and
-/// the daemon waited out the ready timeout instead.
+/// A host binary that cannot run fails the start with the exec error. The
+/// descriptor step used to close `Command::spawn`'s exec-error pipe: the
+/// child aborted ("crashed on child side of fork pre-exec", a crash report)
+/// and the start failed later, as a host that "did not start".
 #[test]
 fn a_host_binary_that_cannot_run_fails_the_start_with_its_exec_error() {
     let dir = std::env::temp_dir().join(format!("cmux-bh-missing-{}", std::process::id()));
