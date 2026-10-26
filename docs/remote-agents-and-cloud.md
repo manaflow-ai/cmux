@@ -205,6 +205,36 @@ Stop preserves the session log. Adding `--purge` deletes it; do not use purge
 to repair a connection. Closing an app tab closes a viewer. `session resume`
 resumes held queued prompts; it is not a machine-resume command.
 
+### Read-only Codex reviews
+
+A Codex review that only reads can start without your approval. On the host
+itself (its unix socket) start it in `read-only` or `ask`:
+
+```sh
+acpmux new -m codex --mode read-only --policy deny-all -n review -d "Review lane/my-fix"
+```
+
+From your machine, start it on an enrolled peer with policy `deny-all`:
+
+```sh
+acpmux new --host my-linux -m codex --policy deny-all -n review -d "Review lane/my-fix"
+```
+
+The peer settles that session in the Codex bridge's `read-only` mode. Commands
+run without asking inside a read-only sandbox with no network, and every
+request to escalate out of the sandbox is refused. A start from the Web, from a
+paired device, or from an origin the host does not know stays in `ask`, where
+`deny-all` refuses every command.
+
+A read-only session can read any file the sandbox allows, and its transcript
+goes back to whoever started it. Do not start one where it could read secrets
+you would not hand to that person.
+
+Codex's own rules on the host still apply in every mode. A command that a rule
+in `~/.codex/rules` explicitly allows, such as a prefix someone once approved
+with "always allow", runs outside the sandbox without asking, in `read-only`
+as in `ask`.
+
 ## Use cmux Cloud
 
 Open cmux NEXT and sign into your account/team. Cloud operations require the
