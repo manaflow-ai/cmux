@@ -9,9 +9,13 @@ import Darwin
 ///
 /// A waiting state op (geometry, focus, visibility, screen info of one page)
 /// is replaced by a newer one with the same key, which goes to the tail, so a
-/// host that stops reading holds at most one per page. Keys, clicks and every
-/// other message wait in order and are never dropped. A partly written front
-/// frame keeps its place. Owns the duplicated descriptors of its entries.
+/// host that stops reading holds at most one waiting per page, plus the one in
+/// flight when the socket took part of it (a partly written front frame keeps
+/// its place). Keys, clicks and every other message wait in order and are
+/// never dropped. One flush pass is one `sendmsg` for a batch of frames, as
+/// `ChannelPosix::WriteOutgoingMessagesWithWritev` batches messages without
+/// handles: a frame with descriptors starts a batch, since they go with its
+/// first byte. Owns the duplicated descriptors of its entries.
 nonisolated struct ChromiumHostControlOutbox: Sendable {
     struct Entry: Sendable {
         var bytes: [UInt8]
@@ -28,6 +32,8 @@ nonisolated struct ChromiumHostControlOutbox: Sendable {
         case wrote(Int)
         case wouldBlock
         case interrupted
+        /// The host closed its end (`EPIPE`, `ECONNRESET`).
+        case peerClosed
         case failed
     }
 
@@ -35,8 +41,13 @@ nonisolated struct ChromiumHostControlOutbox: Sendable {
         case drained
         /// The socket is full: the rest waits for it to take more.
         case blocked
+        case peerClosed
         case failed
     }
+
+    /// The most bytes one pass copies to batch small frames; a larger front
+    /// frame goes alone, from its own bytes.
+    static let batchBytes = 16 * 1024
 
     let quotaBytes: Int
     let quotaMessages: Int
@@ -48,6 +59,8 @@ nonisolated struct ChromiumHostControlOutbox: Sendable {
     private(set) var messages = 0
     private(set) var bytes = 0
     private var dead = 0
+    /// The batch of one flush pass; its capacity is kept.
+    private var scratch: [UInt8] = []
 
     init(quotaBytes: Int, quotaMessages: Int) {
         self.quotaBytes = quotaBytes
@@ -57,9 +70,10 @@ nonisolated struct ChromiumHostControlOutbox: Sendable {
     var isEmpty: Bool { messages == 0 }
     var isOverQuota: Bool { bytes > quotaBytes || messages > quotaMessages }
 
-    /// Live entries with `key` (0 or 1).
+    /// Waiting entries with `key` (0 or 1): live and not started. A partly
+    /// written one is in flight, not waiting.
     func count(key: UInt64) -> Int {
-        entries[head...].count(where: { $0.live && $0.key == key })
+        entries[head...].count(where: { $0.live && $0.key == key && $0.offset == 0 })
     }
 
     /// Queues a frame; true when it replaced a waiting entry with the same key.
@@ -78,27 +92,25 @@ nonisolated struct ChromiumHostControlOutbox: Sendable {
         return replaced
     }
 
-    /// Writes entries front to back while `send` takes them. `send` gets the
-    /// unwritten bytes of the front entry and, for its first byte, its descriptors.
+    /// Writes entries front to back while `send` takes them, one call per
+    /// batch: the unwritten bytes of the front entry, then whole entries after
+    /// it up to the next one with descriptors or ``batchBytes``. `send` gets
+    /// the front entry's descriptors when the batch starts at its first byte.
     mutating func flush(_ send: (UnsafeRawBufferPointer, [Int32]) -> SendOutcome) -> FlushResult {
         while let index = frontIndex() {
-            let offset = entries[index].offset
-            let fds = offset == 0 ? entries[index].fds : []
-            let outcome = entries[index].bytes.withUnsafeBytes { raw in
-                send(UnsafeRawBufferPointer(rebasing: raw[offset...]), fds)
-            }
+            let (outcome, offered) = sendBatch(from: index, send)
             switch outcome {
             case .interrupted:
                 continue
             case .wouldBlock:
                 return .blocked
+            case .peerClosed:
+                return .peerClosed
             case .failed:
                 return .failed
             case .wrote(let count):
-                if offset == 0 { Self.closeFds(&entries[index]) }  // they went with the first byte
-                entries[index].offset += count
-                if entries[index].offset < entries[index].bytes.count { return .blocked }
-                popFront(index)
+                advance(by: count)
+                if count < offered { return .blocked }
             }
         }
         return .drained
@@ -113,6 +125,52 @@ nonisolated struct ChromiumHostControlOutbox: Sendable {
         dead = 0
         messages = 0
         bytes = 0
+    }
+
+    /// One `send` of the batch that starts at the front entry `index`, and
+    /// how many bytes it offered.
+    private mutating func sendBatch(from index: Int,
+                                    _ send: (UnsafeRawBufferPointer, [Int32]) -> SendOutcome) -> (SendOutcome, Int) {
+        let offset = entries[index].offset
+        let fds = offset == 0 ? entries[index].fds : []
+        let front = entries[index].bytes.count - offset
+        var total = front
+        var end = index + 1
+        while end < entries.count {
+            if entries[end].live {
+                guard entries[end].fds.isEmpty, total + entries[end].bytes.count <= Self.batchBytes else { break }
+                total += entries[end].bytes.count
+            }
+            end += 1
+        }
+        if total == front {
+            let outcome = entries[index].bytes.withUnsafeBytes { raw in
+                send(UnsafeRawBufferPointer(rebasing: raw[offset...]), fds)
+            }
+            return (outcome, total)
+        }
+        scratch.removeAll(keepingCapacity: true)
+        scratch.append(contentsOf: entries[index].bytes[offset...])
+        for later in (index + 1)..<end where entries[later].live {
+            scratch.append(contentsOf: entries[later].bytes)
+        }
+        return (scratch.withUnsafeBytes { send($0, fds) }, total)
+    }
+
+    /// Marks `count` bytes from the front written: whole entries leave, and a
+    /// started entry's descriptors close (they went with its first byte).
+    private mutating func advance(by count: Int) {
+        var left = count
+        while left > 0, let index = frontIndex() {
+            if entries[index].offset == 0 { Self.closeFds(&entries[index]) }
+            let remaining = entries[index].bytes.count - entries[index].offset
+            guard left >= remaining else {
+                entries[index].offset += left
+                return
+            }
+            left -= remaining
+            popFront(index)
+        }
     }
 
     private mutating func frontIndex() -> Int? {

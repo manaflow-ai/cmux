@@ -53,6 +53,7 @@ nonisolated struct ChromiumHostControlSocket: Sendable {
         switch error {
         case EINTR: return .interrupted
         case EAGAIN, EWOULDBLOCK: return .wouldBlock
+        case EPIPE, ECONNRESET: return .peerClosed
         default: return .failed
         }
     }
@@ -100,6 +101,7 @@ nonisolated struct ChromiumHostControlSocket: Sendable {
         switch error {
         case EINTR: return .interrupted
         case EAGAIN, EWOULDBLOCK: return .wouldBlock
+        case ECONNRESET: return .endOfStream  // the host closed with our frames unread
         default: return .failed
         }
     }

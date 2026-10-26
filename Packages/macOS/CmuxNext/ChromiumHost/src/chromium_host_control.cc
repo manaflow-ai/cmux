@@ -247,6 +247,14 @@ Parse Decode(const uint8_t* data, size_t size, std::deque<int>* fds, Message* ou
   return Parse::kFrame;
 }
 
+bool PendingFdsFit(const uint8_t* data, size_t size, size_t pending) {
+  if (pending == 0) return true;
+  if (size == 0) return false;
+  if (size < kHeaderSize) return pending <= kMaxFds;
+  const uint16_t flags = static_cast<uint16_t>(GetLE(data + 6, 2));
+  return pending <= (flags & kFdCountMask);
+}
+
 // MARK: Outbox
 
 Outbox::Outbox(size_t quota_bytes, size_t quota_messages) : quota_bytes_(quota_bytes), quota_messages_(quota_messages) {}
@@ -288,6 +296,39 @@ Outbox::Entry* Outbox::Front() {
   return entries_.empty() ? nullptr : &entries_.front();
 }
 
+size_t Outbox::Gather(iovec* iov, size_t max, const std::vector<int>** fds) {
+  *fds = nullptr;
+  size_t count = 0;
+  for (Entry& entry : entries_) {
+    if (!entry.live) continue;
+    if (count == max) break;
+    if (count == 0) {
+      if (entry.offset == 0 && !entry.fds.empty()) *fds = &entry.fds;
+    } else if (!entry.fds.empty()) {
+      break;
+    }
+    iov[count].iov_base = entry.bytes.data() + entry.offset;
+    iov[count].iov_len = entry.bytes.size() - entry.offset;
+    ++count;
+  }
+  return count;
+}
+
+void Outbox::Advance(size_t written) {
+  while (written > 0) {
+    Entry* front = Front();
+    if (front == nullptr) return;
+    if (front->offset == 0) CloseFds(front);
+    const size_t left = front->bytes.size() - front->offset;
+    if (written < left) {
+      front->offset += written;
+      return;
+    }
+    written -= left;
+    PopFront();
+  }
+}
+
 void Outbox::PopFront() {
   Entry* front = Front();
   if (front == nullptr) return;
@@ -314,7 +355,8 @@ void Outbox::Clear() {
 
 size_t Outbox::CountKey(uint64_t key) const {
   return static_cast<size_t>(
-      std::count_if(entries_.begin(), entries_.end(), [key](const Entry& e) { return e.live && e.key == key; }));
+      std::count_if(entries_.begin(), entries_.end(),
+                    [key](const Entry& e) { return e.live && e.offset == 0 && e.key == key; }));
 }
 
 void Outbox::Drop(Entry* entry) {
@@ -350,6 +392,13 @@ struct Channel::Core : std::enable_shared_from_this<Core> {
         fd(socket_fd),
         outbox(options.quota_bytes, options.quota_messages) {}
 
+  // Messages a detached channel never delivered: their descriptors are ours.
+  ~Core() {
+    for (Message& message : inbox) {
+      for (int received : message.fds) ::close(received);
+    }
+  }
+
   const Post post;
   const OnMessages on_messages;
   const OnEnd on_end;
@@ -362,6 +411,12 @@ struct Channel::Core : std::enable_shared_from_this<Core> {
   Outbox outbox;
   bool ended = false;
   End end_reason = End::kClosed;
+  // A write found the peer's end closed: nothing more is written, and the
+  // reader reads what the peer sent until EOF, as Mojo's
+  // ChannelPosix::OnWriteError keeps reading on kDisconnected.
+  bool reject_writes = false;
+  // ~Channel ran: posted drains deliver nothing.
+  bool detached = false;
   std::optional<std::chrono::steady_clock::time_point> over_since;
   uint64_t quota_excess = 0;
   uint64_t coalesced = 0;
@@ -381,33 +436,49 @@ struct Channel::Core : std::enable_shared_from_this<Core> {
     (void)!::write(wake_write, &byte, 1);
   }
 
-  // Writes outbox entries while the socket takes them; false when it failed.
+  bool Writable() const { return !ended && !reject_writes; }
+
+  // Writes outbox entries while the socket takes them, one sendmsg per batch
+  // (Outbox::Gather). False when nothing more can be written: the socket
+  // failed (the channel ends), or the peer closed its end (the outbox is
+  // dropped; the reader reads to EOF).
   bool FlushLocked() {
-    while (Outbox::Entry* entry = outbox.Front()) {
-      const ssize_t written = SendSome(entry);
+    iovec iov[kMaxBatch];
+    for (;;) {
+      const std::vector<int>* fds = nullptr;
+      const size_t count = outbox.Gather(iov, kMaxBatch, &fds);
+      if (count == 0) break;
+      size_t offered = 0;
+      for (size_t i = 0; i < count; ++i) offered += iov[i].iov_len;
+      const ssize_t written = SendBatch(iov, count, fds);
       if (written < 0) {
         if (errno == EINTR) continue;
-        return errno == EAGAIN || errno == EWOULDBLOCK;
+        if (errno == EAGAIN || errno == EWOULDBLOCK) break;
+        if (errno == EPIPE || errno == ECONNRESET) {
+          reject_writes = true;
+          outbox.Clear();
+          over_since.reset();
+          WakeLocked();
+        } else {
+          EndLocked(End::kIoError);
+        }
+        return false;
       }
-      if (entry->offset == 0) Outbox::CloseFds(entry);  // they went with the first byte
-      entry->offset += static_cast<size_t>(written);
-      if (entry->offset < entry->bytes.size()) return true;
-      outbox.PopFront();
+      outbox.Advance(static_cast<size_t>(written));
+      if (static_cast<size_t>(written) < offered) break;
     }
+    if (!outbox.OverQuota()) over_since.reset();
     return true;
   }
 
-  ssize_t SendSome(Outbox::Entry* entry) {
-    iovec iov;
-    iov.iov_base = entry->bytes.data() + entry->offset;
-    iov.iov_len = entry->bytes.size() - entry->offset;
+  ssize_t SendBatch(iovec* iov, size_t count, const std::vector<int>* fds) {
     msghdr header;
     std::memset(&header, 0, sizeof header);
-    header.msg_iov = &iov;
-    header.msg_iovlen = 1;
+    header.msg_iov = iov;
+    header.msg_iovlen = static_cast<decltype(header.msg_iovlen)>(count);
     alignas(cmsghdr) uint8_t control[CMSG_SPACE(sizeof(int) * kMaxFds)];
-    if (entry->offset == 0 && !entry->fds.empty()) {
-      const size_t size = sizeof(int) * entry->fds.size();
+    if (fds != nullptr) {
+      const size_t size = sizeof(int) * fds->size();
       std::memset(control, 0, sizeof control);
       header.msg_control = control;
       header.msg_controllen = CMSG_SPACE(size);
@@ -415,7 +486,7 @@ struct Channel::Core : std::enable_shared_from_this<Core> {
       message->cmsg_level = SOL_SOCKET;
       message->cmsg_type = SCM_RIGHTS;
       message->cmsg_len = CMSG_LEN(size);
-      std::memcpy(CMSG_DATA(message), entry->fds.data(), size);
+      std::memcpy(CMSG_DATA(message), fds->data(), size);
     }
 #if defined(MSG_NOSIGNAL)
     return ::sendmsg(fd, &header, MSG_NOSIGNAL);
@@ -444,6 +515,7 @@ struct Channel::Core : std::enable_shared_from_this<Core> {
     End reason;
     {
       std::lock_guard<std::mutex> lock(mutex);
+      if (detached) return;  // ~Core closes what the inbox holds
       batch.swap(inbox);
       drain_posted = false;
       if (paused) {
@@ -496,7 +568,8 @@ struct Channel::Core : std::enable_shared_from_this<Core> {
       if (count < 0) {
         if (errno == EINTR) continue;
         if (errno == EAGAIN || errno == EWOULDBLOCK) return true;
-        *reason = End::kIoError;
+        // ECONNRESET: the peer closed with our frames unread.
+        *reason = errno == ECONNRESET ? End::kPeerClosed : End::kIoError;
         return false;
       }
       for (cmsghdr* message = CMSG_FIRSTHDR(&header); message != nullptr; message = CMSG_NXTHDR(&header, message)) {
@@ -542,6 +615,12 @@ struct Channel::Core : std::enable_shared_from_this<Core> {
           stop = true;
         }
       }
+      // Descriptors that came with a frame declaring fewer, which no later frame may take.
+      if (!PendingFdsFit(buffer->data() + start, buffer->size() - start, fds->size())) {
+        *reason = End::kMalformed;
+        if (post_drain) PostDrain();
+        return false;
+      }
       buffer->erase(buffer->begin(), buffer->begin() + static_cast<std::ptrdiff_t>(start));
       if (post_drain) PostDrain();
       if (stop) return true;
@@ -558,12 +637,14 @@ struct Channel::Core : std::enable_shared_from_this<Core> {
     for (;;) {
       pollfd polls[2];
       int timeout = -1;
+      bool want_read = false;
       bool want_write = false;
       {
         std::lock_guard<std::mutex> lock(mutex);
         if (ended) break;
+        want_read = !paused;
         want_write = !outbox.empty();
-        const short events = static_cast<short>((paused ? 0 : POLLIN) | (want_write ? POLLOUT : 0));
+        const short events = static_cast<short>((want_read ? POLLIN : 0) | (want_write ? POLLOUT : 0));
         // Paused with nothing to write: a hang-up must not spin the loop.
         polls[0].fd = events == 0 ? -1 : fd;
         polls[0].events = events;
@@ -591,11 +672,11 @@ struct Channel::Core : std::enable_shared_from_this<Core> {
       }
       const short got = polls[0].revents;
       if (want_write && (got & (POLLOUT | POLLERR | POLLHUP)) != 0) {
+        // On a hang-up the write fails as EPIPE and the read below finds EOF.
         std::lock_guard<std::mutex> lock(mutex);
-        if (!ended && !FlushLocked()) EndLocked(End::kIoError);
-        if (!outbox.OverQuota()) over_since.reset();
+        if (Writable()) FlushLocked();
       }
-      if ((got & (POLLIN | POLLERR | POLLHUP)) != 0) {
+      if (want_read && (got & (POLLIN | POLLERR | POLLHUP)) != 0) {
         End reason = End::kClosed;
         if (!ReadAvailable(&buffer, &fds, &reason)) {
           std::lock_guard<std::mutex> lock(mutex);
@@ -605,7 +686,11 @@ struct Channel::Core : std::enable_shared_from_this<Core> {
       }
       std::lock_guard<std::mutex> lock(mutex);
       if (over_since && std::chrono::steady_clock::now() - *over_since >= options.quota_ceiling) {
-        EndLocked(End::kQuotaCeiling);
+        if (outbox.OverQuota()) {
+          EndLocked(End::kQuotaCeiling);
+        } else {
+          over_since.reset();
+        }
       }
     }
     CloseAll(&fds);
@@ -651,7 +736,11 @@ Channel::Channel(int fd, Post post, OnMessages on_messages, OnEnd on_end, Option
 }
 
 Channel::~Channel() {
-  Close();
+  {
+    std::lock_guard<std::mutex> lock(core_->mutex);
+    core_->detached = true;
+    core_->EndLocked(End::kClosed);
+  }
   if (core_->reader.joinable()) core_->reader.join();
 }
 
@@ -660,7 +749,7 @@ bool Channel::Send(const Message& message, std::optional<uint64_t> state_key) {
   if (!Encode(message, &bytes)) return false;
   Core& core = *core_;
   std::lock_guard<std::mutex> lock(core.mutex);
-  if (core.ended) return false;
+  if (!core.Writable()) return false;
   std::vector<int> fds;
   for (int fd : message.fds) {
     const int copy = ::fcntl(fd, F_DUPFD_CLOEXEC, 0);
@@ -673,10 +762,7 @@ bool Channel::Send(const Message& message, std::optional<uint64_t> state_key) {
   const bool was_empty = core.outbox.empty();
   if (core.outbox.Push(std::move(bytes), std::move(fds), state_key)) ++core.coalesced;
   if (was_empty) {
-    if (!core.FlushLocked()) {
-      core.EndLocked(End::kIoError);
-      return false;
-    }
+    if (!core.FlushLocked()) return false;
     if (!core.outbox.empty()) core.WakeLocked();  // the reader now watches for write
   }
   if (core.outbox.OverQuota()) {
@@ -685,6 +771,8 @@ bool Channel::Send(const Message& message, std::optional<uint64_t> state_key) {
       core.over_since = std::chrono::steady_clock::now();
       core.WakeLocked();  // the reader now keeps the ceiling's deadline
     }
+  } else {
+    core.over_since.reset();  // coalescing can bring it under quota while the socket takes nothing
   }
   return true;
 }

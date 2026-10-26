@@ -157,12 +157,15 @@ import Testing
         #expect(outbox.messages == 12)
         #expect(outbox.isOverQuota)
         var order: [UInt8] = []
+        var sends = 0
         let flushed = outbox.flush { bytes, _ in
-            order.append(bytes[0])
+            sends += 1
+            order += stride(from: 0, to: bytes.count, by: 16).map { bytes[$0] }
             return .wrote(bytes.count)
         }
         #expect(flushed == .drained)
         #expect(order == [100, 101, 102, 103, 104, 105, 106, 107, 108, 109, 1, 2], "keys keep their order; the newest geometry follows them")
+        #expect(sends == 1, "small frames go in one sendmsg")
         #expect(outbox.isEmpty && outbox.bytes == 0)
 
         outbox.push([UInt8](repeating: 1, count: 16), fds: [], key: page1)
@@ -171,7 +174,32 @@ import Testing
         let replaced = outbox.push([UInt8](repeating: 3, count: 16), fds: [], key: page1)
         #expect(!replaced, "a partly written state op is never replaced")
         #expect(outbox.messages == 2)
+        #expect(outbox.count(key: page1) == 1, "the partly written one is in flight, not waiting")
+        #expect(outbox.push([UInt8](repeating: 4, count: 16), fds: [], key: page1), "a newer one replaces the waiting one")
+        #expect(outbox.count(key: page1) == 1 && outbox.messages == 2, "one in flight and one waiting per page")
         outbox.removeAll()
+    }
+
+    @Test func aFrameWithDescriptorsStartsABatch() throws {
+        var outbox = ChromiumHostControlOutbox(quotaBytes: 1 << 20, quotaMessages: 4_096)
+        var pipeFDs: [Int32] = [-1, -1]
+        try #require(pipe(&pipeFDs) == 0 && fcntl(pipeFDs[0], F_SETFL, O_NONBLOCK) == 0)
+        for _ in 0..<3 { outbox.push([UInt8](repeating: 1, count: 16), fds: [], key: nil) }
+        outbox.push([UInt8](repeating: 2, count: 16), fds: [dup(pipeFDs[1])], key: nil)
+        for _ in 0..<100 { outbox.push([UInt8](repeating: 3, count: 16), fds: [], key: nil) }
+        var batches: [(bytes: Int, fds: Int, first: UInt8)] = []
+        let flushed = outbox.flush { bytes, fds in
+            batches.append((bytes.count, fds.count, bytes[0]))
+            return .wrote(bytes.count)
+        }
+        #expect(flushed == .drained)
+        #expect(batches.map { $0.bytes } == [48, 16 * 101] && batches.map { $0.fds } == [0, 1]
+                    && batches.map { $0.first } == [1, 2],
+                "the frames before the one with a descriptor go together; it leads the next batch")
+        close(pipeFDs[1])
+        var byte: UInt8 = 0
+        #expect(read(pipeFDs[0], &byte, 1) == 0, "the sent descriptor was closed once it went")
+        close(pipeFDs[0])
     }
 
     // MARK: Channels on a socket pair
@@ -229,7 +257,7 @@ import Testing
         close(peer)
     }
 
-    @Test func aPeerThatNeverReadsLeavesCmuxUnblockedWithGeometryCoalesced() throws {
+    @Test func aPeerThatNeverReadsLeavesCmuxUnblockedWithGeometryCoalesced() async throws {
         let (fd, peer) = try Self.socketPair()
         let recorder = Recorder()
         let channel = recorder.channel(fd: fd)
@@ -246,12 +274,87 @@ import Testing
         }
         #expect(allSent, "every send is taken while the host never reads")
         #expect(took < .seconds(2), "no send waits for the host")
-        #expect(channel.pendingCount(stateKey: page1) <= 1 && channel.pendingCount(stateKey: page2) <= 1,
-                "geometry waits as at most one per page")
+        #expect(channel.pendingCount(stateKey: page1) == 1 && channel.pendingCount(stateKey: page2) == 1,
+                "geometry waits as one per page")
         let stats = channel.stats
         #expect(stats.coalesced > 0)
         #expect(stats.quotaExcess > 0, "the excess over quota is counted, and ends nothing")
-        #expect(recorder.end == nil)
+
+        // The host reads at last: every key arrives, in order, and the newest
+        // geometry of each page comes after them.
+        let host = Recorder()
+        let hostChannel = host.channel(fd: peer)
+        await host.wait {
+            let last = host.messages.suffix(2)
+            return last.count == 2 && last.allSatisfy { $0.op == 2 && $0[2] == .i32(19_999) }
+        }
+        let keys = host.messages.filter { $0.op == 5 }.map { $0[2] }
+        #expect(keys == stride(from: 0, to: 20_000, by: 2).map { Optional(Message.Value.i32(Int32($0))) },
+                "every key arrives, in order")
+        let lastWidth = { (page: Int32) in host.messages.last { $0.op == 2 && $0[1] == .i32(page) }?[2] }
+        #expect(lastWidth(1) == .i32(19_999) && lastWidth(2) == .i32(19_999), "the newest geometry of each page is the last one")
+        #expect(recorder.end == nil && host.end == nil)
+        channel.close()
+        hostChannel.close()
+    }
+
+    @Test func theHostClosingWhileFramesWaitEndsAsPeerClosed() async throws {
+        let (fd, peer) = try Self.socketPair()
+        let recorder = Recorder()
+        let channel = recorder.channel(fd: fd)
+        var code: Int32 = 0
+        while channel.stats.pendingMessages == 0, code < 1_000_000 {
+            channel.send(Self.key(1, code))
+            code += 1
+        }
+        #expect(channel.stats.pendingMessages > 0, "frames wait in the outbox")
+        close(peer)
+        await recorder.wait { recorder.end != nil }
+        #expect(recorder.end == .peerClosed, "the host quit; the socket did not break")
+        #expect(!channel.send(Self.key(1, 1)))
+    }
+
+    @Test func aDescriptorOnAFrameThatDeclaresNoneIsMalformed() async throws {
+        let (fd, peer) = try Self.socketPair()
+        let recorder = Recorder()
+        let channel = recorder.channel(fd: fd)
+        var pipeFDs: [Int32] = [-1, -1]
+        try #require(pipe(&pipeFDs) == 0 && fcntl(pipeFDs[0], F_SETFL, O_NONBLOCK) == 0)
+        let frame = try #require(Self.key(1, 7).encoded())
+        let sent = frame.withUnsafeBytes { ChromiumHostControlSocket(fd: peer).send($0, fds: [pipeFDs[1]]) }
+        #expect(sent == .wrote(frame.count))
+        close(pipeFDs[1])
+        await recorder.wait { recorder.end != nil }
+        #expect(recorder.end == .malformed)
+        var byte: UInt8 = 0
+        #expect(read(pipeFDs[0], &byte, 1) == 0, "the stray descriptor is closed, not given to a later frame")
+        close(pipeFDs[0])
+        #expect(!channel.send(Self.key(1, 1)))
+        close(peer)
+    }
+
+    @Test func theCeilingSparesAnOutboxThatCoalescingBroughtUnderQuota() async throws {
+        let (fd, peer) = try Self.socketPair()
+        let recorder = Recorder()
+        var options = ChromiumHostControlChannel.Options()
+        options.quotaBytes = 32 * 1024
+        options.quotaCeiling = .milliseconds(50)
+        let channel = recorder.channel(fd: fd, options: options)
+        var code: Int32 = 0
+        while channel.stats.pendingMessages == 0, code < 1_000_000 {
+            channel.send(Self.key(1, code))
+            code += 1
+        }
+        let page1 = ChromiumHostControlChannel.stateKey(op: 2, browser: 1)
+        var big = Self.geometry(1, 1)
+        big.fields.append(.init(tag: 3, value: .bytes(Array(repeating: 0x73, count: 60_000))))
+        #expect(channel.send(big, stateKey: page1))
+        #expect(channel.stats.quotaExcess > 0, "a large waiting state op is over quota")
+        #expect(channel.send(Self.geometry(1, 2), stateKey: page1))
+        #expect(channel.stats.pendingBytes < options.quotaBytes, "its replacement is under quota")
+        // A fixed wait past the ceiling's one deadline, not a poll: the reader wakes at it.
+        try await Task.sleep(for: .milliseconds(200))
+        #expect(channel.send(Self.key(1, 1)), "past the ceiling the channel still sends")
         channel.close()
         close(peer)
     }

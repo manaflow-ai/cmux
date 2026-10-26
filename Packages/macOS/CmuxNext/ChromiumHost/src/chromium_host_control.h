@@ -29,6 +29,8 @@
 // quota without a break.
 #pragma once
 
+#include <sys/uio.h>
+
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
@@ -53,6 +55,8 @@ inline constexpr int kQuotaCeilingSeconds = 60;
 // Messages read and not yet run on the UI thread: past it the reader stops
 // reading until the UI thread drains (the peer's outbox then holds them).
 inline constexpr size_t kInboxLimit = 4096;
+// Waiting frames one sendmsg writes (Outbox::Gather).
+inline constexpr size_t kMaxBatch = 64;
 
 inline constexpr uint16_t kFdCountMask = 0x0007;
 inline constexpr uint16_t kFlagReply = 0x0008;
@@ -101,14 +105,24 @@ Parse Decode(const uint8_t* data, size_t size, std::deque<int>* fds, Message* ou
 
 bool IsValidUtf8(const std::string& text);
 
+// Whether `pending` descriptors, received and not taken by a whole frame, can
+// belong to the frame `data` starts. They travel with a frame's first byte, so
+// they must come with a started frame and be no more than its header
+// declares; extra ones are malformed (Mojo rejects a message whose handle
+// count does not match what came with it).
+bool PendingFdsFit(const uint8_t* data, size_t size, size_t pending);
+
 // The key a state op coalesces by.
 inline uint64_t StateKey(uint16_t op, int32_t browser) {
   return (static_cast<uint64_t>(op) << 32) | static_cast<uint32_t>(browser);
 }
 
 // Frames the socket has not taken yet, oldest first. A partly written front
-// frame keeps its place; a waiting state op is replaced by a newer one with
-// the same key, which goes to the tail. Owns the duplicated descriptors.
+// frame keeps its place (it is in flight, not waiting); a waiting state op is
+// replaced by a newer one with the same key, which goes to the tail. Writes go
+// in batches, one sendmsg each, as ChannelPosix::WriteOutgoingMessagesWithWritev
+// batches messages without handles: a frame with descriptors starts a batch,
+// since they go with its first byte. Owns the duplicated descriptors.
 class Outbox {
  public:
   struct Entry {
@@ -129,6 +143,13 @@ class Outbox {
   bool Push(std::vector<uint8_t> bytes, std::vector<int> fds, std::optional<uint64_t> key);
   // The oldest live entry, nullptr when empty.
   Entry* Front();
+  // The next batch, at most `max` buffers: the front entry's unwritten bytes,
+  // then whole entries up to the next one with descriptors. `fds`: the front
+  // entry's descriptors when the batch starts at its first byte, else nullptr.
+  size_t Gather(iovec* iov, size_t max, const std::vector<int>** fds);
+  // Marks `written` bytes from the front sent: whole entries leave, and a
+  // started entry's descriptors close (they went with its first byte).
+  void Advance(size_t written);
   // Drops the front entry (written whole), closing its descriptors.
   void PopFront();
   void Clear();
@@ -137,7 +158,7 @@ class Outbox {
   size_t messages() const { return messages_; }
   size_t bytes() const { return bytes_; }
   bool OverQuota() const { return bytes_ > quota_bytes_ || messages_ > quota_messages_; }
-  // Live entries with this key (0 or 1).
+  // Waiting entries with this key (0 or 1): live and not started.
   size_t CountKey(uint64_t key) const;
   // Closes an entry's descriptors (once sent, or when it is dropped).
   static void CloseFds(Entry* entry);
@@ -192,6 +213,10 @@ class Channel {
   // thread; `on_messages` and then, once, `on_end` run in such tasks.
   Channel(int fd, Post post, OnMessages on_messages, OnEnd on_end, Options options);
   Channel(int fd, Post post, OnMessages on_messages, OnEnd on_end);
+  // Ends the channel and joins the reader. Nothing is delivered after it: a
+  // task already posted runs neither callback, as a task bound to a WeakPtr
+  // (base/memory/weak_ptr.h) does not run once its owner is gone. Destroy it on
+  // the UI thread, where those tasks run.
   ~Channel();
   Channel(const Channel&) = delete;
   Channel& operator=(const Channel&) = delete;
@@ -203,7 +228,8 @@ class Channel {
   bool Send(const Message& message, std::optional<uint64_t> state_key = std::nullopt);
   void Close();
   Stats stats() const;
-  // Waiting messages with this state key (0 or 1).
+  // Waiting messages with this state key (0 or 1); one the socket has taken
+  // part of is in flight, not waiting.
   size_t PendingWithKey(uint64_t state_key) const;
 
  private:

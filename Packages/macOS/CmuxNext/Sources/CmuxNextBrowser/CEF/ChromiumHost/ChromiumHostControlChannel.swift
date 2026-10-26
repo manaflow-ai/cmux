@@ -2,6 +2,7 @@
 // The Chromium host app ships in Debug builds only (embed-cef.sh), and so does its Swift side.
 import CmuxNextWakeups
 import Darwin
+import Foundation
 
 /// cmux's end of the control channel to the Chromium host
 /// (plans/cmux-next/chrome-parity/p01-process.md 3.1; the C++ end is
@@ -104,7 +105,8 @@ nonisolated final class ChromiumHostControlChannel: Sendable {
 
     var stats: Stats { core.stats }
 
-    /// Waiting messages with `stateKey` (0 or 1).
+    /// Waiting messages with `stateKey` (0 or 1); one the socket has taken
+    /// part of is in flight, not waiting.
     func pendingCount(stateKey: UInt64) -> Int {
         core.pendingCount(stateKey: stateKey)
     }

@@ -9,8 +9,10 @@ import Darwin
 /// reader then stops).
 ///
 /// One `Mutex` (the lock carve-out, as ``ChromiumHostWireState``: short
-/// critical sections around one non-blocking `sendmsg`, an outbox push or an
-/// inbox append, taken on every control op where an actor would add a hop).
+/// critical sections around an outbox push, an inbox append or a flush,
+/// taken on every control op where an actor would add a hop). A flush is one
+/// non-blocking `sendmsg` per batch of up to 16 KiB of waiting frames (the
+/// outbox batches them), so a send waits behind at most a few syscalls.
 /// No call under it waits: the socket and the wake pipe are non-blocking.
 /// The reader thread is the only one that closes the descriptors, under the
 /// lock, so no side touches a number the system may have reused.
@@ -23,6 +25,10 @@ nonisolated final class ChromiumHostControlCore: Sendable {
         var wakeWrite: Int32 = -1
         var outbox: ChromiumHostControlOutbox
         var endReason: ChromiumHostControlEnd?
+        /// A write found the host's end closed: nothing more is written, and
+        /// the reader reads what the host sent until EOF, as Mojo's
+        /// `ChannelPosix::OnWriteError` keeps reading on `kDisconnected`.
+        var rejectWrites = false
         var overSince: ContinuousClock.Instant?
         var quotaExcess: UInt64 = 0
         var coalesced: UInt64 = 0
@@ -36,11 +42,15 @@ nonisolated final class ChromiumHostControlCore: Sendable {
         var endDelivered = false
         var lastToken: UInt32 = 0
         var replies: [UInt32: CheckedContinuation<Reply, Never>] = [:]
+
+        /// Why nothing can be sent, if so.
+        var unwritable: ChromiumHostControlEnd? { endReason ?? (rejectWrites ? .peerClosed : nil) }
     }
 
     /// What the reader waits for in one `poll`.
     private struct PollPlan {
         var events: Int16
+        var wantsRead: Bool
         var wantsWrite: Bool
         var timeoutMilliseconds: Int32
     }
@@ -88,7 +98,7 @@ nonisolated final class ChromiumHostControlCore: Sendable {
     /// reply (on the reader thread) or the end.
     func request(_ message: ChromiumHostControlMessage, _ continuation: CheckedContinuation<Reply, Never>) {
         let failure = state.withLock { state -> ChromiumHostControlError? in
-            if let reason = state.endReason { return .hostGone(reason) }
+            if let reason = state.unwritable { return .hostGone(reason) }
             state.lastToken = state.lastToken == UInt32.max ? 1 : state.lastToken + 1
             let token = state.lastToken
             var tokened = message
@@ -98,7 +108,7 @@ nonisolated final class ChromiumHostControlCore: Sendable {
             state.replies[token] = continuation
             guard Self.sendLocked(&state, frame, fds: message.fds, stateKey: nil) else {
                 state.replies[token] = nil
-                return state.endReason.map { .hostGone($0) } ?? .unsendable
+                return state.unwritable.map { .hostGone($0) } ?? .unsendable
             }
             return nil
         }
@@ -145,18 +155,22 @@ nonisolated final class ChromiumHostControlCore: Sendable {
             if ready > 0, polls[1].revents != 0 { Self.drainWakePipe(wakeRead) }
             let got = Int32(polls[0].revents)
             if plan.wantsWrite, got & Int32(POLLOUT | POLLERR | POLLHUP) != 0 {
+                // On a hang-up the write fails as peerClosed and the read below finds EOF.
                 state.withLock { state -> Void in
-                    if state.endReason == nil, !Self.flushLocked(&state) { Self.endLocked(&state, .ioError) }
+                    if state.unwritable == nil { _ = Self.flushLocked(&state) }
                 }
             }
-            if got & Int32(POLLIN | POLLERR | POLLHUP) != 0,
+            if plan.wantsRead, got & Int32(POLLIN | POLLERR | POLLHUP) != 0,
                let reason = readAvailable(socket, &buffer, &chunk, &control, &fds) {
                 end(reason)
                 break
             }
             state.withLock { state -> Void in
-                if let since = state.overSince, ContinuousClock.now - since >= options.quotaCeiling {
+                guard let since = state.overSince, ContinuousClock.now - since >= options.quotaCeiling else { return }
+                if state.outbox.isOverQuota {
                     Self.endLocked(&state, .quotaCeiling)
+                } else {
+                    state.overSince = nil
                 }
             }
         }
@@ -180,11 +194,13 @@ nonisolated final class ChromiumHostControlCore: Sendable {
 
     private func pollPlan(_ state: State) -> PollPlan? {
         guard state.endReason == nil else { return nil }
+        let wantsRead = !state.paused
         let wantsWrite = !state.outbox.isEmpty
-        let events = (state.paused ? 0 : Int32(POLLIN)) | (wantsWrite ? Int32(POLLOUT) : 0)
+        let events = (wantsRead ? Int32(POLLIN) : 0) | (wantsWrite ? Int32(POLLOUT) : 0)
         var timeout: Int32 = -1
         if let since = state.overSince { timeout = Self.milliseconds(until: since + options.quotaCeiling) }
-        return PollPlan(events: Int16(events), wantsWrite: wantsWrite, timeoutMilliseconds: timeout)
+        return PollPlan(events: Int16(events), wantsRead: wantsRead, wantsWrite: wantsWrite,
+                        timeoutMilliseconds: timeout)
     }
 
     /// Reads what the socket holds; the reason when the connection must end.
@@ -238,6 +254,10 @@ nonisolated final class ChromiumHostControlCore: Sendable {
             decoded = ChromiumHostControlMessage.decode(buffer[start...], fds: &fds)
         }
         if decoded == .malformed { failure = .malformed }
+        // Descriptors that came with a frame declaring fewer, which no later frame may take.
+        if failure == nil, !ChromiumHostControlMessage.pendingFdsFit(buffer[start...], pending: fds.count) {
+            failure = .malformed
+        }
         buffer.removeFirst(start)
         if postsDrain { scheduleDrain() }
         return (failure, paused)
@@ -271,7 +291,7 @@ nonisolated final class ChromiumHostControlCore: Sendable {
     // MARK: Under the lock
 
     private static func sendLocked(_ state: inout State, _ frame: [UInt8], fds: [Int32], stateKey: UInt64?) -> Bool {
-        guard state.endReason == nil else { return false }
+        guard state.unwritable == nil else { return false }
         var copies: [Int32] = []
         for fd in fds {
             let copy = fcntl(fd, F_DUPFD_CLOEXEC, 0)
@@ -284,10 +304,7 @@ nonisolated final class ChromiumHostControlCore: Sendable {
         let wasEmpty = state.outbox.isEmpty
         if state.outbox.push(frame, fds: copies, key: stateKey) { state.coalesced += 1 }
         if wasEmpty {
-            guard flushLocked(&state) else {
-                endLocked(&state, .ioError)
-                return false
-            }
+            guard flushLocked(&state) else { return false }
             if !state.outbox.isEmpty { wake(state.wakeWrite) }  // the reader now waits for the socket to take more
         }
         if state.outbox.isOverQuota {
@@ -296,16 +313,31 @@ nonisolated final class ChromiumHostControlCore: Sendable {
                 state.overSince = ContinuousClock.now
                 wake(state.wakeWrite)  // the reader now keeps the ceiling's deadline
             }
+        } else {
+            state.overSince = nil  // coalescing can bring it under quota while the socket takes nothing
         }
         return true
     }
 
-    /// False when the socket failed.
+    /// Writes what the outbox holds while the socket takes it. False when
+    /// nothing more can be written: the socket failed (the channel ends), or
+    /// the host closed its end (the outbox is dropped; the reader reads to EOF).
     private static func flushLocked(_ state: inout State) -> Bool {
         let socket = ChromiumHostControlSocket(fd: state.fd)
-        let result = state.outbox.flush { bytes, fds in socket.send(bytes, fds: fds) }
-        if !state.outbox.isOverQuota { state.overSince = nil }
-        return result != .failed
+        switch state.outbox.flush({ bytes, fds in socket.send(bytes, fds: fds) }) {
+        case .drained, .blocked:
+            if !state.outbox.isOverQuota { state.overSince = nil }
+            return true
+        case .peerClosed:
+            state.rejectWrites = true
+            state.outbox.removeAll()
+            state.overSince = nil
+            wake(state.wakeWrite)
+            return false
+        case .failed:
+            endLocked(&state, .ioError)
+            return false
+        }
     }
 
     /// Ends the channel once: the socket shuts down (the host reads EOF), the

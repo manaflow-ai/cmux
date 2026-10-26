@@ -152,6 +152,19 @@ nonisolated struct ChromiumHostControlMessage: Equatable, Sendable {
         return .frame(message, consumed: end)
     }
 
+    /// Whether `pending` descriptors, received and not taken by a whole frame,
+    /// can belong to the frame `rest` starts. They travel with a frame's first
+    /// byte, so they must come with a started frame and be no more than its
+    /// header declares; extra ones are malformed (Mojo rejects a message whose
+    /// handle count does not match what came with it).
+    static func pendingFdsFit(_ rest: ArraySlice<UInt8>, pending: Int) -> Bool {
+        guard pending > 0 else { return true }
+        guard !rest.isEmpty else { return false }
+        guard rest.count >= headerSize else { return pending <= maxFds }
+        let flags = UInt16(rest[rest.startIndex + 6]) | UInt16(rest[rest.startIndex + 7]) << 8
+        return pending <= Int(flags & fdCountMask)
+    }
+
     private static func putField(_ out: inout [UInt8], type: UInt8, tag: UInt8, length: Int) {
         out.append(type)
         out.append(tag)
