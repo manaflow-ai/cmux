@@ -1439,6 +1439,33 @@ class RateLimitTests(unittest.TestCase):
         with mock.patch.object(janitor.urllib.request, "urlopen", urlopen), self.assertRaises(RuntimeError):
             github.request("GET", "/repos/manaflow-ai/cmux/actions/runs")
 
+    def test_an_app_out_of_budget_stops_the_sweep_instead_of_spending_the_workflow_token(self):
+        import email.message
+        import urllib.error
+        github = janitor.GitHub("app", "manaflow-ai/cmux", fallback_token="workflow")
+        sent = []
+        limited = email.message.Message()
+        limited["X-RateLimit-Remaining"] = "0"
+
+        def urlopen(request, timeout=30):
+            sent.append(request.get_header("Authorization"))
+            raise urllib.error.HTTPError(request.full_url, 403, "rate limited", limited, None)
+
+        with mock.patch.object(janitor.urllib.request, "urlopen", urlopen), self.assertRaises(RuntimeError):
+            github.request("GET", "/repos/manaflow-ai/cmux/actions/runs")
+        self.assertEqual(sent, ["Bearer app"])
+        # A secondary limit says so in its body.
+        body = io.BytesIO(b'{"message": "You have exceeded a secondary rate limit."}')
+        sent.clear()
+
+        def secondary(request, timeout=30):
+            sent.append(request.get_header("Authorization"))
+            raise urllib.error.HTTPError(request.full_url, 403, "Forbidden", email.message.Message(), body)
+
+        with mock.patch.object(janitor.urllib.request, "urlopen", secondary), self.assertRaises(RuntimeError):
+            github.request("GET", "/repos/manaflow-ai/cmux/actions/runs")
+        self.assertEqual(sent, ["Bearer app"])
+
     def test_sweep_summary_reports_the_budget(self):
         fake = FakeGitHub({})
         fake.rate_limits["core"] = {"remaining": 900, "limit": 15000, "used": 14100}
