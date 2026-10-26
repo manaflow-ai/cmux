@@ -2,9 +2,26 @@
 // edit the feature's JSON file and rerun the script.
 
 nonisolated extension Feature {
+    /// A browser page shown in a minimized, other-Space or covered window counts as hidden, so Memory Saver may discard it; it comes back when the window shows.
+    public static let occludedWindowDiscard = Feature(
+        index: 0,
+        name: "occludedWindowDiscard",
+        owner: "PL-memory",
+        description: "A browser page shown in a minimized, other-Space or covered window counts as hidden, so Memory Saver may discard it; it comes back when the window shows.",
+        kind: .labs,
+        process: .app,
+        chromiumFeature: nil,
+        defaults: FeatureDefaults(dev: false, nightly: false, release: false),
+        expires: nil,
+        params: [],
+        stories: [],
+        sticky: false,
+        runtimeMutable: false
+    )
+
     /// Hold budgeted main-thread work while a shown window's display link is over 100 ms late, until its next tick.
     public static let renderStarvationGuard = Feature(
-        index: 0,
+        index: 1,
         name: "renderStarvationGuard",
         owner: "Performance Lead",
         description: "Hold budgeted main-thread work while a shown window's display link is over 100 ms late, until its next tick.",
@@ -21,7 +38,7 @@ nonisolated extension Feature {
 
     /// The Task Manager lists the items Memory Saver discarded, each with the memory it saved, and the total Memory Saver freed.
     public static let taskManagerMemorySaved = Feature(
-        index: 1,
+        index: 2,
         name: "taskManagerMemorySaved",
         owner: "PL-memory",
         description: "The Task Manager lists the items Memory Saver discarded, each with the memory it saved, and the total Memory Saver freed.",
@@ -38,6 +55,7 @@ nonisolated extension Feature {
 
     /// Every feature, by index: `registered[feature.index] == feature`.
     public static let registered: [Feature] = [
+        .occludedWindowDiscard,
         .renderStarvationGuard,
         .taskManagerMemorySaved,
     ]

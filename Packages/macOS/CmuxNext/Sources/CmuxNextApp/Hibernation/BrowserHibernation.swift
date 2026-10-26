@@ -14,8 +14,9 @@ import os
 /// (plans/cmux-next/tab-lifecycle.md). Configured by
 /// `browser.hibernation`; "off" disables it completely.
 ///
-/// Triggers are events only: a page hides (a one-shot deadline for the
-/// earliest page to reach its threshold), the memory coordinator's level (a
+/// Triggers are events only: a page hides (also when its window goes off screen,
+/// `windowOcclusion`), with a one-shot deadline for the
+/// earliest page to reach its threshold, the memory coordinator's level (a
 /// lossy consumer registration, `MemoryLevelConsumer` below), a settings
 /// change, or the user's Hibernate Tab action. There is no polling. Before a
 /// page hibernates, a probe asks it for playing media and edited form fields (with a deadline) and captures its history; the
@@ -118,6 +119,9 @@ final class BrowserHibernation {
     var uncoveredWakes = 0
     private let lowPower: LowPowerMode
     private var lowPowerObservation: LowPowerModeObservation?
+    /// Reports the app's windows going off screen and back (`occludedWindowDiscard`), so the
+    /// pages they show count as hidden (`TabContentCache.windowDidChangeOnScreen`); nil when off.
+    private var windowOcclusion: WindowOcclusionChecker?
     /// The page's freeze control (a seam for tests; Chromium pages only in the app).
     var freezer: (any BrowserTab) -> (any BrowserFreezing)? = { $0 as? any BrowserFreezing }
 
@@ -171,6 +175,8 @@ final class BrowserHibernation {
     }
 
     func stop() {
+        windowOcclusion?.stop()
+        windowOcclusion = nil
         settingsObservation?.cancel()
         memoryRegistration?.cancel()
         memoryRegistration = nil
@@ -179,6 +185,14 @@ final class BrowserHibernation {
         deadline.cancel()
         freezeDeadline.cancel()
         hoverDwell.cancel()
+    }
+
+    /// Follows `checker`'s off-screen windows from now until `stop()`.
+    func follow(_ checker: WindowOcclusionChecker) {
+        windowOcclusion?.stop()
+        windowOcclusion = checker
+        checker.onChange = { [weak self] window, offScreen in self?.cache?.windowDidChangeOnScreen(window, offScreen: offScreen) }
+        checker.start()
     }
 
     /// Applies every loaded cmux.json snapshot's `browser.hibernation`.
@@ -347,6 +361,14 @@ final class BrowserHibernation {
     /// The pane is gone: its tabs are no longer anyone's neighbors.
     func paneDidGo(_ pane: ObjectIdentifier) {
         neighbors.remove(pane)
+        refreshNeighbors()
+    }
+
+    /// The window of `panes` went off screen or came back: an off-screen pane keeps no neighbors
+    /// awake (their hidden clocks start now), and back on screen they wake as neighbors again.
+    func panesDidChangeScreen(_ panes: [ObjectIdentifier], offScreen: Bool) {
+        guard !panes.isEmpty else { return }
+        for pane in panes { neighbors.setOffScreen(offScreen, pane: pane) }
         refreshNeighbors()
     }
 

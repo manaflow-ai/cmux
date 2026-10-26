@@ -26,7 +26,8 @@ extension TabContentCache {
     func present(_ key: String, by presenter: any SurfacePresenter, presence: SurfacePresence) {
         let owner = ObjectIdentifier(presenter)
         presenters[owner] = WeakPresenter(value: presenter)
-        apply(ledger.present(key, by: owner, presence: presence))
+        declaredPresence[owner] = presence
+        apply(ledger.present(key, by: owner, presence: effectivePresence(presence, keys: [key], presenter: presenter)))
     }
 
     /// `presenter` stopped showing `key`. Ignored when another presenter
@@ -37,7 +38,9 @@ extension TabContentCache {
 
     /// `presenter` scrolled on screen, into the keep-alive band, or away.
     func setPresence(_ presence: SurfacePresence, presenter: any SurfacePresenter) {
-        apply(ledger.setPresence(presence, owner: ObjectIdentifier(presenter)))
+        let owner = ObjectIdentifier(presenter)
+        declaredPresence[owner] = presence
+        apply(ledger.setPresence(effectivePresence(presence, keys: ledger.keys(ownedBy: owner), presenter: presenter), owner: owner))
     }
 
     /// `presenter` is going away.
@@ -45,6 +48,47 @@ extension TabContentCache {
         let owner = ObjectIdentifier(presenter)
         apply(ledger.removeOwner(owner))
         presenters[owner] = nil
+        declaredPresence[owner] = nil
+    }
+
+    // MARK: Off-screen windows
+
+    /// `window` went off screen (minimized, another Space, covered by the app's own window or the
+    /// displays asleep: `WindowOcclusionChecker`) or came back. A page its panes show is hidden
+    /// while it is off screen, so its hidden clock starts and it may be discarded as any hidden
+    /// page (Chrome's `Visibility::OCCLUDED` page is not visible to the discarder either); the
+    /// panes keep no neighbor tabs awake. Back on screen is a show: the page reveals, or restores
+    /// behind its last picture. Pages only: a terminal in an off-screen window keeps its surface
+    /// (its drawing already pauses, `WindowDrawPolicy`).
+    ///
+    /// Chrome keeps each window's active tab (`kActiveTab`, discard_eligibility_policy.cc) because
+    /// its discarded tab shows blank until clicked; a cmux page restores on the show itself.
+    func windowDidChangeOnScreen(_ window: ObjectIdentifier, offScreen: Bool) {
+        guard offScreen ? offScreenWindows.insert(window).inserted : offScreenWindows.remove(window) != nil else { return }
+        var panes: [ObjectIdentifier] = []
+        for (owner, entry) in presenters {
+            guard let presenter = entry.value, presenter.presentingWindow.map({ ObjectIdentifier($0) }) == window else { continue }
+            panes.append(owner)
+            guard let declared = declaredPresence[owner] else { continue }
+            apply(ledger.setPresence(effectivePresence(declared, keys: ledger.keys(ownedBy: owner), presenter: presenter), owner: owner))
+        }
+        hibernation?.panesDidChangeScreen(panes, offScreen: offScreen)
+    }
+
+    /// The presence the ledger gets for `presenter` showing `keys`: a page in an off-screen
+    /// window is kept (`keepAlive`: paused, never evicted) instead of drawn.
+    private func effectivePresence(_ presence: SurfacePresence, keys: [String], presenter: any SurfacePresenter) -> SurfacePresence {
+        guard presence == .visible, !offScreenWindows.isEmpty, let window = presenter.presentingWindow,
+              offScreenWindows.contains(ObjectIdentifier(window)), keys.contains(where: { browsers[$0] != nil }) else { return presence }
+        return .keepAlive
+    }
+
+    /// A page installed for a tab its pane already presents (created after the show) is hidden at
+    /// once when the pane's window is off screen.
+    private func refreshOffScreenPresence(of key: String) {
+        guard !offScreenWindows.isEmpty, let owner = ledger.owner(of: key), let presenter = presenters[owner]?.value,
+              let declared = declaredPresence[owner] else { return }
+        apply(ledger.setPresence(effectivePresence(declared, keys: [key], presenter: presenter), owner: owner))
     }
 
     /// The pane presenting `key`, if any.
@@ -81,7 +125,10 @@ extension TabContentCache {
             if let entry = terminals.removeValue(forKey: key) { evict(entry, key: key) }
             applyLifecycle(lifecycle.send(.released(key)))
         }
-        for displaced in effects.displaced where presenters[displaced.owner]?.value == nil { presenters[displaced.owner] = nil } // O(changed); removePresenter drops the rest
+        for displaced in effects.displaced where presenters[displaced.owner]?.value == nil { // O(changed); removePresenter drops the rest
+            presenters[displaced.owner] = nil
+            declaredPresence[displaced.owner] = nil
+        }
         presentationChanges.notify(changed: Set(effects.rendering.keys).union(effects.evicted).union(effects.displaced.map(\.key)))
     }
 
@@ -97,6 +144,7 @@ extension TabContentCache {
     /// Content for `key` now exists: answers an outstanding `mount`.
     func contentDidMount(_ key: String) {
         guard let token = pendingMounts.removeValue(forKey: key) else { return }
+        refreshOffScreenPresence(of: key)
         applyLifecycle(lifecycle.send(.mounted(key, token)))
     }
 

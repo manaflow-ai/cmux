@@ -94,6 +94,20 @@ public struct WindowDrawPolicy {
     /// Whether `window` is at least partly on screen now.
     public static func isOnScreen(_ window: NSWindow) -> Bool { onScreen(window) }
 
+    /// What ``WindowOcclusionRule`` reads about `window` now, AppKit's visibility through
+    /// ``isOnScreen(_:)``. A window covers others when it hides what is under it, as Chrome's
+    /// `-windowCanOccludeOtherWindows:` (web_contents_occlusion_checker_mac.mm) judges it.
+    public static func occlusionFacts(of window: NSWindow) -> WindowOcclusionFacts {
+        WindowOcclusionFacts(
+            id: ObjectIdentifier(window), frame: window.frame, level: window.level.rawValue,
+            isVisible: window.isVisible, isMiniaturized: window.isMiniaturized, systemVisible: isOnScreen(window),
+            isActive: window.isKeyWindow || window.isMainWindow, canBecomeActive: window.canBecomeKey || window.canBecomeMain,
+            paintsOpaque: window.alphaValue >= 1 && !window.ignoresMouseEvents
+                && (window.isOpaque || window.backgroundColor.alphaComponent >= 1),
+            isChild: window.parentWindow != nil
+        )
+    }
+
     /// Whether content in `window` may draw now (false without a window).
     public static func isDrawable(_ window: NSWindow?) -> Bool {
         guard let window else { return false }

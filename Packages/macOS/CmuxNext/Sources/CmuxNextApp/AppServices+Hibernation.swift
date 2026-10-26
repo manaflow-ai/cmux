@@ -1,5 +1,7 @@
 import CmuxNextBridge
 import CmuxNextCompat
+import CmuxNextDesign
+import CmuxNextFeatures
 import CmuxNextMemory
 import CmuxNextResources
 import CmuxNextSettings
@@ -24,6 +26,9 @@ extension AppServices {
         hibernation.agentPages = AgentPageHibernation(services: self)
         hibernation.follow(settings)
         hibernation.start()
+        if features.isEnabled(.occludedWindowDiscard) {
+            hibernation.follow(WindowOcclusionChecker(windows: { [weak self] in self?.windows.controllers.compactMap(\.window) ?? [] }))
+        }
     }
 
     func memoryPressureDidChange(_ level: MemoryPressureLevel) {

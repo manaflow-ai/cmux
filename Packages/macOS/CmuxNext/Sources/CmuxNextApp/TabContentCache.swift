@@ -22,6 +22,10 @@ final class TabContentCache {
     var browsers: [String: BrowserEntry] = [:] { didSet { if browsers.count != oldValue.count { pageRequests.media.tabsChanged() } } }
     var ledger = SurfaceLedger<String, ObjectIdentifier>(capacity: WarmSetBudget.standard.terminalCapacity)
     var presenters: [ObjectIdentifier: WeakPresenter] = [:]
+    /// The presence each presenter asked for; the ledger gets ``effectivePresence`` of it.
+    var declaredPresence: [ObjectIdentifier: SurfacePresence] = [:]
+    /// Windows off screen now (`WindowOcclusionChecker`): the pages they show count as hidden.
+    var offScreenWindows: Set<ObjectIdentifier> = []
     /// Every tab's content phase and visibility generation (plans/cmux-next/tab-lifecycle.md):
     /// the only source of show and hide for terminal surfaces and pages (`TabContentCache+Lifecycle`).
     var lifecycle = ContentLifecycle<String>()
@@ -516,6 +520,16 @@ protocol SurfacePresenter: AnyObject {
     /// destroyed. Drop the view if it is still installed here; do not
     /// withdraw or pause it.
     func surfaceWasDisplaced(_ key: String)
+    /// The window it presents in, if any.
+    var presentingWindow: NSWindow? { get }
+}
+
+extension SurfacePresenter {
+    var presentingWindow: NSWindow? { nil }
+}
+
+extension PaneController {
+    var presentingWindow: NSWindow? { view.window }
 }
 
 struct WeakPresenter {
