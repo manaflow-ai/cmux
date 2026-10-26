@@ -196,6 +196,37 @@ test("shared combobox ignores non-primary and disabled presses, while keyboard c
   expect(calls).toEqual(["open"]);
   await act(async () => open.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true, detail: 0 })));
   expect(calls).toEqual(["open", "open"]);
+  await act(async () => {
+    open.dispatchEvent(new dom.window.MouseEvent("mousedown", { bubbles: true, button: 0 }));
+    open.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true, detail: 0 }));
+  });
+  expect(calls).toEqual(["open", "open", "open"]);
+});
+
+test("Tab skips disabled suggestions and submits the enabled destination", async () => {
+  const { createRoot } = await import("react-dom/client");
+  const { Combobox } = await import("../src/ui/Combobox");
+  const calls: string[] = [];
+  root = createRoot(host);
+  await act(async () =>
+    root!.render(
+      <Combobox
+        inline
+        autoHighlight="always"
+        label="Choose project"
+        suggestions={["blocked", "open"]}
+        isItemDisabled={(value) => value === "blocked"}
+        onQuery={() => {}}
+        onSubmit={(value) => calls.push(value)}
+        onCancel={() => {}}
+      />,
+    ),
+  );
+  const field = document.querySelector<HTMLInputElement>('[role="combobox"]')!;
+  await key(field, "Tab");
+  expect(field.value).toBe("open");
+  await key(field, "Enter");
+  expect(calls).toEqual(["open"]);
 });
 
 test("projects use the shared combobox's Tab completion and retain same-path remote identity", async () => {
