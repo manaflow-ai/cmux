@@ -101,7 +101,12 @@ export function ProPlanCard({
     interval: action ? "month" : interval,
     currentPrice,
   });
-  const billingDetails = billingDetailLines({ shown, currentPrice, labels });
+  const billingDetails = billingDetailLines({
+    shown,
+    currentPrice,
+    labels,
+    periodKnown: !action || currentPrice !== undefined,
+  });
 
   return (
     <div className="relative flex h-full min-w-0 flex-col border border-border p-6">
@@ -152,8 +157,8 @@ export function ProPlanCard({
         </span>
         <span className="flex min-w-0 flex-col pb-0.5 text-sm leading-[1.15] text-muted">
           <span>{labels.perMonth}</span>
-          {billingDetails.map((line) => (
-            <span key={line} className="truncate">{line}</span>
+          {billingDetails.map((line, index) => (
+            <span key={index} className="truncate">{line}</span>
           ))}
         </span>
       </div>
@@ -189,16 +194,20 @@ type CardPrice = {
  * price only when it is below today's list price. Otherwise the line says how
  * it is billed, so the label keeps two lines in either period and the card
  * never jumps. A yearly subscriber with such a note still sees the yearly
- * charge, as a third line on their own card only.
+ * charge, as a third line on their own card only. A subscriber whose own
+ * price is unknown (App Store, granted, a failed lookup) gets a blank line:
+ * their card does not know their period.
  */
 function billingDetailLines({
   shown,
   currentPrice,
   labels,
+  periodKnown,
 }: {
   shown: CardPrice;
   currentPrice?: PlanCardSubscriptionPrice;
   labels: ProAnnualLabels;
+  periodKnown: boolean;
 }): string[] {
   const billedYearly = shown.yearlyTotal === null
     ? null
@@ -209,6 +218,7 @@ function billingDetailLines({
       ? labels.earlySupporterPrice
       : null;
   if (priceNote) return billedYearly ? [priceNote, billedYearly] : [priceNote];
+  if (!periodKnown) return ["\u00a0"];
   return [billedYearly ?? labels.billedMonthly];
 }
 
