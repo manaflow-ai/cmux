@@ -60,8 +60,11 @@ public struct ThreadsControl: Sendable {
     /// number the RUN-3 hidden run reads, where every Ghostty surface thread must be at utility),
     /// `unknown_qos` (a declared thread the kernel gave no QoS for, as when it exits mid-read: never a
     /// mismatch), `undeclared` (every thread no row declares, system and library threads included),
-    /// `undeclared_cmux` (of those, the ones whose name or label has a cmux prefix: the RUN-3 / MQ-15 number,
-    /// 0 when every cmux thread is registered) and `queue_problems` (checked queues that do not match their row).
+    /// `undeclared_cmux` (of those, the ones whose name or label has a cmux prefix: 0 when every cmux thread is
+    /// registered), `undeclared_library` (of those, the ones whose name or label is in a linked library's name space,
+    /// ``ThreadRegistry/libraryNamespaces``: 0 when every library thread has its row) and `queue_problems` (checked
+    /// queues that do not match their row). The RUN-3 / MQ-15 target is 0 for `undeclared_cmux` plus
+    /// `undeclared_library`; the rest of `undeclared` are the system's threads (idle GCD workers, AppKit, CoreAudio).
     static func report(threads: [LiveThread], taskRole: String, registry: ThreadRegistry, made: [CheckedQueueRecord] = [],
                        droppedQueues: Int = 0, mainThreadID: UInt64) -> JSONValue {
         var counts = Counts()
@@ -80,6 +83,7 @@ public struct ThreadsControl: Sendable {
             }
             var match: JSONValue = .null
             var undeclaredCmux = false
+            var undeclaredLibrary: String?
             if let declaration {
                 live[declaration, default: 0] += 1
                 if let requested = thread.requestedQoS {
@@ -93,7 +97,12 @@ public struct ThreadsControl: Sendable {
             } else {
                 counts.undeclared += 1
                 undeclaredCmux = registry.isOwn(thread.name) || thread.label.map(registry.isOwn) == true
-                if undeclaredCmux { counts.undeclaredCmux += 1 }
+                if undeclaredCmux {
+                    counts.undeclaredCmux += 1
+                } else {
+                    undeclaredLibrary = registry.namespaceLibrary(of: thread.name) ?? thread.label.flatMap(registry.namespaceLibrary(of:))
+                    if undeclaredLibrary != nil { counts.undeclaredLibrary += 1 }
+                }
                 if let label = thread.label { liveUndeclaredLabels[label, default: 0] += 1 }
             }
             let declaredTiers: JSONValue = declaration.map { tiers($0.policy) } ?? .null
@@ -112,6 +121,7 @@ public struct ThreadsControl: Sendable {
                 "origin": nullable(declaration?.origin.rawValue),
                 "library": nullable(declaration?.library),
                 "undeclared_cmux": .bool(undeclaredCmux),
+                "undeclared_library": nullable(undeclaredLibrary),
                 "match": match,
             ]))
         }
@@ -120,6 +130,7 @@ public struct ThreadsControl: Sendable {
             "thread_count": JSONValue(threads.count),
             "undeclared": JSONValue(counts.undeclared),
             "undeclared_cmux": JSONValue(counts.undeclaredCmux),
+            "undeclared_library": JSONValue(counts.undeclaredLibrary),
             "mismatched": JSONValue(counts.mismatched),
             "hidden_mismatched": JSONValue(counts.hiddenMismatched),
             "unknown_qos": JSONValue(counts.unknownQoS),
@@ -133,6 +144,7 @@ public struct ThreadsControl: Sendable {
     private struct Counts {
         var undeclared = 0
         var undeclaredCmux = 0
+        var undeclaredLibrary = 0
         var mismatched = 0
         var hiddenMismatched = 0
         var unknownQoS = 0

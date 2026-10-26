@@ -256,21 +256,27 @@ struct ThreadsControlTests {
         #expect(row["match"]?.boolValue == true)
     }
 
-    /// The threads the linked libraries start (GhosttyKit, CEF, WebKit, Sentry, iroh, WebRTC) are each declared
-    /// by their library, at whatever tier the library picked: none reads declared null or counts as a mismatch.
+    /// The threads the linked libraries start (GhosttyKit, CEF, WebKit, Sentry, iroh, WebRTC), under the names they
+    /// have live, are each declared by their library at a tier the row allows: none reads declared null or counts
+    /// as a mismatch.
     @Test func libraryThreadsAreDeclaredByTheirLibrary() throws {
-        let named: [(name: String, library: String)] = [
-            ("io", "GhosttyKit"), ("Chrome_IOThread", "CEF"), ("ThreadPoolForegroundWorker", "CEF"),
-            ("ThreadPoolServiceThread", "CEF"), ("HangWatcher", "CEF"), ("WebCore: Scrolling", "WebKit"),
-            ("JavaScriptCore libpas scavenger", "WebKit"), ("SentryCrash Exception Handler (Primary)", "Sentry"),
-            ("io.sentry.app-hang-tracking", "Sentry"), ("async-compat/tokio-1", "iroh"), ("tokio-runtime-worker", "iroh"),
-            ("network_thread", "WebRTC"), ("worker_thread", "WebRTC"), ("signaling_thread", "WebRTC"),
+        // WebRTC's rtc::Thread::SetName(name, obj) appends " 0x%p", and Darwin's %p prints its own 0x.
+        let named: [(name: String, library: String, qos: ThreadQoS)] = [
+            ("io", "GhosttyKit", .userInitiated), ("cf_release", "GhosttyKit", .userInteractive),
+            ("search", "GhosttyKit", .utility), ("sentry-init", "GhosttyKit", .default),
+            ("io-reader", "GhosttyKit", .userInitiated), ("io-gather", "GhosttyKit", .userInitiated),
+            ("Chrome_IOThread", "CEF", .userInteractive), ("ThreadPoolForegroundWorker", "CEF", .userInitiated),
+            ("ThreadPoolServiceThread", "CEF", .userInteractive), ("HangWatcher", "CEF", .userInitiated),
+            ("WebCore: Scrolling", "WebKit", .userInteractive), ("JavaScriptCore libpas scavenger", "WebKit", .utility),
+            ("SentryCrash Exception Handler (Primary)", "Sentry", .userInteractive),
+            ("io.sentry.app-hang-tracking", "Sentry", .userInitiated), ("async-compat/tokio-1", "iroh", .userInitiated),
+            ("tokio-runtime-worker", "iroh", .default), ("network_thread 0x0x600001234560", "WebRTC", .userInitiated),
+            ("worker_thread 0x0x600001234570", "WebRTC", .default),
+            ("signaling_thread 0x0x600001234580", "WebRTC", .userInitiated),
         ]
         var threads: [LiveThread] = []
         for (index, thread) in named.enumerated() {
-            // Ghostty's io thread reads a by-visibility tier; every other library row allows any tier.
-            let qos: ThreadQoS = index.isMultiple(of: 2) ? .userInteractive : .userInitiated
-            threads.append(LiveThread(id: UInt64(index + 10), name: thread.name, label: nil, requestedQoS: qos,
+            threads.append(LiveThread(id: UInt64(index + 10), name: thread.name, label: nil, requestedQoS: thread.qos,
                                       effectivePriority: 31, cpuNanos: 0))
         }
         threads.append(LiveThread(id: 99, name: "", label: "com.apple.WebKit.ProcessLauncher", requestedQoS: .default,
@@ -280,7 +286,33 @@ struct ThreadsControlTests {
         #expect(rows.map { $0["library"]?.stringValue } == named.map { $0.library } + ["WebKit"])
         #expect(rows.allSatisfy { $0["origin"]?.stringValue == "library" })
         #expect(report["undeclared"]?.intValue == 0)
+        #expect(report["undeclared_library"]?.intValue == 0)
         #expect(report["mismatched"]?.intValue == 0)
+        #expect(ThreadRegistry.app.declaration(for: "network_thread") == nil)
+    }
+
+    /// A thread no row declares counts as `undeclared_library` when its name or label is in a linked library's name
+    /// space, as `undeclared_cmux` when it has a cmux name start, and as neither when it is the system's: the RUN-3
+    /// target is 0 for the first two, which the system's threads do not change.
+    @Test func undeclaredLibraryThreadsAreCountedApartFromSystemThreads() throws {
+        let named: [(name: String, label: String?)] = [
+            ("rtc_media_thread 0x0x600001234590", nil), ("WebCoreAudioRenderingThread", nil), ("ChromeNewThread", nil),
+            ("", "tokio-io"), ("sentry-http", nil), ("cmux stray", nil), ("", "com.apple.root.utility-qos"),
+            ("com.apple.NSEventThread", nil), ("", nil), ("renderer", nil),
+        ]
+        var threads: [LiveThread] = []
+        for (index, thread) in named.enumerated() {
+            threads.append(LiveThread(id: UInt64(index + 10), name: thread.name, label: thread.label, requestedQoS: .utility,
+                                      effectivePriority: 20, cpuNanos: 0))
+        }
+        let report = ThreadsControl.report(threads: threads, taskRole: "foreground", registry: .app, mainThreadID: 0)
+        let rows = try #require(report["threads"]?.arrayValue)
+        let libraries: [String?] = ["WebRTC", "WebKit", "CEF", "iroh", "Sentry", nil, nil, nil, nil, nil]
+        #expect(rows.map { $0["undeclared_library"]?.stringValue } == libraries)
+        #expect(rows.map { $0["undeclared_cmux"]?.boolValue } == [false, false, false, false, false, true, false, false, false, false])
+        #expect(report["undeclared"]?.intValue == 9)
+        #expect(report["undeclared_library"]?.intValue == 5)
+        #expect(report["undeclared_cmux"]?.intValue == 1)
     }
 
     /// A per-item queue (a lane slot, a process run) runs at any tier its item states below user-interactive.

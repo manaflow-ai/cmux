@@ -639,8 +639,13 @@ QoS with them, and ThreadsControlTests fails when a label or QoS here and there 
   each per surface): `renderer` (by-visibility: user-interactive focused, user-initiated visible, utility hidden;
   the renderer sets it again on each focus and occlusion change), `io` (by-visibility: user-interactive focused,
   user-initiated visible, utility hidden; until p03-rendering-086 removes the thread from manual-IO surfaces it
-  keeps the QoS it starts with, so the hidden run reports it). Ghostty's other threads (search, CoreText release)
-  are unnamed on macOS, where Zig names only the calling thread.
+  keeps the QoS it starts with, so the hidden run reports it), `cf_release` (set-by-library; one per surface,
+  started by the CoreText shaper, src/os/cf_release_thread.zig, which sets no QoS), `search` (utility; one per
+  find, src/terminal/search/Thread.zig sets it), `sentry-init` (set-by-library; src/crash/sentry.zig, once at
+  init), `io-reader` (user-initiated; src/termio/Exec.zig, only in an exec-mode surface, which cmux does not start),
+  `io-gather` (user-initiated; src/termio/Exec.zig, exec mode only, as io-reader). Each Ghostty thread names
+  itself with pthread_setname_np from inside, and the names share no start, so these rows are every name
+  ghostty-next sets (723c4ab93); a ghostty-next bump checks its pthread_setname_np calls against them.
 - Library CEF (the in-process Chromium browser; Chromium sets each thread's QoS from its `ThreadType`,
   `base/threading/platform_thread_apple.mm`): `Chrome_<thread>` (set-by-library; the IO, DevTools and history
   threads), `ThreadPool<group>` (set-by-library; the foreground, utility and background workers and the service
@@ -654,15 +659,22 @@ QoS with them, and ThreadsControlTests fails when a label or QoS here and there 
   and its app-hang tracking thread)
 - Library iroh (iroh-ffi's tokio runtime, CmuxIrohTransport): `async-compat/tokio-1` (set-by-library; uniffi's
   async runtime), `tokio-runtime-worker` (set-by-library; tokio's default worker and blocking-pool name)
-- Library WebRTC (WebRTC.framework, CmuxScreenKit, `RTCPeerConnectionFactory`): `network_thread` (set-by-library),
-  `worker_thread` (set-by-library), `signaling_thread` (set-by-library)
+- Library WebRTC (WebRTC.framework, CmuxScreenKit, `RTCPeerConnectionFactory`; WebRTC's Thread SetName(name, obj)
+  in rtc_base/thread.cc appends " 0x%p" to the name the factory gives): `network_thread <ptr>` (set-by-library),
+  `worker_thread <ptr>` (set-by-library), `signaling_thread <ptr>` (set-by-library)
 - Every `Thread` and `OperationQueue` sets `name` and `qualityOfService` before it starts; every URLSession
   gets a named delegate queue. None is unnamed (`threading-inventory.py --rule thread-doc` = 0).
 
 CCmuxAppFFI starts no thread on macOS: the remote desktop core, the layout reducer and the palette ranker run
 on their caller's thread, and cmux-motion's reduce-motion watcher (cmux-motion-reduce) runs only on Linux and
 Windows. A library thread the app sees with no row reads `declared: null` in `debug.threads`: name it here and in
-`ThreadRegistry.app` (RUN-3 wants 0 such rows from cmux and these libraries).
+`ThreadRegistry.app`. `debug.threads` counts the threads no row declares as `undeclared`, which always includes
+the system's own (idle GCD workers, AppKit's event thread, CoreAudio); of those, `undeclared_cmux` has a cmux
+name start and `undeclared_library` is in a linked library's name space (`ThreadRegistry.libraryNamespaces`,
+wider than its rows: `Chrome` and `ThreadPool` for CEF; `com.apple.WebKit`, `com.apple.IPC`, `WebCore`,
+`JavaScriptCore` and `WTF` for WebKit; `Sentry`, `io.sentry` and `sentry` for Sentry; `tokio` and `async-compat` for
+iroh; names containing `_thread 0x` for WebRTC). The RUN-3 target, in STRESS with the window visible and hidden,
+is 0 for `undeclared_cmux` plus `undeclared_library`.
 
 Task 032 set the QoS of its group (retry-wake, process-progress, daemon exit and path, settings watcher, CEF
 children, provider write, mobile unix-lane, agent-activity socket, updates network). Task 033 set the rest: the

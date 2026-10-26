@@ -112,9 +112,15 @@ extension ThreadRegistry {
         ThreadDeclaration("com.cmuxterm.next.icon-assets.download", match: .operationQueue, qos: .userInitiated),
         ThreadDeclaration("com.cmuxterm.next.cloud.install-auth", match: .operationQueue, qos: .utility),
         ThreadDeclaration("com.cmuxterm.next.backdrop.import", match: .operationQueue, qos: .utility),
-        // GhosttyKit: one renderer and one IO thread per surface, at the surface's visibility tier.
+        // GhosttyKit: one renderer and one IO thread per surface, at the surface's visibility tier; each thread
+        // names itself (pthread_setname_np), so every name ghostty-next sets has a row.
         library("GhosttyKit", "renderer", policy: .surfaceVisibility),
         library("GhosttyKit", "io", policy: .surfaceVisibility),
+        library("GhosttyKit", "cf_release"),
+        library("GhosttyKit", "search", policy: .fixed(.utility)),
+        library("GhosttyKit", "sentry-init"),
+        library("GhosttyKit", "io-reader", policy: .fixed(.userInitiated)),
+        library("GhosttyKit", "io-gather", policy: .fixed(.userInitiated)),
         // CEF: the in-process Chromium browser's own threads (Chromium sets each from its ThreadType).
         library("CEF", "Chrome_", match: .prefix),
         library("CEF", "ThreadPool", match: .prefix),
@@ -134,11 +140,28 @@ extension ThreadRegistry {
         // iroh (iroh-ffi's tokio runtime).
         library("iroh", "async-compat/tokio-1"),
         library("iroh", "tokio-runtime-worker"),
-        // WebRTC (WebRTC.framework's RTCPeerConnectionFactory threads).
-        library("WebRTC", "network_thread"),
-        library("WebRTC", "worker_thread"),
-        library("WebRTC", "signaling_thread"),
-    ], ownPrefixes: ["com.cmuxterm.", "com.cmux.", "cmux", "cua-", "debug."])
+        // WebRTC (WebRTC.framework's RTCPeerConnectionFactory threads): rtc::Thread::SetName(name, obj) appends
+        // " 0x%p", so the live name is `network_thread 0x...`.
+        library("WebRTC", "network_thread ", match: .prefix),
+        library("WebRTC", "worker_thread ", match: .prefix),
+        library("WebRTC", "signaling_thread ", match: .prefix),
+    ], ownPrefixes: ["com.cmuxterm.", "com.cmux.", "cmux", "cua-", "debug."], libraryNamespaces: [
+        // Wider than the rows, so a thread a library adds with no row counts as `undeclared_library`, not as a
+        // system thread. GhosttyKit's names share no start; its rows list every name it sets.
+        LibraryNamespace("CEF", .prefix("Chrome")),
+        LibraryNamespace("CEF", .prefix("ThreadPool")),
+        LibraryNamespace("WebKit", .prefix("com.apple.WebKit")),
+        LibraryNamespace("WebKit", .prefix("com.apple.IPC")),
+        LibraryNamespace("WebKit", .prefix("WebCore")),
+        LibraryNamespace("WebKit", .prefix("JavaScriptCore")),
+        LibraryNamespace("WebKit", .prefix("WTF")),
+        LibraryNamespace("Sentry", .prefix("Sentry")),
+        LibraryNamespace("Sentry", .prefix("io.sentry")),
+        LibraryNamespace("Sentry", .prefix("sentry")),
+        LibraryNamespace("iroh", .prefix("tokio")),
+        LibraryNamespace("iroh", .prefix("async-compat")),
+        LibraryNamespace("WebRTC", .contains("_thread 0x")),
+    ])
 
     /// A row for a thread a library starts.
     private static func library(_ library: String, _ name: String, match: ThreadDeclaration.Match = .exact,

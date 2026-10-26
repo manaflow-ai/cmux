@@ -242,6 +242,42 @@ public struct ThreadDeclaration: Sendable, Hashable {
     }
 }
 
+/// The names a linked library gives its threads: a thread no row declares whose name or queue label is in one is
+/// that library's thread with no row (`debug.threads` `undeclared_library`), not a system thread. A name space is
+/// wider than the library's rows, so a thread the library adds later still counts.
+public struct LibraryNamespace: Sendable, Hashable {
+    /// How a name space matches a thread name or a queue label.
+    public enum Pattern: Sendable, Hashable {
+        /// Names that start with the text (`Chrome`, `io.sentry`).
+        case prefix(String)
+        /// Names that contain the text anywhere (WebRTC's `<name>_thread 0x<pointer>`).
+        case contains(String)
+    }
+
+    /// The library (`CEF`, `WebRTC`, ...), as its rows name it.
+    public var library: String
+    /// The names the library uses.
+    public var pattern: Pattern
+
+    /// Makes a name space.
+    ///
+    /// - Parameters:
+    ///   - library: The library, as its rows name it.
+    ///   - pattern: The names the library uses.
+    public init(_ library: String, _ pattern: Pattern) {
+        self.library = library
+        self.pattern = pattern
+    }
+
+    /// Whether `candidate` (a thread name or a queue label) is in the name space.
+    public func matches(_ candidate: String) -> Bool {
+        switch pattern {
+        case .prefix(let text): candidate.hasPrefix(text)
+        case .contains(let text): candidate.contains(text)
+        }
+    }
+}
+
 /// The declared threads and queues of the app process: what `debug.threads` compares
 /// each live thread's requested QoS with, and what ``DispatchQueue/checked(label:qos:attributes:autoreleaseFrequency:target:fileID:line:)``
 /// checks a new queue against. Chrome names every thread it starts and gives each its thread type
@@ -252,15 +288,20 @@ public struct ThreadRegistry: Sendable {
     /// The name starts only cmux code uses: a thread or queue with one and no row is an undeclared cmux thread
     /// (`debug.threads` `undeclared_cmux`), not a system or library thread.
     public let ownPrefixes: [String]
+    /// The names the linked libraries use: a thread or queue in one and with no row is a library thread with no row
+    /// (`debug.threads` `undeclared_library`), not a system thread.
+    public let libraryNamespaces: [LibraryNamespace]
 
     /// Makes a registry over `rows` (tests; the app uses ``app``).
     ///
     /// - Parameters:
     ///   - rows: The declared threads and queues.
     ///   - ownPrefixes: The name starts only cmux code uses.
-    public init(rows: [ThreadDeclaration], ownPrefixes: [String] = []) {
+    ///   - libraryNamespaces: The names the linked libraries use.
+    public init(rows: [ThreadDeclaration], ownPrefixes: [String] = [], libraryNamespaces: [LibraryNamespace] = []) {
         self.rows = rows
         self.ownPrefixes = ownPrefixes
+        self.libraryNamespaces = libraryNamespaces
     }
 
     /// The row for a thread name or queue label: an exact row first, else the longest matching prefix; nil when
@@ -278,6 +319,12 @@ public struct ThreadRegistry: Sendable {
     /// Whether `name` (a thread name or a queue label) starts with one of ``ownPrefixes``.
     public func isOwn(_ name: String) -> Bool {
         ownPrefixes.contains { name.hasPrefix($0) }
+    }
+
+    /// The library whose name space holds `name` (a thread name or a queue label); nil when none does.
+    public func namespaceLibrary(of name: String) -> String? {
+        guard !name.isEmpty else { return nil }
+        return libraryNamespaces.first { $0.matches(name) }?.library
     }
 
     /// What is wrong with a new queue: its label is not declared, it states neither a QoS nor a target with one,
