@@ -21,7 +21,7 @@ BUILD_CONFIGURATION="Debug"
 BENCH_HOOKS=0
 # --config bench-checks: bench plus the main-thread blocking detector (BLOCKING_CHECKS=1).
 BLOCKING_CHECKS=0
-# The --config name (debug, release, bench, bench-checks), stamped into a tagged app as CMUXBuildConfig.
+# The --config name (debug, release, bench, bench-checks), stamped into a tagged app as CMUXBuildConfiguration.
 BUILD_CONFIG_NAME="debug"
 PRODUCT_APP_NAME="$BASE_APP_NAME"
 DERIVED_DATA=""
@@ -747,7 +747,7 @@ Options:
                          (scripts/perf-lab/stories.d/README.md). Never for a shipped
                          product: scripts/cmux-next/check-no-bench-hooks.sh refuses
                          either in the release and nightly pipelines. A tagged app
-                         records its config in Info.plist (CMUXBuildConfig).
+                         records its config in Info.plist (CMUXBuildConfiguration).
   --credentials-file <path>
                          Bake only the path to a current-user-owned 0600 auth file.
                          The credential values never enter argv, Info.plist, or
@@ -2033,10 +2033,10 @@ if [[ -n "$TAG" && "$APP_NAME" != "$SEARCH_APP_NAME" ]]; then
       set_plist_env "$INFO_PLIST" CMUX_SOCKET_PATH "$CMUX_SOCKET_PATH_VALUE"
       set_plist_env "$INFO_PLIST" CMUX_DEBUG_LOG "$CMUX_DEBUG_LOG"
       set_plist_env "$INFO_PLIST" CMUX_TAG "$TAG_SLUG"
-      # bench and bench-checks executables look alike (both carry the bench-hooks marker); caches and
-      # result writers key on this instead.
-      /usr/libexec/PlistBuddy -c 'Delete :CMUXBuildConfig' "$INFO_PLIST" 2>/dev/null || true
-      /usr/libexec/PlistBuddy -c "Add :CMUXBuildConfig string ${BUILD_CONFIG_NAME}" "$INFO_PLIST"
+      # bench and bench-checks executables look alike (both carry the bench-hooks marker); bench_launch.py (result-v1)
+      # reads this to tell them apart (p08-startup-006 reads it too).
+      /usr/libexec/PlistBuddy -c 'Delete :CMUXBuildConfiguration' "$INFO_PLIST" 2>/dev/null || true
+      /usr/libexec/PlistBuddy -c "Add :CMUXBuildConfiguration string ${BUILD_CONFIG_NAME}" "$INFO_PLIST"
       # Keep Cloud dogfood policy in the artifact so Finder and HQ cache
       # restores enable both gates on the Mac that actually launches it.
       # The app additionally requires a compiled Debug identity before using it.

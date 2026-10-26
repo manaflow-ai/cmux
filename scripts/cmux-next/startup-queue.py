@@ -4,8 +4,10 @@
 Every mode reads saved files (any host, Linux included) or, with --app, launches the app N times on a fleet
 Mac and reads what the launch recorded. Each hit names its queue and the task template that fixes it.
 
-  blocking    Q5, template 038. Main-thread blocking sites (`debug.blocking`, a Debug or CMUX_BLOCKING_CHECKS +
-              CMUX_BENCH_HOOKS build) first hit before --until-mark (default startup_complete). Any run counts.
+  blocking    Q5, template 038. Main-thread blocking sites (`debug.blocking`, a Debug or `reload.sh --config
+              bench-checks` build) first hit before --until-mark (default startup_complete). Any run counts. A
+              report without `compiled_in: true` (a `--config bench` app has no detector, so its sites are always
+              empty) is refused, never read as a clean launch.
               debug.blocking has no per-site `first_ms` yet (BlockingDetector keeps no first-hit time): such a
               site is counted, and the output warns that the launch window is not proved.
   gaps        Q7, template 039. Gaps between consecutive time marks of each run of a bench-startup.py --json
@@ -40,7 +42,7 @@ launch these queues measure. A noActivate launch is an interrupted launch (task 
 
 Input contract. All times are ms since process start (the launch-mark clock, LaunchMarkSink.swift).
   bench-startup.py --json: {tag: {mode: [{mark: ms, ...}, ...]}}.
-  debug.blocking: {"mode", "overflow", "sites": [{"kind", "location", "count", "first_ms"?}]}.
+  debug.blocking: {"compiled_in", "mode", "overflow", "sites": [{"kind", "location", "count", "first_ms"?}]}.
   debug.startup (tasks 008, 080, 082, 085): {"milestones": {mark: ms}, "interrupted"?: bool,
     "main_jobs": [{"caller", "kind", "priority", "enqueued_ms", "run_ms"}],
     "main_turns": [{"start_ms", "duration_ms", "task": name or null, "allowlisted": bool, "site"}],
@@ -212,6 +214,10 @@ def load_captures(paths, mode):
 
 # ---- Q5 blocking -------------------------------------------------------------------------------------------
 
+# Why a debug.blocking report without the detector is refused: its empty sites would read as a clean launch.
+NO_DETECTOR = ("the build has no blocking detector (debug.blocking compiled_in is not true; a `reload.sh --config "
+               "bench` app always reports no sites): measure a `--config bench-checks` or Debug build")
+
 
 def blocking_hits(runs, until_mark):
     """Each main-thread blocking site first hit before the mark, in any run; most runs first."""
@@ -223,6 +229,9 @@ def blocking_hits(runs, until_mark):
             continue
         if not isinstance(result.get("sites"), list):
             warnings.append(f"run {index + 1}: no sites (not a debug.blocking result), left out")
+            continue
+        if result.get("compiled_in") is not True:
+            warnings.append(f"run {index + 1}: {NO_DETECTOR}, left out")
             continue
         if limit is None:
             warnings.append(f"run {index + 1}: no {until_mark} mark, left out (its launch window is unknown)")
@@ -621,7 +630,9 @@ def query(bench, tag, method):
         client.close()
     if not isinstance(reply.get("result"), dict):
         raise QueueError(f"{method} answered {reply.get('error')!r}: the build needs CMUX_BENCH_HOOKS "
-                         "(or Debug), and for debug.blocking also CMUX_BLOCKING_CHECKS")
+                         "(or Debug), and for debug.blocking `reload.sh --config bench-checks`")
+    if method == "debug.blocking" and reply["result"].get("compiled_in") is not True:
+        raise QueueError(f"{method}: {NO_DETECTOR}")
     return reply["result"]
 
 
