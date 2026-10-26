@@ -262,6 +262,12 @@ async fn forward_inner(
                         }
                     })?;
         strip_asks(hub, &peer.name, &id, m, &mut result);
+        // This daemon does not carry a peer chat's presence (`hub/presence.rs`).
+        if m == method::MUX_ATTACH
+            && let Some(obj) = result.as_object_mut()
+        {
+            obj.insert("presence".into(), crate::hub::presence::none(&id));
+        }
         if m == method::SESSION_FORK
             && let Some(new_id) = result.get("sessionId").and_then(Value::as_str)
         {

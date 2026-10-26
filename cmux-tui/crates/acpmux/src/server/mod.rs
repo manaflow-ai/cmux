@@ -316,6 +316,10 @@ impl Conn {
     fn sub_opts(&self, session_id: &str) -> Option<SubOpts> {
         self.subs.lock_or_recover().get(session_id).cloned()
     }
+    /// The chats this connection is attached to.
+    fn attached_ids(&self) -> Vec<String> {
+        self.subs.lock_or_recover().keys().cloned().collect()
+    }
     pub(super) fn bind_mailbox_receipt(&self, receipt: SessionReceipt) {
         self.mailbox_bindings.lock_or_recover().insert(receipt.mux_session_id.clone(), receipt);
     }
