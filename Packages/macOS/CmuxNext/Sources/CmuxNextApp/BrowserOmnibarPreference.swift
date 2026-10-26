@@ -33,7 +33,12 @@ enum BrowserOmnibarPreference {
 
     static func follow(_ settings: SettingsController, cache: TabContentCache) {
         // The password keys follow from here too: AppDelegate, which starts the followers, is at its line budget.
-        BrowserPasswordsPreference.follow(settings, cef: cache.cef)
+        BrowserPasswordsPreference.follow(settings, chromium: cache.chromium)
+        // Chromium's own search (chrome://settings/search, its menu rows) uses the same engine: the newest
+        // one when its engine is built, then each change. Following builds no engine.
+        cache.chromium.whenBuilt { [weak cache] cef in
+            if let cache { cef.setDefaultSearch(cache.omniboxConfiguration.searchEngine) }
+        }
         // task-owner: lives as long as the app's settings and cache; both weak.
         Task { [weak settings, weak cache] in
             guard let settings else { return }
@@ -50,8 +55,7 @@ enum BrowserOmnibarPreference {
                                                     cornerRadius: setting.cornerRadius, shadow: setting.shadow, backgroundOpacity: setting.backgroundOpacity)
                 cache.omniboxConfiguration = resolved.configuration
                 for engine in cache.suggestionEngines { engine.apply(cache.omniboxConfiguration) }
-                // Chromium's own search (chrome://settings/search, its menu rows) uses the same engine.
-                cache.cef.setDefaultSearch(resolved.configuration.searchEngine)
+                cache.chromium.built?.setDefaultSearch(resolved.configuration.searchEngine)
             }
         }
     }

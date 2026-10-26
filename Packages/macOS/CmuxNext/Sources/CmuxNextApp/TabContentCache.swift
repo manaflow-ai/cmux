@@ -59,7 +59,9 @@ final class TabContentCache {
     var shownPages: Set<String> = []
     /// Over the Chromium engine's stores, so both engines share them (``BrowserSharedStores``).
     let webKit: WebKitEngine
-    let cef: CEFEngine
+    /// The Chromium engine, built on its first read (``ChromiumEngineSlot``; its stores are there before it).
+    let chromium: ChromiumEngineSlot
+    var cef: CEFEngine { chromium.engine }
     /// Pages visited in the default browser profile, shared by its omnibars for suggestions and
     /// inline autocomplete (in memory, durable via `HistoryService`). Others: `history(for:)`.
     let history = InMemoryBrowserHistory()
@@ -103,9 +105,9 @@ final class TabContentCache {
     /// Agent marks of tabs (`TabContentCache+AgentDriven`); kept across hibernation and restarts of the page.
     var agentMarks = TabAgentMarks()
     /// Creates a Chromium page (asynchronous; a seam for tests).
-    lazy var makeCEFTab: (BrowserTabConfiguration) async throws -> any BrowserTab = { [cef] in try await cef.makeUserTab($0) }
+    lazy var makeCEFTab: (BrowserTabConfiguration) async throws -> any BrowserTab = { [chromium] in try await chromium.engine.makeUserTab($0) }
     /// Makes a Chromium page in the current turn while Chromium runs (`ChromiumNewTabNow`; a seam for tests).
-    lazy var chromiumNow = ChromiumNow(cef)
+    lazy var chromiumNow = ChromiumNow(chromium)
     /// The remote-localhost store and navigation guard of a Chromium page for
     /// a tab (`RemoteLocalhostService.configuration`). Nil result: the proxy
     /// could not start, so the page must not load (never this Mac's localhost).
@@ -143,21 +145,19 @@ final class TabContentCache {
     let resizes: ResizeCoordinator
 
     /// - Parameters:
+    ///   - chromium: The Chromium engine's slot: its stores now, the engine (and the App's wiring) at its first read.
     ///   - fileInput: answers a WebKit browser tab's file input (the App's made-ahead panel; tests pass a stand-in).
     ///   - afterFrame: runs work once the current pass's frame committed (a stand-in's page follows the key's
     ///     frame); tests pass one that collects the work or runs it at once.
     ///   - resizes: The app's grid sender (`AppServices.resizes`); tests get their own.
     ///   - terminalModifiers: The terminals' one modifier watch on the app's input tap; tests without a tap pass none.
-    init(daemon: DaemonService, cef: CEFEngine, fileInput: any WebFileInputAnswering,
+    init(daemon: DaemonService, chromium: ChromiumEngineSlot, fileInput: any WebFileInputAnswering,
          afterFrame: @escaping (@escaping @MainActor () -> Void) -> Void = { AfterFrameCommit().run($0) },
          resizes: ResizeCoordinator = ResizeCoordinator(), terminalModifiers: TerminalModifierWatch? = nil) {
-        self.daemon = daemon
-        self.terminalModifiers = terminalModifiers
-        self.cef = cef
-        webKit = WebKitEngine(fileInput: fileInput, stores: cef.stores, waitDeadlines: cef.waitDeadlines)
+        (self.daemon, self.terminalModifiers, self.chromium, self.resizes) = (daemon, terminalModifiers, chromium, resizes)
+        webKit = WebKitEngine(fileInput: fileInput, stores: chromium.stores, waitDeadlines: chromium.waitDeadlines)
         self.afterFrame = afterFrame
-        self.resizes = resizes
-        browserTabs = BrowserTabService(daemon: daemon, cef: cef)
+        browserTabs = BrowserTabService(daemon: daemon, chromium: chromium)
         wireNotices()
     }
 
@@ -383,7 +383,7 @@ final class TabContentCache {
         page.delegate = pageRequests
         if page.engineKind == .cef { page.keyRouter = keyRouter }
         (page as? CEFTab)?.devToolsObserver = self
-        let incognito = cef.stores.offTheRecord.isOffTheRecord(page.profileID) ? incognitoMemory : nil
+        let incognito = chromium.stores.offTheRecord.isOffTheRecord(page.profileID) ? incognitoMemory : nil
         let entry = BrowserEntry(tab: page, suggestionEngine: suggestionEngine(forPage: page),
                                  history: incognito?.history ?? history(for: page.profileID))
         pageRequests.routeOmnibarOpens(of: entry.chrome, page: page)

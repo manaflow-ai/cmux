@@ -10,7 +10,7 @@ import Testing
     @Test func anIncognitoProfileBegunOnTheAppsStoresIsOffTheRecordInBothEngines() {
         let stores = BrowserSharedStores.inMemory()
         let cache = TabContentCache(daemon: DaemonService(),
-                                    cef: CEFEngine(layout: nil, stores: stores, signInCallbacks: CEFSignInCallbacks(), input: InputEventTap()),
+                                    chromium: ChromiumEngineSlot(CEFEngine(layout: nil, stores: stores, signInCallbacks: CEFSignInCallbacks(), input: InputEventTap())),
                                     fileInput: NoFileInput())
         let profile = stores.offTheRecord.begin()
 
