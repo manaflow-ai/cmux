@@ -84,6 +84,48 @@ pub mod error_code {
     pub const CHAN_IN_USE: u16 = 9;
     /// Another daemon authenticated and took this link's place.
     pub const SUPERSEDED: u16 = 10;
+    /// A [`super::Kind::TraceStart`] or [`super::Kind::TraceStop`] changed
+    /// nothing; the message says why.
+    pub const TRACE_FAILED: u16 = 11;
+}
+
+/// What the holder does with a granted [`Kind::TraceStart`] and
+/// [`Kind::TraceStop`] ([`wire::capability::TRACE_CONTROL`]): the seam
+/// between the wire and the process's tracer. Runs on the holder's loop;
+/// an implementation must not block.
+pub trait TraceControl {
+    /// Start recording `request.categories`, within `request.records`.
+    fn start(&mut self, request: wire::TraceStart) -> Result<(), String>;
+    /// Stop the recording.
+    fn stop(&mut self) -> Result<(), String>;
+}
+
+/// The process's own tracer (`cmux_trace`, std and libc only).
+pub struct ProcessTrace;
+
+impl ProcessTrace {
+    /// Records the holder's recording ring holds ("Sizes by role").
+    pub fn recording_records() -> usize {
+        cmux_trace::Role::Holder.recording_sizes().normalized().records()
+    }
+}
+
+impl TraceControl for ProcessTrace {
+    fn start(&mut self, request: wire::TraceStart) -> Result<(), String> {
+        let records = Self::recording_records();
+        if request.records != 0 && records > request.records as usize {
+            // The daemon's total cap has no room for this holder's ring.
+            return Err(format!(
+                "the holder's recording holds {records} records, over its budget of {}",
+                request.records
+            ));
+        }
+        cmux_trace::start_recording(request.categories).map(drop).map_err(|error| error.to_string())
+    }
+
+    fn stop(&mut self) -> Result<(), String> {
+        cmux_trace::stop().map(drop).map_err(|error| error.to_string())
+    }
 }
 
 struct Terminal {
@@ -126,6 +168,9 @@ struct Terminal {
     /// When daemon links ended without DETACH while they streamed this
     /// terminal (the poison-pill count).
     strikes: Vec<Instant>,
+    /// The flow of the newest WRITE with [`wire::FLAG_FLOW`] (0: none):
+    /// the next master read carries it, once.
+    input_flow: u64,
 }
 
 /// One frame waiting for the link, with the descriptors it passes.
@@ -148,6 +193,8 @@ struct Link {
     rings: bool,
     /// The wire version the link settled on.
     version: u16,
+    /// [`wire::capability`] bits this holder granted the link.
+    granted: u32,
     /// The frame the socket took part of: it finishes first.
     current: Option<OutFrame>,
     /// Small frames, written before `bulk`.
@@ -251,6 +298,8 @@ pub struct Holder {
     /// Terminals and no daemon link since this time.
     orphan_since: Option<Instant>,
     sigchld: OwnedFd,
+    /// Where a granted TRACE_START and TRACE_STOP go.
+    trace: Box<dyn TraceControl>,
 }
 
 static SIGNAL_WRITE: AtomicI32 = AtomicI32::new(-1);
@@ -343,7 +392,14 @@ impl Holder {
             orphan_grace: None,
             orphan_since: None,
             sigchld,
+            trace: Box::new(ProcessTrace),
         })
+    }
+
+    /// Send granted TRACE_START and TRACE_STOP frames to `trace` instead of
+    /// the process's tracer ([`ProcessTrace`]).
+    pub fn set_trace_control(&mut self, trace: Box<dyn TraceControl>) {
+        self.trace = trace;
     }
 
     /// Give every child this soft `RLIMIT_NOFILE` (the one cmux started
@@ -564,7 +620,7 @@ impl Holder {
             return;
         }
         match self.check_hello(&frame.payload) {
-            Ok(version) => self.promote(pending, version),
+            Ok((version, wanted)) => self.promote(pending, version, wanted),
             Err(code) => {
                 // Best effort: the refused peer may already be gone.
                 let payload = Out::default().u16(Kind::Hello as u16).u16(code).0;
@@ -577,7 +633,7 @@ impl Holder {
     /// Make an authenticated connection the daemon link. The daemon it
     /// replaces hears SUPERSEDED (when its queue lets that through) so it
     /// does not take the holder back.
-    fn promote(&mut self, pending: Pending, version: u16) {
+    fn promote(&mut self, pending: Pending, version: u16, wanted: u32) {
         // A daemon that died with frames still unread (its last ACKs) ended
         // before this one connected: its end is a lost link (a strike, the
         // poison pill), not a takeover. A restart after a parser crash
@@ -599,19 +655,21 @@ impl Holder {
             let _ = wire::send_with_fds(old.stream.as_raw_fd(), &frame, &[]);
         }
         self.drop_link(LinkDrop::Superseded);
+        let granted = wanted & wire::capability::SUPPORTED;
         self.link = Some(Link {
             stream: pending.stream,
             reader: pending.reader,
             credit: version >= 2,
             rings: version >= wire::RING_VERSION,
             version,
+            granted,
             current: None,
             urgent: VecDeque::new(),
             bulk: VecDeque::new(),
             bulk_per_chan: HashMap::new(),
             out_bytes: 0,
         });
-        self.welcome(version);
+        self.welcome(version, granted);
         // Frames the daemon sent right behind its HELLO.
         if !self.drain_link_frames() {
             self.drop_link(LinkDrop::Lost);
@@ -695,9 +753,7 @@ impl Holder {
             Some(Kind::Spawn) => self.spawn(frame.chan, &frame.payload),
             Some(Kind::Adopt) => self.adopt(frame),
             Some(Kind::Attach) => self.attach(frame.chan, frame.flags, &frame.payload),
-            Some(Kind::Write) => self.terminal(frame.chan).map(|terminal| {
-                terminal.input.extend(&frame.payload);
-            }),
+            Some(Kind::Write) => self.write(frame.chan, frame.flags, &frame.payload),
             Some(Kind::Resize) => self.resize(frame.chan, &frame.payload),
             Some(Kind::Signal) => self.signal(frame.chan, &frame.payload),
             Some(Kind::Close) => self.close(frame.chan, &frame.payload),
@@ -720,6 +776,18 @@ impl Holder {
                 self.queue(Kind::Pong, 0, &frame.payload, Vec::new());
                 Ok(())
             }
+            Some(Kind::TraceStart) if self.granted(wire::capability::TRACE_CONTROL) => {
+                wire::TraceStart::decode(&frame.payload)
+                    .map_err(|error| (error_code::BAD_PAYLOAD, error.to_string()))
+                    .and_then(|request| {
+                        self.trace.start(request).map_err(|why| (error_code::TRACE_FAILED, why))
+                    })
+            }
+            Some(Kind::TraceStop) if self.granted(wire::capability::TRACE_CONTROL) => {
+                self.trace.stop().map_err(|why| (error_code::TRACE_FAILED, why))
+            }
+            // A kind of a capability this link was not granted is unknown
+            // to it, as to a holder that predates the capability.
             _ => Err((error_code::UNKNOWN_KIND, "unknown kind".to_string())),
         };
         if let Err((code, message)) = result {
@@ -729,27 +797,49 @@ impl Holder {
         true
     }
 
-    /// The wire version both peers speak, or the error code that refuses
-    /// the HELLO.
-    fn check_hello(&self, payload: &[u8]) -> Result<u16, u16> {
+    /// Whether the link was granted `capability` ([`wire::capability`]).
+    fn granted(&self, capability: u32) -> bool {
+        self.link.as_ref().is_some_and(|link| link.granted & capability != 0)
+    }
+
+    /// Queue a WRITE's input for the PTY. With [`wire::FLAG_FLOW`] its
+    /// trailer is the key press's flow, kept for the next master read and
+    /// never written to the shell.
+    fn write(&mut self, chan: u32, flags: u16, payload: &[u8]) -> Result<(), (u16, String)> {
+        let (bytes, flow) = wire::split_write(flags, payload)
+            .map_err(|error| (error_code::BAD_PAYLOAD, error.to_string()))?;
+        let terminal = self.terminal(chan)?;
+        terminal.input.extend(bytes);
+        if let Some(flow) = flow.filter(|flow| *flow != 0) {
+            terminal.input_flow = flow;
+        }
+        Ok(())
+    }
+
+    /// The wire version both peers speak and the [`wire::capability`] bits
+    /// the daemon wants (0 from a daemon older than them), or the error code
+    /// that refuses the HELLO.
+    fn check_hello(&self, payload: &[u8]) -> Result<(u16, u32), u16> {
         let mut input = In(payload);
         let (Ok(version), Ok(token)) = (input.u16(), input.array::<32>()) else {
             return Err(error_code::BAD_PAYLOAD);
         };
+        let wanted = input.u32().unwrap_or(0);
         if !constant_time_eq(&token, &self.token) {
             return Err(error_code::BAD_TOKEN);
         }
         if version < wire::MIN_VERSION {
             return Err(error_code::NO_COMMON_VERSION);
         }
-        Ok(version.min(wire::VERSION))
+        Ok((version.min(wire::VERSION), wanted))
     }
 
     /// WELCOME the new link with every terminal, a master dup of each and,
     /// for a daemon of [`wire::RING_VERSION`], a dup of its ring segment.
     /// An older daemon gets no segment: it could hand a layout 2 segment to
-    /// a holder that knows only layout 1.
-    fn welcome(&mut self, version: u16) {
+    /// a holder that knows only layout 1. `granted` follows the count (an
+    /// older daemon reads only the count).
+    fn welcome(&mut self, version: u16, granted: u32) {
         let rings = version >= wire::RING_VERSION;
         let listed: Vec<(u32, Vec<u8>, Vec<OwnedFd>)> = self
             .terminals
@@ -768,7 +858,7 @@ impl Holder {
                 (*chan, listed.encode(), terminal.descriptors(rings))
             })
             .collect();
-        let welcome = Out::default().u16(version).u32(listed.len() as u32).0;
+        let welcome = Out::default().u16(version).u32(listed.len() as u32).u32(granted).0;
         self.queue(Kind::Welcome, 0, &welcome, Vec::new());
         for (chan, payload, fds) in listed {
             self.queue_flagged(Kind::Listed, ring_flag(&fds), chan, &payload, fds);
@@ -1026,7 +1116,8 @@ impl Holder {
             });
             if n > 0 {
                 read += n as usize;
-                cmux_flow_trace::hop_id("holder.pty.read", 0, &terminal.id);
+                let flow = std::mem::take(&mut terminal.input_flow);
+                cmux_flow_trace::hop_id("holder.pty.read", flow, &terminal.id);
                 if (n as usize) < offered && !readable_now(master) {
                     return ReadEnd::Drained;
                 }
@@ -1293,6 +1384,7 @@ impl Terminal {
             prologue: Vec::new(),
             prologue_base: base,
             strikes: Vec::new(),
+            input_flow: 0,
         }
     }
 

@@ -1150,6 +1150,7 @@ dependencies = [
  "cmux-flow-trace",
  "cmux-ipc",
  "cmux-process",
+ "cmux-trace",
  "libc",
 ]
 
