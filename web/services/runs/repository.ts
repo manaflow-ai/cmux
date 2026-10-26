@@ -166,6 +166,7 @@ async function readSnapshot(db: RunQueryDb, runId: string, userId: string): Prom
     destroyedAt: cloudVms.destroyedAt,
     status: cloudVms.status,
     providerVmId: cloudVms.providerVmId,
+    destroyConfirmed: sql<string | null>`${cloudVms.providerMetadata}->>${SANDBOX_VM_DESTROY_CONFIRMED_KEY}`,
   }).from(cloudVms).where(and(
     eq(cloudVms.billingTeamId, run.billingTeamId),
     eq(cloudVms.userId, run.userId),
@@ -177,7 +178,9 @@ async function readSnapshot(db: RunQueryDb, runId: string, userId: string): Prom
   const sandboxVms = rows.filter((row) => !(row.status === "failed" && !row.providerVmId)).map((row) => ({
     createdAt: row.createdAt,
     destroyedAt: row.destroyedAt ?? (row.status === "destroyed" ? row.createdAt : null),
-    live: row.status !== "destroyed",
+    // A destroyed status alone is not proof: a machine the provider made is gone once a strict
+    // destroy confirmed it.
+    live: row.status !== "destroyed" || (!!row.providerVmId && !row.destroyConfirmed),
   }));
   return { run, attempts, artifacts, sandboxVmLive: sandboxVms.some((vm) => vm.live), sandboxVms };
 }

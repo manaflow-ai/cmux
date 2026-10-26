@@ -230,7 +230,10 @@ describe("sandboxed Run lifecycle in the repository", () => {
       await repo().failAbandonedSandboxAttempts({ limit: 100 });
       const done = await repo().getRun(created.run.id, userId);
       expect(done.attempts[0]?.providerVmId).toBeNull();
-      expect(done.sandboxVmLive).toBe(false);
+      // A destroyed status alone is not proof; the strict destroy's confirmation is.
+      expect(done.sandboxVmLive).toBe(true);
+      await repo().confirmSandboxVmDestroyed(vmId);
+      expect((await repo().getRun(created.run.id, userId)).sandboxVmLive).toBe(false);
     } finally {
       await sql!`delete from cloud_vms where user_id = ${userId}`;
       await removeRuns(userId);
