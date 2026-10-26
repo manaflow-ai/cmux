@@ -186,7 +186,7 @@ class SettledTests(unittest.TestCase):
     def test_a_name_or_center_handed_to_window_or_app_events_is_the_notif_recipe_target(self):
         self.assertEqual(self.states("let s = events.subscribe(NSWindow.didResizeNotification, owner: o, changed)\n"),
                          [("Q4", "R-notif", True)])
-        self.assertEqual(self.states("let s = AppEvents.of(NSWorkspace.shared.notificationCenter).subscribe(\n"),
+        self.assertEqual(self.states("let e = AppEvents(center: NSWorkspace.shared.notificationCenter)\n"),
                          [("Q4", "R-notif", True)])
         self.assertEqual(self.states("center.addObserver(forName: NSWindow.didResizeNotification, object: nil, queue: .main) { _ in }\n"),
                          [("Q4", "R-notif", False)])

@@ -8,7 +8,7 @@ section 6, task p06-scheduler-216).
    in` and `Task.detached` are off main). The queue regexes are section 6's `git grep -E` commands; a line with
    `///` is dropped, as `| grep -v '///'` does.
 2. Judges each hit in its state after the migration: a `MainDelivery(class:` is the R-delivery target, a
-   notification name or center handed to the app's one observer (`WindowEvents`/`AppEvents`: `.of(center)`, or
+   notification name or center handed to the app's one observer (`AppEvents(center:`, `WindowEvents.of(`, or
    a name as `.subscribe(`'s first argument) is the R-notif target, and an
    override that the recipe keeps (R-hide `viewDidHide`/`viewDidUnhide`, R-input `mouseMoved`/`scrollWheel`/
    `mouseDragged`, R-appear `viewDidChangeEffectiveAppearance`) is settled when its body does only what the
@@ -252,12 +252,12 @@ def _delivery_settled(lines: list[str], index: int) -> bool:
     return bool(calls) and all(re.match(r"class\s*:", rest) for rest in calls)
 
 
-_NOTIF_TARGET = re.compile(r"\b(?:WindowEvents|AppEvents)\.of\(\s*|\.subscribe\(\s*")
+_NOTIF_TARGET = re.compile(r"\b(?:WindowEvents|AppEvents)\((?:window|center): *|\bWindowEvents\.of\(\s*|\.subscribe\(\s*")
 
 
 def _notif_settled(lines: list[str], index: int) -> bool:
     """R-notif's target: every Q4 match on the line is what a `WindowEvents`/`AppEvents` subscription takes, the
-    center of `AppEvents.of(` / `WindowEvents.of(` or the name that opens a `.subscribe(` call."""
+    center of `AppEvents(center:`, the window of `WindowEvents.of(` or the name that opens a `.subscribe(` call."""
     code = _load("swift_scope").code_of(lines[index])
     matches = list(QUEUE_BY_ID["Q4"].pattern.finditer(code))
     if not matches or "addObserver(" in code or "notifications(named:" in code:

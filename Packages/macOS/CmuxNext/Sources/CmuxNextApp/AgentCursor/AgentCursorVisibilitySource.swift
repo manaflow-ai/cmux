@@ -100,7 +100,7 @@ final class AgentCursorVisibilitySource {
     /// sidebar while a target is tracked.
     private func startObserving() {
         guard let services else { return }
-        spaceSubscription = AppEvents.of(NSWorkspace.shared.notificationCenter).subscribe(
+        spaceSubscription = services.workspaceEvents.subscribe(
             NSWorkspace.activeSpaceDidChangeNotification, owner: "agent-cursor.visibility") { [weak self] in self?.scheduleReresolve() }
         let windows = services.windows
         stateObservation = ServiceObservation(.automation, owner: "agent-cursor.visibility", on: services.mainWork) { () -> [String] in

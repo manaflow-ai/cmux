@@ -107,9 +107,11 @@ final class AppServices {
     private(set) lazy var addDevice = AddDeviceCard(services: .app(self))
     private(set) lazy var devices = DeviceDirectory.app(self)
     let machineHealth = MachineHealthStore()
-    /// The app's one fan-out of app-wide notices (`AppEvents`, p06-scheduler-021): every window's
-    /// key tracker and later adopters subscribe here, one observer per name for the whole app.
+    /// The app's one fan-out of app-wide notices (`AppEvents`, p06-scheduler-021), and the same for
+    /// NSWorkspace's center (Space changes): one observer per name for the whole app.
     let appEvents = AppEvents(center: .default)
+    // raw-observer-allow: this is the AppEvents fan-out itself, built once on NSWorkspace's center
+    let workspaceEvents = AppEvents(center: NSWorkspace.shared.notificationCenter)
     let mobile = MobileHostService(displayName: { await MacName().displayName() })  // phone access; the account layer starts it
     /// iPhone connections for the cmux-next iPhone app (cmux-next-ios, Settings > Mobile).
     let iphone = IPhoneHostService()
@@ -722,9 +724,7 @@ final class AppServices {
 
     func workspace(id: String) -> WorkspaceModel? { machines.workspace(id: id)?.0 }
     /// The daemon that owns `pane`.
-    func daemon(for pane: PaneModel) -> DaemonService {
-        machines.daemon(forPane: pane)
-    }
+    func daemon(for pane: PaneModel) -> DaemonService { machines.daemon(forPane: pane) }
 
     /// The workspace key of `pane`, for `SpawnOptions.workspace`: a new
     /// terminal there gets `CMUX_WORKSPACE_ID` and `CMUX_SURFACE_ID`.
