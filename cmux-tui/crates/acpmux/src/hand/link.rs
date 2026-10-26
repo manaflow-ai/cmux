@@ -16,6 +16,7 @@ use super::agent::{Agents, HARNESSES};
 use super::config::HandConfig;
 use super::requests::{Ctx, handle};
 use super::{HandError, pair};
+use crate::keepalive::{Fire, Keepalive};
 use anyhow::Result;
 use futures_util::{SinkExt, StreamExt};
 use serde_json::{Value, json};
@@ -226,12 +227,13 @@ async fn serve(
     sink.send(Ws::Text(hello.to_string().into()))
         .await
         .map_err(|e| Ended::Failed(e.to_string()))?;
-    // Keepalive: the Cloud answers "ping" with "pong" without waking its object;
-    // no pong for KEEPALIVE_DEAD means the path is gone, so reconnect.
+    // Keepalive (keepalive.rs): a "ping" only after KEEPALIVE with no frame
+    // from the Cloud, which answers it with "pong" without waking its object;
+    // no frame for KEEPALIVE_DEAD means the path is gone, so reconnect.
     *connected = true;
-    let mut keepalive = tokio::time::interval(KEEPALIVE);
-    keepalive.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
-    let mut last_pong = tokio::time::Instant::now();
+    let mut keep = Keepalive::new(KEEPALIVE, KEEPALIVE_DEAD, tokio::time::Instant::now());
+    let keepalive = tokio::time::sleep_until(keep.deadline());
+    tokio::pin!(keepalive);
     // The monotonic clock stops while a VM is paused; the wall clock does not.
     let mut suspend = tokio::time::interval(SUSPEND_CHECK);
     suspend.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
@@ -246,13 +248,17 @@ async fn serve(
                     return Err(Ended::Resumed);
                 }
             }
-            _ = keepalive.tick() => {
-                if last_pong.elapsed() > KEEPALIVE_DEAD {
-                    return Err(Ended::Failed("no keepalive answer".into()));
+            _ = &mut keepalive => {
+                match keep.fire(tokio::time::Instant::now()) {
+                    Fire::Dead { .. } => return Err(Ended::Failed("no keepalive answer".into())),
+                    Fire::Ping { .. } => {
+                        if let Err(e) = sink.send(Ws::Text("ping".into())).await {
+                            return Err(Ended::Failed(e.to_string()));
+                        }
+                    }
+                    Fire::Wait => {}
                 }
-                if let Err(e) = sink.send(Ws::Text("ping".into())).await {
-                    return Err(Ended::Failed(e.to_string()));
-                }
+                keepalive.as_mut().reset(keep.deadline());
             }
             frame = out_rx.recv() => {
                 let Some(frame) = frame else { return Ok(()) };
@@ -263,6 +269,9 @@ async fn serve(
                 }
             }
             msg = source.next() => {
+                if matches!(msg, Some(Ok(_))) {
+                    keep.heard(tokio::time::Instant::now());
+                }
                 match msg {
                     None => return Err(Ended::Failed("socket closed".into())),
                     Some(Err(e)) => return Err(Ended::Failed(e.to_string())),
@@ -271,11 +280,8 @@ async fn serve(
                         return if CLOSE_REVOKED.contains(&code) { Err(Ended::Revoked(code)) } else { Err(Ended::Failed(format!("closed {code}"))) };
                     }
                     Some(Ok(Ws::Ping(p))) => { let _ = sink.send(Ws::Pong(p)).await; }
-                    Some(Ok(Ws::Text(t))) if t.as_str() == "pong" => last_pong = tokio::time::Instant::now(),
-                    Some(Ok(Ws::Text(t))) => {
-                        last_pong = tokio::time::Instant::now();
-                        on_frame(cfg, agents, out_tx, approvals, t.as_str());
-                    }
+                    Some(Ok(Ws::Text(t))) if t.as_str() == "pong" => {}
+                    Some(Ok(Ws::Text(t))) => on_frame(cfg, agents, out_tx, approvals, t.as_str()),
                     Some(Ok(_)) => {}
                 }
             }

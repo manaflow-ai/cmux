@@ -1,10 +1,10 @@
 //! Part of `Peer` (`peer.rs`). The peer's resources (`_acpmux/host_health`:
 //! RAM, disk, load, budget verdict, live agents), kept from the link's own
 //! keepalive so `host ls` and placement read them from memory and ask no
-//! machine. No timer of its own: the ping tick asks every `HEALTH_EVERY`
-//! ticks (60 s at the default 20 s ping), one request at a time with a
-//! `HEALTH_BUDGET` deadline, and only while the link is ready; it stops when
-//! the connection does. A peer on a build without the method is kept as
+//! machine. The link loop asks every `HEALTH_EVERY` ping intervals (60 s at
+//! the default 20 s ping) whether or not the link pings, one request at a
+//! time with a `HEALTH_BUDGET` deadline, and only while the link is ready; it
+//! stops when the connection does. A peer on a build without the method is kept as
 //! `{"unsupported": true}` and reads as unknown, never as down.
 
 use super::Peer;
@@ -14,8 +14,8 @@ use std::sync::Arc;
 use std::sync::atomic::Ordering;
 use std::time::Duration;
 
-/// Ask on every this many ping ticks.
-pub(super) const HEALTH_EVERY: u64 = 3;
+/// Ask once per this many ping intervals.
+pub(super) const HEALTH_EVERY: u32 = 3;
 /// How long one ask may take.
 const HEALTH_BUDGET: Duration = Duration::from_secs(5);
 

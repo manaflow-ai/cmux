@@ -4,6 +4,7 @@
 //! jitter, forever; a slow peer is `degraded`, a lost one `reconnecting`
 //! (`peer_link.rs`).
 
+use crate::keepalive::{Fire, Keepalive};
 use crate::no_panic::LockExt;
 use crate::peer_link::{Backoff, Link, LinkTimings, PeerState};
 use crate::rpc::{Message, RpcError, method};
@@ -559,19 +560,20 @@ impl Peer {
             Ok::<(), RpcError>(())
         });
 
-        // Keepalive: a ping each interval; any frame is an answer. A peer
-        // silent for the whole budget, or one that stops reading so a send
-        // cannot go out, is dropped and reconnected; one interval of silence
-        // only marks it degraded.
+        // Keepalive (keepalive.rs): a ping only after `ping_every` with no
+        // frame; any frame is an answer. A peer silent for the whole budget,
+        // or one that stops reading so a send cannot go out, is dropped and
+        // reconnected; a ping that got no answer marks it degraded. Health is
+        // asked on the same timer every `HEALTH_EVERY` intervals, whether or
+        // not the link pings.
         let timings = self.timings;
         let budget = timings.silence_budget();
-        let mut ping = tokio::time::interval_at(
-            tokio::time::Instant::now() + timings.ping_every,
-            timings.ping_every,
-        );
-        ping.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
-        let mut last_frame = tokio::time::Instant::now();
-        let mut ticks: u64 = 0;
+        let opened = tokio::time::Instant::now();
+        let mut keep = Keepalive::new(timings.ping_every, budget, opened);
+        let health_every = timings.ping_every * health::HEALTH_EVERY;
+        let mut health_due = opened + health_every;
+        let timer = tokio::time::sleep_until(keep.deadline().min(health_due));
+        tokio::pin!(timer);
         let handshake_deadline = tokio::time::sleep(timings.handshake);
         tokio::pin!(handshake_deadline);
         let result = loop {
@@ -583,28 +585,36 @@ impl Peer {
                 _ = &mut handshake_deadline, if !self.link().is_ready() => {
                     break Err(format!("handshake timed out after {}s", timings.handshake.as_secs()));
                 }
-                _ = ping.tick() => {
-                    let silent = last_frame.elapsed();
-                    if silent >= budget {
-                        break Err(format!("peer stopped answering ({}s without a frame)", silent.as_secs()));
+                _ = &mut timer => {
+                    let now = tokio::time::Instant::now();
+                    if now + keep.slack() >= health_due {
+                        health_due = now + health_every;
+                        if self.link().is_ready() {
+                            self.refresh_health();
+                        }
                     }
-                    if silent >= timings.ping_every {
-                        self.with_link(Link::overdue);
+                    match keep.fire(now) {
+                        Fire::Dead { silent } => {
+                            break Err(format!("peer stopped answering ({}s without a frame)", silent.as_secs()));
+                        }
+                        Fire::Ping { unanswered } => {
+                            if unanswered {
+                                self.with_link(Link::overdue);
+                            }
+                            match tokio::time::timeout(budget, sink.send(Frame::Ping(Vec::new().into()))).await {
+                                Ok(Ok(())) => {}
+                                Ok(Err(e)) => break Err(e.to_string()),
+                                Err(_) => break Err(stopped_reading(budget)),
+                            }
+                        }
+                        Fire::Wait => {}
                     }
-                    match tokio::time::timeout(budget, sink.send(Frame::Ping(Vec::new().into()))).await {
-                        Ok(Ok(())) => {}
-                        Ok(Err(e)) => break Err(e.to_string()),
-                        Err(_) => break Err(stopped_reading(budget)),
-                    }
-                    ticks += 1;
-                    if ticks.is_multiple_of(health::HEALTH_EVERY) && self.link().is_ready() {
-                        self.refresh_health();
-                    }
+                    timer.as_mut().reset(keep.deadline().min(health_due));
                 }
                 frame = source.next() => {
                     let Some(frame) = frame else { break Err("peer closed the connection".to_owned()) };
                     let frame = match frame { Ok(f) => f, Err(e) => break Err(e.to_string()) };
-                    last_frame = tokio::time::Instant::now();
+                    keep.heard(tokio::time::Instant::now());
                     self.with_link(|l| l.heard(crate::store::now_ms()));
                     let text = match frame {
                         tokio_tungstenite::tungstenite::Message::Text(t) => t.to_string(),

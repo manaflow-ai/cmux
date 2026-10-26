@@ -50,6 +50,7 @@ pub mod host_pressure;
 pub mod hub;
 #[cfg(windows)]
 mod job;
+pub mod keepalive;
 pub mod launch_credential;
 pub mod launch_policy;
 pub mod live_models;
