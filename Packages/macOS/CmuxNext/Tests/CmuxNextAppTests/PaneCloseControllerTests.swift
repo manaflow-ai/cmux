@@ -26,6 +26,12 @@ import Testing
         return DaemonTree(workspaces: [WorkspaceSnapshot(id: 1, key: nil, name: "w1", screens: [screen])])
     }
 
+    /// A split screen (no columns) with `layout`.
+    private static func tree(_ layout: LayoutNode) -> DaemonTree {
+        let screen = ScreenSnapshot(id: 1, layout: layout, panes: layout.paneIDs.map { pane($0.rawValue) })
+        return DaemonTree(workspaces: [WorkspaceSnapshot(id: 1, key: nil, name: "w1", screens: [screen])])
+    }
+
     private static func connected() throws -> DaemonIdentity {
         let json = #"{"app":"cmux-tui","protocol":1,"session":"pane-close-controller-test","generation":"g1"}"#
         return try JSONDecoder().decode(DaemonIdentity.self, from: Data(json.utf8))
@@ -43,12 +49,16 @@ import Testing
         var held: [PaneController] = []
         var intents: [LayoutIntent] = []
 
-        init(_ columns: [ColumnSnapshot]) throws {
+        convenience init(_ columns: [ColumnSnapshot]) throws {
+            try self.init(tree: PaneCloseControllerTests.tree(columns))
+        }
+
+        init(tree: DaemonTree) throws {
             _ = NSApplication.shared
             services = AppServices(environment: AppEnvironment.current([:]))
             let store = services.daemon.store
             store.connectionState = .connected(try PaneCloseControllerTests.connected())
-            store.apply(snapshot: PaneCloseControllerTests.tree(columns))
+            store.apply(snapshot: tree)
             let workspace = try #require(store.workspaces.first)
             let record = try JSONDecoder().decode(WindowRecord.self, from: Data(#"{"id":"w1","workspace_key":"w1"}"#.utf8))
             state = WindowState(record: record)
@@ -60,6 +70,7 @@ import Testing
             window.contentView = content.contentView
             window.orderFrontRegardless()
             content.layoutModel.newColumnWidthModeOverride = .fitScreen
+            content.layoutModel.splitSizingOverride = .even
             content.applyCurrent()
             content.contentView.layoutSubtreeIfNeeded()
             content.layoutModel.intentHandler = { [weak self] in self?.intents.append($0) }
@@ -82,6 +93,23 @@ import Testing
         func echo(_ columns: [ColumnSnapshot]) {
             services.daemon.store.apply(snapshot: PaneCloseControllerTests.tree(columns))
             content.applyCurrent()
+        }
+
+        func echo(_ layout: LayoutNode) {
+            services.daemon.store.apply(snapshot: PaneCloseControllerTests.tree(layout))
+            content.applyCurrent()
+        }
+
+        /// The shown ratio of daemon split `split`.
+        func ratio(_ split: UInt64) -> Double? {
+            content.layoutModel.screens.first?.layout.ratio(of: LayoutSplitID("split:\(split)"))
+        }
+
+        var ratioIntents: [String] {
+            intents.compactMap { intent in
+                guard case let .setSplitRatio(split, ratio, _, .ended) = intent else { return nil }
+                return "\(split.rawValue)=\(String(format: "%.4f", ratio))"
+            }
         }
 
         func width(_ column: UInt64) -> Double? {
@@ -234,6 +262,55 @@ import Testing
         shown.echo(Array(half.prefix(2)))
         #expect(shown.width(11) == 1)
         #expect(shown.widthIntents.sorted() == ["column:11=0.5", "column:11=1.0", "column:12=0.5"], "sent \(shown.widthIntents)")
+    }
+
+    // MARK: Overlapping closes in one split chain
+
+    /// `panes` in one horizontal chain, split `sN` before pane N at `ratios[N-1]`; even by default
+    /// (p1 | p2 | p3 | p4: s1 1/4, s2 1/3, s3 1/2). The daemon's tree after a close keeps the
+    /// surviving splits' ratios (the closed pane's sibling takes its place).
+    private static func chain(_ panes: [UInt64], _ ratios: [Double]? = nil) -> LayoutNode {
+        guard panes.count > 1 else { return .leaf(DaemonPaneID(rawValue: panes[0])) }
+        let ratio = ratios?.first ?? 1.0 / Double(panes.count)
+        return .split(id: DaemonSplitID(rawValue: panes[0]), resourceID: nil, direction: .right, ratio: ratio,
+                      a: .leaf(DaemonPaneID(rawValue: panes[0])), b: chain(Array(panes.dropFirst()), ratios.map { Array($0.dropFirst()) }))
+    }
+
+    private static func near(_ value: Double?, _ target: Double) -> Bool { value.map { abs($0 - target) < 1e-6 } ?? false }
+
+    /// p4 closes, then p3, before either reply: the chain shows p1 | p2 at halves. p3's close is
+    /// refused: p4's close is still pending, so the chain shows its sizes (s1 1/3, s2 1/2), not the
+    /// daemon's quarters, until p4's echo; then they go to the daemon once.
+    @Test func aRefusedLaterCloseInOneChainKeepsTheEarlierClosesRatios() throws {
+        let shown = try Shown(tree: Self.tree(Self.chain([1, 2, 3, 4])))
+        defer { shown.end() }
+        _ = try #require(try shown.controller(4).showPaneClose())
+        #expect(Self.near(shown.ratio(1), 1.0 / 3) && Self.near(shown.ratio(2), 0.5), "s1 \(String(describing: shown.ratio(1))), s2 \(String(describing: shown.ratio(2)))")
+        shown.held = [try shown.controller(3)]
+        let second = try #require(shown.held[0].showPaneClose())
+        #expect(Self.near(shown.ratio(1), 0.5), "s1 \(String(describing: shown.ratio(1)))")
+        shown.held[0].finishPaneClose(second, failed: true)
+        #expect(Self.near(shown.ratio(1), 1.0 / 3) && Self.near(shown.ratio(2), 0.5),
+                "the refusal lost p4's close sizing: s1 \(String(describing: shown.ratio(1))), s2 \(String(describing: shown.ratio(2)))")
+        #expect(shown.ratioIntents.isEmpty, "sent \(shown.ratioIntents)")
+        shown.echo(Self.chain([1, 2, 3], [0.25, 1.0 / 3]))
+        #expect(Self.near(shown.ratio(1), 1.0 / 3) && Self.near(shown.ratio(2), 0.5), "s1 \(String(describing: shown.ratio(1))), s2 \(String(describing: shown.ratio(2)))")
+        #expect(shown.ratioIntents.sorted() == ["split:1=0.3333", "split:2=0.5000"], "sent \(shown.ratioIntents)")
+    }
+
+    /// The same two closes, both accepted, their echoes in order: p1 | p2 stay at halves through
+    /// both, and the ratio goes once, after the last echo.
+    @Test func overlappingClosesInOneChainKeepTheirRatiosThroughTheirEchoes() throws {
+        let shown = try Shown(tree: Self.tree(Self.chain([1, 2, 3, 4])))
+        defer { shown.end() }
+        _ = try #require(try shown.controller(4).showPaneClose())
+        _ = try #require(try shown.controller(3).showPaneClose())
+        shown.echo(Self.chain([1, 2, 3], [0.25, 1.0 / 3]))
+        #expect(Self.near(shown.ratio(1), 0.5), "the first echo resized s1 to \(String(describing: shown.ratio(1)))")
+        #expect(shown.ratioIntents.isEmpty, "sent \(shown.ratioIntents) while a close was pending")
+        shown.echo(Self.chain([1, 2], [0.25]))
+        #expect(Self.near(shown.ratio(1), 0.5))
+        #expect(shown.ratioIntents == ["split:1=0.5000"], "sent \(shown.ratioIntents)")
     }
 
     /// The first close refused while the second is pending: c13 comes back, and c11 and c13 share.
