@@ -7518,7 +7518,11 @@ jobs:
           fetch-depth: 1
           persist-credentials: false
           path: .gh-tooling
-          sparse-checkout: scripts/ci/gh_app_token.sh
+          sparse-checkout: |
+            scripts/ci/gh_app_token.sh
+            scripts/ci/publish-release-assets.py
+            scripts/ci/finalize-release.py
+            scripts/prune_nightly_release_assets.py
           sparse-checkout-cone-mode: false
 
       # The ring script and the guard come from the workflow commit: the build
@@ -7628,7 +7632,7 @@ jobs:
             feeds+=(--feed "$feed")
           done
           [ "${#feeds[@]}" -gt 0 ]
-          python3 scripts/ci/publish-release-assets.py \
+          python3 .gh-tooling/scripts/ci/publish-release-assets.py \
             --repo "$GITHUB_REPOSITORY" --tag "$CHANNEL_RELEASE_TAG" \
             "${deltas[@]}" --replace-feeds "${feeds[@]}"
           echo "publish=true" >> "$GITHUB_OUTPUT"

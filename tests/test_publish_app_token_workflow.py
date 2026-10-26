@@ -95,6 +95,20 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn("github.ref == 'refs/heads/nightly-next'", job["if"])
         self.assertIn("needs.decide.outputs.environment == 'release-next'", job["if"])
 
+    def test_uploaders_run_from_the_workflow_commit(self) -> None:
+        # A build checkout may predate GH_APP_TOKEN support; these jobs run the uploaders from
+        # .gh-tooling (github.sha) so the App token is read.
+        for name in ("republish-nightly-deltas",):
+            steps = self.jobs[name]["steps"]
+            checkout = next(s for s in steps if s.get("name") == "Checkout the gh token wrapper at the workflow commit")
+            for script in ("scripts/ci/publish-release-assets.py",):
+                self.assertIn(script, checkout["with"]["sparse-checkout"], name)
+            for step in steps:
+                run = str(step.get("run", ""))
+                for script in ("publish-release-assets.py", "finalize-release.py", "prune_nightly_release_assets.py"):
+                    if f"{script} " in run or f"{script} \\" in run:
+                        self.assertIn(f".gh-tooling/scripts/", run, (name, step.get("name"), script))
+                        self.assertNotIn(f"python3 scripts/ci/{script}", run, (name, step.get("name")))
 
 if __name__ == "__main__":
     unittest.main()
