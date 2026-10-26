@@ -32,19 +32,21 @@ function animationMs(node: HTMLElement): number {
   return Math.max(0, ...style.animationDuration.split(",").map((part) => cssTimeMs(part) ?? 0));
 }
 
-/// The copy of each host's leaving card, so a card that comes back drops it at once.
-const leaving = new WeakMap<HTMLElement, { ghost: HTMLElement; done: () => void }>();
+/// The copies still playing (each lives one exit, under 100 ms, or until settled), so a card that
+/// comes back, or another chat showing, drops them at once.
+const leaving = new Map<HTMLElement, { host: HTMLElement; done: () => void }>();
 
-/// Drops the copy of a card that left `host`, if one still plays.
-export function settleTrayExit(host: HTMLElement | null | undefined): void {
-  if (host) leaving.get(host)?.done();
+/// Drops the copy of a card that left `host` (or every copy, with none), if one still plays.
+export function settleTrayExit(host?: HTMLElement | null): void {
+  for (const entry of [...leaving.values()]) if (host === undefined || entry.host === host) entry.done();
 }
 
 /// Plays the exit of `card`, which React is about to remove: a copy of it sits where it is drawn,
 /// over the bottom stack, and fades out on the arm's exit, then goes. Called while the card is still
 /// laid out (its ref's cleanup). Its one timer is a fallback for an `animationend` that never comes
-/// (an animation the page settled, a style changed under it); both remove the copy, and a card that
-/// comes back to the same host removes it at once (`settleTrayExit`).
+/// (an animation the page settled, a style changed under it); it, `animationend` and `animationcancel`
+/// (the host turning motion off) remove the copy, and a card that comes back to the same host, or
+/// another chat showing (App.tsx), removes it at once (`settleTrayExit`).
 export function playTrayExit(card: HTMLElement): void {
   const host = card.offsetParent instanceof HTMLElement ? card.offsetParent : null;
   if (!host || !motionAllowed(card)) return;
@@ -83,15 +85,17 @@ export function playTrayExit(card: HTMLElement): void {
   const done = () => {
     clearTimeout(timer);
     ghost.removeEventListener("animationend", ended);
+    ghost.removeEventListener("animationcancel", ended);
     ghost.remove();
-    if (leaving.get(host)?.ghost === ghost) leaving.delete(host);
+    leaving.delete(ghost);
   };
   const ended = (event: AnimationEvent) => {
     if (event.target === ghost) done();
   };
   ghost.addEventListener("animationend", ended);
+  ghost.addEventListener("animationcancel", ended);
   const timer = setTimeout(done, ms + 50);
-  leaving.set(host, { ghost, done });
+  leaving.set(ghost, { host, done });
 }
 
 /// The tray card's ref: marks its entrance when it appears in a chat that `shown` already showed
@@ -110,16 +114,23 @@ export function useTrayMotion(
       if (!node || !shown) return undefined;
       const chat = shown.current;
       settleTrayExit(node.offsetParent instanceof HTMLElement ? node.offsetParent : null);
+      // The entrance's mark goes when it ends or is cancelled (motion turned off), so it never
+      // replays; its listeners go with it, or with the card.
+      const settle = () => {
+        node.removeAttribute(TRAY_ENTER_ATTR);
+        node.removeEventListener("animationend", ended);
+        node.removeEventListener("animationcancel", ended);
+      };
+      const ended = (event: AnimationEvent) => {
+        if (event.target === node) settle();
+      };
       if (entersRef.current && motionAllowed(node)) {
         node.setAttribute(TRAY_ENTER_ATTR, "");
-        const ended = (event: AnimationEvent) => {
-          if (event.target !== node) return;
-          node.removeAttribute(TRAY_ENTER_ATTR);
-          node.removeEventListener("animationend", ended);
-        };
         node.addEventListener("animationend", ended);
+        node.addEventListener("animationcancel", ended);
       }
       return () => {
+        settle();
         if (shown.current === chat) playTrayExit(node);
       };
     },
@@ -129,8 +140,8 @@ export function useTrayMotion(
 
 /// Text that ticks when it changes: the old words leave up as the new ones rise in, in one cell, on
 /// the message tokens (subagents.css `.acpmux-tick`). The first text, and any change while motion
-/// may not run, just shows. The old words go on their `animationend`; Reduce Motion's stylesheet
-/// cuts that to a frame.
+/// may not run, just shows. The old words go on their `animationend`, or `animationcancel` when the
+/// host turns motion off midway; Reduce Motion's stylesheet cuts the exit to a frame.
 export function Tick({ text, className }: { text: string; className?: string }): ReactNode {
   const [state, setState] = useState<{ text: string; previous?: string; turn: number }>({ text, turn: 0 });
   const cell = useRef<HTMLSpanElement>(null);
@@ -141,6 +152,7 @@ export function Tick({ text, className }: { text: string; className?: string }):
     setState(shown);
   }
   const turn = shown.turn;
+  const settle = () => setState((current) => (current.turn === turn ? { text: current.text, turn } : current));
   return (
     <span ref={cell} className={className ? `acpmux-tick ${className}` : "acpmux-tick"}>
       {shown.previous !== undefined && (
@@ -149,8 +161,10 @@ export function Tick({ text, className }: { text: string; className?: string }):
           className="acpmux-tick__out"
           aria-hidden="true"
           onAnimationEnd={(event) => {
-            if (event.target !== event.currentTarget) return;
-            setState((current) => (current.turn === turn ? { text: current.text, turn } : current));
+            if (event.target === event.currentTarget) settle();
+          }}
+          onAnimationCancel={(event) => {
+            if (event.target === event.currentTarget) settle();
           }}
         >
           {shown.previous}
