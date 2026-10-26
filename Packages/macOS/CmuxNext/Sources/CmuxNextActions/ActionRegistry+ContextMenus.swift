@@ -21,6 +21,9 @@ extension ActionRegistry {
         let runFacts = Self.impliedContext(for: context)
         let effective = self.context.union(runFacts).union(implied)
         let menu = NSMenu()
+        #if DEBUG || CMUX_BENCH_HOOKS
+        installContextMenuTrace(on: menu)
+        #endif
         menu.autoenablesItems = true
         let entries = entries ?? ContextMenuCatalog.shared.entries(for: context), labels = ContextMenuCatalog.shared.labels(for: context)
         menuItems(entries, target: target, context: effective, implied: runFacts, arguments: arguments, labels: labels).forEach(menu.addItem)
@@ -92,6 +95,9 @@ extension ActionRegistry {
                 let item = NSMenuItem(title: title.droppingEllipsis, action: nil, keyEquivalent: "")
                 item.image = descriptor(for: id).flatMap { Self.menuIcon($0.symbol) }
                 let submenu = NSMenu(title: item.title)
+                #if DEBUG || CMUX_BENCH_HOOKS
+                installContextMenuTrace(on: submenu)
+                #endif
                 childItems.forEach(submenu.addItem)
                 item.submenu = submenu
                 items.append(item)
@@ -101,6 +107,9 @@ extension ActionRegistry {
                 let item = NSMenuItem(title: folder.title, action: nil, keyEquivalent: "")
                 item.image = Self.menuIcon(folder.symbol)
                 let submenu = NSMenu(title: folder.title)
+                #if DEBUG || CMUX_BENCH_HOOKS
+                installContextMenuTrace(on: submenu)
+                #endif
                 childItems.forEach(submenu.addItem)
                 item.submenu = submenu
                 items.append(item)

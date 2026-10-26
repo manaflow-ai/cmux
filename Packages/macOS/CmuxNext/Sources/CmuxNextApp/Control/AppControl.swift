@@ -428,6 +428,22 @@ final class AppControl {
             .mainActor("debug.menu") { [weak services] call in
                 .value(DebugExtensions.menu(call.params, presenter: services?.contextMenus))
             },
+            #if DEBUG || CMUX_BENCH_HOOKS
+            // DEBUG-only native context-menu hover samples and validation count. The latency
+            // harness resets this before each traversal and reads it after each item.
+            .mainActor("debug.menu_trace") { [weak services] call in
+                guard let registry = services?.registry else { return .value(.null) }
+                let reset = call.params["reset"]?.boolValue == true
+                let samples = registry.contextMenuHoverSamples(reset: reset)
+                let validations = registry.contextMenuValidationCount(reset: reset)
+                return .value(["validations": JSONValue(validations),
+                               "samples": .array(samples.map { sample in
+                    ["menu": .string(sample.menuTitle), "item": .string(sample.itemTitle),
+                     "action": sample.actionID.map(JSONValue.string) ?? .null,
+                     "uptime": .number(sample.uptime)]
+                })])
+            },
+            #endif
             // The browser-data import offer on the first browser tab.
             .mainActor("debug.browser_import_offer") { [weak services] call in
                 .value(services.map { DebugBrowserImportOffer.run(call.params, services: $0) } ?? .null)
