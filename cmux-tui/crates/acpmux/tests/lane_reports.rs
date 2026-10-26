@@ -470,3 +470,16 @@ async fn lane_report_turns_back_to_back_report_each_turn_at_most_once_and_twenty
     tokio::time::sleep(Duration::from_millis(700)).await;
     assert_eq!(person.reports(&coord).await.len(), 20);
 }
+
+#[tokio::test]
+async fn lane_report_a_closed_parent_hears_nothing_and_is_not_reopened() {
+    let hub = hub();
+    let mut person = Client::new(&hub);
+    let coord = person.new_session("coord", json!({})).await;
+    let lane = Client::as_session(&hub, &coord).await.new_session("lane-c", json!({})).await;
+    person.ok("session/close", json!({"sessionId": coord})).await;
+
+    person.prompt(&lane, "after the parent closed").await;
+    // Before the link was retired on close, this report went in and reopened the parent.
+    person.exactly(&coord, 0).await;
+}

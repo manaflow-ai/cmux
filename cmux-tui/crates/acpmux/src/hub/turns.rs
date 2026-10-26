@@ -1165,6 +1165,8 @@ impl Hub {
         // Before the close's event, which sends the cards it owes (`tasks.rs`).
         self.orphan_tasks_of(session, purge);
         self.set_status(session, SessionStatus::Closed);
+        // A lane link either end of which closes is retired (`lane_reports.rs`).
+        self.lane_retire(&session.id);
         // The session's Claude Code MCP config holds the helper token.
         crate::agent_tools::remove_mcp_config(&crate::config::home(), &session.id);
         if purge {

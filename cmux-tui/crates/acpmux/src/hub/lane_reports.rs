@@ -61,9 +61,13 @@ pub const TAG: &str = "lane.reportsTo";
 pub(crate) const KIND: &str = "lane_report";
 /// The reply's first characters a report carries.
 const REPLY_CHARS: usize = 400;
-/// The newest transcript records read for the last reply.
+/// Transcript records read per page, newest first, back to the start of the last turn.
 const TAIL_RECORDS: usize = 400;
-/// Parents walked up before a link is refused as a loop.
+/// Pages read back at most for the last turn (its reply streamed in more records than this
+/// holds is read from where they start).
+const MAX_TAIL_PAGES: usize = 50;
+/// Parents walked up from a session at most. A chain this deep without the session in it is
+/// refused too, since a link map that was written wrong could loop past the walk.
 const MAX_DEPTH: usize = 16;
 /// Reports one lane sends within [`WINDOW_MS`] at most.
 pub const MAX_REPORTS: usize = 20;
@@ -268,6 +272,11 @@ impl Hub {
             }
             at = parent;
         }
+        tracing::warn!(
+            id,
+            ancestor,
+            "lane link refused: its parents are more than {MAX_DEPTH} deep"
+        );
         true
     }
 
@@ -478,14 +487,21 @@ impl Hub {
         let last_seq = summary.get("lastSeq").and_then(Value::as_u64).unwrap_or(0);
         let filter = EventFilter::parse(Some(&json!(["transcript"])))
             .map_err(|e| anyhow::anyhow!("transcript filter: {e:?}"))?;
-        let before = Some(last_seq.saturating_add(1));
-        let page = self.events_page(lane, 0, before, TAIL_RECORDS, None, true, &filter)?;
-        let events: Vec<Value> = page
-            .events
+        let records = last_turn_records(last_seq, |before| {
+            self.events_page(lane, 0, Some(before), TAIL_RECORDS, None, true, &filter)
+        })?;
+        let events: Vec<Value> = records
             .into_iter()
             .map(|r| json!({"seq": r.seq, "at": r.at, "dir": r.dir, "kind": r.kind, "msg": r.msg}))
             .collect();
         Ok(last_reply(&events))
+    }
+
+    /// `id` was closed or purged: a link it is either end of is retired, so a lane no longer
+    /// reports to a closed parent and nothing of a closed lane stays here.
+    pub(super) fn lane_retire(&self, id: &str) {
+        self.lane_links(|links| links.retain(|lane, l| lane != id && l.parent != id));
+        self.lane_report_turns().remove(id);
     }
 
     /// Hands the report to the parent: accepted (queued, started, steered or held for the
@@ -537,6 +553,32 @@ impl Hub {
             Err(e) => Err(RpcError::internal(e.to_string())),
         }
     }
+}
+
+/// The records of the last turn, from its `turn_started` on (or as far back as
+/// [`MAX_TAIL_PAGES`] pages go), oldest first; `page(before)` reads the newest page below seq
+/// `before`.
+fn last_turn_records(
+    last_seq: u64,
+    mut page: impl FnMut(u64) -> Result<EventPage>,
+) -> Result<Vec<crate::store::EventRecord>> {
+    let mut out = Vec::new();
+    let mut before = last_seq.saturating_add(1);
+    for _ in 0..MAX_TAIL_PAGES {
+        let got = page(before)?;
+        let start = got.events.iter().rposition(|r| r.kind == "turn_started");
+        let more = got.has_more && start.is_none();
+        let Some(first) = got.events.first().map(|r| r.seq) else { break };
+        let mut events = got.events;
+        events.drain(..start.unwrap_or(0));
+        events.append(&mut out);
+        out = events;
+        if !more {
+            break;
+        }
+        before = first;
+    }
+    Ok(out)
 }
 
 /// What a turn sends: its own report, or else one its parent did not take before (that turn
@@ -595,6 +637,31 @@ mod tests {
         let got = pick_report(Some(report(2, &["pr/2"])), Some(&held), false).unwrap();
         assert_eq!((got.turn, got.prs), (2, vec!["pr/2".to_owned(), "pr/1".to_owned()]));
         assert_eq!(pick_report(None, None, false), None);
+    }
+
+    #[test]
+    fn the_last_reply_is_read_from_the_start_of_its_turn_however_many_records_it_streamed() {
+        let rec = |seq: u64, kind: &str| crate::store::EventRecord {
+            seq,
+            at: 0,
+            dir: "in".into(),
+            kind: kind.into(),
+            msg: json!({}),
+            host_seq: None,
+        };
+        // An older turn, then the last turn's start at 10 and 1,000 chunks after it.
+        let log: Vec<_> = (1..=1010)
+            .map(|s| rec(s, if s == 3 || s == 10 { "turn_started" } else { "chunk" }))
+            .collect();
+        let page = |before: u64| -> Result<EventPage> {
+            let below: Vec<_> = log.iter().filter(|r| r.seq < before).cloned().collect();
+            let from = below.len().saturating_sub(TAIL_RECORDS);
+            Ok(EventPage { has_more: from > 0, events: below[from..].to_vec() })
+        };
+        let got = last_turn_records(1010, page).unwrap();
+        assert_eq!(got.first().map(|r| r.seq), Some(10));
+        assert_eq!(got.len(), 1001);
+        assert!(got.windows(2).all(|w| w[0].seq + 1 == w[1].seq));
     }
 
     #[test]
