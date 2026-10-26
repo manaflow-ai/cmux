@@ -690,6 +690,14 @@ path = "tests/test_ci_required_checks_have_no_path_filters.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_quota_hold_gate.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_pr_size_advisory.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_workflow_permissions_are_job_scoped.py"
 lane = "linux-guard"
 
@@ -1505,6 +1513,11 @@ path = "tests/test_defaults_guard.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_settings_stamp_not_committed.py"
+lane = "manual"
+reason = "CLAUDE.md forbids adding a CI test (Lawrence 2026-10-23: \"not to add gates/tests in CI, but you have to run them yourself\"), and #23915 deleted the gate this covers rather than replacing it. Run it with `python3 -m unittest tests.test_settings_stamp_not_committed` when changing scripts/cmux-next/check-settings-exports.sh, settings-exports.txt or any of its readers."
+
+[[test]]
 path = "tests/test_generated_files_guard.py"
 lane = "linux-guard"
 
@@ -1609,11 +1622,19 @@ path = "tests/test_nightly_build_state.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_gh_budget_wait.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_nightly_trusted_routing.py"
 lane = "linux-guard"
 
 [[test]]
 path = "tests/test_nightly_unsigned_resume.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_nightly_sign_runner.py"
 lane = "linux-guard"
 
 [[test]]

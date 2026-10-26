@@ -126,6 +126,10 @@ export class HomeChannelsStore {
   private readonly listeners = new Set<() => void>();
   private stops: Array<() => void> = [];
   private starting?: Promise<void>;
+  /** Bumped by `stop`: a `begin` that a teardown overtook undoes what it set up and ends. */
+  private life = 0;
+  /** Between `begin` and `stop`: only a running page says that the person views something. */
+  private running = false;
   private generation = 0;
   private nextKey = 0;
   /** The read cursor this page last sent per conversation (one read per new seq). */
@@ -208,27 +212,56 @@ export class HomeChannelsStore {
   }
 
   private async begin(client: PageClient): Promise<void> {
+    const life = this.life;
+    const live = () => life === this.life;
+    // A teardown while a subscribe was pending: its stop runs now and the start goes no further.
+    const keep = (stop: () => void): boolean => {
+      if (live()) this.stops.push(stop);
+      else stop();
+      return live();
+    };
+    this.running = true;
     void this.attachments?.support().then((fileSupport) => this.set({ fileSupport }));
     try {
-      this.stops.push(
-        await subscribePageStreams(client, {
-          onConnection: (connected) => {
-            if (!connected) this.set({ connection: "offline" });
-            else if (this.snapshot.connection === "offline") void this.reloadInbox();
-          },
-        }),
-      );
-      this.stops.push(await client.subscribe<HomeEventBatch>(HomeOps.events, (batch) => this.apply(batch)));
+      const streams = await subscribePageStreams(client, {
+        onConnection: (connected) => {
+          if (!connected) {
+            // The daemon ends a lost connection's viewing; a new one says it again.
+            this.viewingSent = undefined;
+            this.set({ connection: "offline" });
+          } else if (this.snapshot.connection === "offline") void this.reloadInbox();
+        },
+      });
+      if (!keep(streams)) return;
+      const events = await client.subscribe<HomeEventBatch>(HomeOps.events, (batch) => this.apply(batch));
+      if (!keep(events)) return;
+      // The New and Edit Chief pages cover the conversation: not viewed while one is open.
+      let covered = this.chiefPageOpen();
+      const sheetChanged = () => {
+        if (covered === this.chiefPageOpen()) return;
+        covered = !covered;
+        this.syncViewing();
+      };
+      this.stops.push(this.sheets.subscribe(sheetChanged));
       // Replies that came while the page was hidden are read once the person sees them.
       const shown = () => {
         if (document.visibilityState === "visible") this.readOpen();
+        this.syncViewing();
       };
       document.addEventListener("visibilitychange", shown);
       this.stops.push(() => document.removeEventListener("visibilitychange", shown));
+      // A closing page stops viewing (the daemon also ends it when the connection closes).
+      if (typeof window !== "undefined") {
+        const hidden = () => this.syncViewing(false);
+        window.addEventListener("pagehide", hidden);
+        this.stops.push(() => window.removeEventListener("pagehide", hidden));
+      }
     } catch (error) {
+      if (!live()) return;
       this.set({ error: describe(error), loading: false });
     }
     await this.reloadInbox();
+    if (!live()) return;
     void this.sheets.start();
     this.followHash();
   }
@@ -349,6 +382,9 @@ export class HomeChannelsStore {
   }
 
   private stop(): void {
+    this.life++;
+    this.running = false;
+    this.syncViewing();
     for (const stop of this.stops) stop();
     this.stops = [];
     this.starting = undefined;
@@ -371,6 +407,9 @@ export class HomeChannelsStore {
         error: undefined,
         inboxState: inbox.inboxState === true,
       });
+      // The open conversation's owner is known now (a reconnect says the viewing again), and an
+      // open row the list dropped is no longer viewed (even with nothing to open instead).
+      this.syncViewing();
       if (selected && selected !== this.snapshot.selected) await this.select(selected, false);
       else if (selected) await this.reloadPage(selected);
     } catch (error) {
@@ -398,6 +437,7 @@ export class HomeChannelsStore {
       draft: this.drafts.draft(id),
       highlight: undefined,
     });
+    this.syncViewing();
     await this.reloadPage(id);
   }
 
@@ -739,6 +779,43 @@ export class HomeChannelsStore {
     if (shown === this.shown) return;
     this.shown = shown;
     if (shown) this.readOpen();
+    this.syncViewing();
+  }
+
+  /** Whether the New or Edit Chief page covers the conversation. */
+  private chiefPageOpen(): boolean {
+    const route = this.sheets.getSnapshot().route?.kind;
+    return route === "newChief" || route === "editChief";
+  }
+
+  /** The Cloud conversation this page last said the person views (cmux.home.view). */
+  private viewingSent?: string;
+  /** Bumped by each change `syncViewing` sends: a late answer applies only to its own attempt. */
+  private viewAttempt = 0;
+
+  /** Tells the owner which Cloud conversation the person views: the open one while the page and
+   * its pane show it, none otherwise (a row that left the list, a page torn down). Only a change
+   * goes out; a local conversation sends nothing (its owner has no viewing presence). `active`
+   * false: the page stops viewing (it closes). */
+  private syncViewing(active = true): void {
+    const { selected } = this.snapshot;
+    const visible = typeof document === "undefined" || document.visibilityState !== "hidden";
+    const cloud = selected !== undefined && this.snapshot.conversations.get(selected)?.owner === "cloud";
+    const covered = this.chiefPageOpen();
+    const want = active && this.running && this.shown && visible && cloud && !covered ? selected : undefined;
+    const before = this.viewingSent;
+    if (want === before || !this.client) return;
+    this.viewingSent = want;
+    const attempt = ++this.viewAttempt;
+    const view = (conversation: string, viewing: boolean) =>
+      this.client?.call<{ sent?: boolean }>(HomeOps.view, { conversation, viewing }).catch(() => undefined);
+    if (before) void view(before, false);
+    if (want)
+      void view(want, true)?.then((answer) => {
+        // Not sent (the subscribe was refused): the owner never heard it, so the next show,
+        // switch or reconnect says it again.
+        if (answer?.sent === false && attempt === this.viewAttempt) this.viewingSent = undefined;
+      });
   }
 
   /** Reads the open conversation through its newest loaded message. */
@@ -845,6 +922,8 @@ export class HomeChannelsStore {
       if (draft?.text !== this.snapshot.draft?.text || draft?.turn !== this.snapshot.draft?.turn) patch.draft = draft;
     }
     this.set(patch);
+    // The open row left the list (removed, archived): the person no longer views it.
+    if (conversations) this.syncViewing();
     const open = selected ? this.snapshot.conversations.get(selected) : undefined;
     if (open && incoming.length > 0 && document.visibilityState === "visible") {
       if (this.shown) this.markRead(open, Math.max(...incoming.map((m) => m.seq)));

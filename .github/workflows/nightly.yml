@@ -1633,7 +1633,7 @@ jobs:
     # entry (runs 35179030871 and 35182663752 restored nothing and were
     # cancelled at 45 minutes mid-compile), so the budget must fit a cold
     # build, not only a warm one.
-    timeout-minutes: 90
+    timeout-minutes: 150
     env:
       CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_26 }}
       CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
@@ -2067,6 +2067,13 @@ jobs:
           go-version-file: daemon/remote/go.mod
           cache: false
 
+      - name: Wait through GitHub API rate limits in this job's gh calls
+        # scripts/ci/gh_budget_wait.sh puts a gh first on PATH that waits for the shared budget's
+        # reset (at most an hour per job, each wait logged) when a call is refused for the rate
+        # limit, instead of failing the publish path. timeout-minutes leaves room for that hour.
+        if: inputs.nightly_next_unsigned_run == ''
+        run: if [ -f scripts/ci/gh_budget_wait.sh ]; then bash scripts/ci/gh_budget_wait.sh --install; fi
+
       # The Embed CEF phase embeds the pinned Chromium engine
       # (scripts/cmux-next/cef-manifest.json) from the ensure-cef cache. This
       # step fills the cache from the private R2 bucket with the read-only key
@@ -2396,6 +2403,14 @@ jobs:
       # attestation: API rate limit exceeded for installation") a finished
       # build was thrown away. So: try, wait once for the budget to reset
       # (bounded), try again, and on a second refusal ship with a warning.
+      # Persisting the attestation spends the shared budget: wait (bounded, logged) for 200 calls
+      # to be left before trying, so a nearly spent hour does not use up the retry below.
+      - name: Wait for API budget before the daemon attestation
+        if: inputs.nightly_next_unsigned_run == '' && (needs.decide.outputs.build_only != 'true')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: if [ -f scripts/ci/gh_budget_wait.sh ]; then bash scripts/ci/gh_budget_wait.sh --reserve 200; fi
+
       - name: Attest immutable SSH daemon assets
         id: attest_daemon
         if: inputs.nightly_next_unsigned_run == '' && (needs.decide.outputs.build_only != 'true')
@@ -2408,16 +2423,10 @@ jobs:
         if: steps.attest_daemon.outcome == 'failure'
         env:
           GH_TOKEN: ${{ github.token }}
-        run: |
-          set -uo pipefail
-          # /rate_limit does not count against the budget. Bounded deadline,
-          # not a poll: one wait of at most 10 minutes, then one retry.
-          reset="$(gh api rate_limit --jq '.resources.core.reset' 2>/dev/null || echo 0)"
-          now="$(date +%s)"
-          wait=$(( reset > now ? reset - now + 5 : 60 ))
-          (( wait > 600 )) && wait=600
-          echo "Daemon attestation failed; retrying in ${wait}s (budget resets at ${reset})."
-          sleep "$wait"
+        # One bounded wait, not a poll, and only while fewer than 200 calls are left (an attestation
+        # that failed for another reason is retried at once). It shares the pre-step's ledger, so the
+        # two wait at most an hour together; timeout-minutes leaves room for it.
+        run: if [ -f scripts/ci/gh_budget_wait.sh ]; then bash scripts/ci/gh_budget_wait.sh --reserve 200; fi
 
       - name: Retry the daemon attestation
         id: attest_daemon_retry
@@ -2566,7 +2575,7 @@ jobs:
       contents: read
       actions: read
     # Never waits for the tip's tree: it takes the newest published one.
-    timeout-minutes: 15
+    timeout-minutes: 75
     outputs:
       commit: ${{ steps.resume_source.outputs.build_sha || steps.resolve.outputs.commit }}
       key: ${{ steps.resume_tree.outputs.key || steps.resolve.outputs.key }}
@@ -2606,6 +2615,12 @@ jobs:
       # cmux-tui-artifacts.yml lets a running build finish and a newer push
       # replaces only the pending run, so under steady pushes the tip's tree may
       # never publish (run 37464320457 failed after 45 min waiting for it).
+      - name: Wait through GitHub API rate limits in this job's gh calls
+        # scripts/ci/gh_budget_wait.sh puts a gh first on PATH that waits for the shared budget's
+        # reset (at most an hour per job, each wait logged) when a call is refused for the rate
+        # limit, instead of failing the publish path. timeout-minutes leaves room for that hour.
+        run: if [ -f scripts/ci/gh_budget_wait.sh ]; then bash scripts/ci/gh_budget_wait.sh --install; fi
+
       - name: Validate the saved unsigned nightly source
         if: inputs.nightly_next_unsigned_run != ''
         id: resume_source
@@ -2716,7 +2731,7 @@ jobs:
       actions: read
     # The owned Mac route is primary; the anchored fallback job below runs only after refusal.
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.repository == 'manaflow-ai/cmux' && github.run_attempt == 1 && needs.decide.outputs.fast_build != 'true' && (github.event_name == 'push' || github.event_name == 'schedule') && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/nightly-next') && vars.CI_PR_POOL_OWNED == '1' && vars.CI_SIDE_LANE_RUNNER || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
-    timeout-minutes: 40
+    timeout-minutes: 100
     strategy:
       fail-fast: false
       matrix:
@@ -2738,7 +2753,11 @@ jobs:
           ARTIFACT: cmux-${{ needs.decide.outputs.channel }}-prepared-app-${{ matrix.variant }}-${{ needs.resolve-nightly-cmux-tui-client.outputs.build_short_sha }}
         run: |
           set -euo pipefail
-          count="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/artifacts?name=$ARTIFACT&per_page=20" --jq '[.artifacts[] | select(.expired == false)] | length')"
+          # This read runs before the checkout (no budget wait yet); a refused one prepares here.
+          if ! count="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/artifacts?name=$ARTIFACT&per_page=20" --jq '[.artifacts[] | select(.expired == false)] | length')"; then
+            echo "::warning::could not list this run's prepared artifacts; preparing the variant here"
+            count=0
+          fi
           if [ "$count" -gt 0 ]; then echo "exists=true" >> "$GITHUB_OUTPUT"; else echo "exists=false" >> "$GITHUB_OUTPUT"; fi
 
       - name: Clear stale git locks (self-hosted reused workspace)
@@ -2766,6 +2785,12 @@ jobs:
           # submodule in the next step only for the cmux-next track.
           submodules: false
 
+
+      - name: Wait through GitHub API rate limits in this job's gh calls
+        # scripts/ci/gh_budget_wait.sh puts a gh first on PATH that waits for the shared budget's
+        # reset (at most an hour per job, each wait logged) when a call is refused for the rate
+        # limit, instead of failing the publish path. timeout-minutes leaves room for that hour.
+        run: if [ -f scripts/ci/gh_budget_wait.sh ]; then bash scripts/ci/gh_budget_wait.sh --install; fi
 
       - name: Initialize cmux-next notices submodule
         if: ${{ (env.PREPARE_FALLBACK != 'true' || steps.reuse.outputs.exists != 'true') && (github.ref_name == 'nightly-next') }}
@@ -3134,7 +3159,7 @@ jobs:
       contents: read
       actions: read
     runs-on: ${{ needs.prepare-nightly-variant-primary.result == 'success' && 'ubuntu-24.04' || 'blacksmith-6vcpu-macos-26' }}
-    timeout-minutes: 40
+    timeout-minutes: 100
     strategy:
       fail-fast: false
       matrix:
@@ -3160,7 +3185,11 @@ jobs:
           # Every primary leg uploaded its prepared app; no API call, so a spent
           # installation rate limit cannot fail this no-op leg.
           if [ "$PRIMARY_RESULT" = success ]; then echo "exists=true" >> "$GITHUB_OUTPUT"; exit 0; fi
-          count="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/artifacts?name=$ARTIFACT&per_page=20" --jq '[.artifacts[] | select(.expired == false)] | length')"
+          # This read runs before the checkout (no budget wait yet); a refused one prepares here.
+          if ! count="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/artifacts?name=$ARTIFACT&per_page=20" --jq '[.artifacts[] | select(.expired == false)] | length')"; then
+            echo "::warning::could not list this run's prepared artifacts; preparing the variant here"
+            count=0
+          fi
           if [ "$count" -gt 0 ]; then echo "exists=true" >> "$GITHUB_OUTPUT"; else echo "exists=false" >> "$GITHUB_OUTPUT"; fi
 
       - name: Clear stale git locks (self-hosted reused workspace)
@@ -3188,6 +3217,12 @@ jobs:
           # submodule in the next step only for the cmux-next track.
           submodules: false
 
+
+      - name: Wait through GitHub API rate limits in this job's gh calls
+        # scripts/ci/gh_budget_wait.sh puts a gh first on PATH that waits for the shared budget's
+        # reset (at most an hour per job, each wait logged) when a call is refused for the rate
+        # limit, instead of failing the publish path. timeout-minutes leaves room for that hour.
+        run: if [ -f scripts/ci/gh_budget_wait.sh ]; then bash scripts/ci/gh_budget_wait.sh --install; fi
 
       - name: Initialize cmux-next notices submodule
         if: ${{ (env.PREPARE_FALLBACK != 'true' || steps.reuse.outputs.exists != 'true') && (github.ref_name == 'nightly-next') }}
@@ -3552,12 +3587,51 @@ jobs:
       - name: Accept primary or fallback preparation
         run: echo "nightly preparation completed on the primary or fallback route"
 
+  # The Blacksmith macOS label the signing jobs take, read right before they queue
+  # (scripts/ci/nightly_sign_runner.py): never empty, and its step never fails the job.
+  # Two GITHUB_TOKEN reads a nightly run (the snapshot artifact's listing and download).
+  pick-nightly-sign-runner:
+    needs: [decide, prepare-nightly-variant]
+    if: ${{ !cancelled() && needs.prepare-nightly-variant.result == 'success' }}
+    # A failed pick reads as success to the signing jobs, whose runs-on then falls back to
+    # vars.MACOS_RUNNER_26: a pick never blocks signing. It runs on GitHub's hosted runner, as
+    # prepare-nightly-variant does, so it never waits on a queue of its own before that fallback.
+    continue-on-error: true
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      # The queue janitor's pool snapshot (an artifact).
+      actions: read
+      contents: read
+    outputs:
+      runner: ${{ steps.sign-runner.outputs.runner }}
+    steps:
+      - name: Checkout publication tooling at the workflow commit
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+          path: .publish-tooling
+          sparse-checkout: scripts/ci
+
+      # The Blacksmith macOS label whose queue is moving, for the macOS jobs after this one
+      # (scripts/ci/nightly_sign_runner.py). Signing stays on Blacksmith; a stale
+      # vars.MACOS_RUNNER_26 naming a label with no runners no longer strands them.
+      - name: Pick the Blacksmith macOS label with a moving queue
+        id: sign-runner
+        continue-on-error: true
+        timeout-minutes: 2
+        env:
+          SNAPSHOT_TOKEN: ${{ github.token }}
+          CANDIDATE: ${{ vars.MACOS_RUNNER_26 }}
+        run: python3 .publish-tooling/scripts/ci/nightly_sign_runner.py
+
   build-sign-notarize-nightly:
     # Production secrets: GitHub releases them only to protected refs (the
     # environment's deployment branch policy: main, tags v*). The nightly-next
     # track uses `release-next`, whose policy allows only branch nightly-next.
     environment: ${{ needs.decide.outputs.environment }}
-    needs: [decide, build-nightly-app, resolve-nightly-cmux-tui-client, prepare-nightly-variant]
+    needs: [decide, build-nightly-app, resolve-nightly-cmux-tui-client, prepare-nightly-variant, pick-nightly-sign-runner]
     if: needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') && needs.decide.outputs.build_only != 'true' && needs.resolve-nightly-cmux-tui-client.outputs.already_published != 'true' && needs.resolve-nightly-cmux-tui-client.outputs.superseded != 'true' && needs.decide.outputs.continue_only != 'true'
     outputs:
       # nightly-next is arm64 only, so its one matrix leg sets this; publish
@@ -3573,7 +3647,7 @@ jobs:
     # Secret-bearing signing and notarization stay on the trusted Blacksmith
     # macOS pool; credentials remain in this protected environment and never
     # move through an artifact or worker disk.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || needs.pick-nightly-sign-runner.outputs.runner || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
     # Start the standalone Computer Use helper submission before Codesign apps
     # so Apple's first wait overlaps useful work; finish it before the final
     # DMG. The job budget covers both waits (see the notarize step).
@@ -4459,11 +4533,11 @@ jobs:
     # artifacts and sidecar (#21024). Runtime behavior is covered by the
     # path-routed daemon/app integration lane. publish-nightly publishes this
     # run's build only when both verification jobs passed.
-    needs: [decide, build-nightly-app, resolve-nightly-cmux-tui-client, build-sign-notarize-nightly]
+    needs: [decide, build-nightly-app, resolve-nightly-cmux-tui-client, build-sign-notarize-nightly, pick-nightly-sign-runner]
     if: "!cancelled() && needs.build-sign-notarize-nightly.result == 'success' && needs.decide.outputs.notary_test != 'true' && needs.decide.outputs.import_paused != 'true'"
     permissions:
       contents: read
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || needs.pick-nightly-sign-runner.outputs.runner || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
     timeout-minutes: 40
     strategy:
       fail-fast: false
@@ -4572,11 +4646,11 @@ jobs:
     # this job statically verifies the final DMG (#21024). publish-nightly
     # publishes this run's build only when both jobs passed, and only the DMG
     # bytes this job verified.
-    needs: [decide, build-nightly-app, resolve-nightly-cmux-tui-client, build-sign-notarize-nightly]
+    needs: [decide, build-nightly-app, resolve-nightly-cmux-tui-client, build-sign-notarize-nightly, pick-nightly-sign-runner]
     if: "!cancelled() && needs.build-sign-notarize-nightly.result == 'success' && needs.decide.outputs.notary_test != 'true' && needs.decide.outputs.import_paused != 'true'"
     permissions:
       contents: read
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || needs.pick-nightly-sign-runner.outputs.runner || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
     timeout-minutes: 30
     strategy:
       fail-fast: false
@@ -4698,11 +4772,12 @@ jobs:
     needs: [decide]
     if: needs.decide.outputs.track == 'nightly-next' && needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.no_publish != 'true' && needs.decide.outputs.should_build == 'true' && needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.build_only != 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *')
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
-    timeout-minutes: 10
+    timeout-minutes: 70
     permissions:
       actions: read
       contents: read
     outputs:
+      sign_runner: ${{ steps.sign-runner.outputs.runner }}
       found: ${{ steps.find.outputs.found }}
       candidates: ${{ steps.find.outputs.candidates }}
     steps:
@@ -4710,6 +4785,24 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
+
+      - name: Wait through GitHub API rate limits in this job's gh calls
+        # scripts/ci/gh_budget_wait.sh puts a gh first on PATH that waits for the shared budget's
+        # reset (at most an hour per job, each wait logged) when a call is refused for the rate
+        # limit, instead of failing the publish path. timeout-minutes leaves room for that hour.
+        run: if [ -f scripts/ci/gh_budget_wait.sh ]; then bash scripts/ci/gh_budget_wait.sh --install; fi
+
+      # The Blacksmith macOS label whose queue is moving, for the macOS jobs after this one
+      # (scripts/ci/nightly_sign_runner.py). Signing stays on Blacksmith; a stale
+      # vars.MACOS_RUNNER_26 naming a label with no runners no longer strands them.
+      - name: Pick the Blacksmith macOS label with a moving queue
+        id: sign-runner
+        continue-on-error: true
+        timeout-minutes: 2
+        env:
+          SNAPSHOT_TOKEN: ${{ github.token }}
+          CANDIDATE: ${{ vars.MACOS_RUNNER_26 }}
+        run: python3 scripts/ci/nightly_sign_runner.py
 
       - name: List newer pending nightly-next notarizations
         id: find
@@ -4754,11 +4847,11 @@ jobs:
     environment: ${{ needs.decide.outputs.environment }}
     needs: [decide, find-nightly-next-recovery]
     if: needs.decide.outputs.track == 'nightly-next' && needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.no_publish != 'true' && needs.decide.outputs.should_build == 'true' && needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.build_only != 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') && needs.find-nightly-next-recovery.outputs.found == 'true'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || needs.find-nightly-next-recovery.outputs.sign_runner || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
     # An accepted continuation builds, signs and notarizes the DMG around the
     # stapled app (notarize-nightly-dmg.sh, CMUX_STAPLE_APP_IN_DMG): a 20m wait
     # and packaging per candidate; a failed one moves on to the next of 3.
-    timeout-minutes: 90
+    timeout-minutes: 150
     permissions:
       actions: read
       contents: read
@@ -4788,6 +4881,12 @@ jobs:
       # notarize-nightly-dmg.sh runs the bundle notice check after Apple
       # accepts, and that check reads ghostty-next/build.zig.zon. Without the
       # submodule, run 38669958906 skipped five accepted builds.
+      - name: Wait through GitHub API rate limits in this job's gh calls
+        # scripts/ci/gh_budget_wait.sh puts a gh first on PATH that waits for the shared budget's
+        # reset (at most an hour per job, each wait logged) when a call is refused for the rate
+        # limit, instead of failing the publish path. timeout-minutes leaves room for that hour.
+        run: if [ -f scripts/ci/gh_budget_wait.sh ]; then bash scripts/ci/gh_budget_wait.sh --install; fi
+
       - name: Initialize cmux-next notices submodule
         if: github.ref_name == 'nightly-next'
         shell: bash
@@ -4973,11 +5072,11 @@ jobs:
   # deferred, and records the tested bytes; publish-nightly publishes a
   # recovered build only when this job passed, and only those bytes.
   verify-recovered-nightly-next:
-    needs: [decide, recover-nightly-next-notarization]
+    needs: [decide, recover-nightly-next-notarization, find-nightly-next-recovery]
     if: "!cancelled() && needs.recover-nightly-next-notarization.outputs.accepted == 'true'"
     permissions:
       contents: read
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || needs.find-nightly-next-recovery.outputs.sign_runner || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
     timeout-minutes: 40
     env:
       # Set only when the 6 h stapled-app fallback shipped the first DMG.
@@ -5073,7 +5172,7 @@ jobs:
     if: "!cancelled() && needs.decide.result == 'success' && needs.decide.outputs.should_build == 'true' && needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.build_only != 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') && needs.resolve-nightly-cmux-tui-client.outputs.already_published != 'true' && needs.decide.outputs.no_publish != 'true' && ((needs.build-sign-notarize-nightly.result == 'success' && needs.build-sign-notarize-nightly.outputs.notary_pending != 'true' && needs.verify-signed-nightly.result == 'success' && needs.verify-final-dmg-nightly.result == 'success') || (needs.recover-nightly-next-notarization.outputs.accepted == 'true' && needs.verify-recovered-nightly-next.result == 'success'))"
     # The release App key remains scoped to this protected environment.
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
-    timeout-minutes: 30
+    timeout-minutes: 120
     env:
       NIGHTLY_LEGACY_VARIANT: ${{ needs.decide.outputs.legacy_variant }}
       # The appcasts this track publishes (decide): one on nightly-next, four on main.
@@ -5162,6 +5261,12 @@ jobs:
           ref: ${{ github.sha }}
           path: .publish-tooling
           sparse-checkout: scripts
+
+      - name: Wait through GitHub API rate limits in this job's gh calls
+        # scripts/ci/gh_budget_wait.sh puts a gh first on PATH that waits for the shared budget's
+        # reset (at most an hour per job, each wait logged) when a call is refused for the rate
+        # limit, instead of failing the publish path. timeout-minutes leaves room for that hour.
+        run: if [ -f .publish-tooling/scripts/ci/gh_budget_wait.sh ]; then bash .publish-tooling/scripts/ci/gh_budget_wait.sh --install; fi
 
       - name: Download nightly variant artifacts
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
@@ -5265,9 +5370,11 @@ jobs:
         id: notes
         if: needs.decide.outputs.should_publish == 'true' && steps.recheck.outputs.already_published != 'true'
         # The notes take seconds. Bounded here, a slow notes run fails before
-        # any asset upload instead of using up the job's 30 minutes and being
+        # any asset upload instead of using up the job's time and being
         # cancelled mid-upload (run 37611677848 left partial assets that way).
-        timeout-minutes: 10
+        # 60 of these minutes are the most its gh calls may wait for a rate-limit
+        # reset (gh_budget_wait.sh); the job's timeout leaves 20 after them.
+        timeout-minutes: 70
         env:
           GH_TOKEN: ${{ github.token }}
           NOTES_HEAD: ${{ steps.source.outputs.build_sha }}
@@ -5476,6 +5583,11 @@ jobs:
         if: needs.decide.outputs.should_publish == 'true' && steps.recheck.outputs.already_published != 'true' && steps.gate.outputs.refused != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
+          # A refused upload backs off within 30 minutes (publish-release-assets.py), not 10:
+          # run 40298250989's built nightly was lost to 10 minutes of refusals (2026-10-26).
+          # Every wait in this job (notes, assets, archive, gh) shares one hour
+          # (GH_BUDGET_WAIT_MAX_SECONDS), so the job's 120 minutes keep 60 for the work.
+          CMUX_RELEASE_RATE_LIMIT_SECONDS: "1800"
         run: |
           set -euo pipefail
           if [ "$NIGHTLY_TRACK" = nightly-next ]; then
@@ -5528,6 +5640,7 @@ jobs:
         if: needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.track == 'nightly-next' && vars.CMUX_NEXT_PUBLISH_SOURCE_ARCHIVE == '1' && steps.recheck.outputs.already_published != 'true' && steps.gate.outputs.refused != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
+          CMUX_RELEASE_RATE_LIMIT_SECONDS: "1800"
           HEAD_SHA: ${{ steps.source.outputs.build_sha }}
         run: |
           set -euo pipefail
@@ -5832,7 +5945,7 @@ jobs:
       contents: read
       actions: read
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
-    timeout-minutes: 15
+    timeout-minutes: 75
     env:
       BUILD: ${{ needs.publish-nightly.outputs.build }}
       BUILD_SHA: ${{ needs.publish-nightly.outputs.build_sha }}
@@ -5844,6 +5957,12 @@ jobs:
           ref: ${{ github.sha }}
           path: .publish-tooling
           sparse-checkout: scripts
+
+      - name: Wait through GitHub API rate limits in this job's gh calls
+        # scripts/ci/gh_budget_wait.sh puts a gh first on PATH that waits for the shared budget's
+        # reset (at most an hour per job, each wait logged) when a call is refused for the rate
+        # limit, instead of failing the publish path. timeout-minutes leaves room for that hour.
+        run: if [ -f .publish-tooling/scripts/ci/gh_budget_wait.sh ]; then bash .publish-tooling/scripts/ci/gh_budget_wait.sh --install; fi
 
       - name: Find the attempt that compiled the published build
         id: producer
@@ -5910,7 +6029,7 @@ jobs:
     # macOS job then does not start (it needs this job's success and a build).
     continue-on-error: true
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
-    timeout-minutes: 5
+    timeout-minutes: 65
     permissions:
       contents: read
       # Record a refused build on the failure issue ("not counted").
@@ -5918,6 +6037,7 @@ jobs:
       # Delete the pending artifacts of a refused build.
       actions: write
     outputs:
+      sign_runner: ${{ steps.sign-runner.outputs.runner }}
       action: ${{ steps.target.outputs.action }}
       build: ${{ steps.target.outputs.build }}
       pending_run: ${{ steps.target.outputs.pending_run }}
@@ -5932,6 +6052,24 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
+
+      - name: Wait through GitHub API rate limits in this job's gh calls
+        # scripts/ci/gh_budget_wait.sh puts a gh first on PATH that waits for the shared budget's
+        # reset (at most an hour per job, each wait logged) when a call is refused for the rate
+        # limit, instead of failing the publish path. timeout-minutes leaves room for that hour.
+        run: if [ -f scripts/ci/gh_budget_wait.sh ]; then bash scripts/ci/gh_budget_wait.sh --install; fi
+
+      # The Blacksmith macOS label whose queue is moving, for the macOS jobs after this one
+      # (scripts/ci/nightly_sign_runner.py). Signing stays on Blacksmith; a stale
+      # vars.MACOS_RUNNER_26 naming a label with no runners no longer strands them.
+      - name: Pick the Blacksmith macOS label with a moving queue
+        id: sign-runner
+        continue-on-error: true
+        timeout-minutes: 2
+        env:
+          SNAPSHOT_TOKEN: ${{ github.token }}
+          CANDIDATE: ${{ vars.MACOS_RUNNER_26 }}
+        run: python3 scripts/ci/nightly_sign_runner.py
 
       - name: Compare the cmux NEXT feed with the old feed
         id: target
@@ -6178,7 +6316,7 @@ jobs:
       dmg_sha256: ${{ steps.handoff.outputs.dmg_sha256 }}
       minimum_system_version: ${{ steps.handoff.outputs.minimum_system_version }}
       stapled_app_fallback_id: ${{ steps.notarize.outputs.stapled_app_fallback == 'true' && steps.notarize.outputs.stapled_app_pending_id || '' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || needs.legacy-identity-target.outputs.sign_runner || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
     # Apple's wait is 20 min, as for cmux NEXT (#20518). A submission still in
     # Apple's queue is kept (artifacts cmux-nightly-identity-pending-meta and
     # -bundle) and a later run continues that exact submission
@@ -6186,7 +6324,7 @@ jobs:
     # cmux NEXT build exists; artifacts kept 3 days); it is never resubmitted and
     # never counted as a failure. The DMG around the stapled app adds one more
     # submission with the same 20 min wait (CMUX_STAPLE_APP_IN_DMG).
-    timeout-minutes: 100
+    timeout-minutes: 160
     env:
       CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_26 }}
       CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
@@ -6219,6 +6357,12 @@ jobs:
           persist-credentials: false
 
       # Checked again here: another run may have moved the old feed meanwhile.
+      - name: Wait through GitHub API rate limits in this job's gh calls
+        # scripts/ci/gh_budget_wait.sh puts a gh first on PATH that waits for the shared budget's
+        # reset (at most an hour per job, each wait logged) when a call is refused for the rate
+        # limit, instead of failing the publish path. timeout-minutes leaves room for that hour.
+        run: if [ -f scripts/ci/gh_budget_wait.sh ]; then bash scripts/ci/gh_budget_wait.sh --install; fi
+
       - name: Skip a build the old feed already has
         id: order
         run: |
@@ -6454,14 +6598,17 @@ jobs:
           [[ "$short" =~ ^[0-9a-f]{7,40}$ ]] || { echo "invalid CMUXCommit '$short'" >&2; exit 1; }
           sha="$(gh api "repos/$GITHUB_REPOSITORY/commits/$short" --jq .sha)"
           [[ "$sha" =~ ^[0-9a-f]{40}$ ]] || { echo "could not resolve CMUXCommit $short" >&2; exit 1; }
-          for required in $REQUIRED; do
-            status="$(gh api "repos/$GITHUB_REPOSITORY/compare/$required...$sha" --jq .status)"
-            case "$status" in
-              ahead|identical) ;;
-              *) echo "build commit $sha lacks required commit $required ($status); refusing before any Apple submission" >&2
-                 : > "$RUNNER_TEMP/legacy-requirement-refused"; exit 1 ;;
-            esac
-          done
+          # Ancestry from git first, the compare API as fallback (the script; the API refused a
+          # big diff under load in run 40340830337). Exit 3: a required commit is missing.
+          rc=0
+          # shellcheck disable=SC2086 # REQUIRED is a space-separated SHA list
+          check="$(./scripts/ci/nightly-next-legacy-requirement.sh --commit "$GITHUB_REPOSITORY" "$sha" $REQUIRED)" || rc=$?
+          case "$rc" in
+            0) ;;
+            3) echo "build commit $sha lacks a required commit ($check); refusing before any Apple submission" >&2
+               : > "$RUNNER_TEMP/legacy-requirement-refused"; exit 1 ;;
+            *) echo "could not check the build commit $sha's required commits ($check)" >&2; exit 1 ;;
+          esac
           git fetch --no-tags --depth=1 origin "$sha"
           git worktree add --detach "$RUNNER_TEMP/build-src" "$sha"
           (cd "$RUNNER_TEMP/build-src" && bash scripts/ci/init-submodule.sh ghostty-next)
@@ -6647,7 +6794,7 @@ jobs:
     continue-on-error: true
     permissions:
       contents: read
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || needs.legacy-identity-target.outputs.sign_runner || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
     timeout-minutes: 30
     outputs:
       tested_sha256: ${{ steps.verify.outputs.tested_sha256 }}
@@ -6739,8 +6886,8 @@ jobs:
     # Publishes only a DMG whose sha256 verify-nightly-identity-legacy tested,
     # then resolves the attempt (retire, keep or mark the submission; count a
     # failure) for the whole sign, verify and publish chain. Runs no bundle code.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
-    timeout-minutes: 30
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || needs.legacy-identity-target.outputs.sign_runner || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
+    timeout-minutes: 90
     env:
       CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_26 }}
       CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
@@ -6779,6 +6926,12 @@ jobs:
       # build was signed and verified. A continued submission skipped here is
       # not retired: its artifacts expire (3 days), and the target and signing
       # jobs skip a build the old feed already has.
+      - name: Wait through GitHub API rate limits in this job's gh calls
+        # scripts/ci/gh_budget_wait.sh puts a gh first on PATH that waits for the shared budget's
+        # reset (at most an hour per job, each wait logged) when a call is refused for the rate
+        # limit, instead of failing the publish path. timeout-minutes leaves room for that hour.
+        run: if [ -f scripts/ci/gh_budget_wait.sh ]; then bash scripts/ci/gh_budget_wait.sh --install; fi
+
       - name: Skip a build the old feed already has
         id: order
         if: env.SIGN_SKIP == 'false'
@@ -7112,17 +7265,17 @@ jobs:
     # DMG and signed appcast. The nightly-next track signs in release-next
     # with its own key, as build-sign-notarize-nightly does.
     environment: ${{ needs.decide.outputs.environment }}
-    needs: [decide, build-nightly-app, resolve-nightly-cmux-tui-client, publish-nightly]
+    needs: [decide, build-nightly-app, resolve-nightly-cmux-tui-client, publish-nightly, pick-nightly-sign-runner]
     if: always() && needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.fast_build != 'true' && needs.publish-nightly.result == 'success' && needs.publish-nightly.outputs.source != 'recovered' && needs.publish-nightly.outputs.refused != 'true'
     permissions:
       contents: read
       actions: read
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || needs.pick-nightly-sign-runner.outputs.runner || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
     strategy:
       fail-fast: false
       matrix:
         variant: ${{ fromJSON(needs.decide.outputs.variants) }}
-    timeout-minutes: 45
+    timeout-minutes: 105
     env:
       NIGHTLY_VARIANT: ${{ matrix.variant }}
       NIGHTLY_BUILD: ${{ needs.build-nightly-app.outputs.daemon_build }}
@@ -7144,6 +7297,12 @@ jobs:
         with:
           persist-credentials: false
           ref: ${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}
+
+      - name: Wait through GitHub API rate limits in this job's gh calls
+        # scripts/ci/gh_budget_wait.sh puts a gh first on PATH that waits for the shared budget's
+        # reset (at most an hour per job, each wait logged) when a call is refused for the rate
+        # limit, instead of failing the publish path. timeout-minutes leaves room for that hour.
+        run: if [ -f scripts/ci/gh_budget_wait.sh ]; then bash scripts/ci/gh_budget_wait.sh --install; fi
 
       - name: Select Xcode
         run: ./scripts/select-ci-xcode.sh
@@ -7201,10 +7360,10 @@ jobs:
           persist-credentials: false
           ref: ${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}
 
-      # The ring script and the guard come from the workflow commit: the build
-      # ref can predate them (publish-nightly does the same).
+      # The ring script, the guard, the publisher and the gh rate-limit wait come from the
+      # workflow commit on every track: the build ref can predate them (publish-nightly does
+      # the same), and an older publisher has no secondary-limit backoff or serial uploads.
       - name: Checkout publication tooling at the workflow commit
-        if: needs.decide.outputs.track == 'nightly-next'
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
@@ -7213,7 +7372,15 @@ jobs:
           sparse-checkout: |
             scripts/ci/nightly_next_ring.py
             scripts/ci/nightly-next-guard.py
+            scripts/ci/publish-release-assets.py
+            scripts/ci/gh_budget_wait.sh
           sparse-checkout-cone-mode: false
+
+      - name: Wait through GitHub API rate limits in this job's gh calls
+        # scripts/ci/gh_budget_wait.sh puts a gh first on PATH that waits for the shared budget's
+        # reset (at most an hour per job, each wait logged) when a call is refused for the rate
+        # limit, instead of failing the publish path. timeout-minutes leaves room for that hour.
+        run: bash .publish-tooling/scripts/ci/gh_budget_wait.sh --install
 
       - name: Download delta results
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
@@ -7226,6 +7393,7 @@ jobs:
         id: republish
         env:
           GH_TOKEN: ${{ github.token }}
+          CMUX_RELEASE_RATE_LIMIT_SECONDS: "1800"
           TRACK: ${{ needs.decide.outputs.track }}
           DEV_RING: ${{ vars.NIGHTLY_NEXT_DEV_RING == 'on' && 'on' || 'off' }}
         run: |
@@ -7281,7 +7449,9 @@ jobs:
             feeds+=(--feed "$feed")
           done
           [ "${#feeds[@]}" -gt 0 ]
-          python3 scripts/ci/publish-release-assets.py \
+          # The workflow commit's publisher: its rate-limit backoff, serial uploads, shared wait.
+          publisher=.publish-tooling/scripts/ci/publish-release-assets.py
+          python3 "$publisher" \
             --repo "$GITHUB_REPOSITORY" --tag "$CHANNEL_RELEASE_TAG" \
             "${deltas[@]}" --replace-feeds "${feeds[@]}"
           echo "publish=true" >> "$GITHUB_OUTPUT"
@@ -7344,7 +7514,7 @@ jobs:
     if: "!cancelled() && needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.track == 'nightly-next' && needs.decide.outputs.no_publish != 'true' && needs.decide.outputs.published_sha != '' && needs.publish-nightly.result == 'success' && needs.publish-nightly.outputs.already_published != 'true' && needs.publish-nightly.outputs.refused != 'true' && needs.publish-nightly.outputs.source != 'recovered'"
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: pull-requests:write token; CI_TRUSTED_RUNNER picks Blacksmith (default) or GitHub-hosted
     # Writes are paced at 7.5 s under GitHub's hourly content limit.
-    timeout-minutes: 60
+    timeout-minutes: 120
     continue-on-error: true
     permissions:
       contents: read
@@ -7360,6 +7530,12 @@ jobs:
           ref: ${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}
           persist-credentials: false
           sparse-checkout: scripts
+      - name: Wait through GitHub API rate limits in this job's gh calls
+        # scripts/ci/gh_budget_wait.sh puts a gh first on PATH that waits for the shared budget's
+        # reset (at most an hour per job, each wait logged) when a call is refused for the rate
+        # limit, instead of failing the publish path. timeout-minutes leaves room for that hour.
+        run: if [ -f scripts/ci/gh_budget_wait.sh ]; then bash scripts/ci/gh_budget_wait.sh --install; fi
+
       - name: Fetch the published span
         run: ./scripts/cmux-next/fetch-release-notes-span.sh origin "$HEAD_SHA" nightly-next "$PUBLISHED_SHA"
       - name: Comment the build on its PRs
@@ -7389,7 +7565,7 @@ jobs:
     environment: content-signing
     # The content-signing key remains scoped to this protected environment.
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
-    timeout-minutes: 10
+    timeout-minutes: 70
     permissions:
       contents: read
       # Read only: --pr-media reads the body of each highlight's pull request.
@@ -7412,6 +7588,12 @@ jobs:
       # The span starts at the newest build whose signed notes were published (its "head"), not at
       # the last published app: a build whose notes failed to publish then loses no highlight to
       # the next one (2026-10-12: 3821558930001 had no notes and its highlights were never shown).
+      - name: Wait through GitHub API rate limits in this job's gh calls
+        # scripts/ci/gh_budget_wait.sh puts a gh first on PATH that waits for the shared budget's
+        # reset (at most an hour per job, each wait logged) when a call is refused for the rate
+        # limit, instead of failing the publish path. timeout-minutes leaves room for that hour.
+        run: if [ -f scripts/ci/gh_budget_wait.sh ]; then bash scripts/ci/gh_budget_wait.sh --install; fi
+
       - name: Start the span at the newest published notes
         id: span
         run: |
@@ -7516,7 +7698,7 @@ jobs:
     if: "!cancelled() && needs.decide.outputs.track == 'nightly-next' && needs.publish-nightly.result == 'success' && needs.publish-nightly.outputs.already_published != 'true' && needs.publish-nightly.outputs.refused != 'true' && needs.sign-release-notes.result == 'success'"
     environment: ${{ needs.decide.outputs.environment }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
-    timeout-minutes: 10
+    timeout-minutes: 70
     permissions:
       contents: read
     steps:
@@ -7524,6 +7706,12 @@ jobs:
         with:
           ref: ${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}
           persist-credentials: false
+      - name: Wait through GitHub API rate limits in this job's gh calls
+        # scripts/ci/gh_budget_wait.sh puts a gh first on PATH that waits for the shared budget's
+        # reset (at most an hour per job, each wait logged) when a call is refused for the rate
+        # limit, instead of failing the publish path. timeout-minutes leaves room for that hour.
+        run: if [ -f scripts/ci/gh_budget_wait.sh ]; then bash scripts/ci/gh_budget_wait.sh --install; fi
+
       - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
           name: release-notes
@@ -7597,7 +7785,7 @@ jobs:
     if: "!cancelled() && github.repository_owner == 'manaflow-ai' && needs.decide.outputs.track == 'nightly-next' && needs.publish-release-notes.result == 'success'"
     continue-on-error: true
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
-    timeout-minutes: 30
+    timeout-minutes: 90
     # The private-terms secret lives only in this environment, which admits only
     # the protected branches (main, feat-cmux-next, nightly-next).
     environment: pr-media
@@ -7615,6 +7803,12 @@ jobs:
           sparse-checkout: |
             scripts
             .github/actions/pr-media-publish
+      - name: Wait through GitHub API rate limits in this job's gh calls
+        # scripts/ci/gh_budget_wait.sh puts a gh first on PATH that waits for the shared budget's
+        # reset (at most an hour per job, each wait logged) when a call is refused for the rate
+        # limit, instead of failing the publish path. timeout-minutes leaves room for that hour.
+        run: if [ -f scripts/ci/gh_budget_wait.sh ]; then bash scripts/ci/gh_budget_wait.sh --install; fi
+
       - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
           name: release-notes
