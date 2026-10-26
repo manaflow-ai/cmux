@@ -27,7 +27,8 @@ pub(super) fn try_handle(
     if !message.contains(COMMAND) {
         return None;
     }
-    let Ok(Value::Object(mut request)) = serde_json::from_str::<Value>(message) else {
+    let Ok(Value::Object(mut request)) = crate::diagnostics::parse_request_json::<Value>(message)
+    else {
         return None;
     };
     if request.get("cmd").and_then(Value::as_str) != Some(COMMAND) {

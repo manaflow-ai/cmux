@@ -91,7 +91,7 @@ pub(super) fn answer_line(
     owner: &str,
     line: &str,
 ) -> Value {
-    let Ok(Value::Object(request)) = serde_json::from_str::<Value>(line) else {
+    let Ok(Value::Object(request)) = crate::diagnostics::parse_request_json::<Value>(line) else {
         return stream::answer(
             &Value::Null,
             Err(FsError::ParamsInvalid("not a JSON object".into())),

@@ -247,7 +247,7 @@ pub(super) fn try_handle(
     if !message.contains("\"apps-") && !message.contains("\"cancel-request\"") {
         return None;
     }
-    let value: Value = serde_json::from_str(message).ok()?;
+    let value: Value = crate::diagnostics::parse_request_json(message).ok()?;
     let cmd = value.get("cmd").and_then(Value::as_str)?;
     if cmd == "cancel-request" {
         return Some(cancel_request(mux, client, value, writer));

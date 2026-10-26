@@ -224,7 +224,8 @@ pub(in crate::server) fn try_handle(
     if !message.contains("\"agent-update-") {
         return None;
     }
-    let Ok(Value::Object(mut object)) = serde_json::from_str::<Value>(message) else {
+    let Ok(Value::Object(mut object)) = crate::diagnostics::parse_request_json::<Value>(message)
+    else {
         return None;
     };
     if !matches!(object.get("cmd").and_then(Value::as_str), Some(PLAN | APPLY)) {

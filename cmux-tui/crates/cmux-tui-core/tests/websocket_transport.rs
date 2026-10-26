@@ -175,6 +175,73 @@ fn websocket_keeps_authenticated_inbound_requests_at_four_mib() {
     mux.shutdown();
 }
 
+/// `server-stats` `ipc` on a trusted Unix connection (a WebSocket client may
+/// not read it).
+fn unix_ipc_stats(writer: &mut impl Write, reader: &mut impl BufRead, id: u64) -> Value {
+    writeln!(writer, r#"{{"id":{id},"cmd":"server-stats","include":["ipc"]}}"#).unwrap();
+    let reply = read_line_until(reader, |value| value["id"] == id);
+    assert_eq!(reply["ok"], true, "{reply}");
+    reply["data"]["ipc"].clone()
+}
+
+/// A counter of an `ipc` snapshot, by JSON pointer; a kind row not seen yet
+/// is absent, so it reads 0.
+fn counter(ipc: &Value, pointer: &str) -> u64 {
+    ipc.pointer(pointer).and_then(Value::as_u64).unwrap_or(0)
+}
+
+/// `server-stats` `ipc` counts WebSocket connections like line ones: the
+/// stream, the text messages each way, their write calls and parses, and a
+/// binary message (the protocol is JSON text) as a bad message.
+#[test]
+fn websocket_traffic_counts_in_server_stats_ipc() {
+    let mux = Mux::new("ws-ipc", SurfaceOptions::default());
+    let socket_path = unique_socket("ws-ipc");
+    server::serve(mux.clone(), Some(socket_path.clone())).unwrap();
+    let server = server::serve_websocket(
+        mux.clone(),
+        "127.0.0.1:0".parse().unwrap(),
+        Some(TEST_TOKEN.to_string()),
+        false,
+    )
+    .unwrap();
+    let unix = transport::connect(&socket_path).unwrap();
+    unix.set_read_timeout(Some(Duration::from_secs(10))).unwrap();
+    let mut unix_writer = unix.try_clone_box().unwrap();
+    let mut unix_reader = BufReader::new(unix);
+    let before = unix_ipc_stats(&mut unix_writer, &mut unix_reader, 1);
+
+    let mut websocket = authenticated_connect(server.local_addr());
+    for id in 1..=3 {
+        send_json(&mut websocket, json!({"id": id, "cmd": "ping"}));
+        assert_eq!(read_until(&mut websocket, |value| value["id"] == id)["ok"], true);
+    }
+    let after = unix_ipc_stats(&mut unix_writer, &mut unix_reader, 2);
+    let delta = |pointer: &str| counter(&after, pointer) - counter(&before, pointer);
+    // Between the snapshots the Unix connection sent one line and got one
+    // reply (two write calls); everything past that is the WebSocket's.
+    assert_eq!(delta("/streams/opened"), 1, "{after}");
+    assert_eq!(counter(&after, "/streams/open"), 2, "{after}");
+    assert!(delta("/received/0/messages") >= 4, "{after}");
+    assert!(delta("/sent/0/messages") >= 4, "{after}");
+    assert!(delta("/writes/syscalls") >= 5, "{after}");
+    assert!(delta("/parses/lines/requests") >= 4, "{after}");
+    assert!(delta("/parses/lines/json_parses") >= 4, "{after}");
+    assert_eq!(counter(&after, "/bad_message"), 0, "{after}");
+
+    websocket.send(Message::Binary(vec![1, 2, 3].into())).unwrap();
+    // The daemon counts the bad message before it closes.
+    loop {
+        match websocket.read() {
+            Ok(Message::Close(_)) | Err(_) => break,
+            Ok(_) => {}
+        }
+    }
+    let closed = unix_ipc_stats(&mut unix_writer, &mut unix_reader, 3);
+    assert_eq!(counter(&closed, "/bad_message"), 1, "{closed}");
+    mux.shutdown();
+}
+
 #[test]
 fn websocket_auth_accepts_exact_preamble_and_rejects_missing_or_wrong_tokens() {
     let mux = Mux::new("ws-auth", SurfaceOptions::default());

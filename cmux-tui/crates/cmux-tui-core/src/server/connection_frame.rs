@@ -149,7 +149,7 @@ pub(super) fn handle_connection_frame_at(
         };
     }
     stage(FrameStage::Route);
-    let request = match serde_json::from_str::<Request>(message) {
+    let request = match crate::diagnostics::parse_request_json::<Request>(message) {
         Ok(request) => request,
         Err(error) => {
             let mut span =
@@ -498,7 +498,7 @@ pub(super) fn write_vt_state_command_json(
 }
 
 pub(super) fn auth_token(message: &str) -> Option<String> {
-    let value: Value = serde_json::from_str(message).ok()?;
+    let value: Value = crate::diagnostics::parse_request_json(message).ok()?;
     let object = value.as_object()?;
     if object.len() != 1 {
         return None;
@@ -511,7 +511,7 @@ pub(super) fn auth_token(message: &str) -> Option<String> {
 }
 
 pub(super) fn pairing_request(message: &str) -> bool {
-    let Ok(value) = serde_json::from_str::<Value>(message) else { return false };
+    let Ok(value) = crate::diagnostics::parse_request_json::<Value>(message) else { return false };
     let Some(object) = value.as_object() else { return false };
     if object.len() != 1 {
         return false;

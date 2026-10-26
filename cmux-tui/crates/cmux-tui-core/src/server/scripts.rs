@@ -182,7 +182,7 @@ pub(super) fn try_handle(
     if !message.contains("\"script-") {
         return None;
     }
-    let value: Value = serde_json::from_str(message).ok()?;
+    let value: Value = crate::diagnostics::parse_request_json(message).ok()?;
     if !value.get("cmd").and_then(Value::as_str)?.starts_with("script-") {
         return None;
     }

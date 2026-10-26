@@ -141,6 +141,7 @@ impl RequestHead {
             #[serde(default, borrow)]
             cmd: Option<Cow<'a, str>>,
         }
+        crate::diagnostics::note_json_parse();
         let Ok(Head { id, cmd }) = serde_json::from_str::<Head>(message) else {
             return Self { id: None, method: RequestMethod::routed(None), command: true };
         };

@@ -744,7 +744,7 @@ pub(super) fn try_handle(
     if !message.contains("\"loopback-") {
         return None;
     }
-    let request = serde_json::from_str::<LoopbackRequest>(message).ok()?;
+    let request = crate::diagnostics::parse_request_json::<LoopbackRequest>(message).ok()?;
     let forwarder = &mux.control_clients.loopback;
     let LoopbackRequest { id, command } = request;
     let allowed = mux.control_clients.is_unix(client)

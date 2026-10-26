@@ -54,7 +54,7 @@ pub(super) fn try_handle(
     if message.len() > crate::resource::MAX_MESSAGE_BYTES {
         return None;
     }
-    let envelope: Envelope = serde_json::from_str(message).ok()?;
+    let envelope: Envelope = crate::diagnostics::parse_request_json(message).ok()?;
     let route = page_router_table::routed(&envelope.operation)?;
     let id = envelope.id.as_str().and_then(|id| RequestId::parse(id).ok());
     let Some(id) = id else {
