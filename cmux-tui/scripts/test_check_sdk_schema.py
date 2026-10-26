@@ -8,6 +8,7 @@ import importlib.util
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 
 SCRIPT = Path(__file__).with_name("check-sdk-schema.py")
@@ -187,6 +188,57 @@ class LiveSchemaTests(unittest.TestCase):
         document["commands"]["apps-logs"]["request"]["fields"]["follow"]["presence"] = "required"
         with self.assertRaisesRegex(CHECKER.SdkSchemaError, "presence drift for apps-logs"):
             self.validate(document, self.inventory)
+
+    def test_q5_module_commands_use_their_request_structs(self) -> None:
+        fields = CHECKER.runtime_command_fields()
+        self.assertEqual(set(fields["browser-runtime-status"]), set())
+        self.assertEqual(set(fields["browser-runtime-start"]), {"url"})
+        self.assertEqual(set(fields["browser-runtime-stop"]), {"runtime"})
+        self.assertEqual(set(fields["loopback-open"]), {"stream", "host", "port", "window"})
+        self.assertEqual(set(fields["loopback-data"]), {"stream", "data"})
+        self.assertEqual(set(fields["loopback-status"]), set())
+        self.assertEqual(set(fields["client-hello"]), {"role", "install_id", "page", "proof"})
+        # The owner fence and the publication struct in client_registry/.
+        self.assertEqual(
+            set(fields["machine-catalog-publish"]),
+            {"expected_machine_id", "sequence", "machines"},
+        )
+        self.assertEqual(
+            CHECKER._runtime_type_shape(fields["machine-catalog-publish"]["machines"].rust_type),
+            "array<ref<MachineCatalogEntry>>",
+        )
+
+    def test_q5_module_request_field_drift_is_rejected(self) -> None:
+        for command, field, change, message in [
+            ("loopback-open", "window", {"presence": "required"}, "presence drift for loopback-open"),
+            ("browser-runtime-stop", "runtime", {"type": {"kind": "scalar", "name": "string"}},
+             "type drift for browser-runtime-stop"),
+            # A null install id is client_hello.bad_request, so it is not nullable.
+            ("client-hello", "install_id", {"nullable": True}, "presence drift for client-hello"),
+            ("machine-catalog-publish", "sequence", {"presence": "optional"},
+             "presence drift for machine-catalog-publish"),
+        ]:
+            document = copy.deepcopy(self.document)
+            document["commands"][command]["request"]["fields"][field].update(change)
+            with self.subTest(command=command), self.assertRaisesRegex(
+                CHECKER.SdkSchemaError, message
+            ):
+                self.validate(document, self.inventory)
+        document = copy.deepcopy(self.document)
+        document["commands"]["client-hello"]["request"]["fields"].pop("proof")
+        with self.assertRaisesRegex(CHECKER.SdkSchemaError, "request field for client-hello"):
+            self.validate(document, self.inventory)
+
+    def test_module_literal_request_struct_in_another_file_must_exist(self) -> None:
+        spec = CHECKER.ModuleCommands(
+            enum_name=None,
+            envelope=None,
+            literals={"machine-catalog-publish": ("client_registry/machine_catalog.rs::Nope",)},
+            refused_envelope_fields={},
+        )
+        with patch.dict(CHECKER.MODULE_COMMANDS, {"connection_frame/machine_catalog": spec}):
+            with self.assertRaisesRegex(CHECKER.SdkSchemaError, "cannot find Rust struct Nope"):
+                CHECKER.module_command_fields()
 
     def test_module_enum_parser_reads_every_variant_form(self) -> None:
         body = """\

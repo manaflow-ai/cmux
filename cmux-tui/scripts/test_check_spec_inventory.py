@@ -82,6 +82,27 @@ fn try_handle(cmd: &str) -> bool { cmd == "cancel-request" }
                 CHECKER.command_names()
             self.assertIn("needs #[serde(rename", errors.getvalue())
 
+    def test_command_names_include_literal_only_modules(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            tui = Path(directory)
+            server = tui / "crates/cmux-tui-core/src/server.rs"
+            server.parent.mkdir(parents=True)
+            server.write_text("enum Command {\n    Ping,\n}\n")
+            frame = server.parent / "server/connection_frame/machine_catalog.rs"
+            frame.parent.mkdir(parents=True)
+            frame.write_text('fn try_handle(m: &str) -> bool { m == "machine-catalog-publish" }\n')
+            with patch.object(CHECKER, "TUI", tui):
+                self.assertEqual(CHECKER.command_names(), {"ping", "machine-catalog-publish"})
+            frame.write_text("fn try_handle(m: &str) -> bool { false }\n")
+            errors = io.StringIO()
+            with (
+                patch.object(CHECKER, "TUI", tui),
+                redirect_stderr(errors),
+                self.assertRaises(SystemExit),
+            ):
+                CHECKER.command_names()
+            self.assertIn("no longer matches 'machine-catalog-publish'", errors.getvalue())
+
     def test_rust_function_body_ignores_braces_in_string_literals(self) -> None:
         source = r'''
 fn metadata(&self) -> ActionMetadata {

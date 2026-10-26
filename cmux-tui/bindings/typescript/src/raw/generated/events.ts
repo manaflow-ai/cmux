@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR a397c76f15d1266839d57bdd5f20abf0ef06663c69c4dbc5f14725cdb85f04c6. */
+/* cmux-tui mux protocol 12, IR b016858037d746fc84c6c6f31f8f88ed821b9bf4a32b31a5c66408f8027e0a1d. */
 
 
 import type * as T from "./types.js";
@@ -336,6 +336,29 @@ export type LayoutChangedEvent = { event: "layout-changed" } & {
   "transaction"?: string;
   "workspace"?: T.Id;
   "zoomed_pane"?: (T.Id) | null;
+};
+
+/** Protocol v12; emission: emitted; streams: control. */
+export type LoopbackClosedEvent = { event: "loopback-closed" } & {
+  "error"?: string;
+  "stream": bigint;
+};
+
+/** Protocol v12; emission: emitted; streams: control. */
+export type LoopbackCreditEvent = { event: "loopback-credit" } & {
+  "bytes": bigint;
+  "stream": bigint;
+};
+
+/** Protocol v12; emission: emitted; streams: control. */
+export type LoopbackDataEvent = { event: "loopback-data" } & {
+  "data": string;
+  "stream": bigint;
+};
+
+/** Protocol v12; emission: emitted; streams: control. */
+export type LoopbackEofEvent = { event: "loopback-eof" } & {
+  "stream": bigint;
 };
 
 /** Protocol v12; emission: emitted; streams: subscribe. */
@@ -758,6 +781,10 @@ export type KnownCmuxEvent =
   | HistoryChangedEvent
   | KeybindingsChangedEvent
   | LayoutChangedEvent
+  | LoopbackClosedEvent
+  | LoopbackCreditEvent
+  | LoopbackDataEvent
+  | LoopbackEofEvent
   | MachineUsageChangedEvent
   | NotificationEvent
   | OutputEvent

@@ -9,6 +9,7 @@ import json
 import re
 import sys
 import unittest
+import unittest.mock
 from pathlib import Path
 
 SCRIPT = Path(__file__).with_name("assign-ipc-method-ids.py")
@@ -65,10 +66,30 @@ class LiveSchemaTests(unittest.TestCase):
         writers = ("send", "send-key", "paste-image")
         self.assertEqual({commands[name]["priority"] for name in writers}, {"input"})
 
-    def test_bulk_commands_are_reads(self) -> None:
+    def test_bulk_commands_are_reads_or_reviewed_stream_writes(self) -> None:
         for name, command in live()["commands"].items():
-            if command["priority"] == "bulk":
+            if command["priority"] == "bulk" and name not in ASSIGN.BULK_STREAM_WRITES:
                 self.assertEqual(command["durability"], "read_only", name)
+
+    def test_writes_of_one_loopback_stream_share_bulk_after_a_control_open(self) -> None:
+        commands = live()["commands"]
+        self.assertEqual(
+            {commands[name]["priority"] for name in ASSIGN.BULK_STREAM_WRITES}, {"bulk"}
+        )
+        self.assertEqual(commands["loopback-open"]["priority"], "control")
+        events = live()["events"]
+        for name in ("loopback-data", "loopback-eof", "loopback-closed"):
+            self.assertEqual(events[name]["priority"], "bulk", name)
+
+    def test_raw_swift_lines_count_as_macos_commands(self) -> None:
+        names = ASSIGN.swift_line_commands()
+        self.assertTrue(
+            {"loopback-data", "loopback-credit", "loopback-shutdown", "loopback-close"} <= names,
+            names,
+        )
+        commands = live()["commands"]
+        for name in ("loopback-data", "loopback-close"):
+            self.assertIn("macos", commands[name]["clients"], name)
 
     def test_independent_commands_are_daemon_queries_or_local_probes(self) -> None:
         """A Cloud, Create or Topology command needs state its connection set before it."""
@@ -186,6 +207,13 @@ class AssignmentTests(unittest.TestCase):
         del document["commands"]["server-stats"]
         with self.assertRaisesRegex(ASSIGN.AssignError, "matches no schema name"):
             ASSIGN.Assigner(document, NO_SOURCES).run()
+
+    def test_bulk_write_outside_the_reviewed_list_is_refused(self) -> None:
+        document = live()
+        bulk = (*ASSIGN.COMMAND_PRIORITY["bulk"], "set-ratio")
+        with unittest.mock.patch.dict(ASSIGN.COMMAND_PRIORITY, {"bulk": bulk}):
+            with self.assertRaisesRegex(ASSIGN.AssignError, "'set-ratio' is a write"):
+                ASSIGN.Assigner(document, NO_SOURCES).run()
 
     def test_clients_follow_the_census_on_every_run(self) -> None:
         document = live()

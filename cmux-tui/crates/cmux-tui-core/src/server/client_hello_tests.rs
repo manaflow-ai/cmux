@@ -259,6 +259,8 @@ fn install_id_is_validated_in_step_one() {
         ("space", json!("bad id")),
         ("slash", json!("a/b")),
         ("number", json!(5)),
+        // Present but null is malformed too (sdk-schema: not nullable).
+        ("null", Value::Null),
     ] {
         let mux = mux(label);
         let mut client = Client::connect(&mux, label);

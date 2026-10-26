@@ -155,11 +155,15 @@ def load_sdk_catalog() -> dict:
 
 # Server modules that decode their own commands before the server's Command
 # enum sees the line (p05-ipc queue Q2): module -> (its `#[serde(tag = "cmd")]`
-# enum, the commands it matches by literal name). Every variant names its wire
-# name with `#[serde(rename = "...")]`. check-sdk-schema.py reads the same
-# modules for request fields.
-MODULE_COMMANDS: dict[str, tuple[str, tuple[str, ...]]] = {
+# enum or None, the commands it matches by literal name). Every variant names
+# its wire name with `#[serde(rename = "...")]`. check-sdk-schema.py reads the
+# same modules for request fields.
+MODULE_COMMANDS: dict[str, tuple[str | None, tuple[str, ...]]] = {
     "apps": ("Command", ("cancel-request",)),
+    "browser_runtime": ("RuntimeCommand", ()),
+    "loopback_forward": ("LoopbackCommand", ()),
+    "client_hello": (None, ("client-hello",)),
+    "connection_frame/machine_catalog": (None, ("machine-catalog-publish",)),
 }
 
 
@@ -179,10 +183,12 @@ def module_command_names() -> dict[str, str]:
     names: dict[str, str] = {}
     for module, source in module_command_sources().items():
         enum_name, literals = MODULE_COMMANDS[module]
-        body = rust_enum_body(source, enum_name)
-        renames = re.findall(r'#\[serde\(rename\s*=\s*"([a-z][a-z0-9-]*)"\)\]', body)
-        if len(renames) != len(rust_enum_variants(source, enum_name)):
-            fail(f"every server/{module}.rs {enum_name} variant needs #[serde(rename = ...)]")
+        renames: list[str] = []
+        if enum_name is not None:
+            body = rust_enum_body(source, enum_name)
+            renames = re.findall(r'#\[serde\(rename\s*=\s*"([a-z][a-z0-9-]*)"\)\]', body)
+            if len(renames) != len(rust_enum_variants(source, enum_name)):
+                fail(f"every server/{module}.rs {enum_name} variant needs #[serde(rename = ...)]")
         for literal in literals:
             if f'"{literal}"' not in source:
                 fail(f"server/{module}.rs no longer matches {literal!r}")
@@ -628,13 +634,12 @@ CONTROL_EVENT_MODULES = ("server/url_open.rs", "server/clipboard_read.rs", "serv
 
 # server/ modules (and their child directories) whose events are not in the
 # raw SDK catalog yet: they speak their own wire families (agent session
-# attach, loopback forwarding, scripts, terminal snapshot digests). The
-# inventory does not read them until the spec covers those events (cx-chun).
+# attach, scripts, terminal snapshot digests). The inventory does not read
+# them until the spec covers those events (cx-chun).
 SERVER_MODULES_OUTSIDE_RAW_SDK = frozenset(
     {
         "agent_session_attach",
         "agent_session_stream",  # Existing attach events moved here; same wire family.
-        "loopback_forward",
         "scripts",
         "terminal_snapshot",
     }

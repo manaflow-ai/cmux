@@ -168,6 +168,21 @@ public abstract class GeneratedCmuxClient {
         return EmptyResult.fromWire(result);
     }
 
+    public final BrowserRuntimeStartResult browserRuntimeStart(BrowserRuntimeStartRequest request) throws CmuxException {
+        Object result = execute(Commands.BROWSER_RUNTIME_START, request.toWire());
+        return BrowserRuntimeStartResult.fromWire(result);
+    }
+
+    public final BrowserRuntimeStatusResult browserRuntimeStatus() throws CmuxException {
+        Object result = execute(Commands.BROWSER_RUNTIME_STATUS, Map.of());
+        return BrowserRuntimeStatusResult.fromWire(result);
+    }
+
+    public final BrowserRuntimeStopResult browserRuntimeStop(BrowserRuntimeStopRequest request) throws CmuxException {
+        Object result = execute(Commands.BROWSER_RUNTIME_STOP, request.toWire());
+        return BrowserRuntimeStopResult.fromWire(result);
+    }
+
     public final EmptyResult browserWheel(BrowserWheelRequest request) throws CmuxException {
         Object result = execute(Commands.BROWSER_WHEEL, request.toWire());
         return EmptyResult.fromWire(result);
@@ -201,6 +216,11 @@ public abstract class GeneratedCmuxClient {
     public final ClientFocusResult clientFocus(ClientFocusRequest request) throws CmuxException {
         Object result = execute(Commands.CLIENT_FOCUS, request.toWire());
         return ClientFocusResult.fromWire(result);
+    }
+
+    public final ClientHelloResult clientHello(ClientHelloRequest request) throws CmuxException {
+        Object result = execute(Commands.CLIENT_HELLO, request.toWire());
+        return ClientHelloResult.fromWire(result);
     }
 
     public final EmptyResult closePane(ClosePaneRequest request) throws CmuxException {
@@ -785,6 +805,41 @@ public abstract class GeneratedCmuxClient {
     public final Tree listWorkspaces() throws CmuxException {
         Object result = execute(Commands.LIST_WORKSPACES, Map.of());
         return Tree.fromWire(result);
+    }
+
+    public final EmptyResult loopbackClose(LoopbackCloseRequest request) throws CmuxException {
+        Object result = execute(Commands.LOOPBACK_CLOSE, request.toWire());
+        return EmptyResult.fromWire(result);
+    }
+
+    public final EmptyResult loopbackCredit(LoopbackCreditRequest request) throws CmuxException {
+        Object result = execute(Commands.LOOPBACK_CREDIT, request.toWire());
+        return EmptyResult.fromWire(result);
+    }
+
+    public final EmptyResult loopbackData(LoopbackDataRequest request) throws CmuxException {
+        Object result = execute(Commands.LOOPBACK_DATA, request.toWire());
+        return EmptyResult.fromWire(result);
+    }
+
+    public final LoopbackOpenResult loopbackOpen(LoopbackOpenRequest request) throws CmuxException {
+        Object result = execute(Commands.LOOPBACK_OPEN, request.toWire());
+        return LoopbackOpenResult.fromWire(result);
+    }
+
+    public final EmptyResult loopbackShutdown(LoopbackShutdownRequest request) throws CmuxException {
+        Object result = execute(Commands.LOOPBACK_SHUTDOWN, request.toWire());
+        return EmptyResult.fromWire(result);
+    }
+
+    public final LoopbackStatusResult loopbackStatus() throws CmuxException {
+        Object result = execute(Commands.LOOPBACK_STATUS, Map.of());
+        return LoopbackStatusResult.fromWire(result);
+    }
+
+    public final MachineCatalogPublishResult machineCatalogPublish(MachineCatalogPublishRequest request) throws CmuxException {
+        Object result = execute(Commands.MACHINE_CATALOG_PUBLISH, request.toWire());
+        return MachineCatalogPublishResult.fromWire(result);
     }
 
     public final MachineListeningTcpResult machineListeningTcp() throws CmuxException {

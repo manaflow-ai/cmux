@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR a397c76f15d1266839d57bdd5f20abf0ef06663c69c4dbc5f14725cdb85f04c6. */
+/* cmux-tui mux protocol 12, IR b016858037d746fc84c6c6f31f8f88ed821b9bf4a32b31a5c66408f8027e0a1d. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -245,6 +245,28 @@ export type BrowserProviderUnregisterResult = {
   "removed": boolean;
 };
 
+export type BrowserRuntimeRow = {
+  "port": number;
+  "runtime": bigint;
+};
+
+export type BrowserRuntimeStartResult = {
+  "installed": string;
+  "port": number;
+  "runtime": bigint;
+  "secret": string;
+};
+
+export type BrowserRuntimeStatusResult = {
+  "installed": (string) | null;
+  "platform": string;
+  "runtimes": Array<BrowserRuntimeRow>;
+};
+
+export type BrowserRuntimeStopResult = {
+  "stopped": true;
+};
+
 export type CellPixelFailure = {
   "error": string;
   "surface": Id;
@@ -261,6 +283,23 @@ export type CellPixelSurface = {
   "height_px": number;
   "surface": Id;
   "width_px": number;
+};
+
+export type ClientHelloPageOperations = {
+  "confirm": Array<string>;
+  "gesture": Array<string>;
+  "read": Array<string>;
+};
+
+export type ClientHelloResult = {
+  "connection_id": string;
+  "install_id"?: string;
+  "nonce"?: string;
+  "page"?: string;
+  "page_events"?: Array<string>;
+  "page_operations"?: ClientHelloPageOperations;
+  "user_origin_allowed": boolean;
+  "verified"?: true;
 };
 
 export type ClientInfo = {
@@ -763,6 +802,64 @@ export type LivePane = {
   "short_id"?: string;
   "tabs": Array<Tab>;
 };
+
+export type LoopbackAuditRecord = {
+  "at_ms": bigint;
+  "bytes_from_target": bigint;
+  "bytes_to_target": bigint;
+  "client": bigint;
+  "duration_ms": bigint;
+  "host": string;
+  "outcome": string;
+  "port": number;
+  "stream": bigint;
+};
+
+export type LoopbackLimits = {
+  "daemon_window": bigint;
+  "frame_bytes": bigint;
+  "per_client": bigint;
+  "total": bigint;
+};
+
+export type LoopbackOpenResult = {
+  "address": string;
+  "stream": bigint;
+  "window": bigint;
+};
+
+export type LoopbackStatusResult = {
+  "audit": Array<LoopbackAuditRecord>;
+  "client_streams": bigint;
+  "enabled": boolean;
+  "limits": LoopbackLimits;
+  "open_streams": bigint;
+  "opened": bigint;
+  "refused": bigint;
+};
+
+export type MachineCatalogEntry = {
+  "capabilities"?: Array<string>;
+  "id": string;
+  "name": string;
+  "origin": MachineCatalogOrigin;
+  "platform"?: (MachineCatalogPlatform) | null;
+  "status": MachineCatalogStatus;
+};
+
+export type MachineCatalogOrigin = "cloud" | "ssh" | "server";
+
+export type MachineCatalogPlatform = {
+  "arch"?: (string) | null;
+  "os"?: (string) | null;
+};
+
+export type MachineCatalogPublishResult = {
+  "replayed": boolean;
+  "sequence": bigint;
+};
+
+export type MachineCatalogStatus = "running" | "connecting" | "unavailable" | "sleeping" | "stopped";
 
 export type MachineListeningTcpResult = {
   "stdout": string;

@@ -25,8 +25,9 @@ Rules, each a table below:
   spawns       SPAWNS_TERMINAL (the daemon commands that may start a
                terminal host); it must hold every Swift
                `TerminalSpawningRequest` command
-  clients      sdk for every command; macos for the ipc-census Q1 names,
-               cli for the Q14 names; ios is kept when set by hand
+  clients      sdk for every command; macos for the ipc-census Q1 names and
+               the raw `"cmd": "<name>"` lines the Swift app writes, cli for
+               the Q14 names; ios is kept when set by hand
 
 Stdlib only, plus the schema validator in cmux-tui/bindings/codegen.
 """
@@ -71,6 +72,7 @@ FAMILIES: dict[str, tuple[int, str, tuple[str, ...]]] = {
     )),
     "clients": (0x02, "Connected clients and their focus.", (
         "set-client-info", "list-clients", "detach-client", "client-focus", "report-focus",
+        "client-hello",
     )),
     "terminal-io": (0x03, "Terminal input, output streams, screen reads and terminal requests to the frontend.", (
         "send", "send-key", "paste-image", "read-screen", "read-scrollback", "wait-for", "copy",
@@ -137,6 +139,9 @@ FAMILIES: dict[str, tuple[int, str, tuple[str, ...]]] = {
     "apps": (0x12, "The app supervisor (apps-v1, server/apps.rs): installs, mounts, runs, logs and app op providers.", (
         "apps-*", "cancel-request",
     )),
+    "loopback": (0x13, "TCP streams to the daemon machine's loopback services (loopback-forward-v1).", (
+        "loopback-*",
+    )),
 }
 
 EVENT_FAMILIES: dict[str, tuple[int, str, tuple[str, ...]]] = {
@@ -163,6 +168,7 @@ EVENT_FAMILIES: dict[str, tuple[int, str, tuple[str, ...]]] = {
         "conversation-*", "participant-avatar-changed", "chief-changed",
     )),
     "cloud-events": (0xC6, "cmux Cloud session, conversations and inbox.", ("cloud-*",)),
+    "loopback-events": (0xC7, "Data, credit and end of loopback-forward-v1 streams.", ("loopback-*",)),
 }
 
 # Priority (p05-ipc design 3.4) -----------------------------------------------
@@ -173,7 +179,8 @@ EVENT_FAMILIES: dict[str, tuple[int, str, tuple[str, ...]]] = {
 # WidgetInputHandler, content/common/input/widget_input_handler.mojom).
 # bulk: large reads (journal and history reads, attachment bytes, icon
 # assets); a write stays control, so a later control command that names what
-# it wrote cannot pass it. background: stats; else control.
+# it wrote cannot pass it, unless BULK_STREAM_WRITES names it. background:
+# stats; else control.
 
 COMMAND_PRIORITY: dict[str, tuple[str, ...]] = {
     "input": (
@@ -185,17 +192,33 @@ COMMAND_PRIORITY: dict[str, tuple[str, ...]] = {
         "terminal-events", "terminal-history", "terminal-read-range", "read-scrollback",
         "list-terminal-commands", "get-frontend-browser-history", "conversation-history",
         "cloud-conversation-history", "conversation-attachment-read", "cloud-attachment-read",
-        "get-blob",
+        "get-blob", "loopback-data", "loopback-shutdown", "loopback-close",
     ),
     "background": ("server-stats", "machine-usage", "terminal-resources"),
 }
 
+# Bulk writes: the bytes of a data stream and its end, like a Mojo data pipe
+# beside the message pipe (mojo/public/cpp/system/data_pipe.h). All of one
+# stream's writes share bulk, so they keep their order; the open that names
+# the stream is control and goes first.
+_LOOPBACK_STREAM = (
+    "Bytes or end of a loopback stream: loopback-data, -shutdown and -close share bulk; "
+    "loopback-open (control) precedes them and loopback-credit grants only the other direction."
+)
+BULK_STREAM_WRITES: dict[str, str] = {
+    "loopback-data": _LOOPBACK_STREAM,
+    "loopback-shutdown": _LOOPBACK_STREAM,
+    "loopback-close": _LOOPBACK_STREAM,
+}
+
 # Events: what draws the person's terminal rides input (the key echo path,
 # IPC-5); the subscribe copy of output is bulk; usage and inventory refreshes
-# are background; else control.
+# are background; loopback stream bytes and their end are bulk (one ordered
+# outbound stream per loopback stream, server/loopback_forward.rs), their
+# credit control; else control.
 EVENT_PRIORITY: dict[str, tuple[str, ...]] = {
     "input": ("output", "render-delta", "render-state", "frame"),
-    "bulk": ("surface-output",),
+    "bulk": ("surface-output", "loopback-data", "loopback-eof", "loopback-closed"),
     "background": ("machine-usage-changed", "activity-changed", "agent-inventory-changed"),
 }
 
@@ -223,6 +246,7 @@ READ_ONLY = (
     "cloud-conversation-snapshot", "cloud-conversation-history",
     "cloud-conversation-thread", "cloud-conversation-runs", "cloud-conversation-run",
     "cloud-participant-avatar-get", "cloud-attachment-read", "feed-local-list", "trace-status",
+    "loopback-status", "browser-runtime-status",
 )
 MEMORY = (
     "send", "send-key", "paste-image", "copy", "scroll-surface", "browser-key", "browser-key-press",
@@ -244,6 +268,10 @@ MEMORY = (
     "apps-list", "apps-terminal-links", "apps-logs", "apps-mount", "apps-unmount", "apps-dispatch",
     "apps-run", "apps-link-changed", "apps-provider-register", "apps-agent-inventory-changed",
     "apps-provider-result", "cancel-request",
+    # Connection state that ends with the connection: its role and proof, its
+    # loopback streams, its browser hosts and its machine catalog lease.
+    "client-hello", "loopback-open", "loopback-data", "loopback-credit", "loopback-shutdown",
+    "loopback-close", "browser-runtime-start", "browser-runtime-stop", "machine-catalog-publish",
     # Writes the lease's account, bumps its generation and reconnects sockets.
     "cloud-selfhost-info",
     # Binds the browser host's sockets and starts the host process.
@@ -357,6 +385,25 @@ def _match_brace(text: str, open_: int) -> int:
     return len(text)
 
 
+_RAW_LINE = re.compile(r'"cmd":\s*"([a-z][a-z0-9-]*)"')
+
+
+def swift_line_commands() -> set[str]:
+    """Wire names the Swift app writes as raw `"cmd": "<name>"` lines instead
+    of a request type (LoopbackForwardLine), which ipc-census Q1 does not see."""
+
+    listed = subprocess.run(
+        ["git", "ls-files", "-z", "--", f"{SWIFT_SOURCES}/*.swift"],
+        cwd=ROOT, capture_output=True, check=True,
+    ).stdout.decode().split("\0")
+    return {
+        found.group(1)
+        for path in listed
+        if path and not path.endswith(".generated.swift")
+        for found in _RAW_LINE.finditer((ROOT / path).read_text())
+    }
+
+
 _SPAWNING = re.compile(r"\b(?:struct|extension)\s+(\w+)\s*:[^{]*\bTerminalSpawningRequest\b")
 _STRUCT = re.compile(r"\bstruct\s+(\w+)\b[^{]*\{")
 _COMMAND = re.compile(r'static\s+(?:let|var)\s+command(?:\s*:\s*String)?\s*=\s*"([^"]+)"')
@@ -392,7 +439,7 @@ def swift_spawning_commands() -> set[str]:
 class Sources:
     """The name sets read outside the schema, loaded only when a command needs them."""
 
-    macos: Callable[[], set[str]] = lambda: census_names("Q1")
+    macos: Callable[[], set[str]] = lambda: census_names("Q1") | swift_line_commands()
     cli: Callable[[], set[str]] = lambda: census_names("Q14")
     swift_spawning: Callable[[], set[str]] = swift_spawning_commands
 
@@ -563,8 +610,11 @@ class Assigner:
             if durability_of(name) == "read_only":
                 raise AssignError(f"SPAWNS_TERMINAL: {name!r} is read_only")
         for name in COMMAND_PRIORITY["bulk"]:
-            if durability_of(name) != "read_only":
+            if durability_of(name) != "read_only" and name not in BULK_STREAM_WRITES:
                 raise AssignError(f"COMMAND_PRIORITY bulk: {name!r} is a write; writes stay control")
+        for name in BULK_STREAM_WRITES:
+            if name not in COMMAND_PRIORITY["bulk"]:
+                raise AssignError(f"BULK_STREAM_WRITES: {name!r} is not bulk")
 
 
 def ordered(entry: dict[str, Any], keys: tuple[str, ...]) -> dict[str, Any]:

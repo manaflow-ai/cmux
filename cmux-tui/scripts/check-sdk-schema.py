@@ -42,6 +42,7 @@ RUNTIME_NAMED_REQUEST_REFS = {
     "crate::apps::Origin": "AppOrigin",
     "crate::apps::HiddenAccess": "AppHiddenAccess",
     "GrantParam": "AppGrant",
+    "RemoteMachine": "MachineCatalogEntry",
 }
 
 
@@ -51,20 +52,23 @@ class ModuleCommands:
 
     `enum_name` is its `#[serde(tag = "cmd")]` enum, each variant named with
     `#[serde(rename = "...")]`; `envelope` is the struct that flattens the
-    enum, whose other fields (minus the reply `id`) every variant accepts;
-    `literals` maps a command the module matches by name to its request
-    struct; `refused_envelope_fields` lists envelope fields a command's
-    handler refuses before decoding. check-spec-inventory.py lists the same
-    modules for command names.
+    enum, whose other fields (minus the reply `id`) every variant accepts.
+    A module that matches its commands only by name has neither.
+    `literals` maps a command the module matches by name to the request
+    structs whose fields make up its request: `Name` in the module, or
+    `path/under/server.rs::Name` in another server file.
+    `refused_envelope_fields` lists envelope fields a command's handler
+    refuses before decoding. check-spec-inventory.py lists the same modules
+    for command names.
     """
 
     __slots__ = ("enum_name", "envelope", "literals", "refused_envelope_fields")
 
     def __init__(
         self,
-        enum_name: str,
-        envelope: str,
-        literals: dict[str, str],
+        enum_name: str | None,
+        envelope: str | None,
+        literals: dict[str, tuple[str, ...]],
         refused_envelope_fields: dict[str, set[str]],
     ) -> None:
         self.enum_name = enum_name
@@ -77,9 +81,40 @@ MODULE_COMMANDS = {
     "apps": ModuleCommands(
         enum_name="Command",
         envelope="Request",
-        literals={"cancel-request": "CancelRequest"},
+        literals={"cancel-request": ("CancelRequest",)},
         # server/apps.rs accepts only id, cmd and demand_sequence here.
         refused_envelope_fields={"apps-agent-inventory-changed": {"origin"}},
+    ),
+    "browser_runtime": ModuleCommands(
+        enum_name="RuntimeCommand",
+        envelope="RuntimeRequest",
+        literals={},
+        refused_envelope_fields={},
+    ),
+    "loopback_forward": ModuleCommands(
+        enum_name="LoopbackCommand",
+        envelope="LoopbackRequest",
+        literals={},
+        refused_envelope_fields={},
+    ),
+    # The connection's hello gate (server/client_hello.rs) reads it before
+    # any other line.
+    "client_hello": ModuleCommands(
+        enum_name=None,
+        envelope=None,
+        literals={"client-hello": ("HelloRequest",)},
+        refused_envelope_fields={},
+    ),
+    "connection_frame/machine_catalog": ModuleCommands(
+        enum_name=None,
+        envelope=None,
+        literals={
+            "machine-catalog-publish": (
+                "Owner",
+                "client_registry/machine_catalog.rs::Publication",
+            ),
+        },
+        refused_envelope_fields={},
     ),
 }
 
@@ -91,6 +126,24 @@ RUNTIME_DECODED_REQUEST_FIELDS = {
     # server/bookmarks.rs `import` decodes each node into
     # workspace_registry/personal_bookmarks.rs `BookmarkImportNode`.
     ("import-bookmarks", "nodes"): ("Vec<Value>", "array<ref<BookmarkImportNode>>"),
+    # server/client_hello.rs: each hello step checks the members it reads and
+    # refuses a bad one with its own error code (client_hello.bad_request
+    # {field} in step 1, client_hello.refused in step 2).
+    ("client-hello", "role"): ("Option<Value>", "string"),
+    ("client-hello", "install_id"): ("Option<Value>", "string"),
+    ("client-hello", "page"): ("Option<Value>", "string"),
+    ("client-hello", "proof"): ("Option<Value>", "string"),
+}
+
+# Decoded fields whose raw JSON keeps a null that the decoder then refuses,
+# so the SDK field is not nullable.
+RUNTIME_DECODED_NULL_REFUSED = {
+    # server/client_hello.rs: a null role or install id is
+    # client_hello.bad_request in step 1 (`present` keeps the null install id
+    # to refuse it), a null install id or proof client_hello.refused in step 2.
+    ("client-hello", "role"),
+    ("client-hello", "install_id"),
+    ("client-hello", "proof"),
 }
 
 sys.path.insert(0, str(BINDINGS))
@@ -187,7 +240,7 @@ def _rust_enum_body(source: str, name: str) -> str:
 
 def _rust_struct_fields(source: str, name: str) -> dict[str, RuntimeField]:
     match = re.search(
-        rf"(?m)^(?:pub(?:\([a-z:]+\))? )?struct {re.escape(name)} \{{\n", source
+        rf"(?m)^(?:pub(?:\((?:[a-z:]+|in [a-z_:]+)\))? )?struct {re.escape(name)} \{{\n", source
     )
     if not match:
         fail(f"cannot find Rust struct {name}")
@@ -314,12 +367,17 @@ def module_command_fields() -> dict[str, dict[str, RuntimeField]]:
             continue
         source = path.read_text(encoding="utf-8")
         label = f"server/{module}.rs"
-        envelope = {
-            name: field
-            for name, field in _without_reply_id(_rust_struct_fields(source, spec.envelope)).items()
-            if not any(re.search(r"\bflatten\b", value) for value in field.attributes)
-        }
-        found = _module_enum_fields(_rust_enum_body(source, spec.enum_name), f"{label} {spec.enum_name}")
+        envelope: dict[str, RuntimeField] = {}
+        found: dict[str, dict[str, RuntimeField]] = {}
+        if spec.enum_name is not None and spec.envelope is not None:
+            envelope = {
+                name: field
+                for name, field in _without_reply_id(_rust_struct_fields(source, spec.envelope)).items()
+                if not any(re.search(r"\bflatten\b", value) for value in field.attributes)
+            }
+            found = _module_enum_fields(
+                _rust_enum_body(source, spec.enum_name), f"{label} {spec.enum_name}"
+            )
         for name, refused in spec.refused_envelope_fields.items():
             if name not in found:
                 fail(f"{label}: refused envelope fields name unknown command {name!r}")
@@ -333,15 +391,37 @@ def module_command_fields() -> dict[str, dict[str, RuntimeField]]:
             if duplicate:
                 fail(f"{label} {name} repeats envelope fields {duplicate}")
             found[name] = {**fields, **shared}
-        for name, request_type in spec.literals.items():
+        for name, request_types in spec.literals.items():
             if f'"{name}"' not in source:
                 fail(f"{label} no longer matches {name!r}")
-            found[name] = _without_reply_id(_rust_struct_fields(source, request_type))
+            fields: dict[str, RuntimeField] = {}
+            for request_type in request_types:
+                type_source, type_name = _module_struct_source(source, request_type, label)
+                for key, field in _without_reply_id(_rust_struct_fields(type_source, type_name)).items():
+                    if key in fields:
+                        fail(f"{label} {name} names request field {key!r} twice")
+                    fields[key] = field
+            found[name] = fields
         for name, fields in found.items():
             if name in commands:
                 fail(f"module command {name!r} is served twice")
             commands[name] = fields
     return commands
+
+
+def _module_struct_source(source: str, request_type: str, label: str) -> tuple[str, str]:
+    """The source holding `request_type` and its struct name: `Name` is in
+    the module itself, `path/under/server.rs::Name` in that server file."""
+
+    path, separator, name = request_type.rpartition("::")
+    if not separator:
+        return source, request_type
+    other = SERVER.with_suffix("") / path
+    try:
+        return other.read_text(encoding="utf-8"), name
+    except (OSError, UnicodeError) as error:
+        fail(f"{label}: cannot read request struct {request_type}: {error}")
+    return "", name
 
 
 def _module_enum_fields(body: str, label: str) -> dict[str, dict[str, RuntimeField]]:
@@ -565,6 +645,9 @@ def validate_runtime_request_fields(ir: SdkIR) -> None:
     """Reject request-field drift against the server's Deserialize contract."""
 
     runtime_commands = runtime_command_fields()
+    for key in RUNTIME_DECODED_NULL_REFUSED:
+        if key not in RUNTIME_DECODED_REQUEST_FIELDS:
+            fail(f"null-refused field {key} is not a decoded request field")
     for command_name, refused in REFUSED_LEGACY_REQUEST_FIELDS.items():
         fields = runtime_commands.get(command_name, {})
         missing = refused - set(fields)
@@ -589,6 +672,8 @@ def validate_runtime_request_fields(ir: SdkIR) -> None:
             schema_field = schema_fields[field_name]
             assert isinstance(schema_field, Mapping)
             runtime_presence = _runtime_field_presence(runtime_field)
+            if (command_name, field_name) in RUNTIME_DECODED_NULL_REFUSED:
+                runtime_presence = (runtime_presence[0], False)
             schema_presence = (
                 schema_field["presence"],
                 bool(schema_field["nullable"]),

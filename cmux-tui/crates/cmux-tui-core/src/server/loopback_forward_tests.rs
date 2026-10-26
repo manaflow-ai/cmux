@@ -522,3 +522,43 @@ fn loopback_status_reports_limits_and_audit() {
     assert!(outcomes.contains(&"loopback.refused".to_string()), "{outcomes:?}");
     assert!(outcomes.contains(&"loopback.denied-host".to_string()), "{outcomes:?}");
 }
+
+/// The SDK schema (spec/sdk-schema.json, p05-ipc-016) describes the
+/// loopback wire this module speaks: every command local-admin under the
+/// capability `identify` advertises, in the `loopback` family, and every
+/// event a control event in `loopback-events`. Bytes, half close and close
+/// of one stream ride one priority, so their order holds.
+#[test]
+fn loopback_commands_and_events_are_in_the_sdk_schema() {
+    let schema: Value =
+        serde_json::from_str(include_str!("../../../../spec/sdk-schema.json")).unwrap();
+    let family = schema["families"]["loopback"]["id"].as_u64().expect("the loopback family");
+    for name in [
+        "loopback-open",
+        "loopback-data",
+        "loopback-credit",
+        "loopback-shutdown",
+        "loopback-close",
+        "loopback-status",
+    ] {
+        let command = &schema["commands"][name];
+        assert_eq!(command["authority"], "local-admin", "{name}");
+        assert_eq!(command["capability"], LOOPBACK_FORWARD_CAPABILITY, "{name}");
+        assert_eq!(command["method_id"].as_u64().expect("a method id") >> 8, family, "{name}");
+    }
+    let stream_priority = &schema["commands"]["loopback-data"]["priority"];
+    for name in ["loopback-shutdown", "loopback-close"] {
+        assert_eq!(&schema["commands"][name]["priority"], stream_priority, "{name}");
+    }
+    let events = schema["families"]["loopback-events"]["id"].as_u64().expect("the event family");
+    for name in ["loopback-data", "loopback-credit", "loopback-eof", "loopback-closed"] {
+        let event = &schema["events"][name];
+        assert_eq!(event["streams"], json!(["control"]), "{name}");
+        assert_eq!(event["capability"], LOOPBACK_FORWARD_CAPABILITY, "{name}");
+        assert_eq!(event["event_id"].as_u64().expect("an event id") >> 8, events, "{name}");
+    }
+    let stream_events = &schema["events"]["loopback-data"]["priority"];
+    for name in ["loopback-eof", "loopback-closed"] {
+        assert_eq!(&schema["events"][name]["priority"], stream_events, "{name}");
+    }
+}
