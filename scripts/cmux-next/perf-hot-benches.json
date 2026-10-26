@@ -76,6 +76,11 @@
       "bench": "CMUX_ACTION_BUDGET_BENCH=1 swift test -c release --filter ActionBudgetMonitorBench (ns per run and per batch), on macOS 26 and 27",
       "owner": "Performance Lead (PL-instant)"
     },
+    "main-task-ledger": {
+      "what": "every scheduled main-thread task's MainOwnerLedger slot: five relaxed atomic stores and a releasing store (MainOwnerLedger.ended)",
+      "bench": "swift test -c release --filter MainOwnerLedgerTests/aLedgerWriteCostsUnderItsBudget (ns per slot write and per full-ring call; the whole posted run: MainTaskBoardSpanTests/aPostedTaskWithItsLedgerSlotCostsNanoseconds), on macOS 26 and 27",
+      "owner": "Performance Lead (PL-main)"
+    },
     "trace-ring-write": {
       "what": "one Release trace ring record under a catalog id (TraceRing.write(name:)): the thread's TLS state, one acquire load of the active ring, the seqlock publish, a chunk claim every 31st record",
       "bench": "swift test -c release --filter 'TraceRingTests.*eightContendedThreadsKeepTheSingleThreadP99' (31-record batch p99, 1 and 8 threads)",

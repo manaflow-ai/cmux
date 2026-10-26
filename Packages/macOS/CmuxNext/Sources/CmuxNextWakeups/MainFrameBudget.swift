@@ -62,6 +62,12 @@ public final class MainFrameBudget {
     private let input: any InputPendingSource
     /// The budget's clock; ``ObservationCauses`` times the input-response pass's cap on it.
     let uptimeNanos: () -> UInt64
+    /// The budget's clock where any thread may read it (`CLOCK_UPTIME_RAW` in the app, or an
+    /// injected ``init(budgets:input:board:signposts:starvation:clock:turns:)`` clock): an off-main post reads its
+    /// enqueue time with it on the posting thread, as Chrome sets `PendingTask::queue_time` at
+    /// `PostTask`. Nil for a main-actor-only test clock (``init(budgets:input:board:signposts:starvation:uptimeNanos:turns:)``),
+    /// whose off-main posts are timed from their arrival on main.
+    public nonisolated let postClock: (@Sendable () -> UInt64)?
     private let signposts: Bool
     /// The rendering starvation guard (nil: never starved).
     public let starvation: RenderStarvationGuard?
@@ -110,21 +116,46 @@ public final class MainFrameBudget {
     ///   - signposts: Whether each task opens a `stall.main_task` interval and a long turn emits
     ///     `stall.main_turn` (the app: true).
     ///   - starvation: Holds budgeted work while a shown frame is late (nil: never).
-    ///   - uptimeNanos: The clock (`CLOCK_UPTIME_RAW` nanoseconds); tests inject one they move.
+    ///   - clock: The clock (`CLOCK_UPTIME_RAW` nanoseconds), read on main and by off-main posts.
     ///   - turns: The run-loop turn meter (default: one on this clock).
-    public init(budgets: Budgets = Budgets(), input: any InputPendingSource = NoInputPending(), board: MainTaskBoard = MainTaskBoard(),
-                signposts: Bool = false, starvation: RenderStarvationGuard? = nil,
-                uptimeNanos: @escaping () -> UInt64 = { clock_gettime_nsec_np(CLOCK_UPTIME_RAW) },
-                turns: MainTurnMeter? = nil) {
+    public convenience init(budgets: Budgets = Budgets(), input: any InputPendingSource = NoInputPending(), board: MainTaskBoard = MainTaskBoard(),
+                            signposts: Bool = false, starvation: RenderStarvationGuard? = nil,
+                            clock: @escaping @Sendable () -> UInt64 = { MainTaskPost.uptimeNanos() }, turns: MainTurnMeter? = nil) {
+        self.init(budgets: budgets, input: input, board: board, signposts: signposts, starvation: starvation,
+                  mainClock: clock, postClock: clock, turns: turns)
+    }
+
+    /// A budget on a clock only the main actor reads (a test's hand-moved clock): off-main posts
+    /// have no ``postClock``.
+    ///
+    /// - Parameters:
+    ///   - budgets: Per-class budgets (default: the measured split in ``Budgets``).
+    ///   - input: The pending-input check.
+    ///   - board: Where the running task is published for the watchdog.
+    ///   - signposts: Whether each task opens a `stall.main_task` interval and a long turn emits `stall.main_turn`.
+    ///   - starvation: Holds budgeted work while a shown frame is late (nil: never).
+    ///   - uptimeNanos: The clock, in nanoseconds; tests inject one they move.
+    ///   - turns: The run-loop turn meter (default: one on this clock).
+    public convenience init(budgets: Budgets = Budgets(), input: any InputPendingSource = NoInputPending(), board: MainTaskBoard = MainTaskBoard(),
+                            signposts: Bool = false, starvation: RenderStarvationGuard? = nil, uptimeNanos: @escaping () -> UInt64,
+                            turns: MainTurnMeter? = nil) {
+        self.init(budgets: budgets, input: input, board: board, signposts: signposts, starvation: starvation,
+                  mainClock: uptimeNanos, postClock: nil, turns: turns)
+    }
+
+    private init(budgets: Budgets, input: any InputPendingSource, board: MainTaskBoard, signposts: Bool,
+                 starvation: RenderStarvationGuard?, mainClock: @escaping () -> UInt64, postClock: (@Sendable () -> UInt64)?,
+                 turns: MainTurnMeter?) {
         self.budgets = budgets
-        self.turns = turns ?? MainTurnMeter(signposts: signposts, uptimeNanos: uptimeNanos)
+        self.turns = turns ?? MainTurnMeter(signposts: signposts, uptimeNanos: mainClock)
         self.starvation = starvation
         totalNanos = Self.nanos(budgets.total)
         passTargetNanos = Self.nanos(budgets.passTarget)
         self.input = input
         self.board = board
         self.signposts = signposts
-        self.uptimeNanos = uptimeNanos
+        uptimeNanos = mainClock
+        self.postClock = postClock
     }
 
     /// Starts a display frame's budget window: the ``MainWorkScheduler``'s one link calls it at
@@ -289,18 +320,21 @@ public final class MainFrameBudget {
     ///   - workClass: The task's class.
     ///   - owner: Its owner, interned on this budget's ``board`` when the queue or method was built
     ///     (``MainTaskBoard/owner(_:)``), so starting the task takes no lock.
+    ///   - posted: Where, when and in which node state it was posted: the board names its site while
+    ///     it runs, and its ledger records its wait (nil: run time only, under node state `none`).
     ///   - body: The task.
     /// - Returns: What `body` returns.
     @discardableResult
-    public func run<T>(_ workClass: MainWorkClass, owner: MainTaskOwner, _ body: () throws -> T) rethrows -> T {
+    public func run<T>(_ workClass: MainWorkClass, owner: MainTaskOwner, posted post: MainTaskPost? = nil, _ body: () throws -> T) rethrows -> T {
         sequence &+= 1
         let index = Self.index(workClass)
         let task = OpenTask(workClass: workClass, owner: owner, sequence: sequence, start: uptimeNanos(),
-                            budgetNanos: budgets.budget(workClass).map(Self.nanos) ?? 0)
+                            budgetNanos: budgets.budget(workClass).map(Self.nanos) ?? 0, post: post)
         if let index { ranThisFrame[index] = true }
         open.append(task)
         turns.beginSpan(.scheduled, at: task.start)
         board.begin(workClass, owner: owner.index, sequence: task.sequence, startNanos: task.start, budgetNanos: task.budgetNanos)
+        if let post { board.notePostedFrom(post.site) }
         let interval = signposts
             ? Signposter.stall.begin(.stallMainTask, taskClass: workClass.description, owner: owner.name,
                                      classID: UInt8(truncatingIfNeeded: workClass.rawValue), ownerID: owner.index)
@@ -311,6 +345,24 @@ public final class MainFrameBudget {
         }
         return try body()
     }
+
+    /// The running task runs work posted as `post` (a node queue's pump runs a task it held, a
+    /// control drain runs a request it claimed): the board and the ledger take that post in place
+    /// of the running task's.
+    public func notePost(_ post: MainTaskPost) {
+        if !open.isEmpty { open[open.count - 1].post = post }
+        board.notePostedFrom(post.site)
+    }
+
+    /// The running task ran none of the work it was posted for (a node queue's pump found its node
+    /// hidden, frozen or disabled, a control request expired before it ran): the ledger leaves it
+    /// out, so a held task is recorded once, with its wait and node state, when it runs.
+    public func noteRanNothing() {
+        if !open.isEmpty { open[open.count - 1].ranNothing = true }
+    }
+
+    /// Now on the budget's clock: the enqueue time of a post it will run.
+    var nowNanos: UInt64 { uptimeNanos() }
 
     /// The running task is a batch that runs requests as tasks of their own (a control drain): the
     /// typing burst's one task per 100 ms counts those, so a drain that ran none takes no slot.
@@ -347,25 +399,14 @@ public final class MainFrameBudget {
         }
         board.end(MainTaskBoard.Task(workClass: task.workClass, owner: task.owner.name, sequence: task.sequence, startNanos: task.start,
                                      budgetNanos: task.budgetNanos), durationNanos: own, overBudget: over)
+        if !task.ranNothing {
+            board.ledger.ended(task.workClass, owner: task.owner.index, post: task.post, startNanos: task.start, runNanos: own)
+        }
         // The outer task runs again: the watchdog names it.
         if let outer = open.last {
             board.begin(outer.workClass, owner: outer.owner.index, sequence: outer.sequence, startNanos: outer.start,
                         budgetNanos: outer.budgetNanos, notify: false)
         }
-    }
-
-    /// One task that started and has not returned.
-    private struct OpenTask {
-        var workClass: MainWorkClass
-        var owner: MainTaskOwner
-        var sequence: UInt32
-        var start: UInt64
-        var budgetNanos: UInt64
-        /// Time spent in tasks nested in this one.
-        var childNanos: UInt64 = 0
-        /// This one is a batch, not a request (``markRunningTaskAsBatch()``, or a task of its class
-        /// ran inside it): the typing burst does not count it.
-        var isBatch = false
     }
 
     /// What `workClass` spent this frame, its open tasks' time so far included.
@@ -389,7 +430,7 @@ public final class MainFrameBudget {
         return total
     }
 
-    /// Clears the counters and the turn meter's (`debug.main_budget reset`).
+    /// Clears the counters and the turn meter's (`debug.main_budget reset`; ``MainOwnerLedger/reset()`` is off main).
     public func resetStats() {
         stats = Stats()
         turns.reset()

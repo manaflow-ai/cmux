@@ -128,7 +128,7 @@ public final class MainActorWorkQueue: Sendable {
     public var stats: Stats { state.withLock { $0.stats } }
 
     /// `method` interned on the app's board (nil without one): the router calls it once per method
-    /// when it registers the method, so a request reaches ``run(connection:method:owner:workClass:deadline:countingFrom:_:)``
+    /// when it registers the method, so a request reaches ``run(connection:method:owner:workClass:deadline:countingFrom:file:line:_:)``
     /// with its owner and takes neither the board's owners lock nor a string hash.
     public func owner(of method: String) -> MainTaskOwner? {
         frameSource.mainTaskBoard?.owner(method)
@@ -151,6 +151,10 @@ public final class MainActorWorkQueue: Sendable {
     /// Queues `work` for the main actor and returns its result. Throws
     /// `busy` at once when the queue is full, `timeout` when `deadline`
     /// passes before `work` starts, or whatever `work` throws.
+    ///
+    /// With the app's budget the request is a posted task: its enqueue time is read here, on the
+    /// calling thread, and `file` and `line` are its `posted_from`, so the board's ledger records
+    /// its wait (queue and run loop time) under its method.
     public func run<T: Sendable>(
         connection: ControlConnectionID = .inProcess,
         method: String,
@@ -158,9 +162,12 @@ public final class MainActorWorkQueue: Sendable {
         workClass: MainWorkClass = .automation,
         deadline: ContinuousClock.Instant,
         countingFrom mark: Duration? = nil,
+        file: StaticString = #fileID,
+        line: UInt = #line,
         _ work: @escaping @MainActor @Sendable () throws -> T
     ) async throws -> T {
         let now = ContinuousClock.now
+        let posted = frameSource.mainTaskClock.map { MainTaskPost(site: MainPostSite(file: file, line: line), enqueueNanos: $0()) }
         let timeout = ControlError.timeout(method, after: max(deadline - now, .zero))
         // Main-thread time in Chromium's start after `mark` does not count
         // (MainThreadEngineStart): an item queued behind CefInitialize runs when it ends.
@@ -177,6 +184,7 @@ public final class MainActorWorkQueue: Sendable {
                 workClass: workClass == .input ? .input : .automation,
                 deadline: deadline,
                 enqueuedAt: now,
+                posted: posted,
                 body: {
                     do {
                         continuation.resume(returning: try work())
@@ -259,11 +267,23 @@ public final class MainActorWorkQueue: Sendable {
             guard let item = takeHead(urgent) else { continue }
             let ran: Bool
             if let budget, let owner = item.owner {
-                ran = budget.run(.input, owner: owner) { item.run() }
+                ran = Self.runAsTask(item, as: .input, owner: owner, on: budget)
             } else {
                 ran = item.run()
             }
             if ran { state.withLock { $0.stats.executed += 1 } }
+        }
+    }
+
+    /// Runs `item` as a task of `budget`, posted as the request was queued: the ledger records its
+    /// wait and run time, and leaves out a request that expired before it ran.
+    @MainActor
+    private static func runAsTask(_ item: MainActorWorkItem, as workClass: MainWorkClass, owner: MainTaskOwner,
+                                  on budget: MainFrameBudget) -> Bool {
+        budget.run(workClass, owner: owner, posted: item.posted) {
+            let ran = item.run()
+            if !ran { budget.noteRanNothing() }
+            return ran
         }
     }
 
@@ -377,7 +397,7 @@ public final class MainActorWorkQueue: Sendable {
             let didRun: Bool
             if let budget, let owner = item.owner {
                 // An injected key that waited behind its connection's requests runs as input.
-                didRun = budget.run(item.workClass, owner: owner) { item.run() }
+                didRun = Self.runAsTask(item, as: item.workClass, owner: owner, on: budget)
             } else {
                 didRun = item.run()
             }
