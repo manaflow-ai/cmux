@@ -19,8 +19,26 @@ nonisolated extension Feature {
         runtimeMutable: false
     )
 
+    /// The Task Manager lists the items Memory Saver discarded, each with the memory it saved, and the total Memory Saver freed.
+    public static let taskManagerMemorySaved = Feature(
+        index: 1,
+        name: "taskManagerMemorySaved",
+        owner: "PL-memory",
+        description: "The Task Manager lists the items Memory Saver discarded, each with the memory it saved, and the total Memory Saver freed.",
+        kind: .labs,
+        process: .app,
+        chromiumFeature: nil,
+        defaults: FeatureDefaults(dev: false, nightly: false, release: false),
+        expires: nil,
+        params: [],
+        stories: [],
+        sticky: false,
+        runtimeMutable: false
+    )
+
     /// Every feature, by index: `registered[feature.index] == feature`.
     public static let registered: [Feature] = [
         .renderStarvationGuard,
+        .taskManagerMemorySaved,
     ]
 }

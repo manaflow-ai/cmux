@@ -4,8 +4,8 @@ import CmuxNextMemory
 import CmuxNextSettings
 
 #if DEBUG || CMUX_BENCH_HOOKS
-/// `debug.hibernation.pressure` (DEBUG builds): sets the memory coordinator's pressure override and
-/// hands the same level to browser tab hibernation, so the fleet benches
+/// `debug.hibernation.pressure` (DEBUG builds): sets the memory coordinator's pressure override, which
+/// the coordinator hands to browser tab hibernation (a registered `MemoryLevelConsumer`), so the fleet benches
 /// (scripts/measure/tab-hibernation.sh) measure pressure without `sudo memory_pressure`.
 /// `level` is normal, warning or critical and holds for both, whatever the kernel reports, until
 /// `none` clears it and hands both the kernel's level again. The reply keeps `pressure`
@@ -26,8 +26,8 @@ enum DebugHibernationControl {
         ]
     }
 
-    /// Sets `coordinator`'s pressure override (nil clears it) and hands its level to `hibernation` in
-    /// the same turn; a hibernation that follows the coordinator keeps the override until it is cleared.
+    /// Sets `coordinator`'s pressure override (nil clears it). The coordinator hands the new level to
+    /// every registered `MemoryLevelConsumer` in the same turn, `hibernation` included once started.
     ///
     /// - Parameters:
     ///   - level: The level to hold, or nil for the kernel's level.
@@ -37,7 +37,6 @@ enum DebugHibernationControl {
     static func applyOverride(_ level: MemoryPressureLevel?, coordinator: MemoryCoordinator,
                               hibernation: BrowserHibernation?) -> JSONValue {
         coordinator.pressureOverride = level
-        hibernation?.pressureDidChange(coordinator.level)
         var reply: [String: JSONValue] = [
             "level": .string(coordinator.level.rawValue),
             "override": level.map { .string($0.rawValue) } ?? .null,
