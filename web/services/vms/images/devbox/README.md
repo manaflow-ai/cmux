@@ -384,6 +384,21 @@ deferred instead of falling back to the root filesystem. Older images without
 the marker continue using their existing state layout until they are replaced
 or upgraded with `bun scripts/upgrade-fleet-cmux-tui.ts`.
 
+The state-mount helper and the daemon have separate source pins. The image's
+`repoCommit` and `devboxSource` describe the bake inputs; `cmuxTuiCommit`
+identifies the downloaded daemon. A bake containing a helper fix does not
+necessarily contain a daemon fix from the same checkout.
+
+When shipping both, first publish a cmux-tui artifact containing the daemon
+fix, then pin `CMUX_VM_CMUX_TUI_MANIFEST_URL` to that commit's manifest for
+the bake and promotion below. Verify every promoted default's `cmuxTuiCommit`
+matches that commit. Upgrade existing machines with
+`bun scripts/upgrade-fleet-cmux-tui.ts --commit <published-commit> --vm <canary-id>`,
+then `--vms-file <inventory-file>` after checking the canary, as described in
+`docs/cloud-guest-upgrades.md`. Without `--commit`, the upgrade uses the
+default images' daemon, which can still predate the fix. Installing the helper
+alone does not deliver the daemon's atomic identity writes or cut-file recovery.
+
 ## Sizes: one bake, one snapshot per size
 
 A Freestyle VM boots at its snapshot's size and resize is grow-only, so the

@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { describe, expect, test } from "bun:test";
 import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -17,22 +17,19 @@ const helperSource = readFileSync(
 // bun's 5 s default.
 const TEST_TIMEOUT_MS = 20_000;
 
-const scratchDirs: string[] = [];
-afterEach(() => {
-  for (const dir of scratchDirs.splice(0)) rmSync(dir, { recursive: true, force: true });
-});
-
 type Disk = {
   /** Free KiB `df` reports for the mounted state filesystem. */
-  readonly stateFreeKb: number;
+  readonly stateFreeKb: number | string;
   /** Free KiB `df` reports for the root filesystem holding the state image. */
-  readonly rootFreeKb: number;
+  readonly rootFreeKb: number | string;
   /** Current size of the state image in bytes. */
   readonly imageBytes?: number;
   /** Makes the growth allocation fail part way, as on a disk that filled after the headroom check. */
   readonly fallocateFails?: boolean;
   /** Makes the rollback of a failed allocation fail too. */
   readonly truncateFails?: boolean;
+  /** Fails a growth tool before the image allocation. */
+  readonly growthToolFailure?: "losetup" | "resize2fs";
 };
 
 function stub(bin: string, name: string, body: string): void {
@@ -43,7 +40,14 @@ function stub(bin: string, name: string, body: string): void {
 
 async function runEnsure(disk: Disk): Promise<{ status: number | null; stderr: string; grew: boolean; finalImageBytes: number }> {
   const root = mkdtempSync(path.join(tmpdir(), "cmux-tui-state-mount-"));
-  scratchDirs.push(root);
+  try {
+    return await runEnsureInRoot(root, disk);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+}
+
+async function runEnsureInRoot(root: string, disk: Disk) {
   const bin = path.join(root, "bin");
   const varLib = path.join(root, "var/lib/cmux");
   const home = path.join(root, "home/cmux");
@@ -61,8 +65,8 @@ async function runEnsure(disk: Disk): Promise<{ status: number | null; stderr: s
   stub(bin, "mountpoint", "exit 0");
   stub(bin, "flock", "exit 0");
   stub(bin, "findmnt", "echo /dev/loop7");
-  stub(bin, "losetup", "exit 0");
-  stub(bin, "resize2fs", "exit 0");
+  stub(bin, "losetup", disk.growthToolFailure === "losetup" ? "exit 1" : "exit 0");
+  stub(bin, "resize2fs", disk.growthToolFailure === "resize2fs" ? "exit 1" : "exit 0");
   stub(bin, "stat", `cat ${sizeFile}`);
   // fallocate -l BYTES FILE; a failing one extends the file by 1 MiB first.
   stub(
@@ -79,7 +83,7 @@ async function runEnsure(disk: Disk): Promise<{ status: number | null; stderr: s
     "df",
     [
       'echo "Filesystem 1024-blocks Used Available Capacity Mounted on"',
-      `case "$2" in *cmux-tui-state.ext4) free=${disk.rootFreeKb} ;; *) free=${disk.stateFreeKb} ;; esac`,
+      'case "$2" in *cmux-tui-state.ext4) free=$CMUX_TEST_ROOT_FREE_KB ;; *) free=$CMUX_TEST_STATE_FREE_KB ;; esac',
       'echo "/dev/x 100 0 $free 0% /"',
     ].join("\n"),
   );
@@ -94,8 +98,15 @@ async function runEnsure(disk: Disk): Promise<{ status: number | null; stderr: s
   chmodSync(helper, 0o755);
 
   const result = await runChild("/bin/sh", [helper, "ensure", home, "cmux"], {
-    env: { PATH: `${bin}:/usr/bin:/bin` },
+    // Leave time for runChild's termination grace before the test deadline.
+    timeout: TEST_TIMEOUT_MS - 5_000,
+    env: {
+      PATH: `${bin}:/usr/bin:/bin`,
+      CMUX_TEST_ROOT_FREE_KB: String(disk.rootFreeKb),
+      CMUX_TEST_STATE_FREE_KB: String(disk.stateFreeKb),
+    },
   });
+  if (result.error) throw result.error;
   return {
     status: result.status,
     stderr: result.stderr,
@@ -123,7 +134,52 @@ describe("cmux-tui state mount on a full disk", () => {
 
   test("a state filesystem with no working room still defers startup", async () => {
     const result = await runEnsure({ stateFreeKb: 4 * 1024, rootFreeKb: 100 * 1024 });
-    expect(result.status).not.toBe(0);
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("state filesystem is full");
+  }, TEST_TIMEOUT_MS);
+
+  test.each(["not-a-number", ""])("rejects malformed state free-space output %j", async (stateFreeKb) => {
+    const result = await runEnsure({ stateFreeKb, rootFreeKb: 100 * 1024 });
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("cannot read state filesystem free space");
+    expect(result.grew).toBe(false);
+  }, TEST_TIMEOUT_MS);
+
+  test("defers startup just below the critical free-space boundary", async () => {
+    const result = await runEnsure({ stateFreeKb: 16_383, rootFreeKb: 100 * 1024 });
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("state filesystem is full (free=16383KiB)");
+    expect(result.grew).toBe(false);
+  }, TEST_TIMEOUT_MS);
+
+  test("starts at the exact critical free-space boundary", async () => {
+    const result = await runEnsure({ stateFreeKb: 16_384, rootFreeKb: 100 * 1024 });
+    expect(result.status).toBe(0);
+    expect(result.stderr).toContain("continuing with 16384KiB free");
+    expect(result.grew).toBe(false);
+  }, TEST_TIMEOUT_MS);
+
+  test("malformed root free-space output cannot authorize growth", async () => {
+    const result = await runEnsure({ stateFreeKb: 64 * 1024, rootFreeKb: "not-a-number" });
+    expect(result.status).toBe(0);
+    expect(result.stderr).toContain("cannot read root filesystem free space");
+    expect(result.stderr).toContain("continuing with 65536KiB free");
+    expect(result.grew).toBe(false);
+  }, TEST_TIMEOUT_MS);
+
+  test.each(["losetup", "resize2fs"] as const)("a failed %s preserves startup with working room", async (growthToolFailure) => {
+    const result = await runEnsure({ stateFreeKb: 64 * 1024, rootFreeKb: 8 * 1024 * 1024, growthToolFailure });
+    expect(result.status).toBe(0);
+    expect(result.stderr).toContain("continuing with 65536KiB free");
+    expect(result.grew).toBe(false);
+    expect(result.finalImageBytes).toBe(1024 * 1024 * 1024);
+  }, TEST_TIMEOUT_MS);
+
+  test.each(["losetup", "resize2fs"] as const)("a failed %s cannot start below the critical boundary", async (growthToolFailure) => {
+    const result = await runEnsure({ stateFreeKb: 16_383, rootFreeKb: 8 * 1024 * 1024, growthToolFailure });
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("state filesystem is full (free=16383KiB)");
+    expect(result.grew).toBe(false);
   }, TEST_TIMEOUT_MS);
 
   test("grows the state image when the root disk has headroom", async () => {
