@@ -51,8 +51,8 @@ struct AgentPageHibernationTests {
 
         /// A chat of this Mac on `session`, shown in a pane, then hidden as a pane switches away:
         /// the presentation change comes while the page is still in the window, and the pane
-        /// takes it out after.
-        func hiddenChat(_ key: String, session: String) throws -> AgentPaneView {
+        /// takes it out after (`leavesWindow: false`: the pane has not taken it out yet).
+        func hiddenChat(_ key: String, session: String, leavesWindow: Bool = true) throws -> AgentPaneView {
             records[key] = AgentSessionRef(host: AgentPageHibernationTests.thisMac, hostName: "This Mac", session: session, harness: "claude")
             let view = try #require(tabs.view(for: key), "no page for \(key)")
             window.contentView?.addSubview(view)
@@ -60,7 +60,7 @@ struct AgentPageHibernationTests {
             hibernation.sync { self.rendering.contains($0) }
             rendering.remove(key)
             hibernation.sync { self.rendering.contains($0) }
-            view.removeFromSuperview()
+            if leavesWindow { view.removeFromSuperview() }
             return view
         }
 
@@ -70,8 +70,8 @@ struct AgentPageHibernationTests {
         }
 
         /// Waits for a release in flight (it first asks the page for its frame, for up to 2 s).
-        func settle(until done: () -> Bool) async {
-            let deadline = ContinuousClock.now + .seconds(5)
+        func settle(for seconds: Double = 5, until done: () -> Bool) async {
+            let deadline = ContinuousClock.now + .seconds(seconds)
             while !done(), ContinuousClock.now < deadline { try? await Task.sleep(for: .milliseconds(20)) }
         }
     }
@@ -198,11 +198,11 @@ struct AgentPageHibernationTests {
         #expect(rig.tabs.existingView("tab_unknown") == nil, "the watch came back and the idle chat kept its page")
     }
 
-    /// Hides chats `keys` one second apart, oldest first.
-    private func hideInOrder(_ keys: [String], on rig: Rig) throws -> [String: AgentPaneView] {
+    /// Hides chats `keys` one second apart, oldest first; the ones in `inWindow` stay in their window.
+    private func hideInOrder(_ keys: [String], inWindow: Set<String> = [], on rig: Rig) throws -> [String: AgentPaneView] {
         var pages: [String: AgentPaneView] = [:]
         for key in keys {
-            pages[key] = try rig.hiddenChat(key, session: "s-\(key)")
+            pages[key] = try rig.hiddenChat(key, session: "s-\(key)", leavesWindow: !inWindow.contains(key))
             rig.elapsed += .seconds(1)
         }
         return pages
@@ -244,7 +244,8 @@ struct AgentPageHibernationTests {
 
     /// The budget counts every live hidden page, the busy ones too, but a chat whose agent works
     /// or waits on the person never goes: the oldest idle ones go in their place. A page hidden
-    /// less than `minimumHidden` waits, on a deadline. With the turn watch down nothing goes.
+    /// less than `minimumHidden` waits, on its own deadline (not the half hour's): the deadline
+    /// alone lets them go. With the turn watch down nothing goes.
     @Test func pastTheBudgetBusyChatsStayAndYoungPagesWait() async throws {
         let rig = Rig()
         rig.hibernation.update(setting: BrowserHibernationSetting(mode: .moderate), pressure: .normal)
@@ -257,11 +258,15 @@ struct AgentPageHibernationTests {
         // Hidden 1 to 6 s: over the budget, but every page is too young to go.
         await rig.settle { false }
         for key in keys { #expect(rig.tabs.existingView(key) === pages[key], "\(key) went before the composer's short wait") }
-        #expect(rig.hibernation.hasDeadline, "over the budget with young pages armed no deadline")
+        // The oldest idle page (tab_c, hidden 4 s) is due in 6 s, not at the half hour's timeout.
+        let delay = try #require(rig.hibernation.deadlineDelay, "over the budget with young pages armed no deadline")
+        #expect(delay <= AgentPageHibernation.minimumHidden, "the young pages wait on the timeout (\(delay) s), not the budget")
 
+        // No call to replan: the armed deadline alone lets the two oldest idle pages go.
         rig.elapsed += .seconds(AgentPageHibernation.minimumHidden)
-        rig.hibernation.replan()
-        await rig.settle { rig.tabs.existingView("tab_c") == nil && rig.tabs.existingView("tab_d") == nil }
+        await rig.settle(for: AgentPageHibernation.minimumHidden + 5) {
+            rig.tabs.existingView("tab_c") == nil && rig.tabs.existingView("tab_d") == nil
+        }
         #expect(rig.tabs.existingView("tab_working") === pages["tab_working"], "a chat whose agent works went for the budget")
         #expect(rig.tabs.existingView("tab_asking") === pages["tab_asking"], "a chat waiting on the person went for the budget")
         #expect(rig.hibernation.keepsPage("tab_working") == .agentBusy)
@@ -281,5 +286,38 @@ struct AgentPageHibernationTests {
         for key in ["tab_e", "tab_f", "tab_g", "tab_h"] {
             #expect(rig.tabs.existingView(key) != nil, "\(key) went with no turn known")
         }
+    }
+
+    /// Over the budget, the oldest page still in its window (the pane has not taken it out yet)
+    /// counts as going: no younger page goes in its place, and a short recheck lets it go once
+    /// the pane takes it out, with no other event.
+    @Test func pastTheBudgetAPageStillInItsWindowGoesOnItsRecheck() async throws {
+        let rig = Rig()
+        let released = Asked()
+        rig.hibernation.onRelease = { released.count += 1 }
+        rig.hibernation.update(setting: BrowserHibernationSetting(mode: .moderate), pressure: .normal)
+        let keys = ["tab_a", "tab_b", "tab_c", "tab_d"]
+        let pages = try hideInOrder(keys, inWindow: ["tab_a"], on: rig)
+        // Hidden 9 to 12 s: tab_a and tab_b are past the composer's short wait.
+        rig.elapsed += .seconds(AgentPageHibernation.minimumHidden - 2)
+
+        // Budget 2 of 4: tab_a counts as going, so only tab_b goes now.
+        rig.hibernation.liveHiddenLimit = 2
+        await rig.settle { false }
+        #expect(rig.tabs.existingView("tab_a") === pages["tab_a"], "a page still in its window went")
+        #expect(rig.tabs.existingView("tab_b") == nil, "the oldest page out of its window stayed past the budget")
+        #expect(rig.tabs.existingView("tab_c") === pages["tab_c"], "a younger page went in place of the one still in its window")
+        #expect(rig.tabs.existingView("tab_d") === pages["tab_d"])
+        #expect(released.count == 1)
+        let delay = try #require(rig.hibernation.deadlineDelay, "the page in its window armed no recheck")
+        #expect(delay <= AgentPageHibernation.minimumHidden, "the page in its window waits on the timeout (\(delay) s), not a recheck")
+
+        // The pane takes it out; no call to replan: the recheck lets it go.
+        pages["tab_a"]?.removeFromSuperview()
+        await rig.settle(for: AgentPageHibernation.minimumHidden + 5) { rig.tabs.existingView("tab_a") == nil }
+        #expect(rig.tabs.existingView("tab_a") == nil, "the recheck did not let the page out of its window go")
+        #expect(rig.tabs.existingView("tab_c") === pages["tab_c"], "a page within the budget went")
+        #expect(rig.tabs.existingView("tab_d") === pages["tab_d"], "a page within the budget went")
+        #expect(released.count == 2)
     }
 }

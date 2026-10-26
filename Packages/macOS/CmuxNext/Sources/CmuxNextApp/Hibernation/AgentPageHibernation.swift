@@ -67,6 +67,9 @@ final class AgentPageHibernation {
     var onRelease: () -> Void = {}
     /// A page is due later and the timer for it runs (tests).
     var hasDeadline: Bool { deadline.isScheduled }
+    /// How soon the armed deadline comes due, in seconds; nil when none is armed (tests tell the
+    /// budget's short deadline from the timeout's).
+    private(set) var deadlineDelay: Double?
     private var turnObservation: Task<Void, Never>?
     /// The most hidden pages kept live; nil: only the timeout lets pages go.
     var liveHiddenLimit: Int? {
@@ -159,6 +162,7 @@ final class AgentPageHibernation {
         hiddenAt = hiddenAt.filter { tabs.existingView($0.key) != nil }
         shown = shown.filter { tabs.existingView($0) != nil }
         guard let threshold = HibernationPlanner.threshold(setting, pressure: pressure).map({ max($0, Self.minimumHidden) }) else {
+            deadlineDelay = nil
             deadline.cancel()
             return
         }
@@ -182,6 +186,7 @@ final class AgentPageHibernation {
             }
         }
         if let again = releaseOverLimit(live, at: current) { next = min(next ?? again, again) }
+        deadlineDelay = next
         if let next {
             deadline.schedule(after: .milliseconds(Int64(next * 1000) + 50)) { @MainActor [weak self] in self?.replan() }
         } else {
