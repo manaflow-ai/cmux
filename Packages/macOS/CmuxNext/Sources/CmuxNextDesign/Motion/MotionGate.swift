@@ -12,7 +12,7 @@ public import CmuxNextDesignTokens
 /// Reach a gate through `Motion`:
 ///
 /// ```swift
-/// Motion.sidebar.animate(.move, in: row) { row.animator().frame = target }
+/// Motion.sidebar.set(row, frame: target, spring: .move)
 /// Motion.tabs.set(layer, "opacity", to: 1, fade: .hover)
 /// if let spin = Motion.indicators.spinAnimation() { layer.add(spin, forKey: "spin") }
 /// ```

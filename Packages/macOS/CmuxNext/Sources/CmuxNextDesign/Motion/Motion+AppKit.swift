@@ -10,9 +10,9 @@ public import CmuxNextDesignTokens
 /// velocity, so nothing jumps or queues. On macOS 14 (no SwiftUI-animation
 /// `NSAnimationContext`) the same token runs as a timed curve: a new change
 /// starts from the presentation value but with zero velocity. The timed, exit
-/// and fade helpers drop velocity on every macOS. Pane layout motion does not
-/// use these entry points: it steps its own springs from the display link
-/// (`ScreenContentView+Motion`), which keep value and velocity on every macOS.
+/// and fade helpers drop velocity on every macOS. AppKit steps these on the main
+/// thread every frame: a layer-backed view's frame or alpha animates on the render
+/// server through `set(_:frame:spring:)` and `set(_:alpha:fade:)` instead.
 extension Motion {
     /// Whether a change of `view` can animate. A window with no screen (a
     /// display unplugged, a screenless host, an offscreen window) or on a
@@ -151,9 +151,9 @@ extension Motion {
 /// The animation helpers of a ``MotionGate``: each decides with its
 /// category's policy (`Motion.sidebar.animate(...)`).
 extension MotionGate {
-    /// Animates `NSView.animator()` changes with a spring token, or applies
-    /// them at once when movement does not animate. `completion` runs on the
-    /// main thread after the change finishes (or on the next turn).
+    /// Animates `NSView.animator()` changes with a spring token, or applies them at once when movement
+    /// does not animate. `completion` runs on the main thread after the change finishes (or on the next
+    /// turn). A view's frame moves off the main thread with ``set(_:frame:spring:completion:)``.
     ///
     /// - Parameter view: The view the change animates. When its window has no
     ///   screen the change applies at once (``canAnimate(in:)``).

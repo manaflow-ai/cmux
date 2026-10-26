@@ -168,15 +168,15 @@ public final class PaneToolbarView: NSView {
     /// How far "…" travels as it appears: two grid steps.
     private static var moreSlide: CGFloat { Metrics.space2 * 2 }
 
-    /// Moves "…" with the reveal's fade (same `MotionFade.hover` timing).
+    /// Moves "…" with the reveal's fade (same `MotionFade.hover` timing): its frame lands now and the
+    /// render server carries the slide, so main writes no frame while it moves.
     private func slideMore(revealed: Bool) {
         let target = moreFrame(revealed: revealed)
-        guard moreButton.frame != target else { return }
-        guard Motion.tabs.animatesMovement, window != nil else {
+        guard Motion.tabs.animatesMovement else {
             moreButton.frame = target
             return
         }
-        Motion.feedback.animate(.hover, in: self) { moreButton.animator().frame = target }
+        Motion.feedback.set(moreButton, frame: target, fade: .hover)
     }
 
     /// The buttons' gap above them in a bar `height` tall, which is also the "…" button's gap to
