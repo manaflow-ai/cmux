@@ -142,6 +142,12 @@ fn main() -> std::process::ExitCode {
     // argument as its value.
     let append_after_live = args.iter().any(|a| a == "--append-after-live");
     args.retain(|a| a != "--append-after-live");
+    // `memory import-from ... --stop-host`: also a boolean (a bare flag would take the next word).
+    for a in args.iter_mut() {
+        if a == "--stop-host" {
+            *a = "--stop-host=1".to_owned();
+        }
+    }
     let mut flags = Flags::parse(&args);
     // `memory search --json` (and only there: `trace` and `stats` read their
     // own `--json` from the raw arguments). The verb may follow options.
@@ -172,8 +178,8 @@ fn main() -> std::process::ExitCode {
         }
         Some(
             tool @ ("zoom" | "date" | "spawn" | "tell" | "peers" | "react" | "reply" | "send"
-            | "stop" | "sleep" | "transcript" | "control" | "profile" | "chiefs"
-            | "escalate-auth" | "escalate_auth"),
+            | "stop" | "sleep" | "remember" | "transcript" | "control" | "profile"
+            | "chiefs" | "escalate-auth" | "escalate_auth"),
         ) => {
             let socket = flags
                 .value("socket")

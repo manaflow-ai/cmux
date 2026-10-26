@@ -7,6 +7,7 @@ import CmuxNextControl
 import CmuxNextCrashReporting
 import CmuxNextDaemon
 import CmuxNextDesign
+import CmuxNextImportCards
 import CmuxNextKeepAwake
 import CmuxNextPages
 import CmuxNextWebUpdates
@@ -105,6 +106,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let settingsRead = SettingsController.readAtLaunch(
             fileURL: settingsFileURL(), buildDefaults: .channel(downloadsAutomatically: UpdateBuildIdentity.main().track.downloadsAutomaticallyByDefault))
         TerminalThemeSetting.prime(settingsRead.snapshot)
+        // Before the import cards start (AppActions.bind): off at launch, they never scan or resume.
+        BrowserImportGate.prime(settingsRead.snapshot)
         DebugTimings.markLaunch("dfl.settings_read")
         // Chrome colors derive from the Ghostty theme; load it before any window.
         ThemeBridge.start(store: ThemeScope.app.store)
@@ -335,6 +338,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             services?.registry.disabledFeatures.contains(.computerUse) ?? true
         })
         services.startHibernation(settings: settings)
+        services.autoArchive.start() // workspaces.autoArchive: first pass 30 s after launch
         services.terminalTheme.follow(settings)
         services.themes.start()
         services.themes.followChromeTheme(settings)
@@ -398,7 +402,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     BrowserPageService(engine: AppBrowserPageEngine(services: services), passkeys: passkeys,
                                        agentMouse: { [weak settings] in
                                            await MainActor.run { settings?.snapshot.browserAgentMouse } ?? AgentMouseSetting().fallback
-                                       }).install(on: router)
+                                       }, mirrors: services).install(on: router)
                     services.apps.attach(router: router)
                 }
                 logger.info("control socket \(self.control.socketPath ?? "", privacy: .public)")

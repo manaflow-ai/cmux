@@ -78,6 +78,12 @@
       "title" : "Session Info",
       "type" : "string"
     },
+    "agentPane.display.vscodeMinimap" : {
+      "default" : false,
+      "description" : "A small picture of the whole chat at its right edge, as in VS Code. Click or drag it to scroll.",
+      "title" : "VS Code Minimap",
+      "type" : "boolean"
+    },
     "agentPane.display.width" : {
       "default" : 800,
       "description" : "The widest the chat's column gets. On a wider pane the chat stays centered.",
