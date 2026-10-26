@@ -834,3 +834,30 @@ async fn a_persons_prompt_neither_supersedes_nor_is_superseded() {
     assert_eq!(gone, [&json!("p-owner")], "{removed:?}");
     c.cancel(&session).await;
 }
+
+/// An answer to an ask a Stop cancelled is told no one answered: the cancel goes in the settled
+/// store with the drain (`permission_settled.rs`), before the asking task logs it.
+#[tokio::test]
+async fn an_answer_after_a_stop_is_told_the_ask_was_cancelled() {
+    let hub = hub_policy(json!({}), "ask");
+    let mut c = Client::open(&hub);
+    let session = c.new_session(json!({"harness": "fake"})).await;
+    let mut a = Client::open(&hub);
+    let asked =
+        c.send("session/prompt", prompt(&session, "p-ask", "ask: rm -rf /tmp/z", None)).await;
+    let pending = c.until(|v| v["method"] == "_acpmux/permission_pending").await;
+    let permission = pending["params"]["permissionId"].clone();
+    c.cancel(&session).await;
+    c.reply_to(asked).await;
+    let late = by(
+        json!({"sessionId": session, "permissionId": permission, "optionId": "no",
+                         "_meta": {"acpmux": {}}}),
+        Some(&bo()),
+    );
+    let lost = a.reply("_acpmux/permission_respond", late).await;
+    assert_eq!(
+        lost.pointer("/error/data"),
+        Some(&json!({"answeredBy": null, "outcome": {"outcome": "cancelled"}})),
+        "{lost}"
+    );
+}

@@ -854,6 +854,8 @@ impl Hub {
             session.permission_epoch.fetch_add(1, Ordering::SeqCst);
             let drained: Vec<_> = state.pending.drain().collect();
             for (id, _) in &drained {
+                // Told to a later answer at once (`permission_settled.rs`): no one answered.
+                state.settled.remember(id, None, &json!({"outcome": "cancelled"}));
                 if let Some(group) = state.finish_item(&session.id, id, true) {
                     self.append(session, "mux", "permission_group", json!({"group":group}));
                 }
