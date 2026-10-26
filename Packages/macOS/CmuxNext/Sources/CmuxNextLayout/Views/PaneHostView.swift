@@ -310,10 +310,8 @@ final class PaneHostView: NSView, RestingPlacement {
     /// not take clicks meant for the view beside the area. Nil outside an area.
     var areaHitClip: CGRect?
 
-    override func hitTest(_ point: NSPoint) -> NSView? {
-        if let areaHitClip, !areaHitClip.contains(convert(point, from: superview)) { return nil }
-        return super.hitTest(point)
-    }
+    /// Presentation-layer reads of its hit tests (`PaneHostView+RenderSpring.swift`), cumulative: none at rest.
+    var presentedHitReads = 0
 
     /// Clips the host to `rect` (its own coordinates): the part of it inside its scroll area's
     /// window, and the strip's range it keeps while a zoom lifts the strip container; nil removes the

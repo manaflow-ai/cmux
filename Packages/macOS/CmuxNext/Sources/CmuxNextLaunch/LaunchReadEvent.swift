@@ -1,4 +1,4 @@
-import os
+public import os
 
 /// A launch read's completion as a one-shot event (Chromium's `base::OneShotEvent`,
 /// base/one_shot_event.h): steps that need the read post to it and run on its ``signal()``, in post

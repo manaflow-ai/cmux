@@ -81,6 +81,18 @@ public final class WebPopupHost {
     /// The frame the menu is showing at (screen), for tests and `debug.window_list`.
     public var shownFrame: CGRect? { popup?.isShown == true && model != nil ? popup?.cardFrame : nil }
 
+    /// The menu came up (`true`) or went away (`false`): once per change, at the show, the hide, a
+    /// pick or a dismiss (the page's `popup` keep reason).
+    public var onShownChange: ((Bool) -> Void)?
+    private var reportedShown = false
+
+    private func noteShown() {
+        let shown = model != nil && popup?.isShown == true
+        guard shown != reportedShown else { return }
+        reportedShown = shown
+        onShownChange?(shown)
+    }
+
     /// Shows the page's menu on the screen; the reply names the side it took and its frame.
     @discardableResult
     public func show(_ model: Model) -> [String: Any] {
@@ -100,8 +112,12 @@ public final class WebPopupHost {
         let anchor = window.convertToScreen(webView.convert(flipped, to: nil))
         let size = CGSize(width: model.width * scale, height: panel.rows.contentHeight)
         guard let placed = popup.show(size: size, anchor: anchor, in: window, preferred: model.side,
-                                      trailing: model.trailing, entrance: !model.instant) else { return ["shown": false] }
+                                      trailing: model.trailing, entrance: !model.instant) else {
+            noteShown()
+            return ["shown": false]
+        }
         panel.isClosing = false
+        noteShown()
         let frame = placed.frame
         return ["shown": true, "side": placed.side == .below ? "bottom" : "top",
                 "frame": [frame.minX, frame.minY, frame.width, frame.height]]
@@ -119,6 +135,7 @@ public final class WebPopupHost {
             guard let self, model != nil else { return }
             model = nil
             panel?.isClosing = true
+            noteShown()
             send(["type": "dismiss"])
         }
         return popup
@@ -137,6 +154,7 @@ public final class WebPopupHost {
         model = nil
         panel?.isClosing = true
         popup?.hide()
+        noteShown()
     }
 
     private func picked(_ id: String) {

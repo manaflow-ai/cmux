@@ -141,6 +141,11 @@ impl StandbyHostSlot {
     }
 
     #[cfg(test)]
+    pub(crate) fn is_refilling(&self) -> bool {
+        self.state().refilling
+    }
+
+    #[cfg(test)]
     pub(crate) fn finish_refill_for_test(&self, host: StandbyTerminalHost) {
         self.state().refilling = true;
         self.finish_refill(Some(host));
@@ -149,10 +154,12 @@ impl StandbyHostSlot {
     /// Starts one refill on `pool` when a spare is wanted and none exists.
     #[track_caller]
     pub(crate) fn refill(self: &Arc<Self>, pool: &super::TerminalWorkPool) {
+        // The first watch reads the system's level before it returns, so a
+        // daemon already under pressure suppresses the slot before it decides.
+        self.memory.watch_system_pressure();
         if !self.begin_refill() {
             return;
         }
-        self.memory.watch_system_pressure();
         let slot: Weak<Self> = Arc::downgrade(self);
         let spawn = self.spawn;
         let job: Box<dyn FnOnce() + Send> = Box::new(move || {

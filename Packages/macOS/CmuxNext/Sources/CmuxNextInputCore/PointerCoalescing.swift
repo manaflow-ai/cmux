@@ -66,18 +66,29 @@ public struct PointerCoalescedInput: Hashable, Sendable {
 
     /// A delivery of `record` alone; nil when the record is not continuous pointer input.
     public init?(_ record: InputEventRecord) {
+        self.init(record, sampleBuffer: [])
+    }
+
+    /// A delivery of `record` alone whose drag samples reuse `sampleBuffer`'s storage (an emptied buffer
+    /// from ``PointerCoalescingQueue``'s pool), so a drag frame allocates nothing.
+    init?(_ record: InputEventRecord, sampleBuffer: [PointerSample]) {
         guard let kind = PointerCoalescedKind(record.type) else { return nil }
         self.kind = kind
         latest = record
         oldestTimestamp = record.timestamp
         coalescedCount = 1
         scrollDelta = kind == .scroll ? record.scrollDelta : .zero
-        if kind == .drag {
-            samples = [PointerSample(location: record.location, timestamp: record.timestamp)]
-            samples.reserveCapacity(Self.sampleCapacity)
-        } else {
-            samples = []
-        }
+        samples = sampleBuffer
+        guard kind == .drag else { return }
+        if samples.capacity < Self.sampleCapacity { samples.reserveCapacity(Self.sampleCapacity) }
+        samples.append(PointerSample(location: record.location, timestamp: record.timestamp))
+    }
+
+    /// Moves the samples' storage out, leaving none: the queue's pool takes it back after the delivery.
+    mutating func takeSamples() -> [PointerSample] {
+        var taken: [PointerSample] = []
+        swap(&taken, &samples)
+        return taken
     }
 
     /// Whether `record` merges into this delivery (Chromium's `CanCoalesceWith`): the same kind, window,

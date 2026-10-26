@@ -633,6 +633,18 @@
       "row": "observer_sites",
       "allow": 2,
       "why": "p06-scheduler-022, merged into p06-scheduler-042: AppVisibilitySource subscribes once per app to the hide, unhide and display sleep and wake notices through AppEvents, and WindowVisibilitySource once per window to the occlusion and miniaturize notices through WindowEvents (recipe R-notif). Those five sites replace per-view observers that this branch removes (StatusIndicatorView's occlusion observer, SidebarListView's, the tab strip's WindowVisibilityObserver), so every indicator, row and strip follows one visibility node per window. Chromium observes the NSApp hide notices once (chrome/browser/app_controller_mac.mm) and each window's occlusion once (web_contents_view_cocoa.mm)."
+    },
+    {
+      "date": "2026-10-26",
+      "row": "blocking_allow_escapes",
+      "allow": 2,
+      "why": "p02-threads-035: two waits that were raw (a queue.sync and a DispatchSemaphore.wait with // concurrency-allow:) now go through the checked seams under the reviewed BlockingAllowance.terminate, so the detector sees them and MQ-8 counts no raw wait. RunMarkerFile.close runs in applicationWillTerminate: it waits for at most one in-flight write of about 100 bytes (no fsync) so its unlink of run.json is the last word; an async unlink would not run before the process exits, and the next launch would show the restart notice after a clean quit. QuitDeadline.wedgeMainThread (DEBUG and bench builds only, debug.quit {wedge_engine_stop: true}) blocks the main thread on purpose after the quit is decided, as the wedged CefShutdown did, so a journey proves the deadline thread still ends the process. Chrome allows blocking during browser shutdown the same way (ScopedAllowBlocking in the shutdown path, base/threading/thread_restrictions.h)."
+    },
+    {
+      "date": "2026-10-26",
+      "row": "blocking_allow_escapes",
+      "allow": 1,
+      "why": "p02-threads-035 (fixer): TerminalOutputLane.close, the fence before ghostty_surface_free that the terminal view's deinit runs on the main thread, was a raw queue.sync with // concurrency-allow:; as blockingSync it is now seen by the detector, under the new reviewed BlockingAllowance.surfaceTeardown (threading-model.md row). The free stays on the main thread because the surface points at the view being deallocated; queued work is skipped once the lane is closing, so the wait is at most the one chunk being parsed, on a user-interactive lane (the main thread's own QoS). Chrome allows bounded teardown waits the same way (ScopedAllowBaseSyncPrimitivesOutsideBlockingScope, base/threading/thread_restrictions.h)."
     }
   ],
   "observer_wrappers": [

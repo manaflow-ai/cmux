@@ -10,11 +10,14 @@ public nonisolated struct ServerHelperTimedOut: Error, Equatable {
 /// loser (the ControlDeadline pattern): the first of {result, deadline}
 /// resumes the caller. On the deadline it runs `onTimeout` (kill the child,
 /// invalidate the connection) and throws `ServerHelperTimedOut`; the
-/// operation's late result is dropped.
+/// operation's late result is dropped. The deadline may fire up to
+/// `tolerance` late: callers pass `WakeLeeway`'s for their limit (the helper's
+/// runner, which links no CmuxNextWakeups, passes ``ProcessFixRunner/helperTolerance``).
 public struct ServerHelperDeadline {
     public nonisolated init() {}
     public nonisolated func run<T: Sendable>(
         limit: Duration,
+        tolerance: Duration,
         clock: any Clock<Duration>,
         operation: @escaping @Sendable () async throws -> T,
         onTimeout: @escaping @Sendable () -> Void
@@ -30,8 +33,9 @@ public struct ServerHelperDeadline {
                 }
             }
             let timer = Task {
-                // wakeup-allow: one-shot deadline of one helper request, cancelled when the request answers
-                do { try await clock.sleep(for: limit) } catch { return }
+                // wakeup-allow: deadline of one helper request: the timer side of its result-or-deadline race; not a
+                // DemandTimer, which the helper executable does not link
+                do { try await clock.sleep(for: limit, tolerance: tolerance) } catch { return }
                 if race.finish(.failure(ServerHelperTimedOut())) {
                     onTimeout()
                     work.cancel()

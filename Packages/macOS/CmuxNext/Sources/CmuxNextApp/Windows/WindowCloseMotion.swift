@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextActions
 import CmuxNextDesign
 import CmuxNextWakeups
 
@@ -20,6 +21,13 @@ import CmuxNextWakeups
     private var finished = false
     private lazy var frames = FrameClient(owner: "WindowCloseMotion.fade", on: .app) { [weak self] tick in
         self?.step(tick.elapsed) ?? false
+    }
+
+    /// Whether a close from `origin` is the person's (a click, a key, a page control they drew):
+    /// only that close fades. A script, the CLI, MCP or another client closes at once, so the
+    /// window has left when its `action.run` answers.
+    nonisolated static func isPersonsClose(_ origin: ActionOrigin) -> Bool {
+        origin == .user || origin == .page
     }
 
     /// Whether a close of `window` fades: it shows on screen and motion is on.

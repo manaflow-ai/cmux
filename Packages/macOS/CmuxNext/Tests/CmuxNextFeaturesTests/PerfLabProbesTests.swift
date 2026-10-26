@@ -49,17 +49,41 @@ struct PerfLabProbesTests {
         let clock = ContinuousClock()
         var features: FeatureList?
         var routed: [Int] = []
-        let route = PerfLabCanaryKeyDown(features: { features }).wrap { (key: Int, _: String) -> Bool in
-            routed.append(key)
-            return key == 1
+        let route = PerfLabCanaryKeyDown(features: { features }).wrap { (key: KeyDown, _: String) -> Bool in
+            routed.append(key.code)
+            return key.code == 1
         }
-        #expect(route(1, "no feature list yet") == true)
+        #expect(route(KeyDown(1), "no feature list yet") == true)
         features = FeatureList(registry: FeatureRegistry(), channel: .dev,
                                overrides: FeatureOverrides(environment: ["CMUX_ENABLE_FEATURES": "perfLabCanary"]))
         let start = clock.now
-        #expect(route(2, "on") == false)
+        #expect(route(KeyDown(2), "on") == false)
         #expect(clock.now - start >= .milliseconds(2))
         #expect(routed == [1, 2])
+    }
+
+    /// `debug.key` into a key window routes the event, then sends it through the app's dispatch, which routes it
+    /// again: one key-down, one 2 ms hold. A new event is held again.
+    @Test func keyDownRouterHoldsEachEventOnce() {
+        let clock = ContinuousClock()
+        let features = FeatureList(registry: FeatureRegistry(), channel: .dev,
+                                   overrides: FeatureOverrides(environment: ["CMUX_ENABLE_FEATURES": "perfLabCanary"]))
+        var routed = 0
+        let route = PerfLabCanaryKeyDown(features: { features }).wrap { (_: KeyDown, _: String) -> Bool in
+            routed += 1
+            return false
+        }
+        let key = KeyDown(7)
+        var start = clock.now
+        _ = route(key, "debug.key")
+        #expect(clock.now - start >= .milliseconds(2))
+        start = clock.now
+        _ = route(key, "the app's dispatch")
+        #expect(clock.now - start < .milliseconds(2))
+        start = clock.now
+        _ = route(KeyDown(8), "the next key")
+        #expect(clock.now - start >= .milliseconds(2))
+        #expect(routed == 3)
     }
 
     @Test func delayingDoesNotReadTheClockWhileTheCanaryIsOff() {
@@ -101,6 +125,12 @@ struct PerfLabProbesTests {
                                    overrides: FeatureOverrides(environment: ["CMUX_ENABLE_FEATURES": "perfLabCanary"]))
         #expect(PerfLabFeatureReport(features).canary == Feature.Resolution(isEnabled: true, source: .environment))
     }
+}
+
+/// A key-down event as the router sees it: an object, so the canary tells one event routed twice from two events.
+nonisolated private final class KeyDown {
+    let code: Int
+    init(_ code: Int) { self.code = code }
 }
 
 /// A clock whose reading n is n milliseconds, counting its readings: the spin's loop is visible without real time.

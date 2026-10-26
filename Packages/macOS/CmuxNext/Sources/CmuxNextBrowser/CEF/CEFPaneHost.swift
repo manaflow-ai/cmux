@@ -256,12 +256,17 @@ final class CEFPaneHost {
             placeholderHasNoRenderer = quietsPlaceholder && placeholder === tab && runtime.spareWindow.rendererlessPlaceholders
                 && shim.placeholderSupported() == 1
             let rendererless = placeholderHasNoRenderer
+            let spare = quietsPlaceholder && placeholder === tab
+            let hostMode = runtime.hostStart != nil
+            let createTrace = runtime.spareWindow.createTrace
             let create = {
                 CEFStartSteps.shared.createWindow {
                     let view = Unmanaged.passUnretained(self.hostView).toOpaque()
                     let width = max(size.width, 1).clampedInt32, height = max(size.height, 1).clampedInt32
-                    return rendererless ? shim.createPlaceholderWindow(request, view, width, height, contextKey)
-                        : shim.createWindow(request, view, width, height, initialURL, contextKey)
+                    return createTrace.create(request: request, spare: spare, profile: self.key.profile, hostMode: hostMode) {
+                        rendererless ? shim.createPlaceholderWindow(request, view, width, height, contextKey)
+                            : shim.createWindow(request, view, width, height, initialURL, contextKey)
+                    }
                 }
             }
             #if DEBUG || CMUX_BENCH_HOOKS

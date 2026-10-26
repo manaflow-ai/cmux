@@ -1,48 +1,87 @@
-//! The daemon's memory registry: one per owner process (the `Mux` holds
-//! it), with the kernel pressure source of `cmux-memory` started on first
-//! use, so a headless daemon that never needs it starts none.
+//! The daemon's memory registry. The `Mux` composition root makes one
+//! (`Mux::memory`) and hands it to every consumer (the terminal work pool's
+//! standby slot today); the kernel pressure source of `cmux-memory` starts on
+//! first use, so a headless daemon that never needs it starts none. Other
+//! sources (the app's `memory.limit` push) vote through
+//! [`MemoryRegistry::voter`]; the level is the worst vote.
 
 use std::sync::OnceLock;
 
 use cmux_memory::{MemoryRegistry, PressureWatch, WatchError};
 
-pub(crate) struct DaemonMemory {
-    registry: MemoryRegistry,
-    /// Whether [`Self::watch_system_pressure`] starts the kernel source
-    /// (tests drive the level through the registry instead).
-    system_source: bool,
-    watch: OnceLock<Option<PressureWatch>>,
+/// Where [`DaemonMemory::watch_system_pressure`] gets the system's level.
+enum SystemSource {
+    /// The kernel source of `cmux-memory`.
+    Kernel,
+    /// None: the level stays where the registry's other voters put it.
+    #[cfg(test)]
+    Off,
+    /// A stand-in kernel that votes this level when the watch starts.
+    #[cfg(test)]
+    StandIn(cmux_memory::PressureLevel),
 }
 
-impl Default for DaemonMemory {
-    fn default() -> Self {
-        Self { registry: MemoryRegistry::new(), system_source: true, watch: OnceLock::new() }
-    }
+/// A running system source; dropping it withdraws its vote.
+enum RunningSource {
+    Kernel(#[allow(dead_code)] PressureWatch),
+    #[cfg(test)]
+    StandIn(#[allow(dead_code)] cmux_memory::Voter),
+}
+
+pub(crate) struct DaemonMemory {
+    registry: MemoryRegistry,
+    system_source: SystemSource,
+    watch: OnceLock<Option<RunningSource>>,
 }
 
 impl DaemonMemory {
-    /// A registry no kernel source feeds; the test sets its level.
+    /// The owner's registry, fed by the kernel source once it starts.
+    pub(crate) fn new() -> Self {
+        Self::with_source(SystemSource::Kernel)
+    }
+
+    fn with_source(system_source: SystemSource) -> Self {
+        Self { registry: MemoryRegistry::new(), system_source, watch: OnceLock::new() }
+    }
+
+    /// A registry no system source feeds; the test votes its level.
     #[cfg(test)]
     pub(crate) fn without_system_source() -> Self {
-        Self { system_source: false, ..Self::default() }
+        Self::with_source(SystemSource::Off)
+    }
+
+    /// A registry whose system source reports `level` from the moment it
+    /// starts, as the kernel does when it is already under pressure.
+    #[cfg(test)]
+    pub(crate) fn with_stand_in_system_level(level: cmux_memory::PressureLevel) -> Self {
+        Self::with_source(SystemSource::StandIn(level))
     }
 
     pub(crate) fn registry(&self) -> &MemoryRegistry {
         &self.registry
     }
 
-    /// Starts the kernel pressure source once for this owner; later calls do
-    /// nothing. Without a source the level stays normal.
+    /// Starts the system pressure source once for this owner; later calls do
+    /// nothing. The source reads the current level before this returns.
+    /// Without a source, or where this process may not use it, it votes
+    /// nothing.
     pub(crate) fn watch_system_pressure(&self) {
-        if !self.system_source {
-            return;
-        }
-        self.watch.get_or_init(|| match self.registry.watch_system_pressure() {
-            Ok(watch) => Some(watch),
-            Err(WatchError::Unsupported) => None,
-            Err(error) => {
-                eprintln!("cmux-tui: {error}");
-                None
+        self.watch.get_or_init(|| match &self.system_source {
+            SystemSource::Kernel => match self.registry.watch_system_pressure() {
+                Ok(watch) => Some(RunningSource::Kernel(watch)),
+                Err(WatchError::Unsupported | WatchError::NotPermitted(_)) => None,
+                Err(error) => {
+                    eprintln!("cmux-tui: {error}");
+                    None
+                }
+            },
+            #[cfg(test)]
+            SystemSource::Off => None,
+            #[cfg(test)]
+            SystemSource::StandIn(level) => {
+                let voter = self.registry.voter();
+                voter.set_level(*level);
+                Some(RunningSource::StandIn(voter))
             }
         });
     }

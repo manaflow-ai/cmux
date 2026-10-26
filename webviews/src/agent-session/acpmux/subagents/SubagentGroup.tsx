@@ -13,6 +13,7 @@ import type { Subagent } from "./subagentFold";
 import { AgentTonesContext } from "./agentTones";
 import { subagentProgress } from "./subagentProgress";
 import { waveProps } from "../../../ui/wave";
+import { usePageInterval } from "../../../pages/shared/pageLifecycle";
 
 /// The chat's harness (claude, codex, ...): its subagents run on it, so their avatars carry its mark.
 export const SubagentHarnessContext = createContext<string | undefined>(undefined);
@@ -61,29 +62,14 @@ export const SubagentClockContext = createContext(0);
 /// The current time on the session's clock (SubagentClockContext), ticking each second only
 /// while `live`, so it counts against the subagents' own start and end times. A hidden pane's
 /// clock rests (the tray above the composer, a group card and the summary rows tick with it) and
-/// catches up the moment the pane shows again.
+/// catches up the moment the pane shows again (usePageInterval).
 export function useNow(live: boolean): number {
   const offset = useContext(SubagentClockContext);
   const [now, setNow] = useState(Date.now);
   useEffect(() => {
-    if (!live) return;
-    let timer: ReturnType<typeof setInterval> | undefined;
-    const tick = () => setNow(Date.now());
-    const sync = () => {
-      clearInterval(timer);
-      timer = undefined;
-      if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
-      tick();
-      timer = setInterval(tick, 1000);
-    };
-    sync();
-    if (typeof document === "undefined") return () => clearInterval(timer);
-    document.addEventListener("visibilitychange", sync);
-    return () => {
-      clearInterval(timer);
-      document.removeEventListener("visibilitychange", sync);
-    };
+    if (live) setNow(Date.now());
   }, [live]);
+  usePageInterval(() => setNow(Date.now()), live ? 1000 : null, { catchUpOnShow: true });
   return now - offset;
 }
 

@@ -1,8 +1,8 @@
 public import CmuxHomeRender
+import CmuxNextCompat
 public import CoreGraphics
 public import Foundation
 import JavaScriptCore
-import os
 
 /// Home chat's Mermaid renderer: Ondine (the bundled `ondine.min.js`, a Rust
 /// Mermaid compiler in WebAssembly) in one JavaScriptCore context, its SVG
@@ -31,8 +31,9 @@ public nonisolated final class OndineMermaidRenderer: HomeDiagramRendering, Send
     private let rasterizer = SVGRasterizer()
     // Lock carve-out: the transcript's custom rows call `layout` and `image` synchronously from the
     // page loader's queue and the row bitmap threads, so an actor cannot serve them. JavaScriptCore
-    // runs one call at a time per context anyway; the lock also guards the caches.
-    private let state = OSAllocatedUnfairLock(uncheckedState: State())
+    // runs one call at a time per context anyway; the lock also guards the caches. The script file
+    // is read with the lock free (`rendered`).
+    private let state = Mutex(State())
 
     nonisolated private struct State {
         var context: JSContext?
@@ -82,10 +83,10 @@ public nonisolated final class OndineMermaidRenderer: HomeDiagramRendering, Send
     public func image(mermaid source: String, maxWidth: CGFloat, style: HomeDiagramStyle, scale: CGFloat) -> CGImage? {
         guard let rendered = rendered(source, maxWidth: maxWidth) else { return nil }
         let key = ImageKey(render: RenderKey(source: source, maxWidth: maxWidth), style: style, scale: scale)
-        if let hit = state.withLockUnchecked({ $0.images[key] }) { return hit }
+        if let hit = state.withLock({ $0.images[key] }) { return hit }
         let svg = recoloured(rendered.svg, style: style)
         guard let image = rasterizer.image(svg: svg, size: rendered.size, scale: scale) else { return nil }
-        state.withLockUnchecked { state in
+        state.withLock { state in
             if state.images.count >= 64 { state.images.removeAll(keepingCapacity: true) }
             state.images[key] = image
         }
@@ -106,19 +107,25 @@ public nonisolated final class OndineMermaidRenderer: HomeDiagramRendering, Send
     private func rendered(_ source: String, maxWidth: CGFloat) -> Rendered? {
         guard !source.isEmpty, source.utf16.count <= Self.maxSource, maxWidth > 0 else { return nil }
         let key = RenderKey(source: source, maxWidth: maxWidth)
-        return state.withLockUnchecked { state in
+        let (hit, needsScript) = state.withLock { state in (state.renders[key], state.render == nil && !state.loadFailed) }
+        if let hit { return hit }
+        // Only a render before the context loaded reads the file, and it reads it here, not inside the lock.
+        let code: Result<String, any Error>? = needsScript ? Result { try String(blockingContentsOf: script, encoding: .utf8) } : nil
+        return state.withLock { state in
             if let hit = state.renders[key] { return hit }
-            let result = Self.run(&state, script: script, source: source, maxWidth: maxWidth)
+            let result = Self.run(&state, script: script, code: code, source: source, maxWidth: maxWidth)
             if state.renders.count >= 256 { state.renders.removeAll(keepingCapacity: true) }
             state.renders[key] = .some(result)
             return result
         }
     }
 
-    /// One Ondine render inside the lock; loads the context first.
-    private static func run(_ state: inout State, script: URL, source: String, maxWidth: CGFloat) -> Rendered? {
-        if state.render == nil, !state.loadFailed {
-            state.render = load(script)
+    /// One Ondine render inside the lock; loads the context first from `code`, the script's text
+    /// read before the lock (nil when the context was already loaded or had failed to).
+    private static func run(_ state: inout State, script: URL, code: Result<String, any Error>?, source: String,
+                            maxWidth: CGFloat) -> Rendered? {
+        if state.render == nil, !state.loadFailed, let code {
+            state.render = (try? code.get()).flatMap { load($0, from: script) }
             state.context = state.render?.context
             state.loadFailed = state.render == nil
         }
@@ -131,9 +138,10 @@ public nonisolated final class OndineMermaidRenderer: HomeDiagramRendering, Send
         return Rendered(svg: svg, size: CGSize(width: width, height: height))
     }
 
-    /// A context with the shims, Ondine and the render function; nil when the script fails.
-    private static func load(_ script: URL) -> JSValue? {
-        guard let code = try? String(contentsOf: script, encoding: .utf8), let context = JSContext() else { return nil }
+    /// A context with the shims, Ondine (`code`, the text of `script`) and the render function; nil
+    /// when the script fails.
+    private static func load(_ code: String, from script: URL) -> JSValue? {
+        guard let context = JSContext() else { return nil }
         context.evaluateScript(ondineHostShims)
         context.evaluateScript(code, withSourceURL: script)
         let render = context.evaluateScript("""

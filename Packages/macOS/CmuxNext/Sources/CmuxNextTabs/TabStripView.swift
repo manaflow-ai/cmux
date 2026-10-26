@@ -25,6 +25,8 @@ public final class TabStripView: NSView {
 
     public let model: TabStripModel
     let inputTap: InputEventTap  // the app's one; the strip's modes subscribe only while they last
+    /// The strip's own hover moves (`pointerFrameHover`, `TabStripView+Pointer`): two strips never merge theirs.
+    private(set) lazy var hoverMoves = PointerFrameHover(owner: "TabStripView.hover", view: self) { [weak self] point in self?.hoverMoved(toWindowPoint: point) }
 
     public weak var previewProvider: (any TabPreviewProvider)? {
         didSet { hoverCard.previewProvider = previewProvider }
