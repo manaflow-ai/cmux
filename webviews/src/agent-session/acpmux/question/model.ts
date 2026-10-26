@@ -456,15 +456,23 @@ export function reply(question: AgentQuestion, answer: Answer): QuestionReply {
   }
 }
 
+/// The most UTF-8 bytes of one annotation string the pane relay passes (`policy.json`
+/// `question_answers.maximum_annotation_bytes`, Swift `maximumAnnotationBytes`).
+const MAX_ANNOTATION_BYTES = 65536;
+
+const utf8Bytes = (text: string): number => new TextEncoder().encode(text).length;
+
 /// The preview of each single-select item's chosen option, keyed by question text, or undefined
-/// when no chosen option has one. Claude Code shows previews only for single-select questions.
+/// when no chosen option has one (or each is over the relay's bound). Claude Code shows previews
+/// only for single-select questions.
 function chosenPreviews(question: AgentQuestion, answer: Answer): QuestionReply["annotations"] {
   const previews: NonNullable<QuestionReply["annotations"]> = {};
   for (const item of question.items) {
     const chosen = answer.selections[item.id];
     if (item.multiSelect || !chosen || chosen.other) continue;
     const preview = item.options.find((option) => option.id === chosen.optionIDs[0])?.preview?.text;
-    if (preview !== undefined) previews[item.prompt] = { preview };
+    // Left out past the relay's bound, which would refuse the whole answer for it.
+    if (preview !== undefined && utf8Bytes(preview) <= MAX_ANNOTATION_BYTES) previews[item.prompt] = { preview };
   }
   return Object.keys(previews).length > 0 ? previews : undefined;
 }
