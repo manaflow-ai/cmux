@@ -213,22 +213,31 @@ report() {
 report
 report_status=$?
 
-# The tests the run was meant to report, counted independently of its own log.
+# How many tests the run was meant to report, counted independently of its log.
 #
-# A log shows only what the run got to. When the helper exits part-way the tests
-# that never started leave no line at all, so "every test in the log finished"
-# says nothing about the ones that never ran, and a `Test run with N tests
-# passed` line counts only those N. The log cannot tell a complete run from a
-# cut-short one; `swift test list` can, because it enumerates the built bundle
-# without running anything. Comparing the two is what stops a truncated run
-# reading as a pass.
+# A log shows only what the run got to. A test the run never reached leaves no
+# line in it at all -- not a `started.`, not a result -- so "every test in the
+# log finished" says nothing about the ones that never ran, and the
+# `Test run with N tests` line counts only the N that did. Nothing in the log
+# distinguishes a complete run from a cut-short one.
+#
+# `swift test list` does, because it enumerates the built bundle without running
+# anything. The comparison is between two counts and never between names: the
+# summary's N is exactly the number of test functions that reported (checked
+# against 2,055 real suite runs, parameterized functions, skips and known
+# issues included, with no disagreement), and `list` prints one line per test
+# function. Comparing names instead would be wrong in three ways that counting
+# avoids -- two suites may share a test name, `@Test("a display name")` prints a
+# name that is not the test's ID, and a `withKnownIssue` test finishes on a
+# glyph of its own.
 #
 # Only the options `list` shares with `test` are passed on: `--no-parallel` and
 # the other run-only options make it exit 1 with a usage error.
 #
-# Only a run that produced Swift Testing output is checked this way: an
-# XCTest-only run, or one no test matched, names its tests in another format
-# and `got` would be empty for reasons that are not under-reporting.
+# Only a run that produced a Swift Testing summary line is checked this way. An
+# XCTest-only run counts its tests in another format, and a run with no summary
+# at all is already a failure above (report_status 3), which says more than a
+# count would.
 list_args=()
 want_value=0
 for arg in "$@"; do
@@ -239,65 +248,35 @@ for arg in "$@"; do
     *) ;;
   esac
 done
-discovered="$log.discovered"
+# The run's own count, from its summary line; empty when it printed none.
+reported=$(sed -n 's/^[^ ]* Test run with \([0-9][0-9]*\) tests\{0,1\} .*/\1/p' "$log" | tail -n 1)
+discovered=""
 discovered_status=0
-swift_testing_ran=0
-grep -qE '^[^ ]+ Test (run started\.|[A-Za-z_])' "$log" && swift_testing_ran=1
-if (( swift_testing_ran )); then
-  swift test list ${list_args[@]+"${list_args[@]}"} >"$discovered" 2>"$discovered.err" || discovered_status=$?
+if [[ -n "$reported" ]]; then
+  swift test list ${list_args[@]+"${list_args[@]}"} >"$log.discovered" 2>"$log.discovered.err" \
+    || discovered_status=$?
+  # One line per test; blank lines are not tests.
+  discovered=$(grep -cE '[^[:space:]]' "$log.discovered" || true)
 fi
 
-# Every test `list` names must have reported a result. Names are compared on the
-# last path component, as the console prints a test by its own name and not by
-# its target and suite; two suites may share a name, so this counts distinct
-# names on both sides rather than lines.
-coverage() {
-  awk -v summary_file="${GITHUB_STEP_SUMMARY:-}" "$names_awk"'
-    function join(list, count,    out, i, max) {
-      max = count > 100 ? 100 : count
-      for (i = 1; i <= max; i++) out = out (i > 1 ? "; " : "") list[i]
-      if (count > max) out = out "; and " (count - max) " more"
-      return out
-    }
-    FNR == NR {
-      if ($0 ~ /^[[:space:]]*$/) next
-      name = $0
-      sub(/^.*\//, "", name)
-      if (!(name in want)) { want[name] = 1; wanted[++want_count] = name }
-      next
-    }
-    /^✔ Test / || /^✘ Test .* failed after / || /^➜ Test / {
-      name = name_of($0)
-      if (!(name in got)) { got[name] = 1; got_count++ }
-    }
-    END {
-      # No name on the discovery side: counted here, not from the file size, so
-      # a list of blank lines is the same as an empty one.
-      if (want_count == 0) {
-        printf "::error title=cmux-next swift test discovered nothing::`swift test list` named no test for these arguments, so this run proves nothing; a filter that matches no test is a mistake, not a pass.\n"
-        exit 4
-      }
-      for (i = 1; i <= want_count; i++) if (!(wanted[i] in got)) missing[++missing_count] = wanted[i]
-      if (missing_count == 0) exit 0
-      printf "::error title=cmux-next swift test under-reported::%d of %d discovered tests never reported a result (the run ended before them, so a pass here would have been a pass over tests that never ran): %s\n", missing_count, want_count, join(missing, missing_count)
-      if (summary_file != "") {
-        printf "### %d of %d discovered tests never reported\n\n", missing_count, want_count >> summary_file
-        for (i = 1; i <= missing_count; i++) printf "- `%s`\n", missing[i] >> summary_file
-      }
-      exit 4
-    }
-  ' "$discovered" "$log"
-}
 coverage_status=0
-if (( ! swift_testing_ran )); then
+if [[ -z "$reported" ]]; then
   :
 elif (( discovered_status != 0 )); then
-  printf '::error title=cmux-next swift test discovery failed::`swift test list` exited %s, so the run could not be checked for under-reporting; a run that cannot be checked is not a pass. Its output: %s\n' \
-    "$discovered_status" "$(tr '\n' ' ' <"$discovered.err" | cut -c1-400)"
+  printf '::error title=cmux-next swift test discovery failed::`swift test list` exited %s, so this run could not be checked for under-reporting; a run that cannot be checked is not a pass. Its output: %s\n' \
+    "$discovered_status" "$(tr '\n' ' ' <"$log.discovered.err" | cut -c1-400)"
   coverage_status=4
-else
-  coverage
-  coverage_status=$?
+elif [[ -z "$discovered" || "$discovered" == 0 ]]; then
+  printf '::error title=cmux-next swift test discovered nothing::`swift test list` named no test for these arguments, so this run proves nothing; a filter that matches no test is a mistake, not a pass.\n'
+  coverage_status=4
+elif (( reported < discovered )); then
+  printf '::error title=cmux-next swift test under-reported::only %s of %s discovered tests reported a result, so %s never ran and a pass here would have been a pass over them. The run ended before it finished; see the step log for where.\n' \
+    "$reported" "$discovered" "$(( discovered - reported ))"
+  if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
+    printf '### Only %s of %s discovered tests reported\n\n%s tests never ran.\n\n' \
+      "$reported" "$discovered" "$(( discovered - reported ))" >> "$GITHUB_STEP_SUMMARY"
+  fi
+  coverage_status=4
 fi
 
 # A test helper killed by a signal (5 is a Swift runtime trap) leaves no
