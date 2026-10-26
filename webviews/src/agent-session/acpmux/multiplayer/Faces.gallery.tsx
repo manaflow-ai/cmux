@@ -18,9 +18,13 @@ const home = (id: string, name: string, kind: HomeParticipant["kind"] = "human")
   chief: kind === "agent",
 });
 const homePeople = new Map(
-  [home("me", "You"), home("ana", ANA.name), home("sam", SAM.name), home("mei", MEI.name), home("chief", "Atlas", "agent")].map(
-    (person) => [person.id, person] as const,
-  ),
+  [
+    home("me", "You"),
+    home("ana", ANA.name),
+    home("sam", SAM.name),
+    home("mei", MEI.name),
+    home("chief", "Atlas", "agent"),
+  ].map((person) => [person.id, person] as const),
 );
 const chiefChat = chiefPresence(homePeople, "me", ["ana", "chief"], ["sam", "mei"]);
 
@@ -31,11 +35,7 @@ export default componentEntry<FacesDemoProps>({
   title: "Agent pane: shared chat people (looks)",
   area: "Agent pane",
   keywords: ["multiplayer", "presence", "typing", "author", "avatar", "shared chat", "answered by"],
-  covers: [
-    "agent-session/acpmux/multiplayer/Faces.tsx",
-    "agent-session/acpmux/multiplayer/FacesDemo.tsx",
-    "agent-session/acpmux/multiplayer/chiefAdapter.ts",
-  ],
+  covers: ["agent-session/acpmux/multiplayer/Faces.tsx", "agent-session/acpmux/multiplayer/FacesDemo.tsx"],
   load: () => import("./FacesDemo").then((module) => module.FacesDemo),
   height: 320,
   variants: {

@@ -76,7 +76,9 @@ test("the typing line names one, two, or several people", () => {
     "Ana Ruiz is typing…",
   );
   act(() => root?.render(<TypingLine typing={[ANA, SAM]} />));
-  expect(dom!.window.document.querySelector(".cv-typing__words")?.textContent).toBe("Ana Ruiz and Sam Okafor are typing…");
+  expect(dom!.window.document.querySelector(".cv-typing__words")?.textContent).toBe(
+    "Ana Ruiz and Sam Okafor are typing…",
+  );
   act(() => root?.render(<TypingLine typing={[ANA, SAM, MEI]} />));
   expect(dom!.window.document.querySelector(".cv-typing__words")?.textContent).toBe("Several people are typing…");
   expect(dom!.window.document.querySelectorAll(".cv-typing__dots > i")).toHaveLength(3);

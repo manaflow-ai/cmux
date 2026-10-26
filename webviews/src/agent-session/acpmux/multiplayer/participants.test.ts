@@ -5,15 +5,21 @@ import { expect, test } from "bun:test";
 import { answeredBy, chatPresence, initials, promptAuthor } from "./participants";
 
 test("a prompt's author comes only from person_message provenance", () => {
-  const msg = { _meta: { provenance: { kind: "person_message", from: "tailnet:ana@example.com", fromName: "Ana Ruiz" } } };
+  const msg = {
+    _meta: { provenance: { kind: "person_message", from: "tailnet:ana@example.com", fromName: "Ana Ruiz" } },
+  };
   expect(promptAuthor(msg)).toEqual({ id: "tailnet:ana@example.com", name: "Ana Ruiz" });
-  expect(promptAuthor({ _meta: { provenance: { kind: "agent_message", from: "x", fromName: "Lane" } } })).toBeUndefined();
+  expect(
+    promptAuthor({ _meta: { provenance: { kind: "agent_message", from: "x", fromName: "Lane" } } }),
+  ).toBeUndefined();
   expect(promptAuthor({})).toBeUndefined();
   expect(promptAuthor({ _meta: { provenance: { kind: "person_message", fromName: "No id" } } })).toBeUndefined();
 });
 
 test("a name falls back to the id, is trimmed and bounded", () => {
-  expect(promptAuthor({ _meta: { provenance: { kind: "person_message", from: "tailnet:sam" } } })?.name).toBe("tailnet:sam");
+  expect(promptAuthor({ _meta: { provenance: { kind: "person_message", from: "tailnet:sam" } } })?.name).toBe(
+    "tailnet:sam",
+  );
   const long = "x".repeat(200);
   expect(answeredBy({ person: "p", name: long })?.name.length).toBe(64);
 });

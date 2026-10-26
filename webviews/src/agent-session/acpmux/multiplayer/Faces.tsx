@@ -62,7 +62,9 @@ export function PresenceStack({ viewing, look = "stack" }: { viewing: Participan
         </span>
       ))}
       {viewing.length > shown.length && (
-        <span className="cv-presence__more" aria-hidden="true">{t("multiplayer.more", { count: viewing.length - shown.length })}</span>
+        <span className="cv-presence__more" aria-hidden="true">
+          {t("multiplayer.more", { count: viewing.length - shown.length })}
+        </span>
       )}
     </div>
   );

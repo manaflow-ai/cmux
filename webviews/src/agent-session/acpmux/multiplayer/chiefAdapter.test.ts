@@ -11,9 +11,12 @@ const person = (id: string, name: string, kind: HomeParticipant["kind"] = "human
   chief,
 });
 const people = new Map(
-  [person("me", "Me"), person("ana", "Ana Ruiz"), person("sam", "Sam Okafor"), person("chief", "Chief", "agent", true)].map(
-    (p) => [p.id, p] as const,
-  ),
+  [
+    person("me", "Me"),
+    person("ana", "Ana Ruiz"),
+    person("sam", "Sam Okafor"),
+    person("chief", "Chief", "agent", true),
+  ].map((p) => [p.id, p] as const),
 );
 
 test("a message's author is another person, never the reader or the Chief", () => {
