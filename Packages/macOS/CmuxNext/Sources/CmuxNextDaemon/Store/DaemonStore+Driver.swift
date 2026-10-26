@@ -318,6 +318,23 @@ extension DaemonStore {
         }
     }
 
+    /// Runs `work` once the first live snapshot is applied to the store (at once when it has
+    /// been): the startup phase's first-snapshot reference (`StartupPhase.Reference.firstSnapshot`,
+    /// Chrome's after-startup reference count in `chrome/browser/after_startup_task_utils.cc`).
+    /// A launch snapshot (``applyProvisional(snapshot:)``) does not count.
+    public func whenFirstSnapshotApplied(_ work: @escaping @MainActor () -> Void) {
+        if isLoaded { work() } else { firstSnapshotWaiters.append(work) }
+    }
+
+    /// Runs the first-snapshot waiters once ``isLoaded`` holds (after the snapshot's overlay and
+    /// applied waiters); later snapshots find none.
+    func runFirstSnapshotWaiters() {
+        guard isLoaded, !firstSnapshotWaiters.isEmpty else { return }
+        let waiting = firstSnapshotWaiters
+        firstSnapshotWaiters.removeAll()
+        for work in waiting { work() }
+    }
+
     func resumeRefreshWaiters() {
         let waiting = refreshWaiters
         refreshWaiters.removeAll()

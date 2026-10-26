@@ -110,7 +110,8 @@ public actor TerminalAttachment: TerminalByteChannel {
         #if DEBUG || CMUX_BENCH_HOOKS
         if NewTerminalTrace.shared.isArmed { NewTerminalTrace.shared.mark(.attachStart, surface: target.surface.rawValue) }
         #endif
-        let transport = try LineTransport(path: endpoint.socketPath, bridge: endpoint.bridge)
+        let transport = try LineTransport(path: endpoint.socketPath, bridge: endpoint.bridge, role: .terminalAttach,
+                                          stats: endpoint.wireStats)
         let attachment = TerminalAttachment(transport: transport, surface: target.surface)
         do {
             try await attachment.open(target: target, size: size, claimGeometry: claimGeometry,
@@ -126,7 +127,7 @@ public actor TerminalAttachment: TerminalByteChannel {
     private init(transport: LineTransport, surface: SurfaceID) {
         self.transport = transport
         resolvedSurface = SurfaceBox(surface)
-        let queue = TerminalEventQueue()
+        let queue = TerminalEventQueue(recorder: transport.recorder)
         self.queue = queue
         events = AsyncStream(unfolding: { await queue.next() }, onCancel: { queue.cancel() })
     }
@@ -141,14 +142,15 @@ public actor TerminalAttachment: TerminalByteChannel {
         let control = control
         let resolvedSurface = resolvedSurface
         let sequencer = SequencerBox()
+        let decoder = transport.decoder
         transport.start(
             onEvent: { name, line, _ in
                 var surface = resolvedSurface.value.withLock { $0 }
-                if surface == Self.unresolvedSurface, let named = Self.initialSurface(name: name, line: line) {
+                if surface == Self.unresolvedSurface, let named = Self.initialSurface(name: name, line: line, decoder: decoder) {
                     resolvedSurface.value.withLock { $0 = named }
                     surface = named
                 }
-                guard let decoded = Self.decodeAttachLine(name: name, line: line, surface: surface),
+                guard let decoded = Self.decodeAttachLine(name: name, line: line, surface: surface, decoder: decoder),
                       let event = sequencer.value.withLock({ $0.admit(decoded) })
                 else { return }
                 if case .sizeState(let state, let selfParticipant) = event {
@@ -181,7 +183,7 @@ public actor TerminalAttachment: TerminalByteChannel {
                 capabilities: DaemonCapability.advertised + (device == nil ? [] : [DaemonCapability.sharedSizing.rawValue]),
                 deviceKind: device?.kind, deviceName: device?.name)),
         ], timeout: DaemonConnection.defaultRequestTimeout)
-        let identity = try WireCoding.decodeResponse(IdentifyRequest.Response.self, from: replies[0].get().line)
+        let identity = try WireCoding.decodeResponse(IdentifyRequest.Response.self, from: replies[0].get())
         _ = try replies[1].get()
         let useIdentity = identity.supports("attach-identity-v1") && target.terminalResourceID != nil
             && target.generation == identity.generation

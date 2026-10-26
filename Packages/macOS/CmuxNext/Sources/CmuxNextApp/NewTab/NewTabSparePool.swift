@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextAgentPane
 import CmuxNextCompat
 import CmuxNextDesign
+import CmuxNextPages
 import CmuxNextSettings
 import CmuxNextWakeups
 
@@ -79,6 +80,8 @@ final class NewTabSparePool {
     private(set) var openings: [Opening] = []
     /// Main-thread time of the last move of the parked spare to another window.
     private(set) var lastRetargetMilliseconds: Double?
+    /// The spare page while one waits (`debug.memory` spares).
+    var spareView: AgentPaneView? { slot.peek }
 
     /// In place of ``AgentTabs/makeSpare(_:)`` (WebKit's first load, on the main thread): tests stall it.
     var makeSpare: ((AgentPaneNewTab) -> AgentPaneView?)?
@@ -377,4 +380,17 @@ final class NewTabSpareParking: NSView {
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
     override var acceptsFirstResponder: Bool { false }
     override func accessibilityChildren() -> [Any]? { [] }
+
+    #if DEBUG || CMUX_BENCH_HOOKS
+    // `debug.webui`: the spare's page (on the page host) is hidden to the person while parked.
+    override func didAddSubview(_ subview: NSView) {
+        super.didAddSubview(subview)
+        PageWebView.noteCensusParked(true, in: subview)
+    }
+
+    override func willRemoveSubview(_ subview: NSView) {
+        super.willRemoveSubview(subview)
+        PageWebView.noteCensusParked(false, in: subview)
+    }
+    #endif
 }

@@ -2,7 +2,7 @@ public import Foundation
 
 extension URL {
     /// Reads resource values, like `resourceValues(forKeys:)`, as a checked blocking call
-    /// (``assertBlockingAllowed(_:fileID:line:)``): a value the URL has not cached is a file
+    /// (``blockingCall(_:fileID:line:_:)``): a value the URL has not cached is a file
     /// system read.
     ///
     /// - Parameters:
@@ -14,7 +14,6 @@ extension URL {
     @inlinable
     public func blockingResourceValues(forKeys keys: Set<URLResourceKey>, fileID: StaticString = #fileID,
                                        line: UInt = #line) throws -> URLResourceValues {
-        assertBlockingAllowed(.fileIO, fileID: fileID, line: line)
-        return try resourceValues(forKeys: keys)
+        return try blockingCall(.fileIO, fileID: fileID, line: line) { try resourceValues(forKeys: keys) }
     }
 }

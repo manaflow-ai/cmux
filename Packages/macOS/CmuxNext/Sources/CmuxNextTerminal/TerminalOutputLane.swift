@@ -40,10 +40,14 @@ nonisolated final class TerminalOutputLane: @unchecked Sendable {
     }
 
     private let backlog = Mutex(Backlog())
+    /// The surface's key-to-echo stage: each parsed output chunk may be a waiting key's echo. Nil
+    /// while the app tracks no input latency.
+    let echoStage: TerminalEchoStage?
 
-    init(surface: ghostty_surface_t, label: String, highWater: Int = 2 << 20) {
+    init(surface: ghostty_surface_t, label: String, highWater: Int = 2 << 20, echoStage: TerminalEchoStage? = nil) {
         self.surface = surface
         self.highWater = highWater
+        self.echoStage = echoStage
         self.queue = DispatchQueue(label: label, qos: .userInteractive)
     }
 
@@ -52,6 +56,8 @@ nonisolated final class TerminalOutputLane: @unchecked Sendable {
 
     func processOutput(_ data: Data) {
         guard !data.isEmpty else { return }
+        // A key armed after these bytes reached the lane cannot be their echo.
+        let armedBefore = echoStage?.armedCount ?? 0
         backlog.withLock { $0.bytes += data.count }
         queue.async { [self] in
             defer { parsed(data.count) }
@@ -60,6 +66,7 @@ nonisolated final class TerminalOutputLane: @unchecked Sendable {
                 guard let base = buffer.baseAddress?.assumingMemoryBound(to: CChar.self) else { return }
                 ghostty_surface_process_output(surface, base, UInt(buffer.count))
             }
+            echoStage?.outputParsed(armedBefore: armedBefore)
             TypingLatencyProbe.shared.mark(.outputParsed)
             #if DEBUG || CMUX_BENCH_HOOKS
             if NewTerminalTrace.shared.isArmed { NewTerminalTrace.shared.parsed(lane: ObjectIdentifier(self), data) }
@@ -179,6 +186,7 @@ nonisolated final class TerminalOutputLane: @unchecked Sendable {
     /// immediately before `ghostty_surface_free`.
     func close() {
         closing.store(true, ordering: .relaxed)
+        echoStage?.close()
         let waiters = backlog.withLock { backlog -> [CheckedContinuation<Void, Never>] in
             defer { backlog.waiters = [] }
             return backlog.waiters

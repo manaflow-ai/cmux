@@ -26,7 +26,7 @@ public nonisolated final class ProviderConnection: Sendable {
         var fdOpen = true
     }
 
-    static let logger = Logger(subsystem: "com.cmuxterm.next", category: "browser-host-provider")
+    static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "browser-host-provider")
 
     public let frames: AsyncStream<ProviderFrame>
     private let continuation: AsyncStream<ProviderFrame>.Continuation

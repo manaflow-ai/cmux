@@ -78,6 +78,9 @@ final class LineTransport: Sendable {
     struct Response: Sendable {
         var line: Data
         var eventBarrier: UInt64
+        /// The connection's recorder: decoding the line counts there
+        /// (`WireCoding.decodeResponse(_:from:)` given the response).
+        var recorder: DaemonWireStats.Recorder?
     }
 
     /// Guards the descriptor: writes and close are serialized so a write never
@@ -95,9 +98,23 @@ final class LineTransport: Sendable {
     /// The bridge child of this connection (``DaemonBridge``), killed and
     /// reaped when the connection closes.
     private let child: BridgeChild?
+    /// Why this connection exists, for ``recorder``.
+    let role: DaemonWireStats.Role
+    /// Where this connection's traffic is counted (lock-free; the reader thread records too); nil
+    /// counts nothing (a release build).
+    let recorder: DaemonWireStats.Recorder?
+    /// Decodes this connection's lines on its reader thread, counting into ``recorder``; event
+    /// handlers, which run there, decode with it too.
+    let decoder: WireDecoder
 
-    init(path: String, bridge: DaemonBridge? = nil) throws(DaemonError) {
+    /// - Parameter stats: Where the connection counts (``DaemonEndpoint/wireStats``); nil for none.
+    init(path: String, bridge: DaemonBridge? = nil, role: DaemonWireStats.Role,
+         stats: DaemonWireStats?) throws(DaemonError) {
         self.path = path
+        self.role = role
+        let recorder = stats?.recorder()
+        self.recorder = recorder
+        decoder = WireCoding.decoder(recorder)
         let fd: Int32
         if let bridge {
             let opened = try bridge.open()
@@ -109,6 +126,7 @@ final class LineTransport: Sendable {
         }
         socket = Mutex(Socket(fd: fd))
         writer = SocketWriter(fd: fd, label: "com.cmuxterm.next.daemon.write")
+        recorder?.connectionOpened(role, bridged: bridge != nil)
     }
 
     private static func connect(_ path: String) throws(DaemonError) -> Int32 {
@@ -148,12 +166,19 @@ final class LineTransport: Sendable {
 
     deinit {
         writer.close()
-        socket.withLock { socket in
-            if socket.fd >= 0 {
-                Darwin.close(socket.fd)
-                socket.fd = -1
-            }
+        closeDescriptor()
+    }
+
+    /// Closes the descriptor once (the reader's exit or deinit, whichever comes first) and counts
+    /// the connection closed.
+    private func closeDescriptor() {
+        let closed = socket.withLock { socket -> Bool in
+            guard socket.fd >= 0 else { return false }
+            Darwin.close(socket.fd)
+            socket.fd = -1
+            return true
         }
+        if closed { recorder?.connectionClosed(role) }
     }
 
     /// Starts the reader thread. Call once.
@@ -229,7 +254,9 @@ final class LineTransport: Sendable {
             guard socket.fd >= 0, state.withLock({ $0.closed == nil }) else { return false }
             var line = payload
             line.append(0x0A)
-            return writer.write(line) == nil
+            guard writer.write(line) == nil else { return false }
+            recorder?.lineWritten(bytes: line.count)
+            return true
         }
     }
 
@@ -261,6 +288,7 @@ final class LineTransport: Sendable {
             var line = payload
             line.append(0x0A)
             writeFailure = socket.fd >= 0 ? writer.write(line)?.description : "socket closed"
+            if writeFailure == nil { recorder?.lineWritten(bytes: line.count) }
             return nil
         }
         if let early {
@@ -311,7 +339,11 @@ final class LineTransport: Sendable {
     }
 
     private func readLoop(fd: Int32, onEvent: EventHandler, onClose: CloseHandler) {
-        let decoder = JSONDecoder()
+        let decoder = self.decoder
+        let recorder = self.recorder
+        // An attach connection carries the terminal's output: the splitter's copies of its bytes
+        // are copies of that output (``DaemonWireStats/Snapshot/outputBytesCopiedApp``).
+        let outputStream = role == .terminalAttach ? recorder : nil
         var lines = LineSplitter()
         var chunk = [UInt8](repeating: 0, count: 256 * 1024)
         var closeDetail = "EOF"
@@ -324,7 +356,12 @@ final class LineTransport: Sendable {
                 closeDetail = "read: \(String(cString: strerror(errno)))"
                 break
             }
-            lines.append(chunk.prefix(count)) { route($0, decoder: decoder, onEvent: onEvent) }
+            recorder?.bytesRead(count)
+            outputStream?.outputCopied(count)  // into the splitter's buffer
+            lines.append(chunk.prefix(count)) { line in
+                outputStream?.outputCopied(line.count)  // out of it, as the line
+                route(line, decoder: decoder, onEvent: onEvent)
+            }
             if lines.pending.count > Self.maxLineBytes {
                 closeDetail = "line exceeds \(Self.maxLineBytes) bytes"
                 break reading
@@ -336,12 +373,7 @@ final class LineTransport: Sendable {
         }
         failAll(reason)
         writer.close()
-        socket.withLock { socket in
-            if socket.fd >= 0 {
-                Darwin.close(socket.fd)
-                socket.fd = -1
-            }
-        }
+        closeDescriptor()
         onClose(reason)
     }
 
@@ -349,13 +381,18 @@ final class LineTransport: Sendable {
     /// event the daemon emitted before that reply (a write barrier).
     var routedEventCount: UInt64 { state.withLock { $0.eventCount } }
 
-    private func route(_ line: Data, decoder: JSONDecoder, onEvent: EventHandler) {
-        guard let envelope = try? decoder.decode(Envelope.self, from: line) else { return }
+    private func route(_ line: Data, decoder: WireDecoder, onEvent: EventHandler) {
+        guard let envelope = try? decoder.decode(Envelope.self, from: line) else {
+            recorder?.lineRead(.ignored)
+            return
+        }
         // A v2 stream line goes to the stream handler of a dedicated
         // connection (`SessionJournalRead`); on the control connection it
         // travels with the raw events, in socket order (`session.events`).
         let streamed = envelope.type == "stream_item" || envelope.type == "stream_end"
+        let streamKind: DaemonWireStats.FrameKind = envelope.type == "stream_end" ? .streamEnd : .streamItem
         if streamed, let streamID = envelope.streamID, let handler = state.withLock({ $0.streamHandler }) {
+            recorder?.lineRead(streamKind)
             return handler(streamID, line)
         }
         if let name = streamed ? Self.streamEvent : envelope.event {
@@ -364,19 +401,29 @@ final class LineTransport: Sendable {
                 state.eventCount += 1
                 return state.eventCount
             }
+            recorder?.lineRead(streamed ? streamKind : .event)
             onEvent(name, line, index)
             return
         }
-        guard envelope.ok != nil || envelope.id != nil else { return }
+        guard envelope.ok != nil || envelope.id != nil else {
+            recorder?.lineRead(.ignored)
+            return
+        }
         let waiter: (UInt64, Waiter)? = state.withLock { state in
             let id = envelope.id ?? state.order.first
             guard let id, let waiter = state.pending.removeValue(forKey: id) else { return nil }
             state.order.removeAll { $0 == id }
             return (state.eventCount, waiter)
         }
-        guard let (barrier, waiter) = waiter else { return }
+        guard let (barrier, waiter) = waiter else {
+            recorder?.lineRead(.droppedReply)
+            return
+        }
+        recorder?.lineRead(Self.replyKind(waiter, ok: envelope.ok == true))
         if envelope.ok == true {
-            if case .reply(_, let slot) = waiter { slot.resolve(.success(Response(line: line, eventBarrier: barrier))) }
+            if case .reply(_, let slot) = waiter {
+                slot.resolve(.success(Response(line: line, eventBarrier: barrier, recorder: recorder)))
+            }
             return
         }
         let error = DaemonError.command(cmd: waiter.cmd, message: envelope.error ?? "unknown error", code: envelope.errorCode,
@@ -385,6 +432,16 @@ final class LineTransport: Sendable {
         case .reply(_, let slot): slot.resolve(.failure(error))
         case .discard(_, let onError): onError?(error)
         case .expired: break
+        }
+    }
+
+    /// A reply line is read when a request waits for it, or when it is the error of one sent
+    /// without waiting; otherwise it is dropped.
+    private static func replyKind(_ waiter: Waiter, ok: Bool) -> DaemonWireStats.FrameKind {
+        switch waiter {
+        case .reply: .reply
+        case .discard: ok ? .droppedReply : .reply
+        case .expired: .droppedReply
         }
     }
 }

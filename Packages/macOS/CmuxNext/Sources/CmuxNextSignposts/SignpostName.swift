@@ -13,8 +13,9 @@
 /// task 000 that the lead merges.
 ///
 /// ``actionPerform``, ``actionCommit``, ``actionGate``, ``keyToFrame``, ``keyFlow``, ``scrollToFrame``,
-/// ``stallMainTask`` and ``stallOverBudget`` have an emitter today. The other cases are
-/// **reserved**: the task and owner named on each add the emitter. Until then no build records them,
+/// ``stallMainTask``, ``stallOverBudget``, ``stallMainTurn`` (the trace ring's), ``stallRenderStarved``, ``webuiOpen`` and
+/// ``webuiScheme`` have an emitter today. The other cases are **reserved**: the task and owner named on each add the emitter.
+/// Until then no build records them,
 /// and no bench or report may quote them. "Ring" on a reserved case gives its record phases and the
 /// meaning of `arg0` and `arg1` (the ring v1 record, plans/cmux-next/trace.md).
 ///
@@ -63,6 +64,8 @@ public nonisolated enum SignpostName: UInt16, Sendable, Hashable, CaseIterable, 
     /// `KeyFrameSignpost`, from `CmuxApplication.sendEvent`). Message: `target=<view|terminal> age_ms=<age>`,
     /// the key's age when its dispatch began (its wait in the event queue). For a text view the commit shows
     /// the typed character; for a terminal it is the key's main-thread share, and the echo comes later.
+    /// Ring: AB/AE keyed by its `OSSignpostID`; begin arg0 the target (1 view, 2 terminal) in bits 0-7 and the
+    /// age in us in the top 24; end arg0 how it ended.
     case keyToFrame = 6
     /// One hop of a key press's flow across processes (a point event, not an interval), emitted only
     /// while `CMUX_NEXT_TRACE_FLOWS` is set (`TypingLatencyProbe`). Message: `hop=<hop> flow=<id>
@@ -126,7 +129,7 @@ public nonisolated enum SignpostName: UInt16, Sendable, Hashable, CaseIterable, 
     /// Reserved (task 029, PL-switch). A pane focus move: the intent to the settled focus. Ring: AB/AE.
     case switchPaneFocus = 11
     /// Reserved (task 039, PL-switch; perf-hot `cmd-tab`). The app becoming active or a window becoming key
-    /// (`keyDidMove`) to the commit that shows it. Ring: B/E.
+    /// (`keyDidMove`) to the commit that shows it (a ``CommitBoundary`` end). Ring: AB/AE keyed by its `OSSignpostID`.
     case switchAppActivation = 33
 
     // MARK: create (reserved: PL-cef-tab)
@@ -175,7 +178,8 @@ public nonisolated enum SignpostName: UInt16, Sendable, Hashable, CaseIterable, 
     /// owner=<batch owner or control method>`. Per task, so several per frame: never mirrored to MetricKit.
     case stallMainTask = 16
     /// A point event: a scheduled main-thread task ran past its class's per-frame budget. Message:
-    /// `class=<class> owner=<owner> ms=<task time> budget_ms=<the class's budget>`.
+    /// `class=<class> owner=<owner> ms=<task time> budget_ms=<the class's budget>`. Ring: I; arg0 the owner id in
+    /// bits 0-31, the class code in bits 32-39 and the budget in us in the top 24; arg1 the task's own time in ns.
     case stallOverBudget = 17
     /// Reserved (task 035, PL-ghostty). Creating a terminal surface on main (`TerminalTimings`). Ring: B/E.
     case stallCreateSurface = 41
@@ -183,6 +187,14 @@ public nonisolated enum SignpostName: UInt16, Sendable, Hashable, CaseIterable, 
     case stallPaletteOpen = 42
     /// Reserved (task 036, Performance Lead). Opening the icon picker on main (`DebugTimings`). Ring: B/E.
     case stallIconPickerOpen = 43
+    /// A point event: rendering starved (Chrome's `kRenderingStarved`). A display link that paces
+    /// active frame clients and whose frames show went over 100 ms and a frame without a tick
+    /// (`RenderStarvationGuard`, p06-scheduler task 004; the app's composition root builds it). With
+    /// the feature `renderStarvationGuard` on, the main-thread scheduler holds its budgeted work until
+    /// that tick. Once per late period, at the first budget check or the late tick. Message:
+    /// `link=<scheduler> gap_ms=<time since its last tick> turn=<the turn meter's top unattributed turn,
+    /// or unattributed> turn_ms=<its length> unattributed_ms=<its unattributed part>`. Ring: instant.
+    case stallRenderStarved = 74
 
     // MARK: daemon (reserved: task 025, PL-daemon)
     /// Reserved (task 025, PL-daemon). One app request to the cmux-tui daemon, from the send to the reply
@@ -281,6 +293,34 @@ public nonisolated enum SignpostName: UInt16, Sendable, Hashable, CaseIterable, 
     /// Reserved (task 111, PL-motion-core). One live window resize tick to the commit that shows it. Ring: AB/AE.
     case resizeFrame = 68
 
+    // MARK: webui (p13-webui; the page trace id is the `PageWebView`'s address, so the four tracks join per page)
+    /// Reserved (task 022, p13-webui). A page's lifecycle change (`PageLifecycle`). Ring: instant; arg0 the page
+    /// trace id, arg1 the new state (0 active, 1 hidden, 2 frozen, 3 discarded).
+    case webuiLifecycle = 69
+    /// A page's open, from its request to its document's first painted frame (`PagePaintProbe`, either engine):
+    /// a new view, a pooled spare's first load, a pool claim or retarget, a route loaded before the first load, a
+    /// reload, or a document the page navigated to (from its commit). Ring: AB/AE keyed by the page trace id; begin
+    /// arg0 bits 0-7 the kind (0 new view, 1 spare, 2 claim, 3 other document, 4 reload, 5 navigated), bits 8-63 a
+    /// new view's construction time in microseconds before the begin; end arg0 the outcome (0 painted in WebKit,
+    /// 1 painted in Chromium, 2 closed before its first paint, 3 replaced by a newer open of the same view).
+    case webuiOpen = 70
+    /// Reserved (task 043, p13-webui). A preload slot move (`PagePreloadSlot`). Ring: instant; arg0 the page trace
+    /// id, arg1 the move (0 park, 1 claim, 2 drop).
+    case webuiPreload = 71
+    /// One main-thread step of a WebKit `cmux-page://` scheme task (`PageSchemeHandler`). Ring: B/E; begin arg0 the
+    /// part (0 start, 1 answer, 2 a synchronous step of the reply), arg1 the asking page's trace id (0 for no page);
+    /// end arg0 the outcome (0 ok, 1 failed), arg1 the answer's body bytes. The part-0 slices of a page id during its
+    /// ``webuiOpen`` are that open's requests, and all its slices sum the handler's main-thread time for it.
+    case webuiScheme = 72
+
+    // MARK: stall, continued (emitter: CmuxNextWakeups `MainTurnMeter`, task p06-scheduler-008)
+    /// One busy main run-loop turn (the innermost nested loop's) ran past 4 ms. Ring only, no
+    /// `os_signpost` (it is written on the main thread inside the slow turn, with no allocation):
+    /// instant; arg0 the turn in us, bit 63 set for a nested turn; arg1 the scheduled tasks', render
+    /// (before-waiting phase), input (`sendEvent`) and unattributed time, 16 bits each from bit 0, in
+    /// 100 us units (0xFFFF at 6.5 s or more). Per turn: never mirrored to MetricKit.
+    case stallMainTurn = 73
+
     /// The name `os_signpost` records (a compile-time string, as the API requires).
     public var staticName: StaticString {
         switch self {
@@ -324,9 +364,11 @@ public nonisolated enum SignpostName: UInt16, Sendable, Hashable, CaseIterable, 
         case .launchFirstTerminalOutput: "launch.first_terminal_output"
         case .stallMainTask: "stall.main_task"
         case .stallOverBudget: "stall.over_budget"
+        case .stallMainTurn: "stall.main_turn"
         case .stallCreateSurface: "stall.create_surface"
         case .stallPaletteOpen: "stall.palette_open"
         case .stallIconPickerOpen: "stall.icon_picker_open"
+        case .stallRenderStarved: "stall.render_starved"
         case .daemonRequest: "daemon.request"
         case .frameTick: "frame.tick"
         case .frameCommit: "frame.commit"
@@ -352,6 +394,10 @@ public nonisolated enum SignpostName: UInt16, Sendable, Hashable, CaseIterable, 
         case .controlRequest: "control.request"
         case .ghosttyRender: "ghostty.render"
         case .resizeFrame: "resize.frame"
+        case .webuiLifecycle: "webui.lifecycle"
+        case .webuiOpen: "webui.open"
+        case .webuiPreload: "webui.preload"
+        case .webuiScheme: "webui.scheme"
         }
     }
 
@@ -373,7 +419,9 @@ public nonisolated enum SignpostName: UInt16, Sendable, Hashable, CaseIterable, 
         case .launchProcessToMain, .launchFirstWindow, .launchFirstFrame, .launchDaemonReady,
              .launchFirstTerminalOutput:
             .launch
-        case .stallMainTask, .stallOverBudget, .stallCreateSurface, .stallPaletteOpen, .stallIconPickerOpen: .stall
+        case .stallMainTask, .stallOverBudget, .stallMainTurn, .stallCreateSurface, .stallPaletteOpen, .stallIconPickerOpen,
+             .stallRenderStarved:
+            .stall
         case .daemonRequest: .daemon
         case .frameTick, .frameCommit, .frameGPUDone, .framePresentEstimate, .frameSequence: .frame
         case .taskPost, .taskRun: .task
@@ -387,6 +435,7 @@ public nonisolated enum SignpostName: UInt16, Sendable, Hashable, CaseIterable, 
         case .controlRequest: .control
         case .ghosttyRender: .ghostty
         case .resizeFrame: .resize
+        case .webuiLifecycle, .webuiOpen, .webuiPreload, .webuiScheme: .webui
         }
     }
 

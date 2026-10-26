@@ -2,9 +2,10 @@ import Darwin
 import Foundation
 
 /// Reads this Mac's numbers the way the host budget does: the performance
-/// cores (`performanceCores`), the 1-minute load, the memory pressure
-/// level and the swap-out counter. Each read is one syscall; nothing here
-/// polls on its own.
+/// cores (`performanceCores`), the 1-minute load and the swap-out counter.
+/// The memory pressure level is not read here: it comes from the app's one
+/// `MemoryPressureEvents` (see `HostPressureMonitor`). Each read is one
+/// syscall; nothing here polls on its own.
 public struct HostSampler: Sendable {
     public init() {}
 
@@ -47,10 +48,6 @@ public struct HostSampler: Sendable {
     public func load1() -> Double {
         var loads = [Double](repeating: 0, count: 3)
         return getloadavg(&loads, 3) > 0 ? loads[0] : 0
-    }
-
-    public func memoryPressure() -> HostMemoryPressure {
-        HostMemoryPressure(sysctlLevel: Self.sysctlInt32("kern.memorystatus_vm_pressure_level") ?? 1)
     }
 
     /// Bytes swapped out since boot (vm_stat's Swapouts, in bytes).
