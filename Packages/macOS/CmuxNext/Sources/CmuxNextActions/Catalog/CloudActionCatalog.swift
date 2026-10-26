@@ -15,6 +15,10 @@ nonisolated enum CloudActionCatalog: ActionCatalogGroup {
                 title: String(localized: "action.newCloudMachine", defaultValue: "New Cloud Machine…", bundle: .module),
                 keywords: ["vm", "remote", "create"],
                 category: .cloud, symbol: "server.rack", surfaces: [.palette, .keyboard, .menu, .contextMenu],
+                // All optional: `cmux cloud new-machine --persistent --size medium --name lane-vm-1
+                // --bootstrap lane --bootstrap-script FILE` makes a lane host in one call.
+                arguments: [CatalogArgument.nameString.optional, CatalogArgument.newMachineSizeString, CatalogArgument.persistentBool,
+                            CatalogArgument.bootstrapString, CatalogArgument.bootstrapScriptString],
                 cliName: "cloud new-machine", mainMenu: .file
             ),
             ActionDescriptor(

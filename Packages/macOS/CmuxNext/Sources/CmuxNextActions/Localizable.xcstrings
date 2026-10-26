@@ -27381,31 +27381,85 @@
         }
       }
     },
-    "argument.sshKey": {
-      "comment": "cloud enroll-machine argument: the ssh public key file on this Mac.",
+    "argument.persistent": {
+      "comment": "cloud new-machine argument: the machine never pauses by itself when idle.",
       "extractionState": "manual",
       "localizations": {
-        "en": {"stringUnit": {"state": "translated", "value": "SSH Public Key"}},
-        "ja": {"stringUnit": {"state": "translated", "value": "SSH 公開鍵"}},
-        "de": {"stringUnit": {"state": "needs_review", "value": "Öffentlicher SSH-Schlüssel"}},
-        "fr": {"stringUnit": {"state": "needs_review", "value": "Clé publique SSH"}},
-        "es": {"stringUnit": {"state": "needs_review", "value": "Clave pública SSH"}},
-        "ar": {"stringUnit": {"state": "needs_review", "value": "مفتاح SSH العام"}},
-        "ko": {"stringUnit": {"state": "needs_review", "value": "SSH 공개 키"}},
-        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "SSH 公钥"}},
-        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "SSH 公鑰"}},
-        "bs": {"stringUnit": {"state": "needs_review", "value": "Javni SSH ključ"}},
-        "da": {"stringUnit": {"state": "needs_review", "value": "Offentlig SSH-nøgle"}},
-        "it": {"stringUnit": {"state": "needs_review", "value": "Chiave pubblica SSH"}},
-        "km": {"stringUnit": {"state": "needs_review", "value": "សោសាធារណៈ SSH"}},
-        "nb": {"stringUnit": {"state": "needs_review", "value": "Offentlig SSH-nøkkel"}},
-        "pl": {"stringUnit": {"state": "needs_review", "value": "Klucz publiczny SSH"}},
-        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Chave pública SSH"}},
-        "ru": {"stringUnit": {"state": "needs_review", "value": "Открытый ключ SSH"}},
-        "th": {"stringUnit": {"state": "needs_review", "value": "คีย์สาธารณะ SSH"}},
-        "tr": {"stringUnit": {"state": "needs_review", "value": "SSH açık anahtarı"}},
-        "uk": {"stringUnit": {"state": "needs_review", "value": "Відкритий ключ SSH"}},
-        "vi": {"stringUnit": {"state": "needs_review", "value": "Khóa công khai SSH"}}
+        "en": {"stringUnit": {"state": "translated", "value": "Persistent"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "常時稼働"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Dauerhaft"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Persistante"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Persistente"}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "دائم"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "상시 실행"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "常驻"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "常駐"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Trajno"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Vedvarende"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Persistente"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "ដំណើរការជានិច្ច"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Vedvarende"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Stała"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Persistente"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Постоянная"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "ทำงานต่อเนื่อง"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Kalıcı"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Постійна"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Luôn chạy"}}
+      }
+    },
+    "argument.bootstrap": {
+      "comment": "cloud new-machine argument: what setup runs on the new machine.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Bootstrap"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "ブートストラップ"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Ersteinrichtung"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Amorçage"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Arranque inicial"}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "التمهيد"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "부트스트랩"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "引导"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "引導"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Početno podešavanje"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Opstart"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Avvio iniziale"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "ការរៀបចំដំបូង"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Oppstart"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Konfiguracja startowa"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Inicialização"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Начальная настройка"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "การตั้งค่าเริ่มต้น"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "İlk kurulum"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Початкове налаштування"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Khởi tạo ban đầu"}}
+      }
+    },
+    "argument.bootstrapScript": {
+      "comment": "cloud new-machine argument: the script file the new machine runs on its first boot.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Bootstrap Script"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "ブートストラップスクリプト"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Bootstrap-Skript"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Script de bootstrap"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Script de bootstrap"}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "نص التمهيد"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "부트스트랩 스크립트"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "引导脚本"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "引導腳本"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Skripta početnog podešavanja"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Opstartsscript"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Script di avvio iniziale"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "ស្គ្រីបរៀបចំដំបូង"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Oppstartsskript"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Skrypt konfiguracji startowej"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Script de inicialização"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Скрипт начальной настройки"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "สคริปต์ตั้งค่าเริ่มต้น"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "İlk kurulum betiği"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Скрипт початкового налаштування"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Tập lệnh khởi tạo ban đầu"}}
       }
     },
     "action.chief.importMemories" : {
@@ -27930,6 +27984,33 @@
             "value" : "來源"
           }
         }
+      }
+    },
+    "argument.sshKey": {
+      "comment": "cloud enroll-machine argument: the ssh public key file on this Mac.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "SSH Public Key"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "SSH 公開鍵"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Öffentlicher SSH-Schlüssel"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Clé publique SSH"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Clave pública SSH"}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "مفتاح SSH العام"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "SSH 공개 키"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "SSH 公钥"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "SSH 公鑰"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Javni SSH ključ"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Offentlig SSH-nøgle"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Chiave pubblica SSH"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "សោសាធារណៈ SSH"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Offentlig SSH-nøkkel"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Klucz publiczny SSH"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Chave pública SSH"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Открытый ключ SSH"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "คีย์สาธารณะ SSH"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "SSH açık anahtarı"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Відкритий ключ SSH"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Khóa công khai SSH"}}
       }
     }
   },
