@@ -115,6 +115,28 @@ fn run_once(global: &GlobalArgs, mut plan: RequestPlan, tries: &retry::Tries) ->
     // The caller's terminal belongs to the session its environment names; an
     // explicit route targets that session's current workspace.
     let caller_route = global.socket.is_none() && global.session.is_none();
+    // An agent's terminal with no place goes beside its chat (beside.rs).
+    #[cfg(unix)]
+    if caller_route {
+        let key = request.get("idempotency_key").and_then(Value::as_str).map(str::to_owned);
+        match super::beside::apply_cli(global, &mut plan, &mut reader, key.as_deref()) {
+            super::beside::CliOutcome::Unchanged => {}
+            super::beside::CliOutcome::Placed => {
+                request["params"] = plan.params.clone();
+                encoded = match encode_request(&request) {
+                    Ok(encoded) => encoded,
+                    Err(code) => return code,
+                };
+            }
+            super::beside::CliOutcome::Answered(code) => {
+                if code == 0 {
+                    key_report.succeeded();
+                }
+                key_report.finish(global.output);
+                return code;
+            }
+        }
+    }
     // A browser tab in a session a cmux app owns is the app's to render.
     #[cfg(unix)]
     if let Some(code) = super::frontend_browser::run_in_app(
