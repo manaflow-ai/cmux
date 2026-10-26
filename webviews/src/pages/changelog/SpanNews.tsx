@@ -42,9 +42,9 @@ function firstParagraph(text: string): string {
   return text.split(/\n{2,}/)[0] ?? "";
 }
 
-/** A recorded clip (whats-new-clips.py publishes only animated WebP) or a video, not a pull
-    request's screenshot (pr-media.py never uploads WebP). The app inlines both as data: URLs and
-    calls both "image", so the format is what tells them apart. */
+/** A recorded clip (whats-new-clips.py makes only animated WebP) or a video, not a pull
+    request's screenshot (PNG, JPEG or GIF). The app inlines both as data: URLs and calls both
+    "image", so the format is what tells them apart. */
 export function isClip(item: ReleaseItem): boolean {
   const src = item.media?.light ?? "";
   return !!item.media?.video || /^data:image\/webp[;,]/.test(src) || /\.webp$/i.test(src);
