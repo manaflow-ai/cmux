@@ -104,7 +104,7 @@ extension InternalPageDiscardPolicyCoverageTests {
                     #expect(hibernated.contains(kind.rawValue) || scheduled, """
                     TabContent.\(content) claims ContentKind.\(kind), but nothing discards that kind: no \
                     hibernation records it and no `\(scheduler))` is built. Give the kind a discard path, \
-                    or declare the case `.never(why:)` in TabContent+Discard.swift.
+                    or declare the case `.never(why:)` in TabContent.swift.
                     """)
                 case .warmSet:
                     #expect(content == .terminal, "the warm set holds terminals only; TabContent.\(content) is not one")
