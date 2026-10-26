@@ -620,7 +620,10 @@ QoS with them, and ThreadsControlTests fails when a label or QoS here and there 
   `com.cmuxterm.app.next.blocking-drain` (utility), `com.cmux.host-pressure` (utility),
   `debug.window_record` (user-initiated),
   `com.cmuxterm.app.next.hang-reports.store` (utility; the `HangReportStore` actor's executor: its small pending,
-  outbox and send-log file reads and writes block this queue, never a pool thread)
+  outbox and send-log file reads and writes block this queue, never a pool thread),
+  `com.cmuxterm.app.next.hang-reports.field-data` (utility; the `HangReportFieldSources` actor's executor, schema 3
+  only: earlier launches' metrics files mapped and deleted, and the black-box ring files read, at most once per
+  report and per hang or slow key frame; never a pool thread)
 - Trace and hang watch (Rust thread names, p09-observability; the app adds no thread): `mux-hang-watch`,
   `cmux-trace-open`
 - Daemon maintenance clock (Rust thread name, p14-energy-020): `mux-maintenance` (utility), one per process that
