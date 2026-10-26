@@ -26,7 +26,7 @@ import Testing
         defer { try? FileManager.default.removeItem(at: directory) }
         let file = directory.appending(path: "index.html")
         try Data("<html><body></body></html>".utf8).write(to: file)
-        let view = try #require(AgentPaneView(model: AgentPaneModel(host: NoHost()), source: .bundled(file), openPanel: shared))
+        let view = try #require(AgentPaneView(model: AgentPaneModel(host: NoHost()), source: .bundled(file), openPanel: shared, gestures: .testing()))
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: 700), styleMask: [.titled, .resizable],
                               backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false

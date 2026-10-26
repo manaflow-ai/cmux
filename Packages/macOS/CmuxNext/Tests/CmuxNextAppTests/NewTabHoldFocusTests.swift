@@ -81,7 +81,7 @@ struct NewTabHoldFocusTests {
         try Data("<html><body><input></body></html>".utf8).write(to: file)
         let model = AgentPaneModel(host: NoHost(), allowsTabConversion: true)
         model.becomeNewTab(AgentPaneNewTab(kind: .agent))
-        let page = try #require(AgentPaneView(model: model, source: .bundled(file)))
+        let page = try #require(AgentPaneView(model: model, source: .bundled(file), gestures: .testing()))
         page.frame = other.view.bounds
         other.view.addSubview(page)
         services.agentTabs.views[key] = page

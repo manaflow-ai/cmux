@@ -36,7 +36,7 @@ struct RecentlyClosedSharedEncodeTests {
     func oneChangeEncodesTheListOnceForAnyNumberOfPages(pages: Int) throws {
         let file = try Self.page()
         defer { try? FileManager.default.removeItem(at: file.deletingLastPathComponent()) }
-        let views = try (0..<pages).map { _ in try #require(AgentPaneView(model: AgentPaneModel(host: NoHost()), source: .bundled(file))) }
+        let views = try (0..<pages).map { _ in try #require(AgentPaneView(model: AgentPaneModel(host: NoHost()), source: .bundled(file), gestures: .testing())) }
 
         let counter = Counter()
         let list = AgentPaneClosedList(Self.items) { item in

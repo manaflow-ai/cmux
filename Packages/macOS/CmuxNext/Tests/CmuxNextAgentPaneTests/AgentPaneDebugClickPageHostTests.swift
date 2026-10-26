@@ -21,7 +21,7 @@ struct AgentPaneDebugClickPageHostTests {
     @Test func clickFindsAnElementOfThePageTheChatShows() async throws {
         let file = try #require(AgentPageTestRoot.page)
         let view = try #require(AgentPaneView(model: AgentPaneModel(host: NoHost()), source: .bundled(file),
-                                              pageHost: .agentPaneTestHost()))
+                                              pageHost: .agentPaneTestHost(), gestures: .testing()))
         view.frame = NSRect(x: 0, y: 0, width: 800, height: 600)
         // The page loads in the page host.
         let deadline = Date().addingTimeInterval(20)
@@ -57,7 +57,7 @@ struct AgentPaneDebugClickPageHostTests {
             }
         }
         let view = try #require(AgentPaneView(model: AgentPaneModel(host: NoHost()), source: .bundled(file),
-                                              pageHost: .agentPaneTestHost(chromium: hosting)))
+                                              pageHost: .agentPaneTestHost(chromium: hosting), gestures: .testing()))
         view.frame = NSRect(x: 0, y: 0, width: 800, height: 600)
         let deadline = Date().addingTimeInterval(5)
         while !view.debugShowsChromium, Date() < deadline { try await Task.sleep(for: .milliseconds(10)) }

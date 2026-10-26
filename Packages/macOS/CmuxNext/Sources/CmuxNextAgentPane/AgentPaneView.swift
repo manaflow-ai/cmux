@@ -86,8 +86,9 @@ public final class AgentPaneView: NSView {
     }
     private var reduceMotionObserver: MainActorObservation?
     private var reduceMotionOverrideObserver: MainActorObservation?
-    /// Records the user's real key and mouse events in this pane (``AgentPaneUserGestures``).
-    private var gestureMonitor: Any?
+    /// Hands this pane the person's key presses and clicks that go to it (``AgentPaneUserGestures``),
+    /// through one input tap subscription per window, while the pane is in one.
+    let gestureRouter: AgentPaneGestureRouter
     var transportPacer: AgentPaneFramePacer?
     /// The page's menu shown past the window's edge (AgentPaneView+Popup).
     var popupHostStorage: WebPopupHost?
@@ -134,9 +135,12 @@ public final class AgentPaneView: NSView {
     ///     dev-server page stays.
     ///   - openPanel: The app's made-ahead open panel (`AppServices.openPanel`) for Add Files, Attach and a page's
     ///     file input, warmed when the pane reaches a window; nil (tests) shows no file picker and warms none.
+    ///   - gestures: The app's gesture router over its input tap: the person's presses in this pane grant
+    ///     its page a gesture, and its dictation's hold-to-talk hears the key-up.
     public init?(model: AgentPaneModel, source: AgentPaneSource? = nil, renderRate: AgentPaneRenderRate = .capped,
-                 pageHost: WebUIHost? = nil, openPanel: MadeAheadOpenPanel? = nil) {
+                 pageHost: WebUIHost? = nil, openPanel: MadeAheadOpenPanel? = nil, gestures: AgentPaneGestureRouter) {
         guard let source = source ?? Self.bundledPage.map({ AgentPaneSource.bundled($0) }) else { return nil }
+        gestureRouter = gestures
         self.openPanel = openPanel
         fileChooser = openPanel.map { PageOpenPanel(openPanel: $0) }
         self.model = model
@@ -155,7 +159,7 @@ public final class AgentPaneView: NSView {
             pageEvents = provider
             webView = page.webKitView
             inputReadiness = page.inputReadiness
-            dictation = AgentPaneDictation(send: { [weak provider] update in
+            dictation = AgentPaneDictation(input: gestures.input, send: { [weak provider] update in
                 if let event = AgentPageEvent.dictation(update), provider?.publish(event) == false {
                     // The page host reports bounded replay backpressure; reconnecting the acpmux
                     // transport resyncs the chat while the provider's replay state restores chrome.
@@ -196,7 +200,9 @@ public final class AgentPaneView: NSView {
             #endif
             page = nil
             pageEvents = nil
-            dictation = AgentPaneDictation(evaluate: { [weak webView] script in webView?.evaluateJavaScript(script, completionHandler: nil) })
+            dictation = AgentPaneDictation(input: gestures.input, evaluate: { [weak webView] script in
+                webView?.evaluateJavaScript(script, completionHandler: nil)
+            })
         }
         self.webView = webView
         super.init(frame: .zero)
@@ -242,14 +248,6 @@ public final class AgentPaneView: NSView {
             self.rendersAtFullRate = full
         }
         model.onDictation = { [weak self] command in self?.dictation.handle(command) }
-        // A frame that grants needs a real gesture in this pane; page script cannot make one.
-        gestureMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .leftMouseDown, .rightMouseDown, .otherMouseDown]) { [weak self] event in
-            // AppKit calls a local monitor on the main thread; anywhere else, no gesture (fail closed).
-            guard Thread.isMainThread else { return event }
-            // main-proof: guarded by Thread.isMainThread above (AppKit calls local monitors on main; the decision must read focus and bounds before dispatch, so no hop)
-            MainActor.assumeIsolated { self?.monitored(event) }
-            return event
-        }
         installTransport()
         installContextMenu()
         if page == nil {
@@ -394,8 +392,7 @@ public final class AgentPaneView: NSView {
         reduceMotionOverrideObserver = nil
         dictation.close()
         model.shell.terminateAll()
-        if let gestureMonitor { NSEvent.removeMonitor(gestureMonitor) }
-        gestureMonitor = nil
+        gestureRouter.detach(self)
         if let connection = model.transport.connection { model.transport.close(connection: connection) }
         model.transport.deliver = nil
         model.transport.onOtherInstall = nil
@@ -433,6 +430,8 @@ public final class AgentPaneView: NSView {
     public override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         // Its tab or window closed, or it moved out of sight: stop listening, keep the words.
+        // A frame that grants needs a real gesture in this pane; page script cannot make one.
+        if let window { gestureRouter.attach(self, to: window) } else { gestureRouter.detach(self) }
         if window == nil {
             dictation.handle(.stop)
             popupHostStorage?.dismiss()

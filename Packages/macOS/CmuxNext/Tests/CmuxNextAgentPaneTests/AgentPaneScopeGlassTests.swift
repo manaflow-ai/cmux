@@ -23,7 +23,7 @@ struct AgentPaneScopeGlassTests {
         defer { try? FileManager.default.removeItem(at: directory) }
         let file = directory.appending(path: "index.html")
         try Data("<html><body></body></html>".utf8).write(to: file)
-        let view = try #require(AgentPaneView(model: AgentPaneModel(host: NoHost()), source: .bundled(file)))
+        let view = try #require(AgentPaneView(model: AgentPaneModel(host: NoHost()), source: .bundled(file), gestures: .testing()))
 
         // Outside any picture (the app's scope, background-opacity 1) the chat paints its theme color.
         try #require(ThemeScope.app.backdropSelection == nil, "the test's app scope has a picture")

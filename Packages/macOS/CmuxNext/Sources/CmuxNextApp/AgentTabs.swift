@@ -5,6 +5,7 @@ import CmuxNextBridge
 import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextDesign
+import CmuxNextInput
 import CmuxNextPages
 import CmuxNextSettings
 import CmuxNextTabs
@@ -23,6 +24,8 @@ final class AgentTabStore {
     /// The app's made-ahead open panel for agent panes' file pickers (nil, in tests, shows none) and
     /// its page host (`AppServices.webUI`) every page-hosted agent pane opens its page through.
     private let openPanel: MadeAheadOpenPanel?, webUI: WebUIHost
+    /// Gives each press to the agent pane it goes to (one input tap subscription per window).
+    let gestureRouter: AgentPaneGestureRouter
     /// The page every agent tab loads: the bundled file, or in Debug builds the dev server
     /// `CMUX_NEXT_AGENT_PANE_DEV_URL` names (nil only when the bundled page is missing).
     private let source: AgentPaneSource?
@@ -210,9 +213,11 @@ final class AgentTabStore {
     var gitLink: (@MainActor (String) -> AgentPaneGitLink?)?, openFiles: (@MainActor (_ chat: String, _ folder: String, _ target: String?) -> Void)?, moveToFloatingChat: (@MainActor (String) -> Bool)?
 
     /// `settings`, when given, is followed for the page settings (``AgentPanePageSettings``); else from `AppServices.settings`.
-    init(build: BuildIdentity?, registry: ActionRegistry, webUI: WebUIHost, environment: [String: String] = ProcessInfo.processInfo.environment,
+    /// `input` is the app's input tap (`AppServices.inputTap`; a test's own).
+    init(build: BuildIdentity?, registry: ActionRegistry, webUI: WebUIHost, input: InputEventTap, environment: [String: String] = ProcessInfo.processInfo.environment,
          showcase: Bool = false, linkScheme: String? = nil, settings: SettingsController? = nil,
          openPanel: MadeAheadOpenPanel? = nil, defaults: UserDefaults = .standard) {
+        gestureRouter = AgentPaneGestureRouter(input: input)
         self.defaults = defaults
         if let data = defaults.data(forKey: Self.adoptionsDefaultsKey),
            let saved = try? JSONDecoder().decode([String: String].self, from: data) {
@@ -495,7 +500,7 @@ final class AgentTabStore {
     private func makeView(_ model: AgentPaneModel) -> AgentPaneView? {
         AgentPaneNewTabFrame.shared.pageMade(model)
         model.linkScheme = linkScheme
-        guard let source, let view = AgentPaneView(model: model, source: source, renderRate: renderRate, pageHost: AgentPaneTunables.pageHost.value || AgentPaneTunables.chromium.value ? webUI : nil, openPanel: openPanel) else { return nil }
+        guard let source, let view = AgentPaneView(model: model, source: source, renderRate: renderRate, pageHost: AgentPaneTunables.pageHost.value || AgentPaneTunables.chromium.value ? webUI : nil, openPanel: openPanel, gestures: gestureRouter) else { return nil }
         DebugTimings.markLaunch("agent_pane.view_created")
         view.customization = customization.current
         view.shortcuts = shortcuts

@@ -489,7 +489,7 @@ struct AgentPaneMediaNoAutoActionTests {
         let refused = await Self.ask(pane, "file.drag", ["path": broken.path])
         #expect(Self.errorCode(refused) != nil, "\(refused)")
         // A path chip's Save As…: the same file as the drag.
-        let view = try #require(AgentPaneView(model: pane.model, source: .bundled(page)))
+        let view = try #require(AgentPaneView(model: pane.model, source: .bundled(page), gestures: .testing()))
         for file in [svg, shot] {
             let save = try #require(view.pathMenuItems(file.path)?.first { $0.title == AgentPaneMenuStrings.saveAs })
             let saved = await withCheckedContinuation { (done: CheckedContinuation<URL, Never>) in

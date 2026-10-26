@@ -36,7 +36,7 @@ struct AgentPaneDictationKeyTests {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let file = directory.appending(path: "index.html")
         try Data("<html><body><textarea></textarea></body></html>".utf8).write(to: file)
-        let view = try #require(AgentPaneView(model: AgentPaneModel(host: NoHost()), source: .bundled(file)))
+        let view = try #require(AgentPaneView(model: AgentPaneModel(host: NoHost()), source: .bundled(file), gestures: .testing()))
         let host = NSView(frame: NSRect(x: 0, y: 0, width: 400, height: 300))
         host.addSubview(view)
         let routes = Routes()

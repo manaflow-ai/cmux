@@ -3,6 +3,7 @@ import CmuxNextAgentPane
 @testable import CmuxNextApp
 import CmuxNextBridge
 import CmuxNextDaemon
+import CmuxNextInput
 import CmuxNextSettings
 import AppKit
 import Foundation
@@ -33,7 +34,7 @@ struct AgentPageHibernationTests {
         let start = ContinuousClock.now
 
         init() {
-            tabs = AgentTabStore(build: nil, registry: ActionRegistry(), webUI: .agentTabsTestHost(),
+            tabs = AgentTabStore(build: nil, registry: ActionRegistry(), webUI: .agentTabsTestHost(), input: InputEventTap(),
                                  environment: [AgentPaneSource.devURLVariable: "http://127.0.0.1:9/"], showcase: true)
             tabs.localHost = AgentPageHibernationTests.thisMac
             turns.localHost = AgentPageHibernationTests.thisMac

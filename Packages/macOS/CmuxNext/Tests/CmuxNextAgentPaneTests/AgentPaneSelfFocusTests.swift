@@ -23,7 +23,7 @@ struct AgentPaneSelfFocusTests {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let file = directory.appending(path: "index.html")
         try Data("<html><body></body></html>".utf8).write(to: file)
-        let view = try #require(AgentPaneView(model: AgentPaneModel(host: NoHost()), source: .bundled(file)))
+        let view = try #require(AgentPaneView(model: AgentPaneModel(host: NoHost()), source: .bundled(file), gestures: .testing()))
         host.addSubview(view)
         return (view, directory)
     }

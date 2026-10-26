@@ -44,7 +44,7 @@ import Testing
         window.orderFrontRegardless()
 
         let page = try #require(AgentPaneView(model: AgentPaneModel(host: NoHost(), newTab: AgentPaneNewTab(kind: .agent)),
-                                              source: .bundled(file)))
+                                              source: .bundled(file), gestures: .testing()))
         defer { page.close() }
         let probe = WindowProbe()
         page.addSubview(probe)

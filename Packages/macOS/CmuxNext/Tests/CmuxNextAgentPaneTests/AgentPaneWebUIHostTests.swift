@@ -18,7 +18,7 @@ struct AgentPaneWebUIHostTests {
     @Test func thePageOpensThroughTheGivenHost() throws {
         let file = try #require(AgentPageTestRoot.page)
         let host = WebUIHost.agentPaneTestHost()
-        let view = try #require(AgentPaneView(model: AgentPaneModel(host: NoHost()), source: .bundled(file), pageHost: host))
+        let view = try #require(AgentPaneView(model: AgentPaneModel(host: NoHost()), source: .bundled(file), pageHost: host, gestures: .testing()))
         let page = try #require(view.page)
         #expect(host.openPages.map(ObjectIdentifier.init) == [ObjectIdentifier(page)])
         #expect(host.registry.pages(id: PageDescriptor.agent.id).contains { $0 === page })
@@ -31,18 +31,18 @@ struct AgentPaneWebUIHostTests {
     @Test func theHostsChromiumPicksTheEngine() throws {
         let file = try #require(AgentPageTestRoot.page)
         let chromium = try #require(AgentPaneView(model: AgentPaneModel(host: NoHost()), source: .bundled(file),
-                                                  pageHost: .agentPaneTestHost(chromium: FakeChromiumHosting())))
+                                                  pageHost: .agentPaneTestHost(chromium: FakeChromiumHosting()), gestures: .testing()))
         let chromiumPage = try #require(chromium.page)
         #expect(chromiumPage.engineDecision == .chromium)
         let webKit = try #require(AgentPaneView(model: AgentPaneModel(host: NoHost()), source: .bundled(file),
-                                                pageHost: .agentPaneTestHost()))
+                                                pageHost: .agentPaneTestHost(), gestures: .testing()))
         let webKitPage = try #require(webKit.page)
         #expect(webKitPage.engineDecision != .chromium)
     }
 
     @Test func noHostKeepsThePaneOnItsOwnWebKitHost() throws {
         let file = try #require(AgentPageTestRoot.page)
-        let view = try #require(AgentPaneView(model: AgentPaneModel(host: NoHost()), source: .bundled(file)))
+        let view = try #require(AgentPaneView(model: AgentPaneModel(host: NoHost()), source: .bundled(file), gestures: .testing()))
         #expect(view.page == nil)
     }
 }
