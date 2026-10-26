@@ -353,7 +353,7 @@ final class LineTransport: Sendable {
         var lines = LineSplitter()
         var chunk = [UInt8](repeating: 0, count: 256 * 1024)
         var closeDetail = "EOF"
-        // wakeup-allow: blocking read on a dedicated thread; EOF, errors and oversize lines end it, EINTR retries
+        // wakeup-allow: bounded: blocking read on a dedicated thread; EOF, errors and oversize lines end it, EINTR retries
         reading: while true {
             let count = chunk.withUnsafeMutableBytes { Darwin.read(fd, $0.baseAddress, $0.count) }
             if count == 0 { break }

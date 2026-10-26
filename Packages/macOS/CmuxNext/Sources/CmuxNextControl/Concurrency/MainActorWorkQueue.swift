@@ -199,8 +199,9 @@ public final class MainActorWorkQueue: Sendable {
                 return
             }
             let task = Task { [weak self] in
-                // wakeup-allow: one-shot work-item deadline, cancelled when the item runs
-                do { try await engineStart.waitPast(deadline, countingFrom: mark) } catch { return }
+                // wakeup-allow: deadline of the work item (flexible, never early: WakeLeeway), cancelled when the item runs
+                let tolerance = WakeLeeway.window(delay: max(deadline - now, .zero)).tolerance
+                do { try await engineStart.waitPast(deadline, countingFrom: mark, tolerance: tolerance) } catch { return }
                 if item.expire(timeout) { self?.state.withLock { $0.stats.expired += 1 } }
             }
             item.attachTimer(task)
