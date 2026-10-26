@@ -27,8 +27,11 @@ struct IntentPrewarmTests {
         var queue = IntentPrewarmQueue<String>()
         _ = queue.admit("a")
         _ = queue.admit("b")
-        #expect(queue.remove("a"))
-        #expect(!queue.remove("a"))
+        // remove is mutating, so it runs outside #expect (the macro calls it on an immutable copy).
+        let removedHeld = queue.remove("a")
+        let removedAgain = queue.remove("a")
+        #expect(removedHeld)
+        #expect(!removedAgain)
         #expect(!queue.contains("a"))
         _ = queue.admit("c")
         #expect(queue.removeAll() == ["b", "c"])
