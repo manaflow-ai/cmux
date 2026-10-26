@@ -81,11 +81,13 @@ await requireBrowserLane("message-preview-browser.test.ts", async () => {
     await page.locator(".cv-message__text").waitFor();
     expect((await intact(".cv-message__text")).mask).toBe("none");
     await page.locator(".cv-message__more").waitFor();
-    expect(await page.locator(".cv-message .cv-agentmsg__card").evaluate((box) => ({
-      maxHeight: getComputedStyle(box).maxHeight,
-      overflowY: getComputedStyle(box).overflowY,
-      background: getComputedStyle(box).backgroundColor,
-    }))).toEqual({ maxHeight: "none", overflowY: "visible", background: "rgba(0, 0, 0, 0)" });
+    expect(
+      await page.locator(".cv-message .cv-agentmsg__card").evaluate((box) => ({
+        maxHeight: getComputedStyle(box).maxHeight,
+        overflowY: getComputedStyle(box).overflowY,
+        background: getComputedStyle(box).backgroundColor,
+      })),
+    ).toEqual({ maxHeight: "none", overflowY: "visible", background: "rgba(0, 0, 0, 0)" });
     expect(await intact(".cv-message__text")).toEqual({ mask: "none", split: 0, visible: true });
     await page.locator(".cv-message__more").click();
     expect(await page.locator(".cv-message__text").evaluate((box) => box.clientHeight >= box.scrollHeight)).toBe(true);
