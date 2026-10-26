@@ -326,6 +326,7 @@ impl PriorityGate {
         timeout: Option<Duration>,
     ) -> std::sync::MutexGuard<'a, u64> {
         let epoch = match timeout {
+            // wakeup-allow: deadline automation's next due admission, timed only while a frontend waits on the lock
             Some(timeout) => condvar.wait_timeout(epoch, timeout).recover_poison().0,
             None => condvar.wait(epoch).recover_poison(),
         };
