@@ -27,7 +27,7 @@ nonisolated enum AgentPaneDisplaySettingsSchema {
     /// `agentPane.display.minimap`, the Chat Minimap row.
     static let minimapKey = (section + ["minimap"]).joined(separator: ".")
 
-    /// A stored value as the chat page reads it. `agentPane.display.minimap` was an on/off toggle
+    /// A stored value as the chat page and schema readers read it. `agentPane.display.minimap` was an on/off toggle
     /// before it was the Rail / Full Map / Off choice: on (`true`) was the full map, and off (`false`)
     /// left the chat to the thread minimap experiment, which no value means now. Every other value
     /// is returned as stored; the row still checks it.

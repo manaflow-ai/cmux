@@ -22,7 +22,7 @@ import { LIT_OPACITY, threadMinimapLit } from "./lit.experiment";
 import { MARK_OPACITY, threadMinimapMark } from "./mark.experiment";
 import { experimentArm } from "../../../experiments/experiment";
 import { tickRanges } from "./tickWindow";
-import { useChatDisplay } from "../chatDisplay";
+import { useThreadMinimapArm } from "../chatDisplay";
 import {
   CARD_DELAY,
   cardOffset,
@@ -128,7 +128,7 @@ export function ThreadMinimap({
   /// steps below still run), read once per pane. The Chat Minimap setting
   /// (`agentPane.display.minimap`, and the App Store card that picks its full map) wins when set, live.
   const [experiment] = useState(() => experimentArm(threadMinimapLayout));
-  const arm = useChatDisplay().minimap ?? experiment;
+  const arm = useThreadMinimapArm() ?? experiment;
   /// How bright the prompts on screen draw (lit.experiment.ts), read once per pane.
   const [lit] = useState(() => LIT_OPACITY[experimentArm(threadMinimapLit)]);
   /// How bright a bookmarked prompt draws at rest (mark.experiment.ts), read once per pane.

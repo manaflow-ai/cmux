@@ -131,6 +131,20 @@ import Testing
         #expect(!bridge.isOn(paintings))
     }
 
+    @Test func theChatMinimapCardFollowsAnOldSavedToggle() async throws {
+        let (settings, home) = try await Self.make("{\"agentPane\":{\"display\":{\"minimap\":true}}}")
+        defer { try? FileManager.default.removeItem(at: home) }
+        let bridge = SettingsAppFeatures(settings: { settings })
+        let minimap = try Self.feature("editor.chatMinimap")
+        #expect(bridge.isOn(minimap))
+        try await bridge.set(minimap, on: false)
+        #expect(!bridge.isOn(minimap))
+        #expect(settings.fileRoot.value(at: minimap.path) == nil)
+        try await bridge.set(minimap, on: true)
+        #expect(bridge.isOn(minimap))
+        #expect(settings.fileRoot.value(at: minimap.path) == .string("full"))
+    }
+
     /// Chief in Sidebar: listed once the sidebar binds its side, on while the layout shows the
     /// Chief item, and Get / Remove run the sidebar's edit; a refused edit says so on the card.
     @Test func aSidebarItemCardAddsAndRemovesTheItem() async throws {

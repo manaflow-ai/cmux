@@ -7,7 +7,7 @@
 import { afterAll, describe, expect, test } from "bun:test";
 import exported from "../../schemas/settings/settings-schema.json";
 import { threadMinimapLayout } from "../src/agent-session/acpmux/threadMinimap/layout.experiment";
-import { MINIMAP_KEY, resolveChatDisplay } from "../src/agent-session/acpmux/chatDisplay";
+import { MINIMAP_KEY, resolveThreadMinimapArm } from "../src/agent-session/acpmux/chatDisplay";
 import { armIds } from "../src/experiments/experiment";
 import { rankPalette, type PaletteRankEntry } from "../src/palette/ranker";
 import { installDom } from "../src/pages/settings/testDom";
@@ -38,16 +38,16 @@ describe("the Chat Minimap row is the experiment's arms", () => {
   });
 
   test("the page takes an arm from the key and leaves anything else to the experiment", () => {
-    for (const arm of armIds(threadMinimapLayout)) expect(resolveChatDisplay({ [MINIMAP_KEY]: arm }).minimap).toBe(arm);
-    expect(resolveChatDisplay({}).minimap).toBeNull();
-    expect(resolveChatDisplay({ [MINIMAP_KEY]: "wave-2" }).minimap).toBeNull();
+    for (const arm of armIds(threadMinimapLayout)) expect(resolveThreadMinimapArm({ [MINIMAP_KEY]: arm })).toBe(arm);
+    expect(resolveThreadMinimapArm({})).toBeNull();
+    expect(resolveThreadMinimapArm({ [MINIMAP_KEY]: "wave-2" })).toBeNull();
   });
 
   // The key was an on/off toggle before it was this choice: `true` drew the full map and `false` left
   // the chat to the experiment. A settings file the toggle wrote keeps meaning the same thing.
   test("a value the old toggle wrote keeps its meaning", () => {
-    expect(resolveChatDisplay({ [MINIMAP_KEY]: true }).minimap).toBe("full");
-    expect(resolveChatDisplay({ [MINIMAP_KEY]: false }).minimap).toBeNull();
+    expect(resolveThreadMinimapArm({ [MINIMAP_KEY]: true })).toBe("full");
+    expect(resolveThreadMinimapArm({ [MINIMAP_KEY]: false })).toBeNull();
   });
 });
 

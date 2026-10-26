@@ -72,12 +72,6 @@ export interface ChatDisplay {
   /// Where the machine · folder chip sits below the tab row. Left keeps the default top-left
   /// placement; right aligns it to the opposite edge; off removes the chip.
   environmentPlacement: EnvironmentPlacement;
-  /// What the chat's edge shows (threadMinimap/ThreadMinimap.tsx), Settings > Agent Chat > Chat
-  /// Minimap: one of the `thread-minimap-layout` experiment's arms (the prompt rail, the VS Code-like
-  /// full map, or nothing; the App Store's Chat Minimap card picks the full map, Leo 2026-10-22:
-  /// "addng in the app store the vscode-like minimap situation"). Null when the key is unset or not
-  /// an arm: the experiment decides (its debug key, else its default arm). Not a look: Reset leaves it.
-  minimap: ThreadMinimapArm | null;
 }
 
 /// Settings > Agent Chat > Inspector (Swift AgentPaneDisplaySettingsSchema has the same row).
@@ -124,7 +118,6 @@ export const DEFAULT_CHAT_DISPLAY: ChatDisplay = {
   inspector: "overlay",
   minimal: false,
   environmentPlacement: "left",
-  minimap: null,
 };
 
 /// The body font stacks, as the Markdown viewer's presets (pages/markdown/settings.ts).
@@ -159,7 +152,8 @@ const family = (value: unknown): string | null => {
 /// before it was this choice: on (`true`) was the full map, and off left the chat to the experiment,
 /// as no value does now. The Swift bridge reads it the same way (AgentPaneDisplaySettingsSchema
 /// `pageValue`).
-function minimapArm(value: unknown): ThreadMinimapArm | null {
+export function resolveThreadMinimapArm(raw: unknown): ThreadMinimapArm | null {
+  const value = raw && typeof raw === "object" && !Array.isArray(raw) ? (raw as Values)[MINIMAP_KEY] : undefined;
   const arm = value === true ? "full" : value;
   return isArm(threadMinimapLayout, arm) ? arm : null;
 }
@@ -188,7 +182,6 @@ export function resolveChatDisplay(raw: unknown): ChatDisplay {
     environmentPlacement: isEnvironmentPlacement(values[ENVIRONMENT_PLACEMENT_KEY])
       ? values[ENVIRONMENT_PLACEMENT_KEY]
       : DEFAULT_CHAT_DISPLAY.environmentPlacement,
-    minimap: minimapArm(values[MINIMAP_KEY]),
   };
 }
 
@@ -252,6 +245,7 @@ const quoteFamily = (name: string) => (/[,\s]/.test(name) && !name.includes(",")
 let current = DEFAULT_CHAT_DISPLAY;
 let raw: Values = {};
 let minimapOn = false;
+let threadMinimapArm: ThreadMinimapArm | null = null;
 const listeners = new Set<() => void>();
 
 /// Sets the variables on `root` (the document's root in the page).
@@ -267,9 +261,11 @@ export function setChatDisplay(value: unknown): void {
   raw = (value && typeof value === "object" && !Array.isArray(value) ? { ...(value as Values) } : {}) as Values;
   const next = resolveChatDisplay(raw);
   const minimap = raw[CHAT_MINIMAP_KEY] === true;
+  const threadMinimap = resolveThreadMinimapArm(raw);
   const same = JSON.stringify(next) === JSON.stringify(current);
-  if (same && minimap === minimapOn) return;
+  if (same && minimap === minimapOn && threadMinimap === threadMinimapArm) return;
   minimapOn = minimap;
+  threadMinimapArm = threadMinimap;
   if (same) {
     for (const listener of listeners) listener();
     return;
@@ -328,7 +324,11 @@ const subscribe = (listener: () => void) => {
 };
 const snapshot = () => current;
 const minimapSnapshot = () => minimapOn;
+const threadMinimapSnapshot = () => threadMinimapArm;
 /// Whether the chat minimap is on (CHAT_MINIMAP_KEY).
 export const useChatMinimap = (): boolean => useSyncExternalStore(subscribe, minimapSnapshot, minimapSnapshot);
+/// The rail's arm, separate from the measured chat look so switching it remeasures no transcript row.
+export const useThreadMinimapArm = (): ThreadMinimapArm | null =>
+  useSyncExternalStore(subscribe, threadMinimapSnapshot, threadMinimapSnapshot);
 /// The live look, so layouts measured at the old metrics are measured again.
 export const useChatDisplay = (): ChatDisplay => useSyncExternalStore(subscribe, snapshot, snapshot);

@@ -68,7 +68,7 @@ dom.window.HTMLElement.prototype.scrollTo = function (this: HTMLElement, options
 const { act } = await import("react");
 const { createRoot } = await import("react-dom/client");
 const { VirtualTranscript } = await import("../src/agent-session/acpmux/App");
-const { DEFAULT_CHAT_DISPLAY, MINIMAP_KEY, chatDisplay, resolveChatDisplay, setChatDisplay } =
+const { MINIMAP_KEY, chatDisplay, resolveThreadMinimapArm, setChatDisplay } =
   await import("../src/agent-session/acpmux/chatDisplay");
 
 afterAll(() => {
@@ -91,13 +91,12 @@ const chat = (count: number) =>
   ]).flat();
 
 test("the Chat Minimap key is unset by default and only an arm, or the old toggle's value, sets it", () => {
-  expect(DEFAULT_CHAT_DISPLAY.minimap).toBeNull();
-  expect(resolveChatDisplay({}).minimap).toBeNull();
-  expect(resolveChatDisplay({ [MINIMAP_KEY]: "full" }).minimap).toBe("full");
+  expect(resolveThreadMinimapArm({})).toBeNull();
+  expect(resolveThreadMinimapArm({ [MINIMAP_KEY]: "full" })).toBe("full");
   // The old toggle: on was the full map, off left the chat to the experiment.
-  expect(resolveChatDisplay({ [MINIMAP_KEY]: true }).minimap).toBe("full");
-  expect(resolveChatDisplay({ [MINIMAP_KEY]: false }).minimap).toBeNull();
-  expect(resolveChatDisplay({ [MINIMAP_KEY]: "yes" }).minimap).toBeNull();
+  expect(resolveThreadMinimapArm({ [MINIMAP_KEY]: true })).toBe("full");
+  expect(resolveThreadMinimapArm({ [MINIMAP_KEY]: false })).toBeNull();
+  expect(resolveThreadMinimapArm({ [MINIMAP_KEY]: "yes" })).toBeNull();
 });
 
 test("switching the thread minimap preserves the transcript's measured look", () => {
