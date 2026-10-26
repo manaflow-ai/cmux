@@ -39,6 +39,7 @@ import type {
   VMStatus,
 } from "./drivers";
 import { isProviderId, vmCapabilitiesFor } from "./drivers";
+import { SANDBOX_VM_IDEMPOTENCY_PREFIX, SANDBOX_VM_MARKER_KEY, isSandboxRunVm } from "../runs/model";
 import {
   VmBillingGateway,
   VmBillingGatewayLive,
@@ -1266,6 +1267,11 @@ type CreateVmInput = {
   readonly networkPolicy?: NetworkPolicy;
   /** "latest" opts the machine into coding-agent updates on attach; absent keeps the image's pins. */
   readonly agentUpdates?: VmAgentUpdatesSetting;
+  /**
+   * The machine's own idle auto-pause (0 is Off), stored on the row by its insert: a same-key
+   * retry answers the first create's row and never changes it. Absent: the default applies.
+   */
+  readonly idlePauseMinutes?: VmIdlePauseMinutes;
   /** Trusted provider metadata copied from an owned source machine/snapshot. */
   readonly providerMetadata?: Readonly<Record<string, unknown>>;
   /** Set only when the requesting client routes team networks. */
@@ -1281,12 +1287,14 @@ type CreateVmInput = {
 };
 
 /** Build the repository reservation and entitlement inputs for a new VM row. */
-function createVmBeginInput(input: CreateVmInput): CreateVmInput & Pick<Parameters<VmRepositoryShape["beginCreate"]>[0], "resourcePool" | "resourcePoolPhase" | "planMaxMemoryMb" | "planMaxVcpus"> {
+function createVmBeginInput(input: CreateVmInput): CreateVmInput & Pick<Parameters<VmRepositoryShape["beginCreate"]>[0], "resourcePool" | "resourcePoolPhase" | "planMaxMemoryMb" | "planMaxVcpus" | "sandboxMarker"> {
   const resourceReservation = input.resourceReservation ?? (input.billingPlanId === "go"
     ? GO_VM_RESERVATION
     : vmResourceReservationForCreate({ memoryMb: input.memoryMb, imageSize: input.imageSize }));
+  const marker = input.providerMetadata?.[SANDBOX_VM_MARKER_KEY];
   return {
     ...input,
+    ...(typeof marker === "string" ? { sandboxMarker: marker } : {}),
     // Reserve the logical CPU and memory profile when memoryMb is present,
     // while retaining the baked image's actual disk claim. A direct caller
     // may instead provide only imageSize; in that form the image is the
@@ -1317,9 +1325,18 @@ export function createVm(input: CreateVmInput): Effect.Effect<VmEntry, VmWorkflo
     const providers = yield* VmProviderGateway;
     const billing = yield* VmBillingGateway;
     const idempotencyKey = input.idempotencyKey?.trim();
+    // The sandbox key namespace is the sandbox launcher's alone, and only with its marker.
+    if (idempotencyKey?.startsWith(SANDBOX_VM_IDEMPOTENCY_PREFIX) && input.providerMetadata?.[SANDBOX_VM_MARKER_KEY] !== idempotencyKey) {
+      return yield* Effect.fail(new VmOperationUnsupportedError({ provider: input.provider, operation: "create a machine under a sandbox run's key" }));
+    }
     const existingRetry = idempotencyKey && repo.findCreateByIdempotencyKey
       ? yield* repo.findCreateByIdempotencyKey({ billingTeamId: input.billingTeamId, idempotencyKey })
       : null;
+    // A retry under a sandbox key reuses only the sandbox launcher's own machine for the same user.
+    if (existingRetry && idempotencyKey?.startsWith(SANDBOX_VM_IDEMPOTENCY_PREFIX)
+      && !(isSandboxRunVm(existingRetry) && existingRetry.userId === input.userId)) {
+      return yield* Effect.fail(new VmOperationUnsupportedError({ provider: input.provider, operation: "reuse a machine under a sandbox run's key" }));
+    }
     const existingEntry = yield* existingCreateRetry(repo, providers, existingRetry, idempotencyKey);
     if (existingEntry) return existingEntry;
     let runtimeBudgetSeconds: number | undefined;
@@ -1366,12 +1383,13 @@ export function createVm(input: CreateVmInput): Effect.Effect<VmEntry, VmWorkflo
 
     if (!create.inserted) {
       const existing = create.vm;
-      if (isFailedVmCreate(existing)) {
+      // A sandbox key's machine is never replaced, so a destroyed one ends the create.
+      if (isFailedVmCreate(existing) || (isSandboxRunVm(existing) && existing.status === "destroyed")) {
         return yield* Effect.fail(
           new VmCreateFailedError({
             idempotencyKey: input.idempotencyKey ?? "",
             code: existing.failureCode,
-            message: existing.failureMessage ?? "previous VM create failed",
+            message: existing.failureMessage ?? (existing.status === "destroyed" ? "this sandbox run's machine was already destroyed" : "previous VM create failed"),
           }),
         );
       }
@@ -1498,7 +1516,8 @@ export function createVm(input: CreateVmInput): Effect.Effect<VmEntry, VmWorkflo
         providerVmId: handle.providerVmId,
         image: handle.image,
         imageVersion: input.imageVersion ?? null,
-        providerMetadata: handle.providerMetadata ?? create.vm.providerMetadata,
+        // The sandbox marker survives whatever metadata the provider hands back.
+        providerMetadata: withSandboxMarker(handle.providerMetadata ?? create.vm.providerMetadata, input.providerMetadata),
       }),
     ).pipe(
       Effect.catchAll((err) =>
@@ -2183,6 +2202,7 @@ export function snapshotVm(input: {
     const repo = yield* VmRepository;
     const providers = yield* VmProviderGateway;
     const vm = yield* requireUserVm(input);
+    yield* refuseSandboxRunVm(vm, "snapshot");
     const key = input.idempotencyKey;
     const recordSnapshotCreated = (snapshot: SnapshotRef) => Effect.gen(function* () {
       const alreadyOwned = yield* repo.hasOwnedSnapshot({
@@ -2401,6 +2421,26 @@ export type VmPauseResumeResult = {
  * without a pause operation fail with the unsupported error the route turns
  * into a 501, so a caller can tell "cannot" from "did not".
  */
+/**
+ * A sandboxed Run's VM (hq#3367) is created under the Run's idempotency key, carries the matching
+ * marker, and is destroyed with the Run. Pausing, snapshotting or forking it would keep its state,
+ * so each is refused.
+ */
+/** `metadata` with the sandbox marker from the create request, when the request carried one. */
+function withSandboxMarker(
+  metadata: Readonly<Record<string, unknown>> | null | undefined,
+  requested: Readonly<Record<string, unknown>> | undefined,
+): Record<string, unknown> {
+  const marker = requested?.[SANDBOX_VM_MARKER_KEY];
+  return typeof marker === "string" ? { ...(metadata ?? {}), [SANDBOX_VM_MARKER_KEY]: marker } : { ...(metadata ?? {}) };
+}
+
+function refuseSandboxRunVm(vm: Pick<CloudVmRow, "provider" | "idempotencyKey" | "providerMetadata">, operation: "pause" | "snapshot" | "fork") {
+  return isSandboxRunVm(vm)
+    ? Effect.fail(new VmOperationUnsupportedError({ provider: vm.provider as ProviderId, operation: `${operation} a sandboxed run's machine` }))
+    : Effect.void;
+}
+
 export function pauseVm(input: {
   readonly userId: string;
   readonly billingTeamId?: string | null;
@@ -2422,6 +2462,7 @@ export function pauseVm(input: {
  */
 export function pauseVmRow(vm: CloudVmRow, requestedProviderVmId: string, reason: VmPauseReason, providerCredential?: ProviderCredential) {
   return Effect.gen(function* () {
+    yield* refuseSandboxRunVm(vm, "pause");
     const repo = yield* VmRepository;
     const providers = yield* VmProviderGateway;
     const input = { providerVmId: requestedProviderVmId };
@@ -2918,6 +2959,11 @@ export function forkVm(input: {
     const providers = yield* VmProviderGateway;
     const billing = yield* VmBillingGateway;
     const source = yield* requireAccessibleUserVm({ ...input, callerPlanId: input.billingPlanId });
+    yield* refuseSandboxRunVm(source, "fork");
+    // A fork never takes a sandbox run's key, so its retry lookup can't hand back a sandbox's machine.
+    if (input.idempotencyKey?.trim().startsWith(SANDBOX_VM_IDEMPOTENCY_PREFIX)) {
+      return yield* Effect.fail(new VmOperationUnsupportedError({ provider: source.provider, operation: "fork under a sandbox run's key" }));
+    }
     const existingRetry = input.idempotencyKey?.trim() && repo.findCreateByIdempotencyKey
       ? yield* repo.findCreateByIdempotencyKey({ billingTeamId: input.billingTeamId, idempotencyKey: input.idempotencyKey.trim() })
       : null;
@@ -4450,6 +4496,11 @@ export function destroyVm(input: {
   readonly source?: "user_request" | "account_deletion";
   /** Short-lived local provider credential for user-owned GCP machines. */
   readonly providerCredential?: ProviderCredential;
+  /**
+   * Finalize only on the provider's own "no such machine" (404 NOT_FOUND), not any 404. A sandboxed
+   * Run's reaper sets it: nothing else would ever destroy a machine it marked gone by mistake.
+   */
+  readonly requireConfirmedDeletion?: boolean;
 }) {
   return Effect.gen(function* () {
     const repo = yield* VmRepository;
@@ -4457,9 +4508,9 @@ export function destroyVm(input: {
     const vm = yield* requireUserVm(input);
 
     yield* revokeActiveIdentities(vm, { failOnCleanupError: true });
-    yield* providers.destroy(vm.provider, vm.providerVmId ?? input.providerVmId, input.providerCredential).pipe(
+    yield* providers.destroy(vm.provider, vm.providerVmId ?? input.providerVmId, input.providerCredential, { strict: input.requireConfirmedDeletion }).pipe(
       Effect.catchAll((err) => {
-        if (isProviderNotFoundError(err.cause)) return Effect.void;
+        if (input.requireConfirmedDeletion ? isProviderDeletionConfirmed(err.cause) : isProviderNotFoundError(err.cause)) return Effect.void;
         return Effect.fail(err);
       }),
     );

@@ -24,7 +24,7 @@ import SwiftUI
 /// - `-CmuxMobileFloodBenchSeconds 10`: flood length.
 ///
 /// Phases: 3 s idle, the flood, 6 s after it. Each second it logs the main
-/// thread's CPU time (thread_info), main-queue latency (a ping from a
+/// thread's CPU time (thread_info) and the whole app's (getrusage), main-queue latency (a ping from a
 /// background thread every 10 ms, a proxy for touch delivery), keystroke
 /// echo latency (keystroke on a background timer every 200 ms → first frame
 /// presented after Ghostty processed its echo), frames presented and the
@@ -98,13 +98,17 @@ final class TerminalFloodBench {
         var phases: [String: [[String: Any]]] = [:]
         _ = probe.take()
         var last = probe.take()
+        var lastProcessCPU = processCPUSeconds()
         func second(_ phase: String, _ index: Int) async {
             try? await clock.sleep(for: .seconds(1))
             let now = probe.take()
             let main = sampler.take()
+            let processCPU = processCPUSeconds()
+            defer { lastProcessCPU = processCPU }
             var row: [String: Any] = [
                 "phase": phase, "t": index,
                 "mainCPUms": (main.cpuMs * 10).rounded() / 10,
+                "processCPUms": ((processCPU - lastProcessCPU) * 10_000).rounded() / 10,
                 "pingP50ms": main.ping.percentile(0.5), "pingP99ms": main.ping.percentile(0.99), "pingMaxms": main.ping.max() ?? 0,
                 "presents": now.presents - last.presents,
                 "processedKB": (now.processed - last.processed) / 1024,
@@ -118,6 +122,7 @@ final class TerminalFloodBench {
             }
             row["echoLatencies"] = now.echoLatencies.map { ($0 * 10).rounded() / 10 }
             row["pings"] = main.ping.map { ($0 * 10).rounded() / 10 }
+            row["frameIntervals"] = now.frameIntervals.map { ($0 * 10).rounded() / 10 }
             last = now
             rows.append(row)
             phases[phase, default: []].append(row)
@@ -157,9 +162,14 @@ final class TerminalFloodBench {
             let rows = phases[phase] ?? []
             let pings = all("pings", rows)
             let echoes = all("echoLatencies", rows)
+            let frames = all("frameIntervals", rows)
             summary[phase] = [
                 "mainCPUmsPerSecondAvg": avg("mainCPUms", rows),
                 "mainCPUmsPerSecondMax": rows.compactMap { $0["mainCPUms"] as? Double }.max() ?? 0,
+                "processCPUmsPerSecondAvg": avg("processCPUms", rows),
+                "processCPUmsPerSecondMax": rows.compactMap { $0["processCPUms"] as? Double }.max() ?? 0,
+                "frameIntervalP50ms": frames.percentile(0.5), "frameIntervalP95ms": frames.percentile(0.95),
+                "frameIntervalMaxms": frames.max() ?? 0,
                 "pingP50ms": pings.percentile(0.5), "pingP99ms": pings.percentile(0.99), "pingMaxms": pings.max() ?? 0,
                 "echoCount": echoes.count, "echoP50ms": echoes.percentile(0.5), "echoP90ms": echoes.percentile(0.9), "echoMaxms": echoes.max() ?? 0,
                 "presentsPerSecondAvg": rows.isEmpty ? 0 : Double(rows.compactMap { $0["presents"] as? Int }.reduce(0, +)) / Double(rows.count),
@@ -176,6 +186,14 @@ final class TerminalFloodBench {
         }
         log("done")
     }
+}
+
+/// CPU time of every thread of the app (getrusage), the renderer and Ghostty's IO threads included.
+private func processCPUSeconds() -> Double {
+    var usage = rusage()
+    guard getrusage(RUSAGE_SELF, &usage) == 0 else { return 0 }
+    func seconds(_ t: timeval) -> Double { Double(t.tv_sec) + Double(t.tv_usec) / 1_000_000 }
+    return seconds(usage.ru_utime) + seconds(usage.ru_stime)
 }
 
 extension Array where Element == Double {

@@ -1,3 +1,4 @@
+pub(crate) mod bwrap;
 pub(crate) mod init;
 pub(crate) mod lookup;
 pub(crate) mod proxy;

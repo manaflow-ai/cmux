@@ -123,6 +123,9 @@ async fn agents_start_children_within_their_width_and_depth_limits() {
         std::env::set_var("ACPMUX_HOME", root.join("home"));
         std::env::set_var("FLEET_REGISTRY", root.join("fleet-registry.json"));
     }
+    // A registry that lists no machine: this host is uncapped. A set
+    // FLEET_REGISTRY that is missing refuses every create (`hub/admission.rs`).
+    std::fs::write(root.join("fleet-registry.json"), r#"{"machines": {}}"#).unwrap();
     let hub = hub();
     let mut app = Client::new(&hub);
     let new = json!({"cwd": std::env::temp_dir(), "mcpServers": [], "_meta": {"acpmux": {"harness": "fake"}}});

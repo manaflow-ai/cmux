@@ -149,7 +149,7 @@ impl Hub {
             };
             let committed = phase == "committed" || landed;
             if committed {
-                let _ = std::fs::remove_dir_all(&entry.path());
+                let _ = std::fs::remove_dir_all(entry.path());
             } else {
                 if std::fs::symlink_metadata(&target).is_ok() {
                     let _ = std::fs::remove_dir_all(&target);
@@ -275,16 +275,16 @@ impl Hub {
                 if !name.starts_with(".") || !name.ends_with(".replacement-state.json") {
                     continue;
                 }
-                if let Ok(raw) = std::fs::read(entry.path()) {
-                    if let Ok(value) = serde_json::from_slice::<Value>(&raw) {
-                        let agent = value.get("agentId").and_then(Value::as_str).unwrap_or("");
-                        let outer = value.get("outerId").and_then(Value::as_str).unwrap_or("");
-                        let phase = value.get("phase").and_then(Value::as_str).unwrap_or("");
-                        if matches!(phase, "prepared" | "staged" | "committed")
-                            && recovery_owner(root, agent, outer)
-                        {
-                            let _ = std::fs::remove_file(entry.path());
-                        }
+                if let Ok(raw) = std::fs::read(entry.path())
+                    && let Ok(value) = serde_json::from_slice::<Value>(&raw)
+                {
+                    let agent = value.get("agentId").and_then(Value::as_str).unwrap_or("");
+                    let outer = value.get("outerId").and_then(Value::as_str).unwrap_or("");
+                    let phase = value.get("phase").and_then(Value::as_str).unwrap_or("");
+                    if matches!(phase, "prepared" | "staged" | "committed")
+                        && recovery_owner(root, agent, outer)
+                    {
+                        let _ = std::fs::remove_file(entry.path());
                     }
                 }
             }

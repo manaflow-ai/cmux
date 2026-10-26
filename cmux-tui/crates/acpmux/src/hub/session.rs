@@ -106,6 +106,9 @@ pub struct Session {
     /// Set when the chat is closed (`kill`) until its agent starts again: its host may still
     /// hold its record while it ends, and it is not running (`policy_mode.rs` `follow_policy`).
     pub(super) closing: AtomicBool,
+    /// How many times the chat was stopped (`kill`). A start reads it when its request came
+    /// (`Hub::child_for_since`); a stop since then ends that start and keeps the chat closed.
+    pub(super) stops: AtomicU64,
     /// Bumps on every status, permission and turn change; waits gate on it.
     pub(super) state_seq: AtomicU64,
     /// Clients attached right now (TUI, web, CLI streams).
