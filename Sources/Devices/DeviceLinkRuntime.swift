@@ -28,6 +28,10 @@ struct DeviceLinkRuntime: MobileSyncRuntime {
     let now: @Sendable () -> Date
     let supportsServerPushEvents: Bool = true
 
+    static func defaultRouteSelector(hasAutomaticClient: Bool) -> DeviceRouteSelector {
+        DeviceRouteSelector(allowsIroh: hasAutomaticClient)
+    }
+
     init(
         tokens: HiveAccountTokenSource,
         automaticClient: DeviceIrxClient? = nil,
@@ -37,7 +41,7 @@ struct DeviceLinkRuntime: MobileSyncRuntime {
         now: @escaping @Sendable () -> Date = { Date() }
     ) {
         self.automaticClient = automaticClient
-        let routeSelector = routeSelector ?? DeviceRouteSelector(allowsIroh: automaticClient != nil)
+        let routeSelector = routeSelector ?? Self.defaultRouteSelector(hasAutomaticClient: automaticClient != nil)
         self.routeSelector = routeSelector
         transportFactory = CmxNetworkByteTransportFactory(supportedKinds: routeSelector.supportedKinds.filter { $0 != .iroh })
         independentEventByteStreamProvider = nil

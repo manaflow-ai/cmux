@@ -106,6 +106,12 @@ struct DeviceRouteSelectorTests {
         #expect(selection.evidence == grant(for: tailscale))
     }
 
+    @Test("DeviceLinkRuntime defaults keep Tailscale with automatic Iroh")
+    func deviceLinkRuntimeDefaultRouteSelector() {
+        #expect(DeviceLinkRuntime.defaultRouteSelector(hasAutomaticClient: true).supportedKinds == [.iroh, .tailscale])
+        #expect(DeviceLinkRuntime.defaultRouteSelector(hasAutomaticClient: false).supportedKinds == [.tailscale])
+    }
+
     @Test("Automatic connections never fall back to a saved Tailscale bearer route")
     func automaticTransportDoesNotDowngrade() throws {
         let selector = DeviceRouteSelector(allowsIroh: true, allowsLegacyTailscale: false)
