@@ -35,8 +35,6 @@ final class ComposeChromeView: NSView {
     private var hoverArea: NSTrackingArea?
     /// The shown controls' tool tip strings (their owners; AppKit does not keep them).
     private var toolTipLabels: [NSString] = []
-    /// The window's key changes: the focus ring shows only in the key window.
-    private var keyObservers: [MainQueueObservation] = []
     /// Whether Full Keyboard Access is on (the system setting; tests turn it on).
     var fullKeyboardAccess: @MainActor () -> Bool = { NSApp.isFullKeyboardAccessEnabled }
     /// How often the controls moved, showed or hid (tests: a plain key changes none of them).
@@ -134,13 +132,7 @@ final class ComposeChromeView: NSView {
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
-        keyObservers = []
-        if let window {
-            rescale(window.backingScaleFactor)
-            keyObservers = [(NSWindow.didBecomeKeyNotification, true), (NSWindow.didResignKeyNotification, false)].map { name, key in
-                MainQueueObservation(name, object: window) { [weak self] _ in self?.placeFocusRing(windowIsKey: key) }
-            }
-        }
+        if let s = window?.backingScaleFactor { rescale(s) }
         controlsChanged(visibility: false)
     }
     override func viewDidChangeBackingProperties() {
@@ -275,6 +267,12 @@ final class ComposeChromeView: NSView {
         placeFocusRing(focused: false)
         return ok
     }
+    /// The window became or resigned key (the pane's key-state observers, `ChatController.followKeyState`):
+    /// the focus ring shows only in the key window.
+    func windowKeyChanged(isKey: Bool) { placeFocusRing(windowIsKey: isKey) }
+    /// Whether the Full Keyboard Access ring shows around the send button.
+    var isFocusRingShown: Bool { !focusRing.isHidden }
+
     override func keyDown(with event: NSEvent) {
         if send.isShown, event.keyCode == 49 || event.keyCode == 36 || event.keyCode == 76 { send.press(); return }
         super.keyDown(with: event)

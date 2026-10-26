@@ -287,6 +287,26 @@ import Testing
         #expect(!parentIsChrome, "its parent is an element, not the ignored controls view")
     }
 
+    /// The Full Keyboard Access ring shows only while its window is key, as AppKit's focus ring did:
+    /// it goes when the window resigns key (Cmd-Tab, another window) and comes back when it is key.
+    @Test func theFocusRingShowsOnlyInTheKeyWindow() async throws {
+        let h = try await makeHarness()
+        defer { close(h) }
+        let chrome = h.view.controller.host.composeChrome
+        chrome.fullKeyboardAccess = { true }
+        await type(h, "hi")
+        let focused = h.window.makeFirstResponder(chrome)
+        try #require(focused)
+        let offscreenRing = chrome.isFocusRingShown
+        #expect(!offscreenRing, "the window is not key: no ring")
+        NotificationCenter.default.post(name: NSWindow.didBecomeKeyNotification, object: h.window)
+        let keyRing = chrome.isFocusRingShown
+        #expect(keyRing, "the window became key: the ring shows")
+        NotificationCenter.default.post(name: NSWindow.didResignKeyNotification, object: h.window)
+        let resignedRing = chrome.isFocusRingShown
+        #expect(!resignedRing, "the window resigned key: the ring goes")
+    }
+
     /// Views under `root`, outside the `skipping` subtrees, whose frame lies in the field.
     private static func viewsInField(_ root: NSView, field: CGRect, skipping: [NSView]) -> [String] {
         var found: [String] = []
