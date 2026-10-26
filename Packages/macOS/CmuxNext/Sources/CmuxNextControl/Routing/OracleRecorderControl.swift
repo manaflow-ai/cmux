@@ -36,10 +36,11 @@ public struct OracleRecorderControl: Sendable {
 
     public var methods: [ControlMethod] {
         [
-            // Params, applied in this order: `clear` (empty the ring), `arm` (true: arm with `facets`, the
-            // facet names, all when absent; false: disarm), `mark` (a label: record a checkpoint of the
-            // armed facets now, the runner's `settled`). The result is the status, plus `checkpoint` for
-            // an arm or a mark.
+            // Params: `clear` (empty the ring), `arm` (true: arm with `facets`, the facet names, all when
+            // absent; false: disarm), `mark` (a label: record a checkpoint of the armed facets now, the
+            // runner's `settled`). Applied whole or not at all: a refused request changes nothing, and an
+            // accepted one clears, then arms or disarms, then marks. The result is the status, plus
+            // `checkpoint` for an arm or a mark.
             .mainActor(Self.recorder) { [turnRecorder, facets] call in
                 .value(try Self.answer(call.params, recorder: turnRecorder, facets: facets))
             },
@@ -57,21 +58,52 @@ public struct OracleRecorderControl: Sendable {
     @MainActor
     private static func answer(_ params: [String: JSONValue], recorder: OracleTurnRecorder,
                                facets: OracleFacets) throws(ControlError) -> JSONValue {
-        let arming = params["arm"]?.boolValue
-        let armFacets = try arming == true ? requested(params["facets"]) : []
-        if params["clear"]?.boolValue == true { recorder.clear() }
-        var checkpoint: OracleCheckpoint?
+        let request = try Self.request(params, facets: facets)
+        let checkpoint: OracleCheckpoint?
         do throws(OracleRecorderError) {
-            switch arming {
-            case true?: checkpoint = try recorder.arm(facets, requested: armFacets)
-            case false?: recorder.disarm()
-            case nil: break
-            }
-            if let label = params["mark"]?.stringValue { checkpoint = try recorder.mark(label) }
+            checkpoint = try recorder.apply(request)
         } catch {
             throw ControlError.invalidParams(error.message)
         }
         return status(recorder, adding: "checkpoint", checkpoint?.value)
+    }
+
+    /// The `debug.oracle.recorder` params as one request. Refuses a param of the wrong type and
+    /// `facets` without `arm: true`; the recorder refuses the rest before it changes anything.
+    private static func request(_ params: [String: JSONValue],
+                                facets: OracleFacets) throws(ControlError) -> OracleRecorderRequest {
+        let clear = try flag(params["clear"], name: "clear") ?? false
+        let arm = try flag(params["arm"], name: "arm")
+        let mark = try label(params["mark"])
+        let arming: OracleRecorderRequest.Arming?
+        switch arm {
+        case true?:
+            arming = try .arm(facets, requested(params["facets"]))
+        case false?, nil:
+            if let names = params["facets"], !names.isNull {
+                throw ControlError.invalidParams("facets needs arm: true", data: ["param": "facets"])
+            }
+            arming = arm == false ? .disarm : nil
+        }
+        return OracleRecorderRequest(clear: clear, arming: arming, mark: mark)
+    }
+
+    /// A boolean param, or nil when absent.
+    private static func flag(_ param: JSONValue?, name: String) throws(ControlError) -> Bool? {
+        guard let param, !param.isNull else { return nil }
+        guard let value = param.boolValue else {
+            throw ControlError.invalidParams("\(name) must be a boolean", data: ["param": .string(name)])
+        }
+        return value
+    }
+
+    /// The `mark` label, or nil when absent.
+    private static func label(_ param: JSONValue?) throws(ControlError) -> String? {
+        guard let param, !param.isNull else { return nil }
+        guard let value = param.stringValue else {
+            throw ControlError.invalidParams("mark must be a string", data: ["param": "mark"])
+        }
+        return value
     }
 
     /// The recorder's status with `value` under `key` (nothing added when nil).

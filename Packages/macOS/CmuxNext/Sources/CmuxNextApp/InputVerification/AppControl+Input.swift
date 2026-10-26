@@ -49,7 +49,7 @@ extension AppControl {
             },
         ])
         // The refactor oracle's `debug.oracle.*` over the app's one facet list (AppServices+OracleHost) and turn recorder.
-        service?.router.register(OracleControl.methods(host: services, turns: services.oracleTurns))
+        service?.router.register(services.oracleControlMethods())
         #endif
     }
 

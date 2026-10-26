@@ -6,8 +6,9 @@ import CmuxNextSettings
 import Testing
 
 /// `debug.oracle.recorder` and `debug.oracle.turns` (p15-oracle-032) over a real action registry: arm,
-/// perform, mark; the turn's hash equals the settled mark, nested performs are one turn, `after` reads
-/// only newer checkpoints, bad params are `invalid_params`, and Release refuses both names `not_allowed`.
+/// perform, mark; the turn's facets equal the settled mark's, nested performs are one turn, `after`
+/// reads only newer checkpoints, bad params are `invalid_params`, a refused request changes nothing,
+/// and Release refuses both names `not_allowed`.
 /// Run: `swift test --filter OracleRecorderControlTests`.
 @MainActor @Suite(.serialized) struct OracleRecorderControlTests {
     @MainActor final class Model {
@@ -26,6 +27,9 @@ import Testing
         let facets = OracleFacets([
             OracleFacetSource(.topology, .mainActor { () throws(OracleFacetError) -> OracleValue in
                 ["panes": OracleValue(model.panes)]
+            }),
+            OracleFacetSource(.terminals, .background { () async throws(OracleFacetError) -> OracleValue in
+                ["count": 0]
             }),
         ])
         let turns = OracleActionTurns()
@@ -67,8 +71,9 @@ import Testing
         #expect(checkpoints.map { $0["label"] } == ["test.twice", "settled"])
         #expect(checkpoints[0]["origin"] == "cli")
         #expect(checkpoints[0]["ran"] == true)
-        #expect(checkpoints[0]["hash"] == settled["checkpoint"]?["hash"])
-        #expect(checkpoints[0]["hash"] != armed["checkpoint"]?["hash"])
+        #expect(checkpoints[0]["facets"] == ["topology": ["panes": 3]])
+        #expect(checkpoints[0]["facets"] == settled["checkpoint"]?["facets"])
+        #expect(checkpoints[0]["facets"] != armed["checkpoint"]?["facets"])
         #expect(turns["count"] == 3)
     }
 
@@ -95,8 +100,34 @@ import Testing
         #expect(failure(unarmedMark)?.code == "invalid_params")
         let negative = await call(fixture.router, OracleRecorderControl.turns, ["after": -1])
         #expect(failure(negative)?.code == "invalid_params")
+        let facetsWithoutArm = await call(fixture.router, OracleRecorderControl.recorder, ["facets": ["topolgy"]])
+        #expect(failure(facetsWithoutArm)?.code == "invalid_params")
+        let notABool = await call(fixture.router, OracleRecorderControl.recorder, ["clear": "yes"])
+        #expect(failure(notABool)?.code == "invalid_params")
         // A refused arm leaves the recorder as it was.
         #expect(!fixture.turns.recorder.isArmed)
+    }
+
+    /// A refused request changes nothing, even when an earlier param would have: a clear with an arm
+    /// of a background facet, and a mark in the request that disarms.
+    @Test func aRefusedRequestChangesNothing() async throws {
+        let fixture = fixture()
+        _ = try await call(fixture.router, OracleRecorderControl.recorder, ["arm": true, "facets": ["topology"]]).get()
+        fixture.registry.perform("test.split")
+        let before = try await call(fixture.router, OracleRecorderControl.turns, [:]).get()
+        #expect(before["count"] == 2)
+
+        let background = await call(fixture.router, OracleRecorderControl.recorder,
+                                    ["clear": true, "arm": true, "facets": ["terminals"]])
+        #expect(failure(background)?.code == "invalid_params")
+        #expect(try await call(fixture.router, OracleRecorderControl.turns, [:]).get() == before)
+
+        let markWhileDisarming = await call(fixture.router, OracleRecorderControl.recorder,
+                                            ["clear": true, "arm": false, "mark": "settled"])
+        #expect(failure(markWhileDisarming)?.code == "invalid_params")
+        #expect(try await call(fixture.router, OracleRecorderControl.turns, [:]).get() == before)
+        #expect(fixture.turns.recorder.isArmed)
+        #expect(fixture.turns.recorder.armedFacets == [.topology])
     }
 
     @Test func aReleaseRouterRefusesTheRecorder() async {

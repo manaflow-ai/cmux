@@ -1,9 +1,11 @@
 #if DEBUG || CMUX_BENCH_HOOKS
 /// One checkpoint the oracle recorder took: at the end of a perform turn (`turn`, the optimistic
 /// state the person sees) or on request (`mark`, the runner's `settled` checkpoint after
-/// `debug.oracle.settle`). Invariant I3 compares a turn's hash with the settled mark's
-/// (plans/cmux-next/chrome-parity/p15-oracle.md section 3D). Hashes only: a facet value never
-/// leaves the app through the ring.
+/// `debug.oracle.settle`). Invariant I3 compares a turn's projection with the settled mark's
+/// (plans/cmux-next/chrome-parity/p15-oracle.md section 3D). A projection is the snapshot after
+/// scripts/cmux-next/oracle/normalize.py, which drops the commit counters, rewrites times and relabels
+/// ids by the schema, so the checkpoint keeps the facet values and the runner normalizes turn and
+/// settled alike. The values are what `debug.oracle.snapshot` answers: private text is already hashed.
 public struct OracleCheckpoint: Sendable, Hashable {
     public enum Kind: String, Sendable {
         case turn
@@ -19,19 +21,20 @@ public struct OracleCheckpoint: Sendable, Hashable {
     public let origin: String?
     /// Whether the turn's perform ran (false: refused); nil for a mark.
     public let ran: Bool?
-    /// The checkpoint's facets: the hash of the whole `{<facet>: <value>}` object, and of each facet.
-    public let snapshot: OracleSnapshotHash?
-    /// Why the facets could not be read (a provider failed); nil when ``snapshot`` is set.
+    /// The armed facets as `{<facet>: <value>}`, the `debug.oracle.snapshot` result shape; nil when
+    /// ``failure`` is set.
+    public let facets: OracleValue?
+    /// Why the facets could not be read (a provider failed); nil when ``facets`` is set.
     public let failure: String?
 
     public init(sequence: UInt64, kind: Kind, label: String, origin: String?, ran: Bool?,
-                snapshot: OracleSnapshotHash?, failure: String?) {
+                facets: OracleValue?, failure: String?) {
         self.sequence = sequence
         self.kind = kind
         self.label = label
         self.origin = origin
         self.ran = ran
-        self.snapshot = snapshot
+        self.facets = facets
         self.failure = failure
     }
 
@@ -42,50 +45,17 @@ public struct OracleCheckpoint: Sendable, Hashable {
         ]
         if let origin { members["origin"] = .string(origin) }
         if let ran { members["ran"] = .bool(ran) }
-        if let snapshot {
-            members["hash"] = .string(OracleSnapshotHash.hex(snapshot.whole))
-            members["facets"] = .object(snapshot.facets.mapValues { .string(OracleSnapshotHash.hex($0)) })
-        }
+        if let facets { members["facets"] = facets }
         if let failure { members["failure"] = .string(failure) }
         return .object(members)
     }
 }
 
-/// The 64-bit FNV-1a hashes of a snapshot's canonical JSON (``OracleValue/canonicalJSON``): equal
-/// snapshots have equal hashes in any process of any build, so a turn compares with a later mark.
-/// FNV-1a and not a cryptographic hash: the values hashed are already free of private text (a
-/// provider hashes that itself), and the hash only tells two states apart.
-public struct OracleSnapshotHash: Sendable, Hashable {
-    /// The hash of the whole `{<facet>: <value>}` object.
-    public let whole: UInt64
-    /// The hash of each facet's value, by facet name.
-    public let facets: [String: UInt64]
-
-    /// Hashes `snapshot`, an object of facet values.
-    public init(_ snapshot: [String: OracleValue]) {
-        whole = Self.fnv1a(OracleValue.object(snapshot).canonicalJSON)
-        facets = snapshot.mapValues { Self.fnv1a($0.canonicalJSON) }
-    }
-
-    static func fnv1a(_ text: String) -> UInt64 {
-        var hash: UInt64 = 0xcbf2_9ce4_8422_2325
-        for byte in text.utf8 {
-            hash ^= UInt64(byte)
-            hash &*= 0x0000_0100_0000_01b3
-        }
-        return hash
-    }
-
-    /// `fnv1a64:` and 16 lowercase hex digits.
-    public static func hex(_ hash: UInt64) -> String {
-        let digits = String(hash, radix: 16)
-        return "fnv1a64:" + String(repeating: "0", count: 16 - digits.count) + digits
-    }
-}
-
-/// The recorder's last ``capacity`` checkpoints, oldest first. Fixed storage: the slots are made
-/// once, a full ring overwrites its oldest slot, and a reader learns what it missed from
-/// ``dropped`` and the sequence numbers.
+/// The recorder's last ``capacity`` checkpoints, oldest first. Fixed slots: they are made once, a
+/// full ring overwrites its oldest slot, and a reader learns what it missed from ``dropped`` and the
+/// sequence numbers. Each slot holds its checkpoint's facet values, so an armed ring holds up to
+/// ``capacity`` snapshots of the armed facets: the runner arms the facets its case compares and
+/// clears the ring when it has read a case's checkpoints.
 public struct OracleTurnRing: Sendable {
     public static let defaultCapacity = 256
 
@@ -108,9 +78,9 @@ public struct OracleTurnRing: Sendable {
     /// Records a checkpoint under the next sequence and returns it.
     @discardableResult
     public mutating func append(kind: OracleCheckpoint.Kind, label: String, origin: String? = nil, ran: Bool? = nil,
-                                snapshot: OracleSnapshotHash?, failure: String? = nil) -> OracleCheckpoint {
+                                facets: OracleValue?, failure: String? = nil) -> OracleCheckpoint {
         let checkpoint = OracleCheckpoint(sequence: nextSequence, kind: kind, label: label, origin: origin, ran: ran,
-                                          snapshot: snapshot, failure: failure)
+                                          facets: facets, failure: failure)
         slots[Int((nextSequence - 1) % UInt64(capacity))] = checkpoint
         nextSequence += 1
         if count == capacity { dropped += 1 } else { count += 1 }

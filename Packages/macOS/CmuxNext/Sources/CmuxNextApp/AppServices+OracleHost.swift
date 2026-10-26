@@ -1,4 +1,5 @@
 #if DEBUG || CMUX_BENCH_HOOKS
+import CmuxNextControl
 import CmuxNextOracle
 
 /// The app's oracle facet providers (p15-oracle.md section 3A), registered as `debug.oracle.*` in DEV and
@@ -7,5 +8,12 @@ import CmuxNextOracle
 /// answers not-comparable with its task.
 extension AppServices: OracleHost {
     func makeOracleFacets() -> OracleFacets { OracleFacets([]) }
+
+    /// Every `debug.oracle.*` method over the app's one facet list and its one turn recorder,
+    /// ``oracleTurns``, the registry's perform-turn observer. `AppControl` registers these.
+    @MainActor
+    func oracleControlMethods() -> [ControlMethod] {
+        OracleControl.methods(host: self, turns: oracleTurns)
+    }
 }
 #endif

@@ -78,7 +78,7 @@
     },
     "action-perform": {
       "what": "every ActionRegistry.perform turn's oracle hook: one nil check of the registry's immutable turnObserver (Release), or the depth count and one ActionRunObserver call at the end of the outermost turn (DEV, bench)",
-      "bench": "CMUX_ACTION_PERFORM_BENCH=1 swift test -c release --filter ActionPerformTurnBench (ns per perform, nil observer vs a disarmed observer, same host, interleaved rounds with a 95% interval), on macOS 26 and 27",
+      "bench": "scripts/cmux-next/action-perform-ab.py run --base BASE_SHA --head HEAD_SHA (ActionPerformBench at both SHAs alternately on one host: what Release adds over the base per perform, 95% interval over paired runs), and CMUX_ORACLE_TURNS_BENCH=1 swift test -c release -Xswiftc -DCMUX_BENCH_HOOKS --filter OracleActionTurnsBench (the disarmed OracleActionTurns against no observer, interleaved rounds), on macOS 26 and 27",
       "owner": "p15-oracle"
     },
     "action-budget": {
