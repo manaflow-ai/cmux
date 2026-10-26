@@ -17,6 +17,8 @@ nonisolated struct AcpmuxPeerUpdateCommand: Sendable {
     var environment: [String: String]
     /// A `host update` uploads a binary over ssh and waits for the new daemon: minutes, not hours.
     var deadline: Duration = .seconds(900)
+    /// How long a run past its deadline has after SIGTERM before SIGKILL.
+    var killGrace: Duration = .seconds(10)
 
     /// `acpmux --json host update NAME --binary-dir DIR [--if-idle]`. `--if-idle` unless
     /// `whileBusy`: the CLI then leaves a peer mid-turn alone and answers busy. Without it, the

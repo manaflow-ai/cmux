@@ -69,6 +69,10 @@ import Testing
         #expect(outcome(#"{"outcome":"failed","reason":"cloudMachine","error":"a cmux Cloud VM"}"#) == .cloudMachine)
         #expect(outcome(#"{"outcome":"failed","reason":"unreachable","error":"ssh huge-blue failed: timed out"}"#) == .unreachable)
         #expect(outcome(#"{"outcome":"failed","reason":"pushFailed","error":"scp failed"}"#) == .failed)
+        // Another update holds the host's lock: nothing changed, not now (review of #25388).
+        #expect(outcome(#"{"outcome":"failed","reason":"updateRunning","error":"another update of h is running"}"#) == .busy)
+        // --keep-newer left a later or own build alone.
+        #expect(outcome(#"{"outcome":"current","reason":"newer","error":"h runs fedcba987 2026-10-25"}"#) == .current)
         #expect(outcome(#"{"outcome":"somethingNew"}"#) == .failed)
         // A target names a file in the binary directory: anything but a plain triple fails.
         #expect(outcome(#"{"outcome":"needsBinary","target":"../../etc/passwd"}"#) == .failed)
@@ -237,11 +241,57 @@ import Testing
         #expect(ledger.targets == ["acpmux-peer:huge-blue": "updated"])
     }
 
-    @Test func updateArgumentsDropIfIdleOnlyWhileBusy() {
+    /// Every run carries `--keep-newer` (#25425): the CLI, under the host's update lock, leaves a
+    /// peer alone that a self-update moved past the pushed build after the app read it (review of
+    /// #25388). `--if-idle` only when the queue asks idle.
+    @Test func updateArgumentsKeepNewerAndDropIfIdleOnlyWhileBusy() {
         let binaries = URL(fileURLWithPath: "/tmp/binaries/abc123def")
-        let base = ["--json", "host", "update", "cmux16", "--binary-dir", "/tmp/binaries/abc123def"]
+        let base = ["--json", "host", "update", "cmux16", "--binary-dir", "/tmp/binaries/abc123def", "--keep-newer"]
         #expect(AcpmuxPeerUpdateCommand.updateArguments(peer: "cmux16", binaryDirectory: binaries, whileBusy: false) == base + ["--if-idle"])
         #expect(AcpmuxPeerUpdateCommand.updateArguments(peer: "cmux16", binaryDirectory: binaries, whileBusy: true) == base)
+    }
+
+    /// Review of #25388: another update holds the host's lock (`failed`, reason `updateRunning`).
+    /// That is no failure of this build: the policy asks again after its backoff and updates.
+    @Test func aPeerWhoseUpdateLockIsHeldIsAskedAgain() async throws {
+        let fixture = try StandInAcpmux()
+        defer { fixture.remove() }
+        try fixture.reply("huge-blue", 1, #"{"updated":[{"peer":"huge-blue","outcome":"failed","ok":false,"build":null,"reason":"updateRunning","error":"another update of huge-blue is running"}],"peers":[]}"#)
+        try fixture.reply("huge-blue", 2, #"{"updated":[{"peer":"huge-blue","outcome":"updated","ok":true,"build":"abc123def 2026-10-20"}],"peers":[]}"#)
+        let source = fixture.source(peers: ["huge-blue"])
+        let clock = PolicyTestClock()
+        let state = fixture.root.appendingPathComponent("state")
+        await DaemonUpdatePolicy(DaemonUpdatePolicy.Dependencies(
+            bundledBuild: { Self.local }, targets: { await source.targets() }, enabled: { true }, report: { _ in },
+            directory: state, clock: clock
+        )).run()
+
+        #expect(fixture.calls.count == 2)
+        #expect(clock.sleeps == [.seconds(120)])
+        let ledger = DaemonUpdateLedger.read(state, build: try #require(DaemonBuildCommit(Self.local)).hash)
+        #expect(ledger.targets == ["acpmux-peer:huge-blue": "updated"])
+    }
+
+    /// Review of #25388: a CLI run past its deadline that ignores SIGTERM gets SIGKILL, and the
+    /// run returns only once it is gone, so the queue never moves on with it still running.
+    @Test(.timeLimit(.minutes(1))) func aRunPastItsDeadlineEndsItsChild() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("acpmux-peer-run-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let pidFile = root.appendingPathComponent("pid")
+        let script = root.appendingPathComponent("acpmux")
+        try "#!/bin/sh\necho $$ > \(StandInAcpmux.quoted(pidFile.path))\ntrap '' TERM\nexec sleep 60\n"
+            .write(to: script, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: script.path)
+        let command = AcpmuxPeerUpdateCommand(executable: script, environment: ["PATH": "/usr/bin:/bin"],
+                                              deadline: .milliseconds(500), killGrace: .seconds(1))
+
+        let started = ContinuousClock.now
+        let result = await command.run(["--json"])
+        #expect(result.status == nil)
+        #expect(ContinuousClock.now - started < .seconds(20))
+        let pid = try #require(Int32(String(decoding: try Data(contentsOf: pidFile), as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)))
+        #expect(kill(pid, 0) != 0, "the child that ignored SIGTERM still runs after the run returned")
     }
 }
 
