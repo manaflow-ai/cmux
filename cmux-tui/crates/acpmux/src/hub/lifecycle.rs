@@ -965,6 +965,12 @@ impl Hub {
                     if let Some(o) = res.get("configOptions") {
                         self.write_mode_state(session, [ModeWrite::ConfigOptions(o.clone())]);
                     }
+                    // A mode that is its `mode` option is cmux's again once this agent runs it.
+                    if id == "mode"
+                        && let Some(mode) = value.as_str()
+                    {
+                        self.restore_mode_mark(session, mode);
+                    }
                 }
                 Err(e) => tracing::warn!(session = %session.id, "replay {id}: {}", e.message),
             }

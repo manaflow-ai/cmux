@@ -1140,7 +1140,7 @@ export default agentPaneEntry({
       }),
     },
     "queued-from-agent": {
-      note: "Another agent's message waiting behind the turn: its received line (the sender's mark, its name as a chip that opens its chat, the message as a card under it, cut to eight lines when longer), its actions (Steer, the trash can, ⋯) at the line's end; the person's prompt below is unchanged.",
+      note: "Another agent's message waiting behind the turn: no queue row; it is its received card in the transcript after the turn, Read after this turn, its actions (Steer, Edit message, Delete) in its ⋯ menu (QueuedMessageCard.tsx). The person's prompt is the queue's one row, unchanged.",
       snapshot: chat(working, {
         isWorking: true,
         queue: [
@@ -1154,7 +1154,7 @@ export default agentPaneEntry({
       }),
     },
     "queued-from-agent-open": {
-      note: "Play: the queued agent's message opened: the message as a glass card under its line, as Markdown, the queue as tall as it.",
+      note: "Play: the waiting agent's message opened in the transcript: its glass card under its line, as Markdown.",
       snapshot: chat(working, {
         isWorking: true,
         queue: [
@@ -1167,19 +1167,14 @@ export default agentPaneEntry({
         ],
       }),
       play: async (ctx) => {
-        await ctx.click({ selector: '.acpmux-queued[data-prompt-id="q1"] .cv-received__toggle' });
-        // Whole: the list fits its height to the opened card, not just a sliver of it.
-        await ctx.waitFor(() => {
-          const body = ctx.document.querySelector(".acpmux-queued .cv-received__body");
-          const list = ctx.document.querySelector(".acpmux-composer-queue");
-          return Boolean(
-            body && list && body.getBoundingClientRect().bottom <= list.getBoundingClientRect().bottom + 1,
-          );
-        });
+        await ctx.click({ selector: '[data-queued-message="q1"] .cv-received__toggle' });
+        await ctx.waitFor(() =>
+          ctx.document.querySelector('[data-queued-message="q1"] .cv-received__toggle[aria-expanded="true"]'),
+        );
       },
     },
     "queued-from-agent-lane-report": {
-      note: "Leo's lane report reference queued behind a running turn: sender header, rendered Markdown table and links, with the long body folded to eight lines.",
+      note: "Leo's lane report reference waiting behind a running turn: its received card in the transcript, sender header, rendered Markdown table and links, the long body folded to eight lines.",
       snapshot: chat(working, {
         isWorking: true,
         queue: [

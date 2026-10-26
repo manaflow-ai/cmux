@@ -44,6 +44,13 @@ enum Edit {
 impl Edit {
     fn parse(params: &Value) -> Result<Self, RpcError> {
         if let Some(blocks) = params.get("prompt").and_then(Value::as_array) {
+            // Files come with a message (`attach.rs`), never with an edit of one.
+            if crate::attach::any(blocks) {
+                return Err(RpcError::invalid_params(
+                    "an edit cannot attach files: send them with a message (acpmux send --attach)",
+                )
+                .with_data(serde_json::json!({"reason": "attach.edit"})));
+            }
             return Ok(Self::Prompt(blocks.clone()));
         }
         let text = params

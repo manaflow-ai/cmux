@@ -335,6 +335,7 @@ pub(super) fn advertised_capabilities(
         crate::state::tabs::TAB_GROUP_ICON_CAPABILITY,
         crate::state::sidebar_layout_store::CAPABILITY,
         crate::state::sidebar_doc_store::CAPABILITY,
+        crate::state::sidebar_doc_store::HOST_GROUP_OPTOUT_CAPABILITY,
         crate::state::placement_shift::CAPABILITY,
         crate::state::projects_store::CAPABILITY,
         crate::state::projects_store::SOURCES_CAPABILITY,
