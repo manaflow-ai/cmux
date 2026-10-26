@@ -304,7 +304,9 @@ async fn a_reference_outside_the_chats_finished_uploads_is_refused() {
     let mut web = client(&hub, Origin::Web);
     let p = prompt(&session, &v7(), "x", vec![image_ref(&mine, "mine.png")]);
     let reply = web.call(method::SESSION_PROMPT, p).await;
-    assert_eq!(reply["error"]["data"]["reason"], "upload.remote", "{reply}");
+    // The remote guard refuses it first; the resolver would too (`upload.remote`, a unit test).
+    let reason = reply["error"]["data"]["reason"].as_str().unwrap_or_default();
+    assert!(reason.starts_with("remote.") || reason == "upload.remote", "{reply}");
     let edit = json!({"sessionId": session, "promptId": "p", "op": "update",
         "prompt": [{"type": "text", "text": "x"}, image_ref(&mine, "mine.png")]});
     let reply = c.call(method::MUX_QUEUE_EDIT, edit).await;

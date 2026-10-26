@@ -19,7 +19,6 @@ use serde_json::{Value, json};
 use sha2::Digest;
 use std::io::Read;
 use std::path::Path;
-use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::mpsc;
 
