@@ -3,6 +3,7 @@ public import CmuxNextSettings
 public import Foundation
 import CmuxNextCompat
 public import CmuxNextRemoteFetch
+public import CmuxNextWakeups
 
 /// What cmux already knows about a web page a reply links to: its site's favicon (PNG) and the
 /// page's title, from the user's own browsing. Never fetched for a chip (D4).
@@ -47,7 +48,10 @@ public nonisolated struct AgentPaneReplySite: Equatable, Sendable {
     private let quickLook = AgentPaneQuickLook()
     /// Where the image viewer keeps the copies it shows or opens (``AgentPaneImageCopies``).
     public var imageFolder = AgentPaneImageCopies.defaultFolder()
-    public var browsers: any AgentPaneBrowserApps = AgentPaneWorkspaceBrowsers()
+    public var browsers: any AgentPaneBrowserApps = AgentPaneWorkspaceBrowsers(queries: nil)
+    /// The app's Launch Services answers (the App sets them): the link menus' app lists and icons, a dragged file's
+    /// icon. Nil lists no app and drags with a placeholder.
+    public var workspaceQueries: WorkspaceQueries?
     /// What the host already has about a pull request (`pr.inspect`), with the age of it; it never
     /// waits on GitHub, and a stale link's refresh runs in the background at most once a minute
     /// however often it is hovered (``AgentReplyPullRequests``).
