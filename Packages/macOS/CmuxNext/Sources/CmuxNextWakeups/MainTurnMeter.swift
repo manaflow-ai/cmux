@@ -77,6 +77,9 @@ public final class MainTurnMeter {
     // Open spans: bit i set when the span at depth i + 1 is input dispatch.
     private var spanDepth = 0
     private var inputSpans: UInt64 = 0
+    /// The number of the turn in progress (or of the last one), counted from 1 as each turn begins: work
+    /// that must not outlive its turn (a window's layout depth an exception left open) compares it.
+    public private(set) var turnNumber: UInt64 = 0
     // The turn in progress.
     private var inTurn = false
     private var turnNested = false
@@ -328,6 +331,7 @@ public final class MainTurnMeter {
 
     private func beginTurn(at now: UInt64) {
         inTurn = true
+        turnNumber &+= 1
         turnNested = nestedLoops != 0
         turnStart = now
         mark = now

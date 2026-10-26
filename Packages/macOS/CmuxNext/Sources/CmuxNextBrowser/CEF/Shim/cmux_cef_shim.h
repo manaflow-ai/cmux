@@ -943,6 +943,12 @@ CMUX_SHIM_EXPORT void cmux_shim_free_owned(char* s);
 // that host a frame of browser_id: the main frame and every out-of-process
 // iframe. Returns how many it wrote; 0 when the browser is gone.
 CMUX_SHIM_EXPORT int cmux_shim_renderer_client_ids(int browser_id, int* out, int capacity);
+// The pid of the renderer process that hosts browser_id's main frame
+// (p14-energy-124, the fork's cmux_cef_browser_renderer_pid); same-site
+// tabs can share it. 0 while there is none (no renderer yet, gone, a
+// renderer-less placeholder), for an unknown browser, on a fork without
+// the call, and in host mode (the renderers are the host's children).
+CMUX_SHIM_EXPORT int cmux_shim_renderer_pid(int browser_id);
 // Remote localhost (plans/cmux-next/remote-localhost.md). Call before the
 // first window with profile_cache_path each launch: that request context
 // sends every request (loopback included) to the app's proxy at

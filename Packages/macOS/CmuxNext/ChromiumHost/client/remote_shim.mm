@@ -755,6 +755,13 @@ CMUX_SHIM_EXPORT int cmux_shim_set_energy_saver(int enabled, const char* exempt_
   return 0;
 }
 
+// Per-tab attribution is in-process only: a tab's renderer is the Chromium Host's child, which the
+// app does not sample, so there is no pid here. Host mode is task p14-energy-124a.
+CMUX_SHIM_EXPORT int cmux_shim_renderer_pid(int browser_id) {
+  (void)browser_id;
+  return 0;
+}
+
 // Strings this dylib returns are Dup's malloc'd copies.
 CMUX_SHIM_EXPORT void cmux_shim_free(char* s) {
   std::free(s);

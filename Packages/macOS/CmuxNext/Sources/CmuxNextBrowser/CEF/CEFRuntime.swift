@@ -43,6 +43,9 @@ final class CEFRuntime {
     // Routing tables (main thread).
     var tabsByBrowser: [Int32: CEFTab] = [:]
     var hosts: [CEFPaneKey: CEFPaneHost] = [:]
+    /// The chat open of each page window by pane (``CEFEngine/pagesTabConfiguration(chatOpen:)``); each leaves at its
+    /// window's first contentful paint or when its host leaves ``hosts``.
+    var chatOpens: [String: ChatOpenStages] = [:]
     /// Profiles Chromium opened in this process (their files stay open
     /// until shutdown, so a deleted one's directory waits for the next launch).
     var usedProfiles: Set<BrowserProfileID> = []
@@ -594,6 +597,7 @@ final class CEFRuntime {
     func hostEmptied(_ host: CEFPaneHost) {
         guard host.tabs.isEmpty, !spareWindow.isSpare(host), hosts[host.key] === host else { return }
         hosts[host.key] = nil
+        chatOpens[host.key.pane.rawValue] = nil
         if lastShownHost === host { lastShownHost = nil }
     }
 
