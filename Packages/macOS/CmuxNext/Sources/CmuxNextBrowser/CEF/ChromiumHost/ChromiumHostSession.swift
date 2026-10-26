@@ -6,7 +6,7 @@ import Darwin
 import Observation
 
 /// One Chromium page whose browser process runs in a host app of its own
-/// (prototype behind `browserHost.helper`;
+/// (prototype behind the feature `cefHelperHost`;
 /// plans/cmux-next/cef-helper-app-DESIGN.md).
 ///
 /// Owns the host process and the wire to it, and keeps what a restart needs:
