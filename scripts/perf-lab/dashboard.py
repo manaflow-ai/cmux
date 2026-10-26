@@ -21,16 +21,12 @@ Pages (labd, task 012, serves them; `Dashboard.handle(path)` is its whole interf
   /coverage          newest waterfall run per tier, story and host, and its age
   /field, /stability Nightly field and Sentry rows (tasks 042, 223, 225), passed in by labd
 
-The targets file (task 007, `targets.json`) is read as:
-
-  {"targets": [{"id": "key-frame", "title": "Key to frame",
-                "rows": [{"story": "terminal.key-frame.*", "metric": "key_to_frame_ms",
-                          "stat": "p50", "op": "<=", "limit": 8.3, "unit": "ms",
-                          "engine": "webkit", "hz": 120, "label": "light p50"}]}]}
-
-`story` and `metric` are fnmatch patterns; a series also matches when its stored target_ref names
-the target id. `engine` is optional; `hz` defaults to 120 and null means any host class.
-Debug-config series never feed a tile (p12-perf-process.md 3.2).
+The targets come from the lab catalog (catalog.py, task 007: `targets.json` and `stories.d`), the same
+reader `lab.py targets --check` uses. A series feeds a target row only when its stored target_ref
+claims that row ({"target": <row id>}, as the story's metric does); each of the row's checks whose
+metric pattern full-matches the series metric is one tile line. The row's engine, config and hz
+constrain the series (hz is read from the host class, so key-frame judges only 120 Hz hosts), and
+debug-config series never feed a tile (p12-perf-process.md 3.2).
 
 Colors follow the dataviz reference palette (categorical slots 1 and 2, status good and critical
 with an icon and a label, never color alone), selected separately for light and dark surfaces.
@@ -38,8 +34,8 @@ with an icon and a label, never color alone), selected separately for light and 
 from __future__ import annotations
 
 import argparse
-import fnmatch
 import html
+import re
 import importlib.util
 import json
 import math
@@ -53,28 +49,24 @@ from typing import Protocol
 from urllib.parse import parse_qs, quote, unquote, urlsplit
 
 
-def _load_perf_stats():
-    name = "perf_lab_perf_stats"
-    if name in sys.modules:
-        return sys.modules[name]
-    spec = importlib.util.spec_from_file_location(name, Path(__file__).resolve().parent / "perf_stats.py")
+def _load_sibling(name: str):
+    module_name = f"perf_lab_{name}"
+    if module_name in sys.modules:
+        return sys.modules[module_name]
+    spec = importlib.util.spec_from_file_location(module_name, Path(__file__).resolve().parent / f"{name}.py")
     module = importlib.util.module_from_spec(spec)
-    sys.modules[name] = module
+    sys.modules[module_name] = module
     spec.loader.exec_module(module)
     return module
 
 
-perf_stats = _load_perf_stats()
+perf_stats = _load_sibling("perf_stats")
+catalog = _load_sibling("catalog")
 
-TILE_STATS = ("p50", "p95", "p99", "max")
-TILE_OPS: dict[str, Callable[[float, float], bool]] = {
-    "<=": lambda value, limit: value <= limit,
-    "<": lambda value, limit: value < limit,
-    ">=": lambda value, limit: value >= limit,
-    ">": lambda value, limit: value > limit,
-    "==": lambda value, limit: value == limit,
-}
-OP_TEXT = {"<=": "≤", "<": "<", ">=": "≥", ">": ">", "==": "="}
+Target = catalog.Target
+TargetRow = catalog.Row
+TargetCheck = catalog.Check
+OP_TEXT = {"<=": "≤", "<": "<", ">=": "≥", ">": ">"}
 # Group states after which an alert no longer needs attention (store.ALERT_GROUP_STATES).
 CLOSED_GROUP_STATES = frozenset({"fixed", "flag-off", "accepted", "invalid", "lab-drift"})
 # The coverage done checks (p12-perf-process.md 6.1 and 6.2): T0 within 60 min, T1 within 3 h; T2 is nightly.
@@ -144,6 +136,22 @@ class PointView:
         return self.p50 if name == "p50" else self.p99 if name == "p99" else None
 
 
+def sample_stat(samples: Sequence[float], stat: str) -> float | None:
+    """One catalog statistic (catalog.STATS) of a result's samples, as perf_stats computes percentiles."""
+    values = [v for v in samples if isinstance(v, (int, float)) and not isinstance(v, bool)]
+    if not values:
+        return None
+    if stat in ("p50", "p95", "p99"):
+        return perf_stats.pct(values, int(stat[1:]) / 100)
+    if stat == "max":
+        return max(values)
+    if stat == "min":
+        return min(values)
+    if stat == "mean":
+        return sum(values) / len(values)
+    raise DashboardError(f"statistic {stat!r} is not one of {', '.join(catalog.STATS)}")
+
+
 @dataclass(frozen=True)
 class ChangePointView:
     rule: str
@@ -180,43 +188,39 @@ class SeriesListRow:
     annotation_count: int
 
 
-@dataclass(frozen=True)
-class TargetRow:
-    story: str
-    metric: str
-    stat: str
-    op: str
-    limit: float
-    unit: str
-    engine: str | None = None
-    hz: int | None = 120
-    label: str | None = None
-
-    @property
-    def title(self) -> str:
-        return self.label or f"{self.story} {self.metric} {self.stat}"
-
-    def matches(self, info: SeriesInfo, target_id: str) -> bool:
-        if info.build_config == "debug":
-            return False
-        if self.hz is not None and info.hz != self.hz:
-            return False
-        if self.engine is not None and info.engine != self.engine:
-            return False
-        named = info.target_id == target_id
-        return (named or fnmatch.fnmatchcase(info.story, self.story)) and fnmatch.fnmatchcase(info.metric, self.metric)
+def judged_checks(row: TargetRow, info: SeriesInfo) -> list[TargetCheck]:
+    """The checks of a target row that judge this series: none unless the series claims the row and fits it."""
+    if info.target_id != row.id or info.build_config == "debug":
+        return []
+    if row.config is not None and info.build_config != row.config:
+        return []
+    if row.hz is not None and info.hz != row.hz:
+        return []
+    if row.engine is not None and info.engine != row.engine:
+        return []
+    return [check for check in row.checks if re.fullmatch(check.metric, info.metric)]
 
 
-@dataclass(frozen=True)
-class Target:
-    id: str
-    title: str
-    rows: Sequence[TargetRow]
+def literal_prefix(pattern: str) -> str:
+    """The plain text a metric pattern starts with (`terminal\\.key_to_frame` -> `terminal.key_to_frame`)."""
+    out, index = [], 0
+    while index < len(pattern):
+        char = pattern[index]
+        if char == "\\" and index + 1 < len(pattern) and not pattern[index + 1].isalnum():
+            out.append(pattern[index + 1])
+            index += 2
+            continue
+        if char in ".^$*+?()[]{}|\\":
+            break
+        out.append(char)
+        index += 1
+    return "".join(out)
 
 
 @dataclass(frozen=True)
 class TileRow:
     row: TargetRow
+    check: TargetCheck
     series: SeriesInfo | None
     point: PointView | None
     value: float | None
@@ -319,7 +323,7 @@ class StabilityRow:
 class DashboardSource(Protocol):
     def all_series(self) -> list[SeriesInfo]: ...
     def latest_points(self, keys: Sequence[str]) -> dict[str, PointView]: ...
-    def latest_summary(self, key: str) -> dict[str, float | None]: ...
+    def latest_samples(self, key: str) -> list[float]: ...
     def open_target_misses(self) -> set[str]: ...
     def series_list(self, query: str, limit: int) -> tuple[list[SeriesListRow], int]: ...
     def series(self, key: str, limit: int) -> SeriesView | None: ...
@@ -333,65 +337,39 @@ class DashboardSource(Protocol):
 # ---------- targets ----------
 
 
-def load_targets(path: Path) -> list[Target]:
-    """Reads targets.json (task 007) in the shape the module docstring gives; a bad entry is a DashboardError."""
+def load_targets(root: Path) -> tuple[list[Target], tuple[str, ...]]:
+    """The catalog's targets under the repository root, and the catalog's problems (shown, never fatal)."""
     try:
-        document = json.loads(path.read_text())
-    except (OSError, ValueError) as error:
-        raise DashboardError(f"{path}: {error}") from error
-    return parse_targets(document, source=str(path))
-
-
-def parse_targets(document: object, *, source: str = "targets.json") -> list[Target]:
-    if not isinstance(document, dict) or not isinstance(document.get("targets"), list):
-        raise DashboardError(f"{source}: needs a top-level 'targets' list")
-    targets = []
-    for index, entry in enumerate(document["targets"]):
-        where = f"{source}: targets[{index}]"
-        if not isinstance(entry, dict) or not isinstance(entry.get("id"), str) or not isinstance(entry.get("rows"), list):
-            raise DashboardError(f"{where}: needs a string 'id' and a 'rows' list")
-        rows = []
-        for row_index, row in enumerate(entry["rows"]):
-            here = f"{where}.rows[{row_index}]"
-            if not isinstance(row, dict):
-                raise DashboardError(f"{here}: not an object")
-            if row.get("stat") not in TILE_STATS:
-                raise DashboardError(f"{here}: stat {row.get('stat')!r} is not one of {TILE_STATS}")
-            if row.get("op") not in TILE_OPS:
-                raise DashboardError(f"{here}: op {row.get('op')!r} is not one of {tuple(TILE_OPS)}")
-            limit = row.get("limit")
-            if isinstance(limit, bool) or not isinstance(limit, (int, float)):
-                raise DashboardError(f"{here}: limit is not a number")
-            hz = row.get("hz", 120)
-            if hz is not None and (isinstance(hz, bool) or not isinstance(hz, int)):
-                raise DashboardError(f"{here}: hz is not an integer or null")
-            rows.append(TargetRow(story=str(row.get("story", "*")), metric=str(row.get("metric", "*")),
-                                  stat=row["stat"], op=row["op"], limit=float(limit), unit=str(row.get("unit", "")),
-                                  engine=row.get("engine"), hz=hz, label=row.get("label")))
-        targets.append(Target(id=entry["id"], title=str(entry.get("title", entry["id"])), rows=tuple(rows)))
-    return targets
+        loaded = catalog.load_catalog(root)
+    except (catalog.CatalogError, OSError) as error:
+        raise DashboardError(str(error)) from error
+    return list(loaded.targets), loaded.problems
 
 
 def build_tiles(targets: Sequence[Target], series: Sequence[SeriesInfo], latest: dict[str, PointView],
                 stat_of: Callable[[str, str], float | None], target_misses: set[str]) -> list[Tile]:
-    """One tile per target; one tile row per (target row, matching series), or a no-data row when none match.
+    """One tile per target; one tile row per (row check, claiming series), or a no-data row for a check none feeds.
 
-    `stat_of(series_key, stat)` gives the newest point's statistic (p50, p95, p99 or max of its samples).
+    `stat_of(series_key, stat)` gives the newest point's statistic (catalog.STATS over its samples).
     """
+    ordered = sorted(series, key=lambda info: info.key)
     tiles = []
     for target in targets:
         rows: list[TileRow] = []
         for target_row in target.rows:
-            matched = sorted((info for info in series if target_row.matches(info, target.id)), key=lambda i: i.key)
-            if not matched:
-                rows.append(TileRow(target_row, None, None, None, "no-data"))
-                continue
-            for info in matched:
-                point = latest.get(info.key)
-                value = stat_of(info.key, target_row.stat) if point is not None else None
-                status = "no-data" if value is None else (
-                    "pass" if TILE_OPS[target_row.op](value, target_row.limit) else "miss")
-                rows.append(TileRow(target_row, info, point, value, status, info.key in target_misses))
+            fed: dict[TargetCheck, list[SeriesInfo]] = {check: [] for check in target_row.checks}
+            for info in ordered:
+                for check in judged_checks(target_row, info):
+                    fed[check].append(info)
+            for check, infos in fed.items():
+                if not infos:
+                    rows.append(TileRow(target_row, check, None, None, None, "no-data"))
+                for info in infos:
+                    point = latest.get(info.key)
+                    value = stat_of(info.key, check.stat) if point is not None else None
+                    status = "no-data" if value is None else (
+                        "pass" if catalog.OPS[check.op](value, check.value) else "miss")
+                    rows.append(TileRow(target_row, check, info, point, value, status, info.key in target_misses))
         tiles.append(Tile(target, tuple(rows)))
     return tiles
 
@@ -672,10 +650,12 @@ def page(title: str, active: str, body: str) -> str:
 def render_tile(tile: Tile) -> str:
     items = []
     for row in tile.rows:
-        limit = f"target {OP_TEXT[row.row.op]} {fmt_value(row.row.limit, row.row.unit)}"
+        check = row.check
+        limit = f"target {check.stat} {OP_TEXT[check.op]} {fmt_value(check.value, check.unit)}"
+        title = f"{row.row.id} {check.stat}"
         if row.series is None:
-            href = f"/series?q={quote(row.row.story.replace('*', ''))}"
-            where = f"no series matches {row.row.story} / {row.row.metric}" + (
+            href = f"/series?q={quote(literal_prefix(check.metric))}"
+            where = f"no series claims {row.row.id} for {check.metric}" + (
                 f" at {row.row.hz} Hz" if row.row.hz is not None else "")
         else:
             href = series_href(row.series.key)
@@ -683,20 +663,25 @@ def render_tile(tile: Tile) -> str:
             if row.point is not None:
                 where += f" · {short_sha(row.point.sha)}"
         badge = ' <span class="meta">target_miss open</span>' if row.target_miss_open else ""
-        items.append(f'<li><a href="{esc(href)}">{esc(row.row.title)}</a>{status_badge(row.status)}'
-                     f'<span class="value">{esc(fmt_value(row.value, row.row.unit))}</span>'
+        items.append(f'<li><a href="{esc(href)}">{esc(title)}</a>{status_badge(row.status)}'
+                     f'<span class="value">{esc(fmt_value(row.value, check.unit))}</span>'
                      f'<span class="meta">{esc(limit)}</span>'
                      f'<span class="meta">{esc(where)}{badge}</span></li>')
     return (f'<section class="tile {esc(tile.status)}" id="target-{esc(tile.target.id)}">'
-            f'<h3><span>{esc(tile.target.title)}</span>{status_badge(tile.status)}</h3><ul>{"".join(items)}</ul></section>')
+            f'<h3><span>{esc(tile.target.id)}</span>{status_badge(tile.status)}</h3>'
+            f'<p class="meta">{esc(tile.target.text)}</p><ul>{"".join(items)}</ul></section>')
 
 
-def render_targets(tiles: Sequence[Tile], problem: str | None = None) -> str:
+def render_targets(tiles: Sequence[Tile], problem: str | None = None, catalog_problems: Sequence[str] = ()) -> str:
     if problem:
         return page("Targets", "/", f'<p class="empty">{esc(problem)}</p>')
     counts = {status: sum(1 for tile in tiles if tile.status == status) for status in ("pass", "miss", "no-data")}
     summary = (f'<p class="meta">{counts["pass"]} of {len(tiles)} targets pass · {counts["miss"]} miss · '
-               f'{counts["no-data"]} without data. Newest point of each series; 120 Hz hosts unless a row says otherwise.</p>')
+               f'{counts["no-data"]} without data. Newest point of each claiming series, at the Hz a row names.</p>')
+    if catalog_problems:
+        listed = "".join(f"<li>{esc(text)}</li>" for text in catalog_problems)
+        summary += (f'<p class="meta">{len(catalog_problems)} catalog problems (<code>lab.py targets --check</code>):'
+                    f'</p><ul class="problems">{listed}</ul>')
     return page("Targets", "/", summary + '<div class="tiles">' + "".join(render_tile(tile) for tile in tiles) + "</div>")
 
 
@@ -890,33 +875,29 @@ class Dashboard:
     targets: Sequence[Target] | None
     clock: Callable[[], datetime] = field(default=lambda: datetime.now(timezone.utc))
     targets_problem: str | None = None
+    catalog_problems: Sequence[str] = ()
 
     def tiles(self) -> list[Tile]:
         series = self.source.all_series()
         targets = self.targets or ()
         keys = sorted({info.key for target in targets for row in target.rows for info in series
-                       if row.matches(info, target.id)})
+                       if judged_checks(row, info)})
         latest = self.source.latest_points(keys)
-        samples_stats: dict[str, dict] = {}
+        samples: dict[str, list[float]] = {}
 
         def stat_of(key: str, stat: str) -> float | None:
             point = latest[key]
             if stat in ("p50", "p99"):
                 return point.stat(stat)
-            if key not in samples_stats:
-                samples_stats[key] = self.source.latest_summary(key)
-            return samples_stats[key].get(stat)
+            if key not in samples:
+                samples[key] = self.source.latest_samples(key)
+            return sample_stat(samples[key], stat)
 
         return build_tiles(targets, series, latest, stat_of, self.source.open_target_misses())
 
     def limits_for(self, info: SeriesInfo) -> list[tuple[str, float]]:
-        limits = []
-        for target in self.targets or ():
-            for row in target.rows:
-                if row.matches(info, target.id):
-                    limits.append((f"{target.title}: {row.stat} {OP_TEXT[row.op]} {fmt_value(row.limit, row.unit)}",
-                                   row.limit))
-        return limits
+        return [(f"{row.id}: {check.stat} {OP_TEXT[check.op]} {fmt_value(check.value, check.unit)}", check.value)
+                for target in self.targets or () for row in target.rows for check in judged_checks(row, info)]
 
     def handle(self, raw_path: str) -> Page:
         parts = urlsplit(raw_path)
@@ -926,7 +907,7 @@ class Dashboard:
             if path in ("/", "/status"):
                 if self.targets is None:
                     return Page(200, render_targets((), self.targets_problem or "No targets.json loaded."))
-                return Page(200, render_targets(self.tiles()))
+                return Page(200, render_targets(self.tiles(), catalog_problems=self.catalog_problems))
             if path == "/series":
                 text = query.get("q", [""])[0][:200]
                 rows, total = self.source.series_list(text, SERIES_LIST_LIMIT)
@@ -1030,12 +1011,12 @@ class StoreSource:
     def latest_points(self, keys: Sequence[str]) -> dict[str, PointView]:
         return {key: points[-1] for key, points in self._points(keys, 1).items()}
 
-    def latest_summary(self, key: str) -> dict[str, float | None]:
+    def latest_samples(self, key: str) -> list[float]:
         rows = self._query(
             """SELECT r.samples_json FROM results r JOIN series s ON s.id = r.series_id JOIN runs u ON u.id = r.run_id
                JOIN builds b ON b.id = u.build_id WHERE s.series_key = ? AND u.kind = 'waterfall'
                ORDER BY """ + _WATERFALL_ORDER + " LIMIT 1", [key])
-        return perf_stats.summary(json.loads(rows[0]["samples_json"])) if rows else {}
+        return list(json.loads(rows[0]["samples_json"])) if rows else []
 
     def open_target_misses(self) -> set[str]:
         closed = ",".join("?" * len(CLOSED_GROUP_STATES))
@@ -1144,12 +1125,13 @@ class StoreSource:
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Render one perf lab dashboard page from a lab store to stdout.")
     parser.add_argument("--db", required=True, type=Path, help="the lab store (SQLite)")
-    parser.add_argument("--targets", type=Path, default=Path(__file__).resolve().parent / "targets.json")
+    parser.add_argument("--root", type=Path, default=catalog.REPO_ROOT,
+                        help="the repository root whose targets.json and stories.d define the tiles")
     parser.add_argument("--path", default="/", help="the page path, for example /series?q=launch")
     args = parser.parse_args(argv)
-    targets, problem = None, None
+    targets, problem, problems = None, None, ()
     try:
-        targets = load_targets(args.targets)
+        targets, problems = load_targets(args.root)
     except DashboardError as error:
         problem = str(error)
     try:
@@ -1158,7 +1140,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(error, file=sys.stderr)
         return 2
     try:
-        result = Dashboard(source, targets, targets_problem=problem).handle(args.path)
+        result = Dashboard(source, targets, targets_problem=problem, catalog_problems=problems).handle(args.path)
     finally:
         source.close()
     sys.stdout.write(result.body)

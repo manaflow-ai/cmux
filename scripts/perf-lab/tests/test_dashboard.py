@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import html.parser
 import importlib.util
+import json
 import os
 import sqlite3
 import sys
@@ -41,20 +42,29 @@ HOST_60 = store.Host(name="cmux20-bench", chip="Apple M4 Pro", memory_gb=24, dis
 LIGHT = "terminal.key-frame.light"
 STRESS = "terminal.key-frame.stress"
 LAUNCH = "launch.warm"
+UNCLAIMED = "terminal.key-frame.unclaimed"
+IDLE = "idle.tabs-10"
 
-TARGETS = {"targets": [
-    {"id": "key-frame", "title": "Key to frame",
-     "rows": [{"story": "terminal.key-frame.*", "metric": "key_to_frame_ms", "stat": "p50", "op": "<=",
-               "limit": 8.3, "unit": "ms", "label": "p50"},
-              {"story": "terminal.key-frame.*", "metric": "key_to_frame_ms", "stat": "p99", "op": "<=",
-               "limit": 16.7, "unit": "ms", "label": "p99"}]},
-    {"id": "launch", "title": "Launch",
-     "rows": [{"story": "launch.warm", "metric": "launch_ms", "stat": "p95", "op": "<=", "limit": 150,
-               "unit": "ms", "hz": None, "label": "warm p95"}]},
-    {"id": "build", "title": "Incremental leaf build",
-     "rows": [{"story": "incremental-build", "metric": "leaf_build_s", "stat": "p50", "op": "<", "limit": 30,
-               "unit": "s", "hz": None}]},
-]}
+Check = dashboard.TargetCheck
+Row = dashboard.TargetRow
+KEY_FRAME_CHECKS = (Check(r"key_to_frame_ms", "p50", "<=", 8.3, "ms"), Check(r"key_to_frame_ms", "p99", "<=", 16.7, "ms"))
+TARGETS = [
+    dashboard.Target("key-frame", "key->frame p50 <= 8.3 ms and p99 <= 16.7 ms, light and STRESS, at hz=120", False, (
+        Row("key-frame.light", "key-frame", KEY_FRAME_CHECKS, session="light", hz=120),
+        Row("key-frame.stress", "key-frame", KEY_FRAME_CHECKS, session="stress", hz=120))),
+    dashboard.Target("launch", "warm launch p95 <= 150 ms", False, (
+        Row("launch.warm", "launch", (Check(r"launch_ms", "p95", "<=", 150, "ms"),
+                                      Check(r"launch_ms", "min", ">=", 100, "ms"))),)),
+    dashboard.Target("build", "incremental leaf build p50 < 30 s", False, (
+        Row("incremental-build", "build", (Check(r"build\.incremental\.[a-z0-9_]+_s", "p50", "<", 30, "s"),)),)),
+    dashboard.Target("idle", "idle wakeups p50 <= 1 per s", True, (
+        Row("idle.webkit", "idle", (Check(r"wakeups_per_s", "p50", "<=", 1, "count"),), engine="webkit"),)),
+]
+
+
+def claim(row_id: str) -> str:
+    """A stored target_ref as ingest writes it (ingest._target_ref)."""
+    return json.dumps({"target": row_id}, sort_keys=True, separators=(",", ":"))
 
 
 def key_of(story: str, metric: str, host: store.Host, *, engine: str = "none", config: str = "bench") -> str:
@@ -64,8 +74,9 @@ def key_of(story: str, metric: str, host: store.Host, *, engine: str = "none", c
 
 class LabFixture:
     """A small lab: two 120 Hz key-frame series (light passes, STRESS misses p99), a failing 60 Hz copy that
-    must not count, a failing debug copy that must not count, warm launch on a 60 Hz host, an alert group,
-    a bisect job with traces, and a tiered coverage history."""
+    must not count, a failing debug copy that must not count, a failing series that claims no row, a chromium
+    series claiming a webkit row, warm launch on a 60 Hz host, an alert group, a bisect job with traces, and a
+    tiered coverage history."""
 
     def __init__(self, path: Path) -> None:
         self.path = path
@@ -78,13 +89,15 @@ class LabFixture:
 
     def add(self, story: str, metric: str, samples: list[float], *, pos: int, host: store.Host = HOST_120,
             config: str = "bench", kind: str = "waterfall", tier: str | None = "T0", features_hash: str = "f0",
-            macos_build: str = "26.1 (25B78)", started_at: datetime | None = None, unit: str = "ms") -> None:
+            macos_build: str = "26.1 (25B78)", started_at: datetime | None = None, unit: str = "ms",
+            target: str | None = None, engine: str = "none") -> None:
         self.uuid += 1
-        run = store.Run(run_uuid=f"run-{self.uuid}", kind=kind, measure_version="m1", story=story, engine="none",
+        run = store.Run(run_uuid=f"run-{self.uuid}", kind=kind, measure_version="m1", story=story, engine=engine,
                         macos_major=26, macos_build=macos_build, features_hash=features_hash, safe_mode="off",
                         started_at=started_at or NOW - timedelta(minutes=10 * (12 - pos)), tier=tier)
         self.store.insert_run(run, build=store.Build(sha=f"{pos:040x}", config=config, commit_pos=pos), host=host,
-                              metrics=[store.Metric(name=metric, unit=unit, better="lower", samples=samples)])
+                              metrics=[store.Metric(name=metric, unit=unit, better="lower", samples=samples,
+                                                    target_ref=claim(target) if target else None)])
 
     def sql(self, statement: str, *args) -> int:
         db = sqlite3.connect(self.path)
@@ -97,14 +110,18 @@ class LabFixture:
 
     def populate(self) -> None:
         for pos in range(1, 13):
-            self.add(LIGHT, "key_to_frame_ms", [5.0, 6.0, 7.0, 8.0, 9.0], pos=pos,
+            self.add(LIGHT, "key_to_frame_ms", [5.0, 6.0, 7.0, 8.0, 9.0], pos=pos, target="key-frame.light",
                      features_hash="f0" if pos < 8 else "f1", macos_build="26.1 (25B78)" if pos < 10 else "26.1 (25B80)")
             stress_tail = 14.0 if pos < 9 else 30.0
-            self.add(STRESS, "key_to_frame_ms", [6.0, 7.0, 7.5, 8.0, stress_tail], pos=pos)
-            self.add(LIGHT, "key_to_frame_ms", [40.0, 41.0, 42.0], pos=pos, host=HOST_60)
-            self.add(LIGHT, "key_to_frame_ms", [90.0, 95.0], pos=pos, config="debug", tier=None)
-            self.add(LAUNCH, "launch_ms", [100.0 + i for i in range(20)], pos=pos, host=HOST_60, tier="T1")
-        self.add(LIGHT, "key_to_frame_ms", [5.5, 6.5], pos=12, kind="reference", tier=None)
+            self.add(STRESS, "key_to_frame_ms", [6.0, 7.0, 7.5, 8.0, stress_tail], pos=pos, target="key-frame.stress")
+            self.add(LIGHT, "key_to_frame_ms", [40.0, 41.0, 42.0], pos=pos, host=HOST_60, target="key-frame.light")
+            self.add(LIGHT, "key_to_frame_ms", [90.0, 95.0], pos=pos, config="debug", tier=None,
+                     target="key-frame.light")
+            self.add(UNCLAIMED, "key_to_frame_ms", [80.0, 90.0], pos=pos)
+            self.add(LAUNCH, "launch_ms", [100.0 + i for i in range(20)], pos=pos, host=HOST_60, tier="T1",
+                     target="launch.warm")
+            self.add(IDLE, "wakeups_per_s", [9.0], pos=pos, unit="count", engine="chromium", target="idle.webkit")
+        self.add(LIGHT, "key_to_frame_ms", [5.5, 6.5], pos=12, kind="reference", tier=None, target="key-frame.light")
         stress_key = key_of(STRESS, "key_to_frame_ms", HOST_120)
         series_id = self.series_id(stress_key)
         group = self.sql("""INSERT INTO alert_groups (state, start_pos, end_pos, culprit_sha, culprit_verified,
@@ -195,7 +212,7 @@ class DashboardTestCase(unittest.TestCase):
         fixture = LabFixture(cls.db)
         fixture.populate()
         fixture.close()
-        cls.targets = dashboard.parse_targets(TARGETS)
+        cls.targets = TARGETS
 
     @classmethod
     def tearDownClass(cls) -> None:
@@ -277,14 +294,24 @@ class TileTests(DashboardTestCase):
                     self.assertIn(row.series.key, unquote(href))
                     self.get(href)
 
-    def test_key_frame_judges_only_120_hz_non_debug_series(self) -> None:
+    def test_key_frame_judges_only_claiming_120_hz_non_debug_series(self) -> None:
         tile = self.tile("key-frame")
-        judged = {(row.row.stat, row.series.story, row.series.host_class, row.series.build_config) for row in tile.rows}
-        self.assertEqual(judged, {(stat, story, HOST_120.host_class, "bench")
-                                  for stat in ("p50", "p99") for story in (LIGHT, STRESS)})
+        judged = {(row.row.id, row.check.stat, row.series.story, row.series.host_class, row.series.build_config)
+                  for row in tile.rows}
+        self.assertEqual(judged, {(f"key-frame.{session}", stat, story, HOST_120.host_class, "bench")
+                                  for stat in ("p50", "p99") for session, story in (("light", LIGHT), ("stress", STRESS))})
+
+    def test_a_series_that_claims_no_row_is_never_judged(self) -> None:
+        stories = {row.series.story for tile in self.dash.tiles() for row in tile.rows if row.series is not None}
+        self.assertNotIn(UNCLAIMED, stories)
+
+    def test_a_row_engine_excludes_other_engines(self) -> None:
+        tile = self.tile("idle")
+        self.assertEqual([(row.status, row.series) for row in tile.rows], [("no-data", None)])
+        self.assertIn("no series claims idle.webkit for wakeups_per_s", self.get("/"))
 
     def test_pass_and_miss_values(self) -> None:
-        rows = {(row.row.stat, row.series.story): row for row in self.tile("key-frame").rows}
+        rows = {(row.check.stat, row.series.story): row for row in self.tile("key-frame").rows}
         self.assertEqual(rows["p50", LIGHT].status, "pass")
         self.assertAlmostEqual(rows["p50", LIGHT].value, 7.0)
         self.assertEqual(rows["p99", LIGHT].status, "pass")
@@ -294,17 +321,20 @@ class TileTests(DashboardTestCase):
         self.assertEqual(rows["p99", STRESS].point.commit_pos, 12)
         self.assertEqual(self.tile("key-frame").status, "miss")
 
-    def test_a_p95_row_reads_the_newest_samples(self) -> None:
-        (row,) = self.tile("launch").rows
-        self.assertEqual(row.series.host_class, HOST_60.host_class)
-        self.assertAlmostEqual(row.value, 100 + 0.95 * 19)
-        self.assertEqual(row.status, "pass")
+    def test_p95_and_min_checks_read_the_newest_samples(self) -> None:
+        p95, low = self.tile("launch").rows
+        self.assertEqual(p95.series.host_class, HOST_60.host_class)
+        self.assertAlmostEqual(p95.value, 100 + 0.95 * 19)
+        self.assertEqual(p95.status, "pass")
+        self.assertEqual((low.check.stat, low.value, low.status), ("min", 100.0, "pass"))
 
     def test_a_target_with_no_series_is_no_data(self) -> None:
         tile = self.tile("build")
         self.assertEqual([row.status for row in tile.rows], ["no-data"])
         self.assertEqual(tile.status, "no-data")
-        self.assertIn("no series matches incremental-build / leaf_build_s", self.get("/"))
+        body = self.get("/")
+        self.assertIn(r"no series claims incremental-build for build\.incremental\.[a-z0-9_]+_s", body)
+        self.assertIn('href="/series?q=build.incremental."', body)
 
     def test_status_never_rests_on_color_alone(self) -> None:
         body = self.get("/")
@@ -316,10 +346,11 @@ class TileTests(DashboardTestCase):
 class SnapshotTests(unittest.TestCase):
     INFO = dashboard.SeriesInfo(key="sk1:0123456789abcdef0123456789abcdef", story=LIGHT, metric="key_to_frame_ms",
                                 engine="none", host_class="apple-m4-pro/24gb/120hz", macos_major=26,
-                                build_config="bench", unit="ms", better="lower")
-    ROW = dashboard.TargetRow(story="terminal.key-frame.*", metric="key_to_frame_ms", stat="p99", op="<=", limit=16.7,
-                              unit="ms", label="light p99")
-    TARGET = dashboard.Target(id="key-frame", title="Key to frame", rows=(ROW,))
+                                build_config="bench", unit="ms", better="lower",
+                                target_ref=claim("key-frame.light"))
+    CHECK = Check(r"key_to_frame_ms", "p99", "<=", 16.7, "ms")
+    ROW = Row("key-frame.light", "key-frame", (CHECK,), session="light", hz=120)
+    TARGET = dashboard.Target("key-frame", "key->frame p99 <= 16.7 ms at hz=120", False, (ROW,))
 
     def point(self, p99: float) -> dashboard.PointView:
         return dashboard.PointView(commit_pos=41, sha="ab" * 20, started_at="2026-10-25T11:50:00.000000+00:00",
@@ -327,7 +358,7 @@ class SnapshotTests(unittest.TestCase):
                                    safe_mode="off", host_name="cmux15")
 
     def tile(self, p99: float, status: str, miss_open: bool = False) -> dashboard.Tile:
-        return dashboard.Tile(self.TARGET, (dashboard.TileRow(self.ROW, self.INFO, self.point(p99), p99, status,
+        return dashboard.Tile(self.TARGET, (dashboard.TileRow(self.ROW, self.CHECK, self.INFO, self.point(p99), p99, status,
                                                                miss_open),))
 
     def check(self, name: str, rendered: str) -> None:
@@ -344,7 +375,7 @@ class SnapshotTests(unittest.TestCase):
         self.check("tile-miss", dashboard.render_tile(self.tile(21.0, "miss", miss_open=True)))
 
     def test_no_data_tile(self) -> None:
-        row = dashboard.TileRow(self.ROW, None, None, None, "no-data")
+        row = dashboard.TileRow(self.ROW, self.CHECK, None, None, None, "no-data")
         self.check("tile-no-data", dashboard.render_tile(dashboard.Tile(self.TARGET, (row,))))
 
     def test_build_tiles_decides_the_snapshot_states(self) -> None:
@@ -362,7 +393,7 @@ class PageTests(DashboardTestCase):
         self.assertIn("26.1 (25B78) → 26.1 (25B80)", light)
         self.assertIn('class="line s1"', light)
         self.assertIn('class="line s2"', light)
-        self.assertIn("Key to frame: p50 ≤ 8.30 ms", light)
+        self.assertIn("key-frame.light: p50 ≤ 8.30 ms", light)
         self.assertIn("1 runs of the weekly-frozen build", light)
         stress = self.get(dashboard.series_href(key_of(STRESS, "key_to_frame_ms", HOST_120)))
         self.assertIn('class="band regression"', stress)
@@ -414,21 +445,81 @@ class PageTests(DashboardTestCase):
         self.assertIn("targets.json: missing", body)
 
 
-class TargetParseTests(unittest.TestCase):
-    def test_rejects_bad_rows(self) -> None:
-        for row in ({"stat": "p42", "op": "<=", "limit": 1}, {"stat": "p50", "op": "~", "limit": 1},
-                    {"stat": "p50", "op": "<=", "limit": "8"}, {"stat": "p50", "op": "<=", "limit": True},
-                    {"stat": "p50", "op": "<=", "limit": 1, "hz": "120"}):
-            with self.subTest(row=row), self.assertRaises(dashboard.DashboardError):
-                dashboard.parse_targets({"targets": [{"id": "t", "rows": [row]}]})
+class TargetTests(unittest.TestCase):
+    ROW = Row("idle-wakeups.webkit", "idle-wakeups",
+              (Check(r"idle\.tabs-10\.main_wakes_per_s", "p50", "<=", 0.5, "count"),
+               Check(r"idle\.tabs-10\.app_daemon_wakeups_per_s", "p50", "<=", 1, "count")), engine="webkit")
 
-    def test_a_target_ref_names_a_series_into_a_target(self) -> None:
-        (target,) = dashboard.parse_targets({"targets": [{"id": "idle", "rows": [
-            {"story": "nothing-matches", "metric": "wakeups_per_s", "stat": "p50", "op": "<=", "limit": 1, "hz": None}]}]})
-        info = dashboard.SeriesInfo("k", "idle-tabs", "wakeups_per_s", "chromium", "c/24gb/120hz", 26, "bench", "count",
-                                    "lower", '{"target": "idle"}')
-        self.assertTrue(target.rows[0].matches(info, "idle"))
-        self.assertFalse(target.rows[0].matches(info, "other"))
+    def info(self, **changes) -> "dashboard.SeriesInfo":
+        fields = dict(key="k", story="idle-tabs", metric="idle.tabs-10.main_wakes_per_s", engine="webkit",
+                      host_class="c/24gb/120hz", macos_major=26, build_config="bench", unit="count", better="lower",
+                      target_ref=claim("idle-wakeups.webkit"))
+        fields.update(changes)
+        return dashboard.SeriesInfo(**fields)
+
+    def test_a_claim_picks_the_checks_whose_pattern_full_matches(self) -> None:
+        (check,) = dashboard.judged_checks(self.ROW, self.info())
+        self.assertEqual(check.metric, r"idle\.tabs-10\.main_wakes_per_s")
+        self.assertEqual(dashboard.judged_checks(self.ROW, self.info(metric="idle.tabs-10.main_wakes_per_s.extra")), [])
+
+    def test_a_series_must_claim_the_row_and_fit_its_constraints(self) -> None:
+        for changes in ({"target_ref": None}, {"target_ref": claim("idle-wakeups.chromium")},
+                        {"target_ref": '{"key":"/rows/x","path":"scripts/cmux-next/perf-budgets.json"}'},
+                        {"engine": "chromium"}, {"build_config": "debug"}):
+            with self.subTest(changes=changes):
+                self.assertEqual(dashboard.judged_checks(self.ROW, self.info(**changes)), [])
+
+    def test_row_hz_and_config_constrain_the_series(self) -> None:
+        row = Row("r", "t", (Check("m", "max", "<=", 0, "count"),), config="bench-checks", hz=120)
+        fits = self.info(metric="m", target_ref=claim("r"), build_config="bench-checks")
+        self.assertEqual(len(dashboard.judged_checks(row, fits)), 1)
+        self.assertEqual(dashboard.judged_checks(row, self.info(metric="m", target_ref=claim("r"))), [])
+        at_60 = self.info(metric="m", target_ref=claim("r"), build_config="bench-checks", host_class="c/24gb/60hz")
+        self.assertEqual(dashboard.judged_checks(row, at_60), [])
+
+    def test_literal_prefix(self) -> None:
+        self.assertEqual(dashboard.literal_prefix(r"terminal\.key_to_frame"), "terminal.key_to_frame")
+        self.assertEqual(dashboard.literal_prefix(r"panes\.[^.]+\.missed"), "panes.")
+        self.assertEqual(dashboard.literal_prefix(r"hangs\.over_250ms\.[a-z_]+"), "hangs.over_250ms.")
+
+    def test_sample_stats(self) -> None:
+        samples = [3.0, 1.0, 2.0]
+        self.assertEqual(dashboard.sample_stat(samples, "min"), 1.0)
+        self.assertEqual(dashboard.sample_stat(samples, "max"), 3.0)
+        self.assertEqual(dashboard.sample_stat(samples, "mean"), 2.0)
+        self.assertEqual(dashboard.sample_stat(samples, "p50"), 2.0)
+        self.assertIsNone(dashboard.sample_stat([], "p50"))
+        with self.assertRaises(dashboard.DashboardError):
+            dashboard.sample_stat(samples, "p42")
+
+    def test_the_repository_catalog_gives_twelve_tiles(self) -> None:
+        targets, problems = dashboard.load_targets(LAB.parents[1])
+        self.assertEqual(problems, ())
+        with tempfile.TemporaryDirectory() as tmp:
+            db = Path(tmp) / "lab.sqlite"
+            empty = store.Store(db, clock=lambda: NOW)
+            empty.migrate()
+            empty.close()
+            source = dashboard.StoreSource(db)
+            try:
+                dash = dashboard.Dashboard(source, targets, clock=lambda: NOW)
+                tiles = dash.tiles()
+                body = dash.handle("/").body
+            finally:
+                source.close()
+        self.assertEqual(len(tiles), 12)
+        self.assertEqual({tile.status for tile in tiles}, {"no-data"})
+        self.assertEqual(body.count('<section class="tile no-data"'), 12)
+        self.assertEqual(scan(body).loads, [])
+
+    def test_catalog_problems_show_on_the_targets_page(self) -> None:
+        body = dashboard.render_targets((), catalog_problems=("targets.json: 11 targets <x>",))
+        self.assertIn("1 catalog problems", body)
+        self.assertIn("targets.json: 11 targets &lt;x&gt;", body)
+
+    def test_a_missing_catalog_is_a_dashboard_error(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp, self.assertRaises(dashboard.DashboardError):
+            dashboard.load_targets(Path(tmp))
 
 
 class ChartTests(unittest.TestCase):
