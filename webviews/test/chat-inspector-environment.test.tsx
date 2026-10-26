@@ -10,7 +10,8 @@ import { JSDOM } from "jsdom";
 import type { AcpmuxSnapshot } from "../src/agent-session/acpmux/model";
 import { ChatInspector } from "../src/agent-session/acpmux/inspector/ChatInspector";
 import { chatFolders, projectFolder } from "../src/agent-session/acpmux/inspector/chatFolders";
-import { environmentToSave } from "../src/agent-session/acpmux/inspector/EnvironmentSection";
+import { chooseEnvironmentFolder } from "../src/agent-session/acpmux/inspector/environmentActions";
+import { environmentConnection, environmentToSave } from "../src/agent-session/acpmux/inspector/EnvironmentSection";
 import { resetInspectorState } from "../src/agent-session/acpmux/inspector/inspectorState";
 import { translate } from "../src/agent-session/acpmux/i18n";
 import { activity, chat, tool } from "../src/gallery/fixtures/acpmux";
@@ -32,6 +33,18 @@ function installDom(): HTMLElement {
     document: dom.window.document,
     navigator: dom.window.navigator,
     Node: dom.window.Node,
+    HTMLInputElement: dom.window.HTMLInputElement,
+    MouseEvent: dom.window.MouseEvent,
+    KeyboardEvent: dom.window.KeyboardEvent,
+    PointerEvent: dom.window.MouseEvent,
+    Event: dom.window.Event,
+    CustomEvent: dom.window.CustomEvent,
+    ResizeObserver: class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    },
+    localStorage: dom.window.localStorage,
     HTMLElement: dom.window.HTMLElement,
     Element: dom.window.Element,
     MutationObserver: dom.window.MutationObserver,
@@ -196,4 +209,181 @@ test("without the App's actions the rows are plain text, and no Remote Control r
   expect(environment.querySelector("a")).toBeNull();
   expect(environment.textContent).toContain("glaeda");
   expect(environment.textContent).not.toContain("Remote Control");
+});
+
+for (const kind of ["move", "bringBack"] as const) {
+  test(`Environment opens the existing ${kind} action and keeps folder choice separate`, async () => {
+    const host = installDom();
+    const calls: string[] = [];
+    await act(async () => {
+      root = createRoot(host);
+      root.render(
+        <ChatInspector
+          summary={chat([]).summary}
+          machineName="Studio"
+          environmentControls={{
+            move: {
+              kind,
+              run: (value) => {
+                calls.push(value);
+              },
+              refresh: () => {
+                calls.push("refresh");
+              },
+            },
+            chooseFolder: () => {
+              calls.push("folder");
+            },
+            connection: { label: translate("composer.envConnected"), connected: true },
+          }}
+        />,
+      );
+    });
+    const machine = host.querySelector<HTMLButtonElement>(".acpmux-location-button")!;
+    expect(machine.getAttribute("aria-label")).toContain("Studio");
+    const folder = [...host.querySelectorAll<HTMLButtonElement>("button")].find(
+      (b) => b.textContent === translate("composer.chooseFolderMenu"),
+    )!;
+    expect(folder.getAttribute("aria-label")).toBe(translate("chatInspector.environment.chooseFolderNewChat"));
+    await act(async () => folder.click());
+    expect(calls).toEqual(["folder"]);
+    await act(async () => {
+      machine.dispatchEvent(new dom!.window.MouseEvent("pointerdown", { bubbles: true }));
+      machine.click();
+    });
+    expect(calls).toEqual(["folder", "refresh"]);
+    const menu = dom!.window.document.querySelector(".acpmux-env-popover")!;
+    const actions = [...menu.querySelectorAll<HTMLElement>(".acpmux-menu-item")].filter((row) =>
+      row.querySelector(".acpmux-env-new"),
+    );
+    expect(actions).toHaveLength(1);
+    expect(actions[0]!.textContent).toContain(
+      translate(kind === "move" ? "composer.moveToCloud" : "composer.bringBackLocal"),
+    );
+    await act(async () => actions[0]!.click());
+    expect(calls).toEqual(["folder", "refresh", kind]);
+    expect(dom!.window.document.querySelector(".acpmux-env-popover")).toBeNull();
+  });
+}
+
+test("Environment without supported actions has no machine or choose-folder button", async () => {
+  const host = installDom();
+  await act(async () => {
+    root = createRoot(host);
+    root.render(
+      <ChatInspector
+        machineName="Studio"
+        environmentControls={{
+          connection: { label: translate("header.disconnected"), connected: false },
+        }}
+      />,
+    );
+  });
+  expect(host.querySelector(".acpmux-location-button")).toBeNull();
+  expect(host.querySelector('[aria-label*="Choose folder"]')).toBeNull();
+  expect(host.querySelector('[data-connected="false"]')?.textContent).toBe(translate("header.disconnected"));
+});
+
+test("Choose folder cancellation, chat changes and machine moves discard the native result", async () => {
+  const before = {
+    ...chat([]),
+    sessionId: "session",
+    summary: { ...chat([]).summary!, cwd: "/Users/you/src", host: "Studio", hostKind: "local" as const },
+  };
+  const opened: string[] = [];
+  for (const after of [
+    undefined,
+    { ...before, sessionId: "other" },
+    { ...before, summary: { ...before.summary, peer: "remote" } },
+    { ...before, summary: { ...before.summary, host: "cloud", hostKind: "cloud" as const } },
+  ]) {
+    await chooseEnvironmentFolder(
+      before,
+      async () => "/picked",
+      () => after,
+      (cwd) => {
+        opened.push(cwd);
+      },
+    );
+  }
+  await chooseEnvironmentFolder(
+    before,
+    async () => undefined,
+    () => before,
+    (cwd) => {
+      opened.push(cwd);
+    },
+  );
+  expect(opened).toEqual([]);
+  await chooseEnvironmentFolder(
+    before,
+    async () => "/picked",
+    () => before,
+    (cwd) => {
+      opened.push(cwd);
+    },
+  );
+  expect(opened).toEqual(["/picked"]);
+  expect(before.summary.cwd).toBe("/Users/you/src");
+});
+
+for (const [connection, key] of [
+  ["connected", "composer.envConnected"],
+  ["connecting", "rail.connectorPending"],
+  ["connecting: refused", "header.reconnecting"],
+  ["disconnected", "header.disconnected"],
+  ["failed: permission", "header.failed"],
+] as const) {
+  test(`Environment describes ${connection} from the pane snapshot`, () => {
+    const state = environmentConnection({ ...chat([]), connection }, translate);
+    expect(state?.label).toBe(translate(key));
+    expect(state?.connected).toBe(connection === "connected");
+  });
+}
+
+test("normal events keep transport state; offline and unknown snapshots never claim connected", () => {
+  const base = chat([]);
+  for (const connection of ["attached", "history", "session changed", "permission", "turn_started"]) {
+    expect(environmentConnection({ ...base, connection, transportConnected: true }, translate)?.connected).toBe(true);
+  }
+  expect(
+    environmentConnection({ ...base, connection: "connected", transportConnected: false }, translate)?.connected,
+  ).toBe(false);
+  expect(environmentConnection({ ...base, connection: "unknown" }, translate)).toBeUndefined();
+});
+
+test("a trailing slash does not duplicate the primary folder", async () => {
+  const host = installDom();
+  const opened: string[] = [];
+  await act(async () => {
+    root = createRoot(host);
+    root.render(
+      <ChatInspector
+        summary={{ ...chat([]).summary!, cwd: "/Users/you/src/atlas-web/" }}
+        onOpenFolder={(path) => {
+          opened.push(path);
+        }}
+        environmentControls={{ chooseFolder: () => undefined }}
+      />,
+    );
+  });
+  const folders = [...host.querySelectorAll<HTMLButtonElement>('button[title="/Users/you/src/atlas-web"]')];
+  expect(folders).toHaveLength(1);
+  expect(host.querySelectorAll(".acpmux-environment-folder")).toHaveLength(1);
+  await act(async () => folders[0]!.click());
+  expect(opened).toEqual(["/Users/you/src/atlas-web"]);
+});
+
+test("a disconnected peer is not shown connected just because the local transport is open", () => {
+  const snapshot = {
+    ...chat([]),
+    connection: "session changed",
+    transportConnected: true,
+    summary: { ...chat([]).summary!, peer: "builder" },
+    peerConnected: { builder: false },
+  };
+  expect(environmentConnection(snapshot, translate)).toEqual({
+    label: translate("composer.envNotConnected"),
+    connected: false,
+  });
 });

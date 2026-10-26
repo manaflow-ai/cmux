@@ -55,7 +55,10 @@ export function EnvironmentPicker({
   onOpen,
   offload,
   onOffload,
+  returnFocus = false,
 }: {
+  /// Restore focus to this picker when used outside a composer, such as Session Info.
+  returnFocus?: boolean;
   label: string;
   /// The name automation opens it by (`openPicker`).
   menu: string;
@@ -210,14 +213,14 @@ export function EnvironmentPicker({
   const close = () => {
     setOpen(false);
     reset();
-    if (escaped.current) trigger.current?.focus();
+    if (escaped.current && !returnFocus) trigger.current?.focus();
     escaped.current = false;
   };
   // Picking the environment already chosen changes nothing, so no caller moves focus: the prompt
   // this picker heads takes it back.
   const focusPrompt = () => {
     const scope = control.current?.closest(".acpmux-composer, .nt-composer");
-    scope?.querySelector<HTMLElement>("textarea, [contenteditable='true']")?.focus();
+    (scope?.querySelector<HTMLElement>("textarea, [contenteditable='true']") ?? trigger.current)?.focus();
   };
   const focusPromptRef = useRef(focusPrompt);
   focusPromptRef.current = focusPrompt;
@@ -253,8 +256,9 @@ export function EnvironmentPicker({
     const action = actions.find((candidate) => candidate.value === value);
     close();
     if (action) action.run();
-    else if (value === currentRow) focusPrompt();
-    else if (value.startsWith(SAVED)) saved?.onPick(value.slice(SAVED.length));
+    else if (value === currentRow) {
+      if (!returnFocus) focusPrompt();
+    } else if (value.startsWith(SAVED)) saved?.onPick(value.slice(SAVED.length));
     else if (positions.has(value)) onPick(value);
   };
   const row = (value: string) => {
@@ -369,7 +373,7 @@ export function EnvironmentPicker({
         className="acpmux-menu acpmux-location-menu acpmux-folder-popover acpmux-env-popover"
         side={side}
         flip={false}
-        finalFocus={false}
+        finalFocus={returnFocus ? trigger : false}
       >
         <Combobox
           suggestions={suggestions}

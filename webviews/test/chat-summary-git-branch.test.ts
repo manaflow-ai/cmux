@@ -52,11 +52,15 @@ const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
 
 async function connect(fields: Record<string, unknown>) {
   let summary: any;
+  let snapshot: any;
   const session = { sessionId: CHAT, cwd: "/home/dev/app", title: "x", harness: "claude", status: "ready", ...fields };
   const daemon = fakeDaemon(session);
   await AcpmuxDirectClient.connect(
     { protocolVersion: 1, transport: "acpmux-websocket", endpoint: "ws://127.0.0.1:1/", token: "t", sessionId: CHAT },
-    (snapshot: any) => (summary = snapshot.summary),
+    (next: any) => {
+      snapshot = next;
+      summary = next.summary;
+    },
     undefined,
     daemon.open,
   );
@@ -71,7 +75,7 @@ async function connect(fields: Record<string, unknown>) {
     });
     await settle();
   };
-  return { shownBranch: () => summary?.branch, checkout };
+  return { shownBranch: () => summary?.branch, snapshot: () => snapshot, checkout };
 }
 
 test("a chat's summary names the branch acpmux reports as gitBranch", async () => {
@@ -91,4 +95,12 @@ test("a checkout mid-session moves the branch the chat shows; a detached HEAD cl
   expect(shownBranch()).toBe("second");
   await checkout(null);
   expect(shownBranch()).toBeUndefined();
+});
+
+test("live session events retain transport liveness after the connection reason changes", async () => {
+  const { snapshot, checkout } = await connect({ gitBranch: "first" });
+  expect(snapshot().transportConnected).toBe(true);
+  await checkout("second");
+  expect(snapshot().connection).toBe("session changed");
+  expect(snapshot().transportConnected).toBe(true);
 });

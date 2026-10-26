@@ -3912,6 +3912,7 @@ export class AcpmuxDirectClient {
           }
         : undefined,
       connection,
+      transportConnected: this.socket?.readyState === WebSocket.OPEN,
       origin: this.origin,
       ...(this.listedSessions ? { listedSessions: true as const } : {}),
       ...(this.drewKeptTail ? { drewKeptTail: true as const } : {}),

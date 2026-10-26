@@ -1,6 +1,137 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "chatInspector.environment.chooseFolderNewChat": {
+      "comment": "Session Info folder action: choosing a folder starts a new chat; it does not move the running chat. Accessible label and tooltip.",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choose a folder for a new chat"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "اختر مجلدًا لدردشة جديدة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Odaberi folder za novi razgovor"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vælg en mappe til en ny chat"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ordner für einen neuen Chat auswählen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Elegir una carpeta para un chat nuevo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choisir un dossier pour une nouvelle discussion"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Scegli una cartella per una nuova chat"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新しいチャットのフォルダを選択"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ជ្រើសរើសថតសម្រាប់ការជជែកថ្មី"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "새 채팅을 위한 폴더 선택"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Velg en mappe for en ny chat"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wybierz folder dla nowego czatu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Escolher uma pasta para um novo chat"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Выбрать папку для нового чата"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เลือกโฟลเดอร์สำหรับแชทใหม่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yeni sohbet için klasör seç"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вибрати папку для нового чату"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chọn thư mục cho cuộc trò chuyện mới"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "为新聊天选择文件夹"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "為新聊天選擇資料夾"
+          }
+        }
+      }
+    },
     "multiplayer.viewing": {"comment":"Agent pane: accessibility label of the faces in a shared chat's header; {names} lists the other people who have the chat open","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"موجود أيضًا: {names}"}},"bs":{"stringUnit":{"state":"needs_review","value":"Također ovdje: {names}"}},"da":{"stringUnit":{"state":"needs_review","value":"Også her: {names}"}},"de":{"stringUnit":{"state":"needs_review","value":"Auch hier: {names}"}},"en":{"stringUnit":{"state":"translated","value":"Also here: {names}"}},"es":{"stringUnit":{"state":"needs_review","value":"También aquí: {names}"}},"fr":{"stringUnit":{"state":"needs_review","value":"Aussi ici : {names}"}},"it":{"stringUnit":{"state":"needs_review","value":"Anche qui: {names}"}},"ja":{"stringUnit":{"state":"needs_review","value":"ほかに参加中: {names}"}},"km":{"stringUnit":{"state":"needs_review","value":"នៅទីនេះផងដែរ: {names}"}},"ko":{"stringUnit":{"state":"needs_review","value":"함께 보는 중: {names}"}},"nb":{"stringUnit":{"state":"needs_review","value":"Også her: {names}"}},"pl":{"stringUnit":{"state":"needs_review","value":"Również tutaj: {names}"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Também aqui: {names}"}},"ru":{"stringUnit":{"state":"needs_review","value":"Также здесь: {names}"}},"th":{"stringUnit":{"state":"needs_review","value":"อยู่ที่นี่ด้วย: {names}"}},"tr":{"stringUnit":{"state":"needs_review","value":"Burada ayrıca: {names}"}},"uk":{"stringUnit":{"state":"needs_review","value":"Також тут: {names}"}},"vi":{"stringUnit":{"state":"needs_review","value":"Cũng đang xem: {names}"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"也在这里：{names}"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"也在這裡：{names}"}}}},
     "multiplayer.more": {"comment":"Agent pane: after the faces in a shared chat's header, how many more people have it open; {count} is a number","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"+{count}"}},"bs":{"stringUnit":{"state":"needs_review","value":"+{count}"}},"da":{"stringUnit":{"state":"needs_review","value":"+{count}"}},"de":{"stringUnit":{"state":"needs_review","value":"+{count}"}},"en":{"stringUnit":{"state":"translated","value":"+{count}"}},"es":{"stringUnit":{"state":"needs_review","value":"+{count}"}},"fr":{"stringUnit":{"state":"needs_review","value":"+{count}"}},"it":{"stringUnit":{"state":"needs_review","value":"+{count}"}},"ja":{"stringUnit":{"state":"needs_review","value":"+{count}"}},"km":{"stringUnit":{"state":"needs_review","value":"+{count}"}},"ko":{"stringUnit":{"state":"needs_review","value":"+{count}"}},"nb":{"stringUnit":{"state":"needs_review","value":"+{count}"}},"pl":{"stringUnit":{"state":"needs_review","value":"+{count}"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"+{count}"}},"ru":{"stringUnit":{"state":"needs_review","value":"+{count}"}},"th":{"stringUnit":{"state":"needs_review","value":"+{count}"}},"tr":{"stringUnit":{"state":"needs_review","value":"+{count}"}},"uk":{"stringUnit":{"state":"needs_review","value":"+{count}"}},"vi":{"stringUnit":{"state":"needs_review","value":"+{count}"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"+{count}"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"+{count}"}}}},
     "multiplayer.typing.one": {"comment":"Agent pane: over the composer while another person in a shared chat types; {name} is that person","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"{name} يكتب…"}},"bs":{"stringUnit":{"state":"needs_review","value":"{name} piše…"}},"da":{"stringUnit":{"state":"needs_review","value":"{name} skriver…"}},"de":{"stringUnit":{"state":"needs_review","value":"{name} schreibt…"}},"en":{"stringUnit":{"state":"translated","value":"{name} is typing…"}},"es":{"stringUnit":{"state":"needs_review","value":"{name} está escribiendo…"}},"fr":{"stringUnit":{"state":"needs_review","value":"{name} écrit…"}},"it":{"stringUnit":{"state":"needs_review","value":"{name} sta scrivendo…"}},"ja":{"stringUnit":{"state":"needs_review","value":"{name} が入力中…"}},"km":{"stringUnit":{"state":"needs_review","value":"{name} កំពុងវាយ…"}},"ko":{"stringUnit":{"state":"needs_review","value":"{name} 님이 입력 중…"}},"nb":{"stringUnit":{"state":"needs_review","value":"{name} skriver…"}},"pl":{"stringUnit":{"state":"needs_review","value":"{name} pisze…"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"{name} está digitando…"}},"ru":{"stringUnit":{"state":"needs_review","value":"{name} печатает…"}},"th":{"stringUnit":{"state":"needs_review","value":"{name} กำลังพิมพ์…"}},"tr":{"stringUnit":{"state":"needs_review","value":"{name} yazıyor…"}},"uk":{"stringUnit":{"state":"needs_review","value":"{name} друкує…"}},"vi":{"stringUnit":{"state":"needs_review","value":"{name} đang nhập…"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"{name} 正在输入…"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"{name} 正在輸入…"}}}},

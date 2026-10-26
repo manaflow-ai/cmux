@@ -7,6 +7,7 @@
   display: flex;
   width: 100%;
   min-width: 0;
+  max-width: none;
   height: var(--ui-row-height);
   gap: 4px;
   padding: 0;
@@ -20,10 +21,23 @@
   color: var(--agent-muted);
   white-space: nowrap;
 }
-.acpmux-environment-status__dot {
+.acpmux-environment .acpmux-environment-status__dot {
   margin: 0;
   background: currentColor;
 }
-.acpmux-environment-status[data-connected="true"] .acpmux-environment-status__dot {
+.acpmux-environment .acpmux-environment-status[data-connected="true"] .acpmux-environment-status__dot {
   color: var(--agent-accent);
+}
+
+.acpmux-environment .acpmux-location-button::before {
+  inset: 0;
+}
+
+.acpmux-environment-folder__name {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  overflow: hidden;
+  color: inherit;
 }

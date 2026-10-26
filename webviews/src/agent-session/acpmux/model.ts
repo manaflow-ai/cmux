@@ -629,6 +629,8 @@ export type AcpmuxSnapshot = {
     toolsMutable?: boolean;
   };
   connection: string;
+  /// Frontend transport liveness; `connection` also carries normal event kinds.
+  transportConnected?: boolean;
   /// The origin acpmux names for this connection in `initialize` (`_meta.acpmux.origin`):
   /// `remote` gets its Web rules (no Codex or opencode, remoteEditing.ts); `unknown` is an older
   /// acpmux that names none. Unset in a snapshot no client built (fixtures).

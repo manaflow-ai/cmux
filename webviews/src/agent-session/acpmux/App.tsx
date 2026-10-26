@@ -164,6 +164,7 @@ import { SummaryButton } from "./summary/SummaryButton";
 import { SummaryCard } from "./summary/SummaryCard";
 import { runningBackgroundTasks } from "./summary/sessionSummary";
 import { useChatInspector } from "./inspector/ChatInspector";
+import { chooseEnvironmentFolder } from "./inspector/environmentActions";
 import { environmentConnection, environmentToSave } from "./inspector/EnvironmentSection";
 import {
   type BackgroundCommand,
@@ -612,7 +613,14 @@ function cachedSnapshot(): AcpmuxSnapshot {
       acpmuxPerf.markAgent("snapshotPaint");
       // `connection`, `drewKeptTail` and `chatRead` are facts about a live client, and this one is
       // restored: no client has drawn anything yet, so this document's first paint is its own to report.
-      return { ...emptySnapshot(), ...value, connection: "connecting", drewKeptTail: undefined, chatRead: undefined };
+      return {
+        ...emptySnapshot(),
+        ...value,
+        connection: "connecting",
+        transportConnected: undefined,
+        drewKeptTail: undefined,
+        chatRead: undefined,
+      };
     }
   } catch {
     // A corrupt or unavailable session store must never block the pane.
@@ -5862,6 +5870,7 @@ function AcpmuxPane() {
   const inspectorLocal =
     inspectorSummary !== undefined &&
     !inspectorSummary.peer &&
+    (!inspectorSummary.hostKind || inspectorSummary.hostKind === "local") &&
     !(inspectorSummary.host && inspectorSummary.hostKind !== "local");
   // Save in its Environment keeps the machine and folder as a New Tab environment.
   const environmentDraft = quick ? undefined : environmentToSave(inspectorSummary, snapshot.peerKinds);
@@ -5948,10 +5957,7 @@ function AcpmuxPane() {
       chooseFolder:
         !quick && inspectorLocal && snapshot.sessionId
           ? () => {
-              const sessionId = snapshot.sessionId;
-              void browseChatFolder().then((cwd) => {
-                if (cwd && snapshotRef.current?.sessionId === sessionId) newChatHere(cwd);
-              });
+              void chooseEnvironmentFolder(snapshot, browseChatFolder, () => snapshotRef.current, newChatHere);
             }
           : undefined,
       connection: environmentConnection(snapshot, t),

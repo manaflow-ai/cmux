@@ -33,8 +33,15 @@ export type EnvironmentControls = {
 export function environmentConnection(snapshot: AcpmuxSnapshot, t: Translate): EnvironmentControls["connection"] {
   const problem = paneHeader(snapshot, t).status;
   if (problem) return { label: problem, connected: false };
-  if (snapshot.connection === "connected") return { label: t("composer.envConnected"), connected: true };
   if (snapshot.connection === "connecting") return { label: t("rail.connectorPending"), connected: false };
+  if (snapshot.summary?.peer && snapshot.peerConnected?.[snapshot.summary.peer] === false)
+    return { label: t("composer.envNotConnected"), connected: false };
+  if (
+    snapshot.transportConnected === true ||
+    (snapshot.transportConnected === undefined && snapshot.connection === "connected")
+  )
+    return { label: t("composer.envConnected"), connected: true };
+  if (snapshot.transportConnected === false) return { label: t("header.disconnected"), connected: false };
   return undefined;
 }
 
@@ -162,7 +169,7 @@ export function EnvironmentSection({
   const t = useT();
   const [saved, setSaved] = useState(false);
   const machine = machineOf(summary, machineName, peerKinds);
-  const cwd = summary?.cwd;
+  const cwd = summary?.cwd?.replace(/\/+$/, "") || summary?.cwd;
   const branch = summary?.branch;
   const worktree = summary?.worktree && summary.worktree !== cwd ? summary.worktree : undefined;
   const folders = useMemo(() => chatFolders(rows, cwd, Boolean(branch)), [rows, cwd, branch]);
@@ -216,6 +223,7 @@ export function EnvironmentSection({
           <EnvironmentPicker
             label={t("composer.chooseComputer")}
             menu="Session Info Environment"
+            returnFocus
             value={machine.name ?? "—"}
             face={machineFace}
             environments={[{ id: "current", label: machine.name ?? "—", kind: machine.kind }]}
@@ -240,13 +248,48 @@ export function EnvironmentSection({
           </button>
         )}
       </li>
-      {controls?.chooseFolder && (
+      {cwd &&
+        !compact &&
+        (controls?.chooseFolder ? (
+          <li className="acpmux-chat-inspector-row acpmux-environment-folder">
+            {onOpenFolder ? (
+              <button
+                type="button"
+                className="acpmux-chat-inspector-link acpmux-environment-folder__name"
+                // tooltip-allow: the full folder path is otherwise truncated to its name.
+                title={cwd}
+                onClick={() => onOpenFolder(cwd)}
+              >
+                <Icon name="folder" size={ROW_ICON} row />
+                <span className="acpmux-chat-inspector-row__name">{projectLabel(cwd)}</span>
+              </button>
+            ) : (
+              <span className="acpmux-environment-folder__name">
+                <Icon name="folder" size={ROW_ICON} row />
+                {projectLabel(cwd)}
+              </span>
+            )}
+            <button
+              type="button"
+              className="acpmux-chat-inspector-link acpmux-chat-inspector-row__end"
+              aria-label={t("chatInspector.environment.chooseFolderNewChat")}
+              // tooltip-allow: explains that choosing a folder starts a new chat, rather than moving this one.
+              title={t("chatInspector.environment.chooseFolderNewChat")}
+              onClick={controls.chooseFolder}
+            >
+              {t("composer.chooseFolderMenu")}
+            </button>
+          </li>
+        ) : (
+          folderRow(cwd, cwd === summary?.worktree ? "git.worktree" : "folder", true)
+        ))}
+      {controls?.chooseFolder && (!cwd || compact) && (
         <li className="acpmux-chat-inspector-row">
           <Icon name="folder" size={ROW_ICON} row />
           <button
             type="button"
             className="acpmux-chat-inspector-link"
-            aria-label={`${t("composer.chooseFolderMenu")} · ${t("composer.newChatHere")}`}
+            aria-label={t("chatInspector.environment.chooseFolderNewChat")}
             onClick={controls.chooseFolder}
           >
             {t("composer.chooseFolderMenu")}
@@ -261,9 +304,8 @@ export function EnvironmentSection({
           {status}
         </li>
       )}
-      {folders.map((path, index) =>
-        folderRow(path, index === 0 && path === summary?.worktree ? "git.worktree" : "folder", index === 0),
-      )}
+      {compact && cwd && folderRow(cwd, "folder", true)}
+      {folders.filter((path) => path !== cwd).map((path) => folderRow(path, "folder", false))}
       {repository && (
         <Row icon="brand.github" href={repositoryUrl}>
           <span className="acpmux-chat-inspector-row__name">{repository}</span>
