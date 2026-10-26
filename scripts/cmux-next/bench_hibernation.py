@@ -32,14 +32,22 @@ memory_pressure -S -l critical`). Printed: the time until every eligible
 hidden page hibernated, the footprint before and after, and whether the media
 page or the driven page ever hibernated (they must not).
 
-Usage (a fleet or capture mini, never a laptop; DEV build, it reads debug.surfaces):
+Usage (a fleet or capture mini, never a laptop; a tagged DEV build, Debug or bench config:
+debug.surfaces answers in both):
   bench_hibernation.py --app BUNDLE [--tabs 6] [--heap-mb 40] [--measure 20]
-      [--config JSON] [--pressure] [--out FILE.json]
-  launch (default): starts the bundle's app with a scratch HOME and config, quits it at the end.
+      [--config JSON] [--pressure] [--out FILE.json | --out DIR]
+  launch (default): starts the bundle's app through bench_launch.BenchApp (the lab's bench env,
+      a scratch config, an empty saved session for the tag) and ends it and its tag at the end.
   attach (--socket PATH --app-pid PID): an app `capture-host launch` started in a capture
       slot; the run's settings are set over the socket (the slot's own cmux-next.json),
       and its tabs are closed at the end.
-Prints PERF-HIBERNATE lines (one per phase and kind, one per wake, a summary).
+Prints PERF-HIBERNATE lines (one per phase and kind, one per wake, a summary). The wake
+percentiles (p50/p90/p95/p99) are scripts/perf-lab/perf_stats.py's (linear interpolation).
+
+--out FILE.json is the report. --out DIR (the lab runner's folder) also gets one
+cmux-perf-result/v1 file per series through BenchApp.record (browser_engine_bench_report.py):
+`hibernation.*` in story browser-hibernation (the Chromium tabs) or browser-hibernation-webkit,
+and the report as DIR/bench-hibernation.json. The pressure phase writes no result-v1 series.
 """
 from __future__ import annotations
 
@@ -56,8 +64,10 @@ import time
 from urllib.parse import parse_qs, urlparse
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import bench_memory as bm  # noqa: E402  (launch, App, owned, sample, end_bundle)
+import bench_memory as bm  # noqa: E402  (App, owned, sample, note_child_launch)
 import bench_power as bp  # noqa: E402  (rpc, wipe_state)
+import browser_engine_bench_report as results  # noqa: E402
+from bench_launch import BenchApp, tag_of  # noqa: E402
 
 ARTICLE = "<p>" + ("Hibernation frees a hidden page's renderer and brings it back on demand. " * 30) + "</p>"
 PAGE = """<!doctype html><html><head><meta charset=utf-8><title>Hibernate {n}</title>
@@ -228,12 +238,12 @@ def total(rows: list[dict], key: str, phase: dict | None = None):
     return round(sum(values), 3) if values else None
 
 
-def percentile(values, q):
-    values = sorted(v for v in values if v is not None)
-    return values[min(len(values) - 1, int(len(values) * q))] if values else None
+def wake_q(rows: list[dict], key: str, q: float):
+    """The q-quantile of the wakes' `key` in ms, one decimal (perf_stats.pct); None when no wake gave one."""
+    return results.pct([r.get(key) for r in rows], q, 1)
 
 
-def main():
+def parse(argv=None):
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--app", required=True)
     parser.add_argument("--tabs", type=int, default=6, help="tabs per engine")
@@ -247,8 +257,21 @@ def main():
     parser.add_argument("--pressure-wait", type=float, default=0, help="seconds to wait for the pages under pressure (0: 1.5 s per page, at least 30)")
     parser.add_argument("--socket", help="attach: the running app's control socket")
     parser.add_argument("--app-pid", type=int, help="attach: the running app's pid")
-    parser.add_argument("--out")
-    args = parser.parse_args()
+    parser.add_argument("--out", help="the report file (.json), or the lab runner's folder for the result-v1 files "
+                                      "and bench-hibernation.json")
+    parser.add_argument("--tag", help="the lab runner's tag of --app (checked against the bundle's name)")
+    parser.add_argument("--session", choices=["light"], default="light", help="result-v1 session")
+    parser.add_argument("--build-config", choices=["bench", "bench-checks", "release", "debug"],
+                        help="result-v1 build config of a bench-hooks bundle that does not stamp it (BenchApp.record)")
+    args = parser.parse_args(argv)
+    if args.tag is not None and tag_of(f"cmux DEV {args.tag}.app") != tag_of(args.app):
+        parser.error(f"--tag {args.tag!r} is not the tag of --app {args.app!r}")
+    return args
+
+
+def main(argv=None):
+    args = parse(argv)
+    report_path, results_dir = results.out_paths(args.out, "bench-hibernation.json")
     if sys.platform != "darwin":
         raise SystemExit("bench-hibernation: macOS only (run it on a fleet or capture mini)")
     _Handler.heap_mb = args.heap_mb
@@ -262,14 +285,29 @@ def main():
     if args.socket:
         if not args.app_pid:
             raise SystemExit("bench-hibernation: --socket needs --app-pid")
-        pid, sock, scratch = args.app_pid, args.socket, None
+        pid, sock, launched = args.app_pid, args.socket, False
+        bench = None  # an attached app is any app a capture slot started; only result-v1 needs a tagged DEV bundle
+        if results_dir:
+            # result-v1 for an attached app: its build, this host, and the features it answers now.
+            bench = BenchApp(bundle, out=results_dir, teardown=False, build_config=args.build_config,
+                             perf_session=args.session)
+            bench.socket = sock
+            bench.features = bench.read_features()
         for path, value in flatten(config):
             answer = bp.rpc(sock, "settings.set", {"path": path, "value": value})
             if answer.get("error"):
                 print(f"   settings.set {path}: {answer['error']}", file=sys.stderr)
     else:
-        bp.wipe_state(bundle)
-        pid, sock, scratch = bm.launch(bundle, config)
+        bp.wipe_state(bundle)  # also the bundle's Chromium profile and caches, which BenchApp's fresh state keeps
+        bench = BenchApp(bundle, out=results_dir, config=config, window=(40, 40, 1400, 900),
+                         build_config=args.build_config, perf_session=args.session)
+        bm.note_child_launch()  # the app is this script's child (bench_memory.webkit_is_apps)
+        try:
+            bench.launch()
+        except BaseException:
+            bench.stop()
+            raise
+        pid, sock, launched = bench.process.pid, bench.socket, True
     app = bm.App(bundle, sock)
     report = {"app": bundle, "tabs": args.tabs, "heap_mb": args.heap_mb, "config": config, "phases": [], "wakes": []}
     opened: dict[str, list[str]] = {}
@@ -324,6 +362,7 @@ def main():
                     time.sleep(1)  # test script: the woken tab hides again before the next wake
         phases = {p["label"]: p for p in report["phases"]}
         summary = {}
+        series = []
         for engine, kind in (("chromium", "cef-renderer"), ("webkit", "webkit-webcontent")):
             count = len(opened.get(engine, []))
             if not count:
@@ -331,6 +370,11 @@ def main():
             # The bench tabs' own processes: those that exited when they hibernated.
             gone = exited(phases["awake"], phases["hibernated"], kind)
             rows = [w for w in report["wakes"] if w["engine"] == engine]
+            frozen_rows = None
+            if "frozen" in phases:
+                pids = {row["pid"] for row in gone}
+                frozen_rows = [row for row in phases["frozen"]["processes"] if row["pid"] in pids]
+            series += results.hibernation_series(engine, count, gone, rows, frozen_rows, session=args.session)
             summary[engine] = {
                 "tabs": count, "processes_exited": len(gone),
                 "freed_mb_per_tab": round((total(gone, "footprint_mb") or 0) / count, 1),
@@ -340,16 +384,20 @@ def main():
                 "hidden_cpu_pct": total(gone, "cpu_pct"), "hidden_wakeups_per_s": total(gone, "wakeups_per_s"),
                 "frozen_cpu_pct": total(gone, "cpu_pct", phases["frozen"]) if "frozen" in phases else None,
                 "frozen_wakeups_per_s": total(gone, "wakeups_per_s", phases["frozen"]) if "frozen" in phases else None,
-                "mounted_p50_ms": percentile([r["mounted_ms"] for r in rows], 0.5),
-                "usable_p50_ms": percentile([r["usable_ms"] for r in rows], 0.5),
-                "usable_p90_ms": percentile([r["usable_ms"] for r in rows], 0.9),
-                "usable_p95_ms": percentile([r["usable_ms"] for r in rows], 0.95),
-                "mounted_p95_ms": percentile([r["mounted_ms"] for r in rows], 0.95),
-                "app_mounted_p95_ms": percentile([r.get("app_mounted_ms") for r in rows], 0.95),
-                "restored_p50_ms": percentile([r["restored_ms"] for r in rows], 0.5),
-                "app_mounted_p50_ms": percentile([r.get("app_mounted_ms") for r in rows], 0.5),
-                "loaded_p50_ms": percentile([r.get("loaded_ms") for r in rows], 0.5),
-                "loaded_p90_ms": percentile([r.get("loaded_ms") for r in rows], 0.9),
+                "mounted_p50_ms": wake_q(rows, "mounted_ms", 0.5),
+                "usable_p50_ms": wake_q(rows, "usable_ms", 0.5),
+                "usable_p90_ms": wake_q(rows, "usable_ms", 0.9),
+                "usable_p95_ms": wake_q(rows, "usable_ms", 0.95),
+                "usable_p99_ms": wake_q(rows, "usable_ms", 0.99),
+                "mounted_p95_ms": wake_q(rows, "mounted_ms", 0.95),
+                "mounted_p99_ms": wake_q(rows, "mounted_ms", 0.99),
+                "app_mounted_p95_ms": wake_q(rows, "app_mounted_ms", 0.95),
+                "app_mounted_p99_ms": wake_q(rows, "app_mounted_ms", 0.99),
+                "restored_p50_ms": wake_q(rows, "restored_ms", 0.5),
+                "app_mounted_p50_ms": wake_q(rows, "app_mounted_ms", 0.5),
+                "loaded_p50_ms": wake_q(rows, "loaded_ms", 0.5),
+                "loaded_p90_ms": wake_q(rows, "loaded_ms", 0.9),
+                "loaded_p99_ms": wake_q(rows, "loaded_ms", 0.99),
                 "snapshots": sum(1 for r in rows if r.get("snapshot")),
                 "scroll_restored": sum(1 for r in rows if r["scroll_ok"]), "form_restored": sum(1 for r in rows if r["form_ok"]),
                 "woken": len(rows),
@@ -359,31 +407,34 @@ def main():
                   f"processes_exited={s['processes_exited']} app_delta_mb={s['app_delta_mb']} "
                   f"hidden_cpu_pct={s['hidden_cpu_pct']} frozen_cpu_pct={s['frozen_cpu_pct']} "
                   f"hidden_wakeups_per_s={s['hidden_wakeups_per_s']} frozen_wakeups_per_s={s['frozen_wakeups_per_s']} "
-                  f"mounted_p50_ms={s['mounted_p50_ms']} mounted_p95_ms={s['mounted_p95_ms']} usable_p50_ms={s['usable_p50_ms']} "
-                  f"usable_p90_ms={s['usable_p90_ms']} usable_p95_ms={s['usable_p95_ms']} app_mounted_p95_ms={s['app_mounted_p95_ms']} "
+                  f"mounted_p50_ms={s['mounted_p50_ms']} mounted_p95_ms={s['mounted_p95_ms']} mounted_p99_ms={s['mounted_p99_ms']} "
+                  f"usable_p50_ms={s['usable_p50_ms']} usable_p90_ms={s['usable_p90_ms']} usable_p95_ms={s['usable_p95_ms']} "
+                  f"usable_p99_ms={s['usable_p99_ms']} app_mounted_p95_ms={s['app_mounted_p95_ms']} "
+                  f"app_mounted_p99_ms={s['app_mounted_p99_ms']} "
                   f"restored_p50_ms={s['restored_p50_ms']} app_mounted_p50_ms={s['app_mounted_p50_ms']} "
-                  f"loaded_p50_ms={s['loaded_p50_ms']} loaded_p90_ms={s['loaded_p90_ms']} "
+                  f"loaded_p50_ms={s['loaded_p50_ms']} loaded_p90_ms={s['loaded_p90_ms']} loaded_p99_ms={s['loaded_p99_ms']} "
                   f"snapshots={s['snapshots']}/{s['woken']} scroll={s['scroll_restored']}/{s['woken']} "
                   f"form={s['form_restored']}/{s['woken']}", flush=True)
         report["summary"] = summary
+        if results_dir:  # a finished run: its phases and wakes are complete
+            report["results_v1"] = results.record_all(bench, series)
         if args.pressure:
             reuse = [t for e in engines for t in opened[e]] if args.pressure_reuse else None
             report["pressure"] = pressure(app, sock, engines, ports, args.tabs, open_tab, front, opened_extra,
                                           reuse=reuse, wait=args.pressure_wait, pid=pid, bundle=bundle,
                                           measure=args.measure, report=report)
     finally:
-        if scratch is None:
+        if launched:
+            bench.stop()
+        else:
             for tab in [t for tabs in opened.values() for t in tabs] + opened_extra:
                 app.run("tab.close", target=tab)
-        else:
-            app.run("quit")
-            bm.wait_gone(pid, 20)
-            bm.end_bundle(bundle)
-            shutil.rmtree(scratch, ignore_errors=True)
-        if args.out:
-            with open(args.out, "w") as handle:
+            if bench is not None:  # it launched nothing: its scratch folder holds no app state
+                shutil.rmtree(bench.scratch, ignore_errors=True)
+        if report_path:
+            with open(report_path, "w") as handle:
                 json.dump(report, handle, indent=1)
-            print(f"bench-hibernation: wrote {args.out}")
+            print(f"bench-hibernation: wrote {report_path}")
 
 
 def flatten(config: dict, prefix: str = ""):

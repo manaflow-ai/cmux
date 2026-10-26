@@ -92,7 +92,11 @@ enum FileChip {
     static let padRight: CGFloat = 14
     static let nameBaseline: CGFloat = 25
     static let detailBaseline: CGFloat = 42
-    nonisolated(unsafe) static let nameFont = Fonts.system(13, .semibold)
-    nonisolated(unsafe) static let detailFont = Fonts.system(11)
-    nonisolated(unsafe) static let badgeFont = Fonts.system(7, .bold)
+    /// Measured and drawn off the main actor (held in ``SharedFont``s).
+    static var nameFont: CTFont { heldName.font }
+    static var detailFont: CTFont { heldDetail.font }
+    static var badgeFont: CTFont { heldBadge.font }
+    private static let heldName = SharedFont(Fonts.system(13, .semibold))
+    private static let heldDetail = SharedFont(Fonts.system(11))
+    private static let heldBadge = SharedFont(Fonts.system(7, .bold))
 }
