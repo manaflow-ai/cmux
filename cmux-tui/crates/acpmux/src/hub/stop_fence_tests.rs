@@ -89,6 +89,46 @@ async fn a_start_asked_for_before_a_stop_leaves_a_later_start_alone() {
     assert_ne!(session.status(), SessionStatus::Closed);
 }
 
+/// A new chat's start-up steps after its agent started (its start model, effort, mode) run
+/// under the creation's stop count: stopped in between, they start nothing again.
+#[tokio::test]
+async fn a_creation_step_after_a_stop_starts_nothing() {
+    let (hub, session) = chat().await;
+    let created = session.stops.load(Ordering::SeqCst);
+    hub.kill(&session, false).await.unwrap();
+    let seq = last_seq(&hub, &session);
+    let step = REQUEST_STOPS.scope((session.id.clone(), created), hub.child_for(&session)).await;
+    assert!(step.is_err(), "a creation step after the stop started the agent again");
+    assert_eq!(session.status(), SessionStatus::Closed);
+    assert!(!has_live_child(&session).await);
+    let later = kinds_after(&hub, &session, seq);
+    assert!(!later.iter().any(|k| k == "reopened"), "{later:?}");
+    // The count of another session's request does not fence this one.
+    let other = (format!("{}-other", session.id), created);
+    REQUEST_STOPS.scope(other, hub.child_for(&session)).await.unwrap();
+    assert_ne!(session.status(), SessionStatus::Closed);
+}
+
+/// A creation that failed after a stop leaves the chat a later request reopened, and its agent;
+/// one nobody reopened is discarded, as any failed creation.
+#[tokio::test]
+async fn a_failed_creation_leaves_a_chat_a_later_request_reopened() {
+    let (hub, session) = chat().await;
+    let created = session.stops.load(Ordering::SeqCst);
+    hub.kill(&session, false).await.unwrap();
+    let fresh = hub.child_for(&session).await.unwrap();
+    hub.discard_failed_creation(&session, created).await;
+    assert!(fresh.is_alive().await, "the failed creation ended the reopened chat's agent");
+    assert!(hub.resolve(&session.id).is_ok(), "the failed creation purged the reopened chat");
+    assert_ne!(session.status(), SessionStatus::Closed);
+
+    let (hub, session) = chat().await;
+    let created = session.stops.load(Ordering::SeqCst);
+    hub.kill(&session, false).await.unwrap();
+    hub.discard_failed_creation(&session, created).await;
+    assert!(hub.resolve(&session.id).is_err(), "a failed creation nobody reopened was kept");
+}
+
 /// A closed chat whose agent is still running (a host the daemon adopted at its start that
 /// outlived the stop): a request reopens it and finds it ready, never a running agent behind a
 /// chat `acpmux ls` lists as closed.

@@ -264,7 +264,7 @@ impl Hub {
         if let Err(e) = spawned {
             // A session whose agent never started is not left behind, and
             // neither is a child that spawned but failed to initialize.
-            let _ = self.kill(&session, true).await;
+            self.discard_failed_creation(&session, created_stops).await;
             return Err(e);
         }
         // An agent that started fresh instead of resuming fails creation.
@@ -282,7 +282,10 @@ impl Hub {
         // Defaults and explicit values, applied once the harness is up. A bad
         // value fails creation loudly rather than starting a session that
         // silently runs another model.
-        let applied: Result<(), RpcError> = async {
+        // Each step reaches the agent through `child_for`, under the creation's stop count: a
+        // stop meanwhile fails the step and starts nothing again (`REQUEST_STOPS`).
+        let request = (session.id.clone(), created_stops);
+        let applied: Result<(), RpcError> = REQUEST_STOPS.scope(request, async {
             if let Some(m) = &model
                 && !spawn_model {
                     // `opencode/big-pickle` was written as `-m opencode/big-pickle`:
@@ -352,11 +355,11 @@ impl Hub {
             let default = self.config.read().await.permission_policy;
             self.note_unenforced_policy(&session, default);
             Ok(())
-        }
+        })
         .await;
         if let Err(e) = applied {
             // Never leave a half-configured session behind.
-            let _ = self.kill(&session, true).await;
+            self.discard_failed_creation(&session, created_stops).await;
             return Err(e);
         }
         if adopt.is_none() {
@@ -472,6 +475,22 @@ impl Hub {
             return Err(stopped_while_starting());
         }
         Ok(child)
+    }
+
+    /// A creation that failed (`new_session`) leaves no session behind, unless a stop came
+    /// during it and a request after that stop reopened the session: that one is the later
+    /// request's, and its agent keeps running. Decided under the spawn lock, which every reopen
+    /// holds.
+    pub(super) async fn discard_failed_creation(&self, session: &Arc<Session>, created_stops: u64) {
+        if session.stops.load(Ordering::SeqCst) != created_stops {
+            let _spawning = session.spawn_lock.lock().await;
+            if session.status() != SessionStatus::Closed {
+                return;
+            }
+            let _ = self.kill(session, true).await;
+            return;
+        }
+        let _ = self.kill(session, true).await;
     }
 
     /// A stopped session reopens for a request that came after its last stop (`ensure_child`);
@@ -1265,7 +1284,13 @@ impl Hub {
         self: &Arc<Self>,
         session: &Arc<Session>,
     ) -> Result<Arc<ChildAgent>, RpcError> {
-        self.child_for_since(session, session.stops.load(Ordering::SeqCst)).await
+        // A step of a request that read the count earlier (`REQUEST_STOPS`), else now.
+        let stops = REQUEST_STOPS
+            .try_with(|(id, stops)| (*id == session.id).then_some(*stops))
+            .ok()
+            .flatten()
+            .unwrap_or_else(|| session.stops.load(Ordering::SeqCst));
+        self.child_for_since(session, stops).await
     }
 
     /// `child_for` for a request that came when the session had been stopped `stops` times
@@ -1305,6 +1330,13 @@ impl Hub {
         let spawn = self.spawn_profile(session, &profile, &defaults.env).await?;
         self.ensure_child(session, &spawn, stops).await
     }
+}
+
+tokio::task_local! {
+    /// The session a request is for and its stop count ([`Session::stops`]) when the request
+    /// came, for the request's later steps (`new_session` sets the defaults a new chat starts
+    /// with through `set_model`, `set_config`, `set_mode`): `child_for` fences them with it.
+    pub(super) static REQUEST_STOPS: (String, u64);
 }
 
 /// An agent start that a stop (`acpmux session stop`) came after the request for.
