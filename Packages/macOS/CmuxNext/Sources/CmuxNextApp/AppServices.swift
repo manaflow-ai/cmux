@@ -122,6 +122,8 @@ final class AppServices {
     let blocking = BlockingDetector.forProcess()
     /// The local daemon's wire counters (`debug.daemon.wire`); nil in a release build.
     let wireStats: DaemonWireStats?
+    /// The observers' per-owner counts (`debug.observations`): each observer kind interns its owner here when it is built.
+    let observations = ObservationLedger()
     /// Sparkle updates (release builds) or read-only feed probes (DEV).
     let updater: UpdaterService
     /// The file picker made ahead of the click, the app's one: agent panes, page file inputs and Home's "+" take it.

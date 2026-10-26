@@ -37,7 +37,8 @@ import Testing
         let ledger = ObservationLedger()
         let owner = ledger.owner("Pane.title")
         owner.armed(); owner.evaluated(); owner.applied(); owner.showReread(nanos: 9); owner.bodyEvaluated(hidden: true)
-        ledger.reset()
+        let taken = try #require(ledger.snapshot(resetting: true).first)
+        #expect(taken.evaluations == 1 && taken.applies == 1 && taken.hiddenBodyEvaluations == 1, "the reset read returns the counts")
         let entry = try #require(ledger.snapshot().first)
         #expect(entry == ObservationLedger.Entry(owner: "Pane.title", armed: 1, arms: 0, evaluations: 0, applies: 0,
                                                  showRereads: 0, showRereadNanos: 0, showRereadMaxNanos: 0,
@@ -93,6 +94,39 @@ import Testing
         let report = ObservationsControl.report(["owner": .string("Sidebar")], ledger: ledger)
         let owners = try #require(report.objectValue?["owners"]?.arrayValue)
         #expect(owners.compactMap { $0.objectValue?["owner"]?.stringValue } == ["SidebarRow.status"])
+    }
+
+    @Test func filteredResetKeepsOtherOwnersCounts() throws {
+        let ledger = ObservationLedger()
+        ledger.owner("SidebarRow.status").evaluated()
+        ledger.owner("TasksHostView").evaluated()
+        ledger.owner("TasksHostView").bodyEvaluated(hidden: true)
+        _ = ObservationsControl.report(["owner": .string("Sidebar"), "reset": .bool(true)], ledger: ledger)
+        let entries = ledger.snapshot()
+        #expect(entries.first { $0.owner == "SidebarRow.status" }?.evaluations == 0, "the reported owner is reset")
+        let tasks = try #require(entries.first { $0.owner == "TasksHostView" })
+        #expect(tasks.evaluations == 1 && tasks.hiddenBodyEvaluations == 1, "an owner outside the filter keeps its counts")
+    }
+
+    @Test func resetDuringRecordingLosesNoCount() async throws {
+        let ledger = ObservationLedger()
+        let owner = ledger.owner("Burst")
+        let taken = await withTaskGroup(of: UInt64.self) { group in
+            for _ in 0..<8 {
+                group.addTask {
+                    for _ in 0..<1000 { owner.evaluated() }
+                    return 0
+                }
+            }
+            group.addTask {
+                var sum: UInt64 = 0
+                for _ in 0..<200 { sum += ledger.snapshot(resetting: true).first?.evaluations ?? 0 }
+                return sum
+            }
+            return await group.reduce(0, +)
+        }
+        let rest = try #require(ledger.snapshot().first).evaluations
+        #expect(taken + rest == 8000, "every event is in exactly one report")
     }
 }
 #endif

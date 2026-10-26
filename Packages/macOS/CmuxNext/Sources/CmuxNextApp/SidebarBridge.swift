@@ -60,7 +60,8 @@ final class SidebarBridge {
         self.services = services
         self.state = state
         let frames = FrameBatcher(owner: "SidebarRows", budgeted: .visible, on: services.mainWork), causes = services.mainWork.causes
-        rowFeed = SidebarRowFeed(cause: { causes.currentCause }, schedule: { cause, work in frames.queue.enqueue(cause: cause, work) })
+        rowFeed = SidebarRowFeed(cause: { causes.currentCause }, schedule: { cause, work in frames.queue.enqueue(cause: cause, work) },
+                                 observations: services.observations.owner("SidebarRows"))
         container = SidebarContainerView(model: model)
         model.onIntent = { [weak self] intent in self?.handle(intent) }
         // Loose rows come before every group unless the home session places

@@ -455,21 +455,47 @@ def scenario_ticks(pid, size):
 
 
 def scenario_observations():
-    """One status change's observation cost (debug.observations, p06-scheduler-029)."""
+    """One status value change's observation cost (debug.observations, p06-scheduler-029).
+
+    The `bench` status entry is set and settled before the baseline, so the measured change only edits the text of a
+    pill the row already shows (the same kind of change at every size), and it is cleared after, so the later
+    scenarios and sizes start from the same row. An error, not zeros, when nothing was measured."""
     if not made["workspaces"]:
         return {"error": "no workspace to change"}
-    ticking(False)
-    time.sleep(1)
-    before = rpc("debug.observations", {"reset": True})
-    if not isinstance(before, dict) or "error" in before:
-        return {"error": f"debug.observations: {before}"}  # an older build has no method
     first = made["workspaces"][0]
-    cli("workspace", first["ref"] or first["name"], "status", "set", "bench", f"observations {time.time():.0f}")
+    target = first["ref"] or first["name"]
+
+    def status_set(text):
+        done = cli("workspace", target, "status", "set", "bench", text)
+        return None if done.returncode == 0 else f"status set: exit {done.returncode} {(done.stdout + done.stderr).strip()[-200:]}"
+
+    ticking(False)
+    failed = status_set("observations settle")
+    if failed:
+        return {"error": failed}
     time.sleep(1)
-    after = rpc("debug.observations") or {}
+    try:
+        before = rpc("debug.observations", {"reset": True})
+        if not isinstance(before, dict) or "error" in before:
+            return {"error": f"debug.observations: {before}"}  # an older build has no method
+        failed = status_set(f"observations {time.time():.0f}")
+        if failed:
+            return {"error": failed}
+        time.sleep(1)
+        after = rpc("debug.observations")
+        if not isinstance(after, dict) or "error" in after:
+            return {"error": f"debug.observations after the change: {after}"}
+    finally:
+        done = cli("workspace", target, "status", "clear", "bench")
+        if done.returncode != 0:
+            note(f"observations: status clear bench -> {done.returncode}")
+    if not before.get("owners") and not after.get("owners"):
+        return {"error": "no observation owners recorded: this build's observers do not feed the ledger"}
+    totals = after.get("totals") or {}
     owners = [o for o in after.get("owners") or [] if o.get("evaluations") or o.get("applies") or o.get("body_evaluations")]
-    return {"armed_before": (before.get("totals") or {}).get("armed"), "totals_after_change": after.get("totals"),
-            "busy_owners": owners}
+    return {"armed_before": (before.get("totals") or {}).get("armed"), "armed_after": totals.get("armed"),
+            "per_change": {key: totals.get(key) for key in ("evaluations", "applies", "body_evaluations", "hidden_body_evaluations")},
+            "owners": [o.get("owner") for o in after.get("owners") or []], "busy_owners": owners}
 
 
 def scenario_switch(pid, size, count=24):
