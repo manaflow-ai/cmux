@@ -153,3 +153,42 @@ holds the allowance back while a nested run of the main run loop runs other work
 | Reason | Why the wait cannot move off the main thread |
 |---|---|
 | `terminate` | `applicationWillTerminate(_:)` runs on the main thread and the process exits right after it: a bounded final flush there cannot delay a frame (Chrome allows blocking during shutdown the same way). |
+
+The daemon's friend list is `AllowReason` in cmux-tui/crates/cmux-threads/src/blocking.rs (Chrome's
+`PermanentThreadAllowance`); a new variant needs a row here in the same push, and 3 variants is the limit.
+Call sites outside cmux-threads (`rg -c 'AllowReason::' cmux-tui/crates --glob '!**/cmux-threads/**'`) are
+listed under their row.
+
+| Rust reason | Why the thread may block | Call sites outside cmux-threads |
+|---|---|---|
+| AllowReason::Shutdown | The daemon is shutting down: a request thread that serves no more input flushes state and joins workers. Permits every kind except an IPC reply wait. | none (2026-10-26) |
+| AllowReason::OwnDescriptor | An echo or reader thread waits on the descriptor it owns: that wait is the thread's job. Made only by `own_fd_read`, `own_fd_write` and `own_fd_write_all` on the registered descriptor; permits fd read and fd write only. | none (2026-10-26) |
+
+## Inventory results (p02-threads 306)
+
+The done checks of plans/cmux-next/chrome-parity/p02-threads.md section 5, measured from source (Linux,
+ripgrep, `threading-inventory.py`; no build). Before: a7373a1d0e5, the perf/chrome-parity fork point
+(feat-cmux-next 772cdfc45ac plus the plans). After: perf/chrome-parity 0d598456c05 (2026-10-26), which has
+p02-threads 001, 003, 200, 201 and 204 (the inventory tool, the Apple-API seams and the Rust cmux-threads
+crate) and none of the migration tasks, so no count moved yet. Rerun this table when the fix tasks and test
+phases 300-305 and 307 land; INV-1 at any revision is `threading-inventory.py --count --rev REV`.
+
+| Check | Target | Before (a7373a1d0e5) | After (0d598456c05) | Met |
+|---|---|---|---|---|
+| INV-1 raw-blocking | 0 | 947 | 947 | no |
+| INV-1 main-blocking | 0 | 85 | 85 | no |
+| INV-1 maybe-main-blocking | 0 | 24 | 24 | no |
+| INV-1 task-priority | 0 | 129 | 129 | no |
+| INV-1 thread-doc | 0 | 6 | 6 | no |
+| INV-1 raw-blocking-ext, pool-blocking, sync-inversion, once-blocking, cpu-intensive, awaited-low-priority | 0 | no rule in the tool | no rule in the tool | not measured |
+| INV-1 Shared and iOS packages | 0 | the tool reads CmuxNext Sources only | same | not measured |
+| INV-2 Apple synchronous APIs, all lines | 0 | 132 | 132 | no |
+| INV-2 by family | 0 | Security 53, NSWorkspace 51, CGWindowList 11, AX 8, SMAppService 6, getaddrinfo 2, LSCopy 1, AuthorizationCopyRights / sync XPC proxy / AppleScript 0 | same | no |
+| INV-3 process launch and wait | 0 | 36: `try x.run()` 21, posix_spawn 7, waitpid(..., 0) 5, readDataToEndOfFile 2, waitUntilExit 1 | same | no |
+| INV-4 Swift allowances | 3 or fewer, each with a row | 1 reason (`terminate`, row above); 0 `blocking-allow:` lines; 0 allowBlocking call sites (the 9 rg hits are doc comments and log text in CmuxNextCompat/Threading) | same | yes |
+| INV-4 arch-ratchet blocking_allow_escapes | 3 or fewer | 0 | 0 | yes |
+| INV-4 Rust AllowReason | 3 or fewer variants, sites listed | 2 variants (rows above), 0 sites outside cmux-threads | same | yes |
+| INV-5 global queues, nil delegate queues, runModal, raw locks | 0 except audio-tap lock-allow lines | 42: OSAllocatedUnfairLock 20, runModal 7, DispatchQueue.global 6, delegateQueue nil 6, NSLock 3; 0 lock-allow lines | same | no |
+| RUN-11 Release | 0 detector symbols; check-release-compile.sh passes | not run | not run (needs a fleet Mac: `cmux-ci run --class exclusive --script scripts/measure/blocking-checks.sh --ref SHA`) | not measured |
+| RUN-13 debug.work STRESS | userBlocking queue-wait p99 <= 2 ms per lane; launch cold 300 / warm 150 ms | not run | not run (needs a fleet Mac and test phase 300) | not measured |
+| RUN-2 Chromium open number | 0 main-thread blocking in app_chromium | not measured | not measured (blocking-probe.sh STRESS, task 301) | open |
