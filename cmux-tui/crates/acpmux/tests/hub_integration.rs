@@ -137,6 +137,15 @@ async fn setup_env(
     policy: PermissionPolicy,
     env: BTreeMap<String, String>,
 ) -> (Arc<Hub>, TestClient) {
+    setup_defaults_env(policy, env, BTreeMap::new()).await
+}
+
+/// `setup_env` with the fake family's `defaults.env` too.
+async fn setup_defaults_env(
+    policy: PermissionPolicy,
+    env: BTreeMap<String, String>,
+    defaults_env: BTreeMap<String, String>,
+) -> (Arc<Hub>, TestClient) {
     let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
     let mut agents = BTreeMap::new();
     agents.insert(
@@ -158,6 +167,10 @@ async fn setup_env(
         Config { harnesses: agents, default_harness: Some("fake".into()), ..Default::default() };
     cfg.store.mode = StoreMode::Memory;
     cfg.permission_policy = policy;
+    if !defaults_env.is_empty() {
+        let defaults = acpmux::config::SessionDefaults { env: defaults_env, ..Default::default() };
+        cfg.defaults.insert("fake".into(), defaults);
+    }
     let store = acpmux::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();
     let hub = Hub::new(cfg, store);
     // These clients stand for the person at the app (`hub/person.rs`).
