@@ -92,9 +92,10 @@ public struct ServerHelperDeadline {
 ///
 /// The spawn runs on a dedicated utility thread, never the request's thread or Swift's cooperative pool
 /// (Chromium's launcher thread, content/browser/child_process_launcher_helper.cc), and the child runs at
-/// utility QoS too. Only that thread touches the `Process`; the deadline's ``kill()`` signals the pid the
-/// spawn recorded, and a kill that comes before the spawn finished makes the spawn kill the child at once.
-final nonisolated class FixChild: @unchecked Sendable {
+/// utility QoS too. The `Process` is made and configured on that thread and never leaves it, so this owner
+/// holds only Sendable values; the deadline's ``kill()`` signals the pid the spawn recorded, and a kill that
+/// comes before the spawn finished makes the spawn kill the child at once.
+final nonisolated class FixChild: Sendable {
     /// Where the child is, as the spawn thread, the termination handler and the deadline see it.
     private struct Life {
         /// The child's pid from its spawn until its exit; 0 otherwise.
@@ -105,34 +106,44 @@ final nonisolated class FixChild: @unchecked Sendable {
         var ended = false
     }
 
-    private let process = Process()
-    private let pipe = Pipe()
+    private let executable: URL
+    private let arguments: [String]
     // concurrency-allow: the spawn thread, the termination handler and the deadline's kill meet on this pid and flag; each holds it for a field read or write (lock carve-out).
     private let life = Mutex(Life())
 
     init(_ executable: URL, _ arguments: [String]) {
+        self.executable = executable
+        self.arguments = arguments
+    }
+
+    func start() async throws -> FixRunResult {
+        try await withCheckedThrowingContinuation { continuation in
+            Process.runOnOwnThread(qos: .utility, name: "com.cmuxterm.server-helper.fix",
+                                   { [self] in makeProcess(reportingTo: continuation) },
+                                   launched: { [self] pid in spawned(pid) },
+                                   failed: { error in continuation.resume(throwing: error) })
+        }
+    }
+
+    /// The configured child, made on the spawn thread: no shell, an empty environment, stdout to a pipe
+    /// whose output the termination handler hands to `continuation`.
+    private func makeProcess(reportingTo continuation: CheckedContinuation<FixRunResult, any Error>) -> Process {
+        let process = Process()
+        let pipe = Pipe()
         process.executableURL = executable
         process.arguments = arguments
         process.environment = [:]
         process.standardInput = FileHandle.nullDevice
         process.standardOutput = pipe
         process.standardError = FileHandle.nullDevice
-    }
-
-    func start() async throws -> FixRunResult {
-        let pipe = pipe
-        return try await withCheckedThrowingContinuation { continuation in
-            process.terminationHandler = { [self] finished in
-                finished.terminationHandler = nil  // breaks process -> handler -> self
-                life.withLock { $0.pid = 0; $0.ended = true }
-                // concurrency-allow: Process.terminationHandler runs on a background queue, never the main thread; pmset -g custom prints about 1 KiB, far below the pipe buffer, so it never blocks the child before exit
-                let data = (try? pipe.fileHandleForReading.readToEnd()) ?? Data()
-                continuation.resume(returning: FixRunResult(status: finished.terminationStatus, output: String(decoding: data.prefix(65_536), as: UTF8.self)))
-            }
-            Process.runOnOwnThread(qos: .utility, name: "com.cmuxterm.server-helper.fix", { [self] in process },
-                                   launched: { [self] pid in spawned(pid) },
-                                   failed: { error in continuation.resume(throwing: error) })
+        let output = pipe.fileHandleForReading
+        process.terminationHandler = { [self] finished in
+            life.withLock { $0.pid = 0; $0.ended = true }
+            // concurrency-allow: Process.terminationHandler runs on a background queue, never the main thread; pmset -g custom prints about 1 KiB, far below the pipe buffer, so it never blocks the child before exit
+            let data = (try? output.readToEnd()) ?? Data()
+            continuation.resume(returning: FixRunResult(status: finished.terminationStatus, output: String(decoding: data.prefix(65_536), as: UTF8.self)))
         }
+        return process
     }
 
     /// Kills only this child (the process the helper started): now when it runs, at its spawn when that has
