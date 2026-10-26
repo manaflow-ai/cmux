@@ -245,6 +245,10 @@ class LiveTests(unittest.TestCase):
         cls.session = d.open_session({"binary": BINARY, "run_id": cls.run_id})
         cls.count = 0
 
+    @classmethod
+    def tearDownClass(cls):
+        d.remove_empty_dir(d.DEFAULT_STATE_BASE / d.short_token(cls.run_id))
+
     def run_case(self, case: dict) -> dict:
         type(self).count += 1
         root = d.DEFAULT_STATE_BASE / d.short_token(self.run_id) / f"{self.count:06d}"

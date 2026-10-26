@@ -1474,14 +1474,23 @@ def noop_case(index: int) -> Dict[str, Any]:
     }
 
 
+def remove_empty_dir(path: Path) -> None:
+    """A run's state base, once its cases removed their roots (a root left behind keeps it)."""
+    try:
+        path.rmdir()
+    except OSError:
+        pass
+
+
 def cmd_run_case(args: argparse.Namespace) -> int:
     case = json.loads(Path(args.case).read_text(encoding="utf-8"))
     run_id = args.run_id or f"rc-{os.getpid()}-{time.time_ns()}"
     session = open_session({"binary": args.binary, "run_id": run_id, "ref": args.ref,
                             **getattr(args, "session_extra", {})})
-    ctx = {"case_id": f"{case['suite']}/{case['id']}", "key": "0",
-           "state_root": str(args.state_base / short_token(run_id) / short_token(case["id"]))}
+    base = args.state_base / short_token(run_id)
+    ctx = {"case_id": f"{case['suite']}/{case['id']}", "key": "0", "state_root": str(base / short_token(case["id"]))}
     result = session.run_case(case, ctx)
+    remove_empty_dir(base)
     print(json.dumps(result, indent=1, sort_keys=True))
     return 0 if result["status"] == "Pass" else 1
 
