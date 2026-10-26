@@ -43,6 +43,25 @@ public nonisolated final class LaunchRead<Value: Sendable>: Sendable {
                   abandoned: { [self] in if let dropped { end(with: dropped) } }) { [self] in end(with: body()) }
     }
 
+    /// Starts `body` in `sequence`, after every item posted to it before: a read whose result a later read's
+    /// user needs first goes before it in one sequence (the files lane runs other reads of a priority at once).
+    /// The result is stored before the next item of `sequence` starts.
+    ///
+    /// - Parameters:
+    ///   - sequence: The sequence of reads it runs in, on its lane.
+    ///   - priority: How much a person waits for it; default ``WorkPriority/userBlocking``.
+    ///   - shutdown: What quit does with it before it has started (as ``init(on:priority:shutdown:dropped:fileID:line:_:)``).
+    ///   - dropped: The result when quit drops the read before it started or refuses it.
+    ///   - fileID: The caller's `#fileID` (leave the default).
+    ///   - line: The caller's `#line`.
+    ///   - body: The blocking read. It runs on a lane thread.
+    public init(in sequence: WorkSequence, priority: WorkPriority = .userBlocking, shutdown: ShutdownBehavior = .skipOnShutdown,
+                dropped: Value? = nil, fileID: StaticString = #fileID, line: UInt = #line,
+                _ body: @escaping @Sendable () -> Value) {
+        sequence.post(priority, shutdown: shutdown, fileID: fileID, line: line,
+                      abandoned: { [self] in if let dropped { end(with: dropped) } }) { [self] in end(with: body()) }
+    }
+
     /// Stores the result and resumes every ``finished()`` waiting for it.
     private func end(with value: Value) {
         let waiters = state.withLock { state in

@@ -9,10 +9,12 @@ import Dispatch
 /// GCD makes a thread only while a slot has work. Each item of a lane that may block (files, system) runs with
 /// its thread marked ``CmuxNextCompat/BlockingContext/lane``, so the blocking detector allows its seams; an item of
 /// the cpu lane runs marked ``CmuxNextCompat/BlockingContext/cpuLane``, where a seam records a
-/// ``CmuxNextCompat/BlockingKind/wrongLane`` site (Debug and bench-checks builds). A `perPriority` lane (files) has one slot per
-/// ``WorkPriority``, so each priority is serial and a best-effort write never sits in front of a
-/// user-blocking read. A `shared` lane (system, cpu) has `width` slots for every priority and starts the
-/// highest-priority pending item first. `reserved` of them run only ``WorkPriority/userBlocking`` items of no
+/// ``CmuxNextCompat/BlockingKind/wrongLane`` site (Debug and bench-checks builds). A `perPriority` lane (files) has its own
+/// slots for each ``WorkPriority`` (``FilesLaneWidths``), so a best-effort write never sits in front of a
+/// user-blocking read and one slow read does not hold the next one; each level starts its items in post order.
+/// Nothing here orders items that run at once: a ``WorkSequence`` does (Chrome's `SequencedTaskRunner`). A
+/// `shared` lane (system, cpu) has `width` slots for every priority and starts the highest-priority pending
+/// item first. `reserved` of them run only ``WorkPriority/userBlocking`` items of no
 /// ``LaneCap`` class: any other item starts only while fewer than `width - reserved` slots are busy, whatever
 /// the busy slots run, so neither hung lower work nor hung capped work (a resolver at user-blocking) holds the
 /// last slot a person waits for. Chrome's `PrioritizedDispatcher` (net/base/prioritized_dispatcher.cc), which
@@ -25,7 +27,8 @@ import Dispatch
 /// lane in front of later user-visible work: Chrome's `kMaxBestEffortTasks` (base/task/thread_pool/thread_pool_impl.cc,
 /// enforced by `ThreadGroup::max_best_effort_tasks_`). The idle limit is cmux's, as Chrome has no level below
 /// best effort. An item boosted by its waiter runs at the waiter's level and is not capped. A `perPriority`
-/// lane runs one item per level, inside both limits. On a lane with ``MayBlockCompensation`` (system), a low item
+/// lane is held to its widths instead (``FilesLaneWidths``: 2 best-effort and 1 idle slot), so a hung low read
+/// never holds the other low level. On a lane with ``MayBlockCompensation`` (system), a low item
 /// that has run longer than its threshold stops counting against both limits, so hung calls never hold every later
 /// low item: Chrome's `ThreadGroup::BlockingStarted`, which raises `max_best_effort_tasks_` for a best-effort task
 /// blocked past the may-block threshold (base/task/thread_pool/thread_group.cc). The lane rechecks only while a
@@ -37,13 +40,22 @@ import Dispatch
 /// ``WorkPriority/bestEffort`` item stays queued in post order; an item someone awaits still runs at its
 /// own QoS. Chrome's `CanRunPolicy::kForegroundOnly` (base/task/thread_pool/thread_pool_impl.cc).
 ///
-/// With a hang-watched lane, each item's run on its slot is one hang scope (Chrome's `WatchHangsInScope`
-/// in `TaskTracker::RunTask`, base/task/thread_pool/task_tracker.cc); the wait for a slot is not.
+/// With a hang-watched lane, each slot registers on its own and each item's run on its slot is one hang scope
+/// of that slot (Chrome's `WatchHangsInScope` in `TaskTracker::RunTask`, base/task/thread_pool/task_tracker.cc,
+/// on each worker thread's own `HangWatchState`); the wait for a slot is not. Scopes nest only on one thread, so
+/// items that run at once never share a registration.
 ///
 /// ``raise(_:to:awaited:)`` moves a queued item up to a higher list, and gives a running one a QoS override
 /// on its slot thread until it ends (Chrome's `UpdateableSequencedTaskRunner::UpdatePriority` and
 /// `ScopedBoostablePriority`).
 final class LaneScheduler: Sendable {
+    /// How the lane's slots register with the hang watch: each slot under `name`, each item with `deadline`.
+    struct HangWatching: Sendable {
+        let name: StaticString
+        let deadline: Duration
+        let watch: any HangWatchScoping
+    }
+
     /// How many ``WorkPriority/bestEffort`` and ``WorkPriority/idle`` items a `shared` lane runs at once
     /// (Chrome's `kMaxBestEffortTasks`).
     static let bestEffortCap = 2
@@ -72,7 +84,8 @@ final class LaneScheduler: Sendable {
     }
 
     enum Policy: Sendable {
-        case perPriority
+        /// `widths[level.rawValue]` slots for each ``WorkPriority``, run only by items of that level.
+        case perPriority(widths: [Int])
         /// `width` slots for every priority, `reserved` of them (at most `width - 1`) for user-blocking items of no
         /// capped class only.
         case shared(width: Int, reserved: Int = 0)
@@ -214,8 +227,8 @@ final class LaneScheduler: Sendable {
     let policy: Policy
     /// Whether the lane's items may block (Chrome's `MayBlock()` trait): files and system may, cpu may not.
     private let mayBlock: Bool
-    /// The lane's hang-watch slot; each item runs in one scope of it. nil watches nothing.
-    private let hangWatched: HangWatchedLane?
+    /// Each slot's hang-watch registration, by slot; each item runs in one scope of its slot's. Empty watches nothing.
+    private let hangWatched: [HangWatchedLane]
     private let slots: [DispatchQueue]
     /// The lane's clock for the may-block threshold; nil counts a low item for its whole run.
     private let compensation: MayBlockCompensation?
@@ -223,6 +236,8 @@ final class LaneScheduler: Sendable {
     private let recheck: DemandTimer?
     /// Starts and ends the QoS override a raise puts on a running item's slot thread.
     private let qosOverride: ThreadQoSOverride
+    /// For a `perPriority` lane, the slots of each level (by `rawValue`); empty for a `shared` lane.
+    private let levelSlots: [Range<Int>]
     // concurrency-allow: a short non-blocking critical section over the pending lists, taken from lane threads, cancel handlers and submitters that must not await (lock carve-out).
     private let state: Mutex<State>
 
@@ -230,33 +245,40 @@ final class LaneScheduler: Sendable {
     ///   - caps: how many items of each ``LaneCap`` class run at once; a class without an entry is not capped.
     ///   - compensation: on a `shared` lane whose items may block, when a low item stops counting against the
     ///     best-effort caps; nil counts it for its whole run.
+    ///   - hangWatching: how each slot registers with the hang watch; nil watches nothing.
     ///   - qosOverride: the override a raise of a running item starts; tests count its calls.
     init(label: String, policy: Policy, mayBlock: Bool, caps: [LaneCap: Int] = [:],
-         compensation: MayBlockCompensation? = nil, hangWatched: HangWatchedLane? = nil,
+         compensation: MayBlockCompensation? = nil, hangWatching: HangWatching? = nil,
          qosOverride: ThreadQoSOverride = .system) {
         self.policy = policy
         self.qosOverride = qosOverride
         self.mayBlock = mayBlock
-        self.hangWatched = hangWatched
         self.compensation = compensation
         recheck = compensation.map { DemandTimer(owner: "\(label).may-block", clock: $0.clock) }
-        let names: [String], reserved: Int
+        var names: [String] = [], levelSlots: [Range<Int>] = [], reserved = 0
         switch policy {
-        case .perPriority:
-            names = WorkPriority.allCases.map { "\(label).\($0)" }
-            reserved = 0
+        case .perPriority(let widths):
+            for level in WorkPriority.allCases {
+                let width = max(1, widths.indices.contains(level.rawValue) ? widths[level.rawValue] : 1)
+                levelSlots.append(names.count..<(names.count + width))
+                names += (0..<width).map { "\(label).\(level).\($0)" }
+            }
         case .shared(let width, let wanted):
             names = (0..<max(1, width)).map { "\(label).\($0)" }
             reserved = min(max(0, wanted), names.count - 1)
         }
+        self.levelSlots = levelSlots
         // The item's QoS (`.enforceQoS`) sets the thread's QoS; the queue itself has none.
         slots = names.map { DispatchQueue(label: $0, qos: .unspecified, autoreleaseFrequency: .workItem) }
+        hangWatched = hangWatching.map { watching in
+            names.map { _ in HangWatchedLane(watching.name, deadline: watching.deadline, on: watching.watch) }
+        } ?? []
         state = Mutex(State(running: Array(repeating: nil, count: names.count), reserved: reserved,
                             caps: caps.mapValues { max(1, $0) }, mayBlockThreshold: compensation?.threshold))
     }
 
     deinit {
-        hangWatched?.unregister()
+        for slot in hangWatched { slot.unregister() }
     }
 
     /// What ``submit(_:at:unless:)`` did with an item.
@@ -287,6 +309,33 @@ final class LaneScheduler: Sendable {
         guard let taken else { return .refused }
         launch(taken.starts)
         return taken.starts.contains { $0.job.id == job.id } ? .started : .queued(taken.level)
+    }
+
+    /// Moves queued item `id` to `level` and sets whether it is `posted`, at once: at its new level it goes before
+    /// every item posted after it (by id), and a move that keeps its level keeps its place, so a raise never puts it
+    /// behind later work. Chrome orders a raised sequence by its oldest task's queue time
+    /// (base/task/thread_pool/sequence.cc, `Sequence::GetSortKey`). False when the item is not queued (it started,
+    /// or shutdown dropped it).
+    @discardableResult
+    func move(_ id: UInt64, to level: WorkPriority, posted: Bool) -> Bool {
+        let starts = state.withLock { state -> [Start]? in
+            for from in WorkPriority.allCases {
+                guard let index = state.pending[from.rawValue].firstIndex(where: { $0.job.id == id }) else { continue }
+                if from == level {
+                    state.pending[from.rawValue][index].posted = posted
+                } else {
+                    var entry = state.pending[from.rawValue].remove(at: index)
+                    entry.posted = posted
+                    let list = state.pending[level.rawValue]
+                    state.pending[level.rawValue].insert(entry, at: list.firstIndex { $0.job.id > id } ?? list.endIndex)
+                }
+                return pump(&state)
+            }
+            return nil
+        }
+        guard let starts else { return false }
+        launch(starts)
+        return true
     }
 
     /// Takes item `id` out of the queue when it has not started; returns it so the caller abandons it.
@@ -381,9 +430,11 @@ final class LaneScheduler: Sendable {
         var starts: [Start] = []
         switch policy {
         case .perPriority:
-            for level in WorkPriority.allCases where state.running[level.rawValue] == nil {
-                guard let index = state.next(at: level, full: state.fullCaps) else { continue }
-                starts.append(claim(level, index, slot: level.rawValue, in: &state))
+            for level in WorkPriority.allCases {
+                for slot in levelSlots[level.rawValue] where state.running[slot] == nil {
+                    guard let index = state.next(at: level, full: state.fullCaps) else { break }
+                    starts.append(claim(level, index, slot: slot, in: &state))
+                }
             }
         case .shared:
             // Each pick marks its slot busy first, so the next pick sees the reserve and the caps it took.
@@ -429,19 +480,20 @@ final class LaneScheduler: Sendable {
                 // Chrome's task_tracker.cc runs a MayBlock() task with blocking allowed and any other task
                 // under ScopedDisallowBlocking: a files or system item may block, a cpu item may not.
                 if mayBlock {
-                    BlockingContext.runAsLane { run(start.job) }
+                    BlockingContext.runAsLane { run(start) }
                 } else {
-                    BlockingContext.runAsCPULane { run(start.job) }
+                    BlockingContext.runAsCPULane { run(start) }
                 }
                 finish(slot: start.slot, raisable: start.raisable)
             }
         }
     }
 
-    /// Runs `job` on this slot's thread, inside the lane's hang scope when it has one.
-    private func run(_ job: LaneJob) {
-        guard let hangWatched else { return job.execute() }
-        hangWatched.run { job.execute() }
+    /// Runs the started job on its slot's thread at the level the slot runs it at, inside the slot's hang scope
+    /// when the lane is watched.
+    private func run(_ start: Start) {
+        guard hangWatched.indices.contains(start.slot) else { return start.job.execute(at: start.priority) }
+        hangWatched[start.slot].run { start.job.execute(at: start.priority) }
     }
 
     /// Records the thread the raisable item on `slot` runs on, and starts the override a raise asked for before it

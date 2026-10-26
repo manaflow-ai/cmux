@@ -29,7 +29,7 @@ extension BackgroundWork {
         let id = nextID()
         let scheduler = lanes[lane.rawValue]
         let handle = WorkHandle<T>(id: id, scheduler: scheduler)
-        guard let job = makeJob(id: id, lane: lane, priority: priority, shutdown: shutdown,
+        guard let job = makeJob(id: id, lane: lane, shutdown: shutdown,
                                 site: CallSite(fileID: fileID, line: line),
                                 work: { handle.complete(Result { try body() }) },
                                 abandoned: { handle.complete(.failure(CancellationError())) }) else {
