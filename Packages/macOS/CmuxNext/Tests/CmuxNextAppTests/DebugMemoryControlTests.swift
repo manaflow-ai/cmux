@@ -144,6 +144,37 @@ import Testing
         #expect(samples.onMain == [false])
     }
 
+    /// The sampled footprints go into the local histograms on the main actor, and the answer has
+    /// the histograms after that sample (p07-memory-016).
+    @Test func recordsTheSampleInTheHistograms() async throws {
+        let pressure = MemoryPressureEvents(source: ManualMemoryPressureSource())
+        let histograms = MemoryHistograms(pressure: pressure, discardKinds: ["browser"])
+        let threads = Threads()
+        let rows: [MemoryDiagnosticsProcesses.Row] = [
+            .init(kind: .app, pid: 501, physFootprintBytes: 361 << 20),
+            .init(kind: .chromiumRenderer, pid: 812, physFootprintBytes: 62 << 20),
+        ]
+        let router = ControlRouter(identity: ControlIdentity(version: "1.0", build: "1", bundleID: "com.cmuxterm.app.debug.test",
+                                                             tag: "test", processID: getpid()),
+                                   executor: Executor(),
+                                   configuration: .init(requestDeadline: .seconds(30), allowsDebugMethods: false))
+        let snapshot = Self.snapshot()
+        router.register([DebugMemoryControl.memoryMethod(
+            read: { snapshot },
+            sample: { _ in MemoryDiagnosticsProcesses(rows: rows) },
+            record: { processes in
+                threads.note()
+                histograms.recordFootprints(processes)
+                return histograms.snapshot()
+            })])
+        let json = try await call(router)
+        #expect(threads.onMain == [true])
+        let recorded = try #require(json["histograms"]?.objectValue)
+        #expect(recorded["app_pmf_mb"]?.objectValue?["sum"] == 361)
+        #expect(recorded["renderer_pmf_mb"]?.objectValue?["sum"] == 62)
+        #expect(recorded["discards_per_hour"]?.objectValue?.keys.sorted() == ["browser"])
+    }
+
     @Test func answersNullOnceTheAppIsGone() async throws {
         let reply = try await router { nil }.handle(ControlRequest(id: "1", method: "debug.memory")).get()
         #expect(reply == .null)
