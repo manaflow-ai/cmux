@@ -1,4 +1,3 @@
-import CmuxNextTrace
 import Foundation
 import os
 
@@ -39,14 +38,13 @@ extension CEFPaneHost {
     }
 }
 
-/// Tab switch timeline marks (cx-asb1), `activate` and `activated`: trace-clock
-/// milliseconds (``TraceClock``, `CLOCK_UPTIME_RAW`), the clock of the trace
-/// ring, of the control router's `request` and `run` marks and of Chromium's
-/// `base::TimeTicks` (base/time/time_mac.mm), so a bench lines them up with
-/// all three. The log entry's own timestamp gives the wall time. Debug level:
-/// nothing is written unless a `log stream --level debug` reads category
-/// "tab-switch".
+/// Tab switch timeline marks (cx-asb1), `activate` and `activated`: wall-clock
+/// ms, the clock of every other writer to category "tab-switch" (the control
+/// router's `request` and `run`, the pane's `show` and `shown`, the occlusion
+/// marks), so one log stream reads as one timeline. Debug level: nothing is
+/// written unless a `log stream --level debug` reads category "tab-switch".
 private let tabSwitchLog = Logger(subsystem: "com.cmuxterm.app.next", category: "tab-switch")
-private func tabSwitchMark(_ name: String, clock: TraceClock = TraceClock()) {
-    tabSwitchLog.debug("tab-switch \(name, privacy: .public) \(Double(clock.nowNanos()) / 1e6, format: .fixed(precision: 3), privacy: .public)")
+private func tabSwitchMark(_ name: String) {
+    // wall-clock: same timeline as the other tab-switch marks; the category moves to TraceClock in one change.
+    tabSwitchLog.debug("tab-switch \(name, privacy: .public) \(Date().timeIntervalSince1970 * 1_000, format: .fixed(precision: 3), privacy: .public)")
 }

@@ -2,8 +2,7 @@
 import CmuxNextTrace
 import Testing
 
-/// `debug.cef`'s `ready_after_launch_s` counts on the trace clock from the kernel's process start, moved onto it
-/// through ``LaunchClock`` (p09-observability-046), not from a second wall-clock read.
+/// `debug.cef`'s `ready_after_launch_s`: wall-clock seconds since the kernel's process start (p09-observability-046).
 @Suite struct CEFStartReportTests {
     private static let second: UInt64 = 1_000_000_000
 
@@ -12,13 +11,13 @@ import Testing
                                   pageins: { nil }))
     }
 
-    @Test func countsFromTheKernelStartOnTheTraceClock() throws {
+    @Test func countsWallTimeSinceTheKernelStart() throws {
         let clock = Self.clock(startWall: 1_000 * Self.second, wall: 1_012 * Self.second, uptime: 500 * Self.second)
         let seconds = try #require(CEFStartReport.secondsSinceLaunch(clock))
         #expect(abs(seconds - 12) < 1e-9)
     }
 
-    @Test func aWallClockSetBackIsZeroNotNegative() throws {
+    @Test func aWallClockSetBackPastTheStartIsZeroNotNegative() throws {
         let clock = Self.clock(startWall: 2_000 * Self.second, wall: 1_000 * Self.second, uptime: 500 * Self.second)
         #expect(try #require(CEFStartReport.secondsSinceLaunch(clock)) == 0)
     }

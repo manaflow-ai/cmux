@@ -18,13 +18,14 @@ public nonisolated struct CEFStartReport: Equatable, Sendable {
     /// Seconds since process start when `CefInitialize` returned.
     public var readyAfterLaunch: Double?
 
-    /// Seconds from the kernel's start of this process to now on the trace clock: what ``readyAfterLaunch``
-    /// holds. The start moves onto the trace clock through ``LaunchClock/processStart()``, the launch slices'
-    /// one pairing of the kernel's wall-clock start (Chrome's `StartupTimeToTimeTicks`,
-    /// components/startup_metric_utils/common/startup_metric_utils.cc). nil when the kernel does not say.
+    /// Wall-clock seconds from the kernel's start of this process (``LaunchClock/processStart()``,
+    /// `PROC_PIDTBSDINFO`) to now: what ``readyAfterLaunch`` holds. The kernel keeps the start only as a wall
+    /// time, so this is a wall-clock span; 0 when the clock was set back past the start, nil when the kernel
+    /// does not say.
     static func secondsSinceLaunch(_ clock: LaunchClock = LaunchClock()) -> Double? {
         guard let start = clock.processStart() else { return nil }
-        let now = clock.now().uptimeNanos
-        return now > start.uptimeNanos ? Double(now - start.uptimeNanos) / 1e9 : 0
+        // wall-clock: the kernel keeps the process start only as a wall time.
+        let now = clock.now().wallNanos
+        return now > start.wallNanos ? Double(now - start.wallNanos) / 1e9 : 0
     }
 }
