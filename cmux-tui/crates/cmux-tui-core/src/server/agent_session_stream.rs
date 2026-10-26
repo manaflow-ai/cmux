@@ -224,6 +224,19 @@ pub(crate) fn teammate_summary(session: &mut Value) {
     }
 }
 
+/// What a teammate sees of a `session_changed`: which record changed what, and the summary cut
+/// to [`TEAMMATE_SUMMARY`]; never the change's `peer` or any other field acpmux adds later.
+pub(crate) fn teammate_change(change: &mut Value) {
+    if let Some(object) = change.as_object_mut() {
+        object.retain(|key, _| {
+            matches!(key.as_str(), "sessionId" | "kind" | "recordKind" | "seq" | "session")
+        });
+    }
+    if let Some(session) = change.get_mut("session") {
+        teammate_summary(session);
+    }
+}
+
 /// One notification or the close from the attachment's acpmux link.
 pub(super) fn deliver(attachment: &Attachment, inbound: Inbound) {
     if attachment.ended.load(Ordering::Acquire) {
@@ -269,10 +282,8 @@ pub(super) fn deliver(attachment: &Attachment, inbound: Inbound) {
                 return attachment.end(Some("detached"));
             }
             let mut params = params;
-            if attachment.author.is_some()
-                && let Some(session) = params.get_mut("session")
-            {
-                teammate_summary(session);
+            if attachment.author.is_some() {
+                teammate_change(&mut params);
             }
             let event = json!({"event": "agent-session-changed", "surface": attachment.surface, "change": params});
             if attachment.writer.send_stream(&event, &attachment.outbound).is_err() {

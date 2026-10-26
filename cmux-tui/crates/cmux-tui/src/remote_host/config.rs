@@ -124,40 +124,24 @@ pub(crate) fn save(config: &Config, _held: &ConfigLock) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// An exclusive lock on the config for one read-check-write (released on drop),
-/// so a change confirmed at a prompt applies to the config as it is then.
+/// An exclusive lock on the config for one read-check-write (released when the file closes),
+/// so a change confirmed at a prompt applies to the config as it is then. `File::lock` is
+/// `flock` on Unix and `LockFileEx` on Windows, so every platform that hosts takes it.
 pub(crate) struct ConfigLock {
-    #[cfg(unix)]
-    file: std::fs::File,
-}
-
-#[cfg(unix)]
-impl Drop for ConfigLock {
-    fn drop(&mut self) {
-        use std::os::fd::AsRawFd as _;
-        // SAFETY: the descriptor is this lock's open file.
-        unsafe { libc::flock(self.file.as_raw_fd(), libc::LOCK_UN) };
-    }
+    _file: std::fs::File,
 }
 
 /// Takes [`ConfigLock`], waiting for another holder.
 pub(crate) fn lock() -> anyhow::Result<ConfigLock> {
+    let mut options = std::fs::OpenOptions::new();
+    options.read(true).write(true).create(true).truncate(false);
     #[cfg(unix)]
-    {
-        use std::os::fd::AsRawFd as _;
-        let mut options = std::fs::OpenOptions::new();
-        options.read(true).write(true).create(true).truncate(false);
-        std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
-        let file = options.open(ensure_dir()?.join("remote.json.lock"))?;
-        // SAFETY: the descriptor is the file just opened.
-        if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX) } != 0 {
-            return Err(std::io::Error::last_os_error())
-                .context(crate::localization::catalog().host_share.lock);
-        }
-        Ok(ConfigLock { file })
-    }
-    #[cfg(not(unix))]
-    Ok(ConfigLock {})
+    std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
+    let file = options
+        .open(ensure_dir()?.join("remote.json.lock"))
+        .context(crate::localization::catalog().host_share.lock)?;
+    file.lock().context(crate::localization::catalog().host_share.lock)?;
+    Ok(ConfigLock { _file: file })
 }
 
 /// Creates the state directory owner-only (config, pid lock and log).

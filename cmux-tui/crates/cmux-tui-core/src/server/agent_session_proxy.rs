@@ -199,8 +199,9 @@ mod tests {
         // The chat's own change reaches the teammate, cut to what the chat shows.
         fake.notify(
             "_acpmux/session_changed",
-            json!({"sessionId": SESSION, "kind": "status", "session": {"sessionId": SESSION,
-                "status": "idle", "cwd": "/Users/owner/secret", "tags": {"lane": "x"}}}),
+            json!({"sessionId": SESSION, "kind": "status", "seq": 3, "peer": "owner-mini",
+                "session": {"sessionId": SESSION, "status": "idle", "cwd": "/Users/owner/secret",
+                "tags": {"lane": "x"}}}),
         );
         fake.notify("_acpmux/event", record(4, "user_message"));
         // Every event up to the prompt record, in order (the fake's own replies may come first):
@@ -213,7 +214,7 @@ mod tests {
                     event["change"]["sessionId"], SESSION,
                     "no descendant reaches a teammate"
                 );
-                own_change = Some(event["change"]["session"].clone());
+                own_change = Some(event["change"].clone());
             }
             assert_ne!(event["record"]["kind"], "composer", "the draft never arrives");
             if event["event"] == "agent-session-record" && event["record"]["kind"] == "user_message"
@@ -225,7 +226,12 @@ mod tests {
             client.event(Duration::from_millis(300)).is_none(),
             "nothing after the prompt record"
         );
-        assert_eq!(own_change, Some(json!({"sessionId": SESSION, "status": "idle"})));
+        assert_eq!(
+            own_change,
+            Some(json!({"sessionId": SESSION, "kind": "status", "seq": 3,
+                "session": {"sessionId": SESSION, "status": "idle"}})),
+            "no peer, folder or tags reach a teammate"
+        );
         let children =
             json!({"cmd":"agent-session-children", "surface":surface, "_host_author":author});
         assert_code(&client.request(children), "agent_session.not_trusted");

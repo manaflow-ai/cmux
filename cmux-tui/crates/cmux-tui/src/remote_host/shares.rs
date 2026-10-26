@@ -140,5 +140,5 @@ fn generation(config: &config::Config) -> anyhow::Result<String> {
         .as_str()
         .filter(|g| !g.is_empty())
         .map(str::to_owned)
-        .ok_or_else(|| super::usage("agent_session.unavailable"))
+        .ok_or_else(|| super::usage(crate::localization::catalog().host_share.unavailable))
 }

@@ -250,6 +250,18 @@ mod tests {
             )
         });
         let mut reader = BufReader::new(client.try_clone().unwrap());
+        // The attach client's handshake is answered here, from the bind reply alone: no
+        // inventory, no role, and nothing reaches the daemon (its next line is the observe).
+        for (id, cmd, data) in [
+            (10, "identify", json!({"protocol":12,"generation":"boot-1"})),
+            (11, "set-client-info", json!({})),
+        ] {
+            send(&mut client, &json!({"id":id,"cmd":cmd,"machine_metadata":true,"kind":"app"}))
+                .unwrap();
+            let reply: Value =
+                serde_json::from_slice(&line(&mut reader, MAX_FRAME).unwrap().unwrap()).unwrap();
+            assert_eq!(reply, json!({"id":id,"ok":true,"data":data}), "{cmd}");
+        }
         for (id, cmd, surface, code) in [
             (1, "send", 42, "scope_not_granted"),
             (2, "agent-session-observe", 43, "agent_session.not_shared"),
