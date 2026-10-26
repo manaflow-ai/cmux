@@ -213,11 +213,36 @@ class Symbols(unittest.TestCase):
         """)
         self.assertEqual(symbols, ["os_unfair_lock"])
 
+    def test_other_foundation_networking_types_need_foundation_networking(self):
+        text = """\
+            import Foundation
+            func send(_ request: URLRequest) -> HTTPURLResponse? { nil }
+            let cookie = HTTPCookie(properties: [:])
+            let key = HTTPCookiePropertyKey.name
+            let cache: URLCache? = nil
+            let credential = URLCredential(user: "", password: "", persistence: .none)
+            class Stub: URLProtocol {}
+            let response: URLResponse? = nil
+        """
+        _, symbols = scan(text)
+        self.assertEqual(symbols, ["FoundationNetworking"] * 7)
+        _, symbols = scan("import FoundationNetworking\n" + textwrap.dedent(text))
+        self.assertEqual(symbols, [])
+
+    def test_a_file_that_only_builds_a_url_request_is_caught(self):
+        _, symbols = scan("""\
+            import Foundation
+            var request = URLRequest(url: URL(string: "https://cmux.dev")!)
+        """)
+        self.assertEqual(symbols, ["FoundationNetworking"])
+
     def test_project_types_named_after_url_session_are_not_findings(self):
         _, symbols = scan("""\
             import Foundation
             struct URLSessionHangReportTransport {}
             let fetcher = URLSessionSuggestFetcher()
+            let builder = URLRequestBuilder()
+            struct HTTPCookieJar {}
             func sysctlString() {}
             let fsEvents = FolderWatcher()
         """)
@@ -256,6 +281,52 @@ class CSources(unittest.TestCase):
         self.assertEqual(ti.scan_file("A/B.c", "#include <stdio.h>\n").imports, [])
 
 
+class Manifest(unittest.TestCase):
+    PACKAGE = "Packages/macOS/CmuxNext"
+
+    def test_declarations_paths_and_dependency_forms(self):
+        targets = ti.manifest_targets(textwrap.dedent('''\
+            // .target(name: "Commented", dependencies: ["AppKitThing"])
+            let ffi: Target = .binaryTarget(name: "CFFI", url: "https://example.invalid/x.zip", checksum: "0")
+            let package = Package(
+                products: [.library(name: "Lib", targets: ["CmuxNextA"])],
+                dependencies: [.package(path: "../../Shared/CmuxTheme")],
+                targets: [
+                    .target(
+                        name: "CmuxNextA",
+                        dependencies: [
+                            "CmuxNextB", /* "Hidden", */
+                            .target(name: "CmuxNextC"),
+                            .byName(name: "CmuxNextD"),
+                            .product(name: "CmuxTheme", package: "CmuxTheme"),
+                            .product(name: "Atomics", package: "swift-atomics"),
+                            .target(name: "CmuxNextMacOnly", condition: .when(platforms: [.macOS])),
+                            .target(name: "CmuxNextEverywhere", condition: .when(platforms: [.macOS, .linux])),
+                        ],
+                        swiftSettings: [.define("X", .when(configuration: .debug))]
+                    ),
+                    .target(name: "CmuxNextB", path: "Sources/Shared/B"),
+                    .testTarget(name: "CmuxNextATests", dependencies: ["CmuxNextA"]),
+                    .executableTarget(name: "cmux-tool", dependencies: commonDeps + ["CmuxNextA"]),
+                ] + [ffi]
+            )
+        '''), self.PACKAGE)
+        self.assertEqual(sorted(targets), ["CFFI", "CmuxNextA", "CmuxNextATests", "CmuxNextB", "cmux-tool"])
+        a = targets["CmuxNextA"]
+        self.assertEqual((a.kind, a.path), ("regular", f"{self.PACKAGE}/Sources/CmuxNextA"))
+        self.assertEqual(a.targets, ("CmuxNextB", "CmuxNextC", "CmuxNextD", "CmuxNextEverywhere"))
+        self.assertEqual(a.packages, ("CmuxTheme", "swift-atomics"))
+        self.assertTrue(a.edges_known)
+        self.assertEqual(targets["CmuxNextB"].path, f"{self.PACKAGE}/Sources/Shared/B")
+        self.assertEqual(targets["CmuxNextATests"].path, f"{self.PACKAGE}/Tests/CmuxNextATests")
+        self.assertEqual((targets["CFFI"].kind, targets["CFFI"].path), ("binary", None))
+        self.assertFalse(targets["cmux-tool"].edges_known)
+
+    def test_local_packages(self):
+        text = '.package(path: "../../Shared/CmuxTheme"),\n.package(url: "https://x.invalid/a", from: "1.0.0"),\n'
+        self.assertEqual(ti.manifest_packages(text, self.PACKAGE), {"CmuxTheme": "Packages/Shared/CmuxTheme"})
+
+
 class Fixture:
     """A small repository: a graph, target sources, local packages and a Linux workflow."""
 
@@ -280,6 +351,7 @@ def target(path: str | None, deps=(), packages=(), kind="regular") -> dict:
 
 
 SOURCES = "Packages/macOS/CmuxNext/Sources"
+MANIFEST = "Packages/macOS/CmuxNext/Package.swift"
 
 
 def standard_fixture(root: Path) -> Fixture:
@@ -423,11 +495,11 @@ class Report(unittest.TestCase):
         self.fx.write(ti.TIER_PATH, json.dumps({"waves": [["Geometry", "Daemon"], ["Naming", "Missing"]]}))
         code, out, err = self.run_main("--check", "--summary")
         self.assertEqual(code, 1)
-        self.assertIn("tier 2 ok, 0 direct, 1 transitive, 1 not in the graph", out)
+        self.assertIn("tier 2 ok, 0 direct, 1 transitive, 0 unknown, 1 not a target", out)
         self.assertIn(
             "CmuxNextNaming (wave 1) is blocked by CmuxNextNaming -> CmuxNextSettings -> CmuxNextCompat", err
         )
-        self.assertIn("tier target Missing is not in", err)
+        self.assertIn("tier target Missing is not a target in", err)
         self.fx.write(ti.TIER_PATH, json.dumps({"waves": {"0": ["CmuxNextGeometry"], "1": ["Daemon"]}}))
         self.assertEqual(self.run_main("--check", "--summary")[0], 0)
 
@@ -446,14 +518,60 @@ class Report(unittest.TestCase):
         self.assertEqual(rows, ["CmuxNextCompat", "CmuxNextHome", "CmuxNextNaming", "CmuxNextSettings", "CmuxNextTerminal"])
         self.assertEqual(self.run_main("--target", "Nope")[0], 2)
 
-    def test_a_directory_the_graph_does_not_cover_is_still_scanned(self):
+    def test_package_swift_adds_the_targets_and_edges_a_stale_graph_lacks(self):
+        self.fx.write(MANIFEST, """\
+            let package = Package(
+                dependencies: [.package(path: "../../Shared/CmuxHomeCore")],
+                targets: [
+                    .target(name: "CmuxNextDaemon", dependencies: ["CmuxNextGeometry", "CmuxNextFresh"]),
+                    // Clean files, but it depends on a blocked target: never "ok".
+                    .target(name: "CmuxNextFresh", dependencies: ["CmuxNextCompat"]),
+                    .target(name: "CmuxNextHomeKit", dependencies: [.product(name: "CmuxHomeCore", package: "CmuxHomeCore")]),
+                    .testTarget(name: "CmuxNextFreshTests", dependencies: ["CmuxNextFresh"]),
+                    .target(name: "CmuxNextComputed", dependencies: sharedDeps),
+                ]
+            )
+        """)
+        self.fx.write(f"{SOURCES}/CmuxNextFresh/Fresh.swift", "import Foundation\n")
+        self.fx.write(f"{SOURCES}/CmuxNextHomeKit/Kit.swift", "import CmuxHomeCore\n")
+        self.fx.write("Packages/macOS/CmuxNext/Tests/CmuxNextFreshTests/FreshTests.swift", "import Testing\n")
+        self.fx.write(f"{SOURCES}/CmuxNextComputed/Computed.swift", "import Foundation\n")
+        self.fx.write(f"{SOURCES}/CmuxNextUser/User.swift", "import CmuxNextComputed\n")
+        targets = self.fx.report()["targets"]
+        fresh = targets["CmuxNextFresh"]
+        self.assertEqual((fresh["in_graph"], fresh["status"], fresh["roots"]), (False, "transitive", ["CmuxNextCompat"]))
+        self.assertEqual(targets["CmuxNextFreshTests"]["chain"], ["CmuxNextFreshTests", "CmuxNextFresh", "CmuxNextCompat"])
+        # A package only Package.swift names is still read and walked.
+        self.assertEqual(targets["CmuxNextHomeKit"]["roots"], ["package:CmuxHomeCore"])
+        # The graph's CmuxNextDaemon lacks the edge to CmuxNextFresh; the manifest adds it.
+        daemon = targets["CmuxNextDaemon"]
+        self.assertEqual((daemon["in_graph"], daemon["status"], daemon["blocked_deps"]), (True, "transitive", ["CmuxNextFresh"]))
+        self.assertEqual(targets["CmuxNextDaemonTests"]["chain"][-1], "CmuxNextCompat")
+        # Edges the scanner cannot read are unknown, not clean.
+        self.assertEqual(targets["CmuxNextComputed"]["status"], "unknown")
+        code, out, err = self.run_main("--blocked")
+        self.assertIn("CmuxNextFresh\tregular\t-\ttransitive", out)
+        self.assertIn(f"CmuxNextComputed\tregular\t-\tunknown ({ti.UNKNOWN_EDGES})", out)
+        self.assertIn("4 targets not in the graph (edges from Package.swift)", out)
+        # A directory no target declares is unknown: kept by --blocked and failing --check.
+        self.assertIn("# no target declares Sources/CmuxNextUser: unknown", out)
+        self.fx.write(ti.TIER_PATH, json.dumps({"waves": [["Geometry", "Fresh", "Computed"]]}))
+        code, _, err = self.run_main("--check", "--summary")
+        self.assertEqual(code, 1)
+        self.assertIn("CmuxNextFresh (wave 0) is blocked by CmuxNextFresh -> CmuxNextCompat", err)
+        self.assertIn(f"CmuxNextComputed (wave 0) is blocked by {ti.UNKNOWN_EDGES}", err)
+        self.assertIn("warning: CmuxNextFresh is not in", err)
+        self.assertIn("declares Sources/CmuxNextUser", err)
+
+    def test_a_directory_no_target_declares_is_still_scanned(self):
         self.fx.write("Packages/macOS/CmuxNext/Tests/CmuxNextNewTests/NewTests.swift", "import Testing\nimport Darwin\n")
         self.fx.write(f"{SOURCES}/CmuxNextFresh/Fresh.swift", "import Foundation\n")
         self.fx.write(f"{SOURCES}/Loose.swift", "import AppKit\n")  # not a target directory
         self.fx.write(f"{SOURCES}/CmuxNextFresh/README.md", "import AppKit\n")  # not a source file
         report = self.fx.report()
         self.assertEqual(sorted(report["unmapped"]), ["Sources/CmuxNextFresh", "Tests/CmuxNextNewTests"])
-        self.assertEqual(report["unmapped"]["Sources/CmuxNextFresh"]["status"], "ok")
+        # Nothing says what clean files depend on, so they are unknown, never ok.
+        self.assertEqual(report["unmapped"]["Sources/CmuxNextFresh"]["status"], "unknown")
         new = report["unmapped"]["Tests/CmuxNextNewTests"]
         self.assertEqual((new["status"], [f["module"] for f in new["imports"]]), ("direct", ["Darwin"]))
         self.assertEqual((report["summary"]["unmapped"], report["summary"]["unmapped_direct"]), (2, 1))
@@ -462,11 +580,11 @@ class Report(unittest.TestCase):
             "Packages/macOS/CmuxNext/Tests/CmuxNextNewTests/NewTests.swift:2\tunmapped:Tests/CmuxNextNewTests\tDarwin",
             out.splitlines(),
         )
-        self.assertIn("2 directories not in the graph (1 with findings)", self.run_main("--summary")[1])
+        self.assertIn("2 directories no target declares (1 with findings)", self.run_main("--summary")[1])
         code, out, _ = self.run_main("--blocked")
-        self.assertIn("# not in the graph Tests/CmuxNextNewTests: direct Darwin(1)", out)
-        self.assertNotIn("CmuxNextFresh", out)
-        # A target filter names graph targets only.
+        self.assertIn("# no target declares Tests/CmuxNextNewTests: direct Darwin(1)", out)
+        self.assertIn("# no target declares Sources/CmuxNextFresh: unknown", out)
+        # A target filter names targets only.
         self.assertNotIn("unmapped:", self.run_main("--files", "--target", "Compat")[1])
         # Once the graph covers it, the directory is a target again.
         graph = json.loads((self.root / ti.GRAPH_PATH).read_text())
@@ -482,43 +600,98 @@ class Report(unittest.TestCase):
 
 
 class LiveTree(unittest.TestCase):
+    """The real tree. A match the scanner did not report must be on a line Linux does not compile, exactly."""
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.source = ti.WorkingTree(REPO)
+        cls.report = ti.build_report(cls.source)
+        entries = list(cls.report["targets"].values()) + list(cls.report["unmapped"].values())
+        cls.caught = {(f["file"], f["line"]) for e in entries for f in e["imports"]}
+
+    def missed(self, pattern: re.Pattern[str]) -> tuple[int, list[str]]:
+        """(lines matched, `path:line` of each match on a compiled line that the report does not list)."""
+        paths = [
+            path for top in ti.TARGET_ROOTS for path in self.source.files(top) if path.endswith(ti.SWIFT_EXTENSIONS)
+        ]
+        matched, missed = 0, []
+        for path, text in sorted(self.source.read_many(paths).items()):
+            lines = [number for number, line in enumerate(text.splitlines(), 1) if pattern.search(line)]
+            if not lines:
+                continue
+            compiled = {number for number, _ in ti.compiled_swift_lines(text)}
+            matched += len(lines)
+            missed += [f"{path}:{n}" for n in lines if n in compiled and (path, n) not in self.caught]
+        return matched, missed
+
     def test_the_real_graph_scans_and_catches_every_os_import(self):
-        report = ti.build_report(ti.WorkingTree(REPO))
-        self.assertGreater(len(report["targets"]), 100)
-        entries = list(report["targets"].values()) + list(report["unmapped"].values())
-        caught = {f["file"] for e in entries for f in e["imports"] if f["module"].split(".")[0] in ("os", "OSLog")}
-        listed = subprocess.run(
-            ["git", "-C", str(REPO), "grep", "-lE",
-             r"^\s*(@\w+ +)*((public|package|internal) +)?import +((struct|class|enum|func|typealias) +)?(os|OSLog)\b",
-             "--", "Packages/macOS/CmuxNext/Sources", "Packages/macOS/CmuxNext/Tests"],
-            capture_output=True, text=True,
-        ).stdout.split()
-        self.assertTrue(listed)
-        # An import the scanner skips must sit in a branch Linux does not compile.
-        skipped = [path for path in sorted(set(listed) - caught) if "#if" not in (REPO / path).read_text()]
-        self.assertEqual(skipped, [])
-        self.assertEqual(report["targets"]["CmuxNextSignposts"]["status"], "direct")
+        self.assertGreater(len(self.report["targets"]), 100)
+        matched, missed = self.missed(re.compile(
+            r"^\s*(@\w+ +)*((public|package|internal) +)?import +((struct|class|enum|func|typealias) +)?(os|OSLog)\b"
+        ))
+        self.assertGreater(matched, 0)
+        self.assertEqual(missed, [])
+        self.assertEqual(self.report["targets"]["CmuxNextSignposts"]["status"], "direct")
 
     def test_every_file_the_queue_regex_matches_is_caught(self):
         # The MQ-linux-imports regex as plans/cmux-next/chrome-parity/p15-oracle.md writes it.
-        queue = re.compile(
+        matched, missed = self.missed(re.compile(
             r"^\s*(@[A-Za-z_]+ )*(public |package |internal )?import (struct |class |enum |func |typealias "
-            r"|protocol |var |let )?(" + "|".join(ti.QUEUE_MODULES) + r")(\.[A-Za-z]+)*\s*$",
-            re.M,
-        )
-        report = ti.build_report(ti.WorkingTree(REPO))
-        entries = list(report["targets"].values()) + list(report["unmapped"].values())
-        caught = {f["file"] for e in entries for f in e["imports"]}
-        package = REPO / ti.PACKAGE_DIR
-        matched = sorted(
-            path.relative_to(REPO).as_posix()
-            for top in ("Sources", "Tests")
-            for path in (package / top).rglob("*.swift")
-            if queue.search(path.read_text(errors="replace"))
-        )
-        self.assertGreater(len(matched), 100)
-        skipped = [path for path in matched if path not in caught and "#if" not in (REPO / path).read_text()]
-        self.assertEqual(skipped, [])
+            r"|protocol |var |let )?(" + "|".join(ti.QUEUE_MODULES) + r")(\.[A-Za-z]+)*\s*$"
+        ))
+        self.assertGreater(matched, 100)
+        self.assertEqual(missed, [])
+
+    def test_every_imported_module_is_classified(self):
+        """Each module the scanned trees import is blocked, on Linux, a target, an FFI module or a package product.
+
+        A new Apple-only module (dnssd, VisionKit) then fails here instead of passing the scan unflagged.
+        """
+        packages = [entry["path"] for entry in self.report["packages"].values()]
+        trees = list(ti.TARGET_ROOTS) + [f"{path}/Sources" for path in packages]
+        known = set(ti.BLOCKED_MODULES) | set(ti.LINUX_MODULES) | set(self.report["targets"])
+        # The C modules of the CCmuxAppFFI xcframework, which the Linux mode builds from the same headers.
+        ffi_script = (REPO / "scripts/cmux-next/build-app-ffi.sh").read_text()
+        known |= set(re.findall(r'\.h:(\w+)"', ffi_script))
+        local = {path.rsplit("/", 1)[-1].lower() for path in packages}
+        for path in [ti.PACKAGE_DIR, *packages]:
+            manifest = self.source.read(f"{path}/Package.swift") or ""
+            declared = ti.manifest_targets(manifest, path)
+            known |= set(declared)
+            # Products of external packages (swift-atomics, swift-crypto, swift-nio): their module names.
+            known |= {
+                name
+                for name, package in re.findall(
+                    r'\.product\(\s*name:\s*"([^"]+)"\s*,\s*package:\s*"([^"]+)"', ti.manifest_code(manifest)
+                )
+                if package.lower() not in local
+            }
+        # Files no target declares are not compiled (the report lists them as `unmapped`); their imports may name
+        # a target that is gone.
+        undeclared = tuple(entry["path"] + "/" for entry in self.report["unmapped"].values())
+        unclassified: dict[str, str] = {}
+        for tree in trees:
+            paths = [
+                p for p in self.source.files(tree) if p.endswith(ti.SWIFT_EXTENSIONS) and not p.startswith(undeclared)
+            ]
+            for path, text in sorted(self.source.read_many(paths).items()):
+                for number, code in ti.code_lines(text):
+                    match = ti.IMPORT.match(code)
+                    if match and match.group(1) not in known:
+                        unclassified.setdefault(match.group(1), f"{path}:{number}")
+        self.assertGreater(len(known), 200)
+        self.assertEqual(unclassified, {})
+
+    def test_the_manifest_agrees_with_the_graph(self):
+        # The manifest reader adds edges to a stale graph; where both name a target they must agree.
+        graph = json.loads(self.source.read(ti.GRAPH_PATH))["targets"]
+        manifest = ti.manifest_targets(self.source.read(f"{ti.PACKAGE_DIR}/Package.swift"), ti.PACKAGE_DIR)
+        self.assertEqual(sorted(set(graph) - set(manifest)), [])
+        for name, info in graph.items():
+            declared = manifest[name]
+            self.assertEqual((declared.kind, declared.path), (info["kind"], info["path"]), name)
+            self.assertLessEqual(set(info["targets"]), set(declared.targets), name)
+            self.assertLessEqual(set(info["packages"]), set(declared.packages), name)
 
 
 if __name__ == "__main__":
