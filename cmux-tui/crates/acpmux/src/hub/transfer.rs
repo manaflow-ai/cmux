@@ -8,6 +8,28 @@ use std::sync::Mutex;
 /// directory under the sessions root (no separator, `.`, `..` or root).
 static HARNESS_STATE_LOCK: Mutex<()> = Mutex::new(());
 
+fn write_json_atomic(path: &Path, value: &Value) -> Result<()> {
+    let tmp = path.with_extension(format!(
+        "{}.importing",
+        path.extension().and_then(|e| e.to_str()).unwrap_or("json")
+    ));
+    if std::fs::symlink_metadata(&tmp).is_ok() {
+        return Err(anyhow::anyhow!("transaction marker temporary path is occupied"));
+    }
+    let bytes = serde_json::to_vec(value)?;
+    {
+        use std::io::Write;
+        let mut file = std::fs::OpenOptions::new().write(true).create_new(true).open(&tmp)?;
+        file.write_all(&bytes)?;
+        file.sync_all()?;
+    }
+    std::fs::rename(&tmp, path)?;
+    if let Some(parent) = path.parent() {
+        std::fs::File::open(parent)?.sync_all()?;
+    }
+    Ok(())
+}
+
 pub(super) fn is_plain_id(id: &str) -> bool {
     let mut parts = Path::new(id).components();
     matches!(
@@ -93,7 +115,8 @@ impl Hub {
         name: Option<String>,
     ) -> Result<Arc<Session>, RpcError> {
         let session = self.import_into(bundle, name, false, None, false, false).await?;
-        self.finalize_harness_state(&session.meta());
+        self.finalize_harness_state(&session.meta())
+            .map_err(|e| RpcError::internal(e.to_string()))?;
         Ok(session)
     }
 
@@ -170,6 +193,8 @@ impl Hub {
         meta.status = SessionStatus::Idle;
         // A family lives on one daemon: a moved-in sub-session is a root here.
         meta.subsession = None;
+        self.prepare_harness_state(&meta, replace_durable)
+            .map_err(|e| RpcError::internal(e.to_string()))?;
         let session = self.make_session(meta.clone());
         self.store.save(&meta).map_err(|e| RpcError::internal(e.to_string()))?;
         // Copy events verbatim, preserving seq. A partial transcript is not
@@ -220,7 +245,8 @@ impl Hub {
         );
         self.save_meta(&session);
         if !defer_finalize {
-            self.finalize_harness_state(&session.meta());
+            self.finalize_harness_state(&session.meta())
+                .map_err(|e| RpcError::internal(e.to_string()))?;
         }
         Ok(session)
     }
@@ -283,6 +309,32 @@ impl Hub {
         out.push(b'\n');
         out.extend_from_slice(&bytes[split + 1..]);
         Ok(out)
+    }
+
+    pub(super) fn prepare_harness_state(
+        &self,
+        meta: &SessionMeta,
+        replace_durable: bool,
+    ) -> Result<()> {
+        if meta.harness != "cmux-harness" {
+            return Ok(());
+        }
+        let Some(agent_id) = meta.agent_session_id.as_deref() else { return Ok(()) };
+        let Some(session_dir) = self.store.session_dir(&meta.id) else { return Ok(()) };
+        let Some(root) = session_dir.parent() else { return Ok(()) };
+        let marker = root.join(format!(".{agent_id}.durable-transfer-state"));
+        if std::fs::symlink_metadata(&marker).is_ok() {
+            return Err(anyhow::anyhow!("durable transfer recovery marker is already present"));
+        }
+        write_json_atomic(
+            &marker,
+            &json!({
+                "outerId": meta.id,
+                "agentId": agent_id,
+                "replaceDurable": replace_durable,
+                "phase": "prepared",
+            }),
+        )
     }
 
     fn export_harness_state(&self, meta: &SessionMeta, dir: &Path) -> Result<Value> {
@@ -489,23 +541,27 @@ impl Hub {
             }
         }
         let durable_state = root.join(format!(".{agent_id}.durable-transfer-state"));
-        if std::fs::symlink_metadata(&durable_state).is_ok() {
-            return Err(anyhow::anyhow!("durable transfer recovery marker is already present"));
+        if let Ok(raw) = std::fs::read(&durable_state) {
+            let prepared: Value = serde_json::from_slice(&raw)?;
+            if prepared.get("outerId").and_then(Value::as_str) != Some(meta.id.as_str()) {
+                return Err(anyhow::anyhow!(
+                    "durable transfer recovery marker belongs to another session"
+                ));
+            }
         }
-        std::fs::write(
+        write_json_atomic(
             &durable_state,
-            serde_json::to_vec(&json!({
+            &json!({
                 "agentId": agent_id,
                 "outerId": meta.id,
                 "replaceDurable": replace_durable,
+                "phase": "staged",
                 "piFilename": target_filename,
                 "journalDirWasPresent": journal_dir_was_present,
                 "hadJournal": std::fs::symlink_metadata(&journal).is_ok(),
                 "hadPi": std::fs::symlink_metadata(&pi_target).is_ok(),
-            }))?,
+            }),
         )?;
-        std::fs::File::open(&durable_state)?.sync_all()?;
-        std::fs::File::open(root)?.sync_all()?;
         std::fs::create_dir_all(&journal_dir)?;
         let mut installed_journal = false;
         let mut installed_pi = false;
@@ -567,24 +623,34 @@ impl Hub {
         Ok(())
     }
 
-    pub(super) fn finalize_harness_state(&self, meta: &SessionMeta) {
+    pub(super) fn finalize_harness_state(&self, meta: &SessionMeta) -> Result<()> {
         if meta.harness != "cmux-harness" {
-            return;
+            return Ok(());
         }
-        let Some(agent_id) = meta.agent_session_id.as_deref() else { return };
-        let Some(session_dir) = self.store.session_dir(&meta.id) else { return };
-        let Some(root) = session_dir.parent() else { return };
+        let Some(agent_id) = meta.agent_session_id.as_deref() else { return Ok(()) };
+        let Some(session_dir) = self.store.session_dir(&meta.id) else { return Ok(()) };
+        let Some(root) = session_dir.parent() else { return Ok(()) };
         let state = root.join(format!(".{agent_id}.durable-transfer-state"));
-        let filename = std::fs::read(&state)
-            .ok()
-            .and_then(|raw| serde_json::from_slice::<Value>(&raw).ok())
-            .and_then(|v| v.get("piFilename").and_then(Value::as_str).map(str::to_owned));
-        let _ = std::fs::remove_file(root.join(agent_id).join("journal.ndjson.transfer-backup"));
-        if let Some(filename) = filename {
-            let _ = std::fs::remove_file(root.join(format!("{filename}.transfer-backup")));
+        let mut marker = serde_json::from_slice::<Value>(&std::fs::read(&state)?)?;
+        marker["phase"] = json!("committed");
+        write_json_atomic(&state, &marker)?;
+        let filename = marker.get("piFilename").and_then(Value::as_str).unwrap_or("");
+        if !filename.is_empty() {
+            std::fs::remove_file(root.join(format!("{filename}.transfer-backup"))).or_else(
+                |e| {
+                    if e.kind() == std::io::ErrorKind::NotFound { Ok(()) } else { Err(e) }
+                },
+            )?;
         }
-        let _ = std::fs::remove_file(state);
-        let _ = std::fs::File::open(root).and_then(|f| f.sync_all());
+        std::fs::remove_file(root.join(agent_id).join("journal.ndjson.transfer-backup")).or_else(
+            |e| {
+                if e.kind() == std::io::ErrorKind::NotFound { Ok(()) } else { Err(e) }
+            },
+        )?;
+        std::fs::remove_file(&state)
+            .or_else(|e| if e.kind() == std::io::ErrorKind::NotFound { Ok(()) } else { Err(e) })?;
+        std::fs::File::open(root)?.sync_all()?;
+        Ok(())
     }
 
     fn copy_bundle_events(&self, bundle: &Path, id: &str, control: Option<Control>) -> Result<u64> {

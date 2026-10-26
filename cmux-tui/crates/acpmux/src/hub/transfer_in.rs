@@ -443,7 +443,8 @@ impl Hub {
                         .and_then(|f| f.sync_all())
                         .map_err(|e| transfer_error("store", format!("sync commit state: {e}")))?;
                 }
-                self.finalize_harness_state(&session.meta());
+                self.finalize_harness_state(&session.meta())
+                    .map_err(|e| transfer_error("store", format!("finalize durable state: {e}")))?;
                 if let Some((_, backup)) = source_store_backup.as_ref() {
                     let _ = std::fs::remove_dir_all(backup);
                     let _ = std::fs::remove_file(backup.with_extension("replacement-state.json"));
