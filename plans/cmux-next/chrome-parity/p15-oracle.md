@@ -588,6 +588,11 @@ Dropped or merged draft items: 022 and 045 (replaced by 026 and 191); 025 merged
 | 291 | Select Conversation 1-9 is a focus action | S | 20-28 | 076 | |
 | 292 | No picker or ask for a socket run without an argument | S | 20-28 | 076 | |
 | 293 | TOGGLES matches whole words | S | 18-24 | 071, 076 | |
+| 330 | Action cases: generated setup runs with focus | M | 20-36 | 071, 072, 077 | MQ-actions |
+| 331 | Facet: screen and screen group metadata | S | 20-28 | 035, 077 | |
+| 332 | Screen creates answer with the screen | S | 20-28 | 077 | |
+| 333 | No silent no-op for column and workspace moves | S | 20-28 | 077 | |
+| 334 | Reopen Saved Screen Group refuses an unknown id | S | 18-24 | 077 | |
 | 206 | I10 idempotent retry steps | S | 20-28 | 060, 110 | |
 | 204 | Streams suite + I8 | L | 18-36 | 023, 110 | |
 | 205 | restore_preview + I9 | M | 18-30 | 021, 201 | |
@@ -1161,6 +1166,61 @@ sidebar's), so tabGroup.addTab and tabGroup.reopenSaved are blocked `live-value`
 selected tab's group. List created tab groups and saved groups in `created`, add the `tabGroup` target kind
 (`tab-group:`), and move the two cases' placeholders to `$step:` values. Test: driver_app_test.py; fleet, the two cases
 green twice.
+
+The layout action cases (077, `tests/oracle/corpus/actions/layout/_tuning.json`: screen, screenGroup, column,
+layout, split, resize, swap and move) check structure on the layout facet (tree, ratios, column widths, docks, the
+active screen, the focused and zoomed pane), tab moves on the topology facet's panes (they list terminal tabs; the
+tabs facet lists only browser and page tabs, so a pane of terminals is not in it), workspace order on the sidebar rows
+and the two layout settings on settings.nonDefaultKeys. A socket run without focus may not move focus
+(FocusCoordinator.send refuses every changesView event), so a split or create in a case's setup leaves the launch's
+pane focused; the cases pick a pane with focusPaneByNumber, a focus action. Three cases fail at a generated setup
+step until 330, and the other four tasks are what the cases found. As for 076, the cases cannot be listed in
+`Expectations.d/actions.txt` until a live action-list.json checks the case files in; each case's note names its task.
+
+**330 Action cases: generated setup runs with focus.** Files: `gen_actions.py`, `layout/_tuning.json`. The sweep
+runs its context, neighbor and PREPARE steps through `SweepDriver.run`, which is action.run with `focus: true`;
+gen_actions.py `run_step` sends them without it. Without focus the neighbor split does not focus the new pane, so
+swapPaneRight's neighbor-2 focusLeft and swapPaneDown's focusUp run from the leftmost or top pane and are refused
+(refuseQuietly, control.unavailable), and column.moveRight's prepare-2 column.focusLeft the same. Give the generated
+setup steps `args.focus: true` (case-v1's action.run `focus`, which 072 adds with driver_app.py) and nothing else:
+the action under test keeps the caller's own permission. The cases' focus-pane-N steps keep working with either
+setup, since they pick the pane by number. Test: gen_actions.py --selftest (a generated setup step has focus, the
+action step does not); fleet, the three cases green twice.
+
+**331 Facet: screen and screen group metadata.** Files: `ControlTopology+JSON.swift`, `ControlTopologyMapper.swift`,
+`snapshot-v1.schema.json`, `OracleTopologyFacetTests.swift`, `layout/_tuning.json`. The topology facet's screen has
+id, handle, name, zoomed pane and panes; its color, icon, pin and group are in no facet, and no facet lists a
+workspace's screen groups. Add `color` (the wire token or null), `icon` (null, or `set`: an icon is user text),
+`pinned` and `group` to the screen, and `screen_groups` (id, name, color, icon as for screens, collapsed, saved) to
+the workspace, from the store's ScreenModel and ScreenGroupSnapshot, as the mapper reads the rest. The 14 screen
+look cases and the 21 screen group cases without a waitFor gain one. Test: OracleTopologyFacetTests (a colored,
+pinned, grouped screen and a collapsed saved group read back); fleet, those cases green twice.
+
+**332 Screen creates answer with the screen.** Files: `ScreenCommands.swift`, `ScreenGroupCommands.swift`,
+`ScreenCreateTrackingTests.swift`, `layout/_tuning.json`. `ScreenCommands.create` and `moveToNewWorkspace` start their
+daemon request in an untracked `Task`, so action.run (and `cmux screen new`) answers before the screen exists and
+`created` does not name it. Hand the work to the registry (`ctx.registry.track`, or the handler returns an
+ActionEffect), so the run's scope waits for the reply and lists the screen, as Chrome's `chrome.tabs.create` answers
+with the tab it made (chrome/browser/extensions/api/tabs/tabs_api.cc, TabsCreateFunction). screen.focus's case then
+targets `$step:second-screen#/created/0` for its success path, and the setup steps' layout waits become plain
+checks. Test: ScreenCreateTrackingTests (a socket screen.new answers with the new screen's id); fleet, screen.new,
+screen.focus and screen.moveToWorkspace green twice.
+
+**333 No silent no-op for column and workspace moves.** Files: `ColumnHandlers.swift`, `AppActions+Workspaces.swift`,
+`AppActions+PersonalOrder.swift`, `SilentNoOpRefusalTests.swift`, `layout/_tuning.json`. On a screen that is still one
+split tree, the column width presets, the width cycle and Center Column find no column for the implicit one
+(`LayoutModel.setColumnWidth` returns without a word) and the run answers ok for nothing done; Move Workspace Up or
+Down at the top or bottom returns the same way. Refuse with `refuseQuietly` and a localized reason (a key stays
+quiet; the CLI and the palette get the reason), or, for the presets, apply the width to the lone column as newColumn
+makes a strip. Chrome's Move Tab Left at the first tab is a no-op for the key but chrome.tabs.move with an index out
+of range is an error (chrome/browser/extensions/api/tabs/tabs_api.cc). Test: SilentNoOpRefusalTests; fleet, the
+column and moveWorkspace cases green twice, plus a refusal case for each.
+
+**334 Reopen Saved Screen Group refuses an unknown id.** Files: `ScreenGroupHandlers.swift`,
+`ScreenGroupReopenSavedTests.swift`, `layout/_tuning.json`. A saved id that names no saved group reaches the caller as
+`daemon_error` (the daemon's refusal wrapped as failed work). Check the id against the store's saved groups first and
+refuse with `refuseNotFound` (`not_found`), as 290 does for Home conversations. The case's tuning turns to
+`error: control.not_found`. Test: ScreenGroupReopenSavedTests; fleet, the case green twice.
 
 **206 I10 idempotent retry.** For each of the 201 `idempotency: required` ops, the generator adds a same-key retry step. Test: holds on all ops.
 
