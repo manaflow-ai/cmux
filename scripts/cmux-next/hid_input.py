@@ -28,6 +28,7 @@ The CoreGraphics calls sit behind a backend (`CoreGraphicsBackend`, or `Recordin
 clock and sleep are injected, so `python3 scripts/cmux-next/hid_input.py --self-test` checks the pacing, the event
 sequences and the parsers on any OS.
 """
+import contextlib
 import csv
 import json
 import os
@@ -340,25 +341,24 @@ class HidPoster:
         flags, and they come up after the last momentum event, as a person holds them. Returns
         {events, rate_hz, late}."""
         x, y = point
-        flags = self._hold(modifiers)
         pacer = Pacer(rate_hz, self.clock, self.sleep)
         events = 0
+        with self._held(modifiers) as flags:
 
-        def post(ddx, ddy, phase, momentum_phase):
-            nonlocal events
-            pacer.tick()
-            self.backend.scroll(x, y, ddx, ddy, phase, momentum_phase, flags)
-            events += 1
+            def post(ddx, ddy, phase, momentum_phase):
+                nonlocal events
+                pacer.tick()
+                self.backend.scroll(x, y, ddx, ddy, phase, momentum_phase, flags)
+                events += 1
 
-        post(0, 0, SCROLL_BEGAN, MOMENTUM_NONE)
-        for _ in range(changes):
-            post(dx, dy, SCROLL_CHANGED, MOMENTUM_NONE)
-        post(0, 0, SCROLL_ENDED, MOMENTUM_NONE)
-        for index in range(momentum):
-            decay = 0.9 ** (index + 1)
-            phase = MOMENTUM_BEGIN if index == 0 else (MOMENTUM_END if index == momentum - 1 else MOMENTUM_CONTINUE)
-            post(round(dx * decay), round(dy * decay), 0, phase)
-        self._release(modifiers)
+            post(0, 0, SCROLL_BEGAN, MOMENTUM_NONE)
+            for _ in range(changes):
+                post(dx, dy, SCROLL_CHANGED, MOMENTUM_NONE)
+            post(0, 0, SCROLL_ENDED, MOMENTUM_NONE)
+            for index in range(momentum):
+                decay = 0.9 ** (index + 1)
+                phase = MOMENTUM_BEGIN if index == 0 else (MOMENTUM_END if index == momentum - 1 else MOMENTUM_CONTINUE)
+                post(round(dx * decay), round(dy * decay), 0, phase)
         return {"events": events, "rate_hz": pacer.achieved_hz(), "late": pacer.late}
 
     def scroll_touch(self, point, modifiers=()):
@@ -367,27 +367,27 @@ class HidPoster:
         next OnScrollStarted, cc/metrics/scroll_jank_dropped_frame_tracker.cc), so a bench ends its gestures with
         one to have the last gesture counted. Returns {events}."""
         x, y = point
-        flags = self._hold(modifiers)
-        self.backend.scroll(x, y, 0, 0, SCROLL_BEGAN, MOMENTUM_NONE, flags)
-        self.backend.scroll(x, y, 0, 0, SCROLL_ENDED, MOMENTUM_NONE, flags)
-        self._release(modifiers)
+        with self._held(modifiers) as flags:
+            self.backend.scroll(x, y, 0, 0, SCROLL_BEGAN, MOMENTUM_NONE, flags)
+            self.backend.scroll(x, y, 0, 0, SCROLL_ENDED, MOMENTUM_NONE, flags)
         return {"events": 2}
 
-    def _hold(self, modifiers):
-        """Presses each modifier key, its flags growing as a person's chord does; returns all their flags."""
-        flags = 0
-        for modifier in modifiers:
-            flags |= FLAGS[modifier]
-            self.backend.key(MODIFIER_KEYCODES[modifier], True, flags)
-        return flags
-
-    def _release(self, modifiers):
-        flags = 0
-        for modifier in modifiers:
-            flags |= FLAGS[modifier]
-        for modifier in reversed(tuple(modifiers)):
-            flags &= ~FLAGS[modifier]
-            self.backend.key(MODIFIER_KEYCODES[modifier], False, flags)
+    @contextlib.contextmanager
+    def _held(self, modifiers):
+        """Presses each modifier key, its flags growing as a person's chord does, and yields all their flags. The
+        keys it pressed come up in reverse order when the block ends, also when a post raises (HidUnavailable) or the
+        run is interrupted, so no modifier stays down at the HID tap for later input."""
+        pressed, flags = [], 0
+        try:
+            for modifier in modifiers:
+                self.backend.key(MODIFIER_KEYCODES[modifier], True, flags | FLAGS[modifier])
+                flags |= FLAGS[modifier]
+                pressed.append(modifier)
+            yield flags
+        finally:
+            for modifier in reversed(pressed):
+                flags &= ~FLAGS[modifier]
+                self.backend.key(MODIFIER_KEYCODES[modifier], False, flags)
 
 
 def uptime_raw():
@@ -649,6 +649,29 @@ def self_test():
                                                             for e in scrolls), scrolls)
     check("sideways deltas", [e["dx"] for e in scrolls] == [0, -10, -10, 0, -9, -8] and all(e["dy"] == 0 for e in scrolls),
           [e["dx"] for e in scrolls])
+
+    # A post that fails mid-gesture still lifts Command: the HID tap is left with no modifier held.
+    class FailingBackend(RecordingBackend):
+        def __init__(self, fail_at):
+            super().__init__(clock=clock)
+            self.fail_at = fail_at
+
+        def scroll(self, *args, **kwargs):
+            if sum(e["type"] == "scroll" for e in self.events) == self.fail_at:
+                raise HidUnavailable("CoreGraphics made no event")
+            super().scroll(*args, **kwargs)
+
+    for fail_at, gesture in ((3, lambda p: p.scroll_gesture((10, 10), dx=-10, dy=0, changes=4, momentum=2, modifiers=("command",))),
+                             (1, lambda p: p.scroll_touch((10, 10), modifiers=("command",)))):
+        backend = FailingBackend(fail_at)
+        try:
+            gesture(HidPoster(backend, clock=clock, sleep=sleep))
+            failures.append(f"a failing post at {fail_at} did not raise")
+        except HidUnavailable:
+            pass
+        keys = [(e["down"], e["flags"]) for e in backend.events if e["type"] == "key"]
+        check(f"command released after a failed post at {fail_at}", keys == [(True, FLAGS["command"]), (False, 0)]
+              and backend.events[-1]["type"] == "key", backend.events)
 
     # A touch: began and ended with no movement (the ledger's next OnScrollStarted).
     backend = RecordingBackend()

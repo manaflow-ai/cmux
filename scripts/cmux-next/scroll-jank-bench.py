@@ -37,10 +37,13 @@ presentation is over 1.5 vsyncs and its oldest input came before that presentati
   Event.ScrollJank.MissedVsyncsSum.FixedWindow           Event.ScrollJank.MissedVsyncsSum.PerScroll
   Event.ScrollJank.MissedVsyncsMax.FixedWindow           Event.ScrollJank.MissedVsyncsMax.PerScroll
 
-(FixedWindow: one value per 64 presented frames; PerScroll: one per scroll.) The bench also recomputes them from
-the signposts with the same formula (`signpost_jank`, a cross-check of the app's tracker and the numbers when the
-build has no ledger), and reports per row the delayed and presented frames, DelayedFramesPercentage over the whole
-phase, the dropped display frames, and the presented time of the scroll updates (p50/p95/p99/max).
+(FixedWindow: one value per 64 presented frames; PerScroll: one per scroll.) DC4 is judged on the bench's own fold
+of the phase's signposts with the same formula (`signpost_jank`): the signposts are exactly the phase's slots. The
+ledger's `scroll_jank` is reported beside it as `ledger_cross_check`, information only: InputLatencyTracker hands
+closed slots to the ledger a half ring at a time, so at the reset the ring still holds the warm-up's last slots
+and at the read it holds the phase's last ones (the closing touch's among them). Each row reports the delayed and
+presented frames, DelayedFramesPercentage over the whole phase, the dropped display frames, and the presented time
+of the scroll updates (p50/p95/p99/max).
 
 Output: {header, dc4: one entry per session x stall x target, rows (input-latency-bench's row shape per kind, target
 and stage), runs, log}. A DC4 entry has `expectation` (`zero_delayed`: with --stall none every target, and under a
@@ -190,10 +193,17 @@ class ChromeScrollJank:
                                for name, counts in self.histograms.items() if counts}}
 
 
+# A signpost's stages are whole microseconds after its gen_ns (InputLatencySignpostMessage.micros truncates), so a
+# slot's presented time rebuilds to P - ((P - gen) mod 1000) ns: the slots of one frame land within this much of it.
+SIGNPOST_RESOLUTION_NS = 1000
+
+
 def signpost_jank(events, vsync_ns):
     """Chrome's scroll jank of a person's scroll signposts, folded as InputLatencyLedger folds slots: a begin or a
     first update starts a scroll; the updates and momentum that caused a frame update and were presented make
-    frames, one per presentation time. The last frame stays pending until the next scroll starts, as in the app."""
+    frames, one per presentation time (slots whose rebuilt times are within SIGNPOST_RESOLUTION_NS are one frame,
+    at the latest of them, the closest to the exact time). The last frame stays pending until the next scroll
+    starts, as in the app."""
     tracker = ChromeScrollJank()
     pending = None
 
@@ -218,8 +228,8 @@ def signpost_jank(events, vsync_ns):
         first = event["generated_ns"]
         last = max(first, first + int(round(stages.get("last_generated", 0.0) * 1e6)))
         presented = first + int(round(stages["presented"] * 1e6))
-        if pending and pending[2] == presented:
-            pending = (min(pending[0], first), max(pending[1], last), presented)
+        if pending and abs(pending[2] - presented) < SIGNPOST_RESOLUTION_NS:
+            pending = (min(pending[0], first), max(pending[1], last), max(pending[2], presented))
             continue
         flush()
         pending = (first, last, presented)
@@ -545,7 +555,7 @@ class Bench:
                    first_update_ms=latency_bench.dist([e["stages_ms"]["presented"] for e in mine
                                                        if e["kind"] == "scrollFirstUpdate" and "presented" in e["stages_ms"]]),
                    rows=rows)
-        jank = jank_fields(run["scroll_jank"]) or jank_fields(run["signpost_jank"]) or {}
+        jank = jank_fields(run["signpost_jank"]) or {}
         self.note(f"{self.session} {target} stall {label}: {status}, {run['events']} events at {run['rate_hz']} Hz; "
                   f"delayed {jank.get('delayed_frames')}/{jank.get('presented_frames')} frames, dropped {run['frames'].get('missed')}; "
                   f"update p99 {(run['update_ms'] or {}).get('p99')} ms; landed {landed}")
@@ -575,9 +585,13 @@ def vsync_ns(frames, rate_hz):
 
 
 # ---------------------------------------------------------------- DC4
+LEDGER_CROSS_CHECK = ("presented_frames", "delayed_frames", "skipped_frames", "missed_vsyncs_sum", "missed_vsyncs_max")
+
+
 def dc4_entry(run):
-    """One DC4 entry: Chrome's jank numbers (the app's ledger, else the signposts'), the dropped display frames, the
-    scroll update latency, and whether the DC4 expectation of the row was met (null when nothing was judged)."""
+    """One DC4 entry: Chrome's jank numbers of the phase's signposts, the ledger's beside them (information only:
+    its half-ring batches do not line up with the phase), the dropped display frames, the scroll update latency, and
+    whether the DC4 expectation of the row was met (null when nothing was judged)."""
     stalled = run.get("stall") not in (None, "none")
     expectation = "zero_delayed" if not stalled or run["target"] in ZERO_DELAYED_UNDER_STALL else "report"
     entry = {"session": run.get("session"), "stall": run.get("stall"), "target": run["target"], "status": run.get("status"),
@@ -586,11 +600,10 @@ def dc4_entry(run):
     if run.get("phase") != "scroll" or run.get("status") != "ok":
         return entry
     absent = list(run.get("absent") or [])
-    ledger, signposts = jank_fields(run.get("scroll_jank")), jank_fields(run.get("signpost_jank"))
-    jank = ledger or signposts
+    ledger, jank = jank_fields(run.get("scroll_jank")), jank_fields(run.get("signpost_jank"))
     frames = run.get("frames") or {}
-    entry.update(jank_source="ledger" if ledger else "signpost", **jank,
-                 signpost_cross_check={k: signposts.get(k) for k in ("presented_frames", "delayed_frames", "missed_vsyncs_sum")} if signposts else None,
+    entry.update(jank_source="signpost", **jank,
+                 ledger_cross_check={k: ledger.get(k) for k in LEDGER_CROSS_CHECK} if ledger else None,
                  dropped_frames=frames.get("missed"), frames=frames.get("frames"), refresh_ms=frames.get("refresh_ms"),
                  frame_p99_ms=frames.get("p99_ms"), frame_max_ms=frames.get("max_ms"),
                  update_ms=run.get("update_ms"), first_update_ms=run.get("first_update_ms"),
@@ -672,16 +685,22 @@ def run_launched(opts):
 SCROLL_KIND_RAW = {name: index for index, name in enumerate(hid_input.KINDS)}
 
 
+# The fixture's ledger: a fixed `scroll_jank` unlike any phase's signpost fold, as the app's ledger is after its
+# half-ring hand-off (the warm-up's last slots in, the phase's last batch out). DC4 must not take it.
+FIXTURE_LEDGER_JANK = {"presented_frames": 7, "delayed_frames": 3, "skipped_frames": 5,
+                       "histograms": {"Event.ScrollJank.MissedVsyncsSum.PerScroll": {"samples": [{"value": 11, "count": 1}]},
+                                      "Event.ScrollJank.MissedVsyncsMax.PerScroll": {"samples": [{"value": 9, "count": 1}]}}}
+
+
 class FixtureControl:
-    """A fake app: canned replies for every method the bench calls. Its ledger folds the scroll signposts the fixture
-    recording makes with the reference port (the app's own ledger is Swift); `cef` is debug.cef's reply."""
+    """A fake app: canned replies for every method the bench calls. Its ledger's `scroll_jank` is FIXTURE_LEDGER_JANK
+    (the app's own ledger is Swift); `cef` is debug.cef's reply."""
 
     def __init__(self, cef=None, sections=("latency", "coalescer"), sidebar_hidden=False):
         self.calls, self.created, self.stalls = [], 0, 0
         self.cef = cef if cef is not None else {"state": "ready"}
         self.sections, self.sidebar_hidden = sections, sidebar_hidden
-        self.engines, self.shown, self.ledger_events = {}, None, []
-        self.vsync_ns = int(1e9 / 120)
+        self.engines, self.shown = {}, None
 
     def rpc(self, method, params=None, timeout=30):
         params = params or {}
@@ -706,7 +725,6 @@ class FixtureControl:
             return {"running": True}
         if method == "debug.input":
             if params.get("action") == "reset":
-                self.ledger_events = []
                 return {"reset": list(self.sections)}
             body = {"absent": [s for s in ("latency", "coalescer") if s not in self.sections]}
             if "latency" in self.sections:
@@ -714,7 +732,7 @@ class FixtureControl:
                                              "presentation_source": "estimatedVsync", "display": {"refresh_hz": 120},
                                              "total": {"count": 3, "p50_ms": 7.0, "p95_ms": 9.0, "p99_ms": 9.5, "max_ms": 10.0},
                                              "stages": []}],
-                                   "scroll_jank": signpost_jank(self.ledger_events, self.vsync_ns)}
+                                   "scroll_jank": FIXTURE_LEDGER_JANK}
             if "coalescer" in self.sections:
                 body["coalescer"] = {"windows": [{"window": "w1", "consumers": [{"consumer": "layout.scroll", "deliveries_per_frame": {"max": 1}}]}]}
             return body
@@ -799,9 +817,7 @@ class FixtureRecording:
                        f"echo_sent_us=-1 presented_us={presented}")
             lines.append(json.dumps({"eventType": "signpostEvent", "subsystem": hid_input.SIGNPOST_SUBSYSTEM, "category": "input",
                                      "signpostName": hid_input.INPUT_LATENCY, "signpostType": "event", "eventMessage": message}))
-        events, lost = hid_input.latency_events(lines)
-        self.control.ledger_events = events
-        return events, lost
+        return hid_input.latency_events(lines)
 
 
 def tracker_cases(check):
@@ -830,6 +846,41 @@ def tracker_cases(check):
           (fixed, tracker.fixed))
 
 
+def signpost_event(kind, gen_ns, presented_ns):
+    """A person's sidebar scroll slot as its input.latency signpost carries it (stages in whole microseconds after
+    gen_ns, as InputLatencySignpostMessage.micros truncates), decoded."""
+    frame = kind in UPDATE_KINDS
+    presented = (presented_ns - gen_ns) // 1000 if frame else -1
+    message = (f"kind={SCROLL_KIND_RAW[kind]} target={hid_input.TARGETS.index('sidebar')} entry=0 source=0 vrr=0 "
+               f"coalesced=1 frame={int(frame)} gen_ns={gen_ns} last_gen_us=-1 presented_us={presented}")
+    return hid_input.decode_latency_message(message)
+
+
+def signpost_fold_cases(check):
+    """Slots coalesced into one frame fold to that frame, though their truncated stages rebuild it a little apart.
+    Checked against the reference port fed the exact frames, not against signpost_jank itself."""
+    vsync = int(1e9 / 120)
+    p1 = 1_000_000_000_000 + 333
+    p2, p3 = p1 + vsync, p1 + 4 * vsync  # p3: three vsyncs after p2, its input from before p2 (delayed, 2 missed)
+    frames = [(p1 - 5_000_123, p1 - 5_000_123, p1),
+              (p2 - 6_000_777, p2 - 4_000_111, p2),  # two slots shown at exactly p2
+              (p2 - 1_000_555, p2 - 1_000_555, p3)]
+    events = [signpost_event("scrollBegin", p1 - 9_000_000, -1),
+              signpost_event("scrollFirstUpdate", p1 - 5_000_123, p1),
+              signpost_event("scrollUpdate", p2 - 4_000_111, p2),
+              signpost_event("scrollUpdate", p2 - 6_000_777, p2),
+              signpost_event("scrollUpdate", p2 - 1_000_555, p3),
+              signpost_event("scrollBegin", p3 + 50_000_000, -1)]
+    exact = ChromeScrollJank()
+    exact.scroll_started()
+    for first, last, presented in frames:
+        exact.frame(first, last, presented, vsync)
+    exact.scroll_started()
+    folded = signpost_jank(events, vsync)
+    check("coalesced slots are one frame", folded == exact.snapshot() and folded["skipped_frames"] == 1
+          and folded["presented_frames"] == 2 and folded["delayed_frames"] == 1, (folded, exact.snapshot()))
+
+
 def self_test():
     failures = []
 
@@ -838,6 +889,7 @@ def self_test():
             failures.append(f"{name}: {str(detail)[:400]}")
 
     tracker_cases(check)
+    signpost_fold_cases(check)
 
     parser = build_parser()
     for argv in (["--targets", "sidebar,nope"], ["--sessions", "heavy"], ["--stall", "50ms"], ["--momentum", "1"]):
@@ -882,12 +934,18 @@ def self_test():
     check("every target measured", all(e["status"] == "ok" for e in dc4), [(e["target"], e["status"], e.get("reason")) for e in dc4])
     fields = {"presented_frames", "delayed_frames", "skipped_frames", "delayed_frames_percentage", "missed_vsyncs_sum", "missed_vsyncs_max",
               "histograms", "dropped_frames", "frames", "refresh_ms", "update_ms", "first_update_ms", "expectation", "met", "jank_source",
-              "signpost_cross_check", "coalescer_deliveries_per_frame_max", "verified", "landed"}
+              "ledger_cross_check", "coalescer_deliveries_per_frame_max", "verified", "landed"}
+    phase_runs = {(r["target"], r["stall"]): r for r in bench.runs if r.get("phase") == "scroll"}
+    ledger = {"presented_frames": 7, "delayed_frames": 3, "skipped_frames": 5, "missed_vsyncs_sum": 11, "missed_vsyncs_max": 9}
     for entry in dc4:
         check(f"dc4 fields {entry['target']}", fields <= set(entry), sorted(fields - set(entry)))
         check(f"dc4 chrome names {entry['target']}", set(entry.get("histograms") or {}) == set(CHROME_NAMES), entry.get("histograms"))
-        check(f"dc4 ledger agrees with the signposts {entry['target']}", entry.get("jank_source") == "ledger"
-              and entry["signpost_cross_check"]["delayed_frames"] == entry["delayed_frames"], entry.get("signpost_cross_check"))
+        # DC4 takes the phase's signposts, never the ledger (its half-ring hand-off): the ledger is only beside it.
+        own = jank_fields(phase_runs[(entry["target"], entry["stall"])]["signpost_jank"])
+        check(f"dc4 judged on the signposts {entry['target']}", entry.get("jank_source") == "signpost"
+              and all(entry[k] == own[k] for k in ledger) and entry["presented_frames"] != ledger["presented_frames"],
+              {k: (entry.get(k), own[k]) for k in ledger})
+        check(f"dc4 ledger beside it {entry['target']}", entry.get("ledger_cross_check") == ledger, entry.get("ledger_cross_check"))
     idle = {e["target"]: e for e in dc4 if e["stall"] == "none"}
     stalled = {e["target"]: e for e in dc4 if e["stall"] != "none"}
     for target, entry in idle.items():
@@ -924,7 +982,8 @@ def self_test():
     _, _, bench, document = run(control, ["--targets", "sidebar,terminal-scrollback"])
     entries = {e["target"]: e for e in document["dc4"]}
     check("signpost jank without a ledger", entries["sidebar"]["jank_source"] == "signpost" and entries["sidebar"]["met"] is True
-          and any("latency" in a for a in entries["sidebar"]["absent"]), entries["sidebar"])
+          and entries["sidebar"]["ledger_cross_check"] is None and any("latency" in a for a in entries["sidebar"]["absent"]),
+          entries["sidebar"])
     control = FixtureControl(sidebar_hidden=True)
     _, _, _, document = run(control, ["--targets", "sidebar"])
     check("hidden sidebar skipped", document["dc4"][0]["status"] == "skipped" and not document["header"]["input_reached"], document["dc4"][0])
