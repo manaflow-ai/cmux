@@ -103,7 +103,8 @@ public enum JSONValue: Sendable, Hashable {
         }
     }
 
-    /// The members of an Objective-C dictionary; keys that are equal as Swift strings become one member.
+    /// The members of an Objective-C dictionary; keys that are equal as Swift strings become one member, in
+    /// no set order (``JSONC/parse(_:)`` drops all but the document's last before it gets here).
     private static func members(of dictionary: NSDictionary) -> [String: JSONValue]? {
         var members: [String: JSONValue] = [:]
         members.reserveCapacity(dictionary.count)

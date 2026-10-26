@@ -7,17 +7,21 @@ import Testing
 
 /// Seeded fuzz of cmux-next.json (plans/cmux-next/chrome-parity/p10-stability.md, task 026): JSONC reads and
 /// in-place edits, the snapshot parse of any document (unknown keys, deep nesting, huge numbers, wrong types),
-/// keybinding strings, and the controller's load of a file that turns bad. Chrome fuzzes the same layer
-/// (base/json/json_reader_fuzzer.cc) and bounds its nesting (base/json/json_common.h, `kAbsoluteMaxDepth`).
+/// keybinding strings and keybindings.json `when` clauses, and the controller's load of a file that turns bad.
+/// Chrome fuzzes the same layer (base/json/json_reader_fuzzer.cc) and bounds its nesting (base/json/json_common.h,
+/// `kAbsoluteMaxDepth`).
 ///
 /// The properties:
 /// - any text parses to a value or throws, never traps; what parses, the writer writes as text that reads back;
-/// - nesting deeper than ``JSONC/maxDepth`` is refused, never recursed into;
+/// - nesting deeper than ``JSONC/maxDepth`` is refused, never recursed into, and never written by an edit;
 /// - an in-place edit reads back as the same edit of the document's value, and keeps a valid file valid;
 /// - any document gives a snapshot, the same one twice, and keys the app does not know change no setting;
 /// - a keybinding string reads as a stroke or nil, and a stroke's config string reads back as that stroke;
+/// - a `when` clause parses or throws, and one nested past the parser's bound throws;
 /// - after a file that does not read (bad JSONC, a root that is not an object, bytes that are not UTF-8, too
 ///   deep), the settings in effect stay the last good file's.
+///
+/// The fixed cases of the same limits run on every `swift test`, in ``JSONCLimitTests`` and WhenClauseDepthTests.
 ///
 /// It runs only with `CMUX_SETTINGS_FUZZ=1`; agents run it on the fleet, CI does not (Lawrence 2026-10-23):
 ///
@@ -44,7 +48,7 @@ struct SettingsFuzzTests {
     }()
 
     /// The suite's seeded runs, which share a `CMUX_FUZZ_DEADLINE`.
-    nonisolated static let runCount = 6
+    nonisolated static let runCount = 7
 
     /// Each run's share of `CMUX_FUZZ_DEADLINE`, fixed when the first run asks; nil without a deadline or in a replay.
     nonisolated static let deadlineShare: TimeInterval? = {
@@ -64,12 +68,13 @@ struct SettingsFuzzTests {
     /// p10-stability-182). The controller run writes files and awaits loads, so it is not part of it.
     static func oneInput(_ data: Data) throws {
         var rng = FuzzRNG(replaying: data)
-        switch rng.below(4) {
+        switch rng.below(5) {
         case 0: try checkText(rng.bytes(1_024))
         case 1:
             let document = Self.document(&rng)
             try checkSnapshot(document, &rng)
         case 2: try checkKeybinding(&rng)
+        case 3: try checkWhenClause(&rng)
         default:
             let document = Self.document(&rng)
             try checkEdit(document, &rng)
@@ -112,6 +117,14 @@ struct SettingsFuzzTests {
         }
     }
 
+    /// keybindings.json `when` text, from the clause grammar's tokens and deep `!` and `(` runs, parses or throws.
+    @Test(.timeLimit(.minutes(SettingsFuzzTests.timeLimitMinutes)))
+    func whenClausesParseOrThrow() throws {
+        try Self.run("Settings.when", seed: 0x5E77_0026_0007, iterations: 20_000).forEach { rng in
+            try Self.checkWhenClause(&rng)
+        }
+    }
+
     @Test(.timeLimit(.minutes(SettingsFuzzTests.timeLimitMinutes)))
     func editsReadBackAndKeepValidFilesValid() throws {
         try Self.run("Settings.edit", seed: 0x5E77_0026_0005, iterations: 5_000).forEach { rng in
@@ -143,52 +156,6 @@ struct SettingsFuzzTests {
     }
 
     // MARK: - Fixed cases
-
-    @Test(arguments: [1, 2, JSONC.maxDepth - 1, JSONC.maxDepth, JSONC.maxDepth + 1, 512, 100_000])
-    func nestingDeeperThanTheLimitIsRefused(depth: Int) async throws {
-        // `depth` objects; a root object holding `depth - 1` arrays.
-        let objects = String(repeating: #"{"a":"#, count: depth - 1) + "{}" + String(repeating: "}", count: depth - 1)
-        let arrays = #"{"a":"# + String(repeating: "[", count: depth - 1) + "0" + String(repeating: "]", count: depth - 1) + "}"
-        let fits = depth <= JSONC.maxDepth
-        for text in [objects, arrays] {
-            do {
-                let parsed = try JSONC.parse(text)
-                #expect(fits, "depth \(depth) parsed")
-                _ = Self.snapshot(parsed)
-                _ = try JSONC.setting(.bool(true), at: ["fuzz"], in: text)
-            } catch JSONC.Failure.tooDeep {
-                #expect(!fits, "depth \(depth) was refused")
-            }
-        }
-        let home = FileManager.default.temporaryDirectory.appending(path: "cn-settings-fuzz-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: home) }
-        let url = home.appending(path: "cmux-next.json")
-        try Data(objects.utf8).write(to: url)
-        let file = CmuxConfigFile(url: url)
-        if depth > JSONC.maxDepth {
-            await #expect(throws: CmuxConfigFile.Failure.self) { try await file.set(.bool(true), at: ["fuzz"]) }
-            #expect(try CmuxConfigFile.source(at: url) == objects, "a refused file was rewritten")
-        } else {
-            try await file.set(.bool(true), at: ["fuzz"])
-            #expect(try JSONC.parse(CmuxConfigFile.source(at: url))["fuzz"] == .bool(true))
-        }
-    }
-
-    /// Braces in strings and comments are not nesting.
-    @Test func bracesInStringsAndCommentsDoNotCount() throws {
-        let deep = String(repeating: "{[", count: JSONC.maxDepth)
-        let text = "{\"a\": \"\(deep)\", // \(deep)\n \"b\": /* \(deep) */ 1}"
-        #expect(try JSONC.parse(text) == ["a": .string(deep), "b": 1])
-    }
-
-    /// Keys that are distinct to Foundation but equal Swift strings (NFC and NFD) read as one member.
-    @Test func canonicallyEqualKeysReadAsOneMember() throws {
-        let parsed = try JSONC.parse(#"{"\u00e9": 1, "e\u0301": 2, "shortcuts": {"\u00e9": "cmd+a", "e\u0301": "cmd+b"}}"#)
-        #expect(parsed.objectValue?.count == 2)
-        #expect(parsed["shortcuts"]?.objectValue?.count == 1)
-        _ = Self.snapshot(parsed)
-    }
 
     /// Every known key set to each extreme number parses and applies without a trap.
     @Test func hugeNumbersInEveryKeyNeverTrap() {
@@ -268,6 +235,24 @@ extension SettingsFuzzTests {
         _ = CmuxConfigFile.keyPath(from: rng.text(textAlphabet, 24))
     }
 
+    /// A `when` clause parses or throws ``WhenClauseParseError``; one nested past the parser's bound throws.
+    static func checkWhenClause(_ rng: inout FuzzRNG) throws {
+        var text = (0..<rng.below(24)).map { _ in rng.element(of: whenTokens) ?? "" }.joined(separator: rng.bool() ? " " : "")
+        var depth = 0
+        if rng.oneIn(6) {
+            depth = rng.oneIn(4) ? rng.int(in: 190...210) : rng.int(in: 1...100_000)
+            let open = rng.element(of: ["(", "!", "!("]) ?? "("
+            let levels = open.count == 2 ? (depth + 1) / 2 : depth
+            depth = levels * open.count
+            let close = String(repeating: ")", count: open == "!" ? 0 : levels)
+            text = String(repeating: open, count: levels) + (text.isEmpty ? "editorFocus" : text) + (rng.bool() ? close : "")
+        }
+        let parsed = Result<WhenClause, WhenClauseParseError> { () throws(WhenClauseParseError) in try WhenClause.parse(text) }
+        if depth > 200, case .success(let clause) = parsed {
+            try FuzzRun.check(false, "a clause \(depth) levels deep parsed (\(text.prefix(80))…) as \(String(describing: clause).prefix(80))")
+        }
+    }
+
     static func checkEdit(_ document: JSONValue, _ rng: inout FuzzRNG) throws {
         let source = jsoncText(document, &rng)
         let path = editPath(&rng)
@@ -279,14 +264,16 @@ extension SettingsFuzzTests {
         let removed = try JSONC.parse(JSONC.removing(path, in: edited))
         try FuzzRun.check(same(removed, removing(path, from: expected)), "removing \(path) read back as \(removed.compactText)")
 
-        // A valid file a mutation made: an edit throws or leaves a file that still reads as an object.
+        // A valid file a mutation made: an edit throws (one past the nesting limit is refused, never written) or
+        // leaves a file that still reads as an object, with the edited value in effect.
         let mutated = String(decoding: mutator.mutate(Data(source.utf8), using: &rng), as: UTF8.self)
         guard (try? JSONC.parse(mutated))?.objectValue != nil,
               let result = try? JSONC.setting(value, at: path, in: mutated) else { return }
         do {
-            try FuzzRun.check(try JSONC.parse(result).objectValue != nil, "an edit left a root that is not an object:\n\(result)")
-        } catch JSONC.Failure.tooDeep {
-            // The edit nested the value past the limit; the file is refused as a whole, never trapped on.
+            let read = try JSONC.parse(result)
+            try FuzzRun.check(read.objectValue != nil, "an edit left a root that is not an object:\n\(result)")
+            try FuzzRun.check(read.value(at: path).map { same($0, value) } == true,
+                              "setting \(path) to \(value.compactText) in a mutated file did not take effect:\n\(result)")
         } catch let error as FuzzError {
             throw error
         } catch {
@@ -350,6 +337,12 @@ extension SettingsFuzzTests {
         "cmd+shift+p", "cmd++", "+", "++", "ctrl+b", "⌘⇧P", "cmd+⌘", "shift+", "+a", "cmd+opt+ctrl+shift+f20", "f21",
         "f0", "cmd+left", "space", " ", "cmd+ ", "none", " Clear ", "unbound", "disabled", "", "cmd+\u{7F}",
         "cmd+\u{1F600}", "cmd+é", "hyper+a", "cmd+shift+p+q", "cmd+plus", "cmd+equals", "\u{0}",
+    ]
+    /// The `when` grammar's tokens (WhenClauseParser.swift), with broken ones: lone quotes, slashes and backslashes.
+    static let whenTokens: [String] = [
+        "!", "(", ")", "&&", "||", "==", "!=", "=~", "/a.b/", "/x\\/y/i", "/open", "in", "not in", "not", "true", "false",
+        "editorFocus", "terminal.focused", "pane:kind", "a-b_c", "'quoted value'", "\"dq\"", "1", "1e400", "-2.5", "'", "\"",
+        "/", "\\", " ", "\t", "\n", "é", "!!", "((", "))", "&", "|", "=",
     ]
     static let modifierTokens: [String] = [
         "cmd", "command", "⌘", "shift", "⇧", "opt", "option", "alt", "⌥", "ctrl", "control", "ctl", "⌃", "", " Cmd ", "hyper",
