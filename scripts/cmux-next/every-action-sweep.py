@@ -91,17 +91,20 @@ does not come back after a crash (bench_launch's LaunchError at a relaunch): the
 the next session runs on a fresh launch.
 
 Blocking sites (p02-threads 300, MQ-10; RUN-1 in plans/cmux-next/chrome-parity/p02-threads.md): --blocking-report=record
-launches with CMUX_BLOCKING_TRAP=0 and CMUX_BLOCKING_TRAP_POOL=0, reads `debug.blocking` (with reset) when each launch
-ends and saves each read to OUT/blocking/<session>-<launch>.json; the report's `blocking` section groups the sites by
-(fileID, kind, context), one task p02-threads-R<n> per module (OUT/blocking-tasks.json, the design-result task shape).
---blocking-report=trap launches with CMUX_BLOCKING_TRAP=1 and CMUX_BLOCKING_TRAP_POOL=1 and is RUN-1: the run exits
-BLOCKING_EXIT (5) unless every launch was read in trap mode, with 0 traps (the detector's fatalError lines in
-OUT/app.log, or an exit on SIGTRAP), 0 sites and 0 overflow. A record run never exits on its sites: they are its output.
+launches with CMUX_BLOCKING_TRAP=0 and CMUX_BLOCKING_TRAP_POOL=0, reads `debug.blocking` (with reset) before each launch
+quits and saves each read to OUT/blocking/<session>-<launch>.json; the report's `blocking` section groups the sites by
+(fileID, kind, context), one task p02-threads-R-every-action-<Module> per module (OUT/blocking-tasks.json, the
+design-result task shape, with each #fileID resolved to its file under Packages/**/Sources/<Module>/). Quit-path sites
+are lifecycle-sweep's (RUN-12, p02-threads 307): a record run cannot read a table that ended with its launch.
+--blocking-report=trap launches with CMUX_BLOCKING_TRAP=1 and CMUX_BLOCKING_TRAP_POOL=1 and is RUN-1: the last launch
+quits before the verdict, and the run exits BLOCKING_EXIT (5) unless every launch was read in trap mode, with 0 traps
+(the detector's fatalError lines in OUT/app.log, or an exit or a quit on SIGTRAP), 0 sites and 0 overflow; each trap is
+filed as a site too. A record run never exits on its sites: they are its output.
 --merge joins the shards' blocking sections and writes blocking-tasks.json next to the merged JSON. On the fleet, add
 --arg=--blocking-report=record (then =trap) to the split-spring.sh command above, with --artifact
 artifacts/split-spring/blocking-tasks.json in a further step.
 """
-import argparse, base64, csv, signal, threading, glob, gzip, importlib.util, json, os, platform, re, socket, statistics, subprocess, sys, tempfile, time, traceback
+import argparse, base64, csv, functools, signal, threading, glob, gzip, importlib.util, json, os, platform, re, socket, statistics, subprocess, sys, tempfile, time, traceback
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(os.path.dirname(HERE))
@@ -168,10 +171,11 @@ BLOCKING_EXIT = 5
 # pool switch is task 005's). Record says 0 outright, so a Debug default flipped to trap (task 021) still records.
 BLOCKING_ENV = {"record": {"CMUX_BLOCKING_TRAP": "0", "CMUX_BLOCKING_TRAP_POOL": "0"},
                 "trap": {"CMUX_BLOCKING_TRAP": "1", "CMUX_BLOCKING_TRAP_POOL": "1"}}
-# The detector's trap message (BlockingViolationTable.blocked's fatalError), as the app's stderr has it in OUT/app.log:
-# "...: Fatal error: blocking <kind> on the main thread at <Module/File.swift>:<line>: move it ...". "Fatal error:" keeps
-# out the record mode's log line of the same words. The words between "on" and "at" name the context ("the main
-# thread" is main; a pool trap names its pool).
+# The detector's trap messages (BlockingViolationTable.trap's fatalError, CmuxNextCompat/Threading), as the app's
+# stderr has them in OUT/app.log: "...: Fatal error: blocking <kind> on the main thread at <Module/File.swift>:<line>:
+# move it ..." (recordedSite) and "... on the cooperative pool or a GCD root queue at <Module/File.swift>:<line>: run it
+# ..." (recordedOffMainSite). "Fatal error:" keeps out the record mode's log line of the same words. The words between
+# "on" and "at" name the context.
 BLOCKING_TRAP_LINE = re.compile(r"Fatal error: blocking (?P<kind>[\w-]+) on (?P<where>[^:\n]+?) at (?P<file>[^\s:]+):(?P<line>\d+):")
 # The violation contexts debug.blocking reports (BlockingContext's raw values; lane and dedicated may block). RUN-1
 # (plans/cmux-next/chrome-parity/p02-threads.md section 5) fails on a site of any context or kind.
@@ -361,6 +365,7 @@ class App:
         try:
             self.read_blocking()
             self.quit()
+            self.note_quit()
         finally:
             # The tag's headless cmux-tui session and acpmux outlive a quit (keep-on-quit): end them, so the next
             # session starts empty (a relaunch otherwise restores every workspace the last session left).
@@ -396,9 +401,19 @@ class App:
         reply = rpc("debug.blocking", {"reset": True}, timeout=10) if code is None else {"error": f"the app exited ({code})"}
         read = {"session": self.launch_session, "launch": self.launches, "pid": self.process.pid, "exit": code, "reply": reply}
         BLOCKING_READS.append(read)
-        os.makedirs(os.path.join(OUT, "blocking"), exist_ok=True)
-        with open(os.path.join(OUT, "blocking", f"{self.launch_session or 'launch'}-{self.launches}.json"), "w") as f:
-            json.dump(read, f, indent=1, default=str)
+        save_blocking_read(read)
+
+    def note_quit(self):
+        """--blocking-report: the ended launch's quit exit status on its read (`quit_exit`), so a trap while it quit
+        (SIGTRAP) counts in RUN-1. A record run cannot read the table after the quit: quit-path sites are
+        lifecycle-sweep's (RUN-12, p02-threads 307); a trap run sees them as traps."""
+        if not opts.blocking_report or self.process is None:
+            return
+        read = next((r for r in BLOCKING_READS if r["pid"] == self.process.pid), None)
+        if read is None or "quit_exit" in read:
+            return
+        read["quit_exit"] = self.process.poll()
+        save_blocking_read(read)
 
     def why_unresponsive(self, since):
         """Why the app stopped answering, before it is relaunched: it exited (code or signal, and the crash
@@ -2194,6 +2209,13 @@ SIGNPOSTS = SignpostStream(os.path.join(OUT, "signposts.ndjson"))
 BLOCKING_READS = []  # App.read_blocking's reads, one per launch, in launch order
 
 
+def save_blocking_read(read):
+    """OUT/blocking/<session>-<launch>.json: one launch's read (and, once it quit, its quit exit status)."""
+    os.makedirs(os.path.join(OUT, "blocking"), exist_ok=True)
+    with open(os.path.join(OUT, "blocking", f"{read['session'] or 'launch'}-{read['launch']}.json"), "w") as f:
+        json.dump(read, f, indent=1, default=str)
+
+
 # ----------------------------------------------------------------------------------------------------------
 # Report.
 
@@ -2439,10 +2461,20 @@ def main():
             with open(report_path, "w") as f:
                 json.dump(report, f, indent=1, default=str)
     finally:
+        stopped = False
         if opts.blocking_report:
             app.read_blocking()  # the last launch, before the report: its table ends with it
+            last_quit = "the last launch was kept running (--keep)"
+            if not opts.keep:
+                # Quit before the verdict, so a trap on the last quit is in app.log and in that read's quit_exit.
+                stopped = True
+                try:
+                    app.stop()
+                    last_quit = None
+                except Exception as error:  # the report still lands; the verdict names the unchecked quit
+                    last_quit = f"the last quit failed: {error}"
             report["blocking"] = blocking_section(opts.blocking_report, BLOCKING_READS, blocking_traps(app_log, log_start),
-                                                  partial=bool(env.get("partial") or opts.shard))
+                                                  partial=bool(env.get("partial") or opts.shard), last_quit=last_quit)
             write_blocking_tasks(report["blocking"], os.path.join(OUT, "blocking-tasks.json"))
         attach_crash_reports(report)
         with open(report_path, "w") as f:
@@ -2465,7 +2497,7 @@ def main():
             json.dump(report, f, indent=1, default=str)
         with open(os.path.join(OUT, "every-action.md"), "w") as f:
             f.write(markdown(report))
-        if not opts.keep:
+        if not opts.keep and not stopped:
             app.stop()
     if not opts.shard:
         report["coverage"] = coverage(report)
@@ -2547,47 +2579,94 @@ def blocking_traps(log_path, start=0):
             for m in BLOCKING_TRAP_LINE.finditer(text)]
 
 
-def blocking_site_groups(reads):
+def blocking_site_groups(reads, traps=()):
     """The sites of every read debug.blocking reply, one group per (fileID, kind, context) (MQ-10): its lines, count,
-    and the sessions it was seen in. A site without `context` is main (the detector before task 005 checks only main)."""
+    and the sessions it was seen in. A site without `context` is main (the detector before task 005 checks only main).
+    A trap from app.log is a site of session "trap": the launch stopped there (or while it quit), so no read has it."""
     groups = {}
+
+    def add(location, kind, context, count, session, max_ms=None):
+        location = str(location or "?")
+        file_id, _, line = location.rpartition(":")
+        file_id = file_id if line.isdigit() else location
+        key = (file_id, str(kind or "?"), str(context or "main"))
+        group = groups.setdefault(key, {"file_id": key[0], "kind": key[1], "context": key[2],
+                                        "module": key[0].split("/", 1)[0], "lines": set(), "count": 0,
+                                        "sessions": set(), "max_ms": None})
+        if line.isdigit():
+            group["lines"].add(int(line))
+        group["count"] += count
+        group["sessions"].add(session)
+        if isinstance(max_ms, (int, float)):
+            group["max_ms"] = max(group["max_ms"] or 0, max_ms)
+
     for read in reads:
         reply = read.get("reply")
         if blocking_read_problem(reply, None):
             continue
         for site in reply.get("sites") or []:
-            location = str(site.get("location") or "?")
-            file_id, _, line = location.rpartition(":")
-            file_id = file_id if line.isdigit() else location
-            key = (file_id, str(site.get("kind") or "?"), str(site.get("context") or "main"))
-            group = groups.setdefault(key, {"file_id": key[0], "kind": key[1], "context": key[2],
-                                            "module": key[0].split("/", 1)[0], "lines": set(), "count": 0,
-                                            "sessions": set(), "max_ms": None})
-            if line.isdigit():
-                group["lines"].add(int(line))
-            group["count"] += int(site.get("count") or 0)
-            group["sessions"].add(str(read.get("session")))
-            if isinstance(site.get("max_ms"), (int, float)):
-                group["max_ms"] = max(group["max_ms"] or 0, site["max_ms"])
+            add(site.get("location"), site.get("kind"), site.get("context"), int(site.get("count") or 0),
+                str(read.get("session")), site.get("max_ms"))
+    for trap in traps:
+        add(trap.get("location"), trap.get("kind"), trap.get("context"), 1, "trap")
     return [dict(g, lines=sorted(g["lines"]), sessions=sorted(g["sessions"]))
             for _, g in sorted(groups.items(), key=lambda kv: (kv[1]["module"], kv[0]))]
 
 
-def blocking_tasks(groups):
-    """One task p02-threads-R<n> per module of the site groups (MQ-10), in the design-result task shape, to fix with
-    the MQ-1 recipe (task 060) and rerun with traps. Numbered by module name, so a rerun with the same modules keeps
-    the same ids."""
+@functools.lru_cache(maxsize=None)
+def swift_source_index(root=ROOT):
+    """(module folder, file name) -> the repo's paths Packages/**/Sources/<Module>/**/<File>.swift. A site's location
+    is Swift's #fileID, `Module/File.swift`, without the folders inside the module, in any package the detector
+    links (CmuxNext and the Shared packages). From `git ls-files`, or a walk of Packages without git."""
+    try:
+        listed = subprocess.run(["git", "-C", root, "ls-files", "-z", "--", "Packages/*.swift"], capture_output=True,
+                                timeout=60, check=True).stdout.decode(errors="replace").split("\0")
+    except (OSError, subprocess.SubprocessError):
+        listed = []
+        for folder, dirs, names in os.walk(os.path.join(root, "Packages")):
+            dirs[:] = [d for d in dirs if not d.startswith(".")]  # .build and other caches
+            listed += [os.path.relpath(os.path.join(folder, n), root) for n in names if n.endswith(".swift")]
+    index = {}
+    for path in listed:
+        parts = path.split("/")
+        if "Sources" in parts and parts.index("Sources") + 2 < len(parts):
+            index.setdefault((parts[parts.index("Sources") + 1], parts[-1]), []).append(path)
+    return index
+
+
+def blocking_source_paths(file_id, index):
+    """The repo files a #fileID `Module/File.swift` can be: one when it resolves, none or several when it does not."""
+    module, slash, name = file_id.partition("/")
+    return sorted(index.get((module, os.path.basename(name)), [])) if slash else []
+
+
+def blocking_task_id(module, sweep="every-action"):
+    """A site task's id, from its sweep and module only: a rerun after some modules were fixed, and lifecycle-sweep
+    (task 307) filing its own sites, never give a filed id to other work."""
+    return f"p02-threads-R-{sweep}-{module}"
+
+
+def blocking_tasks(groups, index=None, sweep="every-action"):
+    """One task per module of the site groups (MQ-10, blocking_task_id), in the design-result task shape, to fix with
+    the MQ-1 recipe (task 060) and rerun with traps. `files` are the real paths of the sites' #fileIDs
+    (swift_source_index); a fileID with no single match is `unresolved`, with its candidates, and the change says so."""
+    index = swift_source_index() if index is None else index
     modules = {}
     for group in groups:
-        modules.setdefault(group["module"], []).append(group)
+        modules.setdefault(group["module"], []).append(dict(group, paths=blocking_source_paths(group["file_id"], index)))
     tasks = []
-    for n, (module, items) in enumerate(sorted(modules.items()), start=1):
+    for module, items in sorted(modules.items()):
         sites = [f"{g['file_id']}:{','.join(map(str, g['lines'])) or '?'} {g['kind']} ({g['context']}, {g['count']}x)"
                  for g in items]
-        tasks.append({"id": f"p02-threads-R{n}", "title": f"runtime blocking sites in {module} ({len(items)} groups)",
-                      "files": sorted({f"Packages/macOS/CmuxNext/Sources/{g['file_id']}" for g in items}),
-                      "change": "MQ-1 recipe (task 060) for each site: the seam, and the call moved off its context "
-                                "(main, pool or the wrong lane) in the same commit. Sites: " + "; ".join(sites),
+        unresolved = {g["file_id"]: g["paths"] for g in items if len(g["paths"]) != 1}
+        change = ("MQ-1 recipe (task 060) for each site: the seam, and the call moved off its context (main, pool or "
+                  "the wrong lane) in the same commit. Sites: " + "; ".join(sites))
+        if unresolved:
+            change += (". Unresolved fileIDs (no single Packages/**/Sources/<Module>/**/<File>): "
+                       + "; ".join(f"{f} ({', '.join(c) if c else 'no file'})" for f, c in sorted(unresolved.items())))
+        tasks.append({"id": blocking_task_id(module, sweep), "title": f"runtime blocking sites in {module} ({len(items)} groups)",
+                      "files": sorted({p for g in items for p in g["paths"]}), "unresolved": unresolved,
+                      "change": change,
                       "acceptance": "every-action-sweep.py --blocking-report=trap (RUN-1) reports none of these sites "
                                     "and 0 traps; a red-first test per changed user-reachable path.",
                       "test_phase": "T1; T2", "size": "S" if len(items) <= 3 else "M", "depends_on": ["p02-threads-300"],
@@ -2610,16 +2689,17 @@ def blocking_read_problem(reply, mode):
     return None
 
 
-def blocking_section(mode, reads, traps, partial=False):
+def blocking_section(mode, reads, traps, partial=False, last_quit=None, index=None):
     """The report's `blocking` section: the reads (`unread`: the launches whose reply cannot count), the traps, the
     site groups and their tasks, and the RUN-1 verdict of a trap run (`run1`: problems, empty when clean). A record
-    run has no verdict (its sites are its output)."""
-    groups = blocking_site_groups(reads)
+    run has no verdict (its sites are its output). `last_quit`: why the last launch's quit was not checked, or None."""
+    groups = blocking_site_groups(reads, traps)
     overflow = sum(int((r.get("reply") or {}).get("overflow") or 0) for r in reads if isinstance(r.get("reply"), dict))
     unread = [f"{r.get('session')} launch {r.get('launch')}: {why}" for r in reads
               if (why := blocking_read_problem(r.get("reply"), mode))]
     section = {"mode": mode, "reads": reads, "unread": unread, "traps": traps, "groups": groups,
-               "tasks": blocking_tasks(groups), "sites": sum(len(g["lines"]) or 1 for g in groups), "overflow": overflow,
+               "tasks": blocking_tasks(groups, index), "sites": sum(len(g["lines"]) or 1 for g in groups),
+               "overflow": overflow, "last_quit": last_quit,
                "contexts": {c: sum(1 for g in groups if g["context"] == c) for c in
                             sorted(set(BLOCKING_CONTEXTS) | {g["context"] for g in groups})},
                "kinds": {k: sum(1 for g in groups if g["kind"] == k) for k in sorted({g["kind"] for g in groups})}}
@@ -2630,11 +2710,17 @@ def blocking_section(mode, reads, traps, partial=False):
         problems.append("no launch was read")
     problems += [f"{r.get('session')} launch {r.get('launch')} exited on SIGTRAP" for r in reads
                  if r.get("exit") == -signal.SIGTRAP]
+    problems += [f"{r.get('session')} launch {r.get('launch')} trapped while it quit (SIGTRAP)" for r in reads
+                 if r.get("quit_exit") == -signal.SIGTRAP and r.get("exit") != -signal.SIGTRAP]
+    if last_quit:
+        problems.append(f"{last_quit}: its quit is not checked")
     problems += [f"not read: {why}" for why in unread]
     if traps:
         problems.append(f"{len(traps)} trap(s): " + ", ".join(f"{t['location']} {t['kind']}" for t in traps[:10]))
-    if groups:
-        problems.append(f"{len(groups)} site group(s): " + ", ".join(f"{g['file_id']} {g['kind']}" for g in groups[:10]))
+    read_groups = [g for g in groups if g["sessions"] != ["trap"]]
+    if read_groups:
+        problems.append(f"{len(read_groups)} site group(s): "
+                        + ", ".join(f"{g['file_id']} {g['kind']}" for g in read_groups[:10]))
     if overflow:
         problems.append(f"overflow {overflow}")
     section["run1"] = {"clean": not problems, "problems": problems, "whole_catalog": not partial}
@@ -2654,6 +2740,9 @@ def blocking_lines(section):
                  f"site(s), {len(section['traps'])} trap(s), overflow {section['overflow']}; by context: "
                  + ", ".join(f"{c} {n}" for c, n in section["contexts"].items())
                  + "; by kind: " + (", ".join(f"{k} {n}" for k, n in section.get("kinds", {}).items()) or "none"))
+    if section["mode"] == "record":
+        lines += ["", "A record run reads each launch before it quits: quit-path sites are lifecycle-sweep's (RUN-12, "
+                      "p02-threads 307); a trap run reports them as traps."]
     if section.get("unread"):
         lines += ["", "Launches whose sites do not count:", ""] + [f"- {why}" for why in section["unread"]]
     if section["groups"]:
@@ -2662,6 +2751,10 @@ def blocking_lines(section):
             for g in task["sites"]:
                 lines.append(f"| {task['id']} | {g['module']} | {g['file_id']} | {','.join(map(str, g['lines']))} | "
                              f"{g['kind']} | {g['context']} | {g['count']} | {','.join(g['sessions'])} |")
+    unresolved = [(t["id"], f, c) for t in section["tasks"] for f, c in sorted(t.get("unresolved", {}).items())]
+    if unresolved:
+        lines += ["", "FileIDs with no single source file:", ""] + [
+            f"- {task} {f}: {', '.join(c) if c else 'no file'}" for task, f, c in unresolved]
     if section["traps"]:
         lines += ["", "Traps:", ""] + [f"- {t['location']} {t['kind']} ({t['context']})" for t in section["traps"]]
     return lines
@@ -2900,7 +2993,8 @@ def merge(out, paths):
             reads.append({"session": None, "launch": None, "pid": None, "exit": None,
                           "reply": {"error": f"{len(reports) - len(sections)} shard(s) without a blocking section, modes {modes}"}})
         merged["blocking"] = blocking_section("trap" if "trap" in modes else modes[0], reads,
-                                              [t for b in sections for t in b["traps"]], partial=merged["env"]["partial"])
+                                              [t for b in sections for t in b["traps"]], partial=merged["env"]["partial"],
+                                              last_quit="; ".join(b["last_quit"] for b in sections if b.get("last_quit")) or None)
         write_blocking_tasks(merged["blocking"], os.path.join(os.path.dirname(os.path.abspath(out)), "blocking-tasks.json"))
     with open(out, "w") as f:
         json.dump(merged, f, indent=1, default=str)
