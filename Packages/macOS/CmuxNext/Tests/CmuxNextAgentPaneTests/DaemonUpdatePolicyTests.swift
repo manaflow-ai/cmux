@@ -6,7 +6,8 @@ import Testing
 
 /// ``DaemonUpdatePolicy`` against fake targets: which machines it updates, in what order, how it
 /// asks again while one is busy or cannot update, what it records and what it reports. The
-/// production default asks idle first and updates mid-turn once a target stayed busy 10 minutes.
+/// production default updates mid-turn from the first ask (Leo: "OUR SHIT IS HARDLY EVER GOING TO
+/// GO IDLE ... IT RESUMES WHATEVER IT INTERRUPTED. END OF STORY FOR THE DAEMON UPDATE.").
 @Suite nonisolated struct DaemonUpdatePolicyTests {
     static let bundled = "abc123def 2026-10-20"
     static let older = "0123456ff 2026-10-01"
@@ -65,14 +66,15 @@ import Testing
         #expect(fixture.ledger.targets == ["same-day": "updated", "no-date": "updated"])
     }
 
-    /// With no cap (`updateBusyAfter` zero): a machine where an agent works, whose idle update would
-    /// answer busy, is updated mid-turn on the first ask, with no wait, and ends on the build.
-    @Test func withNoCapABusyTargetIsUpdatedMidTurnOnTheFirstAsk() async throws {
+    /// The production default: a machine where an agent works, whose idle update would answer
+    /// busy, is updated mid-turn on the first ask, with no wait for a quiet moment, and ends on the
+    /// build; the restarted daemon resumes the turn it interrupted.
+    @Test func aBusyTargetIsUpdatedMidTurnOnTheFirstAsk() async throws {
         let fixture = try PolicyFixture()
         defer { fixture.remove() }
         let clock = PolicyTestClock()
         let target = fixture.target("huge-blue", build: Self.older, outcomes: [.busy], whileBusy: .updated(build: nil))
-        await fixture.policy([target], clock: clock, updateBusyAfter: .zero).run()
+        await fixture.policy([target], clock: clock).run()
 
         #expect(clock.sleeps.isEmpty)
         #expect(fixture.whileBusy == [true])
@@ -97,7 +99,8 @@ import Testing
         #expect(fixture.ledger.targets.isEmpty)
     }
 
-    /// A busy machine is asked again after the backoff; the next one goes meanwhile. One at a time.
+    /// A machine that cannot update now, even mid-turn, is asked again after the backoff; the
+    /// next one goes meanwhile. One at a time.
     @Test func targetsRunOneAtATimeAndABusyOneWaits() async throws {
         let fixture = try PolicyFixture()
         defer { fixture.remove() }
@@ -107,23 +110,23 @@ import Testing
         await fixture.policy([first, second], clock: clock).run()
 
         #expect(fixture.calls == ["first", "second", "first"])
-        #expect(fixture.whileBusy == [false, false, false])
+        #expect(fixture.whileBusy == [true, true, true])
         #expect(clock.sleeps == [.seconds(120)])
         #expect(!fixture.overlapped, "two updates ran at once")
         #expect(fixture.states("first") == [.updating, .retrying, .updating, .updated(build: "abc123def")])
         #expect(fixture.ledger.targets == ["first": "updated", "second": "current"])
     }
 
-    /// The production default (Leo: "OUR SHIT IS HARDLY EVER GOING TO GO IDLE"): a machine where a
-    /// long-running agent always works never has an idle moment, so every idle update answers busy.
-    /// The policy asks idle first (at 0, 2 and 6 minutes), then at the 10-minute cap updates it while
-    /// busy, once, and it ends on the build.
-    @Test func aNeverIdleTargetIsUpdatedWhileBusyAtTheTenMinuteCap() async throws {
+    /// With a cap (`updateBusyAfter`, zero by default): a machine where a long-running agent always
+    /// works never has an idle moment, so every idle update answers busy. The policy asks idle
+    /// first (at 0, 2 and 6 minutes), then at the 10-minute cap updates it while busy, once, and it
+    /// ends on the build: the wait for a quiet moment is bounded.
+    @Test func withACapANeverIdleTargetIsUpdatedWhileBusyAtTheCap() async throws {
         let fixture = try PolicyFixture()
         defer { fixture.remove() }
         let clock = PolicyTestClock()
         let target = fixture.target("huge-blue", build: Self.older, outcomes: [.busy], whileBusy: .updated(build: nil))
-        await fixture.policy([target], clock: clock).run()
+        await fixture.policy([target], clock: clock, updateBusyAfter: .seconds(600)).run()
 
         #expect(clock.sleeps == [.seconds(120), .seconds(240), .seconds(240)])
         #expect(clock.sleeps.reduce(.zero, +) == .seconds(600))
@@ -136,9 +139,8 @@ import Testing
     }
 
     /// A target that answers busy also to an update while busy (unreachable, another update
-    /// running) is asked idle first up to the cap (2, 4, then 4 minutes to reach it), then keeps
-    /// the backoff (16, then every 30 minutes) and is left for the next launch after six hours,
-    /// unrecorded.
+    /// running) keeps the backoff (2, 4, 8, 16, then every 30 minutes) and is left for the next
+    /// launch after six hours, unrecorded.
     @Test func aTargetBusyAlsoWhileBusyIsLeftAfterSixHours() async throws {
         let fixture = try PolicyFixture()
         defer { fixture.remove() }
@@ -146,9 +148,9 @@ import Testing
         let target = fixture.target("unreachable", build: Self.older, outcomes: [.busy])
         await fixture.policy([target], clock: clock).run()
 
-        let minutes: [Int64] = [2, 4, 4, 16] + Array(repeating: 30, count: 11)
+        let minutes: [Int64] = [2, 4, 8, 16] + Array(repeating: 30, count: 11)
         #expect(clock.sleeps == minutes.map { .seconds($0 * 60) })
-        #expect(fixture.whileBusy == Array(repeating: false, count: 3) + Array(repeating: true, count: minutes.count - 2))
+        #expect(fixture.whileBusy == Array(repeating: true, count: minutes.count + 1))
         #expect(await target.currentBuild() == Self.older)
         // Left: the board forgets it rather than promise a retry.
         #expect(fixture.states("unreachable").suffix(3) == [.retrying, .updating, .cleared])
@@ -230,7 +232,7 @@ import Testing
     }
 
     /// An urgent target offered while another waits out its busy backoff goes at once, not after
-    /// the wait; the busy one is asked again after its backoff, still idle first (before the cap).
+    /// the wait; the busy one is asked again after its backoff.
     @Test func anUrgentTargetDoesNotWaitBehindABusyOne() async throws {
         let fixture = try PolicyFixture()
         defer { fixture.remove() }
@@ -244,7 +246,7 @@ import Testing
         await policy.drained()
 
         #expect(fixture.calls == ["busy", "refused", "busy"])
-        #expect(fixture.whileBusy == [false, false, false])
+        #expect(fixture.whileBusy == [true, true, true])
         #expect(clock.sleeps == [.seconds(120), .seconds(120)])
         #expect(!fixture.overlapped)
         #expect(fixture.states("busy") == [.updating, .retrying, .updating, .updated(build: "abc123def")])
@@ -365,7 +367,7 @@ nonisolated final class PolicyFixture: Sendable {
 
     func ended() { log.withLock { $0.running -= 1 } }
 
-    /// `updateBusyAfter`: nil keeps the production default (``DaemonUpdatePolicy/Dependencies/updateBusyAfter``, 10 minutes).
+    /// `updateBusyAfter`: nil keeps the production default (``DaemonUpdatePolicy/Dependencies/updateBusyAfter``, zero: mid-turn at once).
     /// `isEnabled`, when given, is read at every step instead of `enabled`.
     func policy(_ targets: [FakeUpdateTarget], bundled: String = DaemonUpdatePolicyTests.bundled, clock: any Clock<Duration> = PolicyTestClock(),
                 enabled: Bool = true, isEnabled: (@Sendable () -> Bool)? = nil,
