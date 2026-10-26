@@ -25,6 +25,8 @@ pub struct Watch {
     pub active: bool,
     pub cursors: BTreeMap<String, watch_events::Cursor>,
     pub offline: BTreeSet<String>,
+    #[serde(default)]
+    pub retry_count: u8,
 }
 
 impl Watch {
@@ -168,6 +170,7 @@ pub(super) fn summary(hub: &Hub, key: &str) -> Value {
 }
 async fn reconcile(hub: &Arc<Hub>) -> Result<(), RpcError> {
     let watches = hub.watches.inner.lock().unwrap_or_else(|e| e.into_inner()).saved.watches.clone();
+    let mut retry_needed = false;
     for mut w in watches.into_values().filter(|w| w.active) {
         let old = json!(w);
         let mut lines = Vec::new();
@@ -198,6 +201,10 @@ async fn reconcile(hub: &Arc<Hub>) -> Result<(), RpcError> {
                     if let Some(c) = checkpoint {
                         w.cursors.insert(key.clone(), c);
                     }
+                    if w.retry_count < 5 {
+                        w.retry_count += 1;
+                        retry_needed = true;
+                    }
                     tracing::warn!("watch {} source {key}: {e}", w.id);
                 }
             }
@@ -207,6 +214,9 @@ async fn reconcile(hub: &Arc<Hub>) -> Result<(), RpcError> {
         }
         if old == json!(w) {
             continue;
+        }
+        if !retry_needed {
+            w.retry_count = 0;
         }
         hub.watches.change(|saved| {
             // rm while a peer reply was in flight must not resurrect the watch.
@@ -224,6 +234,15 @@ async fn reconcile(hub: &Arc<Hub>) -> Result<(), RpcError> {
         })?;
     }
     drain(hub, true);
+    if retry_needed {
+        let retry_hub = Arc::clone(hub);
+        tokio::spawn(async move {
+            // A bounded retry is only armed after an actual read error; normal watches
+            // are driven solely by hub events, with no polling timer.
+            tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+            retry_hub.watches.wake.notify_one();
+        });
+    }
     Ok(())
 }
 fn drain(hub: &Arc<Hub>, retry: bool) {

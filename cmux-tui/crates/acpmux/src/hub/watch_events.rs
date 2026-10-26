@@ -19,6 +19,8 @@ pub struct Cursor {
     pub reply_open: bool,
     pub turn_mark: String,
     pub unread: bool,
+    pub permission_wakes: std::collections::BTreeSet<String>,
+    pub await_fresh: bool,
 }
 impl Cursor {
     fn text(&mut self, text: &str, pattern: Option<&str>) {
@@ -40,7 +42,8 @@ impl Cursor {
 }
 pub fn seed(hub: &Hub, key: &str, _pattern: Option<&str>) -> Cursor {
     let s = summary(hub, key);
-    Cursor { initial: Some(s), ..Default::default() }
+    let await_fresh = s["stale"] == true || s["status"] == "unreachable";
+    Cursor { initial: Some(s), await_fresh, ..Default::default() }
 }
 fn selected(until: &[String], s: &Value) -> Option<&'static str> {
     if s["stale"] == true || s["status"] == "unreachable" {
@@ -119,6 +122,9 @@ pub async fn collect(hub: &Hub, w: &mut Watch, key: &str) -> Result<Vec<String>,
                     candidates
                         .push(("permission", format!("permission:{}", e.msg["permissionId"])));
                 }
+                ("mux", "permission_decision") => {
+                    c.permission_wakes.remove(&format!("permission:{}", e.msg["permissionId"]));
+                }
                 ("mux", "turn_result") => {
                     c.turn_mark = format!("turn:{}", e.msg["turnId"]);
                     c.unread = e.msg.get("unread").unwrap_or(&s["unread"]) == &Value::Bool(true);
@@ -158,6 +164,12 @@ pub async fn collect(hub: &Hub, w: &mut Watch, key: &str) -> Result<Vec<String>,
             break;
         }
     }
+    if c.await_fresh {
+        // A cached offline row is no initial verdict. Reconcile its journal first,
+        // then evaluate the first fresh inventory even when no new record exists.
+        c.initial = Some(s.clone());
+        c.await_fresh = false;
+    }
     initial(&w.until, w.match_text.is_some(), key, c, &mut found);
     if s["missing"] == true
         && let Some(state) = selected(&w.until, &s)
@@ -196,6 +208,9 @@ fn emit(
             continue;
         }
         if c.last_resolve == mark || (filtered && !c.matched) {
+            continue;
+        }
+        if state == "permission" && !c.permission_wakes.insert(mark.clone()) {
             continue;
         }
         c.last_resolve = mark;
