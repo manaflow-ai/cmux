@@ -31,17 +31,37 @@ extension KeyBindingTable {
         let input = CompiledWhen.Input(context)
         if keys.count + 1 < Self.maxSequenceLength,
            let longer = readings.first(where: {
-               (!keys.isEmpty || !$0.isBare || context.ownsBareKeys) && continues(keys + [$0], in: input, isRunnable: isRunnable)
+               (!keys.isEmpty || !$0.isBare || context.ownsBareKeys)
+                   && continues(KeysThenOne(keys, $0), in: input, isRunnable: isRunnable)
            }) {
             return .extend(longer)
         }
-        if keys.isEmpty, readings.contains(LeaderLayer.prefix), !entries(after: [LeaderLayer.prefix]).isEmpty {
+        if keys.isEmpty, readings.contains(LeaderLayer.prefix), hasEntries(after: CollectionOfOne(LeaderLayer.prefix)) {
             return .extend(LeaderLayer.prefix)
         }
         for reading in readings {
-            if let winner = resolveWinner(keys + [reading], in: input, isRunnable: isRunnable) { return .run(winner) }
+            if let winner = resolveWinner(KeysThenOne(keys, reading), in: input, isRunnable: isRunnable) { return .run(winner) }
         }
         return .none
+    }
+
+    /// The armed keys followed by one more key, read in place: the sequence a reading would make,
+    /// with no array built for it, so a chord key-down allocates nothing in ``step(after:readings:in:isRunnable:)``.
+    public nonisolated struct KeysThenOne: RandomAccessCollection, Sendable {
+        public let keys: [Shortcut]
+        public let next: Shortcut
+
+        public init(_ keys: [Shortcut], _ next: Shortcut) {
+            self.keys = keys
+            self.next = next
+        }
+
+        public var startIndex: Int { 0 }
+        public var endIndex: Int { keys.count + 1 }
+
+        public subscript(position: Int) -> Shortcut {
+            position == keys.count ? next : keys[position]
+        }
     }
 
     /// Where a whole sequence ends: an entry runs, the chord stays armed

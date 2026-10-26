@@ -93,4 +93,34 @@ import Testing
         #expect(Array(ShortcutReadings(brace, bracket)) == [brace, bracket])
         #expect(ShortcutReadings(brace, bracket).contains(bracket))
     }
+
+    /// The chord step's in-place sequence reads as the armed keys then the reading, and the
+    /// leader check agrees with `entries(after:)`.
+    @Test func keysThenOneAndHasEntries() {
+        let x = Shortcut("x", modifiers: [])
+        #expect(Array(KeyBindingTable.KeysThenOne([], Self.cmdJ)) == [Self.cmdJ])
+        #expect(Array(KeyBindingTable.KeysThenOne([Self.cmdJ], x)) == [Self.cmdJ, x])
+        #expect(KeyBindingTable.KeysThenOne([Self.cmdJ, x], Self.cmdK).count == 3)
+        let table = KeyBindingTable([
+            KeyBinding(keys: [Self.cmdK], command: "single"),
+            KeyBinding(keys: [Self.cmdJ, x], command: "chord", when: .has("terminalFocused")),
+        ])
+        for prefix in [[Self.cmdJ], [Self.cmdK], [Self.cmdJ, x], [x]] {
+            #expect(table.hasEntries(after: prefix) == !table.entries(after: prefix).isEmpty, "\(prefix)")
+        }
+        #expect(table.hasEntries(after: CollectionOfOne(Self.cmdJ)))
+        // The leader arms even where its only entry cannot run; the chord then completes in a terminal.
+        let always: (ActionID) -> Bool = { _ in true }
+        #expect(table.step(after: [], readings: ShortcutReadings(Self.cmdJ), in: KeyContext(), isRunnable: always) == .extend(Self.cmdJ))
+        #expect(table.step(after: [Self.cmdJ], readings: ShortcutReadings(x), in: Self.terminal, isRunnable: always).runs == "chord")
+        #expect(table.step(after: [], readings: ShortcutReadings(Self.cmdK), in: KeyContext(), isRunnable: always).runs == "single")
+    }
+}
+
+private extension KeyBindingTable.SequenceStep {
+    /// The command a `.run` step runs.
+    var runs: ActionID? {
+        if case .run(let binding) = self { return binding.command }
+        return nil
+    }
 }

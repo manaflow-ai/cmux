@@ -195,13 +195,25 @@ public nonisolated struct KeyBindingTable: Sendable {
         continues(prefix, in: CompiledWhen.Input(context), isRunnable: isRunnable)
     }
 
-    public func continues(_ prefix: [Shortcut], in input: CompiledWhen.Input, isRunnable: (ActionID) -> Bool) -> Bool {
-        guard let first = prefix.first else { return false }
-        return (byFirstKey[first] ?? []).contains { offset in
+    /// `continues` over any sequence view, so the chord step asks about the armed keys plus a
+    /// reading without building that array (``KeysThenOne``).
+    // perf-hot: 0.5ms key-dispatch (every chord key-down)
+    public func continues(_ prefix: some Collection<Shortcut>, in input: CompiledWhen.Input, isRunnable: (ActionID) -> Bool) -> Bool {
+        guard let first = prefix.first, let offsets = byFirstKey[first] else { return false }
+        let count = prefix.count
+        return offsets.contains { offset in
             let entry = entries[offset]
-            return entry.keys.count > prefix.count && entry.keys.starts(with: prefix)
+            return entry.keys.count > count && entry.keys.starts(with: prefix)
                 && compiledWhen[offset].evaluate(input) && isRunnable(entry.command)
         }
+    }
+
+    /// Whether any entry, whatever its `when` clause, is longer than `prefix` and starts with it:
+    /// ``entries(after:)`` is not empty, with no array built.
+    public func hasEntries(after prefix: some Collection<Shortcut>) -> Bool {
+        guard let first = prefix.first, let offsets = byFirstKey[first] else { return false }
+        let count = prefix.count
+        return offsets.contains { entries[$0].keys.count > count && entries[$0].keys.starts(with: prefix) }
     }
 
     /// One key that may follow an armed prefix (the which-key overlay).
