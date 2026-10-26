@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextAgentPane
 import CmuxNextControl
 import CmuxNextHibernation
+import os
 
 // AgentPageHibernation's own timeout and live hidden budget, which let hidden agent pages go while
 // `pageLifecycle` is off (with it on, the page lifecycle's planner does: AgentPageHibernation.swift).
@@ -42,6 +43,31 @@ extension AgentPageHibernation {
             deadline.schedule(after: .milliseconds(Int64(next * 1000) + 50)) { @MainActor [weak self] in self?.replan() }
         } else {
             deadline.cancel()
+        }
+    }
+
+    /// Keeps the page's frame and what it holds that acpmux does not, then lets the page go if it
+    /// is still the same hidden page.
+    func release(_ key: String) {
+        guard let tabs = store(), let view = tabs.existingView(key), releasing.insert(key).inserted else { return }
+        read(view, frame: true) { [weak self] wake, frame in
+            guard let self else { return }
+            releasing.remove(key)
+            // A connected page that did not say what it holds (a large attachment still encoding)
+            // stays: letting it go would drop its chips. The next plan asks again.
+            if wake == nil, view.model.hasHandshake {
+                logger.info("agent page \(key, privacy: .public) kept: no wake state in time")
+                return
+            }
+            // The page may have shown, changed or got busy (a turn started) while it was asked
+            // for its frame or the frame was encoded: then it stays, and the next plan decides.
+            guard isDue(key, view, in: tabs) else { return replan() }
+            if let frame { await tabs.launchImages.hold(key, frame.image, size: frame.size, appearance: frame.appearance) }
+            guard isDue(key, view, in: tabs) else {
+                tabs.launchImages.drop(key)
+                return replan()
+            }
+            letGo(key, view, wake: wake, in: tabs)
         }
     }
 

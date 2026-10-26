@@ -1,4 +1,5 @@
-import CmuxNextPages
+package import CmuxNextHibernation
+package import CmuxNextPages
 
 /// Who decides for an agent tab's page in the page lifecycle (p13-webui-038): the app's agent page
 /// hibernation, which knows the tab's turn, pin, draft and machine, and lets the page go at its discard.
@@ -7,11 +8,15 @@ package protocol AgentPageLifecycleOwner: AnyObject {
     /// Encodes the page's hide-time picture (``PageWebView`` keeps it encoded).
     var snapshotEncoder: PageSnapshotEncoder { get }
     /// Why tab `key`'s page `pane` stays, with the reasons `page` reports itself (its load, its focus).
-    func keepReasons(_ key: String, pane: AgentPaneView, page: PageWebViewLifecycle) -> Set<PageLifecycle.KeepReason>
+    func keepReasons(_ key: String, pane: AgentPaneView, page: PageWebViewLifecycle) -> Set<PageLifecyclePlanner.KeepReason>
     /// Tab `key`'s page `pane` hid, still running and in its window, after it began its hide picture.
     func pageDidHide(_ key: String, pane: AgentPaneView)
     /// Tab `key`'s page shows again running.
     func pageDidShow(_ key: String)
+    /// Tab `key`'s hidden page froze: it answers nothing until it thaws.
+    func pageDidFreeze(_ key: String)
+    /// Tab `key`'s hidden page runs again (a reason that blocks a freeze began, or it shows).
+    func pageDidThaw(_ key: String)
     /// The planner discards tab `key`'s hidden page `pane`: the owner lets the whole page go, asking it nothing.
     func discard(_ key: String, pane: AgentPaneView)
 }
@@ -45,7 +50,7 @@ package struct AgentPageLifecycleTarget: PageLifecycleTarget {
 
     package var lifecycleGroup: String? { page.lifecycleGroup }
 
-    package var lifecycleKeepReasons: Set<PageLifecycle.KeepReason> {
+    package var lifecycleKeepReasons: Set<PageLifecyclePlanner.KeepReason> {
         guard let pane, let owner else { return page.lifecycleKeepReasons }
         return owner.keepReasons(key, pane: pane, page: page)
     }
@@ -62,8 +67,15 @@ package struct AgentPageLifecycleTarget: PageLifecycleTarget {
         owner?.pageDidShow(key)
     }
 
-    package func freeze() { page.freeze() }
-    package func thaw() { page.thaw() }
+    package func freeze() {
+        page.freeze()
+        owner?.pageDidFreeze(key)
+    }
+
+    package func thaw() {
+        page.thaw()
+        owner?.pageDidThaw(key)
+    }
 
     package func discard() {
         if let pane { owner?.discard(key, pane: pane) }

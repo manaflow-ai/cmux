@@ -39,7 +39,8 @@ import os
 /// instead (``follow(_:)``): its planner freezes and discards them with every exemption above as a keep
 /// reason (a running turn blocks both: acpmux cannot resync a frozen page's stream yet), this class
 /// performs the discard, and its own timeout and budget stay off. An untouched New Tab page has no reason
-/// to stay and goes at the planner's 300 s, as Chrome discards a background New Tab page like any tab.
+/// to stay and goes at the planner's 300 s, as Chrome discards a background New Tab page like any tab;
+/// one whose chip pick started a chat, typed text or attachments keeps a draft.
 @MainActor
 final class AgentPageHibernation {
     static let minimumHidden: Double = 10
@@ -48,7 +49,7 @@ final class AgentPageHibernation {
 
     /// The agent tab store once the App made it (no agent tab yet: nothing to release).
     let store: () -> AgentTabStore?
-    private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.hibernation")
+    let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.hibernation")
     private(set) var setting: BrowserHibernationSetting = .fallback
     private(set) var pressure: MemoryPressureLevel = .normal
     /// When each hidden page was last visible.
@@ -91,7 +92,14 @@ final class AgentPageHibernation {
         var isDone = false
         /// What the page held that acpmux does not (attachments, shell text, scroll), handed to its rebuild.
         var wake: AgentPaneWakeState?
+        /// The page runs (it is not frozen): only a running page can answer a read.
+        var runs = true
+        /// Reads in a row the connected page did not answer (``hideReadRetries``).
+        var unanswered = 0
     }
+    /// How many times in a row a connected page that does not answer its hide read is asked again at
+    /// once. Past that it is asked again when it runs after a freeze or its chat's turn changes.
+    static let hideReadRetries = 2
     /// Each hidden agent page's ``HideRead``, by tab (lifecycle mode only).
     private(set) var hideReads: [String: HideRead] = [:]
     private var hideCount = 0
@@ -213,35 +221,10 @@ final class AgentPageHibernation {
         store()?.launchImages.drop(key)
     }
 
-    /// Keeps the page's frame and what it holds that acpmux does not, then lets the page go if it
-    /// is still the same hidden page.
-    func release(_ key: String) {
-        guard let tabs = store(), let view = tabs.existingView(key), releasing.insert(key).inserted else { return }
-        read(view, frame: true) { [weak self] wake, frame in
-            guard let self else { return }
-            releasing.remove(key)
-            // A connected page that did not say what it holds (a large attachment still encoding)
-            // stays: letting it go would drop its chips. The next plan asks again.
-            if wake == nil, view.model.hasHandshake {
-                logger.info("agent page \(key, privacy: .public) kept: no wake state in time")
-                return
-            }
-            // The page may have shown, changed or got busy (a turn started) while it was asked
-            // for its frame or the frame was encoded: then it stays, and the next plan decides.
-            guard isDue(key, view, in: tabs) else { return replan() }
-            if let frame { await tabs.launchImages.hold(key, frame.image, size: frame.size, appearance: frame.appearance) }
-            guard isDue(key, view, in: tabs) else {
-                tabs.launchImages.drop(key)
-                return replan()
-            }
-            letGo(key, view, wake: wake, in: tabs)
-        }
-    }
-
     /// Asks `view` what it holds that acpmux does not and, with `frame`, for its last frame; `then` gets
     /// both. The one read of a page that may go: the timeout's release and the lifecycle's hide.
-    private func read(_ view: AgentPaneView, frame withFrame: Bool,
-                      then: @escaping @MainActor (AgentPaneWakeState?, (image: CGImage, size: NSSize, appearance: NSAppearance.Name?)?) async -> Void) {
+    func read(_ view: AgentPaneView, frame withFrame: Bool,
+              then: @escaping @MainActor (AgentPaneWakeState?, (image: CGImage, size: NSSize, appearance: NSAppearance.Name?)?) async -> Void) {
         let readWake = wakeState
         Task { @MainActor [weak self] in
             let wake = await readWake(view)
@@ -254,13 +237,13 @@ final class AgentPageHibernation {
 
     /// Lets `view`, tab `key`'s hidden page, go. The tab keeps its session and every other state, and
     /// `wake`, what the page held that acpmux does not: the next show builds the page again.
-    private func letGo(_ key: String, _ view: AgentPaneView, wake: AgentPaneWakeState?, in tabs: AgentTabStore) {
+    func letGo(_ key: String, _ view: AgentPaneView, wake: AgentPaneWakeState?, in tabs: AgentTabStore) {
         displace(key)
         let stored = tabs.resolve(key)
         if let session = view.model.sessionId { tabs.sessions[stored] = session }
         tabs.wakeStates[stored] = wake.flatMap { $0.isEmpty ? nil : $0 }
         tabs.views[stored] = nil
-        tabs.retirer.retire(view)
+        tabs.retirer.retire(view, closed: false)
         tabs.stopCustomizationWhenUnused()
         hiddenAt[key] = nil
         releasedCount += 1
@@ -310,33 +293,70 @@ extension AgentPageHibernation: AgentPageLifecycleOwner {
         return reasons
     }
 
-    /// Whether the composer holds attachments, or what the page holds that acpmux does not is unknown:
-    /// its hide read still runs, or a connected page did not answer it (a large attachment still
-    /// encoding). Letting it go would drop its chips.
+    /// Whether the composer holds attachments or a pick started a chat no prompt went to, or what the page
+    /// holds that acpmux does not is unknown: its hide read still runs, or a connected page did not answer
+    /// it yet (a large attachment still encoding). Letting it go would drop its chips or that chat.
     private func holdsUnsavedState(_ key: String, pane: AgentPaneView) -> Bool {
         guard let read = hideReads[key] else { return false }
         guard read.isDone, let wake = read.wake else { return !read.isDone || pane.model.hasHandshake }
-        return wake.attachments?.isEmpty == false
+        return wake.attachments?.isEmpty == false || wake.pendingChat == true
     }
 
-    /// Reads what the page holds now, in the conceal turn, the only time it surely can answer. Until the
-    /// read ends the page counts as holding a draft, so no discard drops its chips.
+    /// Reads what the page holds now, in the conceal turn, when it surely runs. Until the read ends the
+    /// page counts as holding a draft, so no discard drops its chips.
     func pageDidHide(_ key: String, pane: AgentPaneView) {
         hideCount += 1
-        let generation = hideCount
-        hideReads[key] = HideRead(generation: generation, appearance: pane.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]))
+        hideReads[key] = HideRead(generation: hideCount, appearance: pane.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]))
+        readHidden(key, pane: pane)
+        refreshKeepReasons(key)
+    }
+
+    /// Asks tab `key`'s hidden page what it holds. A connected page that does not answer is asked again at
+    /// once while it runs, up to ``hideReadRetries`` times; after that, when it runs again after a freeze
+    /// or its chat's turn changes (``readAgainIfUnanswered(_:)``). A timeout is never a lasting draft.
+    private func readHidden(_ key: String, pane: AgentPaneView) {
+        guard let generation = hideReads[key]?.generation else { return }
+        hideReads[key]?.isDone = false
         read(pane, frame: false) { [weak self] wake, _ in
-            guard let self, hideReads[key]?.generation == generation else { return }
-            hideReads[key]?.isDone = true
-            hideReads[key]?.wake = wake
+            guard let self, var hideRead = hideReads[key], hideRead.generation == generation else { return }
+            hideRead.isDone = true
+            hideRead.wake = wake
+            hideRead.unanswered = wake == nil ? hideRead.unanswered + 1 : 0
+            hideReads[key] = hideRead
+            if hideRead.unanswered <= Self.hideReadRetries, asksAgain(key, pane: pane) { return readHidden(key, pane: pane) }
             refreshKeepReasons(key)
         }
-        refreshKeepReasons(key)
+    }
+
+    /// The connected page `pane`, still tab `key`'s and running, ended its hide read with no answer.
+    private func asksAgain(_ key: String, pane: AgentPaneView) -> Bool {
+        guard let read = hideReads[key], read.isDone, read.wake == nil, read.runs else { return false }
+        return pane.model.hasHandshake && store()?.existingView(key) === pane
+    }
+
+    /// Tab `key`'s hidden page runs again or its turn changed: if its hide read went unanswered, it
+    /// is asked again, with a fresh run of retries.
+    private func readAgainIfUnanswered(_ key: String) {
+        guard let pane = store()?.existingView(key), asksAgain(key, pane: pane) else { return }
+        hideReads[key]?.unanswered = 0
+        readHidden(key, pane: pane)
     }
 
     /// What the hide read is out of date.
     func pageDidShow(_ key: String) {
         hideReads[key] = nil
+    }
+
+    /// A frozen page answers nothing: no read is asked of it until it thaws.
+    func pageDidFreeze(_ key: String) {
+        hideReads[key]?.runs = false
+    }
+
+    /// The hidden page runs again (a turn started on it): a read it left unanswered is asked again.
+    func pageDidThaw(_ key: String) {
+        guard hideReads[key]?.runs == false else { return }
+        hideReads[key]?.runs = true
+        readAgainIfUnanswered(key)
     }
 
     /// Lets the page go with what its hide read; its hide picture is drawn under the pane until the page
@@ -359,8 +379,12 @@ extension AgentPageHibernation: AgentPageLifecycleOwner {
     }
 
     /// A turn started or ended, or the turn watch went down or came back: every hidden agent page's
-    /// reasons again. O(hidden agent pages), once per turn change.
+    /// reasons again, and a hide read a running page left unanswered is asked again (a page busy with
+    /// its turn may answer once the turn ends). O(hidden agent pages), once per turn change.
     func refreshTurnReasons() {
-        for key in hideReads.keys { refreshKeepReasons(key) }
+        for key in hideReads.keys {
+            readAgainIfUnanswered(key)
+            refreshKeepReasons(key)
+        }
     }
 }

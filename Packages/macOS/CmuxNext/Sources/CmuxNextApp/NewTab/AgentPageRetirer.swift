@@ -10,10 +10,13 @@ final class AgentPageRetirer {
     private var retiring: [AgentPaneView] = []
     private let timer = DemandTimer(owner: "AgentPageRetirer")
 
-    func retire(_ view: AgentPaneView) {
+    /// - Parameter closed: The tab closed or replaced the page. False when hibernation let a hidden page go:
+    ///   the tab stays and the page is asked nothing (it may be frozen), as `WebContents::Discard` asks the
+    ///   renderer nothing.
+    func retire(_ view: AgentPaneView, closed: Bool = true) {
         // A closed New Tab page drops the chat a chip pick started behind it; the page stays alive
         // until the teardown below, long enough to send the discard.
-        view.topBar.discardUnsentChat()
+        if closed { view.topBar.discardUnsentChat() }
         BenchSpans.measure("agentPane.detach") { view.removeFromSuperview() }
         retiring.append(view)
         timer.schedule(after: Self.delay) { @MainActor [weak self] in self?.flush() }

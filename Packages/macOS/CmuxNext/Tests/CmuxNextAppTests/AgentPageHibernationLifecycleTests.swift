@@ -197,6 +197,61 @@ struct AgentPageHibernationLifecycleTests {
         #expect(rig.tabs.existingView("tab_left") == nil)
         #expect(rig.tabs.wakeStates["tab_left"] == left, "the hide's read did not reach the rebuilt page")
     }
+
+    /// A New Tab page where a model or mode chip pick started a chat no prompt went to keeps its page:
+    /// only the page knows that chat, and letting it go would lose the pick. The page says so in its hide
+    /// read (`pendingChat`).
+    @Test func aNewTabWhoseChipPickStartedAChatKeepsItsPage() async throws {
+        let rig = Rig(wake: AgentPaneWakeState(pendingChat: true))
+        let page = try rig.newTab("tab_picked")
+        await rig.showThenHide("tab_picked", at: 0)
+
+        for seconds in stride(from: 12.0, through: 600, by: 100) { rig.pass(at: seconds) }
+        #expect(rig.tabs.existingView("tab_picked") === page, "a New Tab page holding a chip-picked chat was let go")
+        #expect(rig.lifecycle.state(of: "tab_picked") != .discarded)
+        #expect(rig.released == 0)
+    }
+
+    /// A connected chat that does not answer its hide read in time (busy with its turn, an attachment still
+    /// encoding) is asked again while it runs, and goes once it answers: one timeout is no lasting draft.
+    @Test func aConnectedChatThatDoesNotAnswerItsHideReadIsAskedAgainAndGoesOnceItAnswers() async throws {
+        let rig = Rig()
+        let page = try rig.chat("tab_slow", session: "s-slow")
+        _ = await page.model.respond(to: AgentPaneRequest(body: ["method": "ready", "params": ["reconnect": true]]))
+        try #require(page.model.hasHandshake, "the reconnect handshake did not run")
+        let left = AgentPaneWakeState(shell: true, shellText: "cargo test")
+        let reads = ReadCount()
+        // The first read and its retries time out; the page answers the next one.
+        let unanswered = 1 + AgentPageHibernation.hideReadRetries
+        rig.hibernation.wakeState = { _ in
+            reads.count += 1
+            return reads.count > unanswered ? left : nil
+        }
+        rig.advance(to: 0)
+        rig.lifecycle.tabDidShow("tab_slow")
+        rig.lifecycle.tabDidHide("tab_slow")
+        await rig.settle { reads.count == unanswered && rig.hibernation.hideReads["tab_slow"]?.isDone == true }
+        #expect(reads.count == unanswered, "an unanswered hide read was not asked again at once")
+        #expect(rig.hibernation.hideReads["tab_slow"]?.wake == nil)
+
+        // Unanswered: the page may hold chips, so it stays.
+        rig.pass(at: 12)
+        rig.pass(at: 305)
+        #expect(rig.tabs.existingView("tab_slow") === page, "a connected chat that never answered was let go")
+
+        // Its turn changes: it is asked again, answers, and goes at the next pass.
+        rig.hibernation.refreshTurnReasons()
+        await rig.settle { rig.hibernation.hideReads["tab_slow"]?.wake != nil }
+        #expect(reads.count == unanswered + 1)
+        rig.pass(at: 310)
+        #expect(rig.tabs.existingView("tab_slow") == nil, "the chat kept its page after it answered its hide read")
+        #expect(rig.tabs.wakeStates["tab_slow"] == left, "the late answer did not reach the rebuilt page")
+    }
+}
+
+/// How often the rig's page was asked what it holds.
+@MainActor private final class ReadCount {
+    var count = 0
 }
 
 /// A timer the queue arms and parks; nothing fires it.
