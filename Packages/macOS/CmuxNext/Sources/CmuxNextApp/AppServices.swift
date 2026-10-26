@@ -108,7 +108,9 @@ final class AppServices {
     var cloudIfBuilt: CloudService?, feedIfBuilt: FeedService?
     /// The Cloud policy and the `feed.github` setting, applied when ``cloud`` and ``feed`` are built.
     var cloudPolicyDisabled = false, feedGitHub: (enabled: Bool, pollIntervalSeconds: Double)?
-    var cloudContext: Task<Void, Never>?  // the Cloud start's registry context follow; nil until Cloud starts
+    var cloudContext: ServiceObservation<CloudContextFacts>?  // the Cloud start's registry context follow; nil until Cloud starts
+    /// What ``cloudContext`` reads; each flush applies (a tuple: no dedupe, as the loop it replaced).
+    typealias CloudContextFacts = (signedIn: Bool, machines: Int, user: String?, team: String?)
     var cloudStart: CloudStartPost?  // the launch's Cloud start (`postCloudStart`); nil in tests
     var showcase = ShowcaseState()
     /// The wide Inbox page, backed by `feed.model`.
@@ -182,7 +184,7 @@ final class AppServices {
         features.isEnabled(.agentChromium, localOverride: AgentPaneTunables.chromium.override)
     }
     /// "Restart cmux-tui to use new features" (plans/cmux-next/server-updates-DESIGN.md).
-    private(set) lazy var serverUpdates = ServerUpdatePresenter(daemon: daemon, defaults: .standard,
+    private(set) lazy var serverUpdates = ServerUpdatePresenter(daemon: daemon, defaults: .standard, mainWork: mainWork, work: work,
                                                                  activeWindow: { [weak self] in self?.windows.active?.window })
     private(set) lazy var updateSheet: UpdateSheetController = UpdateSheetController(source: UpdateSheetModel(service: updater, openLink: { LinkRouter.shared.open($0) }))  // first read in init (no IUO)
     /// cmux.json controller; set by `AppDelegate` once it starts. Agent tabs made before it (by launch's action bindings) follow it from here.
