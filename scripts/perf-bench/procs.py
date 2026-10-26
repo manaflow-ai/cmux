@@ -10,6 +10,9 @@
 `proc_pidinfo(PROC_PIDTASKINFO)` adds the overhead counters of speed-of-sound-DESIGN.md:
 threads, Mach messages sent + received (IPC), Unix + Mach syscalls and context switches.
 
+`priorities()` reads each process's scheduling role: `ps -o pri,nice,flags` and the kernel's
+darwinbg bit (`proc_pidinfo(PROC_PIDTBSDINFO)` pbi_flags), for idle-budget.py's role audit.
+
 An instance is every process of one browser run: the main pid's descendants,
 every process whose executable lies inside the bundle (helpers, crashpad,
 cmux daemons and terminal hosts, which outlive their parents), and every
@@ -24,8 +27,11 @@ import re
 import subprocess
 import time
 
-_libproc = ctypes.CDLL("/usr/lib/libproc.dylib")
-_libsystem = ctypes.CDLL("/usr/lib/libSystem.B.dylib")
+try:
+    _libproc = ctypes.CDLL("/usr/lib/libproc.dylib")
+    _libsystem = ctypes.CDLL("/usr/lib/libSystem.B.dylib")
+except OSError:  # not macOS: the pure parts (kinds, `ps` parsing) still import, so their unit tests run anywhere
+    _libproc = _libsystem = None
 try:
     _responsible = _libsystem.responsibility_get_pid_responsible_for_pid
     _responsible.restype = ctypes.c_int
@@ -39,7 +45,8 @@ class _Timebase(ctypes.Structure):
 
 
 _timebase = _Timebase()
-_libsystem.mach_timebase_info(ctypes.byref(_timebase))
+if _libsystem is not None:
+    _libsystem.mach_timebase_info(ctypes.byref(_timebase))
 MB = 1048576.0
 
 
@@ -94,6 +101,66 @@ def process_table():
         if len(parts) == 3 and parts[0].isdigit() and parts[1].isdigit():
             rows.append((int(parts[0]), int(parts[1]), parts[2]))
     return rows
+
+
+class _BSDInfo(ctypes.Structure):
+    """`struct proc_bsdinfo` (sys/proc_info.h), read with PROC_PIDTBSDINFO: same user, no root."""
+    _fields_ = [("pbi_flags", ctypes.c_uint32), ("pbi_status", ctypes.c_uint32), ("pbi_xstatus", ctypes.c_uint32),
+                ("pbi_pid", ctypes.c_uint32), ("pbi_ppid", ctypes.c_uint32), ("pbi_uid", ctypes.c_uint32),
+                ("pbi_gid", ctypes.c_uint32), ("pbi_ruid", ctypes.c_uint32), ("pbi_rgid", ctypes.c_uint32),
+                ("pbi_svuid", ctypes.c_uint32), ("pbi_svgid", ctypes.c_uint32), ("rfu_1", ctypes.c_uint32),
+                ("pbi_comm", ctypes.c_char * 16), ("pbi_name", ctypes.c_char * 32), ("pbi_nfiles", ctypes.c_uint32),
+                ("pbi_pgid", ctypes.c_uint32), ("pbi_pjobc", ctypes.c_uint32), ("e_tdev", ctypes.c_uint32),
+                ("e_tpgid", ctypes.c_uint32), ("pbi_nice", ctypes.c_int32), ("pbi_start_tvsec", ctypes.c_uint64),
+                ("pbi_start_tvusec", ctypes.c_uint64)]
+
+
+_PROC_PIDTBSDINFO = 3
+# sys/proc_info.h: the task's effective darwin-background state (PRIO_DARWIN_BG, a darwinbg role, a background
+# QoS ceiling), the bit `taskinfo` prints as darwinbg; and the part another process set on it.
+PROC_FLAG_DARWINBG = 0x8000
+PROC_FLAG_EXT_DARWINBG = 0x10000
+
+
+def darwinbg(pid: int) -> bool | None:
+    """Whether the kernel runs `pid` darwin-background now, or None when it cannot be read."""
+    if _libproc is None:
+        return None
+    info = _BSDInfo()
+    size = ctypes.sizeof(info)
+    if _libproc.proc_pidinfo(ctypes.c_int(pid), ctypes.c_int(_PROC_PIDTBSDINFO), ctypes.c_uint64(0),
+                             ctypes.byref(info), ctypes.c_int(size)) != size:
+        return None
+    return bool(info.pbi_flags & (PROC_FLAG_DARWINBG | PROC_FLAG_EXT_DARWINBG))
+
+
+def _leading_int(text: str, base: int = 10) -> int | None:
+    match = re.match(r"-?[0-9a-fA-F]+" if base == 16 else r"-?\d+", text)
+    return int(match.group(0), base) if match else None
+
+
+def parse_priorities(text: str) -> dict[int, dict]:
+    """`ps -o pid=,pri=,nice=,flags=` output -> {pid: {pri, nice, flags}}: the scheduling priority (31 default,
+    47 a foreground app, 46 a background-role app, 28 and below suppressed or darwin background, see
+    osfmk/kern/sched.h), the nice value and the p_flag bits (ps prints them in hex)."""
+    found = {}
+    for line in text.splitlines():
+        parts = line.split()
+        if len(parts) >= 4 and parts[0].isdigit():
+            found[int(parts[0])] = {"pri": _leading_int(parts[1]), "nice": _leading_int(parts[2]),
+                                    "flags": _leading_int(parts[3], 16)}
+    return found
+
+
+def priorities(pids) -> dict[int, dict]:
+    """{pid: {pri, nice, flags, darwinbg}} of `pids` now: one `ps` call plus the kernel's darwinbg bit per pid
+    (None when unreadable). Neither read wakes the processes."""
+    wanted = set(pids)
+    out = subprocess.run(["ps", "-axo", "pid=,pri=,nice=,flags="], capture_output=True, text=True).stdout
+    found = {pid: values for pid, values in parse_priorities(out).items() if pid in wanted}
+    for pid, values in found.items():
+        values["darwinbg"] = darwinbg(pid)
+    return found
 
 
 def resident_mb() -> dict[int, float]:

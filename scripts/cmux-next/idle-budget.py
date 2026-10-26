@@ -30,6 +30,12 @@ Sessions (--sessions):
 A session that fails (STRESS refuses a window under the Dock, a launch fails) is recorded with its exit
 code (`session_exits` in the report) and the others still run; the script exits 0 unless --gate.
 
+Roles (D16 of plans/cmux-next/chrome-parity/p14-energy.md): at the window's end each process's `ps`
+priority, nice and flags and the kernel's darwinbg bit give its role (darwinbg, low, default, foreground).
+The app is napped while no window shows; hidden Chromium renderers and the extension process are
+best-effort (Chrome's kBestEffort); the daemon and terminal hosts are never backgrounded while a terminal
+shows; pooled acpmux agents are PRIO_DARWIN_BG. Each mismatch is an `IDLE-BUDGET-OVER ... owner=role` line.
+
 Budget: scripts/cmux-next/idle-budget.json (per process kind; a missing value is reported, not judged).
 Over budget prints IDLE-BUDGET-OVER lines; the exit code is 0 unless --gate (no CI gate: the perf cron
 runs it and reports).
@@ -56,7 +62,7 @@ STRESS_FILE = os.path.join(HERE, "perf-stress-session.py")
 # ---------------------------------------------------------------------------------------------------------
 # Per-thread counters (libproc, same user, no root)
 
-_libproc = ctypes.CDLL("/usr/lib/libproc.dylib")
+_libproc = procs._libproc  # None off macOS: only the pure parts (kinds, roles, the budget check) run there
 PROC_PIDLISTTHREADIDS = 28
 PROC_PIDTHREADID64INFO = 15
 
@@ -152,7 +158,9 @@ def measure(app, instance, seconds):
     elapsed = time.monotonic() - began
     last_pids = process_set(instance)
     last = {pid: (procs.counters(pid), procs.overhead(pid), threads(pid)) for pid in last_pids}
-    hangs1 = read_rpc(app, "debug.hangs", {"limit": 0})
+    priority = procs.priorities(last_pids)
+    pooled = pool_pids(last_pids, procs.process_table(), acpmux_homes())
+    hangs1 =read_rpc(app, "debug.hangs", {"limit": 0})
     ledger1 = read_rpc(app, "debug.wakeups", {"run_loop": True})
     counters1 = app_counters(app)
     rows = []
@@ -177,6 +185,7 @@ def measure(app, instance, seconds):
             "wakeups_per_s": round((c1[2] - c0[2]) / elapsed, 3),
             "csw_per_s": round(procs._delta32(o1[4], o0[4]) / elapsed, 3),
             "footprint_mb": round(c1[3] / procs.MB, 1),
+            "priority": priority.get(pid), "role": observed_role(priority.get(pid)), "pooled": pid in pooled,
         })
     result = {"seconds": round(elapsed, 1), "processes": rows}
     if "main_wakes" in hangs0 and "main_wakes" in hangs1:
@@ -299,6 +308,8 @@ def aggregate(result):
         entry["csw_per_s"] = round(entry["csw_per_s"] + row["csw_per_s"], 3)
         entry["cpu_pct"] = round(entry["cpu_pct"] + row["cpu_pct"], 4)
         entry["threads_ran"] += row["threads_ran"]
+        if row.get("role"):
+            entry.setdefault("roles", {})[row["role"]] = entry.get("roles", {}).get(row["role"], 0) + 1
     if "main_wakes_per_s" in result and "app" in kinds:
         kinds["app"]["main_wakes_per_s"] = result["main_wakes_per_s"]
     return kinds
@@ -323,6 +334,153 @@ def over_budget(session, kinds, budget):
             if isinstance(value, (int, float)) and value > limit:
                 out.append((name, field, value, limit))
     return out
+
+
+# ---------------------------------------------------------------------------------------------------------
+# Process roles and App Nap (D16 of plans/cmux-next/chrome-parity/p14-energy.md)
+#
+# Chrome's model (base/process/process_mac.cc `Process::SetPriority`, RenderProcessHostImpl::
+# UpdateProcessPriority in content/browser/renderer_host/render_process_host_impl.cc): a hidden or spare
+# renderer is kBestEffort (TASK_BACKGROUND_APPLICATION + TASK_SUPPRESSION_POLICY: darwin background, low CPU
+# priority), a shown one kUserBlocking (TASK_FOREGROUND_APPLICATION). macOS App Nap suppresses a hidden app
+# the same way. The audit reads each process's role at the window's end and compares it with D16.
+
+def observed_role(priority):
+    """The scheduling role of one process from `procs.priorities()`: `darwinbg` (the kernel's darwin-background
+    bit: PRIO_DARWIN_BG, Chrome's kBestEffort), `low` (priority lowered below the default 31: App Nap or task
+    suppression, MAXPRI_SUPPRESSED 28 in osfmk/kern/sched.h, or nice), `foreground` (an app's foreground or
+    background-application role, 46 and up), `default`, or None when it could not be read."""
+    if not priority or priority.get("pri") is None:
+        return None
+    if priority.get("darwinbg"):
+        return "darwinbg"
+    if priority["pri"] < 31:
+        return "low"
+    return "foreground" if priority["pri"] >= 46 else "default"
+
+
+# An expectation and the observed roles that meet it.
+ROLE_EXPECTATIONS = {
+    "best-effort": {"darwinbg", "low"},  # Chrome kBestEffort
+    "napped": {"darwinbg", "low"},       # App Nap
+    "darwinbg": {"darwinbg"},            # PRIO_DARWIN_BG exactly (pooled acpmux agents, task 038)
+    "not-background": {"default", "foreground"},
+}
+
+# What each session shows: `shown` is whether any app window can be seen (a terminal is visible in each
+# shown session), `chromium_tabs_shown` how many Chromium tabs are on screen (None: not counted, as in light,
+# where Home's pages run in Chromium). Sessions not listed get only the rules that hold in every session.
+ROLE_SESSIONS = {
+    "light": {"shown": True, "chromium_tabs_shown": None},
+    "light-webkit": {"shown": True, "chromium_tabs_shown": 0},
+    "light-hidden": {"shown": False},
+    "minimized": {"shown": False},
+    "occluded": {"shown": False},
+    "tabs-static": {"shown": True, "chromium_tabs_shown": 1},
+    "stress": {"shown": True, "chromium_tabs_shown": None},
+    "stress-static": {"shown": True, "chromium_tabs_shown": None},
+}
+
+
+def expected_role(session, kind_name, pooled, budget=None):
+    """The role D16 expects of one process in `session`, or None when its role is not judged there. A
+    budget v2 `sessions.<session>.kinds.<kind>.role` overrides the default."""
+    override = (((budget or {}).get("sessions") or {}).get(session) or {}).get("kinds", {}).get(kind_name, {})
+    if isinstance(override, dict) and override.get("role") in ROLE_EXPECTATIONS:
+        return override["role"]
+    if pooled:
+        return "darwinbg"
+    if kind_name == "cef-extension":
+        return "best-effort"
+    shown = ROLE_SESSIONS.get(session, {}).get("shown")
+    if shown is False and kind_name == "app":
+        return "napped"
+    if shown is False and kind_name == "cef-renderer":
+        return "best-effort"
+    if shown and kind_name in ("daemon", "terminal-host"):
+        return "not-background"
+    return None
+
+
+def role_mismatches(session, rows, budget=None):
+    """[{kind, pids, observed, expected}] for every process whose role does not meet D16. In a session that
+    shows N Chromium tabs, at most N renderers may be above best-effort (the shown tabs' renderers can not be
+    told apart by pid until per-tab renderer attribution, task 124): any more are one mismatch naming all."""
+    out = []
+    for row in rows:
+        want = expected_role(session, row["kind"], row.get("pooled"), budget)
+        if want is None or row.get("role") is None or row["role"] in ROLE_EXPECTATIONS[want]:
+            continue
+        out.append({"kind": row["kind"], "pids": [row["pid"]], "observed": row["role"], "expected": want})
+    shown_tabs = ROLE_SESSIONS.get(session, {}).get("chromium_tabs_shown")
+    if shown_tabs is not None:
+        above = [row for row in rows if row["kind"] == "cef-renderer" and not row.get("pooled")
+                 and row.get("role") is not None and row["role"] not in ROLE_EXPECTATIONS["best-effort"]]
+        if len(above) > shown_tabs:
+            out.append({"kind": "cef-renderer", "pids": sorted(row["pid"] for row in above),
+                        "observed": f"{len(above)}-above-best-effort",
+                        "expected": f"best-effort-beyond-{shown_tabs}-shown"})
+    return out
+
+
+def role_over_line(session, mismatch):
+    """One Q9 work item: `IDLE-BUDGET-OVER <session> <kind> role owner=role pids=... observed=... expected=...`."""
+    pids = ",".join(str(pid) for pid in mismatch["pids"])
+    return (f"IDLE-BUDGET-OVER {session} {mismatch['kind']} role owner=role pids={pids} "
+            f"observed={mismatch['observed']} expected={mismatch['expected']}")
+
+
+def role_counts(entry):
+    """`darwinbg 10, foreground 1` from aggregate()'s per-kind role counts, or `-`."""
+    return ", ".join(f"{role} {count}" for role, count in sorted((entry.get("roles") or {}).items())) or "-"
+
+
+def acpmux_homes(user_home=None):
+    """Every acpmux home of this user: `~/.acpmux` (NIGHTLY and a standalone acpmux) and each build's
+    `~/.acpmux/builds/<key>` (AcpmuxEnvironment, per-build isolation)."""
+    root = os.path.join(user_home or os.path.expanduser("~"), ".acpmux")
+    builds = os.path.join(root, "builds")
+    found = [root]
+    if os.path.isdir(builds):
+        found += [os.path.join(builds, name) for name in sorted(os.listdir(builds))]
+    return found
+
+
+def pool_pids(pids, table, homes):
+    """The pids of `pids` that are pooled acpmux agents: each record in `<home>/hosts/pool/*.json`
+    (acpmux agent_host POOL_DIR_NAME) names its `__agent-host` pid and harness pid; their descendants
+    (the harness's own children) are pooled too."""
+    wanted = set(pids)
+    roots = set()
+    for home in homes:
+        pool = os.path.join(home, "hosts", "pool")
+        try:
+            names = os.listdir(pool)
+        except OSError:
+            continue
+        for name in names:
+            if not name.endswith(".json"):
+                continue
+            try:
+                with open(os.path.join(pool, name)) as handle:
+                    record = json.load(handle)
+            except (OSError, ValueError):
+                continue
+            for key in ("host_pid", "harness_pid"):
+                if isinstance(record.get(key), int) and record[key] in wanted:
+                    roots.add(record[key])
+    children = {}
+    for pid, ppid, _cmd in table:
+        children.setdefault(ppid, []).append(pid)
+    found = set()
+    stack = list(roots)
+    while stack:
+        pid = stack.pop()
+        if pid in found:
+            continue
+        found.add(pid)
+        stack += [child for child in children.get(pid, []) if child in wanted]
+    return found
 
 
 # Noise floors of the cron rows: one wakeup a second, two threads (a pool thread parks or exits late).
@@ -445,15 +603,16 @@ def host_facts():
 
 def table(session, kinds, overs):
     over_keys = {(k, f) for k, f, _, _ in overs}
-    lines = [f"\n### {session}\n", "| process | n | threads (max) | wakeups/s (max) | main wakes/s | csw/s | CPU % | threads that ran |",
-             "|---|---|---|---|---|---|---|---|"]
+    lines = [f"\n### {session}\n", "| process | n | threads (max) | wakeups/s (max) | main wakes/s | csw/s | CPU % | threads that ran | roles |",
+             "|---|---|---|---|---|---|---|---|---|"]
     order = ["app", "daemon", "holder", "terminal-host", "acpmux"]
     for name in sorted(kinds, key=lambda k: (order.index(k) if k in order else len(order), k)):
         e = kinds[name]
         mark = lambda f, v: f"**{v}**" if (name, f) in over_keys else f"{v}"  # noqa: E731
         lines.append(f"| {name} | {e['n']} | {e['threads']} ({mark('threads_max', e['threads_max'])}) | "
                      f"{mark('wakeups_per_s', e['wakeups_per_s'])} ({mark('wakeups_max', e['wakeups_max'])}) | "
-                     f"{mark('main_wakes_per_s', e.get('main_wakes_per_s', '-'))} | {e['csw_per_s']} | {e['cpu_pct']} | {e['threads_ran']} |")
+                     f"{mark('main_wakes_per_s', e.get('main_wakes_per_s', '-'))} | {e['csw_per_s']} | {e['cpu_pct']} | {e['threads_ran']} | "
+                     f"{mark('role', role_counts(e))} |")
     return "\n".join(lines)
 
 
@@ -502,7 +661,9 @@ def main():
                 result["sample"] = sample_threads(app.process.pid, opts.sample, os.path.join(out, session, "sample-app.txt"))
             kinds = aggregate(result)
             overs = over_budget(session, kinds, budget)
-            entry.update({"result": result, "kinds": kinds, "over": [list(o) for o in overs]})
+            roles = role_mismatches(session, result["processes"], budget)
+            overs += [(m["kind"], "role", m["observed"], m["expected"]) for m in roles]
+            entry.update({"result": result, "kinds": kinds, "over": [list(o) for o in overs], "role_mismatches": roles})
             report["sessions"][session] = entry
             for name, values in kinds.items():
                 print("IDLE-BUDGET-ROW " + json.dumps({"session": session, "kind": name, **values}), flush=True)
@@ -517,12 +678,15 @@ def main():
             for timer in result.get("main_run_loop_timers") or []:
                 if timer["interval_s"] > 0:
                     print(f"IDLE-BUDGET-MAIN-TIMER {session} every {timer['interval_s']:g} s: {timer['callout']}", flush=True)
-            for name, entry in (result.get("sample") or {}).items():
-                top = "; ".join(f"{frame} x{count}" for frame, count in entry["frames"][:6])
+            for name, sampled in (result.get("sample") or {}).items():
+                top = "; ".join(f"{frame} x{count}" for frame, count in sampled["frames"][:6])
                 if top:
                     print(f"IDLE-BUDGET-SAMPLE {session} {name}: {top}", flush=True)
             for name, field, value, limit in overs:
-                print(f"IDLE-BUDGET-OVER {session} {name} {field} {value} > {limit}", flush=True)
+                if field != "role":
+                    print(f"IDLE-BUDGET-OVER {session} {name} {field} {value} > {limit}", flush=True)
+            for mismatch in roles:
+                print(role_over_line(session, mismatch), flush=True)
             all_overs += [(session, *o) for o in overs]
             markdown.append(table(session, kinds, overs))
             entry["exit"] = 0
