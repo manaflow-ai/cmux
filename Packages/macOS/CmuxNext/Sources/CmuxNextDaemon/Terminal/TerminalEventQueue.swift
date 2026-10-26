@@ -18,6 +18,9 @@ final class TerminalEventQueue: @unchecked Sendable {
     /// starts to block above `highWater`. Tests use it to observe
     /// backpressure without timing; it must not block or touch the queue.
     private let onReaderBlocked: (@Sendable () -> Void)?
+    /// Counts the output bytes the queue copies when it merges chunks
+    /// (``DaemonWireStats/Snapshot/outputBytesCopiedApp``); nil counts nothing.
+    private let recorder: DaemonWireStats.Recorder?
 
     // All mutable state is guarded by `condition`.
     private let condition = NSCondition()
@@ -29,10 +32,11 @@ final class TerminalEventQueue: @unchecked Sendable {
     private var armed = false
 
     init(highWater: Int = 8 << 20, lowWater: Int = 2 << 20, mergeLimit: Int = 1 << 20,
-         onReaderBlocked: (@Sendable () -> Void)? = nil) {
+         recorder: DaemonWireStats.Recorder?, onReaderBlocked: (@Sendable () -> Void)? = nil) {
         self.highWater = highWater
         self.lowWater = lowWater
         self.mergeLimit = mergeLimit
+        self.recorder = recorder
         self.onReaderBlocked = onReaderBlocked
     }
 
@@ -154,10 +158,14 @@ final class TerminalEventQueue: @unchecked Sendable {
         guard var event = items[checked: head] else { return nil }
         head += 1
         if case .output(var data, nil) = event {
+            var merged = false
             while data.count < mergeLimit, case .output(let more, nil)? = items[checked: head] {
                 data.append(more)
                 head += 1
+                merged = true
             }
+            // A merge writes every byte of the result into a new buffer.
+            if merged { recorder?.outputCopied(data.count) }
             event = .output(data, colors: nil)
             outputBytes -= data.count
         } else {

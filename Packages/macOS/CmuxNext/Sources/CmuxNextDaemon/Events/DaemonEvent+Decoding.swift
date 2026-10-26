@@ -17,15 +17,19 @@ extension DaemonEvent {
 
     /// Decodes one subscribe-stream line whose `event` field is `name`.
     public static func decode(name: String, line: Data) -> DaemonEvent {
-        let decoder = WireCoding.decoder()
+        decode(name: name, line: line, decoder: WireCoding.decoder())
+    }
+
+    /// ``decode(name:line:)`` with `decoder`: the connection's, which counts each decode of the line.
+    static func decode(name: String, line: Data, decoder: WireDecoder) -> DaemonEvent {
         func payload() -> JSONValue { (try? decoder.decode(JSONValue.self, from: line)) ?? .null }
         func d<T: Decodable>(_ type: T.Type) throws -> T { try decoder.decode(T.self, from: line) }
         do {
             switch name {
             case "apps-agent-inventory-demand":
-                return .unknown(name: name, payload: AgentInventoryProviderDemand.payload(line: line))
+                return .unknown(name: name, payload: AgentInventoryProviderDemand.payload(line: line, decoder: decoder))
             case "agent-inventory-changed", "agent-inventory-watch-ended":
-                return .unknown(name: name, payload: AgentInventoryWatchEvent.decode(name: name, line: line)?.payload ?? .null)
+                return .unknown(name: name, payload: AgentInventoryWatchEvent.decode(name: name, line: line, decoder: decoder)?.payload ?? .null)
             case "workspace-added": return .workspaceAdded(try d(WorkspaceDelta.self))
             case "workspace-closed": return .workspaceClosed(try d(WorkspaceDelta.self))
             case "workspace-renamed": return .workspaceRenamed(try d(WorkspaceDelta.self))
@@ -101,7 +105,7 @@ extension DaemonEvent {
             case "overflow": return .overflow(try d(EventPayload.OverflowEvent.self).error ?? "overflow")
             case "daemon-shutdown": return .daemonShutdown
             case LineTransport.streamEvent:
-                guard let item = SessionStreamItem.decode(line) else { return .unknown(name: name, payload: .null) }
+                guard let item = SessionStreamItem.decode(line, decoder: decoder) else { return .unknown(name: name, payload: .null) }
                 return .sessionState(item)
             default: return .unknown(name: name, payload: payload())
             }
