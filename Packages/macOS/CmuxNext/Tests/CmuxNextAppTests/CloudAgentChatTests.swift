@@ -152,14 +152,14 @@ struct CloudAgentChatTests {
     }
 
     /// The frames a wire sends back, and the page's calls on it.
-    final class Frames: @unchecked Sendable {
+    nonisolated final class Frames: @unchecked Sendable {
         private let lock = NSLock()
         private var received: [String] = []
         private var next = 0
 
         var lines: [String] { lock.withLock { received } }
 
-        static func open(_ wire: any AcpmuxPaneWire) async throws -> Frames {
+        @MainActor static func open(_ wire: any AcpmuxPaneWire) async throws -> Frames {
             let frames = Frames()
             try await wire.open(onFrame: { [frames] text in frames.lock.withLock { frames.received.append(text) } }, onClose: { _, _ in })
             return frames
