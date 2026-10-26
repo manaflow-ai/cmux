@@ -9,6 +9,9 @@ import Foundation
 /// `ChromiumHost/src/chromium_host_control.h`). Input frames go on the shm
 /// ring (task 041); everything else goes here, on one stream socket.
 ///
+/// - A bytes or str field too large for a 64 KiB frame goes in a sealed
+///   shared memory region passed with the frame (``ChromiumHostSharedRegion``,
+///   task 020), as `mojo_base::BigBuffer` does: no socket frame is larger.
 /// - ``send(_:stateKey:)`` from any thread never blocks: a frame the socket
 ///   refuses waits in the ``ChromiumHostControlOutbox`` and the reader thread
 ///   writes it once the socket takes more (Mojo's ChannelPosix,
@@ -84,8 +87,11 @@ nonisolated final class ChromiumHostControlChannel: Sendable {
     /// message breaks a bound (then nothing is sent).
     @discardableResult
     func send(_ message: ChromiumHostControlMessage, stateKey: UInt64? = nil) -> Bool { // perf-hot: 5us cef-host-control (every posted shim op)
-        guard let frame = message.encoded() else { return false }
-        return core.send(frame, fds: message.fds, stateKey: stateKey)
+        let shared = message.sharedFieldIndices()
+        // A payload too large for a frame is copied to its region here, before the lock (task 020).
+        guard let frame = message.encoded(sharing: shared),
+              let payloads = ChromiumHostSharedPayloads(message, sharing: shared) else { return false }
+        return core.send(frame, fds: message.fds, payloads: payloads, stateKey: stateKey)
     }
 
     /// Sends `message` with a fresh token and returns the host's reply,

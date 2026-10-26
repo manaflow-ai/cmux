@@ -7,7 +7,8 @@ import Testing
 /// The control channel to the Chromium host: the same golden frame as
 /// ChromiumHost/tests/chromium_host_control_test.cpp
 /// (scripts/cmux-next/tests/chromium-host-wire.test.sh), the malformed-frame
-/// rules, the outbox's coalescing, and channels on a real socket pair.
+/// rules, the outbox's coalescing, channels on a real socket pair, and
+/// payloads over 64 KiB in shared memory (task 020).
 @MainActor
 @Suite(.timeLimit(.minutes(1))) struct ChromiumHostControlChannelTests {
     typealias Message = ChromiumHostControlMessage
@@ -428,6 +429,134 @@ import Testing
         #expect(b.messages.map { $0[2] } == Self.codes(0..<5_000))
         sender.close()
         receiver.close()
+    }
+
+    // MARK: Large payloads (task 020)
+
+    static func pattern(_ count: Int, seed: Int) -> [UInt8] {
+        (0..<count).map { UInt8(truncatingIfNeeded: $0 &* 31 &+ seed) }
+    }
+
+    /// A page resource body of 10 MB, with a 70 KB PNG and a 200 KB string beside it.
+    static let largeResource = Message(
+        op: 0x0301,
+        fields: [.init(tag: 1, value: .i32(42)), .init(tag: 2, value: .str("text/html; charset=utf-8")),
+                 .init(tag: 3, value: .bytes(pattern(10 * 1024 * 1024, seed: 7))),
+                 .init(tag: 4, value: .bytes(pattern(70_000, seed: 3))),
+                 .init(tag: 5, value: .str(String(repeating: "a", count: 200_000)))])
+
+    @Test func fieldsTooLargeForAFrameAreChosenForSharedMemory() {
+        #expect(Self.largeResource.sharedFieldIndices() == [2, 3, 4], "every field over 65,535 bytes")
+        let fitting = Message(op: 1, fields: [.init(tag: 1, value: .bytes(Array(repeating: 1, count: 40_000))),
+                                              .init(tag: 2, value: .bytes(Array(repeating: 2, count: 30_000))),
+                                              .init(tag: 3, value: .bytes(Array(repeating: 3, count: 20_000)))])
+        #expect(fitting.sharedFieldIndices() == [0], "then the largest until the body fits 64 KiB")
+        #expect(Self.goldenMessage.sharedFieldIndices().isEmpty, "a frame that fits shares nothing")
+        var tooMany = Self.largeResource
+        tooMany.fields += [.init(tag: 6, value: .bytes(Array(repeating: 6, count: 70_000))),
+                           .init(tag: 7, value: .bytes(Array(repeating: 7, count: 70_000)))]
+        #expect(tooMany.encoded(sharing: tooMany.sharedFieldIndices()) == nil, "more regions than descriptors is never sent")
+    }
+
+    @Test func aTenMegabyteResourceRoundTrips() async throws {
+        let (aFD, bFD) = try Self.socketPair()
+        let a = Recorder(), b = Recorder()
+        let sender = a.channel(fd: aFD)
+        let receiver = b.channel(fd: bFD)
+        var pipeFDs: [Int32] = [-1, -1]
+        try #require(pipe(&pipeFDs) == 0)
+        var resource = Self.largeResource
+        resource.fds = [pipeFDs[1]]
+        #expect(sender.send(resource))
+        close(pipeFDs[1])
+        #expect(sender.send(Self.key(1, 1)))
+        await b.wait { b.messages.count == 2 }
+        #expect(b.messages[0].fields == Self.largeResource.fields, "the 10 MB resource arrives byte for byte")
+        #expect(b.messages[0].fds.count == 1, "the caller's descriptor arrives; the regions are read and closed")
+        for received in b.messages[0].fds { close(received) }
+        #expect(b.messages[1].op == 5, "the key after it follows it")
+        close(pipeFDs[0])
+        sender.close()
+        receiver.close()
+    }
+
+    @Test func noSocketMessageIsOver64KiB() throws {
+        let (fd, peer) = try Self.socketPair()
+        let recorder = Recorder()
+        let channel = recorder.channel(fd: fd)
+        #expect(channel.send(Self.largeResource))
+        var chunk = [UInt8](repeating: 0, count: 1 << 20)
+        var control = [UInt8](repeating: 0, count: ChromiumHostControlSocket.receiveControlSize)
+        var fds: [Int32] = []
+        var raw: [UInt8] = []
+        let socket = ChromiumHostControlSocket(fd: peer)
+        // send wrote the frame before it returned (the outbox was empty): read all the socket holds.
+        try #require(fcntl(peer, F_SETFL, O_NONBLOCK) == 0)
+        while case .read(let count) = socket.receive(into: &chunk, control: &control, fds: &fds) {
+            raw += chunk[0..<count]
+        }
+        #expect(raw.count <= Message.headerSize + Message.maxBody, "the socket carries no message over 64 KiB")
+        #expect(fds.count == 3, "one region per large field")
+        for region in fds {
+            var probe: UInt8 = 0
+            let written = write(region, &probe, 1)
+            #expect(written < 0, "the receiver cannot write a region")
+            #expect(fcntl(region, F_GETFL) & O_ACCMODE == O_RDONLY, "a region is read-only")
+        }
+        let decoded = Message.decode(raw[...], fds: &fds)
+        #expect(decoded == .frame(Self.largeResource, consumed: raw.count), "the frame decodes with its regions read")
+        #expect(fds.isEmpty, "and the regions are taken")
+        channel.close()
+        close(peer)
+    }
+
+    @Test func aSharedFieldWithABadRegionIsMalformed() throws {
+        let message = Message(op: 7, fields: [.init(tag: 1, value: .bytes(Array(repeating: 0x72, count: 70_000)))])
+        let frame = try #require(message.encoded(sharing: [0]))
+        func decode(with fd: Int32) -> Message.Decoded {
+            var fds = [fd]
+            return Message.decode(frame[...], fds: &fds)
+        }
+        // decode closes every region it takes (chromium_host_control_test.cpp checks the numbers; tests
+        // here run in parallel, so a closed number may be reused at once).
+        let good = try #require(ChromiumHostSharedRegion(holding: message.payload(at: 0)))
+        #expect(decode(with: good.fd) == .frame(message, consumed: frame.count), "a read-only region of the right size")
+        let short = try #require(ChromiumHostSharedRegion(holding: [1, 2, 3]))
+        #expect(decode(with: short.fd) == .malformed, "a region shorter than its count")
+
+        var pipeFDs: [Int32] = [-1, -1]
+        try #require(pipe(&pipeFDs) == 0 && fcntl(pipeFDs[0], F_SETFL, O_NONBLOCK) == 0)
+        #expect(decode(with: pipeFDs[1]) == .malformed, "a writable descriptor its sender could change")
+        var byte: UInt8 = 0
+        let readCount = read(pipeFDs[0], &byte, 1)
+        #expect(readCount == 0, "is closed: the pipe has no writer left")
+        close(pipeFDs[0])
+
+        var zero = frame
+        zero.replaceSubrange((Message.headerSize + Message.fieldHeaderSize)..<(Message.headerSize + Message.fieldHeaderSize + 8),
+                             with: [UInt8](repeating: 0, count: 8))
+        let one = try #require(ChromiumHostSharedRegion(holding: [1]))
+        var fds = [one.fd]
+        #expect(Message.decode(zero[...], fds: &fds) == .malformed, "a shared field of 0 bytes")
+        for fd in fds { close(fd) }
+    }
+
+    @Test func sharedPayloadsCountTowardTheQuota() throws {
+        let (fd, peer) = try Self.socketPair()
+        let recorder = Recorder()
+        let channel = recorder.channel(fd: fd)
+        var code: Int32 = 0
+        while channel.stats.pendingMessages == 0, code < 1_000_000 {
+            channel.send(Self.key(1, code))
+            code += 1
+        }
+        let before = channel.stats.pendingBytes
+        let large = Message(op: 8, fields: [.init(tag: 1, value: .bytes(Array(repeating: 0x71, count: 1 << 20)))])
+        #expect(channel.send(large))
+        #expect(channel.stats.pendingBytes >= before + (1 << 20), "a waiting region's bytes are counted")
+        #expect(channel.stats.quotaExcess > 0, "and put a peer that never reads over quota")
+        channel.close()
+        close(peer)
     }
 }
 #endif

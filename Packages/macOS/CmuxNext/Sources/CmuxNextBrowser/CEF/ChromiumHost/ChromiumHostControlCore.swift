@@ -90,23 +90,36 @@ nonisolated final class ChromiumHostControlCore: Sendable {
 
     // MARK: Any thread
 
-    func send(_ frame: [UInt8], fds: [Int32], stateKey: UInt64?) -> Bool {
-        state.withLock { Self.sendLocked(&$0, frame, fds: fds, stateKey: stateKey) }
+    /// Queues `frame`; takes `payloads` (closed when nothing is sent).
+    func send(_ frame: [UInt8], fds: [Int32], payloads: ChromiumHostSharedPayloads, stateKey: UInt64?) -> Bool {
+        state.withLock { Self.sendLocked(&$0, frame, fds: fds, payloads: payloads, stateKey: stateKey) }
     }
 
     /// Sends `message` under a fresh token; `continuation` resumes with the
     /// reply (on the reader thread) or the end.
     func request(_ message: ChromiumHostControlMessage, _ continuation: CheckedContinuation<Reply, Never>) {
+        let shared = message.sharedFieldIndices()
+        // Made before the lock, as in ChromiumHostControlChannel.send.
+        guard let payloads = ChromiumHostSharedPayloads(message, sharing: shared) else {
+            continuation.resume(returning: .failure(.unsendable))
+            return
+        }
         let failure = state.withLock { state -> ChromiumHostControlError? in
-            if let reason = state.unwritable { return .hostGone(reason) }
+            if let reason = state.unwritable {
+                payloads.closeAll()
+                return .hostGone(reason)
+            }
             state.lastToken = state.lastToken == UInt32.max ? 1 : state.lastToken + 1
             let token = state.lastToken
             var tokened = message
             tokened.token = token
             tokened.isReply = false
-            guard let frame = tokened.encoded() else { return .unsendable }
+            guard let frame = tokened.encoded(sharing: shared) else {
+                payloads.closeAll()
+                return .unsendable
+            }
             state.replies[token] = continuation
-            guard Self.sendLocked(&state, frame, fds: message.fds, stateKey: nil) else {
+            guard Self.sendLocked(&state, frame, fds: message.fds, payloads: payloads, stateKey: nil) else {
                 state.replies[token] = nil
                 return state.unwritable.map { .hostGone($0) } ?? .unsendable
             }
@@ -290,19 +303,27 @@ nonisolated final class ChromiumHostControlCore: Sendable {
 
     // MARK: Under the lock
 
-    private static func sendLocked(_ state: inout State, _ frame: [UInt8], fds: [Int32], stateKey: UInt64?) -> Bool {
-        guard state.unwritable == nil else { return false }
+    /// Takes `payloads`: the outbox owns them once queued, else they are closed here.
+    private static func sendLocked(_ state: inout State, _ frame: [UInt8], fds: [Int32],
+                                   payloads: ChromiumHostSharedPayloads, stateKey: UInt64?) -> Bool {
+        guard state.unwritable == nil else {
+            payloads.closeAll()
+            return false
+        }
         var copies: [Int32] = []
         for fd in fds {
             let copy = fcntl(fd, F_DUPFD_CLOEXEC, 0)
             guard copy >= 0 else {
                 for made in copies { Darwin.close(made) }
+                payloads.closeAll()
                 return false
             }
             copies.append(copy)
         }
         let wasEmpty = state.outbox.isEmpty
-        if state.outbox.push(frame, fds: copies, key: stateKey) { state.coalesced += 1 }
+        if state.outbox.push(frame, fds: copies + payloads.fds, key: stateKey, sharedBytes: payloads.byteCount) {
+            state.coalesced += 1
+        }
         if wasEmpty {
             guard flushLocked(&state) else { return false }
             if !state.outbox.isEmpty { wake(state.wakeWrite) }  // the reader now waits for the socket to take more
