@@ -858,6 +858,7 @@ impl Hub {
                 // Its receiver is gone: nothing can take it.
                 self.pairs_state().releasing.remove(&h.prompt_id);
                 self.settle_held(&key, &h.prompt_id);
+                crate::attach::held_settled(&h.to, &h.prompt_id, false);
                 continue;
             };
             let (tx, mut rx) = mpsc::unbounded_channel::<Result<(), RpcError>>();
@@ -900,6 +901,7 @@ impl Hub {
                         json!({"promptId": h.prompt_id, "peer": h.from}),
                     );
                     self.settle_held(&key, &h.prompt_id);
+                    crate::attach::held_settled(&h.to, &h.prompt_id, true);
                 }
                 Err(e) if h.failures + 1 >= RELEASE_TRIES => {
                     tracing::warn!(session = %session.id, "held agent message dropped: {}", e.message);
@@ -909,6 +911,7 @@ impl Hub {
                         self.append(&sender, "mux", "agent_pair_dropped", note(&h.to));
                     }
                     self.settle_held(&key, &h.prompt_id);
+                    crate::attach::held_settled(&h.to, &h.prompt_id, false);
                 }
                 Err(e) => {
                     tracing::warn!(session = %session.id, "held agent message not released: {}", e.message);

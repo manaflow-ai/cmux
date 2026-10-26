@@ -373,6 +373,18 @@ async fn a_queued_message_withdrawn_before_it_runs_keeps_none() {
     assert_eq!(saved(&session).len(), 1, "{:?}", saved(&session));
 }
 
+/// Files come with a message, never with an edit of a queued one (`_acpmux/queue_edit`).
+#[tokio::test]
+async fn a_queue_edit_cannot_attach_files() {
+    let hub = hub();
+    let mut c = client(&hub, Origin::Local);
+    let session = c.new_session("attach-edit").await;
+    let edit = json!({"sessionId": session, "promptId": "p", "op": "update",
+        "prompt": [{"type": "text", "text": "x"}, image("shot.png", &png(64))]});
+    let reply = c.call(method::MUX_QUEUE_EDIT, edit).await;
+    assert_eq!(reply["error"]["data"]["reason"], "attach.edit", "{reply}");
+}
+
 /// A message refused by a check after its files were read (here its `fromAgent`) keeps none.
 #[tokio::test]
 async fn a_message_refused_after_its_files_are_read_keeps_none() {
