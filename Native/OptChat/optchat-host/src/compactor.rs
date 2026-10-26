@@ -320,18 +320,11 @@ fn job(shared: Arc<Shared>, request: CompactRequest) {
             &request,
         )
     };
-    let result = match gated(&shared.model) {
-        // A refusal repeats on every try: ask the fallback model, in a fresh
-        // conversation (the declined model's blocks mean nothing to it).
-        Err(declined) if declined.refused => match &shared.fallback {
-            Some(fallback) => gated(fallback).map_err(|e| ModelError {
-                message: format!("{declined}; the fallback model failed too: {e}"),
-                ..e
-            }),
-            None => Err(declined),
-        },
-        other => other,
-    };
+    let fallback = shared
+        .fallback
+        .as_ref()
+        .map(|f| move |_: &CompactRequest| gated(f));
+    let result = build_with(|_| gated(&shared.model), fallback, &request).map(|built| built.text);
     let mut st = shared.lock();
     if !st.writable() {
         return;
@@ -452,6 +445,70 @@ fn job(shared: Arc<Shared>, request: CompactRequest) {
     st.memory.fail(node);
     drive(&shared, &mut st);
     shared.unlock(st);
+}
+
+/// What `build_node` keeps for a node.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Built {
+    /// The node's text.
+    pub text: String,
+    /// The fallback model wrote it (the main model declined).
+    pub by_fallback: bool,
+    /// No model wrote a line: the text stands in for one (the node's input,
+    /// kept so its facts are not lost).
+    pub stand_in: bool,
+}
+
+/// Builds one node as the host does: `run_node` on `model`, and when it
+/// declines, `run_node` on `fallback` in a fresh conversation.
+pub fn build_node(
+    model: &dyn CompactModel,
+    fallback: Option<&dyn CompactModel>,
+    request: &CompactRequest,
+) -> Result<Built, ModelError> {
+    build_with(
+        |r| run_node(model, r),
+        fallback.map(|f| move |r: &CompactRequest| run_node(f, r)),
+        request,
+    )
+}
+
+/// `build_node` over two node builders (the host's are gated by single-flight).
+fn build_with(
+    main: impl Fn(&CompactRequest) -> Result<String, ModelError>,
+    fallback: Option<impl Fn(&CompactRequest) -> Result<String, ModelError>>,
+    request: &CompactRequest,
+) -> Result<Built, ModelError> {
+    let flat = step_input(&request.step)
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ");
+    let built = |text: String, by_fallback: bool| Built {
+        stand_in: !flat.is_empty() && flat.starts_with(text.as_str()),
+        text,
+        by_fallback,
+    };
+    match main(request) {
+        // A refusal repeats on every try: ask the fallback model, in a fresh
+        // conversation (the declined model's blocks mean nothing to it).
+        Err(declined) if declined.refused => match fallback {
+            Some(fallback) => fallback(request)
+                .map(|t| built(t, true))
+                .map_err(|e| ModelError {
+                    message: format!("{declined}; the fallback model failed too: {e}"),
+                    ..e
+                }),
+            None => Err(declined),
+        },
+        other => other.map(|t| built(t, false)),
+    }
+}
+
+/// The step's `<input>`: what a node compresses.
+fn step_input(step: &str) -> &str {
+    step.split_once("<input>\n").map_or("", |(_, rest)| {
+        rest.rsplit_once("\n</input>").map_or(rest, |(i, _)| i)
+    })
 }
 
 /// The model conversation for one node with the size loop (section 4.3): each
