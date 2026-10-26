@@ -395,9 +395,11 @@ void MintedWindow() {
   load.I32(kMinted);
   load.Str("https://c/");
   f.host.OnMessages({Op(kOpTabNavigationState, 0, watch), Op(kOpLoadUrl, 21, load)});
-  Expect(shim.calls, {"create 42 https://b/ view", "nav_state 3", "nav_state 3", "load 3 https://c/"},
-         "the minted id reaches the shim as Chromium's");
-  f.Sent();
+  Expect(shim.calls, {"create 42 https://b/ view", "nav_state 3", "nav_state 3", "load 3 https://c/", "nav_state 3"},
+         "the minted id reaches the shim as Chromium's; load_url's pending keys are read again after the call");
+  Expect(f.Sent(), {Key("mirror", kOpTabNavigationState, minted), Key("mirror", kOpTabNavigationEntries, minted),
+                    Key("mirror", kOpTabNavigationState, minted), "ack 21"},
+         "the watch's value, then load_url's pending keys pushed again before its ack (task 016b)");
   Emit(CMUX_SHIM_LOAD_START, 3, 0, "https://c/");
   Expect(f.Sent(), {Key("mirror", kOpTabNavigationEntries, minted), Key("mirror", kOpTabNavigationState, minted),
                     "event 8 " + minted + " 0"},

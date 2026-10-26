@@ -270,6 +270,22 @@ grep -Eq 'cmux_shim_(initialize|free)\(' "$client" && fail "the generator emitte
 grep -Eq '\bwait\(|wait_for|cond_|semaphore|UnmigratedAsync' "$client" && fail "the remote shim waits or drops an op"
 has "$host" 'case kOpGoBack:' "the host has no case for go_back"
 has "$host" 'cmux_shim_go_back(ctx.Browser(arg_browser_id));' "the host does not map the browser id"
+# A post's pending keys are pushed again after the op runs and before its ACK (task 016b), so the
+# value cmux reads once the ACK clears its mark is the host's after the op.
+back="$(case_of "$host" kOpGoBack)"
+[[ "$(grep -A4 -F 'cmux_shim_go_back(ctx.Browser(arg_browser_id));' <<<"$back" | tail -n 4 | sed 's/^ *//')" == \
+   "TlvWriter refresh_tab_navigation_state;
+refresh_tab_navigation_state.I32(arg_browser_id);
+ctx.RefreshMirror(kOpTabNavigationState, refresh_tab_navigation_state, 0x0u);  // tab.navigation_state[browser_id]
+ctx.Ack(wire_token);" ]] ||
+  fail "go_back does not refresh tab.navigation_state[browser_id] between the call and its ACK"
+grep -qF 'ctx.RefreshMirror(kOpTabNavigationState, refresh_tab_navigation_state, 0x1u);' \
+  <<<"$(case_of "$host" kOpTabGoToEntry)" || fail "tab_go_to_entry does not refresh tab.navigation_state[*]"
+grep -qF 'RefreshMirror' <<<"$(case_of "$host" kOpBeforeUnloadReply)" && fail "an op without pending keys refreshes"
+has "$swift" 'Row(.post, [.int32], [],' "Swift go_back row"
+has "$swift" '[PendingKey(.tabNavigationState, [0])]),' "Swift go_back pending key (frame field 0)"
+has "$swift" '[PendingKey(.tabNavigationState, [nil])]),' "Swift tab_go_to_entry wildcard pending key"
+has "$swift" 'var pendingKeys: [PendingKey] { row.pending }' "Swift pendingKeys"
 has "$host" 'ctx.BindMintedOnEvent(kOpCreateWindow, minted_id, 4 /* CMUX_SHIM_ADDRESS */, arg_request, call_result);' \
   "the host does not bind a mint_returns sent id when its event comes"
 has "$host" 'ctx.BindMinted(kOpTabAdd, minted_id, call_result, arg_window_browser_id);' \
@@ -353,6 +369,7 @@ struct HostContext {
   void BindMinted(uint16_t op, int32_t minted, int64_t result, int32_t client_browser);
   void BindMintedOnEvent(uint16_t op, int32_t minted, int event_kind, int32_t request, int64_t started);
   void PushMirror(uint16_t op, const TlvWriter& key, const TlvWriter& value);
+  void RefreshMirror(uint16_t op, const TlvWriter& key, uint32_t wildcards);
 };
 void Wipe(std::vector<std::string>&);
 }  // namespace cmux_host

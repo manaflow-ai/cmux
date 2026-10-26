@@ -163,6 +163,11 @@ class HostContext {
   void PushMirror(uint16_t op, const TlvWriter& key, const TlvWriter& value);
   // No value: cmux's cache drops the key.
   void ForgetMirror(uint16_t op, const TlvWriter& key);
+  // A post's `pending_keys` (task 016b): pushes mirror `op` again now, while
+  // the op's ACK is still held, for each key cmux can hold that `key`
+  // matches (bit i of `wildcards`: parameter i is `*` and absent from `key`),
+  // so cmux reads the host's value after the op once the ACK clears its mark.
+  void RefreshMirror(uint16_t op, const TlvWriter& key, uint32_t wildcards);
 
   // Puts the host's own focus handler in the shim and leaves window requests
   // to cmux's pushed policy (InstallPolicy* and Resume).

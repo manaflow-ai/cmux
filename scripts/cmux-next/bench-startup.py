@@ -24,7 +24,8 @@ on waitpid for the app, and on kqueue NOTE_EXIT for the tag's daemon.
   scripts/cmux-next/bench-startup.py --app "/path/cmux DEV launch-1.app" ...
 
 --app runs a fleet artifact staged anywhere (its tag comes from the
-`cmux DEV <tag>.app` name, as the app's own LaunchIdentity reads it).
+`cmux DEV <tag>.app` name, as the app's own LaunchIdentity reads it; a
+--tag that names the same tag runs it once).
 --profile empty deletes the tag's daemon, agent and sidebar state before
 each run (a first launch on a new Mac; cold mode only). --profile realistic
 seeds one priming launch with REALISTIC_WORKSPACES workspaces of three
@@ -68,10 +69,12 @@ first content is `first_content` (the first live terminal frame or the agent
 page's handshake, whichever came first); the realistic profile restores a
 terminal and writes `first_terminal_frame`. The story is `launch-<mode>` (empty
 profile), `launch-<mode>-realistic` or `launch-after-reboot` (empty profile
-only: a realistic --after-reboot result needs --story), or --story; the
-features come from `features.list`, read in each tag's first measured launch
-that answers it before it quits (a launch that never drew too, so its
-missing_runs still record). Lab stories:
+only: a realistic --after-reboot result needs --story), or --story, or the
+perf-lab runner's PERF_LAB_STORY; the features come from `features.list`, read
+in each tag's first measured launch that answers it before it quits (a launch
+that never drew too, so its missing_runs still record). Under the perf-lab
+runner that launch is also validated again with the tag's pids
+(BenchApp.validate_lab_host: host_env.py's network-egress and the other checks). Lab stories:
 scripts/perf-lab/stories.d/launch-cold.json, launch-cold-realistic.json,
 launch-warm-realistic.json, launch-after-reboot.json, and launch-warm.json.
 
@@ -143,6 +146,7 @@ MARKS = [
     ("main.delegate", "main: launch order and delegate"),
     ("main.nsapp", "main: NSApp set up"),
     ("main.run", "main: run()"),
+    ("run_loop_start", "main run loop started"),
     ("did_finish_launching_start", "AppKit ready (applicationDidFinishLaunching)"),
     ("dfl.settings_wait", "dfl: settings launch read in hand (waited on a cold disk)"),
     ("dfl.settings_read", "dfl: settings read"),
@@ -160,10 +164,12 @@ MARKS = [
     ("dfl.daemon_cloud_updater", "dfl: daemon, cloud, updater"),
     ("dfl.first_window_hooks", "dfl: first window hooks"),
     ("dfl.home_history", "dfl: home, bookmarks, history"),
+    ("window_display", "first window ordered on screen"),
     ("launch_snapshot_shown", "cached layout window made"),
     ("dfl.windows", "dfl: windows restored"),
     ("did_finish_launching_end", "applicationDidFinishLaunching end"),
     ("first_window_frame_committed", "first window frame committed"),
+    ("first_idle", "main run loop first idle after launch"),
     ("launch.non_paint_services", "non-paint services started (updater, ssh, reach)"),
     ("launch.post_window_warmups", "warm-ups started (Chromium, spares, page hosts)"),
     ("launch.agent_page_warmup", "agent page WebKit warm-up made its page"),
@@ -192,6 +198,8 @@ MARKS = [
     ("first_terminal_content", "first terminal content decoded"),
     ("first_terminal_content_applied", "first content in a surface"),
     (FINAL_MARK, "first live terminal frame"),
+    ("first_page_frame", "first page painted in a visible pane (agent or internal page)"),
+    ("first_live_content_frame", "first live content frame (terminal or page, shown)"),
     ("sidebar_rows_shown", "sidebar rows shown"),
     ("reveal.sidebar", "sidebar revealed"),
     ("reveal.tabs", "tab strips revealed"),
@@ -211,6 +219,21 @@ MARKS = [
     # p08-startup-012: StartupScheduler's refs are all released (or its 10 s failsafe fired); --startup-complete
     # waits for it after the first content.
     ("startup_complete", "startup complete (StartupScheduler)"),
+]
+# Chrome's startup milestones (components/startup_metric_utils/browser/startup_metric_utils.h): --milestones
+# requires each in every run, and each pair below (the ones every launch orders the same way) when both landed.
+# startup_complete is not required: it comes after the first content, as late as StartupScheduler's 10 s failsafe;
+# --startup-complete waits for it.
+MILESTONES = ["main_start", "run_loop_start", "window_display", "first_window_frame_committed", "first_idle",
+              "first_live_content_frame"]
+MILESTONE_ORDER = [
+    "main_start<run_loop_start",
+    "run_loop_start<first_idle",
+    "did_finish_launching_end<first_idle",
+    "window_display<launch_snapshot_shown",
+    "window_display<first_window_frame_committed",
+    "first_window_frame_committed<startup_complete",
+    "first_live_content_frame<startup_complete",
 ]
 STARTUP_COMPLETE = "startup_complete"
 # P1, main() on the main thread (p08-startup 033): from its first mark to NSApplication.run, per run.
@@ -507,6 +530,8 @@ WAIT_STARTUP_COMPLETE = False
 # The --order terms (and LAUNCH_ORDER's in budget mode): each launch also waits (within --timeout)
 # for one mark of each term, since afterStartup posts (p08-startup-017) mark after the first content.
 ORDER_MARKS = []
+# --milestones: each run that reached its first frames also waits for every MILESTONES mark, within the same timeout.
+WAIT_MILESTONES = False
 
 
 def state_directories(tag):
@@ -764,6 +789,8 @@ def one_run(tag, mode, timeout, profile=None, purge_cold=False, purge_cache=purg
     try:
         started = time.monotonic()
         reached = launch.wait_for(final, timeout, any_of=any_of)
+        if WAIT_MILESTONES and reached:
+            launch.wait_for(MILESTONES, max(0.0, timeout - (time.monotonic() - started)))
         if reached and WAIT_STARTUP_COMPLETE:
             # Startup completes after the first content; the reason mark comes before it on the pipe.
             launch.wait_for(STARTUP_COMPLETE, max(0.0, timeout - (time.monotonic() - started)))
@@ -1022,7 +1049,8 @@ class Recorder:
 
     def __init__(self, out, profile, session="light", story=None, build_config=None, after_reboot=False,
                  bench_app=BenchApp, rpc=rpc_at):
-        self.out, self.profile, self.session, self.story = out, profile, session, story
+        self.out, self.profile, self.session = out, profile, session
+        self.story = story or os.environ.get("PERF_LAB_STORY") or None
         self.build_config, self.after_reboot = build_config, after_reboot
         self.bench_app, self.rpc = bench_app, rpc
         self.run = perf_result.Run.start()
@@ -1045,6 +1073,15 @@ class Recorder:
             if not (isinstance(reply, dict) and reply.get("unreachable")):
                 app.features = features_snapshot(reply)
                 return
+
+    def observe(self, tag):
+        """While the tag's measured launch runs: its features (read_features) and, under the perf-lab runner, the
+        lab's full host check over the tag's pids (BenchApp.validate_lab_host, once per tag; skipped while none
+        runs, so a later launch checks it)."""
+        self.read_features(tag)
+        pids = tag_pids(tag)
+        if pids:
+            self.app(tag).validate_lab_host(pids)
 
     def record(self, tag, mode, runs):
         """`{metric: path or "not recorded: <reason>"}` for one tag and mode."""
@@ -1165,6 +1202,9 @@ def parse_args(argv):
                         help="exit 1 when, in any run, mark SECOND is missing or comes before mark FIRST "
                              "(for example first_window_frame_committed<launch.non_paint_services); "
                              "a chain A<B<C checks A<B and B<C")
+    parser.add_argument("--milestones", action="store_true",
+                        help="wait in each run for Chrome's startup milestones (MILESTONES); exit 1 when a run "
+                             "lacks one or has a MILESTONE_ORDER pair out of order")
     parser.add_argument("--startup-complete", action="store_true",
                         help="after the first content, keep each launch until startup_complete (within --timeout) "
                              "and print its reason per run and as counts, the failsafe ones counted")
@@ -1235,11 +1275,12 @@ def write_results(recorder, results):
 def main():
     args = parse_args(sys.argv[1:])
     require_gui_session("bench-startup")
-    global HANG_THRESHOLD_MS, SEED_FOCUS, SEED_CHAT_PANE, WAIT_STARTUP_COMPLETE
+    global HANG_THRESHOLD_MS, SEED_FOCUS, SEED_CHAT_PANE, WAIT_STARTUP_COMPLETE, WAIT_MILESTONES
     HANG_THRESHOLD_MS = args.hangs
     orders = args.order + (LAUNCH_ORDER if args.budget else [])
     ORDER_MARKS.extend(dict.fromkeys(term for order in orders for term in parse_order(order)))
     WAIT_STARTUP_COMPLETE = args.startup_complete
+    WAIT_MILESTONES = args.milestones
     SEED_FOCUS = args.focus
     SEED_CHAT_PANE = args.chat_pane
     for path in args.app:
@@ -1272,7 +1313,7 @@ def main():
             for index in range(args.runs):
                 for tag in args.tag:
                     marks = one_run(tag, mode, args.timeout, args.profile, args.purge_cold,
-                                    before_quit=recorder.read_features if recorder else None)
+                                    before_quit=recorder.observe if recorder else None)
                     results[tag][mode].append(marks)
 
                     def shown(mark):
@@ -1311,6 +1352,8 @@ def main():
     if recorder:
         write_results(recorder, results)
     over = check_budgets(results, args.budget) + check_orders(results, orders)
+    if args.milestones:
+        over += check_milestones(results)
     for line in over:
         print(f"over budget: {line}", file=sys.stderr)
     if over:
@@ -1330,6 +1373,18 @@ def check_budgets(results, budgets):
                 elif values and perf_stats.pct(values, 0.5) > float(limit):
                     over.append(f"{tag} {mode}: {mark} median {perf_stats.pct(values, 0.5):.0f} ms > {limit} ms")
     return over
+
+
+def check_milestones(results):
+    """Every run that lacks a milestone, then every MILESTONE_ORDER pair out of order."""
+    out = []
+    for tag, modes in results.items():
+        for mode, runs in modes.items():
+            for index, run in enumerate(runs):
+                missing = [mark for mark in MILESTONES if mark not in run]
+                if missing:
+                    out.append(f"{tag} {mode} run {index + 1}: milestones missing: {', '.join(missing)}")
+    return out + [line for line in check_orders(results, MILESTONE_ORDER) if not line.endswith(" missing")]
 
 
 def check_orders(results, orders):

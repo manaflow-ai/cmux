@@ -94,15 +94,18 @@ enum DebugMouse {
             // A real scroll first meets the layout's event monitor (strip and
             // row scrolls); a windowless synthesized one skips monitors, so
             // the layout under the point gets it first, then the view. Both run
-            // inside the app's input dispatch context, as sendEvent's do, so the
-            // scroll is timed to its frame the same way (`key.scroll_frame`).
+            // inside the app's input dispatch context with a latency slot, as
+            // sendEvent's do, so the scroll is timed to its frame the same way
+            // (`key.scroll_frame`, `input.latency` as automation).
             let root = sequence(first: target, next: \.superview).lazy.compactMap { $0 as? LayoutRootView }.first
             let movesPointer = params["hover"]?.boolValue != false
+            let latencySlot = services.inputLatency.willDeliver(event, in: window, to: target)
             let layoutTook = services.inputDispatch.dispatching(event) { () -> Bool in
                 if let root, root.handleScroll(event, locationInWindow: baseLocation(point, in: window)) { return true }
                 target.scrollWheel(with: event)
                 return false
             }
+            if let latencySlot { services.inputLatency.didDispatch(latencySlot, layoutTookScroll: layoutTook) }
             if layoutTook {
                 if movesPointer { LayoutRootView.setDebugPointer(baseLocation(point, in: window), in: window) }
                 return .object(["window": .string(controller.state.id), "x": .number(point.x), "y": .number(point.y),

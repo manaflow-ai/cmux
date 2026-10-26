@@ -122,15 +122,31 @@ nonisolated enum ChromiumHostOp: UInt16, CaseIterable, Sendable {
         }
     }
 
+    /// A mirror key the op changes (`pending_keys`): cmux marks it pending under the op's token
+    /// until the host's ACK. `fields` holds, per key parameter, the index of the op frame's field
+    /// that names it, or nil for `*` (any value).
+    nonisolated struct PendingKey: Equatable, Sendable {
+        let mirror: ChromiumHostOp
+        let fields: [Int?]
+
+        init(_ mirror: ChromiumHostOp, _ fields: [Int?]) {
+            self.mirror = mirror
+            self.fields = fields
+        }
+    }
+
     private nonisolated struct Row: Sendable {
         let wireClass: Class
         let arguments: [WireType]
         let reply: [WireType]
+        let pending: [PendingKey]
 
-        init(_ wireClass: Class, _ arguments: [WireType], _ reply: [WireType]) {
+        init(_ wireClass: Class, _ arguments: [WireType], _ reply: [WireType],
+             _ pending: [PendingKey] = []) {
             self.wireClass = wireClass
             self.arguments = arguments
             self.reply = reply
+            self.pending = pending
         }
     }
 
@@ -174,7 +190,8 @@ nonisolated enum ChromiumHostOp: UInt16, CaseIterable, Sendable {
         Row(.view, [.int32, .uint32, .double, .double], [.int32]),
         Row(.async, [.int32, .int32], [.string]),
         Row(.local, [], []),
-        Row(.post, [.int32, .records, .int32], [.int32]),
+        Row(.post, [.int32, .records, .int32], [.int32],
+            [PendingKey(.tabNavigationEntries, [0]), PendingKey(.tabNavigationState, [0])]),
         Row(.preinit, [.string], []),
         Row(.preinit, [.string, .int32], [.int32]),
         Row(.local, [], []),
@@ -189,11 +206,15 @@ nonisolated enum ChromiumHostOp: UInt16, CaseIterable, Sendable {
         Row(.mint, [.int32, .int32, .int32, .int32], [.int32]),
         Row(.post, [.int32], [.int32]),
         Row(.mirror, [.int32], [.string]),
-        Row(.post, [.int32, .int32], [.int32]),
+        Row(.post, [.int32, .int32], [.int32],
+            [PendingKey(.tabNavigationEntries, [0]), PendingKey(.tabNavigationState, [0])]),
         Row(.mirror, [.int32], [.int32]),
-        Row(.post, [.int32, .string], []),
-        Row(.post, [.int32], []),
-        Row(.post, [.int32], []),
+        Row(.post, [.int32, .string], [],
+            [PendingKey(.tabNavigationEntries, [0]), PendingKey(.tabNavigationState, [0])]),
+        Row(.post, [.int32], [],
+            [PendingKey(.tabNavigationEntries, [0]), PendingKey(.tabNavigationState, [0])]),
+        Row(.post, [.int32], [],
+            [PendingKey(.tabNavigationEntries, [0]), PendingKey(.tabNavigationState, [0])]),
         Row(.post, [.int32], []),
         Row(.post, [.int32], []),
         Row(.post, [.int32, .int32], []),
@@ -212,7 +233,8 @@ nonisolated enum ChromiumHostOp: UInt16, CaseIterable, Sendable {
         Row(.async, [.int32, .string], [.int32]),
         Row(.policy, [.int32], []),
         Row(.view, [.int32, .view, .int32, .int32, .int32, .int32], []),
-        Row(.post, [.int32, .int32, .int32, .int32], [.int32]),
+        Row(.post, [.int32, .int32, .int32, .int32], [.int32],
+            [PendingKey(.devToolsBrowser, [0])]),
         Row(.mirror, [.int32], [.int32]),
         Row(.post, [.int32, .int32], []),
         Row(.post, [.int32, .string], [.int32]),
@@ -222,19 +244,51 @@ nonisolated enum ChromiumHostOp: UInt16, CaseIterable, Sendable {
         Row(.post, [.int32, .string, .int32, .int32], []),
         Row(.local, [], []),
         Row(.mirror, [.int32], [.string]),
-        Row(.post, [.int32, .string], [.int32]),
+        Row(.post, [.int32, .string], [.int32],
+            [PendingKey(.tabNavigationEntries, [0]), PendingKey(.tabNavigationState, [0])]),
         Row(.mirror, [], [.int32]),
         Row(.mirror, [.int32], [.string]),
-        Row(.post, [.int32, .string, .int32], [.int32]),
-        Row(.post, [.int32, .string], [.int32]),
-        Row(.post, [.int32, .string], [.int32]),
-        Row(.post, [.int32, .string, .int32], [.int32]),
-        Row(.post, [.int32, .string, .int32], [.int32]),
+        Row(.post, [.int32, .string, .int32], [.int32],
+            [
+                PendingKey(.extList, [nil]),
+                PendingKey(.extActions, [nil, nil]),
+                PendingKey(.extCommands, [nil]),
+                PendingKey(.omniboxKeywords, [nil]),
+            ]),
+        Row(.post, [.int32, .string], [.int32],
+            [
+                PendingKey(.extList, [nil]),
+                PendingKey(.extActions, [nil, nil]),
+                PendingKey(.extCommands, [nil]),
+                PendingKey(.omniboxKeywords, [nil]),
+            ]),
+        Row(.post, [.int32, .string], [.int32],
+            [
+                PendingKey(.extList, [nil]),
+                PendingKey(.extActions, [nil, nil]),
+                PendingKey(.extCommands, [nil]),
+                PendingKey(.omniboxKeywords, [nil]),
+            ]),
+        Row(.post, [.int32, .string, .int32], [.int32],
+            [
+                PendingKey(.extList, [nil]),
+                PendingKey(.extActions, [nil, nil]),
+                PendingKey(.extCommands, [nil]),
+                PendingKey(.omniboxKeywords, [nil]),
+            ]),
+        Row(.post, [.int32, .string, .int32], [.int32],
+            [
+                PendingKey(.extList, [nil]),
+                PendingKey(.extActions, [nil, nil]),
+                PendingKey(.extCommands, [nil]),
+                PendingKey(.omniboxKeywords, [nil]),
+            ]),
         Row(.async, [.int32, .string], [.int32]),
         Row(.async, [.int32, .string], [.int32]),
         Row(.mirror, [.int32], [.string]),
         Row(.post, [.int32, .string, .string], [.int32]),
-        Row(.post, [.int32, .int32, .int32], [.int32]),
+        Row(.post, [.int32, .int32, .int32], [.int32],
+            [PendingKey(.sidePanelState, [0]), PendingKey(.tabWindowID, [0])]),
         Row(.post, [.int32, .int32], [.int32]),
         Row(.post, [.int32, .int32, .int32], []),
         Row(.preinit, [.int32], []),
@@ -242,7 +296,8 @@ nonisolated enum ChromiumHostOp: UInt16, CaseIterable, Sendable {
         Row(.mirror, [.int32], [.int32, .int32, .int32, .int32, .int32]),
         Row(.view, [.int32, .view, .int32, .int32], [.int32]),
         Row(.mirror, [.int32], [.string]),
-        Row(.post, [.int32, .string], [.int32]),
+        Row(.post, [.int32, .string], [.int32],
+            [PendingKey(.sidePanelState, [0])]),
         Row(.post, [.int32, .int32], [.int32]),
         Row(.mirror, [.int32], [.string]),
         Row(.async, [.int32, .string, .int32, .string, .int32], [.int32]),
@@ -253,7 +308,8 @@ nonisolated enum ChromiumHostOp: UInt16, CaseIterable, Sendable {
         Row(.post, [.int32, .string], [.int32]),
         Row(.post, [.int32, .int32], [.int32]),
         Row(.post, [.int32, .int32], [.int32]),
-        Row(.post, [], []),
+        Row(.post, [], [],
+            [PendingKey(.liveBrowserCount, []), PendingKey(.windowCount, [])]),
         Row(.mirror, [], [.int32]),
         Row(.mirror, [], [.int32]),
         Row(.post, [], []),
@@ -318,6 +374,8 @@ nonisolated enum ChromiumHostOp: UInt16, CaseIterable, Sendable {
     var argumentTypes: [WireType] { row.arguments }
     /// An async op's REPLY or a mirror's value: the result, then the out-parameters.
     var replyTypes: [WireType] { row.reply }
+    /// The mirror keys the op changes (`pending_keys`); empty for most ops.
+    var pendingKeys: [PendingKey] { row.pending }
 
     /// Decodes a REPLY or MIRROR value; `next` reads one value of a type from the frame.
     func decodeReply(reading next: (WireType) throws(WireError) -> Value) throws(WireError) -> [Value] {

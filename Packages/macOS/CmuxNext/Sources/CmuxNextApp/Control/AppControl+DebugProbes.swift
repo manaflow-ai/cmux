@@ -36,11 +36,13 @@ extension AppControl {
             BlockingControl(detector: services.blocking).method,
             // Observations per owner: armed, evaluated, applied, show re-reads, hosting bodies; {"reset": true} zeroes them.
             ObservationsControl(ledger: services.observations).method,
+            // Lane queue wait and run time per lane and priority (RUN-13); {"reset": true} zeroes them.
+            WorkControl(work: services.work).method,
             // The main-thread scheduler's per-frame budget: tasks, input yields, deferrals, longest task per class,
-            // the run loop's turns, and per owner the wait and run percentiles; main only copies, the turns and
-            // owners fold off it.
-            .async("debug.main_budget") { [budget = mainWork.budget, board = mainWork.board] call in
-                await board.mainBudgetReport(budget, reset: call.params["reset"]?.boolValue == true)
+            // the run loop's turns, per owner the wait and run percentiles, and its idle class's periods under
+            // "idle"; main only copies, the turns and owners fold off it.
+            .async("debug.main_budget") { [budget = mainWork.budget, board = mainWork.board, idle = mainWork.idle] call in
+                await board.mainBudgetReport(budget, idle: idle, reset: call.params["reset"]?.boolValue == true)
             },
             // Main-thread CPU per frame against a 120 Hz frame (anim-perf-terminal.py).
             .mainActor("debug.main_cpu") { [probe = mainCPUProbe] call in .value(probe.handle(call.params)) },

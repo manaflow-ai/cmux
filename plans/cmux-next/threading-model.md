@@ -14,10 +14,15 @@ How it is enforced:
   (a process spawn: screen.close stalled main 807 ms on one, 2026-10-24), `blockingXPCSendWithReply`, and a contended
   `Mutex` wait over 2 ms); code that calls them is checked, and slice (c) moves the raw calls onto them (see
   the next item). On the main thread outside `allowBlocking(<reason>)` a seam call is a violation, recorded once
-  per call site (`#fileID:#line`; two seam calls on one line share a site). Debug: one unified-log line per call site
-  (`log stream --predicate 'category == "blocking"'`), the Debug menu's "Main-Thread Blocking (N)" and the
-  `debug.blocking` socket command; launch with `CMUX_BLOCKING_TRAP=1` to stop at the call (a contended `Mutex`
-  wait is always recorded only: it is measured on the wall clock). Bench builds (`reload.sh --config bench`,
+  per call site (`#fileID:#line`; two seam calls on one line share a site). Debug records during the push
+  (p02-threads-006; p02-threads-021 flips main and pool to trap after the sweep): each new site logs one
+  unified-log fault (`log stream --predicate 'category == "blocking"'`; a fault stays in the persistent log), and
+  the Debug menu's "Main-Thread Blocking (N)" shows a badge with the number of sites added since its submenu was
+  last opened; the `debug.blocking` socket command lists them. The mode is read once, when the table is made
+  (`BlockingMode.resolved(environment:)`); launch with `CMUX_BLOCKING_TRAP=1` to stop at the call (a contended
+  `Mutex` wait is always recorded only: it is measured on the wall clock). A seam call on main is always a new
+  bug: move it onto `work.run(_, mayBlock:)` or resolve its answer before the input's turn (the terminal
+  identity's terminfo check is one launch read on the files lane, awaited where a terminal's env is built). Bench builds (`reload.sh --config bench`,
   `-DCMUX_BLOCKING_CHECKS`): recorded for `debug.blocking`, never a trap. Nightly: to come with the
   `nightly.yml` flag and PL-telemetry's hang-report sink (kind + image UUID + offset frames only, no paths or
   names); it will never trap and has no log or menu. Release: compiled out. Debug records on the main thread and
@@ -109,7 +114,7 @@ are in [Daemon threads](#daemon-threads-cmux-tui).
 | Thread / queue | Owns | Waits on (QoS) | QoS | Target QoS | Bound and back-pressure |
 |---|---|---|---|---|---|
 | **Main thread** (AppKit, SwiftUI, CEF UI thread via the external message pump `CEFMessagePump`, Ghostty app tick) | All UI state, `@MainActor` models, CA commits, CEF browser-process UI work | Nothing. Donating waits only: a short `Mutex` section (the holder gets main's QoS while main waits; a wait over 2 ms is recorded), and the reviewed `allowBlocking` reasons below. CEF's `CefDoMessageLoopWork` slice is 2 ms (`cmux-pump-time-slice-us`). | user-interactive (system) | user-interactive (closed list) | Input first; everything else through the scheduler below |
-| **Main-thread scheduler** (`CmuxNextWakeups`: `MainWorkClass` input > frame > visible > automation > background; `MainFrameBudget`; `FrameBatchQueue`; `MainActorWorkQueue` for control-socket work; owner PL-main) | Order and per-frame budget of main-thread work | Never | main | main | Budgets per frame: visible 2.5 ms, automation 1 ms, background 0.5 ms (4 ms of an 8 ms target); over budget: the rest runs next frame (no drop). `MainActorWorkQueue`: 1024 pending, 256 per connection; full: the request fails `busy`; expired: `timeout`, never runs |
+| **Main-thread scheduler** (`CmuxNextWakeups`: `MainWorkClass` input > input-response pass > frame > visible > automation > background, with userBlocking after frame and idle last once p06 tasks 208 and 005 land; `MainFrameBudget`; `MainWorkScheduler.post`/`postFromAnyThread`/`apply`, `BackgroundWork` `.reply(on:class:owner:)`; per-node `MainTaskQueue`; `MainDeadline` on the one `MainWakeUpQueue` timer; `FrameBatchQueue`; `MainActorWorkQueue` for control-socket work; owner PL-main; contract in [main-thread-budget.md](main-thread-budget.md)) | Order, class and per-frame budget of main-thread work; owner, `posted_from` and node state of each task (`MainTaskBoard`, `MainOwnerLedger`); unattributed turn time (`MainTurnMeter`) | Never | main | main | Budgets per frame: visible 2.5 ms, automation 1 ms, background 0.5 ms (4 ms of an 8 ms target); p06 task 201 scales them by refresh interval / 16.7 ms. Over budget: the rest runs next frame (no drop). Hidden nodes hold their visible and automation posts (coalesced by key); a hidden node's deadlines wake on whole seconds, and after 5 minutes hidden a repeating one shares one wake a minute per node. Task 210 adds `CPUTimeBudgetPool` (10 ms/s, 100 ms cap) for hidden background work, and task 005 idle tasks with a deadline. `MainActorWorkQueue`: 1024 pending, 256 per connection; full: the request fails `busy`; expired: `timeout`, never runs |
 | **Frame clock** (`FrameScheduler`; `MotionClock`, `DisplayLinkDriver`, `DemandTimer` on it). `DisplayClock` (p03-rendering-010) holds one link per display and every `FrameScheduler` (window, app, budgeted) subscribes to it; with feature `vsyncHub` (p03-rendering-014, off by default) that link is the `VSyncHub`'s, and its ticks reach main as one coalesced post per vsync | Frame ticks for clients | Never | main | main | One link per display with an active client, 0 at idle; one stall timer per display; a link is rebuilt after 3 stalls of 100 ms (through the hub: `VSyncHub.rebuildLink(display:)`, so the display's off-main subscribers move to the new link too) |
 | **VSyncHub** thread `cmux-next vsync <display>`, one per display that got a link (`CmuxNextWakeups/VSyncHub.swift`, p03-rendering-014, feature `vsyncHub`, off by default; Chrome `ui/display/mac/ca_display_link_mac.mm` and `display_link_mac.mm`) | The display's only link, added to its own run loop; its subscriber list (a `Mutex`, held only to copy or change it, never across a callback); off-main `Sendable` vsync callbacks (Ghostty surfaces after p03-rendering-083) and the main fan-out of `DisplayClock` | Its run loop only. The subscriber `Mutex` (main or a subscriber holds it briefly, never across a callback). A callback that blocks is a bug. It never touches a layer whose superlayer belongs to an `NSView` | user-interactive (`// qos-allow:`) | user-interactive (closed list: a frame waits on it) | The thread starts with the display's first link: a display with no screen (`DisplayClock.noDisplay`, a gone screen) gets no thread, however often its link is retried. The link runs while a subscriber is armed, at the fastest rate an armed subscriber asked for, and is paused while none is (`debug.wakeups` `vsync.live_links` counts the displays with an armed subscriber, `vsync.paused_links` the paused ones); it goes with the display's last subscriber, and the thread stays, asleep in its run loop. A paused link is kept, as Chrome keeps a `DisplayLinkMac` while a consumer holds it and only stops its `CADisplayLink` when the last `VSyncCallbackMac` unregisters, so an arm needs no main hop to make a link. Producers arm on dirty content and a tick that returns `.done` disarms them (an arm during the tick wins). Main gets one coalesced tick post (`MainRunLoopBlock`, common modes), at most one pending: a newer vsync replaces a pending one. Hop: `vsync.main_hop_p50_ms` / `main_hop_p99_ms` (post to main take, last 256 ticks). Before `vsyncHub` turns on by default, the round's fleet run records here: typing-frame-bench main tick p99 with the feature on and off, and bench_idle.py wakeups of the `cmux-next vsync` threads with a visible idle terminal (paused link: 0 expected). If the p99 rises >= 0.1 ms, the composition root keeps `DisplayClock()` main links next to the hub (<= 2 links per display; rendering-DESIGN difference 6). Measurement: not yet run, so the feature stays off |
 | **Main-thread watchdog** thread `cmux-next main-thread watchdog` | Stall/hang detection and stack samples | Its own kqueue (`MainThreadWatchdogAlarm`: a one-shot timer the main thread arms when its run loop wakes and deletes before it sleeps, and a user event for stop and task starts); a main turn shorter than the timer wakes it never | user-interactive | user-interactive (closed list: it samples a wedged main thread) | Rings of 128 hangs and 128 over-budget entries |
@@ -333,6 +338,21 @@ the code is the bug.
 | Crash watcher (`CrashWatcher`, `/bin/zsh` that runs `sample`) | the app, at launch | inherited | inherited | best-effort launcher, clamped to utility (with `sample`) | as today |
 | User shells and agents | the daemon, the holder or a terminal host | inherited | inherited | the spawning thread's (an echo thread: user-interactive) | default, never an echo thread's (task 223) |
 | Helper commands (git, `ss`/`netstat`, hooks, plugins) | the daemon or the app | inherited | inherited | the spawning thread's | utility (`cmux_threads::process::spawn_qos`, task 223); app: `WorkPriority.processQoS` |
+
+Main-thread work has one more rule than "never block": every task that is not the synchronous change in the input's
+own turn is posted with a class and an owner (`mainWork.post`, `node.queue(_:owner:on:).post`,
+`work.run(...).reply(on:class:owner:)`, a `MainDeadline`; `postIdle` and `MainDelivery(class:owner:)` once p06 tasks
+005 and 217 land). A raw hop (`DispatchQueue.main.async`, `Task { @MainActor`, a main-inherited `Task {`,
+`MainActor.run`, `CFRunLoopPerformBlock`) is an unattributed job that the scheduler cannot order behind the
+person's input. `p06_queue.py` counts them (queues Q1, Q1b, Q1c, Q7); the hook's `main-async` rule refuses a new
+`DispatchQueue.main.async`, and its `main-hop` rule (task 014, landed) refuses the rest. The classes, the posting forms and the
+recipes are in [main-thread-budget.md](main-thread-budget.md).
+
+In the daemon (p06 tasks 030, 034 and 035, spec'd), a request's cause (`EventCause`: frontend, program,
+automation; from `RequestOrigin`) decides lock admission and QoS: automation yields the state and registry locks
+to a waiting frontend caller and is admitted at least every 4 ms; lock takers stay USER_INITIATED, and automation
+work outside the locks runs at UTILITY with a boost while it holds a lock. The cause is for scheduling only;
+authorization never reads it.
 
 ## QoS and task priority (PL-qos, 2026-10-24)
 One priority model. Main thread: MainWorkClass (PL-main). Off main: WorkPriority, derived from it (CmuxNextWakeups).
@@ -560,7 +580,8 @@ its QoS and its target.
 - Diagnostics: `cmux-next.hang-episodes`, `cmux-next.hang-episodes.symbols`, `com.cmuxterm.app.next.run-marker`,
   `com.cmuxterm.app.next.crash-forwarder`, `com.cmuxterm.app.next.owner-panic-forwarder`,
   `com.cmuxterm.next.typing-probe`, `com.cmuxterm.app.next.blocking-drain`, `com.cmux.host-pressure`,
-  `debug.window_record`
+  `debug.window_record`, `com.cmuxterm.app.next.hang-reports.store` (the `HangReportStore` actor's executor,
+  utility: its small pending, outbox and send-log file reads and writes block this queue, never a pool thread)
 - Trace and hang watch (Rust thread names, p09-observability; the app adds no thread): `mux-hang-watch`,
   `cmux-trace-open`
 - Daemon maintenance clock (Rust thread name, p14-energy-020): `mux-maintenance` (utility), one per process that

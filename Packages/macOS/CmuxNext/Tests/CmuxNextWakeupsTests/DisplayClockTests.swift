@@ -83,6 +83,41 @@ import Testing
         #expect(displays.liveLinks == 0)
     }
 
+    /// The vsync grid of a time is the display's own (p03-rendering 004): a 120 Hz and a 60 Hz display that both
+    /// tick give each window its display's last tick, the key window's display with no window, never the one that
+    /// ticked last. With no screen at all the newest tick of any display is a grid that is never running.
+    @Test func newestFrameIsTheDisplaysOwnGrid() throws {
+        let left = NSWindow.fixture(), right = NSWindow.fixture()
+        var key: CGDirectDisplayID? = 2
+        let displays = DisplayClock(makeLink: FakeLinks().make, displayOf: { window in
+            window.map { $0 === right ? 2 : 1 } ?? key
+        }, clock: ManualClock())
+        let onLeft = FrameScheduler(name: "left", host: .window(left), displays: displays, budget: nil)
+        let onRight = FrameScheduler(name: "right", host: .window(right), displays: displays, budget: nil)
+        let leftClient = FrameClient(owner: "left", on: onLeft) { _ in true }
+        let rightClient = FrameClient(owner: "right", on: onRight) { _ in true }
+        leftClient.activate()
+        rightClient.activate()
+        defer {
+            leftClient.deactivate()
+            rightClient.deactivate()
+        }
+        displays.displayDidFire(1, timestamp: 5, refreshInterval: 1.0 / 120)
+        displays.displayDidFire(2, timestamp: 4.99, refreshInterval: 1.0 / 60)
+
+        let onOne = try #require(displays.newestFrame(for: left))
+        #expect(onOne.timestamp == 5 && onOne.interval == 1.0 / 120 && onOne.linkRunning)
+        let onTwo = try #require(displays.newestFrame(for: right))
+        #expect(onTwo.timestamp == 4.99 && onTwo.interval == 1.0 / 60 && onTwo.linkRunning, "not the newer 120 Hz tick")
+        #expect(displays.newestFrame() == onTwo, "no window: the key window's display")
+
+        key = 3
+        #expect(displays.newestFrame() == nil, "a display with no tick yet has no grid")
+        key = nil
+        let anyDisplay = try #require(displays.newestFrame())
+        #expect(anyDisplay.timestamp == 5 && !anyDisplay.linkRunning, "no screen: another display's grid, not running")
+    }
+
     /// A display runs one stall timer for all its schedulers: a second of frames with four
     /// schedulers ticking arms it once.
     @Test func oneStallTimerPerDisplay() {

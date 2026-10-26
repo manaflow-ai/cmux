@@ -514,6 +514,12 @@ inline bool DispatchOp(HostContext& ctx, uint16_t op, uint32_t wire_token, TlvRe
       if (!r.ok() || !r.AtEnd()) return false;
       const auto call_result = cmux_shim_tab_restore_entries(ctx.Browser(arg_browser_id), arg_entries.data(), arg_entries_n, arg_current);
       (void)call_result;
+      TlvWriter refresh_tab_navigation_entries;
+      refresh_tab_navigation_entries.I32(arg_browser_id);
+      ctx.RefreshMirror(kOpTabNavigationEntries, refresh_tab_navigation_entries, 0x0u);  // tab.navigation_entries[browser_id]
+      TlvWriter refresh_tab_navigation_state;
+      refresh_tab_navigation_state.I32(arg_browser_id);
+      ctx.RefreshMirror(kOpTabNavigationState, refresh_tab_navigation_state, 0x0u);  // tab.navigation_state[browser_id]
       ctx.Ack(wire_token);
       Wipe(arg_entries_s);
       return true;
@@ -599,6 +605,12 @@ inline bool DispatchOp(HostContext& ctx, uint16_t op, uint32_t wire_token, TlvRe
       if (!r.ok() || !r.AtEnd()) return false;
       const auto call_result = cmux_shim_tab_go_to_entry(ctx.Browser(arg_browser_id), arg_offset);
       (void)call_result;
+      TlvWriter refresh_tab_navigation_entries;
+      refresh_tab_navigation_entries.I32(arg_browser_id);
+      ctx.RefreshMirror(kOpTabNavigationEntries, refresh_tab_navigation_entries, 0x0u);  // tab.navigation_entries[browser_id]
+      TlvWriter refresh_tab_navigation_state;
+      refresh_tab_navigation_state.I32(arg_browser_id);
+      ctx.RefreshMirror(kOpTabNavigationState, refresh_tab_navigation_state, 0x0u);  // tab.navigation_state[browser_id]
       ctx.Ack(wire_token);
       return true;
     }
@@ -607,6 +619,12 @@ inline bool DispatchOp(HostContext& ctx, uint16_t op, uint32_t wire_token, TlvRe
       const std::optional<std::string> arg_url = r.Str();
       if (!r.ok() || !r.AtEnd()) return false;
       cmux_shim_load_url(ctx.Browser(arg_browser_id), arg_url ? arg_url->c_str() : nullptr);
+      TlvWriter refresh_tab_navigation_entries;
+      refresh_tab_navigation_entries.I32(arg_browser_id);
+      ctx.RefreshMirror(kOpTabNavigationEntries, refresh_tab_navigation_entries, 0x0u);  // tab.navigation_entries[browser_id]
+      TlvWriter refresh_tab_navigation_state;
+      refresh_tab_navigation_state.I32(arg_browser_id);
+      ctx.RefreshMirror(kOpTabNavigationState, refresh_tab_navigation_state, 0x0u);  // tab.navigation_state[browser_id]
       ctx.Ack(wire_token);
       return true;
     }
@@ -614,6 +632,12 @@ inline bool DispatchOp(HostContext& ctx, uint16_t op, uint32_t wire_token, TlvRe
       const auto arg_browser_id = r.I32();
       if (!r.ok() || !r.AtEnd()) return false;
       cmux_shim_go_back(ctx.Browser(arg_browser_id));
+      TlvWriter refresh_tab_navigation_entries;
+      refresh_tab_navigation_entries.I32(arg_browser_id);
+      ctx.RefreshMirror(kOpTabNavigationEntries, refresh_tab_navigation_entries, 0x0u);  // tab.navigation_entries[browser_id]
+      TlvWriter refresh_tab_navigation_state;
+      refresh_tab_navigation_state.I32(arg_browser_id);
+      ctx.RefreshMirror(kOpTabNavigationState, refresh_tab_navigation_state, 0x0u);  // tab.navigation_state[browser_id]
       ctx.Ack(wire_token);
       return true;
     }
@@ -621,6 +645,12 @@ inline bool DispatchOp(HostContext& ctx, uint16_t op, uint32_t wire_token, TlvRe
       const auto arg_browser_id = r.I32();
       if (!r.ok() || !r.AtEnd()) return false;
       cmux_shim_go_forward(ctx.Browser(arg_browser_id));
+      TlvWriter refresh_tab_navigation_entries;
+      refresh_tab_navigation_entries.I32(arg_browser_id);
+      ctx.RefreshMirror(kOpTabNavigationEntries, refresh_tab_navigation_entries, 0x0u);  // tab.navigation_entries[browser_id]
+      TlvWriter refresh_tab_navigation_state;
+      refresh_tab_navigation_state.I32(arg_browser_id);
+      ctx.RefreshMirror(kOpTabNavigationState, refresh_tab_navigation_state, 0x0u);  // tab.navigation_state[browser_id]
       ctx.Ack(wire_token);
       return true;
     }
@@ -785,6 +815,9 @@ inline bool DispatchOp(HostContext& ctx, uint16_t op, uint32_t wire_token, TlvRe
       if (!r.ok() || !r.AtEnd()) return false;
       const auto call_result = cmux_shim_devtools_command(ctx.Browser(arg_browser_id), arg_command, arg_x, arg_y);
       (void)call_result;
+      TlvWriter refresh_tab_devtools_browser;
+      refresh_tab_devtools_browser.I32(arg_browser_id);
+      ctx.RefreshMirror(kOpDevtoolsBrowser, refresh_tab_devtools_browser, 0x0u);  // tab.devtools_browser[browser_id]
       ctx.Ack(wire_token);
       return true;
     }
@@ -841,6 +874,12 @@ inline bool DispatchOp(HostContext& ctx, uint16_t op, uint32_t wire_token, TlvRe
       if (!r.ok() || !r.AtEnd()) return false;
       const auto call_result = cmux_shim_tab_restore_navigation(ctx.Browser(arg_browser_id), arg_state ? arg_state->c_str() : nullptr);
       (void)call_result;
+      TlvWriter refresh_tab_navigation_entries;
+      refresh_tab_navigation_entries.I32(arg_browser_id);
+      ctx.RefreshMirror(kOpTabNavigationEntries, refresh_tab_navigation_entries, 0x0u);  // tab.navigation_entries[browser_id]
+      TlvWriter refresh_tab_navigation_state;
+      refresh_tab_navigation_state.I32(arg_browser_id);
+      ctx.RefreshMirror(kOpTabNavigationState, refresh_tab_navigation_state, 0x0u);  // tab.navigation_state[browser_id]
       ctx.Ack(wire_token);
       return true;
     }
@@ -851,6 +890,14 @@ inline bool DispatchOp(HostContext& ctx, uint16_t op, uint32_t wire_token, TlvRe
       if (!r.ok() || !r.AtEnd()) return false;
       const auto call_result = cmux_shim_ext_set_enabled(ctx.Browser(arg_browser_id), arg_extension_id ? arg_extension_id->c_str() : nullptr, arg_enabled);
       (void)call_result;
+      TlvWriter refresh_tab_ext_list;
+      ctx.RefreshMirror(kOpExtList, refresh_tab_ext_list, 0x1u);  // tab.ext_list[*]
+      TlvWriter refresh_tab_ext_actions;
+      ctx.RefreshMirror(kOpExtActions, refresh_tab_ext_actions, 0x3u);  // tab.ext_actions[*,*]
+      TlvWriter refresh_tab_ext_commands;
+      ctx.RefreshMirror(kOpExtCommands, refresh_tab_ext_commands, 0x1u);  // tab.ext_commands[*]
+      TlvWriter refresh_tab_omnibox_keywords;
+      ctx.RefreshMirror(kOpOmniboxKeywords, refresh_tab_omnibox_keywords, 0x1u);  // tab.omnibox_keywords[*]
       ctx.Ack(wire_token);
       return true;
     }
@@ -860,6 +907,14 @@ inline bool DispatchOp(HostContext& ctx, uint16_t op, uint32_t wire_token, TlvRe
       if (!r.ok() || !r.AtEnd()) return false;
       const auto call_result = cmux_shim_ext_uninstall(ctx.Browser(arg_browser_id), arg_extension_id ? arg_extension_id->c_str() : nullptr);
       (void)call_result;
+      TlvWriter refresh_tab_ext_list;
+      ctx.RefreshMirror(kOpExtList, refresh_tab_ext_list, 0x1u);  // tab.ext_list[*]
+      TlvWriter refresh_tab_ext_actions;
+      ctx.RefreshMirror(kOpExtActions, refresh_tab_ext_actions, 0x3u);  // tab.ext_actions[*,*]
+      TlvWriter refresh_tab_ext_commands;
+      ctx.RefreshMirror(kOpExtCommands, refresh_tab_ext_commands, 0x1u);  // tab.ext_commands[*]
+      TlvWriter refresh_tab_omnibox_keywords;
+      ctx.RefreshMirror(kOpOmniboxKeywords, refresh_tab_omnibox_keywords, 0x1u);  // tab.omnibox_keywords[*]
       ctx.Ack(wire_token);
       return true;
     }
@@ -869,6 +924,14 @@ inline bool DispatchOp(HostContext& ctx, uint16_t op, uint32_t wire_token, TlvRe
       if (!r.ok() || !r.AtEnd()) return false;
       const auto call_result = cmux_shim_ext_reload(ctx.Browser(arg_browser_id), arg_extension_id ? arg_extension_id->c_str() : nullptr);
       (void)call_result;
+      TlvWriter refresh_tab_ext_list;
+      ctx.RefreshMirror(kOpExtList, refresh_tab_ext_list, 0x1u);  // tab.ext_list[*]
+      TlvWriter refresh_tab_ext_actions;
+      ctx.RefreshMirror(kOpExtActions, refresh_tab_ext_actions, 0x3u);  // tab.ext_actions[*,*]
+      TlvWriter refresh_tab_ext_commands;
+      ctx.RefreshMirror(kOpExtCommands, refresh_tab_ext_commands, 0x1u);  // tab.ext_commands[*]
+      TlvWriter refresh_tab_omnibox_keywords;
+      ctx.RefreshMirror(kOpOmniboxKeywords, refresh_tab_omnibox_keywords, 0x1u);  // tab.omnibox_keywords[*]
       ctx.Ack(wire_token);
       return true;
     }
@@ -879,6 +942,14 @@ inline bool DispatchOp(HostContext& ctx, uint16_t op, uint32_t wire_token, TlvRe
       if (!r.ok() || !r.AtEnd()) return false;
       const auto call_result = cmux_shim_ext_move_pinned(ctx.Browser(arg_browser_id), arg_extension_id ? arg_extension_id->c_str() : nullptr, arg_index);
       (void)call_result;
+      TlvWriter refresh_tab_ext_list;
+      ctx.RefreshMirror(kOpExtList, refresh_tab_ext_list, 0x1u);  // tab.ext_list[*]
+      TlvWriter refresh_tab_ext_actions;
+      ctx.RefreshMirror(kOpExtActions, refresh_tab_ext_actions, 0x3u);  // tab.ext_actions[*,*]
+      TlvWriter refresh_tab_ext_commands;
+      ctx.RefreshMirror(kOpExtCommands, refresh_tab_ext_commands, 0x1u);  // tab.ext_commands[*]
+      TlvWriter refresh_tab_omnibox_keywords;
+      ctx.RefreshMirror(kOpOmniboxKeywords, refresh_tab_omnibox_keywords, 0x1u);  // tab.omnibox_keywords[*]
       ctx.Ack(wire_token);
       return true;
     }
@@ -889,6 +960,14 @@ inline bool DispatchOp(HostContext& ctx, uint16_t op, uint32_t wire_token, TlvRe
       if (!r.ok() || !r.AtEnd()) return false;
       const auto call_result = cmux_shim_ext_set_pinned(ctx.Browser(arg_browser_id), arg_extension_id ? arg_extension_id->c_str() : nullptr, arg_pinned);
       (void)call_result;
+      TlvWriter refresh_tab_ext_list;
+      ctx.RefreshMirror(kOpExtList, refresh_tab_ext_list, 0x1u);  // tab.ext_list[*]
+      TlvWriter refresh_tab_ext_actions;
+      ctx.RefreshMirror(kOpExtActions, refresh_tab_ext_actions, 0x3u);  // tab.ext_actions[*,*]
+      TlvWriter refresh_tab_ext_commands;
+      ctx.RefreshMirror(kOpExtCommands, refresh_tab_ext_commands, 0x1u);  // tab.ext_commands[*]
+      TlvWriter refresh_tab_omnibox_keywords;
+      ctx.RefreshMirror(kOpOmniboxKeywords, refresh_tab_omnibox_keywords, 0x1u);  // tab.omnibox_keywords[*]
       ctx.Ack(wire_token);
       return true;
     }
@@ -929,6 +1008,12 @@ inline bool DispatchOp(HostContext& ctx, uint16_t op, uint32_t wire_token, TlvRe
       if (!r.ok() || !r.AtEnd()) return false;
       const auto call_result = cmux_shim_tab_move_to_window(ctx.Browser(arg_browser_id), ctx.Browser(arg_window_browser_id), arg_index);
       (void)call_result;
+      TlvWriter refresh_tab_side_panel_state;
+      refresh_tab_side_panel_state.I32(arg_browser_id);
+      ctx.RefreshMirror(kOpSidePanelState, refresh_tab_side_panel_state, 0x0u);  // tab.side_panel_state[browser_id]
+      TlvWriter refresh_tab_window_id;
+      refresh_tab_window_id.I32(arg_browser_id);
+      ctx.RefreshMirror(kOpTabWindowId, refresh_tab_window_id, 0x0u);  // tab.window_id[browser_id]
       ctx.Ack(wire_token);
       return true;
     }
@@ -974,6 +1059,9 @@ inline bool DispatchOp(HostContext& ctx, uint16_t op, uint32_t wire_token, TlvRe
       if (!r.ok() || !r.AtEnd()) return false;
       const auto call_result = cmux_shim_side_panel_press(ctx.Browser(arg_browser_id), arg_control ? arg_control->c_str() : nullptr);
       (void)call_result;
+      TlvWriter refresh_tab_side_panel_state;
+      refresh_tab_side_panel_state.I32(arg_browser_id);
+      ctx.RefreshMirror(kOpSidePanelState, refresh_tab_side_panel_state, 0x0u);  // tab.side_panel_state[browser_id]
       ctx.Ack(wire_token);
       return true;
     }
@@ -1080,6 +1168,10 @@ inline bool DispatchOp(HostContext& ctx, uint16_t op, uint32_t wire_token, TlvRe
     case kOpCloseAll: {
       if (!r.ok() || !r.AtEnd()) return false;
       cmux_shim_close_all();
+      TlvWriter refresh_host_live_browser_count;
+      ctx.RefreshMirror(kOpLiveBrowserCount, refresh_host_live_browser_count, 0x0u);  // host.live_browser_count
+      TlvWriter refresh_host_window_count;
+      ctx.RefreshMirror(kOpWindowCount, refresh_host_window_count, 0x0u);  // host.window_count
       ctx.Ack(wire_token);
       return true;
     }
