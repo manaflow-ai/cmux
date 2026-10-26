@@ -27,22 +27,23 @@ public nonisolated struct SessionLinkSubject: Equatable, Sendable {
     public static func clean(_ text: String, limit: Int) -> String {
         var out = ""
         var space = false
-        var scalars = 0
+        var kept = 0
+        var cutShort = false
         let cut = limit * 4
-        for scalar in text.unicodeScalars {
-            guard scalars < cut else { break }
+        scan: for scalar in text.unicodeScalars {
             switch scalar.properties.generalCategory {
             case .control, .format, .lineSeparator, .paragraphSeparator, .spaceSeparator,
                  .surrogate, .privateUse, .unassigned:
                 if scalar.properties.isWhitespace || scalar == "\n" || scalar == "\t" { space = !out.isEmpty }
-                continue
             default:
-                if space { out.unicodeScalars.append(" "); space = false; scalars += 1 }
+                // Room for this scalar, and for the space before it when one is pending.
+                let needed = space ? 2 : 1
+                guard kept + needed <= cut else { cutShort = true; break scan }
+                if space { out.unicodeScalars.append(" "); space = false }
                 out.unicodeScalars.append(scalar)
-                scalars += 1
+                kept += needed
             }
         }
-        let cutShort = scalars >= cut
         return out.count > limit || cutShort ? String(out.prefix(limit - 1)) + "…" : out
     }
 

@@ -94,6 +94,9 @@ import Testing
         let stacked = SessionLinkSubject(id: "a", title: "A" + String(repeating: "\u{0301}", count: 100_000), harness: nil, host: "h")
         #expect((stacked.title?.unicodeScalars.count ?? 0) <= 80 * 4 + 1)
         #expect(stacked.title?.hasSuffix("…") == true)
+        // A pending space at the edge never pushes it over.
+        let edge = SessionLinkSubject(id: "a", title: "A" + String(repeating: "\u{0301}", count: 318) + " \u{0301}", harness: nil, host: "h")
+        #expect((edge.title?.unicodeScalars.count ?? 0) <= 80 * 4 + 1)
     }
 
     @Test func theQuestionAlwaysShowsTheSessionID() {
