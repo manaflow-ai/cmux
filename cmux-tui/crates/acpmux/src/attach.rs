@@ -25,8 +25,8 @@
 use crate::rpc::RpcError;
 use base64::Engine;
 use serde_json::{Value, json};
-use std::path::{Path, PathBuf};
 use std::collections::BTreeMap;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 /// The `initialize` feature of a daemon that saves a message's attachments.
