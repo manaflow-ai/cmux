@@ -20,6 +20,10 @@
 //! for the grace deadline: it never polls. Agents, processes and the owning
 //! app are read only at the deadline; when one still runs, a full grace
 //! starts again (one wake per grace while a client-less daemon keeps agents).
+//! The exit is fenced like the cmux-tui owner's (`stop_orphaned_owner`): the
+//! presence closes only while no client connected since the deadline's read,
+//! a closed presence refuses every new connection, and the live work is read
+//! again under the fence; work found then opens the presence again.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -38,11 +42,13 @@ pub const IDLE_EXIT_GRACE: Duration = Duration::from_secs(10 * 60);
 /// the daemon stays, connected or not.
 pub const OWNER_APP_PID_ENV: &str = "ACPMUX_OWNER_APP_PID";
 
-/// Connected clients and how many ever connected.
+/// Connected clients, how many ever connected, and whether the daemon is
+/// closing (no connection is taken any more).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 struct Presence {
     clients: usize,
     arrivals: u64,
+    closing: bool,
 }
 
 /// The daemon's client connections, counted by [`ClientGuard`]s.
@@ -56,13 +62,36 @@ impl Default for ClientPresence {
 }
 
 impl ClientPresence {
-    /// A client connected; it counts until the guard drops.
-    pub fn connect(&self) -> ClientGuard {
-        self.0.send_modify(|presence| {
-            presence.clients += 1;
-            presence.arrivals += 1;
+    /// A client connected; it counts until the guard drops. None once the
+    /// daemon is closing: the connection is refused.
+    pub fn connect(&self) -> Option<ClientGuard> {
+        let mut taken = false;
+        self.0.send_if_modified(|presence| {
+            taken = !presence.closing;
+            if taken {
+                presence.clients += 1;
+                presence.arrivals += 1;
+            }
+            taken
         });
-        ClientGuard(self.0.clone())
+        taken.then(|| ClientGuard(self.0.clone()))
+    }
+
+    /// Closes the presence when no client is connected and none arrived
+    /// since `arrivals` was read; true when it closed.
+    fn close_if_unchanged(&self, arrivals: u64) -> bool {
+        let mut closed = false;
+        self.0.send_if_modified(|presence| {
+            closed = presence.clients == 0 && presence.arrivals == arrivals;
+            presence.closing |= closed;
+            closed
+        });
+        closed
+    }
+
+    /// Takes connections again after a close that found live work.
+    fn reopen(&self) {
+        self.0.send_if_modified(|presence| std::mem::replace(&mut presence.closing, false));
     }
 
     /// Connected clients now.
@@ -147,9 +176,19 @@ impl IdlePolicy {
         }
         Step::Exit
     }
+
+    /// An exit that did not happen (a client came, or work started, at the
+    /// deadline): a full grace starts again at `now` while no client is connected.
+    fn restart(&mut self, now: Duration) {
+        if self.idle_since.is_some() {
+            self.idle_since = Some(now);
+        }
+    }
 }
 
 /// Resolves when the daemon should exit; never while a client is connected.
+/// On return the presence is closed: [`ClientPresence::connect`] refuses
+/// every connection after it.
 pub async fn wait_for_idle_exit(
     presence: &ClientPresence,
     clock: Arc<dyn Clock>,
@@ -165,7 +204,18 @@ pub async fn wait_for_idle_exit(
         last_arrivals = seen.arrivals;
         let step = policy.step(clock.now(), || keeps_daemon(liveness));
         let changed = match step {
-            Step::Exit => return,
+            Step::Exit => {
+                // The fence: no client between the read above and the close,
+                // and still nothing live once no client can start any.
+                if presence.close_if_unchanged(last_arrivals) {
+                    if !keeps_daemon(liveness) {
+                        return;
+                    }
+                    presence.reopen();
+                }
+                policy.restart(clock.now());
+                continue;
+            }
             Step::Serve => rx.changed().await,
             Step::Wait(after) => {
                 tokio::select! {
@@ -239,11 +289,27 @@ impl Liveness for HubLiveness {
     }
 }
 
-/// The daemon's idle exit when the feature is on (`CMUX_ENABLE_FEATURES`
-/// names it and `CMUX_DISABLE_FEATURES` does not; off on every channel by
+/// Whether `features` turn the idle exit on.
+fn enabled(features: &cmux_features::Snapshot) -> bool {
+    features.is_enabled(cmux_features::feature::LEFTOVER_DAEMON_IDLE_EXIT)
+}
+
+/// The daemon's features, resolved as the cmux-tui owner resolves its own
+/// (`cmux_features::sources`): the channel of the app bundle this daemon
+/// ships in, the feature lists, then managed policy and the signed
+/// document's `DisabledFeatures`, which win.
+fn daemon_features() -> cmux_features::Snapshot {
+    let exe = std::env::current_exe().ok();
+    let kind = exe.as_deref().and_then(cmux_features::sources::bundle_kind);
+    cmux_features::sources::daemon_snapshot(kind)
+}
+
+/// The daemon's idle exit when the feature is on (off on every channel by
 /// default); resolves when the daemon should exit, never when it is off.
 pub async fn run_for_daemon(hub: Arc<crate::hub::Hub>) {
-    if !cmux_features::listed_in_env(FEATURE) {
+    // The policy and document reads are disk reads: off the runtime's workers.
+    let features = cmux_blocking::spawn_blocking(daemon_features).await;
+    if !features.as_ref().is_ok_and(enabled) {
         return std::future::pending().await;
     }
     let clock = hub.lifecycle_clock();

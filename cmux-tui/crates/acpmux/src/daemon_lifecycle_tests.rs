@@ -78,7 +78,7 @@ async fn idle_exit_after_the_grace_with_nothing_live() {
 #[tokio::test]
 async fn idle_exit_never_with_a_client() {
     let run = Run::start(Facts::default());
-    let client = run.presence.connect();
+    let client = run.presence.connect().expect("an open daemon takes a client");
     run.advance(GRACE * 3).await;
     assert!(!run.exited(), "exited with a client connected");
     drop(client);
@@ -93,7 +93,7 @@ async fn idle_exit_grace_restarts_when_a_client_comes_and_goes() {
     // An app update: the old app leaves, the new one connects and leaves again.
     let run = Run::start(Facts::default());
     run.advance(GRACE - Duration::from_secs(5)).await;
-    drop(run.presence.connect());
+    drop(run.presence.connect().expect("an open daemon takes a client"));
     run.advance(GRACE - Duration::from_secs(5)).await;
     assert!(!run.exited(), "a reconnect within the grace keeps the daemon");
     run.advance(Duration::from_secs(5)).await;
@@ -126,6 +126,111 @@ async fn idle_exit_stays_while_the_owning_app_runs() {
     run.facts.owner.store(false, Ordering::SeqCst);
     run.advance(GRACE).await;
     assert!(run.exited());
+}
+
+#[tokio::test]
+async fn idle_exit_closes_to_new_clients() {
+    let run = Run::start(Facts::default());
+    run.advance(GRACE).await;
+    assert!(run.exited());
+    assert!(run.presence.connect().is_none(), "a client connected to an exiting daemon");
+}
+
+/// A client that connects between the deadline's read and the close (the
+/// read sees no client; the client is there before the fence).
+struct ArrivesAtTheDeadline {
+    presence: Arc<ClientPresence>,
+    armed: AtomicBool,
+    client: std::sync::Mutex<Option<ClientGuard>>,
+}
+
+impl Liveness for ArrivesAtTheDeadline {
+    fn live_agents(&self) -> usize {
+        if self.armed.swap(false, Ordering::SeqCst) {
+            *self.client.lock().unwrap() = self.presence.connect();
+        }
+        0
+    }
+
+    fn live_processes(&self) -> usize {
+        0
+    }
+
+    fn owner_app_alive(&self) -> bool {
+        false
+    }
+}
+
+#[tokio::test]
+async fn idle_exit_a_client_at_the_deadline_keeps_the_daemon() {
+    let clock = ManualClock::new();
+    let presence = Arc::new(ClientPresence::default());
+    let liveness = Arc::new(ArrivesAtTheDeadline {
+        presence: presence.clone(),
+        armed: AtomicBool::new(true),
+        client: Default::default(),
+    });
+    let exit = {
+        let (clock, presence, liveness) = (clock.clone(), presence.clone(), liveness.clone());
+        tokio::spawn(async move {
+            wait_for_idle_exit(&presence, clock, liveness.as_ref(), GRACE).await;
+        })
+    };
+    settle().await;
+    clock.advance(GRACE);
+    settle().await;
+    assert!(!exit.is_finished(), "exited with a client that connected at the deadline");
+    assert_eq!(presence.clients(), 1, "the client was refused");
+    clock.advance(GRACE * 3);
+    settle().await;
+    assert!(!exit.is_finished(), "exited while that client stays");
+    drop(liveness.client.lock().unwrap().take());
+    settle().await;
+    clock.advance(GRACE);
+    settle().await;
+    assert!(exit.is_finished(), "the grace starts when that client leaves");
+}
+
+/// Work that starts between the deadline's read and the close: the second
+/// read, under the fence, finds it.
+struct StartsAtTheDeadline(AtomicUsize);
+
+impl Liveness for StartsAtTheDeadline {
+    fn live_agents(&self) -> usize {
+        usize::from(self.0.fetch_add(1, Ordering::SeqCst) == 1)
+    }
+
+    fn live_processes(&self) -> usize {
+        0
+    }
+
+    fn owner_app_alive(&self) -> bool {
+        false
+    }
+}
+
+#[tokio::test]
+async fn idle_exit_work_found_under_the_fence_reopens() {
+    let clock = ManualClock::new();
+    let presence = Arc::new(ClientPresence::default());
+    let liveness = Arc::new(StartsAtTheDeadline(AtomicUsize::new(0)));
+    let exit = {
+        let (clock, presence, liveness) = (clock.clone(), presence.clone(), liveness.clone());
+        tokio::spawn(async move {
+            wait_for_idle_exit(&presence, clock, liveness.as_ref(), GRACE).await;
+        })
+    };
+    settle().await;
+    clock.advance(GRACE);
+    settle().await;
+    assert!(!exit.is_finished(), "exited with work that started at the deadline");
+    let client = presence.connect();
+    assert!(client.is_some(), "the presence stayed closed");
+    drop(client);
+    settle().await;
+    clock.advance(GRACE);
+    settle().await;
+    assert!(exit.is_finished());
 }
 
 #[test]

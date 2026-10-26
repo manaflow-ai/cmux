@@ -69,6 +69,24 @@ public nonisolated final class FeatureList: Sendable {
         }
     }
 
+    /// The daemons' features (process `daemon` or `both`) this list did not take from the channel
+    /// default, as `CMUX_ENABLE_FEATURES` and `CMUX_DISABLE_FEATURES` for a daemon's spawn
+    /// environment (an empty list is left out), so a daemon whose launch filters what it inherits
+    /// resolves them as the app did: Chrome's `FeatureList::AddFeaturesToCommandLine`
+    /// (base/feature_list.cc) gives a child process only the overridden features the same way.
+    public var daemonEnvironment: [String: String] {
+        var enabled: [String] = []
+        var disabled: [String] = []
+        for (feature, resolution) in zip(registry.features, resolutions)
+        where (feature.process == .daemon || feature.process == .both) && resolution.source != .channelDefault {
+            if resolution.isEnabled { enabled.append(feature.name) } else { disabled.append(feature.name) }
+        }
+        var environment: [String: String] = [:]
+        if !enabled.isEmpty { environment[FeatureOverrides.enableVariable] = enabled.joined(separator: ",") }
+        if !disabled.isEmpty { environment[FeatureOverrides.disableVariable] = disabled.joined(separator: ",") }
+        return environment
+    }
+
     private static func resolve(
         _ feature: Feature,
         channel: Feature.Channel,

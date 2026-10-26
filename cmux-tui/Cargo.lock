@@ -1142,6 +1142,15 @@ dependencies = [
 [[package]]
 name = "cmux-features"
 version = "0.1.0"
+dependencies = [
+ "base64",
+ "cmux-agent-pane-policy",
+ "cmux-config",
+ "cmux-tui-platform",
+ "plist",
+ "ring",
+ "serde_json",
+]
 
 [[package]]
 name = "cmux-feed-core"

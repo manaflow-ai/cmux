@@ -1046,7 +1046,7 @@ async fn serve_connection_from(
         refuse_unauthenticated(&mut inbound, &out, origin).await;
         return;
     }
-    let _client = hub.clients.connect();
+    let Some(_client) = hub.clients.connect() else { return }; // exiting idle (daemon_lifecycle)
     let raw_text = !peer_text::masks(origin);
     let conn = Arc::new(Conn {
         id: uuid::Uuid::now_v7().to_string(),

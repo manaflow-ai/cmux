@@ -5,8 +5,9 @@
 //! [`IDLE_EXIT_GRACE`], no client of any kind, no live terminal (own PTYs and
 //! holder-hosted ones alike: every launching, adopting or running terminal in
 //! the registry), no live agent (a Chief brain supervisor counts as one) and
-//! no owning app ([`OWNER_APP_PID_ENV`]). An app that restarts for an update
-//! reconnects within the grace and keeps the owner. The stop is the DEV orphan
+//! no owning app (`CMUX_TUI_OWNER_APP_PID`, taken at start by
+//! `startup_env.rs`). An app that restarts for an update reconnects within
+//! the grace and keeps the owner. The stop is the DEV orphan
 //! exit's (`server::stop_orphaned_owner`): fenced against a client that
 //! connects meanwhile, and it ends no terminal.
 //!
@@ -29,10 +30,6 @@ use cmux_tui_core::Mux;
 
 /// How long the owner stays with nothing that needs it.
 pub(crate) const IDLE_EXIT_GRACE: Duration = acpmux::daemon_lifecycle::IDLE_EXIT_GRACE;
-
-/// The process id of the app that owns this headless owner, set by its
-/// launcher; while that process runs the owner stays.
-pub(crate) const OWNER_APP_PID_ENV: &str = "CMUX_TUI_OWNER_APP_PID";
 
 /// The watcher's intervals: the grace, and the grace again after a look that
 /// found something live.
@@ -86,7 +83,7 @@ pub(crate) fn start_for_owner(mux: &Arc<Mux>, chief_brains: bool) -> Option<Orph
     if !enabled() {
         return None;
     }
-    let owner = OwnerApp::from_env(OWNER_APP_PID_ENV);
+    let owner = OwnerApp::parse(crate::startup_env::owner_app_pid().as_deref());
     let facts = Arc::new(IdleFacts { mux: Arc::downgrade(mux), chief_brains, owner });
     let watch = OrphanWatch::with_timing(Arc::new(SystemClock), facts, IDLE_TIMING);
     let session = mux.session.clone();

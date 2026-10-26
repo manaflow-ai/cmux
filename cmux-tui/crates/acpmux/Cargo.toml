@@ -27,8 +27,9 @@ cmux-stability = ["cmux-blocking/cmux-stability"]
 [dependencies]
 cmux-blocking.workspace = true
 cmux-lock-rank.workspace = true
-# The daemon's feature lists (the leftover daemon idle exit, src/daemon_lifecycle.rs).
-cmux-features.workspace = true
+# The daemon's features and their sources, shared with the cmux-tui owner (the leftover
+# daemon idle exit, src/daemon_lifecycle.rs).
+cmux-features = { workspace = true, features = ["sources"] }
 cmux-chat-index.workspace = true
 cmux-coderouter.workspace = true
 cmux-local-auth.workspace = true

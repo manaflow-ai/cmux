@@ -72,7 +72,7 @@ cmux-process.workspace = true
 cmux-config.workspace = true
 # The daemon's feature snapshot (feature_flags::daemon_features) and the
 # table feature_flags::features filters the signed document's Features to.
-cmux-features.workspace = true
+cmux-features = { workspace = true, features = ["sources"] }
 # `cmux agent hooks` and the hook paths the Claude wrapper reads.
 cmux-tui-hooks.workspace = true
 cmux-tui-cdp.workspace = true

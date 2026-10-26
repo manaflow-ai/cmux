@@ -232,7 +232,7 @@ final class AgentTabStore {
     init(build: BuildIdentity?, registry: ActionRegistry, work: any MayBlockRunner, webUI: WebUIHost, input: InputEventTap, environment: [String: String] = ProcessInfo.processInfo.environment,
          showcase: Bool = false, linkScheme: String? = nil, settings: SettingsController? = nil,
          openPanel: MadeAheadOpenPanel? = nil, warmup: AgentPageWarmup? = nil, defaults: UserDefaults = .standard,
-         mainWork: MainWorkScheduler = MainWorkScheduler(budget: MainFrameBudget()), chatStores: AgentPaneChatStores = .keepsNothing) {
+         mainWork: MainWorkScheduler = MainWorkScheduler(budget: MainFrameBudget()), chatStores: AgentPaneChatStores = .keepsNothing, daemonFeatures: [String: String] = [:]) {
         gestureRouter = AgentPaneGestureRouter(input: input)
         self.mainWork = mainWork
         self.defaults = defaults
@@ -245,7 +245,7 @@ final class AgentTabStore {
         self.work = work
         actionRegistry = registry
         self.linkScheme = linkScheme
-        let (resolvedSource, resolvedHost) = AgentTabPaneSource.resolvePane(build: build, environment: environment, showcase: showcase)
+        let (resolvedSource, resolvedHost) = AgentTabPaneSource.resolvePane(build: build, environment: environment, showcase: showcase, daemonFeatures: daemonFeatures)
         host = resolvedHost
         // Start acpmux while the first pane is loading. The page still owns
         // the authenticated WebSocket handshake and session selection.

@@ -9,3 +9,26 @@ description = "The daemon's feature snapshot: the generated registry table (sche
 
 [lints]
 workspace = true
+
+[features]
+# The daemons' own value sources (src/sources.rs): managed policy, the signed
+# invite-wave document and this build's channel. The cmux-tui owner and the
+# acpmux daemon both turn it on, so one feature resolves the same in both.
+sources = [
+    "dep:base64",
+    "dep:cmux-agent-pane-policy",
+    "dep:cmux-config",
+    "dep:cmux-tui-platform",
+    "dep:plist",
+    "dep:ring",
+    "dep:serde_json",
+]
+
+[dependencies]
+base64 = { workspace = true, optional = true }
+cmux-agent-pane-policy = { workspace = true, optional = true }
+cmux-config = { workspace = true, optional = true }
+cmux-tui-platform = { workspace = true, optional = true }
+plist = { version = "1.10", optional = true }
+ring = { workspace = true, optional = true }
+serde_json = { workspace = true, optional = true }
