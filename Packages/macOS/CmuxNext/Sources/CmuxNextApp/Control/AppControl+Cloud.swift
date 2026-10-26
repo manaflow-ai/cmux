@@ -119,7 +119,7 @@ extension AppControl {
                     throw ControlError.invalidParams(String(localized: "runs.error.taskRequired", defaultValue: "A sandboxed run needs a task.", table: "Runs", bundle: .module))
                 }
                 let key = params["idempotencyKey"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 } ?? UUID().uuidString
-                let api = try await Self.runsAPI(services, requireLabs: true)
+                let api = try await Self.runsAPI(services, newRun: true)
                 return try await Self.runJSON {
                     try await api.createSandboxRun(task: task, agent: params["agent"]?.stringValue, image: params["image"]?.stringValue,
                                                    timeoutMs: params["timeoutMs"]?.intValue, idempotencyKey: key)
@@ -128,12 +128,12 @@ extension AppControl {
             ControlMethod.async("runs.wait") { call in
                 let id = try Self.runID(call.params)
                 let wait = call.params["timeoutMs"]?.intValue ?? 10_000
-                let api = try await Self.runsAPI(services, requireLabs: false)
+                let api = try await Self.runsAPI(services, newRun: false)
                 return try await Self.runJSON { try await api.waitRun(id, timeoutMs: wait) }
             }.withDeadline(.fixed(.seconds(25))),
             ControlMethod.async("runs.cancel") { call in
                 let id = try Self.runID(call.params)
-                let api = try await Self.runsAPI(services, requireLabs: false)
+                let api = try await Self.runsAPI(services, newRun: false)
                 return try await Self.runJSON { try await api.cancelRun(id) }
             }.withDeadline(.fixed(.seconds(65))),
         ])
@@ -144,13 +144,13 @@ extension AppControl {
         return id
     }
 
-    /// The signed-in Cloud client, once the Cloud policy allows it. Labs gates only a new
-    /// sandboxed run (`requireLabs`): waiting on or cancelling one that exists stays open, so
-    /// turning Labs off mid-run never strands a billable VM.
-    nonisolated private static func runsAPI(_ services: AppServices, requireLabs: Bool) async throws -> CloudAPIClient {
+    /// The signed-in Cloud client. The Cloud policy and Labs gate only a new sandboxed run
+    /// (`newRun`): waiting on or cancelling one that exists stays open, so turning either off
+    /// mid-run never strands a billable VM without its receipt or its cancel.
+    nonisolated private static func runsAPI(_ services: AppServices, newRun: Bool) async throws -> CloudAPIClient {
         try await MainActor.run {
-            if let refusal = Self.policyRefusal("runs.sandbox.create", disabled: services.registry.disabledFeatures) { throw refusal }
-            guard !requireLabs || services.settings?.snapshot.previewFeatures == true else {
+            if newRun, let refusal = Self.policyRefusal("runs.sandbox.create", disabled: services.registry.disabledFeatures) { throw refusal }
+            guard !newRun || services.settings?.snapshot.previewFeatures == true else {
                 throw ControlError(code: "labs_off", message: String(localized: "runs.error.labsOff", defaultValue: "Sandboxed runs are a preview. Turn on Settings > Advanced > Labs > Show Preview Features.", table: "Runs", bundle: .module))
             }
             guard services.cloud.isSignedIn else { throw ControlError(code: "not_signed_in", message: String(localized: "runs.error.notSignedIn", defaultValue: "Sign in to cmux in the cmux app first.", table: "Runs", bundle: .module)) }

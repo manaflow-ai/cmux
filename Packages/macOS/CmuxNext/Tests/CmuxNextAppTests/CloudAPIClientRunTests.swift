@@ -58,13 +58,16 @@ struct CloudAPIClientRunTests {
     }
 }
 
-/// The run methods belong to the Cloud feature: an administrator who turns Cloud off turns them off.
+/// A new sandboxed run belongs to the Cloud feature: an administrator who turns Cloud off turns
+/// it off. Waiting on or cancelling a run that exists stays open, so its VM is never stranded.
 @Suite struct RunMethodsFeaturePolicyTests {
-    @Test func runMethodsAreCloudFeatureMethods() {
-        for method in ["runs.sandbox.create", "runs.wait", "runs.cancel"] {
-            #expect(AppControl.policyFeature(of: method) == .cloud)
-            #expect(AppControl.policyRefusal(method, disabled: [.cloud])?.code == "feature.disabled")
-            #expect(AppControl.policyRefusal(method, disabled: []) == nil)
+    @Test func onlyANewRunIsACloudFeatureMethod() {
+        #expect(AppControl.policyFeature(of: "runs.sandbox.create") == .cloud)
+        #expect(AppControl.policyRefusal("runs.sandbox.create", disabled: [.cloud])?.code == "feature.disabled")
+        #expect(AppControl.policyRefusal("runs.sandbox.create", disabled: []) == nil)
+        for method in ["runs.wait", "runs.cancel"] {
+            #expect(AppControl.policyFeature(of: method) == nil)
+            #expect(AppControl.policyRefusal(method, disabled: [.cloud]) == nil)
         }
     }
 }
