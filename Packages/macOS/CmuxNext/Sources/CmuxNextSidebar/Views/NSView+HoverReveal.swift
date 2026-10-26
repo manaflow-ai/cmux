@@ -3,8 +3,8 @@ import CmuxNextDesign
 import QuartzCore
 
 /// The sidebar's one hover-reveal (Leo 2026-10-13, cosmic-gray): a hover
-/// control (a workspace row's dog-ear, pin and tab chevron; the Now Playing
-/// card's x) reveals in its own slot with the
+/// control (a row's x, menu button, pin, tab chevron and the unread badge they
+/// replace; the Now Playing card's x) reveals in its own slot with the
 /// `.hover` fade and clears with the same short transition, instant under
 /// Reduce Motion (the token's duration is 0 there). The marks it covers stay
 /// in place, so nothing moves or resizes. Layouts that hover did not cause

@@ -261,28 +261,21 @@ struct SplitSpringMotionTests {
         screen.show(chainTree(count + 1, model: screen.model))
     }
 
-    /// A split's terminals keep their PTY grids while the chain springs and send them once, at rest:
-    /// a grid sent mid-motion reflows the text (and rebuilds the daemon's screen) at a size no frame
-    /// rests at, which reads as the text jumping under a moving edge.
-    @Test func aSplitHoldsTheTerminalGridsUntilItsChainLands() throws {
+    /// A split's terminals resize at the start (Lawrence 2026-10-23): the layout holds no grid while the chain
+    /// springs; each resized pane hears its final size at the start (PaneMotionFinalSizeTests).
+    @Test func aSplitHoldsNoTerminalGrid() throws {
         let screen = Screen(Self.pair)
         _ = Self.splitPair(screen)
-        #expect(screen.root.holdsTerminalGrids, "the split's first frame does not hold the grids")
-        var heldFrames = 0
         for _ in 1...240 {
-            let moving = screen.step()
-            if screen.root.holdsTerminalGrids { heldFrames += 1 }
-            if !moving { break }
+            #expect(!screen.root.holdsTerminalGrids, "the split holds the grids")
+            if !screen.step() { break }
         }
-        #expect(!screen.root.holdsTerminalGrids, "the grids are still held at rest")
-        #expect(heldFrames > 5, "the grids were held for \(heldFrames) frames only")
-        #expect(screen.holds == [true, false], "hold changes: \(screen.holds)")
+        #expect(screen.holds.isEmpty, "hold changes: \(screen.holds)")
     }
 
     /// Five Cmd-D presses 100 ms apart (a person pressing as fast as they can) are one motion:
     /// every press retargets from what shows, keeping each edge's velocity (no pane jumps), every frame tiles
-    /// the row, the grids stay held from the first press until the row lands (one PTY resize per
-    /// terminal), the row lands even within the split spring's settle time after the last press,
+    /// the row, no grid is held (each press hands its panes their newest final size), the row lands even within the split spring's settle time after the last press,
     /// and no frame takes the main thread past a 120 Hz frame (8.3 ms).
     @Test func fiveRapidSplitsAreOneMotion() throws {
         let screen = Screen(.leaf("p1"))
@@ -296,7 +289,7 @@ struct SplitSpringMotionTests {
             for (pane, rect) in before {
                 #expect(screen.rect(pane) == rect, "press \(press): \(pane) jumped from \(rect) to \(String(describing: screen.rect(pane)))")
             }
-            #expect(screen.root.holdsTerminalGrids, "press \(press): the grids are not held")
+            #expect(!screen.root.holdsTerminalGrids, "press \(press): the grids are held")
             lastPress = frames
             for _ in 0..<(press == 5 ? 240 : pressEvery) {
                 var moving = false
@@ -315,7 +308,7 @@ struct SplitSpringMotionTests {
         }
         let settled = frames - lastPress
         #expect(!screen.root.holdsTerminalGrids, "the grids are still held at rest")
-        #expect(screen.holds == [true, false], "the grids were let go mid-motion: \(screen.holds)")
+        #expect(screen.holds.isEmpty, "a grid hold changed during the burst: \(screen.holds)")
         let widths = try (1...6).map { try #require(screen.rect(PaneID("p\($0)"))).width }
         #expect((widths.max() ?? 0) - (widths.min() ?? 0) <= 1.5, "not even after five splits: \(widths)")
         #expect(settled <= Int((0.75 * Self.scale / Self.dt).rounded(.up)), "at rest \(settled) frames after the last press")

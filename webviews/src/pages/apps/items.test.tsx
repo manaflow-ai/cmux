@@ -4,10 +4,21 @@ import { expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { Strings } from "../shared/i18n";
 import generated from "./generated/strings.json";
-import { CategoryBar, DetailSection, ItemAction, ItemCard, ItemRow, ScreenshotStrip, StateBadge } from "./items";
+import {
+  AddsList,
+  CategoryBar,
+  DetailSection,
+  ItemAction,
+  ItemCard,
+  ItemRow,
+  ItemSettings,
+  ScreenshotStrip,
+  StateBadge,
+} from "./items";
 import { itemState, parseCardStyle, parseRoute, type CardStyle } from "./model";
 import { AppsStore } from "./store";
-import type { CatalogApp } from "./types";
+import type { AppDetail, CatalogApp } from "./types";
+import { fromDetail, type WireDetail } from "./wire";
 
 const en = (generated as Record<string, Record<string, string>>).en!;
 const strings: Strings = {
@@ -153,4 +164,89 @@ test("a detail section is a titled section", () => {
     </DetailSection>,
   );
   expect(html).toBe('<section class="apps-section"><h2>Versions</h2><p>1.0.0</p></section>');
+});
+
+test("What it adds lists each contribution with its kind, and is absent when there are none", () => {
+  expect(renderToStaticMarkup(<AddsList contributes={[]} strings={strings} />)).toBe("");
+  expect(renderToStaticMarkup(<AddsList strings={strings} />)).toBe("");
+  const html = renderToStaticMarkup(
+    <AddsList
+      contributes={[
+        { kind: "section", title: "Pull Requests" },
+        { kind: "panel", title: "Inbox" },
+      ]}
+      strings={strings}
+    />,
+  );
+  expect(html).toContain(`<h2>${en["store.detail.adds"]}</h2>`);
+  expect(html).toContain("Pull Requests");
+  expect(html).toContain(en["store.contribution.section"]!);
+  expect(html).toContain(">panel<");
+  const twice = renderToStaticMarkup(
+    <AddsList
+      contributes={[
+        { kind: "command", title: "Stay Awake" },
+        { kind: "command", title: "Stay Awake" },
+      ]}
+      strings={strings}
+    />,
+  );
+  expect(twice.match(/Stay Awake/g)?.length).toBe(2);
+  const inherited = renderToStaticMarkup(
+    <AddsList
+      contributes={[
+        { kind: "__proto__", title: "Odd" },
+        { kind: "constructor", title: "Odder" },
+      ]}
+      strings={strings}
+    />,
+  );
+  expect(inherited).toContain(">__proto__<");
+  expect(inherited).toContain(">constructor<");
+});
+
+test("settings show only once installed, with Enabled as the app's switch", () => {
+  const settings = (overrides: Partial<CatalogApp>) =>
+    renderToStaticMarkup(<ItemSettings app={app(overrides)} store={store} strings={strings} />);
+  expect(settings({})).toBe("");
+  const on = settings({ installed: true });
+  expect(on).toContain(`<h2>${en["store.detail.settings"]}</h2>`);
+  expect(on).toContain('aria-checked="true"');
+  expect(settings({ installed: true, enabled: false })).toContain('aria-checked="false"');
+});
+
+test("the detail keeps the owner's contributions and drops untitled ones", () => {
+  const wire = {
+    app: "acme.caffeinate",
+    name: "Caffeinate",
+    summary: "",
+    publisher: "Acme",
+    tier: "verified",
+    version: "2.0.1",
+    icon: null,
+    categories: [],
+    hide_only: false,
+    install: null,
+    scopes: [],
+    contributes: [
+      { kind: "command", title: "Stay Awake" },
+      { kind: "command", title: " " },
+    ],
+  } satisfies WireDetail;
+  const detail: AppDetail = fromDetail(wire);
+  expect(detail.contributes).toEqual([{ kind: "command", title: "Stay Awake" }]);
+  expect(fromDetail({ ...wire, contributes: undefined }).contributes).toBeUndefined();
+  // A malformed payload never throws: a non-array is no list, and bad entries are dropped.
+  const malformed = (contributes: unknown) => fromDetail({ ...wire, contributes } as unknown as WireDetail).contributes;
+  expect(malformed("Stay Awake")).toBeUndefined();
+  expect(malformed({ kind: "command", title: "Stay Awake" })).toBeUndefined();
+  expect(
+    malformed([
+      null,
+      7,
+      { kind: { x: 1 }, title: "Bad" },
+      { kind: null, title: "Bad" },
+      { kind: "panel", title: "Inbox" },
+    ]),
+  ).toEqual([{ kind: "panel", title: "Inbox" }]);
 });

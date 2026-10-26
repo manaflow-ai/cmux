@@ -12,6 +12,14 @@ package final class RemoteVideoView: NSView {
     var showsRemoteCursor = false {
         didSet { if showsRemoteCursor != oldValue { needsLayout = true } }
     }
+    /// How the frame maps onto the pane (`.fit` for compatibility sources).
+    package var scaling: RemoteViewGeometry.Scaling = .native {
+        didSet {
+            guard scaling != oldValue else { return }
+            applyScaling()
+            needsLayout = true
+        }
+    }
 
     nonisolated package override var isFlipped: Bool { true }
 
@@ -35,7 +43,16 @@ package final class RemoteVideoView: NSView {
         self.presenter = presenter
         layer?.insertSublayer(presenter.layer, at: 0)
         presenter.setBackingScale(backingScale)
+        applyScaling()
         needsLayout = true
+    }
+
+    /// A fitted image fills its layer (filtered); a native one is 1:1.
+    private func applyScaling() {
+        guard let layer = presenter?.layer else { return }
+        layer.contentsGravity = scaling == .fit ? .resize : .topLeft
+        layer.minificationFilter = scaling == .fit ? .trilinear : .linear
+        layer.magnificationFilter = .linear
     }
 
     package func setFramePixels(_ size: CGSize) {
@@ -56,7 +73,7 @@ package final class RemoteVideoView: NSView {
 
     var geometry: RemoteViewGeometry? {
         guard framePixels.width > 0, framePixels.height > 0 else { return nil }
-        return RemoteViewGeometry(framePixels: framePixels, bounds: bounds, backingScale: backingScale)
+        return RemoteViewGeometry(framePixels: framePixels, bounds: bounds, backingScale: backingScale, scaling: scaling)
     }
 
     package override func viewDidChangeBackingProperties() {

@@ -7,7 +7,8 @@
 //! it signed, and the app sends it as that chat's cmux agent message (`server/app_reply.rs`;
 //! cmux-tui tests/agent_message_reply_in_place.rs covers the daemon side).
 //! A prompt from inside another session that names none gets that session as its sender
-//! (`session_message`).
+//! (`session_message`). One that names its sender (`fromAgent`: `--from`, `ACPMUX_FROM`, a peer
+//! daemon's forwarded caller) records it as that agent's message.
 
 use acpmux::config::{Config, StoreMode};
 use acpmux::hub::Hub;
@@ -466,6 +467,83 @@ async fn a_prompt_sent_from_inside_another_session_records_that_session_as_its_s
     assert!(theirs.pointer("/_meta/provenance").is_none(), "{theirs}");
     let kept = person.user_message(&receiver, "p-given").await;
     assert_eq!(kept.pointer("/_meta/provenance"), Some(&given), "{kept}");
+}
+
+/// claude-sr2, 2026-10-24: lanes on other machines reached its daemon over the peer link, or ran
+/// `acpmux send --from` there over ssh, naming themselves only in `fromAgent`; each report
+/// recorded no provenance and read as the person's own words.
+#[tokio::test]
+async fn a_prompt_that_names_its_sender_records_it_as_that_agents_message() {
+    let hub = hub();
+    let mut person = Client::open(&hub);
+    let receiver = person.new_session(json!({"harness": "fake"})).await;
+    let own = hub.resolve(&receiver).unwrap().meta().name;
+    let named = |id: &str, from: &str| {
+        let mut p = prompt(&receiver, id, "report", None);
+        p["_meta"]["acpmux"]["fromAgent"] = json!(from);
+        p
+    };
+    for (origin, id, from) in [
+        (Origin::Peer, "p-peer", "codex-lane"),
+        (Origin::Local, "p-cli", "codex-lane-2"),
+        (Origin::Local, "p-self", own.as_str()),
+        // Names are each daemon's own: a peer's session of the same name is another one.
+        (Origin::Peer, "p-namesake", own.as_str()),
+    ] {
+        let mut c = Client::open_as(&hub, origin);
+        c.call("session/prompt", named(id, from)).await;
+    }
+    person.call("session/prompt", prompt(&receiver, "p-person", "my own words", None)).await;
+
+    for (id, from) in
+        [("p-peer", "codex-lane"), ("p-cli", "codex-lane-2"), ("p-namesake", own.as_str())]
+    {
+        let message = person.user_message(&receiver, id).await;
+        let stamped =
+            json!({"kind": "agent_message", "from": "fromAgent", "fromName": from, "to": receiver});
+        assert_eq!(message.pointer("/_meta/provenance"), Some(&stamped), "{message}");
+    }
+    // A note a session addresses to itself, and the person's own prompt, are no one else's message.
+    for id in ["p-self", "p-person"] {
+        let message = person.user_message(&receiver, id).await;
+        assert!(message.pointer("/_meta/provenance").is_none(), "{message}");
+    }
+}
+
+/// The person's own `acpmux send` from a terminal names the machine it ran on: the recorded client
+/// says it, so the pane shows "via CLI on big-red" under their prompt (Leo, 2026-10-24). An agent's
+/// message names its sender instead, and a value that is no host name is dropped.
+#[tokio::test]
+async fn the_persons_own_cli_send_records_the_machine_it_ran_on() {
+    let hub = hub();
+    let mut person = Client::open(&hub);
+    let receiver = person.new_session(json!({"harness": "fake"})).await;
+    let sent = |id: &str, host: &str, from: Option<&str>| {
+        let mut p = prompt(&receiver, id, "ship it", None);
+        p["_meta"]["acpmux"]["cliHost"] = json!(host);
+        if let Some(from) = from {
+            p["_meta"]["acpmux"]["fromAgent"] = json!(from);
+        }
+        p
+    };
+    for (origin, params) in [
+        (Origin::Local, sent("p-cli", "big-red", None)),
+        (Origin::Peer, sent("p-peer", "big-red", None)),
+        (Origin::Local, sent("p-agent", "huge-blue", Some("codex-lane"))),
+        (Origin::Local, sent("p-odd", "big red\nX", None)),
+    ] {
+        let mut c = Client::open_as(&hub, origin);
+        c.call("session/prompt", params).await;
+    }
+    let client = |m: &Value| m["client"].as_str().unwrap().to_owned();
+    let cli = client(&person.user_message(&receiver, "p-cli").await);
+    assert!(cli.ends_with("@big-red"), "{cli}");
+    let peer = client(&person.user_message(&receiver, "p-peer").await);
+    assert!(peer.ends_with("@big-red"), "{peer}");
+    for id in ["p-agent", "p-odd"] {
+        let other = client(&person.user_message(&receiver, id).await);
+        assert!(!other.contains('@'), "{id}: {other}");
+    }
 }
 
 // A steer names its pasted blocks (`_meta.cmux.pasted`) as a prompt does: UTF-16 ranges of its

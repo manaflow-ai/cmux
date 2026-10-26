@@ -79,11 +79,17 @@ impl SessionCleanup {
     }
 
     pub(super) fn wait_for_exit(&self, timeout: Duration) -> bool {
+        self.wait_for_exit_polling(timeout, Duration::from_millis(10))
+    }
+
+    /// [`Self::wait_for_exit`], scanning the session every `interval`. Each
+    /// scan on macOS runs `ps`, so a long grace polls less often.
+    fn wait_for_exit_polling(&self, timeout: Duration, interval: Duration) -> bool {
         let mut captured = self.captured.lock().recover_poison();
         let complete = match &*captured {
             CaptureState::NotCaptured | CaptureState::Complete => true,
             CaptureState::ScanFailed => false,
-            CaptureState::Captured(captured) => captured.wait_for_exit(timeout),
+            CaptureState::Captured(captured) => captured.wait_for_exit(timeout, interval),
         };
         if complete {
             *captured = CaptureState::Complete;
@@ -124,7 +130,7 @@ impl CapturedSession {
         true
     }
 
-    fn wait_for_exit(&self, timeout: Duration) -> bool {
+    fn wait_for_exit(&self, timeout: Duration, interval: Duration) -> bool {
         if self.groups.is_empty() {
             return true;
         }
@@ -137,10 +143,11 @@ impl CapturedSession {
             if !live {
                 return true;
             }
-            if Instant::now() >= deadline {
+            let now = Instant::now();
+            if now >= deadline {
                 return false;
             }
-            std::thread::sleep(Duration::from_millis(10));
+            std::thread::sleep(interval.min(deadline - now));
         }
     }
 }
@@ -215,6 +222,7 @@ impl HostShared {
     pub(crate) fn signal_terminal_process_groups(&self, signal: GroupSignal) {
         let signal = match signal {
             GroupSignal::Hangup => libc::SIGHUP,
+            GroupSignal::Terminate => libc::SIGTERM,
             GroupSignal::Kill => libc::SIGKILL,
         };
         let mut groups = Vec::with_capacity(2);
@@ -254,6 +262,19 @@ impl HostShared {
             // PTY session; signal is a platform constant from this module.
             let _ = unsafe { libc::killpg(group, signal) };
         }
+    }
+
+    /// Wait up to `grace` for the terminal's programs to end after a
+    /// graceful signal: the direct child, then every process group of its
+    /// PTY session observed at SIGHUP. Returns whether all of them ended;
+    /// `false` (also when the session could not be scanned) means escalate.
+    pub(crate) fn wait_for_terminal_session_end(&self, grace: Duration) -> bool {
+        let deadline = Instant::now() + grace;
+        if !self.wait_for_child_waitable(grace) {
+            return false;
+        }
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        self.session_cleanup.wait_for_exit_polling(remaining, Duration::from_millis(50))
     }
 
     pub(crate) fn finish_group_escalation(&self) {

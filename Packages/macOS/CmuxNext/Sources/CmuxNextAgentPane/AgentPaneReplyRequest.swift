@@ -8,8 +8,9 @@ public import Foundation
 /// - `link.inspect {paths, urls}`: where each path is (``AgentPaneReplyPaths``) and the favicon
 ///   and title cmux already has for each URL (no fetch). Passive: no gesture, no effect.
 /// - `link.openPath {path}`: open a path chip. Spends a user gesture.
-/// - `image.load {src}`: a reply image, a file inside the roots or an https URL (host fetch).
-///   A web image spends a gesture unless `agentPane.images.remote` is `always`.
+/// - `image.load {src, auto?}`: a reply image, a file inside the roots or an https URL (host
+///   fetch). A web image spends a gesture unless `agentPane.images.remote` is `always` or it is
+///   from a click-free site; `auto: true` (the page loading it without a click) never spends one.
 /// - `media.load {src}`: a video or audio file inside the roots, as a URL the pane plays
 ///   (``AgentPaneMediaGrants``). Passive.
 /// - `browser.list {}`: the installed browsers, by opaque id. Passive.
@@ -29,10 +30,12 @@ public import Foundation
 /// - `pr.inspect {url}`: what the user's GitHub CLI says about a GitHub pull request a reply or
 ///   the pull request bars link to (its hover card). Only a plain
 ///   `https://github.com/<owner>/<repo>/pull/<n>` is taken (``pullRequestURL(_:)``). Passive.
+///   `cached: true` (the Inspector's Changes, which asks for many links) answers from the cache
+///   only and never starts a read: its links are read in batches when it registers them.
 public nonisolated enum AgentPaneReplyRequest: Equatable, Sendable {
     case inspect(paths: [String], urls: [String])
     case openPath(String)
-    case loadImage(String)
+    case loadImage(String, auto: Bool)
     case loadMedia(String)
     case listBrowsers
     case openIn(url: URL, browserId: String)
@@ -43,7 +46,7 @@ public nonisolated enum AgentPaneReplyRequest: Equatable, Sendable {
     case quickLookImage(src: String, name: String)
     case dragImage(src: String, name: String)
     case dragFile(String)
-    case inspectPullRequest(URL)
+    case inspectPullRequest(URL, cached: Bool = false)
 
     /// The methods, for ``AgentPageOps`` and ``AgentPaneRequest``.
     public static let methods: Set<String> = [
@@ -51,11 +54,12 @@ public nonisolated enum AgentPaneReplyRequest: Equatable, Sendable {
         "image.openInPane", "image.copy", "image.save", "image.quickLook", "image.drag", "file.drag", "pr.inspect",
     ]
 
-    /// Each method's exact param keys (all required; `link.inspect` takes either list).
+    /// Each method's exact param keys (all required; `link.inspect` takes either list, and
+    /// `image.load`'s `auto` may be left out).
     static let knownParams: [String: Set<String>] = [
         "link.inspect": ["paths", "urls"],
         "link.openPath": ["path"],
-        "image.load": ["src"],
+        "image.load": ["src", "auto"],
         "media.load": ["src"],
         "browser.list": [],
         "browser.openIn": ["url", "browserId"],
@@ -66,7 +70,7 @@ public nonisolated enum AgentPaneReplyRequest: Equatable, Sendable {
         "image.quickLook": ["src", "name"],
         "image.drag": ["src", "name"],
         "file.drag": ["path"],
-        "pr.inspect": ["url"],
+        "pr.inspect": ["url", "cached"],
     ]
 
     /// Most paths or URLs in one `link.inspect`. The page gathers its chips' links across every
@@ -131,7 +135,9 @@ public nonisolated enum AgentPaneReplyRequest: Equatable, Sendable {
             self = .openPath(path)
         case "image.load":
             guard let src = text("src", Self.maximumURL) else { return nil }
-            self = .loadImage(src)
+            let auto = params["auto"]
+            guard auto == nil || auto is Bool else { return nil }
+            self = .loadImage(src, auto: auto as? Bool ?? false)
         case "media.load":
             guard let src = text("src", Self.maximumURL) else { return nil }
             self = .loadMedia(src)
@@ -165,7 +171,9 @@ public nonisolated enum AgentPaneReplyRequest: Equatable, Sendable {
             }
         case "pr.inspect":
             guard let raw = text("url", Self.maximumURL), let url = Self.pullRequestURL(raw) else { return nil }
-            self = .inspectPullRequest(url)
+            let cached = params["cached"].map { $0 as? Bool } ?? false
+            guard let cached else { return nil }
+            self = .inspectPullRequest(url, cached: cached)
         default:
             return nil
         }

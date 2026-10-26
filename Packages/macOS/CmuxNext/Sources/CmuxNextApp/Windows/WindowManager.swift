@@ -295,10 +295,14 @@ final class WindowManager {
         if registry.value.isIncognito(window.id) { controller.showIncognitoBadge() }
         SidebarTabRowHandoff.install(on: controller, session: services.dragSession)
         controllers.append(controller)
+        // Its content goes in before it is ordered in (the launch snapshot's workspace, else the
+        // connecting state), so its first frame on screen draws it, never the backdrop alone; the
+        // controller's own observer would install it a main-actor hop later.
+        controller.showWorkspace(requested: state.workspaceID)
         // A window none of whose workspaces is mirrored yet stays off screen
         // until `contentDidAppear` (never an empty frame). The launch window
         // (no workspaces) shows the connecting state at once.
-        if hasMirroredWorkspace(window) || window.workspaceIDs.isEmpty {
+        if controller.content != nil || hasMirroredWorkspace(window) || window.workspaceIDs.isEmpty {
             present(controller)
         } else {
             awaitingContent[window.id] = false
