@@ -57,6 +57,9 @@ extension ScreenContentView {
         return paneFrames.values.contains { $0.rect != $0.targetRect || $0.alpha.value != $0.alpha.target }
             || dividerFrames.values.contains { $0.rect != $0.targetRect || $0.alpha.value != $0.alpha.target }
     }
+    /// Panes whose frame is still on its way to its target: the panes the next ``step(_:policy:)`` moves
+    /// (`motion.frame`'s begin `arg0`, read only while the trace's `motion` category is on).
+    var springingPaneCount: Int { paneFrames.values.count { $0.rect != $0.targetRect } }
     /// Advances springs by `dt` with the frame's motion `policy`. Returns
     /// true while anything still moves. A screen at rest (a drag frame that
     /// moved nothing, a still pointer) does no work.

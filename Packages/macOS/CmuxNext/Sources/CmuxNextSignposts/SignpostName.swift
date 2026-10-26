@@ -48,11 +48,12 @@ public nonisolated enum SignpostName: UInt16, Sendable, Hashable, CaseIterable, 
 
     // MARK: motion (reserved: PL-motion-core, DisplayLinkDriver)
 
-    /// Reserved (task 026, PL-motion-core). One layout motion frame: the display-link tick to its
-    /// presentation applied. Ring: B/E, one per window per tick; arg0 moved panes, arg1 frame dt in us.
+    /// One layout motion frame: the display-link tick to its presentation applied (`LayoutMotionTrace`).
+    /// Ring: B/E, one per window per tick; begin arg0 the panes still springing, arg1 the tick's dt in us.
     case motionFrame = 4
-    /// Reserved (task 026, PL-motion-core). A whole motion: the structural change to the spring at rest.
-    /// Ring: AB/AE; end arg0 frames, arg1 the longest frame in us.
+    /// A whole layout motion: the structural change to the springs at rest (`LayoutMotionTrace`), one per
+    /// window at a time. Ring: AB/AE; end arg0 the frames in bits 0-31 and the longest frame in us in bits
+    /// 32-63 (arg1 is the async id).
     case motionRun = 5
     /// Reserved (task 039, PL-motion-core; perf-hot `drag-frame`). One tab drag tick: the ghost move and
     /// the drop-target update. Ring: B/E; arg0 the tick's dt in us.

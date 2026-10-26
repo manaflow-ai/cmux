@@ -30,6 +30,8 @@ public final class LayoutRootView: NSView {
     /// ``isInLayoutMotion`` at the last report: its end is reported even when no rect changed.
     var reportedLayoutMotion = false
     let driver = DisplayLinkDriver()
+    /// This window's `motion.frame` and `motion.run` trace points; tests set one on their own runtime.
+    var motionTrace = LayoutMotionTrace()
     private var observationTask: Task<Void, Never>?
     /// The app's one input tap (nil: nothing routes the app's events to this root; tests call the
     /// routing directly).
@@ -194,6 +196,7 @@ public final class LayoutRootView: NSView {
             inputIntercept?.cancel()
             for token in keyWindowObservers { NotificationCenter.default.removeObserver(token) }
             driver.detach()
+            motionTrace.endRun()
         }
     }
 
@@ -439,13 +442,29 @@ public final class LayoutRootView: NSView {
         // re-read their clip shape (their frames may not have moved).
         if let previous, previous.style != snapshot.style { planeHost?.paneShapesDidChange(overlayPlane) }
         if needsFrames || snapshot.gestureActive { driver.start() }
+        // A structural change that starts springs on the CPU: one motion.run until they rest (`advanceFrame`).
+        if needsFrames, driver.isAttached { motionTrace.beginRun() }
         // A change that starts springs (a split, a close) is in motion from the frame it lands in.
         if needsFrames && driver.isRunning { setLayoutInMotion(true) }
     }
 
     // MARK: Frames
 
+    /// One display tick: the window's `motion.frame`, and the end of its `motion.run` in the frame that rests.
+    ///
+    /// - Returns: Whether the window needs another tick.
     func advanceFrame(_ dt: Double) -> Bool {
+        let moving = motionTrace.frame(dt: dt, movedPanes: springingPaneCount) { stepFrame(dt) }
+        if !moving { motionTrace.endRun() }
+        return moving
+    }
+
+    /// Panes on a spring in the screens shown (`ScreenContentView.springingPaneCount`).
+    private var springingPaneCount: Int {
+        screenViews.values.reduce(0) { $1.isHidden ? $0 : $0 + $1.springingPaneCount }
+    }
+
+    private func stepFrame(_ dt: Double) -> Bool {
         // Reduce Motion (or the no-animation switch) turned on mid-flight: the final layout now, no more frames.
         if context.reduceMotion {
             for view in screenViews.values where view.hasMotion { view.settleMotion() }
@@ -594,7 +613,10 @@ public final class LayoutRootView: NSView {
         inputIntercept?.cancel()
         inputIntercept = nil
         driver.detach()
-        if !live { for view in screenViews.values { view.settleMotion() } }
+        if !live {
+            for view in screenViews.values { view.settleMotion() }
+            motionTrace.endRun()
+        }
         if !live, let planeHost {
             planeHost.releasePlane(overlayPlane)
             self.planeHost = nil
