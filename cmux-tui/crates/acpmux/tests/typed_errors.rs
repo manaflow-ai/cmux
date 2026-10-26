@@ -175,6 +175,22 @@ async fn typed_error_an_agent_that_exits_mid_turn_says_how_to_recover() {
     assert_eq!(last["errorKind"], "agent.exited", "{last}");
 }
 
+/// A short -32603 answer, which the turn finalizer treats as a dead process, fails the turn as
+/// `agent.exited` too, on the reply and in `lastTurn`.
+#[tokio::test]
+async fn typed_error_a_short_internal_error_says_how_to_recover() {
+    let dir = scratch("internal");
+    let mut c = C::new(hub_with(|_| {})).await;
+    let id = c.session("fake", &dir).await.unwrap();
+    let e = c.prompt(&id, "fail-once: hello").await.expect_err("the turn fails");
+    assert_eq!(e.code, -32603, "{e:?}");
+    let d = data(&e);
+    assert_eq!(d["errorKind"], "agent.exited", "{e:?}");
+    assert!(d["recovery"].as_str().unwrap_or_default().contains("Send the message again"), "{d}");
+    let last = c.last_turn(&id).await;
+    assert_eq!(last["errorKind"], "agent.exited", "{last}");
+}
+
 /// A harness whose program is missing fails as `spawn.failed` with what to check.
 #[tokio::test]
 async fn typed_error_a_harness_that_cannot_start_says_what_to_check() {

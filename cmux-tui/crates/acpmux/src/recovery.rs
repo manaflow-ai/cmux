@@ -45,6 +45,24 @@ pub const DISK_LOW_DEFAULT_BYTES: u64 = 1 << 30;
 /// Give `e` its kind, recovery and details when its cause is one this module knows. `near` is
 /// the folder the failing work wrote to (a session's folder), checked beside acpmux's home.
 pub fn annotate(e: &mut RpcError, near: Option<&Path>) {
+    let dead = dead_process(e);
+    annotate_as(e, near, dead);
+}
+
+/// An error that says only that the agent's process went away: ACP's bare "agent process
+/// closed", a bare "Internal error", or another short -32603. The turn finalizer
+/// (`hub/turns.rs`) adds the agent's last stderr line to these, and they are `agent.exited`.
+pub fn dead_process(e: &RpcError) -> bool {
+    e.message == "agent process closed"
+        || e.message == "Internal error"
+        || (e.code == -32603 && e.message.len() < 40)
+}
+
+/// [`annotate`], for an error the caller already found [`dead_process`] before it rewrote the
+/// message (the turn finalizer adds the agent's last stderr line). A stronger cause in the new
+/// message (a full disk) still wins.
+pub fn annotate_as(e: &mut RpcError, near: Option<&Path>, dead: bool) {
+    let dead = dead || e.message.starts_with("agent process closed");
     let data = match &mut e.data {
         Some(Value::Object(data)) => data,
         Some(_) => return,
@@ -57,7 +75,7 @@ pub fn annotate(e: &mut RpcError, near: Option<&Path>) {
     if data.contains_key("errorKind") {
         return;
     }
-    if let Some((kind, recovery, details)) = classify(&e.message, data, near) {
+    if let Some((kind, recovery, details)) = classify(&e.message, data, near, dead) {
         data.insert("errorKind".into(), json!(kind));
         data.insert("recovery".into(), json!(recovery));
         data.insert("details".into(), Value::Object(details));
@@ -84,6 +102,7 @@ fn classify(
     message: &str,
     data: &Map<String, Value>,
     near: Option<&Path>,
+    dead: bool,
 ) -> Option<(&'static str, String, Map<String, Value>)> {
     if is_disk_full(message) {
         let (recovery, details) = disk_full(near);
@@ -103,7 +122,7 @@ fn classify(
         );
         return Some((kind::PEER_UNREACHABLE, recovery, details));
     }
-    if message.starts_with("agent process closed") {
+    if dead {
         return Some((
             kind::AGENT_EXITED,
             "The agent stopped in the middle of the turn. Send the message again to start it \
@@ -368,5 +387,44 @@ mod tests {
         assert!(measured.is_some_and(|n| n >= 4096));
         assert_eq!(chats_size(&dir, false), measured, "then it reuses the measure");
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    fn kind_of(e: &RpcError) -> Option<&str> {
+        e.data.as_ref()?.get("errorKind")?.as_str()
+    }
+
+    /// Every form the turn finalizer treats as a dead process is `agent.exited`: the bare ACP
+    /// closes, "Internal error" and a short -32603. A long -32603 is the agent's own answer.
+    #[test]
+    fn the_finalizers_dead_process_forms_are_agent_exited() {
+        for e in [
+            RpcError::internal("agent process closed"),
+            RpcError::new(-32603, "Internal error"),
+            RpcError::new(-32000, "Internal error"),
+            RpcError::new(-32603, "simulated internal error"),
+        ] {
+            let mut typed = e.clone();
+            annotate(&mut typed, None);
+            assert_eq!(kind_of(&typed), Some(kind::AGENT_EXITED), "{e:?}");
+        }
+        let mut answer = RpcError::new(
+            -32603,
+            "stream disconnected before completion: error sending request for url",
+        );
+        annotate(&mut answer, None);
+        assert_eq!(kind_of(&answer), None);
+    }
+
+    /// The finalizer adds the agent's last stderr line before typing: a dead process stays
+    /// `agent.exited` under its longer message, and a full disk in that line wins.
+    #[test]
+    fn a_dead_process_with_its_stderr_line_is_still_typed() {
+        let mut e = RpcError::new(-32603, "Internal error (claude): model client crashed");
+        annotate_as(&mut e, None, true);
+        assert_eq!(kind_of(&e), Some(kind::AGENT_EXITED));
+        let mut e =
+            RpcError::new(-32603, "Internal error (claude): write: No space left on device");
+        annotate_as(&mut e, None, true);
+        assert_eq!(kind_of(&e), Some(kind::DISK_FULL));
     }
 }

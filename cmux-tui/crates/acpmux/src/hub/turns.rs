@@ -632,11 +632,10 @@ impl Hub {
         }
         // Apply queued stderr before classifying a dead process (a limit never resumes).
         Self::drain_inbound(session).await;
+        // Before the message gains the stderr line: `recovery::annotate_as` below types it.
+        let dead = matches!(&result, Err(e) if crate::recovery::dead_process(e));
         if let Err(e) = &mut result {
-            let bare = e.message == "agent process closed"
-                || e.message == "Internal error"
-                || (e.code == -32603 && e.message.len() < 40);
-            if bare {
+            if dead {
                 let tail: Vec<String> =
                     session.stderr_tail.lock().unwrap().iter().cloned().collect();
                 // The last stderr line that says why: not a stack frame, a wrapper tag or a wrapper exit line.
@@ -679,11 +678,13 @@ impl Hub {
         };
         // A Claude agent that is not signed in: say what it had, how the
         // person's terminal signs in, and the fix (`claude_auth.rs`).
+        let mut signed_out = false;
         if let Err(e) = &mut result
             && let Some(text) = crate::claude_auth::explain(&session.id, &e.message)
         {
             tracing::warn!(session = %session.id, "Claude agent is not signed in");
             e.message = text;
+            signed_out = true;
         }
         if let (Err(e), Some(Value::Object(info))) = (&mut result, &route_info) {
             match &mut e.data {
@@ -693,9 +694,9 @@ impl Hub {
             }
         }
         // A failure acpmux knows the remedy for says it (`recovery.rs`): a full disk, an agent
-        // that exited, a harness that cannot start.
+        // that exited, a harness that cannot start. A sign-in failure already says its fix.
         if let Err(e) = &mut result {
-            crate::recovery::annotate(e, Some(&session.meta().cwd));
+            crate::recovery::annotate_as(e, Some(&session.meta().cwd), dead && !signed_out);
         }
         let git = super::turn_git::turn_git(session).await;
         match &result {
