@@ -194,9 +194,17 @@ pub fn classify(report: &str, user_stopped: bool) -> StopKind {
     if user_stopped {
         return StopKind::UserStopped;
     }
-    let Some(line) = error_line(report) else {
-        return StopKind::Done;
-    };
+    match error_line(report) {
+        Some(line) => classify_error(line),
+        None => StopKind::Done,
+    }
+}
+
+/// How an error line ended a run, with no check that it is one: the
+/// Chief's own turn reads its harness error from the turn's outcome, not
+/// from the end of a reply (`brain/turns.rs` `cut_kind`). `Done` when the
+/// error is none a retry can clear.
+pub fn classify_error(line: &str) -> StopKind {
     let lower = line.to_ascii_lowercase();
     if lower.contains("cancelled") || lower.contains("canceled") {
         return StopKind::UserStopped;
