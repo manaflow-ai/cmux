@@ -6,7 +6,9 @@ import ServiceManagement
 /// a launchd agent registered with `SMAppService.agent` from the plist the app
 /// bundle carries in `Contents/Library/LaunchAgents` (written by
 /// scripts/cmux-next/bundle-server-helper.sh, label `<bundle id>.server`). The
-/// agent runs the bundled `cmux host run`. Builds without the bundled CLI do
+/// agent runs the bundled `cmux host run` with launchd `ProcessType` `Interactive`:
+/// every terminal key and frame passes through it, so it is never `Background`
+/// (process roles in plans/cmux-next/threading-model.md). Builds without the bundled CLI do
 /// not carry the plist. Registration also needs the Debug Settings switch
 /// `server.agent.allowRegister` (off by default) until the bundled CLI ships
 /// `cmux host run`. `ServerStopServing` unregisters it, switch or not.

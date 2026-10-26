@@ -28,9 +28,12 @@ public nonisolated struct AgentCLIJobCarrier: Sendable {
         return result
     }
 
+    /// The v2 operation ``observe(_:)`` sends.
+    private static let waitExit: DaemonCommandName = "terminal.wait_exit"
+
     private struct Resolve: DaemonRequest {
         typealias Response = AgentCLIJobResolution
-        static let command = "agent-cli-update-job-resolve"
+        static let commandName: DaemonCommandName = "agent-cli-update-job-resolve"
         static let requiredCapability: String? = "agent-cli-update-job-resolve-v1"
         let expectedMachineID: ResourceID
         let expectedSessionID: ResourceID
@@ -79,8 +82,8 @@ public nonisolated struct AgentCLIJobCarrier: Sendable {
             "terminal": .string(job.path.terminalID.rawValue),
             "timeout_ms": .string("5000"),
         ]
-        let response = try await transport.request(cmd: "terminal.wait_exit", timeout: .seconds(8)) { id in
-            try ResourceRequestEnvelope(id: id, operation: "terminal.wait_exit", params: params).line()
+        let response = try await transport.request(cmd: Self.waitExit, timeout: .seconds(8)) { id in
+            try ResourceRequestEnvelope(id: id, operation: Self.waitExit.wire, params: params).line()
         }
         let status = try ResourceRequestEnvelope.decodeResult(AgentCLIJobStatus.self, from: response)
         guard status.terminalID == job.path.terminalID else {

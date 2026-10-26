@@ -42,6 +42,12 @@ final class LayoutViewContext {
     var requestFrames: () -> Void = {}
     /// Pane hosts or dividers moved: the overlay plane follows them.
     var overlayNeedsSync: () -> Void = {}
+    /// Pane hosts went to rest at a render-server spring's start: the overlay plane places their chrome
+    /// there now, so each host's springs carry its chrome in the same group (`LayoutRootView.syncOverlayNow`).
+    var overlaySyncNow: () -> Void = {}
+    /// A rect in a view's coordinates, in the overlay plane's (the root's): where a host's chrome rides from
+    /// (`PaneHostView.springToRest`). Nil without a root.
+    var overlayPlaneRect: (CGRect, NSView) -> CGRect? = { _, _ in nil }
     /// A user gesture moves the layout (a strip, row or scroll-area pan with the finger down): the root reads
     /// as in layout motion until the motion after it lands (`LayoutRootView.setLayoutInMotion`).
     var userMotionStepped: () -> Void = {}

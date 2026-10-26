@@ -124,7 +124,7 @@ final class PaneHostView: NSView, RestingPlacement {
     override func viewDidMoveToSuperview() {
         super.viewDidMoveToSuperview()
         if superview == nil {
-            // Its render-server springs end now; their landings still run (``springOnRenderServer``).
+            // Its render-server springs end now; their landings still run (``springToRest(_:spring:inPlane:landed:)``).
             if let layer, isOnRenderSpring { for keyPath in Self.renderSpringKeyPaths { RenderSpring.stop(layer, keyPath) } }
             isOnLayoutSpring = false
         }
