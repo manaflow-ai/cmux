@@ -22,15 +22,14 @@ export function machineHealthFiles(): Array<{ path: string; text: string; mode: 
 
 /**
  * Install from the staged copy, verify the units, run one pass; prints the health JSON last. The
- * timer stays enabled but stopped for the rest of the bake, so no pass (and no disk hygiene) runs
+ * timer is enabled but not started (`--no-start`) for the rest of the bake, so no pass (and no disk hygiene) runs
  * while later steps build, clean and catalogue the image: machineHealthArmCommand starts it as the
  * last step before the snapshot, and clones resume with it running.
  */
 export function machineHealthBakeCommand(): string {
   return [
-    `python3 ${STAGED} install`,
+    `python3 ${STAGED} install --no-start`,
     `rm -f ${STAGED}`,
-    "systemctl stop cmux-machine-health.timer",
     "systemd-analyze verify /etc/systemd/system/cmux-machine-health.service /etc/systemd/system/cmux-machine-health.timer",
     "test \"$(systemctl is-enabled cmux-machine-health.timer)\" = enabled",
     "systemctl start cmux-machine-health.service",
@@ -44,7 +43,8 @@ export const MACHINE_HEALTH_ARM_COMMAND = "rm -f /run/cmux/machine-health.json /
 /**
  * Smoke on a clone: the timer runs, one pass exits 0 and writes valid JSON, and the guard
  * drop-ins apply. A `systemd-run --scope` named like logind's session scopes stands in for an
- * ssh login and prints its own cgroup limits. One `key=value` line each.
+ * ssh login and prints its own cgroup limits, and a transient service under the work user's
+ * manager prints the OOM score its services get. One `key=value` line each.
  */
 export function machineHealthSmokeCommand(workUser: string): string {
   const scope = "g=/sys/fs/cgroup$(cut -d: -f3 /proc/self/cgroup); echo $(cat $g/pids.max) $(cat $g/memory.high) $(cat $g/memory.max)";
@@ -56,7 +56,7 @@ export function machineHealthSmokeCommand(workUser: string): string {
     `echo scope=$(systemd-run --quiet --scope --unit=session-cmux-smoke-$$.scope -- sh -c '${scope}')`,
     "echo memtotal=$(awk '/^MemTotal:/ {print $2 * 1024}' /proc/meminfo)",
     `echo usermanager=$(systemctl show user@$(id -u ${workUser}).service -p OOMScoreAdjust -p MemoryMin | tr '\\n' ' ')`,
-    "echo userconf=$(systemd-analyze cat-config systemd/user.conf | grep -c '^DefaultOOMScoreAdjust=200$')",
+    `u=$(id -u ${workUser}); systemctl start user@$u.service; echo userservice=$(timeout 30 systemd-run --user -M ${workUser}@ --wait --pipe --quiet cat /proc/self/oom_score_adj)`,
   ].join("; ");
 }
 
@@ -78,6 +78,6 @@ export function machineHealthSmokeProblems(stdout: string): string[] {
   const near = (value: string | undefined, share: number) => Math.abs(Number(value) / mem - share) < 0.02;
   if (tasks !== "8192" || !near(high, 0.7) || !near(max, 0.8)) problems.push(`session scope limits: pids.max ${tasks}, memory.high ${high}, memory.max ${max} of ${mem} (want 8192, 70%, 80%)`);
   if (!/OOMScoreAdjust=-900/.test(kv.get("usermanager") ?? "") || !/MemoryMin=67108864/.test(kv.get("usermanager") ?? "")) problems.push(`user manager: ${kv.get("usermanager")}`);
-  if (kv.get("userconf") !== "1") problems.push("user.conf: DefaultOOMScoreAdjust=200 not in effect");
+  if (kv.get("userservice") !== "200") problems.push(`user service OOM score: ${kv.get("userservice") || "no answer"} (want 200, not the manager's -900)`);
   return problems;
 }

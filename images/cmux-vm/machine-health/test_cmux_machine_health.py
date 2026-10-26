@@ -73,6 +73,9 @@ class FakeHost:
     def remove(self, path):
         self.calls.append(f"rm {path}")
 
+    def set_oom_score(self, pid, score):
+        self.calls.append(f"oom {pid} {score}")
+
     def run(self, argv, timeout):
         self.t += self.step
         self.calls.append(" ".join(argv))
@@ -220,6 +223,30 @@ class HealthTests(unittest.TestCase):
         self.assertEqual(h["fixed"][0]["action"], "started disk hygiene (1 of 1 commands)")
         self.assertIn("disk: CRITICAL: 1.0 GB free on /, under the hard floor of 3.0 GB", details(h))
 
+    def test_a_corrupt_state_file_is_ignored_and_the_report_still_written(self):
+        for state in ("[]", '{"last": [], "since": 3, "fixed": {}}', '{"last": {"fix:dns": "soon"}, "fixed": [1, {"check": 2}]}'):
+            host = FakeHost()
+            host.resolving = set()
+            host.files[cmh.STATE_FILE] = state
+            h = run(host)
+            self.assertEqual(details(h), ["DNS: github.com does not resolve"], state)
+            self.assertEqual([f["action"] for f in h["fixed"]], ["restarted systemd-resolved"], state)
+
+    def test_dns_names_must_be_host_names_so_none_can_carry_a_credential(self):
+        for bad in (["https://user:pw@example.com"], ["a b"], ["-x.com"], ["x" * 300]):
+            with self.assertRaises(SystemExit, msg=bad):
+                cmh.check_config({"dnsNames": bad})
+        cmh.check_config({"dnsNames": ["github.com", "huge-blue.tail1.ts.net.", "10.0.0.1"]})
+
+    def test_accounts_come_from_etc_passwd_without_nss(self):
+        real = cmh.pwd.getpwall
+        cmh.pwd.getpwall = lambda: (_ for _ in ()).throw(AssertionError("NSS lookup"))
+        try:
+            users = cmh.Host().users()
+        finally:
+            cmh.pwd.getpwall = real
+        self.assertTrue(any(u.pw_uid == 0 for u in users) or users == [])
+
     def test_a_clock_that_goes_back_neither_extends_the_budget_nor_blocks_a_fix(self):
         host = FakeHost()
         host.resolving = set()
@@ -230,20 +257,42 @@ class HealthTests(unittest.TestCase):
 
 
 class InstallTests(unittest.TestCase):
-    def test_install_writes_the_units_and_drop_ins_and_enables_the_timer(self):
+    def install(self, argv, default="200"):
         host = FakeHost()
+        runs = {"systemctl list-units": "user@1000.service loaded active running User Manager for UID 1000\n", "systemctl show -p MainPID": "4242\n", "systemctl --user -M cmux@ show": default + "\n"}
+        real = host.run
+        host.run = lambda argv, timeout, **kw: next((host.calls.append(" ".join(argv)) or (0, v) for k, v in runs.items() if " ".join(argv).startswith(k)), None) or real(argv, timeout)
+        with contextlib.redirect_stdout(io.StringIO()) as out:
+            self.assertEqual(cmh.main(argv, host=host), 0)
+        return host, out.getvalue()
+
+    def test_install_writes_the_units_and_drop_ins_and_enables_the_timer(self):
         with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as f:
             json.dump({"hygieneCommands": [["systemctl", "start", "--no-block", "disk-hygiene-pressure.service"]]}, f)
-        with contextlib.redirect_stdout(io.StringIO()):
-            self.assertEqual(cmh.main(["install", "--config", f.name], host=host), 0)
+        host, _ = self.install(["install", "--config", f.name])
         os.unlink(f.name)
         for path in [*cmh.UNITS, cmh.SBIN, cmh.CONFIG_FILE]:
             self.assertIn(path, host.files)
         self.assertIn("ExecStart=/usr/local/sbin/cmux-machine-health run\nTimeoutStartSec=45", host.files["/etc/systemd/system/cmux-machine-health.service"])
-        self.assertIn("MemoryHigh=70%\nMemoryMax=80%\nTasksMax=8192", host.files["/etc/systemd/system/session-.scope.d/50-cmux-guard.conf"])
+        self.assertIn("OnActiveSec=60\nOnUnitActiveSec=60", host.files["/etc/systemd/system/cmux-machine-health.timer"])
+        self.assertNotIn("OnBootSec", host.files["/etc/systemd/system/cmux-machine-health.timer"])
+        self.assertIn("MemoryHigh=70%\nMemoryMax=80%\nMemorySwapMax=25%\nTasksMax=8192", host.files["/etc/systemd/system/session-.scope.d/50-cmux-guard.conf"])
+        self.assertIn("MemoryMax=90%", host.files["/etc/systemd/system/user.slice.d/50-cmux-guard.conf"])
         self.assertIn("OOMScoreAdjust=-900", host.files["/etc/systemd/system/user@.service.d/50-cmux-guard.conf"])
         self.assertIn("systemctl enable --now cmux-machine-health.timer", host.calls)
-        self.assertEqual([c for c in host.calls if c.startswith("systemctl")], ["systemctl daemon-reload", "systemctl enable --now cmux-machine-health.timer"])
+
+    def test_a_running_user_manager_is_protected_only_once_its_services_get_200(self):
+        host, out = self.install(["install"])
+        self.assertIn("systemctl kill --kill-whom=main --signal=SIGRTMIN+25 user@1000.service", host.calls)
+        self.assertIn("oom 4242 -900", host.calls)
+        host, out = self.install(["install"], default="100")
+        self.assertFalse(any(c.startswith("oom ") for c in host.calls))
+        self.assertIn("user@1000.service: not protected until it starts again (DefaultOOMScoreAdjust 100)", out)
+
+    def test_install_no_start_enables_without_starting(self):
+        host, _ = self.install(["install", "--no-start"])
+        self.assertIn("systemctl enable cmux-machine-health.timer", host.calls)
+        self.assertNotIn("systemctl enable --now cmux-machine-health.timer", host.calls)
 
     def test_uninstall_stops_the_timer_and_removes_what_install_wrote(self):
         host = FakeHost()

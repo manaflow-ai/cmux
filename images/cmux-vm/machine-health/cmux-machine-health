@@ -43,18 +43,21 @@ DEFAULTS = {
     "ramFloorBytes": None,  # min(2 GiB, 10% of RAM)
     "hygieneCommands": None,  # argv lists; default: cmux-machine-hygiene --apply per /home user
 }
+HOSTNAME = re.compile(r"(?=.{1,253}$)[A-Za-z0-9_]([A-Za-z0-9_-]{0,62})(\.[A-Za-z0-9_]([A-Za-z0-9_-]{0,62}))*\.?")
 ORDER = ["dns", "disk", "ram", "loop"]
 MAX_PROBLEMS = 8
 GUARD = "# cmux machine guard (cmux-machine-health install). Managed, do not edit.\n"
 UNITS = {
     "/etc/systemd/system/cmux-machine-health.service": "[Unit]\nDescription=cmux machine health: check and heal DNS, disk and RAM once\nAfter=network.target systemd-resolved.service\n\n[Service]\nType=oneshot\nExecStart=" + SBIN + " run\nTimeoutStartSec=45\nNice=10\nIOSchedulingClass=idle\nOOMScoreAdjust=-500\nMemoryMax=256M\nTasksMax=64\n",
-    "/etc/systemd/system/cmux-machine-health.timer": "[Unit]\nDescription=Run cmux machine health every minute\n\n[Timer]\nOnBootSec=60\nOnUnitActiveSec=60\nAccuracySec=5\n\n[Install]\nWantedBy=timers.target\n",
+    "/etc/systemd/system/cmux-machine-health.timer": "[Unit]\nDescription=Run cmux machine health every minute\n\n[Timer]\nOnActiveSec=60\nOnUnitActiveSec=60\nAccuracySec=5\n\n[Install]\nWantedBy=timers.target\n",
     # Every ssh and login session (logind's session-N.scope): a runaway hits its own limits.
-    "/etc/systemd/system/session-.scope.d/50-cmux-guard.conf": GUARD + "[Scope]\nMemoryHigh=70%\nMemoryMax=80%\nTasksMax=8192\n",
+    # MemorySwapMax as a share of swap needs systemd 254+; older systemd ignores the line.
+    "/etc/systemd/system/session-.scope.d/50-cmux-guard.conf": GUARD + "[Scope]\nMemoryHigh=70%\nMemoryMax=80%\nMemorySwapMax=25%\nTasksMax=8192\n",
     # The user's systemd manager (and so acpmux) outlives a runaway; memory.min needs its ancestors.
     "/etc/systemd/system/user@.service.d/50-cmux-guard.conf": GUARD + "[Service]\nOOMScoreAdjust=-900\nMemoryMin=64M\n",
     "/etc/systemd/system/user-.slice.d/50-cmux-guard.conf": GUARD + "[Slice]\nMemoryMin=64M\n",
-    "/etc/systemd/system/user.slice.d/50-cmux-guard.conf": GUARD + "[Slice]\nMemoryMin=256M\n",
+    # Every user's sessions and services together leave a tenth of RAM to the system.
+    "/etc/systemd/system/user.slice.d/50-cmux-guard.conf": GUARD + "[Slice]\nMemoryMin=256M\nMemoryMax=90%\n",
     # The manager's own -900 must not reach the user services it starts.
     "/etc/systemd/user.conf.d/50-cmux-guard.conf": GUARD + "[Manager]\nDefaultOOMScoreAdjust=200\n",
 }
@@ -109,6 +112,10 @@ class Host:
                 return
             yield True
 
+    def set_oom_score(self, pid, score):
+        with open(f"/proc/{pid}/oom_score_adj", "w") as f:
+            f.write(f"{score}\n")
+
     def which(self, name):
         return shutil.which(name, path=PATH)
 
@@ -139,7 +146,17 @@ class Host:
         os.replace(tmp, RESOLV_CONF)
 
     def users(self):
-        return pwd.getpwall()
+        """Local accounts from /etc/passwd: no NSS lookup, so a hung directory service cannot stall a pass."""
+        rows = []
+        try:
+            with open("/etc/passwd") as f:
+                for line in f:
+                    parts = line.rstrip("\n").split(":")
+                    if len(parts) == 7 and parts[2].isdigit() and parts[3].isdigit():
+                        rows.append(pwd.struct_passwd((parts[0], parts[1], int(parts[2]), int(parts[3]), parts[4], parts[5], parts[6])))
+        except OSError:
+            pass
+        return rows
 
     def read_json(self, path):
         try:
@@ -165,8 +182,11 @@ class Pass:
     def __init__(self, host, config, state):
         self.host, self.config = host, config
         self.start = host.mono()
-        self.since_was = state.get("since", {})
-        self.last = state.get("last", {})
+        state = state if isinstance(state, dict) else {}
+        since, last, fixed = state.get("since"), state.get("last"), state.get("fixed")
+        self.since_was = {k: v for k, v in since.items() if isinstance(v, str)} if isinstance(since, dict) else {}
+        self.last = {k: v for k, v in last.items() if isinstance(v, (int, float)) and not isinstance(v, bool)} if isinstance(last, dict) else {}
+        state = {"fixed": [f for f in fixed if isinstance(f, dict) and all(isinstance(f.get(k), str) for k in ("check", "action", "at"))] if isinstance(fixed, list) else []}
         self.since, self.problems, self.new_fixed = {}, [], []
         self.fixed_was = state.get("fixed", [])
 
@@ -295,6 +315,8 @@ def config_problems(given):
     for key in ("dnsNames",):
         if key in given and not (isinstance(given[key], list) and all(isinstance(x, str) and x for x in given[key])):
             problems.append(f"{key} must be a list of non-empty strings")
+    if isinstance(given.get("dnsNames"), list) and not all(isinstance(n, str) and HOSTNAME.fullmatch(n) for n in given["dnsNames"]):
+        problems.append("dnsNames must be host names")
     if "tailnetName" in given and not isinstance(given["tailnetName"], bool):
         problems.append("tailnetName must be true or false")
     if "diskPath" in given and not (isinstance(given["diskPath"], str) and given["diskPath"].startswith("/")):
@@ -350,7 +372,32 @@ def run_pass(host):
     return health
 
 
-def install(host, config_path):
+def protect_running_managers(host):
+    """Running user managers predate the drop-ins: each re-executes (it keeps every service, as
+    after a systemd upgrade) to read DefaultOOMScoreAdjust, and only once that shows 200 does the
+    manager itself get -900, so its services can never inherit it."""
+    for line in host.run(["systemctl", "list-units", "--plain", "--no-legend", "--state=running", "user@*.service"], 10)[1].splitlines():
+        unit = line.split()[0] if line.strip() else ""
+        m = re.fullmatch(r"user@(\d+)\.service", unit)
+        name = next((u.pw_name for u in host.users() if m and u.pw_uid == int(m.group(1))), None)
+        if not name:
+            continue
+        host.run(["systemctl", "kill", "--kill-whom=main", "--signal=SIGRTMIN+25", unit], 10)
+        default = ""
+        for _ in range(20):
+            default = host.run(["systemctl", "--user", "-M", f"{name}@", "show", "-p", "DefaultOOMScoreAdjust", "--value"], 5)[1].strip()
+            if default == "200":
+                break
+            host.sleep(0.5)
+        pid = host.run(["systemctl", "show", "-p", "MainPID", "--value", unit], 5)[1].strip()
+        if default == "200" and pid.isdigit() and pid != "0":
+            host.set_oom_score(int(pid), -900)
+            print(f"{unit}: re-executed; OOM score -900 now, its services get 200")
+        else:
+            print(f"{unit}: not protected until it starts again (DefaultOOMScoreAdjust {default or 'unknown'})")
+
+
+def install(host, config_path, start=True):
     if config_path:
         with open(config_path) as f:
             given = json.load(f)
@@ -360,13 +407,13 @@ def install(host, config_path):
         host.write(SBIN, f.read(), 0o755)
     for path, text in UNITS.items():
         host.write(path, text)
-    for argv in (["systemctl", "daemon-reload"], ["systemctl", "enable", "--now", "cmux-machine-health.timer"]):
+    enable = ["systemctl", "enable", "--now", "cmux-machine-health.timer"] if start else ["systemctl", "enable", "cmux-machine-health.timer"]
+    for argv in (["systemctl", "daemon-reload"], enable):
         if host.run(argv, 60)[0] != 0:
             raise SystemExit(f"{' '.join(argv)} failed")
-    # A running user manager keeps its OOM score and its default for new services until it
-    # starts again; restarting it ends that user's services, so that is left to the operator.
-    print("installed: guard drop-ins apply to new login sessions now and to each user manager from its next start")
-    print("installed: cmux-machine-health.timer runs every 60 s; /run/cmux/machine-health.json")
+    protect_running_managers(host)
+    print("installed: guard drop-ins apply to new login sessions now")
+    print("installed: cmux-machine-health.timer " + ("runs every 60 s" if start else "enabled, not started (--no-start)") + "; /run/cmux/machine-health.json")
 
 
 def uninstall(host):
@@ -384,6 +431,7 @@ def main(argv=None, host=None):
     sub.add_parser("run", help="one pass (the default)")
     ins = sub.add_parser("install", help="install the script, timer and guard drop-ins; enable the timer")
     ins.add_argument("--config", help="a JSON config to install as " + CONFIG_FILE)
+    ins.add_argument("--no-start", action="store_true", help="enable the timer without starting it (an image bake starts it last)")
     sub.add_parser("uninstall", help="stop the timer and remove what install wrote")
     sub.add_parser("config", help="print the effective config")
     args = ap.parse_args(argv)
@@ -394,7 +442,7 @@ def main(argv=None, host=None):
         print("cmux-machine-health: run as root", file=sys.stderr)
         return 2
     if args.cmd == "install":
-        install(host, args.config)
+        install(host, args.config, start=not args.no_start)
         return 0
     if args.cmd == "uninstall":
         uninstall(host)
