@@ -6,6 +6,7 @@ import CmuxNextDesign
 import CmuxNextHomeEngine
 import CmuxNextSettings
 import CmuxNextTerminal
+import CmuxNextWakeups
 import os
 
 /// Runs a quit (user decision 2026-09-30). `applicationShouldTerminate`

@@ -144,17 +144,20 @@ import Testing
         await work.shutdown()
     }
 
-    @Test func aTaskStartsAtItsStatedPriority() async throws {
+    @Test(arguments: WorkPriority.allCases)
+    func aTaskStartsAtItsStatedPriority(priority: WorkPriority) async throws {
         let work = BackgroundWork(label: "test.task.priority")
-        // Detached: the caller's priority does not pass to it (a lower waiter does not escalate it either).
-        let seen = try await Task(priority: .background) {
-            try await work.task(.bestEffort) { Task.currentPriority }.value
-        }.value
-        #expect(WorkPriority(seen) == .bestEffort)
-        let low = try await Task(priority: .background) {
-            try await work.task(.userBlocking) { Task.currentPriority }.value
-        }.value
-        #expect(WorkPriority(low) == .userBlocking)
+        let started = Signal()
+        let seen = OSAllocatedUnfairLock<TaskPriority?>(initialState: nil)
+        // Detached: the caller's priority does not pass to it. The test meets it through a signal, not
+        // `value`, so no waiter escalates it before it reads its priority.
+        let task = work.task(priority) {
+            seen.withLock { $0 = Task.currentPriority }
+            started.send()
+        }
+        await started.wait()
+        #expect(seen.withLock { $0 }.map { WorkPriority($0) } == priority)
+        try await task.value
     }
 
     #if DEBUG
