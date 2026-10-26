@@ -167,7 +167,7 @@ await requireBrowserLane("agent-pane-short-pane-composer.test.ts", async () => {
         const styles = await page.locator(".acpmux-composer-prompt").evaluate((node) => {
           const computed = getComputedStyle(node);
           return {
-            line: parseFloat(computed.getPropertyValue("--text-body--line-height")) || 22,
+            line: parseFloat(computed.getPropertyValue("--text-title--line-height")) || 22,
             control: parseFloat(computed.getPropertyValue("--cmux-control-height")) || 23,
           };
         });

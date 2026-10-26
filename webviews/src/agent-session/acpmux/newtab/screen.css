@@ -14,10 +14,10 @@
 .nt-input{display:flex;align-items:flex-start;gap:10px;min-height:52px;padding:0 18px}
 :root[data-borders=none] .nt-box{--acpmux-card-ring:inset 0 0 0 var(--cmux-hairline,.5px) transparent}
 /* The field wraps a long draft and grows with it (field-sizing; NewTabScreen fits it only in an engine
-   without field-sizing) up to eight lines,
-   the chat composer's cap (markdownField.css), and never past 40% of the pane; then it scrolls.
-   One line keeps the 52px row: 16px above and below a 20px line. Nothing cuts the draft. */
-.nt-field{flex:1;min-width:0;display:block;box-sizing:border-box;field-sizing:content;min-height:calc(1lh + 32px);max-height:min(calc(8lh + 32px),40vh);margin:0;border:0;outline:0;padding:16px 0;resize:none;overflow-x:hidden;overflow-y:auto;white-space:pre-wrap;overflow-wrap:break-word;background:none;color:var(--agent-text);caret-color:var(--cmux-caret, var(--agent-text));font:inherit;font-size:var(--text-title);line-height:var(--text-title--line-height)}
+   without field-sizing) to the same shared twelve-line policy as chat (markdownField.css), and never
+   past 40% of the pane; then it scrolls. One line keeps the 52px row: 16px above and below a 20px
+   line. Nothing cuts the draft. */
+.nt-field{flex:1;min-width:0;display:block;box-sizing:border-box;field-sizing:content;min-height:calc(1lh + 32px);max-height:min(calc(var(--acpmux-composer-max-lines, 12) * 1lh + 32px),40vh);margin:0;border:0;outline:0;padding:16px 0;resize:none;overflow-x:hidden;overflow-y:auto;white-space:pre-wrap;overflow-wrap:break-word;background:none;color:var(--agent-text);caret-color:var(--cmux-caret, var(--agent-text));font:inherit;font-size:var(--text-title);line-height:var(--text-title--line-height)}
 /* The hint stays one line (the empty field keeps its one-line row); only the draft wraps. */
 .nt-field::placeholder{color:var(--acpmux-composer-placeholder);opacity:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .nt-hint{flex:none;color:var(--acpmux-composer-dim);font-size:12px;white-space:nowrap}
