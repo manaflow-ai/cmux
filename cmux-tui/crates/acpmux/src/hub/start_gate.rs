@@ -290,7 +290,7 @@ impl Hub {
                 Err(_) => return Ok(()),
             }
         };
-        self.start_mode_check(caller, &family, bridge, &start).map(|_| ())
+        self.start_mode_check(caller, &family, bridge, &start).await.map(|_| ())
     }
 
     /// Whether a client that is not the person may start a session of
@@ -302,8 +302,10 @@ impl Hub {
     /// (`bridge`) its `ask` or `read-only` (`start_mode.rs` `NARROW_MODES`),
     /// which the table leaves out because it refuses Codex for the Web. An
     /// adopt never takes the bridge's: the session it finds may run another
-    /// harness than the one it was created on.
-    pub(crate) fn start_mode_check(
+    /// harness than the one it was created on. A caller in the bridge lends
+    /// its mode only to the bridge: the same id on another Codex harness (the
+    /// codex-acp adapter's `read-only`) may be wider.
+    pub(crate) async fn start_mode_check(
         &self,
         caller: Option<&str>,
         family: &str,
@@ -324,12 +326,15 @@ impl Hub {
             return Ok(StartGrant::Preset);
         }
         // The caller's mode now, on the session the daemon bound it to.
-        let inherits =
-            caller.and_then(|id| self.resolve(id).ok().filter(|s| s.id == id)).is_some_and(|s| {
+        let inherits = match caller.and_then(|id| self.resolve(id).ok().filter(|s| s.id == id)) {
+            Some(s) => {
                 let m = s.meta();
                 crate::web_modes::family_of(&m) == family
                     && crate::web_modes::mode_of(&m).as_deref() == Some(start.mode.as_str())
-            });
+                    && (bridge || !self.may_run_bridge(&m).await)
+            }
+            None => false,
+        };
         if inherits {
             Ok(StartGrant::Inherit)
         } else {
@@ -344,6 +349,17 @@ impl Hub {
         let meta = s.meta();
         let cfg = self.config.read().await;
         crate::web_modes::any_mode_for_web(&meta, cfg.profile(&meta.harness))
+    }
+
+    /// Whether session `m` may run the Codex bridge: as it was created (its
+    /// recorded argv) or as its harness is configured now.
+    async fn may_run_bridge(&self, m: &crate::store::SessionMeta) -> bool {
+        let now = || async {
+            let cfg = self.config.read().await;
+            cfg.profile(&m.harness)
+                .is_some_and(|p| crate::codex_app_server::is_profile_launch(&p.argv))
+        };
+        crate::codex_app_server::is_profile_launch(&m.harness_argv) || now().await
     }
 
     /// Whether a `session/new` keeps the harness's own start mode rather
@@ -445,6 +461,7 @@ impl Hub {
             Ok(StartGrant::Person)
         } else {
             self.start_mode_check(caller, &crate::web_modes::family_of(&s.meta()), bridge, &start)
+                .await
         };
         let applied = match checked {
             Ok(grant) => match self.set_mode(s, &start.mode).await {
