@@ -13,6 +13,7 @@ import Observation
 /// Delivery: none. Blink's dirty bits work the same way: a change sets the
 /// flag where it happens and the value is computed when it is next needed
 /// (`Node::SetNeedsStyleRecalc`, third_party/blink/renderer/core/dom/node.cc).
+// memory: fixed one entry per space of the person's space bar (`SidebarProfileKey`), each the row value models of one swipe page, no images
 @MainActor final class SpaceSectionsCache {
     private var entries: [SidebarProfileKey: Entry] = [:]
     private(set) var computations = 0

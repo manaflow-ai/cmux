@@ -886,4 +886,13 @@ CMUX_SHIM_EXPORT void cmux_shim_set_cursor_events(int enabled) {
   (void)enabled;
 }
 
+// The host's views cannot become subviews of a view in this process: host mode shows the page
+// as a hosted context in ChromiumHostPageView. So nothing is sent and the result is a fork's
+// without the call; the cross-process attach is remote_cocoa's Application form (F2).
+CMUX_SHIM_EXPORT int cmux_shim_browser_attach_view(int browser_id, void* parent_view) {
+  (void)browser_id;
+  (void)parent_view;
+  return 0;
+}
+
 }  // extern "C"

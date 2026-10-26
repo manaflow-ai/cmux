@@ -170,7 +170,7 @@ an active flag: no page window is ever key, so neither the key-state walk nor th
 change runs for a page focus. That needs the pin past API 24 (this design's host work needs 27). DevTools focus
 emulation in process is not a substitute: the page view then has no text input client, so IME breaks.
 
-## 4. Prototype (behind `browserHost.helper`, default off; the host app is in Debug builds only)
+## 4. Prototype (behind the feature `cefHelperHost`, default off; the host app is in Debug builds only)
 
 - Host: `Packages/macOS/CmuxNext/ChromiumHost/src/browser_host_main.mm` (built by `scripts/cmux-next/build-chromium-host.sh`
   as `cmux-chromium-host` against the shim build's wrapper, with a cache key of its own, so a host edit changes neither the
@@ -229,9 +229,12 @@ in the measure queue and go into perf-lead.md section 5 when they arrive.
 
 ### Default and prototype gaps (lead, 2026-10-24)
 
-The host stays off by default (`browserHost.helper`, Debug builds only; `ChromiumHostDefaultOffTests`): every
+The host stays off by default (the bench-only feature `cefHelperHost`, with Debug Settings `browserHost.helper` as
+its local override, p12-perf-process-101; `ChromiumHostDefaultOffTests`, `ChromiumHostSwitchTests`): every
 Chromium tab of every DEV, NIGHTLY and Release user runs in process. Only `debug.chromium_host` starts a host, and only
-with the toggle on. It stays so until Japanese IME (a ship blocker), find, drag and permission prompts work in the host.
+with the toggle on; `features.list` reports the toggle as `cefHelperHost` with source `local`, and benches set it
+through their tunables file (`CMUX_NEXT_DEBUG_TUNABLES_FILE`: a launched app strips an inherited `CMUX_ENABLE_FEATURES`).
+It stays so until Japanese IME (a ship blocker), find, drag and permission prompts work in the host.
 The page's focus is `cmux_browser_set_embedder_active` on a detached page (fork API 30), and DevTools focus emulation
 (`Emulation.setFocusEmulationEnabled`) only below API 30 or before the page is detached; never
 `CefBrowserHost::SetFocus`, which activates the host's window and app (cmux's bundle id). The `addChildWindow` layout
