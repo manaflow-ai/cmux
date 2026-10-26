@@ -90,6 +90,49 @@ import Testing
         harness.stop(watch)
     }
 
+    /// p06-scheduler-029: every read, apply and arm lands in `debug.observations` under the owner,
+    /// so a bench sees what one change cost (without the recording the ledger reads 0 here).
+    @Test func theLedgerCountsArmsReadsAppliesAndShowRereads() throws {
+        let harness = Harness(own: .visible)
+        let watch = harness.watch()
+        func counts() throws -> ObservationLedger.Entry {
+            try #require(harness.work.observations.snapshot(matching: "test.watch").first)
+        }
+        let start = try counts()
+        #expect(start.armed == 1 && start.arms == 1)
+        #expect(start.evaluations == 0 && start.applies == 0, "the first read and apply are the init's, not a change's")
+
+        for value in 1...5 { harness.model.value = value }
+        harness.frame()
+        let changed = try counts()
+        // reads == 7: the init's, one re-arm per change below person, and the flush's.
+        #expect(changed.evaluations == 6 && changed.applies == 1)
+        #expect(changed.armed == 1, "the flush's tracking is the only one armed")
+
+        harness.node.set(.hidden)
+        #expect(try counts().armed == 0, "a hidden observation is disarmed")
+        harness.model.value = 6
+        harness.node.set(.visible)
+        let shown = try counts()
+        #expect(shown.showRereads == 1 && shown.armed == 1)
+        #expect(shown.applies == 2, "the show applied the changed value")
+
+        harness.stop(watch)
+        #expect(try counts().armed == 0, "a cancelled observation is disarmed")
+    }
+
+    /// Observations of one owner share the scheduler's cached handle: the ledger's lock is taken for the name's
+    /// first instance only, and every instance counts under the one owner.
+    @Test func observationsOfOneOwnerShareOneCachedLedgerOwner() throws {
+        let harness = Harness(own: .visible)
+        let first = harness.watch(), second = harness.watch()
+        #expect(harness.work.observationOwner("test.watch") === harness.work.observationOwner("test.watch"))
+        #expect(harness.work.observationOwner("test.watch") === harness.work.observations.owner("test.watch"))
+        let entries = harness.work.observations.snapshot(matching: "test.watch")
+        #expect(entries.count == 1 && entries.first?.armed == 2)
+        harness.stop(first, second)
+    }
+
     @Test func anAutomationChangeFlushesInTheAutomationClass() {
         let harness = Harness(own: .visible)
         var classes: [MainWorkClass?] = []
