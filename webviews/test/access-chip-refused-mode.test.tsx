@@ -70,8 +70,9 @@ beforeAll(() => {
 });
 
 afterEach(async () => {
-  const { setStartModeSource } = await import("../src/agent-session/acpmux/startMode");
+  const { resetStartModesForTests, setStartModeSource } = await import("../src/agent-session/acpmux/startMode");
   setStartModeSource(undefined);
+  resetStartModesForTests();
   act(() => root?.unmount());
   root = undefined;
   host.replaceChildren();
@@ -180,4 +181,76 @@ test("a mode the agent refuses goes back to the mode in force and is marked refu
   // Nothing else can be picked: the chip is a plain label, its tooltip says why.
   expect(trigger()).toBeNull();
   expect(host.querySelector(".acpmux-mode")!.getAttribute("title") ?? "").toContain("Not allowed on this Mac");
+});
+
+// #23322: an MDM-managed `sessions.allowFullAccess = false` is an upper bound the person can't
+// override. acpmux's `_acpmux/start_mode` answer then says `"fullAccess": "managed"` (a mode-less
+// answer too), and each full-access row is disabled and says so. An answer without the field (MDM
+// unset, MDM true, an older daemon) leaves the menu as it was.
+type Client = import("../src/agent-session/acpmux/direct").AcpmuxDirectClient;
+async function answer(reply: Record<string, unknown>) {
+  const direct = await import("../src/agent-session/acpmux/direct");
+  const client: Client = Object.create(direct.AcpmuxDirectClient.prototype);
+  (client as unknown as { request: () => Promise<unknown> }).request = async () => reply;
+  await act(async () => void (await client.startMode("claude", "/Users/dev/project")));
+}
+const caption = (name: string) => item(name)?.querySelector(".acpmux-menu-description")?.textContent?.trim();
+const disabled = (name: string) => item(name)?.getAttribute("aria-disabled") === "true";
+
+test("full access managed off: its row is disabled, says so, and cannot be picked", async () => {
+  const picked: string[] = [];
+  await answer({ harness: "claude", modeId: null, fullAccess: "managed" });
+  await render(reported("s1", "default"), (modeId) => void picked.push(modeId));
+  const { openPicker } = await import("../src/agent-session/acpmux/pickerOpeners");
+  await act(async () => void openPicker("Mode"));
+  expect(disabled("Bypass permissions")).toBe(true);
+  expect(caption("Bypass permissions")).toBe("Managed by your organization");
+  expect(disabled("Manual")).toBe(false);
+  await act(async () => item("Bypass permissions")!.click());
+  const menu = dom.window.document.querySelector(".acpmux-access-menu")!;
+  await act(async () => void menu.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "2", bubbles: true })));
+  await flush();
+  expect(picked).toEqual([]);
+});
+
+test("an answer without the managed field leaves full access as it was", async () => {
+  const picked: string[] = [];
+  await answer({ harness: "claude", modeId: null, fullAccess: "managed" });
+  await answer({ harness: "claude", modeId: "default" });
+  await render(reported("s1", "default"), (modeId) => void picked.push(modeId));
+  const { openPicker } = await import("../src/agent-session/acpmux/pickerOpeners");
+  await act(async () => void openPicker("Mode"));
+  expect(disabled("Bypass permissions")).toBe(false);
+  expect(caption("Bypass permissions")).toBe("Accepts all permissions");
+  await act(async () => item("Bypass permissions")!.click());
+  await flush();
+  expect(picked).toEqual(["bypassPermissions"]);
+});
+
+test("an older answer that arrives after a newer one does not change full access", async () => {
+  // Two asks in flight (a probe, then a push's new generation): the newer says managed off, the
+  // older (from before the push) arrives last and must not turn the rows back on.
+  const direct = await import("../src/agent-session/acpmux/direct");
+  const client: Client = Object.create(direct.AcpmuxDirectClient.prototype);
+  let releaseOlder: (reply: unknown) => void = () => undefined;
+  const replies: Promise<unknown>[] = [
+    new Promise((done) => (releaseOlder = done)),
+    Promise.resolve({ harness: "claude", modeId: null, fullAccess: "managed" }),
+  ];
+  let asked = 0;
+  (client as unknown as { request: () => Promise<unknown> }).request = () => replies[asked++]!;
+  let older: Promise<unknown> = Promise.resolve();
+  await act(async () => {
+    older = client.startMode("claude", "/Users/dev/project");
+    await client.startMode("claude", "/Users/dev/project");
+  });
+  await act(async () => {
+    releaseOlder({ harness: "claude", modeId: "default" });
+    await older;
+  });
+  await render(reported("s1", "default"), () => undefined);
+  const { openPicker } = await import("../src/agent-session/acpmux/pickerOpeners");
+  await act(async () => void openPicker("Mode"));
+  expect(disabled("Bypass permissions")).toBe(true);
+  expect(caption("Bypass permissions")).toBe("Managed by your organization");
 });

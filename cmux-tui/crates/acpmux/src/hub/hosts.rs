@@ -209,6 +209,12 @@ impl Hub {
             {
                 continue;
             }
+            // MDM forces full access off (start-mode.json, loaded with the hub): a host left
+            // running in it is ended, never adopted (#23322).
+            if self.managed_off_runs_full_access(&session) {
+                self.end_managed_full_access(&session).await;
+                continue;
+            }
             if let Err(e) = self.adopt_one(&session, record).await {
                 tracing::warn!(session = %session.id, "agent host adoption failed: {e:#}");
             }

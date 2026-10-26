@@ -429,8 +429,26 @@ impl Hub {
         Ok(json!({"content": content}))
     }
 
+    /// The policy that answers `session`'s permission requests: its own, else the daemon's
+    /// (`config_policy`). While `sessions.allowFullAccess` is off (the person's own off, or the
+    /// upper bound MDM or the team policy forces), approve-all (the policy form of full access,
+    /// from config.json `permissionPolicy`, a preset, a profile default or a session set before
+    /// the switch went off) answers nothing itself: it runs as `ask`.
     pub(super) fn policy_for(
         &self,
+        session: &Session,
+        config_policy: PermissionPolicy,
+    ) -> PermissionPolicy {
+        let policy = Self::stored_policy_for(session, config_policy);
+        if super::start_mode::policy_is_full_access(policy) && !self.full_access_allowed() {
+            return PermissionPolicy::Ask;
+        }
+        policy
+    }
+
+    /// `policy_for` as stored, before `sessions.allowFullAccess` caps it: for the person rule,
+    /// which must not treat an approve-all session as asking while the switch is off.
+    pub(super) fn stored_policy_for(
         session: &Session,
         config_policy: PermissionPolicy,
     ) -> PermissionPolicy {
@@ -508,7 +526,7 @@ impl Hub {
             };
         // Read before the locks (it reads the settings file); the mode is read again under them.
         let full_access_on =
-            full_access_mode(&session.meta()).is_some() && super::start_mode::full_access_allowed();
+            full_access_mode(&session.meta()).is_some() && self.full_access_allowed();
         let (rx, prev, grouping, permission_id) = {
             let cfg = self.config.read().await;
             let mut state = session.permissions.lock().unwrap();
@@ -595,10 +613,12 @@ impl Hub {
                 None
             };
             let floored = web_turn && !denied && auto.is_some();
-            // Full access answers what the harness still asks, unless a rule decided it.
-            let full_access = (full_access_on && rule.is_none() && !denied)
-                .then(|| full_access_allow(session, &request))
-                .flatten();
+            // Full access answers what the harness still asks, unless a rule decided it. MDM's
+            // off is read again here (memory only): a push since the read above answers nothing.
+            let full_access =
+                (full_access_on && !self.full_access_managed_off() && rule.is_none() && !denied)
+                    .then(|| full_access_allow(session, &request))
+                    .flatten();
             let auto = if denied {
                 pick(&["reject_once", "reject_always"])
             } else if needs_person || web_turn {

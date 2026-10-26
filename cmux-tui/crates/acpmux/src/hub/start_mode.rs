@@ -207,6 +207,7 @@ fn start_level(
     managed: Option<&str>,
     configured: Option<&str>,
     pushed: Option<&str>,
+    allowed: bool,
 ) -> (DefaultMode, Source) {
     let (level, source) = if let Some(value) = managed {
         let level = DefaultMode::parse(value).unwrap_or_else(|| {
@@ -221,7 +222,7 @@ fn start_level(
         DefaultMode::resolve(configured, pushed)
     };
     // `sessions.allowFullAccess` off: no chat starts in a mode that skips every approval.
-    if level == DefaultMode::FullAccess && !full_access_allowed() {
+    if level == DefaultMode::FullAccess && !allowed {
         return (DefaultMode::Standard, source);
     }
     (level, source)
@@ -231,9 +232,10 @@ fn start_level(
 /// Sessions, "Allow Full-Access Modes").
 pub const ALLOW_FULL_ACCESS: &str = "sessions.allowFullAccess";
 
-/// Whether a mode that skips every approval may run now: yes unless the settings file turns
-/// `sessions.allowFullAccess` off. A settings file that cannot be read fails closed (no).
-pub fn full_access_allowed() -> bool {
+/// Whether the settings file lets a mode that skips every approval run: yes unless it turns
+/// `sessions.allowFullAccess` off. A settings file that cannot be read fails closed (no). The
+/// effective answer is `Hub::full_access_allowed`, which MDM can lower.
+fn file_allows_full_access() -> bool {
     match crate::user_settings::read() {
         crate::user_settings::Settings::Missing => true,
         crate::user_settings::Settings::Unreadable(_) => false,
@@ -242,6 +244,21 @@ pub fn full_access_allowed() -> bool {
             Some(Value::Bool(false))
         ),
     }
+}
+
+/// The effective `sessions.allowFullAccess` (claude-sr2, 2026-10-25: "an MDM-managed value is an
+/// upper bound the user can't override. If MDM sets allowFullAccess=false, Full access is
+/// unavailable ... If MDM is unset, nothing changes"): off when MDM or the team policy forces it
+/// off (`managed`, pushed by the app, `start_mode_state.rs`), else the settings file's answer
+/// (`file_allows`). A forced on adds nothing: the person's own off still holds.
+pub(crate) fn full_access_allowed_by(managed: Option<bool>, file_allows: bool) -> bool {
+    managed != Some(false) && file_allows
+}
+
+/// Whether a permission policy auto-approves every request (`approve-all`, also spelled
+/// `yolo`): the policy form of full access, refused or capped while the setting is off.
+pub(crate) fn policy_is_full_access(policy: PermissionPolicy) -> bool {
+    policy == PermissionPolicy::ApproveAll
 }
 
 /// The markers of a mode id or option value that skips every approval, shared with the cmux NEXT
@@ -280,9 +297,9 @@ pub(crate) fn is_full_access(mode: &str) -> bool {
 }
 
 /// The mode a resumed chat runs in: its saved mode, or the harness default (`fallback`) when the
-/// saved one skips every approval and `sessions.allowFullAccess` is off.
-pub(crate) fn resumable_mode(saved: String, fallback: &str) -> String {
-    if is_full_access(&saved) && !full_access_allowed() { fallback.to_owned() } else { saved }
+/// saved one skips every approval and `sessions.allowFullAccess` is off (`allowed`).
+pub(crate) fn resumable_mode(saved: String, fallback: &str, allowed: bool) -> String {
+    if is_full_access(&saved) && !allowed { fallback.to_owned() } else { saved }
 }
 
 /// Whether a session request switches into a full-access mode: `session/set_mode` to one, or
@@ -406,6 +423,13 @@ pub(super) fn profile_sets_mode(profile: &HarnessProfile) -> bool {
     })
 }
 
+/// Whether session `meta` runs in full access: its profile pins it in argv
+/// (`subsession_guard::argv_full_access`, the one parse of those flags), or its current mode is one.
+fn runs_full_access(meta: &crate::store::SessionMeta) -> bool {
+    super::subsession_guard::argv_full_access(&meta.harness_argv).is_some()
+        || crate::web_modes::mode_of(meta).is_some_and(|m| is_full_access(&m))
+}
+
 /// Modes that ask (or only read) on harnesses the asking table leaves out:
 /// the Codex bridge's `ask` and `read-only`. The start gate takes them on the
 /// bridge alone (`start_gate.rs`): the codex-acp adapter's `read-only` writes
@@ -517,7 +541,7 @@ impl Hub {
         offered: &[String],
     ) -> Option<String> {
         let family = crate::web_modes::family_of(meta);
-        let allowed = full_access_allowed();
+        let allowed = self.full_access_allowed();
         if crate::web_modes::family_of(theirs) == family
             && let Some(mode) = crate::web_modes::mode_of(theirs)
             && offered.contains(&mode)
@@ -585,7 +609,7 @@ impl Hub {
     ) -> Result<(), RpcError> {
         let meta = session.meta();
         let Some(current) = crate::web_modes::mode_of(&meta) else { return Ok(()) };
-        if !is_full_access(&current) || full_access_allowed() {
+        if !is_full_access(&current) || self.full_access_allowed() {
             return Ok(());
         }
         let family = crate::web_modes::family_of(&meta);
@@ -647,7 +671,76 @@ impl Hub {
                 cfg.default_permission_mode.clone(),
             )
         };
-        start_level(state.managed.as_deref(), configured.as_deref(), state.pushed.as_deref())
+        start_level(
+            state.managed.as_deref(),
+            configured.as_deref(),
+            state.pushed.as_deref(),
+            self.full_access_allowed(),
+        )
+    }
+
+    /// Whether a mode or policy that skips every approval may run now: the effective
+    /// `sessions.allowFullAccess` (`full_access_allowed_by`), the settings file under the value
+    /// MDM or the team policy forces.
+    pub fn full_access_allowed(&self) -> bool {
+        full_access_allowed_by(self.full_access_managed(), file_allows_full_access())
+    }
+
+    /// Refuses to start an agent from a profile that pins full access in its argv
+    /// (`subsession_guard::argv_full_access`) while MDM or the team policy forces
+    /// `sessions.allowFullAccess` off: an upper bound the person's own profile does not override.
+    /// Without MDM a pinned profile runs as it always has.
+    pub(super) fn refuse_pinned_full_access(
+        &self,
+        profile: &HarnessProfile,
+    ) -> Result<(), RpcError> {
+        if self.full_access_managed_off()
+            && super::subsession_guard::argv_full_access(&profile.argv).is_some()
+        {
+            return Err(full_access_off());
+        }
+        Ok(())
+    }
+
+    /// Whether MDM forces full access off while session `session` runs in it (`runs_full_access`):
+    /// its agent, live or a host a restart left, takes no more work (`end_managed_full_access`).
+    pub(super) fn managed_off_runs_full_access(&self, session: &Session) -> bool {
+        self.full_access_managed_off() && runs_full_access(&session.meta())
+    }
+
+    /// MDM just forced full access off: every agent still running in it ends now (a turn in
+    /// progress ends with it), each under its session's spawn lock.
+    pub(super) async fn end_every_managed_full_access(&self) {
+        for session in self.sessions() {
+            if runs_full_access(&session.meta()) {
+                let _spawning = session.spawn_lock.lock().await;
+                self.end_managed_full_access(&session).await;
+            }
+        }
+    }
+
+    /// Ends the agent of a session that runs in full access while MDM forces it off: the live child
+    /// and any host a restart left. The start that follows runs in a mode that asks, or refuses a
+    /// profile that pins full access (`refuse_pinned_full_access`). Called under the spawn lock.
+    pub(super) async fn end_managed_full_access(&self, session: &Session) {
+        let child = session.child.lock().await.take();
+        let ended = child.is_some() || Self::host_record_live(&session.id);
+        if let Some(child) = child {
+            child.terminate(super::shutdown::SHUTDOWN_GRACE).await;
+        }
+        if Self::host_record_live(&session.id) {
+            self.end_unadopted_host(session).await;
+        }
+        if ended {
+            tracing::info!(session = %session.id, "MDM forces full access off: its full-access agent ended");
+            self.append(session, "mux", "full_access_ended", json!({"reason": "managed"}));
+        }
+    }
+
+    /// Whether MDM or the team policy forces `sessions.allowFullAccess` off: the pane's mode menu
+    /// then says "Managed by your organization" (`_acpmux/start_mode` `fullAccess`).
+    pub(crate) fn full_access_managed_off(&self) -> bool {
+        self.full_access_managed() == Some(false)
     }
 
     /// `_acpmux/start_mode`: the mode a plain new chat on `harness` (or the
@@ -657,7 +750,8 @@ impl Hub {
     /// `modeId` is null when acpmux would set no mode: the chat is not
     /// eligible, the level keeps the harness's own mode, or the harness's
     /// modes are not known yet (no chat of it in this daemon, and not
-    /// acpmux's own Claude backend).
+    /// acpmux's own Claude backend). `fullAccess: "managed"` while MDM or the team policy forces
+    /// `sessions.allowFullAccess` off.
     pub async fn start_mode_answer(
         &self,
         harness: Option<String>,
@@ -675,6 +769,14 @@ impl Hub {
         }
         // As session/new: harness discovery and launcher checks finish first.
         self.wait_startup().await;
+        // MDM or the team policy forces full access off: every answer says so, for the mode menu.
+        let managed_off = self.full_access_managed_off();
+        let mark = |mut answer: Value| {
+            if managed_off {
+                answer["fullAccess"] = json!("managed");
+            }
+            answer
+        };
         let (agent, profile, eligible, policy) = {
             let cfg = self.config.read().await;
             let r = self.resolve_new(&cfg, harness, &preset, None, remote, cwd.as_deref())?;
@@ -702,28 +804,28 @@ impl Hub {
         if let Some(policy) = policy {
             let mode = super::policy_mode::policy_mode(policy, &family, &ids);
             if mode.is_none() {
-                return Ok(none);
+                return Ok(mark(none));
             }
-            return Ok(json!({
+            return Ok(mark(json!({
                 "harness": agent,
                 "modeId": mode,
                 "name": name_of(&mode),
                 "level": DefaultMode::Ask.as_str(),
                 "source": "policy",
-            }));
+            })));
         }
         if !eligible {
-            return Ok(none);
+            return Ok(mark(none));
         }
         let (level, source) = self.start_level().await;
         let mode = mode_for(level, &family, &ids);
-        Ok(json!({
+        Ok(mark(json!({
             "harness": agent,
             "modeId": mode,
             "name": name_of(&mode),
             "level": level.as_str(),
             "source": source.as_str(),
-        }))
+        })))
     }
 
     /// The modes harness profile `agent` offers, as its newest chat in this

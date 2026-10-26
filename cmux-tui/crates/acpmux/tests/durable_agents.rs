@@ -1970,3 +1970,46 @@ async fn info_answers_while_the_chat_logs_load() {
     assert!(started.elapsed() >= HOLD, "info answered before the logs were read: {waited:#}");
     assert_eq!(waited["logsLoading"], false, "{waited:#}");
 }
+
+/// #23322 (claude-sr2: "an MDM-managed value is an upper bound the user can't override"): a host
+/// a restart left running in full access (its profile pins `--yolo`) is not reached again when the
+/// next daemon starts with MDM forcing `sessions.allowFullAccess` off (start-mode.json, as a push
+/// recorded it): its agent ends and the chat is refused.
+#[tokio::test]
+async fn a_retained_full_access_host_ends_once_mdm_turns_full_access_off() {
+    let mut daemon = Daemon::new("mdmoff", "ask");
+    daemon.sigterm();
+    std::fs::write(
+        daemon.home.join("config.json"),
+        json!({"harnesses": {"fake": {"argv": ["python3", FAKE, "--yolo"]}}, "defaultHarness": "fake", "permissionPolicy": "ask"}).to_string(),
+    )
+    .unwrap();
+    daemon.start();
+    let session = new_session(&daemon).await;
+    let prompt = json!({"sessionId": session, "prompt": [{"type": "text", "text": "hi"}]});
+    let mut rpc = daemon.rpc().await;
+    rpc.call("session/prompt", prompt.clone()).await;
+    let harness_pid = daemon.host_record(&session)["harness_pid"].as_i64().unwrap();
+
+    // The daemon stops and leaves the host running; MDM's off is recorded before the next start.
+    daemon.sigterm();
+    drop(rpc);
+    assert!(alive(harness_pid), "SIGTERM ended the agent");
+    let state = daemon.home.join("start-mode.json");
+    let mut recorded: Value = std::fs::read(&state)
+        .ok()
+        .and_then(|b| serde_json::from_slice(&b).ok())
+        .unwrap_or_else(|| json!({}));
+    recorded["fullAccessManaged"] = json!(false);
+    std::fs::write(&state, recorded.to_string()).unwrap();
+    daemon.start();
+
+    // Ended at start, before any prompt: startup adoption never resumes it.
+    assert!(
+        gone_within(harness_pid, Duration::from_secs(10)),
+        "the next daemon adopted the full-access agent under the managed off"
+    );
+    let mut rpc = daemon.rpc().await;
+    let r = rpc.reply("session/prompt", prompt).await;
+    assert_eq!(r["error"]["data"]["reason"], "full_access_off", "{r}");
+}
