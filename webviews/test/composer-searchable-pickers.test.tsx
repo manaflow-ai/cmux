@@ -238,3 +238,25 @@ test("the project list announces the committed project and private-folder select
     await key(document.querySelector<HTMLInputElement>('[role="combobox"]')!, "Escape");
   }
 });
+
+test("classic folder Tab completion remains a submitable absolute path", async () => {
+  const { createRoot } = await import("react-dom/client");
+  const { ComposerContext } = await import("../src/agent-session/acpmux/ComposerContext");
+  const calls: string[] = [];
+  root = createRoot(host);
+  await act(async () =>
+    root!.render(
+      <ComposerContext
+        summary={{ sessionId: "folder", harness: "claude", cwd: "/work/atlas", hostKind: "local" }}
+        onProject={(cwd) => calls.push(cwd)}
+      />,
+    ),
+  );
+  await click(host.querySelector<HTMLButtonElement>('[aria-label="Folder"]')!);
+  const field = document.querySelector<HTMLInputElement>('[role="combobox"]')!;
+  await type(field, "atl");
+  await key(field, "Tab");
+  expect(field.value).toBe("/work/atlas");
+  await key(field, "Enter");
+  expect(calls).toEqual(["/work/atlas"]);
+});
