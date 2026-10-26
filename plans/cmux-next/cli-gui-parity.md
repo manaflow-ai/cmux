@@ -31,6 +31,11 @@ Gaps the issue named, and what this change does:
 | Stop a chat's turn | `cmux acp session cancel` (any chat, no session scope) | `agents chat interrupt <chat>`, MCP `agents_chat_interrupt` (this session's chats, never the caller's own) |
 | Screenshot a pane or tab | person only | agents may capture terminal and page panes and tabs (the window alone, no overlay or floating window); browser and agent-chat pixels stay refused (`cmux browser page screenshot` and `cmux agents chat read` mask secrets) |
 
+A Chief turn keeps `agents_chat_send`, `agents_chat_read` and `agents_chat_state`
+among its cmux tools (https://github.com/manaflow-ai/cmux/issues/25571), so a Chief
+messages the chats the person started, a restored chat no tab has shown yet included;
+`agents_chat_new` and `agents_chat_interrupt` stay denied to it.
+
 `window.screenshot` stays person only: a window can show a browser page beside
 anything else.
 

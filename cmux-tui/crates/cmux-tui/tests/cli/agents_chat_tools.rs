@@ -839,3 +839,63 @@ fn a_caller_with_its_own_acpmux_starts_and_drives_a_chat_of_the_apps_acpmux() {
     let (code, stopped) = chat_json(chief(), &["interrupt", &started]);
     assert_eq!(code, Some(0), "{stopped}");
 }
+
+/// A chat the person started, then restored after a restart and shown by no tab yet (#25571):
+/// acpmux keeps it with no agent running and no client attached. A Chief-like caller (its own
+/// acpmux elsewhere) finds it in the app's acpmux, and its send resumes the chat's harness and
+/// runs as that chat's next turn, after the person's earlier one.
+#[test]
+fn a_caller_sends_to_a_restored_chat_no_tab_has_shown() {
+    let daemon = machine("chat-restored");
+    let workspace = workspace(&daemon);
+    let app_socket = daemon.dir.join("app.sock");
+    fake_app_with_acpmux(&app_socket, daemon.dir.join("acpmux/acpmux.sock"));
+    let chief = || {
+        let mut command = cmux(&daemon, None);
+        command.env("ACPMUX_SOCKET", daemon.dir.join("chief-home/acpmux.sock"));
+        command.arg("--app-socket").arg(&app_socket);
+        command
+    };
+    let restored = chat(&daemon, Some(&workspace));
+    let prompted = Acp::connect(&daemon).call(
+        "session/prompt",
+        json!({"sessionId": restored, "prompt": [{"type": "text", "text": "the person's turn"}]}),
+    );
+    assert!(prompted.get("error").is_none(), "{prompted}");
+
+    // The app quits and acpmux restarts with the chat's agent ended: the chat is restored, and
+    // nothing attaches to it until a tab shows it.
+    acpmux_daemon(&daemon, &["shutdown", "--end-agents"]);
+    acpmux_daemon(&daemon, &["start"]);
+    let (code, before) = chat_json(chief(), &["read", &restored]);
+    assert_eq!(code, Some(0), "{before}");
+    let items = before["items"].as_array().cloned().unwrap_or_default();
+    assert_eq!(items_of(&items, "user")[0]["text"], "the person's turn", "{before}");
+    let after = before["next_after"].as_u64().unwrap_or_else(|| panic!("{before}"));
+
+    let (code, sent) = chat_json(chief(), &["send", &restored, "--", "pick this back up"]);
+    assert_eq!(code, Some(0), "{sent}");
+    assert_eq!(sent["result"]["chat"], restored.as_str(), "{sent}");
+    assert_eq!(sent["result"]["state"], "delivered", "{sent}");
+
+    let deadline = Instant::now() + Duration::from_secs(20);
+    let later = loop {
+        let (code, page) = chat_json(chief(), &["read", &restored, "--after", &after.to_string()]);
+        assert_eq!(code, Some(0), "{page}");
+        let items = page["items"].as_array().cloned().unwrap_or_default();
+        if items.iter().any(|item| item["role"] == "turn_end") {
+            break items;
+        }
+        assert!(Instant::now() < deadline, "the restored chat never ran the send: {page}");
+        std::thread::sleep(Duration::from_millis(100));
+    };
+    let prompts = items_of(&later, "user");
+    assert_eq!(prompts.len(), 1, "one new turn: {later:?}");
+    assert_eq!(prompts[0]["origin"], "agent_message", "{later:?}");
+    assert!(prompts[0]["text"].as_str().unwrap().contains("pick this back up"), "{later:?}");
+    let answers = items_of(&later, "assistant");
+    assert!(
+        answers.iter().any(|item| item["text"].as_str().unwrap_or_default().starts_with("echo: ")),
+        "the resumed agent answered the send: {later:?}"
+    );
+}
