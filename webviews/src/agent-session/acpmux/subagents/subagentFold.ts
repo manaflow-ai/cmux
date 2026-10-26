@@ -161,6 +161,8 @@ export class SubagentFold {
   /// Each subagent's newest tool call, and every call it made: an update to an older one does not
   /// take its action back.
   private readonly latestCall = new Map<string, string>();
+  /// Each subagent's calls whose ACP kind is `execute` (`agent\u0000call`): a shell call's title is its command.
+  private readonly shellCalls = new Set<string>();
   private readonly calls = new Set<string>();
   /// Plumbing calls each subagent made (hiddenTools.ts): they and their results set no action.
   private readonly hiddenCalls = new Set<string>();
@@ -196,7 +198,13 @@ export class SubagentFold {
       if (tool && update.title && newest) {
         owner.action = String(update.title);
         // A shell call's title is its command as typed (ACP kind `execute`); the tray says it in words.
-        const shell = update.kind === "execute" || (update.kind === undefined && owner.actionShell === true);
+        // An update that omits its kind keeps what its own call said, never another call's.
+        const key = call === undefined ? undefined : `${owner.id}\u0000${call}`;
+        if (key && typeof update.kind === "string") {
+          if (update.kind === "execute") this.shellCalls.add(key);
+          else this.shellCalls.delete(key);
+        }
+        const shell = update.kind === "execute" || (update.kind === undefined && key !== undefined && this.shellCalls.has(key));
         if (shell) owner.actionShell = true;
         else delete owner.actionShell;
       }

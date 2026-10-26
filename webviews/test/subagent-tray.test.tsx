@@ -797,6 +797,19 @@ describe("the tray tells the truth", () => {
       { subagent: "a" },
     );
     expect(fold.all().find((one) => one.id === "a")!.actionShell).toBe(true);
+    // A new call met through an update that omits its kind is not the shell call before it.
+    feed(
+      { sessionUpdate: "tool_call_update", toolCallId: "t5", title: "read_file", status: "in_progress" },
+      { subagent: "a" },
+    );
+    expect(fold.all().find((one) => one.id === "a")!.actionShell).toBeUndefined();
+    // Its own later update (no kind) keeps the shell call's provenance.
+    feed({ sessionUpdate: "tool_call", toolCallId: "t6", title: "ls", kind: "execute", status: "pending" }, { subagent: "a" });
+    feed(
+      { sessionUpdate: "tool_call_update", toolCallId: "t6", title: "ls -la", status: "in_progress" },
+      { subagent: "a" },
+    );
+    expect(fold.all().find((one) => one.id === "a")!.actionShell).toBe(true);
     feed({ sessionUpdate: "subagent_state_update" }, { subagents: [{ id: "a", action: "find the bug" }] });
     const after = fold.all().find((one) => one.id === "a")!;
     expect([after.action, after.actionShell]).toEqual(["find the bug", undefined]);

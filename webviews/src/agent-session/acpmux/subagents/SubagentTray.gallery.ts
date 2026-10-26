@@ -214,7 +214,14 @@ function headInView(ctx: PlayContext): void {
 /** Opens every ended line (once; a play that already opened them leaves them open), scrolls the
  *  list to its end, then checks the head and View all stay. A panel without View all only scrolls. */
 const scrollPanel = async (ctx: PlayContext) => {
-  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-running-tray__head"));
+  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-running-tray"));
+  const head = ctx.document.querySelector<HTMLElement>(".acpmux-running-tray__head");
+  // A variant with one line has no header to keep, and nothing to scroll.
+  if (!head) return;
+  if (head.getAttribute("aria-expanded") !== "true") {
+    await ctx.click({ selector: ".acpmux-running-tray__head" });
+    await ctx.waitFor(() => ctx.document.querySelector(".acpmux-running-tray__list"));
+  }
   const more = () => ctx.document.querySelector<HTMLElement>(".acpmux-running-tray__finished");
   if (more() && more()!.getAttribute("aria-expanded") !== "true") {
     await ctx.click({ selector: ".acpmux-running-tray__finished" });
@@ -230,7 +237,13 @@ const scrollPanel = async (ctx: PlayContext) => {
 };
 
 const panelScript = [
-  { name: "the panel at rest", run: async (ctx: PlayContext) => headInView(ctx) },
+  {
+    name: "the panel at rest",
+    run: async (ctx: PlayContext) => {
+      await ctx.waitFor(() => ctx.document.querySelector(".acpmux-running-tray"));
+      if (ctx.document.querySelector(".acpmux-running-tray__head")) headInView(ctx);
+    },
+  },
   { name: "open all and scroll to the end", run: scrollPanel },
 ];
 
