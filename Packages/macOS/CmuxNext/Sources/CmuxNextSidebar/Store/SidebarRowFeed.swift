@@ -2,11 +2,31 @@ public import CmuxNextWakeups
 import Foundation
 import Observation
 
-/// Read by every row mapping of `SidebarRowFeed` under its observation;
-/// writing it fires (and so removes) that observation.
+/// One row's observation in a `SidebarRowFeed`: maps the row under tracking and calls back once, on the
+/// row's next change. ``cancel()`` fires (and so removes) the armed observation: observation tracking
+/// has no cancel call.
 @Observable
-fileprivate final class SidebarRowWatchCancel {
-    var epoch: UInt64 = 0
+fileprivate final class SidebarRowWatch {
+    private var epoch: UInt64 = 0
+
+    /// `make()` under an observation that calls `changed(onMain)` on its next change: at once when the
+    /// write was on the main thread (`onMain` true), else on a main-actor task.
+    @MainActor func track(_ make: () -> SidebarWorkspace,
+                          changed: @escaping @MainActor @Sendable (_ onMain: Bool) -> Void) -> SidebarWorkspace {
+        withObservationTracking {
+            _ = epoch
+            return make()
+        } onChange: {
+            if Thread.isMainThread {
+                MainActor.assumeIsolated { changed(true) } // main-proof: checked on the line above
+            } else {
+                // task-owner: the row feed; one re-map of this row after an off-main write
+                Task { @MainActor in changed(false) }
+            }
+        }
+    }
+
+    func cancel() { epoch &+= 1 }
 }
 
 /// Row content observed one workspace at a time, so a status change of one
@@ -39,6 +59,13 @@ fileprivate final class SidebarRowWatchCancel {
 /// person's row change neither waits behind nor pays for the rows automation
 /// marked. A program or automation flush maps a bounded slice of rows, so a
 /// budgeted queue spreads a burst of them over frames.
+///
+/// A list that tells the feed what it draws (``watch(drawn:near:)``, ``watch(near:)``) has only the rows near its
+/// viewport observed, as Chrome rasterizes and updates only the tiles near the viewport
+/// (`cc/tiles/tile_manager.cc`, `cc/tiles/picture_layer_tiling.cc` skewport). A drawn row away from
+/// it is disarmed and keeps its last mapped row: its changes cost nothing. When it comes near again
+/// it is mapped once (a `frontend` flush) and patched only when the map differs. Rows the list does
+/// not draw as rows of their own (a band tile, a collapsed group's member) stay observed.
 @MainActor
 public final class SidebarRowFeed {
     /// Maps one row from its store; runs on the main actor (the feed and its callers are main-actor).
@@ -57,7 +84,7 @@ public final class SidebarRowFeed {
         var armed = false
         /// The armed observation's generation; a callback of an older one is stale.
         var generation: UInt64 = 0
-        let cancel = SidebarRowWatchCancel()
+        let watch = SidebarRowWatch()
         /// The pass that last named the row.
         var pass: UInt64
 
@@ -81,6 +108,10 @@ public final class SidebarRowFeed {
     private var inputsChanged = false
     /// Rows mapped again since the last structural pass (the next `fill` maps only new rows).
     private var named: [WorkspaceID] = []
+    /// The rows the list draws as rows of their own, which scroll away; nil observes every row.
+    private var drawn: Set<WorkspaceID>?
+    /// Of the drawn rows, the ones near the list's viewport (on screen and its overscan).
+    private var near: Set<WorkspaceID> = []
     /// Changed rows, at most once per flush.
     public var onChange: (([SidebarWorkspace]) -> Void)?
     /// Runs one flush later. The app hands the display frame (`FrameBatcher`): the row patches of
@@ -141,7 +172,47 @@ public final class SidebarRowFeed {
         for entry in entries.values { disarm(entry) }
         entries.removeAll()
         dirty.removeAll()
+        (drawn, near) = (nil, [])
         for index in lanes.indices { lanes[index].dropRows() }
+    }
+
+    /// What the list draws after a layout: `drawn`, its rows of their own (nil observes every row
+    /// again), and `near`, those near its viewport. Visits the rows whose drawn or near state moved
+    /// (every row only when the list starts or stops telling).
+    public func watch(drawn rows: Set<WorkspaceID>?, near nearRows: Set<WorkspaceID>) {
+        guard rows != drawn else { return watch(near: nearRows) }
+        let old = drawn
+        drawn = rows
+        guard let old, let rows else {
+            near = nearRows
+            for id in entries.keys { follow(id) }
+            return
+        }
+        let moved = near.symmetricDifference(nearRows)
+        near = nearRows
+        for id in old.symmetricDifference(rows).union(moved) { follow(id) }
+    }
+
+    /// The drawn rows near the list's viewport after a scroll: a row that leaves is disarmed, and one
+    /// that comes near without an observation is mapped once. O(rows that came or left).
+    public func watch(near nearRows: Set<WorkspaceID>) {
+        let moved = near.symmetricDifference(nearRows)
+        near = nearRows
+        guard drawn != nil else { return }
+        for id in moved { follow(id) }
+    }
+
+    /// Whether `id`'s row is observed: every row without a list, else one it does not draw or draws near its viewport.
+    private func observes(_ id: WorkspaceID) -> Bool {
+        guard let drawn else { return true }
+        return near.contains(id) || !drawn.contains(id)
+    }
+
+    /// Disarms `id`'s row when it is not observed; queues one map when it is and has no observation.
+    private func follow(_ id: WorkspaceID) {
+        guard let entry = entries[id] else { return }
+        if !observes(id) { return disarm(entry) }
+        if !entry.armed, dirty[id] == nil { enqueue(id, cause: .frontend) }
     }
 
     /// The row of `id` for the structural pass: the last mapped row, or a
@@ -188,7 +259,12 @@ public final class SidebarRowFeed {
             // A row whose content changed since its last map (dirty) keeps that row here: the scheduled flush maps it
             // and sends it as a patch. Mapped here, a tick's status would ride this pass as a structural set (hitch17:
             // a sidebar reload and an anchored offset shift every 1-2 s under 50 ticking terminals).
-            if remap || (!entry.armed && dirty[id] == nil) {
+            if !observes(id) {
+                // Away from the list's viewport: disarmed, as last mapped; a new row is mapped once (its title,
+                // folder and height place it), with no observation.
+                disarm(entry)
+                if entry.revision == 0 { entry.row = entry.make() }
+            } else if remap || (!entry.armed && dirty[id] == nil) {
                 let row = arm(id, entry)
                 // A re-map (an inputs change) is a re-read as in a flush; a new stub's first map is an arm only.
                 if entry.revision != 0 { observations?.evaluated(applied: row != entry.row) }
@@ -209,20 +285,10 @@ public final class SidebarRowFeed {
         entry.armed = true
         observations?.armed()
         let generation = entry.generation
-        let cancel = entry.cancel
-        return withObservationTracking {
-            _ = cancel.epoch
-            return entry.make()
-        } onChange: { [weak self] in
-            if Thread.isMainThread {
-                MainActor.assumeIsolated { // main-proof: checked on the line above
-                    guard let self else { return }
-                    self.markDirty(id, generation: generation, cause: self.cause())
-                }
-            } else {
-                // An off-main write is no request's: no cause scope covers it.
-                Task { @MainActor [weak self] in self?.markDirty(id, generation: generation, cause: .program) }
-            }
+        return entry.watch.track(entry.make) { [weak self] onMain in
+            guard let self else { return }
+            // An off-main write is no request's: no cause scope covers it.
+            self.markDirty(id, generation: generation, cause: onMain ? self.cause() : .program)
         }
     }
 
@@ -233,13 +299,18 @@ public final class SidebarRowFeed {
         guard entry.armed else { return }
         entry.armed = false
         observations?.disarmed()
-        entry.cancel.epoch &+= 1
+        entry.watch.cancel()
     }
 
     private func markDirty(_ id: WorkspaceID, generation: UInt64, cause: ObservationCause) {
         guard let entry = entries[id], entry.generation == generation else { return }
         entry.armed = false
         observations?.disarmed()  // the observation fired, and so is gone
+        enqueue(id, cause: cause)
+    }
+
+    /// Queues `id`'s row for a flush of `cause` (a row a higher cause queued stays that cause's).
+    private func enqueue(_ id: WorkspaceID, cause: ObservationCause) {
         if let marked = dirty[id], marked >= cause { return }
         dirty[id] = cause
         guard lanes[cause.rawValue].add(id, rowsPerFlush: rowsPerFlush(cause)) else { return }
@@ -260,7 +331,8 @@ public final class SidebarRowFeed {
         var changed: [SidebarWorkspace] = []
         SidebarPerfCounters.timed {
             for id in ids {
-                guard let entry = entries[id], !entry.armed else { continue }
+                // A row that went away from the viewport since it was queued stays stale until it comes near.
+                guard let entry = entries[id], !entry.armed, observes(id) else { continue }
                 let row = arm(id, entry)
                 let differs = row != entry.row
                 observations?.evaluated(applied: differs)

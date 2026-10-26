@@ -21,6 +21,10 @@ final class SidebarListView: NSView {
     var displayed = SidebarLayout.empty
     /// Each layout `apply` draws, in order (a test records every frame the list shows, a one-hop glitch too).
     var onApply: ((SidebarLayout) -> Void)?
+    /// The feed that maps this list's rows: told which rows the list draws near its viewport (`watchRows`).
+    weak var rowFeed: SidebarRowFeed?
+    /// Something beside the list shows every row's content (the rail): the feed observes every row.
+    var observesEveryRow = false
     var rowViews: [SidebarRowKey: SidebarRowView] = [:]
     var workspaces: [WorkspaceID: SidebarWorkspace] = [:]
     var tabs: [TabID: SidebarTab] = [:]

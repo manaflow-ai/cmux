@@ -155,6 +155,7 @@ extension SidebarListViewComponents {
         groupEditing.adoptReidentified(from: old, to: layout)
         selectedRowKey = layout.selectedRowKey(for: model.selectedItem, in: model.sections)
         updateDocumentHeight()
+        watchRows(layoutChanged: true)
         let realize = realizationRect()
         var targets: [(SidebarRowView, NSRect)] = []
         var appearing: [(SidebarRowView, NSRect)] = []
@@ -383,6 +384,7 @@ extension SidebarListViewComponents {
             rowViews[row.key] = view
         }
         pruneOffscreen()
+        watchRows(layoutChanged: false)
         let followed = hoverFollowsScroll
         hoverFollowsScroll = true
         defer { hoverFollowsScroll = followed }

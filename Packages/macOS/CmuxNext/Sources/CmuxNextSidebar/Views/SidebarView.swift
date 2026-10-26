@@ -105,6 +105,16 @@ public final class SidebarView: NSView {
         get { list.inputTap }
         set { list.inputTap = newValue }
     }
+    /// The row feed of this sidebar's rows (the App injects it with feature `sidebarRowsNearViewport` on): only
+    /// the rows the list draws near its viewport stay observed. Nil observes every row.
+    public var rowFeed: SidebarRowFeed? {
+        get { list.rowFeed }
+        set {
+            list.rowFeed?.watch(drawn: nil, near: []) // the feed it leaves observes every row again
+            list.rowFeed = newValue
+            list.watchRows(layoutChanged: true)
+        }
+    }
     public init(model: SidebarModel, design: DesignSettings = .shared) {
         self.model = model
         self.design = design
