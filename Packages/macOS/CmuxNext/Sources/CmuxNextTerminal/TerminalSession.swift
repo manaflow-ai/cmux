@@ -8,8 +8,10 @@ import GhosttyNextKit
 ///
 /// Embed ``view``. The session consumes `io.events` off the main actor: live
 /// output goes straight to a serial off-main output lane, every other event
-/// is handled on the main actor in stream order. It writes Ghostty's
-/// encoded input back to `io.write` in order. Consumption is demand-driven:
+/// is handled on the main actor in stream order. Ghostty's encoded input,
+/// grid reports and focus go to the IO in order through one
+/// ``TerminalInputLane`` drained on the IO's queue (`io.inputDrain()`), one
+/// thread hop from the key. Consumption is demand-driven:
 /// the next event is taken only once the lane has room, so a slow parser
 /// pushes back on the IO (which bounds its own buffer) instead of queueing
 /// without limit (state-audit.md T1).
@@ -131,7 +133,6 @@ public final class TerminalSession {
     private let input: TerminalInputSink
     private let echoStages: TerminalEchoStages
     private var eventsTask: Task<Void, Never>?
-    private var writerTask: Task<Void, Never>?
     var createStages = NewTerminalTrace.CreateStages() // the new tab's create.tab while it waits (traceCreate)
     /// Tasks an owner ties to this session's lifetime: ``close()`` cancels them.
     public var closeCancels: [Task<Void, Never>] = []
@@ -185,9 +186,9 @@ public final class TerminalSession {
         self.gpuResidency = gpuResidency
         ioMode = io.answersTerminalQueries ? GHOSTTY_SURFACE_IO_MANUAL_MIRROR : GHOSTTY_SURFACE_IO_MANUAL
 
-        // concurrency-allow: carries only user input and resizes, produced at human rate
-        let (outgoing, continuation) = AsyncStream<TerminalOutgoing>.makeStream(bufferingPolicy: .unbounded)
-        input = TerminalInputSink(continuation: continuation, typingSurface: TypingLatencyProbe.shared.makeSurfaceKey())
+        // One hop from the main thread to the IO's own queue (``TerminalInputLane``), no pool task.
+        input = TerminalInputSink(lane: TerminalInputLane(drain: io.inputDrain()),
+                                  typingSurface: TypingLatencyProbe.shared.makeSurfaceKey())
 
         view = TerminalHostView(mainWork: mainWork, node: node)
         surfaceView = TerminalSurfaceView(io: ioMode, input: input, session: nil, echoStages: echoStages, hangWatch: hangWatch,
@@ -200,25 +201,6 @@ public final class TerminalSession {
         find.target = self
         view.attachFind(find)
 
-        writerTask = Task.detached(priority: .userInitiated) { [io] in
-            for await item in outgoing {
-                switch item {
-                case .bytes(let data):
-                    await io.write(data)
-                case .resize(let grid, let width, let height):
-                    await io.resize(cols: grid.columns, rows: grid.rows, pixelWidth: width, pixelHeight: height)
-                case .focusGained:
-                    await io.focusGained()
-                case .takeOverSize(let setLatest):
-                    await io.takeOverSize(setLatest: setLatest)
-                case .reconnect:
-                    await io.reconnectRequested()
-                case .resync:
-                    await io.resyncRequested()
-                }
-            }
-        }
-
         eventsTask = Self.consume(io.events, for: self)
         // The first grid report fired inside the surface init, before
         // `session` was set; report it now.
@@ -230,7 +212,6 @@ public final class TerminalSession {
     // Sendable cleanup only, so it runs on whatever thread releases the session.
     nonisolated deinit {
         eventsTask?.cancel()
-        writerTask?.cancel()
         input.finish()
     }
 

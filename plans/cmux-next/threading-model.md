@@ -174,9 +174,10 @@ the app, not only CmuxNext: check it with
 | `cmux-next main-thread watchdog` | app | Samples a wedged main thread; the app hang watch | yes |
 | `cmux-next quit deadline`, `cmux-next crash deadline` | app | Must run while main is wedged | yes |
 | `cmux-tui reader <path>` of the `terminal_attach` connections | app | Daemon output to the terminal | yes (`DaemonWireStats.Role.readerQoS`, p04-input-059, LineTransportTests); every other role's reader, `control` included, runs below it |
-| `com.cmuxterm.next.daemon.write` of the `terminal_attach` connections | app | Most keys to the daemon (`TerminalAttachment.enqueueInput`) | yes (p02-threads-030, `DaemonWireStats.Role.writerQoS`, SocketWriterQoSTests); every other role's writer, `control` included (p04-input-059), runs below it. Two key paths still use `control` and so run at user-initiated: pre-attach input of a new split (`send {terminal_id}` from `CreatingTerminalInput`, until p04-input-058) and a TUI's Command chords (`send-key` from `TerminalHooks`) |
+| `com.cmuxterm.next.daemon.write` of the `terminal_attach` connections | app | Most keys to the daemon (`TerminalAttachment.enqueueInput`) | yes (p02-threads-030, `DaemonWireStats.Role.writerQoS`, SocketWriterQoSTests); every other role's writer, `control` included (p04-input-059), runs below it. A `terminal_attach` writer targets its view's `terminal.attach-input` queue (p04-input-058), so it drains on that serial queue. Two key paths still use `control` and so run at user-initiated: pre-attach input of a new split (`send {terminal_id}` from `CreatingTerminalInput`) and a TUI's Command chords (`send-key` from `TerminalHooks`) |
 | `com.cmuxterm.next.localpty.read`, `com.cmuxterm.next.localpty.write` | app | Local PTY echo | yes, both (the write since p02-threads-030, LocalPTYQoSTests) |
 | `com.cmuxterm.next.terminal.output` | app | Feeds the terminal surface | yes |
+| `com.cmuxterm.next.terminal.attach-input` (one per `DaemonTerminalIO`) | app | A terminal's input lane drains here, and the attach connection's `daemon.write` writer targets it: a key goes from the main thread to the attach socket's `write(2)` in one thread hop (p04-input-058, `TerminalInputLane`, `DaemonTerminalIO.inputDrain`) | yes |
 | `cmux.remote-view.render` | app | Remote desktop frames (compositor class, task 131); a hidden view: p03-rendering-114 | yes |
 | Ghostty renderer of the focused surface | app | Declared by library (ghostty-next `setQosClass`) | yes |
 | `cmux.screen.capture` (`ScreenCaptureBackend`, CmuxVNCWebRTC, Mac Screen sharing) | app | Known exception: no local frame waits on it; it captures this Mac's display for a viewer on another device | yes; target user-initiated, no task yet |
@@ -552,7 +553,10 @@ QoS with them, and ThreadsControlTests fails when a label or QoS here and there 
   starts the next one), `com.cmuxterm.next.retry-wake` (user-initiated; its socket-folder watch wakes the
   reconnect while terminals are disconnected), `com.cmuxterm.next.process-progress` (utility)
 - Control: `com.cmuxterm.next.control.accept` (utility), `com.cmuxterm.next.control.<id>` (utility)
-- Terminal: `com.cmuxterm.next.terminal.output` (user-interactive), `com.cmuxterm.next.localpty.read` (user-interactive),
+- Terminal: `com.cmuxterm.next.terminal.output` (user-interactive), `com.cmuxterm.next.terminal.attach-input`
+  (user-interactive, one per daemon terminal view; the session's input lane drains on it and the attach socket's
+  writer targets it, p04-input-058), `com.cmuxterm.next.terminal.input-await` (user-initiated, one per session
+  whose IO has no input drain of its own: demos and tests), `com.cmuxterm.next.localpty.read` (user-interactive),
   `com.cmuxterm.next.localpty.write` (user-interactive),
   `com.cmuxterm.next.terminal.link-check` (user-initiated, concurrent, one per surface; `TerminalLinkFilter`'s file check of a
   Cmd-hovered text: a check stalled on a slow volume holds no later check; a concurrent queue targets GCD's width-limited

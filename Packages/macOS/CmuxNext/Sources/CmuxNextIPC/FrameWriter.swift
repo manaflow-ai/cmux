@@ -71,11 +71,13 @@ public final class FrameWriter: Sendable {
     ///   - sink: Where the bytes go: ``SocketFrameSink`` for a socket, a recorder in tests.
     ///   - label: The drain queue's label.
     ///   - qos: The drain queue's class, chosen by the owner from what the connection carries.
+    ///   - target: A serial queue the drain runs on (its target), nil for none (p04-input-058).
     ///   - limit: The most bytes that may wait (not counting the step in flight).
-    public init(sink: any FrameSink, label: String, qos: DispatchQoS, limit: Int = FrameWriter.defaultLimit) {
+    public init(sink: any FrameSink, label: String, qos: DispatchQoS, target: DispatchQueue? = nil,
+                limit: Int = FrameWriter.defaultLimit) {
         self.sink = sink
         self.limit = limit
-        queue = DispatchQueue(label: label, qos: qos)
+        queue = DispatchQueue(label: label, qos: qos, target: target)
     }
 
     /// Appends `bytes` after every message of the same priority written before, ahead of every lower priority.

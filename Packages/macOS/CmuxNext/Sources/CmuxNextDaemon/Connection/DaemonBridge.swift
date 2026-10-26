@@ -156,10 +156,13 @@ extension LineTransport {
     ///
     /// - Parameter stats: Where the connection counts (``DaemonEndpoint/wireStats``); nil for none.
     /// - Parameter hangs: Watches each line's handling on the reader thread; nil watches nothing.
+    /// - Parameter writerTarget: The serial queue the socket writer drains on (``SocketWriter``), nil for its own.
     static func open(path: String, bridge: DaemonBridge?, role: DaemonWireStats.Role, stats: DaemonWireStats?,
-                     hangs: (any HangWatchScoping)? = nil, trace: TraceRuntime = .shared) async throws(DaemonError) -> LineTransport {
+                     hangs: (any HangWatchScoping)? = nil, writerTarget: DispatchQueue? = nil,
+                     trace: TraceRuntime = .shared) async throws(DaemonError) -> LineTransport {
         let opened = try await bridge?.open()
-        return try LineTransport(path: path, opened: opened, role: role, stats: stats, hangs: hangs, trace: trace)
+        return try LineTransport(path: path, opened: opened, role: role, stats: stats, hangs: hangs,
+                                 writerTarget: writerTarget, trace: trace)
     }
 }
 
