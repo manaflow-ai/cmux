@@ -29,13 +29,19 @@ extension CEFPumpTimer {
 /// delayed-work timer for every task queue (`MessagePumpCFRunLoopBase::delayed_work_timer_`,
 /// base/message_loop/message_pump_apple.mm, fed by `WakeUpQueue`, base/task/sequence_manager/wake_up_queue.h).
 ///
-/// A delayed arm is a `.flexibleNoSooner` queue entry, aligned to the queue's grid with its leeway
-/// (Chromium's `kDefaultLeeway` and `AdjustDelayedRunTime`); that window replaces the pump's own
-/// `tolerance`. The entry runs no CEF: it queues one main run-loop block that calls ``onFire``, so
+/// A delayed arm is a queue entry in the pump's own window (``window(delay:tolerance:)``): exact below
+/// 36 ms, otherwise no sooner than the request and at most the pump's `tolerance` after it, min(8 ms,
+/// delay/10) for a CEF request (`CEFPumpSchedule`). The external pump does not get each Chromium task's
+/// precise or flexible policy, so it never takes the queue's default leeway, Energy Saver grid or
+/// whole-second grid: Chrome aligns no precise task (`DelayPolicy::kPrecise`, base/task/delay_policy.h)
+/// and applies the 32 ms saver alignment only in child processes (content/child/child_thread_impl.cc),
+/// not on the browser UI thread this pump drives.
+///
+/// The entry runs no CEF: it queues one main run-loop block that calls ``onFire``, so
 /// `CefDoMessageLoopWork` runs after every cmux entry of the same fire, and a nested run loop inside a
-/// CEF pass (a menu, a modal panel) holds no cmux deadline. An arm for now queues that block at once and
-/// never waits for the queue's timer. A new arm, ``disarm()`` and ``invalidate()`` drop what the last
-/// arm queued.
+/// CEF pass (a menu, a modal panel) holds no cmux deadline. An arm for now queues that block at once
+/// and never waits for the queue's timer. A new arm, ``disarm()`` and ``invalidate()`` drop what the
+/// last arm queued.
 final class CEFWakeUpQueuePumpTimer: CEFPumpTimer {
     /// The ledger owner of the pump's queue entries (reason `deadline`): the pump's own owner.
     static let ledgerOwner = "CEFMessagePump"
@@ -91,8 +97,8 @@ final class CEFWakeUpQueuePumpTimer: CEFPumpTimer {
         if case .deadline(_, deadline: let armed) = pending, Self.close(armed, deadline) { return }
         drop()
         let generation = generation
-        let token = queue.insert(owner: Self.ledgerOwner, after: .nanoseconds(Int64(delayNanos)),
-                                 policy: .flexibleNoSooner) { [weak self] in
+        let token = queue.insert(owner: Self.ledgerOwner, at: deadline,
+                                 window: Self.window(delay: .nanoseconds(Int64(delayNanos)), tolerance: tolerance)) { [weak self] in
             guard let self, self.generation == generation else { return }
             self.queueBlock(countedByQueue: true)
         }
@@ -127,6 +133,13 @@ final class CEFWakeUpQueuePumpTimer: CEFPumpTimer {
             self.onFire?()
             self.fireIsCountedByQueue = false
         }
+    }
+
+    /// The entry's window: the pump's own `tolerance`, never the queue's default leeway, its energy grid
+    /// or its whole-second grid. A delay below `DelayPolicy.maxPreciseDelay` (or no tolerance) is exact.
+    static func window(delay: Duration, tolerance: TimeInterval) -> WakeLeeway {
+        guard delay >= DelayPolicy.maxPreciseDelay, tolerance > 0 else { return .own(tolerance: .zero, delay: delay) }
+        return .own(tolerance: .nanoseconds(Int64(min(tolerance, longestDelay) * 1e9)), delay: delay)
     }
 
     private static func close(_ lhs: UInt64, _ rhs: UInt64) -> Bool {

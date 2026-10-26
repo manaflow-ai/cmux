@@ -103,6 +103,39 @@ import Testing
         #expect(rig.queue.count == 0 && rig.blocks == 0)
     }
 
+    @Test(arguments: [false, true])
+    func aShortRequestIsArmedExactlyAtItsDelay(saver: Bool) {
+        for delay: UInt64 in [1, 2, 16, 35] {
+            let rig = PumpRig(saver: saver)
+            rig.startAndRunFirstPass()
+            rig.pump.request(milliseconds: Int64(delay))
+            #expect(rig.timer.armedDate == delay * Self.ms, "a \(delay) ms request is exact (below 36 ms), saver \(saver)")
+            #expect(rig.timer.armedTolerance == 0)
+        }
+    }
+
+    @Test(arguments: [false, true])
+    func aLongerRequestFiresWithinATenthOfItsDelayAndNeverEarly(saver: Bool) {
+        for delay: UInt64 in [36, 50, 100, 1_000, 5_000] {
+            let rig = PumpRig(saver: saver)
+            rig.startAndRunFirstPass()
+            rig.pump.request(milliseconds: Int64(delay))
+            let deadline = delay * Self.ms
+            let slack = min(8 * Self.ms, deadline / 10)
+            let armed = rig.timer.armedDate ?? 0
+            #expect(armed >= deadline && armed <= deadline + slack,
+                    "\(delay) ms: armed \(armed) ns, saver \(saver); no whole-second or 32 ms grid")
+            #expect(armed + rig.timer.armedTolerance <= deadline + slack, "the timer's tolerance stays in the window")
+        }
+    }
+
+    @Test func energySaverDoesNotMoveACEFRequest() {
+        let rig = PumpRig(saver: true)
+        rig.startAndRunFirstPass()
+        rig.pump.request(milliseconds: 100)
+        #expect(rig.timer.armedDate == 104 * Self.ms, "the pump's own 8 ms grid, not the saver's 32 ms")
+    }
+
     @Test func aSameDeadlineReArmKeepsTheEntry() {
         let rig = PumpRig()
         rig.startAndRunFirstPass()
@@ -133,9 +166,10 @@ private final class PumpRig {
     let pump: CEFMessagePump
     private let record = Record()
 
-    init() {
+    init(saver: Bool = false) {
         let timer = timer, uptime = uptime, record = record
-        queue = MainWakeUpQueue(energy: EnergyPolicySource(), ledger: ledger, uptime: { uptime.now }) { _ in timer }
+        let energy = EnergyPolicySource(saver ? EnergyPolicy(saverReason: .setting) : .normal)
+        queue = MainWakeUpQueue(energy: energy, ledger: ledger, uptime: { uptime.now }) { _ in timer }
         pumpTimer = CEFWakeUpQueuePumpTimer(queue: queue, uptime: { uptime.now }, post: { record.blocks.append($0) })
         pump = CEFMessagePump(
             work: {
@@ -184,17 +218,20 @@ private nonisolated final class RecordingWakeUpTimer: MainWakeUpTimer, Sendable 
     private struct State {
         var arms: [UInt64] = []
         var armed: UInt64?
+        var tolerance: UInt64 = 0
     }
 
     private let state = Mutex(State())
 
     var arms: [UInt64] { state.withLock { $0.arms } }
     var armedDate: UInt64? { state.withLock { $0.armed } }
+    var armedTolerance: UInt64 { state.withLock { $0.tolerance } }
 
     func arm(at date: UInt64, tolerance: UInt64, now: UInt64) {
         state.withLock { state in
             state.arms.append(date)
             state.armed = date
+            state.tolerance = tolerance
         }
     }
 
