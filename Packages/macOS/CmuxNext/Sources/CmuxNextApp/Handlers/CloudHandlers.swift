@@ -16,6 +16,7 @@ enum CloudHandlers {
         let reason: @MainActor () -> String? = { cloud.unavailableReason }
         let signedInReason: @MainActor () -> String? = { cloud.unavailableReason ?? (cloud.isSignedIn ? nil : CloudStrings.signInFirst) }
         bindMachineActions(into: registry, context: context, reason: signedInReason)
+        bindBrowserActions(into: registry, context: context, reason: signedInReason)
         CloudGitHubHandlers.bind(into: registry, context: context, reason: signedInReason)
         bindNetworkActions(into: registry, context: context, reason: signedInReason)
         bindDomainActions(into: registry, context: context, reason: signedInReason)
@@ -179,7 +180,7 @@ enum CloudHandlers {
         return anchor
     }
 
-    @MainActor private static func mirroredAnchor(id: String, on session: CloudMachineSession) async -> (id: String, key: WorkspaceKey, pane: PaneModel)? {
+    @MainActor static func mirroredAnchor(id: String, on session: CloudMachineSession) async -> (id: String, key: WorkspaceKey, pane: PaneModel)? {
         // concurrency-allow: the observation task exits on cancellation; this bounds a daemon mirror race
         let mirrored = await withTaskGroup(of: Bool.self) { group -> Bool in
             group.addTask { await waitForAnchor(id: id, on: session) }
@@ -194,7 +195,7 @@ enum CloudHandlers {
         return mirrored ? anchor(id: id, on: session) : nil
     }
 
-    @MainActor private static func anchor(id: String, on session: CloudMachineSession) -> (id: String, key: WorkspaceKey, pane: PaneModel)? {
+    @MainActor static func anchor(id: String, on session: CloudMachineSession) -> (id: String, key: WorkspaceKey, pane: PaneModel)? {
         guard let workspace = session.daemon.store.workspaces.first(where: { $0.id == id }),
               let key = workspace.key,
               let pane = workspace.screens.first?.panes.first else { return nil }

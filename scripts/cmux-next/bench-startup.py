@@ -118,6 +118,7 @@ MARKS = [
     ("reveal.sidebar", "sidebar revealed"),
     ("reveal.tabs", "tab strips revealed"),
     ("reveal.pane", "pane content revealed"),
+    ("reveal.home", "Home revealed"),
     ("agent_pane.view_created", "first agent pane view made"),
     ("agent_pane.page_loaded", "agent page loaded (didFinish)"),
     ("agent_pane.handshake_start", "agent page asked for its handshake"),

@@ -545,11 +545,11 @@ class Wiring(unittest.TestCase):
         # A free owned Mac wins; the Blacksmith pool is the last resort.
         self.assertEqual(evaluate(runs_on, push(runner="free-owned-mac")), "free-owned-mac")
         self.assertEqual(evaluate(runs_on, push()), SIDE)
-        self.assertEqual(evaluate(runs_on, push(runner="")), LARGE)
+        self.assertEqual(evaluate(runs_on, push(runner="")), SMALL)
         self.assertEqual(evaluate(runs_on, push(large=" release-compile ")), SIDE)
         self.assertEqual(evaluate(runs_on, push(small=" release-compile ")), SIDE)
-        self.assertEqual(evaluate(runs_on, push(runner="", large=" release-compile ")), LARGE)
-        self.assertEqual(evaluate(runs_on, push(runner="", small=" release-compile ")), LARGE)
+        self.assertEqual(evaluate(runs_on, push(runner="", large=" release-compile ")), SMALL)
+        self.assertEqual(evaluate(runs_on, push(runner="", small=" release-compile ")), SMALL)
         # Another job's slot is not the Release compile's.
         self.assertEqual(evaluate(runs_on, push(large=" cmux-scheme-compile ")), SIDE)
         self.assertEqual(evaluate(runs_on, self.context("3", BOT, retry=SMALL)), SMALL)
