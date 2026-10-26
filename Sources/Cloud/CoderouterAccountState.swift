@@ -252,6 +252,7 @@ final class CoderouterAccountStore {
     var isRefreshing = false
     var refreshRequest = 0
     @ObservationIgnored let lane = CoderouterCLIOperationLane.shared
+    @ObservationIgnored private var addGeneration: UInt64 = 0
 
     @ObservationIgnored private var scopeChangeObserver: NSObjectProtocol?
 
@@ -279,8 +280,25 @@ final class CoderouterAccountStore {
     /// store owner must invalidate the snapshot before the next scope can be
     /// rendered, then request a read when the panel mounts again.
     func resetForTeamScopeChange() {
+        cancelAddTask()
         state.resetForTeamScopeChange()
         isRefreshing = true
         refreshRequest &+= 1
+    }
+
+    /// Starts a New Account operation. The token becomes stale when the
+    /// selected scope or owning sidebar disappears, so a suspended task cannot
+    /// launch setup for an account that is no longer current.
+    func beginAddTask() -> UInt64 {
+        addGeneration &+= 1
+        return addGeneration
+    }
+
+    func cancelAddTask() {
+        addGeneration &+= 1
+    }
+
+    func isCurrentAddTask(_ generation: UInt64) -> Bool {
+        addGeneration == generation
     }
 }

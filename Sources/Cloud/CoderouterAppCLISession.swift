@@ -187,7 +187,7 @@ struct CoderouterAppCLISession: Sendable {
         teamID: String,
         teamName: String?,
         expectedAccountID: String?,
-        body: (Run) async throws -> T
+        body: @Sendable (Run) async throws -> T
     ) async throws -> T {
         guard let executable else { throw CoderouterCLIFailure.notInstalled }
         let credentials = try await credentials.credentials(expectedAccountID: expectedAccountID)
