@@ -57,9 +57,9 @@ final class CEFHostReplyRoute {
 nonisolated enum CEFShimAnswer<Value> {
     /// In process: the call's own result.
     case now(Value)
-    /// Host mode: the token of the host's REPLY.
+    /// Host mode: the token of the host's REPLY, expected in the reply table.
     case later(UInt32)
-    /// Nothing was sent (no shim, or no host attached).
+    /// Nothing was sent (no shim, no host attached, or the call sent no op for a reply).
     case unsent
 }
 
@@ -70,13 +70,19 @@ nonisolated extension CEFShimAnswer: Sendable where Value: Sendable {}
 /// call made inside a closure handed to `sendAsync`, `siteCall` or `profileWrite` as done.
 extension CEFRuntime {
     /// Calls an async export with the shim and returns how its answer comes: the result itself in
-    /// process, the REPLY token in host mode.
+    /// process, the REPLY token in host mode, expected in the reply table in this turn so a REPLY
+    /// that comes before the caller awaits is kept. A call that sent no op for a reply (refused
+    /// before the wire, a mint or a post) leaves the remote's last token as it was: that is
+    /// `.unsent`, never an earlier call's token.
     func sendAsync<Value>(_ call: (CEFShimLibrary) -> Value) -> CEFShimAnswer<Value> {
         guard let shim else { return .unsent }
-        let result = call(shim)
-        guard let hostReplies else { return .now(result) }
+        guard let hostReplies else { return .now(call(shim)) }
+        let before = hostReplies.lastReplyToken()
+        _ = call(shim)
         let token = hostReplies.lastReplyToken()
-        return token == 0 ? .unsent : .later(token)
+        guard token != 0, token != before else { return .unsent }
+        hostReplies.replies.expect(token)
+        return .later(token)
     }
 
     /// The answer `sent` stands for: at once in process, the host's REPLY in host mode. Throws
@@ -90,7 +96,6 @@ extension CEFRuntime {
             throw .closed
         case .later(let token):
             guard let replies = hostReplies?.replies else { throw .closed }
-            replies.expect(token)
             do throws(CEFHostReplyError) {
                 return try await replies.reply(to: token, as: Value.self, label: label, timeout: timeout)
             } catch {
@@ -113,8 +118,23 @@ extension CEFRuntime {
             then(nil)
         case .later(let token):
             guard let replies = hostReplies?.replies else { return then(nil) }
-            replies.onReply(token, label: label, timeout: timeout) { reply in then(try? Self.decode(reply.get())) }
+            replies.onReply(token, label: label, timeout: timeout) { [logger] reply in
+                if case .failure(let error) = reply {
+                    logger.notice("Chromium Host \(label, privacy: .public): \(String(describing: error), privacy: .public)")
+                }
+                then(try? Self.decode(reply.get()))
+            }
         }
+    }
+
+    /// The host exited (task 091 calls this in the exit turn): every reply still awaited or called
+    /// back for fails with `hostGone`, and every profile proxy is handed to the next host again
+    /// before a page of its profile opens. A host's verdict on a proxy says nothing about the host
+    /// after it, whose Chromium context starts without the proxy (#24432 fails closed).
+    func hostGone() {
+        hostReplies?.hostGone()
+        profileProxyChecks.removeAll()
+        unappliedProfileProxies.formUnion(profileProxies.keys)
     }
 
     /// One value from a REPLY body: the op's result and nothing after it.

@@ -1,5 +1,5 @@
-import Foundation
 import CmuxNextWakeups
+import Foundation
 
 /// Continuations waiting for a reply by key, each with a deadline on the
 /// injected clock (architecture.md 5a): a reply that never comes (a page
@@ -113,8 +113,8 @@ final class CEFReplyWaiters<Key: Hashable & Sendable, Value: Sendable> {
 /// (remote_shim_runtime.h `cmux_remote_reply_fn`) and only copies the bytes in;
 /// the typed decode runs off main in the awaiting call. ``expect(_:)`` keeps a reply that arrives
 /// before the caller awaits; a callback registered with ``onReply(_:label:timeout:_:)`` runs in the
-/// turn that delivers the reply. A token nobody expects, awaits or calls back for is dropped, so
-/// fire-and-forget async calls hold nothing.
+/// turn that delivers the reply, or at once when the reply came first. A token nobody expects,
+/// awaits or calls back for is dropped, so fire-and-forget async calls hold nothing.
 @MainActor
 final class CEFHostReplies {
     /// A caller in a synchronous turn: runs once, with the reply, `hostGone` or its deadline.
@@ -152,6 +152,9 @@ final class CEFHostReplies {
     func onReply(_ token: UInt32, label: String, timeout: Duration,
                  _ body: @escaping (Result<[UInt8], CEFHostReplyError>) -> Void) {
         guard token != 0 else { return body(.failure(.cancelled)) }
+        // A reply that came first (``expect(_:)`` kept it) runs it now.
+        if let outcome = early.removeValue(forKey: token) { return body(outcome) }
+        expected.remove(token)
         let clock = clock
         let deadline = Task { [weak self] in
             // wakeup-allow: one-shot reply deadline on the injected clock, cancelled when the reply arrives

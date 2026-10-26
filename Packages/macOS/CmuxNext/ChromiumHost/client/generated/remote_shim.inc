@@ -193,7 +193,7 @@ inline constexpr uint16_t kOpAck = 0x8004;  // host -> cmux: a token's op ran
 inline constexpr int kEventKindCount = 51;
 inline constexpr char kShimAbiID[] = "588fca8016b02a0fa991f93b679b0928e086af927e43015e338195629a536bf8";
 // Both sides' HELLO carries it: the op ids, classes and wire types of this generation.
-inline constexpr char kWireID[] = "4806cead3339ffcc3f9f4a5b8a4a28c04040f0774e4052824878a111ed9931cc";
+inline constexpr char kWireID[] = "436549af1958deff41c65dce0f2cc0d758653782480c883dd00b57b7dbb2f5aa";
 // Exports the header does not declare yet (fork API symbols): the client sends one only to
 // a host whose HELLO lists its symbol.
 struct OptionalExport {
@@ -909,8 +909,8 @@ CMUX_SHIM_EXPORT int cmux_shim_ext_set_enabled(int arg_browser_id, const char* a
   MarkPending(kOpExtCommands, op_token, pending_tab_ext_commands, 0x1u);  // tab.ext_commands[*]
   TlvWriter pending_tab_omnibox_keywords;
   MarkPending(kOpOmniboxKeywords, op_token, pending_tab_omnibox_keywords, 0x1u);  // tab.omnibox_keywords[*]
-  (void)Post(kOpExtSetEnabled, op_token, op_w);
-  return 1;
+  const bool op_sent = PostForReply(kOpExtSetEnabled, op_token, op_w);
+  return op_sent ? 1 : 0;
 }
 
 CMUX_SHIM_EXPORT int cmux_shim_ext_uninstall(int arg_browser_id, const char* arg_extension_id) {
@@ -926,8 +926,8 @@ CMUX_SHIM_EXPORT int cmux_shim_ext_uninstall(int arg_browser_id, const char* arg
   MarkPending(kOpExtCommands, op_token, pending_tab_ext_commands, 0x1u);  // tab.ext_commands[*]
   TlvWriter pending_tab_omnibox_keywords;
   MarkPending(kOpOmniboxKeywords, op_token, pending_tab_omnibox_keywords, 0x1u);  // tab.omnibox_keywords[*]
-  (void)Post(kOpExtUninstall, op_token, op_w);
-  return 1;
+  const bool op_sent = PostForReply(kOpExtUninstall, op_token, op_w);
+  return op_sent ? 1 : 0;
 }
 
 CMUX_SHIM_EXPORT int cmux_shim_ext_reload(int arg_browser_id, const char* arg_extension_id) {
@@ -943,8 +943,8 @@ CMUX_SHIM_EXPORT int cmux_shim_ext_reload(int arg_browser_id, const char* arg_ex
   MarkPending(kOpExtCommands, op_token, pending_tab_ext_commands, 0x1u);  // tab.ext_commands[*]
   TlvWriter pending_tab_omnibox_keywords;
   MarkPending(kOpOmniboxKeywords, op_token, pending_tab_omnibox_keywords, 0x1u);  // tab.omnibox_keywords[*]
-  (void)Post(kOpExtReload, op_token, op_w);
-  return 1;
+  const bool op_sent = PostForReply(kOpExtReload, op_token, op_w);
+  return op_sent ? 1 : 0;
 }
 
 CMUX_SHIM_EXPORT int cmux_shim_ext_move_pinned(int arg_browser_id, const char* arg_extension_id, int arg_index) {
@@ -961,8 +961,8 @@ CMUX_SHIM_EXPORT int cmux_shim_ext_move_pinned(int arg_browser_id, const char* a
   MarkPending(kOpExtCommands, op_token, pending_tab_ext_commands, 0x1u);  // tab.ext_commands[*]
   TlvWriter pending_tab_omnibox_keywords;
   MarkPending(kOpOmniboxKeywords, op_token, pending_tab_omnibox_keywords, 0x1u);  // tab.omnibox_keywords[*]
-  (void)Post(kOpExtMovePinned, op_token, op_w);
-  return 1;
+  const bool op_sent = PostForReply(kOpExtMovePinned, op_token, op_w);
+  return op_sent ? 1 : 0;
 }
 
 CMUX_SHIM_EXPORT int cmux_shim_ext_set_pinned(int arg_browser_id, const char* arg_extension_id, int arg_pinned) {
@@ -979,8 +979,8 @@ CMUX_SHIM_EXPORT int cmux_shim_ext_set_pinned(int arg_browser_id, const char* ar
   MarkPending(kOpExtCommands, op_token, pending_tab_ext_commands, 0x1u);  // tab.ext_commands[*]
   TlvWriter pending_tab_omnibox_keywords;
   MarkPending(kOpOmniboxKeywords, op_token, pending_tab_omnibox_keywords, 0x1u);  // tab.omnibox_keywords[*]
-  (void)Post(kOpExtSetPinned, op_token, op_w);
-  return 1;
+  const bool op_sent = PostForReply(kOpExtSetPinned, op_token, op_w);
+  return op_sent ? 1 : 0;
 }
 
 CMUX_SHIM_EXPORT int cmux_shim_ext_open_options(int arg_browser_id, const char* arg_extension_id) {
