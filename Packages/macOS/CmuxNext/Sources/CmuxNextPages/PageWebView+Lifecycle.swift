@@ -73,11 +73,12 @@ extension PageWebView {
 
     /// The frozen Chromium page ended and the page reopens in WebKit (``fallBackToWebKit(_:detail:)``):
     /// the WebKit page takes its place in the frozen state, so the lifecycle's `.frozen` stays true
-    /// and its next pass (the reload's load reason) thaws it the usual way. A page that shows runs.
+    /// and its next pass (the reload's load reason) thaws it the usual way. A page that shows runs,
+    /// and so do its providers.
     func carryFreezeToWebKit() {
         guard case .chromium? = frozenEngine else { return }
         frozenEngine = nil
-        freezePage()
+        if !freezePage() { router.pageDidThaw() }
     }
 
     /// The tab closed: cancels subscriptions and stops the bridge.

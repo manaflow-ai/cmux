@@ -2,14 +2,16 @@
 /// page id (`cmux.history` -> `history`), shared by every page tab of that id. The app's channel
 /// type (`PageRelayChannel`, a daemon connection with the `page_relay` role) lives in the app
 /// target, which knows the daemon; the host only keeps them, so no channel is a process-wide static.
+/// The Chief editor's relay (`ChiefProfilePageRelay`, one per Chief owner, shared by Home and
+/// Settings) is kept here the same way, keyed by its owner and its page.
 ///
 /// Chrome keeps a WebUI's browser-side state on the objects of its profile, never in globals
 /// (`WebUIControllerFactory` and the per-profile keyed services,
 /// components/keyed_service/core/keyed_service.h); this is the host's keyed slot for the relays.
 @MainActor
 public final class PageRelayChannels {
-    /// Which channel: the daemon service it talks to and the daemon page id (nil for a descriptor that
-    /// names no daemon page; such a channel may call nothing).
+    /// Which channel: the daemon service (or Chief owner) it talks to and the daemon page id (nil for
+    /// a descriptor that names no daemon page; such a channel may call nothing).
     public struct Key: Hashable, Sendable {
         public let service: ObjectIdentifier
         public let page: String?

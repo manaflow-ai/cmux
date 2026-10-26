@@ -34,15 +34,13 @@ import os
 final class PageRelayChannel {
     private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "page-relay")
 
-    /// The channel of `page` (a page descriptor id) on `service`, kept by `channels` (the app's page
-    /// host's): made once per daemon page id, with its idle close on `deadlines`.
-    static func of(page: String, service: DaemonService, in channels: PageRelayChannels,
-                   deadlines: MainDeadlineScheduler, work: BackgroundWork) -> PageRelayChannel {
+    /// The channel of `page` (a page descriptor id) on `daemon`, kept by `channels` (the app's page
+    /// host's): made once per daemon page id, with its idle close on the deadline `idle` makes.
+    static func of(page: String, daemon: any PageRelayDaemon, in channels: PageRelayChannels, work: BackgroundWork,
+                   idle: () -> any PageRelayIdleDeadline) -> PageRelayChannel {
         let id = relayPageID(page)
-        return channels.channel(for: PageRelayChannels.Key(service: ObjectIdentifier(service), page: id)) {
-            // A close tears down what nobody uses: background class, behind input and visible work.
-            PageRelayChannel(service: service, page: id, work: work,
-                             idle: MainDeadline(owner: "PageRelayChannel.idleClose", workClass: .background, scheduler: deadlines))
+        return channels.channel(for: PageRelayChannels.Key(service: ObjectIdentifier(daemon), page: id)) {
+            PageRelayChannel(service: daemon, page: id, work: work, idle: idle())
         }
     }
 
@@ -57,7 +55,7 @@ final class PageRelayChannel {
         return id
     }
 
-    private weak var service: DaemonService?
+    private weak var service: (any PageRelayDaemon)?
     private var relay: DaemonConnection?
     private let identity: PageRelayIdentity
     private var starting: Task<DaemonConnection, any Error>?
@@ -79,11 +77,11 @@ final class PageRelayChannel {
     struct NoSuchEvent: Error {}
 
     /// - Parameters:
-    ///   - service: The daemon service whose relay connections this channel opens.
+    ///   - service: The daemon service whose relay connections this channel opens (``DaemonService``).
     ///   - page: The daemon page id (``relayPageID(_:)``), or nil for a descriptor that names none.
     ///   - work: Where the idle close's connection close runs.
     ///   - idle: The one-shot deadline of the idle close (a `MainDeadline` in the app).
-    init(service: DaemonService, page: String?, work: BackgroundWork, idle: any PageRelayIdleDeadline) {
+    init(service: any PageRelayDaemon, page: String?, work: BackgroundWork, idle: any PageRelayIdleDeadline) {
         self.service = service
         self.identity = PageRelayIdentity(page: page)
         self.work = work
@@ -205,7 +203,7 @@ final class PageRelayChannel {
     }
 
     /// The relay connection; it takes page calls only after its `client-hello` result.
-    private func relayConnection(_ service: DaemonService) async throws -> DaemonConnection {
+    private func relayConnection(_ service: any PageRelayDaemon) async throws -> DaemonConnection {
         if let relay, await relay.isReady { return relay }
         if let starting { return try await starting.value }
         guard let endpoint = service.endpointProvider else { throw DaemonError.notConnected }
@@ -241,6 +239,23 @@ final class PageRelayChannel {
         return try await ResourceOperationClient(connection: main).read(request, as: V2OriginConfirmation.self).token
     }
 }
+
+/// What a page relay channel needs of its daemon service: the app's main connection (confirmation
+/// tokens, and the calls to a daemon without `origin-claim-v1`), its capabilities, and how to open
+/// another connection to it. ``DaemonService`` in the app; a fake daemon in tests.
+@MainActor
+protocol PageRelayDaemon: AnyObject {
+    /// The app's main connection to the daemon; nil while not connected.
+    var connection: DaemonConnection? { get }
+    /// How a connection reaches the daemon; nil before the service started.
+    var endpointProvider: DaemonConnection.EndpointProvider? { get }
+    /// Wakes a relay connection's reconnect when the daemon may be back.
+    var retryWake: RetryWake { get }
+    /// Whether the connected daemon has `capability`.
+    func supports(_ capability: String) -> Bool
+}
+
+extension DaemonService: PageRelayDaemon {}
 
 extension PageRelayChannel: PageRelayListeners {
     func pauseListener(_ id: UInt64) {

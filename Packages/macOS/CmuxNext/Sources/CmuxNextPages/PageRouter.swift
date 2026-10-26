@@ -15,7 +15,7 @@ public import Foundation
 @MainActor
 public final class PageRouter {
     public private(set) var descriptor: PageDescriptor
-    private var routes: [PageRoute]
+    private(set) var routes: [PageRoute]
     /// Runs one envelope in the page (`window.__cmuxPageReceive(<json>)`).
     public var send: ((JSONValue) -> Void)?
     /// Script pipeline entry that reports envelopes dropped by a page reset.
@@ -51,7 +51,7 @@ public final class PageRouter {
     /// Why ``held`` holds (PageRouter+Hold.swift): it releases once no reason is left.
     var holdReasons: Set<PageDeliveryHoldReason> = []
     /// Whether the providers were told the page froze (``pageWillFreeze()``) and not yet that it thawed.
-    public private(set) var providersFrozen = false
+    public internal(set) var providersFrozen = false
     /// Sends what the host's script pipeline keeps for the next frame now: a built-in command or a
     /// host call was just sent and must not wait a frame (``PageWebView`` sets it).
     var deliverNow: (@MainActor () -> Void)?
@@ -74,8 +74,12 @@ public final class PageRouter {
     func rebind(descriptor: PageDescriptor, routes: [PageRoute]) {
         reset()
         renewHold()
+        // The freeze is the engine's: the old providers hear its end, the new ones its start.
+        let frozen = providersFrozen
+        pageDidThaw()
         self.descriptor = descriptor
         self.routes = routes.sorted { $0.prefix.count > $1.prefix.count }
+        if frozen { pageWillFreeze() }
     }
 
     // MARK: Page to host
@@ -295,34 +299,6 @@ public final class PageRouter {
         held.remove(sub)
     }
 
-    // MARK: Freeze hooks
-
-    /// Tells each provider of the page's routes once that the page froze (``PageProvider/pageWillFreeze()``):
-    /// they stop the sources behind their streams. A second call before ``pageDidThaw()`` does nothing.
-    /// As Chrome's `WebUIImpl` calls `OnJavascriptDisallowed` on every handler of the page
-    /// (content/browser/webui/web_ui_impl.cc, `DisallowJavascriptOnAllHandlers`).
-    public func pageWillFreeze() {
-        guard !providersFrozen else { return }
-        providersFrozen = true
-        for provider in routeProviders { provider.pageWillFreeze() }
-    }
-
-    /// Tells each provider once that the page thawed (``PageProvider/pageDidThaw()``), in the thaw's
-    /// turn: their resyncs reach the hold, or the page, before anything the hold kept is released.
-    /// ``close()`` of a frozen page calls it after cancelling every stream, so the freeze and thaw
-    /// calls a provider gets always pair up.
-    public func pageDidThaw() {
-        guard providersFrozen else { return }
-        providersFrozen = false
-        for provider in routeProviders { provider.pageDidThaw() }
-    }
-
-    /// Each provider of the routes once (a relay serves several namespaces), in route order.
-    private var routeProviders: [any PageProvider] {
-        var seen = Set<ObjectIdentifier>()
-        return routes.map { $0.provider }.filter { seen.insert(ObjectIdentifier($0)).inserted }
-    }
-
     // MARK: Built-in streams
 
     /// Sends a dispatcher command to the page's command subscribers, past the hold and after a
@@ -398,10 +374,28 @@ public final class PageRouter {
         }
     }
 
-    /// The page went away (tab closed, reload): cancels every subscription and fails pending calls.
-    /// Held events never reached the page, so each reports a drop, as the pipeline's do. The hold
-    /// itself stays: a hidden page that reloads is still hidden.
+    /// The page went away (tab closed, discarded): cancels every subscription and fails pending
+    /// calls, then thaws the providers of a frozen page. Held events never reached the page, so each
+    /// reports a drop, as the pipeline's do. The hold itself stays.
     public func close() {
+        endDocument()
+        // The streams ended above, so the thaw restarts nothing and the freeze and thaw calls a
+        // provider gets pair up.
+        pageDidThaw()
+    }
+
+    /// Reopens for a new document of the same page (a reload, a crash reload, a commit): it starts
+    /// with no subscriptions. The providers' freeze state stays: it follows the engine's
+    /// (``PageWebView/freezePage()``), not the document's, so the streams of a frozen page's new
+    /// document start paused and resync on the thaw. The hold stays too: a hidden page that reloads
+    /// is still hidden.
+    public func reset() {
+        endDocument()
+        closed = false
+    }
+
+    /// Ends the current document: its subscriptions, held events and calls.
+    private func endDocument() {
         closed = true
         document += 1
         didClose?()
@@ -418,15 +412,6 @@ public final class PageRouter {
         let running = inFlight
         inFlight.removeAll()
         for call in running.values { call.cancel() }
-        // A frozen document ended: its streams were cancelled above, so the thaw restarts nothing
-        // and leaves the providers running for the next document.
-        pageDidThaw()
-    }
-
-    /// Reopens after a reload of the same page (a new document starts with no subscriptions).
-    public func reset() {
-        close()
-        closed = false
     }
 
     public var subscriptionCount: Int { subscriptions.count }

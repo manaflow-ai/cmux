@@ -4,6 +4,7 @@ import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextPages
 import CmuxNextSettings
+import CmuxNextWakeups
 import Foundation
 
 /// The app's native UI ops for React pages (plans/cmux-next/react-pages.md 1.3):
@@ -116,22 +117,43 @@ final class AppPageNativeProvider: PageProvider {
 /// channel then closes its daemon connection when idle (``PageRelayIdleClose``).
 @MainActor
 final class DaemonPageRelay: PageProvider {
-    private unowned let services: AppServices
+    private let daemon: any PageRelayDaemon
+    /// The page host's channels, shared by every page of the host.
+    let channels: PageRelayChannels
+    private let work: BackgroundWork
+    private let idleDeadline: () -> any PageRelayIdleDeadline
     private let streams = PageRelayStreams()
 
-    init(services: AppServices) {
-        self.services = services
+    /// The app's relay: the local daemon, the page host's channels, idle closes on the app's deadlines.
+    convenience init(services: AppServices) {
+        let deadlines = services.mainDeadlines
+        self.init(daemon: services.machines.local, channels: services.webUI.relayChannels, work: services.work) {
+            // A close tears down what nobody uses: background class, behind input and visible work.
+            MainDeadline(owner: "PageRelayChannel.idleClose", workClass: .background, scheduler: deadlines)
+        }
     }
 
-    /// The relay channel of `page` on the local daemon, kept by the app's page host.
+    /// - Parameters:
+    ///   - daemon: The daemon the pages call (the local one in the app).
+    ///   - channels: The page host's relay channels.
+    ///   - work: Where a channel's idle close closes its connection.
+    ///   - idleDeadline: Makes a new channel's idle close deadline.
+    init(daemon: any PageRelayDaemon, channels: PageRelayChannels, work: BackgroundWork,
+         idleDeadline: @escaping () -> any PageRelayIdleDeadline) {
+        self.daemon = daemon
+        self.channels = channels
+        self.work = work
+        self.idleDeadline = idleDeadline
+    }
+
+    /// The relay channel of `page` on the daemon, kept by the page host.
     private func channel(for page: String) -> PageRelayChannel {
-        PageRelayChannel.of(page: page, service: services.machines.local, in: services.webUI.relayChannels,
-                            deadlines: services.mainDeadlines, work: services.work)
+        PageRelayChannel.of(page: page, daemon: daemon, in: channels, work: work, idle: idleDeadline)
     }
 
     func call(_ op: String, params: CmuxNextSettings.JSONValue, context: PageCallContext) async throws -> CmuxNextSettings.JSONValue {
         guard op.hasPrefix("cmux.") else { throw PageError.unknownOp(op) }
-        guard services.machines.local.connection != nil else {
+        guard daemon.connection != nil else {
             throw PageError.closed
         }
         var members = params.objectValue ?? [:]
@@ -154,7 +176,7 @@ final class DaemonPageRelay: PageProvider {
     func subscribe(_ stream: String, filter: CmuxNextSettings.JSONValue, context: PageCallContext,
                    onEvent: @escaping @MainActor (CmuxNextSettings.JSONValue) -> Void) async throws -> PageSubscription {
         guard stream.hasPrefix("cmux.") else { throw PageError.unknownOp(stream) }
-        guard services.machines.local.connection != nil else { throw PageError.closed }
+        guard daemon.connection != nil else { throw PageError.closed }
         let event = stream.dropFirst("cmux.".count).replacingOccurrences(of: ".", with: "-")
         do {
             let channel = self.channel(for: context.page)

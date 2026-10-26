@@ -43,6 +43,8 @@ final class PageChromiumRecovery {
         // engine that shows the page next gets its theme and scale with its document.
         page.scriptTarget.bridge = nil
         page.router.reset()
+        // The frozen engine page went with it: the providers run again, with no stream to resync.
+        page.router.pageDidThaw()
         page.loaded = false
         let recovery = PageChromiumRecovery(page: page, hosting: hosting)
         page.chromiumRecovery = recovery
