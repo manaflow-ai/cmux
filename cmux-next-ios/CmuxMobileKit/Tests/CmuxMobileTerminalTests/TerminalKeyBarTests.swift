@@ -105,6 +105,24 @@ import Testing
         #expect(router.insertText("q") == [.text("q")])
     }
 
+    /// Review finding: Send's Return after its paste is a bare Enter. An armed
+    /// ⇧ (or a locked ⌃) left from the key row made it Shift-Enter, which
+    /// Claude Code and Codex read as a new line, so the prompt never ran.
+    @Test func theComposersReturnIgnoresStickyModifiers() {
+        var router = TerminalInputRouter()
+        router.tapSticky(.shift, at: 1)
+        router.tapSticky(.control, at: 2)
+        router.tapSticky(.control, at: 2.1)
+        guard case .key(let enter)? = router.plainKey(usage: TerminalHIDUsage.enter).first else {
+            Issue.record("no Return")
+            return
+        }
+        #expect(enter.mods.isEmpty)
+        // And the modifiers are still there for the next key.
+        #expect(router.sticky.shift != .off)
+        #expect(router.sticky.control == .locked)
+    }
+
     @Test func everyModifierLocksOnADoubleTap() {
         for modifier in TerminalStickyModifiers.Modifier.allCases {
             var sticky = TerminalStickyModifiers()

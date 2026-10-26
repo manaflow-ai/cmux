@@ -82,6 +82,11 @@ struct TerminalComposer: View {
             if !focused, !dictation.locksComposerField { dictation.stop() }
         }
         .onDisappear { dictation.cancel() }
+        // Closing the composer or Hide Toolbar only hides this view, so it
+        // never disappears: the mic stops here instead.
+        .onChange(of: model.composerPresented && !model.chromeHidden) { _, shown in
+            if !shown { dictation.cancel() }
+        }
         // Shown with a fade; gone at once when following starts (a Jump to
         // bottom tap: qa11 wt-fling-c, the row still drawn after the page
         // reached the bottom, and the card shrinking over 0.2 s moved the

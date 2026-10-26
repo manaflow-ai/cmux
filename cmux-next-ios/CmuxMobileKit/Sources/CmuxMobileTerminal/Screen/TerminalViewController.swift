@@ -535,6 +535,8 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         let tap = UITapGestureRecognizer(target: self, action: #selector(terminalTapped))
         scrollView.addGestureRecognizer(tap)
         tuiClip.addGestureRecognizer(tuiTap)
+        // The model may already have a closed or hidden composer (a page rebuilt for it).
+        dockChanged()
         installSelection()
         installTUIScroll()
 
@@ -547,7 +549,13 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         }
         // Every input path (keyboard, key bar, composer, paste) goes through
         // the surface's `perform`: typing brings the prompt into view, like Terminal.
-        surface.onUserInput = { [weak self] in self?.revealCursorForInput() }
+        surface.onUserInput = { [weak self] in
+            guard let self else { return }
+            // Keys, pastes and the composer can use up or reset a sticky
+            // modifier: the key row shows what is left.
+            if self.model.sticky != self.surface.input.sticky { self.model.sticky = self.surface.input.sticky }
+            self.revealCursorForInput()
+        }
         surface.onEvent = { [weak self] event in self?.surfaceEvent(event) }
         surface.onPresent = { [weak self] in
             guard let self else { return }

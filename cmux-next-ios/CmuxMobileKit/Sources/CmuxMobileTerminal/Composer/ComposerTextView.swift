@@ -86,7 +86,8 @@ struct ComposerTextView: UIViewRepresentable {
         if isDisabled, view.isFirstResponder { view.resignFirstResponder() }
         if focusRequest != context.coordinator.lastFocusRequest {
             context.coordinator.lastFocusRequest = focusRequest
-            view.becomeFirstResponder()
+            // Locked by dictation: the field takes focus once it settles, not now.
+            if !isDisabled { view.becomeFirstResponder() }
         }
     }
 

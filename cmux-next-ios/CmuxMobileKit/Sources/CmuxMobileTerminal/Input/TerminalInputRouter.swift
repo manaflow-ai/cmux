@@ -143,6 +143,14 @@ public struct TerminalInputRouter: Sendable {
         return [.key(event), .key(event.released)]
     }
 
+    /// Press and release of a key with no modifiers, sticky ones left as they
+    /// are: the composer's Return after its paste (an armed ⇧ must not turn
+    /// Send into Shift-Enter, which agents read as a new line).
+    public func plainKey(usage: UInt16) -> [TerminalInputAction] {
+        let event = TerminalKeyEvent(keyCode: TerminalHIDUsage.ghosttyKeyCode(usage))
+        return [.key(event), .key(event.released)]
+    }
+
     /// A control chord such as ^C: the letter's key with Control (sticky Alt still applies).
     public mutating func control(_ letter: Character) -> [TerminalInputAction] {
         var mods = stickyMods()
