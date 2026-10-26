@@ -49,6 +49,11 @@ export const MARKDOWN_SAVE_OP = "cmux.markdown.save";
 export const MARKDOWN_EDITED_OP = "cmux.markdown.edited";
 /** Host to page: saves pending edits now and answers `{dirty}` (before a tab closes or the app quits). */
 export const MARKDOWN_FLUSH_OP = "cmux.markdown.flush";
+/** Host to page: `{dirty, view}`, asked right before the host discards the hidden page: `view` is
+ * `{scroll, anchor?, mode, history}` (viewState.ts), which the next page gets back as the config's
+ * `viewState`; `dirty` keeps a page with edits not on disk. An edit not reported yet is reported
+ * first (p07-memory-026). */
+export const MARKDOWN_VIEW_STATE_OP = "cmux.markdown.viewState";
 /** Host to page: the selection's text and source lines, `{text, startLine?, endLine?}`, or null with
  * nothing selected (a viewer comment, viewer-comments-DESIGN.md). */
 export const MARKDOWN_SELECTION_OP = "cmux.markdown.selection";
@@ -102,6 +107,9 @@ export interface MarkdownConfig {
    * `hash`. Ignored when read only or equal to `text`.
    */
   recoveredText?: string;
+  /** What a discarded page of this tab showed (its `cmux.markdown.viewState` answer), sent once: the
+   * page opens in its mode and scrolls back to its place. */
+  viewState?: unknown;
   /** The terminal appearance, as the diff viewer gets it (code colors and font). */
   appearance?: DiffViewerAppearance;
   /** URL prefix of the file's folder for relative images; without it they do not load. */
