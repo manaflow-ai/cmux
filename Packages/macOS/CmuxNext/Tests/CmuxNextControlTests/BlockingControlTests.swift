@@ -76,7 +76,7 @@ struct BlockingControlTests {
     }
 
     /// The report shows the table's mode, and the method reads only `reset`: a `mode` parameter changes
-    /// nothing (trap mode comes only from `CMUX_BLOCKING_TRAP=1` at launch).
+    /// nothing (the modes come only from the launch environment).
     @Test func theReportShowsTheModeAndReadsOnlyReset() async {
         let trap = BlockingDetector(table: BlockingViolationTable(mode: .trap))
         let record = BlockingDetector(table: BlockingViolationTable(mode: .record))

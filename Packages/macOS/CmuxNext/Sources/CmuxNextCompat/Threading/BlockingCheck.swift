@@ -18,12 +18,12 @@ public import Darwin
 /// ``Dispatch/DispatchSemaphore/blockingWait(fileID:line:)``, ``Foundation/Process/blockingWaitUntilExit(fileID:line:)``)
 /// runs the primitive through it and passes its caller's `#fileID` and `#line`, which name the call site.
 ///
-/// A violation: Debug records it once per call site (one unified-log line, the Debug menu and
-/// `debug.blocking`), or stops the process when it was started with `CMUX_BLOCKING_TRAP=1`. Bench-checks
+/// A violation: Debug stops the process at the call, or, when it was started with `CMUX_BLOCKING_TRAP=0`, records
+/// it once per call site (one unified-log line, the Debug menu and `debug.blocking`). Bench-checks
 /// builds (`-DCMUX_BLOCKING_CHECKS`) record it for `debug.blocking`. To come: a Nightly built with
 /// `-DCMUX_BLOCKING_CHECKS` will record it and continue, and send it to the opt-in hang reports once
 /// their sink is installed. A pool violation is recorded the same way (once per site, its own `pool` sites);
-/// it traps only in a Debug build started with `CMUX_BLOCKING_TRAP_POOL=1` (Chrome's task_tracker.cc runs a task
+/// a Debug build traps on it unless started with `CMUX_BLOCKING_TRAP_POOL=0` (Chrome's task_tracker.cc runs a task
 /// without `MayBlock()` under `ScopedDisallowBlocking`).
 ///
 /// Off the main thread and off the pool it is one `pthread_main_np()` call, one thread-specific read and at most

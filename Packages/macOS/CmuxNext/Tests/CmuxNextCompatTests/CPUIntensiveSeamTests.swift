@@ -221,7 +221,7 @@ struct CPUIntensiveSeamTests {
     #endif
 
     #if DEBUG
-    /// Trap mode (`CMUX_BLOCKING_TRAP=1`) stops a Debug build at a large decode on the main thread, as at a
+    /// Trap mode (the Debug default) stops a Debug build at a large decode on the main thread, as at a
     /// blocking call.
     @Test func aLargeDecodeOnTheMainThreadTraps() async {
         await #expect(processExitsWith: .failure) {

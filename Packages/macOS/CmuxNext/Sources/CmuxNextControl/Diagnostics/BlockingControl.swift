@@ -8,8 +8,8 @@ internal import CmuxNextSettings
 /// `wrong-lane`, whose `seam_kind` says what the seam waited on), its call count and, for calls timed by
 /// `blockingCall`, the wall time they blocked (`total_ms`, `max_ms`); `contexts` sums the sites per context,
 /// with each context's `overflow` (calls not recorded as a site; the top-level `overflow` is their sum).
-/// `{"reset": true}` zeroes the counts and times after the report; no other parameter is read (trap modes are set
-/// only by `CMUX_BLOCKING_TRAP=1` and `CMUX_BLOCKING_TRAP_POOL=1` at launch). It reads the detector's own tables,
+/// `{"reset": true}` zeroes the counts and times after the report; no other parameter is read (the modes are set
+/// only at launch: Debug traps unless `CMUX_BLOCKING_TRAP=0` or `CMUX_BLOCKING_TRAP_POOL=0`). It reads the detector's own tables,
 /// so it runs off the main thread (socket threading policy) and answers while the main thread is busy.
 ///
 /// The method also answers in a `--config bench` build, which has no detector: there `compiled_in` is false
