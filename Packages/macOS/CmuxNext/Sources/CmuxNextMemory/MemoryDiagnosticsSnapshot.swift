@@ -18,7 +18,8 @@ public nonisolated struct MemoryDiagnosticsSnapshot: Sendable {
         /// The tab's content phase: `live` is mounted (shown or hidden), `discarded` hibernated.
         public nonisolated enum State: String, Sendable, Encodable { case unmounted, live, discarded, restoring, crashed }
 
-        public var id: String
+        /// The tab's store ID.
+        public var key: String
         public var kind: Kind
         public var engine: Engine?
         public var state: State
@@ -28,9 +29,9 @@ public nonisolated struct MemoryDiagnosticsSnapshot: Sendable {
         public var appBytes: Int?
         public var processes: [ProcessRef]
 
-        public init(id: String, kind: Kind, engine: Engine? = nil, state: State, visible: Bool, appBytes: Int? = nil,
+        public init(key: String, kind: Kind, engine: Engine? = nil, state: State, visible: Bool, appBytes: Int? = nil,
                     processes: [ProcessRef] = []) {
-            self.id = id
+            self.key = key
             self.kind = kind
             self.engine = engine
             self.state = state
@@ -41,26 +42,27 @@ public nonisolated struct MemoryDiagnosticsSnapshot: Sendable {
     }
 
     public nonisolated struct Workspace: Sendable {
+        /// `mounted`: a window shows it (with `sidebar.multiView`, beside the focused one too);
+        /// `parked`: a window keeps it mounted off screen; `unmounted`: no window holds its views.
+        public nonisolated enum State: String, Sendable, Encodable { case mounted, parked, unmounted }
+
         public var id: String
-        /// Some window has its view (shown or parked).
-        public var mounted: Bool
-        /// Some window keeps it parked (mounted, hidden).
-        public var parked: Bool
+        public var state: State
         public var panes: Int
         public var terminalSurfaces: Int
-        public var gpuResidentSurfaces: Int
-        /// The app-side bytes attributed to its tabs (the sum of their ``Tab/appBytes``).
-        public var appBytes: Int
+        /// Its terminal surfaces the surface ledger has drawing.
+        public var renderingSurfaces: Int
+        /// The ``Tab/key``s of its tabs; the report adds up their bytes as the workspace's.
+        public var tabKeys: [String]
 
-        public init(id: String, mounted: Bool, parked: Bool, panes: Int, terminalSurfaces: Int = 0,
-                    gpuResidentSurfaces: Int = 0, appBytes: Int = 0) {
+        public init(id: String, state: State, panes: Int, terminalSurfaces: Int = 0, renderingSurfaces: Int = 0,
+                    tabKeys: [String] = []) {
             self.id = id
-            self.mounted = mounted
-            self.parked = parked
+            self.state = state
             self.panes = panes
             self.terminalSurfaces = terminalSurfaces
-            self.gpuResidentSurfaces = gpuResidentSurfaces
-            self.appBytes = appBytes
+            self.renderingSurfaces = renderingSurfaces
+            self.tabKeys = tabKeys
         }
     }
 
@@ -69,18 +71,18 @@ public nonisolated struct MemoryDiagnosticsSnapshot: Sendable {
         public var warmCapacity: Int
         /// Terminal surfaces that exist, shown or warm.
         public var surfaces: Int
-        /// Surfaces that render now (on screen).
-        public var gpuResidentCount: Int
-        /// The estimated drawable and cell buffer bytes of the hidden surfaces that still hold them.
-        public var hiddenNonvolatileIOSurfaceBytes: Int
+        /// Surfaces the surface ledger has drawing.
+        public var rendering: Int
+        /// Non-volatile IOSurface bytes of the surfaces that do not draw; nil (unknown) until the
+        /// surfaces report their GPU residency (p07-memory-037).
+        public var hiddenNonvolatileIOSurfaceBytes: Int?
         /// Evicted terminals' kept last frames.
         public var lastFrames: Int
 
-        public init(warmCapacity: Int, surfaces: Int, gpuResidentCount: Int, hiddenNonvolatileIOSurfaceBytes: Int,
-                    lastFrames: Int) {
+        public init(warmCapacity: Int, surfaces: Int, rendering: Int, hiddenNonvolatileIOSurfaceBytes: Int?, lastFrames: Int) {
             self.warmCapacity = warmCapacity
             self.surfaces = surfaces
-            self.gpuResidentCount = gpuResidentCount
+            self.rendering = rendering
             self.hiddenNonvolatileIOSurfaceBytes = hiddenNonvolatileIOSurfaceBytes
             self.lastFrames = lastFrames
         }
@@ -106,14 +108,15 @@ public nonisolated struct MemoryDiagnosticsSnapshot: Sendable {
     public var kernelLevel: MemoryPressureLevel
     /// The debug override, when one is set.
     public var override: MemoryPressureLevel?
-    public var history: [MemoryPressureHistory.Change]
+    /// The pressure changes and when the applied level last changed.
+    public var history: MemoryPressureHistory.Snapshot
     public var tabs: [Tab]
     public var workspaces: [Workspace]
     public var terminal: Terminal
     public var spares: [Spare]
 
     public init(report: MemoryReport, kernelLevel: MemoryPressureLevel, override: MemoryPressureLevel?,
-                history: [MemoryPressureHistory.Change], tabs: [Tab], workspaces: [Workspace], terminal: Terminal,
+                history: MemoryPressureHistory.Snapshot, tabs: [Tab], workspaces: [Workspace], terminal: Terminal,
                 spares: [Spare]) {
         self.report = report
         self.kernelLevel = kernelLevel
@@ -138,7 +141,7 @@ public nonisolated struct MemoryDiagnosticsSnapshot: Sendable {
 
 /// The app's processes and their footprints, sampled off the main actor.
 public nonisolated struct MemoryDiagnosticsProcesses: Sendable {
-    /// memory-DESIGN.md section 7, `processes[].kind`.
+    /// `processes[].kind` (schemas/debug-memory/debug-memory.schema.json).
     public nonisolated enum Kind: String, Sendable, Encodable {
         case app
         case chromiumRenderer = "chromium_renderer"

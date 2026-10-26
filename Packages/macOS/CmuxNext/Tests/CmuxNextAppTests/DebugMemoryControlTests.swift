@@ -7,10 +7,11 @@ import CmuxNextSettings
 import Foundation
 import Testing
 
-/// `debug.memory` (p07-memory 010, memory-DESIGN.md section 7): the JSON keys of the design, unknown
-/// counts as `null`, a shared process in no tab's bytes, the model read on the main actor and the
-/// processes sampled off it, the last 32 pressure changes, and a release router that serves it with
-/// no URL, title or path in the answer.
+/// `debug.memory` (p07-memory-010): the keys of schemas/debug-memory/debug-memory.schema.json,
+/// unknown counts as `null`, `mode`/`budget`/`consumers` in MemoryReport's own encoding, a shared
+/// process in no tab's bytes, workspace bytes from their tabs, the model read on the main actor and
+/// the processes sampled off it, the applied level's history, an override that `debug.memory` shows,
+/// and a release router that serves it with no URL, title or path in the answer.
 @MainActor @Suite(.serialized) struct DebugMemoryControlTests {
     @MainActor final class Executor: ControlActionExecutor {
         func performAction(_ request: ControlActionRequest) -> ControlActionOutcome { .ran }
@@ -23,20 +24,24 @@ import Testing
         var onMain: [Bool] { lock.withLock { $0 } }
     }
 
+    static let repoRoot = URL(fileURLWithPath: #filePath)
+        .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+
     private static let traits = MemoryConsumerTraits(
         estimatedUsage: .medium, dataAccess: .readsAndWritesDisk, retention: .lossless,
         recreateCost: .notApplicable, releaseCPUCost: .low, isStateful: true, supportsMemoryLimit: true)
+    private static let budget = SubsystemBudget.forMemory(physicalBytes: 16 << 30, gpuResidentAvailable: false)
 
     private static func snapshot(
         consumers: [MemoryReport.Consumer] = [], tabs: [MemoryDiagnosticsSnapshot.Tab] = [],
         workspaces: [MemoryDiagnosticsSnapshot.Workspace] = [], spares: [MemoryDiagnosticsSnapshot.Spare] = [],
-        history: [MemoryPressureHistory.Change] = []
+        history: MemoryPressureHistory.Snapshot = .init(changes: [], levelSinceMilliseconds: 0)
     ) -> MemoryDiagnosticsSnapshot {
         MemoryDiagnosticsSnapshot(
-            report: MemoryReport(level: .warning, mode: .medium,
-                                 budget: .forMemory(physicalBytes: 16 << 30, gpuResidentAvailable: false), consumers: consumers),
+            report: MemoryReport(level: .warning, mode: .medium, budget: budget, consumers: consumers),
             kernelLevel: .normal, override: .warning, history: history, tabs: tabs, workspaces: workspaces,
-            terminal: .init(warmCapacity: 8, surfaces: 3, gpuResidentCount: 1, hiddenNonvolatileIOSurfaceBytes: 4096, lastFrames: 2),
+            terminal: .init(warmCapacity: 8, surfaces: 3, rendering: 1, hiddenNonvolatileIOSurfaceBytes: nil, lastFrames: 2),
             spares: spares)
     }
 
@@ -47,67 +52,84 @@ import Testing
                                                              tag: "test", processID: getpid()),
                                    executor: Executor(),
                                    configuration: .init(requestDeadline: .seconds(30), allowsDebugMethods: allowsDebug))
-        router.register([DebugHibernationControl.memoryMethod(read: read, sample: { _ in
+        router.register([DebugMemoryControl.memoryMethod(read: read, sample: { _ in
             threads.note()
             return MemoryDiagnosticsProcesses(rows: rows, rendererPIDs: renderers)
         })])
         return router
     }
 
-    private func call(_ router: ControlRouter) async throws -> [String: JSONValue] {
-        let reply = try await router.handle(ControlRequest(id: "1", method: "debug.memory")).get()
+    private func call(_ router: ControlRouter, id: String = "1") async throws -> [String: JSONValue] {
+        let reply = try await router.handle(ControlRequest(id: id, method: "debug.memory")).get()
         return try #require(reply.objectValue)
     }
 
-    /// A history whose clock moves 250 ms per recorded change.
-    private func makeHistory(_ source: ManualMemoryPressureSource = ManualMemoryPressureSource()) -> MemoryPressureHistory {
-        var now = Duration.zero
-        return MemoryPressureHistory(pressure: MemoryPressureEvents(source: source)) {
-            now += .milliseconds(250)
-            return now
+    /// The JSON a type encodes with its own `Encodable`, as `debug.memory` parses it.
+    private func encoded(_ value: some Encodable) throws -> JSONValue {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        return try JSONValue.parse(encoder.encode(value))
+    }
+
+    /// The schema document's root.
+    private func schema() throws -> [String: JSONValue] {
+        let data = try Data(contentsOf: Self.repoRoot.appending(path: "schemas/debug-memory/debug-memory.schema.json"))
+        return try #require(JSONValue.parse(data).objectValue)
+    }
+
+    /// `value`'s keys are the schema node's required keys (the node's every property), in each object
+    /// and array item down the tree.
+    private func expectKeys(_ value: JSONValue, match node: [String: JSONValue], at path: String) {
+        if let items = node["items"]?.objectValue, let array = value.arrayValue {
+            for element in array { expectKeys(element, match: items, at: path + "[]") }
+            return
+        }
+        guard let properties = node["properties"]?.objectValue, let object = value.objectValue else { return }
+        let required = Set(node["required"]?.arrayValue?.compactMap(\.stringValue) ?? [])
+        #expect(Set(properties.keys) == required, "\(path): the schema lists a property it does not require")
+        #expect(Set(object.keys) == required, "\(path)")
+        for (key, child) in object {
+            if let childNode = properties[key]?.objectValue { expectKeys(child, match: childNode, at: path + "." + key) }
         }
     }
 
-    @Test func answersTheDesignKeysWithUnknownAsNull() async throws {
+    @Test func answersTheSchemaKeysWithUnknownAsNull() async throws {
+        let consumer = MemoryReport.Consumer(name: "tab_thumbnails", traits: Self.traits, limit: MemoryLimit(percent: 50),
+                                             footprintBytes: 8 << 20, volatileBytes: nil, entries: 41)
         let snapshot = Self.snapshot(
-            consumers: [MemoryReport.Consumer(name: "tab_thumbnails", traits: Self.traits, limit: MemoryLimit(percent: 50),
-                                              footprintBytes: 8 << 20, volatileBytes: nil, entries: 41)],
-            tabs: [.init(id: "tab-1", kind: .terminal, state: .live, visible: true, appBytes: 1000)],
-            workspaces: [.init(id: "ws-1", mounted: true, parked: false, panes: 1, terminalSurfaces: 1,
-                               gpuResidentSurfaces: 1, appBytes: 1000)])
+            consumers: [consumer],
+            tabs: [.init(key: "tab-1", kind: .terminal, state: .live, visible: true, appBytes: 1000),
+                   .init(key: "tab-2", kind: .browser, engine: .webkit, state: .discarded, visible: false)],
+            workspaces: [.init(id: "ws-1", state: .mounted, panes: 1, terminalSurfaces: 1, renderingSurfaces: 1,
+                               tabKeys: ["tab-1", "tab-2"])],
+            spares: [.init(pool: "new_tab", processKind: .webkitWebContent, pid: nil)],
+            history: .init(changes: [.init(atMilliseconds: 250, kernelLevel: .normal, override: .warning, source: .override)],
+                           levelSinceMilliseconds: 250))
         let json = try await call(router(rows: [.init(kind: .app, pid: 501, physFootprintBytes: 361_000_000)]) { snapshot })
 
-        #expect(Set(json.keys) == ["pressure", "mode", "budget", "consumers", "processes", "tabs", "workspaces",
-                                   "terminal", "spares", "pressure_history"])
-        #expect(json["pressure"] == ["level": "warning", "kernel_level": "normal", "override": "warning", "since_ms": nil])
-        #expect(json["mode"] == "medium")
-        let budget = try #require(json["budget"]?.objectValue)
-        #expect(budget["physical_bytes"] == JSONValue(16 << 30))
-        #expect(budget["chromium_renderer_limit"] == 64)
-        #expect(Set(budget.keys) == ["physical_bytes", "gpu_resident_available", "chromium_renderer_limit",
-                                     "warm_terminal_surfaces", "parked_workspaces", "parked_idle_timeout_s",
-                                     "image_cache_bytes", "home_render_bitmap_bytes", "hibernation_snapshot_bytes",
-                                     "live_hidden_agent_pages", "live_hidden_internal_pages",
-                                     "kitty_image_bytes_per_surface", "web_process_pages_per_group"])
-
-        let consumer = try #require(json["consumers"]?.arrayValue?.first?.objectValue)
-        #expect(consumer["name"] == "tab_thumbnails")
-        #expect(consumer["managed"] == true)
-        #expect(consumer["limit_percent"] == 50)
-        #expect(consumer["footprint_bytes"] == JSONValue(8 << 20))
-        #expect(consumer["volatile_bytes"] == .null, "an unknown count is null, never 0")
-        #expect(consumer["entries"] == 41)
-        #expect(consumer["traits"] == ["estimated_usage": "medium", "data_access": "reads_and_writes_disk",
-                                       "retention": "lossless", "recreate_cost": "not_applicable",
-                                       "release_cpu_cost": "low", "is_stateful": true, "supports_memory_limit": true])
+        let document = try schema()
+        expectKeys(.object(json), match: document, at: "debug.memory")
+        #expect(json["pressure"] == ["level": "warning", "kernel_level": "normal", "override": "warning", "since_ms": 250])
+        // One schema for the memory report's data: `debug.memory` writes it as MemoryReport encodes it.
+        let mode = try encoded(MemorySaverMode.medium)
+        let budget = try encoded(Self.budget)
+        let consumerJSON = try encoded(consumer)
+        #expect(json["mode"] == mode)
+        #expect(json["budget"] == budget)
+        #expect(json["consumers"] == .array([consumerJSON]))
+        let row = try #require(json["consumers"]?.arrayValue?.first?.objectValue)
+        #expect(row["volatile_bytes"] == .null, "an unknown count is null, never 0")
 
         #expect(json["processes"] == [["kind": "app", "pid": 501, "phys_footprint_bytes": 361_000_000]])
-        #expect(json["terminal"] == ["warm_capacity": 8, "warm_count": 2, "gpu_resident_count": 1,
-                                     "hidden_nonvolatile_iosurface_bytes": 4096, "last_frames": 2])
-        #expect(json["workspaces"] == [["id": "ws-1", "mounted": true, "parked": false, "panes": 1, "terminal_surfaces": 1,
-                                        "gpu_resident_surfaces": 1, "app_bytes": 1000]])
-        #expect(json["tabs"] == [["id": "tab-1", "kind": "terminal", "engine": nil, "state": "live", "visible": true,
-                                  "pids": [], "footprint_bytes": 1000]])
+        #expect(json["terminal"] == ["warm_capacity": 8, "surfaces": 3, "rendering": 1,
+                                     "hidden_nonvolatile_iosurface_bytes": nil, "last_frames": 2])
+        #expect(json["workspaces"] == [["id": "ws-1", "state": "mounted", "panes": 1, "terminal_surfaces": 1,
+                                        "rendering_surfaces": 1, "tabs": 2, "bytes": 1000, "unknown_tabs": 1]])
+        #expect(json["tabs"]?.arrayValue?.first == ["key": "tab-1", "kind": "terminal", "engine": nil, "state": "live",
+                                                    "visible": true, "pids": [], "bytes": 1000])
+        #expect(json["spares"] == [["pool": "new_tab", "process_kind": "webkit_webcontent", "pid": nil, "bytes": nil]])
+        #expect(json["pressure_history"] == [["at_ms": 250, "level": "warning", "kernel_level": "normal",
+                                              "override": "warning", "source": "override"]])
     }
 
     @Test func readsTheModelOnMainAndSamplesOffMain() async throws {
@@ -128,15 +150,18 @@ import Testing
     }
 
     /// A tab's own processes count in its bytes; a process two tabs share is in neither (unknown),
-    /// as Chrome's Task Manager keeps a shared renderer on one row.
+    /// as Chrome's Task Manager keeps a shared renderer on one row. A workspace adds up its tabs'
+    /// known bytes and counts the others.
     @Test func sharedProcessesAreInNoTabsBytes() async throws {
         let snapshot = Self.snapshot(
             tabs: [
-                .init(id: "own", kind: .browser, engine: .cef, state: .live, visible: false, processes: [.chromiumRendererClient(7)]),
-                .init(id: "shared-a", kind: .browser, engine: .webkit, state: .live, visible: false, processes: [.webContent(900)]),
-                .init(id: "shared-b", kind: .agent, engine: .webkit, state: .live, visible: false, processes: [.webContent(900)]),
-                .init(id: "asleep", kind: .browser, engine: .webkit, state: .discarded, visible: false),
+                .init(key: "own", kind: .browser, engine: .cef, state: .live, visible: false, processes: [.chromiumRendererClient(7)]),
+                .init(key: "shared-a", kind: .browser, engine: .webkit, state: .live, visible: false, processes: [.webContent(900)]),
+                .init(key: "shared-b", kind: .agent, engine: .webkit, state: .live, visible: false, processes: [.webContent(900)]),
+                .init(key: "asleep", kind: .browser, engine: .webkit, state: .discarded, visible: false),
             ],
+            workspaces: [.init(id: "ws-a", state: .mounted, panes: 2, tabKeys: ["own", "shared-a"]),
+                         .init(id: "ws-b", state: .parked, panes: 1, tabKeys: ["shared-b", "asleep"])],
             spares: [.init(pool: "new_tab", processKind: .webkitWebContent, pid: 950)])
         #expect(snapshot.webContentPIDs == [900, 950])
         let rows: [MemoryDiagnosticsProcesses.Row] = [
@@ -146,13 +171,17 @@ import Testing
         ]
         let json = try await call(router(rows: rows, renderers: [7: 812]) { snapshot })
         let tabs = try #require(json["tabs"]?.arrayValue).compactMap(\.objectValue)
-        let byID = Dictionary(uniqueKeysWithValues: tabs.map { ($0["id"]?.stringValue ?? "", $0) })
-        #expect(byID["own"]?["footprint_bytes"] == 62_000_000)
-        #expect(byID["own"]?["pids"] == [812])
-        #expect(byID["shared-a"]?["footprint_bytes"] == .null)
-        #expect(byID["shared-b"]?["footprint_bytes"] == .null)
-        #expect(byID["asleep"]?["state"] == "discarded")
-        #expect(byID["asleep"]?["footprint_bytes"] == .null)
+        let byKey = Dictionary(uniqueKeysWithValues: tabs.map { ($0["key"]?.stringValue ?? "", $0) })
+        #expect(byKey["own"]?["bytes"] == 62_000_000)
+        #expect(byKey["own"]?["pids"] == [812])
+        #expect(byKey["shared-a"]?["bytes"] == .null)
+        #expect(byKey["shared-b"]?["bytes"] == .null)
+        #expect(byKey["asleep"]?["state"] == "discarded")
+        #expect(byKey["asleep"]?["bytes"] == .null)
+        let workspaces = try #require(json["workspaces"]?.arrayValue).compactMap(\.objectValue)
+        #expect(workspaces.compactMap { $0["bytes"] } == [62_000_000, 0])
+        #expect(workspaces.compactMap { $0["unknown_tabs"] } == [1, 2])
+        #expect(workspaces.compactMap { $0["state"] } == ["mounted", "parked"])
         #expect(json["spares"] == [["pool": "new_tab", "process_kind": "webkit_webcontent", "pid": 950, "bytes": 41_000_000]])
     }
 
@@ -162,8 +191,8 @@ import Testing
         let snapshot = Self.snapshot(
             consumers: [MemoryReport.Consumer(name: "Quarterly Report - Draft", traits: Self.traits, limit: .default,
                                               footprintBytes: nil, volatileBytes: nil, entries: nil)],
-            tabs: [.init(id: "https://example.com/private?q=1", kind: .browser, engine: .webkit, state: .live, visible: true)],
-            workspaces: [.init(id: "/Users/someone/project", mounted: true, parked: false, panes: 1)])
+            tabs: [.init(key: "https://example.com/private?q=1", kind: .browser, engine: .webkit, state: .live, visible: true)],
+            workspaces: [.init(id: "/Users/someone/project", state: .mounted, panes: 1)])
         let release = router(allowsDebug: false) { snapshot }
         release.register([.async("debug.other") { _ in .null }])
         #expect(release.method(named: "debug.memory") != nil)
@@ -174,7 +203,7 @@ import Testing
         for secret in ["example.com", "https", "/Users", "someone", "Quarterly"] {
             #expect(!text.contains(secret), "\(secret) leaked")
         }
-        #expect(json["tabs"]?.arrayValue?.first?.objectValue?["id"] == .string(MemoryDiagnosticsReport.redacted))
+        #expect(json["tabs"]?.arrayValue?.first?.objectValue?["key"] == .string(MemoryDiagnosticsReport.redacted))
         #expect(json["consumers"]?.arrayValue?.first?.objectValue?["name"] == .string(MemoryDiagnosticsReport.redacted))
         let report = MemoryDiagnosticsReport(snapshot: snapshot, processes: MemoryDiagnosticsProcesses(rows: []))
         #expect(report.opaque("6F1C3A2B-0000-4000-8000-ABCDEF012345") == "6F1C3A2B-0000-4000-8000-ABCDEF012345")
@@ -183,32 +212,37 @@ import Testing
         #expect(report.opaque(String(repeating: "a", count: 65)) == MemoryDiagnosticsReport.redacted)
     }
 
-    /// The history keeps the last 32 changes, skips a level that repeats the last change, and records
-    /// the debug override apart from the kernel's level.
-    @Test func historyKeepsTheLast32Changes() {
-        let pressure = ManualMemoryPressureSource()
-        let history = makeHistory(pressure)
-        #expect(history.changes.map(\.level) == [.normal])
-        pressure.send(.normal)
-        #expect(history.changes.count == 1, "a repeated level is not a change")
-        pressure.send(.warning)
-        history.record(.critical, source: .override)
-        #expect(history.changes.suffix(2).map(\.source) == [.kernel, .override])
-        for index in 0 ..< 40 { pressure.send(index.isMultiple(of: 2) ? .critical : .warning) }
-        #expect(history.changes.count == MemoryPressureHistory.capacity)
-        #expect(history.changes.last?.level == .warning)
-        let times = history.changes.map(\.atMilliseconds)
-        #expect(times == times.sorted())
-    }
+    #if DEBUG || CMUX_BENCH_HOOKS
+    /// `debug.hibernation.pressure` then `debug.memory` on the app's own methods: the override is in
+    /// `pressure` and in the last history row, and `since_ms` is the override's time; `none` is a row too.
+    @Test func anOverrideShowsInPressureAndHistory() async throws {
+        _ = NSApplication.shared
+        let services = AppServices(environment: AppEnvironment.current([:]))
+        let router = ControlRouter(identity: ControlIdentity(version: "1.0", build: "1", bundleID: "com.cmuxterm.app.debug.test", tag: "test",
+                                                             processID: getpid()),
+                                   executor: RegistryControlBridge(registry: services.registry), settings: nil)
+        router.register(DebugHibernationControl.methods(services))
+        let held: MemoryPressureLevel = services.memoryCoordinator.kernelLevel == .critical ? .warning : .critical
 
-    @Test func pressureHistoryIsInTheAnswer() async throws {
-        let pressure = ManualMemoryPressureSource()
-        let history = makeHistory(pressure)
-        pressure.send(.warning)
-        let changes = history.changes
-        let json = try await call(router { Self.snapshot(history: changes) })
-        #expect(json["pressure_history"] == [["at_ms": 250, "level": "normal", "source": "kernel"],
-                                             ["at_ms": 500, "level": "warning", "source": "kernel"]])
-        #expect(json["pressure"]?.objectValue?["since_ms"] == 500)
+        _ = try await router.handle(ControlRequest(id: "1", method: "debug.hibernation.pressure",
+                                                   params: ["level": .string(held.rawValue)])).get()
+        var json = try await call(router, id: "2")
+        let pressure = try #require(json["pressure"]?.objectValue)
+        #expect(pressure["level"] == .string(held.rawValue))
+        #expect(pressure["override"] == .string(held.rawValue))
+        var last = try #require(json["pressure_history"]?.arrayValue?.last?.objectValue)
+        #expect(last["source"] == "override")
+        #expect(last["override"] == .string(held.rawValue))
+        #expect(last["level"] == .string(held.rawValue))
+        #expect(pressure["since_ms"] == last["at_ms"])
+
+        _ = try await router.handle(ControlRequest(id: "3", method: "debug.hibernation.pressure", params: ["level": "none"])).get()
+        json = try await call(router, id: "4")
+        #expect(json["pressure"]?.objectValue?["override"] == .null)
+        last = try #require(json["pressure_history"]?.arrayValue?.last?.objectValue)
+        #expect(last["source"] == "override")
+        #expect(last["override"] == .null)
+        #expect(last["level"] == .string(services.memoryCoordinator.kernelLevel.rawValue))
     }
+    #endif
 }
