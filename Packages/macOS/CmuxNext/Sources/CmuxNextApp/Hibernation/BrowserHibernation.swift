@@ -125,7 +125,8 @@ final class BrowserHibernation {
     static let hoverGrace: Double = 30
     /// Pages woken early (neighbors and hovers): `debug.surfaces` and the bench read it.
     var prewarmedCount = 0
-    /// The hover-dwell prewarm with this hibernation as its weak warmer, and its power feed (`intentPrewarmHover`).
+    /// The intent prewarm with this hibernation as its weak warmer, and its power feed (`intentPrewarmHover`'s
+    /// hover dwell, `directionalPrewarm`'s key steps).
     var intentPrewarm: (service: IntentPrewarmService<String>, power: MainActorHandlerRegistration<EnergyInputs>)?
     /// The longest a woken page's last frame stands in for it before it paints (Chrome has no
     /// picture; a page that paints later than this shows itself loading rather than look frozen).
@@ -719,9 +720,11 @@ final class BrowserHibernation {
         }
     }
 
-    /// Takes a hidden page's picture (a seam for tests).
+    /// Takes a hidden page's picture (a seam for tests): the frame a page past its hidden grace holds
+    /// (`BrowserHiddenPagePicture`, p03-rendering-055; a screenshot would make it draw again), else a screenshot.
     var capture: (any BrowserTab) async -> CGImage? = { tab in
-        try? await ControlDeadline.shared.run(method: "hibernation.snapshot", deadline: .now + .seconds(2)) { @MainActor in
+        if let held = await (tab as? any BrowserHiddenPagePicture)?.hiddenPagePicture() { return held }
+        return try? await ControlDeadline.shared.run(method: "hibernation.snapshot", deadline: .now + .seconds(2)) { @MainActor in
             try await tab.snapshot()
         }
     }

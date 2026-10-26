@@ -64,8 +64,8 @@ enum DevToolsHandlers {
         if case .browser(let tab) = target, let chromium = tab as? CEFTab {
             return runChromium(command, on: chromium, context)
         }
-        guard let webView = target.webKitView else { throw ActionFailure(message: WebDevToolsLimit.chromiumOnly.message) }
-        runWebKit(command, on: webView, tab: target, context)
+        guard let webKit = target.webKitEngine else { throw ActionFailure(message: WebDevToolsLimit.chromiumOnly.message) }
+        runWebKit(command, on: webKit, tab: target, context)
     }
 
     private static func runChromium(_ command: WebDevToolsCommand, on tab: CEFTab, _ context: AppActionContext) {
@@ -96,9 +96,10 @@ enum DevToolsHandlers {
         if !tab.devTools.isOpen { tab.performDevTools(.show) }
     }
 
-    private static func runWebKit(_ command: WebDevToolsCommand, on webView: WKWebView, tab: WebInspectorTarget,
+    /// `command` on a target's WebKit engine (``WebInspectorTarget/webKitEngine``).
+    private static func runWebKit(_ command: WebDevToolsCommand, on webKit: WKWebView, tab: WebInspectorTarget,
                                   _ context: AppActionContext) {
-        let inspector = WebKitInspector(webView: webView)
+        let inspector = WebKitInspector(webView: webKit)
         switch command {
         case .openDocked: inspector.attach()
         case .openInWindow: inspector.detach()
@@ -106,13 +107,13 @@ enum DevToolsHandlers {
         case .togglePerformanceRecording: inspector.togglePageProfiling()
         case .viewPageSource: inspector.show(.sources)
         case .emptyCacheAndHardReload:
-            removeSiteData(of: webView, types: [WKWebsiteDataTypeDiskCache, WKWebsiteDataTypeMemoryCache]) { webView.reloadFromOrigin() }
+            removeSiteData(of: webKit, types: [WKWebsiteDataTypeDiskCache, WKWebsiteDataTypeMemoryCache]) { webKit.reloadFromOrigin() }
         case .clearSiteData:
-            removeSiteData(of: webView, types: WKWebsiteDataStore.allWebsiteDataTypes()) { webView.reloadFromOrigin() }
+            removeSiteData(of: webKit, types: WKWebsiteDataStore.allWebsiteDataTypes()) { webKit.reloadFromOrigin() }
         case .captureScreenshot:
             BrowserHandlers.copyScreenshot(context) {
                 if case .browser(let tab) = tab { return try await tab.snapshot() }
-                let image = try await webView.takeSnapshot(configuration: nil)
+                let image = try await webKit.takeSnapshot(configuration: nil)
                 guard let cgImage = image.cgImage(forProposedRect: nil, context: nil, hints: nil) else {
                     throw ActionFailure(message: WebDevToolsLimit.browserTabOnly.message)
                 }
@@ -124,7 +125,7 @@ enum DevToolsHandlers {
             if let panel = command.panel { return inspector.show(panel) }
             if let script = command.pageScript {
                 if case .browser(let page) = tab { return evaluate(script, in: page) }
-                webView.evaluateJavaScript(script, completionHandler: nil)
+                webKit.evaluateJavaScript(script, completionHandler: nil)
             }
         }
     }
@@ -141,10 +142,10 @@ enum DevToolsHandlers {
         return url.port.map { "\(scheme)://\(host):\($0)" } ?? "\(scheme)://\(host)"
     }
 
-    /// Removes `types` of the page's site (its host's records) from the web view's data store.
-    private static func removeSiteData(of webView: WKWebView, types: Set<String>, then done: @escaping @MainActor () -> Void) {
-        guard let host = webView.url?.host() else { return done() }
-        let store = webView.configuration.websiteDataStore
+    /// Removes `types` of the page's site (its host's records) from the WebKit engine's data store.
+    private static func removeSiteData(of webKit: WKWebView, types: Set<String>, then done: @escaping @MainActor () -> Void) {
+        guard let host = webKit.url?.host() else { return done() }
+        let store = webKit.configuration.websiteDataStore
         Task {
             let records = await store.dataRecords(ofTypes: types)
             let site = records.filter { host == $0.displayName || host.hasSuffix(".\($0.displayName)") }

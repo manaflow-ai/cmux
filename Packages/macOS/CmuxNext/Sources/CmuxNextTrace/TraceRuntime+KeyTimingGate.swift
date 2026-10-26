@@ -59,6 +59,7 @@ extension TraceRuntime {
             let ringBits = UInt(ringAddress.load(ordering: .sequentiallyConsistent))
             UnsafeRawPointer(bitPattern: ringBits).map { Unmanaged<TraceRing>.fromOpaque($0) }?
                 ._withUnsafeGuaranteedRef { $0.mirrorCategories(mask) }
+            mirrorBlockingCalls(mask)
             if requestedFlags.load(ordering: .sequentiallyConsistent) == requested,
                keyTimingHoldBits.load(ordering: .sequentiallyConsistent) == holds {
                 return

@@ -193,11 +193,10 @@ impl Mux {
                 terminals = inputs.terminals.lock().unwrap_or_else(PoisonError::into_inner);
                 continue;
             }
-            terminals = inputs
-                .ended
-                .wait_timeout(terminals, deadline - now)
-                .unwrap_or_else(PoisonError::into_inner)
-                .0;
+            terminals =
+                cmux_threads::checked::sync::wait_timeout(&inputs.ended, terminals, deadline - now)
+                    .unwrap_or_else(PoisonError::into_inner)
+                    .0;
         }
     }
 
@@ -298,11 +297,13 @@ impl Mux {
                     if now >= deadline {
                         break;
                     }
-                    terminals = inputs
-                        .ended
-                        .wait_timeout(terminals, deadline - now)
-                        .unwrap_or_else(PoisonError::into_inner)
-                        .0;
+                    terminals = cmux_threads::checked::sync::wait_timeout(
+                        &inputs.ended,
+                        terminals,
+                        deadline - now,
+                    )
+                    .unwrap_or_else(PoisonError::into_inner)
+                    .0;
                 }
                 drop(terminals);
                 mux.finish_creating_input(&terminal_id, generation, Some("expired"));

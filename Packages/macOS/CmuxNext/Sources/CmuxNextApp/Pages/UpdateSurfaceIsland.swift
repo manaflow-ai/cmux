@@ -47,10 +47,9 @@ final class UpdateSurfaceIsland: SidebarSurfaceIsland {
     }
 
     /// `height` is in CSS px; the page is zoomed (the interface scale), so
-    /// one CSS px is `pageZoom * magnification` points.
+    /// one CSS px is ``PageWebView/pageZoom`` points, in either engine.
     private func setHeight(_ height: CGFloat) {
-        let web = (view as? PageWebView)?.webKitView
-        let zoom = (web?.pageZoom ?? 1) * (web?.magnification ?? 1)
+        let zoom = CGFloat((view as? PageWebView)?.pageZoom ?? 1)
         let height = max(0, ceil(height * zoom))
         guard height != contentHeight else { return }
         contentHeight = height

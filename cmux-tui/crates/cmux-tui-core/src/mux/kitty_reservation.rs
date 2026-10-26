@@ -94,8 +94,12 @@ impl Mux {
                     self.kitty_image_budget_changed.notify_all();
                     break KittyGraphicsLimits::disabled();
                 }
-                let (next, _) =
-                    self.kitty_image_budget_changed.wait_timeout(budget, remaining).unwrap();
+                let (next, _) = cmux_threads::checked::sync::wait_timeout(
+                    &self.kitty_image_budget_changed,
+                    budget,
+                    remaining,
+                )
+                .unwrap();
                 drop(next);
             };
         Ok(KittyImageBudgetReservation {

@@ -148,6 +148,9 @@ def select_stories(stories: Dict[str, object], config: str, names: Optional[str]
         unknown = [n for n in wanted if n not in stories]
         if unknown:
             raise Refusal(f"unknown stories: {', '.join(unknown)}")
+        blocked = [f"{n} ({stories[n].not_measurable})" for n in wanted if not stories[n].measurable()]
+        if blocked:
+            raise Refusal(f"stories {', '.join(blocked)} are not measurable yet")
         other = [n for n in wanted if stories[n].config != config]
         if other:
             raise Refusal(f"stories {', '.join(other)} measure another config than {config}")
@@ -159,7 +162,7 @@ def select_stories(stories: Dict[str, object], config: str, names: Optional[str]
         if tier not in MAC_TIERS:
             raise Refusal(f"--tier={tier!r}: one of {', '.join(MAC_TIERS)}")
         index, count = parse_shard(shard)
-        pool = [s for s in stories.values() if s.tier == tier and s.config == config]
+        pool = [s for s in stories.values() if s.tier == tier and s.config == config and s.measurable()]
         assignment = shard_assignment(pool, count)
         picked = sorted((s for s in pool if assignment[s.id] == index), key=lambda s: s.id)
     linted = [p for s in picked for p in problems if p.startswith(s.path + ":")]

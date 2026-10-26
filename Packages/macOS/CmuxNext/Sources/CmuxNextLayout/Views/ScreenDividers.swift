@@ -178,18 +178,25 @@ struct DividerDragState {
         return thirds + [equalShare].compactMap { $0 }.filter { !thirds.contains($0) }
     }
 
-    /// A split divider's ratio with the pointer at `point` (content space),
-    /// snapped; entering a snap mid-drag plays the alignment haptic.
-    mutating func splitRatio(at point: CGPoint, style: LayoutStyle, phase: LayoutGesturePhase) -> Double {
-        let ratio = SplitGeometry.ratio(forPointer: axis == .horizontal ? point.x : point.y, grabOffset: grabOffset, container: container,
-                                        axis: axis, style: style, minimumA: minimumA, minimumB: minimumB,
-                                        snaps: snaps, snapDistance: Self.snapDistance)
+    /// A split divider's ratio with the pointer at `realPoint` (content space),
+    /// snapped; entering a snap mid-drag plays the alignment haptic. The snap is
+    /// decided at the real point; off a snap the divider is drawn under
+    /// `shownPoint` (the pointer resampled at the frame's time) when there is one.
+    mutating func splitRatio(at realPoint: CGPoint, shownAt shownPoint: CGPoint? = nil, style: LayoutStyle, phase: LayoutGesturePhase) -> Double {
+        let ratio = pointerRatio(realPoint, style: style, snaps: snaps)
         let landed = snaps.contains(ratio) ? ratio : nil
         if let landed, landed != snapped, phase != .ended {
             NSHapticFeedbackManager.defaultPerformer.perform(.alignment, performanceTime: .now)
         }
         snapped = landed
-        return ratio
+        guard landed == nil, let shownPoint else { return ratio }
+        return pointerRatio(shownPoint, style: style, snaps: [])
+    }
+
+    private func pointerRatio(_ point: CGPoint, style: LayoutStyle, snaps: [Double]) -> Double {
+        SplitGeometry.ratio(forPointer: axis == .horizontal ? point.x : point.y, grabOffset: grabOffset, container: container,
+                            axis: axis, style: style, minimumA: minimumA, minimumB: minimumB,
+                            snaps: snaps, snapDistance: Self.snapDistance)
     }
 }
 

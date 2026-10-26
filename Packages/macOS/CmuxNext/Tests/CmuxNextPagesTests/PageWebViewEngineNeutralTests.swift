@@ -104,4 +104,36 @@ struct PageWebViewEngineNeutralTests {
         #expect(shown == ["Row 1"])
         view.close()
     }
+
+    /// The WebKit engine is there for the WebKit-only tools only while it shows the page
+    /// (p13-webui-074): nil while Chromium shows it.
+    @Test func theWebKitEngineIsOfferedOnlyWhileWebKitShowsThePage() async throws {
+        defer { try? FileManager.default.removeItem(at: root) }
+        let (view, _) = try await started(FakeChromiumHosting())
+        #expect(view.webKitEngine == nil)
+        view.close()
+        let webKit = try #require(PageWebView(descriptor: descriptor, root: root, routes: [], chromium: nil))
+        #expect(webKit.webKitEngine === webKit.webKitView)
+        webKit.close()
+    }
+
+    /// Ending a Chromium page's document loads nothing into its unused WebKit view: an empty load
+    /// there starts a WebContent process for a page that never had one.
+    @Test func endingAChromiumDocumentLoadsNothingIntoWebKit() async throws {
+        defer { try? FileManager.default.removeItem(at: root) }
+        let (view, page) = try await started(FakeChromiumHosting())
+        view.close()
+        view.endDocument()
+        #expect(page.closed)
+        #expect(view.webKitView.url == nil)
+    }
+
+    /// One zoom in both engines: points per CSS pixel, which the WebKit view shows too.
+    @Test func thePageZoomIsTheOneBothEnginesShow() throws {
+        defer { try? FileManager.default.removeItem(at: root) }
+        let view = try #require(PageWebView(descriptor: descriptor, root: root, routes: [], chromium: nil))
+        view.additionalZoom = 1.5
+        #expect(Double(view.webKitView.pageZoom) == view.pageZoom)
+        view.close()
+    }
 }
