@@ -26,6 +26,8 @@ export type SummaryBackgroundTask = {
   startedAt?: number;
 };
 export type SessionSummary = {
+  /// The chat's project folder; absent means Outputs cannot establish membership.
+  cwd?: string;
   scheduled: SummaryWakeup[];
   pullRequests: SummaryPullRequest[];
   outputs: TurnFile[];
@@ -111,16 +113,22 @@ const normalizedPath = (path: string) => {
 
 /// Outputs belong to the chat's project folder. Relative tool paths are already rooted there;
 /// absolute paths must stay under `cwd`, so scratch files such as `/tmp/m1076.txt` never appear.
+export function projectPathAllowed(path: string, cwd?: string): boolean {
+  if (!cwd) return false;
+  if (path.startsWith("~")) return false;
+  const root = normalizedPath(cwd);
+  if (!path.startsWith("/")) return !path.split("/").includes("..");
+  const normalized = normalizedPath(path);
+  if (root === "/") return true;
+  return normalized === root || normalized.startsWith(`${root}/`);
+}
+
 export function filesInProject(files: readonly TurnFile[], cwd?: string): TurnFile[] {
-  if (!cwd) return [...files];
+  if (!cwd) return [];
   const root = normalizedPath(cwd);
   return files.filter((file) => {
     const path = file.canonical ?? file.path;
-    if (path.startsWith("~")) return false;
-    if (!path.startsWith("/")) return !path.split("/").includes("..");
-    const normalized = normalizedPath(path);
-    if (root === "/") return true;
-    return normalized === root || normalized.startsWith(`${root}/`);
+    return projectPathAllowed(path, root);
   });
 }
 
@@ -142,7 +150,11 @@ function sources(
   };
   for (const pr of pullRequests)
     if (!pr.changed && !pr.opened)
-      add({ url: pr.url, label: pr.title ?? `${pr.repo} #${pr.number}`, kind: pr.mentioned ? "issue" : "pullRequest" });
+      add({
+        url: pr.url,
+        label: pr.title ?? `${pr.repo} #${pr.number}`,
+        kind: pr.kind === "issue" || pr.mentioned ? "issue" : "pullRequest",
+      });
   const addUrls = (text: string) => {
     for (const match of text.matchAll(/https?:\/\/[^\s"'<>)]+/g)) {
       const url = match[0]!.replace(/[.,;:!?]+$/, "");
@@ -155,6 +167,7 @@ function sources(
     }
   };
   for (const tool of all) {
+    if (tool.status !== "completed" || (tool.exitCode ?? 0) !== 0) continue;
     const text = `${tool.title} ${tool.inputSummary ?? ""} ${tool.output ?? ""}`;
     addUrls(text);
     if (tool.kind === "read") for (const path of editedPaths(tool)) add({ label: path, kind: "file" });
@@ -225,6 +238,7 @@ export function sessionSummary(rows: readonly AcpmuxRow[], repository?: string |
   // The summary card reads only the commands, and lists no mention.
   const pullRequests = transcriptPullRequests(rows, { folder: repository ?? undefined, replies: inspector });
   return {
+    ...(cwd ? { cwd } : {}),
     scheduled: scheduled(all),
     pullRequests: inspector ? pullRequests : pullRequests.filter((pr) => !pr.mentioned),
     outputs: filesInProject(turnFiles(rows as AcpmuxRow[]), cwd),
@@ -235,4 +249,4 @@ export function sessionSummary(rows: readonly AcpmuxRow[], repository?: string |
 }
 
 export const isEmptySummary = (summary: SessionSummary) =>
-  Object.values(summary).every((list: unknown[]) => list.length === 0);
+  Object.values(summary).every((value) => !Array.isArray(value) || value.length === 0);

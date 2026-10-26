@@ -26,6 +26,8 @@ export type SummaryPullRequest = {
   url: string;
   repo: string;
   number: number;
+  /// An issue reference is kept in the same transcript stream for Sources, but never Changes.
+  kind?: "pullRequest" | "issue";
   title?: string;
   state: PullRequestState;
   /// When the chat closed it (epoch ms), if the call says.
@@ -42,9 +44,11 @@ export type SummaryPullRequest = {
 };
 
 const PR_URL = /https:\/\/github\.com\/([\w.-]+\/[\w.-]+)\/pull\/(\d+)/g;
+const ISSUE_URL = /https:\/\/github\.com\/([\w.-]+\/[\w.-]+)\/issues\/(\d+)/g;
 /// `--title "..."`, `--title '...'`, `--title=...` or `-t "..."` on a create line.
 const TITLE = /(?:--title[= ]|-t )(?:"((?:[^"\\]|\\.)*)"|'([^']*)'|(\S+))/;
 const CREATE = /\bgh\s+pr\s+create\b|\bglaeda-gh\s+post\s+pr(?=\s|$)/;
+const ISSUE_CALL = /\bgh\s+issue\s+([a-z][\w-]*)(?=\s|$)([^\n;&|]*)/g;
 /// One call that acts on a single pull request: a `gh pr` verb, `gh-merge-green`, or `glaeda-gh`
 /// with a `pr` argument (`wait pr`, `status pr`, `checks pr`), up to the end of the call.
 const CALL = /\b(?:gh\s+pr\s+([a-z][\w-]*)|gh-merge-green|glaeda-gh\s+(?:[a-z][\w-]*\s+)*?pr)(?=\s|$)([^\n;&|]*)/g;
@@ -114,6 +118,7 @@ const MUTATING = new Set([
 
 const succeeded = (tool: Tool) => tool.status === "completed" && (tool.exitCode ?? 0) === 0;
 const urlOf = (repo: string, number: number) => `https://github.com/${repo}/pull/${number}`;
+const issueUrlOf = (repo: string, number: number) => `https://github.com/${repo}/issues/${number}`;
 /// A command without the text it carries as data.
 const bare = (command: string) => command.replace(HEREDOC, "$3\n").replace(QUOTED, " ");
 
@@ -131,7 +136,7 @@ function outputTitle(tool: Tool): string | undefined {
   } catch {
     // `gh pr view --jq .title` emits a plain line rather than JSON.
   }
-  if (/\b(?:gh\s+pr\s+view|gh\s+pr\s+edit)\b/.test(tool.command ?? "") && !output.includes("\n")) return output;
+  if (/\bgh\s+(?:pr|issue)\s+(?:view|edit)\b/.test(tool.command ?? "") && !output.includes("\n")) return output;
   return undefined;
 }
 
@@ -141,9 +146,9 @@ type Ref = { kind: "full"; repo: string } | { kind: "name"; name: string; orFold
 /// What one row says about pull requests, before the folder and the transcript's repositories
 /// resolve its `#N` and `repo #N`.
 type Finding =
-  | { how: "opened"; repo: string; number: number; title?: string }
-  | { how: "touched"; ref: Ref; number: number; changed?: boolean; title?: string }
-  | { how: "mentioned"; ref: Ref; number: number; changed?: boolean; title?: string }
+  | { how: "opened"; repo: string; number: number; title?: string; kind?: "pullRequest" | "issue" }
+  | { how: "touched"; ref: Ref; number: number; changed?: boolean; title?: string; kind?: "pullRequest" | "issue" }
+  | { how: "mentioned"; ref: Ref; number: number; changed?: boolean; title?: string; kind?: "pullRequest" | "issue" }
   | { how: "settle"; ref: Ref; number: number; state: PullRequestState; at?: number };
 
 /// The pull request a call names: its first argument, after the flags and their values.
@@ -180,6 +185,20 @@ function toolFindings(tool: Tool): Finding[] {
       found.push({ how: "opened", repo: match[1]!, number: Number(match[2]), ...(text ? { title: text } : {}) });
     return found;
   }
+  let issueCall = false;
+  for (const match of plain.matchAll(ISSUE_CALL)) {
+    issueCall = true;
+    const target = callTarget(match[2] ?? "");
+    if (!target) continue;
+    const title = outputTitle(tool);
+    found.push({
+      how: "mentioned",
+      ref: target.ref,
+      number: target.number,
+      kind: "issue",
+      ...(title ? { title } : {}),
+    });
+  }
   for (const match of plain.matchAll(CALL)) {
     const target = callTarget(match[2] ?? "");
     if (!target) continue;
@@ -201,19 +220,31 @@ function toolFindings(tool: Tool): Finding[] {
   }
   for (const match of plain.matchAll(PR_URL))
     found.push({ how: "touched", ref: { kind: "full", repo: match[1]! }, number: Number(match[2]) });
-  for (const match of plain.matchAll(REPO_REF))
-    found.push({ how: "mentioned", ref: { kind: "full", repo: `${match[1]}/${match[2]}` }, number: Number(match[3]) });
+  if (!issueCall)
+    for (const match of plain.matchAll(REPO_REF))
+      found.push({
+        how: "mentioned",
+        ref: { kind: "full", repo: `${match[1]}/${match[2]}` },
+        number: Number(match[3]),
+      });
+  for (const match of plain.matchAll(ISSUE_URL))
+    found.push({ how: "mentioned", ref: { kind: "full", repo: match[1]! }, number: Number(match[2]), kind: "issue" });
   return found;
 }
 
 /// The pull requests a reply names: links, then `owner/repo#N`, then `repo #N`, then a bare `#N`.
 function replyFindings(text: string): Finding[] {
-  if (!text.includes("#") && !text.includes("/pull/")) return [];
+  if (!text.includes("#") && !text.includes("/pull/") && !text.includes("/issues/")) return [];
   const found: Finding[] = [];
-  const mention = (ref: Ref, number: string) => found.push({ how: "mentioned", ref, number: Number(number) });
+  const mention = (ref: Ref, number: string, kind: "pullRequest" | "issue" = "pullRequest") =>
+    found.push({ how: "mentioned", ref, number: Number(number), kind });
   // Links and `owner/repo#N` first, then blanked so their numbers are not read again as `#N`.
   let rest = text.replace(PR_URL, (_, repo: string, number: string) => {
     mention({ kind: "full", repo }, number);
+    return " ";
+  });
+  rest = rest.replace(ISSUE_URL, (_, repo: string, number: string) => {
+    mention({ kind: "full", repo }, number, "issue");
     return " ";
   });
   rest = rest.replace(REPO_REF, (_, owner: string, name: string, number: string) => {
@@ -273,7 +304,7 @@ export function transcriptSourceRowKey(row: AcpmuxRow | undefined): string {
   if (row.kind !== "activity") return "";
   return JSON.stringify(
     (row.items ?? []).flatMap(({ tool }) =>
-      tool
+      tool && tool.status === "completed" && (tool.exitCode ?? 0) === 0
         ? [
             [
               tool.id,
@@ -363,15 +394,17 @@ export function transcriptPullRequests(
     at: number,
     title?: string,
     changed = false,
+    kind: "pullRequest" | "issue" = "pullRequest",
   ) => {
     if (number <= 0) return;
-    const url = urlOf(repo, number);
+    const url = kind === "issue" ? issueUrlOf(repo, number) : urlOf(repo, number);
     const pr = found.get(url);
     if (!pr) {
       found.set(url, {
         url,
         repo,
         number,
+        ...(kind === "issue" ? { kind } : {}),
         ...(title ? { title } : {}),
         state: "open",
         opened: how === "opened",
@@ -396,7 +429,7 @@ export function transcriptPullRequests(
       }
       const repo = resolve(finding.ref);
       if (finding.how !== "settle") {
-        if (repo) note(repo, finding.number, finding.how, at, finding.title, finding.changed);
+        if (repo) note(repo, finding.number, finding.how, at, finding.title, finding.changed, finding.kind);
         continue;
       }
       // Without a repository (no `-R`, no folder), a merge names every one with its number.

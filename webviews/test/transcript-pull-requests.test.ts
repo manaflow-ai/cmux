@@ -11,6 +11,7 @@ import {
   markPullRequestActivityVersion,
   markPullRequestCommandVersion,
   markTranscriptSourceVersion,
+  transcriptSourceRowKey,
   transcriptPullRequestKey,
   transcriptPullRequests,
 } from "../src/agent-session/acpmux/summary/transcriptPullRequests";
@@ -269,6 +270,26 @@ test("update-branch is a Change and JSON titles preserve apostrophes", () => {
   ]);
 });
 
+test("gh issue view references become issue Sources, never pull request URLs", () => {
+  const rows = [activity([shell("gh issue view 7 -R acme/uploader --json title", '{"title":"Scratch output"}')], 1)];
+  const issue = transcriptPullRequests(rows, { folder: "acme/uploader", replies: true })[0]!;
+  expect(issue).toMatchObject({
+    url: "https://github.com/acme/uploader/issues/7",
+    kind: "issue",
+    mentioned: true,
+  });
+  expect(sessionSummary(rows, "acme/uploader").sources).toEqual([
+    { url: "https://github.com/acme/uploader/issues/7", label: "Scratch output", kind: "issue" },
+  ]);
+});
+
+test("issue URLs in settled replies remain issue Sources", () => {
+  const rows = [assistant("See https://github.com/acme/uploader/issues/8", 1)];
+  expect(transcriptPullRequests(rows, { replies: true })).toMatchObject([
+    { url: "https://github.com/acme/uploader/issues/8", kind: "issue", mentioned: true },
+  ]);
+});
+
 test("settled assistant URLs become Sources while streaming prose is ignored", () => {
   const settled = assistant("Read https://example.com/guide", 2);
   const streaming = { ...assistant("Read https://example.com/live", 3), streaming: true };
@@ -290,4 +311,39 @@ test("cached Sources do not reread settled replies for each snapshot", () => {
   textReads = 0;
   sessionSummary(rows as unknown as Rows);
   expect(textReads).toBe(0);
+});
+
+test("pending and failed tools do not enter Sources or advance the settled source key", () => {
+  const pending = tool("Read pending", "read", "in_progress", {
+    output: "https://example.com/pending",
+    locations: [{ path: "/tmp/pending.txt" }],
+  });
+  const failed = tool("Read failed", "read", "failed", {
+    output: "https://example.com/failed",
+    exitCode: 1,
+    locations: [{ path: "/tmp/failed.txt" }],
+  });
+  const row = activity([pending, failed], 1);
+  expect(sessionSummary([row], "acme/app").sources).toEqual([]);
+  const before = transcriptSourceRowKey(row);
+  pending.tool!.output = "https://example.com/changed-while-streaming";
+  pending.tool!.status = "in_progress";
+  expect(transcriptSourceRowKey(row)).toBe(before);
+  pending.tool!.status = "completed";
+  pending.tool!.exitCode = 0;
+  expect(transcriptSourceRowKey(row)).not.toBe(before);
+});
+
+test("Outputs fail closed when the session has no project folder", () => {
+  const rows = [
+    activity(
+      [
+        tool("Write scratch", "edit", "completed", {
+          diffs: [{ path: "/tmp/m1076.txt", newText: "scratch" }],
+        }),
+      ],
+      1,
+    ),
+  ];
+  expect(sessionSummary(rows).outputs).toEqual([]);
 });

@@ -94,7 +94,7 @@ describe("Run board human intent", () => {
   });
 
   test("attempt change summaries reuse real acpmux tool diffs", () => {
-    expect(sessionSummary(runBoardFixture.attempts[0]!.rows).outputs.map((output) => output.path)).toEqual([
+    expect(sessionSummary(runBoardFixture.attempts[0]!.rows, undefined, "/").outputs.map((output) => output.path)).toEqual([
       "src/workspace/Workspace.tsx",
       "src/workspace/styles.css",
     ]);
