@@ -70,8 +70,8 @@ struct DisclaimedHelperSpawnerReapTests {
         defer { posix_spawn_file_actions_destroy(&actions) }
         posix_spawn_file_actions_adddup2(&actions, ready[1], STDOUT_FILENO)
         posix_spawn_file_actions_addclose(&actions, ready[0])
-        let arguments = ["/bin/sh", "-c", script].map { strdup($0) } + [nil]
-        let environment = ["PATH=/usr/bin:/bin"].map { strdup($0) } + [nil]
+        let arguments: [UnsafeMutablePointer<CChar>?] = ["/bin/sh", "-c", script].map { strdup($0) } + [nil]
+        let environment: [UnsafeMutablePointer<CChar>?] = ["PATH=/usr/bin:/bin"].map { strdup($0) } + [nil]
         defer { for pointer in arguments + environment { free(pointer) } }
         var pid: pid_t = 0
         let result = posix_spawn(&pid, "/bin/sh", &actions, nil, arguments, environment)
