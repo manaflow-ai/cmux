@@ -21,6 +21,8 @@ final class PageState {
     var query = ""
     var providerItems: [String: [PaletteItem]] = [:]
     var pendingProviders = Set<String>()
+    /// A `queryResults` stream answers this page's query and has not ended.
+    var answersQuery = false
     var tasks: [Task<Void, Never>] = []
     /// Rows last shown on this page, restored instantly when the page comes
     /// back into view (popping) while a fresh search runs.
