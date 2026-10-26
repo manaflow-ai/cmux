@@ -246,19 +246,46 @@ extension CaptureSceneRegistry {
               let controller = services.windows.controller(for: windowID) else {
             return .object(["error": .string("auto-name scene has no daemon or window"), "scene": .string(definition.name)])
         }
+        let rule = WorkspaceAutoNameWiring(services: services).reader.rule
+        guard rule.enabled, rule.variant == .persist else {
+            return .object(["error": .string("auto-name capture requires enabled persisted naming"), "scene": .string(definition.name)])
+        }
+        let expectedArgument = params["expected_name"]
+        let expectedName = expectedArgument?.stringValue
+        guard expectedArgument == nil || expectedName == Self.firstAutoName else {
+            return .object(["error": .string("expected_name is only supported as First chat title for the before capture"),
+                            "scene": .string(definition.name)])
+        }
+        var createdKey: WorkspaceKey?
+        var cleaned = false
+        func cleanup() async {
+            guard let key = createdKey, !cleaned else { return }
+            cleaned = true
+            try? await WorkspaceClose.close(key, terminals: [], on: connection)
+            services.windows.pendingClaims.removeValue(forKey: key.rawValue)
+            services.windows.quietClaims.remove(key.rawValue)
+            services.windows.reconcileMembership()
+        }
+        func failure(_ message: String) async -> CmuxNextSettings.JSONValue {
+            await cleanup()
+            return .object(["error": .string(message), "scene": .string(definition.name)])
+        }
         do {
             let key = WorkspaceKey.generate()
+            // Record the key before awaiting create: a late daemon reply may
+            // have created it even when the request reports an error.
+            createdKey = key
             _ = try await connection.createWorkspace(key: key)
             services.windows.claimNew(workspaceID: key.rawValue, window: windowID)
             guard let pane = await services.daemon.store.firstPane(mirroring: key),
                   let workspace = services.daemon.store.workspace(key: key) else {
-                return .object(["error": .string("auto-name workspace has no mirrored pane"), "scene": .string(definition.name)])
+                return await failure("auto-name workspace has no mirrored pane")
             }
             _ = try await connection.renameWorkspace(key, to: Self.firstAutoName, source: .auto,
                                                       expectedNameRevision: workspace.nameRevision)
             let seeded = await autoNameSettled { workspace.name == Self.firstAutoName && workspace.nameSource == .auto }
             guard seeded.0 != nil else {
-                return .object(["error": .string("first automatic name did not mirror"), "scene": .string(definition.name)])
+                return await failure("first automatic name did not mirror")
             }
             let firstRevision = workspace.nameRevision
             let pending = try services.agentTabs.open(in: pane.handle, of: services.daemon, session: Self.autoNameSession, linked: true)
@@ -270,12 +297,12 @@ extension CaptureSceneRegistry {
             let summary: [String: Any] = ["sessionId": Self.autoNameSession, "title": Self.generatedAutoName, "titleSource": "generated"]
             let title = AgentTurnStates.title(summary)
             let generatedTitle = AgentTurnStates.title(summary, includingPrompt: false)
+            guard let generatedTitle, generatedTitle == Self.generatedAutoName else {
+                return await failure("generated title fixture did not produce the expected literal title")
+            }
             AgentTurnStateStore.shared.apply(session: Self.autoNameSession, state: nil, lastMessage: nil, muted: false,
                                               title: title, generatedTitle: generatedTitle, detail: nil, recordsTimeline: false)
-            let expected = WorkspaceAutoNameWiring(services: services).reader.rule.persistedName(
-                name: Self.firstAutoName, title: nil, front: .chat(userName: nil, title: title, generatedTitle: generatedTitle),
-                isLocalMachine: true, supportsNameSource: true, alreadyRenamed: false,
-                nameSource: .auto, nameRevision: firstRevision, allowsLegacyDefaults: false) ?? Self.firstAutoName
+            let expected = expectedName ?? Self.generatedAutoName
             let (settled, frameStats) = await autoNameSettled {
                 self.autoNameReady(workspace: workspace, tabID: created.key, windowID: windowID, expected: expected)
             }
@@ -285,26 +312,34 @@ extension CaptureSceneRegistry {
                 "first_name": .string(Self.firstAutoName), "first_name_revision": .number(Double(firstRevision)),
                 "workspace_name": .string(workspace.name), "workspace_name_source": .string(workspace.nameSource.rawValue),
                 "workspace_name_revision": .number(Double(workspace.nameRevision)),
-                "generated_title": generatedTitle.map(CmuxNextSettings.JSONValue.string) ?? .null,
-                "expected_name": .string(expected), "frames": frameStats,
+                "generated_title": .string(generatedTitle), "expected_name": .string(expected), "frames": frameStats,
             ]
             guard let settled else {
+                await cleanup()
                 report["error"] = .string("auto-name scene did not settle before deadline")
                 return .object(report)
             }
             var snapshotParams = params
             snapshotParams["window"] = .string(windowID)
             let snapshot = await DebugWindowSnapshot.captureAsync(snapshotParams, services: services)
-            guard case .object(var result) = snapshot else { return snapshot }
+            guard case .object(var result) = snapshot else {
+                await cleanup()
+                return snapshot
+            }
             for (key, value) in report { result[key] = value }
             result["settled_ms"] = .number(settled)
+            guard result["error"] == nil else {
+                await cleanup()
+                return .object(result)
+            }
             guard (result["webviews_composited"]?.intValue ?? 0) > 0 else {
+                await cleanup()
                 result["error"] = .string("auto-name agent web view was not composited")
                 return .object(result)
             }
             return .object(result)
         } catch {
-            return .object(["error": .string("auto-name scene failed: \(error)"), "scene": .string(definition.name)])
+            return await failure("auto-name scene failed: \(error)")
         }
     }
 
