@@ -29,18 +29,6 @@ public extension WindowOverlayHost {
         }
         handles.append(handle)
         cachedRegions = nil
-        // A content that grows or shrinks on its own (a SwiftUI popover) changes the regions.
-        handle.contentPostedFrameChanges = content.postsFrameChangedNotifications
-        content.postsFrameChangedNotifications = true
-        handle.frameObserver = NotificationCenter.default.addObserver(
-            forName: NSView.frameDidChangeNotification, object: content, queue: .main
-        ) { [weak self] _ in
-            // main-proof: observer on queue: .main
-            MainActor.assumeIsolated {
-                self?.cachedRegions = nil
-                self?.updateMouseRouting()
-            }
-        }
         syncPanel()
         layout(handle)
         if options.kind == .dialog { fadeIn([scrim, content].compactMap(\.self)) }
@@ -110,12 +98,32 @@ public extension WindowOverlayHost {
         interactiveRegions().contains { $0.contains(point) } || agentCursorTag(atPanelPoint: point) != nil
     }
 
-    /// Input-blocking rects, window coordinates (cached until something changes).
+    /// Input-blocking rects, window coordinates (cached until something changes). The cache is
+    /// also checked against the frames it was built from, so a content that grows or shrinks on its
+    /// own (a SwiftUI popover) is hit-tested at its new size.
     func interactiveRegions() -> [NSRect] {
-        if let cachedRegions { return cachedRegions }
+        if let cachedRegions, regionsFramesAreCurrent() { return cachedRegions }
         let regions = buildInteractiveRegions()
         cachedRegions = regions
+        cachedRegionsFrames = [panel.overlayContainer.bounds] + handles.map { frameInWindow($0) }
         return regions
+    }
+
+    /// The container bounds and every overlay frame still equal those the cached regions were built from.
+    private func regionsFramesAreCurrent() -> Bool {
+        guard cachedRegionsFrames.count == handles.count + 1,
+              cachedRegionsFrames[0] == panel.overlayContainer.bounds else { return false }
+        for (index, handle) in handles.enumerated() where cachedRegionsFrames[index + 1] != frameInWindow(handle) {
+            return false
+        }
+        return true
+    }
+
+    /// The panel laid out its overlays (a window resize, a content that resized itself): the panel takes or
+    /// lets go of the mouse under a pointer that did not move, read from the frames now.
+    func containerDidLayout() {
+        guard cachedRegions != nil, !regionsFramesAreCurrent() else { return }
+        updateMouseRouting()
     }
 
     private func buildInteractiveRegions() -> [NSRect] {
@@ -135,9 +143,6 @@ extension WindowOverlayHost {
     func remove(_ handle: OverlayHandle) {
         handles.removeAll { $0 === handle }
         cachedRegions = nil
-        if let observer = handle.frameObserver { NotificationCenter.default.removeObserver(observer) }
-        handle.frameObserver = nil
-        handle.content.postsFrameChangedNotifications = handle.contentPostedFrameChanges
         let scrims = [panel.paneContainer, panel.windowContainer, panel.modalContainer].flatMap { container in
             container.subviews.filter { $0.identifier?.rawValue == "overlay-scrim-\(handle.id)" }
         }

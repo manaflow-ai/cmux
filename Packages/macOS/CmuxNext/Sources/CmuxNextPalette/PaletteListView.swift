@@ -34,6 +34,8 @@ final class PaletteListView: NSScrollView, NSTableViewDataSource, NSTableViewDel
         hasVerticalScroller = true
         SystemScrollers.follow(self)
         automaticallyAdjustsContentInsets = false
+        // The scroll fit's and edge fade's clip, in place before the bounds observer below holds the clip view.
+        ScrollGeometryClipView.install(in: self)
         let column = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("palette.column"))
         table.addTableColumn(column)
         table.headerView = nil

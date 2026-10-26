@@ -266,6 +266,8 @@ public final class SidebarView: NSView {
         // overlay that never narrows the list.
         SystemScrollers.followThin(scrollView)
         scrollView.automaticallyAdjustsContentInsets = false
+        // The edge fade's and scroll fit's clip, in place before anything below holds the clip view.
+        ScrollGeometryClipView.install(in: scrollView)
         scrollView.contentView.drawsBackground = false
         scrollView.documentView = list
         clipObservers = [ // queue: .main: inline for a post on main; a selector into this view trapped off main
