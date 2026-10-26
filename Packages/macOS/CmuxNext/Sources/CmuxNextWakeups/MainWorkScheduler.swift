@@ -31,23 +31,21 @@ public final class MainWorkScheduler {
 
     /// Times the render pass after each frame's scheduled work while the link runs (nil in tests).
     private let renderPasses: RenderPassMeter?
-    /// Ends the input response at the render pass of the first link tick after a discrete input.
-    private let tickRenders: TickRenderReporter
 
     /// - Parameter budget: The app's budget (the app: ``SessionInputPending`` input and signposts on).
     ///   The render pass (layout, display, the Core Animation commit) is timed on the main run loop
-    ///   while the link runs and reported to ``renderPassEnded(nanos:)``.
+    ///   while the link runs and handled as ``renderPassEnded(nanos:)`` handles it.
     public convenience init(budget: MainFrameBudget) {
-        let frames = FrameScheduler(name: "budgeted", host: .screen, budget: budget)
-        let tickRenders = TickRenderReporter(frames: frames, budget: budget)
-        let meter = RenderPassMeter { [weak tickRenders] nanos in tickRenders?.renderPassEnded(nanos: nanos) }
-        self.init(budget: budget, frames: frames, tickRenders: tickRenders, renderPasses: meter)
+        let meter = RenderPassMeter { [weak budget] nanos in
+            budget?.noteRenderPass(nanos: nanos)
+            budget?.noteTickRenderEnded()
+        }
+        self.init(budget: budget, frames: FrameScheduler(name: "budgeted", host: .screen, budget: budget), renderPasses: meter)
     }
 
-    private init(budget: MainFrameBudget, frames: FrameScheduler, tickRenders: TickRenderReporter, renderPasses: RenderPassMeter?) {
+    private init(budget: MainFrameBudget, frames: FrameScheduler, renderPasses: RenderPassMeter?) {
         self.budget = budget
         self.frames = frames
-        self.tickRenders = tickRenders
         self.renderPasses = renderPasses
         // The link's ticks own the budget's window while it exists; an idle app times no pass.
         frames.onLinkChange = { [weak self] exists in
@@ -68,9 +66,9 @@ public final class MainWorkScheduler {
     ///   - makeLink: Makes the fake link.
     public static func testing(budget: MainFrameBudget = MainFrameBudget(), clock: any Clock<Duration> = ContinuousClock(),
                                ledger: WakeupLedger = .shared, makeLink: @escaping FrameScheduler.LinkFactory) -> MainWorkScheduler {
-        let frames = FrameScheduler(name: "budgeted test", host: .screen, clock: clock, ledger: ledger, makeLink: makeLink, budget: budget)
-        return MainWorkScheduler(budget: budget, frames: frames, tickRenders: TickRenderReporter(frames: frames, budget: budget),
-                                 renderPasses: nil)
+        MainWorkScheduler(budget: budget, frames: FrameScheduler(name: "budgeted test", host: .screen, clock: clock, ledger: ledger,
+                                                                 makeLink: makeLink, budget: budget),
+                          renderPasses: nil)
     }
 
     /// A discrete input (a key-down, a mouse-down, `debug.key`) finished its dispatch; the App's
@@ -79,17 +77,19 @@ public final class MainWorkScheduler {
     ///
     /// - Parameter expectsFrame: The input's turn changed something the next frame shows.
     public func noteDiscreteInput(expectsFrame: Bool) {
-        tickRenders.noteDiscreteInput(expectsFrame: expectsFrame)
+        budget.noteDiscreteInput(expectsFrame: expectsFrame)
     }
 
     /// One render pass of the main run loop ended (the app's meter; tests call it after
     /// ``frameDidFire(timestamp:refreshInterval:)``). It is charged to the next frame
-    /// (``MainFrameBudget/noteRenderPass(nanos:)``). When the link ticked since the last pass and since
-    /// the last discrete input, it also ends the input response (``MainFrameBudget/noteTickRenderEnded()``).
+    /// (``MainFrameBudget/noteRenderPass(nanos:)``), and it ends the input response when a link tick
+    /// began after the latest frame-expecting input (``MainFrameBudget/noteTickRenderEnded()``): the
+    /// input's own turn renders before any tick after it, so its own pass never ends its response.
     ///
     /// - Parameter nanos: The pass's length.
     public func renderPassEnded(nanos: UInt64) {
-        tickRenders.renderPassEnded(nanos: nanos)
+        budget.noteRenderPass(nanos: nanos)
+        budget.noteTickRenderEnded()
     }
 
     /// One display frame (the link's tick; tests call it directly).
