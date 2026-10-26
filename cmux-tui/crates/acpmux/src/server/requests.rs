@@ -1011,6 +1011,7 @@ async fn dispatch_request(
                     })
                 },
                 full_access_device: super::remote_guard::full_access_device(hub, conn, &params),
+                no_queue: false,
             };
             let agent_message = opts.provenance.is_some() && !person_message;
             super::agent_messages::person_prompt(hub, conn, &s, agent_message).await;

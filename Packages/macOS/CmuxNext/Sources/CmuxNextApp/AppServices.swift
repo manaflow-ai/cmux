@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextOnboarding
 import CmuxNextApps
 import CmuxNextAgentPane
 import CmuxNextBridge
@@ -13,6 +14,7 @@ import CmuxNextCrashReporting
 import CmuxNextDesign
 import CmuxNextMobileHost
 import CmuxNextDaemon
+import CmuxNextDaemonRecovery
 import CmuxNextFeed
 import CmuxNextFloating
 import CmuxNextFavicons
@@ -362,6 +364,8 @@ final class AppServices {
     private(set) lazy var agentHarnesses = AgentHarnessCenter(services: self)
     /// Links, files and services macOS hands cmux (default browser, ssh:, scripts).
     private(set) lazy var externalOpen = ExternalOpenController(services: self)
+    /// The `cmux://session/<id>` question before a link opens a new agent tab.
+    private(set) lazy var sessionLinks = SessionLinkGate.app(self)
     let terminalTheme = TerminalThemeSetting(backdropScope: .app)
     /// This Mac's layout templates (Save Layout as Template, New Workspace from Template).
     private(set) lazy var layoutTemplates = LayoutTemplateLibrary(repository: LayoutTemplateRepository(fileURL: environment.layoutTemplatesFile))
@@ -454,6 +458,8 @@ final class AppServices {
         DaemonService.launchMark = { DebugTimings.markLaunch($0) }  // before any daemon service starts
         self.mainWork = mainWork
         daemon = DaemonService(echoesPlacementShift: SidebarMirror.isLinked, mainWork: mainWork)
+        // A cmux-tui that stays alive but never answers restarts by itself (`UnresponsiveOwnerWatch`).
+        daemon.recovery.restartsUnresponsiveOwner = { DaemonTunables.restartUnresponsiveCmuxTUI.value }
         self.launchReveal = launchReveal
         sidebarSnapshots = SidebarSnapshotStore(file: environment.sidebarSnapshotFile)
         let contextMenus = BrowserContextMenuBuilder.shared
