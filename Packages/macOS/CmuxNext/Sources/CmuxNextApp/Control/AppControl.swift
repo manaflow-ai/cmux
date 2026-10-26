@@ -40,8 +40,8 @@ final class AppControl {
     /// `debug.motion`'s Core Animation commit timer (`ca.commit`), owned here, not by a static.
     let motionCommitProbe = MotionCommitProbe()
     #if DEBUG || CMUX_BENCH_HOOKS
-    /// `debug.key` sequences' player (one sequence at a time), owned here, not by a static.
-    private let keySequencePlayer = DebugKeySequencePlayer()
+    private let keySequencePlayer = DebugKeySequencePlayer() // `debug.key` sequences' player (one at a time), not a static
+    let hops = InputTurnHops() // `debug.input hops` (p04-input-022); the MainJobGate hook (021) records into `hops.recorder`
     #endif
     private(set) var service: ControlService?
     private var publisher: ControlSnapshotPublisher?
@@ -156,7 +156,7 @@ final class AppControl {
                                                            continuation.resume(returning: DebugInputScrollViews(auditing: NSApp.windows))
                                                        }
                                                    }
-                                               }]).method])
+                                               }], recorders: [hops.start(input: input)]).method])
         router.register(DebugWindowsControl.methods(services) + [services.daemon.debugControlMethod { [weak services] in services?.windows.controllers.map { (id: $0.state.id, shows: $0.recoveryShows) } ?? [] }, services.daemon.debugDrainCostMethod])
     }
     #endif
