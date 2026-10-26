@@ -191,6 +191,14 @@ DEFAULT_MAX_CANCELS = 10
 MAX_RUN_PAGES = 3
 MAX_JOB_PAGES = 3
 GRAPHQL_BATCH = 25
+# A read that meets a 5xx or a dropped connection is made again after each of these delays (seconds),
+# then fails. At 08:08Z on 2026-10-26 one 502 on a run's job listing ended the sweep before it wrote
+# the macOS pool snapshot; the snapshot went stale, the cascade then sent no job to Blacksmith, and a
+# feat-cmux-next push's Release compile waited on a busy owned label (run 40291067104).
+RETRY_DELAYS = (2.0, 6.0)
+RETRY_STATUSES = frozenset({500, 502, 503, 504})
+# Snapshot key: the in-flight runs whose job listing failed this sweep (read_run_jobs()).
+UNREAD_RUNS_KEY = "unread_runs"
 
 # Statuses a run can hold runner demand in. `pending` is a run parked behind a
 # concurrency group, which is how a label-triggered CI rerun waits.
@@ -2476,6 +2484,10 @@ def rate_limited(error: urllib.error.HTTPError) -> bool:
     return b"rate limit" in body.lower()
 
 
+class RateLimited(RuntimeError):
+    """The token is out of budget: the sweep stops (GitHub.request())."""
+
+
 class GitHub:
     """The Actions and GraphQL APIs. `token` is an App's when one was minted (its own budget, not
     the GITHUB_TOKEN budget every workflow shares); `fallback_token` is the workflow's, which takes
@@ -2501,6 +2513,21 @@ class GitHub:
         }
 
     def request(self, method: str, path: str, body: Any | None = None, *, app_only: bool = False) -> Any:
+        """One API call. A read (GET, or a GraphQL query) that meets a 5xx or a dropped connection is
+        made again after each RETRY_DELAYS delay; a write is not, since it may have taken effect."""
+        retry = method == "GET" or path == "/graphql"
+        for delay in (*RETRY_DELAYS, None):
+            try:
+                return self._request(method, path, body, app_only=app_only)
+            except _Transient as error:
+                if not retry or delay is None:
+                    raise RuntimeError(f"{method} {path.split('?')[0]} failed ({error})") from error.__cause__
+                print(f"queue-janitor: {method} {path.split('?')[0]} failed ({error}); again in {delay:.0f} s",
+                      file=sys.stderr)
+                time.sleep(delay)
+        raise AssertionError("unreachable")
+
+    def _request(self, method: str, path: str, body: Any | None = None, *, app_only: bool = False) -> Any:
         self.calls += 1
         data = json.dumps(body).encode() if body is not None else None
         headers = dict(self.headers)
@@ -2515,7 +2542,7 @@ class GitHub:
         except urllib.error.HTTPError as error:
             self.note_rate_limit(error.headers)
             if error.code in (403, 429) and rate_limited(error):
-                raise RuntimeError(f"{method} {path.split('?')[0]} failed ({error.code}: rate limit; "
+                raise RateLimited(f"{method} {path.split('?')[0]} failed ({error.code}: rate limit; "
                                    "the sweep stops rather than spend the workflow token)") from error
             if error.code in (401, 403) and self.fallback_token and not app_only:
                 print(f"queue-janitor: App token refused ({error.code}) on {path.split('?')[0]}; "
@@ -2526,9 +2553,13 @@ class GitHub:
                 self.fallback_token = ""
                 self.app_token = False
                 return self.request(method, path, body)
+            if error.code in RETRY_STATUSES:
+                raise _Transient(str(error.code)) from error
             raise RuntimeError(f"{method} {path.split('?')[0]} failed ({error.code})") from error
         except urllib.error.URLError as error:
-            raise RuntimeError(f"{method} {path.split('?')[0]} failed ({error.reason})") from error
+            raise _Transient(str(error.reason)) from error
+        except (TimeoutError, ConnectionError) as error:
+            raise _Transient(repr(error)) from error
 
     def note_rate_limit(self, headers: Any) -> None:
         found = read_rate_limit(headers)
@@ -2728,6 +2759,31 @@ def env_int(name: str, default: int) -> int:
     return int(raw) if raw else default
 
 
+class _Transient(Exception):
+    """A 5xx or a dropped connection: GitHub.request() makes a read again."""
+
+
+def read_run_jobs(github: GitHub, runs: Sequence[Mapping[str, Any]], linux_only: frozenset[str],
+                  now: dt.datetime) -> tuple[dict[int, list[dict[str, Any]]], set[int]]:
+    """({run id: jobs} for the runs needs_jobs() lists, the ids whose listing failed).
+
+    One run's failed listing skips that run, not the sweep (a rate limit still ends it): the sweep
+    that ended on one 502 at 08:08Z on 2026-10-26 wrote no pool snapshot (RETRY_DELAYS)."""
+    jobs_by_run: dict[int, list[dict[str, Any]]] = {}
+    unread: set[int] = set()
+    for run in runs:
+        if not needs_jobs(run, linux_only, now):
+            continue
+        try:
+            jobs_by_run[run["id"]] = github.jobs(run["id"])
+        except RateLimited:
+            raise
+        except RuntimeError as error:
+            unread.add(run["id"])
+            print(f"queue-janitor: run {run['id']} skipped this sweep: {error}", file=sys.stderr)
+    return jobs_by_run, unread
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--repo", default=os.environ.get("GH_REPO") or os.environ.get("GITHUB_REPOSITORY"))
@@ -2779,7 +2835,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     linux_only = linux_only_workflow_paths(args.workflows_dir)
     try:
         runs = github.in_flight_runs()
-        jobs_by_run = {run["id"]: github.jobs(run["id"]) for run in runs if needs_jobs(run, linux_only, now)}
+        jobs_by_run, unread = read_run_jobs(github, runs, linux_only, now)
+        # A run whose jobs could not be read is left for the next sweep: no decision on it, and the
+        # snapshot below is still written from every other run.
+        runs = [run for run in runs if run["id"] not in unread]
         # Category e: a suspect whose evidence the in-flight jobs lack gets a
         # few completed runs of its own workflow listed (evidence_queries()),
         # only when such a suspect exists.
@@ -2867,6 +2926,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         # Fleet labels no runner is taking jobs from; the workflow's alert step
         # (starved_labels.py) annotates them and keeps one issue per label.
         snapshot.update(starved_result(github, runs, jobs_by_run, evidence_jobs, now=now))
+        if unread:
+            # Read from every run but these: their demand is missing, so no starved-label issue is closed
+            # as recovered on this sweep (starved_labels.py), and readers can tell the inventory is partial.
+            snapshot["starved_incomplete"] = True
+            snapshot[UNREAD_RUNS_KEY] = sorted(unread)
         # Warm affinity on: which root runner kept a build of which main
         # commits (owned_warm_state.py). A failure leaves `warm` out, and the
         # picker then routes admission by the root label as before.

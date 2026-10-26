@@ -1017,6 +1017,8 @@ class FakeGitHub(janitor.GitHub):
         self.prs = {}
         # Branch -> head sha (GET /branches/<branch>); a branch missing here answers 404.
         self.branches = {}
+        # Run ids whose job listing fails as a 502 would after its retries.
+        self.unreadable_jobs = set()
 
     def request(self, method, path, body=None, *, app_only=False):
         self.calls += 1
@@ -1066,6 +1068,8 @@ class FakeGitHub(janitor.GitHub):
         parts = path.split("?", 1)[0].split("/")
         run_id = int(parts[3])
         if method == "GET" and parts[-1] == "jobs":
+            if run_id in self.unreadable_jobs:
+                raise RuntimeError(f"GET /actions/runs/{run_id}/jobs failed (502)")
             return {"jobs": self.job_map.get(run_id, [])}
         if method == "POST" and parts[-1] == "rerun-failed-jobs":
             if run_id in self.refuse_rerun:
@@ -1297,13 +1301,16 @@ class StarvedLabelSnapshotTests(unittest.TestCase):
         snapshot, _ = self.snapshot([run], {run["id"]: [self.compile_job()]})
         self.assertEqual([entry["label"] for entry in snapshot["starved"]], [self.FLEET])
 
-    def test_a_failed_listing_of_a_branch_run_fails_the_sweep_like_any_other(self):
-        # cmux-next runs are listed with every other run now (follows_another_copy()), so a failed listing
-        # stops the sweep before it writes a snapshot from a partial inventory, as any run's does.
+    def test_a_failed_listing_skips_its_run_and_marks_the_snapshot_partial(self):
+        # One run's listing failing (after its retries) skips that run, as any run's does: the snapshot is
+        # still written, so the cascade reading it is never left without one, and it names the unread run.
+        # 2026-10-26 08:08Z: one 502 ended the sweep and the snapshot went stale.
         run = make_run(path=".github/workflows/cmux-next.yml", name="cmux-next", branch="lane/x")
         run["pull_requests"] = [{"number": 7, "base": {"ref": self.NEXT}}]
-        snapshot, _ = self.snapshot([run], {run["id"]: [self.compile_job()]}, fail_jobs={run["id"]}, code=1)
-        self.assertIsNone(snapshot)
+        snapshot, _ = self.snapshot([run], {run["id"]: [self.compile_job()]}, fail_jobs={run["id"]})
+        self.assertIs(snapshot["starved_incomplete"], True)
+        self.assertEqual(snapshot[janitor.UNREAD_RUNS_KEY], [run["id"]])
+        self.assertEqual(snapshot["starved"], [])
 
     def test_a_complete_listing_is_not_marked_incomplete(self):
         run = make_run(path=".github/workflows/cmux-next.yml", name="cmux-next", branch="lane/x")
@@ -1374,6 +1381,92 @@ class OwnedMarkerListingSweepTests(unittest.TestCase):
         listed = {int(path.split("/")[-2]) for method, path in fake.log
                   if path.split("?")[0].endswith("/artifacts") and "/runs/" in path}
         self.assertEqual(listed, {started["id"], rerun["id"]})
+
+
+class TransientFailureTests(unittest.TestCase):
+    """2026-10-26 08:08Z: one 502 on a run's job listing ended the sweep before the pool snapshot was
+    written, so the cascade read no snapshot and sent no job to Blacksmith."""
+
+    def urlopen(self, failures):
+        import email.message
+
+        class Response(io.BytesIO):
+            headers = email.message.Message()
+
+        sent = []
+
+        def urlopen(request, timeout=30):
+            sent.append(request.get_method())
+            if failures:
+                raise failures.pop(0)
+            return Response(b'{"ok": true}')
+        return urlopen, sent
+
+    def bad_gateway(self):
+        import email.message
+        return urllib.error.HTTPError("https://api.github.com/x", 502, "Bad Gateway", email.message.Message(), None)
+
+    def test_a_read_is_made_again_after_a_5xx_or_a_dropped_connection(self):
+        github = janitor.GitHub("t", "manaflow-ai/cmux")
+        failures = [self.bad_gateway(), urllib.error.URLError("Connection reset by peer")]
+        urlopen, sent = self.urlopen(failures)
+        delays = []
+        with mock.patch.object(janitor.urllib.request, "urlopen", urlopen), \
+                mock.patch.object(janitor.time, "sleep", delays.append), mock.patch("builtins.print"):
+            self.assertEqual(github.request("GET", "/repos/manaflow-ai/cmux/actions/runs/1/jobs"), {"ok": True})
+        self.assertEqual(sent, ["GET"] * 3)
+        self.assertEqual(delays, list(janitor.RETRY_DELAYS))
+
+    def test_retries_are_bounded_and_writes_are_not_made_again(self):
+        github = janitor.GitHub("t", "manaflow-ai/cmux")
+        urlopen, sent = self.urlopen([self.bad_gateway() for _ in range(5)])
+        with mock.patch.object(janitor.urllib.request, "urlopen", urlopen), \
+                mock.patch.object(janitor.time, "sleep", lambda _: None), mock.patch("builtins.print"):
+            with self.assertRaisesRegex(RuntimeError, r"failed \(502\)"):
+                github.request("GET", "/repos/manaflow-ai/cmux/actions/runs/1/jobs")
+            self.assertEqual(len(sent), len(janitor.RETRY_DELAYS) + 1)
+            sent.clear()
+            with self.assertRaisesRegex(RuntimeError, r"failed \(502\)"):
+                github.request("POST", "/repos/manaflow-ai/cmux/actions/runs/1/rerun-failed-jobs")
+            self.assertEqual(sent, ["POST"])
+            # A GraphQL query only reads.
+            urlopen, sent = self.urlopen([self.bad_gateway()])
+            with mock.patch.object(janitor.urllib.request, "urlopen", urlopen):
+                github.request("POST", "/graphql", {"query": "{ viewer { login } }"})
+            self.assertEqual(sent, ["POST", "POST"])
+
+    def test_one_unreadable_run_is_skipped_and_the_snapshot_is_still_written(self):
+        unreadable = make_run(status="queued", branch="unreadable")
+        started = make_run(branch="started")
+        runs = {r["id"]: dict(r) for r in (unreadable, started)}
+        fake = FakeGitHub(runs, {unreadable["id"]: mac_jobs(queued=1), started["id"]: mac_jobs(queued=1)})
+        fake.unreadable_jobs = {unreadable["id"]}
+        with tempfile.TemporaryDirectory() as temp:
+            load = Path(temp) / "load.json"
+            argv = ["--repo", "manaflow-ai/cmux", "--dry-run", "--pool-load", str(load),
+                    "--summary", str(Path(temp) / "summary.md"), "--workflows-dir", str(Path(temp) / "none")]
+            with mock.patch.object(janitor, "GitHub", lambda token, repo, fallback_token="": fake), \
+                    mock.patch.dict("os.environ", {"GH_TOKEN": "t"}), \
+                    mock.patch.object(janitor, "utc_now", lambda: NOW), \
+                    mock.patch("builtins.print"):
+                self.assertEqual(janitor.main(argv), 0)
+            self.assertTrue(load.exists())
+            snapshot = json.loads(load.read_text())
+        self.assertIn("generated_at", snapshot)
+        self.assertEqual(snapshot[janitor.UNREAD_RUNS_KEY], [unreadable["id"]])
+        listed = {int(path.split("/")[-2]) for method, path in fake.log if path.split("?")[0].endswith("/jobs")}
+        self.assertEqual(listed, {unreadable["id"], started["id"]})
+
+    def test_a_rate_limit_still_ends_the_sweep(self):
+        run = make_run(status="queued", branch="limited")
+
+        class Limited(FakeGitHub):
+            def jobs(self, run_id):
+                raise janitor.RateLimited("GET /jobs failed (403: rate limit)")
+
+        fake = Limited({run["id"]: dict(run)}, {})
+        with self.assertRaises(janitor.RateLimited):
+            janitor.read_run_jobs(fake, [run], frozenset(), NOW)
 
 
 class RateLimitTests(unittest.TestCase):
