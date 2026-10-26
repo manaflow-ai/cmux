@@ -23,6 +23,9 @@ enum Verb {
     DialogAnswer,
     ChatSend,
     ChatRead,
+    ChatNew,
+    ChatState,
+    ChatInterrupt,
 }
 
 pub(super) struct AgentTool {
@@ -122,6 +125,38 @@ pub(super) const TOOLS: &[AgentTool] = &[
             written or a tool call still running is marked partial and read again whole. \
             Changes nothing.",
     },
+    AgentTool {
+        name: "agents_chat_new",
+        verb: Verb::ChatNew,
+        title: "Start a chat",
+        description: "Start an ordinary cmux agent chat, as New Agent Chat and a first message \
+            do (`cmux agents chat new`): in pane (a pane_ id), in workspace's focused pane, \
+            else its first (a ws_ id), or in a new workspace when neither is given; it runs in \
+            the app's own acpmux, never as your subagent. Nothing takes the person's focus or \
+            switches the shown workspace. harness, model, effort and mode pick how it runs \
+            (acpmux refuses a mode this caller may not start in); policy is ask, \
+            approve-reads or deny-all, since a person chooses approve-edits or approve-all in \
+            cmux. prompt is the chat's first prompt, its own as if typed (state accepted). A \
+            retry starts another chat. Answers {action, origin, result: {chat, opened, tab, \
+            pane, workspace, prompt}}; opened false (with open_error) means the chat runs but \
+            no tab shows it yet, pending that the app is still opening it.",
+    },
+    AgentTool {
+        name: "agents_chat_state",
+        verb: Verb::ChatState,
+        title: "Read a chat's state",
+        description: "What an agent chat of this cmux session is doing (`cmux agents chat \
+            state`): status, running, pending_permissions, queued, harness, model, mode. \
+            Changes nothing.",
+    },
+    AgentTool {
+        name: "agents_chat_interrupt",
+        verb: Verb::ChatInterrupt,
+        title: "Interrupt a chat",
+        description: "Stop the running turn of another agent chat of this cmux session \
+            (`cmux agents chat interrupt`), as its stop button does. Never the caller's own \
+            chat. Nudge it on afterwards with agents_chat_send.",
+    },
 ];
 
 pub(super) fn find(name: &str) -> Option<&'static AgentTool> {
@@ -134,13 +169,21 @@ fn id_schema(description: &str) -> Value {
 
 impl AgentTool {
     fn read_only(&self) -> bool {
-        matches!(self.verb, Verb::DialogList | Verb::ChatRead)
+        matches!(self.verb, Verb::DialogList | Verb::ChatRead | Verb::ChatState)
     }
 
     /// Daemon changes and `action.run` take a key; the app's feed replies
     /// do not.
     fn keyed(&self) -> bool {
-        !matches!(self.verb, Verb::DialogList | Verb::DialogAnswer | Verb::ChatRead)
+        !matches!(
+            self.verb,
+            Verb::DialogList
+                | Verb::DialogAnswer
+                | Verb::ChatRead
+                | Verb::ChatNew
+                | Verb::ChatState
+                | Verb::ChatInterrupt
+        )
     }
 
     /// Daemon requests route to a session; the app has one.
@@ -157,13 +200,20 @@ impl AgentTool {
 
     /// The chat verbs answer their own receipt or page, without a snapshot.
     fn chat(&self) -> bool {
-        matches!(self.verb, Verb::ChatSend | Verb::ChatRead)
+        matches!(
+            self.verb,
+            Verb::ChatSend | Verb::ChatRead | Verb::ChatNew | Verb::ChatState | Verb::ChatInterrupt
+        )
     }
 
     pub(super) fn descriptor_json(&self) -> Value {
         let idempotent = !matches!(
             self.verb,
-            Verb::WorkspaceCreate | Verb::TerminalSplit | Verb::DialogAnswer | Verb::ChatSend
+            Verb::WorkspaceCreate
+                | Verb::TerminalSplit
+                | Verb::DialogAnswer
+                | Verb::ChatSend
+                | Verb::ChatNew
         );
         let description = if self.chat() {
             self.description.to_owned()
@@ -177,7 +227,10 @@ impl AgentTool {
             "inputSchema": self.input_schema(),
             "annotations": {
                 "readOnlyHint": self.read_only(),
-                "destructiveHint": matches!(self.verb, Verb::DialogAnswer | Verb::ChatSend),
+                "destructiveHint": matches!(
+                    self.verb,
+                    Verb::DialogAnswer | Verb::ChatSend | Verb::ChatInterrupt
+                ),
                 "idempotentHint": idempotent,
                 "openWorldHint": false,
             },
@@ -285,6 +338,46 @@ impl AgentTool {
                     "limit".into(),
                     json!({"type": "integer", "minimum": 1, "maximum": chat::MAX_READ_LIMIT,
                            "default": chat::DEFAULT_READ_LIMIT}),
+                );
+                required.push("target");
+            }
+            Verb::ChatNew => {
+                properties.insert(
+                    "workspace".into(),
+                    id_schema(
+                        "The workspace whose focused pane (else its first) gets the chat (ws_ id).",
+                    ),
+                );
+                properties
+                    .insert("pane".into(), id_schema("The pane that gets the chat (pane_ id)."));
+                for (name, description) in [
+                    ("harness", "The harness: claude, codex or another acpmux profile."),
+                    ("model", "The model, as the harness names it."),
+                    ("effort", "Thinking effort: default, low, medium, high, xhigh or max."),
+                    ("mode", "The harness mode to start in."),
+                    ("policy", "ask, approve-reads or deny-all."),
+                    ("cwd", "The chat's folder, an absolute path."),
+                    ("name", "The chat's name (and a new workspace's)."),
+                ] {
+                    properties.insert(
+                        name.into(),
+                        json!({"type": "string", "minLength": 1, "description": description}),
+                    );
+                }
+                properties.insert(
+                    "prompt".into(),
+                    json!({
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": agent_message::MAX_BODY_BYTES,
+                        "description": "A first prompt, at most 32 KiB of UTF-8.",
+                    }),
+                );
+            }
+            Verb::ChatState | Verb::ChatInterrupt => {
+                properties.insert(
+                    "target".into(),
+                    id_schema("The chat: its acpmux session id, name or unique prefix."),
                 );
                 required.push("target");
             }
@@ -429,6 +522,34 @@ impl AgentTool {
                         words.push(format!("--{name}={number}"));
                     }
                 }
+            }
+            Verb::ChatNew => {
+                words.extend(["chat".into(), "new".into()]);
+                for name in [
+                    "workspace",
+                    "pane",
+                    "harness",
+                    "model",
+                    "effort",
+                    "mode",
+                    "policy",
+                    "cwd",
+                    "name",
+                ] {
+                    if let Some(value) = args.text(name)? {
+                        // Inline, so a value that starts with `--` stays a value.
+                        words.push(format!("--{name}={value}"));
+                    }
+                }
+                if let Some(prompt) = args.text("prompt")? {
+                    words.extend(["--".into(), prompt]);
+                }
+            }
+            Verb::ChatState => {
+                words.extend(["chat".into(), "state".into(), args.word("target")?]);
+            }
+            Verb::ChatInterrupt => {
+                words.extend(["chat".into(), "interrupt".into(), args.word("target")?]);
             }
         }
         let key = match args.text("idempotency_key")? {
