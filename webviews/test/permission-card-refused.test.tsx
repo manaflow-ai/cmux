@@ -251,39 +251,45 @@ test("a thenable's refusal and a throw both show, and free the ask", async () =>
 });
 
 for (const [how, fail] of [
-  ["rejects", (optionId: string, text: string, denies: string[]) => {
-    denies.push(`${optionId}:${text}`);
-    return Promise.reject(new Error("connection dropped"));
-  }],
-  ["throws", (optionId: string, text: string, denies: string[]) => {
-    denies.push(`${optionId}:${text}`);
-    throw new Error("no chat to answer in");
-  }],
+  [
+    "rejects",
+    (optionId: string, text: string, denies: string[]) => {
+      denies.push(`${optionId}:${text}`);
+      return Promise.reject(new Error("connection dropped"));
+    },
+  ],
+  [
+    "throws",
+    (optionId: string, text: string, denies: string[]) => {
+      denies.push(`${optionId}:${text}`);
+      throw new Error("no chat to answer in");
+    },
+  ],
 ] as const)
-test(`a deny with feedback that ${how} keeps the text and frees the ask`, async () => {
-  const denies: string[] = [];
-  const card = await mount(ask("p1"), {
-    onDenyWithFeedback: (optionId, text) => fail(optionId, text, denies),
+  test(`a deny with feedback that ${how} keeps the text and frees the ask`, async () => {
+    const denies: string[] = [];
+    const card = await mount(ask("p1"), {
+      onDenyWithFeedback: (optionId, text) => fail(optionId, text, denies),
+    });
+    await card.key("3");
+    const field = card.host.querySelector("textarea")!;
+    await act(async () => {
+      const set = Object.getOwnPropertyDescriptor(dom.window.HTMLTextAreaElement.prototype, "value")!.set!;
+      set.call(field, "use a temp dir");
+      field.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
+    });
+    await card.click(translate("permission.feedbackSend"));
+    await card.flush();
+    expect(denies).toEqual(["p1-no:use a temp dir"]);
+    const after = card.host.querySelector("textarea");
+    expect(after?.value).toBe("use a temp dir");
+    expect(after?.readOnly).toBe(false);
+    // The field can send again: the ask was never answered.
+    await card.click(translate("permission.feedbackSend"));
+    await card.flush();
+    expect(denies).toHaveLength(2);
+    await card.unmount();
   });
-  await card.key("3");
-  const field = card.host.querySelector("textarea")!;
-  await act(async () => {
-    const set = Object.getOwnPropertyDescriptor(dom.window.HTMLTextAreaElement.prototype, "value")!.set!;
-    set.call(field, "use a temp dir");
-    field.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
-  });
-  await card.click(translate("permission.feedbackSend"));
-  await card.flush();
-  expect(denies).toEqual(["p1-no:use a temp dir"]);
-  const after = card.host.querySelector("textarea");
-  expect(after?.value).toBe("use a temp dir");
-  expect(after?.readOnly).toBe(false);
-  // The field can send again: the ask was never answered.
-  await card.click(translate("permission.feedbackSend"));
-  await card.flush();
-  expect(denies).toHaveLength(2);
-  await card.unmount();
-});
 
 test("a deny with feedback refused late never touches the next ask's field", async () => {
   const replies: Array<(ok: boolean) => void> = [];

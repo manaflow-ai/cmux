@@ -227,7 +227,8 @@ export function PermissionCard({
   /// acpmux took the answer: an ask the card has moved past is forgotten, the shown one stays answered.
   const taken = (sent: Sent) => {
     if (!owns(sent)) return;
-    if (shown.current === sent.permissionId) answers.current.set(sent.permissionId, { attempt: sent.attempt, taken: true });
+    if (shown.current === sent.permissionId)
+      answers.current.set(sent.permissionId, { attempt: sent.attempt, taken: true });
     else answers.current.delete(sent.permissionId);
   };
   /// The ask's answer was refused: its keys and buttons answer it again, and the card says so.
