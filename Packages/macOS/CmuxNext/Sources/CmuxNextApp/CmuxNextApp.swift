@@ -1,17 +1,26 @@
 import AppKit
 import CmuxNextAgentPane
+import CmuxNextBrowser
 import CmuxNextCloud
 import CmuxNextControl
 import CmuxNextDaemon
+import CmuxNextDesign
+import CmuxNextInput
+import CmuxNextLaunch
 import CmuxNextMallocZone
+import CmuxNextRemoteFetch
 import CmuxNextSidebar
 import CmuxNextTerminal
 import CmuxNextCompat
+import CmuxNextTrace
+import CmuxNextWakeups
 
 /// Entry point called from the Xcode target's `App/main.swift`.
 public struct CmuxNextApp {
     public static let shared = Self()
     public func main() {
+        // CMUX_TRACE_STARTUP: the startup trace's ring, before the first mark (unset: one getenv, no ring).
+        let startupTrace = DebugTimings.makeStartupTrace()
         DebugTimings.markLaunch("main_start")
         announceBenchHooksBuild()
         // First, while the process has one thread: install the delegating
@@ -46,18 +55,52 @@ public struct CmuxNextApp {
         AgentPaneScrollAnchors.shared = AgentPaneScrollAnchors(directory: environment.sidebarSnapshotFile?.url.deletingLastPathComponent())
         // Each chat's unsent chips, beside it, so reopening or restoring a chat brings them back.
         AgentPaneDraftAttachments.shared = AgentPaneDraftAttachments(directory: environment.sidebarSnapshotFile?.url.deletingLastPathComponent())
+        // The last quit's agent pages, terminal frames and chat composers are read and decoded off the main thread
+        // from here, while AppKit starts, so each pane's first frame can use them without waiting.
+        // One hang watch for the process: the lanes, the daemon readers and the terminal output lanes.
+        let hangWatch = TraceRuntime.shared.hangWatch
+        let state = environment.sidebarSnapshotFile?.url.deletingLastPathComponent()
+        let work = BackgroundWork(hangs: hangWatch, onRan: startupTrace?.laneJobSink)
+        // Idle and best-effort lane work waits for startup complete (Chrome's BeginBestEffortFence); the order made on it lowers it.
+        let fence = LaunchOrder.BestEffortFence(raisingOn: work)
+        startupTrace?.start(writingOn: work) // its file is written on work's files lane, never here
+        startupTrace?.whenClosed { work.stopReportingRuns() } // a closed trace costs the lanes nothing
+        let launchImages = AgentPaneLaunchImages(state: state), relaunchWake = AgentPaneRelaunchWake(directory: state)
+        launchImages.prefetch(on: work) { DebugTimings.markLaunch($0) }
+        TerminalLaunchFrames.beside(state).prefetch(on: work) { DebugTimings.markLaunch($0) }
+        relaunchWake.begin(on: work)
+        // Tab favicons resolve their hosts on work's host-resolution slots (system lane), never on the pool;
+        // video wallpapers list the windows above theirs on its system lane, never on main.
+        BrowserFaviconLoader.shared.useResolver(SystemRemoteResolver(runner: work))
+        BackdropVideoPlayers.shared.lanes = work
+        let wireStats = DaemonWireStats.forBuild()  // `debug.daemon.wire`'s counters; nil in a release build
         // The daemon connect overlaps AppKit's start (off the main thread).
         let prestart = DaemonService.prestart(launch: environment.launch, terminalEnvironment: environment.terminalEnvironment,
                                               terminalEnvironmentProvider: environment.terminalEnvironmentProvider(),
                                               resolvesShellIntegration: environment.resolvesShellIntegration,
-                                              echoesPlacementShift: SidebarMirror.isLinked)
+                                              echoesPlacementShift: SidebarMirror.isLinked, wireStats: wireStats,
+                                              hangWatch: hangWatch)
         DebugTimings.markLaunch("main.prestart")
         // DEV and NIGHTLY crash at an exception's throw site (cx-r3q), before NSApp exists.
         CrashOnExceptions.register()
         // Instantiate the CEF-ready subclass before anything touches NSApp.
         let app = CmuxApplication.shared
         (app as? CmuxApplication)?.refusesActivation = ProcessInfo.processInfo.environment["CMUX_NEXT_NO_ACTIVATE"] == "1"
-        let delegate = AppDelegate(environment: environment, daemonPrestart: prestart)
+        // The launch's order owners: the main-thread scheduler and the StartupScheduler on it, passed by init.
+        // The one input tap (p04-input.md 3 (A)): the budget's pending input, control and services observe it.
+        let inputTap = InputEventTap()
+        // The design kit's popups, overlay hosts and tooltip subscribe to it too, before the delegate
+        // and services make any: their owners in many packages make them with no tap (p04-input-013).
+        WindowOverlayHost.appInputTap = inputTap
+        TooltipPresenter.shared.inputTap = inputTap
+        let order = LaunchOrder(fence: fence, input: inputTap) { DebugTimings.markLaunch($0) }
+        let delegate = AppDelegate(environment: environment, daemonPrestart: prestart, wireStats: wireStats,
+                                   startupTrace: startupTrace, order: order, inputTap: inputTap,
+                                   launchReads: (work, launchImages, relaunchWake))
+        // Every main run-loop turn is timed and split on the main-thread scheduler's meter (MainTurnMeter).
+        (app as? CmuxApplication)?.meterTurns(delegate.turnMeter)
+        // The one input tap hears every event from the first (pending input, control, services).
+        (app as? CmuxApplication)?.inputTap = delegate.inputTap
         app.delegate = delegate
         app.setActivationPolicy(.regular)
         DebugTimings.markLaunch("main.nsapp")

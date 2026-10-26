@@ -334,6 +334,7 @@ pub(in crate::git_ops) fn write_json(path: &Path, value: &impl Serialize) -> io:
             options.mode(0o600);
         }
         let mut file = options.open(&temporary)?;
+        crate::request_path::note(crate::request_path::BlockingKind::FsWrite);
         file.write_all(&bytes)?;
         file.sync_data()?;
         drop(file);

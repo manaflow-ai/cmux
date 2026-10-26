@@ -203,6 +203,11 @@ pub struct TerminalHostRecord {
     /// ClientHello carrying `FLAG_SHELL_ACTIVITY`.
     #[serde(default)]
     pub supports_shell_activity: bool,
+    /// Additive control capability (p09-observability-015). Missing/false
+    /// records belong to hosts that would end the connection on the unknown
+    /// TraceControl message, so the daemon never sends it to them.
+    #[serde(default)]
+    pub supports_trace_control: bool,
     /// The orphan grace this host runs with, in seconds (cx-t2sqm D1): it
     /// ends its terminal after this long with no client. `None` (normal
     /// installs, and hosts from before this field): it never does; only a
@@ -232,6 +237,7 @@ impl std::fmt::Debug for TerminalHostRecord {
             .field("supports_pty_custody", &self.supports_pty_custody)
             .field("supports_program_status", &self.supports_program_status)
             .field("supports_shell_activity", &self.supports_shell_activity)
+            .field("supports_trace_control", &self.supports_trace_control)
             .field("orphan_grace_secs", &self.orphan_grace_secs)
             .finish()
     }
@@ -372,6 +378,7 @@ impl std::error::Error for CellPixelRequestDeadlineElapsed {}
 
 #[cfg(unix)]
 mod unix {
+    use cmux_process::Stdio;
     #[cfg(test)]
     use std::collections::HashMap;
     use std::fs::{self, File, OpenOptions};
@@ -384,8 +391,6 @@ mod unix {
     #[cfg(test)]
     use std::os::unix::net::UnixListener;
     use std::os::unix::net::UnixStream;
-    use std::os::unix::process::CommandExt;
-    use std::process::{Command, Stdio};
     use std::sync::Arc;
     use std::sync::atomic::Ordering;
     #[cfg(test)]
@@ -666,6 +671,7 @@ pub(crate) use shared::host_state::HOST_TERMINATE_WAIT;
 pub use shared::host_state::set_dev_host_orphan_grace;
 #[cfg(unix)]
 pub(crate) use shared::host_state::spawned_orphan_grace;
+pub(crate) use shared::host_trace::PendingHostTrace;
 #[cfg(any(unix, windows))]
 pub(crate) use shared::records::live_successor_record;
 #[cfg(unix)]

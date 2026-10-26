@@ -36,16 +36,18 @@ public nonisolated enum GlassLensMode: String, Sendable, CaseIterable, Codable, 
 }
 
 extension GlassLensMode {
-    /// The mode pages draw now: the `glass.lens` choice under the system's Reduce Transparency
-    /// (or its Debug override) and Low Power Mode.
+    /// The mode pages draw now, as the App resolved it (``ThemeStore/glassMode``): its
+    /// `GlassModeWatch` applies the sources below with its energy monitor's Low Power Mode, the
+    /// `debug.low_power_mode` override included.
     @MainActor public static var current: GlassLensMode {
-        current(store: .shared, reduceTransparency: .shared, lowPower: .system)
+        ThemeScope.app.store.glassMode
     }
 
-    /// The mode pages draw from these sources.
+    /// The mode pages draw from these sources: the `glass.lens` choice in `store`, plain under
+    /// Reduce Transparency (or its Debug override) or Low Power Mode.
     @MainActor public static func current(store: TunableStore, reduceTransparency: ReduceTransparency,
-                                          lowPower: LowPowerMode) -> GlassLensMode {
-        tunable.value(in: store).effective(reduceTransparency: reduceTransparency.isEnabled, lowPowerMode: lowPower.isEnabled)
+                                          lowPowerMode: Bool) -> GlassLensMode {
+        tunable.value(in: store).effective(reduceTransparency: reduceTransparency.isEnabled, lowPowerMode: lowPowerMode)
     }
 
     /// Sets the `glass.lens` choice; the default removes the override.

@@ -9,6 +9,7 @@ import CmuxNextDesign
 import CmuxNextIcons
 import CmuxNextLayout
 import CmuxNextTabs
+import CmuxNextWakeups
 import Observation
 import CmuxNextFocus
 
@@ -51,6 +52,12 @@ final class PaneController: SurfacePresenter, PresentablePane {
     /// Its workspace draws nothing (`WorkspaceContentController.drawsNothing`): no strip observation runs and
     /// no content is shown; `resume` maps the strip once and shows the selection then (PL-script A2).
     private(set) var isSuspended = false
+    /// This pane in the visibility tree (p06-scheduler.md B), under its workspace's node: hidden while
+    /// suspended. Not ``isVisible``, which is the layout's viewport presence.
+    let visibilityNode: VisibilityNode
+    /// The selected tab's node, own-visible under ``visibilityNode`` (`selectTabNode`). Held here, so
+    /// the cache keeps it while this pane selects the tab (`TabContentCache.node(for:)`).
+    private var selectedTabNode: VisibilityNode?
     #if DEBUG
     private(set) var debugSnapshotRuns = 0 // this pane's strip maps (`structure()`), read by tests
     #endif
@@ -82,12 +89,17 @@ final class PaneController: SurfacePresenter, PresentablePane {
         self.services = services
         self.state = state
         isSuspended = workspace?.drawsNothing == true // a pane made in a parked workspace starts suspended
-        view = PaneContentView(stripModel: stripModel)
+        let own: Visibility = isSuspended ? .hidden : .visible
+        // Under its workspace's node (p06-scheduler-023); a pane outside a workspace (tests) is a root.
+        let parent: VisibilityNode? = workspace.flatMap { $0.visibilityNode }
+        visibilityNode = parent.map { VisibilityNode("pane:\(pane.id)", own: own, parent: $0) }
+            ?? VisibilityNode(root: "pane:\(pane.id)", own: own)
+        view = PaneContentView(stripModel: stripModel, reveal: services.launchReveal, input: services.inputTap)
         stripModel.intentHandler = { [weak self] intent in self?.handle(intent) }
         view.stripView.previewProvider = services.previews
         view.stripView.resourceSource = services.resources
         view.stripView.contextMenuProvider = { [weak self] target in self?.contextMenu(for: target) }
-        view.stripView.hoverCards = services.hoverCards
+        view.stripView.attachHoverCards(services.hoverCards, memory: services.memoryCoordinator) // p07-memory-005
         view.stripView.onHoverTab = { [weak self] id in self?.noteHover(id) }
         view.stripView.newTabShortcut = { [weak services] in services?.registry.shortcutDisplay(for: StripNewTab.action) }
         view.onResize = { [weak services, weak paneView = view] in
@@ -115,6 +127,8 @@ final class PaneController: SurfacePresenter, PresentablePane {
         DebugTabSwitch.forget(self)
         view.dropParked()
         view.detachContent()
+        visibilityNode.set(.hidden) // a tab still selected here is hidden; one that moved away is its new pane's
+        selectedTabNode = nil
         services.surfaceInvariant.noteChange()
     }
 
@@ -158,6 +172,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
         observation?.cancel(); observation = nil
         tabItems.cancelAll() // a title or busy-dot change in a parked workspace maps no tab item
         services.presentation.cancel(self)
+        visibilityNode.set(.hidden)
     }
 
     /// Its workspace draws again: one strip map (the observation starts over, tracked), whose apply
@@ -166,6 +181,8 @@ final class PaneController: SurfacePresenter, PresentablePane {
         guard isSuspended else { return }
         isSuspended = false
         observe()
+        // After the strip map: its selection changes flipped no tab, so only the tab selected now flips.
+        visibilityNode.set(.visible)
     }
 
     private func compose(_ structure: Snapshot, refresh: Bool = false) -> Snapshot {
@@ -297,7 +314,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
             noteNeighbors()  // a reorder, close or new tab moves the neighbors
         }
         if stripModel.showsNewTabButton != snapshot.takesNewTabs { stripModel.showsNewTabButton = snapshot.takesNewTabs }
-        if !snapshot.items.isEmpty { LaunchReveal.shared.markReady(.tabs) }
+        if !snapshot.items.isEmpty { services.launchReveal.markReady(.tabs) }
         var selectNew = false
         if let pending = pendingSelectSurface, let tab = snapshot.tabs.first(where: { $0.surface == pending }) { // once listed (OutboundTab)
             state?.selection.select(tab.id, in: paneKey)
@@ -342,9 +359,26 @@ final class PaneController: SurfacePresenter, PresentablePane {
     /// Selects `id` on the strip; a newly selected tab is viewed (its title attention dot goes).
     func setStripSelection(_ id: StripTabID?) {
         if stripModel.selectedID != id { stripModel.selectedID = id }
+        selectTabNode(id?.rawValue)
         guard stripSelection != id?.rawValue else { return }
         stripSelection = id?.rawValue
         if let key = id?.rawValue, services.cache.pageRequests.titleAttention.viewed(key) { remapsViewedTab = true }
+    }
+
+    /// A tab is visible when it is selected in a visible pane (p06-scheduler.md B): in the selection's
+    /// turn, the selected tab's node goes own-visible under this pane's node and the one it replaces
+    /// own-hidden, as Chromium's `BrowserView::OnActiveTabChanged` (chrome/browser/ui/views/frame/browser_view.cc)
+    /// hides the old WebContents and shows the new one in one task. A tab that another pane selected
+    /// since (it moved there) belongs to that pane: it is not hidden from here.
+    private func selectTabNode(_ key: String?) {
+        let next = key.map { services.cache.node(for: $0) }
+        if let shown = selectedTabNode, shown !== next, shown.parent === visibilityNode { shown.set(.hidden) }
+        selectedTabNode = next
+        guard let next else { return }
+        // A no-op when it is already here. It cannot throw: a tab's node is a child (`TabContentCache.node(for:)`)
+        // and a pane's node is never below a tab's.
+        try? next.attach(to: visibilityNode)
+        next.set(.visible)
     }
 
     /// Marks the workspace's focus topology changed when this pane's part of it changed: the
@@ -401,7 +435,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
         if key != currentTabKey {
             InputJournal.shared.append(window: state?.id, .content(tab: key ?? "-", event: "show pane=\(paneKey) from=\(currentTabKey ?? "-")"))
             // Another tab's last page from the launch must not stay under this one.
-            view.clearLaunchImage()
+            view.clearLaunchImage(.noVisiblePane)
         }
         if let currentTabKey, currentTabKey != key { BenchSpans.measure("switch.withdraw") { services.cache.withdraw(currentTabKey, by: self) } }
         DebugTabSwitch.mark(self, "withdraw")
@@ -419,7 +453,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
         DebugTabSwitch.mark(self, "view")
         // Terminals come in on their first frame (`LaunchSettle`), or at once with their frame from the last
         // quit (`TerminalLaunchFrames`); other content (a page, an agent) is ready once shown.
-        if case .terminal(let terminal) = content, let key { if terminal.session.showLaunchFrame(key, beside: services.environment.sidebarSnapshotFile?.url.deletingLastPathComponent(), in: view.contentHost) { DebugTimings.markLaunch("terminal.launch_frame_shown") } } else if content != nil { LaunchReveal.shared.markReady(.pane) }
+        if case .terminal(let terminal) = content, let key { if terminal.session.showLaunchFrame(key, beside: services.environment.sidebarSnapshotFile?.url.deletingLastPathComponent(), in: view.contentHost, reveal: services.launchReveal) { DebugTimings.markLaunch("terminal.launch_frame_shown") } } else if content != nil { services.launchReveal.markReady(.pane) }
         // The content view exists now: the coordinator re-applies focus if
         // this pane has it (content is shown a frame after selection).
         if workspace?.isParked == false { BenchSpans.measure("switch.focus") { workspace?.focus.send(.contentPresented(pane: paneKey)) } }

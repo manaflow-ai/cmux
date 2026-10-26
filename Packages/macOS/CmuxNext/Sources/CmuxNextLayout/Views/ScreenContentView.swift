@@ -33,8 +33,17 @@ final class ScreenContentView: NSView {
     /// springs, and the shift after the last column or row closed is the close's own curve. A user
     /// scroll takes the camera back to the scroll spring.
     var scrollRidesFrames = false
-    /// A close waits for `syncScroll` to place its camera, then takes its first frame (`leadIfPending`).
+    /// A close waits for the change turn to place its camera, then takes its first frame (`leadIfPending`).
     var leadsFrame = false
+    /// This screen's render-server motion variants and the `motion.renderServer` switch
+    /// (`ScreenContentView+Motion.swift`); the composition root passes the switch through the context.
+    var motionBackends: MotionBackends<ScreenContentView>
+    /// Change turns open on this screen (`beginMotionTurn`): a turn nested in another (a resize
+    /// inside the root's) ends with the outer one.
+    var motionTurnDepth = 0
+    /// The presentation the open turn holds until its render-server kinds took their motions; nil
+    /// while no turn holds one (always with the render server off).
+    var heldPresentation: HeldPresentation?
     /// A split's or a close's panes spring to their new sizes: their terminals keep their grids
     /// until every pane landed (`LayoutViewContext.gridHoldScreens`, the PTY resizes once at rest).
     /// A press during the motion (rapid Cmd-D) keeps the hold, so the grids go once for the whole chain.
@@ -96,6 +105,7 @@ final class ScreenContentView: NSView {
         self.layout = layout
         self.context = context
         self.motionState = ScreenPaneMotionState(provider: paneMotionVariant)
+        self.motionBackends = MotionBackends(ScreenContentView.renderServerMotions, renderServer: context.rendersMotionOnServer)
         self.baseGeometry = ScreenGeometry.compute(layout, viewport: .zero, style: context.style)
         self.geometry = baseGeometry
         super.init(frame: .zero)
@@ -163,8 +173,10 @@ final class ScreenContentView: NSView {
     /// A window resize: frames snap (or, `keepsMotion`, a running spring retargets), and the scroll keeps the
     /// focused column in place on screen, then fits it (L7).
     fileprivate func reconcileAndScroll(keepsMotion: Bool = false) {
-        reconcile(animated: keepsMotion)
-        syncScroll(focused: lastFocused, source: .programmatic, mode: context.model.centerFocusedColumn, animated: keepsMotion)
+        motionTurn {
+            reconcile(animated: keepsMotion)
+            return syncScroll(focused: lastFocused, source: .programmatic, mode: context.model.centerFocusedColumn, animated: keepsMotion)
+        }
     }
 
     // MARK: Model updates
@@ -310,7 +322,7 @@ final class ScreenContentView: NSView {
             } else {
                 view = DividerHandleView(kind: kind, axis: target.axis)
                 view.onDrag = { [weak self] event in self?.handleDrag(kind: kind, event: event) }
-                view.onPointerChange = { [weak self] in self?.refreshDividerHover() }
+                view.onPointerChange = { [weak self] event in self?.refreshDividerHover(at: event) }
                 addSubview(view)
                 dividerViews[kind] = view
             }
@@ -365,7 +377,7 @@ final class ScreenContentView: NSView {
 
         if structural { scrollRidesFrames = departing && animateFrames && !covering }
         // A close's neighbours start covering the closed pane's space in the frame it leaves:
-        // no frame shows the hole before they move (`leadIfPending`, after `syncScroll`).
+        // no frame shows the hole before they move (`leadIfPending`, at the end of the change turn).
         leadsFrame = departing && animateFrames && !covering && !wasMoving
         // A split's or a close's terminals no longer keep their grids until the spring lands (Lawrence
         // 2026-10-23: they resize at the start): each resized pane hears its final size in the step that

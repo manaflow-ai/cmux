@@ -7,6 +7,7 @@ use crate::terminal_host_runtime::shared::host_refusal::{
     adoption_failed, is_refused_host_hello, no_common_protocol_if_refused, read_host_hello,
 };
 
+#[track_caller]
 pub(crate) fn connect_record(
     record: TerminalHostRecord,
     record_path: PathBuf,
@@ -15,6 +16,7 @@ pub(crate) fn connect_record(
     connect_record_with_timeout(record, record_path, HOST_HANDSHAKE_TIMEOUT, intent)
 }
 
+#[track_caller]
 pub(crate) fn connect_record_with_timeout(
     record: TerminalHostRecord,
     record_path: PathBuf,
@@ -83,6 +85,7 @@ pub(crate) fn connect_record_with_timeout(
     Err(adoption_failed(&failures, every_attempt_refused))
 }
 
+#[track_caller]
 pub(crate) fn connect_current_record_with_timeout(
     record: TerminalHostRecord,
     record_path: PathBuf,
@@ -126,6 +129,9 @@ pub(crate) fn is_transient_handshake_transport(error: &anyhow::Error) -> bool {
     })
 }
 
+/// One owner handshake: a round trip with the host, a `host_wait` on a
+/// request thread (`request_path`) noted at the caller.
+#[track_caller]
 pub(crate) fn connect_record_at_version(
     record: TerminalHostRecord,
     record_path: PathBuf,
@@ -135,6 +141,7 @@ pub(crate) fn connect_record_at_version(
     mut stream: HostStream,
     intent: OwnerIntent,
 ) -> anyhow::Result<HostAttachment> {
+    crate::request_path::note(crate::request_path::BlockingKind::HostWait);
     if !(LEGACY_PROTOCOL_VERSION..=PROTOCOL_VERSION).contains(&protocol_version) {
         anyhow::bail!("unsupported terminal-host adoption protocol {protocol_version}");
     }

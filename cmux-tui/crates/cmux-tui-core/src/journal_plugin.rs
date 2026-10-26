@@ -7,15 +7,12 @@
 
 #[cfg(windows)]
 use std::mem::size_of;
-#[cfg(unix)]
-use std::os::unix::process::CommandExt;
-#[cfg(windows)]
-use std::os::windows::process::CommandExt;
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, ExitStatus, Stdio};
 use std::sync::{Arc, Condvar, Mutex};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
+
+use cmux_process::{Child, Command, ExitStatus, Stdio};
 
 use crate::panic_free::RecoverPoison;
 
@@ -622,6 +619,7 @@ fn spawn_plugin(
     if let Some(revision) = &options.revision {
         command.env("CMUX_PLUGIN_REVISION", revision);
     }
+    crate::request_path::note(crate::request_path::BlockingKind::ProcessSpawn);
     let child = command.spawn()?;
     #[cfg(unix)]
     {

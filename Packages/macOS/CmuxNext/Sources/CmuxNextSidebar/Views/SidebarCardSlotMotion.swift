@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextDesign
+import CmuxNextWakeups
 
 /// The bottom card slot's height as the list above it lays out: a spring
 /// toward the slot's real height (`SidebarBottomCardSlot.height`), so a card
@@ -55,11 +56,11 @@ final class SidebarCardSlotMotion: MotionAnimating {
         return height.value
     }
 
-    func motionStep(_ dt: Double) -> Bool {
+    func motionStep(_ tick: FrameTick) -> Bool {
         guard var height, let view else { return false }
         // Room opens on `appear` and closes on the quicker `disappear`.
         let token: MotionSpring = height.target >= height.value ? .appear : .disappear
-        let moving = height.advance(dt, parameters: policy().spring(token), epsilon: 0.25)
+        let moving = height.advance(tick.elapsed,parameters: policy().spring(token), epsilon: 0.25)
         self.height = height
         view.needsLayout = true
         return moving

@@ -9,9 +9,11 @@ import Foundation
 /// decides their engine as it does for browser tabs. Made once at the composition root
 /// (`AppDelegate`) and handed to ``PageWebView/chromiumHosting``.
 ///
-/// Every page shares one off-the-record profile: like the WebKit pages' non-persistent store, a
-/// page keeps nothing on disk, and no profile of the person's (their extensions, cookies) touches a
-/// cmux page.
+/// Every page shares one off-the-record profile (``CEFEngine/beginPagesProfile()``): like the WebKit pages'
+/// non-persistent store, a page keeps nothing on disk, and no profile of the person's (their
+/// extensions, cookies) touches a cmux page. Each page's key is a key of that profile, so it takes
+/// the pages spare window the warm start built (`ChromiumWarmup`, p13-webui-016) instead of building
+/// a window in the turn that opened it.
 @MainActor
 final class ChromiumPageHost: PageChromiumHosting {
     enum Failure: Error {
@@ -24,7 +26,6 @@ final class ChromiumPageHost: PageChromiumHosting {
     private let cef: CEFEngine
     private let enginePreference: @MainActor () -> BrowserDefaultEngine
     private weak var keyRouter: KeyRouter?
-    private var pageProfile: BrowserProfileID?
 
     /// - Parameters:
     ///   - cef: The app's Chromium engine.
@@ -48,10 +49,8 @@ final class ChromiumPageHost: PageChromiumHosting {
         // Taken before any suspension: set by the traced chat's own page in this turn (``ChatOpenTrace``).
         let traced = ChatOpenTrace.shared.takeMakingTracedPage()
         #endif
-        let profile = pageProfile ?? cef.stores.offTheRecord.begin()
-        pageProfile = profile
         // Its own pane id: a page is never a tab of a browser pane's Chromium window.
-        let configuration = BrowserTabConfiguration(profile: profile, pane: BrowserPaneID(rawValue: "cmux-page-" + UUID().uuidString))
+        let configuration = BrowserTabConfiguration(profile: cef.beginPagesProfile(), pane: BrowserPaneID(rawValue: "cmux-page-" + UUID().uuidString))
         #if DEBUG || CMUX_BENCH_HOOKS
         if traced, ChatOpenTrace.shared.chromiumPane == nil { ChatOpenTrace.shared.chromiumPane = configuration.pane?.rawValue }
         #endif

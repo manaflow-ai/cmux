@@ -184,8 +184,9 @@ pub(crate) fn wait_for_native_child_status_with_reap_result(
     child: &mut (dyn cmux_pty::Child + Send + Sync),
 ) -> (TerminalExit, bool) {
     let child: &mut dyn cmux_pty::Child = child;
-    if let Some(child) = child.downcast_mut::<std::process::Child>() {
-        return match child.wait() {
+    #[cfg(unix)]
+    if let Some(child) = child.downcast_mut::<cmux_pty::NativePtyChild>() {
+        return match child.wait_native() {
             Ok(status) => (TerminalExit::from_exit_status(&status), true),
             Err(error) => (TerminalExit::unknown(format!("wait failed: {error}")), false),
         };
@@ -437,6 +438,9 @@ pub enum MessageKind {
     /// Private-pipe launch of a replacement host that adopts an inherited
     /// PTY master and its running session instead of spawning a child.
     LaunchAdopt = 27,
+    /// Targeted response to `TraceControl`: the host's trace state after the
+    /// request (`terminal_host_runtime/shared/host_trace.rs`).
+    TraceControlAck = 28,
     Input = 100,
     Paste = 101,
     ViewerSize = 102,
@@ -467,6 +471,10 @@ pub enum MessageKind {
     /// `CLIPBOARD_READ` answer: token:u64 + outcome:u8 (0 refused, 1
     /// granted) + text blob, ignored when refused.
     ClipboardReadReply = 112,
+    /// Admin request: start, stop or report the host's trace recording, with
+    /// op:u8 and categories:u64; no path. Sent only to a host whose record
+    /// advertises `supports_trace_control` (`shared/host_trace.rs`).
+    TraceControl = 113,
 }
 
 impl TryFrom<u16> for MessageKind {
@@ -501,6 +509,7 @@ impl TryFrom<u16> for MessageKind {
             25 => Ok(Self::ClipboardReadCancel),
             26 => Ok(Self::PtyCustody),
             27 => Ok(Self::LaunchAdopt),
+            28 => Ok(Self::TraceControlAck),
             100 => Ok(Self::Input),
             101 => Ok(Self::Paste),
             102 => Ok(Self::ViewerSize),
@@ -514,6 +523,7 @@ impl TryFrom<u16> for MessageKind {
             110 => Ok(Self::Activate),
             111 => Ok(Self::Detach),
             112 => Ok(Self::ClipboardReadReply),
+            113 => Ok(Self::TraceControl),
             other => Err(ProtocolError::UnknownMessageKind(other)),
         }
     }

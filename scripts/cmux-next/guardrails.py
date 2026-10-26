@@ -3,11 +3,12 @@
 
 Run by the pre-push hook through `prepush-gate.py --pre-push` (and by a plain local `prepush-gate.py`),
 never by CI (Lawrence 2026-10-23: no new CI gates). Only Swift lines the push ADDS under
-Packages/macOS/CmuxNext/Sources count, plus unchanged lines that become debt because the push changed the
-line that gives them their context (`struct` -> `class` around a static, a view renamed to a `...Row`, an
-edited or deleted deinit in a generic class's body, or a type made generic around the classes in its
-extensions, read in every Sources and Tests file that extends it: generic_signature_context) or the comment
-that escaped them (a deleted or reworded `// <rule>-allow:` line).
+Packages/macOS/CmuxNext/Sources count (wakeup-ext also reads the app-linked Shared packages, CmuxUpdater,
+the cmux-tui crates' src, webviews/src and the CEF shim with wakeup-audit.py's rules), plus unchanged lines that
+become debt because the push changed the line that gives them their context (`struct` -> `class` around a
+static, a view renamed to a `...Row`, an edited or deleted deinit in a generic class's body, or a type made generic
+around the classes in its extensions, read in every Sources and Tests file that extends it:
+generic_signature_context) or the comment that escaped them (a deleted or reworded `// <rule>-allow:` line).
 Per file and rule it is a count ratchet: an added match is new only when the same file does not remove as
 much debt (judged on the base text with the same context and escape rules, so editing a line that already
 has debt adds none, and a removed escaped line does not pay for an unescaped one), and an added line whose
@@ -62,10 +63,12 @@ one move pool per push with the new-file rule (move_pools).
   scripts/cmux-next/guardrails.py                    # what HEAD adds over origin/feat-cmux-next
   scripts/cmux-next/guardrails.py --base A --head B   # exactly what B adds over A
   scripts/cmux-next/guardrails.py --list
+  scripts/cmux-next/guardrails.py --self-test        # the input-monitor rule's refuse and escape cases
 """
 from __future__ import annotations
 
 import argparse
+import bisect
 import collections
 import concurrent.futures
 import dataclasses
@@ -74,6 +77,7 @@ import importlib.util
 import itertools
 import json
 import os
+import posixpath
 import re
 import subprocess
 import sys
@@ -81,7 +85,7 @@ import threading
 import time
 import traceback
 from dataclasses import dataclass, field
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Callable, NamedTuple
 
 HERE = Path(__file__).resolve().parent
@@ -584,8 +588,14 @@ def lex_cache_dir(repo: Path) -> Path | None:
 
 
 def in_diff_scope(path: str) -> bool:
-    """PATH is one of check()'s diff pathspecs (SWIFT_SOURCES, SWIFT_TESTS, SHIPPED_BUILD_SPECS), so its blobs are read
-    while the content diff runs. A path this misses is read after the diff (check()'s late read)."""
+    """PATH is one of check()'s diff pathspecs (SWIFT_SOURCES, SWIFT_TESTS, SHIPPED_BUILD_SPECS, WAKEUP_EXT_SPECS), so
+    its blobs are read while the content diff runs. A path this misses is read after the diff (check()'s late read)."""
+    return in_swift_scope(path) or in_wakeup_ext_specs(path)
+
+
+def in_swift_scope(path: str) -> bool:
+    """PATH is in SWIFT_SOURCES, SWIFT_TESTS or SHIPPED_BUILD_SPECS: the files every rule but wakeup-ext, the
+    generic-type context and the perf-hot warning read."""
     return ((path.startswith((SOURCES, TESTS)) and path.endswith(".swift")) or path.startswith(".github/workflows/")
             or path in ("scripts/build-sign-upload.sh", "Packages/macOS/CmuxNext/Package.swift")
             or path.endswith(".xcconfig") or path.split("/")[-1] == "project.pbxproj")
@@ -1478,38 +1488,89 @@ GENERIC_CLASS_ALLOW = swift_scope.GENERIC_CLASS_ALLOW
 GENERIC_TYPE = swift_scope.GENERIC_TYPE
 PACKAGE_ROOT = "Packages/macOS/CmuxNext/"
 MANIFEST = PACKAGE_ROOT + "Package.swift"
+UI_LEVELS = 2  # the batches of files GenericTypes.prefetch reads ahead: the named types, then their superclasses
 
 
 class GenericTypes:
-    """Which type names are declared generic (`struct Name<...>`) at one revision.
+    """Which type names are declared generic (`struct Name<...>`) at one revision, and which are UI types (main
+    actor by what they inherit, `final class TerminalView: NSView`).
 
     KNOWN holds the declarations in the push's own files at that revision. A name it lacks is looked up once in
     the revision's `Name.swift` files (CLAUDE.md: one major type per file, named after the type); a type declared
-    in a file of another name is not found, and its extensions read as non-generic (fail open).
+    in a file of another name is not found, and its extensions read as non-generic and not UI (fail open).
     """
 
     def __init__(self, repo: Path | None, rev: str | None, texts: list[str]):
         self.repo, self.rev = repo, rev
+        self.texts = texts
         self.known = {name for text in texts for name in GENERIC_TYPE.findall(text)}
         self.looked: dict[str, bool] = {}
-        self.tree: list[str] | None = None
+        self.ui_known: set[str] | None = None
+        self.ui_looked: dict[str, bool] = {}
+        self.by_name: dict[str, list[str]] | None = None  # file name -> its paths at REV
+        self.named: dict[str, str] = {}  # type name -> its `Name.swift` texts, joined
+        self.headers: dict[str, list] = {}  # type name -> its class or struct declarations in `Name.swift`
 
     def __contains__(self, name: str) -> bool:
         if name in self.known:
             return True
         if name not in self.looked:
-            self.looked[name] = self.declared_generic(name)
+            declared = re.compile(r"\b(?:class|struct|enum|actor)\s+" + re.escape(name) + r"\s*<")
+            self.looked[name] = declared.search(self.named_file(name)) is not None
         return self.looked[name]
 
-    def declared_generic(self, name: str) -> bool:
+    def ui_type(self, name: str) -> bool:
+        """Whether NAME is a UI type (check-main-actor-work.py's ui_subclasses): the main-thread rules read an
+        extension of it in another file (`extension TerminalView` in TerminalView+Drag.swift) as main actor."""
+        scope = swift_scope.main_actor_scope
+        if self.ui_known is None:
+            self.ui_known = set()
+            pushed = [scope.type_headers(text.split("\n")) for text in self.texts]
+            # The files the push's declarations name (`extension TerminalView`, `: TerminalView`), read in batches.
+            self.prefetch({n for headers in pushed for h in headers
+                           for n in ([h.name] if h.kind == "extension" else h.inherited if h.kind == "class" else [])})
+            for headers in pushed:
+                self.ui_known |= scope.ui_subclasses(headers, self.ui_type)
+        if name in self.ui_known:
+            return True
+        if name not in self.ui_looked:
+            self.ui_looked[name] = False  # a cycle (`class A: B`, `class B: A`) reads as no UI type
+            self.prefetch({name})
+            self.ui_looked[name] = any(scope.inherits_ui(h, self.ui_type) for h in self.headers[name])
+        return self.ui_looked[name]
+
+    def named_file(self, name: str) -> str:
+        """The revision's `NAME.swift` files under Sources and Tests, joined ("" when there is none)."""
+        self.prefetch({name})
+        return self.named[name]
+
+    def prefetch(self, names: set[str], levels: int = UI_LEVELS):
+        """Read the `Name.swift` files of NAMES not read yet in one `git cat-file --batch`, then, for LEVELS - 1 more
+        batches, the files of the types their classes inherit (a subclass of a subclass of NSView)."""
+        wanted = {n for n in names if n not in self.named}
+        if not wanted:
+            return
         if self.repo is None or self.rev is None:
-            return False
-        if self.tree is None:
-            self.tree = git(self.repo, "ls-tree", "-r", "--name-only", self.rev, "--", SOURCES, TESTS,
-                            check=False).split("\n")
-        paths = [p for p in self.tree if p.rsplit("/", 1)[-1] == f"{name}.swift"]
-        declared = re.compile(r"\b(?:class|struct|enum|actor)\s+" + re.escape(name) + r"\s*<")
-        return any(declared.search(text) for text in blobs(self.repo, [(self.rev, p) for p in paths]).values())
+            self.named.update(dict.fromkeys(wanted, ""))
+            self.headers.update({n: [] for n in wanted})
+            return
+        if self.by_name is None:
+            self.by_name = collections.defaultdict(list)
+            tree = git(self.repo, "ls-tree", "-r", "--name-only", self.rev, "--", SOURCES, TESTS, check=False)
+            for path in tree.split("\n"):
+                self.by_name[path.rsplit("/", 1)[-1]].append(path)
+        paths = {n: self.by_name.get(f"{n}.swift", []) for n in wanted}
+        specs = [(self.rev, p) for found in paths.values() for p in found]
+        texts = blobs(self.repo, specs) if specs else {}
+        inherited = set()
+        for n, found in paths.items():
+            self.named[n] = "\n".join(texts[(self.rev, p)] for p in found if (self.rev, p) in texts)
+            lines = [line for line in self.named[n].split("\n") if n in line] if found else []
+            self.headers[n] = [h for h in swift_scope.main_actor_scope.type_headers(lines)
+                               if h.name == n and h.kind != "extension"]
+            inherited.update(i for h in self.headers[n] if h.kind == "class" for i in h.inherited)
+        if levels > 1:
+            self.prefetch(inherited, levels - 1)
 
 
 def main_by_default(path: str, targets: list) -> bool:
@@ -1629,30 +1690,55 @@ def module_of(path: str) -> str:
     return path[len(SOURCES):].split("/", 1)[0] if path.startswith(SOURCES) else ""
 
 
-# ---- task-priority (PL-qos)
-# Every off-main task and queue states its priority on purpose (Lawrence's threading items 3 and 5,
-# plans/cmux-next/PATTERNS.md P14): a detached Task names `priority:`, a global queue its `qos:`, a new serial
-# queue its `qos:` or its `target:`. A plain `Task { }` is not counted: it inherits its caller's priority and actor,
-# which is right in almost every case (lead, 2026-10-24). The argument list is read to its closing parenthesis, so a
-# call split over lines counts by what it names.
-TASK_CALL = re.compile(r"\bTask\.detached\s*[({]|\bDispatchQueue\.global\(|\bDispatchQueue\(\s*label:")
+# ---- task-priority (PL-qos, p02-threads-011)
+# Every off-main task, queue and thread states its priority on purpose (Lawrence's threading items 3 and 5,
+# plans/cmux-next/PATTERNS.md P14; Chromium base/task/task_traits.h: every posted task names its TaskPriority, and
+# base/threading/platform_thread.h: every thread is created with a ThreadType). Per form:
+# - `Task.detached` only in CmuxNextWakeups, the owner of off-main tasks (elsewhere `work.task(priority) { }`, which
+#   quit can drain, or a plain `Task { }`); there it names `priority:`.
+# - `DispatchQueue.global(` only in CmuxNextWakeups (a root queue has no name, lane or shutdown: `work.run`
+#   elsewhere); there it names `qos:`.
+# - `DispatchQueue(label:` names `qos:` or `target:`.
+# - `Thread {` / `Thread(block:` / `Thread(target:` (also `Foundation.Thread`, `Thread.init`, the arguments on the
+#   next line) sets `.name =` and `.qualityOfService =` on the variable or property it is assigned to, within
+#   THREAD_QOS_LINES (its closure body comes first); a `class X: Thread` sets them in its body (its init).
+#   `Thread.detachNewThread` starts at once and cannot, so it is refused.
+# - `OperationQueue()` sets `.name =` and `.qualityOfService =` the same way, within OPERATION_QUEUE_LINES.
+# - A thread or operation queue that nothing names (`return Thread {`, `delegateQueue: OperationQueue()`) is refused:
+#   nothing can set its properties before it runs.
+# - The level set is not `.userInteractive` or `.background` (RESERVED_LEVEL's reasons) or `.default` (states nothing).
+# - `delegateQueue: nil` is refused: URLSession then makes an unnamed queue at default QoS.
+# A plain `Task { }` is not counted: it inherits its caller's priority and actor, which is right in almost every case
+# (lead, 2026-10-24). An argument list is read to its closing parenthesis, so a call split over lines counts by what
+# it names. `// qos-allow: <why>` escapes every form.
+TASK_CALL = re.compile(r"(?P<detached>\bTask\.detached\s*[({])|(?P<global>\bDispatchQueue\.global\()"
+                       r"|(?P<queue>\bDispatchQueue\(\s*label:)"
+                       r"|(?:^\s*|[=(,\[]\s*|\breturn\s+)"
+                       r"(?P<thread>(?:Foundation\.)?Thread(?:\.init)?\s*(?:\{|\((?:\s*$|block:|target:)))"
+                       r"|(?P<thread_subclass>\bclass\s+\w+\s*:\s*(?:Foundation\.)?Thread\b(?!\.))"
+                       r"|(?P<detach_thread>\bThread\.detachNewThread\b)"
+                       r"|(?P<operation_queue>\bOperationQueue\(\))"
+                       r"|(?P<delegate_nil>\bdelegateQueue:\s*nil\b)")
 STATED = re.compile(r"\b(priority|qos|target):")
 RESERVED_LEVEL = re.compile(r"\b(priority|qos):\s*(\.|\w+\.)?(userInteractive|unspecified|background)\b")
+RESERVED_SET = re.compile(r"\s*(\.|\w+\.)?(userInteractive|background|default)\b")  # after `.qualityOfService =`
 QOS_ALLOW = "qos-allow:"
 TASK_ARGS_MAX_LINES = 8  # an argument list longer than this is not a queue or task init in this codebase
+TASK_OWNER = SOURCES + "CmuxNextWakeups/"  # the one module that may detach a Task or use a root queue
+THREAD_QOS_LINES = 40  # lines from `Thread {` to its `.name =` and `.qualityOfService =`
+OPERATION_QUEUE_LINES = 10  # lines from `OperationQueue()` to its `.name =` and `.qualityOfService =`
+# What a creation is assigned to: `let t: Thread? =`, `var t =`, `self.reader =`, `holder.reader =`.
+CREATED_BINDING = re.compile(r"(?:\b(?:let|var)\s+(?P<name>\w+)\s*(?::[^=]+)?"
+                             r"|(?:^|[^\w.])(?P<lvalue>(?:\w+\.)*\w+)\s*)=\s*$")
 
 
-def unstated_priority(version: Version, index: int) -> tuple[bool, list[int]]:
-    """Whether the detached Task or queue call on line INDEX names no priority, QoS or target, or names a level the
-    model keeps for other work: `.userInteractive` (the main thread and the threads a frame waits for only),
+def unstated_args(version: Version, index: int, code: str, start: int) -> bool:
+    """Whether the call at CODE[START:] (line INDEX) names no priority, QoS or target, or names a level the model
+    keeps for other work: `.userInteractive` (the main thread and the threads a frame waits for only),
     `.unspecified` (unstated in effect) or `.background` (work nothing ever waits for: say so in the escape)."""
-    code = code_of(version.lines[index])
-    match = TASK_CALL.search(code)
-    if match is None:
-        return False, []
-    rest = code[min(i for i in (code.find("(", match.start()), code.find("{", match.start())) if i >= 0):]
+    rest = code[min(i for i in (code.find("(", start), code.find("{", start)) if i >= 0):]
     if rest.startswith("{"):
-        return True, []
+        return True
     args, depth = "", 0
     lines = [rest] + [code_of(line) for line in version.lines[index + 1:index + TASK_ARGS_MAX_LINES]]
     for line in lines:
@@ -1661,10 +1747,72 @@ def unstated_priority(version: Version, index: int) -> tuple[bool, list[int]]:
             depth -= c == ")"
             if depth == 0:
                 args += line[:i + 1]
-                return not STATED.search(args) or bool(RESERVED_LEVEL.search(args)), []
+                return not STATED.search(args) or bool(RESERVED_LEVEL.search(args))
         args += line + "\n"
-    return not STATED.search(args) or bool(RESERVED_LEVEL.search(args)), []
+    return not STATED.search(args) or bool(RESERVED_LEVEL.search(args))
 
+
+def created_receiver(version: Version, index: int, code: str, start: int, kind: str) -> str | None:
+    """The pattern for the receiver that the thread or queue created at CODE[START:] (line INDEX) gets its
+    properties set on: its variable or property (the binding may end the line above), `self.` or nothing at a
+    line start in a Thread subclass, None when nothing names it."""
+    if kind == "thread_subclass":
+        return r"(?:^\s*|(?<![\w.])self\.)"
+    prefix = code[:start]
+    if not prefix.strip() and index > 0:
+        prefix = code_of(version.lines[index - 1])
+    bound = CREATED_BINDING.search(prefix.rstrip() + " ")
+    if bound is None:
+        return None
+    name = bound.group("name") or bound.group("lvalue").removeprefix("self.")
+    return r"(?<![\w.])(?:self\.)?" + re.escape(name) + r"[?!]?\."
+
+
+def unset_properties(version: Version, index: int, code: str, start: int, kind: str) -> tuple[bool, list[int]]:
+    """(the thread or operation queue created at CODE[START:] on line INDEX leaves `.name` or `.qualityOfService`
+    unset on its receiver in its window, sets a reserved level, or has no receiver; the window's 1-based lines,
+    so a push that edits, inserts or deletes in it rejudges the unchanged creation line)."""
+    end = min(len(version.lines), index + (OPERATION_QUEUE_LINES if kind == "operation_queue" else THREAD_QOS_LINES))
+    window = list(range(index + 2, end + 1))
+    receiver = created_receiver(version, index, code, start, kind)
+    if receiver is None:
+        return True, window
+    texts = [code[start:]] + [code_of(line) for line in version.lines[index + 1:end]]
+    for name in ("name", "qualityOfService"):
+        setter = re.compile(receiver + name + r"\s*=(?!=)")
+        found = next((m for m in (setter.search(text) for text in texts) if m), None)
+        if found is None or (name == "qualityOfService" and RESERVED_SET.match(found.string, found.end())):
+            return True, window
+    return False, window
+
+
+def unstated_priority(version: Version, index: int) -> tuple[bool, list[int]]:
+    """(a task, queue, thread or URLSession delegate queue created on line INDEX does not state its priority the way
+    its form must (see the section comment), the 1-based lines its judgement read: a push that touches one of them
+    rejudges the unchanged creation line)."""
+    code = code_of(version.lines[index])
+    debt, openers = False, []
+    owner = version.path.startswith(TASK_OWNER)
+    for match in TASK_CALL.finditer(code):
+        kind = match.lastgroup
+        if kind in ("detached", "global"):
+            debt |= not owner or unstated_args(version, index, code, match.start(kind))
+        elif kind == "queue":
+            debt |= unstated_args(version, index, code, match.start(kind))
+        elif kind in ("detach_thread", "delegate_nil"):
+            debt = True
+        else:
+            missing, window = unset_properties(version, index, code, match.start(kind), kind)
+            debt |= missing
+            openers += window
+    return debt, openers
+
+
+# The one fix for a main-thread hop (p06-scheduler.md recipe R-hop): main-async and main-hop print it, so neither
+# rule's fix is a line the other refuses.
+R_HOP = ("recipe R-hop: change the model synchronously in the input's turn, or post with a class and an owner "
+         "(`mainWork.post(.visible, owner: ...)`, `node.queue(...).post`), or compute off main in a nonisolated "
+         "Task and `.reply(on:)`; deliveries use `MainDelivery(class:owner:)`")
 
 RULES = (
     Rule("unchecked-sendable", "`@unchecked Sendable` / `nonisolated(unsafe)` without a safety argument",
@@ -1677,8 +1825,7 @@ RULES = (
          unchecked_sendable),
     Rule("main-async", "`DispatchQueue.main.async`",
          "an untyped hop that reorders work and hides isolation (CLAUDE.md forbids it in new code)",
-         "annotate the destination `@MainActor` and `await` it, or hop once with `Task { @MainActor in ... }` "
-         "owned by the caller",
+         R_HOP,
          "// main-async-allow: <the API that forces a GCD hop>",
          line_rule(r"\bDispatchQueue\.main\.async\b|\bOperationQueue\.main\.addOperation\b", "main-async-allow:")),
     Rule("combine-state", "`ObservableObject` / `@Published` / Combine state",
@@ -1725,15 +1872,22 @@ RULES = (
          None,
          line_rule(r"CMUX_BENCH_HOOKS|--config[= ]bench\b", None),
          scope=SHIPPED_BUILD + (".xcconfig", "project.pbxproj")),
-    Rule("task-priority", "A detached Task or dispatch queue without a stated priority, or at a reserved level",
-         "a task or queue that does not say how much a person waits for it runs at whatever QoS it inherits: work "
-         "nobody waits for competes with typing and frames, and the main thread can wait on work that runs below it "
-         "(priority inversion; plans/cmux-next/PATTERNS.md P14). .userInteractive is for the main thread and the "
-         "threads a frame waits for; .unspecified states nothing; .background may wait without limit",
-         "say it: `Task.detached(priority: WorkPriority.bestEffort.taskPriority) { ... }` (or `.high`/`.medium`/`.utility`), "
-         "`DispatchQueue.global(qos: .utility)`, `DispatchQueue(label: ..., qos: .utility)`; blocking work (file I/O, a "
-         "process wait, a sync C call, a long parse) goes to `BackgroundWork.run(_:mayBlock:)` or `AsyncProcess`, never "
-         "into a Task on the cooperative pool",
+    Rule("task-priority", "A task, queue or thread without a stated priority, or at a reserved level: a `Task.detached` "
+         "or `DispatchQueue.global(` outside CmuxNextWakeups, a queue with no `qos:`/`target:`, a `Thread` (or Thread "
+         "subclass) or `OperationQueue()` with no `.name =` and `.qualityOfService =` on its own variable, or one that "
+         "nothing names, `Thread.detachNewThread`, or `delegateQueue: nil`",
+         "a task, queue or thread that does not say how much a person waits for it runs at whatever QoS it inherits or "
+         "the default: work nobody waits for competes with typing and frames, and the main thread can wait on work that "
+         "runs below it (priority inversion; plans/cmux-next/PATTERNS.md P14). A detached Task or root-queue block has "
+         "no owner quit can drain. .userInteractive is for the main thread and the threads a frame waits for; "
+         ".unspecified states nothing; .background may wait without limit",
+         "off-main async work: `work.task(.userVisible) { ... }` (BackgroundWork.task: stated priority, drained at quit), "
+         "or a plain `Task { }` that inherits its caller's; blocking work (file I/O, a process wait, a sync C call, a "
+         "long parse): `work.run(_:mayBlock:)` or `AsyncProcess`, never a root queue or the cooperative pool; "
+         "`DispatchQueue(label: ..., qos: .utility)`; a Thread: `thread.name = ...` and `thread.qualityOfService = "
+         ".utility` before `start()` (not `Thread.detachNewThread`; a subclass sets them in its init); an "
+         "OperationQueue: `let queue = OperationQueue()`, set `queue.name` and `queue.qualityOfService`, and pass "
+         "`queue` as a URLSession's `delegateQueue:`",
          "// qos-allow: <why: a frame waits for it (userInteractive), it inherits on purpose, or nothing ever waits for it (background)>",
          matcher_rule(Matcher(TASK_CALL, re.compile(r"//\s*" + re.escape(QOS_ALLOW) + r"\s*\S"), unstated_priority))),
     Rule("appkit-index", "A raw AppKit row or column index read (`.clickedRow`, `.clickedColumn`, `.selectedColumn`, "
@@ -1794,6 +1948,699 @@ RULES = (
 )
 
 
+# ---------------------------------------------------------------- input-monitor (p04-input, PL-typing)
+# One input tap (plans/cmux-next/chrome-parity/p04-input.md (A)): `CmuxApplication.sendEvent` is the only place
+# that sees raw NSEvents, and CmuxNextInput's InputEventTap hands them to typed subscriptions (class, phase,
+# window, live predicate), as Chrome routes every input through one RenderWidgetHostImpl/InputRouter
+# (components/input/input_router_impl.cc) instead of per-feature hooks. A new NSEvent monitor, or a new raw
+# event-observer closure on CmuxApplication, puts a per-event callback back beside the tap: it runs for every
+# event of the process, outside the tap's order and window scope. Local only (prepush-gate runs the guardrails
+# never under --commits or GitHub Actions; Lawrence 2026-10-23: no new CI gates). Base debt per file, as
+# action-wait: editing a line that already holds a monitor adds none.
+# The block owns its lines from here to `RULES += INPUT_RULES`.
+INPUT_TAP_MODULE = SOURCES + "CmuxNextInput/"  # the tap itself; its `globalObserve` wraps the global monitor
+INPUT_MONITOR = re.compile(r"\badd(Local|Global)MonitorForEvents\b")
+# A `var`/`let` whose declaration holds a closure type with an NSEvent parameter, anywhere after the name:
+# `var x: ((NSEvent) -> Void)?`, `((_ event: NSEvent) -> Void)?`, `[UUID: (NSEvent) -> Void]`,
+# `= [(NSEvent) -> Void]()`, `Optional<(NSEvent, () -> Void) -> Void>`. The `->` after the parameter list is what
+# makes it a closure: a tuple such as `(NSEvent, Date)?` has none. One level of nested parentheses is read.
+EVENT_PARAMETERS = r"(?:[^()]|\([^()]*\))*"
+EVENT_CLOSURE = re.compile(r"\b(?:var|let)\s+\w+\b.*?\((?:" + EVENT_PARAMETERS + r",)?\s*(?:\w+\s+)?(?:\w+\s*:\s*)?"
+                           r"(?:@\w+\s+)*(?:inout\s+)?NSEvent\b" + EVENT_PARAMETERS + r"\)\s*(?:async\s+)?"
+                           r"(?:(?:re)?throws(?:\([^()]*\))?\s+)?->")
+INPUT_MONITOR_LINE = re.compile(INPUT_MONITOR.pattern + "|" + EVENT_CLOSURE.pattern)
+INPUT_MONITOR_ALLOW = re.compile(r"//\s*input-monitor-allow:\s*\S")
+CMUX_APPLICATION_FILE = re.compile(r"(^|/)CmuxNextApp/CmuxApplication(\+\w+)?\.swift$")
+INNERMOST_BLOCK = re.compile(r"\{")  # enclosing_openers stops at the first opener: the innermost block
+CMUX_APPLICATION_SCOPE = re.compile(r"\b(class|extension)\s+CmuxApplication\b")
+
+
+def input_monitor_debt(version: Version, index: int) -> tuple[bool, list[int]]:
+    """Whether line INDEX is a monitor (anywhere) or an NSEvent closure member of CmuxApplication (its file, the
+    innermost block a `class`/`extension CmuxApplication` body, not a local in a function), with the opener read."""
+    code = code_of(version.lines[index])
+    if INPUT_MONITOR.search(code):
+        return True, []
+    if not EVENT_CLOSURE.search(code) or not CMUX_APPLICATION_FILE.search(version.path):
+        return False, []
+    openers = enclosing_openers(version.lines, index, INNERMOST_BLOCK)
+    if not openers:
+        return False, []
+    opener, number = openers[0]
+    return bool(CMUX_APPLICATION_SCOPE.search(opener)), [number]
+
+
+INPUT_MONITOR_MATCHER = Matcher(INPUT_MONITOR_LINE, INPUT_MONITOR_ALLOW, input_monitor_debt)
+
+
+def input_monitor(changes: list[FileChange], moved: collections.Counter) -> list[Added]:
+    return matcher_rule(INPUT_MONITOR_MATCHER)([c for c in changes if not c.path.startswith(INPUT_TAP_MODULE)], moved)
+
+
+INPUT_RULES = (
+    Rule("input-monitor", "A new NSEvent monitor (`addLocalMonitorForEvents` / `addGlobalMonitorForEvents`) outside "
+         "CmuxNextInput, or a new raw event-observer closure on CmuxApplication",
+         "a monitor runs for every event of the process beside the input tap: outside its declared order and window "
+         "scope, unmeasured, and O(monitors) per key (33 monitors before the tap; plans/cmux-next/chrome-parity/"
+         "p04-input.md (A), Chrome's one InputRouter per widget)",
+         "subscribe through CmuxNextInput's `InputEventTap.subscribe(class:phase:window:while:handler:)` (phase "
+         "`.observe`, `.intercept(order:)` or `.afterDispatch`; keep the token, it unsubscribes on deinit); core and "
+         "service packages take an `InputObserving` and read `InputEventRecord`s; other apps' events go through the "
+         "tap's `globalObserve`; never add a closure property to CmuxApplication, add a tap phase instead",
+         "// input-monitor-allow: <why the tap cannot see this event (a nested tracking loop, a modal session)>",
+         input_monitor),
+)
+RULES += INPUT_RULES
+# ---------------------------------------------------------------- end of input-monitor (p04-input, PL-typing)
+
+
+# ---------------------------------------------------------------- main-thread classes (p06-scheduler)
+# Main-thread work has a class and an owner, and hidden things do no view work
+# (plans/cmux-next/chrome-parity/p06-scheduler.md, section F). Chrome posts every UI-thread task to a typed queue
+# (content/browser/scheduler/browser_task_queues.h: BrowserTaskType and its priority), tells hidden pages so
+# (content/public/browser/visibility.h, WebContentsImpl::UpdateWebContentsVisibility), aligns timers
+# (base/task/delay_policy.h: kFlexibleNoSooner) and registers observers on their owner (base/observer_list.h).
+# Six line rules judge what a push adds, per file as a count ratchet like main-async: an edit of a line that
+# already has the debt adds none. Local only, never CI (Lawrence 2026-10-23). CmuxNextWakeups holds the
+# primitives that implement the classes and is not judged. Each concern has one owner, so these rules do not
+# repeat: `DispatchQueue.main.async` (main-async), a sleep without `// wakeup-allow:` (check-concurrency.sh's
+# wakeup rule) and a monitor outside CmuxNextInput (input-monitor).
+# The block owns its lines from here to `RULES += MAIN_CLASS_RULES`.
+WAKEUPS = SOURCES + "CmuxNextWakeups/"
+main_actor_work = swift_scope.main_actor_scope  # check-main-actor-work.py: the main-actor scopes and Task predicate
+RAW_MAIN_HOP = re.compile(r"\bMainActor\.run\b|\bCFRunLoopPerformBlock\(|\bRunLoop\.main\.perform\b")
+MAIN_DELIVERY = re.compile(r"\bMainDelivery\(")
+
+
+def prefilter(*patterns: re.Pattern) -> re.Pattern:
+    """PATTERNS joined, each alternative without its leading `\\b` (so a superset): a rule with a context reads every
+    line of a changed file, and a leading `\\b` costs re its literal-prefix scan (5x slower); the rule's own check
+    holds the exact patterns."""
+    return re.compile("|".join(piece.removeprefix(r"\b") for p in patterns for piece in p.pattern.split("|")))
+
+
+MAIN_HOP_LINE = prefilter(main_actor_work.TASK_START, RAW_MAIN_HOP, MAIN_DELIVERY)
+ARGUMENT_LABEL = re.compile(r"\s*(\w+)\s*:(?!:)")
+CALL_LINES = 40  # the lines one call's arguments are read across (`MainDelivery(\n    owner: ...,\n    class: ...`)
+# `ObservationStream({`, its trailing-closure form and `.current({`; not `extension ObservationStream {`.
+VIEW_OBSERVATION = re.compile(r"(?<!extension )\bObservationStream(\s*[({]|\.current\()|\bwithObservationTracking\b")
+HIDDEN_WALK = re.compile(r"\bisHiddenOrHasHiddenAncestor\b")
+HIDE_OVERRIDE = re.compile(r"\boverride\s+func\s+viewDid(Hide|Unhide)\b")
+# The one body a hide override may have (recipe R-hide): call its own super and tell the view's VisibilityNode its
+# own direction (`viewDidHide` -> `.hidden`, `viewDidUnhide` -> `.visible`).
+HIDE_FORWARD = {
+    direction: re.compile(r"^\s*(super\.viewDid" + direction + r"\(\)|(self\.)?\w*[nN]ode\??\.set\(\." + state
+                          + r"\))\s*$")
+    for direction, state in (("Hide", "hidden"), ("Unhide", "visible"))
+}
+BODY_LINES = 40  # the lines a hide override's body is read across
+DEMAND_TIMER = re.compile(r"\bDemandTimer\(")
+SLEEP = re.compile(r"\bTask\.sleep\(|\.sleep\((for|until):")
+WAKEUP_ALLOWED = re.compile(r"//\s*wakeup-allow:\s*\S")
+LOOP_OPENER = re.compile(r"^\s*(\}\s*)?(while|for|repeat)\b")
+BRANCH_OPENER = re.compile(r"^\s*(\}\s*)?(if|else|guard|switch|case|default|do|catch|defer)\b|^\s*\{$")
+SCOPE_STOP = re.compile(r"\b(func|init|deinit|subscript|class|struct|enum|actor|extension|protocol)\b")
+RAW_OBSERVER = re.compile(r"\baddObserver\(|\b(NSWindow|NSApplication)\.(did|will)[A-Za-z]+Notification\b"
+                          r"|\bNSWorkspace\.shared\.notificationCenter\b|\bnotifications\(named:"
+                          r"|\bDistributedNotificationCenter\b|\.observe\(\\\.|\bNSView\.(frame|bounds)DidChangeNotification\b"
+                          r"|\bdidUpdateNotification\b")  # queue Q4 of p06-scheduler.md section 6
+TAP_FILE = re.compile(r"^" + re.escape(INPUT_TAP_MODULE) + r"InputEventTap(\+\w+)?\.swift$")
+
+
+def allow_marker(rule: str) -> re.Pattern:
+    return re.compile(r"//\s*" + re.escape(rule) + r"-allow:\s*\S")
+
+
+# {id(side's lines): (those lines, the side's memo in its FileChange)}: matcher_rule makes a new Version per rule, so
+# main-hop and timer-class share one isolation reading per side through the FileChange (scoped_to registers it).
+SIDE_MEMO: dict[int, tuple[list[str], dict]] = {}
+
+
+def side_memo(version: Version) -> dict:
+    entry = SIDE_MEMO.get(id(version.lines))
+    return entry[1] if entry is not None and entry[0] is version.lines else version.memo
+
+
+def isolation(version: Version) -> list[tuple[bool, int]]:
+    """Each line of VERSION: (main-actor code, the 1-based line that made it so; 0: its target's default)."""
+    memo = side_memo(version)
+    if "isolation" not in memo:
+        ui_type = version.types.ui_type if version.types is not None else main_actor_work.no_ui_type
+        memo["isolation"] = main_actor_work.main_actor_scopes(version.lines, version.main_default, ui_types=True,
+                                                              ui_type=ui_type)
+    return memo["isolation"]
+
+
+def main_tasks(version: Version) -> dict[int, int]:
+    """{0-based line: the 1-based line that set its isolation} of VERSION's Tasks that run on the main actor."""
+    memo = side_memo(version)
+    if "main_tasks" not in memo:
+        memo["main_tasks"] = dict(main_actor_work.main_inherited_tasks(version.lines, version.main_default,
+                                                                       isolation(version)))
+    return memo["main_tasks"]
+
+
+def call_labels(lines: list[str], index: int, call: re.Pattern) -> tuple[set[str] | None, list[int]]:
+    """(the labels of the arguments of CALL on LINES[INDEX], read to its matching `)`, None when that `)` does not
+    come within CALL_LINES lines; the 1-based lines after INDEX it read). A label inside a nested call, closure or
+    collection (`MainDelivery(owner: f(class: 1))`) is not the call's own."""
+    text = "\n".join(code_of(line) for line in lines[index:index + CALL_LINES])
+    start = call.search(text).end()
+    depth, labels, argument = 1, set(), start
+    for i in range(start, len(text)):
+        c = text[i]
+        if c in "([{":
+            depth += 1
+        elif c in ")]}":
+            depth -= 1
+        if depth == 0 or (c == "," and depth == 1):
+            if label := ARGUMENT_LABEL.match(text, argument, i):
+                labels.add(label.group(1))
+            argument = i + 1
+            if depth == 0:
+                return labels, list(range(index + 2, index + 2 + text.count("\n", 0, i)))
+    return None, list(range(index + 2, index + 1 + min(CALL_LINES, len(lines) - index)))
+
+
+def main_hop_debt(version: Version, index: int) -> tuple[bool, list[int]]:
+    """A raw main hop, a MainDelivery without a class, or a Task that runs on the main actor (the shared predicate:
+    annotated, or plain in main-actor code, so deleting `@MainActor in` keeps the debt). A MainDelivery whose
+    arguments do not close within CALL_LINES lines is not judged."""
+    code = code_of(version.lines[index])
+    if RAW_MAIN_HOP.search(code):
+        return True, []
+    if MAIN_DELIVERY.search(code):
+        labels, read = call_labels(version.lines, index, MAIN_DELIVERY)
+        if labels is not None and "class" not in labels:
+            return True, read
+    main_task = main_tasks(version).get(index)
+    source = main_task if main_task is not None else isolation(version)[index][1]
+    return main_task is not None, [source] if source else []
+
+
+def block_body(lines: list[str], index: int) -> tuple[str, int] | None:
+    """(the code inside the first block that opens on LINES[INDEX], the 0-based line that closes it), or None when it
+    does not close within BODY_LINES."""
+    depth, body = 0, []
+    for j in range(index, min(len(lines), index + BODY_LINES)):
+        for c in code_of(lines[j]):
+            if c == "{":
+                depth += 1
+                if depth == 1:
+                    continue
+            elif c == "}":
+                depth -= 1
+                if depth == 0:
+                    return "".join(body), j
+            if depth > 0:
+                body.append(c)
+        if depth > 0:
+            body.append("\n")
+    return None
+
+
+def visibility_walk_debt(version: Version, index: int) -> tuple[bool, list[int]]:
+    """An ancestor walk, or a hide override whose body does more than forward to the view's VisibilityNode (its body
+    lines are the context: an edit there re-judges it)."""
+    code = code_of(version.lines[index])
+    if HIDDEN_WALK.search(code):
+        return True, []
+    override = HIDE_OVERRIDE.search(code)
+    if override is None:
+        return False, []
+    body = block_body(version.lines, index)
+    if body is None:
+        return True, []
+    text, end = body
+    forward = HIDE_FORWARD[override.group(1)]
+    forwards = all(forward.match(s) for s in re.split(r"[\n;]", text) if s.strip())
+    return not forwards, list(range(index + 2, end + 2))
+
+
+def timer_class_debt(version: Version, index: int) -> tuple[bool, list[int]]:
+    """A DemandTimer made in main-actor code, or a sleep in a loop that check-concurrency.sh lets through (its
+    `// wakeup-allow:`): a periodic timer with no class or alignment."""
+    lines = version.lines
+    code = code_of(lines[index])
+    if DEMAND_TIMER.search(code):
+        main, source = isolation(version)[index]
+        return main, [source] if source else []
+    match = SLEEP.search(code)
+    window = escape_window(lines, index)
+    context = [j + 1 for j in window]
+    if match is None or not any(WAKEUP_ALLOWED.search(lines[j]) for j in window):
+        return False, context  # an unescaped sleep is check-concurrency.sh's refusal, not this rule's
+    for opener, number in enclosing_openers(lines, index, SCOPE_STOP, code[:match.start()]):
+        if LOOP_OPENER.search(opener):
+            return True, context + [number]
+        if not BRANCH_OPENER.search(opener):
+            break  # a closure or a declaration: the loop around it does not repeat this sleep
+    return False, context
+
+
+def scoped_to(matcher: Matcher, keep_file: Callable[[str], bool]):
+    """matcher_rule(MATCHER) over the changed files KEEP_FILE accepts, each side's facts shared through SIDE_MEMO."""
+    def find(changes: list[FileChange], moved: collections.Counter) -> list[Added]:
+        kept = [c for c in changes if keep_file(c.path)]
+        if len(SIDE_MEMO) > 4096:  # one push holds a few hundred sides; a long-lived caller (the tests) many pushes
+            SIDE_MEMO.clear()
+        for change in kept:
+            for side, lines in (("head", change.head_lines), ("base", change.base_lines)):
+                SIDE_MEMO[id(lines)] = (lines, change.memo.setdefault(f"main-thread classes {side}", {}))
+        return matcher_rule(matcher)(kept, moved)
+    return find
+
+
+MAIN_CLASS_RULES = (
+    Rule("main-hop", "A main-thread hop without a class: a `Task` that runs on the main actor (`Task { @MainActor in`, "
+         "or a plain `Task {` in main-actor code), `MainActor.run`, `CFRunLoopPerformBlock`, `RunLoop.main.perform` or "
+         "a `MainDelivery(` with no `class:`",
+         "an unclassed hop is a FIFO main-queue job: the scheduler cannot put the person's input first or keep "
+         "automation and hidden work out of the frame (p06-scheduler.md rule 1; Chrome posts every UI-thread task "
+         "with a BrowserTaskType, content/browser/scheduler/browser_task_queues.h). Deleting `@MainActor in` does "
+         "not remove the hop: the Task still inherits the main actor",
+         R_HOP,
+         "// main-hop-allow: <the AppKit order that needs this hop (focus, menu tracking)>",
+         scoped_to(Matcher(MAIN_HOP_LINE, allow_marker("main-hop"), main_hop_debt),
+                   lambda path: not path.startswith((WAKEUPS, SOURCES + "CmuxNextCompat/MainRunLoopBlock.swift")))),
+    Rule("view-observation", "A raw observation: `ObservationStream(` or `withObservationTracking`",
+         "it re-arms on every change whether or not anything shows the value, with no class or owner: hidden "
+         "workspaces keep doing view work and one O(all) closure per row runs per change (p06-scheduler.md F5)",
+         "recipe R-obs: `VisibleObservation(node, owner:, on:)` when the apply touches views (it tracks only while "
+         "the node is visible), `ServiceObservation(class, owner, read, apply)` for anything else (model, daemon, "
+         "disk); waits use StoreWaiters or PageWaiters",
+         "// view-observation-allow: <why neither VisibleObservation nor ServiceObservation fits>",
+         scoped_to(Matcher(VIEW_OBSERVATION, allow_marker("view-observation")),
+                   lambda path: not path.startswith((WAKEUPS, SOURCES + "CmuxNextCompat/ObservationStream.swift")))),
+    Rule("visibility-walk", "An ad hoc visibility test: `isHiddenOrHasHiddenAncestor`, or a `viewDidHide`/"
+         "`viewDidUnhide` override that does more than forward to its VisibilityNode",
+         "an ancestor walk per call, and a per-view hidden flag the scheduler cannot see: hidden work is not held, "
+         "and on show it runs out of order (p06-scheduler.md rule 4; Chrome keeps one visibility per WebContents, "
+         "content/public/browser/visibility.h)",
+         "recipe R-vis: read `node.isVisible` and defer with `node.deferUntilVisible(key:)`; recipe R-hide: a hide "
+         "override only calls super and `node.set(.hidden)` / `node.set(.visible)`",
+         "// visibility-walk-allow: <the hit test or accessibility read that needs the walk>",
+         scoped_to(Matcher(prefilter(HIDDEN_WALK, HIDE_OVERRIDE), allow_marker("visibility-walk"),
+                           visibility_walk_debt), lambda path: not path.startswith(WAKEUPS))),
+    Rule("timer-class", "A timer with no class: a `DemandTimer(` in main-actor code, or a `Task.sleep` / "
+         "`clock.sleep` loop (a sleep in a loop with `// wakeup-allow:`)",
+         "a main-thread deadline without a class fires in FIFO order beside the person's input, and an unaligned "
+         "periodic sleep wakes the process on its own schedule while hidden (p06-scheduler.md section E; Chrome "
+         "aligns delayed tasks, base/task/delay_policy.h, and throttles hidden ones, "
+         "third_party/blink/renderer/platform/scheduler/common/throttling/cpu_time_budget_pool.cc)",
+         "recipe R-timer: an event first (idle-wakeups.md); else `MainDeadline(owner:, workClass:, alignment:, "
+         "scheduler:)` on main (`.flexible` by default, `.precise` only under 36 ms); a race timeout uses the "
+         "`Deadline` helper; DemandTimer stays for off-main deadlines",
+         "// timer-class-allow: <why this deadline needs no class or alignment>",
+         scoped_to(Matcher(prefilter(DEMAND_TIMER, SLEEP), allow_marker("timer-class"),
+                           timer_class_debt), lambda path: not path.startswith(WAKEUPS))),
+    Rule("raw-observer", "A raw notification or KVO observer (queue Q4: `addObserver(`, NSWindow/NSApplication "
+         "notices, the NSWorkspace center, `notifications(named:)`, DistributedNotificationCenter, `.observe(\\.`, "
+         "NSView frame/bounds notices, `didUpdateNotification`)",
+         "each observer runs for every post, visible or not, in no class: N views x every window notice "
+         "(p06-scheduler.md F5; Chrome observers register on their owner, base/observer_list.h)",
+         "recipe R-notif: subscribe through WindowEvents or AppEvents with a node (one observer per window or app "
+         "per notice, fan-out to visible subscribers); a frame or bounds notice becomes the view's own `layout()` / "
+         "`setFrameSize`; KVO on WebKit takes the tab's node",
+         "// raw-observer-allow: <why no WindowEvents or AppEvents notice fits>",
+         scoped_to(Matcher(RAW_OBSERVER, allow_marker("raw-observer")),
+                   lambda path: not path.startswith(WAKEUPS))),
+    Rule("local-monitor", "A second NSEvent monitor inside CmuxNextInput, outside the input tap (InputEventTap)",
+         "the tap is the one monitor of the process (p06-scheduler.md Q8 target: 1); input-monitor refuses "
+         "monitors outside CmuxNextInput, and a module-local one beside the tap runs for every event outside its "
+         "order (Chrome's one InputRouter per widget, components/input/input_router_impl.cc)",
+         "recipe R-monitor: add a phase or a subscription to `InputEventTap`; a session monitor is subscribed only "
+         "while its session is active",
+         "// local-monitor-allow: <why the tap cannot see this event>",
+         scoped_to(Matcher(INPUT_MONITOR, allow_marker("local-monitor")),
+                   lambda path: path.startswith(INPUT_TAP_MODULE) and not TAP_FILE.match(path))),
+)
+RULES += MAIN_CLASS_RULES
+# ---------------------------------------------------------------- end of main-thread classes (p06-scheduler)
+
+
+# ---------------------------------------------------------------- wakeup-ext (p14-energy, PL-energy)
+# Nothing polls (plans/cmux-next/chrome-parity/p14-energy.md, section C) in the code outside CmuxNext Sources: the
+# Shared packages and CmuxUpdater the app links, the cmux-tui crates' src, webviews/src and the CEF shim's C++/ObjC.
+# check-concurrency.sh already refuses wakeups in CmuxNext Sources before the push, so they are not repeated here.
+# The rules, the masking, the Rust test-item reading and the closed escape vocabulary are wakeup-audit.py's (one
+# definition; its --strict run is the full-tree audit of the program's test phase). Like Chromium's PRESUBMIT.py
+# banned-function checks (CheckNoBannedFunctions reads only ChangedContents()), it judges what the push adds.
+WAKEUP_AUDIT = "wakeup-audit.py"
+IDLE_BUDGET = "scripts/cmux-next/idle-budget.json"
+SHARED_PACKAGES = "Packages/Shared/"
+UPDATER = "Packages/macOS/CmuxUpdater/"
+RUST_CRATES = "cmux-tui/crates/"
+WEB_SOURCES = "webviews/src/"
+# wakeup-audit's cxx roots (CXX_ROOTS): the CEF shim and the Chromium host it splits out.
+CXX_SOURCES = (PACKAGE_ROOT + "CEFShim/src/", PACKAGE_ROOT + "ChromiumHost/src/")
+WAKEUP_EXT_SPECS = (f":(glob){SHARED_PACKAGES}*/Sources/**/*.swift", f":(glob){UPDATER}Sources/**/*.swift",
+                    f":(glob){RUST_CRATES}*/src/**/*.rs", f":(glob){WEB_SOURCES}**/*.ts",
+                    f":(glob){WEB_SOURCES}**/*.tsx", f":(glob){WEB_SOURCES}**/*.css", *CXX_SOURCES, IDLE_BUDGET)
+# The statuses wakeup-audit --strict fails on (`escaped` passes; the shim's `blocking` loops are reported, never open).
+WAKEUP_OPEN = frozenset({"hit", "bad-escape", "no-reason", "periodic-unlisted"})
+
+
+def in_wakeup_ext_specs(path: str) -> bool:
+    """PATH is in one of WAKEUP_EXT_SPECS (in_diff_scope's test for them)."""
+    parts = path.split("/")
+    return ((path.startswith(SHARED_PACKAGES) and parts[3:4] == ["Sources"] and path.endswith(".swift"))
+            or (path.startswith(UPDATER + "Sources/") and path.endswith(".swift"))
+            or (path.startswith(RUST_CRATES) and parts[3:4] == ["src"] and path.endswith(".rs"))
+            or (path.startswith(WEB_SOURCES) and path.endswith((".ts", ".tsx", ".css")))
+            or path.startswith(CXX_SOURCES) or path == IDLE_BUDGET)
+
+
+RUST_ROOT = re.compile(r"^cmux-tui/crates/[^/]+/src/(?:lib\.rs|main\.rs|bin/[^/]+\.rs|bin/[^/]+/main\.rs)$")
+PACKAGE_PATH = re.compile(r'^\s*\.package\(\s*path:\s*"([^"]+)"', re.MULTILINE)
+
+
+@dataclass
+class WakeupContext:
+    """What the wakeup-ext rule reads beside a push's files: its revisions and, at each one, the package manifest
+    (which packages the app links) and idle-budget.json (the owners a `periodic` escape may name; None: absent)."""
+    repo: Path
+    base: str
+    head: str
+    manifests: dict[str, str]
+    budgets: dict[str, str | None]
+
+
+@dataclass
+class WakeupHit(Added):
+    """An added wakeup: CAUSE names the wakeup-audit rule, the hit's shape and a bad escape (format_report prints
+    it)."""
+    cause: str = ""
+
+
+def wakeup_audit():
+    """wakeup-audit.py beside this file, loaded on first use (a load error fails only this rule open)."""
+    name = "cmux_next_wakeup_audit"
+    if name not in sys.modules:
+        spec = importlib.util.spec_from_file_location(name, HERE / WAKEUP_AUDIT)
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[name] = module  # its dataclasses resolve their module through sys.modules
+        try:
+            spec.loader.exec_module(module)
+        except BaseException:
+            del sys.modules[name]
+            raise
+    return sys.modules[name]
+
+
+class ChecksRoot:
+    """A repository root for wakeup-audit's `root / "scripts/cmux-next/<file>"` reads: the file beside this one, so
+    the hook's reviewed snapshot of check-concurrency.sh defines the Swift rules, not the pushing checkout's."""
+
+    def __truediv__(self, relative: str) -> Path:
+        return HERE / Path(relative).name
+
+
+@functools.cache
+def wakeup_rules(lang: str) -> tuple:
+    """wakeup-audit's rules for LANG (cxx: none until wakeup-audit has CXX_RULES, p14-energy-113)."""
+    wa = wakeup_audit()
+    if lang == "swift-shared":
+        return tuple(wa.swift_wakeup_rules(ChecksRoot()))
+    return tuple({"rust": wa.RUST_RULES, "web": wa.WEB_RULES, "cxx": getattr(wa, "CXX_RULES", ())}[lang])
+
+
+class BudgetText:
+    """idle-budget.json at one revision, as the Path wakeup-audit's periodic_owners() reads (TEXT None: absent)."""
+
+    def __init__(self, text: str | None):
+        self.text = text
+
+    def exists(self) -> bool:
+        return self.text is not None
+
+    def read_text(self, encoding: str = "utf-8") -> str:
+        return self.text or ""
+
+
+def budget_owners(text: str | None) -> tuple[set[str], list[str]]:
+    """wakeup-audit's periodic_owners() of idle-budget.json TEXT: (the owners, the entries that break its limits)."""
+    try:
+        return wakeup_audit().periodic_owners(BudgetText(text))
+    except (ValueError, TypeError, AttributeError) as error:  # not JSON, or not the shape the audit reads
+        return set(), [f"{IDLE_BUDGET} is not the allowed_periodic list wakeup-audit reads ({error})"]
+
+
+def budget_hits(context: WakeupContext, head_problems: list[str], base_problems: list[str]) -> list[Added]:
+    """A refusal for each limit HEAD's idle-budget.json breaks that BASE's did not (at most PERIODIC_MAX entries,
+    period_s >= PERIODIC_MIN_S, an owner and a why on each)."""
+    lines = (context.budgets[context.head] or "").split("\n")
+    number = next((i + 1 for i, line in enumerate(lines) if '"allowed_periodic"' in line), 1)
+    return [WakeupHit(IDLE_BUDGET, number, problem, "wakeup-audit periodic_owners: the idle budget's own limits")
+            for problem in head_problems if problem not in base_problems]
+
+
+def linked_packages(manifest: str) -> frozenset[str]:
+    """The Packages/Shared and Packages/macOS package folders CmuxNext's Package.swift (MANIFEST) links by path."""
+    found = (posixpath.normpath(posixpath.join(PACKAGE_ROOT, m.group(1))) for m in PACKAGE_PATH.finditer(manifest))
+    return frozenset(p for p in found if p.startswith((SHARED_PACKAGES, "Packages/macOS/")))
+
+
+def wakeup_lang(path: str, linked: frozenset[str]) -> str | None:
+    """wakeup-audit's language of PATH when its `sources()` read it, else None."""
+    wa = wakeup_audit()
+    parts = path.split("/")
+    if path.endswith(".swift") and "/".join(parts[:3]) in linked and parts[3:4] == ["Sources"]:
+        return None if wa.SHARED_SKIP_DIRS & set(parts[4:-1]) else "swift-shared"
+    if path.startswith(RUST_CRATES) and parts[3:4] == ["src"] and path.endswith(".rs"):
+        return "rust"
+    if path.startswith(WEB_SOURCES) and path.endswith((".ts", ".tsx", ".css")):
+        return None if wa.WEB_SKIP_DIRS & set(parts[2:-1]) or wa.WEB_SKIP_FILE.search(parts[-1]) else "web"
+    cxx_roots = tuple(root.rstrip("/") + "/" for root in getattr(wa, "CXX_ROOTS", {}).values())
+    if path.startswith(cxx_roots) and path.endswith(getattr(wa, "CXX_SUFFIXES", ())) and wakeup_rules("cxx"):
+        return "cxx"
+    return None
+
+
+def tree_path(tree: frozenset[str]) -> type:
+    """A path type whose `exists()` and `resolve()` answer from TREE (one revision's file list), so wakeup-audit's
+    `mod x;` resolution reads the pushed revision, not the pushing checkout's disk."""
+
+    class TreePath(PurePosixPath):
+        def exists(self) -> bool:
+            return str(self) in tree
+
+        def resolve(self) -> "TreePath":
+            return TreePath(posixpath.normpath(str(self)))
+
+    return TreePath
+
+
+def rust_declarers(repo: Path, rev: str, crates: list[str], files: list[str]) -> set[str]:
+    """Files at REV that may declare one of FILES as a module: a `mod <name>;` in the file's folder or above it, or
+    a `#[path]` that names its file. rust_test_only() reads which of them do."""
+    folders: dict[str, set[str]] = {}
+    tails = set()
+    for f in files:
+        folder, base = posixpath.split(f)
+        stem = posixpath.basename(folder) if base == "mod.rs" else base.removesuffix(".rs")
+        if re.fullmatch(r"\w+", stem):  # only `#[path]` can name a file that is no identifier
+            folders.setdefault(stem, set()).add(posixpath.dirname(folder) if base == "mod.rs" else folder)
+        tails.add(re.sub(r"[.+]", r"\\\g<0>", f"{stem}/mod.rs" if base == "mod.rs" else base))
+    by_name, by_path = run_both(
+        repo, ["grep", "-l", "-E", r"(^|[^[:alnum:]_])mod[[:space:]]+(" + "|".join(sorted(folders) or ["$^"])
+               + r")[[:space:]]*;",
+               rev, "--", *crates],
+        ["grep", "-l", "-E", r'path[[:space:]]*=[[:space:]]*"([^"]*/)?(' + "|".join(sorted(tails)) + r')"', rev, "--",
+         *crates])
+
+    def listed(out: str) -> set[str]:
+        return {line.split(":", 1)[1] for line in out.splitlines() if ":" in line}
+
+    # `mod name;` declares <the declaring file's folder or its stem's folder>[/<inline modules>]/name.rs.
+    wanted = {d for ds in folders.values() for d in ds}
+    near = {p for p in listed(by_name)
+            if any(d == posixpath.dirname(p) or d.startswith(posixpath.dirname(p) + "/") for d in wanted)}
+    return near | listed(by_path)
+
+
+def rust_tree(repo: Path, rev: str, crates: list[str]) -> frozenset[str]:
+    """The files of CRATES at REV."""
+    return frozenset(git(repo, "ls-tree", "-r", "--name-only", rev, "--", *crates, check=False).split("\n"))
+
+
+def rust_test_only(repo: Path, rev: str, files: list[str]) -> set[str]:
+    """FILES (crate src files) that only tests compile at REV: declared inside a test-only item, or by a file that
+    only tests compile (wakeup-audit's rust_test_files over their declaring files, up to the crate root)."""
+    wa = wakeup_audit()
+    crates = sorted({"/".join(f.split("/")[:4]) for f in files})
+    tree = rust_tree(repo, rev, crates)
+    TreePath = tree_path(tree)
+    modules: dict = {}
+    looked: set[str] = set()
+    todo = sorted(f for f in files if f in tree and not RUST_ROOT.match(f))
+    while todo:
+        looked.update(todo)
+        wanted = {TreePath(f) for f in todo}
+        candidates = sorted(p for p in rust_declarers(repo, rev, crates, todo) if TreePath(p) not in modules)
+        declarers = []
+        for (_, path), raw in blobs(repo, [(rev, p) for p in candidates]).items():
+            mods = modules[TreePath(path)] = wa.rust_modules(wa.mask(raw, "rust"), raw, TreePath(path))
+            if any(child in wanted for child, _ in mods.children):
+                declarers.append(path)
+        todo = sorted(p for p in declarers if p not in looked and not RUST_ROOT.match(p))
+    tests = wa.rust_test_files(modules)
+    return {f for f in files if TreePath(f) in tests}
+
+
+def rust_flipped(context: WakeupContext, changes: list[FileChange]) -> set[str]:
+    """Module files whose test-only state the `mod x;` declarations of CHANGES (crate src files) may change: each
+    child declared test-only on one side only (`#[cfg(test)]` dropped or added, the declaration deleted), and every
+    module file below one (wakeup-audit's rust_test_files reads a test-only file's children as test-only too)."""
+    if not changes:
+        return set()
+    wa = wakeup_audit()
+    head, base = context.head, context.base
+    crates = sorted({"/".join(c.path.split("/")[:4]) for c in changes})
+    trees = {rev: tree_path(rust_tree(context.repo, rev, crates)) for rev in (head, base)}
+
+    def children(rev: str, path: str, raw: str) -> list:
+        return wa.rust_modules(wa.mask(raw, "rust"), raw, trees[rev](path)).children if "mod" in raw else []
+
+    flipped: set[str] = set()
+    for change in changes:
+        tested = [{str(child) for child, in_test in children(rev, change.path, "\n".join(lines)) if in_test}
+                  for rev, lines in ((head, change.head_lines), (base, change.base_lines))]
+        flipped |= tested[0] ^ tested[1]
+    todo = sorted(flipped)
+    while todo:
+        texts = blobs(context.repo, [(rev, p) for p in todo for rev in (head, base)])
+        todo = sorted({str(child) for (rev, p), raw in texts.items() for child, _ in children(rev, p, raw)} - flipped)
+        flipped.update(todo)
+    return flipped
+
+
+PERIODIC_ESCAPE = re.compile(r"wakeup-allow:\s*periodic\s+(\S+)")
+
+
+def wakeup_context_files(context: WakeupContext, changed: dict[str, FileChange], linked: dict[str, frozenset[str]],
+                         lost_owners: set[str]) -> dict[str, FileChange]:
+    """The unchanged files whose wakeups the push opens by changing what gives them their context: the module files a
+    changed `mod` declaration takes out of (or puts into) test-only code, the Sources of a package only HEAD links,
+    and the files whose `periodic` escape names an owner the push takes off idle-budget.json."""
+    head, base, repo = context.head, context.base, context.repo
+    paths = rust_flipped(context, [c for c in changed.values() if wakeup_lang(c.path, frozenset()) == "rust"])
+    if newly := sorted(linked[head] - linked[base]):
+        listed = git(repo, "ls-tree", "-r", "--name-only", head, "--", *(f"{p}/Sources" for p in newly), check=False)
+        paths |= {p for p in listed.split("\n") if p and wakeup_lang(p, linked[head])}
+    if lost_owners:
+        out = git(repo, "grep", "-I", "-E", r"wakeup-allow:[[:space:]]*periodic", head, "--", *WAKEUP_EXT_SPECS,
+                  check=False)
+        for line in out.splitlines():  # <rev>:<path>:<text>
+            _, path, text = (line.split(":", 2) + ["", ""])[:3]
+            if any(m.group(1).rstrip(".,;:") in lost_owners for m in PERIODIC_ESCAPE.finditer(text)):
+                paths.add(path)
+    paths = sorted(p for p in paths - set(changed) if wakeup_lang(p, linked[head] | linked[base]))
+    texts = blobs(repo, [(rev, p) for p in paths for rev in (head, base)])
+    return {p: FileChange(p, texts.get((head, p), "").split("\n"), base_lines=texts.get((base, p), "").split("\n"))
+            for p in paths}
+
+
+def open_wakeups(lang: str, path: str, text: str, owners: set[str], repo: Path) -> list:
+    """wakeup-audit's hits in TEXT that --strict fails on: an unescaped hit, an escape word outside the vocabulary,
+    an escape with no reason, a `periodic` owner idle-budget.json does not list."""
+    if not text:
+        return []
+    wa = wakeup_audit()
+    code, skip = None, []
+    if lang == "rust":
+        code = wa.mask(text, "rust")
+        # The file's own test items; its `mod x;` children are rust_test_only()'s, so no tree is needed here.
+        skip = wa.rust_modules(code, text, tree_path(frozenset())(path)).test_ranges
+    hits = wa.audit_file(repo, lang, "", repo / path, list(wakeup_rules(lang)), owners, skip, text, code)
+    return [h for h in hits if h.status in WAKEUP_OPEN]
+
+
+def opened(hit, pairs: dict[int, int], other: dict[tuple[int, str], str]) -> bool:
+    """HIT, on a line the push did not change, is the push's: the other side (OTHER: {(line, rule): shape}; PAIRS:
+    this side's 0-based lines to the other's) has no open hit of its rule on that line, or only a one-shot where HIT
+    loops (the push put a loop around it or took its loop's event away)."""
+    shape = other.get((pairs.get(hit.line - 1, -2) + 1, hit.rule))
+    return shape is None or (hit.shape == "loop" and shape != "loop")
+
+
+def wakeup_ext(changes: list[FileChange], moved: collections.Counter) -> list[Added]:
+    """Wakeups the push opens, per file, wakeup-audit rule and shape (resolve(): a count ratchet, moves between files
+    free), so a removed one-shot `thread::sleep` pays for neither a `recv_timeout` nor a polling loop."""
+    if not changes:
+        return []
+    context: WakeupContext = changes[0].memo["wakeup"]
+    head, base = context.head, context.base
+    linked = {rev: linked_packages(context.manifests[rev]) for rev in (head, base)}
+    (head_owners, head_problems), (base_owners, base_problems) = (budget_owners(context.budgets[rev])
+                                                                  for rev in (head, base))
+    # An owner counts once the base lists it: a push cannot approve its own interval in idle-budget.json.
+    owners = {head: head_owners & base_owners, base: base_owners}
+    files = {c.path: c for c in changes}
+    files.update(wakeup_context_files(context, files, linked, base_owners - owners[head]))
+    sides = []
+    for change in files.values():
+        # A package the app links on one side only is judged on that side only.
+        langs = {rev: wakeup_lang(change.path, linked[rev]) for rev in (head, base)}
+        if any(langs.values()):
+            sides.append((change, {rev: open_wakeups(langs[rev], change.path, "\n".join(lines), owners[rev],
+                                                     context.repo) if langs[rev] else []
+                                   for rev, lines in ((head, change.head_lines), (base, change.base_lines))}))
+    # Which module files only tests compile is read only for the files with hits (it greps the crates' trees).
+    rust = sorted(change.path for change, hits in sides
+                  if wakeup_lang(change.path, frozenset()) == "rust" and any(hits.values()))
+    test_only = {rev: rust_test_only(context.repo, rev, rust) if rust else set() for rev in (head, base)}
+    groups: dict[tuple[str, str], list[tuple[list[Added], list[Added]]]] = {}
+    order = {}
+    for index, (change, hits) in enumerate(sides):
+        order[change.path] = index
+        head_hits = [] if change.path in test_only[head] else hits[head]
+        base_hits = [] if change.path in test_only[base] else hits[base]
+        to_base = unchanged_pairs(change)
+        to_head = {b: h for h, b in to_base.items()}
+        head_open = {(h.line, h.rule): h.shape for h in head_hits}
+        base_open = {(h.line, h.rule): h.shape for h in base_hits}
+        added = {a.number for a in change.added}
+        removed = {r.number for r in change.removed}
+        # A changed line's hit is the push's; an unchanged line's only when the push opened or closed it there (an
+        # escape deleted or written, a `#[cfg(test)]` removed or added, a loop put around it).
+        head_debt = [h for h in head_hits if h.line in added or opened(h, to_base, base_open)]
+        base_debt = [h for h in base_hits if h.line in removed or opened(h, to_head, head_open)]
+        for key in sorted({(h.rule, h.shape) for h in head_debt + base_debt}):
+            groups.setdefault(key, []).append(
+                (wakeup_debt(change.path, [h for h in head_debt if (h.rule, h.shape) == key], change.head_lines),
+                 wakeup_debt(change.path, [h for h in base_debt if (h.rule, h.shape) == key], change.base_lines)))
+    found = sorted((hit for group in groups.values() for hit in resolve(group)),
+                   key=lambda hit: (order[hit.path], hit.number))
+    return budget_hits(context, head_problems, base_problems) + found
+
+
+def wakeup_debt(path: str, hits: list, lines: list[str]) -> list[WakeupHit]:
+    return [WakeupHit(path, h.line, lines[h.line - 1],
+                      f"wakeup-audit {h.rule}, {h.shape}" + (f"; {h.status} `{h.escape}`" if h.status != "hit" else ""))
+            for h in hits]
+
+
+RULES += (
+    Rule("wakeup-ext", "An idle wakeup (timer, sleep, timed wait, spin loop, interval, infinite animation) in an "
+         "app-linked Shared package, CmuxUpdater, a cmux-tui crate's src, webviews/src or the CEF shim",
+         "a timer or a poll wakes the process while the person does nothing: idle wakeups cost battery and keep cmux "
+         "above Chrome's (perf-lead.md item 6, plans/cmux-next/chrome-parity/p14-energy.md); the rules and the "
+         "escape vocabulary are scripts/cmux-next/wakeup-audit.py's",
+         "wait for the event (a read, a channel recv, NOTE_EXIT / pidfd, FSEvents, a push from the host, visibility), "
+         "a one-shot deadline for a timeout, Backoff after a failure, MaintenanceClock for maintenance; bound an "
+         "animation or gate it on visibility and the motion setting; test-only code (`#[cfg(test)]`, *.test.ts) is "
+         "not judged",
+         "// wakeup-allow: <deadline|backoff|bounded|cli-only|fixture|debug|periodic> <reason> (`periodic <owner>` "
+         "only for an owner in idle-budget.json allowed_periodic)",
+         wakeup_ext,
+         # The manifest and the budget: a push that changes which packages the app links, or which owners a
+         # `periodic` escape may name, changes what the unchanged files' wakeups are.
+         scope=(SHARED_PACKAGES, UPDATER, RUST_CRATES, WEB_SOURCES, *CXX_SOURCES, MANIFEST, IDLE_BUDGET)),
+)
+# ---------------------------------------------------------------- end of wakeup-ext
+
+
 # ---------------------------------------------------------------- main-blocking / thread-doc (PL-blocking)
 # plans/cmux-next/threading-model.md: the main thread never blocks (Chrome's ScopedBlockingCall). The runtime
 # detector (CmuxNextCompat/Threading) is the real guard; these rules are the early warning on what a push adds.
@@ -1809,20 +2656,46 @@ FILE_OPS = (r"fileExists|isReadableFile|isWritableFile|isExecutableFile|createDi
             r"subpathsOfDirectory|enumerator|createFile|contents|contentsEqual|attributesOfItem|attributesOfFileSystem|"
             r"setAttributes|moveItem|copyItem|linkItem|replaceItemAt|destinationOfSymbolicLink|createSymbolicLink|"
             r"trashItem|url")
-# Raw blocking primitives: each has a checked seam in CmuxNextCompat/Threading. A `.wait(` preceded by `await`
-# in its statement is an async wait (Backoff.wait, a continuation), never a blocking one: see blocking_match.
+# Raw blocking primitives: most have a checked seam in CmuxNextCompat/Threading; the rest (sync XPC proxies,
+# AppleScript, condition locks, asyncAndWait, LSCopy*) move to an async API. A `.wait(` or an SMAppService
+# `.unregister()` preceded by `await` in its statement is the async overload (Backoff.wait, a continuation,
+# `try await service.unregister()`), never a blocking one: see blocking_match.
+# Process launch matches any receiver chain (`try box.process.run()`, ProcessRunner.swift:74).
+# The system calls wait on another process: securityd, the AX server, mDNSResponder, the window server, lsd,
+# launchd, authd (p02-threads.md "Not seen by any rule").
+CALL_ARGS = r"\((?:[^()]|\([^()]*\))*\)"  # one argument list, one nested call deep: `.daemon(plistName: C().name)`
 RAW_BLOCKING = re.compile(
     r"\bData\(contentsOf:|\bString\(contentsOf(File)?:|\bNS(Data|String|Dictionary|Array|Image)\(contentsOf(File|URL)?:"
     r"|\bFileManager\.default\.(" + FILE_OPS + r")\("
     r"|\.write\(to:|\.waitUntilExit\(\)|\.readDataToEndOfFile\(\)|\.readToEnd\(\)|\.availableData\b|\.readData\(ofLength:"
     r"|\.resourceValues\(forKeys:|\bxpc_connection_send_message_with_reply_sync\(|\bposix_spawnp?\(|(?<![\w.])fork\(\)"
     r"|(?P<wait>(?<=[\w)\]])\.wait\((timeout:|wallTimeout:|until:)?[^)]*\))"
-    r"|\.sync\s*(\{|\(execute:)")
+    r"|\.sync\s*(\{|\(execute:)"
+    # process launch, queue and thread waits
+    r"|\btry[?!]?\s+[\w.]+\.run\(\)|(?<=[\w)\]])(?<!\bself)\.launch\(\)"
+    r"|\.waitUntilAllOperationsAreFinished\(\)|\.asyncAndWait\s*(\{|\()"
+    r"|\bpthread_(join|cond_wait|cond_timedwait)\(|\bNSConditionLock\(|\.lock\(whenCondition:"
+    # synchronous system calls
+    r"|\bSec(Item(CopyMatching|Add|Update|Delete)|TrustEvaluate(WithError)?|StaticCodeCheckValidity(WithErrors)?"
+    r"|CodeCopy\w+)\("
+    r"|\bAXUIElement(Copy\w+|PerformAction|SetAttributeValue|GetAttributeValueCount)\(|\bgetaddrinfo\("
+    r"|\bCGWindowList(Copy|Create)\w*\(|\bLSCopy\w+\("
+    r"|\.urls?ForApplications?\((withBundleIdentifier|toOpen):|\.icon\(forFiles?:"
+    r"|\b(NSWorkspace\.shared|[wW]orkspace)\.icon\(for:"
+    r"|\bSMAppService\.(mainApp|(agent|daemon|loginItem)" + CALL_ARGS + r")\.(status\b|register\(\)"
+    r"|(?P<unregister>unregister\(\)))"
+    r"|\bAuthorizationCopyRights\(|\.synchronousRemoteObjectProxyWithErrorHandler\b|\.executeAndReturnError\(")
+# Named groups whose match is the async overload when an `await` comes before it in the statement.
+AWAITABLE = ("wait", "unregister")
 # The checked seams: fine off the main thread, a violation on it.
 SEAM_BLOCKING = re.compile(
     r"\bFileManager\.checked\.|\bblockingContentsOf(File)?:|\.blockingResourceValues\(|\.blocking(ReadToEnd|Read|Write|"
     r"AvailableData|ReadDataToEndOfFile|Wait|WaitUntilExit|Sync|Run)\b|\bblocking(Read|Recv|Write|Send|XPCSendWithReply|"
-    r"PosixSpawn)\(")
+    r"PosixSpawn)\(|\bblockingCall\("
+    # the system-call seams (p02-threads-003)
+    r"|\bblocking(SecItem(CopyMatching|Add|Update|Delete)|SecTrustEvaluate|SecStaticCodeCheckValidity|SecCodeCopy\w+"
+    r"|AX(CopyAttributeValue|SetAttributeValue|PerformAction)|Getaddrinfo|WindowList(CopyWindowInfo|CreateImage\w*)"
+    r"|URLForApplication|URLsForApplications|Icon|SMAppService(Status|Register|Unregister)|AuthorizationCopyRights)\(")
 # Never on any thread of the app: a main-queue sync hop deadlocks from main and stalls it from elsewhere; a
 # sleep holds a thread to wait for time.
 ALWAYS_BLOCKING = re.compile(r"DispatchQueue\.main\.sync\b|\bThread\.sleep\b|(?<![\w.])(usleep|nanosleep)\(")
@@ -1875,7 +2748,10 @@ class Prefiltered:
 
 
 BLOCKING_KEYS = ("contentsOf", "FileManager", ".wait(", "waitUntilExit", ".sync", "readToEnd", "availableData", "readData",
-                 "esourceValues", "xpc_", "blocking", "write(to:", "posix_spawn", "fork(")
+                 "esourceValues", "xpc_", "blocking", "write(to:", "posix_spawn", "fork(", ".run()", ".launch()",
+                 "waitUntilAll", "asyncAndWait", "pthread_", "NSConditionLock", "whenCondition", "SecItem", "SecTrust",
+                 "SecStaticCode", "SecCode", "AXUIElement", "getaddrinfo", "CGWindowList", "LSCopy", "ForApplication",
+                 "icon(", "SMAppService", "AuthorizationCopyRights", "synchronousRemoteObjectProxy", "executeAndReturnError")
 RAW_SCAN = Prefiltered(RAW_BLOCKING, BLOCKING_KEYS)
 MAIN_SCAN = Prefiltered(re.compile(RAW_BLOCKING.pattern + "|" + SEAM_BLOCKING.pattern), BLOCKING_KEYS)
 ALWAYS_SCAN = Prefiltered(ALWAYS_BLOCKING, ("main.sync", "sleep"))
@@ -1884,8 +2760,9 @@ THREAD_SCAN = Prefiltered(re.compile(THREAD_CREATE.pattern + "|" + ALLOWANCE_DEC
 
 
 def blocking_match(scan: Prefiltered, code: str) -> bool:
-    """Whether CODE holds a blocking call SCAN names. A `.wait(` whose statement has an `await` before it is an
-    async wait (`try await backoff.wait(owner:)`), not a blocking one."""
+    """Whether CODE holds a blocking call SCAN names. An AWAITABLE match whose statement has an `await` before it
+    is the async overload (`try await backoff.wait(owner:)`, `try await service.unregister()`), not a blocking
+    one."""
     answer = scan.answers.get(code)
     if answer is None:
         answer = scan.answers[code] = _blocking_match(scan, code)
@@ -1895,7 +2772,8 @@ def blocking_match(scan: Prefiltered, code: str) -> bool:
 def _blocking_match(scan: Prefiltered, code: str) -> bool:
     match = scan.search(code)
     while match is not None:
-        if match.groupdict().get("wait") is None:
+        groups = match.groupdict()
+        if not any(groups.get(name) for name in AWAITABLE):
             return True
         before = code[:match.start()]
         statement = before[max((m.end() for m in STATEMENT_START.finditer(before)), default=0):]
@@ -2062,12 +2940,666 @@ def maybe_blocking_on_main(changes: list[FileChange], moved: collections.Counter
     return [WarnHit(h.path, h.number, h.text) for h in changed_debt(outside_seams(changes), judge)]
 
 
+# pool-blocking (p02-threads-010): a blocking call on a shared pool thread. Chrome's ThreadPool runs a task without
+# MayBlock() under ScopedDisallowBlocking (base/task/thread_pool/task_tracker.cc RunTask); cmux's pools are the Swift
+# cooperative pool (Task.detached, child tasks, `Task {` off any actor, default actor executors, @concurrent) and the
+# GCD root queues. One blocked pool thread is a whole core's worth of async work stalled (the pool has one per core).
+# The body as a trailing closure, or as the `operation:` argument (`Task.detached(operation: { ... })`).
+TASK_BODY = r"(?:\s*(\([^{]*\))?\s*\{$|\s*\([^{]*\boperation:\s*\{$)"
+POOL_DETACHED = re.compile(r"\bTask\.detached" + TASK_BODY)
+POOL_CHILD = re.compile(r"\baddTask(UnlessCancelled)?" + TASK_BODY + r"|\bDispatchQueue\.global\([^{]*\)\s*\.\s*"
+                        r"async(After)?\s*(\([^{]*\))?\s*\{$|\.concurrentPerform\s*\([^{]*\)\s*\{$")
+TASK_INHERITS = re.compile(r"(?<![\w.])Task\s*(<[^{]*>)?\s*(\([^{]*\))?\s*\{$")
+CLOSURE_ON_MAIN = re.compile(r"^\{\s*(\[[^\]]*\]\s*)?@MainActor\b")
+# Calls that run their trailing closure before they return, in the caller's isolation.
+INLINE_CALLS = (r"map|compactMap|flatMap|filter|forEach|reduce|contains|first|last|firstIndex|lastIndex|allSatisfy|"
+                r"sorted|sort|min|max|removeAll|mapValues|compactMapValues|partition|drop|prefix|split|merge|merging|"
+                r"withLock|withLockUnchecked|withUnsafe\w*|withCString|withMemoryRebound|withExtendedLifetime|"
+                r"autoreleasepool|with(?:Throwing)?(?:Discarding)?TaskGroup|with(?:Checked|Unsafe)(?:Throwing)?Continuation|"
+                r"withTaskCancellationHandler|withValue|withObservationTracking")
+INLINE_CLOSURE_CALL = re.compile(rf"\b(?:{INLINE_CALLS})\s*(?:\([^{{}}]*\))?\s*\{{$|\b(?:{INLINE_CALLS})\(\s*(?:\w+\s*:\s*)?\{{$")
+ACCESSOR_OPENER = re.compile(r"^\s*(get|set|willSet|didSet|_read|_modify)\b")
+FUNCTION_OPENER = re.compile(r"\b(func|subscript)\b|\bvar\s+`?\w+`?\s*:")
+INIT_OPENER = re.compile(r"\b(init[?!]?|deinit)\b")
+CONCURRENT = re.compile(r"@concurrent\b")
+# An isolation the declaration states for itself: a global actor, or none (`nonisolated`, a static member). Read on
+# the declaration's prefix only (declaration_prefix): a parameter's `@MainActor` closure type or `.static` default
+# says nothing about the function's own isolation.
+OWN_GLOBAL_ACTOR = re.compile(r"@[A-Z]\w*Actor\b")
+NOT_INSTANCE_ISOLATED = re.compile(r"\bnonisolated\b(?!\s*\(unsafe\))|\bstatic\b|\bclass\s+(?=(func|var|subscript)\b)")
+DECLARATION_KEYWORD = re.compile(r"\b(func|init|deinit|subscript|var)\b")
+ASYNC_EFFECT = re.compile(r"^[^{]*?\basync\b")
+TYPE_OPENER = re.compile(r"(?:^|[\s)])(?P<kind>(?:distributed\s+)?actor|class|struct|enum|extension|protocol)\s+"
+                         r"(?!(?:func|var|let|subscript|init|deinit|override|static|in|where)\b)(?P<name>[A-Za-z_][\w.]*)")
+ACTOR_EXECUTOR = re.compile(r"\bvar\s+unownedExecutor\b")
+# An actor declaration line, for `git grep -E` over a revision's sources (actor_index_at).
+ACTOR_DECLARATION_GREP = (r"^[[:space:]]*(@[[:alnum:]_]+[[:space:]]+|(public|package|internal|private|fileprivate|final|"
+                          r"distributed|nonisolated)[[:space:]]+)*actor[[:space:]]+[A-Za-z_]")
+# `async let x = <call>`: the initializer runs as a child task on the cooperative pool.
+ASYNC_LET = re.compile(r"^\s*async\s+let\b[^=]*=(?!=)")
+ASYNC_LET_OPEN = re.compile(r"^\s*async\s+let\b[^=]*=\s*$")
+CALL_MARKERS_ONLY = re.compile(r"^\s*((try[?!]?|await)\s+)*$")  # the prefix of a call that starts its line
+NONISOLATED = re.compile(r"\bnonisolated\b(?!\s*\(unsafe\))")
+TypeScope = tuple[str, str, int]  # (kind, name, 0-based line of its declaration)
+
+
+def type_scopes_of(lines: list[str]) -> list[TypeScope | None]:
+    """For each of LINES, the innermost type body that holds it as (kind, name, declaration line), else None: kind
+    is `actor` for any actor, and an extension's name is its last component (`extension Outer.Store` -> "Store")."""
+    scopes: list[TypeScope | None] = []
+    stack: list[tuple[int, TypeScope]] = []  # (brace depth, scope) per open type body
+    pending: TypeScope | None = None  # a type header whose `{` has not opened yet
+    depth = 0
+    for index, line in enumerate(lines):
+        code = code_of(line)
+        scopes.append(stack[-1][1] if stack else None)
+        match = TYPE_OPENER.search(code)
+        if match:
+            kind = "actor" if match.group("kind").endswith("actor") else match.group("kind")
+            pending = (kind, match.group("name").rsplit(".", 1)[-1], index)
+        for char in code:
+            if char == "{":
+                depth += 1
+                if pending is not None:
+                    stack.append((depth, pending))
+                    pending = None
+            elif char == "}":
+                while stack and stack[-1][0] >= depth:
+                    stack.pop()
+                depth -= 1
+    return scopes
+
+
+def type_scopes(version: Version) -> list[TypeScope | None]:
+    if "type_scopes" not in version.memo:
+        version.memo["type_scopes"] = type_scopes_of(version.lines)
+    return version.memo["type_scopes"]
+
+
+@dataclass
+class ActorIndex:
+    """The actors of some files and the types among them with a custom executor, as {(module, name): paths}.
+
+    An actor's extensions and its `unownedExecutor` may sit in files of their own (DaemonConnection+*.swift), so a
+    method's actor is resolved against every file of its module: the push's own files (one index per side) and
+    HEAD's other files (repo_actor_index, read only when a lookup misses). The custom executor is the HomeCache
+    pattern (Packages/Shared/CmuxHomeCore/Sources/CmuxHomeCore/Store/HomeCache.swift): `nonisolated var
+    unownedExecutor` over a named DispatchSerialQueue; a comment alone is no executor.
+    """
+    actors: dict[tuple[str, str], set[str]] = field(default_factory=dict)
+    executors: dict[tuple[str, str], set[str]] = field(default_factory=dict)
+    own_paths: set[str] = field(default_factory=set)  # the push's files: the repo index's entries for them don't count
+    unread: list[tuple[str, list[str]]] = field(default_factory=list)  # (path, lines) added on the first lookup
+
+    def add(self, path: str, lines: list[str]) -> None:
+        module = module_of(path)
+        for code, scope in zip((code_of(line) for line in lines), type_scopes_of(lines)):
+            for match in TYPE_OPENER.finditer(code):
+                if match.group("kind").endswith("actor"):
+                    self.actors.setdefault((module, match.group("name").rsplit(".", 1)[-1]), set()).add(path)
+            if scope is not None and ACTOR_EXECUTOR.search(code):
+                self.executors.setdefault((module, scope[1]), set()).add(path)
+
+    def knows(self, table: str, key: tuple[str, str]) -> bool:
+        while self.unread:
+            self.add(*self.unread.pop())
+        if key in getattr(self, table):
+            return True
+        repo = repo_actor_index()
+        return repo is not None and bool(getattr(repo, table).get(key, set()) - self.own_paths)
+
+    def actor_of(self, path: str, scope: TypeScope | None) -> tuple[str, str] | None:
+        """The (module, name) of the actor whose instance members a line of PATH in type body SCOPE belongs to."""
+        if scope is None or scope[0] not in ("actor", "extension"):
+            return None
+        key = (module_of(path), scope[1])
+        return key if scope[0] == "actor" or self.knows("actors", key) else None
+
+    def has_custom_executor(self, key: tuple[str, str]) -> bool:
+        return self.knows("executors", key)
+
+
+def actor_index_at(repo: Path, rev: str) -> ActorIndex:
+    """The actors and custom executors of REV's sources: a `git grep` for actor declaration lines, and the files
+    that name `unownedExecutor`, read whole to find the type each one belongs to."""
+    index = ActorIndex()
+    spec = ["--", SOURCES + "*.swift"]
+    found = git(repo, "grep", "-I", "-n", "-E", "-e", ACTOR_DECLARATION_GREP, rev, *spec, check=False)
+    for row in found.split("\n"):
+        parts = row[len(rev) + 1:].split(":", 2) if row.startswith(rev + ":") else []
+        if len(parts) == 3:
+            index.add(parts[0], [parts[2]])
+    named = git(repo, "grep", "-I", "-l", "-F", "unownedExecutor", rev, *spec, check=False)
+    paths = [row[len(rev) + 1:] for row in named.split("\n") if row.startswith(rev + ":")]
+    for (_, path), text in blobs(repo, [(rev, p) for p in paths]).items():
+        index.add(path, text.split("\n"))
+    return index
+
+
+def repo_actor_index() -> ActorIndex | None:
+    """HEAD's ActorIndex for check() (load_blocking_context names the tree), read once per run; None without one."""
+    if "actor_index" not in BLOCKING_CONTEXT:
+        tree = BLOCKING_CONTEXT.get("actor_tree")
+        BLOCKING_CONTEXT["actor_index"] = actor_index_at(*tree) if tree else None
+    return BLOCKING_CONTEXT["actor_index"]
+
+
+# A header line that continues the line above it, and a line that continues on the line below it.
+CONTINUES_ABOVE = re.compile(r"^\s*(\.|&&|\|\||\?\?|->|else\b|where\b|async\b|throws\b|rethrows\b)")
+CONTINUES_BELOW = re.compile(r"(,|\(|\[|->|=|&&|\|\||\?\?)\s*$")
+ATTRIBUTES_ONLY = re.compile(rf"^\s*(?:{ATTRIBUTE}\s*)+$")
+
+
+def statement_header(lines: list[str], number: int, opener: str) -> tuple[str, int]:
+    """The header of the block that opens on 1-based line NUMBER (whose code up to its `{` is OPENER), and the
+    0-based line it starts on. Unlike block_header it joins a line above only where the statement goes on (an
+    open parenthesis, a trailing `,` or a leading `.`, `else`, `async`): Swift statements end without `;`, so
+    `let x = 1` above `do {` is a statement of its own, and `@concurrent` above a signature is an attribute."""
+    parts, start = [opener], number - 1
+    depth = opener.count("(") + opener.count("[") - opener.count(")") - opener.count("]")
+    j = number - 2
+    while j >= 0 and number - 1 - j <= HEADER_LINES:
+        above = code_of(lines[j])
+        if not above.strip() or ATTRIBUTE_LINE.match(above):
+            break
+        if not (depth < 0 or CONTINUES_ABOVE.match(parts[0]) or CONTINUES_BELOW.search(above)):
+            break
+        parts.insert(0, above)
+        depth += above.count("(") + above.count("[") - above.count(")") - above.count("]")
+        start = j
+        j -= 1
+    return " ".join(part.strip() for part in parts), start
+
+
+def declaration_attributes(lines: list[str], start: int) -> str:
+    """The attribute-only lines right above a declaration whose header starts on 0-based line START (`@concurrent`
+    on its own line), past comment lines between them. The walk stops at any other line: a one-line member above
+    (`@MainActor var x = 0`, `@concurrent func a() async { }`) has attributes of its own."""
+    found = []
+    j = start - 1
+    while j >= 0 and start - j <= HEADER_LINES:
+        code = code_of(lines[j])
+        if ATTRIBUTES_ONLY.match(code):
+            found.append(code)
+        elif not COMMENT_LINE.match(lines[j]):
+            break
+        j -= 1
+    return " ".join(found)
+
+
+def declaration_prefix(header: str) -> str:
+    """HEADER (a declaration's joined header) through its keyword (`func`, `init`, `subscript`, `var`): its
+    attributes and modifiers, without the parameter list, the effects or the return type."""
+    match = DECLARATION_KEYWORD.search(header)
+    return header[:match.end()] if match else header
+
+
+def type_is_main(version: Version, scope: TypeScope | None) -> bool:
+    """Whether a member of type body SCOPE is main-actor code when it states no isolation of its own: the type's
+    own `@MainActor`, none for an actor, a `nonisolated` type or another global actor, else its enclosing type's,
+    else the target's default. Read from the type's attributes and modifiers only, as for a function."""
+    lines = version.lines
+    while scope is not None:
+        kind, _, line = scope
+        code = code_of(lines[line])
+        match = TYPE_OPENER.search(code)
+        stated = (code[:match.start("kind")] if match else code) + " " + declaration_attributes(lines, line)
+        if OWN_GLOBAL_ACTOR.search(stated):
+            return re.search(r"@MainActor\b", stated) is not None
+        if kind == "actor" or NONISOLATED.search(stated):
+            return False
+        scope = type_scopes(version)[line]
+    return module_of(version.path) in ui_targets()
+
+
+def declares_async(header: str) -> bool:
+    """Whether HEADER (a function or initializer header) is `async`: read in the effects after its parameter list,
+    so an `async` closure parameter does not count."""
+    match = DECLARATION_KEYWORD.search(header)
+    opening = header.find("(", match.end()) if match else -1
+    if opening < 0:
+        return False
+    depth = 0
+    for position in range(opening, len(header)):
+        depth += header[position] == "("
+        depth -= header[position] == ")"
+        if depth == 0:
+            return bool(ASYNC_EFFECT.search(header[position + 1:]))
+    return False
+
+
+def pool_context(version: Version, index: int) -> str | None:
+    """Where VERSION's line INDEX runs if that is a shared pool thread, else None: "Task.detached", "a child task"
+    (`addTask {`, a global queue, `concurrentPerform`), "a child task (async let)", "an @concurrent function", "a
+    `Task {` in a nonisolated function", or "an actor method" (an actor without a custom executor, resolved against
+    the ActorIndex in VERSION.memo["actors"]). Any other closure (`work.run {`, a completion handler, a serial
+    queue's `async {`) is not judged: it runs where its API says."""
+    answers = version.memo.setdefault("pool_context", {})
+    if index not in answers:
+        answers[index] = _pool_context(version, index)
+    return answers[index]
+
+
+def _pool_context(version: Version, index: int) -> str | None:
+    lines = version.lines
+    code = code_of(lines[index])
+    match = MAIN_SCAN.search(code)
+    prefix = code[:match.start()] if match else ""
+    if ASYNC_LET.search(prefix) or (CALL_MARKERS_ONLY.match(prefix) and index > 0
+                                    and ASYNC_LET_OPEN.search(code_of(lines[index - 1]))):
+        return "a child task (async let)"
+    return _pool_walk(version, index, prefix, False)
+
+
+def is_local_declaration(lines: list[str], start: int) -> bool:
+    """Whether the declaration whose header starts on 0-based line START sits in a function or closure body (a
+    local function), not in a type body or at file level."""
+    outer = enclosing_openers(lines, start, INNERMOST_BLOCK)
+    return bool(outer) and not TYPE_OPENER.search(statement_header(lines, outer[0][1], outer[0][0])[0])
+
+
+def _pool_walk(version: Version, index: int, prefix: str, in_task: bool) -> str | None:
+    """pool_context's walk out of the blocks around line INDEX (PREFIX: the code before the call on it)."""
+    lines = version.lines
+    for opener, number in enclosing_openers(lines, index, OPENER_STOP, prefix):
+        header, start = statement_header(lines, number, opener) if number - 1 != index else (opener, index)
+        line = code_of(lines[number - 1])
+        if MAIN_OPENER.search(opener) or MAIN_OPENER.search(line) or CLOSURE_ON_MAIN.search(line[len(opener) - 1:]):
+            return None
+        if POOL_DETACHED.search(header):
+            return "Task.detached"
+        if POOL_CHILD.search(header):
+            return "a child task"
+        if TASK_INHERITS.search(header):
+            in_task = True
+            continue
+        if ACCESSOR_OPENER.search(header) or CONTROL_OPENER.search(header) or INLINE_CLOSURE_CALL.search(header):
+            continue
+        if not DECLARATION_OPENER.search(header):
+            return None  # a closure: it runs where its API says
+        if not FUNCTION_OPENER.search(header) and not INIT_OPENER.search(header):
+            return None  # a type body
+        stated = declaration_prefix(header) + " " + declaration_attributes(lines, start)
+        if CONCURRENT.search(stated):
+            return "an @concurrent function"
+        if OWN_GLOBAL_ACTOR.search(stated):
+            return None
+        if is_local_declaration(lines, start):
+            return _pool_walk(version, start, "", in_task)  # a local function runs in its enclosing context
+        actors = version.memo.get("actors") or ActorIndex()
+        actor = actors.actor_of(version.path, type_scopes(version)[number - 1])
+        if actor is not None and not NOT_INSTANCE_ISOLATED.search(stated):
+            # A synchronous init and deinit run on their caller. An `async` init is actor-isolated once `self` is
+            # initialized (SE-0327), so it runs on the actor's executor as a method does.
+            if INIT_OPENER.search(header) and not FUNCTION_OPENER.search(header) and not (
+                    declaration_prefix(header).endswith("init") and declares_async(header)):
+                return None
+            return None if actors.has_custom_executor(actor) else "an actor method"
+        # A `Task {` takes the function's isolation: the one its prefix states, else its type's.
+        if in_task and (NONISOLATED.search(stated) or not type_is_main(version, type_scopes(version)[start])):
+            return "a `Task {` in a nonisolated function"
+        return None
+    return None
+
+
+def blocking_on_pool(changes: list[FileChange], moved: collections.Counter) -> list[Added]:
+    """Added blocking calls (raw or seam) that run on a shared pool thread (pool_context)."""
+    changes = outside_seams(changes)
+    own = {c.path for c in changes}
+    # Each side's files are read only if a line of the push sits in an extension or an actor (most pushes: none).
+    head_actors = ActorIndex(own_paths=own, unread=[(c.path, c.head_lines) for c in changes])
+    base_actors = ActorIndex(own_paths=own, unread=[(c.path, c.base_lines) for c in changes])
+    for change in changes:
+        for version, _ in blocking_sides(change):
+            version.memo["actors"] = head_actors if version.lines is change.head_lines else base_actors
+            version.memo.pop("pool_context", None)  # its answers read the index the last call set
+
+    def judge(version: Version, index: int, code: str) -> bool:
+        return (index < len(version.lines) and blocking_match(MAIN_SCAN, code) and not ALWAYS_SCAN.search(code)
+                and not runs_on_main(version, index) and pool_context(version, index) is not None)
+    return changed_debt(changes, judge)
+
+
 def raw_blocking(changes: list[FileChange], moved: collections.Counter) -> list[Added]:
     """Added raw blocking primitives that main-blocking does not report (off the main thread, or in a closure)."""
     def judge(version: Version, index: int, code: str) -> bool:
         return (blocking_match(RAW_SCAN, code) and not ALWAYS_SCAN.search(code)
                 and not (index < len(version.lines) and runs_on_main(version, index)))
     return changed_debt(outside_seams(changes), judge)
+
+
+# raw-blocking-ext: the blocking primitives RAW_BLOCKING does not name (Chromium marks the same classes with a
+# ScopedBlockingCall: base/files/file_util_posix.cc, base/process/kill_posix.cc, sql/database.cc,
+# base/system/sys_info_mac.mm). Free functions need a `(?<![\w.])` lookbehind (or `Darwin.`), an argument, no
+# argument label and their C arity, so a method (`menu.removeItem(at:)`, `rename(id, to:)`), a one-argument
+# `stat(resolved)` or the `stat()` initializer is not one. A bare `open(` counts only with an `O_*` flag among its
+# arguments. LAContext's `evaluatePolicy` has no synchronous form (a `reply:` closure or `await`), so only
+# `canEvaluatePolicy` is refused.
+POSIX_CALLS = (r"fsync|flock|ftruncate|rename|unlink|mkdir|rmdir|lstat|stat|realpath|access|chmod|symlink|readlink|"
+               r"opendir|readdir|pread|pwrite|waitpid|wait4|waitid|sysctl|sysctlbyname|getpw\w*")
+# Each fixed-arity C function's argument count (getpw* varies: getpwuid 1, getpwuid_r 5; open takes 2 or 3).
+C_ARITY = {"fsync": 1, "flock": 2, "ftruncate": 2, "rename": 2, "unlink": 1, "mkdir": 2, "rmdir": 1, "lstat": 2,
+           "stat": 2, "realpath": 2, "access": 2, "chmod": 2, "symlink": 2, "readlink": 3, "opendir": 1, "readdir": 1,
+           "pread": 4, "pwrite": 4, "waitpid": 3, "wait4": 4, "waitid": 4, "sysctl": 6, "sysctlbyname": 5}
+RAW_BLOCKING_EXT = re.compile(
+    r"(?:\bDarwin\.|(?<![\w.]))(?P<free>" + POSIX_CALLS + r"|(?P<open>open))\((?!\s*\))|\bDarwin\.(read|write)\("
+    r"|\bFileHandle(\.init)?\(\s*for(Reading|Writing|Updating)"
+    r"|\.write\(contentsOf:|\.read\(upToCount:|\.seekToEnd(OfFile)?\(\)|\.synchronize(File)?\(\)"
+    r"|\bCGImage(SourceCreateWithURL|DestinationCreateWithURL|DestinationFinalize)\("
+    r"|\bsqlite3_(open|open_v2|prepare_v2|prepare_v3|step|exec|close|close_v2)\("
+    r"|\bproc_(pidinfo|pidpath|listpids)\(|\.canEvaluatePolicy\("
+    r"|\bHost\.current\(\)|\bprocessInfo\.hostName\b|\bFileManager\(\)\.(" + FILE_OPS + r")\(")
+RAW_EXT_SCAN = Prefiltered(RAW_BLOCKING_EXT, tuple(name + "(" for name in POSIX_CALLS.split("|") if "\\" not in name) + (
+    "getpw", "open(", "Darwin.", "FileHandle", "write(contentsOf:", "upToCount:", "seekToEnd", "synchronize", "CGImage",
+    "sqlite3_", "proc_", "canEvaluatePolicy(", "Host.current", "hostName", "FileManager()"))
+# Where a match names a declaration, not a call: `func rename(`, `case stat(`.
+DECLARED_AT = re.compile(r"\b(func|case)\s+$")
+O_FLAG = re.compile(r"\bO_[A-Z]")
+BRACE = re.compile(r"[{}]")
+ARGUMENT_TOKENS = re.compile(r"[()\[\]{},]")
+# The seam scopes: a call in a `blockingCall(.kind) { ... }` or `allowBlocking(.reason) { ... }` closure is marked.
+SEAM_SCOPE = re.compile(r"\b(blockingCall|allowBlocking)\s*\(")
+SIGNATURE = re.compile(r"\b(func|init[?!]?|subscript)\b")
+TYPE_NAME = re.compile(r"\b(?:class|struct|enum|actor|extension|protocol)\s+(?!(?:func|var|let)\b)(?P<name>[A-Za-z_]\w*)")
+# A declaration of a POSIX name that a bare call in its scope resolves to: a function, a local or member bound to a
+# value (`guard let rename = onRename`, `let stat = { ... }`), a function-typed property or a function-typed
+# parameter (`rename: @escaping (Target) -> Void`). `var stat: Bool` and `access: AccessLevel` call nothing; `open`
+# is never shadowed, because its `O_*` flag is the C signature.
+FUNCTION_TYPE = r"\s*:\s*(?:@\w+(?:\([^)]*\))?\s+|inout\s+)*\("
+POSIX_DECLARATION = re.compile(r"\bfunc\s+(?P<function>" + POSIX_CALLS + r")\b"
+                               r"|\b(?:let|var)\s+(?P<bound>" + POSIX_CALLS + r")\b(?=\s*=|" + FUNCTION_TYPE + r")"
+                               r"|[(,]\s*(?:\w+\s+)?(?P<parameter>" + POSIX_CALLS + r")(?=" + FUNCTION_TYPE + r")")
+# A name a file binds to a FileManager (`let fm = FileManager.default`, `fileManager: FileManager? = .default`,
+# `let files = FileManager()`); `FileManager.default.urls(` and `FileManager.SearchPathDirectory` bind nothing.
+FILE_MANAGER_BINDING = re.compile(
+    r"\b(?:let|var)\s+(?P<value>\w+)\s*(?::\s*FileManager\s*)?=\s*FileManager(?:\.default|\(\))(?![\w.(])"
+    r"|(?<![\w.])(?P<typed>\w+)\s*:\s*FileManager(?![\w.(])")
+
+
+class BraceBlocks:
+    """The brace blocks of one Version's code, read once: the block that holds a position, each block's parent and
+    header, and the blocks of each type name. A declaration is visible only in its scope (declaration_scope), so a
+    local in one function hides nothing in another."""
+
+    def __init__(self, lines: list[str], codes: list[str]) -> None:
+        self.lines, self.codes = lines, codes
+        self.parent: list[int] = []  # block -> enclosing block (-1: the file)
+        self.opened: list[tuple[int, int]] = []  # block -> (0-based line, column) of its `{`, in file order
+        self.starts: list[int] = []  # line -> the block open at the line's start
+        self.events: list[list[tuple[int, int]] | None] = []  # line -> [(brace column, block open after it)]
+        self.headers: dict[int, str] = {}
+        self.types: dict[str, list[int]] | None = None
+        stack = [-1]
+        for index, code in enumerate(codes):
+            self.starts.append(stack[-1])
+            if "{" not in code and "}" not in code:
+                self.events.append(None)
+                continue
+            events = []
+            for brace in BRACE.finditer(code):
+                if brace.group() == "{":
+                    stack.append(len(self.parent))
+                    self.parent.append(stack[-2])
+                    self.opened.append((index, brace.start()))
+                elif len(stack) > 1:
+                    stack.pop()
+                events.append((brace.start(), stack[-1]))
+            self.events.append(events)
+
+    def at(self, index: int, column: int) -> int:
+        """The innermost block open at COLUMN of line INDEX (-1: the file)."""
+        block = self.starts[index]
+        for position, after in self.events[index] or ():
+            if position >= column:
+                break
+            block = after
+        return block
+
+    def chain(self, block: int) -> list[int]:
+        """BLOCK and the blocks around it, innermost first, ending with the file (-1)."""
+        out = [block]
+        while block != -1:
+            block = self.parent[block]
+            out.append(block)
+        return out
+
+    def header(self, block: int) -> str:
+        """BLOCK's whole header up to its `{` (block_header)."""
+        if block not in self.headers:
+            index, column = self.opened[block]
+            self.headers[block] = block_header(self.lines, index + 1, self.codes[index][:column + 1])
+        return self.headers[block]
+
+    def declaration_scope(self, index: int, column: int, owner: str | None) -> tuple[int, ...]:
+        """The blocks a declaration at COLUMN of line INDEX is visible in: a function parameter's body (OWNER
+        "function"), a closure parameter's closure (OWNER "closure"), a local's block, or a member's type body and
+        the file's extensions of that type."""
+        block = self.at(index, column)
+        if owner == "function":
+            body = bisect.bisect_right(self.opened, (index, column))
+            if (body < len(self.opened) and self.opened[body][0] - index <= HEADER_LINES and self.parent[body] == block
+                    and SIGNATURE.search(self.header(body))):
+                return (body,)
+            return ()  # a protocol requirement or a function type: no body to see it
+        if owner == "closure":
+            return (block,)
+        named = TYPE_NAME.search(self.header(block)) if block != -1 else None
+        if named is None:
+            return (block,)
+        if self.types is None:
+            self.types = {}
+            for other, (line, at) in enumerate(self.opened):
+                found = TYPE_NAME.search(self.codes[line][:at + 1])
+                if found:
+                    self.types.setdefault(found.group("name"), []).append(other)
+        return (block, *self.types.get(named.group("name"), ()))
+
+
+def codes_of(version: Version) -> list[str]:
+    """code_of of each line of VERSION, read once."""
+    if "codes" not in version.memo:
+        version.memo["codes"] = [code_of(line) for line in version.lines]
+    return version.memo["codes"]
+
+
+def blocks_of(version: Version) -> BraceBlocks:
+    if "brace_blocks" not in version.memo:
+        version.memo["brace_blocks"] = BraceBlocks(version.lines, codes_of(version))
+    return version.memo["brace_blocks"]
+
+
+def declarations_in_scope(version: Version, pattern: re.Pattern, groups: tuple[str, ...],
+                          manager: bool) -> dict[tuple[str, int], list[tuple[int, int, bool]]]:
+    """Each PATTERN match in VERSION's code, by (the name in its matched group of GROUPS, each block of its scope):
+    [(line, column, whether it binds a FileManager)] in file order. A group named `parameter` is a parameter;
+    MANAGER says whether to judge the FileManager binding."""
+    codes = codes_of(version)
+    if "text" not in version.memo:
+        version.memo["text"] = "\n".join(codes)
+        version.memo["offsets"] = list(itertools.accumulate((len(code) + 1 for code in codes[:-1]), initial=0))
+    text, offsets = version.memo["text"], version.memo["offsets"]
+    found: dict[tuple[str, int], list[tuple[int, int, bool]]] = {}
+    if pattern.search(text) is None:
+        return found
+    scopes = blocks_of(version)
+    for match in pattern.finditer(text):
+        group = next(g for g in groups if match.group(g))
+        owner = parameter_owner(text, match.start(group)) if group == "parameter" else None
+        if group == "parameter" and owner is None:
+            continue  # a call's argument label (`list(fileManager: fileManager)`) declares nothing
+        line = bisect.bisect_right(offsets, match.start(group)) - 1
+        column = match.start(group) - offsets[line]
+        binds = False
+        if manager:
+            binding = (FILE_MANAGER_BINDING.match(text, match.start()) if group != "parameter" else None) \
+                or FILE_MANAGER_BINDING.match(text, match.start(group))
+            binds = binding is not None and not (binding.group("value") and line + 1 < len(codes)
+                                                 and codes[line + 1].lstrip().startswith("."))
+        for block in scopes.declaration_scope(line, column, owner):
+            found.setdefault((match.group(group), block), []).append((line, column, binds))
+    return found
+
+
+PARAMETER_LIST_REACH = 4000  # the most characters one parameter list is read back across
+SIGNATURE_BEFORE = re.compile(r"\b(?:func\s+[^\s(]+|init[?!]?|subscript)\s*(?:<[^()]*>)?\s*$")
+CLOSURE_BEFORE = re.compile(r"\{\s*(?:(?:\[[^\]]*\]|@\w+)\s*)*$")
+
+
+def parameter_owner(text: str, offset: int) -> str | None:
+    """Whether the `name:` at OFFSET of TEXT is a parameter of a function signature ("function"), of a closure
+    (`{ (name: T) in`, "closure"), or neither (a call's argument label: None): what comes before the innermost
+    `(` it is in."""
+    depth = 0
+    for position in range(offset - 1, max(-1, offset - PARAMETER_LIST_REACH), -1):
+        char = text[position]
+        if char == ")":
+            depth += 1
+        elif char == "(":
+            if depth == 0:
+                before = text[max(0, position - 200):position]
+                if SIGNATURE_BEFORE.search(before):
+                    return "function"
+                return "closure" if CLOSURE_BEFORE.search(before) else None
+            depth -= 1
+        elif char in "{}" and depth == 0:
+            return None
+    return None
+
+
+def nearest_declaration(version: Version, found: dict, name: str, index: int,
+                        column: int) -> tuple[int, int, bool] | None:
+    """The declaration of NAME that a use at COLUMN of line INDEX reads: in the innermost scope that declares it, the
+    latest one before the use (or that scope's first)."""
+    if not found:
+        return None
+    scopes = blocks_of(version)
+    for block in scopes.chain(scopes.at(index, column)):
+        candidates = found.get((name, block))
+        if candidates:
+            before = [c for c in candidates if (c[0], c[1]) <= (index, column)]
+            return before[-1] if before else candidates[0]
+    return None
+
+
+def call_arguments(version: Version, index: int, open_paren: int) -> list[str] | None:
+    """The arguments of the call whose `(` is at OPEN_PAREN of line INDEX, read across lines to its `)` and split at
+    its own commas; None when the list does not close within one header's reach."""
+    codes = codes_of(version)
+    arguments: list[str] = []
+    current: list[str] = []
+    depth = 0
+    for line in range(index, min(len(codes), index + HEADER_LINES)):
+        code = codes[line]
+        start = open_paren + 1 if line == index else 0
+        for token in ARGUMENT_TOKENS.finditer(code, open_paren if line == index else 0):
+            char = token.group()
+            if char in "([{":
+                depth += 1
+            elif char in ")]}":
+                depth -= 1
+                if depth == 0:
+                    current.append(code[start:token.start()])
+                    last = " ".join(current)
+                    if arguments or last.strip():
+                        arguments.append(last)
+                    return arguments
+            elif depth == 1:
+                current.append(code[start:token.start()])
+                arguments.append(" ".join(current))
+                current, start = [], token.end()
+        current.append(code[start:])
+    return None
+
+
+def posix_call(version: Version, index: int, match: re.Match) -> bool:
+    """Whether MATCH, a free-function match on line INDEX, is the C function: its arguments (read to the call's `)`)
+    carry no label and number its C arity, a bare `open` has an `O_*` flag, a `wait*` has no WNOHANG, and no
+    declaration in scope shadows the name (`Darwin.` and `open` never are)."""
+    name = match.group("free")
+    arguments = call_arguments(version, index, match.end() - 1)
+    if arguments is None:
+        return not match.group("open")
+    if any(ARGUMENT_LABEL.match(argument) for argument in arguments):  # C functions take no labels
+        return False
+    if C_ARITY.get(name, len(arguments)) != len(arguments):
+        return False
+    joined = " ".join(arguments)
+    if match.group("open"):
+        return match.group(0).startswith("Darwin.") or O_FLAG.search(joined) is not None
+    if name in ("waitpid", "wait4", "waitid") and "WNOHANG" in joined:
+        return False
+    if match.group(0).startswith("Darwin."):
+        return True
+    if "posix_shadows" not in version.memo:
+        version.memo["posix_shadows"] = declarations_in_scope(version, POSIX_DECLARATION,
+                                                              ("function", "bound", "parameter"), False)
+    return nearest_declaration(version, version.memo["posix_shadows"], name, index, match.start("free")) is None
+
+
+def file_manager_calls(version: Version) -> tuple[re.Pattern, dict] | None:
+    """`<name>[?!]?.<FILE_OPS>(` for each name VERSION binds to a FileManager, with every declaration of those names
+    by scope (declarations_in_scope), or None when it binds none. A `let x = FileManager.default` whose next line
+    starts with `.` is a chained call, not a binding."""
+    if "file_manager_calls" not in version.memo:
+        lines, codes = version.lines, codes_of(version)
+        names = set()
+        for index, line in enumerate(lines):
+            if "FileManager" not in line:
+                continue
+            for match in FILE_MANAGER_BINDING.finditer(codes[index]):
+                if match.group("value") and index + 1 < len(lines) and codes[index + 1].lstrip().startswith("."):
+                    continue
+                names.add(match.group("value") or match.group("typed"))
+        result = None
+        if names:
+            alternatives = "|".join(sorted(names))
+            declared = re.compile(r"\b(?:let|var)\s+(?P<bound>" + alternatives + r")\b"
+                                  r"|[(,]\s*(?:\w+\s+)?(?P<parameter>" + alternatives + r")\s*:(?!:)")
+            result = (re.compile(r"(?<![\w$])(" + alternatives + r")[?!]?\.(" + FILE_OPS + r")\("),
+                      declarations_in_scope(version, declared, ("bound", "parameter"), True))
+        version.memo["file_manager_calls"] = result
+    return version.memo["file_manager_calls"]
+
+
+def in_seam_scope(version: Version, index: int, column: int) -> bool:
+    """Whether COLUMN of line INDEX runs in a `blockingCall(...) {` or `allowBlocking(...) {` closure of its own
+    function: the seam marks the call there, as Chrome's ScopedBlockingCall does."""
+    scopes = blocks_of(version)
+    for block in scopes.chain(scopes.at(index, column))[:-1]:
+        header = scopes.header(block)
+        if SEAM_SCOPE.search(header):
+            return True
+        if OPENER_STOP.search(header):
+            return False
+    return False
+
+
+def blocking_ext_match(version: Version, index: int, code: str) -> bool:
+    """Whether CODE, line INDEX of VERSION, holds a raw-blocking-ext primitive outside a seam scope: a
+    RAW_BLOCKING_EXT call (not a declaration; a free function only as posix_call reads it), or a FileManager disk op
+    through a name whose nearest declaration in scope binds a FileManager."""
+    if RAW_EXT_SCAN.search(code):
+        for match in RAW_BLOCKING_EXT.finditer(code):
+            if DECLARED_AT.search(code[:match.start()]):
+                continue
+            if match.group("free") and not posix_call(version, index, match):
+                continue
+            if not in_seam_scope(version, index, match.start()):
+                return True
+    found = file_manager_calls(version) if "." in code else None
+    if found is None:
+        return False
+    calls, declarations = found
+    for call in calls.finditer(code):
+        declaration = nearest_declaration(version, declarations, call.group(1), index, call.start())
+        if declaration is not None and declaration[2] and not in_seam_scope(version, index, call.start()):
+            return True
+    return False
+
+
+def raw_blocking_ext(changes: list[FileChange], moved: collections.Counter) -> list[Added]:
+    """Added raw-blocking-ext primitives, on any thread: main-blocking and raw-blocking do not see them."""
+    return changed_debt(outside_seams(changes), blocking_ext_match)
 
 
 def doc_labels(doc: str) -> list[re.Pattern]:
@@ -2128,17 +3660,20 @@ def undocumented_threads(changes: list[FileChange], moved: collections.Counter) 
     return changed_debt(changes, judge)
 
 
-def load_blocking_context(texts: dict[tuple[str, str], str], head: str) -> None:
-    """Keeps HEAD's threading doc and package manifest for the rules above (a missing doc fails thread-doc open)."""
-    for key in ("threading_doc", "manifest", "ui_targets"):
+def load_blocking_context(texts: dict[tuple[str, str], str], head: str, repo: Path | None = None) -> None:
+    """Keeps HEAD's threading doc and package manifest for the rules above (a missing doc fails thread-doc open),
+    and, given REPO, names HEAD's tree for pool-blocking's actor index (repo_actor_index reads it on demand)."""
+    for key in ("threading_doc", "manifest", "ui_targets", "actor_tree", "actor_index"):
         BLOCKING_CONTEXT.pop(key, None)
     for key, path in (("threading_doc", THREADING_DOC), ("manifest", PACKAGE_MANIFEST)):
         if (head, path) in texts:
             BLOCKING_CONTEXT[key] = texts[(head, path)]
+    if repo is not None:
+        BLOCKING_CONTEXT["actor_tree"] = (repo, head)
 
 BLOCKING_RULES = (
-    Rule("main-blocking", "A blocking call on the main thread (file I/O, a socket read, a wait, a process wait or a "
-         "sync hop directly in main-actor code; `DispatchQueue.main.sync`, `Thread.sleep`, `usleep` anywhere)",
+    Rule("main-blocking", "A blocking call on the main thread (file I/O, a socket read, a wait, a process launch or wait, a "
+         "synchronous system call or a sync hop directly in main-actor code; `DispatchQueue.main.sync`, `Thread.sleep`, `usleep` anywhere)",
          "the main thread never blocks (plans/cmux-next/threading-model.md, Chrome's ScopedBlockingCall): one disk, "
          "lock or process wait on it drops frames and delays the next input; in Debug the runtime detector reports it",
          "move the work off the main thread (an actor, `Task.detached`, a `nonisolated` async function, the daemon) "
@@ -2147,15 +3682,43 @@ BLOCKING_RULES = (
          "// blocking-allow: <why this cannot leave the main thread, and its reviewed allowBlocking reason>",
          blocking_on_main),
     Rule("raw-blocking", "A raw blocking primitive (file read/write, `.write(to:)`, `FileManager.default.<disk op>`, "
-         "`.wait()`, `.sync {`, `waitUntilExit()`, `readToEnd()`, sync XPC, `posix_spawn`, `fork()`) instead of its "
+         "`.wait()`, `.sync {`, `asyncAndWait`, `waitUntilExit()`, `readToEnd()`, `try process.run()`, sync XPC, "
+         "`posix_spawn`, `fork()`, pthread and condition-lock waits, Security, AX, `getaddrinfo`, CGWindowList, "
+         "LSCopy, NSWorkspace app and icon queries, SMAppService, AuthorizationCopyRights, AppleScript) instead of its "
          "checked seam",
          "the runtime detector sees only the seams in CmuxNextCompat/Threading: a raw call that later runs on the "
          "main thread blocks it unseen",
          "use the seam: `FileManager.checked.<op>`, `Data(blockingContentsOf:)`, `String(blockingContentsOf:)`, "
          "`url.blockingResourceValues`, `handle.blockingReadToEnd()`, `semaphore.blockingWait()`, "
-         "`queue.blockingSync`, `process.blockingWaitUntilExit()`, `blockingRead/Recv/Write/Send`",
+         "`queue.blockingSync`, `process.blockingWaitUntilExit()`, `process.blockingRun()`, "
+         "`blockingRead/Recv/Write/Send`, `blockingSecItem*`, `blockingAX*`, `blockingGetaddrinfo`, "
+         "`blockingWindowList*`, `workspace.blockingURLForApplication/blockingIcon`, `blockingSMAppService*`, "
+         "`blockingAuthorizationCopyRights`; with no seam (sync XPC proxy, AppleScript, condition locks, "
+         "`asyncAndWait`, LSCopy) use the async API",
          "// blocking-allow: <why the seam does not fit>",
          raw_blocking),
+    Rule("pool-blocking", "A blocking call (raw or seam) on a shared pool thread: in a `Task.detached` or child task "
+         "body or an `async let` initializer, a `Task {` in a nonisolated function, an @concurrent function, or a method of an actor that has no "
+         "custom executor",
+         "the Swift cooperative pool has one thread per core and the GCD root queues are shared: a blocked pool "
+         "thread stalls every async job queued behind it (Chrome's ThreadPool runs a task without MayBlock() under "
+         "ScopedDisallowBlocking, base/task/thread_pool/task_tracker.cc)",
+         "run it on a BackgroundWork lane (`work.run(priority, mayBlock: .files|.system) { ... }`, or a "
+         "MayBlockRunner below CmuxNextWakeups); an actor whose methods block gets a serial executor on a named "
+         "queue at its QoS (`nonisolated var unownedExecutor`, the HomeCache pattern; a comment is no executor)",
+         "// blocking-allow: <why this blocking call may hold a pool thread>",
+         blocking_on_pool),
+    Rule("raw-blocking-ext", "A blocking primitive raw-blocking does not name: a FileManager disk op through a "
+         "variable or `FileManager()`, POSIX file calls (`open(..., O_*)`, `stat(path, &st)`, `rename`, `unlink`, "
+         "`fsync`, `flock`, `realpath`, ...), `waitpid` without WNOHANG, FileHandle open/write/read/seek/synchronize, "
+         "ImageIO URL I/O, `sqlite3_*`, `sysctl`, `proc_pid*`, `canEvaluatePolicy`, `getpw*`, `Host.current()`",
+         "each is disk, kernel or daemon I/O the runtime detector cannot see: on the main thread it drops frames "
+         "unseen, and off it nobody knows the thread blocks",
+         "from code that runs off the main thread, use `FileManager.checked.<op>` instead of a FileManager variable, "
+         "`handle.blockingRead(upToCount:)` / `handle.blockingWrite(contentsOf:)` for a FileHandle, and wrap any "
+         "other call in `blockingCall(.fileIO | .systemCall | .processWait) { ... }` (CmuxNextCompat/Threading)",
+         "// blocking-allow: <why the seam does not fit>",
+         raw_blocking_ext),
     Rule("maybe-main-blocking", "A blocking call in a caller-isolated async function (warning only)",
          "under NonisolatedNonsendingByDefault a non-@concurrent async function outside an actor runs on its caller's "
          "executor, so a main-actor caller runs the blocking call on main (AsyncProcess.run: 807 ms, 2026-10-24)",
@@ -2474,7 +4037,7 @@ def measure(repo: Path, base: str, head: str) -> tuple[list[tuple[Rule, list[Add
     """([(rule, every hit, measurements and warning hits included)], warnings) for what HEAD adds over BASE."""
     # Fixed prefixes: a user's diff.noprefix / diff.srcPrefix would otherwise drop every file from the parse. No
     # inter-hunk context: a user's diff.interHunkContext would join nearby hunks with unchanged lines between them.
-    specs = ["--", SWIFT_SOURCES, SWIFT_TESTS, *SHIPPED_BUILD_SPECS]
+    specs = ["--", SWIFT_SOURCES, SWIFT_TESTS, *SHIPPED_BUILD_SPECS, *WAKEUP_EXT_SPECS]
     env = {k: v for k, v in os.environ.items() if k not in ("GIT_INDEX_FILE", "GIT_WORK_TREE")}
     # The content diff and the blob read each decompress the same objects: on the slowest real pushes (242 files,
     # load 37) each took 0.7-1 s one after the other. The changed paths come first from a cheap name-only diff, so
@@ -2487,7 +4050,8 @@ def measure(repo: Path, base: str, head: str) -> tuple[list[tuple[Rule, list[Add
     early = sorted(p for p in set(names.split("\n")) if p and in_diff_scope(p))
     blob_ids: dict[tuple[str, str], str] = {}
     texts = blobs(repo, [(head, p) for p in early] + [(base, p) for p in early] + [(head, BENCHES), (head, OWNERS)]
-                  + [(head, MANIFEST), (base, MANIFEST), (head, THREADING_DOC), (head, PACKAGE_MANIFEST)], blob_ids)
+                  + [(head, MANIFEST), (base, MANIFEST), (head, THREADING_DOC), (head, PACKAGE_MANIFEST),
+                     (head, IDLE_BUDGET), (base, IDLE_BUDGET)], blob_ids)
     diff = diff_proc.communicate()[0].decode("utf-8", "replace")
     changes = parse_diff(diff)
     warnings: list[tuple[str, str]] = []
@@ -2499,7 +4063,7 @@ def measure(repo: Path, base: str, head: str) -> tuple[list[tuple[Rule, list[Add
     if late:
         texts.update(blobs(repo, [(head, p) for p in late] + [(base, p) for p in late], blob_ids))
     LEX_CACHE["dir"] = lex_cache_dir(repo)
-    load_blocking_context(texts, head)
+    load_blocking_context(texts, head, repo)
     for path in paths:
         change = changes[path]
         # A side with changed lines has the file: git lists no added line of a path absent at head.
@@ -2511,22 +4075,28 @@ def measure(repo: Path, base: str, head: str) -> tuple[list[tuple[Rule, list[Add
         change.base_lines = texts.get((base, path), "").split("\n")
         change.has_perf_hot = "perf-hot:" in text
         change.memo["blobs"] = (blob_ids.get((head, path)), blob_ids.get((base, path)))
-    head_types = GenericTypes(repo, head, [texts.get((head, p), "") for p in paths])
-    base_types = GenericTypes(repo, base, [texts.get((base, p), "") for p in paths])
+    # wakeup-ext's own files (Shared, crates, webviews, the CEF shim) stay out of the Swift readings below.
+    swift = {p: changes[p] for p in paths if in_swift_scope(p)}
+    head_types = GenericTypes(repo, head, [texts.get((head, p), "") for p in swift])
+    base_types = GenericTypes(repo, base, [texts.get((base, p), "") for p in swift])
     head_targets = swift_scope.package_targets(texts.get((head, MANIFEST), ""))
     base_targets = swift_scope.package_targets(texts.get((base, MANIFEST), ""))
     try:
         # Classes in extensions of a type whose generic signature the push changes, in files it does not change.
-        context_files, causes = generic_signature_context(repo, head, changes, head_types, base_types)
+        context_files, causes = generic_signature_context(repo, head, swift, head_types, base_types)
     except Exception as error:  # fail open for this reading only: the rules still judge the push's own files
         context_files, causes = [], {}
         warnings.append(("guardrails", check_failure("generic-signature context", error)))
-    for change in [changes[p] for p in paths] + context_files:
+    for change in list(swift.values()) + context_files:
         change.head_types, change.base_types = head_types, base_types
         change.head_main = main_by_default(change.path, head_targets)
         change.base_main = main_by_default(change.path, base_targets)
     files = [changes[p] for p in paths]
-    moved = collections.Counter(r.text.strip() for c in files for r in c.removed if r.text.strip())
+    wakeup = WakeupContext(repo, base, head, {rev: texts.get((rev, MANIFEST), "") for rev in (base, head)},
+                           {rev: texts.get((rev, IDLE_BUDGET)) for rev in (base, head)})
+    for change in files:
+        change.memo["wakeup"] = wakeup
+    moved = collections.Counter(r.text.strip() for c in swift.values() for r in c.removed if r.text.strip())
     found = []
     for rule in RULES:
         # The unchanged context files hold no added or removed line: only their touched context can add debt.
@@ -2545,7 +4115,7 @@ def measure(repo: Path, base: str, head: str) -> tuple[list[tuple[Rule, list[Add
     except json.JSONDecodeError:
         benches = {}
     try:
-        warnings += [("perf-hot", w) for w in perf_hot_warnings(changes, benches)]
+        warnings += [("perf-hot", w) for w in perf_hot_warnings(swift, benches)]
     except Exception as error:  # a broken warning must not switch off the refusals above
         warnings.append(("guardrails", check_failure("perf-hot", error)))
     if (head, OWNERS) in texts:
@@ -2829,13 +4399,124 @@ def run_push(repo: Path, ranges: list, ratchet: Ratchet | None = None) -> bool:
     return refused or refuse
 
 
+SELF_TEST_KIT = SOURCES + "CmuxNextKit/"
+SELF_TEST_APP_FILE = APP + "CmuxApplication.swift"
+SELF_TEST_MONITOR = "        token = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { $0 }\n"
+SELF_TEST_BASE = {
+    SELF_TEST_KIT + "OldMonitor.swift": "final class OldMonitor {\n    func start() {\n" + SELF_TEST_MONITOR + "    }\n}\n",
+    SELF_TEST_KIT + "Escaped.swift": "func f() {\n        // input-monitor-allow: a nested tracking loop\n" + SELF_TEST_MONITOR + "}\n",
+    SELF_TEST_APP_FILE: "final class CmuxApplication: NSApplication {\n    var inputObserver: ((NSEvent) -> Void)?\n}\n",
+}
+
+
+def _self_test_edit(path: str, old: str, new: str) -> dict[str, str]:
+    return {path: SELF_TEST_BASE[path].replace(old, new, 1)}
+
+
+SELF_TEST_CASES = (
+    # (what the push does, {path: head text}, refused)
+    ("a new local monitor", {SELF_TEST_KIT + "New.swift": "func f() {\n" + SELF_TEST_MONITOR + "}\n"}, True),
+    ("a new global monitor", {SELF_TEST_KIT + "New.swift":
+                              "func f() {\n    NSEvent.addGlobalMonitorForEvents(matching: .flagsChanged) { _ in }\n}\n"},
+     True),
+    ("an escaped monitor", {SELF_TEST_KIT + "New.swift": "func f() {\n"
+                            "        // input-monitor-allow: a nested tracking loop never reaches sendEvent\n"
+                            + SELF_TEST_MONITOR + "}\n"}, False),
+    ("a monitor inside CmuxNextInput", {SOURCES + "CmuxNextInput/InputEventTap.swift":
+                                        "func f() {\n" + SELF_TEST_MONITOR + "}\n"}, False),
+    ("a monitor named only in a comment", {SELF_TEST_KIT + "New.swift": "// replaces addLocalMonitorForEvents\nfunc f() {}\n"},
+     False),
+    ("an edit of a line that already holds a monitor (base debt)",
+     _self_test_edit(SELF_TEST_KIT + "OldMonitor.swift", ".keyDown", "[.keyDown, .keyUp]"), False),
+    ("a second monitor in a file that has one",
+     _self_test_edit(SELF_TEST_KIT + "OldMonitor.swift", SELF_TEST_MONITOR, SELF_TEST_MONITOR * 2), True),
+    ("deleting the escape of an old monitor", {SELF_TEST_KIT + "Escaped.swift": "func f() {\n" + SELF_TEST_MONITOR + "}\n"},
+     True),
+    ("a new event closure property on CmuxApplication",
+     _self_test_edit(SELF_TEST_APP_FILE, "}\n", "    var keyUpObserver: ((NSEvent) -> Bool)?\n}\n"), True),
+    ("a new event closure property in a CmuxApplication extension", {APP + "CmuxApplication+Keys.swift":
+     "extension CmuxApplication {\n    static let keyHooks: [(NSEvent) -> Void] = []\n}\n"}, True),
+    ("an event closure local in a CmuxApplication method",
+     _self_test_edit(SELF_TEST_APP_FILE, "}\n", "    func f(_ event: NSEvent) {\n        let handler: (NSEvent) -> Void = "
+                     "{ _ in }\n        handler(event)\n    }\n}\n"), False),
+    ("an event closure property on another type", {SELF_TEST_KIT + "New.swift":
+                                                   "final class Other {\n    var onKey: ((NSEvent) -> Void)?\n}\n"}, False),
+    ("a labelled event closure property on CmuxApplication",
+     _self_test_edit(SELF_TEST_APP_FILE, "}\n", "    var labelled: ((_ event: NSEvent) -> Void)?\n}\n"), True),
+    ("a dictionary of event handlers on CmuxApplication",
+     _self_test_edit(SELF_TEST_APP_FILE, "}\n", "    var hooks: [UUID: (NSEvent) -> Void] = [:]\n}\n"), True),
+    ("an inferred array of event handlers on CmuxApplication",
+     _self_test_edit(SELF_TEST_APP_FILE, "}\n", "    var hooks = [(NSEvent) -> Void]()\n}\n"), True),
+    ("an Optional<> event closure on CmuxApplication",
+     _self_test_edit(SELF_TEST_APP_FILE, "}\n", "    var scope: Optional<(NSEvent, () -> Void) -> Void>\n}\n"), True),
+    ("an event tuple property on CmuxApplication",
+     _self_test_edit(SELF_TEST_APP_FILE, "}\n", "    var lastKey: (NSEvent, Date)?\n    var pending: (NSEvent, NSWindow?)?\n}\n"),
+     False),
+    ("an escaped event closure property on CmuxApplication",
+     _self_test_edit(SELF_TEST_APP_FILE, "}\n", "    // input-monitor-allow: runModal's own loop, the tap never sees it\n"
+                     "    var modalKey: ((NSEvent) -> Bool)?\n}\n"), False),
+)
+
+
+def self_test() -> int:
+    """The input-monitor rule on SELF_TEST_CASES: each case is one commit over SELF_TEST_BASE in a scratch
+    repository, judged by check() as the hook judges a push (git only: no network, no build). Exit 1 on a wrong
+    answer."""
+    import tempfile
+    with tempfile.TemporaryDirectory(prefix="cmux-guardrails-self-test-") as temporary:
+        root = Path(temporary)
+        repo = root / "repository"
+        repo.mkdir()
+        (root / "gitconfig").write_text("[user]\n\tname = guardrails\n\temail = guardrails@example.com\n")
+        env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+        env.update(GIT_CONFIG_NOSYSTEM="1", GIT_CONFIG_GLOBAL=str(root / "gitconfig"), HOME=str(root))
+
+        def run(*args: str) -> str:
+            return subprocess.run(["git", "-C", str(repo), *args], env=env, text=True, capture_output=True,
+                                  check=True).stdout.strip()
+
+        def commit(files: dict[str, str], message: str) -> str:
+            for relative, text in files.items():
+                path = repo / relative
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(text)
+            run("add", "-A")
+            run("commit", "--quiet", "--no-verify", "-m", message)
+            return run("rev-parse", "HEAD")
+
+        run("init", "--quiet", "--initial-branch=self-test")
+        base = commit(SELF_TEST_BASE, "base")
+        saved = {k: os.environ.pop(k) for k in list(os.environ) if k.startswith("GIT_")}
+        failures = []
+        try:
+            for name, files, refused in SELF_TEST_CASES:
+                run("checkout", "--quiet", "--detach", base)
+                head = commit(files, name)
+                refusals, _ = check(repo, base, head)
+                hits = [h for rule, found in refusals if rule.id == "input-monitor" for h in found]
+                ok = bool(hits) == refused
+                print(f"  {'ok  ' if ok else 'FAIL'} {name}: {'refused' if hits else 'passes'}"
+                      + "".join(f"\n         {h.path}:{h.number}: {h.text.strip()}" for h in hits))
+                if not ok:
+                    failures.append(name)
+        finally:
+            os.environ.update(saved)
+    print(f"guardrails self-test: {'FAILED: ' + ', '.join(failures) if failures else 'ok'} "
+          f"({len(SELF_TEST_CASES) - len(failures)}/{len(SELF_TEST_CASES)} input-monitor cases)")
+    return 1 if failures else 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--repo")
     parser.add_argument("--base")
     parser.add_argument("--head", default="HEAD")
     parser.add_argument("--list", action="store_true", help="print the rules")
+    parser.add_argument("--self-test", action="store_true",
+                        help="judge the input-monitor rule's refuse and escape cases in a scratch repository")
     args = parser.parse_args(argv)
+    if args.self_test:
+        return self_test()
     if args.list:
         for rule in RULES:
             print(f"{rule.id}: {rule.title}\n  why: {rule.why}\n  do:  {rule.fix}\n  escape: {rule.escape or '-'}")

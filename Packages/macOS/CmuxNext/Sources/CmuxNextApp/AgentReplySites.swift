@@ -1,7 +1,9 @@
 import AppKit
 import CmuxNextAgentPane
 import CmuxNextBrowser
+import CmuxNextRemoteFetch
 import CmuxNextSettings
+import CmuxNextWakeups
 
 /// The App's side of an agent pane's reply links (D4, D6): the settings, and the favicon and
 /// title of a linked page from what cmux already holds. A favicon comes only from an open browser
@@ -20,6 +22,7 @@ struct AgentReplySites {
         }
         links.pullRequest = { url in AgentReplyPullRequests.shared.answer(url) }
         links.registerPullRequests = { urls in AgentReplyPullRequests.shared.register(urls) }
+        links.useResolver(SystemRemoteResolver(runner: services.work))
     }
 
     func sites(for urls: [URL]) -> [URL: AgentPaneReplySite] {

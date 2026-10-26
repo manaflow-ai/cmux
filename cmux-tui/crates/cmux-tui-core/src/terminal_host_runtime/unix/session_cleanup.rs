@@ -7,11 +7,11 @@
 //! against the same session before escalating.
 
 use crate::panic_free::RecoverPoison;
+#[cfg(not(target_os = "linux"))]
+use cmux_process::Command;
 use std::collections::HashSet;
 #[cfg(target_os = "linux")]
 use std::fs;
-#[cfg(not(target_os = "linux"))]
-use std::process::Command;
 use std::sync::Mutex;
 use std::sync::atomic::Ordering;
 

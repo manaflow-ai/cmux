@@ -1,6 +1,54 @@
 import AppKit
 import CmuxNextDesign
 extension ScreenContentView {
+    // MARK: Motion backends
+
+    /// This screen's render-server motion variants, one per kind, in the order their motions start
+    /// (the screen's kinds: ``RenderMotionKind``). A task that moves a kind to the render server writes
+    /// its variant in its own file and adds its one line here; a kind not listed, or every kind while
+    /// `motion.renderServer` is off (the default), steps on the main thread in ``step(_:policy:)``.
+    static var renderServerMotions: [any RenderServerMotion<ScreenContentView>] { [] }
+
+    /// What an open change turn held back from ``applyPresentation(force:)``.
+    struct HeldPresentation {
+        var force = false
+    }
+
+    /// Opens a change turn: a model update, a resize, or a camera move from the scrollbar or the
+    /// wheel. With render-server variants live, presentation waits for ``endMotionTurn(needsFrames:policy:)``,
+    /// so they take their motions before anything is laid out and the turn lays out once.
+    func beginMotionTurn() {
+        motionTurnDepth += 1
+        if motionTurnDepth == 1, motionBackends.isLive { heldPresentation = HeldPresentation() }
+    }
+
+    /// Ends a change turn, after every motion it starts has started (the root's layout, focus, center
+    /// and reveal requests, the canvas camera): the render-server kinds take theirs, a close the CPU
+    /// keeps takes its first frame (``leadIfPending(_:policy:)``), and the screen lays out once.
+    /// Returns whether the CPU still needs display frames: `needsFrames`, less the motions the render
+    /// server took.
+    @discardableResult
+    func endMotionTurn(needsFrames: Bool, policy: MotionPolicy = Motion.panes.policy) -> Bool {
+        motionTurnDepth -= 1
+        guard motionTurnDepth == 0 else { return needsFrames }
+        let held = heldPresentation
+        heldPresentation = nil
+        let taken = motionBackends.begin(on: self, policy: policy)
+        // The render server runs the close: it has no first frame on the CPU.
+        if taken.contains(.splitClose) { leadsFrame = false }
+        let led = leadIfPending(policy: policy)
+        if led || held != nil { applyPresentation(force: held?.force ?? false) }
+        guard !taken.isEmpty else { return needsFrames }
+        return needsFrames && (hasMotion || reportScrollOnSettle || canvasState.camera.isMoving)
+    }
+
+    /// `change` as one change turn; returns whether the CPU needs display frames for it.
+    @discardableResult
+    func motionTurn(_ change: () -> Bool) -> Bool {
+        beginMotionTurn()
+        return endMotionTurn(needsFrames: change())
+    }
+
     // MARK: Animation
     var hasMotion: Bool {
         if !isUserScrolling && (scroll.value != scroll.target || scroll.velocity != 0) { return true }
@@ -61,11 +109,13 @@ extension ScreenContentView {
         return moving
     }
     /// A close's first frame of the pane, divider and (riding them) camera springs, the strip's and
-    /// each row column's, in the change that starts them, once `syncScroll` placed the camera: the
-    /// frame that drops the closed pane already shows its neighbours covering some of its space,
-    /// and the shift the close needs (the last column or row closed) already under way.
-    func leadIfPending(_ dt: Double = 1.0 / 120, policy: MotionPolicy = Motion.panes.policy) {
-        guard leadsFrame else { return }
+    /// each row column's, at the end of the change turn that starts them, once `syncScroll` placed
+    /// the camera: the frame that drops the closed pane already shows its neighbours covering some
+    /// of its space, and the shift the close needs (the last column or row closed) already under way.
+    /// Steps only; returns true when it stepped, and the turn presents the result
+    /// (``endMotionTurn(needsFrames:policy:)``).
+    func leadIfPending(_ dt: Double = 1.0 / 120, policy: MotionPolicy = Motion.panes.policy) -> Bool {
+        guard leadsFrame else { return false }
         leadsFrame = false
         let frameSpring = policy.spring(motionState.frameSpring), appear = policy.spring(.appear)
         // The same springs `step` uses: unsettled (no edge lands alone), each pane on its zoom spring token.
@@ -79,7 +129,7 @@ extension ScreenContentView {
             if !isUserScrolling { _ = scroll.advance(dt, parameters: frameSpring, epsilon: 0.25) }
             _ = stepRows(dt, spring: frameSpring)
         }
-        applyPresentation()
+        return true
     }
 
     /// Frame ticks a strip pan keeps after its last event: a trackpad sends about one event per
@@ -137,6 +187,11 @@ extension ScreenContentView {
     /// nothing asks for no overlay sync and no hover refresh (`PaneMotionBench`, perf-lead issue 3).
     /// `force`: a structural or style change; everything is re-placed and the overlay syncs.
     func applyPresentation(force: Bool = false) { // perf-hot: 4ms motion-frame
+        // An open change turn lays out once, at its end (``endMotionTurn(needsFrames:policy:)``).
+        if heldPresentation != nil {
+            heldPresentation?.force = heldPresentation?.force == true || force
+            return
+        }
         // Every presentation shows the latest pan: no pan event waits after it.
         panPresentationPending = false
         let strip = stripShift, restStrip = geometry.viewShift(offset: isUserScrolling ? scroll.value : scroll.target)
@@ -243,8 +298,9 @@ extension ScreenContentView {
         if dividersChanged || changed { refreshDividerHover() }
         if dividersChanged || changed { context.overlayNeedsSync() }
     }
-    /// Divider hover from the pointer and the current frames (`ScreenDividers`).
-    func refreshDividerHover() { ScreenDividers(screen: self).refreshHover() }
+    /// Divider hover from the pointer and the current frames (`ScreenDividers`); `event` is a
+    /// handle's enter or exit, read for its point.
+    func refreshDividerHover(at event: NSEvent? = nil) { ScreenDividers(screen: self).refreshHover(at: event) }
     /// Hosts this screen displays now: its panes', then those a zoom covers (their rings and
     /// dims stay as they were, under the zooming pane, until it lands).
     var displayedHosts: [PaneHostView] {

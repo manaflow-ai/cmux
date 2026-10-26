@@ -20,7 +20,7 @@ struct TypingFrameProbeTests {
     @Test func theOverrideCallsTheSuperclassIMPOfTheCall() throws {
         let selector = #selector(setter: CALayer.contents)
         let layer = ProbedLayer()
-        TypingFrameProbe.install(on: layer)
+        TypingFrameProbe.install(on: layer, gate: TerminalContentsGate())
         let root = try #require(class_getInstanceMethod(CALayer.self, selector))
         let rootIMP = method_getImplementation(root)
         let forward = unsafeBitCast(rootIMP, to: SetContents.self)

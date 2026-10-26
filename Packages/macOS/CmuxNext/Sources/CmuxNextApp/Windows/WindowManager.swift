@@ -5,6 +5,7 @@ import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextBridge
 import CmuxNextDaemon
+import CmuxNextLaunch
 import CmuxNextWakeups
 import Observation
 
@@ -84,6 +85,8 @@ final class WindowManager {
     /// A restored window is entering full screen (one at a time).
     var fullScreenRestoreRunning = false
     var onFirstWindow: ((WindowController) -> Void)?
+    /// The restore's and the visible panes' startup refs (p08-startup task 013), passed to `restoreWhenLoaded`.
+    private var launchPaneRefs: VisiblePaneRefs?
     /// A window installed workspace content (links opened at launch wait for it).
     var onContentDidAppear: ((WindowController) -> Void)?
     /// One-shot work for a workspace a reveal is still mounting, by window
@@ -110,6 +113,7 @@ final class WindowManager {
 
     /// The registry's recency (the window order, saved as `WindowRecord.order`) follows each order and key change.
     func windowDidOrder(_ window: NSWindow, inFront: Bool) {
+        services.cache.hibernation?.windowsDidReorder() // an order without a key change posts nothing
         if inFront { eventDidBringForward(window) }
         guard !keepsOrder, let id = controllers.first(where: { $0.window === window })?.state.id else { return }
         registry.apply { if inFront { $0.activate(id) } else { $0.moveToBack(id) }; return WindowRegistry.Changes() }
@@ -171,8 +175,10 @@ final class WindowManager {
     /// Opens one window at once (from the launch snapshot, else in the
     /// connecting state, outside the registry), then restores the saved
     /// windows once the first live snapshot arrives, the launch window
-    /// becoming the frontmost. Creates a workspace only for an empty tree.
-    func restoreWhenLoaded() {
+    /// becoming the frontmost. Creates a workspace only for an empty tree. `paneRefs` (the app's
+    /// launch; nil in tests) are released at the end of the restore (`VisiblePaneRefs.finishRestore`).
+    func restoreWhenLoaded(paneRefs: VisiblePaneRefs? = nil) {
+        if let paneRefs { launchPaneRefs = paneRefs }
         registry.isLaunching = !restored
         if controllers.isEmpty, !LaunchSnapshotWindow(manager: self).show() {
             let id = UUID().uuidString.lowercased()
@@ -249,6 +255,8 @@ final class WindowManager {
         fullScreenRestoreReady = true
         enterRestoredFullScreens()
         FirstWorkspaceLaunch(manager: self).land(firstWorkspace) // its New Tab page, not Home
+        launchPaneRefs?.finishRestore(of: self)
+        launchPaneRefs = nil
         // Classic cmux's session comes over once, after restore so the restored
         // registry never overwrites where its workspaces land.
         let onboarding = AppOnboardingServices(owner: services.onboarding)

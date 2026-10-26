@@ -30,6 +30,7 @@ pub(crate) struct TerminalCommitIntent {
 impl WorkspaceRegistry {
     /// Validate one terminal transition for [`Self::commit_terminal`].
     #[allow(clippy::too_many_arguments)]
+    #[track_caller]
     pub(crate) fn prepare_terminal_commit(
         &self,
         mutation: &WorkspaceMutation,
@@ -70,6 +71,7 @@ impl WorkspaceRegistry {
     /// transaction (one fsync), each under its own SAVEPOINT: an intent that
     /// fails rolls back alone and gets its own error. The caller holds the
     /// registry across prepare and commit, so no other writer runs between.
+    #[track_caller]
     pub(crate) fn commit_terminals_together(
         &self,
         intents: Vec<TerminalCommitIntent>,

@@ -107,7 +107,7 @@ impl Mux {
         std::thread::Builder::new()
             .name("terminal-grid-hold".into())
             .spawn(move || {
-                std::thread::sleep(grace);
+                crate::request_path::sleep(grace);
                 if let Some(mux) = mux.upgrade() {
                     mux.end_expired_terminal_grid_hold(runtime);
                 }

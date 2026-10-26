@@ -191,6 +191,7 @@ impl Mux {
     /// screen whose only tab is `first` (`reused`: the record `first`
     /// stands for, when it reused one). Answers each record's index with
     /// the tab made from it, in record order, and the pane to focus.
+    #[track_caller]
     pub(super) fn rebuild_screen(
         self: &Arc<Self>,
         actor: &Actor,
@@ -256,6 +257,7 @@ impl Mux {
 
     /// Make the tab of record `tab` in `pane`: the reused first tab is moved
     /// there (it already exists), any other is created.
+    #[track_caller]
     fn make_tab(
         self: &Arc<Self>,
         build: &mut Build<'_>,
@@ -275,6 +277,7 @@ impl Mux {
     }
 
     /// Build `shape` in `pane`, which covers exactly the area of `shape`.
+    #[track_caller]
     fn build_shape(
         self: &Arc<Self>,
         build: &mut Build<'_>,

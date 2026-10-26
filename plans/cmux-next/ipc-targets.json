@@ -1,5 +1,5 @@
 {
-  "about": "p05-ipc queue targets (plans/cmux-next/chrome-parity/p05-ipc.md, section 6). scripts/cmux-next/ipc-census.py --record writes `base`; --check fails when a queue grows past it or an allowlist entry has no reason or matches no site. Allowlist entries are {queue, file, key (optional: the whole file), reason}. Task p05-ipc-106 adds the transient daemon connections of section 3.1.",
+  "about": "p05-ipc queue targets (plans/cmux-next/chrome-parity/p05-ipc.md, section 6). scripts/cmux-next/ipc-census.py --record writes `base`; --check fails when a queue grows past it or an allowlist entry has no reason or matches no site. Allowlist entries are {queue, file, key (optional: the whole file), reason}. Task p05-ipc-106 adds the transient daemon connections of section 3.1. `ipc5_ops` lists the IPC-5 ops; cmux-tui/scripts/bench-daemon-latency.py `--ops all` measures each of them and refuses to run when one has no plan. `runtime.Q16` (items {file, line, key, p95_ms, wire}) and `runtime.Q16_run` (command, scenario, threshold_ms, sha, host, daemon_version, skipped, failed) are written by `bench-daemon-latency.py --ops all --scenario scale --write-q16` on a macOS fleet host (p05-ipc-002); ipc-census.py reads Q16 from there.",
   "allowlist": [
     {
       "queue": "Q4",

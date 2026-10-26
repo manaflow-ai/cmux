@@ -111,6 +111,10 @@ pub(super) async fn route(
     if m == crate::rpc::method::MUX_STATS {
         return stats::handle(hub, conn.origin, &params).await;
     }
+    // The cmux daemon's trace control: local only, this process only.
+    if m == crate::rpc::method::MUX_TRACE {
+        return crate::trace_control::handle(conn.origin, &params).await;
+    }
     // A chat's route (`routes.rs`) is a session method, not the chat index.
     if !m.starts_with(PREFIX) || m == crate::rpc::method::MUX_CHAT_ROUTE_SET {
         return super::requests::handle_request(hub, conn, m, params).await;

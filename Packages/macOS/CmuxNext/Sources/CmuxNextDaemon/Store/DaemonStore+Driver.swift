@@ -189,6 +189,8 @@ extension DaemonStore {
         // The connection is gone: no echo or barrier will come for its commands.
         drainAppliedWaiters = true
         flushAppliedWaiters()
+        // A close, a pump failure or an incompatible daemon ends the stream with no `disconnected` event.
+        endAppliedWaits()
         if let failure { markFailed(failure) }
         resumeRefreshWaiters()
         resyncRetry?.cancel()
@@ -316,6 +318,23 @@ extension DaemonStore {
             // another one when it finishes.
             if !isResyncing, resyncRetry == nil { resync() }
         }
+    }
+
+    /// Runs `work` once the first live snapshot is applied to the store (at once when it has
+    /// been): the startup phase's first-snapshot reference (`StartupPhase.Reference.firstSnapshot`,
+    /// Chrome's after-startup reference count in `chrome/browser/after_startup_task_utils.cc`).
+    /// A launch snapshot (``applyProvisional(snapshot:)``) does not count.
+    public func whenFirstSnapshotApplied(_ work: @escaping @MainActor () -> Void) {
+        if isLoaded { work() } else { firstSnapshotWaiters.append(work) }
+    }
+
+    /// Runs the first-snapshot waiters once ``isLoaded`` holds (after the snapshot's overlay and
+    /// applied waiters); later snapshots find none.
+    func runFirstSnapshotWaiters() {
+        guard isLoaded, !firstSnapshotWaiters.isEmpty else { return }
+        let waiting = firstSnapshotWaiters
+        firstSnapshotWaiters.removeAll()
+        for work in waiting { work() }
     }
 
     func resumeRefreshWaiters() {

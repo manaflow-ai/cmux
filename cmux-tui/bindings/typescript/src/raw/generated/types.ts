@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 723fa14ae06654ab0c2fd018a406c8353af7e7edb0f60ba05ee761541bdeb6f2. */
+/* cmux-tui mux protocol 12, IR 5819519176d5752a978a367bdd398e2ab4431f89841efa45c8da605ce35ec617. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -1064,6 +1064,38 @@ export type ServerStatsRegistryLock = {
   "wait_us": ServerStatsHistogram;
 };
 
+export type ServerStatsRequestLatency = {
+  "agent": ServerStatsHistogram;
+  "browser": ServerStatsHistogram;
+  "cloud": ServerStatsHistogram;
+  "create": ServerStatsHistogram;
+  "other": ServerStatsHistogram;
+  "query": ServerStatsHistogram;
+  "terminal_io": ServerStatsHistogram;
+  "topology": ServerStatsHistogram;
+};
+
+export type ServerStatsRequestPathIo = {
+  "child_process": bigint;
+  "fs_write": bigint;
+  "host_wait": bigint;
+  "journal_wait": bigint;
+  "lock_hold_over_1ms"?: bigint;
+  "network": bigint;
+  "proc_scan": bigint;
+  "process_spawn": bigint;
+  "recording": boolean;
+  "scopes": bigint;
+  "sites": Array<ServerStatsRequestPathSite>;
+  "sleep": bigint;
+  "sqlite": bigint;
+};
+
+export type ServerStatsRequestPathSite = {
+  "kind": string;
+  "site": string;
+};
+
 export type ServerStatsResourceProjection = {
   "commit_apply_us": ServerStatsHistogram;
   "commit_journal_us": ServerStatsHistogram;
@@ -1086,12 +1118,44 @@ export type ServerStatsResourceProjection = {
 
 export type ServerStatsResult = {
   "connections": ServerStatsConnections;
+  "dispatch_queue_us"?: ServerStatsHistogram;
   "journal_writer": (ServerStatsJournalWriter) | null;
   "registry_lock": ServerStatsRegistryLock;
+  "request_latency_us"?: ServerStatsRequestLatency;
+  "request_path_io"?: ServerStatsRequestPathIo;
   "resource_projection"?: ServerStatsResourceProjection;
   "schema": number;
+  "slow_requests"?: ServerStatsSlowRequests;
   "uptime_ms": bigint;
   "write_path"?: ServerStatsWritePath;
+};
+
+export type ServerStatsSlowRequest = {
+  "busy_ms": bigint;
+  "client": bigint;
+  "duration_ms": (bigint) | null;
+  "method": string;
+  "stack": Array<ServerStatsSlowRequestFrame>;
+  "stack_error": (string) | null;
+  "stack_truncated": boolean;
+  "started_ms": bigint;
+};
+
+export type ServerStatsSlowRequestFrame = {
+  "image": (string) | null;
+  "image_id": (string) | null;
+  "offset": bigint;
+  "symbol": (string) | null;
+};
+
+export type ServerStatsSlowRequests = {
+  "expected_waits": bigint;
+  "recent": Array<ServerStatsSlowRequest>;
+  "spawn_failures": bigint;
+  "threshold_ms": bigint;
+  "total": bigint;
+  "unwatched": bigint;
+  "watchdog_wakeups": bigint;
 };
 
 export type ServerStatsWritePath = {

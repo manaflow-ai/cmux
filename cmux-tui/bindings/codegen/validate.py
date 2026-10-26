@@ -9,8 +9,20 @@ from dataclasses import dataclass
 from typing import Any
 
 try:
+    from .ipc_meta import (
+        COMMAND_ATTRIBUTES,
+        EVENT_ATTRIBUTES,
+        FIELD_ATTRIBUTES,
+        IpcMetaValidator,
+    )
     from .naming import find_collisions
 except ImportError:  # Direct execution from this directory.
+    from ipc_meta import (
+        COMMAND_ATTRIBUTES,
+        EVENT_ATTRIBUTES,
+        FIELD_ATTRIBUTES,
+        IpcMetaValidator,
+    )
     from naming import find_collisions
 
 JsonObject = Mapping[str, Any]
@@ -86,6 +98,7 @@ class _Validator:
         self.event_names: set[str] = set()
         self.protocol_version: int | None = None
         self.strict = isinstance(document.get("protocol"), Mapping)
+        self.ipc = IpcMetaValidator(self.issue, document.get("types"))
 
     def issue(self, path: str, message: str) -> None:
         self.issues.append(ValidationIssue(path, message))
@@ -182,6 +195,7 @@ class _Validator:
                 "types",
                 "commands",
                 "events",
+                "families",
                 "ir_sha256",
             },
         )
@@ -259,6 +273,9 @@ class _Validator:
                         "type name must match ^[A-Z][A-Za-z0-9]*$",
                     )
                 self.validate_type(types[name], f"$.types.{name}")
+
+        if "families" in self.document:
+            self.ipc.families(self.document["families"])
 
         events = self.document.get("events")
         event_entries = self.named_entries(events, "$.events")
@@ -579,9 +596,11 @@ class _Validator:
                 "default",
                 "constraints",
                 "description",
+                *FIELD_ATTRIBUTES,
             },
         )
         self.validate_type(field.get("type"), f"{path}.type")
+        self.ipc.field(field, path)
         if field.get("presence") not in {"required", "optional"}:
             self.issue(f"{path}.presence", "must be 'required' or 'optional'")
         if not isinstance(field.get("nullable"), bool):
@@ -649,9 +668,11 @@ class _Validator:
                 "result",
                 "stream",
                 "constraints",
+                *COMMAND_ATTRIBUTES,
             },
         )
         self.validate_versioned(value, path)
+        self.ipc.command(name, value, path)
         authority = value.get("authority")
         if authority is not None:
             authority_name = self.require_nonempty_string(authority, f"{path}.authority")
@@ -793,9 +814,17 @@ class _Validator:
             value,
             path,
             required={"since", "capability", "streams", "emission", "payload"},
-            allowed={"since", "capability", "streams", "emission", "payload"},
+            allowed={
+                "since",
+                "capability",
+                "streams",
+                "emission",
+                "payload",
+                *EVENT_ATTRIBUTES,
+            },
         )
         self.validate_versioned(value, path)
+        self.ipc.event(name, value, path)
         streams = self.require_array(value.get("streams", []), f"{path}.streams")
         if streams is not None:
             self.validate_unique(streams, f"{path}.streams")

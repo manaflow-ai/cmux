@@ -96,6 +96,7 @@ pub(super) fn is_template_terminal(terminal: &RegistryTerminal) -> bool {
     terminal.launch_spec == template_terminal_launch_spec()
 }
 
+#[track_caller]
 pub(super) fn commit_terminal_transition(
     registry: &mut WorkspaceRegistry,
     event_kind: &str,
@@ -127,6 +128,7 @@ pub(super) fn commit_terminal_transition(
 }
 
 #[cfg(test)]
+#[track_caller]
 pub(super) fn commit_terminal_workspace(
     registry: &mut WorkspaceRegistry,
     terminal_id: &str,

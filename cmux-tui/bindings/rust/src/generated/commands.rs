@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 723fa14ae06654ab0c2fd018a406c8353af7e7edb0f60ba05ee761541bdeb6f2.
+// cmux-tui mux protocol 12, IR 5819519176d5752a978a367bdd398e2ab4431f89841efa45c8da605ce35ec617.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -3783,6 +3783,36 @@ pub struct TerminalResumeCommandRequest {
 }
 
 #[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct TraceStartRequest {
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub categories: Optional<Vec<String>>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub keys: Option<bool>,
+    #[serde(flatten)]
+    pub additional: BTreeMap<String, serde_json::Value>,
+}
+
+#[rustfmt::skip]
+pub type TraceStartResult = serde_json::Value;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct TraceStatusRequest {
+}
+
+#[rustfmt::skip]
+pub type TraceStatusResult = serde_json::Value;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct TraceStopRequest {
+}
+
+#[rustfmt::skip]
+pub type TraceStopResult = serde_json::Value;
+
+#[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct UndoLayoutRequest {
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
@@ -5637,6 +5667,18 @@ impl CmuxClient {
 
     pub fn terminal_resume_command(&mut self, request: TerminalResumeCommandRequest) -> Result<T::TerminalResumeCommandResult> {
         self.execute(&TERMINAL_RESUME_COMMAND_METADATA, &request)
+    }
+
+    pub fn trace_start(&mut self, request: TraceStartRequest) -> Result<TraceStartResult> {
+        self.execute(&TRACE_START_METADATA, &request)
+    }
+
+    pub fn trace_status(&mut self, request: TraceStatusRequest) -> Result<TraceStatusResult> {
+        self.execute(&TRACE_STATUS_METADATA, &request)
+    }
+
+    pub fn trace_stop(&mut self, request: TraceStopRequest) -> Result<TraceStopResult> {
+        self.execute(&TRACE_STOP_METADATA, &request)
     }
 
     pub fn undo_layout(&mut self, request: UndoLayoutRequest) -> Result<UndoLayoutResult> {

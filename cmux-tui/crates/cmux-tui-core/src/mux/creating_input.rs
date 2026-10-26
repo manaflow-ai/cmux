@@ -227,7 +227,7 @@ impl Mux {
         creating.flushing = true;
         drop(terminals);
         if let Some(delay) = env_millis(FLUSH_DELAY_ENV) {
-            std::thread::sleep(delay);
+            crate::request_path::sleep(delay);
         }
         let mut clients = Vec::new();
         loop {

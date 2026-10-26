@@ -1319,6 +1319,21 @@ public abstract class GeneratedCmuxClient {
         return TerminalResumeCommandResult.fromWire(result);
     }
 
+    public final Object traceStart(TraceStartRequest request) throws CmuxException {
+        Object result = execute(Commands.TRACE_START, request.toWire());
+        return Wire.immutableJson(result);
+    }
+
+    public final Object traceStatus() throws CmuxException {
+        Object result = execute(Commands.TRACE_STATUS, Map.of());
+        return Wire.immutableJson(result);
+    }
+
+    public final Object traceStop() throws CmuxException {
+        Object result = execute(Commands.TRACE_STOP, Map.of());
+        return Wire.immutableJson(result);
+    }
+
     public final LayoutUndoResult undoLayout(UndoLayoutRequest request) throws CmuxException {
         Object result = execute(Commands.UNDO_LAYOUT, request.toWire());
         return LayoutUndoResult.fromWire(result);

@@ -41,6 +41,7 @@ extension CEFTab {
                 machine.apply(.started(id, url: URL(string: url)))
             }
             if let navigation { machine.apply(.committed(navigation, url: URL(string: url))) }
+            noteAudible()
             restored.navigationCommitted(url: URL(string: url))
             restored.documentCommitted(url: URL(string: url), formPost: fromPost)
             if let title = titleBeforeCommit { machine.apply(.titleChanged(title)) }

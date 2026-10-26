@@ -66,7 +66,7 @@ struct AgentTabContent {
         // it shows in Chromium: that page draws over the frame as it comes in, both seen at once.
         let newTabFrame = { view?.model.newTab == nil || view?.pageDrawsOverCovers == true ? nil : AgentPaneNewTabFrame.shared.image(size: paneView.contentHost.bounds.size, appearance: Self.appearance(of: paneView)) }
         let image = { images.take(key, size: paneView.contentHost.bounds.size, appearance: Self.appearance(of: paneView)) ?? newTabFrame() }
-        if paneView.launchImageView == nil, let image = image() { paneView.showLaunchImage(image) }
+        if paneView.launchImageView == nil, let image = image() { paneView.showLaunchImage(image, hold: pane.services.launchImageHold) }
         guard paneView.launchImageView != nil, let view else { return }
         view.showsLoadingState = false
         paneView.onLaunchImageCleared = { [weak view] in
@@ -88,7 +88,7 @@ struct AgentTabContent {
         let image = size == .zero || paneView.launchImageView != nil || view.pageDrawsOverCovers ? nil : own ?? AgentPaneNewTabFrame.shared.image(size: size, appearance: appearance)
         BenchSpans.mark(image == nil ? "newTab.cover.none \(size) \(String(describing: appearance))" : own != nil ? "newTab.cover.own" : "newTab.cover")
         // The image's deadline shows the page too, should its frame never be reported.
-        if let image { paneView.showLaunchImage(image); paneView.onLaunchImageCleared = { [weak view] in view?.revealMovedPage() } }
+        if let image { paneView.showLaunchImage(image, hold: pane.services.launchImageHold); paneView.onLaunchImageCleared = { [weak view] in view?.revealMovedPage() } }
         view.hideMovedPage { [weak paneView] in
             BenchSpans.mark("newTab.cover.cleared")
             if image != nil { paneView?.clearLaunchImage() }

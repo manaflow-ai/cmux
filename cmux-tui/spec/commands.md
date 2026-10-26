@@ -580,7 +580,8 @@ control-socket admission. Counters accumulate since daemon start. The command
 reads atomics and never touches SQLite or the journal, so it is safe to poll.
 
 Params: `{include?: array<string>|null}`. `include` names optional result
-sections: `resource_projection` and `write_path`; unknown names are ignored.
+sections: `resource_projection`, `write_path`, `slow_requests` and `requests`;
+unknown names are ignored.
 An optional section is absent unless requested, because SDK decoders refuse
 unknown result fields.
 
@@ -618,7 +619,24 @@ object{
     effect_intents:uint64, effect_intent_failures:uint64,
     effect_intent_batches:uint64, request_effect_commits:uint64,
     writer_registry_locks:uint64
-  }
+  },
+  slow_requests?:object{
+    threshold_ms:uint64, total:uint64, unwatched:uint64, expected_waits:uint64,
+    spawn_failures:uint64, watchdog_wakeups:uint64,
+    recent:array<object{
+      method:string, client:uint64, started_ms:uint64, busy_ms:uint64,
+      duration_ms:uint64|null,
+      stack:array<object{image:string|null,image_id:string|null,offset:uint64,
+        symbol:string|null}>,
+      stack_truncated:boolean, stack_error:string|null
+    }>
+  },
+  request_latency_us?:object{
+    topology:histogram, terminal_io:histogram, create:histogram,
+    query:histogram, browser:histogram, agent:histogram, cloud:histogram,
+    other:histogram
+  },
+  dispatch_queue_us?:histogram
 }
 histogram = object{count:uint64,mean:uint64,max:uint64,p50:uint64,p90:uint64,p99:uint64}
 ```
@@ -660,6 +678,76 @@ journal writer thread. It is always `0`: a request thread holds the registry
 lock (and may hold state) while it waits for its writer receipt, so the
 writer never takes either.
 
+`slow_requests` lists requests that ran past `threshold_ms` (250), each
+recorded once. Every frame a connection reads is watched from its arrival
+until its handler returns, and a `cmd` request the connection's scheduler
+runs on another thread is watched there. `method` is the request's `cmd`
+tag, its v2 `operation`, or `frame:<handler>` for a frame its connection
+handler answers itself (`frame:fs`, `frame:agent-inventory`, ...; plain
+`frame` before a handler is picked). `client` is its connection,
+`started_ms` its start in milliseconds since daemon start, `busy_ms` how long
+it had run when it was recorded, and `duration_ms` how long it ran in total
+(`null` while it still runs). A request that ends past the threshold before
+the watchdog looked is still recorded. `total` counts every recorded request
+and `recent` keeps the newest 128, oldest first. `unwatched` counts requests
+that started while all 256 watch slots were taken. `expected_waits` counts
+requests that block by design (`wait-for` waits up to its `timeout_ms`); they
+are not recorded. `spawn_failures` counts failed starts of the watchdog
+thread; each later request tries again, and while it is nonzero slow
+requests may be missing. `watchdog_wakeups` counts wakes of the
+`mux-request-watchdog` thread: it has no periodic timer, so the count stays
+still while the daemon is idle, and it wakes only on a 250 ms grid, so the
+count grows by at most four a second (plus one) under any request pattern.
+With `CMUX_TUI_DEBUG_SPANS` set, each recorded request also appends a
+`slow-request` line with the method as its mark.
+`requests` adds `request_latency_us` and `dispatch_queue_us`, over every
+control connection's request lines (Chrome's per-task queue and run timing):
+`cmd` commands, `cmux.protocol/2` resource requests, the feature routes
+(`agent-*`, `apps-*`, `script-*`, `fs.*`, loopback and browser-runtime
+lines) and lines answered with a refusal or a bad-request error.
+`request_latency_us.<class>` is the time from a request line's arrival at its
+connection's reader (when its read returns) to its reply entering the
+connection's outbound queue, by the request's method class (the daemon's
+`MethodClass`; a resource operation's class follows its namespace, and its
+creates and splits are `create`). A request a worker answers later
+(`url-open`, `chief-inspect`, the cloud commands) counts when the worker's
+reply is queued. The time a reply then waits for the writer thread's socket
+write is not counted. `dispatch_queue_us` is the time from a request's parse
+to its handler's start: the wait in the connection's request queue (0 for a
+line answered inline).
+
+In a trace, each request is the slice `daemon.request`: arg0 is the method
+id (a command's row in the command table, `0x4000` plus a resource
+operation's index, or `0x8000` plus the class of a feature-route line) and
+arg1 the FNV-1a hash of the request id's compact JSON. The slice has the
+instants `daemon.request.parsed`, `daemon.request.dispatched`,
+`daemon.request.handled` (the reply is built) and
+`daemon.request.reply.queued`; a resource or feature-route line, which sends
+its own reply, has no `handled`. A worker's reply is the async slice
+`daemon.request.async` (arg0 the method id), with the instants
+`daemon.request.async.handled` and `daemon.request.async.reply.queued`.
+
+`stack` is the stack of the thread that ran the request, captured when the
+watchdog first saw it running past the threshold (macOS suspends the thread,
+Linux interrupts it with SIGURG; under a millisecond). Frames are innermost
+first: the interrupted pc, then return addresses along the frame pointers,
+at most 32. `image` is the file name of the image that holds the frame,
+`image_id` that image's build id (the Mach-O LC_UUID as `dwarfdump --uuid`
+prints it, or the ELF NT_GNU_BUILD_ID in lowercase hex; null when it has
+none), which picks the matching build's symbols, `offset` the address minus
+the image's load address, for offline symbolication (`addr2line -f -e IMAGE
+OFFSET`; for a Mach-O image `atos -o IMAGE -l 0x100000000
+0x100000000+OFFSET`), and `symbol` the nearest exported symbol, mangled, or
+null. `stack_truncated` is true when `stack` holds only the interrupted pc
+because the daemon was built without frame pointers (a Linux build without
+`-C force-frame-pointers=yes`); a thread stopped inside code linked in
+without frame pointers (a libc, the precompiled std) can still lose or add
+a frame there. `stack` is empty when `stack_error` names
+why: `run-ended` (the request ended before the watchdog stopped its thread,
+including one first seen after it ended), `unsupported` (no capture on this
+OS), `suspend-failed`, `thread-state-failed`, `signal-failed` or `timeout`
+(the thread did not answer the signal in 50 ms).
+
 `schema` is `1`. Latency histograms are in microseconds; `batch_size` counts
 events. Percentiles are log-linear bucket upper bounds and overestimate by at
 most 25%. `site` values are `file:line` of the code that acquired the registry
@@ -674,6 +762,126 @@ CLI mapping: `cmux daemon stats [--session <name>] [--socket <path>]`; plain
 stdout renders the object as nested `key: value` lines; `--json` prints the
 exact result object. Against a server without `server-stats-v1` the CLI exits
 1 with `server.stats_unsupported`.
+
+### oracle-state
+
+| Field | Value |
+| --- | --- |
+| name | `oracle-state` |
+| status | implemented in debug builds and `--features oracle` builds only |
+| since | protocol 12, no capability |
+
+The correctness oracle's daemon facet
+(`plans/cmux-next/chrome-parity/p15-oracle.md`, task 021). A release daemon
+has no such command and answers `bad request: unknown variant`, which the
+oracle reads as a build without it. Trusted local connections only.
+
+The facet is `session.snapshot`, `settings.snapshot` and the journal head of
+the snapshot's cut. This command returns that cut from the same snapshot
+builder as `session.snapshot` and adds only what the public reads lack.
+
+Params: none.
+
+Result:
+
+```text
+object{
+  journal_head:uint64,
+  session:ResourceSnapshot,
+  switches:map<string,string>,
+  terminalAttach:object{attached:uint64,detached:uint64,dead:uint64},
+  liveObjects:map<string,uint64>,
+  panicLog:object{path:string|null,bytes:uint64}
+}
+```
+
+`journal_head` is the session journal head read under the same registry and
+state lock as `session`: every journal record at or below it is in `session`,
+and no later one is. `session` is the asking connection's `session.snapshot`
+result, `clients` included (the connections are read just after the cut).
+`terminalAttach` and `liveObjects`, except `subscriptions`, are counted from
+the same locked state as `session`; `subscriptions` is read just after it.
+`switches` maps each daemon refactor switch to the arm this daemon runs,
+`old` or `new`, frozen at the first read. The one switch so far is
+`terminal-holder` (`new` when `CMUX_TUI_TERMINAL_HOST_MODEL=holder`); the
+`CMUX_TUI_SWITCHES` parse of p15-oracle task 020 replaces that source.
+`terminalAttach` counts the terminal catalog: `dead`
+terminals have no process, `attached` ones are shown in at least one pane
+tab, `detached` ones are live with no placement. `liveObjects` counts runtime
+objects: `browsers`, `panes`, `screens`, `subscriptions` (live event
+subscriptions), `terminals` (the terminal catalog), `views` (pane tab
+placements) and `workspaces`. `panicLog` is the owner's panic log
+(`owner-panics-<session>.jsonl` at the state root) and its length in bytes;
+`path` is null when there is no state root. Every map has sorted keys.
+
+Errors: `oracle state requires a trusted local connection`, `bad request: ...`.
+
+### trace-start, trace-stop, trace-status
+
+| Field | Value |
+| --- | --- |
+| name | `trace-start`, `trace-stop`, `trace-status` |
+| status | implemented |
+| since | protocol 12 |
+
+Start, stop or report a trace recording (plans/cmux-next/trace.md, "Release
+trace ring v1") in the daemon and every child it reaches: the holder when its
+link granted `TRACE_CONTROL`, every live terminal host whose record advertises
+`supports_trace_control` (terminal-host.md, `TraceControl`), and acpmux when it
+runs (`_acpmux/trace`; acpmux is never started for a trace). Owner only: any
+client that is not on the trusted local socket gets `trace control requires a
+trusted local connection` before a parameter is read. One call runs at a time:
+a second call while one runs gets `another trace control call is running`, so a
+stop never passes a start that is still reaching the children.
+
+Params of `trace-start`: `{categories?: array<string>|null, keys?: bool}`.
+`categories` are category names (`frame`, `daemon`, ...); omitted, every
+recording category. `key` records per-key records and needs `keys: true`.
+No parameter is a path or a command: the daemon records into `trace/` under its
+state root, a terminal host into `trace/` beside its discovery record, the
+holder into a holder-lifetime directory beside its socket in this user's
+private holder socket directory, acpmux into `$ACPMUX_HOME/trace`. A session
+with no state root (`--ephemeral`) refuses a start: it never records into a
+shared temporary directory. Every ring directory is the user's own (0700) and a
+ring file is created new, never through a symlink. A start the daemon refuses
+(one runs) is not forwarded. Children past the 128 MiB total cap of recording
+rings are not asked; the cap counts a ring only for a process that maps one
+(acpmux only when it runs, the holder only when it was sent the start).
+
+The holder sends no answer, so its entry says what was sent: `recording` (with
+its ring's `recording_bytes`) after a start, `idle` after a stop, and for a
+status `traced` (`reason: "holder_traced"`). A holder that refused its last
+start or stop is `error` with `reason: "holder_trace_failed"` and its message;
+one without the capability is `untraced` (`holder_untraced`); with no holder
+link open it is `not_linked` (`holder_not_linked`), and a holder that links
+while the recording runs gets the start then.
+
+Result:
+
+```text
+object{
+  op:"start"|"stop"|"status",
+  recording:bool,
+  categories?:array<string>, keys?:bool,
+  processes:array<object{
+    role:"daemon"|"holder"|"terminal-host"|"acpmux",
+    pid:uint32|null,
+    state:"recording"|"idle"|"traced"|"not_linked"|"untraced"|"unanswered"|"error",
+    recording_path?:string|null, recording_bytes?:uint64, records_dropped?:uint64,
+    reason?:"holder_traced"|"holder_trace_failed"|"holder_untraced"|"holder_not_linked"
+      |"host_untraced"|"over_total_cap",
+    error?:string
+  }>,
+  bytes_by_role:object<string,uint64>,
+  total_bytes:uint64,
+  total_cap_bytes:uint64
+}
+```
+
+Errors: `trace control requires a trusted local connection`, `another trace
+control call is running`, `this session has no state root to record into (it is
+ephemeral)`, `unknown trace category ...`, `the key category records per-key
+records: ask for it with keys: true`.
 
 ### browser-host-provider
 

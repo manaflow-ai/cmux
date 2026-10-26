@@ -4,6 +4,8 @@ import CmuxNextBridge
 @testable import CmuxNextBrowser
 import CmuxNextCompat
 import CmuxNextDesign
+import CmuxNextEnergy
+import CmuxNextHibernation
 @testable import CmuxNextSettings
 import Foundation
 import Testing
@@ -150,10 +152,11 @@ import Testing
         var recorders: [String: Recorder] = [:]
         private var shown: String?
 
-        init(freezes: Bool = true) throws {
+        /// - Parameter audible: The pages' sound history (`recentlyAudibleProtection` on); nil leaves it off.
+        init(freezes: Bool = true, audible: AudibleHistory? = nil) throws {
             _ = NSApplication.shared
             services = AppServices(environment: AppEnvironment.current([:]))
-            hibernation = BrowserHibernation(cache: services.cache, memoryPressure: MemoryPressureEvents(source: ManualMemoryPressureSource()), lowPower: lowPower)
+            hibernation = BrowserHibernation(cache: services.cache, memory: ManualMemoryLevelRegistry(), lowPower: lowPower, audible: audible)
             services.cache.hibernation = hibernation
             hibernation.apply(BrowserHibernationSetting(mode: .off, freezeSeconds: freezes ? 0.05 : nil))
             hibernation.start()

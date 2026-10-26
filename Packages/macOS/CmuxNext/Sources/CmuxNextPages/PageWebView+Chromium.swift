@@ -55,16 +55,29 @@ extension PageWebView {
 
     /// Runs `script` in the page's main frame in whichever engine shows it.
     func evaluateInPage(_ script: String) {
+        #if DEBUG || CMUX_BENCH_HOOKS
+        if router.debugPageHidden { censusState.pushesWhileHidden &+= 1 }
+        #endif
         scriptTarget.evaluate(script)
+    }
+
+    /// Tells a Chromium page whether it shows (a hidden one stops drawing), and the census.
+    func setEngineVisible(_ visible: Bool) {
+        chromiumSession?.page.setVisible(visible)
+        #if DEBUG || CMUX_BENCH_HOOKS
+        noteCensusVisibility(visible)
+        #endif
     }
 
     /// Loads `url` (a document of this page) in whichever engine shows it.
     func loadDocument(_ url: URL) {
+        traceOpenLoadStarted(.load)
         if let chromiumSession { chromiumSession.page.load(url) } else { webView.load(URLRequest(url: url)) }
     }
 
     /// Reloads the document in whichever engine shows it.
     func reloadPage() {
+        traceOpenLoadStarted(.reload)
         if let chromiumSession { chromiumSession.page.reload() } else { webView.reload() }
     }
 
@@ -174,6 +187,7 @@ extension PageWebView {
         webView.isHidden = false
         router.reset()
         loaded = false
+        traceOpenLoadStarted(.reload)
         webView.load(URLRequest(url: descriptor.url(route: route)))
     }
 
@@ -286,7 +300,8 @@ extension PageWebView {
 
     /// Runs `body` as an async function of `arguments` in the page's main world, in whichever engine
     /// shows it, and returns its JSON-compatible result (nil for an exception or no page): WebKit's
-    /// `callAsyncJavaScript`, or a Chromium `Runtime.evaluate` of the same function.
+    /// `callAsyncJavaScript`, or the Chromium page's ``PageChromiumPage/evaluate(_:)`` of the same
+    /// function.
     ///
     /// - Parameters:
     ///   - body: A function body; `return` gives the result, and each argument is a variable.
@@ -300,18 +315,12 @@ extension PageWebView {
         guard let values = try? JSONSerialization.data(withJSONObject: names.map { arguments[$0] ?? NSNull() }, options: [.fragmentsAllowed]),
               let list = String(data: values, encoding: .utf8) else { return nil }
         let expression = "(async function(\(names.joined(separator: ", "))) {\n\(body)\n}).apply(null, \(list))"
-        guard let json = try? await page.devTools("Runtime.evaluate", params: ["expression": expression, "awaitPromise": true, "returnByValue": true]),
-              let object = ChromiumPageHostWire.object(json), object["exceptionDetails"] == nil,
-              let result = object["result"] as? [String: Any] else { return nil }
-        return result["value"]
+        return try? await page.evaluate(expression)
     }
 
     /// Makes `edit` in the focused editable element of a Chromium page (``PageInputReadiness``).
     private static func apply(_ edit: PageInputReadiness.Edit, token: String?, expectedEpoch: Int?, in page: any PageChromiumPage) async -> Bool {
         let expression = "(function () {\n\(PageInputReadiness.editScript(edit, token: token, expectedEpoch: expectedEpoch))\n})()"
-        guard let json = try? await page.devTools("Runtime.evaluate", params: ["expression": expression, "returnByValue": true]) else {
-            return false
-        }
-        return ChromiumPageHostWire.evaluationIsTrue(json)
+        return (try? await page.evaluate(expression)) as? Bool == true
     }
 }

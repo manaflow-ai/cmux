@@ -514,7 +514,7 @@ impl Mux {
                 .saturating_mul(multiplier)
                 .min(KITTY_IMAGE_BUDGET_RETRY_MAX);
             drop(mux);
-            std::thread::sleep(delay);
+            crate::request_path::sleep(delay);
         }
     }
 

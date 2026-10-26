@@ -548,8 +548,10 @@ STRESS, on macOS 26 and 27 minis. VM timing is not perf evidence.
 | 100 | Sidebar swipe and wheel paging through the tap | p04 / p03 | S | 011 | - |
 | 101 | Text input server stage | p04 | S | 005 | - |
 | 102 | Spike: strip and rows scroll with main stalled | PL-motion-core | L | p03-026, 072 | MQ-responsive-scroll |
+| 103 | Web (main): schema 3 accepts the input latency fields | PL-telemetry | S | 010, p09-064 | - |
+| 104 | Wire the input latency field report (default-off feature) | PL-telemetry | S | 010, 103, 003, p09-063 | - |
 
-Task count: 99 (design 001-075 minus 047, 049, 061; plus 076-102).
+Task count: 101 (design 001-075 minus 047, 049, 061; plus 076-104).
 
 ### Review disposition (fixer)
 
@@ -589,7 +591,8 @@ Paths: `S/` = `Packages/macOS/CmuxNext/Sources/`, `T/` = `Packages/macOS/CmuxNex
 - Files: `Packages/macOS/CmuxNext/Package.swift`, `S/CmuxNextInputCore/InputEventKind.swift`, `InputStage.swift`,
   `InputLatencySlot.swift`, `InputLatencySlotTable.swift`, `InputLatencyRing.swift`, `InputLatencyBuckets.swift`,
   `T/CmuxNextInputCoreTests/InputLatencyRingTests.swift`, `plans/cmux-next/architecture-layers.json`.
-- Change: new core target (depends only on CmuxNextCompat). Kinds: keyPress, keyRelease, flags, mousePress,
+- Change: new core target (depends on CmuxNextCompat for its `Atomic` counters, and on swift-atomics for the table's
+  packed `UnsafeAtomic` storage, which Compat's `Atomic` cannot lay out). Kinds: keyPress, keyRelease, flags, mousePress,
   mouseRelease, pointerMove, drag, scrollBegin, scrollFirstUpdate, scrollUpdate, scrollMomentum, scrollEnd,
   magnify. Targets: terminal, textView, chromiumPage, webkitPage, agentPane, layout, sidebar, palette, other.
   Stages: generated, lastGenerated, arrivedMain, dispatchStart, textInputStart, textInputEnd, dispatchEnd,
@@ -675,9 +678,19 @@ Paths: `S/` = `Packages/macOS/CmuxNext/Sources/`, `T/` = `Packages/macOS/CmuxNex
 - Test phase: UNIT(TerminalEchoStageTests); GUI typing-frame-bench.py --surfaces terminal: |contents_ms - new
   stage| < 0.5 ms.
 - Size M. Depends: 004.
+- Decisions (review of cp/p04-input-006):
+  - Each surface keeps a fixed ring of 8 waiting keys. Every key armed before a chunk reached the lane takes
+    that chunk as its echo and the next frame as its contentSubmitted (Chromium gives each coalesced event its
+    frame); a key past the ring is superseded. One deadline per surface, cancelled when the last key ends.
+  - One contents gate per process (`GhosttyRuntime.shared.echoStages.contentsGate`); every
+    `TerminalEchoStages` is built on it.
+  - The setContents hook is on every terminal layer class only in DEBUG and bench builds (p09-observability-019).
+    Release makes no echo stage until 049's Ghostty hook calls `TerminalEchoStage.contentsSet()` at the
+    IOSurface handoff and lifts the guard in `TerminalEchoStages.makeStage()`.
+  - No sink is installed here: 094 installs it. The GUI bench comparison runs after 094.
 
 #### p04-input-007 debug.input
-- Files: `S/CmuxNextInput/Diagnostics/DebugInput.swift`, `S/CmuxNextApp/Control/AppControl.swift` (one
+- Files: `S/CmuxNextInputDiagnostics/DebugInput.swift`, `S/CmuxNextApp/Control/AppControl.swift` (one
   registration line), `T/CmuxNextInputTests/DebugInputTests.swift`.
 - Change: JSON sections latency, interactions, gate (held_by_origin{main,offMain}, exempt_by_rule,
   max_input_wait_behind_jobs_ms, jobs_deferred_over_one_frame, nonswift_blocks_while_input_pending), coalescer,
@@ -698,7 +711,7 @@ Paths: `S/` = `Packages/macOS/CmuxNext/Sources/`, `T/` = `Packages/macOS/CmuxNex
 - Size S. Depends: 004.
 
 #### p04-input-009 Action Latency HUD input rows
-- Files: `S/CmuxNextFocusUI/ActionLatency/ActionLatencyHUD.swift`, `S/CmuxNextInput/Diagnostics/DebugInput.swift`.
+- Files: `S/CmuxNextFocusUI/ActionLatency/ActionLatencyHUD.swift`, `S/CmuxNextInputDiagnostics/DebugInput.swift`.
 - Change: newest 16 input events: kind, target, total ms, dominant stage; rows over 8.3 ms in the danger color;
   no reader while the HUD is closed.
 - Acceptance: subscribe in show, unsubscribe in hide (diff); strings in the localization catalog.
@@ -710,7 +723,8 @@ Paths: `S/` = `Packages/macOS/CmuxNext/Sources/`, `T/` = `Packages/macOS/CmuxNex
   `S/CmuxNextControl/InputBudget/InputLatencyReporter.swift`, `plans/cmux-next/hang-reports-DESIGN.md`,
   `T/CmuxNextHangReportsTests/InputLatencyReportTests.swift`.
 - Change: input_latency_bucket_edges_ms, input_latency[] {kind, target, entrypoint, presentation_source, count,
-  buckets, max_ms}, scroll_jank (Chrome names), display {refresh_hz, vrr}. Numbers only. Tell PL-telemetry.
+  display {refresh_hz, vrr}, buckets, max_ms} (one row per display class), scroll_jank (Chrome names); schema 3
+  only (server 103, wiring 104). Numbers only. Tell PL-telemetry.
 - Acceptance: PrivacyLeakScanner passes; field names documented in hang-reports-DESIGN.md in the same diff; bucket
   sums equal count.
 - Test phase: UNIT(InputLatencyReportTests,PrivacyLeakScannerTests).
@@ -840,7 +854,7 @@ Paths: `S/` = `Packages/macOS/CmuxNext/Sources/`, `T/` = `Packages/macOS/CmuxNex
 - Size M. Depends: 007.
 
 #### p04-input-022 Input-turn hop recorder (Debug)
-- Files: `S/CmuxNextWakeups/MainJobGate+Diagnostics.swift`, `S/CmuxNextInput/Diagnostics/DebugInput.swift`,
+- Files: `S/CmuxNextWakeups/MainJobGate+Diagnostics.swift`, `S/CmuxNextInputDiagnostics/DebugInput.swift`,
   `scripts/cmux-next/input-turn-hops.py`.
 - Change: records each main-actor job enqueued while input is pending or dispatching (8 return addresses, resolved
   off main with the existing image+offset resolver, first frame outside the Swift runtime and libdispatch), plus a
@@ -1121,7 +1135,7 @@ Paths: `S/` = `Packages/macOS/CmuxNext/Sources/`, `T/` = `Packages/macOS/CmuxNex
 - Size M. Depends: 045.
 
 #### p04-input-048 Responsive-scroll audit
-- Files: `S/CmuxNextInput/Diagnostics/ScrollViewAudit.swift`, `S/CmuxNextInput/Diagnostics/DebugInput.swift`.
+- Files: `S/CmuxNextInputDiagnostics/ScrollViewAudit.swift`, `S/CmuxNextInputDiagnostics/DebugInput.swift`.
 - Change: `debug.input scroll_views` walks live windows on request and lists each NSScrollView: class, document
   view class, isCompatibleWithResponsiveScrolling for both, SwiftUI hosting, window, and whether a scrollWheel
   override exists. Rows go to p03-110's owner.
@@ -1608,7 +1622,7 @@ Paths: `S/` = `Packages/macOS/CmuxNext/Sources/`, `T/` = `Packages/macOS/CmuxNex
 
 #### p04-input-091 Chromium EventLatency and ScrollJank through CDP
 - Files: `S/CmuxNextBrowser/CEF/CEFHistogramReader.swift`, `Packages/macOS/CmuxNext/CEFShim/src/shim_devtools_protocol.mm`,
-  `S/CmuxNextInput/Diagnostics/DebugInput.swift`, `S/CmuxNextControl/InputBudget/InputLatencyReporter.swift`,
+  `S/CmuxNextInputDiagnostics/DebugInput.swift`, `S/CmuxNextControl/InputBudget/InputLatencyReporter.swift`,
   `T/CmuxNextBrowserTests/CEFHistogramReaderTests.swift`.
 - Change: on debug.input or report build, Browser.getHistograms query 'EventLatency.' plus
   Event.ScrollJank.DelayedFramesPercentage.FixedWindow and Event.Latency.ScrollUpdate.*; fold into ledger rows with
@@ -1637,7 +1651,7 @@ Paths: `S/` = `Packages/macOS/CmuxNext/Sources/`, `T/` = `Packages/macOS/CmuxNex
 - Size M.
 
 #### p04-input-093 Input-turn dirty-view recorder (Debug)
-- Files: `S/CmuxNextInput/Diagnostics/InputDirtyRecorder.swift`, `S/CmuxNextInput/Diagnostics/DebugInput.swift`,
+- Files: `S/CmuxNextInputDiagnostics/InputDirtyRecorder.swift`, `S/CmuxNextInputDiagnostics/DebugInput.swift`,
   `scripts/cmux-next/input-dirty-views.py`.
 - Change: on request, swizzle setNeedsDisplay/setNeedsLayout/needsUpdateConstraints and CALayer
   setNeedsLayout/setNeedsDisplay during an input dispatch and its commit; record view class, backtrace (resolved off
@@ -1655,6 +1669,11 @@ Paths: `S/` = `Packages/macOS/CmuxNext/Sources/`, `T/` = `Packages/macOS/CmuxNex
   CLOCK_UPTIME_RAW at receive and PTY write into a fixed per-terminal atomic ring; the first output frame after the
   write carries {id, recv_ns, write_ns, echo_read_ns} in an optional header field older apps ignore; the tracker
   fills daemonReceived, ptyWritten, echoRead, echoSent. No-echo (500 ms) drops the entry.
+  It also installs the terminal echo sink from 006: `InputLatencyTracker` conforms to
+  `TerminalEchoLatencySink` (`dispatchingKey` is the key slot sendEvent is dispatching; `terminalEcho` marks
+  echoParsed/contentSubmitted, and a slot whose key waits for its echo stays open until the ending event), and
+  the composition root calls `GhosttyRuntime.shared.echoStages.install(tracker)` before the first terminal.
+  Then run 006's GUI check: typing-frame-bench.py --surfaces terminal, |contents_ms - new stage| < 0.5 ms.
 - Acceptance: old app + new daemon and new app + old daemon both work (tests both sides); full ring drops and
   counts; no allocation on the daemon hot path (diff); ledger shows the new deltas.
 - Test phase: UNIT(InputLatencyTrackerTests); cmux-tui focused test cmd_terminal_io; GUI DC1 terminal per-stage split.
@@ -1694,7 +1713,7 @@ Paths: `S/` = `Packages/macOS/CmuxNext/Sources/`, `T/` = `Packages/macOS/CmuxNex
 - Size S. Depends: 002, 010.
 
 #### p04-input-098 Hit-test cost audit (Debug)
-- Files: `S/CmuxNextInput/Diagnostics/HitTestAudit.swift`, `S/CmuxNextInput/Diagnostics/DebugInput.swift`.
+- Files: `S/CmuxNextInputDiagnostics/HitTestAudit.swift`, `S/CmuxNextInputDiagnostics/DebugInput.swift`.
 - Change: on request, count views visited and time per event in window hit testing; after STRESS scroll and click
   benches, list overrides with p99 > 20 us or > 32 views per event (75 overrides today, for example
   ScreenContentView+Dock.swift:185, SidebarListView+Blocks.swift:85). Each row is one task (region cache or early
@@ -1748,3 +1767,29 @@ Paths: `S/` = `Packages/macOS/CmuxNext/Sources/`, `T/` = `Packages/macOS/CmuxNex
   override scrollWheel without super for their axis; the decision with numbers is in the design doc.
 - Test phase: UNIT(StripScrollHostTests,ColumnScrollReducerTests); GUI DC4 strip and rows --stall 50ms/100ms.
 - Size L. Depends: p03-026, 072.
+
+#### p04-input-103 Web (main): schema 3 accepts the input latency fields
+- Files: `web/services/hangReports/`, `web/tests/fixtures/hang-report-schema3-input-latency.json`,
+  `web/scripts/hang-reports-histograms.ts`.
+- Change: on p09-observability-064's schema-3 decoder, the optional `input_latency_bucket_edges_ms`,
+  `input_latency[]` (<= 64 rows, closed literal labels copied from the Swift enums, `display {refresh_hz, vrr}` per
+  row, `count` == sum of 14 `buckets`) and `scroll_jank` (the six `Event.ScrollJank.*` names, clamped values), all
+  three together or absent (hang-reports-DESIGN.md section 4, "Input latency"). Schema 2 keeps refusing them.
+- Acceptance: 204 with the fixture byte-identical to the Swift golden; 400 for an unknown label, a wrong bucket
+  sum, or the keys in schema 2; web lints; deployed on main before 104's flag turns on.
+- Test phase: bun test in web/; PR on main.
+- Size S. Depends: 010, p09-064.
+
+#### p04-input-104 Wire the input latency field report into hang reports
+- Files: `schemas/features/features.d/hangReportInputLatency.json`,
+  `S/CmuxNextApp/HangReports/HangReportsController.swift`, `S/CmuxNextApp/HangReports/InputLatencyFieldSource.swift`,
+  `T/CmuxNextAppTests/InputLatencyFieldSourceTests.swift`, `plans/cmux-next/hang-reports-DESIGN.md`.
+- Change: feature `hangReportInputLatency` (default off everywhere). When on and p09-063's server-version flag says
+  schema 3, the composition root builds `HangReportBuilder(wireSchema: .v3)` and passes
+  `Environment.inputLatency`: an adapter over the app's `InputLatencyReporter` (`setFieldReport`,
+  `fieldReportPreview`, `takeFieldReport`, `commitFieldReport`). The producer stamps each `InputLatencyBatch` with
+  the window display's `InputDisplayClass` (003's refresh and VRR label).
+- Acceptance: flag off: no field ledger and schema 2 on the wire; flag on: a NIGHTLY opt-in report holds
+  `input_latency` rows labelled by display (DC12); hang reports off stops the field ledger.
+- Test phase: UNIT(InputLatencyFieldSourceTests,HangReportServiceTests); DC12.
+- Size S. Depends: 010, 103, 003, p09-063.

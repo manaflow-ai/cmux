@@ -26,7 +26,7 @@ use std::sync::{Arc, OnceLock};
 use serde::Deserialize;
 use serde_json::Value;
 
-use super::{ClientTransport, MessageWriter, Mux, Response, send_response};
+use super::{AsyncReply, ClientTransport, MessageWriter, Mux, Response, send_response};
 use crate::conversation_store::LOCAL_USER;
 use crate::request_origin::ORIGIN_FORBIDDEN;
 
@@ -214,17 +214,19 @@ pub(super) fn start(
     client: u64,
     id: Option<Value>,
     params: Params,
+    reply: AsyncReply,
     writer: &MessageWriter,
 ) -> bool {
     // Refuse at once, on this thread, before any thread or socket.
     if let Err(error) = require_owner(mux, client) {
-        return respond(writer, id, Err(error));
+        return reply.reply(|| respond(writer, id, Err(error)));
     }
     let mux = mux.clone();
     let thread_writer = writer.clone();
     let reply_id = id.clone();
     let spawned = std::thread::Builder::new().name("mux-chief-inspect".into()).spawn(move || {
-        respond(&thread_writer, reply_id, inspect_with(&mux, client, params, None));
+        let answer = inspect_with(&mux, client, params, None);
+        reply.reply(|| respond(&thread_writer, reply_id, answer));
     });
     spawned.is_ok()
         || respond(writer, id, Err(anyhow::anyhow!("cannot start the inspector request")))

@@ -74,6 +74,8 @@ final class BrowserPageRequests: BrowserTabDelegate {
     let nowPlayingCard = NowPlayingCardDismissal()
     /// Where a page's new tab goes next to its opener.
     let openers = BrowserTabOpeners()
+    /// Which page opened which with a live `window.opener` (the frozen growth discard's group).
+    let scriptOpeners = BrowserScriptOpeners()
     /// Background tabs whose title changed (the strip's unread dot).
     let titleAttention = BrowserTitleAttention()
     /// Closed tabs' histories, for Reopen Closed Tab.
@@ -85,7 +87,7 @@ final class BrowserPageRequests: BrowserTabDelegate {
     /// extension's chrome.tabs.remove right after chrome.tabs.create).
     /// Weak: a page closed by its user (already uninstalled) lands here too
     /// and must not be kept alive.
-    private var closedBeforeAdoption: [WeakPage] = []
+    private var closedBeforeAdoption: [WeakBrowserTab] = []
     /// Daemon tabs to close when they appear: their page closed first.
     private var closeOnArrival: Set<SurfaceID> = []
     /// Tabs whose Chromium store is a Cloud machine's proxy (`browser.tab.open`).
@@ -131,6 +133,8 @@ final class BrowserPageRequests: BrowserTabDelegate {
             default: break
             }
         }
+        // An engine-made tab keeps `window.opener`: the two pages share a browsing instance.
+        if case .adoptTab(let child, _) = intent { scriptOpeners.record(child: child, opener: page) }
         // Chromium's password manager asked for as a new tab (an omnibar
         // modified commit) is cmux's Passwords page (ChromiumPageRoute). A tab
         // Chromium makes itself (`.adoptTab`) has no URL yet here.
@@ -428,7 +432,7 @@ final class BrowserPageRequests: BrowserTabDelegate {
             closeDaemonTab(on: surface)
         } else {
             closedBeforeAdoption.removeAll { $0.page == nil || $0.page === page }
-            closedBeforeAdoption.append(WeakPage(page: page))
+            closedBeforeAdoption.append(WeakBrowserTab(page: page))
         }
     }
 
@@ -439,9 +443,4 @@ final class BrowserPageRequests: BrowserTabDelegate {
             closeOnArrival.insert(surface)
         }
     }
-}
-
-/// A page reference that does not keep the page alive.
-struct WeakPage {
-    weak var page: (any BrowserTab)?
 }

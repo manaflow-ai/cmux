@@ -22,7 +22,8 @@ enum StatsPageTab {
                 guard let socket else { return nil }
                 return try await AgentActivityLineConnection.oneShot(path: socket, send: line, deadline: .seconds(30))
             }
-            return PageWebView(descriptor: .stats, routes: [PageRoute(prefix: "cmux.stats.", provider: provider)])
+            return services?.webUI.open(PageOpenRequest(descriptor: .stats,
+                                                        routes: [PageRoute(prefix: "cmux.stats.", provider: provider)]))
         })
         registry.bind("stats.show", unavailable: { [weak services] in
             services?.settings?.snapshot.previewFeatures == true ? nil : StatsPageProvider.previewRefusal
