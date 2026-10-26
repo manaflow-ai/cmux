@@ -7,14 +7,17 @@ extension MainFrameBudget {
     /// entered only when `is_frame_expected_after_discrete_input`). A discrete input (key down, mouse
     /// down) whose turn expects a frame opens it. It closes at the end of the first render pass of a
     /// display-link tick that began after the latest such input: the input's own turn commits before
-    /// any tick of the link, so its commit never closes it. A user-blocking commit closes it too, and
-    /// it never stays open past ``cap``. While it is open, automation and background wait.
+    /// any tick of the link, so its commit never closes it. The open state asks the link for that
+    /// tick (``MainWorkScheduler``), as Chrome's input asks the compositor for its BeginMainFrame.
+    /// A user-blocking commit closes it too, and it never stays open past ``cap``. While it is open,
+    /// automation and background wait.
     ///
     /// **Typing burst.** For ``burstLength`` after the latest discrete input, automation and
     /// background start at most one task per ``burstInterval`` (at most 10 a second), and once one
     /// interval has passed since the burst began or since the class's last task, that task runs
-    /// even under pending input or an open input response (at least one per interval). Visible
-    /// keeps the budget's every-other-frame rule. Chrome
+    /// even under pending input. An open input response holds it for one frame: the frame the
+    /// person waits for goes first, so a due task runs at most one frame late (p06-scheduler.md,
+    /// task 002, "Decision"). Visible keeps the budget's every-other-frame rule. Chrome
     /// defers its deferrable tasks for 2 s after a gesture (`TaskSchedulingInBlink.md`, "very likely
     /// that another gesture will arrive soon"); cmux keeps automation moving because agent and CLI
     /// requests have deadlines.
@@ -42,7 +45,8 @@ extension MainFrameBudget {
             case outside
             /// The class started a task less than ``burstInterval`` ago: it waits.
             case wait
-            /// A whole interval passed since the burst began or the class's last task: it runs.
+            /// A whole interval passed since the burst began or the class's last task: it runs even
+            /// under pending input; an open input response holds it for one frame.
             case due
             /// The rate allows a task, and progress is not owed yet: it runs only when no input is
             /// pending, no input response is open and its budget allows.
@@ -57,6 +61,8 @@ extension MainFrameBudget {
         private var burstStart: UInt64 = 0
         /// Per budgeted class (``MainWorkClass/budgeted`` order): when its last task started.
         private var lastTaskStart: [UInt64?] = [nil, nil, nil]
+        /// Per budgeted class: when an open input response first held its due task.
+        private var dueHeldSince: [UInt64?] = [nil, nil, nil]
 
         /// Whether an input response is open at `now` (one open for ``cap`` or longer is not).
         func isOpen(at now: UInt64) -> Bool {
@@ -69,7 +75,10 @@ extension MainFrameBudget {
         /// tick after this input. Returns the response the cap closed first, if any.
         mutating func noteInput(expectsFrame: Bool, at now: UInt64) -> Closed? {
             let expired = expire(at: now)
-            if !inBurst(at: now) { burstStart = now }
+            if !inBurst(at: now) {
+                burstStart = now
+                dueHeldSince = [nil, nil, nil]
+            }
             lastInput = now
             if expectsFrame {
                 if openedAt == nil { openedAt = now }
@@ -89,8 +98,10 @@ extension MainFrameBudget {
             return close(at: now)
         }
 
-        /// Closes an open response (a user-blocking commit showed the input's result).
+        /// Closes an open response (a user-blocking commit showed the input's result). One that
+        /// reached ``cap`` first closes as capped.
         mutating func close(at now: UInt64) -> Closed? {
+            if let expired = expire(at: now) { return expired }
             guard let openedAt else { return nil }
             self.openedAt = nil
             return Closed(nanos: now &- openedAt, capped: false)
@@ -103,22 +114,37 @@ extension MainFrameBudget {
             return Closed(nanos: Self.cap, capped: true)
         }
 
-        /// A task of budgeted class `index` that started at `start` returned (one that ran no
-        /// task of its own class inside it: the batch around requests is not a request).
+        /// A task of budgeted class `index` that started at `start` returned (a request: the batch
+        /// around requests is not one).
         mutating func noteTask(_ index: Int, startedAt start: UInt64) {
             lastTaskStart[index] = start
+            dueHeldSince[index] = nil
         }
 
-        /// The typing-burst verdict for a task of budgeted class `index` at `now`. Tasks start at
-        /// frames, so an interval counts as passed at the frame nearest its end (`frameNanos`, the
-        /// refresh period): at 60 Hz the class runs every sixth frame, 100 ms apart.
-        func burst(_ index: Int, at now: UInt64, frameNanos: UInt64) -> Burst {
+        /// Whether an open input response still holds a due task of class `index` at `now`: it
+        /// holds it through one frame (`frameNanos`, the refresh period), then the task runs. Under
+        /// keys at 30 a second the next frame has no open response; at a key every frame this is
+        /// what keeps the one task per interval moving.
+        mutating func responseHoldsDue(_ index: Int, at now: UInt64, frameNanos: UInt64) -> Bool {
+            // A hold more than two frames old is stale (the task did not come back): a new one.
+            if let since = dueHeldSince[index], now &- since < frameNanos &* 2 {
+                // Half a frame: the same tick holds, the next one runs, whatever its jitter.
+                return now &- since < frameNanos / 2
+            }
+            dueHeldSince[index] = now
+            return true
+        }
+
+        /// The typing-burst verdict for a task of budgeted class `index` at `now`. Both bounds use
+        /// the whole interval, so they hold whether a task starts on a tick or between ticks: two
+        /// starts are never less than ``burstInterval`` apart, and a task is due once a whole
+        /// interval passed (on ticks, at the first frame on or after it).
+        func burst(_ index: Int, at now: UInt64) -> Burst {
             guard inBurst(at: now) else { return .outside }
-            let slot = Self.burstInterval &- min(frameNanos / 2, Self.burstInterval)
             let last = lastTaskStart[index]
-            if let last, now &- last < slot { return .wait }
+            if let last, now &- last < Self.burstInterval { return .wait }
             let anchor = max(last ?? burstStart, burstStart)
-            return now &- anchor >= slot ? .due : .free
+            return now &- anchor >= Self.burstInterval ? .due : .free
         }
 
         private func inBurst(at now: UInt64) -> Bool {

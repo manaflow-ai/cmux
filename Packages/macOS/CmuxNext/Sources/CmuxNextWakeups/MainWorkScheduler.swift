@@ -10,7 +10,7 @@ public import QuartzCore
 /// ``FrameBatchQueue/init(owner:budgeted:on:)``), so the budget's window opens once per real frame
 /// on this one link, never once per tick of each window's link (two displays at 60 and 120 Hz
 /// would otherwise roll it several times a frame). Its link exists only while one of its clients
-/// has work; an idle app has no frame wakeups from it.
+/// has work or an input response waits for its tick; an idle app has no frame wakeups from it.
 ///
 /// Main-thread work that is not a batch is posted in a class with an owner
 /// (``post(_:owner:file:line:_:)``, ``postFromAnyThread(_:owner:file:line:_:)``, ``apply(_:owner:file:line:_:)``,
@@ -43,6 +43,10 @@ public final class MainWorkScheduler {
     private let renderPasses: RenderPassMeter?
     /// The posted work's class queues (MainWorkScheduler+Post.swift).
     var posting = Posting()
+    /// Ticks the link while an input response is open (``MainFrameBudget/noteDiscreteInput(expectsFrame:)``
+    /// asks for it), so the tick render that closes the response comes even while no budgeted
+    /// client has work.
+    private let inputResponseTick: FrameClient
 
     /// - Parameter budget: The app's budget (the app: ``SessionInputPending`` input and signposts on).
     ///   The render pass (layout, display, the Core Animation commit) is timed on the main run loop
@@ -57,6 +61,10 @@ public final class MainWorkScheduler {
         board = budget.board
         self.frames = frames
         self.renderPasses = renderPasses
+        inputResponseTick = FrameClient(owner: "MainFrameBudget.inputResponse", isAnimation: false, on: frames) { [weak budget] _ in
+            budget?.isInputResponseOpen ?? false
+        }
+        budget.requestTick = { [weak self] in self?.inputResponseTick.activate() }
         // The link's ticks own the budget's window while it exists; an idle app times no pass.
         frames.onLinkChange = { [weak self] exists in
             guard let self else { return }

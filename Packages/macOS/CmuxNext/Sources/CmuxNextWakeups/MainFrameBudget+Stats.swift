@@ -30,6 +30,9 @@ extension MainFrameBudget {
         /// Per class: times a task was held for the next frame because an input response was open
         /// (``MainFrameBudget/noteDiscreteInput(expectsFrame:)``).
         public var yieldedToInputResponse: [Int] = [0, 0, 0]
+        /// Per class: times a task was held for the next frame because the typing burst allows one
+        /// task per 100 ms and the class's last one started less than that ago.
+        public var waitedForBurstSlot: [Int] = [0, 0, 0]
         /// Input responses that reached the 100 ms cap before a link tick rendered.
         public var inputResponseCapHits = 0
         /// The longest input response, in nanoseconds (from the input to what closed it).

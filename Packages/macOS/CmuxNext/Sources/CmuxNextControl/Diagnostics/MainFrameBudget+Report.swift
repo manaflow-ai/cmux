@@ -3,7 +3,7 @@ public import CmuxNextWakeups
 
 extension MainFrameBudget {
     /// The `debug.main_budget` report: frames seen, injected input waiting, and per budgeted class
-    /// its budget, tasks run, input yields, input-response yields, over-budget deferrals, tasks run on idle frame time past
+    /// its budget, tasks run, input yields, input-response yields, typing-burst rate waits, over-budget deferrals, tasks run on idle frame time past
     /// its share, over-budget tasks, longest task and the most it spent in one frame; the input checks
     /// and the render passes (before-waiting phase) with their longest times; input responses that hit
     /// the 100 ms cap and the longest input response.
@@ -16,6 +16,7 @@ extension MainFrameBudget {
                 "tasks": JSONValue((stats.tasks[checked: index] ?? 0)),
                 "yielded_to_input": JSONValue((stats.yieldedToInput[checked: index] ?? 0)),
                 "yielded_to_input_response": JSONValue((stats.yieldedToInputResponse[checked: index] ?? 0)),
+                "waited_for_burst_slot": JSONValue((stats.waitedForBurstSlot[checked: index] ?? 0)),
                 "deferred_over_budget": JSONValue((stats.deferredOverBudget[checked: index] ?? 0)),
                 "idle_tasks": JSONValue((stats.idleTasks[checked: index] ?? 0)),
                 "over_budget_tasks": JSONValue((stats.overBudgetTasks[checked: index] ?? 0)),
