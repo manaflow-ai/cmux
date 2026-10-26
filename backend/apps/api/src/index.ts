@@ -47,8 +47,10 @@ import { HAND_PATH, handleHands } from "./hand-routes.ts"
 export { TeamVmDO } from "./team-vm-do.ts"
 export { CloudDO } from "./cloud-do.ts"
 export { WireTicketDO } from "./wire-ticket.ts"
+export { TrajectoryDO } from "./cloud-trajectory-store.ts"
 import { handleCloudBind, handleCloudKeyset } from "./cloud-link.ts"
 import { ACPMUX_PATH, handleCloudAcpmux } from "./cloud-acpmux.ts"
+import { handleCloudTrajectory, TRAJECTORY_PATH, type TrajectoryAction } from "./cloud-trajectory.ts"
 import { BILLING_LEVELS_PATH, BILLING_SYNC_PATH, handleBillingLevels, handleBillingSync } from "./billing-levels.ts"
 import { BILLING_TEAM_MODE_PATH, handleBillingTeamMode } from "./billing-team-mode.ts"
 import { CREDITS_ADMIN_PATH, handleCreditsAdmin } from "./credits-admin.ts"
@@ -196,6 +198,9 @@ export default {
     // The keyed acpmux start (cx-kvmz): outside the op path, so the key never becomes an op or a log line.
     const acpmux = url.pathname.match(ACPMUX_PATH)
     if (acpmux) return handleCloudAcpmux(request, env, acpmux[1]!, acpmux[2] as "keyed-start" | "person-holds")
+    // ACP chat trajectories kept outside the VM (#25584): a log stream, not an op.
+    const trajectory = url.pathname.match(TRAJECTORY_PATH)
+    if (trajectory) return handleCloudTrajectory(request, env, trajectory[1]!, trajectory[2] as TrajectoryAction)
     // A single-use wire ticket for a browser socket (wire-ticket.ts): Authorization header only.
     if (url.pathname === "/v1/wire/ticket") return handleWireTicket(request, env)
     const m = url.pathname.match(/^\/v1\/wire\/(user|team|feed|cloud)$/)

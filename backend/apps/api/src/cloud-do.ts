@@ -7,7 +7,8 @@ import { cloudDriver } from "./cloud-driver.ts"
 import { parseBindRequest, sha256Hex, type BindReply } from "./cloud-link.ts"
 import { parseSigningKeys, publicKeyset } from "./link-token.ts"
 import { connectInfo, machineBySelector, mintLinkToken, type MintReply } from "./cloud-connect.ts"
-import { registerVmInstall, sendEphemeral, VmEventBuckets, vmEventEmit, vmSelfGet, vmStatusReport, type VmReply } from "./cloud-vm.ts"
+import { registerVmInstall, sendEphemeral, VmEventBuckets, vmEventEmit, vmGate, vmSelfGet, vmStatusReport, type VmReply } from "./cloud-vm.ts"
+import type { TrajectoryScope } from "./cloud-trajectory.ts"
 import { TABLE_LEDGER, TABLE_MACHINE, type LedgerRow, type MachineRow } from "./domains/cloud.ts"
 import { statusApplied } from "./cloud-do-core.ts"
 import { CloudIdle } from "./cloud-do-idle.ts"
@@ -184,6 +185,27 @@ export class CloudDO extends CloudIdle {
     return vmEventEmit(entity, principal, params, rows, this.vmEvents, (f) => sendEphemeral(this.ctx.getWebSockets(), f, (ws, a) => this.socketLive(ws, a as never) && a.principal.team === entity && a.principal.install_kind !== "vm"), now)
   }
   private readonly vmEvents = new VmEventBuckets()
+
+  /**
+   * #25584, RPC from POST /v1/cloud/machines/{machine}/trajectories/* (cloud-trajectory.ts): the machine
+   * lineage whose kept ACP chats this principal may use. Writes: the machine's own VM install only (the
+   * cloud.vm.* gate). Reads: that install, or the machine's creator (a session, or the creator's own
+   * install with the read class). Not an op: nothing is committed.
+   */
+  async trajectoryScope(entity: string, principal: Principal, machine: string, write: boolean): Promise<TrajectoryScope> {
+    const rows = this.isBound(entity) ? this.bind(entity).rows : undefined
+    const lineageOf = (row: MachineRow) => row.lineage ?? row.id
+    if (principal.kind === "install" && principal.install_kind === "vm") {
+      const g = vmGate(entity, principal, machine, rows)
+      return g.ok ? { ok: true, lineage: lineageOf(g.row) } : { ok: false, status: g.code === "cloud.machine.not_found" ? 404 : 403, code: g.code, message: g.message }
+    }
+    if (write) return { ok: false, status: 403, code: "auth.forbidden", message: "only the machine itself writes its chats" }
+    if (principal.team !== entity || !principal.user) return { ok: false, status: 403, code: "auth.forbidden", message: "not this team's machines" }
+    if (principal.kind === "install" && !principal.grant_classes?.includes("read")) return { ok: false, status: 403, code: "auth.forbidden", message: "this install cannot read" }
+    const row = rows?.get<MachineRow>(TABLE_MACHINE, machine)?.row
+    if (!row || row.creator !== principal.user) return { ok: false, status: 404, code: "cloud.machine.not_found", message: "no such machine of yours in this team" }
+    return { ok: true, lineage: lineageOf(row) }
+  }
 
   async mintLinkToken(entity: string, principal: Principal, params: unknown, request: string = crypto.randomUUID()): Promise<MintReply> {
     if (principal.team !== entity) return { ok: false, code: "auth.forbidden", message: "not this team's machines" }

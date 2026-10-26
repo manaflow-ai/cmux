@@ -79,6 +79,11 @@ export interface MachineRow extends Omit<CloudMachineView, "revision"> {
   readonly last_power_at?: number
   /** A restore: the recorded snapshot slug the create boots (the pass branches on this, never on the image id). */
   readonly from_snapshot?: string
+  /**
+   * The machine lineage (private; cloud-trajectory.ts): the first machine's id, kept by every machine restored from
+   * one of its snapshots, so ACP chats stored outside the VM follow a replacement. Absent: the machine's own id.
+   */
+  readonly lineage?: string
   /** The creator's SSO team at create (private): the VM install counts as registered from that SSO. */
   readonly creator_sso_team?: string
   /** The VM's last applied status report (private; activity feeds the idle pause). */
@@ -134,7 +139,7 @@ const counted = (status: string) => (COUNTED.has(status) ? 1 : 0)
 export const countedRow = (row: MachineRow) => (row.delete_failed ? 1 : counted(row.status))
 
 export const publicMachine = (row: MachineRow): CloudMachineView => {
-  const { transport: _t, provider_name: _p, delete_failed: _f, host_id: _h, epoch: _e, bind: _b, wg_public_key: _w, daemon: _d, keyset_version: _k, vm_install: _v, vm_status: _s, creator_sso_team: _c, last_power_at: _l, from_snapshot: _fs, ...machine } = row
+  const { transport: _t, provider_name: _p, delete_failed: _f, host_id: _h, epoch: _e, bind: _b, wg_public_key: _w, daemon: _d, keyset_version: _k, vm_install: _v, vm_status: _s, creator_sso_team: _c, last_power_at: _l, from_snapshot: _fs, lineage: _ln, ...machine } = row
   return machine
 }
 
@@ -267,7 +272,7 @@ const create = (config: CloudConfig, state: CloudState, params: unknown, ctx: Re
     size: { cpu, memory_mb: memory, disk_mb: disk },
     status: "provisioning",
     image: { id: from ? from.provider_name : config.image, daemon_version: null },
-    ...(from ? { from_snapshot: from.provider_name } : {}),
+    ...(from ? { from_snapshot: from.provider_name, lineage: from.lineage ?? ctx.rows?.get<MachineRow>(TABLE_MACHINE, from.machine)?.row.lineage ?? from.machine } : {}),
     host: null,
     classic: false,
     created_at: ctx.now,

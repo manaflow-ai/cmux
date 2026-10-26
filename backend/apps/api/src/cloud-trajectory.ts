@@ -1,0 +1,170 @@
+import type { Principal } from "@cmux/ownership"
+import { authenticate } from "./auth.ts"
+import { isNativePath, isSessionId, NATIVE_CHUNK_MAX_BYTES, type TrajectoryRefusal, type TrajectoryResult } from "./cloud-trajectory-store.ts"
+import type { Env } from "./env.ts"
+import { ssoGate } from "./policy-gate.ts"
+import { principalForOwner, selectTeam, TEAM_HEADER } from "./team-select.ts"
+
+/**
+ * ACP chat trajectories outside the VM (#25584), as plain HTTP routes outside the op path (like
+ * /v1/cloud/machines/{machine}/acpmux): a chat's log is a stream of records, not an op.
+ *
+ *   POST /v1/cloud/machines/{machine}/trajectories/append       {session, generation, meta?, lines[]}
+ *   POST /v1/cloud/machines/{machine}/trajectories/native       {session, generation, label, path, offset, data (base64)}
+ *   POST /v1/cloud/machines/{machine}/trajectories/list         {}
+ *   POST /v1/cloud/machines/{machine}/trajectories/read         {session, after_seq?, limit?}
+ *   POST /v1/cloud/machines/{machine}/trajectories/native-read  {session, label, path, offset}
+ *
+ * Writes: only the VM install bound to the machine (`cloud.vm.*`'s gate, cloud-vm.ts vmGate). Reads:
+ * that VM install, or the machine's creator (a session, or one of the creator's own installs with the
+ * read class). Every call works on the machine's lineage (domains/cloud.ts MachineRow.lineage), so a
+ * machine restored from a snapshot reads and continues the chats of the machine it replaces.
+ *
+ * Off unless CLOUD_TRAJECTORIES_ENABLED is "1" (development and tests): answers 404
+ * cloud.trajectory.disabled, which the VM's mirror reads as "try again much later".
+ */
+export const TRAJECTORY_PATH = /^\/v1\/cloud\/machines\/(vm_[a-z0-9]{20})\/trajectories\/(append|native|list|read|native-read)$/
+
+export type TrajectoryAction = "append" | "native" | "list" | "read" | "native-read"
+
+/** Base64 of one native chunk plus the JSON around it, or a batch of records. */
+const BODY_MAX_BYTES = 8 * 1024 * 1024
+const APPEND_MAX_LINES = 2000
+
+/** CloudDO's answer: the lineage this principal may use, or why not. */
+export type TrajectoryScope = { readonly ok: true; readonly lineage: string } | { readonly ok: false; readonly status: number; readonly code: string; readonly message: string }
+
+type CloudStub = { trajectoryScope(entity: string, p: Principal, machine: string, write: boolean): Promise<TrajectoryScope> }
+type Store = {
+  append(session: string, generation: number, meta: unknown, lines: ReadonlyArray<string>): Promise<TrajectoryResult<{ last_seq: number }>>
+  appendNative(session: string, generation: number, label: string, path: string, offset: number, data: Uint8Array): Promise<TrajectoryResult<{ size: number }>>
+  list(): Promise<unknown>
+  read(session: string, afterSeq: number, limit: number): Promise<TrajectoryResult<unknown>>
+  readNative(session: string, label: string, path: string, offset: number): Promise<TrajectoryResult<{ size: number; data: Uint8Array }>>
+}
+
+const NO_STORE = { "cache-control": "no-store" }
+const answer = (status: number, code: string, message: string, details?: unknown) => Response.json({ ok: false, error: { code, message, ...(details === undefined ? {} : { details }) } }, { status, headers: NO_STORE })
+const ok = (value: unknown) => Response.json({ ok: true, value }, { headers: NO_STORE })
+
+const REFUSAL_STATUS: Readonly<Record<TrajectoryRefusal["code"], [number, string]>> = {
+  "cloud.trajectory.gap": [409, "the log has a gap: send from one past last_seq"],
+  "cloud.trajectory.conflict": [409, "a kept record differs from the one sent"],
+  "cloud.trajectory.stale_generation": [409, "a newer chat with this id is kept"],
+  "cloud.trajectory.offset": [409, "the file's kept size differs from the offset"],
+  "cloud.trajectory.not_found": [404, "no such chat is kept"],
+  "cloud.trajectory.full": [507, "this machine's kept chats reached their limit"],
+  "validation.invalid": [400, "invalid trajectory request"]
+}
+
+const refused = (r: TrajectoryRefusal) => {
+  const [status, message] = REFUSAL_STATUS[r.code]
+  const { code, ...details } = r
+  return answer(status, code, "message" in r ? r.message : message, Object.keys(details).length > 0 && !("message" in r) ? details : undefined)
+}
+
+const reply = <A>(r: TrajectoryResult<A>, map: (a: A) => unknown = (a) => a) => (r.ok ? ok(map(r.value)) : refused(r.refusal))
+
+const toBase64 = (bytes: Uint8Array) => {
+  let s = ""
+  for (let i = 0; i < bytes.length; i += 0x8000) s += String.fromCharCode(...bytes.subarray(i, i + 0x8000))
+  return btoa(s)
+}
+
+const fromBase64 = (text: string): Uint8Array | null => {
+  try {
+    const s = atob(text)
+    const out = new Uint8Array(s.length)
+    for (let i = 0; i < s.length; i++) out[i] = s.charCodeAt(i)
+    return out
+  } catch {
+    return null
+  }
+}
+
+/** The caller's principal for the team's CloudDO, or the refusal answer. */
+const principalOf = async (request: Request, env: Env): Promise<Principal | Response> => {
+  const auth = request.headers.get("authorization") ?? ""
+  const token = await authenticate(env, auth.startsWith("Bearer ") ? auth.slice(7) : undefined)
+  if (!token?.user || !token.team) return answer(401, "auth.unauthenticated", "a token is required")
+  if (token.agent !== undefined) return answer(403, "auth.forbidden", "agents cannot read or write chat trajectories")
+  let p: Principal = token
+  if (token.kind === "session") {
+    const selected = await selectTeam(env, { ...token, user: token.user, team: token.team }, request.headers.get(TEAM_HEADER))
+    if (!selected.ok) return answer(selected.code === "owner.unreachable" ? 503 : 403, selected.code, selected.message)
+    const gate = await ssoGate(env, selected.principal).catch(() => null)
+    if (!gate) return answer(503, "owner.unreachable", "the sign-in policy could not be checked; retry")
+    if (gate.refusal) return answer(403, gate.refusal.code, gate.refusal.message)
+    const { stack_session: _session, email_domain: _domain, ...authed } = gate.principal
+    p = authed
+  }
+  const granted = await principalForOwner(env, "cloud:CloudDO", p).catch(() => null)
+  if (granted === null) return answer(503, "owner.unreachable", "team membership could not be checked; retry")
+  if (!granted || "refused" in granted) return answer(403, "auth.forbidden", "no access to this team's machines")
+  return granted
+}
+
+const readJson = async (request: Request): Promise<Record<string, unknown> | null> => {
+  const declared = Number(request.headers.get("content-length") ?? "NaN")
+  if (!(declared >= 0 && declared <= BODY_MAX_BYTES)) return null
+  try {
+    const text = await request.text()
+    if (text.length > BODY_MAX_BYTES) return null
+    const v = JSON.parse(text === "" ? "{}" : text) as unknown
+    return typeof v === "object" && v !== null && !Array.isArray(v) ? (v as Record<string, unknown>) : null
+  } catch {
+    return null
+  }
+}
+
+const isCount = (v: unknown): v is number => typeof v === "number" && Number.isSafeInteger(v) && v >= 0
+
+export const handleCloudTrajectory = async (request: Request, env: Env, machine: string, action: TrajectoryAction): Promise<Response> => {
+  if (env.CLOUD_TRAJECTORIES_ENABLED !== "1") return answer(404, "cloud.trajectory.disabled", "chat trajectories are not kept on this deployment")
+  if (request.method !== "POST") return Response.json({ ok: false, error: { code: "validation.invalid", message: "POST only" } }, { status: 405, headers: { allow: "POST" } })
+  if (request.headers.get("content-type")?.split(";")[0]?.trim().toLowerCase() !== "application/json") return answer(400, "validation.invalid", "the body must be JSON")
+  const principal = await principalOf(request, env)
+  if (principal instanceof Response) return principal
+  const body = await readJson(request)
+  if (!body) return answer(400, "validation.invalid", "invalid trajectory request")
+  const write = action === "append" || action === "native"
+  let scope: TrajectoryScope
+  try {
+    const cloud = env.CLOUD_DO.get(env.CLOUD_DO.idFromName(principal.team!)) as unknown as CloudStub
+    scope = await cloud.trajectoryScope(principal.team!, principal, machine, write)
+  } catch {
+    return answer(503, "owner.unreachable", "the Cloud service could not be reached; retry")
+  }
+  if (!scope.ok) return answer(scope.status, scope.code, scope.message)
+  const store = env.TRAJECTORY_DO.get(env.TRAJECTORY_DO.idFromName(`${principal.team!}/${scope.lineage}`)) as unknown as Store
+  if (action === "list") return ok({ sessions: await store.list() })
+  const session = body.session
+  if (!isSessionId(session)) return answer(400, "validation.invalid", "invalid session id")
+  switch (action) {
+    case "append": {
+      const { generation, meta, lines } = body
+      if (!isCount(generation)) return answer(400, "validation.invalid", "invalid generation")
+      if (meta !== undefined && (typeof meta !== "object" || meta === null || Array.isArray(meta) || (meta as { id?: unknown }).id !== session)) return answer(400, "validation.invalid", "the session record must be this session's")
+      if (!Array.isArray(lines) || lines.length > APPEND_MAX_LINES || !lines.every((l) => typeof l === "string")) return answer(400, "validation.invalid", "invalid records")
+      return reply(await store.append(session, generation, meta, lines as Array<string>))
+    }
+    case "native": {
+      const { generation, label, path, offset, data } = body
+      if (!isCount(generation) || !isCount(offset) || !isNativePath(label, path) || typeof data !== "string") return answer(400, "validation.invalid", "invalid native file write")
+      const bytes = fromBase64(data)
+      if (!bytes || bytes.byteLength > NATIVE_CHUNK_MAX_BYTES) return answer(400, "validation.invalid", "invalid native file chunk")
+      return reply(await store.appendNative(session, generation, label as string, path, offset, bytes))
+    }
+    case "read": {
+      const after = body.after_seq ?? 0
+      const limit = body.limit ?? 1000
+      if (!isCount(after) || !isCount(limit)) return answer(400, "validation.invalid", "invalid read")
+      return reply(await store.read(session, after, limit))
+    }
+    case "native-read": {
+      const { label, path, offset } = body
+      if (!isCount(offset) || !isNativePath(label, path)) return answer(400, "validation.invalid", "invalid native file read")
+      return reply(await store.readNative(session, label as string, path, offset), (v) => ({ size: v.size, data: toBase64(v.data) }))
+    }
+  }
+}
