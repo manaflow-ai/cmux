@@ -193,27 +193,16 @@ class Place(unittest.TestCase):
         stalled = cascade.Seen(waits={LARGE: 227.0}, age=1.0, hosted=18)
         before = cascade.place(env(CASCADE_RUNS=runs), (), live, waiting, stalled)
         self.assertEqual(before.jobs[SMALL], ("fast-tier", "cmux-scheme-compile"))
-        first = cascade.place(env(CASCADE_RUNS=runs, FIRST_JOBS="release-compile"), (), live, waiting, stalled)
-        self.assertEqual(first.jobs[SMALL], ("release-compile", "fast-tier"))
-        # An idle mini takes the first job, which is the Release compile: no Blacksmith slot for it.
-        idle = cascade.place(env(CASCADE_RUNS=runs, FIRST_JOBS="release-compile"), ("fast-tier",), live, waiting, stalled)
-        self.assertNotIn("release-compile", idle.jobs[SMALL] + idle.jobs[LARGE])
-
-    def test_with_no_snapshot_only_the_first_job_takes_a_label_that_is_moving(self):
-        runs = " fast-tier cmux-scheme-compile release-compile "
-        values = env(CASCADE_RUNS=runs, FIRST_JOBS="release-compile")
-        # 12 vCPU stalled (nothing in flight), 6 vCPU running jobs with room: the Release compile goes there.
-        placed = cascade.place(values, (), {LARGE: 0, SMALL: 5}, None)
-        self.assertEqual(placed.jobs, none_placed(**{SMALL: ("release-compile",)}))
-        self.assertEqual(placed.retry_runner, "")
-        # Nothing moving, or full, or no first job, or an idle mini took it: nothing leaves the minis.
-        for live, current, owned in (({LARGE: 0, SMALL: 0}, values, ()), ({LARGE: 5, SMALL: 10}, values, ()),
-                                     ({LARGE: 0, SMALL: 5}, env(CASCADE_RUNS=runs), ()),
-                                     ({LARGE: 0, SMALL: 5}, values, ("fast-tier",))):
-            with self.subTest(live=live, first=current.get("FIRST_JOBS"), owned=owned):
-                self.assertEqual(cascade.place(current, owned, live, None).jobs, none_placed())
-        self.assertEqual(cascade.no_snapshot_label({LARGE: 2, SMALL: 9}), LARGE)
-        self.assertEqual(cascade.no_snapshot_label({LARGE: 4, SMALL: 5}), SMALL)
+        first = env(CASCADE_RUNS=runs, FIRST_JOBS="release-compile")
+        self.assertEqual(cascade.place(first, (), live, waiting, stalled).jobs[SMALL], ("release-compile", "fast-tier"))
+        # The idle minis are spent on the run's other jobs first: one idle mini, and the Release compile still
+        # has its slot (fast-tier races for the mini); as many idle minis as side jobs, and nothing cascades.
+        one = cascade.place(first, ("fast-tier",), live, waiting, stalled)
+        self.assertEqual(one.jobs[SMALL], ("release-compile", "cmux-scheme-compile"))
+        three = cascade.place(first, ("fast-tier", "swift-canary", "cmux-scheme-compile"), live, waiting, stalled)
+        self.assertEqual(three.jobs, none_placed())
+        two = cascade.place(first, ("fast-tier", "swift-canary"), live, waiting, stalled)
+        self.assertEqual(two.jobs[SMALL], ("release-compile",))
 
     def test_the_placement_names_the_first_jobs_only_on_a_feat_push_attempt_1(self):
         jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
