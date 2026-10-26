@@ -107,6 +107,7 @@ impl Hub {
         let mut mode_write = None;
         let mut reported_tools = None;
         let mut goal_write = false;
+        let mut option_write = false;
         let mut mark_cleared = false;
         let mut m = session.meta.lock().unwrap_or_else(|e| e.into_inner());
         match kind {
@@ -145,6 +146,7 @@ impl Hub {
             }
             "config_option_update" => {
                 mode_write = update.get("configOptions").cloned().map(ModeWrite::ConfigOptions);
+                option_write = mode_write.is_some();
             }
             "session_info_update" => {
                 if let Some(goal) = update.pointer("/_meta/goal") {
@@ -179,6 +181,19 @@ impl Hub {
         // Default deny on drift: also a mode the harness changes by itself.
         if let Some(w) = mode_write {
             self.write_mode_state(session, [w]);
+        }
+        // A harness whose mode is its `mode` option moved it by itself: the mark goes, as on a
+        // `current_mode_update` above.
+        if option_write {
+            let mut m = session.meta.lock().unwrap_or_else(|e| e.into_inner());
+            let by_option = m.modes.as_ref().and_then(|v| v.get("currentModeId")).is_none();
+            if by_option
+                && m.mode_set_by_cmux.is_some()
+                && crate::web_modes::mode_of(&m) != m.mode_set_by_cmux
+            {
+                m.mode_set_by_cmux = None;
+                mark_cleared = true;
+            }
         }
         if mark_cleared {
             self.save_meta(session);

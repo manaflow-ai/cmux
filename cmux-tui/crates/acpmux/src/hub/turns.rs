@@ -907,6 +907,12 @@ impl Hub {
         let asked_mode = (m == method::SESSION_SET_MODE)
             .then(|| params.get("modeId").and_then(Value::as_str).map(str::to_owned))
             .flatten();
+        // A mode picked through the harness's `mode` option (Claude Code's, or a harness whose
+        // mode is only that option).
+        let asked_option_mode = (m == method::SESSION_SET_CONFIG_OPTION
+            && params.get("configId").and_then(Value::as_str) == Some("mode"))
+        .then(|| params.get("value").and_then(Value::as_str).map(str::to_owned))
+        .flatten();
         let res = match child.request(m, params).await {
             Ok(v) => v,
             Err(mut e) => {
@@ -934,8 +940,26 @@ impl Hub {
                 }
             }
             method::SESSION_SET_CONFIG_OPTION => {
+                let mut writes = Vec::new();
                 if let Some(opts) = res.get("configOptions") {
-                    self.write_mode_state(session, [ModeWrite::ConfigOptions(opts.clone())]);
+                    writes.push(ModeWrite::ConfigOptions(opts.clone()));
+                }
+                // Claude Code answers a `mode` option with the mode it now runs.
+                if asked_option_mode.is_some()
+                    && let Some(mode) = res.get("currentModeId").cloned()
+                {
+                    writes.push(ModeWrite::CurrentMode(mode));
+                }
+                if !writes.is_empty() {
+                    self.write_mode_state(session, writes);
+                }
+                // A mode picked through its option is cmux's as a `set_mode` one is, once the
+                // harness runs it (`trust_wait.rs` `full_access_by_cmux`).
+                if let Some(mode) = asked_option_mode {
+                    let mut meta = session.meta.lock().unwrap_or_else(|e| e.into_inner());
+                    if crate::web_modes::mode_of(&meta).as_deref() == Some(mode.as_str()) {
+                        meta.mode_set_by_cmux = Some(mode);
+                    }
                 }
             }
             method::SESSION_SET_MODEL => {
