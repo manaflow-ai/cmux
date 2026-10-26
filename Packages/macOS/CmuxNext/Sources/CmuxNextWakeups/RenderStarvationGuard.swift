@@ -34,7 +34,7 @@ public import QuartzCore
 /// subscribers, never queued behind the classes it measures.
 ///
 /// ```swift
-/// // After FrameScheduler.install(displays:): the window schedulers made later are watched with the app's.
+/// // After FrameScheduler.install(displays:energy:): the window schedulers made later are watched with the app's.
 /// let starvation = RenderStarvationGuard(holdsWork: features.isEnabled(.renderStarvationGuard), signposts: true)
 /// let mainWork = MainWorkScheduler(budget: MainFrameBudget(input: SessionInputPending(events: WindowServerInputEvents(input: inputTap)), signposts: true,
 ///                                                          starvation: starvation), displays: displays)

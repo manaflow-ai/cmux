@@ -6,6 +6,7 @@ import CmuxNextBrowser
 import CmuxNextDesign
 import CmuxNextTerminal
 import CmuxNextFocus
+import CmuxNextWakeups
 /// The one key dispatcher (plans/cmux-next/keybindings.md section 4,
 /// focus.md section 5). It decides every key-down of every cmux window in
 /// `CmuxApplication.sendEvent` (``interceptKeyDown(_:in:)``), before any
@@ -38,7 +39,14 @@ import CmuxNextFocus
 /// runs nothing there, so nothing runs twice.
 final class KeyRouter: BrowserKeyRouting {
     unowned let registry: ActionRegistry
-    weak var services: AppServices?
+    /// The app's services; setting them subscribes the chord's cancel to the app's resign-active notice.
+    weak var services: AppServices? {
+        didSet {
+            resignSubscription?.cancel()
+            resignSubscription = services?.appEvents.subscribe(NSApplication.didResignActiveNotification,
+                                                               owner: "KeyRouter.chord") { [weak self] in self?.cancelChord() }
+        }
+    }
     /// A key that is not a Command or Control chord goes on to `window`'s
     /// focused view: the user types into that pane (notification dismissal).
     var onTyping: ((NSWindow?) -> Void)?
@@ -50,12 +58,11 @@ final class KeyRouter: BrowserKeyRouting {
     var trace: ((String) -> Void)?
     /// The leader's which-key overlay, shown while Cmd-J waits.
     var whichKey: WhichKeyController?
-    /// Leaving the app ends a waiting chord (the overlay hides with it); the token removes itself when released.
-    private var resignObserver: MainActorObservation?
+    /// Leaving the app ends a waiting chord (the overlay hides with it), through the app's one observer.
+    private var resignSubscription: EventSubscription?
     init(registry: ActionRegistry, inputDispatch: InputDispatchContext = InputDispatchContext()) {
         self.registry = registry
         self.inputDispatch = inputDispatch
-        resignObserver = MainActorObservation(NSApplication.didResignActiveNotification) { [weak self] in self?.cancelChord() }
     }
     // MARK: Tiers
     /// Whether an action of `tier` may take a key from the current focus.

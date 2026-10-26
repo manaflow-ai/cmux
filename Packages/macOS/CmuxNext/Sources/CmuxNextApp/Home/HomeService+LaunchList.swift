@@ -32,15 +32,13 @@ extension HomeService {
         let source = groupMuting
         let cache = sidebarLaunch
         let directory = directory
-        // task-owner: lives as long as the service; event-driven (Observation)
-        launchListObservation = Task { [weak self] in
-            for await _ in ObservationStream({ [weak self] in
-                (self?.homeInbox.reply, self?.homeCloudInbox.reply, directory.chiefAvatars, directory.chiefHarnesses,
+        // Background: nobody sees the write; it still runs while no Home shows (a service observation).
+        launchListObservation = ServiceObservation(.background, owner: "HomeService.launchList", on: services.mainWork) { [weak self] in
+            _ = (self?.homeInbox.reply, self?.homeCloudInbox.reply, directory.chiefAvatars, directory.chiefHarnesses,
                  directory.archivedChiefs, self?.chiefRoster)
-            }) {
-                guard self != nil else { return }
-                cache.save(source.launchSnapshot(archivedChiefs: directory.archivedChiefs))
-            }
+        } apply: { [weak self] _ in
+            guard self != nil else { return }
+            cache.save(source.launchSnapshot(archivedChiefs: directory.archivedChiefs))
         }
     }
 
