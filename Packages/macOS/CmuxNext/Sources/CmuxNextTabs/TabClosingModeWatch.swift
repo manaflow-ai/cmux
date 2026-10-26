@@ -37,7 +37,7 @@ import CmuxNextWakeups
 
     /// The pointer left the strip in closing mode: follow it until it leaves the extended area.
     func pointerLeft() {
-        if let input = strip?.inputTap, let window = strip?.window { subscribe(input, window: window) }
+        if let strip, let window = strip.window { subscribe(strip.inputTap, window: window) }
         installTracking()
         pointerMoved(to: pointerInStrip)
     }

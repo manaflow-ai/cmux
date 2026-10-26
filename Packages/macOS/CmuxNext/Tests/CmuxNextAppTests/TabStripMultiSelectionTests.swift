@@ -121,14 +121,14 @@ import Testing
         #expect(harness.keyIntercepts == 0, "a strip out of sight holds nothing in the tap")
     }
 
-    @Test func aStripWithNoTapInstallsNothing() throws {
+    @Test func aStripWithNoWindowInstallsNothing() throws {
+        let tap = InputEventTap()
         let model = TabStripModel(tabs: (0..<3).map { TabItem(id: TabID("t\($0)"), title: "Tab \($0)") }, selectedID: TabID("t0"))
-        let strip = TabStripView(model: model)
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 40), styleMask: [.borderless], backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
-        window.contentView = strip
-        defer { window.orderOut(nil) }
+        let strip = TabStripView(model: model, input: tap)
         strip.selectionEscape.install()
+        strip.escapeMonitor.install()
         #expect(!strip.selectionEscape.isInstalled)
+        #expect(!strip.escapeMonitor.isInstalled)
+        #expect(tap.subscriberCount(.key, stage: .intercept) == 0)
     }
 }

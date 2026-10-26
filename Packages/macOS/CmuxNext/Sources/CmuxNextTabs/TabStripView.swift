@@ -24,11 +24,7 @@ public final class TabStripView: NSView {
     public static var preferredHeight: CGFloat { Metrics.tabStripHeight }
 
     public let model: TabStripModel
-
-    /// The app's one input tap: the strip's mode intercepts (a drag's and a multi-selection's
-    /// Escape) and closing mode's pointer watch subscribe here only while their mode lasts. Nil (tests
-    /// that never dispatch through a tap) leaves those modes without their key and pointer exits.
-    let inputTap: InputEventTap?
+    let inputTap: InputEventTap  // the app's one; the strip's modes subscribe only while they last
 
     public weak var previewProvider: (any TabPreviewProvider)? {
         didSet { hoverCard.previewProvider = previewProvider }
@@ -183,34 +179,17 @@ public final class TabStripView: NSView {
     var dragCompanions: Set<TabID> = []
     /// A multi-tab drop's order: it stays shown while the App lands it one move at a time.
     var multiReorderTarget: [TabID]?
-    /// Esc ends a multi-selection (Chrome); the key goes on to whatever has focus (a terminal still
-    /// gets it). Held while the strip has a multi-selection.
-    private(set) lazy var selectionEscape = TabStripEscape(strip: self, order: .standard) { strip in
-        guard !strip.isHiddenOrHasHiddenAncestor, strip.drag == nil else { return .pass }
-        strip.model.clearMultiSelection()
-        return .pass
-    }
-    /// Display index of the phantom gap shown for an external drag.
-    var dropPlaceholderIndex: Int?
-    /// Pointer of the external drag, in view coordinates, for edge autoscroll.
-    var phantomPoint: CGPoint?
-    /// Escape cancels the tab or group drag in flight and stops there (`cancelDrag`). Held from the
-    /// drag's start until it ends or is handed off.
-    private(set) lazy var escapeMonitor = TabStripEscape(strip: self, order: .dragSession) { strip in
-        guard strip.drag != nil || strip.groups.drag != nil else { return .pass }
-        strip.cancelDrag()
-        return .consume
-    }
-    /// A dropped tab keeps the placeholder's geometry when it arrives.
-    var pendingDrop: (id: TabID, x: CGFloat, width: CGFloat)?
+    private(set) lazy var selectionEscape = TabStripEscape.multiSelectionClear(strip: self)
+    var dropPlaceholderIndex: Int?  // display index of the phantom gap shown for an external drag
+    var phantomPoint: CGPoint?  // pointer of the external drag, in view coordinates, for edge autoscroll
+    private(set) lazy var escapeMonitor = TabStripEscape.dragCancel(strip: self)
+    var pendingDrop: (id: TabID, x: CGFloat, width: CGFloat)?  // a dropped tab keeps the placeholder's geometry
     /// Group the phantom gap belongs to (a dropped tab would join it).
     var dropPlaceholderGroup: TabGroupID?
     static let placeholderID = TabID("__cmux.tabs.drop-placeholder__")
     // MARK: - Init
 
-    /// - Parameter input: The app's input tap (`AppServices.inputTap`); nil only where nothing
-    ///   dispatches through one.
-    public init(model: TabStripModel, background: Background = .none, input: InputEventTap? = nil) {
+    public init(model: TabStripModel, background: Background = .none, input: InputEventTap) {
         self.model = model
         inputTap = input
         super.init(frame: CGRect(x: 0, y: 0, width: 600, height: Self.preferredHeight))

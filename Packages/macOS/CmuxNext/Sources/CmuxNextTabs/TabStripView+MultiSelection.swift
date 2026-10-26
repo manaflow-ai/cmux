@@ -25,8 +25,7 @@ extension TabStripView {
         if let next = model.click(id, click), next != model.selectedID { model.send(.select(next)) }
     }
 
-    /// Shows the model's multi-selection on the cells, and holds the strip window's Esc intercept
-    /// (`selectionEscape`) while there is one.
+    /// Shows the model's multi-selection on the cells, and holds `selectionEscape` while there is one.
     func applyMultiSelection() {
         let selection = model.multiSelection
         for (id, cell) in cells { cell.isMultiSelected = selection.contains(id) }

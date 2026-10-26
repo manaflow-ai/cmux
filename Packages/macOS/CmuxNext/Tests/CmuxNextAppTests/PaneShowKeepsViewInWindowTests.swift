@@ -27,8 +27,8 @@ import Testing
         /// Where the view shows before (a parked spare, the pane that the new one replaces).
         let parking = NSView(frame: NSRect(x: 0, y: 0, width: 400, height: 300))
         let tab = TabView(frame: NSRect(x: 0, y: 0, width: 400, height: 300))
-        let pane = PaneContentView(stripModel: TabStripModel(tabs: [TabItem(id: TabID("page"), title: "New Tab")]),
-                                   reveal: LaunchReveal(deadline: .zero))
+        let pane = PaneContentView.testing(stripModel: TabStripModel(tabs: [TabItem(id: TabID("page"), title: "New Tab")]),
+                                           reveal: LaunchReveal(deadline: .zero))
 
         init() {
             _ = NSApplication.shared

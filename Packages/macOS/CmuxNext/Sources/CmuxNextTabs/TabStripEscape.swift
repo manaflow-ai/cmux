@@ -24,24 +24,44 @@ import CmuxNextInput
     ///   - order: Where the intercept runs among the tap's others.
     ///   - action: Runs for each Escape key-down in the strip's window while installed; `.consume`
     ///     keeps the key from the responder chain.
-    init(strip: TabStripView, order: InputEventTap.InterceptOrder,
-         action: @escaping (TabStripView) -> InputEventTap.InterceptResult) {
+    private init(strip: TabStripView, order: InputEventTap.InterceptOrder,
+                 action: @escaping (TabStripView) -> InputEventTap.InterceptResult) {
         self.strip = strip
         self.order = order
         self.action = action
     }
 
+    /// Escape cancels the tab or group drag in flight and stops there (`cancelDrag`). The strip holds
+    /// it from the drag's start until the drag ends or is handed off.
+    static func dragCancel(strip: TabStripView) -> TabStripEscape {
+        TabStripEscape(strip: strip, order: .dragSession) { strip in
+            guard strip.drag != nil || strip.groups.drag != nil else { return .pass }
+            strip.cancelDrag()
+            return .consume
+        }
+    }
+
+    /// Escape ends a multi-selection (Chrome) and goes on to whatever has focus (a terminal still gets
+    /// it). The strip holds it while it has a multi-selection.
+    static func multiSelectionClear(strip: TabStripView) -> TabStripEscape {
+        TabStripEscape(strip: strip, order: .standard) { strip in
+            guard !strip.isHiddenOrHasHiddenAncestor, strip.drag == nil else { return .pass }
+            strip.model.clearMultiSelection()
+            return .pass
+        }
+    }
+
     /// Whether the intercept is held now.
     var isInstalled: Bool { subscription != nil }
 
-    /// Starts hearing Escape in the strip's window (nothing while the strip has no window or tap).
+    /// Starts hearing Escape in the strip's window (nothing while the strip has no window).
     func install() {
-        guard let strip, let input = strip.inputTap, let window = strip.window else { return remove() }
+        guard let strip, let window = strip.window else { return remove() }
         guard subscription == nil || self.window !== window else { return }
         subscription?.cancel()
         self.window = window
         let action = action
-        subscription = input.subscribe(class: .key, phase: .intercept(order: order), window: .window(window)) { [weak strip] event in
+        subscription = strip.inputTap.subscribe(class: .key, phase: .intercept(order: order), window: .window(window)) { [weak strip] event in
             guard event.type == .keyDown, event.keyCode == Self.escapeKeyCode, let strip else { return .pass }
             return action(strip)
         }
