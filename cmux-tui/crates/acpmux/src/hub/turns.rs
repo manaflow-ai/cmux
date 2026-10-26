@@ -427,12 +427,16 @@ impl Hub {
             drop(guard);
             return Err(e);
         }
-        if let Err(e) = self.family_dispatch_check(session, run.provenance.as_ref()).await {
-            self.refuse_dequeued(session, waiting, &prompt_id, &turn_id, client, &e);
-            self.refuse_started_turn(session, &prompt_id, &turn_id, &e);
-            drop(guard);
-            return Err(e);
-        }
+        // Held until the prompt is written: an MDM off push waits for it (`family_gate`).
+        let family_gate = match self.family_gate(session, run.provenance.as_ref()).await {
+            Ok(gate) => gate,
+            Err(e) => {
+                self.refuse_dequeued(session, waiting, &prompt_id, &turn_id, client, &e);
+                self.refuse_started_turn(session, &prompt_id, &turn_id, &e);
+                drop(guard);
+                return Err(e);
+            }
+        };
         if session.rehydrate.swap(false, Ordering::SeqCst)
             && let Some(transcript) = self.transcript(session, 24_000)
         {
@@ -494,6 +498,7 @@ impl Hub {
             &turn_id,
             false,
             || {
+                drop(family_gate);
                 self.watch_stalled_turn(session, None);
                 self.title_after_prompt(session)
             },

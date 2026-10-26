@@ -120,6 +120,26 @@ impl Hub {
         }
     }
 
+    /// A family message about to reach `session`'s agent (`provenance` a family prompt's or a
+    /// sub-session's retry; any other prompt: Ok(None), no gate): checked again
+    /// (`family_dispatch_check`) under the family gate, which the caller holds until the
+    /// message is written. An MDM off push waits on the gate (`full_access_turned_off`), so a
+    /// message checked under the old bound is written before the push returns, and one checked
+    /// after it is checked under the off.
+    pub(super) async fn family_gate(
+        &self,
+        session: &Session,
+        provenance: Option<&Value>,
+    ) -> Result<Option<tokio::sync::RwLockReadGuard<'_, ()>>, RpcError> {
+        use super::subsession_guard::{is_family_prompt, is_family_retry};
+        if !(is_family_prompt(provenance) || is_family_retry(provenance)) {
+            return Ok(None);
+        }
+        let gate = self.family_gate.read().await;
+        self.family_dispatch_check(session, provenance).await?;
+        Ok(Some(gate))
+    }
+
     /// Whether a mode or policy that skips every approval may run now: the settings file under
     /// the value MDM or the team policy forces (`full_access_allowed_by`).
     pub fn full_access_allowed(&self) -> bool {
@@ -181,10 +201,12 @@ impl Hub {
 
     /// MDM has just forced full access off (`apply_full_access_push`): an ask that read the
     /// policy before the push (`policy_for` reads the bound under the prompt's lock, where it
-    /// decides) finishes first, so no approve-all decision made after the push returns uses the
+    /// decides) finishes first, and so does a family message or answer checked under the old
+    /// bound (`family_gate`), so no approve-all decision made after the push returns uses the
     /// old bound.
     /// `changed`: this push turned it off; the pool drains only then.
     pub(super) async fn full_access_turned_off(&self, changed: bool) {
+        drop(self.family_gate.write().await);
         for session in self.sessions() {
             drop(session.permissions.lock().unwrap_or_else(|e| e.into_inner()));
         }
@@ -391,11 +413,22 @@ mod tests {
     /// deciding under the old bound (it holds the session's permission lock), so no push returns
     /// before that decision is made.
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-    // The test stands in for an ask deciding under the permission lock across the pushes.
-    #[allow(clippy::await_holding_lock)]
     async fn every_off_push_waits_for_an_ask_deciding_under_the_old_bound() {
         let (hub, session, _) = two_chats().await;
-        let deciding = session.permissions.lock().unwrap();
+        // An ask deciding under the permission lock across the pushes: held on its own thread,
+        // never across this task's awaits.
+        let (locked_tx, locked) = std::sync::mpsc::channel();
+        let (deciding, release) = std::sync::mpsc::channel::<()>();
+        let holder = {
+            let session = session.clone();
+            std::thread::spawn(move || {
+                let held = session.permissions.lock().unwrap_or_else(|e| e.into_inner());
+                let _ = locked_tx.send(());
+                let _ = release.recv();
+                drop(held);
+            })
+        };
+        locked.recv().expect("the ask holds the permission lock");
         let push = || {
             let hub = hub.clone();
             tokio::spawn(async move { hub.apply_full_access_push(Some(false)).await })
@@ -413,6 +446,7 @@ mod tests {
         tokio::time::sleep(std::time::Duration::from_millis(300)).await;
         let returned = second.is_finished();
         drop(deciding);
+        holder.join().expect("the ask's thread ends");
         let (_, _) = (first.await, second.await);
         assert!(!returned, "a second off push returned while an ask decided under the old bound");
     }
