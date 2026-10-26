@@ -588,6 +588,8 @@ Dropped or merged draft items: 022 and 045 (replaced by 026 and 191); 025 merged
 | 291 | Select Conversation 1-9 is a focus action | S | 20-28 | 076 | |
 | 292 | No picker or ask for a socket run without an argument | S | 20-28 | 076 | |
 | 293 | TOGGLES matches whole words | S | 18-24 | 071, 076 | |
+| 300 | NEIGHBOR_STEPS start from the far pane | S | 20-28 | 071, 080 | MQ-actions |
+| 301 | Right sidebar in the reset snapshot and the windows facet | M | 20-36 | 189, 080 | |
 | 330 | Action cases: generated setup runs with focus | M | 20-36 | 071, 072, 077 | MQ-actions |
 | 331 | Facet: screen and screen group metadata | S | 20-28 | 035, 077 | |
 | 332 | Screen creates answer with the screen | S | 20-28 | 077 | |
@@ -1097,6 +1099,39 @@ sets pink again. Match `pin` and `mute` as id words (the end of the id or a capi
 so no real toggle loses its restore. The space.color.pink note loses its divergence. Test: every-action-sweep.py
 `--plan-only` over a live catalog, the toggles before and after differ by the color actions only; gen_actions.py
 `--check` after regeneration; fleet, the case green twice.
+
+The terminal, find, focus, focusRing and pane action cases (080, `tests/oracle/corpus/actions/focus/_tuning.json`)
+found two problems a tuning cannot fix. focusRight and focusDown carry a `known failure (p15-oracle-300)` note, and
+focusRightSidebar is blocked (the tuning key `blocked`, kind `tuning` in coverage.json) until 301 lands.
+
+**300 NEIGHBOR_STEPS start from the far pane.** Files: `gen_actions.py`, `focus/_tuning.json`. NEIGHBOR_STEPS
+assume a split run through action.run focuses the new pane, but a socket run's split leaves focus in the launch's
+pane (FocusEvent::changes_view refuses its Expect, `cmux-tui/crates/cmux-focus-core/src/event.rs`). So neighbor-2 of
+focusRight (focusLeft) and of focusDown (focusUp) runs from a pane with no neighbor that way, PaneHandlers.bindFocus
+refuses it (control.unavailable), and both cases fail in neighbor-2 on every run. Change NEIGHBOR_STEPS to left =
+(splitRight, focusRight), right = (splitRight,), up = (splitDown, focusDown), down = (splitDown,): the moves are in
+ActionCatalog.focusActionIDs, so a socket run of them moves focus. Fix the comment above NEIGHBOR_STEPS and the
+selftest assertion in test_the_sweeps_setup_is_the_cases_setup (focus-right: splitRight, then the key
+cmd+opt+right). In the focus tuning, remove the known-failure notes of focusRight and focusDown, and the
+setup-start steps of focusLeft and focusUp (the neighbor steps now end in the far pane). Chrome:
+chrome/browser/ui/browser_focus_uitest.cc focuses a known view before each focus-traversal check. Test:
+gen_actions.py --selftest; `--check` after regeneration; fleet, focusLeft, focusRight, focusUp and focusDown green
+twice.
+
+**301 Right sidebar in the reset snapshot and the windows facet.** Files: `OracleWindowsFacet.swift`,
+`OracleWindowsFacetTests.swift`, `snapshot-v1.schema.json`, `app_reset.py`, `app_reset_test.py`,
+`focus/_tuning.json`. focusRightSidebar shows the right sidebar (RightSidebarHandlers: showRightSidebar, never a
+hide), no restore step closes it, and the reset snapshot (app_reset.projection) has no key for it, so every later
+case of the launch runs with a narrower content area (divergence right-sidebar-outlives-case). A relaunch does not
+help: RightSidebarModel keeps its visibility and mode in defaults (rightSidebar.visible, rightSidebar.mode). Add
+each window's right sidebar (`visible`, `mode`) to the windows facet from RightSidebarModel, and to the reset
+snapshot. AppReset.reset puts it back with toggleRightSidebar (visibility) and the mode's
+switchRightSidebarTo* action (mode), as it puts back the other keys. Chrome: base/test/test_suite.cc resets the
+state a test may change between tests and CheckForLeakedGlobals fails the test that leaves it changed. Then the
+focusRightSidebar tuning loses `blocked` and its divergence, and gains a waitFor on the facet's `visible`. Test:
+OracleWindowsFacetTests (visible and mode follow the model); app_reset_test.py (an open sidebar in another mode is
+put back to the fixture's); fleet, focusRightSidebar green twice and the cases after it in the same launch
+unchanged.
 
 The tab action cases (078, `tests/oracle/corpus/actions/tabs/_tuning.json`) state for every create what its turn must
 already show (I3). Creates whose handler waits for the daemon before anything shows carry a `divergence` note naming

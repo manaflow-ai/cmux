@@ -4,7 +4,8 @@ import PackageDescription
 
 // The concurrency primitives every package of the app's closure may use on the macOS 14 / iOS 17 floor
 // (plans/cmux-next/chrome-parity/p10-stability.md, tasks 172 and 083): `Mutex` with the API of
-// `Synchronization.Mutex` (macOS 15 / iOS 18) and the raw `PlatformLock` under it. Foundation-free, so
+// `Synchronization.Mutex` (macOS 15 / iOS 18), the raw `PlatformLock` under it, and `OnceContinuation`, the
+// continuation that resumes exactly once (`withOnceContinuation`). Foundation-free, so
 // any package can depend on it, and it builds on Linux (pthread mutex) for the Linux tier.
 // It is the only place in Packages/ that calls os_unfair_lock_lock.
 

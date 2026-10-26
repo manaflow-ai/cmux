@@ -21,8 +21,18 @@ struct RelaySession {
     var queued: [String] = []
     var deadline: DemandTimer?
     var preparing: Task<Void, Never>?
+    /// The tab's capture votes for `Page.captureScreenshot` commands sent and not answered, by raw id.
+    var screenshots: [Int: VisibilityCaptureVote] = [:]
+    /// The tab's capture vote from `Page.startScreencast` until `Page.stopScreencast`.
+    var screencast: VisibilityCaptureVote?
 
     static let queueLimit = 256
+
+    /// The relay ended: every capture it held ends with it.
+    func releaseCaptures() {
+        for vote in screenshots.values { vote.release() }
+        screencast?.release()
+    }
 }
 
 extension BrowserHostProvider {
@@ -114,8 +124,14 @@ extension BrowserHostProvider {
         }
         // Mapped before the send: a reply may arrive while it runs.
         rawIDCursor[targetID] = session.table.nextRawID
+        // The vote is taken before the send, so a hidden tab renders for the capture.
+        let captureCommand = CDPCaptureCommand(command: message)
+        if let captureCommand { beginCapture(captureCommand, targetID, rawID: out.rawID) }
         let result = relay?.send(targetID: targetID, message: out.message) ?? .noBrowser
-        if result != .sent { session.table.forget(rawID: out.rawID) }
+        if result != .sent {
+            session.table.forget(rawID: out.rawID)
+            if let captureCommand { abandonCapture(captureCommand, targetID, rawID: out.rawID) }
+        }
         switch result {
         case .sent: break
         case .noBrowser: replyError(targetID, to: message, "the tab's page has no browser")
@@ -130,7 +146,58 @@ extension BrowserHostProvider {
     private func relayFromBrowser(_ targetID: String, _ gen: Int, _ message: String) {
         guard let session = relays[targetID], session.generation == gen else { return }
         let table = session.table
-        send { table.inbound(message).map { [.cdp(targetID: targetID, message: $0)] } ?? [] }
+        guard !session.screenshots.isEmpty else {
+            send { table.inbound(message).map { [.cdp(targetID: targetID, message: $0)] } ?? [] }
+            return
+        }
+        // A screenshot is pending: the write queue, which reads the reply's id, posts one automation
+        // task when this message answers it.
+        let pending = Set(session.screenshots.keys)
+        let (work, owner) = (mainWork, captureTaskOwner)
+        let answered: @MainActor @Sendable (Int) -> Void = { [weak self] rawID in
+            self?.screenshotAnswered(targetID, gen, rawID)
+        }
+        send {
+            let reply = table.inboundReply(message)
+            if let rawID = reply.rawID, pending.contains(rawID) {
+                // node-free: the vote's end; the agent waits on the reply, never on a frame.
+                work.postFromAnyThread(.automation, owner: owner) { answered(rawID) }
+            }
+            return reply.message.map { [.cdp(targetID: targetID, message: $0)] } ?? []
+        }
+    }
+
+    // MARK: Capture votes
+
+    private func beginCapture(_ command: CDPCaptureCommand, _ targetID: String, rawID: Int) {
+        switch command {
+        case .screenshot:
+            relays[targetID]?.screenshots[rawID] = capture?.captureVote(targetID: targetID, reason: "agent.screenshot")
+        case .startScreencast:
+            guard relays[targetID]?.screencast == nil else { return }
+            relays[targetID]?.screencast = capture?.captureVote(targetID: targetID, reason: "agent.screencast")
+        case .stopScreencast:
+            relays[targetID]?.screencast?.release()
+            relays[targetID]?.screencast = nil
+        }
+    }
+
+    /// A capture command the shim did not send ends its vote at once.
+    private func abandonCapture(_ command: CDPCaptureCommand, _ targetID: String, rawID: Int) {
+        switch command {
+        case .screenshot:
+            relays[targetID]?.screenshots.removeValue(forKey: rawID)?.release()
+        case .startScreencast:
+            relays[targetID]?.screencast?.release()
+            relays[targetID]?.screencast = nil
+        case .stopScreencast:
+            break
+        }
+    }
+
+    private func screenshotAnswered(_ targetID: String, _ gen: Int, _ rawID: Int) {
+        guard relays[targetID]?.generation == gen else { return }
+        relays[targetID]?.screenshots.removeValue(forKey: rawID)?.release()
     }
 
     /// The browser went away under a live relay (rebuilt, closed): the host
@@ -139,6 +206,7 @@ extension BrowserHostProvider {
         guard let session = relays[targetID], session.generation == gen else { return }
         relays[targetID] = nil
         session.deadline?.cancel()
+        session.releaseCaptures()
         // Every command still waiting is answered before the host hears the close, after the
         // replies already queued (the drain runs on the write queue, behind them).
         let table = session.table
@@ -161,6 +229,7 @@ extension BrowserHostProvider {
         guard let session = relays.removeValue(forKey: targetID) else { return }
         session.deadline?.cancel()
         session.preparing?.cancel()
+        session.releaseCaptures()
         if case .relaying = session.phase { relay?.stopRelay(targetID: targetID) }
         guard answering else { return }
         let (queued, table) = (session.queued, session.table)

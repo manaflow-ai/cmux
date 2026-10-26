@@ -55,7 +55,7 @@ private nonisolated final class PanelBox: Sendable {
 
     private let slot: Mutex<Slot>
 
-    init(_ panel: HoverCardPanel) { slot = Mutex(Slot(panel: panel, watched: panel)) }
+    init(_ panel: sending HoverCardPanel) { slot = Mutex(Slot(panel: panel, watched: panel)) }
 
     /// Drops the strong reference on the calling thread; true when that freed the window there.
     func release() -> Bool {

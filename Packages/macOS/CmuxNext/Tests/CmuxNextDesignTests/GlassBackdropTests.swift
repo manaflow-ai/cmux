@@ -159,12 +159,12 @@ import CmuxNextWakeups
         #expect(scripts.all.isEmpty, "a hidden window's page got \(scripts.all.count) pushes")
         #expect(!scheduler.hasLink, "a parked push keeps the hidden window's link")
 
-        backdrop.node.setCaptured(true)
+        let vote = backdrop.node.captureVote(reason: "test.screenshot", stayHidden: true)
         scheduler.frameDidFire(timestamp: 4, refreshInterval: 1.0 / 60)
         #expect(scripts.all.count == 1, "a captured hidden window's page was not pushed")
         #expect(scripts.all.first?.contains("\"image\"") == true)
 
-        backdrop.node.setCaptured(false)
+        vote.release()
         backdrop.page.frame.origin.x += 10 // the page moves in its window: its rect changes
         feed.setNeedsUpdate()
         for frame in 5...7 { scheduler.frameDidFire(timestamp: Double(frame), refreshInterval: 1.0 / 60) }

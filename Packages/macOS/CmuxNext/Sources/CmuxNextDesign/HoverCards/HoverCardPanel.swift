@@ -297,6 +297,7 @@ final class HoverCardPanel: NSPanel {
     }
 
     func place() {
+        // sync-layout: the card's fitting size below sizes and places the window.
         glass.layoutSubtreeIfNeeded()
         let scale = max(parentWindowRef?.backingScaleFactor ?? 2, 1)
         // Whole device pixels, so the edge `origin(for:)` puts on the target stays there.
