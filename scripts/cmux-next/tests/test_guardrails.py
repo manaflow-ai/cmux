@@ -6,10 +6,12 @@ Each new primitive (process launch, queue and thread waits, Security, AX, getadd
 NSWorkspace queries, SMAppService, AuthorizationCopyRights, sync XPC proxies, AppleScript) is refused as
 main-blocking in main-actor code and as raw-blocking in nonisolated code; the task 003 seams are refused on main
 and pass off main; the async overloads (`try await service.unregister()`) and look-alikes (`self?.launch()`,
-`icons.icon(for:)`) pass. pool-blocking refuses a raw or seam call in a Task.detached or child task body, a
-`Task {` in a nonisolated function, an @concurrent function and an actor method, and passes a `work.run` closure and
-an actor with a custom executor (the HomeCache pattern). The rules run on in-memory changes (as check() builds
-them), so no git is needed.
+`icons.icon(for:)`) pass. pool-blocking refuses a raw or seam call in a Task.detached or child task body, an
+`async let` initializer, a `Task {` in a nonisolated function, an @concurrent function and an actor method (also in
+an extension in another file, and an `async` actor init), reads isolation from the declaration's prefix only, and
+passes a `work.run` closure and an actor with a real custom executor (the HomeCache pattern; a comment is none).
+The rules run on in-memory changes (as check() builds them); only the actor-index test makes a throwaway git
+repository in a temporary folder.
 
 Not a CI job (Lawrence 2026-10-23: no new CI gates): run it yourself after a change to the blocking rules:
   python3 -m pytest scripts/cmux-next/tests/test_guardrails.py
@@ -19,7 +21,9 @@ from __future__ import annotations
 
 import collections
 import importlib.util
+import subprocess
 import sys
+import tempfile
 import time
 import unittest
 from pathlib import Path
@@ -137,11 +141,18 @@ def change(path: str, text: str) -> guardrails.FileChange:
 
 def refused(directory: str, text: str) -> set[str]:
     """The blocking rules that refuse TEXT added as a new file in DIRECTORY (warnings left out)."""
+    return refused_files([change(f"{directory}/Added.swift", text)])
+
+
+def refused_files(changes: list, tree: tuple[Path, str] | None = None) -> set[str]:
+    """The blocking rules that refuse CHANGES (warnings left out). TREE is the (repo, rev) whose unchanged files
+    pool-blocking's actor index reads, as check() names HEAD's; without it no other file is read."""
+    guardrails.load_blocking_context({}, "head", *(tree[:1] if tree else ()))
+    if tree:
+        guardrails.BLOCKING_CONTEXT["actor_tree"] = tree
     guardrails.BLOCKING_CONTEXT.update(threading_doc=DOC, manifest=MANIFEST)
-    guardrails.BLOCKING_CONTEXT.pop("ui_targets", None)
     for scan in (guardrails.RAW_SCAN, guardrails.MAIN_SCAN, guardrails.ALWAYS_SCAN):
         scan.answers.clear()
-    changes = [change(f"{directory}/Added.swift", text)]
     return {rule.id for rule in guardrails.BLOCKING_RULES
             if [h for h in rule.find(changes, collections.Counter()) if not getattr(h, "warn", False)]}
 
@@ -232,6 +243,33 @@ HOME_CACHE_EXECUTOR = """public actor HomeCache {
     }
 }
 """
+
+
+# A custom executor declared in an extension file of its own.
+EXECUTOR_EXTENSION = ("extension Store {\n    nonisolated var unownedExecutor: UnownedSerialExecutor {\n"
+                      "        Self.queue.asUnownedSerialExecutor()\n    }\n}\n")
+
+
+def committed_tree(repo: Path, files: dict[str, str]) -> str:
+    """FILES ({name: text} under SERVICE) committed as the one commit of a new repository at REPO; its sha."""
+    for name, text in files.items():
+        path = repo / SERVICE / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text)
+    env = {"GIT_CONFIG_GLOBAL": "/dev/null", "GIT_CONFIG_NOSYSTEM": "1", "PATH": "/usr/bin:/bin",
+           "GIT_AUTHOR_NAME": "test", "GIT_AUTHOR_EMAIL": "test@example.invalid", "GIT_COMMITTER_NAME": "test",
+           "GIT_COMMITTER_EMAIL": "test@example.invalid"}
+    for args in (["init", "-q"], ["add", "-A"], ["commit", "-q", "-m", "tree"], ["rev-parse", "HEAD"]):
+        result = subprocess.run(["git", "-C", str(repo), *args], check=True, env=env, capture_output=True, text=True)
+    return result.stdout.strip()
+
+
+def seam_context(directory: str, text: str) -> str | None:
+    """pool_context of the first SEAM line of TEXT, added as a new file in DIRECTORY."""
+    added = change(f"{directory}/Added.swift", text)
+    refused_files([added])  # pool-blocking sets the head Version's ActorIndex
+    head = guardrails.blocking_sides(added)[0][0]
+    return guardrails.pool_context(head, next(i for i, line in enumerate(head.lines) if SEAM in line))
 
 
 def pool(directory: str, text: str) -> bool:
@@ -349,15 +387,111 @@ class PoolBlockingTests(unittest.TestCase):
         self.assertFalse(pool(SERVICE, HOME_CACHE_EXECUTOR % SEAM))
         self.assertFalse(pool(UI, HOME_CACHE_EXECUTOR % SEAM))
 
-    def test_the_executor_mark_on_the_actor_passes(self):
-        text = (f"// executor: com.cmuxterm.next.store\nactor Store {{\n    func save() throws {{\n        {SEAM}\n"
-                f"    }}\n}}\n")
+    def test_an_executor_comment_without_an_executor_is_refused(self):
+        """A comment is no executor: the actor's methods still run on the cooperative pool."""
+        for mark in ("// executor: com.cmuxterm.next.store", "/// executor: callers are off the main actor"):
+            with self.subTest(mark=mark):
+                text = f"{mark}\nactor Store {{\n    func save() throws {{\n        {SEAM}\n    }}\n}}\n"
+                self.assertEqual(refused(SERVICE, text), {"pool-blocking"})
+
+    def test_an_executor_comment_with_an_executor_passes(self):
+        text = (f"// executor: com.cmuxterm.next.store\nactor Store {{\n"
+                f"    private nonisolated let queue = DispatchSerialQueue(label: \"com.cmuxterm.next.store\")\n"
+                f"    nonisolated var unownedExecutor: UnownedSerialExecutor {{ queue.asUnownedSerialExecutor() }}\n"
+                f"    func save() throws {{\n        {SEAM}\n    }}\n}}\n")
         self.assertFalse(pool(SERVICE, text))
 
-    def test_a_doc_comment_naming_an_executor_is_not_the_mark(self):
-        text = (f"actor Store {{\n    /// executor: callers are off the main actor\n    func save() throws {{\n"
-                f"        {SEAM}\n    }}\n}}\n")
-        self.assertEqual(refused(SERVICE, text), {"pool-blocking"})
+    def assert_actor_method(self, text: str) -> None:
+        """TEXT's SEAM line reads as an actor method, and a rule refuses it. main-blocking's lexical scope
+        (check-main-actor-work.py main_actor_lines) reads a one-line `@MainActor var` above, or a `@MainActor`
+        closure parameter on the signature line, as main: there main-blocking refuses the line and pool-blocking
+        leaves it to that rule (one refusal per line)."""
+        self.assertEqual(seam_context(SERVICE, text), "an actor method")
+        self.assertTrue(refused(SERVICE, text) & {"pool-blocking", "main-blocking"})
+
+    def test_a_one_line_member_above_keeps_its_attributes(self):
+        """declaration_attributes stops at a one-line member: its `@concurrent`, `@MainActor` or `nonisolated` is
+        its own, not the next function's."""
+        concurrent_above = (f"struct R {{\n    @concurrent func a() async {{ }}\n    func b() {{\n        {SEAM}\n"
+                            f"    }}\n}}\n")
+        self.assertFalse(pool(SERVICE, concurrent_above))
+        for above in ("@MainActor func a() { }", "@MainActor var label = \"\"", "@TaskLocal static var trace = 0",
+                      "@discardableResult nonisolated func a() -> Int { 1 }"):
+            with self.subTest(above=above):
+                text = f"actor Store {{\n    {above}\n    func save() throws {{\n        {SEAM}\n    }}\n}}\n"
+                self.assert_actor_method(text)
+
+    def test_a_parameter_type_is_not_the_declaration_isolation(self):
+        """Only the attributes and modifiers before `func` state isolation: a `@MainActor`, `nonisolated(nonsending)`
+        or `@concurrent` closure parameter, or a `.static` default, does not."""
+        for signature in ("func save(then done: @escaping @MainActor () -> Void) throws {",
+                          "func save(\n        done: @escaping @MainActor () -> Void\n    ) throws {",
+                          "func save(_ body: nonisolated(nonsending) () async -> Void) async throws {",
+                          "func save(_ kind: Kind = .static) throws {"):
+            with self.subTest(signature=signature):
+                text = f"actor Store {{\n    {signature}\n        {SEAM}\n    }}\n}}\n"
+                self.assert_actor_method(text)
+        task = f"func f(done: @escaping @MainActor () -> Void) {{\n    Task {{\n        {SEAM}\n    }}\n}}\n"
+        self.assertEqual(refused(SERVICE, task), {"pool-blocking"})
+        concurrent_parameter = f"func f(op: @escaping @concurrent () async -> Void) {{\n    {SEAM}\n}}\n"
+        self.assertFalse(pool(SERVICE, concurrent_parameter))
+
+    def test_a_local_function_runs_in_its_enclosing_context(self):
+        """A local function that states no isolation runs where its enclosing function does (HostedChiefCopy's
+        `@concurrent static func exportLines` holds `func lines(_:)`)."""
+        local = f"    func lines() throws {{\n        {SEAM}\n    }}\n"
+        for header, expected in (("@concurrent static func f() async throws {", {"pool-blocking"}),
+                                 ("func f() throws {", set())):
+            with self.subTest(header=header):
+                self.assertEqual(refused(SERVICE, f"{header}\n{local}    try lines()\n}}\n"), expected)
+        actor = f"actor Store {{\n    func save() throws {{\n    {local}        try lines()\n    }}\n}}\n"
+        self.assertEqual(refused(SERVICE, actor), {"pool-blocking"})
+
+    def test_an_async_actor_initializer_is_refused(self):
+        """SE-0327: an actor's `async` init runs on the actor's executor once `self` is initialized."""
+        for header in ("init() async {", "init(path: String) async throws {"):
+            with self.subTest(header=header):
+                text = f"actor Store {{\n    var x = 0\n    {header}\n        x = 1\n        {SEAM}\n    }}\n}}\n"
+                self.assertEqual(refused(SERVICE, text), {"pool-blocking"})
+        closure = f"actor Store {{\n    init(load: () async -> Void) {{\n        {SEAM}\n    }}\n}}\n"
+        self.assertFalse(pool(SERVICE, closure))
+
+    def test_an_async_let_initializer_is_refused(self):
+        call = SEAM.removeprefix("_ = ")
+        for text in (f"func f() async throws {{\n    async let names = {call}\n    _ = try await names\n}}\n",
+                     f"func f() async throws {{\n    async let names =\n        {call}\n    _ = try await names\n}}\n"):
+            with self.subTest(text=text):
+                self.assertEqual(refused(SERVICE, text), {"pool-blocking"})
+
+    def test_an_extension_of_an_actor_in_another_file_is_refused(self):
+        actor = change(f"{SERVICE}/Store.swift", "actor Store {\n    var count = 0\n}\n")
+        extension = change(f"{SERVICE}/Store+Save.swift",
+                           f"extension Store {{\n    func save() throws {{\n        {SEAM}\n    }}\n}}\n")
+        self.assertEqual(refused_files([actor, extension]), {"pool-blocking"})
+        self.assertEqual(refused_files([extension]), set())  # no actor named Store in the push or a tree
+
+    def test_an_executor_in_another_file_passes(self):
+        actor = change(f"{SERVICE}/Store.swift", "actor Store {\n    var count = 0\n}\n")
+        executor = change(f"{SERVICE}/Store+Executor.swift", EXECUTOR_EXTENSION)
+        extension = change(f"{SERVICE}/Store+Save.swift",
+                           f"extension Store {{\n    func save() throws {{\n        {SEAM}\n    }}\n}}\n")
+        self.assertEqual(refused_files([actor, executor, extension]), set())
+
+    def test_an_actor_in_an_unchanged_file_of_the_tree_is_found(self):
+        """check() resolves an extension against HEAD's tree (repo_actor_index): the push holds only the
+        extension; the actor, and in the second case its executor, sit in files the push does not change."""
+        save = f"extension Store {{\n    func save() throws {{\n        {SEAM}\n    }}\n}}\n"
+        cases = (({"Store.swift": "public actor Store {\n}\n"}, {"pool-blocking"}),
+                 ({"Store.swift": "public actor Store {\n}\n", "Store+Executor.swift": EXECUTOR_EXTENSION}, set()),
+                 ({"Store.swift": "public final class Store {\n}\n"}, set()))
+        for tree, expected in cases:
+            with self.subTest(tree=sorted(tree)), tempfile.TemporaryDirectory() as root:
+                rev = committed_tree(Path(root), {**tree, "Store+Save.swift": save})
+                try:
+                    found = refused_files([change(f"{SERVICE}/Store+Save.swift", save)], tree=(Path(root), rev))
+                finally:
+                    guardrails.load_blocking_context({}, rev)
+                self.assertEqual(found, expected)
 
     def test_a_work_run_closure_passes(self):
         run = f"await work.run(.userVisible, mayBlock: .files) {{\n            {SEAM}\n        }}"
