@@ -51,8 +51,9 @@ extension SettingsController {
     /// thread, and never a frame in the defaults first (a value-or-nil take has no correct default).
     ///
     /// ```swift
-    /// let settingsRead = SettingsController.startLaunchRead(on: work)         // main(), before NSApp.run
-    /// settingsRead.whenRead(on: mainWork) { read in finishLaunching(read) }   // applicationDidFinishLaunching
+    /// let settingsRead = SettingsController.startLaunchRead(on: work)    // main(), before NSApp.run
+    /// settingsRead.whenRead(hop: .userVisible, startup: order.startup,   // applicationDidFinishLaunching
+    ///                       take: { TerminalThemeSetting.prime($0.snapshot) }, then: { finishLaunching($0) })
     /// ```
     public nonisolated struct PendingLaunchRead: Sendable {
         let work: BackgroundWork
@@ -61,24 +62,34 @@ extension SettingsController {
         /// The result once the read has ended; nil while it runs.
         public var value: LaunchRead? { read.value }
 
-        /// Runs `body` with the read on the main thread and never waits: at once, in this turn, when
-        /// the read has ended (a warm launch); else on its completion, posted to `mainWork` at
-        /// `visible` as `Settings.launchRead`.
+        /// Takes the read, then runs the launch steps that need it, on the main thread, never waiting:
+        /// at once, in this turn, when the read has ended (a warm launch); else on its completion, in
+        /// the next main turn through `hop`, the startup's main hop (unbudgeted, as
+        /// `applicationDidFinishLaunching`'s own turn: no frame budget, no class queue, no owner but
+        /// the steps' own).
+        ///
+        /// `take` runs first, as `startup`'s critical `Settings.takeLaunchRead` step (its record,
+        /// signpost and the watchdog's task name), then `then` in the same turn: no step that needs
+        /// the settings, and so no window commit, comes before the take.
+        ///
+        /// - Parameters:
+        ///   - hop: How the continuation reaches main once the read ends off main (the app: ``StartupMainHop/userVisible``).
+        ///   - startup: The launch's scheduler; `take` is its `Settings.takeLaunchRead` step.
+        ///   - take: Applies what the first frame needs from the read (the Ghostty overrides).
+        ///   - then: The rest of the launch, with the read.
         @MainActor
-        public func whenRead(on mainWork: MainWorkScheduler, _ body: @escaping @MainActor @Sendable (LaunchRead) -> Void) {
-            whenRead(hop: { job in mainWork.postFromAnyThread(.visible, owner: "Settings.launchRead", job) }, body)
-        }
-
-        /// ``whenRead(on:_:)`` with the main hop given: `hop` gets the continuation once the read has
-        /// ended and runs it on the main thread in a later turn.
-        @MainActor
-        public func whenRead(hop: @escaping @Sendable (_ job: @escaping @MainActor @Sendable () -> Void) -> Void,
-                             _ body: @escaping @MainActor @Sendable (LaunchRead) -> Void) {
-            if let value = read.value { return body(value) }
+        public func whenRead(hop: StartupMainHop, startup: StartupScheduler,
+                             take: @escaping @MainActor @Sendable (LaunchRead) -> Void,
+                             then: @escaping @MainActor @Sendable (LaunchRead) -> Void) {
+            let run: @MainActor @Sendable (LaunchRead) -> Void = { value in
+                startup.post(.critical, "Settings.takeLaunchRead", on: .main) { take(value) }
+                then(value)
+            }
+            if let value = read.value { return run(value) }
             let read = read
             work.task(.userBlocking) {
                 let value = await read.finished()
-                hop { body(value) }
+                hop.later { run(value) }
             }
         }
     }

@@ -48,8 +48,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let settingsRead: SettingsController.PendingLaunchRead
     /// Set in applicationDidFinishLaunching; nil before it (no IUO).
     private var services: AppServices?
-    /// URLs macOS handed over before the services existed (the settings read still in flight).
-    private var openedBeforeServices: [URL] = []
+    /// URLs and Handoff activities macOS handed over before the services existed (the settings read still in flight).
+    private let launchOpens = LaunchOpenQueue()
     /// A second quit signal's exit (`QuitSignal`): the Home cache's last write, bounded, then the end.
     private lazy var forcedQuitExit = ForcedQuitExit(prepare: { [weak self] in
         self?.services?.crashRecovery.applicationWillTerminate()
@@ -116,10 +116,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         DebugTimings.markLaunch("did_finish_launching_start")
         let launchStart = startupTrace?.uptimeNanos
         DebugTimings.install(watchdog: control.watchdog, startupTrace: startupTrace)
-        defer {
-            DebugTimings.markLaunch("did_finish_launching_end")
-            if let launchStart { startupTrace?.task("did_finish_launching", start: launchStart) }
-        }
         // No system caret bubble over cmux's own native text fields (before any field edits).
         NativeCaretAccessory.install()
         // Every window, shell or auxiliary, opens by one placement rule.
@@ -134,17 +130,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
            let cli = Bundle.main.resourceURL?.appendingPathComponent("bin/cmux").path {
             Task.detached(priority: .utility) { LastAppCLIPointer().publish(cliPath: cli) }
         }
-        // The rest runs with main()'s settings read, now or when it lands: no wait, no frame in the defaults (p08-startup 025).
-        settingsRead.whenRead(on: mainWork) { [self] read in finishLaunching(settings: read) }
+        // The rest runs with main()'s settings read, now or when it lands (the startup's main hop, unbudgeted):
+        // no wait, no frame in the defaults (p08-startup 025). The launch marks end where the launch work ends.
+        settingsRead.whenRead(hop: .userVisible, startup: order.startup, take: { [logger] read in
+            DebugTimings.markLaunch("dfl.settings_wait")  // the read in hand: at once warm, after the disk cold
+            if let failure = read.bootstrapFailure { logger.error("cmux-next config bootstrap failed: \(failure, privacy: .public)") }
+            // cmux.json's appearance goes on the Ghostty overrides before the runtime's first config load, so the first frame needs no reload.
+            TerminalThemeSetting.prime(read.snapshot)
+        }, then: { [self] read in finishLaunching(settings: read, launchStart: launchStart) })
     }
 
-    /// The launch steps that need the settings, run with the settings launch read (`applicationDidFinishLaunching`).
-    private func finishLaunching(settings settingsRead: SettingsController.LaunchRead) {
-        // cmux.json's appearance goes on the Ghostty overrides before the runtime's first config load, so the first frame needs no reload.
-        order.startup.post(.critical, "Settings.takeLaunchRead", on: .main) { [logger] in
-            if let failure = settingsRead.bootstrapFailure { logger.error("cmux-next config bootstrap failed: \(failure, privacy: .public)") }
-            TerminalThemeSetting.prime(settingsRead.snapshot)
-        }
+    /// The launch steps that need the settings, run after the settings launch read's take (`applicationDidFinishLaunching`).
+    private func finishLaunching(settings settingsRead: SettingsController.LaunchRead, launchStart: UInt64?) {
         DebugTimings.markLaunch("dfl.settings_read")
         // Chrome colors derive from the Ghostty theme; load it before any window.
         ThemeBridge.start(store: ThemeScope.app.store)
@@ -288,12 +285,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                                                      forEventClass: AEEventClass(kInternetEventClass), andEventID: AEEventID(kAEGetURL))
         services.windows.onContentDidAppear = { [weak services] in services?.externalOpen.flush(); services?.pageHostPool.windowDidAppear($0.window) }
         NSApp.servicesProvider = CmuxServicesProvider(open: services.externalOpen)
-        for url in openedBeforeServices { routeOpenedURL(url) }  // services exist now: nothing is added while this runs
-        openedBeforeServices = []
+        launchOpens.release { item in  // services exist now: nothing is held while this runs
+            switch item {
+            case .url(let url): routeOpenedURL(url)
+            case .activity(let type, let webpageURL): _ = services.externalOpen.continueActivity(type: type, webpageURL: webpageURL)
+            }
+        }
         // The registered launch work ends the implicit ref. The first window is made in this turn
         // (`restoreWhenLoaded`), so its commit ends the first-frame ref; a launch that shows none
         // completes at the scheduler's failsafe, with reason `failsafe`.
         order.startup.finishRegistration()
+        DebugTimings.markLaunch("did_finish_launching_end")
+        if let launchStart { startupTrace?.task("did_finish_launching", start: launchStart) }
     }
 
     /// cmux-next.json settings and the tagged control socket (`action.list/describe/run`) over the same registry.
@@ -490,14 +493,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func application(_ application: NSApplication, continue userActivity: NSUserActivity,
                      restorationHandler: @escaping ([any NSUserActivityRestoring]) -> Void) -> Bool {
-        services?.externalOpen.continueActivity(type: userActivity.activityType, webpageURL: userActivity.webpageURL) ?? false
+        guard let services else {
+            // Before the services exist (the settings read in flight): kept, then continued by the launch.
+            guard userActivity.activityType == NSUserActivityTypeBrowsingWeb else { return false }
+            launchOpens.hold(.activity(type: userActivity.activityType, webpageURL: userActivity.webpageURL))
+            return true
+        }
+        return services.externalOpen.continueActivity(type: userActivity.activityType, webpageURL: userActivity.webpageURL)
     }
 
     /// One route for every URL macOS hands cmux (`OpenedURLRouting`): the
     /// sign-in callback to Cloud auth first, in every form auth accepts,
     /// then `ExternalOpenRouter`.
     private func routeOpenedURL(_ url: URL) {
-        guard let services else { return openedBeforeServices.append(url) }  // routed when the launch builds them
+        guard let services else { return launchOpens.hold(.url(url)) }  // routed when the launch builds them
         let auth = services.cloudAuth
         let destination = OpenedURLRouting.route(url, isAuthCallback: { auth.isCallback($0) }, open: { services.externalOpen.open($0) })
         guard destination == .auth else { return }

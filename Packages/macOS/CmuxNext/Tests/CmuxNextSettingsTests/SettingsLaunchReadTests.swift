@@ -1,5 +1,7 @@
+import AppKit
 import CmuxNextActions
 import CmuxNextWakeups
+import CmuxNextWakeupsTestSupport
 @testable import CmuxNextSettings
 import Foundation
 import os
@@ -43,10 +45,60 @@ struct SettingsLaunchReadTests {
     /// What the continuation ran, in order (main actor).
     @MainActor final class Steps { var names: [String] = [] }
 
-    /// The main hop of a test: the job runs in a later main-actor turn, as the scheduler's post does.
-    static let hop: @Sendable (@escaping @MainActor @Sendable () -> Void) -> Void = { job in Task { @MainActor in job() } }
+    /// A main hop the test drains by hand; `arrived` yields each time the lane hands it a job.
+    final class HandHop: Sendable {
+        let queued = OSAllocatedUnfairLock<[@MainActor @Sendable () -> Void]>(initialState: [])
+        let arrived: AsyncStream<Void>
+        private let arrival: AsyncStream<Void>.Continuation
 
-    @Test func onAColdDiskTheStepsWaitForTheReadWithNoMainWaitAndNoDefaults() async throws {
+        init() { (arrived, arrival) = AsyncStream.makeStream(of: Void.self) }
+
+        var hop: StartupMainHop {
+            StartupMainHop { [self] job in
+                queued.withLock { $0.append(job) }
+                arrival.yield()
+            }
+        }
+
+        /// Runs every queued job.
+        @MainActor func drain() {
+            for job in queued.withLock({ queued in defer { queued = [] }; return queued }) { job() }
+        }
+    }
+
+    /// The main hop of a test that only needs the read: the job runs in a later main-actor turn.
+    static let laterTurn = StartupMainHop { job in Task { @MainActor in job() } }
+
+    /// A managed reader that counts its reads (CFPreferences IPC in the app).
+    final class CountingManagedReader: ManagedPreferenceReader {
+        let preferences: ManagedPreferences
+        let reads = OSAllocatedUnfairLock(initialState: 0)
+
+        init(_ preferences: ManagedPreferences) { self.preferences = preferences }
+
+        func read() -> ManagedPreferences {
+            reads.withLock { $0 += 1 }
+            return preferences
+        }
+    }
+
+    /// The launch read of `pending`, once it ended.
+    static func ended(_ pending: SettingsController.PendingLaunchRead) async throws -> SettingsController.LaunchRead {
+        let (ran, done) = AsyncStream.makeStream(of: SettingsController.LaunchRead.self)
+        pending.whenRead(hop: laterTurn, startup: StartupTestScheduler().startup, take: { _ in }, then: { done.yield($0) })
+        var reads = ran.makeAsyncIterator()
+        return try #require(await reads.next(), "the steps never ran after the read ended")
+    }
+
+    /// The launch read of the file at `url` with `managed` as the managed layer, once it ended.
+    static func endedRead(of url: URL, managed: ManagedPreferences = ManagedPreferences()) async throws -> SettingsController.LaunchRead {
+        try await ended(SettingsController.startLaunchRead(on: work, prepareFileURL: { url }, managedReader: FixedManagedPreferenceReader(managed)))
+    }
+
+    /// The cold launch, driven as `AppDelegate` drives it: `take` primes the theme as the critical
+    /// `Settings.takeLaunchRead` step, `then` builds the window and commits its first frame. While the
+    /// read is held nothing runs and no frame commits; once it lands the take runs before the commit.
+    @Test func onAColdDiskNoStepAndNoCommitComeBeforeTheTakeAndMainNeverWaits() async throws {
         let url = try Self.file(#"{ "appearance": { "density": "compact" } }"#)
         defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
         let disk = ColdDisk()
@@ -54,22 +106,30 @@ struct SettingsLaunchReadTests {
         let pending = SettingsController.startLaunchRead(on: Self.work, prepareFileURL: disk.prepare(url, held: true),
                                                          managedReader: FixedManagedPreferenceReader(ManagedPreferences()))
         for await _ in disk.started { break }
-        let (ran, done) = AsyncStream.makeStream(of: SettingsController.LaunchRead.self)
+        let s = StartupTestScheduler()
+        let hand = HandHop()
         let steps = Steps()
-        pending.whenRead(hop: Self.hop) { read in
-            steps.names.append("theme")  // the window steps follow the theme in the continuation
-            done.yield(read)
-        }
+        pending.whenRead(hop: hand.hop, startup: s.startup, take: { read in
+            steps.names.append("take(\(read.snapshot.density ?? "defaults"))")
+        }, then: { _ in
+            steps.names.append("window")
+            s.startup.firstFrameCommitted()
+        })
         // whenRead returned while the read is held on its lane: the main thread did not wait for it.
         #expect(steps.names.isEmpty, "a settings step ran before the read ended (a frame in the defaults)")
         #expect(pending.value == nil)
+        #expect(!s.startup.log.records.contains { $0.name.description == "Settings.takeLaunchRead" })
+        #expect(s.startup.log.phase == .beforeFirstFrame, "a frame committed while the settings read was held")
         disk.gate.signal()
-        var reads = ran.makeAsyncIterator()
-        let read = try #require(await reads.next(), "the steps never ran after the read ended")
-        #expect(steps.names == ["theme"])
-        #expect(read.snapshot.density == "compact", "the steps did not get the file's settings")
-        #expect(read.fileURL == url)
-        #expect(read.bootstrapFailure == nil)
+        for await _ in hand.arrived { break }
+        #expect(steps.names.isEmpty, "the continuation ran on the lane's thread, not in a main turn")
+        hand.drain()
+        #expect(steps.names == ["take(compact)", "window"], "the window was built before the theme took the file's settings")
+        let take = try #require(s.startup.log.records.first { $0.name.description == "Settings.takeLaunchRead" })
+        #expect(take.priority == .critical)
+        #expect(take.violation == nil)
+        #expect(take.startNanos != nil, "the take did not run as a startup step")
+        #expect(s.startup.log.phase == .afterFirstFrame)
         #expect(disk.threads.withLock { $0 } == [false], "the first-launch step or the read ran on the main thread")
     }
 
@@ -79,12 +139,12 @@ struct SettingsLaunchReadTests {
         let disk = ColdDisk()
         let pending = SettingsController.startLaunchRead(on: Self.work, prepareFileURL: disk.prepare(url, held: false),
                                                          managedReader: FixedManagedPreferenceReader(ManagedPreferences()))
-        let (ended, done) = AsyncStream.makeStream(of: Void.self)
-        pending.whenRead(hop: Self.hop) { _ in done.yield() }
-        for await _ in ended { break }
+        _ = try await Self.ended(pending)
         let steps = Steps()
-        pending.whenRead(hop: { _ in Issue.record("an ended read hopped to a later turn") }) { steps.names.append($0.snapshot.density ?? "") }
-        #expect(steps.names == ["cozy"], "an ended read did not run the steps at once")
+        let later = StartupMainHop { _ in Issue.record("an ended read hopped to a later turn") }
+        pending.whenRead(hop: later, startup: StartupTestScheduler().startup, take: { steps.names.append("take.\($0.snapshot.density ?? "")") },
+                         then: { _ in steps.names.append("then") })
+        #expect(steps.names == ["take.cozy", "then"], "an ended read did not run the steps at once")
     }
 
     @Test func aFailedFirstLaunchReadsTheDefaultPathAndSaysWhy() async throws {
@@ -94,10 +154,7 @@ struct SettingsLaunchReadTests {
         let pending = SettingsController.startLaunchRead(on: Self.work, prepareFileURL: { throw ReadOnlyHome() },
                                                          fallbackURL: { fallback },
                                                          managedReader: FixedManagedPreferenceReader(ManagedPreferences()))
-        let (ran, done) = AsyncStream.makeStream(of: SettingsController.LaunchRead.self)
-        pending.whenRead(hop: Self.hop) { done.yield($0) }
-        var reads = ran.makeAsyncIterator()
-        let read = try #require(await reads.next())
+        let read = try await Self.ended(pending)
         #expect(read.fileURL == fallback)
         #expect(read.snapshot.density == "spacious")
         #expect(read.bootstrapFailure?.contains("ReadOnlyHome") == true)
@@ -109,12 +166,7 @@ struct SettingsLaunchReadTests {
         let url = try Self.file("{}")
         let directory = url.deletingLastPathComponent()
         defer { try? FileManager.default.removeItem(at: directory) }
-        let pending = SettingsController.startLaunchRead(on: Self.work, prepareFileURL: { url },
-                                                         managedReader: FixedManagedPreferenceReader(ManagedPreferences()))
-        let (ran, done) = AsyncStream.makeStream(of: SettingsController.LaunchRead.self)
-        pending.whenRead(hop: Self.hop) { done.yield($0) }
-        var reads = ran.makeAsyncIterator()
-        let launch = try #require(await reads.next())
+        let launch = try await Self.endedRead(of: url)
         let settings = SettingsController(registry: ActionRegistry(catalog: []), fileURL: url,
                                           managedReader: FixedManagedPreferenceReader(ManagedPreferences()), managedWatchFiles: [],
                                           launch: launch)
@@ -127,5 +179,40 @@ struct SettingsLaunchReadTests {
         #expect(!FileManager.default.fileExists(atPath: status.path), "the status file was written before its post ran")
         posted.forEach { $0() }
         #expect(FileManager.default.fileExists(atPath: status.path), "the posted write did not write the status file")
+    }
+
+    /// The launch steps that read the managed policy (`applyManagedFeaturesNow`, the policy bridge's
+    /// first apply) use the launch read's managed layer: no CFPreferences read on the main thread.
+    @Test func launchStepsReadTheManagedPolicyFromTheLaunchRead() async throws {
+        let url = try Self.file("{}")
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        let disabled = JSONValue.array([.string(ActionFeature.cloud.rawValue)])
+        let policy = ManagedPreferences(forced: ["DisabledFeatures": disabled])
+        let launch = try await Self.endedRead(of: url, managed: policy)
+        let reader = CountingManagedReader(policy)
+        let registry = ActionRegistry(catalog: [])
+        let settings = SettingsController(registry: registry, fileURL: url, managedReader: reader, managedWatchFiles: [], launch: launch)
+        settings.applyManagedFeaturesNow()
+        let forced = settings.forcedManagedValuesNow()
+        #expect(registry.disabledFeatures == [.cloud])
+        #expect(forced["DisabledFeatures"] == disabled)
+        #expect(reader.reads.withLock { $0 } == 0, "a launch step read the managed preferences again on the main thread")
+    }
+
+    /// The activation backstop for MDM profile changes: each app activation reloads, through the
+    /// app's one activation observer.
+    @Test func anActivationAfterFollowActivationReloads() async throws {
+        let url = try Self.file(#"{ "appearance": { "density": "compact" } }"#)
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        let center = NotificationCenter()
+        let events = AppEvents(center: center)
+        let settings = SettingsController(registry: ActionRegistry(catalog: []), fileURL: url,
+                                          managedReader: FixedManagedPreferenceReader(ManagedPreferences()), managedWatchFiles: [])
+        settings.followActivation(on: events)
+        #expect(events.subscriberCount(NSApplication.didBecomeActiveNotification) == 1)
+        #expect(settings.loadCount == 0)
+        center.post(name: NSApplication.didBecomeActiveNotification, object: nil)
+        await settings.waitForLoad(atLeast: 1)
+        #expect(settings.snapshot.density == "compact", "the activation did not reload the settings")
     }
 }

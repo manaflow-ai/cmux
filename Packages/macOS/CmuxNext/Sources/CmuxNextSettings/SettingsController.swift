@@ -76,8 +76,8 @@ public final class SettingsController {
     /// The app activation backstop's subscription (`followActivation(on:)`).
     @ObservationIgnored var activation: EventSubscription?
     @ObservationIgnored private var loadWaiters: [LoadWaiter] = []
-    /// The launch's read (`startLaunchRead`), adopted by the first load.
-    @ObservationIgnored private var launchRead: LaunchRead?
+    /// The launch's read (`startLaunchRead`), adopted by the first load; until then it is the managed layer launch steps read.
+    @ObservationIgnored var launchRead: LaunchRead?
     /// Writes `setSetting` validated and made, by dotted key (tests check
     /// that palette actions write through it).
     @ObservationIgnored var validatedWrites: [String: Int] = [:]
