@@ -508,6 +508,9 @@ pub struct Mux {
     /// Streams, messages, parses and writes of every connection
     /// (`server-stats` `ipc`).
     ipc_stats: Arc<crate::diagnostics::IpcStats>,
+    /// Longest stream frame a connection writes whole; longer ones leave in
+    /// chunks (server/outbound_lanes.rs, `CMUX_IPC_BULK_FRAME_MAX`).
+    bulk_frame_max: usize,
     /// Clone of the registry's projection spans, read without its lock.
     resource_projection_stats: Arc<crate::diagnostics::ResourceProjectionStats>,
     /// Blocking notes of request handlers (`server-stats` `request_path_io`).

@@ -2345,6 +2345,7 @@ use connection_scheduler::{
 };
 
 mod bounded_outbound;
+pub(crate) use bounded_outbound::bulk_frame_max_from_env;
 use bounded_outbound::{
     BoundedOutbound, ConnectionPermit, OutboundItem, QueuedSink, SinkControl,
     SynchronizedTcpStream, claim_connection, write_line_outbound_item,
@@ -2452,8 +2453,8 @@ use connection_frame::{
 };
 #[cfg(test)]
 use connection_frame::{handle_connection_frame, handle_request};
-pub(crate) use request_spans::method_latency_stats;
 use request_head::RequestHead;
+pub(crate) use request_spans::method_latency_stats;
 use request_spans::{AsyncReply, RequestArrival, RequestMethod, RequestSpan, request_id_hash};
 
 /// One layout node. `split_ids`: the public ids of the splits

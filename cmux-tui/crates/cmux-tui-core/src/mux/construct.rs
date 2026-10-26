@@ -237,6 +237,7 @@ impl Mux {
             connection_stats: Arc::default(),
             request_stats: Arc::default(),
             ipc_stats: Arc::default(),
+            bulk_frame_max: crate::server::bulk_frame_max_from_env(),
             resource_projection_stats,
             request_path_stats: crate::request_path::stats_from_env(),
             request_qos: crate::request_qos::RequestQosGate::from_env(),
