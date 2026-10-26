@@ -366,7 +366,7 @@ import Testing
         }
 
         func makePage() -> NSView {
-            guard let page = PageWebView(descriptor: PageDescriptor(id: "test.discard", resource: "discard", namespaces: []),
+            guard let page = PageWebView(descriptor: PageDescriptor(id: "test.discard", resource: "discard", processGroup: .solo, namespaces: []),
                                          root: folder, routes: [], chromium: hosting) else { return NSView() }
             // The engine's no-message deadline never runs out here.
             page.chromiumClock = pageClock

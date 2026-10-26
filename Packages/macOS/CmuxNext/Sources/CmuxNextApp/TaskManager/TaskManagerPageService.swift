@@ -147,7 +147,7 @@ final class TaskManagerPageService: InternalPageProvider {
     }
 
     /// Sorts as before and scrolls the saved top row back to the top once a sample lists it.
-    func restoreViewState(_ state: ContentViewState, for key: String, content: NSView) {
+    func restoreViewState(_ state: ContentViewState, for key: String, content: NSView) async {
         guard let table = tables[key] else { return }
         table.sortOrder = TaskManagerSort.order(state.values["sort"] ?? table.sort)
         table.scrollTarget = state.values["topRow"].flatMap(ProcessKey.init(parsing:))
