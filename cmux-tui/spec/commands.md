@@ -968,6 +968,59 @@ keys.
 
 Errors: `oracle state requires a trusted local connection`, `bad request: ...`.
 
+### oracle-restore-preview
+
+| Field | Value |
+| --- | --- |
+| name | `oracle-restore-preview` |
+| status | implemented in debug builds and `--features oracle` builds only |
+| since | protocol 12, no capability |
+
+The input of the correctness oracle's invariant I9
+(`plans/cmux-next/chrome-parity/p15-oracle.md`, task 205): a journal
+checkpoint reduced through the journal head must equal the live
+`session.snapshot` on the sections a restore rebuilds. Like `oracle-state`,
+a release daemon answers `bad request: unknown variant`, and only trusted
+local connections get a reply.
+
+The reduction is the one `session.journal.restore.preview` runs, on a
+read-only journal reader of its own, in one read transaction: it takes no
+registry lock and never waits on the journal writer.
+
+Params: `checkpoint` (optional string): a checkpoint id, or `latest` (the
+default).
+
+Result:
+
+```text
+object{
+  sections:map<string,object{restore:"compared"}|object{restore:"excluded",reason:string}>,
+  preview:null|object{
+    checkpointId:string,
+    checkpointSequence:uint64,
+    headSequence:uint64,
+    unsupportedCount:uint64,
+    unsupported:array<object{sequence:decimal,event_id:string,kind:string}>,
+    session:map<string,JsonValue>
+  }
+}
+```
+
+`sections` maps every top-level key of `session.snapshot` to how I9 treats
+it: `compared`, or `excluded` with the reason the journal does not restore
+it (`machine`, `clients` and `extra` today). `preview` is null when the
+session has no journal checkpoint yet. `headSequence` is the journal head
+the reduction ended at: I9 compares it with a daemon facet whose
+`journal_head` is the same sequence. `unsupportedCount` counts required
+journal records the reducer could not apply (a restore loses them); at most
+1,024 of them are listed in `unsupported`. `session` holds the compared
+sections of the reduced snapshot.
+
+Errors: `oracle state requires a trusted local connection`,
+`oracle restore preview requires a persistent session` (an in-memory
+session has no journal file to read), `bad request: ...`, and the reducer's
+errors (a gap in the journal, an unknown reducer version).
+
 ### trace-start, trace-stop, trace-status
 
 | Field | Value |

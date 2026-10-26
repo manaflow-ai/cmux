@@ -1909,25 +1909,45 @@ impl WorkspaceRegistry {
         selector: &str,
     ) -> anyhow::Result<Option<JournalCheckpoint>> {
         let site = std::panic::Location::caller();
-        let checkpoint_id = if selector == "latest" {
-            self.connection
-                .get()
-                .query_row(
-                    "SELECT checkpoint_id FROM journal_checkpoints
-                     ORDER BY source_sequence DESC, created_at_ms DESC, checkpoint_id DESC LIMIT 1",
-                    [],
-                    |row| row.get::<_, String>(0),
-                )
-                .optional()?
-        } else {
-            Some(selector.to_string())
-        };
-        checkpoint_id
-            .as_deref()
-            .map(|id| query_journal_checkpoint(&self.connection.get_at(site), id))
-            .transpose()
-            .map(Option::flatten)
+        query_selected_journal_checkpoint(&self.connection.get_at(site), selector)
     }
+}
+
+#[cfg(any(debug_assertions, feature = "oracle"))]
+impl SessionJournalReader {
+    /// [`WorkspaceRegistry::journal_checkpoint`] on this reader's own
+    /// read-only connection, with no registry lock (`oracle-restore-preview`).
+    pub(crate) fn journal_checkpoint(
+        &self,
+        selector: &str,
+    ) -> anyhow::Result<Option<JournalCheckpoint>> {
+        query_selected_journal_checkpoint(&self.connection, selector)
+    }
+}
+
+/// The checkpoint `selector` names (`latest`, or a checkpoint id) on
+/// `connection`: the registry writer's, or a `SessionJournalReader`'s own.
+fn query_selected_journal_checkpoint(
+    connection: &Connection,
+    selector: &str,
+) -> anyhow::Result<Option<JournalCheckpoint>> {
+    let checkpoint_id = if selector == "latest" {
+        connection
+            .query_row(
+                "SELECT checkpoint_id FROM journal_checkpoints
+                 ORDER BY source_sequence DESC, created_at_ms DESC, checkpoint_id DESC LIMIT 1",
+                [],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()?
+    } else {
+        Some(selector.to_string())
+    };
+    checkpoint_id
+        .as_deref()
+        .map(|id| query_journal_checkpoint(connection, id))
+        .transpose()
+        .map(Option::flatten)
 }
 
 impl WorkspaceRegistry {

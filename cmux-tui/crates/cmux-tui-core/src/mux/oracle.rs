@@ -21,6 +21,23 @@ impl Mux {
         self.oracle_switches.get_or_init(launch_switch_arms)
     }
 
+    /// The restore preview of the checkpoint `selector` names, reduced
+    /// through the journal head on a read-only journal reader of its own:
+    /// no registry lock and no wait on the journal writer. `None` when the
+    /// session has no such checkpoint.
+    pub(crate) fn oracle_restore_preview(
+        &self,
+        selector: &str,
+    ) -> anyhow::Result<Option<serde_json::Value>> {
+        let reader = self.journal_kernel.open_reader()?.ok_or_else(|| {
+            anyhow::anyhow!("oracle restore preview requires a persistent session")
+        })?;
+        let Some(checkpoint) = reader.journal_checkpoint(selector)? else {
+            return Ok(None);
+        };
+        crate::journal_checkpoint::restore_preview_on_reader(&checkpoint, reader).map(Some)
+    }
+
     /// Install `arms` before the first [`Self::oracle_switches`] read.
     #[cfg(test)]
     pub(crate) fn install_oracle_switches_for_test(&self, arms: SwitchArms) {
