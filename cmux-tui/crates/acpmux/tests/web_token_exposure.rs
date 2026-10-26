@@ -281,7 +281,8 @@ fn daemon_status_prints_the_web_link_without_its_token_unless_asked() {
     };
     for args in [&["daemon", "status"][..], &["daemon", "start"]] {
         let plain = cli(args);
-        let web = plain.lines().find(|l| l.starts_with("web:")).unwrap_or_else(|| panic!("{plain}"));
+        let web =
+            plain.lines().find(|l| l.starts_with("web:")).unwrap_or_else(|| panic!("{plain}"));
         assert!(!plain.contains(&token), "{args:?} printed the token: {plain}");
         assert!(web.contains("http://127.0.0.1:"), "{web}");
         assert!(web.contains("--show-token"), "{web}");
