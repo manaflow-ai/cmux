@@ -35,13 +35,20 @@ const rows = turnView(
   new Set(),
 );
 
-function TranscriptSpacing({ gap }: { gap?: number }) {
+type SpacingProps = { gap?: number; emptyFooter?: boolean };
+
+function TranscriptSpacing({ gap, emptyFooter }: SpacingProps) {
+  const shown = emptyFooter
+    ? rows.map((row) =>
+        row.id === "spacing-footer-a" ? { ...row, text: undefined, durationMs: 0, folded: false } : row,
+      )
+    : rows;
   return (
     <div
       className="acpmux-shell"
       style={gap === undefined ? undefined : ({ "--cv-turn-gap": `${gap}px` } as CSSProperties)}
     >
-      <VirtualTranscript rows={rows} sessionId="transcript-spacing" expanded={new Set()} onToggleActivity={() => {}} />
+      <VirtualTranscript rows={shown} sessionId="transcript-spacing" expanded={new Set()} onToggleActivity={() => {}} />
     </div>
   );
 }
@@ -49,7 +56,7 @@ function TranscriptSpacing({ gap }: { gap?: number }) {
 // Measure the real virtual rows, including their padding, the received line's margin and its chip.
 // The chip is 20px inside a 26px line with a 2px top margin: 5px beyond the shared turn gap.
 const checkSpacing =
-  (gap: number): Play =>
+  (gap: number, emptyFooter = false): Play =>
   async (ctx) => {
     const rect = (selector: string) => ctx.find({ selector }).getBoundingClientRect();
     const footer = (suffix: string) => `[data-row-id="spacing-footer-${suffix}"] .cv-turn-actions`;
@@ -59,9 +66,12 @@ const checkSpacing =
     await ctx.scroll({ selector: ".acpmux-scroll" }, "bottom");
     await ctx.waitFor(() => rect(footer("a")).height > 0 && rect(chip("b")).height > 0);
     const before = measure();
-    for (const value of before)
-      if (value < gap + 4.5 || value > gap + 5.5)
-        throw new Error(`Footer-to-sender gap ${value}px; expected ${gap + 5}px`);
+    for (const [index, value] of before.entries()) {
+      const expected = emptyFooter && index === 0 ? 5 : gap + 5;
+      if (Math.abs(value - expected) > 0.5) throw new Error(`Footer-to-sender gap ${value}px; expected ${expected}px`);
+    }
+    if (emptyFooter && rect('[data-row-id="spacing-footer-a"]').height !== rect(footer("a")).height)
+      throw new Error("Empty footer clips its hover controls or reserves an extra line");
 
     const visible = [...ctx.document.querySelectorAll<HTMLElement>(".acpmux-row")]
       .map((node) => node.getBoundingClientRect())
@@ -72,6 +82,10 @@ const checkSpacing =
     if (visible.length >= rows.length) throw new Error("Fixture did not exercise virtualization");
 
     const held = rect(chip("b")).top;
+    if (emptyFooter) {
+      await ctx.hover({ selector: footer("a") });
+      if (rect(footer("a")).bottom > rect(chip("a")).top) throw new Error("Empty footer actions overlap sender");
+    }
     await ctx.hover({ selector: footer("b") });
     if (Math.abs(rect(chip("b")).top - held) > 0.5) throw new Error("Revealing footer actions moved the sender");
     await ctx.scroll({ selector: ".acpmux-scroll" }, "top");
@@ -81,7 +95,7 @@ const checkSpacing =
     await ctx.waitFor(() => measure().every((value, index) => Math.abs(value - before[index]!) < 0.5));
   };
 
-export default componentEntry<{ gap?: number }>({
+export default componentEntry<SpacingProps>({
   id: "agent-pane.transcript-spacing",
   title: "Transcript footer to next sender spacing",
   area: "Agent pane",
@@ -96,5 +110,10 @@ export default componentEntry<{ gap?: number }>({
     balanced: { props: { gap: 16 }, note: "16px: paragraph rhythm plus 2px; recommended.", play: checkSpacing(16) },
     relaxed: { props: { gap: 20 }, note: "20px: more separation between messages.", play: checkSpacing(20) },
     before: { props: { gap: 24 }, note: "Before: 24px leaves a larger empty band.", play: checkSpacing(24) },
+    "empty-footer": {
+      props: { emptyFooter: true },
+      note: "Empty footers keep their existing hover-control floor.",
+      play: checkSpacing(16, true),
+    },
   },
 });
