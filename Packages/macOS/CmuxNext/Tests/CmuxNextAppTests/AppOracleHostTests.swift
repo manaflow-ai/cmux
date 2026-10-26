@@ -8,7 +8,8 @@ import Testing
 
 /// The app's oracle facet list (p15-oracle-030): AppServices builds it with at most one provider per
 /// facet, and `debug.oracle.snapshot` over it lists every facet and answers each facet that has no
-/// provider yet as not-comparable with its task. Run: `swift test --filter AppOracleHostTests`.
+/// provider yet as not-comparable with its task; the invariants facet (p15-oracle-033) is the desync check.
+/// Run: `swift test --filter AppOracleHostTests`.
 @MainActor @Suite(.serialized) struct AppOracleHostTests {
     @MainActor final class Executor: ControlActionExecutor {
         func performAction(_ request: ControlActionRequest) -> ControlActionOutcome { .ran }
@@ -37,6 +38,20 @@ import Testing
                               "task": .string(facet.task)] as JSONValue)
         })
         #expect(reply == .object(answers))
+    }
+
+    /// p15-oracle-033: the invariants facet runs the check `debug.desync` runs, in the snapshot's turn.
+    @Test func theInvariantsFacetRunsTheDesyncCheck() throws {
+        _ = NSApplication.shared
+        let services = AppServices(environment: AppEnvironment.current([:]))
+        let monitor = try #require(services.input.monitor)
+        let before = monitor.checks
+        let snapshot = try #require(try services.makeOracleFacets().beginCapture([.invariants]).completed)
+        let invariants = try #require(snapshot["invariants"])
+        #expect(invariants["checks"] == OracleValue(before + 1))
+        let ids = (monitor.lastResult?.violations ?? []).map { OracleValue.string($0.invariant.rawValue) }
+        #expect(invariants["violations"] == .array(ids))
+        #expect(invariants["windowInvariants"] == .array(WindowInvariants.problems(services.windows).map(OracleValue.string)))
     }
 }
 #endif
