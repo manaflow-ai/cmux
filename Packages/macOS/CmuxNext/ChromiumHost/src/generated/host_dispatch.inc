@@ -168,10 +168,10 @@ inline constexpr uint16_t kOpEvent = 0x8001;  // host -> cmux: one shim event
 inline constexpr uint16_t kOpReply = 0x8002;  // host -> cmux: an async op's result
 inline constexpr uint16_t kOpMirror = 0x8003;  // host -> cmux: a mirror value
 inline constexpr uint16_t kOpAck = 0x8004;  // host -> cmux: a token's op ran
-inline constexpr int kEventKindCount = 50;
+inline constexpr int kEventKindCount = 51;
 inline constexpr char kShimAbiID[] = "f22dd3ee8df39363195ba2c50ef4e737ba462320c20c4c2e079cce6e49d44e24";
 // Both sides' HELLO carries it: the op ids, classes and wire types of this generation.
-inline constexpr char kWireID[] = "919fcc2857aa8acf15e47698c5e217cda71fa28ff7acc4f12f59e81aa81ecc01";
+inline constexpr char kWireID[] = "73bf31b91d9d4b2c87e0af63ae99493330e5b05bdbda3e92b9fc798f18930aef";
 inline constexpr int32_t kMaxRecords = 65536;
 inline constexpr int32_t kMaxOutCapacity = 65536;
 
@@ -269,8 +269,9 @@ inline bool DispatchOp(HostContext& ctx, uint16_t op, uint32_t wire_token, TlvRe
       const auto arg_enabled = r.I32();
       if (!r.ok() || !r.AtEnd()) return false;
       const auto call_result = cmux_shim_browser_set_layer_hosting(ctx.Browser(arg_browser_id), arg_enabled);
-      (void)call_result;
-      ctx.Ack(wire_token);
+      TlvWriter reply_w;
+      reply_w.U32(call_result);
+      ctx.Reply(wire_token, reply_w);
       return true;
     }
     case kOpBrowserSetResizeSync: {
@@ -409,7 +410,7 @@ inline bool DispatchOp(HostContext& ctx, uint16_t op, uint32_t wire_token, TlvRe
       const auto arg_activate = r.I32();
       if (!r.ok() || !r.AtEnd()) return false;
       const auto call_result = cmux_shim_tab_add(ctx.Browser(arg_window_browser_id), arg_url ? arg_url->c_str() : nullptr, arg_index, arg_activate);
-      ctx.BindMinted(kOpTabAdd, minted_id, call_result);
+      ctx.BindMinted(kOpTabAdd, minted_id, call_result, arg_window_browser_id);
       ctx.Ack(wire_token);
       return true;
     }
@@ -420,7 +421,7 @@ inline bool DispatchOp(HostContext& ctx, uint16_t op, uint32_t wire_token, TlvRe
       const auto arg_index = r.I32();
       if (!r.ok() || !r.AtEnd()) return false;
       const auto call_result = cmux_shim_tab_duplicate(ctx.Browser(arg_browser_id), ctx.Browser(arg_window_browser_id), arg_index);
-      ctx.BindMinted(kOpTabDuplicate, minted_id, call_result);
+      ctx.BindMinted(kOpTabDuplicate, minted_id, call_result, arg_browser_id);
       ctx.Ack(wire_token);
       return true;
     }
@@ -575,7 +576,7 @@ inline bool DispatchOp(HostContext& ctx, uint16_t op, uint32_t wire_token, TlvRe
       const std::optional<std::string> arg_params_json = r.Str();
       if (!r.ok() || !r.AtEnd()) return false;
       const auto call_result = cmux_shim_devtools_call(ctx.Browser(arg_browser_id), arg_method ? arg_method->c_str() : nullptr, arg_params_json ? arg_params_json->c_str() : nullptr);
-      ctx.BindMinted(kOpDevtoolsCall, minted_id, call_result);
+      ctx.BindMinted(kOpDevtoolsCall, minted_id, call_result, arg_browser_id);
       ctx.Ack(wire_token);
       return true;
     }
