@@ -76,6 +76,7 @@ category_table! {
     control: CONTROL,
     ghostty: GHOSTTY,
     resize: RESIZE,
+    webui: WEBUI,
 }
 
 // Every bit below the table's length names a category.

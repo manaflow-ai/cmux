@@ -86,6 +86,10 @@ pub const CATALOG: &[CatalogName] = &[
     name(66, CONTROL, "control.request"),
     name(67, GHOSTTY, "ghostty.render"),
     name(68, RESIZE, "resize.frame"),
+    name(69, WEBUI, "webui.lifecycle"),
+    name(70, WEBUI, "webui.open"),
+    name(71, WEBUI, "webui.preload"),
+    name(72, WEBUI, "webui.scheme"),
 ];
 
 // `catalog_name` indexes by id: the ids are 1, 2, 3, ... in order. Each text starts with its
