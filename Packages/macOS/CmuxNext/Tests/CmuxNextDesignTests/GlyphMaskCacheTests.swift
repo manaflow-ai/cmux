@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextCompat
 @testable import CmuxNextDesign
+import CmuxNextWakeupsTestSupport
 import Testing
 
 /// p03-rendering-075: chrome labels that show the same glyphs share one image from a byte-capped LRU
@@ -112,12 +113,15 @@ import Testing
         #expect(!Self.key("a", weight: 1).showsSameText(as: Self.key("b", weight: 1)))
     }
 
-    /// Memory pressure: a lowered limit stops growth, and a release slice drops the oldest to it.
-    @Test func aReleaseSliceDropsTheOldestToTheLimit() {
+    /// Memory pressure: a lowered limit frees nothing, and a release slice drops the oldest idle images
+    /// to it.
+    @Test func aReleaseSliceDropsTheOldestIdleToTheLimit() {
         let tile = 16 * 16 * 4
-        let masks = GlyphMaskCache(fullCapacityBytes: tile * 4)
+        let clock = ManualClock()
+        let masks = GlyphMaskCache(fullCapacityBytes: tile * 4, clock: clock)
         for name in ["a", "b", "c", "d"] { _ = masks.image(for: Self.key(name)) { Self.image(side: 16) } }
         #expect(masks.memoryUsage?.footprintBytes == tile * 4)
+        clock.advance(by: MemoryLimit.workingSet * 2)
 
         let half = MemoryLimit(percent: 50)
         masks.updateMemoryLimit(half)
@@ -125,8 +129,50 @@ import Testing
         #expect(masks.releaseMemory(within: MemoryReleaseSlice(limit: half, isExpired: { false })) == .done)
         #expect(masks.totalBytes == tile * 2)
         _ = masks.image(for: Self.key("d")) { Issue.record("the newest was dropped"); return nil }
+        _ = masks.image(for: Self.key("c")) { Issue.record("the second newest was dropped"); return nil }
+    }
 
-        #expect(masks.releaseMemory(within: MemoryReleaseSlice(limit: .criticalThreshold, isExpired: { false })) == .done)
+    /// The working set stays at any limit, critical included (MemoryLimit.workingSet): an image used just
+    /// now survives a critical release, and a hit after it draws nothing. Once it goes idle, the next
+    /// release takes it.
+    @Test func aCriticalReleaseKeepsTheWorkingSet() {
+        let tile = 16 * 16 * 4
+        let clock = ManualClock()
+        let masks = GlyphMaskCache(fullCapacityBytes: tile * 4, clock: clock)
+        for name in ["a", "b", "c"] { _ = masks.image(for: Self.key(name)) { Self.image(side: 16) } }
+        clock.advance(by: MemoryLimit.workingSet * 2)
+        _ = masks.image(for: Self.key("b")) { Issue.record("b drew again"); return nil }  // b is in use now
+
+        let critical = MemoryReleaseSlice(limit: .criticalThreshold, isExpired: { false })
+        masks.updateMemoryLimit(.criticalThreshold)
+        #expect(masks.releaseMemory(within: critical) == .keptWorkingSet(agesOutIn: MemoryLimit.workingSet))
+        #expect(masks.count == 1)
+        _ = masks.image(for: Self.key("b")) { Issue.record("the image in use was dropped"); return nil }
+        #expect(masks.rasterizations == 3)
+
+        // At critical, a new image is in the working set too: it is kept, and its next use is a hit.
+        _ = masks.image(for: Self.key("e")) { Self.image(side: 16) }
+        _ = masks.image(for: Self.key("e")) { Issue.record("a new image was not kept at critical"); return nil }
+        #expect(masks.count == 2)
+
+        clock.advance(by: MemoryLimit.workingSet * 2)
+        #expect(masks.releaseMemory(within: critical) == .done)
         #expect(masks.count == 0)
+    }
+
+    /// At a lowered limit an insert makes room from idle images: the cache grows only by its working set.
+    @Test func aLoweredLimitStopsIdleGrowth() {
+        let tile = 16 * 16 * 4
+        let clock = ManualClock()
+        let masks = GlyphMaskCache(fullCapacityBytes: tile * 4, clock: clock)
+        for name in ["a", "b"] { _ = masks.image(for: Self.key(name)) { Self.image(side: 16) } }
+        clock.advance(by: MemoryLimit.workingSet * 2)
+        masks.updateMemoryLimit(.criticalThreshold)
+
+        _ = masks.image(for: Self.key("c")) { Self.image(side: 16) }
+        #expect(masks.totalBytes == tile * 2, "the insert grew past the size before it")
+        _ = masks.image(for: Self.key("b")) { Issue.record("b, newer than a, was dropped first"); return nil }
+        _ = masks.image(for: Self.key("d")) { Self.image(side: 16) }
+        #expect(masks.count == 3, "images in the working set were dropped to make room")
     }
 }
