@@ -7,12 +7,296 @@
 
 use std::io;
 
-pub(crate) fn deny_filter() -> Result<Vec<libc::sock_filter>, String> {
-    Err("seccomp deny filter not implemented".into())
+#[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
+const SECCOMP_DATA_NR: u32 = 0;
+#[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
+const SECCOMP_DATA_ARCH: u32 = 4;
+#[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
+const SECCOMP_DATA_ARG0_LO: u32 = 16;
+#[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
+const SECCOMP_DATA_ARG0_HI: u32 = 20;
+#[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
+const SECCOMP_DATA_ARG1_LO: u32 = 24;
+#[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
+const SECCOMP_DATA_ARG2_LO: u32 = 32;
+
+#[cfg(target_arch = "x86_64")]
+const AUDIT_ARCH: u32 = 0xc000_003e;
+#[cfg(target_arch = "aarch64")]
+const AUDIT_ARCH: u32 = 0xc000_00b7;
+
+#[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
+#[derive(Clone, Copy)]
+struct Label(usize);
+
+#[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
+struct Assembler {
+    program: Vec<libc::sock_filter>,
+    labels: Vec<Option<usize>>,
+    patches: Vec<(usize, Label, bool)>,
 }
 
-pub(crate) fn install(_filter: &[libc::sock_filter]) -> io::Result<()> {
-    Err(io::Error::from_raw_os_error(libc::ENOSYS))
+#[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
+impl Assembler {
+    fn new() -> Self {
+        Self { program: Vec::new(), labels: Vec::new(), patches: Vec::new() }
+    }
+
+    fn label(&mut self) -> Label {
+        let label = Label(self.labels.len());
+        self.labels.push(None);
+        label
+    }
+
+    fn mark(&mut self, label: Label) {
+        self.labels[label.0] = Some(self.program.len());
+    }
+
+    fn stmt(&mut self, code: u32, k: u32) {
+        self.program.push(libc::sock_filter { code: code as u16, jt: 0, jf: 0, k });
+    }
+
+    fn cond(&mut self, code: u32, k: u32, jt: Label, jf: Label) {
+        let index = self.program.len();
+        self.program.push(libc::sock_filter { code: code as u16, jt: 0, jf: 0, k });
+        self.patches.push((index, jt, true));
+        self.patches.push((index, jf, false));
+    }
+
+    fn finish(mut self) -> Result<Vec<libc::sock_filter>, String> {
+        for (index, label, true_branch) in self.patches {
+            let target = self.labels[label.0]
+                .ok_or_else(|| format!("unresolved seccomp label {}", label.0))?;
+            let offset = target
+                .checked_sub(index + 1)
+                .ok_or_else(|| format!("backward seccomp jump at {index}"))?;
+            if offset > u8::MAX as usize {
+                return Err(format!("seccomp jump at {index} is too far ({offset})"));
+            }
+            if true_branch {
+                self.program[index].jt = offset as u8;
+            } else {
+                self.program[index].jf = offset as u8;
+            }
+        }
+        if self.program.len() >= 4096 {
+            return Err(format!(
+                "seccomp filter has {} instructions (BPF_MAXINSNS is 4096)",
+                self.program.len()
+            ));
+        }
+        Ok(self.program)
+    }
+}
+
+#[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
+fn deny_syscalls() -> Vec<u32> {
+    let mut numbers = Vec::new();
+    #[cfg(target_arch = "x86_64")]
+    numbers.push(libc::SYS_link as u32);
+    numbers.extend(
+        [
+            libc::SYS_linkat,
+            libc::SYS_mount,
+            libc::SYS_umount2,
+            libc::SYS_fsopen,
+            libc::SYS_fsconfig,
+            libc::SYS_fsmount,
+            libc::SYS_fspick,
+            libc::SYS_move_mount,
+            libc::SYS_open_tree,
+            libc::SYS_mount_setattr,
+            libc::SYS_pivot_root,
+            libc::SYS_chroot,
+            libc::SYS_setns,
+            libc::SYS_unshare,
+            libc::SYS_ptrace,
+            libc::SYS_process_vm_readv,
+            libc::SYS_process_vm_writev,
+            libc::SYS_io_uring_setup,
+            libc::SYS_io_uring_enter,
+            libc::SYS_io_uring_register,
+            libc::SYS_keyctl,
+            libc::SYS_add_key,
+            libc::SYS_request_key,
+            libc::SYS_bpf,
+            libc::SYS_perf_event_open,
+            libc::SYS_userfaultfd,
+            libc::SYS_name_to_handle_at,
+            libc::SYS_open_by_handle_at,
+            libc::SYS_bind,
+            libc::SYS_listen,
+            libc::SYS_accept,
+            libc::SYS_accept4,
+        ]
+        .into_iter()
+        .map(|n| n as u32),
+    );
+    numbers
+}
+
+#[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
+pub(crate) fn deny_filter() -> Result<Vec<libc::sock_filter>, String> {
+    use libc::{
+        BPF_ABS, BPF_ALU, BPF_AND, BPF_JEQ, BPF_JGE, BPF_JMP, BPF_JSET, BPF_K, BPF_LD, BPF_RET,
+        BPF_W, SECCOMP_RET_ALLOW, SECCOMP_RET_ERRNO, SECCOMP_RET_KILL_PROCESS,
+    };
+
+    let clone_body;
+    let socket_body;
+    let socket_v6;
+    let netlink_domain;
+    let netlink_body;
+    let socketpair_body;
+    let socketpair_after;
+    let socketpair_type;
+    let mut asm = Assembler::new();
+    // Reserve stable labels first so the code below can refer to them without
+    // embedding instruction indexes. Every branch is forward and bounded.
+    let allow = asm.label();
+    let deny = asm.label();
+    clone_body = asm.label();
+    socket_body = asm.label();
+    socket_v6 = asm.label();
+    netlink_domain = asm.label();
+    netlink_body = asm.label();
+    socketpair_body = asm.label();
+    socketpair_after = asm.label();
+    socketpair_type = asm.label();
+
+    asm.stmt(BPF_LD | BPF_W | BPF_ABS, SECCOMP_DATA_ARCH);
+    // A mismatched architecture reaches the kill return; a match skips it.
+    let kill = asm.label();
+    let after_kill = asm.label();
+    asm.cond(BPF_JMP | BPF_JEQ | BPF_K, AUDIT_ARCH, after_kill, kill);
+    asm.mark(after_kill);
+    asm.stmt(BPF_LD | BPF_W | BPF_ABS, SECCOMP_DATA_NR);
+    #[cfg(target_arch = "x86_64")]
+    {
+        let after_x32 = asm.label();
+        asm.cond(BPF_JMP | BPF_JGE | BPF_K, 0x4000_0000, kill, after_x32);
+        asm.mark(after_x32);
+    }
+
+    let eperm = SECCOMP_RET_ERRNO | libc::EPERM as u32;
+    let enosys = SECCOMP_RET_ERRNO | libc::ENOSYS as u32;
+    for number in deny_syscalls() {
+        let next = asm.label();
+        let here = asm.label();
+        asm.cond(BPF_JMP | BPF_JEQ | BPF_K, number, here, next);
+        asm.mark(here);
+        asm.stmt(BPF_RET | BPF_K, eperm);
+        asm.mark(next);
+    }
+
+    // clone's namespace flags occupy the low 32 bits of arg0 on both arches;
+    // the high word is separately rejected so no 64-bit flag can hide there.
+    let clone_after = asm.label();
+    asm.cond(BPF_JMP | BPF_JEQ | BPF_K, libc::SYS_clone as u32, clone_body, clone_after);
+    asm.mark(clone_body);
+    asm.stmt(BPF_LD | BPF_W | BPF_ABS, SECCOMP_DATA_ARG0_LO);
+    asm.stmt(
+        BPF_JMP | BPF_JSET | BPF_K,
+        (libc::CLONE_NEWNS
+            | libc::CLONE_NEWUTS
+            | libc::CLONE_NEWIPC
+            | libc::CLONE_NEWUSER
+            | libc::CLONE_NEWPID
+            | libc::CLONE_NEWNET
+            | libc::CLONE_NEWCGROUP
+            | libc::CLONE_NEWTIME) as u32,
+        0,
+        1,
+    );
+    asm.stmt(BPF_RET | BPF_K, eperm);
+    asm.stmt(BPF_LD | BPF_W | BPF_ABS, SECCOMP_DATA_ARG0_HI);
+    asm.stmt(BPF_JMP | BPF_JGE | BPF_K, 1, 0, 1);
+    asm.stmt(BPF_RET | BPF_K, eperm);
+    asm.mark(clone_after);
+
+    for (number, action) in [(libc::SYS_clone3, enosys), (libc::SYS_openat2, enosys)] {
+        let next = asm.label();
+        let here = asm.label();
+        asm.cond(BPF_JMP | BPF_JEQ | BPF_K, number as u32, here, next);
+        asm.mark(here);
+        asm.stmt(BPF_RET | BPF_K, action);
+        asm.mark(next);
+    }
+
+    // socket: INET/INET6 are allowed; NETLINK is allowed only for route.
+    let socket_not = asm.label();
+    asm.cond(BPF_JMP | BPF_JEQ | BPF_K, libc::SYS_socket as u32, socket_body, socket_not);
+    asm.mark(socket_body);
+    asm.stmt(BPF_LD | BPF_W | BPF_ABS, SECCOMP_DATA_ARG0_LO);
+    asm.cond(BPF_JMP | BPF_JEQ | BPF_K, libc::AF_INET as u32, allow, socket_v6);
+    asm.mark(socket_v6);
+    asm.cond(BPF_JMP | BPF_JEQ | BPF_K, libc::AF_INET6 as u32, allow, netlink_domain);
+    asm.mark(netlink_domain);
+    asm.cond(BPF_JMP | BPF_JEQ | BPF_K, libc::AF_NETLINK as u32, netlink_body, deny);
+    asm.mark(netlink_body);
+    asm.stmt(BPF_LD | BPF_W | BPF_ABS, SECCOMP_DATA_ARG2_LO);
+    asm.cond(BPF_JMP | BPF_JEQ | BPF_K, libc::NETLINK_ROUTE as u32, allow, deny);
+    asm.mark(socket_not);
+
+    // socketpair: only UNIX stream or seqpacket. Datagram pairs can sendto
+    // arbitrary filesystem Unix paths even while connected, so they stay off.
+    let socketpair_not = asm.label();
+    asm.cond(
+        BPF_JMP | BPF_JEQ | BPF_K,
+        libc::SYS_socketpair as u32,
+        socketpair_body,
+        socketpair_not,
+    );
+    asm.mark(socketpair_body);
+    asm.stmt(BPF_LD | BPF_W | BPF_ABS, SECCOMP_DATA_ARG0_LO);
+    asm.cond(BPF_JMP | BPF_JEQ | BPF_K, libc::AF_UNIX as u32, socketpair_type, deny);
+    asm.mark(socketpair_type);
+    asm.stmt(BPF_LD | BPF_W | BPF_ABS, SECCOMP_DATA_ARG1_LO);
+    asm.stmt(BPF_ALU | BPF_AND | BPF_K, 0xf);
+    asm.cond(BPF_JMP | BPF_JEQ | BPF_K, libc::SOCK_STREAM as u32, allow, socketpair_after);
+    asm.mark(socketpair_after);
+    asm.cond(BPF_JMP | BPF_JEQ | BPF_K, libc::SOCK_SEQPACKET as u32, allow, deny);
+    asm.mark(socketpair_not);
+
+    // Fallthrough for every syscall not handled above is the default allow.
+    asm.mark(allow);
+    asm.stmt(BPF_RET | BPF_K, SECCOMP_RET_ALLOW);
+    asm.mark(deny);
+    asm.stmt(BPF_RET | BPF_K, eperm);
+    asm.mark(kill);
+    asm.stmt(BPF_RET | BPF_K, SECCOMP_RET_KILL_PROCESS);
+    asm.finish()
+}
+
+#[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
+pub(crate) fn deny_filter() -> Result<Vec<libc::sock_filter>, String> {
+    Err(format!("unsupported Linux seccomp architecture: {}", std::env::consts::ARCH))
+}
+
+pub(crate) fn install(filter: &[libc::sock_filter]) -> io::Result<()> {
+    if filter.is_empty() || filter.len() >= 4096 {
+        return Err(io::Error::new(io::ErrorKind::InvalidInput, "invalid seccomp filter length"));
+    }
+    // SAFETY: PR_SET_NO_NEW_PRIVS takes an integer flag and no pointers.
+    let rc = unsafe { libc::prctl(libc::PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) };
+    if rc != 0 {
+        return Err(io::Error::last_os_error());
+    }
+    let program = libc::sock_fprog {
+        len: filter.len() as libc::c_ushort,
+        filter: filter.as_ptr() as *mut libc::sock_filter,
+    };
+    // SAFETY: `program` points to the immutable filter for the duration of
+    // the raw syscall, and TSYNC asks the kernel to synchronize this process.
+    let rc = unsafe {
+        libc::syscall(
+            libc::SYS_seccomp,
+            libc::SECCOMP_SET_MODE_FILTER,
+            libc::SECCOMP_FILTER_FLAG_TSYNC,
+            &program,
+        )
+    };
+    if rc < 0 { Err(io::Error::last_os_error()) } else { Ok(()) }
 }
 
 #[cfg(all(test, not(any(target_arch = "x86_64", target_arch = "aarch64"))))]
