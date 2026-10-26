@@ -48,6 +48,11 @@ private final class SnapshotSequence: @unchecked Sendable {
     }
 }
 
+@MainActor
+private final class RunawayGuardrailSetting {
+    var enabled = true
+}
+
 /// Regression coverage for https://github.com/manaflow-ai/cmux/issues/22273:
 /// one pane's runaway `next dev` session must be stopped under critical
 /// aggregate pressure instead of taking the whole app down, without touching
@@ -428,6 +433,35 @@ struct RunawayPaneTreeMemoryPressureResponderTests {
 
         #expect(result.detail == "runaway-guardrail-disabled")
         #expect(responder.evaluationTask == nil)
+        #expect(recorder.count == 0)
+    }
+
+    @MainActor
+    @Test
+    func disablingWhileTheCensusLoadsPreventsAllSignals() async {
+        let setting = RunawayGuardrailSetting()
+        let recorder = SignalRecorder()
+        let pane = descriptor()
+        let snapshot = census(session() + runawayJob())
+        let responder = RunawayPaneTreeMemoryPressureResponder(
+            isEnabled: { setting.enabled },
+            paneProvider: { [pane] },
+            thresholdBytes: { Self.threshold },
+            snapshotProvider: {
+                await MainActor.run { setting.enabled = false }
+                return snapshot
+            },
+            signalProcessGroup: { recorder.record($0, $1) },
+            waitForGraceDeadline: { true },
+            ttyDevice: Self.ttyDevice,
+            appProcessID: Self.appPID,
+            appProcessGroupID: Self.appPID
+        )
+        _ = responder.shedMemory(for: MemoryPressureSnapshot(
+            severity: .critical, physicalFootprintBytes: nil,
+            aggregateMemoryPressure: critical, sampledAt: Date()
+        ))
+        await responder.evaluationTask?.value
         #expect(recorder.count == 0)
     }
 

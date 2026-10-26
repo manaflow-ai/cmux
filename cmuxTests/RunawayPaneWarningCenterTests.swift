@@ -266,4 +266,39 @@ struct RunawayPaneWarningCenterTests {
         #expect(center.warnings.count == 1)
         #expect(notified == 2)
     }
+
+    @Test(arguments: [false, true])
+    func unavailableTTYDoesNotForgetWarningOrDismissal(dismissed: Bool) async throws {
+        let center = makeCenter(
+            source: WarningSnapshotSource(census(workers: 1_200)),
+            recorder: WarningSignalRecorder()
+        )
+        var notified = 0
+        center.onNewWarning = { _ in notified += 1 }
+        await evaluate(center)
+        let warning = try #require(center.warnings.first)
+        if dismissed { center.dismiss(warning) }
+
+        let unavailable = PaneMemoryDescriptor(
+            workspaceId: workspaceID, panelId: paneID,
+            workspaceTitle: "my-app", paneTitle: "dev server",
+            ttyName: nil, foregroundPID: nil
+        )
+        center.paneProvider = { [unavailable] }
+        await evaluate(center)
+        #expect(center.warnings.count == (dismissed ? 0 : 1))
+
+        let live = descriptor
+        center.paneProvider = { [live] }
+        await evaluate(center)
+        #expect(center.warnings.count == (dismissed ? 0 : 1))
+        #expect(notified == 1, "an unavailable measurement is not recovery")
+
+        center.paneProvider = { [] }
+        await evaluate(center)
+        #expect(center.warnings.isEmpty, "closed panes are still forgotten")
+        center.paneProvider = { [live] }
+        await evaluate(center)
+        #expect(notified == 2)
+    }
 }
