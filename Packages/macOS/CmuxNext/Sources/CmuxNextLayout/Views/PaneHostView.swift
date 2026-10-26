@@ -158,10 +158,22 @@ final class PaneHostView: NSView, RestingPlacement {
     var contentRect: CGRect { clipView.frame }
 
     /// The card a floating pane shows, in window coordinates: the padded
-    /// rect cut to the part a docked column leaves (`setStripClip`).
+    /// rect cut to the part the strip shows (`stripShownRect`).
     var cardInWindow: CGRect {
-        let visible = layer?.mask.map { contentRect.intersection($0.frame) } ?? contentRect
-        return convert(visible, to: nil)
+        let visible = contentRect.intersection(stripShownRect)
+        return convert(visible.isNull ? .zero : visible, to: nil)
+    }
+
+    /// The part of this host the layout shows (own coordinates): its bounds cut by its own mask (a
+    /// scroll area's window, `setStripClip`) and by the strip container it sits in beside docked
+    /// columns (`StripClipContainerView`); `.zero` when none of it shows.
+    var stripShownRect: CGRect {
+        var shown = bounds
+        if let mask = layer?.mask { shown = shown.intersection(mask.frame) }
+        if let container = superview as? StripClipContainerView {
+            shown = shown.intersection(convert(container.bounds, from: container))
+        }
+        return shown.isNull ? .zero : shown
     }
 
     /// The rounded area the border and ring trace: between the content's
@@ -265,13 +277,6 @@ final class PaneHostView: NSView, RestingPlacement {
         reporter.paneFrameInWindowDidChange()
     }
 
-    /// Clips the host to `rect` (its own coordinates) where a docked docked
-    /// column covers it; nil removes the clip. `cutouts` (its own coordinates)
-    /// are the parts a pane in front covers that `rect` cannot leave out (a
-    /// corner): the mask carries them for a Chromium page, which no view order
-    /// reaches (`StripClipMaskLayer.cutouts`).
-    /// Returns true when the clip changed: a Chromium page in this pane then
-    /// re-reads its clip shape, which carries this mask (`CEFClipShape`).
     /// The part of this host (own coordinates) that takes clicks while it sits in a scroll area
     /// (scroll-areas-DESIGN.md): what scrolled out of the area's window is masked away and must
     /// not take clicks meant for the view beside the area. Nil outside an area.
@@ -282,8 +287,14 @@ final class PaneHostView: NSView, RestingPlacement {
         return super.hitTest(point)
     }
 
+    /// Clips the host to `rect` (its own coordinates): the part of it inside its scroll area's
+    /// window; nil removes the clip. The strip's clip beside docked columns is not a mask: the
+    /// strip container clips its hosts (`StripClipContainerView`), and panes in front are above
+    /// this one in the layer tree.
+    /// Returns true when the clip changed: a Chromium page in this pane then
+    /// re-reads its clip shape, which carries this mask (`CEFClipShape`).
     @discardableResult
-    func setStripClip(_ rect: CGRect?, cutouts: [CGRect] = []) -> Bool {
+    func setStripClip(_ rect: CGRect?) -> Bool {
         guard let layer else { return false }
         guard let rect else {
             guard layer.mask != nil else { return false }
@@ -296,10 +307,10 @@ final class PaneHostView: NSView, RestingPlacement {
             layer.mask = mask
             return mask
         }()
-        guard mask.frame != rect || mask.cutouts != cutouts || mask.backgroundColor == nil && cutouts.isEmpty else { return false }
+        guard mask.frame != rect || mask.backgroundColor == nil else { return false }
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        mask.place(rect, cutouts: cutouts, scale: layer.contentsScale)
+        mask.place(rect)
         CATransaction.commit()
         return true
     }
@@ -321,6 +332,17 @@ final class PaneHostView: NSView, RestingPlacement {
         chrome.update(showsRing: showsRing, dim: dim, dimFill: dimFill, focusRing: focusRing, ringAlphaOverride: ringAlphaOverride, border: border,
                       attention: attention, attentionSettings: attentionSettings, readByEntry: readByEntry,
                       focused: focused, flashesFocus: flashesFocus, animated: animated)
+    }
+}
+
+/// A Chromium page in this pane that draws in its own window leaves out what the panes in front
+/// cover (`ChildWindowPageFallback`): asked at the page's clip read, never on a motion frame.
+extension PaneHostView: PageCoverSource {
+    func pageCovers() -> [CGRect] {
+        var ancestor = superview
+        while let current = ancestor, !(current is ScreenContentView) { ancestor = current.superview }
+        guard let screen = ancestor as? ScreenContentView else { return [] }
+        return screen.panes(inFrontOf: self).map { convert($0, from: screen) }
     }
 }
 
