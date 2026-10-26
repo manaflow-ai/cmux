@@ -177,7 +177,9 @@ import Foundation
 /// accepts both and names the group "StrictMemorySafety" (checked with 6.2.4). Empty until the settings lander
 /// (scripts/cmux-next/stability-settings.json) fills it; guardrails.py's `target-settings` rule refuses a new
 /// target without it.
-let stabilitySwiftSettings: [SwiftSetting] = []
+let stabilitySwiftSettings: [SwiftSetting] = [
+    .strictMemorySafety(),
+]
 
 /// Settings shared by every UI target: Swift 6 mode, main-actor by default.
 let uiSwiftSettings: [SwiftSetting] = [

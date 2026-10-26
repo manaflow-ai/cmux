@@ -52,7 +52,7 @@ nonisolated enum ChromiumHostOp: UInt16, CaseIterable, Sendable {
     /// The SHA-256 of the cmux_cef_shim.h this table was generated from (`CEFShimABI`).
     static let abiIdentity = "0d2c75044b312d4ae1f34e63749b1f84dfbede0b271315abd8fa084cee2e5100"
     /// This generation's op ids, classes and wire types; both HELLOs carry it.
-    static let wireIdentity = "092e0dce86aacf8c4fc5c336474127f9bd009ca3ab02cb8f8e801adbe9391b33"
+    static let wireIdentity = "f05ead2b37d501e637687c55aa342aaa16ea37c1d83f8acdb7589a12b21ce22e"
     /// Ops of fork API symbols the header does not declare yet (`r.optional` in CEFShimLibrary).
     static let optionalOps: Set<ChromiumHostOp> = [
         .addDocumentScript, .addPageChannel, .tabEvaluate, .tabSetFrozen, .tabSendClick, .tabSetColorScheme,
@@ -248,35 +248,35 @@ nonisolated enum ChromiumHostOp: UInt16, CaseIterable, Sendable {
             [PendingKey(.tabNavigationEntries, [0]), PendingKey(.tabNavigationState, [0])]),
         Row(.mirror, [], [.int32]),
         Row(.mirror, [.int32], [.string]),
-        Row(.post, [.int32, .string, .int32], [.int32],
+        Row(.async, [.int32, .string, .int32], [.int32],
             [
                 PendingKey(.extList, [nil]),
                 PendingKey(.extActions, [nil, nil]),
                 PendingKey(.extCommands, [nil]),
                 PendingKey(.omniboxKeywords, [nil]),
             ]),
-        Row(.post, [.int32, .string], [.int32],
+        Row(.async, [.int32, .string], [.int32],
             [
                 PendingKey(.extList, [nil]),
                 PendingKey(.extActions, [nil, nil]),
                 PendingKey(.extCommands, [nil]),
                 PendingKey(.omniboxKeywords, [nil]),
             ]),
-        Row(.post, [.int32, .string], [.int32],
+        Row(.async, [.int32, .string], [.int32],
             [
                 PendingKey(.extList, [nil]),
                 PendingKey(.extActions, [nil, nil]),
                 PendingKey(.extCommands, [nil]),
                 PendingKey(.omniboxKeywords, [nil]),
             ]),
-        Row(.post, [.int32, .string, .int32], [.int32],
+        Row(.async, [.int32, .string, .int32], [.int32],
             [
                 PendingKey(.extList, [nil]),
                 PendingKey(.extActions, [nil, nil]),
                 PendingKey(.extCommands, [nil]),
                 PendingKey(.omniboxKeywords, [nil]),
             ]),
-        Row(.post, [.int32, .string, .int32], [.int32],
+        Row(.async, [.int32, .string, .int32], [.int32],
             [
                 PendingKey(.extList, [nil]),
                 PendingKey(.extActions, [nil, nil]),
