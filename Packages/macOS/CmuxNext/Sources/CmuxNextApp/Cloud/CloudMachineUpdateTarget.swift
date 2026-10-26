@@ -29,7 +29,9 @@ nonisolated struct CloudMachineUpdateTarget: DaemonUpdateTarget {
         /// `cmux link machine update --to-bundled` on the machine's daemon socket.
         var update: @Sendable () async throws -> CloudMoveCLI.Answer
         /// Runs after every update that ran: lets the machine's connection reach its new daemon.
-        var reconnect: @Sendable () async -> Void
+        /// `restarted` (``mayHaveRestarted(_:)``): the daemon may have restarted, so a connection the
+        /// app still holds may be to the old one.
+        var reconnect: @Sendable (_ restarted: Bool) async -> Void
     }
 
     let machineID: String
@@ -77,8 +79,11 @@ nonisolated struct CloudMachineUpdateTarget: DaemonUpdateTarget {
         // machine: no update starts; asked again, the machine reports no build and is dropped.
         guard enabled(), await source.daemon() != nil else { return .busy }
         var outcome: DaemonUpdateOutcome
+        var answer: CloudMoveCLI.Answer?
         do {
-            outcome = Self.outcome(try await source.update(), machine: displayName)
+            let reply = try await source.update()
+            answer = reply
+            outcome = Self.outcome(reply, machine: displayName)
         } catch DaemonError.timedOut {
             // The CLI ran past its deadline: how the update ended is unknown, so ask again later
             // (the machine then reports its build) rather than record a failure for this build.
@@ -89,8 +94,24 @@ nonisolated struct CloudMachineUpdateTarget: DaemonUpdateTarget {
         if case .updated(let reported?) = outcome, !build.sameCommit(reported) {
             outcome = .failed(reason: "the machine reports build \(reported) after the update, not \(build.hash)")
         }
-        await source.reconnect()
+        await source.reconnect(Self.mayHaveRestarted(answer))
         return outcome
+    }
+
+    /// Whether the machine's daemon may have restarted in the run that gave `answer` (nil: the CLI
+    /// gave none, a timeout or a kill): an update, a rollback, or an end the CLI lost track of. Not
+    /// for a machine that needed nothing, nor for an answer given before anything reached it
+    /// (another update runs, no daemon answer, no build to install, too old to update in place).
+    static func mayHaveRestarted(_ answer: CloudMoveCLI.Answer?) -> Bool {
+        guard let answer else { return true }
+        if answer.ok { return answer.updated }
+        switch answer.errorCode {
+        case "machine_update_busy", "machine_unreachable", "machine_update_unavailable", "machine_update_download_failed",
+             "machine_update_unsupported":
+            return false
+        default:
+            return true
+        }
     }
 
     /// The policy's outcome of one `link machine update` answer (cmux-tui `link/machine_update.rs`).
