@@ -124,7 +124,9 @@ pub(crate) fn sort_workspaces(
         NewWorkspacePlacement::Top => top,
         // An archived active workspace: above the tail too.
         NewWorkspacePlacement::BeforeCurrent => current.unwrap_or(below_home).min(bottom),
-        NewWorkspacePlacement::AfterCurrent => current.map_or(below_home, |index| index + 1).min(bottom),
+        NewWorkspacePlacement::AfterCurrent => {
+            current.map_or(below_home, |index| index + 1).min(bottom)
+        }
     };
     placed.splice(slot..slot, unplaced);
     *workspaces = placed;
