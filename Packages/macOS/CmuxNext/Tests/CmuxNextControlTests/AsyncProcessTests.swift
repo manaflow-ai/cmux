@@ -166,7 +166,7 @@ import Testing
     }
 
     @Test(arguments: [(WorkPriority.idle, QualityOfService.background), (.bestEffort, .utility),
-                      (.userVisible, .userInitiated), (.userBlocking, .userInitiated)])
+                      (.userVisible, .default), (.userBlocking, .userInitiated)])
     func eachWaiterPriorityHasOneChildQoSAndNeverUserInteractive(priority: WorkPriority, qos: QualityOfService) {
         // A child's own QoS is not observable from a test without a helper binary (the system python3 is a
         // shim that spawns the real one at the default QoS), so the mapping AsyncProcess applies is checked.

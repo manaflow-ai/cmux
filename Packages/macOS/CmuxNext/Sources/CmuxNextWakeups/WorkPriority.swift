@@ -21,6 +21,12 @@ public import Foundation
 /// quit waits for, and `.background` throttles their disk I/O and moves them to efficiency cores. Work that may
 /// wait without limit says ``idle``, which runs at Chrome's best-effort QoS.
 ///
+/// That mapping is for threads only. A child process of ``userVisible`` stays at `.default`
+/// (``processQoS``): Chrome sets a child's priority from what it shows, not from its thread pool's types
+/// (content/browser/renderer_host/render_process_host_impl.cc, `RenderProcessHostImpl::UpdateProcessPriority`),
+/// and a long-lived child (a sidecar, a host, a person's shell command) must not compete with work a person
+/// waits for.
+///
 /// `.userInteractive` belongs to the main thread and the few threads a frame waits for (render, PTY read,
 /// the daemon line reader, the watchdog); no ``BackgroundWork`` lane ever runs at it.
 ///
@@ -74,10 +80,11 @@ public enum WorkPriority: Int, Sendable, Comparable, CaseIterable, CustomStringC
     }
 
     /// The quality of service a child process of this level runs at (`Process.qualityOfService`);
-    /// never `.userInteractive`.
+    /// never `.userInteractive`. ``userVisible`` is `.default` here, below its lane QoS (see the type's note).
     public var processQoS: QualityOfService {
         switch self {
-        case .userBlocking, .userVisible: .userInitiated
+        case .userBlocking: .userInitiated
+        case .userVisible: .default
         case .bestEffort: .utility
         case .idle: .background
         }
