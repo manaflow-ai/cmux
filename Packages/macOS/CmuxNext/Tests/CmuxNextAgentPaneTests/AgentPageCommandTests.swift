@@ -26,7 +26,8 @@ struct AgentPageCommandTests {
         for command in AgentPageCommand.allCases {
             #expect(registry.descriptor(for: ActionID(command)) != nil, "\(command)")
         }
-        #expect(registry.bindAgentPageCommands(available: { [] }, run: { _, _ in }))
+        let bound = registry.bindAgentPageCommands(available: { [] }, run: { _, _ in })
+        #expect(bound)
     }
 
     @Test func aCommandThePageDoesNotOfferIsUnavailableWithItsReason() {
