@@ -857,6 +857,10 @@ path = "tests/test_cleanup_stale_runs.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_token_budget_sampler.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_cloud_vm_skill_coverage.py"
 lane = "linux-guard"
 
@@ -1165,6 +1169,10 @@ path = "tests/test_ci_r2_canary.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_nightly_next_canary_cadence.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_nightly_next_canary_runs_installed_app.py"
 lane = "linux-guard"
 
@@ -1178,6 +1186,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_required_checks_have_no_path_filters.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_quota_hold_gate.py"
 lane = "linux-guard"
 
 [[test]]
@@ -1678,6 +1690,18 @@ path = "tests/test_pr_status.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_gh_budget_wait.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_nightly_next_cancelled_tip.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_github_token_budget.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_main_regression_bisect.py"
 lane = "linux-guard"
 
@@ -2003,4 +2027,24 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_owned_pool_sources.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_rcodesign_sign_bundle_dev.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_dev_app_linux.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_verify_signed_dev_app.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_workflow_scripts_are_executable.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_sparkle_private_key_not_on_argv.py"
 lane = "linux-guard"

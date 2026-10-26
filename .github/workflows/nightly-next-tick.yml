@@ -42,7 +42,8 @@ jobs:
   request:
     if: github.repository == 'manaflow-ai/cmux' && (github.event_name != 'workflow_run' || github.event.workflow_run.event == 'push' && github.event.workflow_run.head_repository.full_name == github.repository)
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-2vcpu-ubuntu-2404' }}
-    timeout-minutes: 15
+    # 15 minutes of work, plus the hour its gh calls may wait for a rate limit (below).
+    timeout-minutes: 75
     # One tick runs and the newest waits: GitHub replaces an older pending tick
     # with a newer one. A tick only asks main's nightly.yml for a promotion and
     # reads the branch tip when it starts, so a replaced pending tick loses
@@ -70,6 +71,27 @@ jobs:
           ref: ${{ inputs.sha != '' && inputs.sha || 'refs/heads/feat-cmux-next' }}
           fetch-depth: 150
 
+      # This workflow's own copy of the wrapper, not the checked-out branch's.
+      - name: Checkout the gh rate-limit wait
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+          path: .tick-tooling
+          sparse-checkout: |
+            scripts/ci/gh_budget_wait.sh
+            scripts/ci/nightly_next_cancelled_tip.sh
+          sparse-checkout-cone-mode: false
+
+      # A tick refused "API rate limit exceeded for installation" lost its promotion
+      # (2026-10-26, run 40325957281, while /rate_limit showed thousands of calls left).
+      # scripts/ci/gh_budget_wait.sh puts a gh first on PATH that waits instead: until the
+      # reset when a budget reads exhausted, else 60, 120, 240, then 300 s, at most an hour
+      # per job, each wait logged. The first refusal also logs GitHub's message and the
+      # token's /rate_limit headers then, to name the limiter.
+      - name: Wait through GitHub API rate limits in this job's gh calls
+        run: bash .tick-tooling/scripts/ci/gh_budget_wait.sh --install
+
       # The release train (nightly-next-train.yml, docs/ci/nightly-next-train.md).
       # Unset or dry-run: the train plans from the last good build and its run
       # summary is the plan; the promotion below still goes ahead. on: the
@@ -84,6 +106,16 @@ jobs:
           set -euo pipefail
           gh workflow run nightly-next-train.yml -R "$GITHUB_REPOSITORY" --ref feat-cmux-next -f mode="$MODE" \
             || echo "::warning::could not start the nightly-next train ($MODE); is nightly-next-train.yml on feat-cmux-next and main?"
+
+      # A tip on nightly-next whose newest run ended cancelled (a rescue that lost its
+      # re-run, run 40340830337) is never requested again below ("already on
+      # nightly-next"), so it is re-run here; scripts/ci/nightly_next_cancelled_tip.sh.
+      - name: Re-run a cancelled nightly-next tip
+        # The promotion below must run even when this check cannot.
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash .tick-tooling/scripts/ci/nightly_next_cancelled_tip.sh "$GITHUB_REPOSITORY"
 
       - name: Request nightly-next promotion on main
         if: vars.NIGHTLY_NEXT_TRAIN != 'on'

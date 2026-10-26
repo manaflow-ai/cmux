@@ -619,6 +619,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_workflow_run_sources.py
 
+      - name: Validate the CLA quota re-run janitor
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_cla_quota_rerun.py
+
       - name: Validate shallow complexity comparison fetching
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_fetch_complexity_base.py
@@ -638,6 +642,10 @@ jobs:
       - name: Validate stale run cleanup eligibility
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_cleanup_stale_runs.py
+
+      - name: Validate the GITHUB_TOKEN budget sampler
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_token_budget_sampler.py
 
       - name: Validate stale agent PR verdicts
         if: ${{ matrix.group == 'ci' }}
@@ -674,6 +682,18 @@ jobs:
       - name: Validate main full-suite failure reruns and bisects
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_main_regression_bisect.py
+
+      - name: Validate the GITHUB_TOKEN budget warning
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_github_token_budget.py
+
+      - name: Validate the nightly-next tick waits through GitHub API rate limits
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_gh_budget_wait.py
+
+      - name: Validate the nightly-next tick re-runs a cancelled tip
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_nightly_next_cancelled_tip.py
 
       - name: Validate CI queue janitor policy
         if: ${{ matrix.group == 'ci' }}
@@ -765,6 +785,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_owned_pool_sources.py
 
+      - name: Validate that every script a workflow runs by path is executable in git
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_workflow_scripts_are_executable.py
+
       - name: Validate the backend migrations plan
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_backend_migrations_plan.py
@@ -800,6 +824,10 @@ jobs:
       - name: Validate required checks have no paths filters
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_required_checks_have_no_path_filters.py
+
+      - name: Validate the CI quota hold gate stays on optional workflows only
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_quota_hold_gate.py
 
       - name: Validate workflow write permissions are job-scoped
         if: ${{ matrix.group == 'ci' }}
@@ -1249,7 +1277,9 @@ jobs:
 
       - name: Validate the nightly-next canary runs the installed app
         if: ${{ matrix.group == 'release-notary' }}
-        run: python3 tests/test_nightly_next_canary_runs_installed_app.py
+        run: |
+          python3 tests/test_nightly_next_canary_runs_installed_app.py
+          python3 tests/test_nightly_next_canary_cadence.py
 
       - name: Validate the cmux NEXT DEV daily dispatcher
         if: ${{ matrix.group == 'release-notary' }}
@@ -1258,6 +1288,24 @@ jobs:
       - name: Validate the cmux NEXT DEV tip feed
         if: ${{ matrix.group == 'release-notary' }}
         run: python3 tests/test_cmux_next_dev_tip_feed.py
+
+      - name: Validate nightly and DEV delivery never cancel or replace a waiting run
+        if: ${{ matrix.group == 'release-notary' }}
+        run: python3 tests/test_nightly_delivery_concurrency.py
+
+      - name: Validate the Linux DEV signer (stock rcodesign, fake-rcodesign fixture)
+        if: ${{ matrix.group == 'release-notary' }}
+        run: python3 tests/test_rcodesign_sign_bundle_dev.py
+
+      - name: Validate that no Sparkle private key reaches a command line
+        if: ${{ matrix.group == 'release-notary' }}
+        run: python3 tests/test_sparkle_private_key_not_on_argv.py
+
+      - name: Validate the Linux DEV app tools (archive, plist, Sparkle key, signed-app checks)
+        if: ${{ matrix.group == 'release-notary' }}
+        run: |
+          python3 tests/test_dev_app_linux.py
+          python3 tests/test_verify_signed_dev_app.py
 
       - name: Validate the cmux NEXT tip Swift suite dispatcher
         if: ${{ matrix.group == 'release-notary' }}

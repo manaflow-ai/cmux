@@ -36,19 +36,80 @@ text = WORKFLOW.read_text()
 schedule = re.findall(r'^    - cron: "([^"]+)"$', text, re.MULTILINE)
 check(schedule == ["2-59/5 * * * *"],
       f"the dev dispatcher must run every five minutes, got {schedule}")
+# The dispatcher failed on its first read whenever the shared GITHUB_TOKEN
+# budget was spent (2026-10-26 15:47Z, 16:03Z): reads and the publisher dispatch
+# take the manaflow-glaeda-route App's budget, the DEV build dispatch stays on
+# GITHUB_TOKEN (cmux-next.yml routes re-runs on its triggering actor).
+check("private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}" in text and "APP_TOKEN: ${{ steps.app-token.outputs.token }}" in text,
+      "the dispatcher must read with the manaflow-glaeda-route App token when it can mint one")
+check("github.rest.git.getRef" not in text and "github.rest.actions.list" not in text,
+      "every dispatcher read must go through the App token client")
+check(re.search(r"await github\.rest\.actions\.createWorkflowDispatch\(\{\s*owner,\s*repo,\s*workflow_id: workflow,", text) is not None,
+      "the DEV build dispatch must stay on GITHUB_TOKEN")
+check(re.search(r"await api\.rest\.actions\.createWorkflowDispatch\(\{\s*owner,\s*repo,\s*workflow_id: 'cmux-next-dev-daily.yml'", text) is not None,
+      "the publisher dispatch must use the App token client")
 check("run.head_sha === sha" in text and "activeOrSucceeded" in text,
       "the exact-SHA dedupe guard must remain in the dispatcher")
 check("run.conclusion === 'success'" in text and "run.status" in text,
       "a skipped or failed publisher run must not suppress a retry")
 publish_text = PUBLISH_WORKFLOW.read_text()
+# The shared GITHUB_TOKEN budget was spent when the publishers started on
+# 2026-10-26 ("Resolve the source run" failed with the installation rate limit).
+sign_job = re.search(r"^  sign:\n(.*?)(?=^  [A-Za-z0-9_-]+:\n)", publish_text, re.MULTILINE | re.DOTALL)
+sign_text = sign_job.group(1) if sign_job else ""
+check("id: read-token" in sign_text and "private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}" in sign_text
+      and "permission-actions: read" in sign_text and "permission-actions: write" not in sign_text,
+      "the signer must read the source run with the read-only manaflow-glaeda-route token")
+check("GH_TOKEN: ${{ github.token }}" not in sign_text,
+      "every signer source-run read must try the App token before GITHUB_TOKEN")
+check("- name: Wait for the API budget before publishing" in publish_text,
+      "the release writes must wait for the shared budget instead of failing on it")
+for call in ("ghw release upload", "ghw release edit", 'ghw api "repos/$GH_REPO/compare/'):
+    check(call in publish_text, f"the release write path must retry through a rate limit: {call}")
+check(re.search(r"^\s+gh release (upload|edit) ", publish_text, re.MULTILINE) is None,
+      "a release upload or edit must not call gh without the rate-limit retry")
+check("ghw release create" not in publish_text,
+      "release create makes several requests and must not be replayed")
+
+# ghw itself: a refused attempt's stdout must never reach a capture, and a
+# failure that is not the rate limit returns at once.
+ghw_src = re.search(r"^          waited_file=.*?^          }$", publish_text, re.MULTILINE | re.DOTALL)
+check(bool(ghw_src), "the publish step must define ghw")
+if ghw_src and shutil.which("bash"):
+    body = "\n".join(line[10:] for line in ghw_src.group(0).splitlines())
+    with tempfile.TemporaryDirectory() as tmp:
+        stub = Path(tmp) / "gh"
+        stub.write_text(
+            "#!/bin/bash\n"
+            "if [ \"$1\" = api ] && [ \"$2\" = rate_limit ]; then echo $(( $(date +%s) + 1 )); exit 0; fi\n"
+            "n=$(cat \"$STUB_DIR/count\" 2>/dev/null || echo 0); echo $((n+1)) > \"$STUB_DIR/count\"\n"
+            "if [ \"$n\" -lt 1 ]; then echo '{\"message\":\"API rate limit exceeded\"}'; "
+            "echo 'gh: API rate limit exceeded for installation (HTTP 403)' >&2; exit 1; fi\n"
+            "if [ \"$1\" = fail ]; then echo other >&2; exit 4; fi\n"
+            "echo ahead\n")
+        stub.chmod(0o755)
+        (Path(tmp) / "fn.sh").write_text(body + "\n")
+        script = ('set -euo pipefail; source "$STUB_DIR/fn.sh"; '
+                  'status="$(ghw api compare 2>/dev/null)"; printf "%s|" "$status"; '
+                  'rm -f "$STUB_DIR/count"; echo 1 > "$STUB_DIR/count"; ghw fail x 2>/dev/null || echo "rc=$?"')
+        env = {"PATH": f"{tmp}:/usr/bin:/bin", "STUB_DIR": tmp, "RUNNER_TEMP": tmp}
+        result = subprocess.run(["bash", "-c", script], capture_output=True, text=True, env=env, timeout=120)
+        check(result.stdout.strip() == "ahead|rc=4",
+              f"ghw must print only the successful attempt's stdout and pass other failures through: {result.stdout!r} {result.stderr!r}")
 check("workflow_run:" not in publish_text,
       "the publisher must be dispatch-only; unrelated cmux-next completions are not DEV artifacts")
 check("SOURCE_RUN_ID: ${{ inputs.source_run_id }}" in publish_text,
       "the publisher must resolve the exact dispatched source run")
 check("finishedRuns.slice(0, 10)" not in text,
       "the dispatcher must not hide an older app behind ten failed source runs")
-check("    continue-on-error: true\n    needs: sign\n" in publish_text,
-      "a red advisory verify must not fail the run and re-trigger the same publication")
+# verify is the admission gate since the signer moved to Linux (Apple's codesign runs only
+# there): a red verify fails the run on purpose, so the dispatcher hands the source run over
+# again instead of counting a build that never published as handled.
+verify_job = "\n".join(line for line in publish_text[publish_text.index("\n  verify:\n"):publish_text.index("\n  publish:\n")]
+                       .splitlines() if not line.lstrip().startswith("#"))
+check("continue-on-error" not in verify_job and "|| true" not in verify_job.split("id: check")[1].split("- name:")[0],
+      "verify must not be continue-on-error, and its checks must not be masked")
+check("    needs: [sign, runner]\n" in verify_job, "verify runs after sign and its placement job")
 check("has no current Release app artifact; retry the handoff" in publish_text,
       "a missing source artifact must fail publication so the dispatcher retries")
 

@@ -52,7 +52,10 @@ env:
 jobs:
   plan:
     name: Pick tours
-    if: ${{ github.repository_owner == 'manaflow-ai' && (github.event_name == 'workflow_dispatch' || github.event.workflow_run.event == 'pull_request' && github.event.workflow_run.head_repository.full_name == github.repository) }}
+    # vars.CI_QUOTA_HOLD=1 pauses media from CI completions while the
+    # GITHUB_TOKEN budget is reserved for the nightly
+    # (tests/test_ci_quota_hold_gate.py); a dispatch still runs.
+    if: ${{ github.repository_owner == 'manaflow-ai' && (github.event_name == 'workflow_dispatch' || vars.CI_QUOTA_HOLD != '1' && github.event.workflow_run.event == 'pull_request' && github.event.workflow_run.head_repository.full_name == github.repository) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["ubuntu-24.04","blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: reads the pull request and mostly waits; keeps CI's Linux pool free; CI_TRUSTED_RUNNER picks Blacksmith (default) or GitHub-hosted
     # CI has completed, so its reads return at once.
     timeout-minutes: 10

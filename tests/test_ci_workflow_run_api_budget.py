@@ -579,5 +579,120 @@ class CmuxBotTokenWorkflowShape(unittest.TestCase):
                 self.assertEqual(token, "${{ github.token }}")
 
 
+# ---------------------------------------------------------------- risk tier
+
+
+# Records each call with the token it used. FAIL_READ_TOKEN refuses every call made with that
+# token; MISSING_LABELS fails --add-label until a label was created.
+FAKE_RISK_GH = textwrap.dedent("""\
+    #!/usr/bin/env python3
+    import json, os, sys
+    log = os.environ["FAKE_GH_LOG"]
+    calls = [json.loads(line) for line in open(log)] if os.path.getsize(log) else []
+    with open(log, "a") as handle:
+        handle.write(json.dumps({"token": os.environ.get("GH_TOKEN"), "args": sys.argv[1:]}) + "\\n")
+    if os.environ["GH_TOKEN"] == os.environ.get("FAIL_READ_TOKEN"):
+        sys.exit(1)
+    if sys.argv[1:3] == ["pr", "view"]:
+        print(os.environ.get("CURRENT_LABELS", ""))
+    elif ("--add-label" in sys.argv and os.environ.get("MISSING_LABELS")
+          and not any(c["args"][:2] == ["label", "create"] for c in calls)):
+        sys.exit(1)
+    """)
+
+# Stands in for risk_tier.py: records the token it graded with and writes a verdict.
+FAKE_RISK_TIER = textwrap.dedent("""\
+    import os, sys
+    if os.environ["GH_TOKEN"] == os.environ.get("FAIL_READ_TOKEN"):
+        open(sys.argv[sys.argv.index("--github-output") + 1], "a").write("tier=partial\\n")
+        sys.exit(1)
+    open(os.environ["FAKE_GH_LOG"], "a").write('{"token": "%s", "args": ["grade"]}\\n' % os.environ["GH_TOKEN"])
+    ready = "false" if os.environ["GH_TOKEN"] == os.environ.get("HELD_ON") else "true"
+    open(sys.argv[sys.argv.index("--github-output") + 1], "a").write("tier=normal\\nlabel=risk:normal\\nready=%s\\n" % ready)
+    open(sys.argv[sys.argv.index("--summary") + 1], "a").write("## Risk tier: normal\\n")
+    """)
+
+
+class RiskTierCalls(unittest.TestCase):
+    """risk evidence reads on the glaeda-route App's budget and creates no label that exists (2026-10-26)."""
+
+    def run_step(self, name: str, **env: str) -> tuple[list[dict], str]:
+        _, step = workflow_step("risk-tier.yml", "evidence", name)
+        with tempfile.TemporaryDirectory() as tmp:
+            bin_dir = Path(tmp) / "bin"
+            (Path(tmp) / "scripts/ci").mkdir(parents=True)
+            (Path(tmp) / "scripts/ci/risk_tier.py").write_text(FAKE_RISK_TIER)
+            bin_dir.mkdir()
+            (bin_dir / "gh").write_text(FAKE_RISK_GH)
+            (bin_dir / "gh").chmod(0o755)
+            log, output, summary = Path(tmp) / "gh.log", Path(tmp) / "output", Path(tmp) / "summary"
+            for path in (log, output, summary):
+                path.touch()
+            result = subprocess.run(
+                ["bash", "-e", "-c", step["run"]], capture_output=True, text=True, check=False, cwd=tmp,
+                env={**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}", "FAKE_GH_LOG": str(log),
+                     "GITHUB_OUTPUT": str(output), "GITHUB_STEP_SUMMARY": str(summary), "RUNNER_TEMP": tmp,
+                     "REPO": REPO, "NUMBER": "7", "LABEL": "risk:normal", "GH_TOKEN": "workflow", **env})
+            self.assertEqual(result.returncode, 0, result.stderr)
+            return [json.loads(line) for line in log.read_text().splitlines()], output.read_text()
+
+    def test_the_step_tokens_are_the_app_for_reads_and_the_workflow_token_for_writes(self) -> None:
+        for name in ("Grade the pull request", "Set the risk label"):
+            with self.subTest(step=name):
+                _, step = workflow_step("risk-tier.yml", "evidence", name)
+                self.assertEqual(step["env"]["READ_TOKEN"], "${{ steps.glaeda-token.outputs.token }}")
+                self.assertEqual(step["env"]["GH_TOKEN"], "${{ github.token }}")
+        _, mint = workflow_step("risk-tier.yml", "evidence", "Mint the glaeda-route token")
+        self.assertTrue(mint["continue-on-error"])
+        self.assertEqual({k: v for k, v in mint["with"].items() if k.startswith("permission-")},
+                         {"permission-contents": "read", "permission-issues": "read", "permission-pull-requests": "read"})
+
+    def test_grading_reads_on_the_app_token(self) -> None:
+        calls, output = self.run_step("Grade the pull request", READ_TOKEN="app")
+        self.assertEqual(calls, [{"token": "app", "args": ["grade"]}])
+        self.assertEqual(output, "tier=normal\nlabel=risk:normal\nready=true\n")
+
+    def test_a_refused_app_read_grades_again_on_the_workflow_token_with_one_verdict(self) -> None:
+        calls, output = self.run_step("Grade the pull request", READ_TOKEN="app", FAIL_READ_TOKEN="app")
+        self.assertEqual(calls, [{"token": "workflow", "args": ["grade"]}])
+        self.assertEqual(output, "tier=normal\nlabel=risk:normal\nready=true\n")
+
+    def test_a_held_app_verdict_is_graded_again_on_the_workflow_token(self) -> None:
+        calls, output = self.run_step("Grade the pull request", READ_TOKEN="app", HELD_ON="app")
+        self.assertEqual(calls, [{"token": "app", "args": ["grade"]}, {"token": "workflow", "args": ["grade"]}])
+        self.assertEqual(output, "tier=normal\nlabel=risk:normal\nready=true\n")
+
+    def test_the_risk_labels_are_in_the_label_manifest(self) -> None:
+        manifest = json.loads((ROOT / ".github/labels.json").read_text())
+        names = {label["name"] for label in manifest["labels"]}
+        self.assertTrue({"risk:low", "risk:normal", "risk:high", "risk:human-ok"} <= names)
+
+    def test_without_an_app_token_grading_uses_the_workflow_token(self) -> None:
+        calls, _ = self.run_step("Grade the pull request", READ_TOKEN="")
+        self.assertEqual(calls, [{"token": "workflow", "args": ["grade"]}])
+
+    def test_an_unchanged_label_costs_one_app_read_and_nothing_else(self) -> None:
+        calls, _ = self.run_step("Set the risk label", READ_TOKEN="app", CURRENT_LABELS="risk:normal")
+        self.assertEqual([(c["token"], c["args"][:2]) for c in calls], [("app", ["pr", "view"])])
+
+    def test_a_new_tier_swaps_labels_on_the_workflow_token_without_creating_any(self) -> None:
+        calls, _ = self.run_step("Set the risk label", READ_TOKEN="app", CURRENT_LABELS="risk:low")
+        writes = [c for c in calls if c["args"][:2] != ["pr", "view"]]
+        self.assertEqual([c["token"] for c in writes], ["workflow", "workflow"])
+        self.assertIn("--remove-label", writes[0]["args"])
+        self.assertIn("--add-label", writes[1]["args"])
+
+    def test_a_missing_label_is_created_then_added(self) -> None:
+        calls, _ = self.run_step("Set the risk label", READ_TOKEN="app", MISSING_LABELS="1")
+        self.assertEqual(sum(c["args"][:2] == ["label", "create"] for c in calls), 4)
+        self.assertEqual(sum("--add-label" in c["args"] for c in calls), 2)
+
+    def test_a_refused_app_read_reads_the_labels_on_the_workflow_token(self) -> None:
+        calls, _ = self.run_step("Set the risk label", READ_TOKEN="app", FAIL_READ_TOKEN="app",
+                                 CURRENT_LABELS="risk:normal")
+        self.assertEqual([(c["token"], c["args"][:2]) for c in calls],
+                         [("app", ["pr", "view"]), ("workflow", ["pr", "view"])])
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -962,6 +962,12 @@ class OrphanPlanTests(unittest.TestCase):
                  path=".github/workflows/ios-appstore-upload.yml"),
             dict(event="push", branch="main", name="Nightly macOS build", path=".github/workflows/nightly.yml"),
             dict(event="issue_comment", branch="main", name="Claude Code", path=".github/workflows/claude.yml"),
+            # ci.yml's run-name carries routing metadata such as release=arm64.
+            # Run 40039647633 held main's CI concurrency group for two days
+            # because that word made the orphan pass read it as a release.
+            dict(event="workflow_dispatch", branch="main",
+                 name="v1;sha=b42fd54913fa92017bc08195148f70755fb93288;ref=main;cache=r2;release=arm64;coverage=full",
+                 path=".github/workflows/ci.yml"),
         ):
             with self.subTest(**kwargs):
                 decisions = orphan_plan(self.orphans(1, **kwargs))
@@ -996,7 +1002,8 @@ class OrphanPlanTests(unittest.TestCase):
 class FakeGitHub(janitor.GitHub):
     """Routes janitor API calls to in-memory runs; records every call."""
 
-    def __init__(self, runs, jobs=None, *, refuse_cancel=(), ignore_cancel=(), refuse_force=()):
+    def __init__(self, runs, jobs=None, *, refuse_cancel=(), ignore_cancel=(), refuse_force=(),
+                 unreadable_branches=()):
         super().__init__("token", "manaflow-ai/cmux")
         self.runs = runs
         self.job_map = jobs or {}
@@ -1009,6 +1016,7 @@ class FakeGitHub(janitor.GitHub):
         # Completed runs per workflow file, for the lost-assignment evidence listing.
         self.completed = {}
         self.refuse_rerun = set()
+        self.app_only_posts = []
         self.refuse_dispatch = False
         # (method, path, body) of every POST.
         self.bodies = []
@@ -1016,10 +1024,15 @@ class FakeGitHub(janitor.GitHub):
         self.prs = {}
         # Branch -> head sha (GET /branches/<branch>); a branch missing here answers 404.
         self.branches = {}
+        # Run ids, and runs of these branches, whose job listing fails as a 502 would after its retries.
+        self.unreadable_jobs = set()
+        self.unreadable_branches = set(unreadable_branches)
 
-    def request(self, method, path, body=None):
+    def request(self, method, path, body=None, *, app_only=False):
         self.calls += 1
         self.log.append((method, path))
+        if app_only:
+            self.app_only_posts.append(path)
         if method == "POST":
             self.bodies.append((method, path, body))
         path = path.replace("/repos/manaflow-ai/cmux", "", 1)
@@ -1063,13 +1076,16 @@ class FakeGitHub(janitor.GitHub):
         parts = path.split("?", 1)[0].split("/")
         run_id = int(parts[3])
         if method == "GET" and parts[-1] == "jobs":
+            if run_id in self.unreadable_jobs or self.runs.get(run_id, {}).get("head_branch") in self.unreadable_branches:
+                raise RuntimeError(f"GET /actions/runs/{run_id}/jobs failed (502)")
             return {"jobs": self.job_map.get(run_id, [])}
         if method == "POST" and parts[-1] == "rerun-failed-jobs":
             if run_id in self.refuse_rerun:
                 raise RuntimeError(f"POST /actions/runs/{run_id}/rerun-failed-jobs failed (403)")
             run = self.runs[run_id]
+            actor = "cmux-bot[bot]" if app_only else "github-actions[bot]"
             run.update(status="queued", conclusion=None, run_attempt=run["run_attempt"] + 1,
-                       triggering_actor={"login": "github-actions[bot]"})
+                       triggering_actor={"login": actor})
             return {}
         if method == "GET" and parts[-1] == "artifacts":
             return {"artifacts": []}
@@ -1221,6 +1237,20 @@ class OrphanSweepTests(unittest.TestCase):
         self.assertEqual(fake.posts(), [[str(stuck["id"]), "cancel"]])
         self.assertIn("orphan cap of 1", text)
 
+    def test_an_unreadable_run_writes_the_snapshot_and_cancels_nothing(self):
+        # A full sweep cancels the ghost (test_orphan_minutes_comes_from_the_environment()); with one run's
+        # job listing failing it writes the snapshot and decides nothing.
+        for unreadable, posts in (((), True), (("ci/macos26-app-host-repair",), False)):
+            with self.subTest(unreadable=unreadable), tempfile.TemporaryDirectory() as out:
+                load = Path(out) / "load.json"
+                code, fake, text, _ = self.sweep("--pool-load", str(load), unreadable_branches=unreadable)
+                self.assertEqual(code, 0)
+                self.assertEqual(bool(fake.posts()), posts)
+                snapshot = json.loads(load.read_text())
+                self.assertEqual(len(snapshot.get(janitor.UNREAD_RUNS_KEY, [])), 0 if posts else 1)
+                if not posts:
+                    self.assertIn("this sweep decided nothing", text)
+
     def test_orphan_minutes_comes_from_the_environment(self):
         with mock.patch.dict("os.environ", {"ORPHAN_MINUTES": "600"}):
             code, fake, text, (stuck, ghost) = self.sweep()
@@ -1234,7 +1264,7 @@ class StarvedLabelSnapshotTests(unittest.TestCase):
     FLEET = "glaeda-side-light-xcode-26.6"
     NEXT = "feat-cmux-" + "next"
 
-    def snapshot(self, runs, jobs, *, fail_jobs=(), completed=None):
+    def snapshot(self, runs, jobs, *, fail_jobs=(), completed=None, code=0):
         fake = FakeGitHub({r["id"]: dict(r) for r in runs}, jobs)
         fake.completed = dict(completed or {})
         listing_runs = fake.completed_runs
@@ -1267,8 +1297,8 @@ class StarvedLabelSnapshotTests(unittest.TestCase):
                     mock.patch.object(janitor.time, "sleep", lambda _: None), \
                     mock.patch.object(janitor, "utc_now", lambda: NOW), \
                     mock.patch("builtins.print"):
-                self.assertEqual(janitor.main(argv), 0)
-            return json.loads(out.read_text()), fake
+                self.assertEqual(janitor.main(argv), code)
+            return (json.loads(out.read_text()) if out.exists() else None), fake
 
     def compile_job(self):
         return {"status": "queued", "name": "cmux-next app compile (build fleet)", "labels": [self.FLEET],
@@ -1293,12 +1323,16 @@ class StarvedLabelSnapshotTests(unittest.TestCase):
         snapshot, _ = self.snapshot([run], {run["id"]: [self.compile_job()]})
         self.assertEqual([entry["label"] for entry in snapshot["starved"]], [self.FLEET])
 
-    def test_a_failed_listing_marks_the_result_incomplete(self):
+    def test_a_failed_listing_skips_its_run_and_marks_the_snapshot_partial(self):
+        # One run's listing failing (after its retries) skips that run, as any run's does: the snapshot is
+        # still written, so the cascade reading it is never left without one, and it names the unread run.
+        # 2026-10-26 08:08Z: one 502 ended the sweep and the snapshot went stale.
         run = make_run(path=".github/workflows/cmux-next.yml", name="cmux-next", branch="lane/x")
         run["pull_requests"] = [{"number": 7, "base": {"ref": self.NEXT}}]
         snapshot, _ = self.snapshot([run], {run["id"]: [self.compile_job()]}, fail_jobs={run["id"]})
+        self.assertIs(snapshot["starved_incomplete"], True)
+        self.assertEqual(snapshot[janitor.UNREAD_RUNS_KEY], [run["id"]])
         self.assertEqual(snapshot["starved"], [])
-        self.assertTrue(snapshot["starved_incomplete"])
 
     def test_a_complete_listing_is_not_marked_incomplete(self):
         run = make_run(path=".github/workflows/cmux-next.yml", name="cmux-next", branch="lane/x")
@@ -1369,6 +1403,175 @@ class OwnedMarkerListingSweepTests(unittest.TestCase):
         listed = {int(path.split("/")[-2]) for method, path in fake.log
                   if path.split("?")[0].endswith("/artifacts") and "/runs/" in path}
         self.assertEqual(listed, {started["id"], rerun["id"]})
+
+
+class TransientFailureTests(unittest.TestCase):
+    """2026-10-26 08:08Z: one 502 on a run's job listing ended the sweep before the pool snapshot was
+    written, so the cascade read no snapshot and sent no job to Blacksmith."""
+
+    def urlopen(self, failures):
+        import email.message
+
+        class Response(io.BytesIO):
+            headers = email.message.Message()
+
+        sent = []
+
+        def urlopen(request, timeout=30):
+            sent.append(request.get_method())
+            if failures:
+                raise failures.pop(0)
+            return Response(b'{"ok": true}')
+        return urlopen, sent
+
+    def bad_gateway(self):
+        import email.message
+        return urllib.error.HTTPError("https://api.github.com/x", 502, "Bad Gateway", email.message.Message(), None)
+
+    def test_a_read_is_made_again_after_a_5xx_or_a_dropped_connection(self):
+        github = janitor.GitHub("t", "manaflow-ai/cmux")
+        failures = [self.bad_gateway(), urllib.error.URLError("Connection reset by peer")]
+        urlopen, sent = self.urlopen(failures)
+        delays = []
+        with mock.patch.object(janitor.urllib.request, "urlopen", urlopen), \
+                mock.patch.object(janitor.time, "sleep", delays.append), mock.patch("builtins.print"):
+            self.assertEqual(github.request("GET", "/repos/manaflow-ai/cmux/actions/runs/1/jobs"), {"ok": True})
+        self.assertEqual(sent, ["GET"] * 3)
+        self.assertEqual(delays, list(janitor.RETRY_DELAYS))
+
+    def test_retries_are_bounded_and_writes_are_not_made_again(self):
+        github = janitor.GitHub("t", "manaflow-ai/cmux")
+        urlopen, sent = self.urlopen([self.bad_gateway() for _ in range(5)])
+        with mock.patch.object(janitor.urllib.request, "urlopen", urlopen), \
+                mock.patch.object(janitor.time, "sleep", lambda _: None), mock.patch("builtins.print"):
+            with self.assertRaisesRegex(RuntimeError, r"failed \(502\)"):
+                github.request("GET", "/repos/manaflow-ai/cmux/actions/runs/1/jobs")
+            self.assertEqual(len(sent), len(janitor.RETRY_DELAYS) + 1)
+            sent.clear()
+            with self.assertRaisesRegex(RuntimeError, r"failed \(502\)"):
+                github.request("POST", "/repos/manaflow-ai/cmux/actions/runs/1/rerun-failed-jobs")
+            self.assertEqual(sent, ["POST"])
+            # A GraphQL query only reads.
+            urlopen, sent = self.urlopen([self.bad_gateway()])
+            with mock.patch.object(janitor.urllib.request, "urlopen", urlopen):
+                github.request("POST", "/graphql", {"query": "{ viewer { login } }"})
+            self.assertEqual(sent, ["POST", "POST"])
+
+    def test_one_unreadable_run_still_writes_the_snapshot_and_the_sweep_decides_nothing(self):
+        unreadable = make_run(status="queued", branch="unreadable")
+        started = make_run(branch="started")
+        # A queued run so old a full sweep cancels it as an orphan.
+        stuck = make_run(status="queued", age=340, branch="ci/stuck")
+        runs = {r["id"]: dict(r) for r in (unreadable, started, stuck)}
+        fake = FakeGitHub(runs, {unreadable["id"]: mac_jobs(queued=1), started["id"]: mac_jobs(queued=1),
+                                 stuck["id"]: [linux_job(age=330), orphan_job(age=220)]})
+        pending = [{"run_id": 99, "attempt": 1, "cancelled_at": iso(5)}]
+        fake.snapshots = [{"generated_at": iso(10), janitor.LOST_RERUNS_KEY: pending}]
+        for unreadable_ids, decides in (({unreadable["id"]}, False),):
+            fake.unreadable_jobs = unreadable_ids
+            fake.log.clear()
+            with self.subTest(unreadable=unreadable_ids), tempfile.TemporaryDirectory() as temp:
+                load = Path(temp) / "load.json"
+                argv = ["--repo", "manaflow-ai/cmux", "--pool-load", str(load),
+                        "--summary", str(Path(temp) / "summary.md"), "--workflows-dir", str(Path(temp) / "none")]
+                with mock.patch.object(janitor, "GitHub", lambda token, repo, fallback_token="": fake), \
+                        mock.patch.object(janitor, "previous_lost_reruns", lambda github: list(pending)), \
+                        mock.patch.dict("os.environ", {"GH_TOKEN": "t"}), \
+                        mock.patch.object(janitor.time, "sleep", lambda _: None), \
+                        mock.patch.object(janitor, "utc_now", lambda: NOW), \
+                        mock.patch("builtins.print"):
+                    janitor.main(argv)
+                snapshot = json.loads(load.read_text())
+                self.assertIn("generated_at", snapshot)
+                if decides:
+                    self.assertNotIn(janitor.UNREAD_RUNS_KEY, snapshot)
+                    self.assertTrue(any(method == "POST" for method, _ in fake.log))
+                    continue
+                self.assertEqual(snapshot[janitor.UNREAD_RUNS_KEY], [unreadable["id"]])
+                # No cancel, re-run or orphan cancel on a partial inventory; the pending re-run waits.
+                self.assertEqual([path for method, path in fake.log if method == "POST" and path != "/graphql"], [])
+                self.assertEqual(snapshot[janitor.LOST_RERUNS_KEY], pending)
+
+    def test_a_dropped_or_truncated_response_is_made_again(self):
+        import http.client
+        github = janitor.GitHub("t", "manaflow-ai/cmux")
+        for error in (http.client.IncompleteRead(b"{"), http.client.BadStatusLine(""),
+                      http.client.RemoteDisconnected("closed"), TimeoutError("timed out")):
+            urlopen, sent = self.urlopen([error])
+            with self.subTest(error=type(error).__name__), \
+                    mock.patch.object(janitor.urllib.request, "urlopen", urlopen), \
+                    mock.patch.object(janitor.time, "sleep", lambda _: None), mock.patch("builtins.print"):
+                self.assertEqual(github.request("GET", "/repos/manaflow-ai/cmux/actions/runs/1/jobs"), {"ok": True})
+                self.assertEqual(len(sent), 2)
+        # Truncated while reading the body, not while opening it.
+        import email.message
+
+        class Truncated(io.BytesIO):
+            headers = email.message.Message()
+
+            def read(self, *args):
+                raise http.client.IncompleteRead(b"{")
+
+        calls = []
+
+        def urlopen(request, timeout=30):
+            calls.append(1)
+            return Truncated(b"") if len(calls) == 1 else self.urlopen([])[0](request)
+        with mock.patch.object(janitor.urllib.request, "urlopen", urlopen), \
+                mock.patch.object(janitor.time, "sleep", lambda _: None), mock.patch("builtins.print"):
+            self.assertEqual(github.request("GET", "/repos/manaflow-ai/cmux/actions/runs/1/jobs"), {"ok": True})
+        self.assertEqual(len(calls), 2)
+
+    def test_a_partial_inventory_asserts_no_starved_label(self):
+        # The unreadable run holds the only running job on a fleet label; another run's job queued there
+        # would read as starved. Nothing is asserted from a partial inventory, and nothing is closed.
+        label = "glaeda-side-std-xcode-26.6"
+        running = make_run(branch="running")
+        waiting = make_run(status="queued", age=120, branch="waiting")
+        runs = {r["id"]: dict(r) for r in (running, waiting)}
+        jobs = {running["id"]: [{"status": "in_progress", "name": "compile", "labels": [label], "created_at": iso(90),
+                                 "started_at": iso(1), "runner_name": "mini-1"}],
+                waiting["id"]: [{"status": "queued", "name": "compile", "labels": [label], "created_at": iso(100)}]}
+        fake = FakeGitHub(runs, jobs)
+        fake.unreadable_jobs = {running["id"]}
+        fake.completed_runs = lambda workflow, since: []
+        with tempfile.TemporaryDirectory() as temp:
+            load = Path(temp) / "load.json"
+            argv = ["--repo", "manaflow-ai/cmux", "--dry-run", "--pool-load", str(load),
+                    "--summary", str(Path(temp) / "summary.md"), "--workflows-dir", str(Path(temp) / "none")]
+            with mock.patch.object(janitor, "GitHub", lambda token, repo, fallback_token="": fake), \
+                    mock.patch.dict("os.environ", {"GH_TOKEN": "t"}), \
+                    mock.patch.object(janitor.time, "sleep", lambda _: None), \
+                    mock.patch.object(janitor, "utc_now", lambda: NOW), \
+                    mock.patch("builtins.print"):
+                janitor.main(argv)
+            snapshot = json.loads(load.read_text())
+        self.assertEqual(snapshot["starved"], [])
+        self.assertIs(snapshot["starved_incomplete"], True)
+        plan = janitor.starved_labels.plan_issues(snapshot["starved"], [
+            {"number": 5, "title": janitor.starved_labels.issue_title(label), "updated_at": iso(60)}],
+            incomplete=True)
+        self.assertEqual((plan.open, plan.update, plan.close), ([], [], []))
+
+    def test_a_rate_limit_still_ends_the_sweep(self):
+        run = make_run(status="queued", branch="limited")
+
+        class Limited(FakeGitHub):
+            def jobs(self, run_id):
+                raise janitor.RateLimited("GET /jobs failed (403: rate limit)")
+
+        fake = Limited({run["id"]: dict(run)}, {})
+        with self.assertRaises(janitor.RateLimited):
+            janitor.read_run_jobs(fake, [run], frozenset(), NOW)
+        # Nor is it swallowed as missing evidence: the starved-label evidence listing re-raises it.
+        evidence = Limited({run["id"]: dict(run)}, {})
+        evidence.completed_runs = lambda workflow, since: (_ for _ in ()).throw(
+            janitor.RateLimited("GET /runs failed (403: rate limit)"))
+        fleet = make_run(status="queued", branch="fleet")
+        jobs = {fleet["id"]: [{"status": "queued", "name": "compile", "labels": ["glaeda-side-std-xcode-26.6"],
+                               "created_at": iso(100)}]}
+        with self.assertRaises(janitor.RateLimited):
+            janitor.starved_result(evidence, [fleet], jobs, {}, now=NOW)
 
 
 class RateLimitTests(unittest.TestCase):
@@ -2433,6 +2636,302 @@ class UnclaimedLegSweepTests(unittest.TestCase):
             self.sweep(fake, temp)
         self.assertEqual(fake.snapshots[-1]["wait_p90_seconds"], {SIDE: 12 * 60})
         self.assertEqual(fake.posts(), [])
+
+
+NEXT_PATH = ".github/workflows/cmux-next.yml"
+NEXT_BRANCH = "feat-cmux-" + "next"
+LARGE_MAC = "blacksmith-12vcpu-macos-26"
+
+
+def next_pr_run(*, branch="steer-default-2/new-chat-default-mode", sha="5353d57a", prs=True, age=95,
+                attempt=1, actor="leo", status="queued"):
+    """Run 40259152940: a cmux-next pull request run into feat-cmux-next, from this repository."""
+    run = make_run(path=NEXT_PATH, name="cmux-next", branch=branch, sha=sha, age=age, attempt=attempt,
+                   status=status)
+    run["pull_requests"] = [{"number": 24021, "base": {"ref": NEXT_BRANCH}}] if prs else []
+    run["head_repository"]["id"] = 1
+    run["repository"] = {"id": 1, "full_name": "manaflow-ai/cmux"}
+    run["triggering_actor"] = {"login": actor}
+    return run
+
+
+def fast_tier_leg(*, age=90, label=LARGE_MAC):
+    return unassigned_job(age=age, label=label, name="cmux-next fast tier")
+
+
+def finished_sibling(*, conclusion="success"):
+    job = started_job(age=100, label=LINUX, status="completed", conclusion=conclusion)
+    job["completed_at"] = iso(95)
+    return job
+
+
+class BranchCopyListingTests(unittest.TestCase):
+    """main's cmux-next.yml is an inert registration; feat-cmux-next's runs put Mac jobs on Blacksmith macOS."""
+
+    LINUX_ONLY = frozenset({NEXT_PATH})
+
+    def test_runs_that_follow_feat_cmux_next_are_listed(self):
+        into_next = next_pr_run()
+        push = make_run(event="push", path=NEXT_PATH, branch=NEXT_BRANCH)
+        landed = next_pr_run(prs=False)
+        for run in (into_next, push, landed):
+            with self.subTest(run=run["event"], prs=run["pull_requests"]):
+                self.assertTrue(janitor.needs_jobs(run, self.LINUX_ONLY, NOW))
+
+    def test_runs_that_follow_main_or_a_fork_stay_unlisted(self):
+        into_main = next_pr_run()
+        into_main["pull_requests"] = [{"number": 7, "base": {"ref": "main"}}]
+        fork = next_pr_run(prs=False)
+        fork["head_repository"]["id"] = 2
+        unknown = make_run(path=NEXT_PATH)  # no repository ids: nothing says it is this repository's
+        for run in (into_main, fork, unknown):
+            with self.subTest(run=run["pull_requests"], head=run["head_repository"]):
+                self.assertFalse(janitor.needs_jobs(run, self.LINUX_ONLY, NOW))
+
+    def sweep(self, runs, jobs, prs=None):
+        fake = FakeGitHub({run["id"]: dict(run) for run in runs}, jobs)
+        fake.prs = dict(prs or {})
+        with tempfile.TemporaryDirectory() as temp:
+            workflows = Path(temp) / "workflows"
+            workflows.mkdir()
+            (workflows / "cmux-next.yml").write_text("name: cmux-next\non:\n  workflow_dispatch:\n")
+            out, summary = Path(temp) / "pool.json", Path(temp) / "summary.md"
+            argv = ["--repo", "manaflow-ai/cmux", "--summary", str(summary), "--workflows-dir", str(workflows),
+                    "--pool-load", str(out)]
+            with mock.patch.object(janitor, "GitHub", lambda token, repo, fallback_token="": fake), \
+                    mock.patch.dict("os.environ", {"GH_TOKEN": "t"}), \
+                    mock.patch.object(janitor.time, "sleep", lambda _: None), \
+                    mock.patch.object(janitor, "utc_now", lambda: NOW), \
+                    mock.patch("builtins.print"):
+                self.assertEqual(janitor.main(argv), 0)
+            return json.loads(out.read_text()), fake
+
+    def test_run_40259152940_the_snapshot_counts_cmux_next_blacksmith_queue(self):
+        # At 02:32Z the cascade counted 2 queued on the 12 vCPU label; cmux-next's own jobs there were missing.
+        runs, jobs = [], {}
+        for index in range(10):
+            run = next_pr_run(branch=f"lane/{index}", sha=f"s{index}", age=30 + index)
+            runs.append(run)
+            jobs[run["id"]] = [fast_tier_leg(age=20 + index)]
+        prs = {run["head_branch"]: [make_pr(100 + index, head=run["head_sha"])] for index, run in enumerate(runs)}
+        snapshot, _ = self.sweep(runs, jobs, prs)
+        self.assertEqual(snapshot["pools"][LARGE_MAC]["queued"], 10)
+        self.assertEqual(snapshot["pools"][LARGE_MAC]["oldest_queued_minutes"], 29)
+
+    def test_run_40259152940_is_cancelled_once_its_pull_request_landed(self):
+        run = next_pr_run(prs=False)
+        jobs = {run["id"]: [fast_tier_leg(), finished_sibling(conclusion="failure")]}
+        _, fake = self.sweep([run], jobs, {run["head_branch"]: [make_pr(24021, state="MERGED", head=run["head_sha"])]})
+        self.assertEqual(fake.posts(), [[str(run["id"]), "cancel"]])
+
+
+class BlacksmithLegTests(unittest.TestCase):
+    """Category f moves a cmux-next leg off a Blacksmith macOS label no runner serves, by an App's re-run."""
+
+    def world(self, *, age=30, label=LARGE_MAC, attempt=1, actor="leo", path=NEXT_PATH, siblings=None):
+        run = next_pr_run(attempt=attempt, actor=actor, age=age + 10)
+        run["path"] = path
+        jobs = {run["id"]: [fast_tier_leg(age=age, label=label), *(siblings or [finished_sibling()])]}
+        # The sibling finished 95 minutes ago; the leg could run from its own creation.
+        return run, jobs
+
+    def plan(self, run, jobs, *, app_rerun=True):
+        prs = {run["head_branch"]: [make_pr(24021, head=run["head_sha"])]}
+        unclaimed = janitor.find_unclaimed([run], jobs, now=NOW, blacksmith_legs=True)
+        return janitor.build_plan([run], jobs, prs, threshold=6, max_cancels=10, pull_request_policy="compile-only",
+                                  now=NOW, unclaimed=unclaimed, branch_heads={}, app_rerun=app_rerun)
+
+    def test_a_leg_waiting_past_the_cascades_stall_wait_is_unclaimed(self):
+        run, jobs = self.world(age=26)
+        found = janitor.find_unclaimed([run], jobs, now=NOW, blacksmith_legs=True)
+        self.assertEqual(found[run["id"]].pool, LARGE_MAC)
+        self.assertTrue(found[run["id"]].blacksmith)
+        self.assertEqual(found[run["id"]].bound_seconds, 25 * 60)
+        run, jobs = self.world(age=24)
+        self.assertEqual(janitor.find_unclaimed([run], jobs, now=NOW, blacksmith_legs=True), {})
+
+    def test_only_cmux_next_legs_with_owned_pools_on_count(self):
+        run, jobs = self.world(age=60)
+        self.assertEqual(janitor.find_unclaimed([run], jobs, now=NOW), {})
+        run, jobs = self.world(age=60, path=TUI)
+        self.assertEqual(janitor.find_unclaimed([run], jobs, now=NOW, blacksmith_legs=True), {})
+        run, jobs = self.world(age=60, label="macos-26")
+        self.assertEqual(janitor.find_unclaimed([run], jobs, now=NOW, blacksmith_legs=True), {})
+
+    def test_it_is_cancelled_for_an_apps_re_run(self):
+        run, jobs = self.world(age=40)
+        decision = decision_for(self.plan(run, jobs), run)
+        self.assertEqual((decision.action, decision.candidate.category), ("cancel", "unclaimed"))
+        self.assertTrue(decision.candidate.rerun)
+        self.assertTrue(decision.candidate.app_actor)
+        entries = janitor.new_lost_reruns([decision.candidate], {run["id"]: "cancelled"}, now=NOW)
+        self.assertEqual([entry.get("app_actor") for entry in entries], [True])
+
+    def test_a_rescue_attempt_counts_but_not_past_its_ladder(self):
+        run, jobs = self.world(age=40, attempt=2, actor="github-actions[bot]")
+        self.assertEqual(decision_for(self.plan(run, jobs), run).action, "cancel")
+        run, jobs = self.world(age=40, attempt=janitor.rescue.REFUSAL_RESCUE_ATTEMPT + 1, actor="github-actions[bot]")
+        decision = decision_for(self.plan(run, jobs), run)
+        self.assertEqual(decision.action, "skip")
+        self.assertIn("ladder", decision.note)
+
+    def test_without_an_app_token_it_is_left_alone(self):
+        run, jobs = self.world(age=40)
+        decision = decision_for(self.plan(run, jobs, app_rerun=False), run)
+        self.assertEqual(decision.action, "skip")
+        self.assertIn("App", decision.note)
+
+    def test_a_failed_run_is_still_never_re_run(self):
+        run, jobs = self.world(age=40, siblings=[finished_sibling(conclusion="failure")])
+        self.assertEqual(decision_for(self.plan(run, jobs), run).action, "skip")
+
+    def test_an_app_entry_waits_for_an_app_token(self):
+        run = next_pr_run(status="completed")
+        run["conclusion"] = "cancelled"
+        entry = {**pending_entry(run), "app_actor": True}
+        prs = {run["head_branch"]: [make_pr(24021, head=run["head_sha"])]}
+        for app_token, action in ((False, "keep"), (True, "rerun")):
+            with self.subTest(app_token=app_token):
+                decisions = janitor.plan_lost_reruns([entry], {run["id"]: run}, prs, now=NOW,
+                                                     head_runs={run["id"]: []}, app_token=app_token)
+                self.assertEqual([d.action for d in decisions], [action])
+
+    def test_an_app_only_re_run_never_falls_back_to_the_workflow_token(self):
+        github = janitor.GitHub("app", "manaflow-ai/cmux", fallback_token="workflow")
+        self.assertTrue(github.app_token)
+        refused = urllib.error.HTTPError("https://api.github.com/x", 403, "Forbidden", email.message.Message(),
+                                         io.BytesIO(b"{}"))
+        with mock.patch.object(janitor.urllib.request, "urlopen", side_effect=refused), \
+                mock.patch("builtins.print"):
+            with self.assertRaises(RuntimeError):
+                github.rerun_failed(1, app_only=True)
+        self.assertTrue(github.app_token)
+        self.assertEqual(github.headers["Authorization"], "Bearer app")
+        workflow_only = janitor.GitHub("workflow", "manaflow-ai/cmux", fallback_token="workflow")
+        self.assertFalse(workflow_only.app_token)
+        with self.assertRaises(RuntimeError):
+            workflow_only.rerun_failed(1, app_only=True)
+
+    def test_sweeps_cancel_then_re_run_it_once_as_an_app(self):
+        run, jobs = self.world(age=40)
+        fake = FakeGitHub({run["id"]: dict(run)}, jobs)
+        fake.app_token = True
+        fake.prs[run["head_branch"]] = [make_pr(24021, head=run["head_sha"])]
+        with tempfile.TemporaryDirectory() as temp, mock.patch.dict("os.environ", {"PR_POOL_OWNED": "1"}):
+            code, text = LostAssignmentSweepTests.sweep(self, fake, temp)
+            self.assertEqual(code, 0)
+            self.assertEqual(fake.posts(), [[str(run["id"]), "cancel"]])
+            self.assertEqual([entry.get("app_actor") for entry in fake.snapshots[-1]["lost_reruns"]], [True])
+            fake.runs[run["id"]].update(status="completed", conclusion="cancelled")
+            fake.log.clear()
+            LostAssignmentSweepTests.sweep(self, fake, temp)
+            self.assertEqual(fake.posts(), [[str(run["id"]), "rerun-failed-jobs"]])
+            self.assertEqual(len(fake.app_only_posts), 1)
+            self.assertEqual(fake.runs[run["id"]]["triggering_actor"], {"login": "cmux-bot[bot]"})
+            self.assertEqual(fake.snapshots[-1]["lost_reruns"], [])
+
+    def test_a_bots_attempt_category_e_leaves_is_moved_by_category_f(self):
+        run, jobs = self.world(age=40, attempt=2, actor="github-actions[bot]")
+        other = make_run(path=NEXT_PATH, name="cmux-next", branch="lane/other", status="in_progress", age=20)
+        jobs[other["id"]] = [started_job(age=10, label=LARGE_MAC)]
+        lost = janitor.find_lost([run, other], jobs, now=NOW)
+        unclaimed = janitor.find_unclaimed([run, other], jobs, now=NOW, lost=lost, blacksmith_legs=True)
+        self.assertEqual((sorted(lost), sorted(unclaimed)), ([run["id"]], [run["id"]]))
+        prs = {run["head_branch"]: [make_pr(24021, head=run["head_sha"])], "lane/other": [make_pr(9)]}
+        result = janitor.build_plan([run, other], jobs, prs, threshold=6, max_cancels=10,
+                                    pull_request_policy="compile-only", now=NOW, lost=lost, unclaimed=unclaimed,
+                                    branch_heads={}, app_rerun=True)
+        decision = decision_for(result, run)
+        self.assertEqual((decision.action, decision.candidate.category), ("cancel", "unclaimed"))
+        self.assertTrue(decision.candidate.app_actor)
+
+    def test_a_lost_gui_job_on_blacksmith_also_needs_an_app(self):
+        run, jobs = self.world(age=40)
+        jobs[run["id"]][0]["name"] = "cmux-next swift test"
+        jobs[run["id"]][0]["labels"] = ["blacksmith-6vcpu-macos-26"]
+        other = make_run(path=NEXT_PATH, name="cmux-next", branch="lane/other", status="in_progress", age=20)
+        jobs[other["id"]] = [started_job(age=10, label="blacksmith-6vcpu-macos-26")]
+        lost = janitor.find_lost([run, other], jobs, now=NOW)
+        prs = {run["head_branch"]: [make_pr(24021, head=run["head_sha"])], "lane/other": [make_pr(9)]}
+        result = janitor.build_plan([run, other], jobs, prs, threshold=6, max_cancels=10,
+                                    pull_request_policy="compile-only", now=NOW, lost=lost, unclaimed={},
+                                    branch_heads={}, app_rerun=False)
+        self.assertEqual(decision_for(result, run).action, "skip")
+
+    def test_a_feat_cmux_next_push_is_never_an_orphan_to_cancel(self):
+        push = make_run(event="push", path=NEXT_PATH, name="cmux-next", branch=NEXT_BRANCH)
+        self.assertIn("push to", janitor.orphan_protected_reason(push))
+        main_push = make_run(event="push", path=".github/workflows/ci.yml", branch="main")
+        self.assertIsNone(janitor.orphan_protected_reason(main_push))
+
+    def test_only_same_repository_pull_request_cascade_jobs_count(self):
+        run, jobs = self.world(age=60)
+        self.assertIsNotNone(janitor.blacksmith_leg(run, jobs[run["id"]][0]))
+        fork, jobs = self.world(age=60)
+        fork["head_repository"]["id"] = 2
+        self.assertEqual(janitor.find_unclaimed([fork], jobs, now=NOW, blacksmith_legs=True), {})
+        dispatch, jobs = self.world(age=60)
+        dispatch["event"] = "workflow_dispatch"
+        self.assertEqual(janitor.find_unclaimed([dispatch], jobs, now=NOW, blacksmith_legs=True), {})
+        run, jobs = self.world(age=60)
+        jobs[run["id"]][0]["name"] = "cmux-next swift test"
+        self.assertEqual(janitor.find_unclaimed([run], jobs, now=NOW, blacksmith_legs=True), {})
+
+    def test_a_lost_blacksmith_leg_is_re_run_only_by_an_app(self):
+        # Category e can hold the run first (a newer job on the same label started): its re-run needs an App too.
+        run, jobs = self.world(age=40)
+        other = make_run(path=NEXT_PATH, name="cmux-next", branch="lane/other", status="in_progress", age=20)
+        newer = started_job(age=10, label=LARGE_MAC)
+        jobs[other["id"]] = [newer]
+        lost = janitor.find_lost([run, other], jobs, now=NOW)
+        self.assertEqual(sorted(lost), [run["id"]])
+        prs = {run["head_branch"]: [make_pr(24021, head=run["head_sha"])], "lane/other": [make_pr(9)]}
+        for app_rerun, action in ((False, "skip"), (True, "cancel")):
+            with self.subTest(app_rerun=app_rerun):
+                result = janitor.build_plan([run, other], jobs, prs, threshold=6, max_cancels=10,
+                                            pull_request_policy="compile-only", now=NOW, lost=lost, unclaimed={},
+                                            branch_heads={}, app_rerun=app_rerun)
+                decision = decision_for(result, run)
+                self.assertEqual((decision.action, decision.candidate.category), (action, "lost"))
+                self.assertTrue(decision.candidate.app_actor or action == "skip")
+
+
+class InFlightRunListingTests(unittest.TestCase):
+    """A status-filtered runs page can come back short before the last one (2026-10-26: 99, then 85, of 182)."""
+
+    def listing(self, pages, *, total=True):
+        github = janitor.GitHub("token", "manaflow-ai/cmux")
+        asked = []
+
+        def request(method, path, body=None):
+            query = urllib.parse.parse_qs(path.split("?", 1)[1])
+            status, page = query["status"][0], int(query["page"][0])
+            asked.append((status, page))
+            batch = pages.get(status, {}).get(page, [])
+            count = sum(len(rows) for rows in pages.get(status, {}).values())
+            return {"workflow_runs": batch, **({"total_count": count} if total else {})}
+
+        github.request = request
+        return {run["id"] for run in github.in_flight_runs()}, asked
+
+    def test_a_short_first_page_does_not_hide_the_older_queued_runs(self):
+        queued = {1: [{"id": index} for index in range(99)], 2: [{"id": 1000 + index} for index in range(85)]}
+        ids, asked = self.listing({"queued": queued})
+        self.assertEqual(len(ids), 184)
+        self.assertIn(1084, ids)
+        self.assertIn(("queued", 3), asked)
+
+    def test_only_an_empty_page_or_the_page_cap_ends_a_status(self):
+        # A page repeating rows reaches total_count by row count while run 3 is still unread.
+        ids, asked = self.listing({"queued": {1: [{"id": 1}, {"id": 2}], 2: [{"id": 2}, {"id": 3}]}})
+        self.assertEqual(ids, {1, 2, 3})
+        self.assertEqual([page for status, page in asked if status == "queued"], [1, 2, 3])
+        ids, asked = self.listing({"queued": {1: [{"id": 1}], 3: [{"id": 3}]}}, total=False)
+        self.assertEqual(ids, {1})
+        self.assertEqual([page for status, page in asked if status == "queued"], [1, 2])
+        pages = {page: [{"id": page * 1000 + index} for index in range(100)] for page in range(1, 5)}
+        ids, asked = self.listing({"queued": pages})
+        self.assertEqual(len(ids), 100 * janitor.MAX_RUN_PAGES)
 
 
 if __name__ == "__main__":

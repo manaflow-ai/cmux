@@ -975,6 +975,19 @@ class Rescuing(unittest.TestCase):
         self.assertEqual(result, "not rescued: too little of the job left to cancel and re-run")
         self.assertNotIn("cancel", api.calls)
 
+    def test_no_cancel_starts_without_time_for_the_rate_limit_waits_too(self):
+        # A watch that may still wait out rate limits needs that time on top of the settle.
+        clock = Clock()
+        api = FakeAPI(clock, persistent_run(), marker=True)
+        api.rate_limit_waited = 0.0
+        target = rescue.Target(run_id=555, attempt=1, head_sha=HEAD, pr_number=7)
+        deadline = clock.now() + rescue.dt.timedelta(
+            seconds=rescue.CANCEL_WAIT_SECONDS + rescue.RERUN_MARGIN_SECONDS + rescue.RATE_LIMIT_WAIT_SECONDS - 1)
+        result = rescue.rescue(api, target, now=clock.now, sleep=clock.sleep, log=lambda _: None,
+                               deadline=deadline)
+        self.assertEqual(result, "not rescued: too little of the job left to cancel and re-run")
+        self.assertNotIn("cancel", api.calls)
+
     def test_a_refused_force_cancel_keeps_waiting(self):
         # The run can settle between the read and the POST, and GitHub then
         # refuses the force-cancel; the next read sees it finished.
@@ -999,6 +1012,23 @@ class Rescuing(unittest.TestCase):
         self.assertGreaterEqual(clock.seconds - api.cancelled_at, rescue.CANCEL_WAIT_SECONDS)
         self.assertNotIn("rerun", api.calls)
         self.assertIn("did not finish", summary)
+
+    def test_rate_limit_waits_do_not_end_the_settle_window(self):
+        # A force-cancel that waited 15 minutes through a rate limit must not cost the re-run:
+        # only the run's own settling counts toward CANCEL_WAIT_SECONDS.
+        clock = Clock()
+        api = FakeAPI(clock, persistent_run(), marker=True, settles_after=rescue.CANCEL_WAIT_SECONDS + 600)
+        api.rate_limit_waited = 0.0
+
+        def limited_force_cancel(run_id):
+            api.calls.append("force-cancel")
+            if api.rate_limit_waited == 0.0:
+                clock.sleep(rescue.RATE_LIMIT_WAIT_SECONDS)
+                api.rate_limit_waited = float(rescue.RATE_LIMIT_WAIT_SECONDS)
+        api.force_cancel = limited_force_cancel
+        code, summary = run_main(api, clock)
+        self.assertEqual(code, 0, summary)
+        self.assertIn("rerun", api.calls)
 
 
 def e2e_event(**overrides):
@@ -1760,19 +1790,19 @@ class Nightly(unittest.TestCase):
         for why, payload in cases.items():
             self.assertIsInstance(rescue.target_from_event(payload, "manaflow-ai/cmux"), str, why)
 
-    def test_next_push_is_watched_and_superseded_only_by_next(self):
+    def test_a_newer_next_push_never_cancels_this_one(self):
+        # Each nightly-next run builds in its own groups, so a newer tip builds alongside this one.
         payload = nightly_event(head_branch="nightly-next")
         target = rescue.target_from_event(payload, "manaflow-ai/cmux")
         self.assertIsInstance(target, rescue.Target)
         self.assertEqual(target.push_branch, "nightly-next")
         clock = Clock()
-        api = NightlyAPI(clock, nightly_run(), newer=[RUN_ID + 7])
-        _, summary = run_main(api, clock, payload=payload, env_extra={"RESCUE_SECONDS": "30"})
-        self.assertIn("cancel", api.calls)
-        self.assertNotIn("rerun-failed", api.calls)
-        self.assertIn("newer:nightly-next", api.calls)
-        self.assertNotIn("newer:main", api.calls)
-        self.assertIn("a newer nightly run on nightly-next", summary)
+        api = NightlyAPI(clock, nightly_run(refused_at=60), finished=lambda s: s >= 200,
+                         newer=[RUN_ID + 7], head="b" * 40, pushes=[RUN_ID + 7])
+        run_main(api, clock, payload=payload, env_extra={"RESCUE_SECONDS": "30"})
+        self.assertNotIn("cancel", api.calls)
+        self.assertNotIn("newer:nightly-next", api.calls)
+        self.assertEqual(api.calls[-1], "rerun-failed")
 
     def test_next_refusal_moves_failed_jobs_to_blacksmith(self):
         clock = Clock()
@@ -1990,16 +2020,8 @@ class Nightly(unittest.TestCase):
         self.assertEqual(rescue.reserved_runner({"labels": [TRUSTED, "glaeda-runner-x"]}), "glaeda-runner-x")
         self.assertIsNone(rescue.reserved_runner({"labels": [TRUSTED]}))
 
-    def test_a_superseded_commit_is_never_rerun(self):
-        # nightly-next is never pending at the workflow level; the branch moved and a newer push run builds it.
-        clock = Clock()
-        api = NightlyAPI(clock, nightly_run(refused_at=60), finished=lambda s: s >= 200,
-                         head="b" * 40, pushes=[RUN_ID + 3])
-        _, summary = run_main(api, clock, payload=nightly_event(head_branch="nightly-next"))
-        self.assertNotIn("rerun-failed", api.calls)
-        self.assertNotIn("cancel", api.calls)
-        self.assertIn("nightly-next has moved on to bbbbbbbbbbbb", summary)
-        # The same on main: a newer push run that is already running or done, not pending.
+    def test_a_superseded_main_commit_is_never_rerun(self):
+        # On main: a newer push run that is already running or done, not pending.
         clock = Clock()
         api = NightlyAPI(clock, nightly_run(refused_at=60), finished=lambda s: s >= 200,
                          head="c" * 40, pushes=[RUN_ID + 4])
@@ -2468,9 +2490,27 @@ class Sweeper(unittest.TestCase):
             return {"workflow_runs": pages.get(page, [])}
         api.request = request
         self.assertEqual(api.failed_runs(2, START, since=START - dt.timedelta(minutes=30), pages=5), [(9, 1)])
-        self.assertEqual(len(seen), 2)
+        # Page 2 is short, which no longer ends the listing (failed_runs()): the empty page 3 does.
+        self.assertEqual(len(seen), 3)
         self.assertIn("status=failure", seen[0])
         self.assertIn("created=%3E%3D2026-09-24T12:00:00Z", seen[0])
+
+    def test_failed_runs_reads_past_a_short_page_while_the_total_says_more(self):
+        api = rescue.GitHub("token", "manaflow-ai/cmux")
+        side = ".github/workflows/cmux-next-base-autofix.yml"
+        pages = {1: [{"id": 9, "path": side, "run_attempt": 1, "updated_at": stamp(0)}],
+                 # A shifted listing repeats a row; it is listed once.
+                 2: [{"id": 9, "path": side, "run_attempt": 1, "updated_at": stamp(0)},
+                     {"id": 7, "path": side, "run_attempt": 2, "updated_at": stamp(0)}]}
+        seen = []
+
+        def request(method, path, **_):
+            page = int(path.split("&page=")[1].split("&")[0])
+            seen.append(page)
+            return {"workflow_runs": pages.get(page, []), "total_count": 2}
+        api.request = request
+        self.assertEqual(api.failed_runs(2, START, pages=5), [(9, 1), (7, 2)])
+        self.assertEqual(seen, [1, 2, 3])
 
     def test_the_session_label_is_an_owned_pool(self):
         # feat-cmux-next's session role (glaeda#1530): run 39638669325's Mac job asked for it.
@@ -2627,6 +2667,136 @@ class Tokens(unittest.TestCase):
             rescue.GitHub("repo-token", "o/r").run(1)
         self.assertEqual(seen, [("GET", "Bearer repo-token")])
 
+    def refusing(self, refusals):
+        """urlopen that refuses the first requests with `refusals` (code, headers, body), then answers {}."""
+        seen = []
+
+        class Response(io.BytesIO):
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc):
+                return False
+
+        def urlopen(request, timeout):
+            seen.append((request.get_method(), request.full_url, request.headers["Authorization"]))
+            if refusals:
+                code, headers, body = refusals.pop(0)
+                raise rescue.urllib.error.HTTPError(request.full_url, code, "refused", headers, io.BytesIO(body))
+            return Response(b"{}")
+        return seen, unittest.mock.patch.object(rescue.urllib.request, "urlopen", urlopen)
+
+    def test_a_re_run_refused_for_the_rate_limit_waits_and_is_sent_again(self):
+        # Run 40340830337: cancelled, then its re-run refused and never sent.
+        limited = b'{"message": "API rate limit exceeded for installation."}'
+        seen, patch = self.refusing([(403, {}, limited), (403, {}, limited), (429, {"Retry-After": "7"}, b"")])
+        waits = []
+        with patch:
+            api = rescue.GitHub("repo-token", "o/r", read_token="app-token")
+            api.sleep = waits.append
+            api.request("POST", "/actions/runs/7/rerun-failed-jobs")
+        self.assertEqual(waits, [60, 120, 7])
+        self.assertEqual([entry[:2] for entry in seen], [("POST", f"{rescue.API}/repos/o/r/actions/runs/7/rerun-failed-jobs")] * 4)
+        self.assertTrue(all(entry[2] == "Bearer repo-token" for entry in seen))
+
+    def test_an_app_read_refused_with_429_goes_on_github_token(self):
+        seen, patch = self.refusing([(429, {}, b"")])
+        with patch:
+            api = rescue.GitHub("repo-token", "o/r", read_token="app-token")
+            api.sleep = lambda seconds: None
+            api.run(1)
+            api.run(1)
+        self.assertEqual([entry[2] for entry in seen],
+                         ["Bearer app-token", "Bearer repo-token", "Bearer app-token"])
+
+    def test_the_sweeper_thread_never_waits(self):
+        limited = b'{"message": "secondary rate limit"}'
+        seen, patch = self.refusing([(403, {}, limited)])
+        waits = []
+        with patch:
+            api = rescue.GitHub("repo-token", "o/r")
+            api.sleep = waits.append
+            api.no_rate_limit_waits()
+            with self.assertRaises(rescue.urllib.error.HTTPError):
+                api.cancel(7)
+            other = []
+            worker = rescue.threading.Thread(target=lambda: other.append(api.rate_limit_waited))
+            worker.start()
+            worker.join()
+        self.assertEqual((len(seen), waits, other), (1, [], [0.0]))
+
+    def test_every_limiter_message_counts(self):
+        for said in ("You have exceeded a secondary rate limit", "You have triggered an abuse detection mechanism",
+                     "Too many requests"):
+            self.assertEqual(rescue.rate_limit_wait(403, {}, said, 0.0, 0), 60.0, said)
+        self.assertIsNone(rescue.rate_limit_wait(403, {}, "Resource not accessible by integration", 0.0, 0))
+
+    def test_a_spent_budget_waits_for_its_reset(self):
+        reset = str(int(rescue.time.time()) + 100)
+        seen, patch = self.refusing([(403, {"X-RateLimit-Remaining": "0", "X-RateLimit-Reset": reset}, b"{}")])
+        waits = []
+        with patch:
+            api = rescue.GitHub("repo-token", "o/r")
+            api.sleep = waits.append
+            api.cancel(7)
+        self.assertEqual(len(seen), 2)
+        self.assertTrue(100 <= waits[0] <= 106, waits)
+
+    def test_a_permission_403_is_not_waited_for(self):
+        seen, patch = self.refusing([(403, {}, b'{"message": "Resource not accessible by integration"}')])
+        waits = []
+        with patch:
+            api = rescue.GitHub("repo-token", "o/r")
+            api.sleep = waits.append
+            with self.assertRaises(rescue.urllib.error.HTTPError):
+                api.cancel(7)
+        self.assertEqual((len(seen), waits), (1, []))
+
+    def test_rate_limit_waits_are_bounded(self):
+        limited = b'{"message": "secondary rate limit"}'
+        seen, patch = self.refusing([(403, {}, limited)] * 50)
+        waits = []
+        with patch:
+            api = rescue.GitHub("repo-token", "o/r")
+            api.sleep = waits.append
+            with self.assertRaises(rescue.urllib.error.HTTPError):
+                api.cancel(7)
+        self.assertEqual(sum(waits), rescue.RATE_LIMIT_WAIT_SECONDS)
+        self.assertTrue(all(wait <= rescue.RATE_LIMIT_MAX_WAIT_SECONDS for wait in waits))
+
+    def test_an_app_read_refused_for_the_rate_limit_falls_back_then_waits(self):
+        limited = b'{"message": "API rate limit exceeded for installation."}'
+        seen, patch = self.refusing([(403, {}, limited), (403, {}, limited)])
+        waits = []
+        with patch:
+            api = rescue.GitHub("repo-token", "o/r", read_token="app-token")
+            api.sleep = waits.append
+            api.run(1)
+        self.assertEqual([entry[2] for entry in seen], ["Bearer app-token", "Bearer repo-token", "Bearer repo-token"])
+        self.assertEqual(waits, [60])
+
+    def test_each_watch_thread_has_its_own_rate_limit_budget(self):
+        limited = b'{"message": "secondary rate limit"}'
+        seen, patch = self.refusing([(403, {}, limited)] * 50)
+        with patch:
+            api = rescue.GitHub("repo-token", "o/r")
+            api.sleep = lambda seconds: None
+            with self.assertRaises(rescue.urllib.error.HTTPError):
+                api.cancel(7)
+            self.assertEqual(api.rate_limit_waited, rescue.RATE_LIMIT_WAIT_SECONDS)
+            other = []
+            worker = rescue.threading.Thread(target=lambda: other.append(api.rate_limit_waited))
+            worker.start()
+            worker.join()
+        self.assertEqual(other, [0.0])
+
+    def test_a_nightly_give_up_is_an_error_annotation(self):
+        nightly = rescue.Target(run_id=40340830337, attempt=1, head_sha=HEAD, pr_number=None, nightly=True)
+        self.assertTrue(rescue.gave_up(nightly, RuntimeError("HTTP Error 403")).startswith(
+            "::error title=nightly rescue::run 40340830337 gave up: HTTP Error 403"))
+        other = rescue.Target(run_id=1, attempt=1, head_sha=HEAD, pr_number=7)
+        self.assertEqual(rescue.gave_up(other, RuntimeError("x")), "gave up: x")
+
     def test_the_workflow_mints_a_read_only_token_and_passes_it(self):
         steps = yaml.safe_load((ROOT / ".github/workflows/ci-owned-pool-rescue.yml").read_text(
             encoding="utf-8"))["jobs"]["rescue"]["steps"]
@@ -2667,13 +2837,14 @@ class Workflow(unittest.TestCase):
         self.assertEqual(triggers["workflow_run"]["types"], ["requested"])
         self.assertEqual(
             triggers["workflow_run"]["workflows"],
-            ["iOS App Store screenshots", "Nightly macOS build"],
+            ["iOS App Store screenshots", "Nightly macOS build", "cmux NEXT DEV daily"],
         )
         self.assertNotIn("CI", triggers["workflow_run"]["workflows"])
         paths = self.doc["env"]["SOURCE_WORKFLOW_PATHS"].split()
         self.assertEqual(
             set(paths),
-            {rescue.IOS_SCREENSHOTS_WORKFLOW_PATH, rescue.NIGHTLY_WORKFLOW_PATH},
+            {rescue.IOS_SCREENSHOTS_WORKFLOW_PATH, rescue.NIGHTLY_WORKFLOW_PATH,
+             rescue.CMUX_NEXT_DEV_DAILY_WORKFLOW_PATH},
         )
         self.assertTrue(set(paths).isdisjoint(rescue.SIDE_WORKFLOW_PATHS))
         # workflow_run matches by display name: each source's `name:` is listed, and nothing else.
@@ -2690,6 +2861,8 @@ class Workflow(unittest.TestCase):
                      "startsWith(vars.CI_LIGHT_LANE_RUNNER, 'glaeda-side-')) || "
                      "github.event.workflow_run.path == '.github/workflows/ios-screenshots.yml' && "
                      "github.event.workflow_run.event == 'workflow_dispatch' || "
+                     "github.event.workflow_run.path == '.github/workflows/cmux-next-dev-daily.yml' && "
+                     "github.event.workflow_run.event == 'workflow_dispatch' || "
                      "github.event.workflow_run.path == '.github/workflows/nightly.yml' && "
                      "(github.event.workflow_run.event == 'push' || github.event.workflow_run.event == 'schedule') && "
                      "(github.event.workflow_run.head_branch == 'main' && "
@@ -2697,8 +2870,9 @@ class Workflow(unittest.TestCase):
                      "startsWith(vars.CI_NIGHTLY_TRUSTED_RUNNER, 'glaeda-runner-') || "
                      "github.event.workflow_run.head_branch == 'nightly-next' && "
                      "github.event.workflow_run.event == 'push' && "
+                     "(startsWith(vars.CI_SIDE_LANE_RUNNER, 'glaeda-side-') || "
                      "startsWith(vars.CI_NIGHTLY_NEXT_TRUSTED_POOL, 'glaeda-trusted-') && "
-                     "startsWith(vars.CI_NIGHTLY_NEXT_TRUSTED_RUNNER, 'glaeda-runner-'))) && "
+                     "startsWith(vars.CI_NIGHTLY_NEXT_TRUSTED_RUNNER, 'glaeda-runner-')))) && "
                      "github.event.workflow_run.head_repository.full_name == github.repository && "
                      "github.event.workflow_run.run_attempt == 1)"):
             self.assertIn(part, condition)
@@ -2778,6 +2952,10 @@ class Workflow(unittest.TestCase):
         watch = max(rescue.WATCH_LIMIT_SECONDS, rescue.E2E_WATCH_LIMIT_SECONDS)
         # A cancel starts only with CANCEL_WAIT + RERUN_MARGIN left of the grace.
         self.assertGreater(rescue.RESCUE_GRACE_SECONDS, rescue.CANCEL_WAIT_SECONDS + rescue.RERUN_MARGIN_SECONDS)
+        # A handover joins its rescues for the grace: it holds a whole cancel, its re-run and the
+        # watch's rate-limit waits, so the process never exits with a run cancelled and not re-run.
+        self.assertGreaterEqual(rescue.RESCUE_GRACE_SECONDS, rescue.CANCEL_WAIT_SECONDS + rescue.RERUN_MARGIN_SECONDS
+                                + rescue.RATE_LIMIT_WAIT_SECONDS)
         self.assertLessEqual(watch + rescue.RESCUE_GRACE_SECONDS,
                              rescue.JOB_TIMEOUT_SECONDS - rescue.JOB_TIMEOUT_MARGIN_SECONDS)
 

@@ -57,5 +57,6 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           REPOSITORY: ${{ github.repository }}
           MAX_LAG_HOURS: ${{ vars.NIGHTLY_NEXT_MAX_FEED_LAG_HOURS || '3' }}
+          LEGACY_IDENTITY: ${{ vars.NIGHTLY_NEXT_LEGACY_IDENTITY == 'off' && 'off' || 'on' }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-        run: python3 scripts/ci/nightly_next_feed_watch.py --repo "$REPOSITORY" --max-lag-hours "$MAX_LAG_HOURS" --run-url "$RUN_URL"
+        run: python3 scripts/ci/nightly_next_feed_watch.py --repo "$REPOSITORY" --max-lag-hours "$MAX_LAG_HOURS" --legacy-identity "$LEGACY_IDENTITY" --run-url "$RUN_URL"

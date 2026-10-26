@@ -7,6 +7,15 @@
         "stale <newest>" when the feed already has build N or a newer one, so
         the feed never rolls back.
 
+    tip_feed.py newest FEED
+        Prints the newest build the live feed offers (0 when it offers none).
+
+    tip_feed.py merge NEW LIVE --build N --keep K --out OUT
+        Writes NEW's item for build N on top of LIVE's items (the feed as R2
+        holds it now, kept verbatim), K items in all. The appcast generated
+        from an earlier read of the feed may lack a build published since;
+        merging with the latest read never drops one.
+
     tip_feed.py check FEED --build N
         Fails unless the generated feed offers build N, every item is signed,
         untagged (every ring accepts it) and served from the tip prefix.
@@ -15,6 +24,7 @@
 from __future__ import annotations
 
 import argparse
+import re
 import sys
 import xml.etree.ElementTree as ET
 
@@ -61,6 +71,43 @@ def previous(feed: str, build: int, keep: int) -> list[str]:
     return ["fresh", *bases[: max(keep - 1, 0)]]
 
 
+def newest(feed: str) -> int:
+    entries = items(feed)
+    return entries[0]["build"] if entries else 0
+
+
+ITEM = re.compile(r"[ \t]*<item>.*?</item>[ \t]*\n?", re.S)
+VERSION = re.compile(r"<sparkle:version>\s*(\d+)\s*</sparkle:version>")
+
+
+def _build_of(item: str) -> int | None:
+    match = VERSION.search(item) or re.search(r'sparkle:version="(\d+)"', item)
+    return int(match.group(1)) if match else None
+
+
+def merge(new: str, live: str | None, build: int, keep: int) -> str:
+    """NEW's text with its items replaced by its item for `build` and then
+    LIVE's older items, verbatim, `keep` items in all."""
+    text = open(new, encoding="utf-8").read()
+    ours = [item for item in ITEM.findall(text) if _build_of(item) == build]
+    if len(ours) != 1:
+        raise ValueError(f"the generated feed has {len(ours)} items for build {build}")
+    older = []
+    if live is not None:
+        for item in ITEM.findall(open(live, encoding="utf-8").read()):
+            other = _build_of(item)
+            if other is None:
+                continue
+            if other >= build:
+                raise ValueError(f"the live feed already has build {other}, not older than {build}")
+            older.append((other, item))
+    older.sort(key=lambda entry: entry[0], reverse=True)
+    kept = [ours[0], *(item for _, item in older[: max(keep - 1, 0)])]
+    first = ITEM.search(text)
+    body = ITEM.sub("", text)
+    return body[: first.start()] + "".join(kept) + body[first.start():]
+
+
 def check(feed: str, build: int) -> list[str]:
     entries = items(feed)
     problems = []
@@ -85,12 +132,28 @@ def main(argv: list[str]) -> int:
     prev.add_argument("feed")
     prev.add_argument("--build", type=int, required=True)
     prev.add_argument("--keep", type=int, required=True)
+    new = sub.add_parser("newest")
+    new.add_argument("feed")
+    mrg = sub.add_parser("merge")
+    mrg.add_argument("new")
+    mrg.add_argument("live", help='the live feed, or "absent"')
+    mrg.add_argument("--build", type=int, required=True)
+    mrg.add_argument("--keep", type=int, required=True)
+    mrg.add_argument("--out", required=True)
     chk = sub.add_parser("check")
     chk.add_argument("feed")
     chk.add_argument("--build", type=int, required=True)
     args = parser.parse_args(argv)
     if args.command == "previous":
         print("\n".join(previous(args.feed, args.build, args.keep)))
+        return 0
+    if args.command == "merge":
+        merged = merge(args.new, None if args.live == "absent" else args.live, args.build, args.keep)
+        with open(args.out, "w", encoding="utf-8") as handle:
+            handle.write(merged)
+        return 0
+    if args.command == "newest":
+        print(newest(args.feed))
         return 0
     problems = check(args.feed, args.build)
     for problem in problems:
