@@ -122,7 +122,7 @@ if [ -n "$au_e" ]; then echo "{AUTO_UPDATE_OFF}writing the acpmux-update units i
 elif [ -z "$au_w" ] || systemctl --user daemon-reload; then systemctl --user enable --now acpmux-update.timer >/dev/null 2>&1 || :; fi
 fi
 rm -rf "$au_t"
-else echo "{AUTO_UPDATE_OFF}staging the acpmux-update units failed, so this host does not update itself yet: the next host update tries again"; [ -z "$au_t" ] || rm -rf "$au_t"
+else [ -e {REMOTE_HOME}/{NO_AUTO_UPDATE} ] || echo "{AUTO_UPDATE_OFF}staging the acpmux-update units failed, so this host does not update itself yet: the next host update tries again"; [ -z "$au_t" ] || rm -rf "$au_t"
 fi
 "#
     )
