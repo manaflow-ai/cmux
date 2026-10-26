@@ -183,6 +183,82 @@ import Testing
         #expect(reports == 1)
     }
 
+    /// Task 221: the page's display (the host places its detached window there, so begin-frames tick
+    /// at that display's rate) is reported when the view enters a window, then only when it changed:
+    /// the window's screen and color profile notices, a backing change and the app's display change
+    /// re-read it, as Chrome's page view re-reads its screen infos and sends them only when they differ
+    /// (`-[RenderWidgetHostViewCocoa updateScreenProperties]`).
+    @Test func theDisplayIsReportedOnlyWhenItChanged() throws {
+        let page = makePage(.view)
+        var display = ChromiumHostScreenInfo(displayID: 1, scaleMilli: 2_000, colorSpaceHash: 7, maximumFramesPerSecond: 120,
+                                             workArea: CGRect(x: 0, y: 0, width: 1512, height: 944))
+        page.screenInfoSource = { _ in display }
+        var reports: [ChromiumHostScreenInfo] = []
+        page.onScreenInfo = { reports.append($0) }
+        #expect(reports.isEmpty, "no window: no display")
+        #expect(page.pageDisplay == nil)
+        let (window, _, pane) = makeWindow(holding: page)
+        defer { page.removeFromSuperview(); window.close() }
+        #expect(reports == [display])
+        let placed = try #require(page.pageDisplay)
+        let origin = try #require(page.presentedScreenRect?.origin)
+        #expect(placed == ChromiumHostPageDisplay(displayID: 1, screenX: Double(origin.x), screenY: Double(origin.y)))
+
+        // Notices with nothing changed: no report.
+        center.post(name: NSWindow.didChangeScreenNotification, object: window)
+        page.screenParametersChanged()
+        page.viewDidChangeBackingProperties()
+        #expect(reports.count == 1)
+
+        // The window moved to a 60 Hz display.
+        display.displayID = 2
+        display.maximumFramesPerSecond = 60
+        center.post(name: NSWindow.didChangeScreenNotification, object: window)
+        #expect(reports.count == 2)
+        #expect(reports.last == display)
+        #expect(page.pageDisplay?.displayID == 2)
+
+        // The same display's refresh rate changed (a display mode change).
+        display.maximumFramesPerSecond = 120
+        page.screenParametersChanged()
+        #expect(reports.count == 3)
+
+        // Its color profile changed.
+        display.colorSpaceHash = 9
+        center.post(name: NSWindow.didChangeScreenProfileNotification, object: window)
+        #expect(reports.count == 4)
+
+        // A 2x to 1x move that AppKit reports as a backing change.
+        display.scaleMilli = 1_000
+        page.viewDidChangeBackingProperties()
+        #expect(reports.count == 5)
+        #expect(reports.last?.scaleMilli == 1_000)
+
+        // Leaving the window drops the display; coming back reports it again.
+        page.removeFromSuperview()
+        #expect(page.screenInfo == nil)
+        center.post(name: NSWindow.didChangeScreenNotification, object: window)
+        #expect(reports.count == 5, "out of the window: its notices are not the page's")
+        pane.addSubview(page)
+        #expect(reports.count == 6)
+    }
+
+    /// Nobody takes the display: the page view reads no screen and follows no notice.
+    @Test func noDisplayTakerReadsNoScreen() {
+        let page = makePage(.view)
+        var reads = 0
+        page.screenInfoSource = { _ in
+            reads += 1
+            return nil
+        }
+        let (window, _, _) = makeWindow(holding: page)
+        defer { page.removeFromSuperview(); window.close() }
+        center.post(name: NSWindow.didChangeScreenNotification, object: window)
+        page.screenParametersChanged()
+        #expect(reads == 0)
+        #expect(page.screenEvents.isEmpty)
+    }
+
     #if DEBUG || CMUX_BENCH_HOOKS
     @Test func firstResponderSendsFocusToTheHost() {
         let page = makePage(.view)

@@ -137,6 +137,12 @@ unsigned int cmux_shim_browser_set_layer_hosting(int browser_id, int enabled) {
   shim.calls.push_back("layer_hosting " + std::to_string(browser_id) + " " + std::to_string(enabled));
   return enabled && browser_id == 3 ? 0xC0FFEEu : 0u;
 }
+// The fork's page display placement (task 221): records the browser, display and origin.
+int cmux_shim_browser_set_page_display(int browser_id, unsigned int display_id, double screen_x, double screen_y) {
+  shim.calls.push_back("display " + std::to_string(browser_id) + " " + std::to_string(display_id) + " " +
+                       std::to_string(static_cast<int>(screen_x)) + "," + std::to_string(static_cast<int>(screen_y)));
+  return 1;
+}
 int cmux_shim_browser_set_detached_hosting(int browser_id, int enabled) {
   shim.calls.push_back("detached " + std::to_string(browser_id) + " " + std::to_string(enabled));
   return enabled && shim.refuse_detach ? 0 : 1;
@@ -750,7 +756,7 @@ void AccessibilityTokenBeforeCreation() {
   flood.Bytes("win", 3);
   flood.I32(64);
   for (uint32_t token = 70; token < 87; ++token) f.host.OnMessages({Op(kOpBrowserAccessibilityToken, token, flood)});
-  Check(f.delegate.calls.back() == "bad too many accessibility requests waiting for a browser's creation",
+  Check(f.delegate.calls.back() == "bad too many requests waiting for a browser's creation",
         "the 17th held request is a bad message");
 }
 
@@ -980,6 +986,47 @@ void WipeZeroes() {
   Check(secrets[0].empty() && secrets[1].empty(), "Wipe clears every secret");
 }
 
+// cmux places a page's detached window on the display its page view shows on (task 221). For a
+// browser cmux minted whose creation has not come, the display waits as its accessibility request
+// does, and only the newest one: a window dragged across displays before Chromium made the browser
+// places it once, on the display it ended on. A created browser's display reaches the fork at once,
+// under Chromium's id.
+void PageDisplayFollowsCreation() {
+  Fixture f;
+  f.Start();
+  shim.create_at_once = false;
+  Writer create;
+  create.I32(kMinted + 7);
+  create.I32(45);
+  create.ViewToken(12);
+  create.I32(800);
+  create.I32(600);
+  create.Str("https://d/");
+  create.Str(nullptr);
+  f.host.OnMessages({Op(kOpCreateWindow, 22, create)});
+  f.Sent();
+  shim.calls.clear();
+  auto display = [&f](int32_t browser, uint32_t id, double x, double y) {
+    Writer w;
+    w.I32(browser);
+    w.U32(id);
+    w.F64(x);
+    w.F64(y);
+    f.host.OnMessages({Op(kOpBrowserSetPageDisplay, 0, w)});
+  };
+  // More displays than kMaxHeldPerBrowser: each replaces the one held before it.
+  for (uint32_t id = 1; id <= 20; ++id) display(kMinted + 7, id, 100.0 * id, 50);
+  Check(shim.calls.empty(), "before the creation: no fork call");
+  Expect(f.delegate.calls, {"initialize /root"}, "held displays never break the bound");
+
+  Emit(CMUX_SHIM_AFTER_CREATED, 3, 45);
+  Expect(shim.calls, {"nav_state 3", "display 3 20 2000,50"}, "the creation places the newest display, on Chromium's id");
+
+  shim.calls.clear();
+  display(kMinted + 7, 4, -1440, 200);
+  Expect(shim.calls, {"display 3 4 -1440,200"}, "a created browser's display goes to the fork at once");
+}
+
 }  // namespace
 
 int main() {
@@ -998,6 +1045,7 @@ int main() {
   AccessibilityToken();
   AccessibilityTokenBeforeCreation();
   AccessibilityTokenCreatedInsideAnotherOp();
+  PageDisplayFollowsCreation();
   LayerHostingDetachesThePageWindow();
   GeometryOnlyOnChange();
   GeometryStatsReply();

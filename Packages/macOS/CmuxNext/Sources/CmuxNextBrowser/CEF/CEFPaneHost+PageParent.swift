@@ -35,6 +35,11 @@ extension CEFPaneHost {
         page.wireToken = runtime.mintPageViewToken()
         // The page's focus follows the view's first responder state (``CEFTab/applyFocus(_:browser:)``).
         page.onFocusChange = { [weak self] focused in self?.visibleTab?.hostedPageFocusChanged(focused) }
+        // The page's display follows the view's (task 221): the host places the page window there.
+        page.onScreenInfo = { [weak self, weak page] _ in
+            guard let self, let page, let browser = visibleTab?.browserID else { return }
+            runtime.placeHostedPage(page, browser: browser)
+        }
         // The page's accessibility element comes from the host (CEFPaneHost+Accessibility.swift).
         page.accessibilityTokenSource = { [weak self] request, answered in
             guard let self else { return answered(nil) }
@@ -53,11 +58,13 @@ extension CEFPaneHost {
     /// Host mode: shows `browser`'s page window in ``hostedPageView``. The host turns on the fork's
     /// layer hosting (API 26) of the page window it keeps behind the page view's token, and its REPLY
     /// carries the window's Core Animation context id. A reply for a window this pane no longer
-    /// has shows nothing.
+    /// has shows nothing. The page window is placed on the page view's display (task 221).
     func showHostedContext(of browser: Int32) {
         guard let page = hostedPageView, runtime.forkAPIVersion >= CEFLayerHosting.forkAPI else { return }
         let shown = window
         let sent = runtime.sendAsync { $0.browserSetLayerHosting(browser, 1) }
+        // After the hosting op on the same ordered channel: the detached window takes the view's display.
+        runtime.placeHostedPage(page, browser: browser)
         runtime.whenAnswered(sent, label: "page context") { [weak self, weak page] id in
             guard let self, let page, hostedPageView === page, window == shown else { return }
             if let id, id != 0, page.show(contextID: id) { return }

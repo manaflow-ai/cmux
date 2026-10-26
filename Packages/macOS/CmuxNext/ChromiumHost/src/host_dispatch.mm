@@ -49,8 +49,8 @@ constexpr size_t kMaxPageViews = 4096;
 // create_window and create_placeholder_window calls whose AFTER_CREATED has
 // not come yet.
 constexpr size_t kMaxPendingBinds = 4096;
-// Page accessibility requests held for one browser's creation: cmux asks once
-// per page, window and context its page view shows.
+// Requests held for one browser's creation: cmux asks for the page's accessibility once per page,
+// window and context its page view shows, and holds one page display (the newest).
 constexpr size_t kMaxHeldPerBrowser = 16;
 
 bool IsMirrorOp(uint16_t op) {
@@ -220,7 +220,10 @@ void HostContext::Handle(control::Message& message) {
         return;
       }
       if (IsMirrorOp(message.op)) return Watch(message.op, message.fields);
-      if (message.op == kOpBrowserAccessibilityToken && HoldForCreation(message)) return;
+      if ((message.op == kOpBrowserAccessibilityToken || message.op == kOpBrowserSetPageDisplay) &&
+          HoldForCreation(message)) {
+        return;
+      }
       Dispatch(message);
       return;
   }
@@ -232,8 +235,18 @@ bool HostContext::HoldForCreation(control::Message& message) {
   // A malformed op is the generated case's to refuse.
   if (!peek.ok() || !AwaitsCreation(client)) return false;
   std::vector<control::Message>& held = held_for_creation_[client];
+  // A page display replaces the one held before it: only the newest display places the page window
+  // (task 221), as only the newest geometry waits (HoldGeometry).
+  if (message.op == kOpBrowserSetPageDisplay) {
+    auto older = std::find_if(held.begin(), held.end(),
+                              [](const control::Message& m) { return m.op == kOpBrowserSetPageDisplay; });
+    if (older != held.end()) {
+      *older = std::move(message);
+      return true;
+    }
+  }
   if (held.size() >= kMaxHeldPerBrowser) {
-    Bad("too many accessibility requests waiting for a browser's creation");
+    Bad("too many requests waiting for a browser's creation");
     return true;
   }
   held.push_back(std::move(message));
