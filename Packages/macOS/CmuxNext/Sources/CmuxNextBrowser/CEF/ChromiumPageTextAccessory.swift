@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextCompat
 import ObjectiveC
 import os
 
@@ -22,7 +23,7 @@ nonisolated enum ChromiumPageTextAccessory {
     private typealias Getter = @convention(c) (AnyObject, Selector) -> Int
 
     /// The classes that already carry the answer: a second install is a no-op.
-    private static let installed = OSAllocatedUnfairLock<Set<ObjectIdentifier>>(initialState: [])
+    private static let installed = Mutex<Set<ObjectIdentifier>>([])
 
     private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "cef")
 
