@@ -141,6 +141,22 @@ import Testing
     final class MaterialView: NSView {}
     final class PictureView: NSView {}
 
+    /// A thread read the test finishes by hand: ``finish()`` is the reply's later main-thread post.
+    @MainActor final class HeldThreadRead {
+        private var pending: [@MainActor () -> Void] = []
+        var asks: Int { pending.count }
+
+        var read: StartupReportRecorder.ThreadRead {
+            { [self] source, done in pending.append { done(source.threads()) } }
+        }
+
+        func finish() {
+            let replies = pending
+            pending = []
+            for reply in replies { reply() }
+        }
+    }
+
     static func recorder(processStartNanos: UInt64 = 0,
                          scheduler: @escaping (UInt64) -> StartupReport.Scheduler? = { _ in nil },
                          actionCatalogMainWaitMs: @escaping () -> Double? = { nil }) -> StartupReportRecorder {
@@ -148,12 +164,13 @@ import Testing
                               scheduler: scheduler, actionCatalogMainWaitMs: actionCatalogMainWaitMs, threads: FixedThreads())
     }
 
-    @Test func theFirstFrameIsKeptOnceWithTheSubviewTypesBackToFront() async throws {
-        let recorder = Self.recorder()
+    @Test func theFirstFrameIsKeptOnceWithTheSubviewTypesBackToFront() throws {
+        let recorder = Self.recorder(), held = HeldThreadRead()
         #expect(recorder.report.firstFrame == nil)
-        recorder.firstFrameCommitted(contentSubviews: [MaterialView(), PictureView()], viewsBuilt: 0)
-        recorder.firstFrameCommitted(contentSubviews: [NSView()], viewsBuilt: 4)
-        await recorder.threadsRead()
+        recorder.firstFrameCommitted(contentSubviews: [MaterialView(), PictureView()], viewsBuilt: 0, readThreads: held.read)
+        recorder.firstFrameCommitted(contentSubviews: [NSView()], viewsBuilt: 4, readThreads: held.read)
+        #expect(held.asks == 1)
+        held.finish()
         let object = try StartupReportTests.object(recorder.report)
         #expect(object["first_commit_layer_tree"] as? [String] == ["MaterialView", "PictureView"])
         #expect(object["views_built"] as? Int == 0)
@@ -164,20 +181,20 @@ import Testing
         #expect(threads[1]["priority"] as? Int == 31)
     }
 
-    @Test func aWindowWithNoContentViewHasAnUnknownLayerTreeNotAnEmptyOne() async throws {
+    @Test func aWindowWithNoContentViewHasAnUnknownLayerTreeNotAnEmptyOne() throws {
         let recorder = Self.recorder()
-        recorder.firstFrameCommitted(contentSubviews: nil, viewsBuilt: 0)
+        recorder.firstFrameCommitted(contentSubviews: nil, viewsBuilt: 0, readThreads: HeldThreadRead().read)
         let object = try StartupReportTests.object(recorder.report)
         #expect(object["first_commit_layer_tree"] is NSNull)
         #expect(object["views_built"] as? Int == 0)
     }
 
-    @Test func theThreadListLandsAfterTheFirstFrameTurn() async throws {
-        let recorder = Self.recorder()
-        recorder.firstFrameCommitted(contentSubviews: [], viewsBuilt: 0)
+    @Test func theThreadListLandsAfterTheFirstFrameTurn() {
+        let recorder = Self.recorder(), held = HeldThreadRead()
+        recorder.firstFrameCommitted(contentSubviews: [], viewsBuilt: 0, readThreads: held.read)
         // Read off main after this turn: not yet in the report in the committing turn.
         #expect(recorder.firstFrame?.threads == nil)
-        await recorder.threadsRead()
+        held.finish()
         #expect(recorder.firstFrame?.threads?.count == 2)
     }
 

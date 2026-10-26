@@ -229,11 +229,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 DebugTimings.markLaunch("first_window_frame_committed")
                 #if DEBUG || CMUX_BENCH_HOOKS
                 // Before the gate: its later-tab warm-ups build panes. Structure only; the threads are read off main.
-                self?.control.startupReport.firstFrameCommitted(
-                    contentSubviews: first?.window?.contentView?.subviews,
-                    viewsBuilt: services?.windows.controllers.reduce(0) { built, controller in
-                        controller.mountedContents.reduce(built) { $0 + $1.panes.count }
-                    } ?? 0)
+                if let services {
+                    self?.control.startupReport.firstFrameCommitted(
+                        contentSubviews: first?.window?.contentView?.subviews,
+                        viewsBuilt: services.windows.controllers.reduce(0) { built, controller in
+                            controller.mountedContents.reduce(built) { $0 + $1.panes.count }
+                        },
+                        readThreads: StartupReportRecorder.threadRead(on: services.work, replyOn: services.mainWork))
+                }
                 #endif
                 self?.order.startup.firstFrameCommitted()
             }
