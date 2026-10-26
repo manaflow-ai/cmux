@@ -25,6 +25,8 @@ windows-thin-exe = []
 # cfg(any(debug_assertions, feature = "oracle")). Off by default; release
 # builds never have it. The oracle builds `--profile oracle --features oracle`.
 oracle = ["cmux-tui-core/oracle"]
+# The lab's tokio slow-poll detector (cmux-blocking; RUSTFLAGS="--cfg tokio_unstable").
+cmux-stability = ["cmux-blocking/cmux-stability"]
 
 # The whole program. src/main.rs stays the crate root (its dispatch tables are
 # where they always were); the cmux-tui binary is a small entry point that
@@ -54,6 +56,8 @@ name = "cmux-tui-host"
 path = "src/bin/cmux-tui-host.rs"
 
 [dependencies]
+cmux-blocking.workspace = true
+cmux-lock-rank.workspace = true
 ghostty-vt.workspace = true
 cmux-tui-core.workspace = true
 # `cmux vm`: the cmux-vm child starts through the daemon-safe spawn.

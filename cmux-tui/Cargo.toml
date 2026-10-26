@@ -46,6 +46,8 @@ members = [
     "crates/cmux-focus-core",
     "crates/cmux-unix-socket",
     "crates/cmux-panic-log",
+    "crates/cmux-blocking",
+    "crates/cmux-lock-rank",
     "crates/cmux-pty",
     "crates/cmux-holder",
     "crates/cmux-ipc",
@@ -122,6 +124,8 @@ default-members = [
     "crates/cmux-layout-reducer",
     "crates/cmux-focus-core",
     "crates/cmux-pty",
+    "crates/cmux-blocking",
+    "crates/cmux-lock-rank",
     "crates/cmux-process",
     "crates/cmux-threads",
     "crates/cmux-remote-protocol",
@@ -199,6 +203,8 @@ cmux-feed-core = { path = "crates/cmux-feed-core" }
 cmux-layout-reducer = { path = "crates/cmux-layout-reducer" }
 cmux-unix-socket = { path = "crates/cmux-unix-socket" }
 cmux-panic-log = { path = "crates/cmux-panic-log" }
+cmux-blocking = { path = "crates/cmux-blocking" }
+cmux-lock-rank = { path = "crates/cmux-lock-rank" }
 cmux-agent-pane-policy = { path = "crates/cmux-agent-pane-policy" }
 cmux-chat-index = { path = "crates/cmux-chat-index" }
 cmux-tui-cdp = { path = "crates/cmux-tui-cdp" }
