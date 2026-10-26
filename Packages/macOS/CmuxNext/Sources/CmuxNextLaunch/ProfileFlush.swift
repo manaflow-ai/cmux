@@ -2,17 +2,22 @@
 import CmuxNextCompat
 public import CmuxNextWakeups
 public import Foundation
+import os
+#if CMUX_PGO_PROFILE
+import CmuxNextProfileRuntimeC
+#endif
 
 /// The profile build's two profiles from one run (p08-startup-103, plans/cmux-next/chrome-parity/p08-startup.md
 /// section F): `launch.profraw` holds the counters from process start to startup complete, `rest.profraw`
 /// those from then to `debug.pgo_flush` before quit. The scenario runner (050) merges both into
 /// `cmux-next.profdata` and keeps the launch profile's functions for the order file (109).
 ///
-/// At startup complete ``writeLaunchProfile(when:)`` writes the counters to the launch file, resets them and
-/// names the rest file as the runtime's file, so the runtime's own write at exit lands there too.
-/// ``writeRestProfile()`` writes the rest file now. Both writes are file I/O on the `.files` lane at one
-/// priority, which runs one item at a time in post order: the rest write always follows the launch write,
-/// the runtime's file name never changes under a write, and main never waits.
+/// At startup complete ``writeLaunchProfile(when:)`` writes the counters to the launch file and resets them.
+/// ``writeRestProfile()`` writes the rest file now. Each write names its file as the runtime's file, writes,
+/// then names the exit file (``Files/exit``), whatever the outcome: the runtime's own write at exit opens
+/// its file for writing, so it must never be a file this type wrote or reported. Both writes are file I/O
+/// on the `.files` lane at one priority, which runs one item at a time in post order: the rest write
+/// always follows the launch write, the runtime's file name never changes under a write, and main never waits.
 ///
 /// Chrome flushes on demand with `__llvm_profile_dump` (base/test/clang_profiling.cc,
 /// `WriteClangProfilingProfile`), which writes once per process and then refuses. cmux needs two files from
@@ -34,27 +39,37 @@ public final class ProfileFlush: Sendable {
         case rest
     }
 
-    /// The two files of a run.
+    /// The files of a run.
     public struct Files: Sendable, Equatable {
         /// `launch.profraw`.
         public let launch: URL
         /// `rest.profraw`.
         public let rest: URL
+        /// The runtime's file between and after the two writes, so its write at exit goes there: a file name
+        /// pattern as `LLVM_PROFILE_FILE` takes it (`%p`, `%m`). The runner's own `LLVM_PROFILE_FILE`
+        /// when it set one (scripts/cmux-next/pgo/build-profile.sh checks that file), else `exit.profraw`.
+        public let exit: String
 
-        /// `launch.profraw` and `rest.profraw` in `folder`.
+        /// `launch.profraw`, `rest.profraw` and `exit.profraw` in `folder`.
         public init(folder: URL) {
-            launch = folder.appending(path: "launch.profraw", directoryHint: .notDirectory)
-            rest = folder.appending(path: "rest.profraw", directoryHint: .notDirectory)
+            self.init(folder: folder, exit: folder.appending(path: "exit.profraw", directoryHint: .notDirectory).path)
         }
 
-        /// Beside the runtime's own file (`LLVM_PROFILE_FILE`, which the runner sets per run), else in
-        /// `temporaryFolder`'s `cmux-pgo`. Not a `CMUX_*` variable: launch strips those when inherited.
+        /// Beside the runtime's own file (`LLVM_PROFILE_FILE`, which the runner sets per run), which stays the
+        /// exit file; else in `temporaryFolder`'s `cmux-pgo`. Not a `CMUX_*` variable: launch strips those
+        /// when inherited.
         public init(environment: [String: String], temporaryFolder: URL) {
             guard let runtimeFile = environment["LLVM_PROFILE_FILE"], !runtimeFile.isEmpty else {
                 self.init(folder: temporaryFolder.appending(path: "cmux-pgo", directoryHint: .isDirectory))
                 return
             }
-            self.init(folder: URL(fileURLWithPath: runtimeFile).deletingLastPathComponent())
+            self.init(folder: URL(fileURLWithPath: runtimeFile).deletingLastPathComponent(), exit: runtimeFile)
+        }
+
+        private init(folder: URL, exit: String) {
+            launch = folder.appending(path: "launch.profraw", directoryHint: .notDirectory)
+            rest = folder.appending(path: "rest.profraw", directoryHint: .notDirectory)
+            self.exit = exit
         }
 
         /// The file of `profile`.
@@ -89,7 +104,7 @@ public final class ProfileFlush: Sendable {
         public let bytes: Int
     }
 
-    /// Why a profile was not written.
+    /// Why a profile was not written. A rest write after a failed launch write fails with the launch's failure.
     public enum Failure: Error, Sendable, Equatable, CustomStringConvertible {
         /// The rest profile was asked for before startup completed: its counters would hold the launch.
         case launchNotWritten
@@ -113,15 +128,23 @@ public final class ProfileFlush: Sendable {
         }
     }
 
+    /// What the launch write left; the rest write needs `.written`.
+    private enum LaunchState: Sendable {
+        case pending
+        case written
+        case failed(Failure)
+    }
+
     /// The lane priority of both writes: one serial slot, so they run in post order.
     static let priority = WorkPriority.userVisible
+    private static let log = Logger(subsystem: "com.cmuxterm.app.next", category: "startup.pgo")
 
     /// Where the profiles go.
     public let files: Files
     private let runtime: Runtime
     private let work: BackgroundWork
-    /// Set on the lane once the launch profile is written and the counters reset.
-    private let launchWritten = Atomic<Bool>(false)
+    /// Set by the launch write on the lane, or by shutdown when it drops that write.
+    private let launch = Mutex(LaunchState.pending)
 
     /// - Parameters:
     ///   - runtime: The profile runtime's entry points.
@@ -132,6 +155,7 @@ public final class ProfileFlush: Sendable {
     }
 
     /// Writes the launch profile when `startup` completes (never after quit: the completion never fires then).
+    /// A failure is logged and kept: ``writeRestProfile()`` fails with it.
     @MainActor
     public func writeLaunchProfile(when startup: StartupScheduler) {
         startup.whenComplete { [self] _ in post(.launch) { _ in } }
@@ -156,33 +180,57 @@ public final class ProfileFlush: Sendable {
     private func post(_ profile: Profile, _ done: @escaping @Sendable (Result<Written, Failure>) -> Void) {
         // Block shutdown: one bounded write, and a profile lost at quit is a lost scenario run.
         work.post(Self.priority, mayBlock: .files, shutdown: .blockShutdown,
-                  abandoned: { done(.failure(.abandoned(profile))) }) { [self] in done(write(profile)) }
+                  abandoned: { [self] in done(settled(profile, .failure(.abandoned(profile)))) }) { [self] in
+            done(settled(profile, write(profile)))
+        }
     }
 
-    /// On the lane: the launch write switches the runtime to the rest file after the reset; the rest
-    /// write needs the launch write first.
+    /// Keeps a launch outcome for the rest write and logs a launch failure; returns `result`.
+    private func settled(_ profile: Profile, _ result: Result<Written, Failure>) -> Result<Written, Failure> {
+        guard profile == .launch else { return result }
+        switch result {
+        case .success:
+            launch.withLock { $0 = .written }
+        case .failure(let failure):
+            launch.withLock { $0 = .failed(failure) }
+            Self.log.error("launch profile not written: \(failure.description, privacy: .public)")
+        }
+        return result
+    }
+
+    /// On the lane: the launch write resets the counters after a good write; the rest write needs it first.
     private func write(_ profile: Profile) -> Result<Written, Failure> {
-        let file = files.file(profile)
         switch profile {
         case .launch:
             do {
-                try FileManager.checked.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
+                try FileManager.checked.createDirectory(at: files.launch.deletingLastPathComponent(), withIntermediateDirectories: true)
             } catch {
-                return .failure(.folderFailed(profile))
+                return .failure(.folderFailed(.launch))
             }
-            runtime.setFile(file.path)
+            let written = writeCounters(.launch)
+            if case .success = written { runtime.resetCounters() }
+            return written
         case .rest:
-            guard launchWritten.load(ordering: .acquiring) else { return .failure(.launchNotWritten) }
+            switch launch.withLock({ $0 }) {
+            case .pending: return .failure(.launchNotWritten)
+            case .failed(let failure): return .failure(failure)
+            case .written: return writeCounters(.rest)
+            }
         }
+    }
+
+    /// Writes the counters to `profile`'s file and names the exit file after it; a failed or empty write
+    /// leaves no file for the runner to merge.
+    private func writeCounters(_ profile: Profile) -> Result<Written, Failure> {
+        let file = files.file(profile)
+        runtime.setFile(file.path)
         let code = runtime.write()
-        guard code == 0 else { return .failure(.writeFailed(profile, code: code)) }
-        if profile == .launch {
-            runtime.resetCounters()
-            runtime.setFile(files.rest.path)
-            launchWritten.store(true, ordering: .releasing)
+        runtime.setFile(files.exit)
+        let bytes = code == 0 ? (try? FileManager.checked.attributesOfItem(atPath: file.path)[.size] as? Int) ?? 0 : 0
+        guard bytes > 0 else {
+            try? FileManager.checked.removeItem(at: file)
+            return .failure(code == 0 ? .empty(profile) : .writeFailed(profile, code: code))
         }
-        let bytes = (try? FileManager.checked.attributesOfItem(atPath: file.path)[.size] as? Int) ?? 0
-        guard bytes > 0 else { return .failure(.empty(profile)) }
         return .success(Written(profile: profile, file: file, bytes: bytes))
     }
 }
@@ -199,22 +247,12 @@ extension ProfileFlush {
 }
 
 extension ProfileFlush.Runtime {
-    /// The compiler-rt profile runtime (`InstrProfilingFile.c`). `set_filename` copies the name.
+    /// The compiler-rt profile runtime (`InstrProfilingFile.c`, declared in CmuxNextProfileRuntimeC).
+    /// `set_filename` copies the name.
     public static var compilerRuntime: ProfileFlush.Runtime {
-        ProfileFlush.Runtime(setFile: { name in name.withCString { llvmProfileSetFilename($0) } },
-                             write: { llvmProfileWriteFile() }, resetCounters: { llvmProfileResetCounters() })
+        ProfileFlush.Runtime(setFile: { name in __llvm_profile_set_filename(name) },
+                             write: { __llvm_profile_write_file() }, resetCounters: { __llvm_profile_reset_counters() })
     }
 }
-
-// The runtime's C entry points; a profile build links them (-profile-generate, -fprofile-instr-generate).
-// Each takes and returns only a pointer or an Int32, which Swift passes as C does.
-@_silgen_name("__llvm_profile_write_file")
-private func llvmProfileWriteFile() -> Int32
-
-@_silgen_name("__llvm_profile_reset_counters")
-private func llvmProfileResetCounters()
-
-@_silgen_name("__llvm_profile_set_filename")
-private func llvmProfileSetFilename(_ name: UnsafePointer<CChar>)
 #endif
 #endif
