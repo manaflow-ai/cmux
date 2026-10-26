@@ -60,6 +60,10 @@ pub enum Inbound {
     /// bypasses this queue, so a turn sends one before it settles: the agent's
     /// last notifications (the reply text) are applied first.
     Barrier(tokio::sync::oneshot::Sender<()>),
+    /// The history an agent replayed on `session/load` (or a fork's prime) is all in front of
+    /// this: the session's preview takes the agent's words again (`Hub::replay_hold`). Queued
+    /// through the agent's own sender, behind everything its reader already queued.
+    ReplayDone,
 }
 
 /// Logs one wire message. The `u64` is the agent host entry it logs, when
@@ -157,6 +161,9 @@ pub struct ChildAgent {
     next_id: AtomicI64,
     pending: Arc<Mutex<Pending>>,
     tap: Tap,
+    /// The queue its reader hands requests and notifications to: an item sent here lands
+    /// behind every one the reader already sent (a pooled agent's goes through its hold).
+    inbound: mpsc::Sender<Inbound>,
     pub pid: Option<u32>,
     /// This agent among every one the daemon ran, never reused: what its notifications carry
     /// (`Inbound::Notification`), so the hub knows one from an agent it already replaced.
@@ -282,6 +289,7 @@ impl ChildAgent {
             next_id: AtomicI64::new(1),
             pending: pending.clone(),
             tap: tap.clone(),
+            inbound: inbound.clone(),
             pid,
             translator: translator.clone(),
             codex,
@@ -775,6 +783,12 @@ impl ChildAgent {
         true
     }
 
+    /// Queue [`Inbound::ReplayDone`] behind what the reader queued so far. False when the
+    /// queue is full or closed.
+    pub fn queue_replay_done(&self) -> bool {
+        self.inbound.try_send(Inbound::ReplayDone).is_ok()
+    }
+
     /// Send a request and wait for its response.
     pub async fn request(&self, method: &str, params: Value) -> Result<Value, RpcError> {
         self.request_with_hook(method, params, || {}).await
@@ -1023,6 +1037,7 @@ impl ChildAgent {
             next_id: AtomicI64::new(adopted.max_out_id.max(0) + 1),
             pending,
             tap,
+            inbound: inbound.clone(),
             pid: adopted.harness_pid,
             translator: None,
             codex: None,

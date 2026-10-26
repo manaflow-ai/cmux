@@ -71,6 +71,7 @@ impl Hub {
                 Inbound::Barrier(done) => {
                     let _ = done.send(());
                 }
+                Inbound::ReplayDone => session.replaying.store(false, Ordering::SeqCst),
                 Inbound::Exited { pid, code, host_seq } => {
                     {
                         let mut slot = session.child.lock().await;
@@ -131,8 +132,14 @@ impl Hub {
         let mut m = session.meta.lock().unwrap_or_else(|e| e.into_inner());
         match kind {
             "agent_message_chunk" => {
-                if let Some(text) =
-                    update.get("content").and_then(|c| c.get("text")).and_then(Value::as_str)
+                // History a load replays is logged (`.replay`) but is not the chat's newest
+                // reply: a session resumed from stopped had every earlier reply, then the new
+                // one, as its `lastMessage` (remote-ergo walk 4, 2026-10-26).
+                if let Some(text) = update
+                    .get("content")
+                    .and_then(|c| c.get("text"))
+                    .and_then(Value::as_str)
+                    .filter(|_| !session.replaying.load(Ordering::SeqCst))
                 {
                     let mut preview = m.preview.clone().unwrap_or_default();
                     preview.push_str(text);

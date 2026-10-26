@@ -24,6 +24,10 @@ pub struct Session {
     /// so the log and fan-out always see sequences in order.
     pub(super) append_lock: StdMutex<()>,
     pub(super) loading: AtomicBool,
+    /// Set from a `session/load` (or a Claude fork's prime) until the inbound loop reaches the
+    /// [`crate::agent::Inbound::ReplayDone`] queued after it: the agent messages before it are
+    /// history the agent replayed, never the chat's newest reply (`Hub::replay_hold`).
+    pub(super) replaying: AtomicBool,
     /// The log's records past the saved `lastSeq` are counted (`Hub::catch_up`).
     /// False from a deferred daemon start until the first append or the log load.
     pub(super) caught_up: AtomicBool,
