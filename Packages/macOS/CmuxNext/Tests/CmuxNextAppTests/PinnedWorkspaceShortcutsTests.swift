@@ -86,4 +86,12 @@ import Testing
         #expect(layout.stepMoveTarget("itm_b", by: 1) == nil)
         #expect(layout.stepMoveTarget("itm_list_row", by: 1) == nil)
     }
+
+    @Test func layoutTilesStepWithItemMove() {
+        let layout = Self.layout(["itm_a", "itm_b", "itm_c"])
+        #expect(layout.stepMoveOp(LayoutItemID("itm_b"), by: -1) == .itemMove(LayoutItemID("itm_b"), section: Self.pinned, index: 0))
+        #expect(layout.stepMoveOp(LayoutItemID("itm_b"), by: 1) == .itemMove(LayoutItemID("itm_b"), section: Self.pinned, index: 2))
+        #expect(layout.stepMoveOp(LayoutItemID("itm_c"), by: 1) == nil)
+        #expect(layout.stepMoveOp(LayoutItemID("itm_a"), by: -1) == nil)
+    }
 }

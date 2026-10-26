@@ -15,4 +15,12 @@ extension SidebarLayoutDocument {
         }
         return nil
     }
+
+    /// The same step on the layout document (pins as layout tiles, no sidebar document): the
+    /// `item.move` op that puts `id` one place up or down in its section. Nil at either end.
+    public func stepMoveOp(_ id: LayoutItemID, by offset: Int) -> SidebarLayoutOp? {
+        guard let (s, i) = locate(id), sections[s].items.indices.contains(i + offset) else { return nil }
+        // `item.move`'s index counts the section's items without the moved one.
+        return .itemMove(id, section: sections[s].id, index: i + offset)
+    }
 }

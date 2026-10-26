@@ -17,6 +17,13 @@ extension AppActions {
                let item = SidebarDocWiring.item(workspace: workspace.id, machines),
                let to = store.shown?.layout.stepMoveTarget(item, by: offset) {
                 store.move([item], to: to, title: SidebarDocStore.moveTitle)
+            } else if let ref = WorkspaceLayoutRefs(machines: machines).ref(forWorkspace: workspace.id),
+                      let item = services.sidebarLayout.document.topItem(for: ref, room: services.windows.active?.state.profileID.rawValue),
+                      let op = services.sidebarLayout.document.stepMoveOp(item.id, by: offset) {
+                let commands = PinCommands(context: AppActionContext(services: services))
+                do { try commands.sendLayout(op, title: SidebarDocStore.moveTitle, origin: invocation.origin) } catch {
+                    services.registry.refuse(RefusalStrings.describe(error))
+                }
             }
             return
         }
