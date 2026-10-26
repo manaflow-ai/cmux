@@ -45,6 +45,43 @@ enum Command {
                     {"ping", "tuple-value", "struct-value", "bare-final"},
                 )
 
+    def test_command_names_include_module_commands(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            tui = Path(directory)
+            server = tui / "crates/cmux-tui-core/src/server.rs"
+            server.parent.mkdir(parents=True)
+            server.write_text("enum Command {\n    Ping,\n}\n")
+            apps = server.parent / "server/apps.rs"
+            apps.parent.mkdir()
+            apps.write_text(
+                """\
+enum Command {
+    #[serde(rename = "apps-list")]
+    List,
+    /// Doc.
+    #[serde(rename = "apps-unmount")]
+    Unmount { mount_id: String },
+}
+fn try_handle(cmd: &str) -> bool { cmd == "cancel-request" }
+"""
+            )
+            with patch.object(CHECKER, "TUI", tui):
+                self.assertEqual(
+                    CHECKER.command_names(),
+                    {"ping", "apps-list", "apps-unmount", "cancel-request"},
+                )
+            apps.write_text(
+                "enum Command {\n    List,\n}\nfn f() { \"cancel-request\" }\n"
+            )
+            errors = io.StringIO()
+            with (
+                patch.object(CHECKER, "TUI", tui),
+                redirect_stderr(errors),
+                self.assertRaises(SystemExit),
+            ):
+                CHECKER.command_names()
+            self.assertIn("needs #[serde(rename", errors.getvalue())
+
     def test_rust_function_body_ignores_braces_in_string_literals(self) -> None:
         source = r'''
 fn metadata(&self) -> ActionMetadata {

@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR e1240f73a120038c17b53bc2c9c781f08181559708f4ca5d9f9ef39b09e6d103. */
+/* cmux-tui mux protocol 12, IR 8127fbed118233dbce55b6627a7ccfa5d12c0704ce0d32d29a9c3b2975bda83d. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -52,6 +52,65 @@ export type AgentSource = "plugin" | "detected" | "socket" | "hook";
 
 export type AgentState = "working" | "blocked" | "idle" | "done" | "unknown";
 
+export type AppGrant = {
+  "granted": boolean;
+  "scope": string;
+};
+
+export type AppHiddenAccess = {
+  "automations": boolean;
+  "cli": boolean;
+  "mcp": boolean;
+};
+
+export type AppLogLine = {
+  "level": string;
+  "message": string;
+  "ts_ms": bigint;
+};
+
+export type AppOrigin = "user" | "cli" | "mcp" | "script" | "remote";
+
+export type AppPaletteCommand = {
+  "op": string;
+  "title": (JsonValue) | null;
+  "when"?: (JsonValue) | null;
+};
+
+export type AppRecord = {
+  "available": boolean;
+  "bundle_dir": (string) | null;
+  "commands": Array<AppPaletteCommand>;
+  "enabled": boolean;
+  "grants": Array<string>;
+  "hidden": boolean;
+  "hidden_access": AppHiddenAccess;
+  "hide_only": boolean;
+  "id": string;
+  "installed": boolean;
+  "manifest": (JsonValue) | null;
+  "revision"?: bigint;
+  "sandboxed": boolean;
+  "scope_classes": Record<string, AppScopeClass>;
+  "source": AppSource;
+  "tier": AppTier;
+  "version": string;
+};
+
+export type AppScopeClass = "standard" | "sensitive" | "restricted" | "elevated" | "unknown";
+
+export type AppSource = "default" | "user" | "bundled" | "local";
+
+export type AppTerminalLink = {
+  "app": string;
+  "channel": string;
+  "id": string;
+  "socket": (string) | null;
+  "target": string;
+};
+
+export type AppTier = "first-party" | "verified" | "unverified";
+
 export type AppliedPane = {
   "pane": Id;
   "surface": Id;
@@ -60,6 +119,37 @@ export type AppliedPane = {
 export type ApplyLayoutResult = {
   "panes": Array<AppliedPane>;
   "screen": Id;
+};
+
+export type AppsInventoryDemand = {
+  "enabled": boolean;
+  "sequence": bigint;
+};
+
+export type AppsLinkChangedResult = {
+  "servers": bigint;
+};
+
+export type AppsListResult = {
+  "apps": Array<AppRecord>;
+  "revision": bigint;
+};
+
+export type AppsLogsResult = {
+  "lines": Array<AppLogLine>;
+};
+
+export type AppsProviderRegisterResult = {
+  "families": Array<string>;
+  "inventory_demand"?: AppsInventoryDemand;
+};
+
+export type AppsRunResult = {
+  "value": (JsonValue) | null;
+};
+
+export type AppsTerminalLinksResult = {
+  "links": Array<AppTerminalLink>;
 };
 
 export type AttachedViewOutcomeResult = {

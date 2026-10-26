@@ -153,10 +153,55 @@ def load_sdk_catalog() -> dict:
     return document
 
 
+# Server modules that decode their own commands before the server's Command
+# enum sees the line (p05-ipc queue Q2): module -> (its `#[serde(tag = "cmd")]`
+# enum, the commands it matches by literal name). Every variant names its wire
+# name with `#[serde(rename = "...")]`. check-sdk-schema.py reads the same
+# modules for request fields.
+MODULE_COMMANDS: dict[str, tuple[str, tuple[str, ...]]] = {
+    "apps": ("Command", ("cancel-request",)),
+}
+
+
+def module_command_sources() -> dict[str, str]:
+    """Source of each module in MODULE_COMMANDS that exists, by module name.
+    A removed module serves nothing, so its schema commands become stale."""
+    sources: dict[str, str] = {}
+    for module in MODULE_COMMANDS:
+        path = TUI / "crates/cmux-tui-core/src/server" / f"{module}.rs"
+        if path.exists():
+            sources[module] = strip_rust_comments(path.read_text())
+    return sources
+
+
+def module_command_names() -> dict[str, str]:
+    """Wire names served by MODULE_COMMANDS, mapped to their module."""
+    names: dict[str, str] = {}
+    for module, source in module_command_sources().items():
+        enum_name, literals = MODULE_COMMANDS[module]
+        body = rust_enum_body(source, enum_name)
+        renames = re.findall(r'#\[serde\(rename\s*=\s*"([a-z][a-z0-9-]*)"\)\]', body)
+        if len(renames) != len(rust_enum_variants(source, enum_name)):
+            fail(f"every server/{module}.rs {enum_name} variant needs #[serde(rename = ...)]")
+        for literal in literals:
+            if f'"{literal}"' not in source:
+                fail(f"server/{module}.rs no longer matches {literal!r}")
+        for name in [*renames, *literals]:
+            if name in names:
+                fail(f"module command {name!r} is served twice")
+            names[name] = module
+    return names
+
+
 def command_names() -> set[str]:
     source = (TUI / "crates/cmux-tui-core/src/server.rs").read_text()
     variants = rust_enum_variants(source, "Command")
-    return {camel_to_kebab(variant) for variant in variants}
+    names = {camel_to_kebab(variant) for variant in variants}
+    modules = module_command_names()
+    overlap = sorted(names & set(modules))
+    if overlap:
+        fail(f"commands in both the server Command enum and a module: {', '.join(overlap)}")
+    return names | set(modules)
 
 
 def rust_function_body(source: str, name: str) -> str:
@@ -283,6 +328,12 @@ def command_profiles() -> dict[str, set[str]]:
         profiles.setdefault(profile, set()).add(name)
 
     guarded = guarded_command_profiles(source)
+    # A module that refuses every non-Unix connection before it handles a
+    # command serves local-admin commands only.
+    module_sources = module_command_sources()
+    for name, module in module_command_names().items():
+        if re.search(r"if\s+!\s*mux\.control_clients\.is_unix\(", module_sources[module]):
+            guarded[name] = "local-admin"
     for name, guarded_profile in guarded.items():
         if name not in runtime_commands:
             fail(f"privileged command guard references unknown command {name}")

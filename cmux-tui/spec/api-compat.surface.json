@@ -6756,6 +6756,301 @@
         "nullable": true
       }
     },
+    "request:apps-agent-inventory-changed": {
+      "/demand_sequence": {
+        "ty": "uint64",
+        "required": true
+      }
+    },
+    "request:apps-dispatch": {
+      "/event": {
+        "ty": "string",
+        "required": true
+      },
+      "/mount_id": {
+        "ty": "string",
+        "required": true
+      },
+      "/node": {
+        "ty": "string",
+        "required": true
+      },
+      "/origin": {
+        "ty": "enum",
+        "values": [
+          "cli",
+          "mcp",
+          "remote",
+          "script",
+          "user"
+        ]
+      },
+      "/payload": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
+    "request:apps-link-changed": {
+      "/origin": {
+        "ty": "enum",
+        "values": [
+          "cli",
+          "mcp",
+          "remote",
+          "script",
+          "user"
+        ]
+      }
+    },
+    "request:apps-list": {
+      "/origin": {
+        "ty": "enum",
+        "values": [
+          "cli",
+          "mcp",
+          "remote",
+          "script",
+          "user"
+        ]
+      }
+    },
+    "request:apps-logs": {
+      "/app": {
+        "ty": "string",
+        "required": true
+      },
+      "/follow": {
+        "ty": "boolean"
+      },
+      "/origin": {
+        "ty": "enum",
+        "values": [
+          "cli",
+          "mcp",
+          "remote",
+          "script",
+          "user"
+        ]
+      }
+    },
+    "request:apps-mount": {
+      "/app": {
+        "ty": "string",
+        "required": true
+      },
+      "/context": {
+        "ty": "json",
+        "nullable": true
+      },
+      "/interface": {
+        "ty": "string",
+        "required": true
+      },
+      "/mount_id": {
+        "ty": "string",
+        "required": true
+      },
+      "/origin": {
+        "ty": "enum",
+        "values": [
+          "cli",
+          "mcp",
+          "remote",
+          "script",
+          "user"
+        ]
+      }
+    },
+    "request:apps-provider-register": {
+      "/families": {
+        "ty": "array",
+        "required": true
+      },
+      "/families/*": {
+        "ty": "string"
+      },
+      "/inventory_watch": {
+        "ty": "boolean"
+      },
+      "/origin": {
+        "ty": "enum",
+        "values": [
+          "cli",
+          "mcp",
+          "remote",
+          "script",
+          "user"
+        ]
+      }
+    },
+    "request:apps-provider-result": {
+      "/body": {
+        "ty": "json",
+        "nullable": true
+      },
+      "/ok": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/origin": {
+        "ty": "enum",
+        "values": [
+          "cli",
+          "mcp",
+          "remote",
+          "script",
+          "user"
+        ]
+      },
+      "/request_id": {
+        "ty": "uint64",
+        "required": true
+      }
+    },
+    "request:apps-run": {
+      "/app": {
+        "ty": "string",
+        "required": true
+      },
+      "/args": {
+        "ty": "json",
+        "nullable": true
+      },
+      "/gesture": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/idempotency_key": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/op": {
+        "ty": "string",
+        "required": true
+      },
+      "/origin": {
+        "ty": "enum",
+        "values": [
+          "cli",
+          "mcp",
+          "remote",
+          "script",
+          "user"
+        ]
+      }
+    },
+    "request:apps-set": {
+      "/app": {
+        "ty": "string",
+        "required": true
+      },
+      "/enabled": {
+        "ty": "boolean",
+        "nullable": true
+      },
+      "/grant": {
+        "ty": "object",
+        "nullable": true
+      },
+      "/grant/granted": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/grant/scope": {
+        "ty": "string",
+        "required": true
+      },
+      "/hidden": {
+        "ty": "boolean",
+        "nullable": true
+      },
+      "/hidden_access": {
+        "ty": "object",
+        "nullable": true
+      },
+      "/hidden_access/automations": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/hidden_access/cli": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/hidden_access/mcp": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/idempotency_key": {
+        "ty": "string",
+        "required": true
+      },
+      "/installed": {
+        "ty": "boolean",
+        "nullable": true
+      },
+      "/origin": {
+        "ty": "enum",
+        "values": [
+          "cli",
+          "mcp",
+          "remote",
+          "script",
+          "user"
+        ]
+      },
+      "/sandboxed": {
+        "ty": "boolean",
+        "nullable": true
+      }
+    },
+    "request:apps-store": {
+      "/args": {
+        "ty": "json",
+        "nullable": true
+      },
+      "/op": {
+        "ty": "string",
+        "required": true
+      },
+      "/origin": {
+        "ty": "enum",
+        "values": [
+          "cli",
+          "mcp",
+          "remote",
+          "script",
+          "user"
+        ]
+      }
+    },
+    "request:apps-terminal-links": {
+      "/origin": {
+        "ty": "enum",
+        "values": [
+          "cli",
+          "mcp",
+          "remote",
+          "script",
+          "user"
+        ]
+      }
+    },
+    "request:apps-unmount": {
+      "/mount_id": {
+        "ty": "string",
+        "required": true
+      },
+      "/origin": {
+        "ty": "enum",
+        "values": [
+          "cli",
+          "mcp",
+          "remote",
+          "script",
+          "user"
+        ]
+      }
+    },
     "request:attach-surface": {
       "/cols": {
         "ty": "uint16",
@@ -7050,6 +7345,13 @@
       "/y_px": {
         "ty": "float64",
         "required": true
+      }
+    },
+    "request:cancel-request": {
+      "/target": {
+        "ty": "json",
+        "required": true,
+        "nullable": true
       }
     },
     "request:chief-inspect": {
@@ -12162,6 +12464,358 @@
         "required": true
       }
     },
+    "response:apps-agent-inventory-changed": {},
+    "response:apps-dispatch": {},
+    "response:apps-link-changed": {
+      "/data/servers": {
+        "ty": "uint64",
+        "required": true
+      }
+    },
+    "response:apps-list": {
+      "/data/apps": {
+        "ty": "array",
+        "required": true
+      },
+      "/data/apps/*": {
+        "ty": "object"
+      },
+      "/data/apps/*/available": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/data/apps/*/bundle_dir": {
+        "ty": "string",
+        "required": true,
+        "nullable": true
+      },
+      "/data/apps/*/commands": {
+        "ty": "array",
+        "required": true
+      },
+      "/data/apps/*/commands/*": {
+        "ty": "object"
+      },
+      "/data/apps/*/commands/*/op": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/apps/*/commands/*/title": {
+        "ty": "json",
+        "required": true,
+        "nullable": true
+      },
+      "/data/apps/*/commands/*/when": {
+        "ty": "json",
+        "nullable": true
+      },
+      "/data/apps/*/enabled": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/data/apps/*/grants": {
+        "ty": "array",
+        "required": true
+      },
+      "/data/apps/*/grants/*": {
+        "ty": "string"
+      },
+      "/data/apps/*/hidden": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/data/apps/*/hidden_access": {
+        "ty": "object",
+        "required": true
+      },
+      "/data/apps/*/hidden_access/automations": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/data/apps/*/hidden_access/cli": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/data/apps/*/hidden_access/mcp": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/data/apps/*/hide_only": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/data/apps/*/id": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/apps/*/installed": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/data/apps/*/manifest": {
+        "ty": "json",
+        "required": true,
+        "nullable": true
+      },
+      "/data/apps/*/revision": {
+        "ty": "uint64"
+      },
+      "/data/apps/*/sandboxed": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/data/apps/*/scope_classes": {
+        "ty": "map",
+        "required": true
+      },
+      "/data/apps/*/scope_classes/*": {
+        "ty": "enum",
+        "values": [
+          "elevated",
+          "restricted",
+          "sensitive",
+          "standard",
+          "unknown"
+        ]
+      },
+      "/data/apps/*/source": {
+        "ty": "enum",
+        "required": true,
+        "values": [
+          "bundled",
+          "default",
+          "local",
+          "user"
+        ]
+      },
+      "/data/apps/*/tier": {
+        "ty": "enum",
+        "required": true,
+        "values": [
+          "first-party",
+          "unverified",
+          "verified"
+        ]
+      },
+      "/data/apps/*/version": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/revision": {
+        "ty": "uint64",
+        "required": true
+      }
+    },
+    "response:apps-logs": {
+      "/data/lines": {
+        "ty": "array",
+        "required": true
+      },
+      "/data/lines/*": {
+        "ty": "object"
+      },
+      "/data/lines/*/level": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/lines/*/message": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/lines/*/ts_ms": {
+        "ty": "uint64",
+        "required": true
+      }
+    },
+    "response:apps-mount": {},
+    "response:apps-provider-register": {
+      "/data/families": {
+        "ty": "array",
+        "required": true
+      },
+      "/data/families/*": {
+        "ty": "string"
+      },
+      "/data/inventory_demand": {
+        "ty": "object"
+      },
+      "/data/inventory_demand/enabled": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/data/inventory_demand/sequence": {
+        "ty": "uint64",
+        "required": true
+      }
+    },
+    "response:apps-provider-result": {},
+    "response:apps-run": {
+      "/data/value": {
+        "ty": "json",
+        "required": true,
+        "nullable": true
+      }
+    },
+    "response:apps-set": {
+      "/data/available": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/data/bundle_dir": {
+        "ty": "string",
+        "required": true,
+        "nullable": true
+      },
+      "/data/commands": {
+        "ty": "array",
+        "required": true
+      },
+      "/data/commands/*": {
+        "ty": "object"
+      },
+      "/data/commands/*/op": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/commands/*/title": {
+        "ty": "json",
+        "required": true,
+        "nullable": true
+      },
+      "/data/commands/*/when": {
+        "ty": "json",
+        "nullable": true
+      },
+      "/data/enabled": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/data/grants": {
+        "ty": "array",
+        "required": true
+      },
+      "/data/grants/*": {
+        "ty": "string"
+      },
+      "/data/hidden": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/data/hidden_access": {
+        "ty": "object",
+        "required": true
+      },
+      "/data/hidden_access/automations": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/data/hidden_access/cli": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/data/hidden_access/mcp": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/data/hide_only": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/data/id": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/installed": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/data/manifest": {
+        "ty": "json",
+        "required": true,
+        "nullable": true
+      },
+      "/data/revision": {
+        "ty": "uint64"
+      },
+      "/data/sandboxed": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/data/scope_classes": {
+        "ty": "map",
+        "required": true
+      },
+      "/data/scope_classes/*": {
+        "ty": "enum",
+        "values": [
+          "elevated",
+          "restricted",
+          "sensitive",
+          "standard",
+          "unknown"
+        ]
+      },
+      "/data/source": {
+        "ty": "enum",
+        "required": true,
+        "values": [
+          "bundled",
+          "default",
+          "local",
+          "user"
+        ]
+      },
+      "/data/tier": {
+        "ty": "enum",
+        "required": true,
+        "values": [
+          "first-party",
+          "unverified",
+          "verified"
+        ]
+      },
+      "/data/version": {
+        "ty": "string",
+        "required": true
+      }
+    },
+    "response:apps-store": {
+      "/data": {
+        "ty": "json",
+        "required": true
+      }
+    },
+    "response:apps-terminal-links": {
+      "/data/links": {
+        "ty": "array",
+        "required": true
+      },
+      "/data/links/*": {
+        "ty": "object"
+      },
+      "/data/links/*/app": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/links/*/channel": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/links/*/id": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/links/*/socket": {
+        "ty": "string",
+        "required": true,
+        "nullable": true
+      },
+      "/data/links/*/target": {
+        "ty": "string",
+        "required": true
+      }
+    },
+    "response:apps-unmount": {},
     "response:attach-surface": {},
     "response:bind-conversation-tab-session": {
       "/data/conversation": {
@@ -12239,6 +12893,7 @@
     "response:browser-reload": {},
     "response:browser-wheel": {},
     "response:browser-wheel-guarded": {},
+    "response:cancel-request": {},
     "response:chief-inspect": {
       "/data/body": {
         "ty": "json",

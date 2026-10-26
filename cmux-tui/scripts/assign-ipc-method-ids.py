@@ -134,6 +134,9 @@ FAMILIES: dict[str, tuple[int, str, tuple[str, ...]]] = {
     )),
     "cloud": (0x10, "cmux Cloud session, host replica, conversations and inbox.", ("cloud-*",)),
     "assets": (0x11, "Content-addressed icon assets.", ("put-blob", "get-blob")),
+    "apps": (0x12, "The app supervisor (apps-v1, server/apps.rs): installs, mounts, runs, logs and app op providers.", (
+        "apps-*", "cancel-request",
+    )),
 }
 
 EVENT_FAMILIES: dict[str, tuple[int, str, tuple[str, ...]]] = {
@@ -233,6 +236,12 @@ MEMORY = (
     "set-client-info", "client-focus", "report-focus", "detach-client", "set-window-title",
     "clear-window-title", "reload-config", "shutdown-daemon", "ws-listen", "page-credential",
     "subscribe-activity",
+    # The app supervisor's connection state: every apps-* request registers
+    # the connection for apps events; mounts, runs, follows and providers live
+    # until the connection closes. Nothing here is journaled.
+    "apps-list", "apps-terminal-links", "apps-logs", "apps-mount", "apps-unmount", "apps-dispatch",
+    "apps-run", "apps-link-changed", "apps-provider-register", "apps-agent-inventory-changed",
+    "apps-provider-result", "cancel-request",
     # Writes the lease's account, bumps its generation and reconnects sockets.
     "cloud-selfhost-info",
     # Binds the browser host's sockets and starts the host process.
@@ -240,7 +249,9 @@ MEMORY = (
     # Admits a snapshot on the stream's gate (collapse and 500 ms throttle).
     "snapshot-request",
 )
-REPLY_AFTER_JOURNAL = ("journal-frontend-event",)
+# apps-set and the App Store mutations of apps-store write apps.json before
+# they apply and reply (apps/supervisor.rs `set`).
+REPLY_AFTER_JOURNAL = ("journal-frontend-event", "apps-set", "apps-store")
 
 # Stream barrier (p05-ipc design 3.4) -------------------------------------------
 # A command naming a surface, terminal or view runs in that surface's stream

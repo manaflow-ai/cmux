@@ -19,6 +19,20 @@ fn expectExplicitNullRejected(
 }
 
 test "every generated optional non-null field rejects explicit null" {
+    try expectExplicitNullRejected(protocol.AppsDispatchRequest, "origin");
+    try expectExplicitNullRejected(protocol.AppsLinkChangedRequest, "origin");
+    try expectExplicitNullRejected(protocol.AppsListRequest, "origin");
+    try expectExplicitNullRejected(protocol.AppsLogsRequest, "follow");
+    try expectExplicitNullRejected(protocol.AppsLogsRequest, "origin");
+    try expectExplicitNullRejected(protocol.AppsMountRequest, "origin");
+    try expectExplicitNullRejected(protocol.AppsProviderRegisterRequest, "inventory_watch");
+    try expectExplicitNullRejected(protocol.AppsProviderRegisterRequest, "origin");
+    try expectExplicitNullRejected(protocol.AppsProviderResultRequest, "origin");
+    try expectExplicitNullRejected(protocol.AppsRunRequest, "origin");
+    try expectExplicitNullRejected(protocol.AppsSetRequest, "origin");
+    try expectExplicitNullRejected(protocol.AppsStoreRequest, "origin");
+    try expectExplicitNullRejected(protocol.AppsTerminalLinksRequest, "origin");
+    try expectExplicitNullRejected(protocol.AppsUnmountRequest, "origin");
     try expectExplicitNullRejected(protocol.AttachSurfaceRequest, "snapshot_images");
     try expectExplicitNullRejected(protocol.AttachSurfaceRequest, "snapshot_local_history");
     try expectExplicitNullRejected(protocol.ChiefInspectRequest, "query");
@@ -151,6 +165,8 @@ test "every generated optional non-null field rejects explicit null" {
     try expectExplicitNullRejected(protocol.WorkspaceRenamedEvent, "mutation_id");
     try expectExplicitNullRejected(protocol.WorkspaceRenamedEvent, "origin");
     try expectExplicitNullRejected(protocol.AgentRecord, "since_ms");
+    try expectExplicitNullRejected(protocol.AppRecord, "revision");
+    try expectExplicitNullRejected(protocol.AppsProviderRegisterResult, "inventory_demand");
     try expectExplicitNullRejected(protocol.AttachedViewResizeResult, "participant");
     try expectExplicitNullRejected(protocol.Bookmark, "favicon_key");
     try expectExplicitNullRejected(protocol.Bookmark, "icon");
