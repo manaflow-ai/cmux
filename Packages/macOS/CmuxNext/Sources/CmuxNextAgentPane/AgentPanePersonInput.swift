@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextInput
 import Darwin
 
 /// Whether a key or mouse event in an agent pane is the person's own input, for the pane's gesture
@@ -29,15 +30,16 @@ enum AgentPanePersonInput {
         return personServices.contains { path.hasPrefix($0) }
     }
 
-    /// Whether the event AppKit is dispatching now (a menu choice, a shortcut, a drop) is the
-    /// person's; none (a call from outside an event) is not.
-    @MainActor static var currentIsPerson: Bool { NSApp.currentEvent.map(isPerson) ?? false }
+    /// Whether the event the running action answers (a menu choice, a shortcut, a drop:
+    /// ``InputEventTap/actionEvent``) is the person's; none (a CLI, socket or script run) is not.
+    @MainActor static func isPerson(answering input: InputEventTap) -> Bool { input.actionEvent.map(isPerson) ?? false }
 
     /// Records the gesture of a native choice (a menu item, a shortcut, a drop) only when the event
-    /// in dispatch is the person's: a posted click or key, or a scripted run, grants nothing.
+    /// it answers is the person's: a posted click or key, or a scripted run, grants nothing.
     /// `answer`: the native permission shortcut, which may answer a prompt as a click does.
-    @MainActor static func record(_ gestures: AgentPaneUserGestures, if byPerson: Bool = true, answer: Bool = false) {
-        if byPerson, currentIsPerson { gestures.record(click: answer) }
+    @MainActor static func record(_ gestures: AgentPaneUserGestures, input: InputEventTap, if byPerson: Bool = true,
+                                  answer: Bool = false) {
+        if byPerson, isPerson(answering: input) { gestures.record(click: answer) }
     }
 
     private static func executablePath(_ pid: pid_t) -> String? {

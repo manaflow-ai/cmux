@@ -71,6 +71,9 @@ public final class InputEventTap: InputObserving {
     /// The last button, move, drag or scroll event the app dispatched, nil before the first: where the
     /// pointer is. Its modifiers are that event's; read the current ones from ``lastDispatched``.
     public private(set) var lastPointer: InputEventRecord?
+    /// The event the app dispatches now, nil between dispatches: the App's `InputDispatchContext.event`
+    /// (`sendEvent` and the key router's own keys). Set once by the composition root; ``actionEvent`` reads it.
+    public var dispatchedEvent: @MainActor () -> NSEvent? = { nil }
     /// Owner-set states that per-key work checks in O(1) instead of searching for (``Flags``).
     public private(set) var flags: Flags = []
     /// The holders of each held flag (``holdFlag(_:)``).

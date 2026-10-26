@@ -279,10 +279,10 @@ public final class AgentPaneView: NSView {
     /// Times the re-apply's steps (tests set it).
     var clock: any Clock<Duration> = ContinuousClock()
 
-    /// Toggle Dictation (the shortcut, palette or menu). From a key press,
-    /// holding the key past a moment makes it push-to-talk: dictation stops
-    /// when the key comes up.
-    public func toggleDictation(from event: NSEvent? = NSApp.currentEvent) {
+    /// Toggle Dictation (the shortcut, palette or menu) from `event`, the action's own
+    /// (`InputEventTap.actionEvent`; nil for a CLI or script run). From a key press, holding
+    /// the key past a moment makes it push-to-talk: dictation stops when the key comes up.
+    public func toggleDictation(from event: NSEvent?) {
         dictation.toggle(from: event)
     }
 
