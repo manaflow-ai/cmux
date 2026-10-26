@@ -1,9 +1,9 @@
 import Foundation
 
 /// A memory source `optchat-chief memory import-from detect --json` found on this Mac.
-struct MemorySource: Decodable, Equatable, Sendable {
+public struct MemorySource: Decodable, Equatable, Sendable {
     /// What the source is, for its title.
-    enum Kind: String, Decodable, Sendable {
+    public enum Kind: String, Decodable, Sendable {
         case claudeCode = "claude-code"
         case claudeMemory = "claude-memory"
         case codex
@@ -13,18 +13,18 @@ struct MemorySource: Decodable, Equatable, Sendable {
     }
 
     /// The `import-from` source name (`claude-code`, `zip:/path`).
-    var source: String
-    var kind: Kind
+    public var source: String
+    public var kind: Kind
     /// Conversations (Claude Code), notes (the memory kinds) or 1 (an export zip).
-    var count: Int
-    var bytes: Int64
-    var path: String
+    public var count: Int
+    public var bytes: Int64
+    public var path: String
 
     private struct Found: Decodable { var sources: [MemorySource] }
 
     /// The sources in the CLI's answer; an answer that is not the CLI's JSON finds none. A source whose kind this
     /// app does not know is left out (a newer CLI may find more kinds).
-    static func parse(_ data: Data) -> [MemorySource] {
+    public static func parse(_ data: Data) -> [MemorySource] {
         struct Lenient: Decodable {
             var sources: [Throwing]
             struct Throwing: Decodable {
@@ -36,10 +36,10 @@ struct MemorySource: Decodable, Equatable, Sendable {
     }
 
     /// The file name of an export zip.
-    var fileName: String { URL(fileURLWithPath: path).lastPathComponent }
+    public var fileName: String { URL(fileURLWithPath: path).lastPathComponent }
 
     /// The product the source belongs to, for the first-run offer ("Claude Code", "ChatGPT").
-    var product: String {
+    public var product: String {
         switch kind {
         case .claudeCode, .claudeMemory: ChiefMemoryImportStrings.productClaudeCode
         case .codex: ChiefMemoryImportStrings.productCodex
@@ -50,7 +50,7 @@ struct MemorySource: Decodable, Equatable, Sendable {
     }
 
     /// The row in the import dialog.
-    var title: String {
+    public var title: String {
         switch kind {
         case .claudeCode: ChiefMemoryImportStrings.claudeCode(count)
         case .claudeMemory: ChiefMemoryImportStrings.claudeMemory(count)
@@ -63,7 +63,7 @@ struct MemorySource: Decodable, Equatable, Sendable {
 
     /// "Bring your memory from Claude Code and ChatGPT", or nil with nothing found. Products appear once, in
     /// the order found, joined the way the person's language joins a list.
-    static func offerTitle(_ sources: [MemorySource], locale: Locale = .current) -> String? {
+    public static func offerTitle(_ sources: [MemorySource], locale: Locale = .current) -> String? {
         var seen = Set<String>()
         let names = sources.map(\.product).filter { seen.insert($0).inserted }
         guard !names.isEmpty else { return nil }
@@ -74,48 +74,57 @@ struct MemorySource: Decodable, Equatable, Sendable {
 }
 
 /// What `import-from SOURCE dry-run|write --json` answers.
-struct MemoryImportReport: Decodable, Equatable, Sendable {
-    struct Plan: Decodable, Equatable, Sendable {
-        var total: Int
-        var new: Int
-        var duplicate: Int
-        var secrets: Int
+public struct MemoryImportReport: Decodable, Equatable, Sendable {
+    public struct Plan: Decodable, Equatable, Sendable {
+        public var total: Int
+        public var new: Int
+        public var duplicate: Int
+        public var secrets: Int
+
+        public init(total: Int, new: Int, duplicate: Int, secrets: Int) {
+            self.total = total
+            self.new = new
+            self.duplicate = duplicate
+            self.secrets = secrets
+        }
     }
 
-    var plan: Plan
-    var estCostUSD: Double
+    public var plan: Plan
+    public var estCostUSD: Double
     /// Items written (a dry run writes none).
-    var written: Int?
-    var batch: String?
+    public var written: Int?
+    public var batch: String?
 
     enum CodingKeys: String, CodingKey { case plan, estCostUSD = "est_cost_usd", written, batch }
 
-    static func parse(_ data: Data) -> MemoryImportReport? { try? JSONDecoder().decode(MemoryImportReport.self, from: data) }
+    public static func parse(_ data: Data) -> MemoryImportReport? { try? JSONDecoder().decode(MemoryImportReport.self, from: data) }
 }
 
 /// The CLI arguments of one import: the same `optchat-chief memory import-from` the person can run by hand.
-struct MemoryImportCommand: Equatable, Sendable {
+public struct MemoryImportCommand: Equatable, Sendable {
     /// Where the memory goes.
-    enum Target: Equatable, Sendable {
+    public enum Target: Equatable, Sendable {
         /// This Mac's Chief (its host is stopped for the write, and starts again with the next message).
         case local(muxHome: String)
         /// A Cloud Chief; the session token is in a 0600 file.
         case cloud(chief: String, tokenFile: String)
     }
 
-    var target: Target
+    public var target: Target
     /// Most the estimated summary cost may be, in dollars; the CLI refuses above it.
-    static let maxCostUSD = 20
+    public static let maxCostUSD = 20
 
-    func detect() -> [String] { base(["detect", "--json"]) }
+    public init(target: Target) { self.target = target }
 
-    func dryRun(_ source: String) -> [String] { base([source, "dry-run", "--json"] + targetArguments) }
+    public func detect() -> [String] { base(["detect", "--json"]) }
 
-    func write(_ source: String, batch: String) -> [String] {
+    public func dryRun(_ source: String) -> [String] { base([source, "dry-run", "--json"] + targetArguments) }
+
+    public func write(_ source: String, batch: String) -> [String] {
         base([source, "write", "--json", "--batch", batch, "--max-cost", String(Self.maxCostUSD)] + targetArguments + stopHost)
     }
 
-    func undo() -> [String] { base(["undo", "--json"] + targetArguments + stopHost) }
+    public func undo() -> [String] { base(["undo", "--json"] + targetArguments + stopHost) }
 
     private func base(_ rest: [String]) -> [String] {
         var arguments = ["memory", "import-from"]
