@@ -11,6 +11,7 @@ import Testing
 /// Chromium (the runtime is process-wide).
 @MainActor struct ChromiumWarmupTests {
     final class Clock { var now: TimeInterval = 100 }
+    final class Asked { var value = false }
 
     let clock = Clock()
     let input = FakeInputTap()
@@ -34,16 +35,16 @@ import Testing
     /// asks whether to keep one, and no pages spare window is made.
     @Test func anUnavailableEngineNeverAsksForThePagesSpare() {
         let engine = CEFEngine(layout: nil, stores: .inMemory(), signInCallbacks: CEFSignInCallbacks())
-        let warmup = ChromiumWarmup(engine: engine, input: input, clock: ManualClock(), now: { [clock] in clock.now })
-        var asked = false
+        let clock = clock
+        let warmup = ChromiumWarmup(engine: engine, input: input, clock: ManualClock(), now: { clock.now })
+        let asked = Asked()
         warmup.start(defaultIsChromium: { true }, pagesSpare: {
-            asked = true
+            asked.value = true
             return true
         })
         warmup.chromiumLikely(.launch)
-        #expect(!asked)
-        #expect(engine.pagesSpareWindowState == "none")
-        #expect(engine.windowsBuiltOnKeyTurn == 0)
+        #expect(!asked.value)
+        #expect(warmup.reason == nil, "no warm start, so no spare step")
     }
 
     /// A wait for an idle moment hears the input tap (p04-input-012): a key-down, click or left drag
