@@ -35,13 +35,58 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
         return None
 
 
+# GitHub refuses a call over the installation's rate limit with 403 or 429, and its
+# secondary limit sends a 403 with no rate-limit headers. A refused lookup made the
+# prepare job fall back to download-artifact's single connection: 611 s for the
+# unsigned app on run 40378565252 instead of about 2 min. Wait and retry instead,
+# within a bound far below what that fallback costs.
+RETRY_STATUSES = (403, 429, 500, 502, 503, 504)
+RETRY_BUDGET_SECONDS = float(os.environ.get("CMUX_ARTIFACT_RETRY_BUDGET_SECONDS", "240"))
+sleep = time.sleep
+# One budget for the whole download (lookup, redirect and its refreshes), not per call.
+waited_seconds = 0.0
+
+
+def retry_wait(error: urllib.error.HTTPError, attempt: int) -> float:
+    """Seconds to wait before retrying a refused call: Retry-After, the limit's reset, else backoff."""
+    headers = error.headers or {}
+    retry_after = headers.get("Retry-After")
+    if retry_after and retry_after.isdigit():
+        return float(retry_after)
+    if headers.get("X-RateLimit-Remaining") == "0" and (headers.get("X-RateLimit-Reset") or "").isdigit():
+        return max(1.0, float(headers["X-RateLimit-Reset"]) - time.time() + 1)
+    return min(120.0, 10.0 * 2 ** (attempt - 1))
+
+
+def with_retries(call, what: str):
+    """Run call(); retry a refused or failed GitHub response until RETRY_BUDGET_SECONDS is spent."""
+    global waited_seconds
+    attempt = 0
+    while True:
+        attempt += 1
+        try:
+            return call()
+        except urllib.error.HTTPError as error:
+            if error.code not in RETRY_STATUSES:
+                raise
+            wait = retry_wait(error, attempt)
+            if waited_seconds + wait > RETRY_BUDGET_SECONDS:
+                raise
+            print(f"{what}: HTTP {error.code}; retrying in {wait:.0f}s (attempt {attempt})", file=sys.stderr)
+            sleep(wait)
+            waited_seconds += wait
+
+
 def api_json(path: str, token: str) -> dict:
-    req = urllib.request.Request(
-        f"{API}{path}",
-        headers={"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json"},
-    )
-    with urllib.request.urlopen(req, timeout=60) as resp:
-        return json.load(resp)
+    def call() -> dict:
+        req = urllib.request.Request(
+            f"{API}{path}",
+            headers={"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json"},
+        )
+        with urllib.request.urlopen(req, timeout=60) as resp:
+            return json.load(resp)
+
+    return with_retries(call, f"GET {path}")
 
 
 def find_artifact(repo: str, run_id: str, name: str, token: str) -> dict:
@@ -54,15 +99,18 @@ def find_artifact(repo: str, run_id: str, name: str, token: str) -> dict:
 
 
 def blob_url(artifact: dict, token: str) -> str:
-    opener = urllib.request.build_opener(NoRedirect)
-    req = urllib.request.Request(artifact["archive_download_url"], headers={"Authorization": f"Bearer {token}"})
-    try:
-        opener.open(req, timeout=60)
-    except urllib.error.HTTPError as error:
-        if error.code in (301, 302, 303, 307, 308) and error.headers.get("Location"):
-            return error.headers["Location"]
-        raise
-    raise SystemExit("artifact download did not redirect to blob storage")
+    def call() -> str:
+        opener = urllib.request.build_opener(NoRedirect)
+        req = urllib.request.Request(artifact["archive_download_url"], headers={"Authorization": f"Bearer {token}"})
+        try:
+            opener.open(req, timeout=60)
+        except urllib.error.HTTPError as error:
+            if error.code in (301, 302, 303, 307, 308) and error.headers.get("Location"):
+                return error.headers["Location"]
+            raise
+        raise SystemExit("artifact download did not redirect to blob storage")
+
+    return with_retries(call, "artifact redirect")
 
 
 def fetch_range(url: str, fd: int, lo: int, hi: int) -> None:

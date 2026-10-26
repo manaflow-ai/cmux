@@ -1272,6 +1272,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: python3 tests/test_gh_budget_wait.py
 
+      - name: Validate the run artifact download waits through a refused GitHub call
+        if: ${{ !cancelled() && matrix.group == 'release-notary' }}
+        run: python3 tests/test_download_run_artifact_retries.py
+
       - name: Validate publish gh calls go out as the release App first, github.token as fallback
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: python3 tests/test_gh_app_token.py
