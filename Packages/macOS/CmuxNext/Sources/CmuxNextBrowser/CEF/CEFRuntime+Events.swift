@@ -27,7 +27,7 @@ let cefEventCallback: CEFShimLibrary.EventFn = { context, kind, browser, request
     }
 }
 
-/// C entry before the page sees a key down: app shortcuts win. In process only: the Chromium Host's key_fn is NULL (CEFRuntime+HostKeys).
+/// C entry before the page sees a key down: app shortcuts win. In process only: the Chromium Host passes a NULL key_fn (browser_host_main.mm, `cmux_shim_initialize`).
 let cefKeyCallback: CEFShimLibrary.KeyFn = { context, browser, nsEvent in
     // Keys arrive on the main thread; off it, let the page have the key
     // rather than trap in assumeIsolated.

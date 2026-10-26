@@ -531,8 +531,9 @@ void HostContext::InstallHostPolicies() {
 // The host's own handlers stay in place whatever cmux installs: the host
 // decides focus and windows itself (above). cmux routes keys first in its
 // own process: with no unhandled-key handler, a chord the page leaves
-// unhandled goes back as KEY_UNHANDLED with its key seq (shim_client.mm
-// OnKeyEvent, task 030); DevTools keys follow in task 033.
+// unhandled goes back as KEY_UNHANDLED with its frame's input seq
+// (SendHostKeyEvent and OnKeyEvent in shim_client.mm, task 030); DevTools
+// keys follow in task 033.
 void InstallPolicySetFocusRequestHandler(HostContext& ctx, bool) {
   ctx.InstallHostPolicies();
 }

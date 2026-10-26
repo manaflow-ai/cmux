@@ -1,39 +1,38 @@
 import AppKit
 
-/// The key-downs a hosted page has (``ChromiumHostPageView``), by the key seq of the frame that
-/// carried each, until the page handled the key or the host reported it unhandled
-/// (KEY_UNHANDLED with that seq, p01-process-030).
+/// Where the input writer put a frame (task 092): the browser it went to and the input seq it
+/// stamped in the frame's header (`Header::seq`), never 0.
+struct ChromiumHostInputReceipt: Equatable, Sendable {
+    var browser: Int32
+    var seq: UInt32
+}
+
+/// The Command and Control key-downs a hosted page view sent (``ChromiumHostPageView``), by the
+/// browser and input seq of the frame that carried each, until that browser reports the key
+/// unhandled (KEY_UNHANDLED with the seq, p01-process-030).
 ///
-/// A widget acks its key events in the order it got them
-/// (`content/browser/renderer_host/render_widget_host_impl.cc`, the key event queue), and only
-/// an unhandled key is reported, so a report releases its key and every older one: the keys the
-/// page handled. The host's side is `CEFShim/src/host_key_seqs.h`. Bounded: a host that never
-/// reports drops the oldest.
+/// A report names its key exactly (the host's side, `CEFShim/src/host_key_seqs.h`, pairs it by the
+/// event Chromium queued, as Chrome's ack carries the queued event back). A key the page handled is
+/// never reported: it stays until ``limit`` drops the oldest.
 struct ChromiumHostKeyDowns {
     /// Keys held at most (the host holds as many per page).
     static let limit = 64
 
-    private var entries: [(seq: Int32, event: NSEvent)] = []
-    private var lastSeq: Int32 = 0
+    private var entries: [(browser: Int32, seq: UInt32, event: NSEvent)] = []
 
     /// Keys held now.
     var count: Int { entries.count }
 
-    /// Holds `event` and returns the key seq its frame carries: 1 ... `Int32.max`, never 0
-    /// (0 is "no seq" in KEY_UNHANDLED's request).
-    mutating func record(_ event: NSEvent) -> Int32 {
-        lastSeq = lastSeq == .max ? 1 : lastSeq + 1
-        entries.append((lastSeq, event))
+    /// Holds `event`, sent to the page in the frame of `receipt`.
+    mutating func record(_ event: NSEvent, _ receipt: ChromiumHostInputReceipt) {
+        entries.append((receipt.browser, receipt.seq, event))
         if entries.count > Self.limit { entries.removeFirst(entries.count - Self.limit) }
-        return lastSeq
     }
 
-    /// The key-down whose frame carried `seq`, while it is held; it and every older one are released.
-    mutating func take(_ seq: Int32) -> NSEvent? {
-        guard seq != 0, let index = entries.firstIndex(where: { $0.seq == seq }) else { return nil }
-        let event = entries[index].event
-        entries.removeFirst(index + 1)
-        return event
+    /// The key-down `browser` got in the frame with input seq `seq`, while it is held; it is released.
+    mutating func take(_ seq: UInt32, browser: Int32) -> NSEvent? {
+        guard seq != 0, let index = entries.firstIndex(where: { $0.browser == browser && $0.seq == seq }) else { return nil }
+        return entries.remove(at: index).event
     }
 
     /// The page view left its window or its page went away: no report can come for these keys.

@@ -62,9 +62,14 @@ public final class ChromiumHostPageView: NSView {
     private(set) var crashOverlay: NSView?
     /// The layer-hosting view that shows the context, under every other subview.
     let surface: Surface
-    /// The key-downs sent to the page that it may still report unhandled (``takeUnhandledKey(seq:)``,
-    /// ChromiumHostPageView+Keys.swift).
+    /// The key-downs sent to the page that it may still report unhandled
+    /// (``takeUnhandledKey(seq:browser:)``, ChromiumHostPageView+Keys.swift).
     var keyDowns = ChromiumHostKeyDowns()
+    /// Whether the host this view's frames go to sends each key with `SendHostKeyEvent`, so a chord
+    /// the page leaves unhandled comes back as KEY_UNHANDLED. Off, this view takes no chord from the
+    /// main menu and the KeyRouter runs its actions before the page. The input route turns it on
+    /// when it attaches a host whose key applier does that (tasks 041 and 042).
+    var hostReportsUnhandledKeys = false
     /// Where a key the page left unhandled goes when no cmux action was held for it: the main
     /// menu, as Chrome re-dispatches such a key (`ui/base/cocoa/command_dispatcher.mm`,
     /// `-redispatchKeyEvent:`). Tests pass a recorder.
@@ -73,8 +78,9 @@ public final class ChromiumHostPageView: NSView {
     var isRedispatching = false
 
     #if DEBUG || CMUX_BENCH_HOOKS
-    /// Where frames for the host go (``InputTarget/view`` only).
-    var sink: ((ChromiumHostFrame) -> Void)?
+    /// Where frames for the host go (``InputTarget/view`` only). Returns where the input writer put
+    /// the frame (its browser and input seq), or nil when it stamped none.
+    var sink: ((ChromiumHostFrame) -> ChromiumHostInputReceipt?)?
     private var tracking: NSTrackingArea?
     #endif
 
@@ -290,12 +296,12 @@ extension ChromiumHostPageView {
     // MARK: Focus
 
     public override func becomeFirstResponder() -> Bool {
-        sink?(ChromiumHostFrame(.focus, v: [1]))
+        _ = sink?(ChromiumHostFrame(.focus, v: [1]))
         return true
     }
 
     public override func resignFirstResponder() -> Bool {
-        sink?(ChromiumHostFrame(.focus, v: [0]))
+        _ = sink?(ChromiumHostFrame(.focus, v: [0]))
         return true
     }
 
@@ -334,16 +340,16 @@ extension ChromiumHostPageView {
         // Pixel deltas, as cefclient's off-screen view reads them.
         let dy = event.cgEvent.map { Int32($0.getIntegerValueField(.scrollWheelEventPointDeltaAxis1)) } ?? 0
         let dx = event.cgEvent.map { Int32($0.getIntegerValueField(.scrollWheelEventPointDeltaAxis2)) } ?? 0
-        sink?(ChromiumHostFrame(.wheel, v: [point.x, point.y, dx, dy], flags: UInt64(event.modifierFlags.rawValue),
-                                t0: Self.nanoseconds(event.timestamp)))
+        _ = sink?(ChromiumHostFrame(.wheel, v: [point.x, point.y, dx, dy], flags: UInt64(event.modifierFlags.rawValue),
+                                    t0: Self.nanoseconds(event.timestamp)))
     }
 
     private func mouse(_ event: NSEvent, phase: Int32, button: Int32) {
         let point = pagePoint(event)
         // Pressed buttons as bits: 1 left, 2 right, 4 middle (NSEvent's order, the wire's too).
         let buttons = Int32(truncatingIfNeeded: NSEvent.pressedMouseButtons & 0x7)
-        sink?(ChromiumHostFrame(.mouse, v: [point.x, point.y, phase, button, Int32(phase == 0 || phase == 3 ? 0 : event.clickCount), buttons],
-                                flags: UInt64(event.modifierFlags.rawValue), t0: Self.nanoseconds(event.timestamp)))
+        _ = sink?(ChromiumHostFrame(.mouse, v: [point.x, point.y, phase, button, Int32(phase == 0 || phase == 3 ? 0 : event.clickCount), buttons],
+                                    flags: UInt64(event.modifierFlags.rawValue), t0: Self.nanoseconds(event.timestamp)))
     }
 
     /// The event's point in page coordinates: points from the top left.
@@ -362,7 +368,7 @@ extension ChromiumHostPageView {
     @objc public func redo(_ sender: Any?) { edit(5) }
 
     private func edit(_ command: Int32) {
-        sink?(ChromiumHostFrame(.edit, v: [command]))
+        _ = sink?(ChromiumHostFrame(.edit, v: [command]))
     }
 
     /// An event time (seconds since boot) as CLOCK_UPTIME_RAW nanoseconds, the host's clock too.

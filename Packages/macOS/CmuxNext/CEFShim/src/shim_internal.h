@@ -197,11 +197,13 @@ bool ForwardDevToolsMessage(int browser_id, const void* message, size_t message_
 // The browser closed: drop its watch, raw-send mark and id counter.
 void ForgetDevToolsProtocol(int browser_id);
 
-// Chromium Host only (p01-process-030; shim_client.mm, UI thread): the host
-// sends cmux's key-down `seq` to `browser_id` as `event`. If the page leaves
-// it unhandled, OnKeyEvent reports KEY_UNHANDLED with that seq (a Command or
-// Control chord with b bit 1 set) and cmux re-dispatches it to its menus.
-void NoteHostKeyDown(int browser_id, uint32_t seq, const CefKeyEvent& event);
+// Chromium Host only (p01-process-030; shim_client.mm): the host's key frame
+// applier sends `event` to `browser_id` with this, on the UI thread, in place
+// of CefBrowserHost::SendKeyEvent. `seq` is the kKey frame's input seq
+// (Header::seq). If the page leaves a Command or Control key-down unhandled,
+// OnKeyEvent reports KEY_UNHANDLED with that seq (request, b bit 1) and cmux
+// runs the action it held or re-dispatches the key to its menus.
+void SendHostKeyEvent(int browser_id, uint32_t seq, const CefKeyEvent& event);
 
 // Profile preference watches (shim_prefs.mm, UI thread).
 void ForgetPreferenceWatches(const std::string& key);

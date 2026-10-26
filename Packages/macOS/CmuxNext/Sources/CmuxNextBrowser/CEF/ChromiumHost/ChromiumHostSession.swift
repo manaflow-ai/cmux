@@ -103,7 +103,11 @@ public final class ChromiumHostSession {
     }
 
     private func wireView() {
-        view.sink = { [weak self] frame in self?.send(frame) }
+        // This wire stamps no input seq: no key comes back as KEY_UNHANDLED.
+        view.sink = { [weak self] frame in
+            _ = self?.send(frame)
+            return nil
+        }
         view.onGeometry = { [weak self] geometry in
             self?.geometry = geometry
             self?.send(geometry.frame)

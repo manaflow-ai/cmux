@@ -30,10 +30,12 @@ extension CEFTab: BrowserContentVisibilityReporting {
     }
 
     /// Chromium Host: whether this tab's page view (``ChromiumHostPageView/InputTarget/view``) is
-    /// `window`'s first responder, so its keys go to the page and the host reports the chords the
-    /// page leaves unhandled (p01-process-030).
+    /// `window`'s first responder and its host reports the chords the page leaves unhandled
+    /// (``ChromiumHostPageView/hostReportsUnhandledKeys``, p01-process-030), so the page gets
+    /// page-ownable keys first.
     public func hostedPageHasKeys(in window: NSWindow) -> Bool {
-        guard !isClosed, host.visibleTab === self, let page = host.hostedPageView, page.inputTarget == .view else { return false }
+        guard !isClosed, host.visibleTab === self, let page = host.hostedPageView, page.inputTarget == .view,
+              page.hostReportsUnhandledKeys else { return false }
         return window.firstResponder === page
     }
 
