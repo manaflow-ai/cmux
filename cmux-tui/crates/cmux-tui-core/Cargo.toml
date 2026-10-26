@@ -17,6 +17,9 @@ default = []
 # have it and release builds never do. Off by default; the oracle builds
 # `--profile oracle --features oracle` (p15-oracle task 201).
 oracle = []
+# Decoder entry points for the cmux-tui/fuzz targets (`fuzz_entry`): only the
+# fuzz workspace (cmux-tui/fuzz/Cargo.toml) turns it on.
+fuzz = []
 
 [dependencies]
 cmux-agent-pane-policy.workspace = true
@@ -44,7 +47,12 @@ cmux-api-compat.workspace = true
 cmux-terminal-iface.workspace = true
 cmux-terminal-sizing.workspace = true
 serde.workspace = true
-serde_json.workspace = true
+# float_roundtrip: correctly rounded float parsing, so a journal payload
+# number reads the same after a segment seal writes it out again (Chromium's
+# base/json/json_parser.cc parses numbers with the correctly rounded
+# double-conversion). Without it the default parser is off by an ulp on some
+# inputs (cmux-tui/fuzz `journal_record`).
+serde_json = { workspace = true, features = ["float_roundtrip"] }
 anyhow.workspace = true
 base64.workspace = true
 libc.workspace = true
