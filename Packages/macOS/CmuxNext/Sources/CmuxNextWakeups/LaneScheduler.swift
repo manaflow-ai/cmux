@@ -59,6 +59,17 @@ import Dispatch
 /// level keeps its width and post order and the levels still run side by side. A `shared` lane has no per-level
 /// order: there ``close()`` moves the queued block items to the user-blocking list (and one submitted later is
 /// queued there), so they may take the reserve too.
+///
+/// A yieldable job (``BackgroundWork/job(_:shutdown:state:fileID:line:_:)``) runs as one item per run. While every
+/// slot of a `shared` lane is busy and an item above ``WorkPriority/bestEffort`` waits, the lane asks one running job
+/// below it to yield (its ``JobDelegate/shouldYield``); the job stops between two chunks and its rest is queued again
+/// in its old place (by id), so the waiting item takes the freed slot. Chrome's `ThreadGroup::ShouldYield`
+/// (base/task/thread_pool/thread_group.cc): a job yields only to higher work, never to best-effort work, and one job
+/// yields per waiting item (Chrome resets `max_allowed_sort_key_` when a worker decides to yield). After ``close()``
+/// only a ``ShutdownBehavior/blockShutdown`` job's rest is queued, as only block-shutdown items are taken; the rest of
+/// any other job is dropped (queued) or refused (yielded later), so its caller gets `CancellationError` whenever the
+/// job yields. ``close()`` asks running ``ShutdownBehavior/skipOnShutdown`` jobs to yield; a running
+/// continue-on-shutdown run is not asked by shutdown and may end the job in that run.
 final class LaneScheduler: Sendable {
     /// How the lane's slots register with the hang watch: each slot under `name`, each item with `deadline`.
     struct HangWatching: Sendable {
@@ -110,6 +121,8 @@ final class LaneScheduler: Sendable {
         var cap: LaneCap?
         /// A ``WorkHandle`` item, which ``raise(_:to:awaited:)`` may boost while it runs.
         var raisable: Bool
+        /// A run of a yieldable job: the lane asks it to yield through this delegate while it runs.
+        var delegate: JobDelegate?
     }
 
     /// What one busy slot runs: its item, level, capped class and start (on the lane's ``MayBlockCompensation``
@@ -129,6 +142,12 @@ final class LaneScheduler: Sendable {
         var raised: WorkPriority?
         /// The overrides started on `thread`, ended when the item finishes.
         var overrides: [ThreadQoSOverride.Token] = []
+        /// A run of a yieldable job: how the lane asks it to yield.
+        var delegate: JobDelegate?
+        /// The lane asked this job run to yield; its slot counts as freeing for the items that wait.
+        var yieldAsked = false
+        /// A ``ShutdownBehavior/skipOnShutdown`` item, which ``close()`` asks to yield when it is a job run.
+        var skipsOnShutdown = false
     }
 
     private struct State {
@@ -219,6 +238,17 @@ final class LaneScheduler: Sendable {
                 if let index = next(at: level, full: full, uncappedOnly: !open) { return (level, index) }
             }
             return nil
+        }
+
+        /// The busy slot of the job run that yields first to an item at `level`: one not asked yet, below `level`,
+        /// the lowest level first; nil when none runs.
+        func yieldCandidate(below level: WorkPriority) -> Int? {
+            var best: (slot: Int, priority: WorkPriority)?
+            for (slot, busy) in running.enumerated() {
+                guard let busy, busy.delegate != nil, !busy.yieldAsked, busy.priority < level else { continue }
+                if best.map({ busy.priority < $0.priority }) ?? true { best = (slot, busy.priority) }
+            }
+            return best?.slot
         }
 
         /// The level and index of pending item `id`.
@@ -331,14 +361,40 @@ final class LaneScheduler: Sendable {
     /// recording their thread, except a block-shutdown item below user-blocking, which ``close()`` raises. After
     /// ``close()`` a block-shutdown item starts at `.userInitiated`; on a `shared` lane it is queued at
     /// ``WorkPriority/userBlocking`` (quit waits for it).
+    /// A `delegate` makes the item one run of a yieldable job, which the lane asks to yield while it runs.
     func submit(_ job: LaneJob, at priority: WorkPriority, posted: Bool, cap: LaneCap? = nil, raisable: Bool = false,
-                unless cancelled: () -> Bool) -> Submitted {
+                delegate: JobDelegate? = nil, unless cancelled: () -> Bool) -> Submitted {
         let taken: (starts: [Start], level: WorkPriority)? = state.withLock { state in
             if cancelled() || (state.closed && job.shutdown != .blockShutdown) { return nil }
             let level = state.closed && liftsBlockItems ? WorkPriority.userBlocking : priority
-            state.pending[level.rawValue].append(Entry(job: job, posted: posted, cap: cap, raisable: raisable))
+            state.pending[level.rawValue].append(Entry(job: job, posted: posted, cap: cap, raisable: raisable, delegate: delegate))
             return (pump(&state), level)
         }
+        return launched(taken, job)
+    }
+
+    /// Queues the rest of a yieldable job that yielded, as the next run `job` (same id), in its old place: before
+    /// every item at its level posted after the job started (by id), as Chrome sorts a re-enqueued job by its
+    /// original queue time (base/task/thread_pool/job_task_source.cc, `GetSortKey`). Refused when `cancelled`
+    /// holds (read under the lock, as in ``submit(_:at:posted:cap:raisable:delegate:unless:)``), or after
+    /// ``close()`` for any job but a ``ShutdownBehavior/blockShutdown`` one, the rule submit and ``close()`` use:
+    /// Chrome's `TaskTracker::BeforeRunTask` (base/task/thread_pool/task_tracker.cc) refuses every later run of a
+    /// CONTINUE_ON_SHUTDOWN or SKIP_ON_SHUTDOWN task source once shutdown has started. So after ``close()`` only a
+    /// block-shutdown rest is queued, and only it moves to the user-blocking list on a `shared` lane.
+    func requeue(_ job: LaneJob, at priority: WorkPriority, delegate: JobDelegate, unless cancelled: () -> Bool) -> Submitted {
+        let taken: (starts: [Start], level: WorkPriority)? = state.withLock { state in
+            if cancelled() || (state.closed && job.shutdown != .blockShutdown) { return nil }
+            let level = state.closed && liftsBlockItems ? WorkPriority.userBlocking : priority
+            let list = state.pending[level.rawValue]
+            state.pending[level.rawValue].insert(Entry(job: job, posted: false, cap: nil, raisable: false, delegate: delegate),
+                                                 at: list.firstIndex { $0.job.id > job.id } ?? list.endIndex)
+            return (pump(&state), level)
+        }
+        return launched(taken, job)
+    }
+
+    /// Launches what a submit started and says what became of `job`.
+    private func launched(_ taken: (starts: [Start], level: WorkPriority)?, _ job: LaneJob) -> Submitted {
         guard let taken else { return .refused }
         launch(taken.starts)
         return taken.starts.contains { $0.job.id == job.id } ? .started : .queued(taken.level)
@@ -444,6 +500,8 @@ final class LaneScheduler: Sendable {
             for slot in state.running.indices where state.running[slot]?.blockShutdown == true {
                 boost(slot, to: .userBlocking, in: &state)
             }
+            // A running skip-on-shutdown job stops at its next chunk: requeue() refuses its rest.
+            for case let busy? in state.running where busy.skipsOnShutdown { busy.delegate?.askToYield() }
             return (dropped, pump(&state))
         }
         // Closing lifts the fence: block-shutdown items it held start now.
@@ -495,8 +553,30 @@ final class LaneScheduler: Sendable {
                 guard let pick = state.highest() else { break }
                 starts.append(claim(pick.level, pick.index, slot: slot, in: &state))
             }
+            askYields(&state)
         }
         return starts
+    }
+
+    /// Asks running job runs to yield to the items above best effort that still wait once every free slot took what
+    /// it may: for each such item, highest level first, one job run below it, unless a run already asked will free
+    /// its slot. Chrome's `ThreadGroup::ShouldYield` and `max_allowed_sort_key_` (base/task/thread_pool/thread_group.cc):
+    /// never to best-effort work, never to work of the job's own level. At most one pass per running slot.
+    private func askYields(_ state: inout State) {
+        guard state.running.contains(where: { $0?.delegate != nil }) else { return }
+        let full = state.fullCaps
+        var freeing = state.running.count(where: { $0?.yieldAsked == true })
+        for level in WorkPriority.allCases.reversed() where level > .bestEffort {
+            for entry in state.pending[level.rawValue] where entry.cap.map({ !full.contains($0) }) ?? true {
+                if freeing > 0 {
+                    freeing -= 1
+                    continue
+                }
+                guard let slot = state.yieldCandidate(below: level) else { return }
+                state.running[slot]?.yieldAsked = true
+                state.running[slot]?.delegate?.askToYield()
+            }
+        }
     }
 
     /// Takes the pending item `index` at `level` and marks `slot` busy with it.
@@ -506,8 +586,11 @@ final class LaneScheduler: Sendable {
         // A block-shutdown item that starts below user-blocking before shutdown records its thread, so close() can
         // raise it.
         let raisable = entry.raisable || (blockShutdown && !state.closed && level < .userBlocking)
+        // A job run starts unasked; a cancel stays (JobDelegate.rearm).
+        entry.delegate?.rearm()
         state.running[slot] = Running(id: entry.job.id, priority: level, cap: entry.cap, started: state.now,
-                                      raisable: raisable, blockShutdown: blockShutdown)
+                                      raisable: raisable, blockShutdown: blockShutdown, delegate: entry.delegate,
+                                      skipsOnShutdown: entry.job.shutdown == .skipOnShutdown)
         return Start(job: entry.job, slot: slot, priority: level, raisable: raisable, closed: state.closed)
     }
 
