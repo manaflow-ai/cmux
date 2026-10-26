@@ -22,10 +22,12 @@ public struct BlockingDetector: Sendable {
     #endif
 
     /// The process's detector. Call it once, in the composition root (AppServices), and pass the value on;
-    /// no other code makes one (P1, plans/cmux-next/PATTERNS.md).
+    /// no other code makes one (P1, plans/cmux-next/PATTERNS.md). It also installs the detector as the shared
+    /// packages' blocking-call hook (``SharedThreadingBridge``), once per process, in every build.
     ///
     /// - Returns: The handle to this process's detector.
     public static func forProcess() -> BlockingDetector {
+        SharedThreadingBridge.installForProcess()
         #if DEBUG || CMUX_BLOCKING_CHECKS
         BlockingDetector(table: .shared)
         #else
