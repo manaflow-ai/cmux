@@ -6153,6 +6153,14 @@
      },
      "presence": "optional",
      "nullable": false
+    },
+    "slow_requests": {
+     "type": {
+      "kind": "ref",
+      "name": "ServerStatsSlowRequests"
+     },
+     "presence": "optional",
+     "nullable": false
     }
    },
    "additional_properties": false,
@@ -6162,7 +6170,8 @@
     "Counters accumulate since daemon start; reading them never touches SQLite or the journal.",
     "resource_projection is present only when the request names it in include.",
     "write_path is present only when the request names it in include.",
-    "request_path_io is present only when the request names it in include."
+    "request_path_io is present only when the request names it in include.",
+    "slow_requests is present only when the request names it in include."
    ]
   },
   "ServerStatsResourceProjection": {
@@ -9694,6 +9703,129 @@
     }
    },
    "additional_properties": false
+  },
+  "ServerStatsSlowRequests": {
+   "kind": "object",
+   "fields": {
+    "threshold_ms": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "total": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "unwatched": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "expected_waits": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "spawn_failures": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "watchdog_wakeups": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "recent": {
+     "type": {
+      "kind": "array",
+      "items": {
+       "kind": "ref",
+       "name": "ServerStatsSlowRequest"
+      }
+     },
+     "presence": "required",
+     "nullable": false
+    }
+   },
+   "additional_properties": false,
+   "constraints": [
+    "Counters accumulate since daemon start.",
+    "total counts requests that ran past threshold_ms, each once; recent keeps the newest 128, oldest first.",
+    "unwatched counts requests that started while every watchdog slot was taken.",
+    "expected_waits counts requests that block by design (wait-for); they are not recorded.",
+    "spawn_failures counts failed starts of the watchdog thread; nonzero means slow requests may be missing."
+   ]
+  },
+  "ServerStatsSlowRequest": {
+   "kind": "object",
+   "fields": {
+    "method": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "client": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "started_ms": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "busy_ms": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "duration_ms": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": true
+    }
+   },
+   "additional_properties": false,
+   "constraints": [
+    "method is the request cmd tag, its v2 operation, frame:<handler> for a frame its connection handler answers, or unknown.",
+    "started_ms is milliseconds since daemon start; busy_ms is how long the request had run when it was recorded.",
+    "duration_ms is how long the request ran in total, null while it still runs."
+   ]
   }
  },
  "commands": {

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Tests for linux_run.sh (p15-oracle-007) and oracle.py's queue guard: no oracle job outside the queue.
+"""Tests for linux_run.sh (p15-oracle-007, p15-oracle-024) and oracle.py's queue guard: no oracle job outside the queue.
 
 Run: python3 -I scripts/cmux-next/oracle/linux_run_test.py (stdlib unittest, Linux only). Each test
 builds a throwaway repo with a ghostty-next submodule, copies linux_run.sh and runnerd.py into it
@@ -245,11 +245,33 @@ class RunTests(LinuxRunCase):
         self.assertNotEqual(base_run, head_run)
 
     def test_diff_runs_each_side_once_and_shares_a_shuffle_seed(self) -> None:
-        result = self.linux_run("diff", self.base_sha, self.head_sha, "--suite", "zeta", "--", "--shuffle")
+        result = self.linux_run("diff", self.base_sha, self.head_sha, "--suite", "zeta",
+                                "--out", str(self.work / "cmp"), "--", "--shuffle")
         self.assertEqual(result.returncode, 0, result.stderr)
         runs = self.logged("run")
         self.assertEqual(len(runs), 2)
         self.assertEqual(len({run.split("--seed ")[1].split()[0] for run in runs}), 1)
+
+    def test_diff_receipt_has_both_builds_and_never_an_old_comparison(self) -> None:
+        out = self.work / "cmp"
+        out.mkdir()
+        (out / "comparison.json").write_text(json.dumps({"stale": True}))
+        result = self.linux_run("diff", self.base_sha, self.head_sha, "--suite", "eta", "--out", str(out))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        receipt = json.loads((out / "linux-run.json").read_text())
+        self.assertEqual(receipt["schema"], "cmux-oracle-linux-run-v1")
+        self.assertEqual((receipt["base"]["sha"], receipt["head"]["sha"]), (self.base_sha, self.head_sha))
+        ghostty = git("rev-parse", f"{self.base_sha}:ghostty-next", cwd=self.repo)
+        self.assertEqual(receipt["base"]["gitlinks"], {"ghostty-next": ghostty})
+        self.assertEqual(receipt["base"]["build"]["schema"], "cmux-oracle-build-v1")
+        self.assertIsNone(receipt["comparison"], "the stub writes no comparison; the old one must not show")
+        self.assertEqual(receipt["oracleExit"], 0)
+
+    def test_diff_output_stays_outside_the_checkout(self) -> None:
+        result = self.linux_run("diff", self.base_sha, self.head_sha, "--out", str(self.repo / "cmp"))
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("outside the checkout", result.stderr)
+        self.assertEqual(self.logged("cargo"), [])
 
 
 class QueuedDiffArgsTests(unittest.TestCase):

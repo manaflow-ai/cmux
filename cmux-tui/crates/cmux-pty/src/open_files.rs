@@ -3,13 +3,17 @@
 //! A cmux daemon holds several descriptors per terminal (its host socket and
 //! duplicates), so the default soft `RLIMIT_NOFILE` (256 on macOS, often 1024
 //! on Linux) stops it at a few dozen to a few hundred terminals. The daemon
-//! raises its soft limit at start ([`raise_open_file_limit`]) and every
-//! process it starts for a terminal gets the original soft limit back
-//! ([`restore_open_file_limit_in_child`]), and so does every hook or plugin
-//! started through `UnixProcessScope`: programs in a terminal see the
-//! limit of the environment that launched cmux, and a raised limit is not
-//! inherited by code that uses `select(2)` with descriptors below 1024.
-//! Ghostty does the same for its own children.
+//! raises its soft limit at start ([`raise_open_file_limit`]) and the
+//! processes it starts get the original soft limit back
+//! ([`original_open_file_limit`]): a terminal host or holder through its
+//! environment, which it applies itself ([`restore_open_file_limit`]); a hook
+//! started through `UnixProcessScope` from its launcher script; a shell the
+//! daemon starts on a PTY of its own through
+//! `cmux_process::Command::open_file_limit` (macOS: a `ulimit` launcher, as
+//! for hooks). Programs in a terminal then see the limit of the environment
+//! that launched cmux, and a raised limit is not inherited by code that uses
+//! `select(2)` with descriptors below 1024. Ghostty does the same for its own
+//! children.
 
 use std::io;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -35,7 +39,7 @@ pub struct OpenFileLimit {
 /// macOS to at most `kern.maxfilesperproc`). It never
 /// lowers the soft limit and never changes the hard limit. The first call
 /// that changes the limit records the original soft limit for
-/// [`restore_open_file_limit_in_child`].
+/// [`original_open_file_limit`].
 pub fn raise_open_file_limit(ceiling: u64) -> io::Result<OpenFileLimit> {
     let mut limit = libc::rlimit { rlim_cur: 0, rlim_max: 0 };
     // SAFETY: `limit` is valid writable storage for one rlimit.
@@ -84,9 +88,9 @@ fn macos_max_files_per_process() -> u64 {
 }
 
 /// The soft limit this process had before [`raise_open_file_limit`] raised
-/// it, or `None` when it did not raise it. A child started without a
-/// `pre_exec` hook (`posix_spawn`) receives it and calls
-/// [`restore_open_file_limit`] itself.
+/// it, or `None` when it did not raise it. A child the daemon starts gets it
+/// in its spawn (`cmux_process::Command::open_file_limit`) or in its
+/// environment, and then calls [`restore_open_file_limit`] itself.
 pub fn original_open_file_limit() -> Option<u64> {
     ORIGINAL_SOFT_LIMIT.load(Ordering::Acquire).checked_sub(1)
 }
@@ -100,29 +104,6 @@ pub fn restore_open_file_limit(soft: u64) -> io::Result<()> {
         return Err(io::Error::last_os_error());
     }
     let restored = libc::rlimit { rlim_cur: soft.min(limit.rlim_max), rlim_max: limit.rlim_max };
-    // SAFETY: `restored` is a valid rlimit at or below the hard limit.
-    if unsafe { libc::setrlimit(libc::RLIMIT_NOFILE, &raw const restored) } != 0 {
-        return Err(io::Error::last_os_error());
-    }
-    Ok(())
-}
-
-/// Give a child the soft limit this process had before
-/// [`raise_open_file_limit`]. Call it between fork and exec: it only calls
-/// `setrlimit(2)`, which is async-signal-safe. Without an earlier raise it
-/// does nothing.
-pub fn restore_open_file_limit_in_child() -> io::Result<()> {
-    let recorded = ORIGINAL_SOFT_LIMIT.load(Ordering::Acquire);
-    if recorded == 0 {
-        return Ok(());
-    }
-    let mut limit = libc::rlimit { rlim_cur: 0, rlim_max: 0 };
-    // SAFETY: `limit` is valid writable storage for one rlimit.
-    if unsafe { libc::getrlimit(libc::RLIMIT_NOFILE, &raw mut limit) } != 0 {
-        return Err(io::Error::last_os_error());
-    }
-    let original = (recorded - 1).min(limit.rlim_max);
-    let restored = libc::rlimit { rlim_cur: original, rlim_max: limit.rlim_max };
     // SAFETY: `restored` is a valid rlimit at or below the hard limit.
     if unsafe { libc::setrlimit(libc::RLIMIT_NOFILE, &raw const restored) } != 0 {
         return Err(io::Error::last_os_error());

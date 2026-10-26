@@ -109,11 +109,24 @@ pub(super) struct CommandName {
 
 macro_rules! command_table {
     ($($variant:ident => $wire:literal $(| $alias:literal)*, $class:ident;)*) => {
+        /// The position of each command's row in [`COMMANDS`].
+        #[repr(u16)]
+        enum CommandIndex {
+            $($variant,)*
+        }
+
         impl Command {
             /// The canonical `cmd` tag of this command.
             pub(super) fn wire_name(&self) -> &'static str {
                 match self {
                     $(Self::$variant { .. } => $wire,)*
+                }
+            }
+
+            /// This command's row in [`COMMANDS`].
+            pub(super) fn wire_index(&self) -> u16 {
+                match self {
+                    $(Self::$variant { .. } => CommandIndex::$variant as u16,)*
                 }
             }
 
@@ -134,6 +147,16 @@ macro_rules! command_table {
             },)*
         ];
     };
+}
+
+impl Command {
+    /// Whether the handler blocks by design for a time the request names
+    /// (`wait-for` waits up to its `timeout_ms`). The request watchdog does
+    /// not count such a run as slow (Chrome: a `ScopedBlockingCall` with
+    /// `WILL_BLOCK` invalidates the hang watch, base/threading/hang_watcher.cc).
+    pub(super) fn waits_by_design(&self) -> bool {
+        matches!(self, Self::WaitFor { .. })
+    }
 }
 
 // `Variant => "wire-name" | "alias", Class;`

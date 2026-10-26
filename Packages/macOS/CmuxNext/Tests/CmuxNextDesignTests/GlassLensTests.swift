@@ -60,6 +60,17 @@ import CmuxNextDesignTokens
         #expect(WebTheme(.unresolved, glass: .plain) != WebTheme(.unresolved, glass: .lens))
     }
 
+    /// Pages that pass no mode draw the one the App resolved into the theme store, never a system read.
+    @Test func aPageWithNoModeDrawsTheThemeStoresMode() {
+        let store = ThemeScope.app.store
+        let before = store.glassMode
+        defer { store.setGlassMode(before) }
+        store.setGlassMode(.spectrum)
+        #expect(GlassLensMode.current == .spectrum)
+        #expect(WebTheme(.unresolved).glass == "spectrum")
+        #expect(!store.setGlassMode(.spectrum), "an unchanged mode repaints nothing")
+    }
+
     @Test func theBootstrapSetsDataGlassAndDefinesTheBackdropPush() {
         let script = WebTheme.bootstrapScript
         #expect(script.contains("root.setAttribute('data-glass', payload.glass)"))
