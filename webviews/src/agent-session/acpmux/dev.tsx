@@ -75,13 +75,15 @@ import { seedDevRecents } from "./devRecents";
 const params = new URLSearchParams(location.search);
 const devHost = devHostParams(location.hash);
 if (devHost) installDevHost(devHost);
-// A standalone daemon has no cmux host to send the `display` event: the frame-cost bench
-// (bench/thread-minimap-frame-cost.bench.ts) turns the chat minimap on through this instead.
-if (devHost)
-  (window as { cmuxDevDisplay?: (value: unknown) => void }).cmuxDevDisplay = (await import("./chatDisplay")).setChatDisplay;
 else if (params.has("mock") && !window.webkit?.messageHandlers?.agentSession)
   window.cmuxAcpmuxActions = { ready: async () => ({ protocolVersion: 1, transport: "mock" }) };
 if (params.get("recents") === "demo") seedDevRecents();
+// A standalone daemon has no cmux host to send the `display` event: the frame-cost bench
+// (bench/thread-minimap-frame-cost.bench.ts) turns the chat minimap on through this instead.
+if (devHost) {
+  const { setChatDisplay } = await import("./chatDisplay");
+  (window as { cmuxDevDisplay?: (value: unknown) => void }).cmuxDevDisplay = setChatDisplay;
+}
 // The dev server has no locales/<code>.js: install the whole string table before the pane loads.
 globalThis.__cmuxPaneStrings ??= (await import("./generated/strings.json")).default;
 await import("./main");
