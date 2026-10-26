@@ -79,7 +79,9 @@ fn split_overlay_layers(value: &str) -> Vec<String> {
         if bytes[index] == b'\\' && index + 3 < bytes.len() {
             index += 4;
         } else if bytes[index] == b':' {
-            layers.push(value[start..index].into());
+            if start < index {
+                layers.push(value[start..index].into());
+            }
             index += 1;
             start = index;
         } else {
@@ -306,7 +308,7 @@ mod tests {
     fn overlay_layers_anywhere_cannot_export_protected_content() {
         let protected = PathBuf::from("/home/u/.ssh");
         let outside_overlay = "1 2 8:1 / / rw - ext4 root rw\n2 3 0:55 / /elsewhere rw - overlay overlay rw,lowerdir=/home\n";
-        assert!(!mount_aliases(&[protected.clone()], outside_overlay).is_empty());
+        assert!(!mount_aliases(std::slice::from_ref(&protected), outside_overlay).is_empty());
         let writable_overlay = "1 2 8:1 / / rw - ext4 root rw\n2 3 0:55 / /work rw - overlay overlay rw,lowerdir=/home\n";
         assert!(!writable_mount_aliases(&[&PathBuf::from("/work")], writable_overlay).is_empty());
     }
