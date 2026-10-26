@@ -79,8 +79,7 @@ public final class MutationCauseLedger: Sendable {
 
     /// Drops expired ids, then the oldest until `room` more fit. O(1) amortized per recorded id.
     private func evict(_ state: inout State, now: Duration, room: Int) {
-        while state.head < state.order.count {
-            let id = state.order[state.head]
+        while let id = state.order[checked: state.head] {
             if let entry = state.causes[id], now - entry.recordedAt < lifetime, state.causes.count + room <= capacity { break }
             state.causes[id] = nil
             state.head += 1
