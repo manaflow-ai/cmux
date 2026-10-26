@@ -102,7 +102,7 @@ final class DaemonEnergyFollow {
         }
     }
 
-    deinit {
+    nonisolated deinit {
         requests.finish()
     }
 
