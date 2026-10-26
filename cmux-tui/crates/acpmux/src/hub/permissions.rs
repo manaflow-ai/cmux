@@ -675,10 +675,44 @@ impl Hub {
         answerer: super::person::Answerer<'_>,
         control: Control,
     ) -> Result<(), RpcError> {
+        self.respond_permission_annotated(
+            session,
+            permission_id,
+            option_id,
+            answers,
+            None,
+            answered_by,
+            answerer,
+            control,
+        )
+        .await
+    }
+
+    /// `respond_permission` with a question's `annotations` (the chosen
+    /// preview and notes, `questions::check_annotations`): only the person's
+    /// own answer carries them, never a phone's signed one (its signature
+    /// covers the answers alone) or a session's.
+    pub async fn respond_permission_annotated(
+        &self,
+        session: &Session,
+        permission_id: &str,
+        option_id: Option<String>,
+        answers: Option<Value>,
+        annotations: Option<Value>,
+        answered_by: Option<Value>,
+        answerer: super::person::Answerer<'_>,
+        control: Control,
+    ) -> Result<(), RpcError> {
+        if annotations.is_some() && !answerer.person {
+            return Err(super::person::person_required("annotations"));
+        }
+        if annotations.is_some() && answers.is_none() {
+            return Err(RpcError::invalid_params("annotations go only with answers"));
+        }
         // Checked again here, at the answer, not only in the remote guard.
         self.web_control_check(session, control)?;
         let cfg = self.config.read().await;
-        let pending = {
+        let (pending, annotations) = {
             let mut state = session.permissions.lock().unwrap();
             let map = &mut state.pending;
             let p = map.get(permission_id).ok_or_else(|| {
@@ -732,6 +766,10 @@ impl Hub {
                 }
             }
             super::questions::check_reply(&p.request, option_id.as_deref(), answers.as_ref())?;
+            let annotations = match annotations {
+                Some(a) => super::questions::check_annotations(&p.request, &a)?,
+                None => None,
+            };
             // The authoritative person rule (`person.rs`), here under the
             // prompt's lock, whatever the request check saw: a client that
             // is not the person may cancel or reject; an allow, or who
@@ -809,7 +847,7 @@ impl Hub {
             {
                 self.append(session, "mux", "permission_group", json!({"group":group}));
             }
-            p
+            (p, annotations)
         };
         let mut outcome = match option_id {
             Some(o) => json!({"outcome": "selected", "optionId": o}),
@@ -819,6 +857,9 @@ impl Hub {
             let mut input =
                 pending.request.pointer("/toolCall/rawInput").cloned().unwrap_or(json!({}));
             input["answers"] = a;
+            if let Some(notes) = annotations {
+                input["annotations"] = notes;
+            }
             outcome["_meta"] = json!({"updatedInput": input});
         }
         if let Some(by) = answered_by {

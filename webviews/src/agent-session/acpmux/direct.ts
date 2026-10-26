@@ -4761,6 +4761,8 @@ export class AcpmuxDirectClient {
     answers?: Record<string, unknown>,
     /// Another chat's ask (the Needs you list); the shown chat's by default.
     session?: string,
+    /// Claude Code's AskUserQuestion annotations beside `answers` (question/model.ts `reply`).
+    annotations?: Record<string, unknown>,
   ): Promise<void> {
     const sessionId = session ?? this.actingSessionId;
     if (!sessionId) return;
@@ -4781,6 +4783,7 @@ export class AcpmuxDirectClient {
       permissionId,
       ...(optionId === undefined ? {} : { optionId }),
       ...(answers === undefined ? {} : { answers }),
+      ...(annotations === undefined ? {} : { annotations }),
       ...gestureMeta(ticket),
     });
   }
