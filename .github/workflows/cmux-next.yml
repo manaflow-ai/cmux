@@ -3006,7 +3006,7 @@ jobs:
       # AppKit/registry state. Run each case in a fresh process so a prior
       # round trip cannot starve the next case's 60-second action deadline.
       - name: Run CloudBringBack cases in fresh processes
-        if: ${{ (!cancelled() && steps.build-tests.outcome == 'success' && (env.SWIFT_TARGETS == 'all' || contains(env.SWIFT_TARGETS, 'CmuxNextAppTests')) && !contains(env.SWIFT_PRIORITY_FILTER, 'CloudBringBackTests')) && steps.reuse.outputs.hit != 'true' }}
+        if: ${{ (!cancelled() && steps.build-tests.outcome == 'success' && (env.SWIFT_TARGETS == 'all' || contains(env.SWIFT_TARGETS, 'CmuxNextAppTests'))) && steps.reuse.outputs.hit != 'true' }}
         timeout-minutes: 40
         working-directory: Packages/macOS/CmuxNext
         env:
