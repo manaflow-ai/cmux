@@ -7,8 +7,9 @@ extension PageDescriptor {
     /// it follows `browser.defaultEngine` like every cmux page. Its files ship in
     /// CmuxNextAgentActivity's bundle (``registerAgentActivityRoot()``); it is not first-party, so it
     /// gets the strict CSP and no daemon link.
-    static let agentActivity = PageDescriptor(id: "cmux.agent-activity", resource: "agent-activity",
-                                              namespaces: [AgentActivityPageProvider.prefix], acceptsFirstMouse: false)
+    static let agentActivity = PageDescriptor(id: "cmux.agent-activity", resource: "agent-activity", processGroup: .solo,
+                                              namespaces: [AgentActivityPageProvider.prefix], acceptsFirstMouse: false,
+                                              opTables: [AgentActivityPageProvider.ops])
 
     /// Names the page's bundled folder for both engines; call once at launch, before Chromium's
     /// scheme table is made (`FirstPartyPageSchemes.install`).

@@ -116,6 +116,11 @@ private final class HeldFiles: MayBlockRunner {
         try await lanes.runSystem(priority, shutdown: shutdown, site: site, body)
     }
 
+    func runHostResolution<T: Sendable>(_ priority: MayBlockPriority, shutdown: MayBlockShutdown, site: MayBlockCallSite,
+                                        _ body: @escaping @Sendable () throws -> T) async throws -> T {
+        try await lanes.runHostResolution(priority, shutdown: shutdown, site: site, body)
+    }
+
     func postFiles(_ priority: MayBlockPriority, shutdown: MayBlockShutdown, site: MayBlockCallSite,
                    _ body: @escaping @Sendable () -> Void) {
         items.withLock { $0.append((priority, body)) }

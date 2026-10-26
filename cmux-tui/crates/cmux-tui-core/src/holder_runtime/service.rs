@@ -537,6 +537,7 @@ impl HolderService {
             command.arg("__holder");
             configure(command);
             command.args(crate::terminal_host_runtime::host_owner_args());
+            Ok(())
         })?;
         self.handshake(child)
     }

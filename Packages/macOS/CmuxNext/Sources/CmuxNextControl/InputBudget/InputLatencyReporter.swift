@@ -93,9 +93,43 @@ public final class InputLatencyReporter: Sendable {
         _ = handOffDropped.exchange(0, ordering: .relaxed)
     }
 
+    /// Starts or stops the opt-in field report's own ledger (hang reports on or off). While on,
+    /// every batch is folded into it too, so `debug.input` and its reset never change what the
+    /// report says. Off drops it with every count not yet committed. Every batch accepted before
+    /// the call is folded first, so none of them counts in the field.
+    public func setFieldReport(_ on: Bool) async {
+        let target = accepted.load(ordering: .acquiring)
+        await store.setField(on, afterFolding: target)
+    }
+
+    /// What the next report would carry, every accepted batch folded first, without taking it
+    /// (View Hang Report's preview). Nil while the field report is off.
+    public func fieldReportPreview() async -> InputLatencySnapshot? {
+        let target = accepted.load(ordering: .acquiring)
+        return await store.previewField(afterFolding: target)
+    }
+
+    /// The field counts not yet in a queued report, every accepted batch folded first: the counts
+    /// move out of the field ledger (its scroll in progress stays, ``InputLatencyLedger/takeCounts()``)
+    /// and are held until ``commitFieldReport()``. A report dropped before it was queued loses
+    /// nothing: the next take returns its counts again with the newer ones. Nil while off.
+    public func takeFieldReport() async -> InputLatencySnapshot? {
+        let target = accepted.load(ordering: .acquiring)
+        return await store.takeField(afterFolding: target)
+    }
+
+    /// The report with the taken counts was queued: they are gone from the field report.
+    public func commitFieldReport() async {
+        await store.commitField()
+    }
+
     /// The ledger and the reader's progress, on their own executor.
     private actor Store {
         private var ledger = InputLatencyLedger()
+        /// The opt-in field report's ledger, nil while it is off.
+        private var field: InputLatencyLedger?
+        /// Counts a report took and has not committed (``InputLatencyReporter/commitFieldReport()``).
+        private var takenField = InputLatencyLedger()
         private var folded: UInt64 = 0
         /// The reader has not ended: accepted batches will still be folded.
         private var reading = true
@@ -103,6 +137,7 @@ public final class InputLatencyReporter: Sendable {
 
         func fold(_ batch: InputLatencyBatch) {
             ledger.fold(batch)
+            field?.fold(batch)
             folded &+= 1
             resumeWaiters { $0 <= folded }
         }
@@ -120,6 +155,41 @@ public final class InputLatencyReporter: Sendable {
         func reset(afterFolding target: UInt64) async {
             await waitFolded(target)
             ledger.reset()
+        }
+
+        func setField(_ on: Bool, afterFolding target: UInt64) async {
+            await waitFolded(target)
+            guard on else {
+                field = nil
+                takenField = InputLatencyLedger()
+                return
+            }
+            guard field == nil else { return }
+            // A copy of the main ledger, emptied: it keeps the producer's drop baseline, so the
+            // first batch adds only the slots lost after the start.
+            var started = ledger
+            started.reset()
+            field = started
+        }
+
+        func previewField(afterFolding target: UInt64) async -> InputLatencySnapshot? {
+            await waitFolded(target)
+            guard let field else { return nil }
+            var all = takenField
+            all.add(field)
+            return all.snapshot
+        }
+
+        func takeField(afterFolding target: UInt64) async -> InputLatencySnapshot? {
+            await waitFolded(target)
+            guard var current = field else { return nil }
+            takenField.add(current.takeCounts())
+            field = current
+            return takenField.snapshot
+        }
+
+        func commitField() {
+            takenField = InputLatencyLedger()
         }
 
         private func waitFolded(_ target: UInt64) async {

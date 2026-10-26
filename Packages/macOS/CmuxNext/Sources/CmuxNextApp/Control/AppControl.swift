@@ -47,12 +47,13 @@ final class AppControl {
 
     var socketPath: String? { service?.socketPath }
 
-    private var inputMonitor: Any?
+    private let input: any InputObserving  // the app's input tap: input explains CPU use to the busy watchdog
+    private var inputSubscription: InputSubscription?
 
     /// - Parameter mainWork: The app's one main-thread scheduler: control requests are its
-    ///   automation tasks, and the watchdog reads its board.
-    init(mainWork: MainWorkScheduler) {
-        self.mainWork = mainWork
+    ///   automation tasks, and the watchdog reads its board. `input` is the app's input tap.
+    init(mainWork: MainWorkScheduler, input: any InputObserving) {
+        (self.mainWork, self.input) = (mainWork, input)
         frames = FrameBatcher(owner: "Control.frames", budgeted: .automation, on: mainWork)
         let renderStats = RenderStats(layoutGuard: .shared)
         let terminalDisplay = DebugTerminalDisplayProbe()
@@ -74,13 +75,13 @@ final class AppControl {
         watchdog.attach(board: mainWork.budget.board, recordTaskBudgets: recordsTaskBudgets)
         watchdog.busy.setHelperSource { AppProcesses.chromiumHelpers() }
         // Input explains CPU use to the busy watchdog (one atomic add per event).
-        inputMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .leftMouseDown, .rightMouseDown, .otherMouseDown,
-                                                                   .leftMouseDragged, .rightMouseDragged, .scrollWheel,
-                                                                   .mouseMoved, .magnify, .swipe]) { event in
-            ExpectedActivity.shared.note(.input)
-            return event
-        }
+        inputSubscription = input.observe(types: Self.activityInput) { _ in ExpectedActivity.shared.note(.input) }
     }
+
+    /// The input that explains CPU use to the busy watchdog: key-downs, mouse-downs, left and right
+    /// drags, scrolls, moves and the magnify and swipe gestures (the old local monitor's mask).
+    static let activityInput: InputEventTypes = [.keyDown, .leftMouseDown, .rightMouseDown, .otherMouseDown, .leftMouseDragged,
+                                                 .rightMouseDragged, .scrollWheel, .mouseMoved, .magnify, .swipe]
 
     func start(registry: ActionRegistry, settings: SettingsController, launch: LaunchIdentity, services: AppServices) throws {
         let service = try ControlService.start(registry: registry, settings: settings, launch: launch,
@@ -274,6 +275,8 @@ final class AppControl {
             .mainActor("debug.commit_boundary") { _ in .value(DebugCommitBoundary().report()) },
             // Idle wakeups: ledger, display-link clients, process CPU (idle-wakeups.md).
             .async("debug.wakeups") { [budgeted = mainWork.frames] call in await DebugWakeups.report(call.params, budgeted: budgeted) },
+            // Energy Saver policy and inputs, main wake queue, top wakers, process energy (p14-energy.md).
+            EnergyReport(services: services).method,
             // Chromium start: trigger (tab or warm reason), timings, footprint.
             .mainActor("debug.cef") { [weak services] call in
                 guard let services else { return .value(.null) }
@@ -327,9 +330,9 @@ final class AppControl {
                 return .value(DebugWebInspector.handle(call.params, services: services))
             },
             // Open popup panels (sized window.open popups).
-            .mainActor("debug.popups") { [weak services] call in
-                guard let services else { return .value(.null) }
-                return .value(DebugPopups.report(call.params, services: services))
+            .async("debug.popups") { [weak services] call in
+                guard let services = await MainActor.run(body: { services }) else { return .null }
+                return await DebugPopups.report(call.params, services: services)
             },
             // Scripted input into the real agent cursor stacks (visual checks).
             .mainActor("debug.agent_cursor.demo") { [weak services] call in
@@ -351,9 +354,9 @@ final class AppControl {
             .mainActor("debug.app_activation") { call in
                 .value(DebugAppActivation.send(call.params))
             },
-            .mainActor("debug.palette.capture") { [weak services] call in
-                guard let services else { return .value(.null) }
-                return .value(DebugPaletteCapture.capture(call.params, services: services))
+            .async("debug.palette.capture") { [weak services] call in
+                guard let services = await MainActor.run(body: { services }) else { return .null }
+                return await DebugPaletteCapture.capture(call.params, services: services)
             },
             // `debug.palette.entries {scope?, path}`: writes the scope's ranker input (the
             // palette-ranking eval fixture, plans/cmux-next/palette-ranking.md) to `path`.

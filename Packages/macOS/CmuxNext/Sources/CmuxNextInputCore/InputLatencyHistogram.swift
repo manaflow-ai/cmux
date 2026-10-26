@@ -23,6 +23,14 @@ public struct InputLatencyHistogram: Sendable, Equatable {
         sumNanos &+= nanos
     }
 
+    /// Adds `other`'s values: the counts per bucket and in total, the sum, and the larger maximum.
+    public mutating func add(_ other: InputLatencyHistogram) {
+        buckets.add(other.buckets)
+        count &+= other.count
+        maxNanos = max(maxNanos, other.maxNanos)
+        sumNanos &+= other.sumNanos
+    }
+
     /// The value at or below which `fraction` (0...1) of the counted values fall, in nanoseconds,
     /// or nil when the histogram is empty.
     public func percentileNanos(_ fraction: Double) -> UInt64? {

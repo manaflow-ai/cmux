@@ -148,6 +148,7 @@ fn request_path_a_queued_request_runs_in_the_daemon_scope() {
         serde_json::from_value(json!({"id": 2, "cmd": "list-terminals"})).unwrap();
     let pending = PendingSurfaceRequest {
         request,
+        arrival: RequestArrival::now(),
         retained_bytes: 0,
         _bytes_permit: mux.surface_operation_admission.try_reserve_bytes(0).expect("permit"),
     };
@@ -198,4 +199,23 @@ fn request_path_terminal_resources_is_a_proc_scan_at_the_handler() {
         sites.iter().all(|file| file.ends_with("server/terminal_resources.rs")),
         "the handler's file, not process_resources.rs: {sites:?}"
     );
+}
+
+#[test]
+fn server_stats_include_reports_slow_requests() {
+    let mux = Mux::new_for_test("server-stats-slow-requests", crate::SurfaceOptions::default());
+    let client = mux.control_clients.register(ClientTransport::Unix, writer());
+
+    let plain = stats(&mux, client, json!({"cmd":"server-stats"}));
+    assert!(plain.get("slow_requests").is_none(), "{plain}");
+
+    let full = stats(&mux, client, json!({"cmd":"server-stats","include":["slow_requests"]}));
+    let section = &full["slow_requests"];
+    assert_eq!(section["threshold_ms"], json!(250), "{full}");
+    assert_eq!(section["total"], json!(0), "{full}");
+    assert_eq!(section["unwatched"], json!(0), "{full}");
+    assert!(section["expected_waits"].is_u64(), "{full}");
+    assert_eq!(section["spawn_failures"], json!(0), "{full}");
+    assert!(section["watchdog_wakeups"].is_u64(), "{full}");
+    assert_eq!(section["recent"], json!([]), "{full}");
 }

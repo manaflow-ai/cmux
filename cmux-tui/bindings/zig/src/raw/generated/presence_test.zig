@@ -240,8 +240,11 @@ test "every generated optional non-null field rejects explicit null" {
     try expectExplicitNullRejected(protocol.SavedTabGroupMember, "url");
     try expectExplicitNullRejected(protocol.Screen, "short_id");
     try expectExplicitNullRejected(protocol.ServerStatsRequestPathIo, "lock_hold_over_1ms");
+    try expectExplicitNullRejected(protocol.ServerStatsResult, "dispatch_queue_us");
+    try expectExplicitNullRejected(protocol.ServerStatsResult, "request_latency_us");
     try expectExplicitNullRejected(protocol.ServerStatsResult, "request_path_io");
     try expectExplicitNullRejected(protocol.ServerStatsResult, "resource_projection");
+    try expectExplicitNullRejected(protocol.ServerStatsResult, "slow_requests");
     try expectExplicitNullRejected(protocol.ServerStatsResult, "write_path");
     try expectExplicitNullRejected(protocol.SetSizeCountsResult, "changed");
     try expectExplicitNullRejected(protocol.SetSizeCountsResult, "participant");

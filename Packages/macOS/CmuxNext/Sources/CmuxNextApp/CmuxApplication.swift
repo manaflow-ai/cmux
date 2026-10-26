@@ -44,9 +44,10 @@ final class CmuxApplication: NSApplication, CEFAppProtocol, InputEventTapHosting
     /// Set once by `AppServices`. Gets the key-down and the window it goes
     /// to; returns true when it consumed the key.
     var keyDownInterceptor: ((NSEvent, NSWindow?) -> Bool)?
-    /// Set once by `AppServices`: the app's one input tap. Its observers see every event first (input
-    /// journal), its intercepts run before AppKit dispatches the event, and its after-dispatch observers
-    /// see a click once focus has moved to the clicked pane.
+    /// Set once in `CmuxNextApp.shared.main` before `run()`: the app's one input tap (the
+    /// `AppDelegate`'s). Its observers see every event first (input journal), its intercepts run
+    /// before AppKit dispatches the event, and its after-dispatch observers see a click once focus
+    /// has moved to the clicked pane.
     var inputTap: InputEventTap?
     /// Set once by `AppServices`: true when a key-down typed into one cmux window would reach
     /// another, the key window (`CrossWindowInputGuard`): the key is dropped.

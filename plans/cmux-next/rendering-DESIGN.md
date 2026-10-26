@@ -144,7 +144,9 @@ No CI gates (Lawrence 2026-10-23). Agents run these tools on the fleet.
    cmux does the same by default: the `VSyncHub` thread holds the link and posts one coalesced tick to main.
    If task p03-rendering-014 measures a p99 rise of 0.1 ms or more in the main tick latency from that hop, cmux
    adds a second link on main for each display, and task 014 records the numbers and the reason here. No
-   measurement is recorded yet, so the default is one link.
+   measurement is recorded yet, so the hub ships behind the default-off feature `vsyncHub` and the app keeps
+   `DisplayClock()`'s main-run-loop link (one link per display) until the round's fleet run records the main tick
+   p99 with the feature on and off.
 
 ## Done checks
 

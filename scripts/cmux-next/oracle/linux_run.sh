@@ -13,7 +13,9 @@
 #       --side names one of two otherwise identical runs (a diff of one SHA against itself).
 #   linux_run.sh diff BASE HEAD [--suite S] [--profile P] [--features F] [--out DIR] [--fresh] [-- ORACLE_RUN_ARGS...]
 #       Both runs (builds and suites in parallel, joined with any identical request), then
-#       `oracle.py diff --base-run --head-run`. Exit code is oracle.py diff's.
+#       `oracle.py diff --base-run --head-run --out DIR` (default /tmp/oracle/runs/linux-<time>-<pid>,
+#       never in the checkout). DIR/linux-run.json (cmux-oracle-linux-run-v1) holds both build receipts
+#       (exact SHAs, every gitlink), both run dirs and the comparison. Exit code is oracle.py diff's.
 #   linux_run.sh status [--json] | gc [--budget-gb N]
 #
 # Each job is keyed (sha, suite, arm, profile) plus the content of this script and the oracle sources,
@@ -234,10 +236,13 @@ parse_run_options() {
   fi
 }
 
-# run_one SHA [SIDE]: builds, then queues the run; prints the run dir; returns oracle.py run's exit code.
+# run_one SHA [SIDE [RECEIPT]]: builds (copying the build receipt to RECEIPT), then queues the run;
+# prints the run dir; returns oracle.py run's exit code.
 run_one() {
-  local sha="$1" side="${2:-}" binary dir code=0
-  binary="$(cmd_build "$sha" --profile "$OPT_PROFILE" --features "$OPT_FEATURES" | tail -n 1)"
+  local sha="$1" side="${2:-}" receipt="${3:-}" binary dir code=0
+  local receipt_args=()
+  [[ -z "$receipt" ]] || receipt_args=(--receipt "$receipt")
+  binary="$(cmd_build "$sha" --profile "$OPT_PROFILE" --features "$OPT_FEATURES" "${receipt_args[@]}" | tail -n 1)"
   [[ -x "$binary" ]] || die "build of $sha gave no binary"
   local key_args=() extra_args=() arg
   mapfile -t key_args < <(run_key_paths)
@@ -296,11 +301,20 @@ cmd_diff() {
     base_side=base head_side=head
   fi
 
+  local out="${OPT_OUT:-/tmp/oracle/runs/linux-$(date -u +%Y%m%dT%H%M%SZ)-$$}"
+  case "$out" in /*) ;; *) out="$PWD/$out" ;; esac
+  case "$out/" in "$REPO"/*) die "--out $out: run output stays outside the checkout" ;; esac
+  mkdir -p "$out"
+  # Nothing from an earlier diff in the same --out may reach this one's receipt.
+  rm -f "$out/linux-run.json" "$out/comparison.json" "$out"/build-{base,head}.json
+
+  local t0 t1
+  t0="$(now)"
   DIFF_TMP="$(mktemp -d "${TMPDIR:-/tmp}/oracle-linux-diff.XXXXXX")"
   trap 'rm -rf "$DIFF_TMP"' EXIT
-  (run_one "$base" "$base_side" > "$DIFF_TMP/base" || true) &
+  (run_one "$base" "$base_side" "$out/build-base.json" > "$DIFF_TMP/base" || true) &
   local base_pid=$!
-  (run_one "$head" "$head_side" > "$DIFF_TMP/head" || true) &
+  (run_one "$head" "$head_side" "$out/build-head.json" > "$DIFF_TMP/head" || true) &
   local head_pid=$!
   wait "$base_pid" "$head_pid"
   local base_dir head_dir
@@ -308,9 +322,36 @@ cmd_diff() {
   head_dir="$(tail -n 1 "$DIFF_TMP/head" 2>/dev/null || true)"
   [[ -f "$base_dir/receipt.json" ]] || die "base run of $base failed"
   [[ -f "$head_dir/receipt.json" ]] || die "head run of $head failed"
-  local out_args=()
-  [[ -z "$OPT_OUT" ]] || out_args=(--out "$OPT_OUT")
-  nice -n 10 python3 -I "$HERE/oracle.py" diff --base-run "$base_dir" --head-run "$head_dir" "${out_args[@]}"
+  local status=0
+  nice -n 10 python3 -I "$HERE/oracle.py" diff --base-run "$base_dir" --head-run "$head_dir" --out "$out" || status=$?
+  t1="$(now)"
+  python3 -I - "$out" "${OPT_REFS[0]}" "${OPT_REFS[1]}" "$base_dir" "$head_dir" "$status" "$(elapsed_ms "$t0" "$t1")" <<'PY'
+import json, os, sys
+out, base_ref, head_ref, base_run, head_run, status, total_ms = sys.argv[1:]
+def load(path):
+    with open(path, encoding="utf-8") as handle:
+        return json.load(handle)
+sides = {}
+for side, ref, run in (("base", base_ref, base_run), ("head", head_ref, head_run)):
+    build = load(os.path.join(out, f"build-{side}.json"))
+    sides[side] = {"ref": ref, "sha": build["sha"], "gitlinks": build["gitlinks"], "build": build, "run": run}
+comparison = os.path.join(out, "comparison.json")
+doc = {
+    "schema": "cmux-oracle-linux-run-v1",
+    **sides,
+    "sameBuild": sides["base"]["build"]["binarySha256"] == sides["head"]["build"]["binarySha256"],
+    "oracleExit": int(status),
+    "comparison": load(comparison) if os.path.isfile(comparison) else None,
+    "totalMs": int(total_ms),
+}
+tmp = os.path.join(out, ".linux-run.json.tmp")
+with open(tmp, "w", encoding="utf-8") as handle:
+    json.dump(doc, handle, indent=2, sort_keys=True)
+    handle.write("\n")
+os.replace(tmp, os.path.join(out, "linux-run.json"))
+PY
+  echo "linux_run.sh: receipt $out/linux-run.json (oracle exit $status)" >&2
+  return "$status"
 }
 
 # --- main -------------------------------------------------------------------------------

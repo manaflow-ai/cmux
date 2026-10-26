@@ -35,6 +35,9 @@ public final class WebKitTab: NSObject, BrowserTab {
     @ObservationIgnored public let inspectorWatch = WebKitInspectorWatch()
 
     private var machine = BrowserTabStateMachine()
+    /// The page plays unmuted media (`BrowserAudibleReporting`): `state.media?.isAudible`, kept
+    /// apart so its observers wake on the flip only, not on each load tick or title.
+    public private(set) var isAudible = false
     @ObservationIgnored private(set) weak var engine: WebKitEngine?
     /// Permission use and certificate failures of the current document (Page Info).
     @ObservationIgnored public let pageInfoActivity = PageInfoActivity()
@@ -301,6 +304,8 @@ public final class WebKitTab: NSObject, BrowserTab {
         }
         let previousFavicon = machine.state.faviconURL
         machine.apply(event)
+        let audible = machine.state.media?.isAudible == true
+        if audible != isAudible { isAudible = audible }
         for observer in navigationObservers.values { observer(event) }
         if machine.state.faviconURL != previousFavicon {
             faviconURLDidChange()

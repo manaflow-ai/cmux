@@ -15,7 +15,8 @@ public import WebKit
 /// JSON keys of the reply:
 /// - `pages`: one object per live ``PageWebView``, oldest first:
 ///   - `page` (string): the descriptor id. `instance` (number): ``PageRegistry/instance(of:)``.
-///   - `engine`: `chromium` or `webkit`. `group`: the process group, null until p13-webui-012.
+///   - `engine`: `chromium` or `webkit`. `group`: the descriptor's ``PageProcessGroup`` (`agent`, `privileged`,
+///     `viewer`, `solo`, `secrets`); Chromium shares renderers by it only with the `pageProcessGroups` feature.
 ///   - `state`: `visible` or `hidden` to the person: hidden when the host told the engine so or
 ///     when the page is a parked spare (Chrome counts no spare renderer as visible).
 ///     `engine_visible` (bool): what the host last told the engine (true for a spare parked in a
@@ -77,6 +78,8 @@ nonisolated public struct WebUICensus: Sendable {
     /// One page view's row.
     nonisolated public struct Page: Sendable, Equatable {
         public var page: String
+        /// The descriptor's capability group.
+        public var group: PageProcessGroup
         public var instance: UInt64
         public var census: PageWebView.Census
         public var keepReasons: [String]
@@ -121,7 +124,7 @@ nonisolated public struct WebUICensus: Sendable {
             if let responder = view.window?.firstResponder as? NSView, responder.isDescendant(of: view) {
                 keepReasons.append("focused")
             }
-            return Page(page: view.pageID, instance: registry.instance(of: view), census: census, keepReasons: keepReasons,
+            return Page(page: view.pageID, group: view.descriptor.processGroup, instance: registry.instance(of: view), census: census, keepReasons: keepReasons,
                         spare: spare,
                         windowNumber: view.window?.windowNumber, browserID: process?.browserID,
                         rendererClients: process?.clients ?? [],
@@ -161,7 +164,7 @@ nonisolated public struct WebUICensus: Sendable {
         let pageRows: [JSONValue] = pages.map { page -> JSONValue in
             [
                 "page": .string(page.page), "instance": number(page.instance), "engine": .string(page.census.engine),
-                "group": .null, "state": .string(page.census.hidden ? "hidden" : "visible"),
+                "group": .string(page.group.rawValue), "state": .string(page.census.hidden ? "hidden" : "visible"),
                 "engine_visible": .bool(page.census.engineVisible),
                 "hidden_for_s": page.census.hiddenForSeconds.map { .number($0) } ?? .null,
                 "keep_reasons": .array(page.keepReasons.map { .string($0) }),

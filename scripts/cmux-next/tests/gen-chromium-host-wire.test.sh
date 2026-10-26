@@ -1,0 +1,651 @@
+#!/usr/bin/env bash
+# Tests scripts/cmux-next/gen-chromium-host-wire.py on a fixture tree (a small cmux_cef_shim.h, its
+# ops JSON, Swift callers and remote_cocoa mojoms) and on this checkout's real header. No build.
+#
+# Not in CI (p01-process section 4, rule 4: no new CI tests); run it when you change the generator,
+# the header or plans/cmux-next/chromium-host-ops.json.
+set -euo pipefail
+here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+repo="$(cd "$here/../../.." && pwd)"
+gen="$repo/scripts/cmux-next/gen-chromium-host-wire.py"
+work="$(mktemp -d "${TMPDIR:-/tmp}/gen-chromium-host-wire.XXXXXX")"
+trap 'rm -rf "$work"' EXIT
+fail() { echo "FAIL: $*" >&2; exit 1; }
+
+shimh=Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/CEF/Shim/cmux_cef_shim.h
+ops=plans/cmux-next/chromium-host-ops.json
+library=Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/CEF/CEFShimLibrary.swift
+caller=Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/CEF/CEFCaller.swift
+outputs=(
+  Packages/macOS/CmuxNext/ChromiumHost/src/generated/host_dispatch.inc
+  Packages/macOS/CmuxNext/ChromiumHost/client/generated/remote_shim.inc
+  Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/CEF/ChromiumHost/Generated/ChromiumHostOps.swift
+)
+
+# expect <exit code> <stderr/stdout must match (grep -E), or ""> <name> -- <generator args...>
+expect() {
+  local want="$1" pattern="$2" name="$3"
+  shift 4
+  local out code=0
+  out="$(python3 "$gen" "$@" 2>&1)" || code=$?
+  [[ "$code" == "$want" ]] || fail "$name: exit $code, expected $want; output:"$'\n'"$out"
+  if [[ -n "$pattern" ]] && ! grep -qE -- "$pattern" <<<"$out"; then
+    fail "$name: output does not match /$pattern/:"$'\n'"$out"
+  fi
+}
+
+# --- Fixture tree -----------------------------------------------------------------------------
+
+fixture() { # <root>: a header with every class, its ops JSON, the Swift name map and a caller
+  local root="$1"
+  mkdir -p "$root/$(dirname "$shimh")" "$root/$(dirname "$ops")" "$root/$(dirname "$caller")"
+  cat >"$root/$shimh" <<'EOF'
+// Fixture header. A #define that looks like an export is not one:
+#define CMUX_SHIM_EXPORT __attribute__((visibility("default")))
+#define CMUX_SHIM_FAKE CMUX_SHIM_EXPORT int cmux_shim_fake(void);
+typedef enum {
+  CMUX_SHIM_CONTEXT_INITIALIZED = 1,
+  CMUX_SHIM_ADDRESS = 4,  // gaps keep the header's values
+  CMUX_SHIM_TAB_EVENT,
+  CMUX_SHIM_REPLY = 18,
+} cmux_shim_event_kind_t;
+typedef void (*cmux_shim_event_fn)(void* ctx, int kind, int browser_id, int request, int64_t a, int64_t b,
+                                   const char* s1, const char* s2);
+typedef int (*cmux_shim_focus_request_fn)(void* ctx, int browser_id, int source);
+/* CMUX_SHIM_EXPORT int cmux_shim_commented_out(void); */
+CMUX_SHIM_EXPORT const char* cmux_shim_abi_id(void);
+CMUX_SHIM_EXPORT int cmux_shim_initialize(const char* root_cache_path, void* ctx, cmux_shim_event_fn event);
+CMUX_SHIM_EXPORT void cmux_shim_set_background_color(unsigned int argb);
+CMUX_SHIM_EXPORT int cmux_shim_create_window(int request, void* parent_view, int width, int height,
+                                             const char* url);
+CMUX_SHIM_EXPORT int cmux_shim_tab_add(int window_browser_id, const char* url);
+CMUX_SHIM_EXPORT void cmux_shim_go_back(int browser_id);
+CMUX_SHIM_EXPORT int cmux_shim_tab_go_to_entry(int browser_id, int offset);
+// Arguments named like the generator's own locals.
+CMUX_SHIM_EXPORT int cmux_shim_before_unload_reply(int token, int accept);
+CMUX_SHIM_EXPORT int cmux_shim_page_scheme_add(const char* id, const char* resource_root);
+// Caller frees with cmux_shim_free.
+CMUX_SHIM_EXPORT char* cmux_shim_tab_navigation_state(int browser_id);
+CMUX_SHIM_EXPORT int cmux_shim_visit_cookies(int browser_id, int reply);
+CMUX_SHIM_EXPORT int cmux_shim_renderer_client_ids(int browser_id, int* out, int capacity);
+CMUX_SHIM_EXPORT void cmux_shim_set_focus_request_handler(cmux_shim_focus_request_fn handler);
+CMUX_SHIM_EXPORT int cmux_shim_popup_window_attach(int window_id, void* parent_view, int width, int height);
+CMUX_SHIM_EXPORT int cmux_shim_send_bytes(int browser_id, const void* data, size_t length);
+CMUX_SHIM_EXPORT void cmux_shim_free(char* s);
+EOF
+  python3 - "$root/$ops" <<'EOF'
+import json, sys
+
+def entry(name, cls, args, returns, reason="", **extra):
+    e = {"name": name, "class": cls, "args": [{"name": n, "type": t} for n, t in args], "returns": returns,
+         "result_used_by": [], "mirror_key": None, "refresh_events": [], "pending_keys": [], "reply_event": None,
+         "reason": reason}
+    e.update(extra)
+    return e
+
+init = entry("cmux_shim_initialize", "local",
+             [("root_cache_path", "const char*"), ("ctx", "void*"), ("event", "cmux_shim_event_fn")], "int",
+             "stores event_fn; the host initializes")
+init["args"][2]["function_pointer"] = True
+handler = entry("cmux_shim_set_focus_request_handler", "policy", [("handler", "cmux_shim_focus_request_fn")],
+                "void", "the host decides focus from a pushed policy")
+handler["args"][0]["function_pointer"] = True
+data = {
+    "version": 1,
+    "header": "Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/CEF/Shim/cmux_cef_shim.h",
+    "pseudo_events": {"attach": "the host's hello"},
+    "exports": [
+        entry("cmux_shim_abi_id", "local", [], "const char*", "the remote returns its own identity"),
+        init,
+        entry("cmux_shim_set_background_color", "preinit", [("argb", "unsigned int")], "void"),
+        entry("cmux_shim_create_window", "mint",
+              [("request", "int"), ("parent_view", "void*"), ("width", "int"), ("height", "int"),
+               ("url", "const char*")], "int", reply_event="CMUX_SHIM_ADDRESS", mint_returns="sent"),
+        entry("cmux_shim_tab_add", "mint", [("window_browser_id", "int"), ("url", "const char*")], "int",
+              reply_event="CMUX_SHIM_ADDRESS", mint_returns="id"),
+        entry("cmux_shim_go_back", "post", [("browser_id", "int")], "void",
+              pending_keys=["tab.navigation_state[browser_id]"]),
+        entry("cmux_shim_tab_go_to_entry", "post", [("browser_id", "int"), ("offset", "int")], "int",
+              pending_keys=["tab.navigation_state[*]"]),
+        entry("cmux_shim_before_unload_reply", "post", [("token", "int"), ("accept", "int")], "int"),
+        entry("cmux_shim_page_scheme_add", "preinit", [("id", "const char*"), ("resource_root", "const char*")],
+              "int", reply_event="wire:REPLY"),
+        entry("cmux_shim_tab_navigation_state", "mirror", [("browser_id", "int")], "char*",
+              mirror_key="tab.navigation_state[browser_id]",
+              refresh_events=["attach", "CMUX_SHIM_ADDRESS", "CMUX_SHIM_TAB_EVENT:3"]),
+        entry("cmux_shim_visit_cookies", "async", [("browser_id", "int"), ("reply", "int")], "int",
+              reply_event="CMUX_SHIM_REPLY"),
+        entry("cmux_shim_renderer_client_ids", "async",
+              [("browser_id", "int"), ("out", "int*"), ("capacity", "int")], "int", reply_event="wire:REPLY"),
+        handler,
+        entry("cmux_shim_popup_window_attach", "view",
+              [("window_id", "int"), ("parent_view", "void*"), ("width", "int"), ("height", "int")], "int"),
+        entry("cmux_shim_send_bytes", "post",
+              [("browser_id", "int"), ("data", "const void*"), ("length", "size_t")], "int", channel="input"),
+        entry("cmux_shim_free", "local", [("s", "char*")], "void", "frees client memory"),
+    ],
+    "events": [
+        {"kind": "CMUX_SHIM_CONTEXT_INITIALIZED", "value": 1, "refreshes": []},
+        {"kind": "CMUX_SHIM_ADDRESS", "value": 4, "refreshes": ["tab.navigation_state[browser_id]"]},
+        {"kind": "CMUX_SHIM_TAB_EVENT", "value": 5, "refreshes": ["tab.navigation_state[browser_id]"]},
+        {"kind": "CMUX_SHIM_REPLY", "value": 18, "refreshes": []},
+    ],
+    "optional_exports": [
+        entry("cmux_shim_tab_set_frozen", "async", [("browser_id", "int"), ("frozen", "int")], "int",
+              reply_event="wire:REPLY", fork_api=29),
+    ],
+    "optional_events": [{"kind": "CMUX_SHIM_EVALUATE_RESULT", "value": 50, "refreshes": []}],
+    "host_mode_rewrites": [],
+}
+with open(sys.argv[1], "w", encoding="utf-8") as f:
+    json.dump(data, f, indent=2)
+    f.write("\n")
+EOF
+  cat >"$root/$library" <<'EOF'
+struct CEFShimLibrary {
+    init(r: Resolver) throws {
+        goBack = try r("cmux_shim_go_back")
+        tabGoToEntry = try r("cmux_shim_tab_go_to_entry")
+        tabNavigationState = try r("cmux_shim_tab_navigation_state")
+        visitCookies = try r("cmux_shim_visit_cookies")
+        createWindow = try r("cmux_shim_create_window")
+        setBackgroundColor = try r("cmux_shim_set_background_color")
+        popupWindowAttach = try r("cmux_shim_popup_window_attach")
+        tabSetFrozen = r.optional("cmux_shim_tab_set_frozen")
+    }
+}
+EOF
+  cat >"$root/$caller" <<'EOF'
+final class CEFCaller {
+    // shim.goBack(1) in a comment is no call site.
+    func back(_ shim: CEFShimLibrary?) {
+        shim?.goBack(1)
+        _ = shim?.tabGoToEntry(1, -1)
+        let state = shim?.tabNavigationState(1)
+        print(state as Any, "shim?.tabGoToEntry(2, 1) == 1 in a string is no call site")
+    }
+
+    func color(_ shim: CEFShimLibrary) {
+        shim.setBackgroundColor(0)
+    }
+}
+EOF
+}
+
+# A local or policy export needs its hand-written side for --check (the live queue of tasks 013-033).
+hand_written() { # <root>
+  mkdir -p "$1/Packages/macOS/CmuxNext/ChromiumHost/client" "$1/Packages/macOS/CmuxNext/ChromiumHost/src"
+  cat >"$1/Packages/macOS/CmuxNext/ChromiumHost/client/remote_shim_local.mm" <<'EOF'
+int cmux_shim_initialize(const char* root_cache_path, void* ctx, cmux_shim_event_fn event) { return 1; }
+void cmux_shim_free(char* s) { free(s); }
+EOF
+  cat >"$1/Packages/macOS/CmuxNext/ChromiumHost/src/host_policy.mm" <<'EOF'
+void InstallPolicySetFocusRequestHandler(HostContext& ctx, bool installed) {}
+EOF
+}
+
+edit_ops() { # <root> <python statements on `d` (the parsed ops JSON)>
+  python3 - "$1/$ops" "$2" <<'EOF'
+import json, sys
+path, code = sys.argv[1], sys.argv[2]
+with open(path, encoding="utf-8") as f:
+    d = json.load(f)
+by = {e["name"]: e for e in d["exports"] + d.get("optional_exports", [])}
+exec(code)
+with open(path, "w", encoding="utf-8") as f:
+    json.dump(d, f, indent=2)
+EOF
+}
+
+base="$work/base"
+fixture "$base"
+hand_written "$base"
+
+# The header parse ignores comments and #define lines; counts come from the header.
+expect 0 '"exports_count": 16' "dump-header counts" -- --root "$base" --dump-header
+expect 0 '"events_count": 4' "dump-header events" -- --root "$base" --dump-header
+python3 "$gen" --root "$base" --dump-header | grep -q cmux_shim_fake && fail "a #define counted as an export"
+python3 "$gen" --root "$base" --dump-header | grep -q cmux_shim_commented_out && fail "a comment counted as an export"
+expect 0 '"value": 5' "enum values continue after an explicit one" -- --root "$base" --dump-header
+implicit="$work/implicit"
+fixture "$implicit"
+sed -i.bak 's/CMUX_SHIM_CONTEXT_INITIALIZED = 1,/CMUX_SHIM_CONTEXT_INITIALIZED,/' "$implicit/$shimh"
+python3 "$gen" --root "$implicit" --dump-header | python3 -c '
+import json, sys
+events = json.load(sys.stdin)["events"]
+sys.exit(0 if events[0] == {"kind": "CMUX_SHIM_CONTEXT_INITIALIZED", "value": 0} else 1)' ||
+  fail "a first enumerator without an initializer is not 0"
+
+summary="16/16 exports classified \(\+1 optional\), 4/4 event kinds \(\+1 optional\), 0 host-mode rewrites, 0 sync"
+expect 0 "$summary" "fixture ops valid" -- --root "$base" --check-ops
+expect 1 "stale: .*host_dispatch.inc" "check before generation" -- --root "$base" --check
+expect 0 "wrote .*ChromiumHostOps.swift" "generate" -- --root "$base"
+expect 0 "16/16 exports classified" "check after generation" -- --root "$base" --check
+
+# Two runs are byte-identical, and a second run writes nothing.
+mkdir -p "$work/first"
+for f in "${outputs[@]}"; do cp "$base/$f" "$work/first/$(basename "$f")"; done
+out="$(python3 "$gen" --root "$base")"
+[[ -z "$out" ]] || fail "a second run rewrote files: $out"
+for f in "${outputs[@]}"; do cmp -s "$base/$f" "$work/first/$(basename "$f")" || fail "second run differs: $f"; done
+second="$work/second"
+fixture "$second"
+python3 "$gen" --root "$second" >/dev/null
+for f in "${outputs[@]}"; do cmp -s "$base/$f" "$second/$f" || fail "a fresh tree generates a different $f"; done
+
+# What the generated code says, op by op.
+client="$base/${outputs[1]}"
+host="$base/${outputs[0]}"
+swift="$base/${outputs[2]}"
+has() { # <file> <fixed string> <failure>
+  grep -qF -- "$2" "$1" || fail "$3"
+}
+case_of() { # <file> <op constant>: the generated case block
+  awk -v op="case $2: {" 'index($0, op) { on = 1 } on { print } on && /^    }$/ { exit }' "$1"
+}
+has "$client" 'kShimAbiID[] = "' "the client has no header identity"
+grep -q 'kWireID\[\] = "[0-9a-f]\{64\}"' "$client" || fail "the client has no wire identity"
+has "$client" 'MarkPending(kOpTabNavigationState, op_token, pending_tab_navigation_state, 0x0u)' \
+  "go_back does not mark tab.navigation_state pending"
+has "$client" 'MarkPending(kOpTabNavigationState, op_token, pending_tab_navigation_state, 0x1u)' \
+  "tab_go_to_entry does not mark tab.navigation_state[*] pending with a wildcard"
+has "$client" '(void)PostPreinit(kOpSetBackgroundColor, 0, op_w);' "a void preinit is not queued"
+has "$client" 'return PostPreinit(kOpPageSchemeAdd, op_token, op_w);' \
+  "a non-void preinit does not return the client's check or await the host's verdict"
+has "$client" '(void)PostInput(kOpSendBytes, 0, op_w);' "an input-channel op goes on the control channel"
+has "$client" 'PostAwaitingReply(kOpRendererClientIds, op_token, op_w);' "a wire:REPLY async op is not sent"
+has "$client" 'if (arg_out != nullptr && arg_capacity > 0) arg_out[0] = 0;' \
+  "an async op leaves its out-parameter uninitialized"
+has "$client" 'PostAwaitingReply(kOpVisitCookies, op_token, op_w);' "an event-answered async op is not sent"
+has "$client" 'MintID(kOpCreateWindow)' "create_window does not mint"
+grep -A12 'cmux_shim_create_window(' "$client" | grep -qF 'return op_sent ? 1 : 0;' ||
+  fail "a mint_returns sent export does not return 1 when sent"
+grep -A8 'cmux_shim_tab_add(' "$client" | grep -qF 'return op_sent ? minted_id : 0;' ||
+  fail "a mint_returns id export does not return the minted id"
+has "$client" 'MirrorLookup(kOpTabNavigationState, key_w)' "the mirror does not read the cache"
+has "$client" 'CMUX_SHIM_EXPORT int cmux_shim_tab_set_frozen(int arg_browser_id, int arg_frozen)' \
+  "an optional export has no remote definition"
+grep -Eq 'cmux_shim_(initialize|free)\(' "$client" && fail "the generator emitted a local export"
+grep -Eq '\bwait\(|wait_for|cond_|semaphore|UnmigratedAsync' "$client" && fail "the remote shim waits or drops an op"
+has "$host" 'case kOpGoBack:' "the host has no case for go_back"
+has "$host" 'cmux_shim_go_back(ctx.Browser(arg_browser_id));' "the host does not map the browser id"
+has "$host" 'ctx.BindMintedOnEvent(kOpCreateWindow, minted_id, 4 /* CMUX_SHIM_ADDRESS */, arg_request, call_result);' \
+  "the host does not bind a mint_returns sent id when its event comes"
+has "$host" 'ctx.BindMinted(kOpTabAdd, minted_id, call_result);' "the host does not bind the minted id"
+has "$host" 'InstallPolicySetFocusRequestHandler(ctx, policy_installed);' "the policy is not installed"
+has "$host" '{-1, -1, kOpTabNavigationState},  // attach' "attach does not refresh the mirror"
+has "$host" '{5, 3, kOpTabNavigationState},  // CMUX_SHIM_TAB_EVENT:3' "sub-kind refresh missing"
+has "$host" 'if (call_result != nullptr) cmux_shim_free(call_result);' "the host leaks a char* mirror result"
+has "$host" '{kOpTabSetFrozen, "cmux_shim_tab_set_frozen"},' "the optional export is not in kOptionalExports"
+has "$host" 'reinterpret_cast<int (*)(int, int)>(ctx.OptionalExport(kOpTabSetFrozen))' \
+  "the host calls an optional export the header does not declare"
+# A C argument named token or reply never stands for the frame's token or the reply writer.
+unload="$(case_of "$host" kOpBeforeUnloadReply)"
+grep -qF 'cmux_shim_before_unload_reply(arg_token, arg_accept);' <<<"$unload" || fail "token argument not passed"
+grep -qF 'ctx.Ack(wire_token);' <<<"$unload" || fail "an export's token argument hides the wire token"
+grep -Eq 'Ack\(arg_token\)|Ack\(token\)' <<<"$unload" && fail "the host acks the export's token, not the op's"
+cookies="$(case_of "$host" kOpVisitCookies)"
+grep -qF 'const auto arg_reply = r.I32();' <<<"$cookies" || fail "the reply argument is not decoded"
+grep -qF 'ctx.Reply(wire_token, reply_w);' <<<"$cookies" || fail "the async reply goes to the wrong token"
+scheme="$(case_of "$host" kOpPageSchemeAdd)"
+grep -qF 'ctx.Reply(wire_token, reply_w);' <<<"$scheme" || fail "a non-void preinit sends no verdict"
+grep -Eq '\bgoBack = 6\b' "$swift" || fail "Swift op ids are not header order"
+grep -Eq '\btabSetFrozen = 17\b' "$swift" || fail "an optional export's op id does not follow the header's"
+grep -A1 'static let optionalOps: Set<ChromiumHostOp> = \[$' "$swift" | grep -q '^        \.tabSetFrozen,$' ||
+  fail "Swift optional ops"
+has "$swift" 'nonisolated enum ChromiumHostOp: UInt16, CaseIterable, Sendable' "Swift op type"
+has "$swift" 'case contextInitialized = 1, address = 4, tabEvent = 5, reply = 18, evaluateResult = 50' \
+  "Swift event kinds (with the optional event)"
+has "$swift" 'Refresh(5, 3, .tabNavigationState)' "Swift refresh table"
+grep -Eq '^(public |package )?(enum|struct) [A-Za-z]+ *\{' "$swift" && fail "a Swift type is not nonisolated"
+
+# Both .inc files compile against the documented interface (declarations only), with -Wshadow, so a
+# generated local that collides with or hides a C argument fails here and not first on the fleet.
+stub="$work/stub"
+mkdir -p "$stub"
+cat >"$stub/wire_interface.h" <<'EOF'
+// The cmux_remote and cmux_host interface of gen-chromium-host-wire.py's docstring.
+#include <algorithm>
+#include <cstddef>
+#include <cstdint>
+#include <cstdlib>
+#include <cstring>
+#include <optional>
+#include <string>
+#include <vector>
+namespace cmux_remote {
+struct TlvWriter {
+  void I32(int32_t); void U32(uint32_t); void I64(int64_t); void F64(double); void Str(const char*);
+  void Bytes(const void*, size_t); void View(void*); void StrList(const char* const*, int);
+};
+struct TlvReader {
+  bool present() const; int32_t I32(); uint32_t U32(); int64_t I64(); std::optional<std::string> Str();
+  std::string Bytes(); void I32Array(int* out, int capacity);
+};
+bool Post(uint16_t op, uint32_t token, const TlvWriter&);
+bool PostInput(uint16_t op, uint32_t token, const TlvWriter&);
+bool PostAwaitingReply(uint16_t op, uint32_t token, const TlvWriter&);
+int32_t PostPreinit(uint16_t op, uint32_t token, const TlvWriter&);
+uint32_t NextToken();
+int32_t MintID(uint16_t op);
+char* Dup(const std::string&);
+void MarkPending(uint16_t mirror_op, uint32_t token, const TlvWriter& key, uint32_t wildcards);
+TlvReader MirrorLookup(uint16_t mirror_op, const TlvWriter& key);
+void SetPolicy(uint16_t op, void* fn);
+}  // namespace cmux_remote
+namespace cmux_host {
+struct TlvReader {
+  int32_t I32(); uint32_t U32(); int64_t I64(); double F64(); std::optional<std::string> Str();
+  std::string Bytes(); uint64_t View(); std::vector<std::string> StrList(); bool ok() const; bool AtEnd() const;
+};
+struct TlvWriter {
+  void I32(int32_t); void U32(uint32_t); void I64(int64_t); void F64(double); void Str(const char*);
+  void Bytes(const void*, size_t); void View(void*); void StrList(const char* const*, int);
+  void I32Array(const int*, size_t);
+};
+struct HostContext {
+  int Browser(int32_t client_id); void* PageView(uint64_t token); void* OptionalExport(uint16_t op);
+  void Ack(uint32_t token); void Reply(uint32_t token, const TlvWriter&);
+  void BindMinted(uint16_t op, int32_t minted, int64_t result);
+  void BindMintedOnEvent(uint16_t op, int32_t minted, int event_kind, int32_t request, int64_t started);
+  void PushMirror(uint16_t op, const TlvWriter& key, const TlvWriter& value);
+};
+void Wipe(std::vector<std::string>&);
+}  // namespace cmux_host
+EOF
+compile_inc() { # <tree root> <name>: c++ -fsyntax-only both generated .inc files of the tree
+  local root="$1" name="$2" side inc
+  for side in 0 1; do
+    inc="$root/${outputs[$side]}"
+    printf '#include "wire_interface.h"\nextern "C" {\n#include "%s"\n}\n#include "%s"\n' \
+      "$root/$shimh" "$inc" >"$stub/tu.cc"
+    "$cxx" -std=c++17 -fsyntax-only -Wall -Wextra -Wshadow -Werror -I"$stub" "$stub/tu.cc" 2>"$stub/errors" ||
+      fail "$name: $(basename "$inc") does not compile:"$'\n'"$(head -20 "$stub/errors")"
+  done
+}
+cxx="$(command -v c++ || command -v clang++ || command -v g++ || true)"
+if [[ -n "$cxx" ]]; then
+  compile_inc "$base" "fixture"
+else
+  echo "note: no C++ compiler; the generated .inc files were not compiled" >&2
+fi
+
+# The result-use check: the fixture caller drops every post result.
+expect 0 "0 stand-in results read" "dropped results pass" -- --root "$base" --check-return-use
+sites="$(python3 "$gen" --root "$base" --swift-sites)"
+grep -q $'CEFCaller.swift:4\t' <<<"$sites" && fail "a post whose result is dropped is a site"
+grep -q $'CEFCaller.swift:6\tcmux_shim_tab_navigation_state' <<<"$sites" && fail "a mirror read is a site"
+grep -q 'string is no call site' <<<"$sites" && fail "a string literal counted as a call"
+
+for form in 'guard shim?.tabGoToEntry(1, 1) == 1 else { return }' \
+            'let moved = shim?.tabGoToEntry(1, 1)' \
+            'if shim?.tabGoToEntry(1, 1) != 0 { print("moved") }' \
+            'return shim?.tabGoToEntry(1, 1) == 1'; do
+  bad="$work/return-use"
+  rm -rf "$bad"
+  fixture "$bad"
+  cat >"$bad/Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/CEF/CEFReads.swift" <<EOF
+func reads(_ shim: CEFShimLibrary?) -> Bool {
+    $form
+    return true
+}
+EOF
+  expect 1 "CEFReads.swift:2: cmux_shim_tab_go_to_entry is post; this caller reads its result" \
+    "result read: $form" -- --root "$bad" --check-return-use
+  expect 0 $'CEFReads.swift:2\tcmux_shim_tab_go_to_entry\tpost\tresult-read' "site: $form" -- --root "$bad" --swift-sites
+done
+expect 0 $'CEFReads.swift\t1\tcmux_shim_tab_go_to_entry' "sites by file" -- --root "$bad" --swift-sites --by-file
+
+# A view export's remote returns a stand-in too: reading it is a result read, and the site keeps its
+# view label.
+view="$work/view-read"
+fixture "$view"
+cat >"$view/Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/CEF/CEFPopup.swift" <<'EOF'
+final class CEFPopup {
+    func attach(_ shim: CEFShimLibrary) -> Int32 {
+        let id = shim.popupWindowAttach(1, nil, 10, 10)
+        return id
+    }
+}
+EOF
+expect 1 "CEFPopup.swift:3: cmux_shim_popup_window_attach is view; this caller reads its result" \
+  "a bound view result" -- --root "$view" --check-return-use
+expect 0 $'CEFPopup.swift:3\tcmux_shim_popup_window_attach\tview\tview,result-read' "a view site that reads" -- \
+  --root "$view" --swift-sites
+
+# host_mode_rewrites accepts the listed function's calls of the listed exports, and nothing else.
+rewrite="$work/rewrite"
+fixture "$rewrite"
+cat >"$rewrite/Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/CEF/CEFReads.swift" <<'EOF'
+extension CEFCaller {
+    func moves(_ shim: CEFShimLibrary?) -> Bool {
+        shim?.tabGoToEntry(1, 1) == 1
+    }
+
+    func other(_ shim: CEFShimLibrary?) -> Bool {
+        guard shim?.tabGoToEntry(1, 1) == 1 else { return false }
+        return true
+    }
+}
+EOF
+edit_ops "$rewrite" 'd["host_mode_rewrites"] = [{"site": "CmuxNextBrowser/CEF/CEFReads.swift: CEFCaller.moves(_:)",
+  "exports": ["cmux_shim_tab_go_to_entry"], "needs": "reply", "change": "awaits the reply", "task": "p01-process-022"}]'
+out="$(python3 "$gen" --root "$rewrite" --check-return-use 2>&1)" && fail "an unlisted read passed: $out"
+grep -q 'CEFReads.swift:7:' <<<"$out" || fail "the unlisted read is not reported: $out"
+grep -q 'CEFReads.swift:3:' <<<"$out" && fail "a host_mode_rewrites site is reported: $out"
+edit_ops "$rewrite" 'd["host_mode_rewrites"][0]["site"] = "CmuxNextBrowser/CEF/CEFReads.swift: CEFCaller.moves(_:), other()"'
+expect 1 "CEFReads.swift:7:" "only the head of a site names functions" -- --root "$rewrite" --check-return-use
+edit_ops "$rewrite" 'd["host_mode_rewrites"][0]["site"] = "CmuxNextBrowser/CEF/CEFReads.swift: moves() and other()"'
+expect 0 "0 stand-in results read" "a site that names two functions" -- --root "$rewrite" --check-return-use
+
+# --check-pre-attach: a mirror read on the startup path (CEFRuntime.initialize and what it hands the
+# shim to) needs a host_mode_rewrites entry with needs after_attach.
+attach="$work/pre-attach"
+fixture "$attach"
+cat >"$attach/Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/CEF/CEFRuntime.swift" <<'EOF'
+final class CEFRuntime {
+    nonisolated static func loadLibrary() -> Int { 0 }
+
+    private func initialize(
+        _ library: CEFLoadedLibrary,
+        environment: [String: String]
+    ) throws(BootError) {
+        let shim = library.shim
+        let state = shim.tabNavigationState(1)
+        let features = CEFForkFeatures(shim)
+        print(state as Any, features)
+    }
+
+    func later(_ shim: CEFShimLibrary) {
+        print(shim.tabNavigationState(2) as Any)
+    }
+}
+
+struct CEFForkFeatures {
+    let state: String?
+
+    init(_ shim: CEFShimLibrary) {
+        state = shim.tabNavigationState(3)
+    }
+}
+EOF
+out="$(python3 "$gen" --root "$attach" --check-pre-attach 2>&1)" && fail "a pre-attach mirror read passed: $out"
+grep -q 'CEFRuntime.swift:9: cmux_shim_tab_navigation_state is a mirror read in CEFRuntime.initialize' <<<"$out" ||
+  fail "the startup read is not reported: $out"
+grep -q 'CEFRuntime.swift:23: .* in CEFForkFeatures.init' <<<"$out" || fail "a callee given the shim is not followed: $out"
+grep -q 'CEFRuntime.swift:15:' <<<"$out" && fail "a read after startup is reported: $out"
+edit_ops "$attach" 'd["host_mode_rewrites"] = [
+  {"site": "CmuxNextBrowser/CEF/CEFRuntime.swift: CEFRuntime.initialize(_:environment:)",
+   "exports": ["cmux_shim_tab_navigation_state"], "needs": "after_attach", "change": "after the await",
+   "task": "p01-process-015"},
+  {"site": "CmuxNextBrowser/CEF/CEFRuntime.swift: CEFForkFeatures.init(_:)",
+   "exports": ["cmux_shim_tab_navigation_state"], "needs": "reply", "change": "not an attach fix",
+   "task": "p01-process-015"}]'
+expect 1 "CEFRuntime.swift:23: .*CEFForkFeatures.init" "a rewrite that does not wait for attach" -- \
+  --root "$attach" --check-pre-attach
+edit_ops "$attach" 'd["host_mode_rewrites"][1]["needs"] = "after_attach"'
+expect 0 "0 mirror reads before attach" "listed startup reads" -- --root "$attach" --check-pre-attach
+rm "$attach/Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/CEF/CEFRuntime.swift"
+expect 1 "startup root CEFRuntime.initialize is not in" "a startup root that moved" -- --root "$attach" --check-pre-attach
+
+# Refusals: each one alone makes --check-ops fail with its message.
+refuse() { # <name> <python edit> <message pattern>
+  local root="$work/refuse"
+  rm -rf "$root"
+  fixture "$root"
+  edit_ops "$root" "$2"
+  expect 1 "$3" "$1" -- --root "$root" --check-ops
+}
+refuse "unclassified export" 'd["exports"] = [e for e in d["exports"] if e["name"] != "cmux_shim_go_back"]' \
+  "cmux_shim_go_back: unclassified"
+refuse "sync class" 'by["cmux_shim_visit_cookies"]["class"] = "sync"' "class sync is refused"
+refuse "function pointer in a post" 'by["cmux_shim_set_focus_request_handler"]["class"] = "post"' \
+  "function-pointer argument 'handler' in a post export"
+refuse "stale entry" 'd["exports"].append(dict(by["cmux_shim_go_back"], name="cmux_shim_gone"))' \
+  "cmux_shim_gone: classified but not exported"
+refuse "args drift" 'by["cmux_shim_go_back"]["args"][0]["type"] = "int64_t"' "args drifted from the header"
+refuse "mirror without key" 'by["cmux_shim_tab_navigation_state"]["mirror_key"] = None' "needs mirror_key"
+refuse "char* result posted" 'by["cmux_shim_tab_navigation_state"]["class"] = "post"' \
+  "a char\* result must be mirror or async"
+refuse "unknown pending key" 'by["cmux_shim_go_back"]["pending_keys"] = ["tab.nothing[browser_id]"]' \
+  "pending key 'tab.nothing\[browser_id\]' is no mirror's key"
+refuse "pending key names a missing arg" 'by["cmux_shim_go_back"]["pending_keys"] = ["tab.navigation_state[offset]"]' \
+  "'offset' is not an argument"
+refuse "event refresh mismatch" 'd["events"][1]["refreshes"] = []' "refresh_events name"
+refuse "missing event kind" 'd["events"] = d["events"][:-1]' "CMUX_SHIM_REPLY: event kind missing"
+refuse "local without reason" 'by["cmux_shim_free"]["reason"] = ""' "class local needs a reason"
+refuse "async without an answer" 'by["cmux_shim_visit_cookies"]["reply_event"] = None' "names its answer"
+refuse "out-parameters in an event" 'by["cmux_shim_renderer_client_ids"]["reply_event"] = "CMUX_SHIM_REPLY"' \
+  "out-parameters come back in wire:REPLY"
+refuse "event value drift" 'd["events"][1]["value"] = 9' "value 9 drifted"
+refuse "unknown top-level key" 'd["extras"] = []' "unknown top-level keys \['extras'\]"
+refuse "mint without mint_returns" 'del by["cmux_shim_tab_add"]["mint_returns"]' "mint_returns is id or sent"
+refuse "mint_returns outside mint" 'by["cmux_shim_go_back"]["mint_returns"] = "id"' "mint_returns is for mint exports"
+refuse "mint sent without request" 'by["cmux_shim_tab_add"]["mint_returns"] = "sent"' \
+  "mint_returns sent needs an int .request. argument"
+refuse "non-void preinit without a verdict" 'by["cmux_shim_page_scheme_add"]["reply_event"] = None' \
+  "a non-void preinit returns the client's own check"
+refuse "void preinit with a verdict" 'by["cmux_shim_set_background_color"]["reply_event"] = "wire:REPLY"' \
+  "a void preinit has no verdict"
+refuse "wire:REPLY on a post" 'by["cmux_shim_tab_go_to_entry"]["reply_event"] = "wire:REPLY"' \
+  "a post export returns at once"
+refuse "optional export the header declares" \
+  'd["optional_exports"].append(dict(by["cmux_shim_go_back"], fork_api=29)); d["exports"].remove(by["cmux_shim_go_back"])' \
+  "cmux_shim_go_back: the header declares it now"
+refuse "optional export without fork_api" 'del by["cmux_shim_tab_set_frozen"]["fork_api"]' "names the fork API"
+refuse "optional event value taken" 'd["optional_events"][0]["value"] = 18' "value 18 is also CMUX_SHIM_REPLY's"
+refuse "optional event the header lists" 'd["optional_events"].append({"kind": "CMUX_SHIM_REPLY", "value": 18})' \
+  "CMUX_SHIM_REPLY: the header lists it now"
+refuse "optional export bound with r()" 'd["optional_exports"].append(dict(by["cmux_shim_tab_set_frozen"], name="cmux_shim_tab_extra"))' \
+  "optional export cmux_shim_tab_extra is not bound"
+refuse "rewrite needs" 'd["host_mode_rewrites"] = [{"site": "CmuxNextBrowser/CEF/CEFCaller.swift: CEFCaller.back(_:)",
+  "exports": ["cmux_shim_go_back"], "needs": "later", "change": "x", "task": "p01-process-021"}]' "needs 'later' is not one of"
+refuse "rewrite of a missing file" 'd["host_mode_rewrites"] = [{"site": "CmuxNextBrowser/CEF/Gone.swift: Gone.f()",
+  "exports": ["cmux_shim_go_back"], "needs": "reply", "change": "x", "task": "p01-process-021"}]' "Gone.swift does not exist"
+refuse "after_attach on a post" 'd["host_mode_rewrites"] = [{"site": "CmuxNextBrowser/CEF/CEFCaller.swift: CEFCaller.back(_:)",
+  "exports": ["cmux_shim_go_back"], "needs": "after_attach", "change": "x", "task": "p01-process-015"}]' \
+  "needs after_attach is for mirror reads"
+
+# A (*fn) parameter written inline in the header is a function pointer too.
+inline="$work/inline"
+fixture "$inline"
+sed -i.bak 's/CMUX_SHIM_EXPORT void cmux_shim_go_back(int browser_id);/CMUX_SHIM_EXPORT void cmux_shim_go_back(int browser_id, void (*fn)(void* context), void* context);/' \
+  "$inline/$shimh"
+edit_ops "$inline" 'by["cmux_shim_go_back"]["args"] += [{"name": "fn", "type": "void (*)(void* context)", "function_pointer": True}, {"name": "context", "type": "void*"}]'
+expect 1 "cmux_shim_go_back: function-pointer argument 'fn' in a post export" "inline (\*fn) in a post" -- \
+  --root "$inline" --check-ops
+
+# An argument named like a local the generator derives from another argument is refused.
+clash="$work/clash"
+fixture "$clash"
+sed -i.bak 's/const char\* resource_root);/const char* id_value);/' "$clash/$shimh"
+edit_ops "$clash" 'by["cmux_shim_page_scheme_add"]["args"][1]["name"] = "id_value"'
+expect 1 "argument 'id_value' has the name of a local generated for 'id'" "a derived-name clash" -- \
+  --root "$clash" --check-ops
+
+# CEFShimLibrary binds header exports and optional exports only.
+unbound="$work/unbound"
+fixture "$unbound"
+sed -i.bak 's/^    }$/        bogus = try r("cmux_shim_bogus")\n        frozen = try r("cmux_shim_tab_set_frozen")\n    }/' "$unbound/$library"
+out="$(python3 "$gen" --root "$unbound" --check-ops 2>&1)" && fail "a stray binding passed: $out"
+grep -q 'cmux_shim_bogus is neither a header export nor in optional_exports' <<<"$out" || fail "stray binding: $out"
+grep -q 'cmux_shim_tab_set_frozen is an optional export: bind it with r.optional' <<<"$out" ||
+  fail "an optional export bound with r(): $out"
+
+# --list-missing: the live queue (export, class, missing side).
+missing="$work/missing"
+fixture "$missing"
+edit_ops "$missing" 'd["exports"] = [e for e in d["exports"] if e["name"] != "cmux_shim_go_back"]'
+expect 0 $'cmux_shim_go_back\t-\tclassification' "list-missing classification" -- --root "$missing" --list-missing
+expect 0 $'cmux_shim_initialize\tlocal\tclient' "list-missing local side" -- --root "$missing" --list-missing
+expect 0 $'cmux_shim_set_focus_request_handler\tpolicy\thost' "list-missing policy side" -- --root "$missing" --list-missing
+python3 "$gen" --root "$base" --list-missing | grep -q . && fail "--list-missing lists rows for a complete tree"
+
+# --check-view-parity against vendored mojoms.
+parity="$work/parity"
+fixture "$parity"
+expect 1 "chromium-host-view-parity.json is missing" "parity without its JSON" -- --root "$parity" --check-view-parity
+mkdir -p "$parity/plans/cmux-next/remote_cocoa_mojom"
+cat >"$parity/plans/cmux-next/remote_cocoa_mojom/render_widget_host_ns_view.mojom" <<'EOF'
+// Fixture mojom.
+interface RenderWidgetHostNSView {
+  [Sync] SyncIsKeyWindow() => (bool is_key);  // a comment
+  SetBackgroundColor(uint32 color);
+  enum Unused { kA };
+  Show();
+};
+EOF
+sha="$(python3 -c 'import hashlib,sys; print(hashlib.sha256(open(sys.argv[1],"rb").read()).hexdigest())' \
+  "$parity/plans/cmux-next/remote_cocoa_mojom/render_widget_host_ns_view.mojom")"
+cat >"$parity/plans/cmux-next/chromium-host-view-parity.json" <<EOF
+{"mojoms": [{"file": "render_widget_host_ns_view.mojom", "sha256": "$sha"}],
+ "methods": [
+  {"mojom": "render_widget_host_ns_view.mojom", "interface": "RenderWidgetHostNSView", "method": "SyncIsKeyWindow",
+   "not_needed": "cmux owns the window; the host reads key state from the pushed embedder-active policy"},
+  {"mojom": "render_widget_host_ns_view.mojom", "interface": "RenderWidgetHostNSView", "method": "SetBackgroundColor",
+   "op": "cmux_shim_set_background_color"}
+ ]}
+EOF
+expect 1 "RenderWidgetHostNSView.Show: unmapped" "an unmapped method" -- --root "$parity" --check-view-parity
+expect 0 "RenderWidgetHostNSView.Show" "list-unmapped" -- --root "$parity" --list-unmapped
+python3 - "$parity/plans/cmux-next/chromium-host-view-parity.json" <<'EOF'
+import json, sys
+d = json.load(open(sys.argv[1]))
+d["methods"].append({"mojom": "render_widget_host_ns_view.mojom", "interface": "RenderWidgetHostNSView",
+                     "method": "Show", "event": "CMUX_SHIM_ADDRESS"})
+json.dump(d, open(sys.argv[1], "w"))
+EOF
+expect 0 "" "all methods mapped" -- --root "$parity" --check-view-parity
+echo "// drift" >>"$parity/plans/cmux-next/remote_cocoa_mojom/render_widget_host_ns_view.mojom"
+expect 1 "changed since it was mapped" "mojom drift" -- --root "$parity" --check-view-parity
+
+# --- This checkout ----------------------------------------------------------------------------
+
+real="$(python3 "$gen" --root "$repo" --dump-header)"
+want_exports="$(grep -oE 'CMUX_SHIM_EXPORT [^(]*\bcmux_shim_[a-z0-9_]+' "$repo/$shimh" | grep -c .)"
+grep -q "\"exports_count\": $want_exports," <<<"$real" ||
+  fail "the parsed export count differs from the header's $want_exports"
+if [[ -f "$repo/$ops" ]]; then
+  expect 0 "$want_exports/$want_exports exports classified" "the real header and ops JSON" -- --root "$repo" --check-ops
+  # Generation from the real header is deterministic too (into a scratch tree, not the checkout).
+  scratch="$work/real"
+  mkdir -p "$scratch/$(dirname "$shimh")" "$scratch/$(dirname "$ops")"
+  cp "$repo/$shimh" "$scratch/$shimh"
+  cp "$repo/$ops" "$scratch/$ops"
+  python3 "$gen" --root "$scratch" >/dev/null
+  for f in "${outputs[@]}"; do cp "$scratch/$f" "$work/first/real-$(basename "$f")"; done
+  rm -rf "$scratch/Packages/macOS/CmuxNext/ChromiumHost" \
+    "$scratch/Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/CEF/ChromiumHost"
+  python3 "$gen" --root "$scratch" >/dev/null
+  for f in "${outputs[@]}"; do
+    cmp -s "$scratch/$f" "$work/first/real-$(basename "$f")" || fail "two runs on the real header differ: $f"
+  done
+  if [[ -n "$cxx" ]]; then
+    compile_inc "$scratch" "the real header"
+  fi
+  expect 0 "0 mirror reads before attach" "the real startup path" -- --root "$repo" --check-pre-attach
+else
+  echo "note: $ops is not in this checkout (task p01-process-010); real-header ops check skipped" >&2
+fi
+
+echo "gen-chromium-host-wire tests: ok"

@@ -1,10 +1,14 @@
 import AppKit
 import CmuxNextAgentPane
+import CmuxNextBrowser
 import CmuxNextCloud
 import CmuxNextControl
 import CmuxNextDaemon
+import CmuxNextDesign
+import CmuxNextInput
 import CmuxNextLaunch
 import CmuxNextMallocZone
+import CmuxNextRemoteFetch
 import CmuxNextSidebar
 import CmuxNextTerminal
 import CmuxNextCompat
@@ -57,12 +61,18 @@ public struct CmuxNextApp {
         let hangWatch = TraceRuntime.shared.hangWatch
         let state = environment.sidebarSnapshotFile?.url.deletingLastPathComponent()
         let work = BackgroundWork(hangs: hangWatch, onRan: startupTrace?.laneJobSink)
+        // Idle and best-effort lane work waits for startup complete (Chrome's BeginBestEffortFence); the order made on it lowers it.
+        let fence = LaunchOrder.BestEffortFence(raisingOn: work)
         startupTrace?.start(writingOn: work) // its file is written on work's files lane, never here
         startupTrace?.whenClosed { work.stopReportingRuns() } // a closed trace costs the lanes nothing
         let launchImages = AgentPaneLaunchImages(state: state), relaunchWake = AgentPaneRelaunchWake(directory: state)
         launchImages.prefetch(on: work) { DebugTimings.markLaunch($0) }
         TerminalLaunchFrames.beside(state).prefetch(on: work) { DebugTimings.markLaunch($0) }
         relaunchWake.begin(on: work)
+        // Tab favicons resolve their hosts on work's host-resolution slots (system lane), never on the pool;
+        // video wallpapers list the windows above theirs on its system lane, never on main.
+        BrowserFaviconLoader.shared.useResolver(SystemRemoteResolver(runner: work))
+        BackdropVideoPlayers.shared.lanes = work
         let wireStats = DaemonWireStats.forBuild()  // `debug.daemon.wire`'s counters; nil in a release build
         // The daemon connect overlaps AppKit's start (off the main thread).
         let prestart = DaemonService.prestart(launch: environment.launch, terminalEnvironment: environment.terminalEnvironment,
@@ -76,11 +86,17 @@ public struct CmuxNextApp {
         // Instantiate the CEF-ready subclass before anything touches NSApp.
         let app = CmuxApplication.shared
         (app as? CmuxApplication)?.refusesActivation = ProcessInfo.processInfo.environment["CMUX_NEXT_NO_ACTIVATE"] == "1"
+        // The launch's order owners: the main-thread scheduler and the StartupScheduler on it, passed by init.
+        // The one input tap (p04-input.md 3 (A)): the budget's pending input, control and services observe it.
+        let inputTap = InputEventTap()
+        let order = LaunchOrder(fence: fence, input: inputTap) { DebugTimings.markLaunch($0) }
         let delegate = AppDelegate(environment: environment, daemonPrestart: prestart, wireStats: wireStats,
-                                   startupTrace: startupTrace,
+                                   startupTrace: startupTrace, order: order, inputTap: inputTap,
                                    launchReads: (work, launchImages, relaunchWake))
         // Every main run-loop turn is timed and split on the main-thread scheduler's meter (MainTurnMeter).
         (app as? CmuxApplication)?.meterTurns(delegate.turnMeter)
+        // The one input tap hears every event from the first (pending input, control, services).
+        (app as? CmuxApplication)?.inputTap = delegate.inputTap
         app.delegate = delegate
         app.setActivationPolicy(.regular)
         DebugTimings.markLaunch("main.nsapp")
