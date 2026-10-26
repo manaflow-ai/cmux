@@ -1251,5 +1251,200 @@ class ShippingModeTests(unittest.TestCase):
                          ["activated", "sentry", "hang_reports"])
 
 
+ACPMUX = f"{APP}/Contents/Resources/bin/acpmux"
+FAKE = "/usr/bin/python3 /tmp/agent-idle/fake_agent.py"
+
+
+def agent_table():
+    """A process table with two agent hosts, a chat's (its harness runs a tool) and a pooled entry's (the multicall
+    spelling), plus a python that is no harness."""
+    return [(1, 0, f"{APP}/Contents/MacOS/cmux DEV"),
+            (10, 1, f"{ACPMUX} daemon run"),
+            (20, 1, f"{ACPMUX} __agent-host"),
+            (21, 20, FAKE),
+            (22, 21, "/bin/zsh -c make"),
+            (30, 1, f"{APP}/Contents/Resources/bin/cmux acp __agent-host"),
+            (31, 30, "/usr/local/bin/node /x/claude-agent-acp"),
+            (40, 1, "/usr/bin/python3 /tmp/other.py")]
+
+
+class AgentHarnessKindTests(unittest.TestCase):
+    """p14-energy-103: every process under an acpmux agent host, pooled ones included, is agent-harness."""
+
+    def test_kind_under_an_agent_host_is_agent_harness(self):
+        self.assertEqual(ib.kind(FAKE, under_agent_host=True), "agent-harness")
+        self.assertEqual(ib.kind("/bin/zsh -c make", under_agent_host=True), "agent-harness")
+        self.assertEqual(ib.kind(FAKE), "other:python3")
+        # The host is acpmux code, in both spellings (the acpmux binary, the cmux multicall binary).
+        self.assertEqual(ib.kind(f"{ACPMUX} __agent-host"), "acpmux")
+        self.assertEqual(ib.kind(f"{APP}/Contents/Resources/bin/cmux acp __agent-host"), "acpmux")
+        self.assertFalse(procs.is_agent_host(f"{ACPMUX} daemon run --note __agent-hostile"))
+
+    def test_harness_pids_are_every_descendant_of_a_host(self):
+        self.assertEqual(procs.agent_harness_pids(agent_table()), {21: 20, 22: 20, 31: 30})
+        # A host under a host is its own: its harness is the inner host's.
+        nested = [(20, 1, f"{ACPMUX} __agent-host"), (21, 20, f"{ACPMUX} __agent-host"), (22, 21, FAKE)]
+        self.assertEqual(procs.agent_harness_pids(nested), {22: 21})
+
+    def test_agent_harness_reads_a_table_only_for_a_set_with_a_host(self):
+        def no_table():
+            raise AssertionError("no agent host: no ps read")
+        with unittest.mock.patch.object(procs, "process_table", no_table):
+            self.assertEqual(ib.agent_harness({1: f"{APP}/Contents/MacOS/cmux DEV", 40: "/usr/bin/python3 x"}), {})
+        commands = {pid: cmd for pid, _ppid, cmd in agent_table() if pid != 31}
+        with unittest.mock.patch.object(procs, "process_table", agent_table):
+            self.assertEqual(ib.agent_harness(commands), {21: 20, 22: 20})  # only the set's processes
+
+    def test_instance_counts_harnesses_of_its_hosts(self):
+        darwin = types.SimpleNamespace(responsible=None)
+        table = agent_table() + [(50, 0, "/opt/acpmux __agent-host"), (51, 50, FAKE)]
+        with unittest.mock.patch.object(procs, "process_table", lambda: table), \
+                unittest.mock.patch.object(procs, "_darwin", lambda: darwin):
+            instance = procs.Instance(APP, 1)
+            pids = instance.pids()
+        self.assertTrue({20, 21, 22, 30, 31} <= set(pids))
+        self.assertNotIn(51, pids)  # another app's host and its harness
+        self.assertEqual(instance.harness, {21: 20, 22: 20, 31: 30})
+        self.assertEqual(instance.kind(21, FAKE), "agent-harness")
+        self.assertEqual(instance.kind(40, "/usr/bin/python3 /tmp/other.py"), procs.kind_of("/usr/bin/python3 /tmp/other.py"))
+        self.assertNotEqual(procs.kind_of(FAKE), "agent-harness")  # the kind comes from the tree, not the command
+
+    def test_rows_mark_the_hidden_chats_harness(self):
+        zero = procs.usage_from_words(rusage_words(), 1, 1)
+        woke = procs.usage_from_words(rusage_words(interrupt=6), 1, 1)
+
+        def snap(usage):
+            return {pid: (cmd, usage, (0, 4, 0, 0, 0), {}) for pid, _ppid, cmd in agent_table()}
+
+        rows = ib.process_rows(snap(zero), snap(woke), 2.0, {}, {}, ib.kind, harness={21: 20, 22: 20, 31: 30},
+                               hidden_hosts=(20,))
+        by_pid = {r["pid"]: r for r in rows}
+        self.assertEqual({pid: by_pid[pid]["kind"] for pid in (20, 21, 22, 30, 31, 40)},
+                         {20: "acpmux", 21: "agent-harness", 22: "agent-harness", 30: "acpmux", 31: "agent-harness",
+                          40: "other:python3"})
+        self.assertEqual([pid for pid, r in sorted(by_pid.items()) if r.get("hidden")], [21, 22])
+        self.assertEqual((by_pid[21]["agent_host"], by_pid[31]["agent_host"]), (20, 30))
+        kinds = ib.aggregate({"processes": rows})
+        self.assertEqual(kinds["agent-harness"]["n"], 3)
+        self.assertEqual(kinds["agent-harness"]["hidden_wakeups_max"], 3.0)
+
+    def test_measure_classifies_the_harness_after_the_last_read(self):
+        calls = []
+        commands = {pid: cmd for pid, _ppid, cmd in agent_table()}
+        patches = [unittest.mock.patch.object(ib, "process_set", lambda _instance: commands),
+                   unittest.mock.patch.object(ib, "threads", lambda _pid: {}),
+                   unittest.mock.patch.object(procs, "usage", lambda _pid: procs.usage_from_words(rusage_words(), 1, 1)),
+                   unittest.mock.patch.object(procs, "overhead", lambda _pid: (0, 4, 0, 0, 0)),
+                   unittest.mock.patch.object(procs, "gpu_ns_by_pid", lambda: {}),
+                   unittest.mock.patch.object(procs, "coalition_of", lambda _pid: None),
+                   unittest.mock.patch.object(procs, "thermal_state", lambda: "nominal"),
+                   unittest.mock.patch.object(procs, "power_assertions", lambda _pids: []),
+                   unittest.mock.patch.object(procs, "process_table", lambda: calls.append("ps") or agent_table()),
+                   unittest.mock.patch.object(ib.time, "sleep", lambda seconds: calls.append("sleep"))]
+        for patch in patches:
+            patch.start()
+            self.addCleanup(patch.stop)
+        result = ib.measure(FakeApp([]), type("Instance", (), {"pid": 1})(), 60, hidden_hosts=(30,))
+        self.assertEqual(calls, ["sleep", "sleep", "ps"])  # the harness read comes after the window
+        kinds = {r["pid"]: (r["kind"], r.get("hidden", False)) for r in result["processes"]}
+        self.assertEqual(kinds[31], ("agent-harness", True))
+        self.assertEqual(kinds[21], ("agent-harness", False))
+
+
+class AgentSessionTests(unittest.TestCase):
+    """The agent-idle, agent-working-visible and busy-hidden sessions and their D14 rows."""
+
+    def test_the_three_sessions_and_their_rows_exist(self):
+        budget = ib.load_budget(ib.BUDGET_FILE)
+        for name in ("agent-idle", "agent-working-visible", "busy-hidden"):
+            self.assertIn(name, ib.SESSIONS)
+            self.assertIn(name, budget["sessions"])
+        self.assertEqual(ib.SESSIONS["agent-idle"]["agents"], {"visible": True, "hidden": True, "pool": 1})
+        self.assertEqual(ib.SESSIONS["agent-working-visible"]["agents"], {"visible": True, "working": True})
+        self.assertEqual(ib.SESSIONS["busy-hidden"]["busy_terminal"], 0.1)
+        # agent-idle settles past the hidden harness's freeze (p14-energy-117).
+        self.assertGreater(ib.settle_seconds("agent-idle", 60), ib.HARNESS_FREEZE_S)
+        self.assertEqual(ib.settle_seconds("busy-hidden", 60), 60)
+        self.assertIn("agent-harness", budget["kinds"])
+
+    def test_unknown_agent_session_refused(self):
+        with self.assertRaises(SystemExit) as raised:
+            ib.parse_sessions("agent-idle,agent-idel")
+        self.assertIn("unknown session agent-idel", str(raised.exception))
+        self.assertEqual(ib.parse_sessions("agent-idle,agent-working-visible,busy-hidden"),
+                         ["agent-idle", "agent-working-visible", "busy-hidden"])
+
+    def test_d14_budgets(self):
+        budget = ib.load_budget(ib.BUDGET_FILE)
+        idle = {"app": {"wakeups_per_s": 0.4}, "daemon": {"wakeups_per_s": 0.2}, "acpmux": {"wakeups_per_s": 0.3},
+                "agent-harness": {"wakeups_per_s": 9.0, "hidden_wakeups_max": 4.0}}
+        # The hidden harness is reported, not judged, until p14-energy-117 freezes it.
+        self.assertEqual(ib.over_budget("agent-idle", idle, budget), [])
+        self.assertIsNone(ib.limit_for(budget, "agent-idle", "agent-harness", "hidden_wakeups_max"))
+        loud = {**idle, "acpmux": {"wakeups_per_s": 0.6}}
+        self.assertIn(("app+daemon+acpmux", "wakeups_per_s", 1.2, 1.0), ib.over_budget("agent-idle", loud, budget))
+        working = {"app": {"wakeups_per_s": 20.0}, "cef-renderer": {"wakeups_per_s": 10.0},
+                   "cef-gpu": {"wakeups_per_s": 6.0}, "daemon": {"wakeups_per_s": 50.0}}
+        self.assertEqual(ib.over_budget("agent-working-visible", working, budget),
+                         [("app+cef-renderer+cef-gpu", "wakeups_per_s", 36.0, 35)])
+        # Busy: only the session's own rows judge (the daemon's 50/s carries the printing terminal).
+        busy = {"app": {"wakeups_per_s": 2.5, "main_wakes_per_s": 3.0}, "daemon": {"wakeups_per_s": 50.0}}
+        self.assertEqual(ib.over_budget("busy-hidden", busy, budget), [("app", "wakeups_per_s", 2.5, 2.0)])
+
+    def test_agent_home_config_and_records(self):
+        with tempfile.TemporaryDirectory() as folder:
+            home = ib.AgentHome(folder, "agent-idle")
+            self.assertEqual(home.env(), {"ACPMUX_HOME": home.home, "ACPMUX_SOCKET": home.socket})
+            self.assertLess(len(home.socket), 104)
+            home.write()
+            with open(os.path.join(home.home, "config.json")) as handle:
+                config = json.load(handle)
+            self.assertEqual(config, ib.agent_config(sys.executable, os.path.join(folder, "fake_agent.py")))
+            self.assertEqual(config["defaultHarness"], ib.AGENT_HARNESS_ID)
+            self.assertEqual(config["pool"], {"idleMinutes": ib.POOL_IDLE_MINUTES})
+            self.assertTrue(os.path.isfile(os.path.join(folder, "fake_agent.py")))
+            self.assertTrue(os.path.isdir(home.cwd) and os.path.isdir(home.pool_cwd))
+            self.assertEqual(home.pool_entries(), [])
+            os.makedirs(os.path.join(home.home, "hosts", "pool"))
+            with open(os.path.join(home.home, "hosts", "s1.json"), "w") as handle:
+                json.dump({"session_id": "s1", "host_pid": 4242}, handle)
+            with open(os.path.join(home.home, "hosts", "pool", "pool-1.json"), "w") as handle:
+                json.dump({"host_pid": 4343}, handle)
+            self.assertEqual(home.host_pid("s1"), 4242)
+            self.assertIsNone(home.host_pid("s2"))
+            self.assertEqual(home.pool_entries(), ["pool-1.json"])
+
+    def test_gate_blocks_until_release(self):
+        with tempfile.TemporaryDirectory() as folder:
+            home = ib.AgentHome(folder, "agent-working-visible")
+            path = home.gate()
+            home.release()  # no reader yet: nothing to end, no error
+            got = []
+
+            def read():
+                with open(path) as gate:
+                    got.append(gate.readline())
+
+            reader = ib.threading.Thread(target=read)
+            reader.start()
+            for _ in range(500):  # the reader opens the FIFO at some point; release reaches it once it has
+                home.release()
+                reader.join(0.01)
+                if got:
+                    break
+            reader.join(5)
+            self.assertEqual(got, ["go\n"])
+
+    def test_chat_session_and_turn_done(self):
+        self.assertEqual(ib.chat_session({"result": json.dumps({"sessionId": "s1"})}), "s1")
+        self.assertEqual(ib.chat_session({"result": {"sessionId": "s2"}}), "s2")
+        self.assertEqual(ib.chat_session({"sessionId": "s3"}), "s3")
+        self.assertIsNone(ib.chat_session({"error": "no agent tab"}))
+        self.assertIsNone(ib.chat_session({"result": "not json"}))
+        self.assertTrue(ib.turn_done({"status": "idle", "lastTurn": {"endedAt": 5}}))
+        self.assertFalse(ib.turn_done({"status": "running", "lastTurn": {"endedAt": 5}}))
+        self.assertFalse(ib.turn_done({"status": "idle"}))
+
+
 if __name__ == "__main__":
     unittest.main()
