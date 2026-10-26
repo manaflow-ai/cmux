@@ -73,8 +73,9 @@ import Testing
         let stub = TeamsStub.make()
 
         await #expect(throws: CMUXTeamError.invalidName) { _ = try await stub.api.create(displayName: " \n ") }
+        // The API checks the server's own limit (120); the Mac's forms keep theirs (64).
         await #expect(throws: CMUXTeamError.invalidName) {
-            _ = try await stub.api.rename(teamID: "t1", displayName: String(repeating: "a", count: 65))
+            _ = try await stub.api.rename(teamID: "t1", displayName: String(repeating: "a", count: CMUXTeamName.serverMaximumLength + 1))
         }
         #expect(stub.requests.isEmpty)
     }
