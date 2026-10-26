@@ -6,7 +6,8 @@ extension RemoteDecodedFrame {
     /// converted off the main thread.
     @concurrent public nonisolated func picture() async -> CGImage? {
         var image: CGImage?
-        guard VTCreateCGImageFromCVPixelBuffer(pixelBuffer, options: nil, imageOut: &image) == noErr else { return nil }
+        // SAFETY: VideoToolbox writes one +1 image to the local `image`, live for the call.
+        guard unsafe VTCreateCGImageFromCVPixelBuffer(pixelBuffer, options: nil, imageOut: &image) == noErr else { return nil }
         return image
     }
 }

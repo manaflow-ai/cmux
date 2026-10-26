@@ -37,7 +37,9 @@ actor MetalYUVRenderer {
               let commandQueue = device.makeCommandQueue(),
               let pipeline = Self.makePipeline(device: device) else { return nil }
         var cache: CVMetalTextureCache?
-        guard CVMetalTextureCacheCreate(kCFAllocatorDefault, nil, device, nil, &cache) == kCVReturnSuccess,
+        // SAFETY: Core Video writes one +1 cache to the local `cache`, live for the call;
+        // the nil attribute dictionaries are not read.
+        guard unsafe CVMetalTextureCacheCreate(kCFAllocatorDefault, nil, device, nil, &cache) == kCVReturnSuccess,
               let cache else { return nil }
         shared.layer.device = device
         self.shared = shared
@@ -86,7 +88,8 @@ actor MetalYUVRenderer {
         encoder.setRenderPipelineState(pipeline)
         encoder.setFragmentTexture(lumaTexture, index: 0)
         encoder.setFragmentTexture(chromaTexture, index: 1)
-        encoder.setFragmentBytes(&fullRange, length: MemoryLayout<Float>.size, index: 0)
+        // SAFETY: Metal copies length (one Float) bytes from the local `fullRange` during the call.
+        unsafe encoder.setFragmentBytes(&fullRange, length: MemoryLayout<Float>.size, index: 0)
         encoder.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 3)
         encoder.endEncoding()
         // The cache textures must outlive the GPU's reads: the completed handler holds them.
@@ -99,7 +102,8 @@ actor MetalYUVRenderer {
 
     private func texture(_ buffer: CVPixelBuffer, plane: Int, format: MTLPixelFormat) -> CVMetalTexture? {
         var texture: CVMetalTexture?
-        let status = CVMetalTextureCacheCreateTextureFromImage(
+        // SAFETY: Core Video writes one +1 texture to the local `texture`, live for the call.
+        let status = unsafe CVMetalTextureCacheCreateTextureFromImage(
             kCFAllocatorDefault, textureCache, buffer, nil, format,
             CVPixelBufferGetWidthOfPlane(buffer, plane), CVPixelBufferGetHeightOfPlane(buffer, plane),
             plane, &texture)
