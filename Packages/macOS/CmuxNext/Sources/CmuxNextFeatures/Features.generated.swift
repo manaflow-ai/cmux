@@ -19,9 +19,26 @@ nonisolated extension Feature {
         runtimeMutable: false
     )
 
+    /// A Chromium pane page draws in the cmux window's own layer tree where the app makes every Track A call for the fork (resize fence, embedder visibility); DevTools and popup windows keep their own window.
+    public static let cefLayerHosting = Feature(
+        index: 1,
+        name: "cefLayerHosting",
+        owner: "PL-cef-layer",
+        description: "A Chromium pane page draws in the cmux window's own layer tree where the app makes every Track A call for the fork (resize fence, embedder visibility); DevTools and popup windows keep their own window.",
+        kind: .perfPath,
+        process: .app,
+        chromiumFeature: nil,
+        defaults: FeatureDefaults(dev: false, nightly: false, release: false),
+        expires: "2026-12-20",
+        params: [],
+        stories: ["cef-resize-sync", "cef-resize-sync-stress"],
+        sticky: false,
+        runtimeMutable: false
+    )
+
     /// The in-process Chromium message pump waits while a key, click, scroll or drag is pending for anything but a Chromium page, at most one display refresh, and runs at once after input to a Chromium page.
     public static let cefPumpInputPolicy = Feature(
-        index: 1,
+        index: 2,
         name: "cefPumpInputPolicy",
         owner: "PL-cef-layer",
         description: "The in-process Chromium message pump waits while a key, click, scroll or drag is pending for anything but a Chromium page, at most one display refresh, and runs at once after input to a Chromium page.",
@@ -38,7 +55,7 @@ nonisolated extension Feature {
 
     /// Chromium's renderer, GPU and utility processes and the browser's non-UI threads let a delayed timer fire up to its leeway late (TimerSlackMac), so the system can coalesce their wakes; the app's main-thread pump is not affected.
     public static let cefTimerSlack = Feature(
-        index: 2,
+        index: 3,
         name: "cefTimerSlack",
         owner: "PL-cef-layer",
         description: "Chromium's renderer, GPU and utility processes and the browser's non-UI threads let a delayed timer fire up to its leeway late (TimerSlackMac), so the system can coalesce their wakes; the app's main-thread pump is not affected.",
@@ -55,7 +72,7 @@ nonisolated extension Feature {
 
     /// The daemon compresses the scrollback of a terminal that no client views and that printed nothing for 10 minutes, at utility priority and never under memory pressure; any access restores it first. Stays off until the kernel compressor measurement (p07-memory-112) shows a 2x gain.
     public static let coldScrollbackCompression = Feature(
-        index: 3,
+        index: 4,
         name: "coldScrollbackCompression",
         owner: "PL-memory",
         description: "The daemon compresses the scrollback of a terminal that no client views and that printed nothing for 10 minutes, at utility priority and never under memory pressure; any access restores it first. Stays off until the kernel compressor measurement (p07-memory-112) shows a 2x gain.",
@@ -72,7 +89,7 @@ nonisolated extension Feature {
 
     /// The control socket binds on a background lane at launch with the mode the launch settings read gives, and serves once its method groups register after the first frame, instead of binding on the main thread when the launch settles.
     public static let controlSocketEarlyBind = Feature(
-        index: 4,
+        index: 5,
         name: "controlSocketEarlyBind",
         owner: "Performance Lead",
         description: "The control socket binds on a background lane at launch with the mode the launch settings read gives, and serves once its method groups register after the first frame, instead of binding on the main thread when the launch settles.",
@@ -89,7 +106,7 @@ nonisolated extension Feature {
 
     /// Daemon requests run at their cause's class: verified-app requests at user-initiated, CLI, script, agent and page requests at utility, raised while they wait for or hold a daemon lock.
     public static let daemonRequestQos = Feature(
-        index: 5,
+        index: 6,
         name: "daemonRequestQos",
         owner: "Performance Lead",
         description: "Daemon requests run at their cause's class: verified-app requests at user-initiated, CLI, script, agent and page requests at utility, raised while they wait for or hold a daemon lock.",
@@ -106,7 +123,7 @@ nonisolated extension Feature {
 
     /// Energy Saver turns on as the energy.saver setting asks (Low Power Mode, low battery or a hot Mac on battery by default) and makes cmux draw fewer frames and wake less often.
     public static let energySaver = Feature(
-        index: 6,
+        index: 7,
         name: "energySaver",
         owner: "Performance Lead",
         description: "Energy Saver turns on as the energy.saver setting asks (Low Power Mode, low battery or a hot Mac on battery by default) and makes cmux draw fewer frames and wake less often.",
@@ -123,7 +140,7 @@ nonisolated extension Feature {
 
     /// Each display link runs at the highest frame rate its armed clients ask for, and looping indicators such as spinners ask the render server for 30 frames a second.
     public static let frameRateClasses = Feature(
-        index: 7,
+        index: 8,
         name: "frameRateClasses",
         owner: "PL-motion-core",
         description: "Each display link runs at the highest frame rate its armed clients ask for, and looping indicators such as spinners ask the render server for 30 frames a second.",
@@ -140,7 +157,7 @@ nonisolated extension Feature {
 
     /// A frozen hidden page whose memory grows by max(50 MB, 25 percent) after it froze is discarded with its opener group, read at 5, 30 and 120 minutes after the freeze.
     public static let frozenGrowthDiscard = Feature(
-        index: 8,
+        index: 9,
         name: "frozenGrowthDiscard",
         owner: "PL-memory",
         description: "A frozen hidden page whose memory grows by max(50 MB, 25 percent) after it froze is discarded with its opener group, read at 5, 30 and 120 minutes after the freeze.",
@@ -700,6 +717,7 @@ nonisolated extension Feature {
     /// Every feature, by index: `registered[feature.index] == feature`.
     public static let registered: [Feature] = [
         .automationBurstSnap,
+        .cefLayerHosting,
         .cefPumpInputPolicy,
         .cefTimerSlack,
         .coldScrollbackCompression,
@@ -744,6 +762,7 @@ nonisolated extension Feature {
     /// Every feature, by index: `registered[feature.index] == feature`.
     public static let registered: [Feature] = [
         .automationBurstSnap,
+        .cefLayerHosting,
         .cefPumpInputPolicy,
         .cefTimerSlack,
         .coldScrollbackCompression,
