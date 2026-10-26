@@ -23,6 +23,8 @@ use crate::wire::{MAX_TEXT_BYTES, WireReader, latin1, to_latin1};
 /// Client messages waiting for the writer thread before the session counts
 /// as stalled (a paste is one message, pointer motion one each).
 const WRITE_QUEUE: usize = 1024;
+/// Longest a graceful close waits for a proxy command to forward the last input.
+const DRAIN_LIMIT: Duration = Duration::from_millis(400);
 
 /// How to open a session.
 #[derive(Debug, Clone)]
@@ -279,7 +281,10 @@ impl Input {
         let spawned = thread::Builder::new().name("vnc-writer".into()).spawn(move || {
             for message in pending {
                 let Some(bytes) = message else {
-                    writer_closer.close();
+                    // Everything queued is written: end the writing half
+                    // (a proxy's stdin) so the far end can take it, then close.
+                    drop(writer);
+                    writer_closer.finish(DRAIN_LIMIT);
                     break;
                 };
                 if writer.write_all(&bytes).and_then(|()| writer.flush()).is_err() {
@@ -357,8 +362,9 @@ impl Input {
     }
 
     /// Sends what is queued (key and button releases), then ends the
-    /// session. Waits at most `limit` for the writer; past it, or when
-    /// the queue is full, closes at once.
+    /// session (a proxy command first forwards it, up to 400 ms). Waits at
+    /// most `limit` for the writer; past it, or when the queue is full,
+    /// closes at once.
     pub fn close_after_pending(&self, limit: Duration) {
         if self.inner.queue.try_send(None).is_err() {
             self.close();

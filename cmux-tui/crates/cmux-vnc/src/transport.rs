@@ -4,7 +4,8 @@
 use std::io::{self, Read, Write};
 use std::net::{TcpStream, ToSocketAddrs};
 use std::process::{Child, Command, Stdio};
-use std::sync::{Arc, Mutex};
+use std::sync::mpsc::{self, Sender};
+use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
 /// Bytes of a proxy command's stderr kept for the error message.
@@ -20,15 +21,32 @@ pub struct Transport {
 
 /// Ends a transport; cloneable and callable from any thread, any number of times.
 #[derive(Clone)]
-pub struct Closer(Arc<dyn Fn() + Send + Sync>);
+pub struct Closer {
+    close: Arc<dyn Fn() + Send + Sync>,
+    /// Waits (at most the limit) for the far end to take what was written
+    /// after the writer was dropped; `None` when closing loses nothing (TCP:
+    /// a shutdown sends its FIN behind the data).
+    drain: Option<Arc<dyn Fn(Duration) + Send + Sync>>,
+}
 
 impl Closer {
     pub fn new(close: impl Fn() + Send + Sync + 'static) -> Self {
-        Self(Arc::new(close))
+        Self { close: Arc::new(close), drain: None }
     }
 
+    /// Ends the transport now.
     pub fn close(&self) {
-        (self.0)();
+        (self.close)();
+    }
+
+    /// Ends the transport after its writing half was dropped, letting the
+    /// far end take the bytes already written (a proxy command forwards
+    /// them and exits on stdin's end), waiting at most `limit`.
+    pub fn finish(&self, limit: Duration) {
+        if let Some(drain) = &self.drain {
+            drain(limit);
+        }
+        self.close();
     }
 }
 
@@ -86,17 +104,45 @@ impl Transport {
             })?;
         }
         let child = Arc::new(Mutex::new(child));
-        let closer = Closer::new(move || {
+        let (ended_tx, ended) = mpsc::channel();
+        let ended = Mutex::new(ended);
+        let mut closer = Closer::new(move || {
             if let Ok(mut child) = child.lock() {
                 kill(&mut child);
             }
         });
-        Ok((Self { reader: Box::new(stdout), writer: Box::new(stdin), closer }, tail))
+        // The proxy has forwarded everything once its stdout ends (the
+        // session's reader sees that end).
+        closer.drain = Some(Arc::new(move |limit| {
+            let ended = ended.lock().unwrap_or_else(PoisonError::into_inner);
+            let _ = ended.recv_timeout(limit);
+        }));
+        let reader = EndSignal { inner: stdout, ended: Some(ended_tx) };
+        Ok((Self { reader: Box::new(reader), writer: Box::new(stdin), closer }, tail))
     }
 
     /// The closer, for ending the session from another thread.
     pub fn closer(&self) -> Closer {
         self.closer.clone()
+    }
+}
+
+/// A reader that reports its end (EOF or an error) once.
+struct EndSignal<R> {
+    inner: R,
+    ended: Option<Sender<()>>,
+}
+
+impl<R: Read> Read for EndSignal<R> {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        let result = self.inner.read(buf);
+        if matches!(result, Ok(0) | Err(_))
+            && !buf.is_empty()
+            && let Some(ended) = self.ended.take()
+        {
+            let _ = ended.send(());
+        }
+        result
     }
 }
 

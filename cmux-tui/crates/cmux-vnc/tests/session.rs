@@ -534,3 +534,29 @@ fn a_graceful_close_sends_queued_input_first() {
             .concat();
     assert_eq!(rest_rx.recv().unwrap(), expected);
 }
+
+/// A proxy command gets stdin's end and time to forward the last input
+/// before it is stopped; killing it at once would lose the bytes (the
+/// proxy here starts reading only after a delay).
+#[cfg(unix)]
+#[test]
+fn finishing_a_proxy_lets_it_forward_what_was_written() {
+    let dir = std::env::temp_dir().join(format!("cmux-vnc-drain-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let out = dir.join("forwarded");
+    let (transport, _stderr) =
+        Transport::command(&format!("sleep 0.3; cat > '{}'", out.display())).unwrap();
+    let closer = transport.closer();
+    let Transport { mut reader, mut writer, .. } = transport;
+    writer.write_all(b"key-up").unwrap();
+    writer.flush().unwrap();
+    drop(writer);
+    let drain = thread::spawn(move || {
+        let mut rest = Vec::new();
+        let _ = reader.read_to_end(&mut rest);
+    });
+    closer.finish(Duration::from_secs(5));
+    drain.join().unwrap();
+    assert_eq!(std::fs::read(&out).unwrap(), b"key-up");
+    let _ = std::fs::remove_dir_all(&dir);
+}
