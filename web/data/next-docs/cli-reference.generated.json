@@ -1,8 +1,8 @@
 {
   "version": 1,
   "counts": {
-    "verbs": 692,
-    "mcp": 610
+    "verbs": 697,
+    "mcp": 615
   },
   "nouns": [
     {
@@ -989,6 +989,12 @@
           "mcp": true
         },
         {
+          "command": "cmux cloud machine-link",
+          "title": "Get Machine Link…",
+          "id": "cloudMachineLink",
+          "mcp": true
+        },
+        {
           "command": "cmux cloud machine-ports",
           "title": "Cloud Machine Ports",
           "id": "palette.cloud.ports",
@@ -1031,6 +1037,12 @@
           "mcp": true
         },
         {
+          "command": "cmux cloud open-browser",
+          "title": "Open Machine Port in Browser…",
+          "id": "cloudOpenBrowser",
+          "mcp": true
+        },
+        {
           "command": "cmux cloud open-mobile-pairing",
           "title": "Open Mobile Pairing",
           "id": "palette.mobileConnect",
@@ -1040,6 +1052,24 @@
           "command": "cmux cloud pause-machine",
           "title": "Pause Machine",
           "id": "cloudPauseMachine",
+          "mcp": true
+        },
+        {
+          "command": "cmux cloud port-close",
+          "title": "Close Forwarded Machine Port…",
+          "id": "cloudPortClose",
+          "mcp": true
+        },
+        {
+          "command": "cmux cloud port-forward",
+          "title": "Forward Machine Port…",
+          "id": "cloudPortForward",
+          "mcp": true
+        },
+        {
+          "command": "cmux cloud port-list",
+          "title": "List Forwarded Machine Ports",
+          "id": "cloudPortList",
           "mcp": true
         },
         {
