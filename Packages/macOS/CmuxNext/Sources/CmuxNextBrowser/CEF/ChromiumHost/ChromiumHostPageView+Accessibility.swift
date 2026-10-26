@@ -32,23 +32,6 @@ extension ChromiumHostPageView {
         return (children ?? []) + [element]
     }
 
-    /// A point over the page is answered from the page's tree, as Chrome's page view answers from
-    /// its root element (`-[RenderWidgetHostViewCocoa accessibilityHitTest:]`). AppKit declares the
-    /// hit test on NSObject, nonisolated; assistive clients' reads arrive on the main thread, and a
-    /// call from any other thread gets AppKit's own answer.
-    public nonisolated override func accessibilityHitTest(_ point: NSPoint) -> Any? {
-        ChromiumHostAccessibilityHit.answer(onMain: { self.pageHitTest(point) },
-                                            otherwise: { super.accessibilityHitTest(point) })
-    }
-
-    private func pageHitTest(_ point: NSPoint) -> Any? {
-        guard let element = remoteAccessibility.element else {
-            askForRemoteAccessibility()
-            return super.accessibilityHitTest(point)
-        }
-        return accessibilityBridge.hitTest(element, point) ?? element
-    }
-
     /// Chromium built the page's accessibility tree (an assistive client came, `CEFAccessibility`): a
     /// page the host refused while it had none, or refuses a request already in flight, is asked
     /// again at the next read, which the layout change prompts.
@@ -141,18 +124,4 @@ struct ChromiumHostAccessibilityBridge {
         },
         hitTest: { element, point in (element as? NSAccessibilityRemoteUIElement)?.accessibilityHitTest(point) },
         layoutChanged: { element in NSAccessibility.post(element: element, notification: .layoutChanged) })
-}
-
-/// The seam between AppKit's accessibility hit test, a nonisolated NSObject category method that
-/// assistive clients reach on the main thread, and the page view's main-actor answer: the answer
-/// runs on the main thread and its element comes back out of `MainActor.assumeIsolated`.
-// crash-allow: one immutable `let` made and read on the main thread inside one accessibilityHitTest call; it never crosses threads.
-nonisolated struct ChromiumHostAccessibilityHit: @unchecked Sendable {
-    let element: Any?
-
-    /// `onMain`'s element on the main thread; `otherwise`'s (AppKit's own answer) on any other.
-    static func answer(onMain: @MainActor () -> Any?, otherwise: () -> Any?) -> Any? {
-        guard Thread.isMainThread else { return otherwise() }
-        return MainActor.assumeIsolated { Self(element: onMain()) }.element // main-proof: checked Thread.isMainThread above
-    }
 }
