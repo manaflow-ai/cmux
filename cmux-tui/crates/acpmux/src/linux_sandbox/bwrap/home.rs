@@ -240,8 +240,14 @@ pub(super) fn rebuild(
         let pinned = PathBuf::from(format!("/proc/self/fd/{parent_fd}"));
         let children = match fs::read_dir(&pinned) {
             Ok(entries) => entries
-                .map(|e| e.map(|e| dir.join(e.file_name())))
-                .collect::<io::Result<BTreeSet<_>>>(),
+                .map(|entry| {
+                    let entry = entry?;
+                    let name = entry.file_name();
+                    let meta = stat_child(parent_fd, &name)
+                        .map_err(|e| io::Error::other(format!("{e}")))?;
+                    Ok((dir.join(name), meta))
+                })
+                .collect::<io::Result<Vec<_>>>(),
             Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(BTreeSet::new()),
             Err(e) => Err(e),
         }
@@ -254,12 +260,11 @@ pub(super) fn rebuild(
                 dir.display()
             ));
         }
-        for child in children {
+        for (child, meta) in children {
             if denied.iter().any(|d| child.starts_with(d)) {
                 continue;
             }
             let name = child.file_name().ok_or("HOME child has no filename")?;
-            let meta = stat_child(parent_fd, name)?;
             if meta.st_mode & libc::S_IFMT == libc::S_IFLNK {
                 if dirs.contains(&child) {
                     return Err(format!("HOME ancestor changed to a symlink: {}", child.display()));
