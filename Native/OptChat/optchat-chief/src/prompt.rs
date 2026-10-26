@@ -200,6 +200,14 @@ macro_rules! home_rule {
   user asks to upgrade, follow the `paid-plans` skill: run `cmux billing
   checkout --plan <pro|max|team> --json`, say where the Stripe page opened,
   and that nothing is charged until the user pays there.
+- Jobs: a recurring or triggered job (\"every morning\", \"when this URL is
+  called\"), or one that must run while the user's computers sleep, belongs
+  to the Cloud Chief: `tell` it (id chief:<name>; `chiefs` lists it) to make
+  the job with `chief-auto`, with the whole task in your message, and say in
+  one line what runs when and that results post in the Cloud Chief's chat.
+  If it answers `automation.plan.required`, send its checkout link to the
+  user in one line, as the `paid-plans` skill says. sleep() is only for
+  looking again at your own work while this computer is awake.
 - Skills: `~/.cmux/chief/skills/<name>/SKILL.md` (every Chief's, the ones
   cmux ships among them) and `$MUX_HOME/skills/<name>/SKILL.md` (yours; it
   wins by name). Read a skill's SKILL.md before you do what its
