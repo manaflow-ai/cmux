@@ -1770,6 +1770,28 @@ class Sweep:
             return out
         self.interaction("click.pane", click_pane)
 
+        def click_during_motion():
+            """A press while a split springs (p03-rendering-098): the base pane shrinks from its whole cell to its
+            left half, so a point just right of the middle is in the new pane's rest frame but drawn in the base
+            pane until the spring is 90 % of its way. The press must focus the pane drawn there. With
+            motion.renderServer the hit test reads where the hosts are drawn (`presented_hit_reads` > 0); a press
+            that came after the landing reads none and is `late`, not a result."""
+            base = self.base["pane"]
+            cell = next((p.get("cell") for p in self.pane_chrome(synced=True).get("panes") or [] if p.get("pane") == base), None)
+            if not cell:
+                return {"skipped": "no pane geometry (debug.pane_chrome)"}
+            x, y, w, h = cell
+            reads = (rpc("debug.layout_counters") or {}).get("presented_hit_reads") or 0
+            def body():
+                act("splitRight", target=f"pane:{base}", focus=True)
+                rpc("debug.mouse", {"action": "click", "x": x + w * 0.55, "y": y + h / 2})
+            out = self.frames_during(body)
+            out["presented_hit_reads"] = ((rpc("debug.layout_counters") or {}).get("presented_hit_reads") or 0) - reads
+            focused = (topology().get("focus") or {}).get("pane")
+            out["check"] = "ok" if focused == base else ("wrong" if out["presented_hit_reads"] > 0 else "late")
+            return out
+        self.interaction("click.during_motion", click_during_motion)
+
         def click_tab():
             other = self.second_tab()
             window = self.pane_chrome(synced=True)
