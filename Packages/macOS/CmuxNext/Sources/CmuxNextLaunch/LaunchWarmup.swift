@@ -1,6 +1,6 @@
 import AppKit
-import CmuxNextActions
 import CmuxNextCompat
+import CoreGraphics
 import Foundation
 
 /// Launch work that is pure and thread-safe, started on a background thread
@@ -12,13 +12,22 @@ import Foundation
 /// (`DaemonLauncher.captureLoginEnvironment(after:)`) and the palette's
 /// string tables (`LaunchFirstOpenWarmups`).
 ///
+/// The App passes its own pure warm-ups as `work` (the action catalog).
 /// `ActionCatalog.all` is a lazy global (`swift_once`): if the main thread
 /// reaches it while this thread still builds it, the main thread waits for
 /// the rest of that one build, never longer than building it itself.
-enum LaunchWarmup {
-    static func start() {
+public struct LaunchWarmup: Sendable {
+    private let work: @Sendable () -> Void
+
+    /// - Parameter work: The App's pure warm-ups, run first on the warm-up thread.
+    public init(work: @escaping @Sendable () -> Void) {
+        self.work = work
+    }
+
+    public func start() {
+        let work = work
         let thread = Thread {
-            _ = ActionCatalog.all
+            work()
             // The SF Symbols catalog loads on first lookup (20 ms on the
             // main thread while the palette or the main menu first drew).
             _ = NSImage(systemSymbolName: "command", accessibilityDescription: nil)
@@ -35,7 +44,7 @@ enum LaunchWarmup {
     }
 }
 
-private nonisolated func prewarmDisplayUUIDs() {
+private func prewarmDisplayUUIDs() {
     var displays = [CGDirectDisplayID](repeating: 0, count: 16)
     var count: UInt32 = 0
     guard CGGetActiveDisplayList(UInt32(displays.count), &displays, &count) == .success else { return }
