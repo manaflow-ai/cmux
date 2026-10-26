@@ -57,6 +57,32 @@ public struct WindowPlacement {
         return CGRect(x: x.rounded(), y: y.rounded(), width: width, height: height)
     }
 
+    /// Where a restored window opens (#25568), `screens` being (display id, visible frame), main
+    /// first. Its saved `frame` comes back exactly while its `display` is connected (or was never
+    /// recorded) and its title bar can be grabbed (``canGrabTitleBar(of:on:)``). A window whose
+    /// display is gone, or that hangs off every screen, is moved (and shrunk if needed) onto the
+    /// screen showing most of it; one no screen shows is centered on its saved display, else the
+    /// main screen. With no screen the frame is kept.
+    public nonisolated static func restoredFrame(_ frame: CGRect, display: String?,
+                                                 screens: [(id: String?, visible: CGRect)]) -> CGRect {
+        // Visible enough to grab: a 40 pt square of the frame on some screen.
+        if screens.contains(where: { $0.visible.intersection(frame).width >= 40 && $0.visible.intersection(frame).height >= 40 }) {
+            return frame
+        }
+        guard let target = screens.first(where: { display != nil && $0.id == display }) ?? screens.first else { return frame }
+        let size = CGSize(width: min(frame.width, target.visible.width), height: min(frame.height, target.visible.height))
+        return CGRect(x: target.visible.midX - size.width / 2, y: target.visible.midY - size.height / 2,
+                      width: size.width, height: size.height)
+    }
+
+    /// The top 28 points of `frame` (its title bar) show at least 40 x 10 points on `visible`:
+    /// enough to grab and drag.
+    public nonisolated static func canGrabTitleBar(of frame: CGRect, on visible: CGRect) -> Bool {
+        let titleBar = CGRect(x: frame.minX, y: frame.maxY - 28, width: frame.width, height: 28)
+        let shown = visible.intersection(titleBar)
+        return !shown.isNull && shown.width >= 40 && shown.height >= 10
+    }
+
     /// `frame` moved (and shrunk if needed) inside `visible`, keeping its
     /// position where it already fits.
     public nonisolated static func contain(_ frame: CGRect, in visible: CGRect) -> CGRect {
