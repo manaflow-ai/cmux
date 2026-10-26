@@ -69,6 +69,11 @@ impl FakeAcpmux {
         }
     }
 
+    /// The next frame the daemon sent to acpmux, its session watch included.
+    pub(super) fn raw_frame(&self) -> Value {
+        self.frames.recv_timeout(WAIT).expect("a frame to acpmux")
+    }
+
     pub(super) fn no_frame(&self) {
         let deadline = Instant::now() + Duration::from_millis(200);
         while let Some(left) = deadline.checked_duration_since(Instant::now()) {
@@ -94,7 +99,7 @@ impl FakeAcpmux {
         self.current.as_mut().unwrap()
     }
 
-    fn notify(&mut self, method: &str, params: Value) {
+    pub(super) fn notify(&mut self, method: &str, params: Value) {
         let line = json!({"jsonrpc":"2.0","method":method,"params":params}).to_string();
         let stream = self.connection();
         writeln!(stream, "{line}").unwrap();

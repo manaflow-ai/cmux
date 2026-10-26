@@ -309,7 +309,7 @@ fn serve_one(
                     "listener_pid": std::process::id(),
                 }))
             });
-            let result = if scopes.as_ref().is_some_and(|s| !s.contains(&Scope::Shell)) {
+            let result = if proxied(&config, identity.login.as_deref(), scopes.as_deref()) {
                 super::agent_proxy::run(stream, daemon, identity, peer)
             } else {
                 splice(stream, daemon)
@@ -336,6 +336,18 @@ fn probe_reply(host: &Host, config: &Config, access: &str) -> Value {
             "access": access,
         }
     })
+}
+
+/// Whether a teammate connection takes the filtered agent proxy instead of a raw
+/// splice: a grant without `shell`, and any login with a shared chat even with
+/// `shell` (a share never comes with a raw daemon connection; chat-multiplayer
+/// design section 2). The owner and full-access logins (no scopes) splice.
+pub(super) fn proxied(config: &Config, login: Option<&str>, scopes: Option<&[Scope]>) -> bool {
+    let Some(scopes) = scopes else { return false };
+    let shared = login.is_some_and(|login| {
+        config.shares.iter().any(|share| super::config::same_login(&share.login, login))
+    });
+    shared || !scopes.contains(&Scope::Shell)
 }
 
 pub(super) type DaemonStream = Box<dyn cmux_tui_core::platform::transport::Stream>;

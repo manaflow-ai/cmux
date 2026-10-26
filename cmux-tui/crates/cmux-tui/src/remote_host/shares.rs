@@ -28,7 +28,7 @@ pub(crate) struct Share {
 pub(super) fn run(verb: &str, args: &[String]) -> anyhow::Result<()> {
     let text = &crate::localization::catalog().host_share;
     let flags = Flags::parse(args, if verb == "share" { &["role"] } else { &[] }, &["json"])?;
-    let mut config = config::load()?;
+    let config = config::load()?;
     if verb == "shares" {
         if !flags.positional.is_empty() {
             return Err(super::usage(text.no_arguments));
@@ -39,29 +39,35 @@ pub(super) fn run(verb: &str, args: &[String]) -> anyhow::Result<()> {
     let [surface, login] = flags.positional.as_slice() else {
         return Err(super::usage(text.arguments));
     };
-    let surface: u64 = surface.parse()?;
+    let surface: u64 = surface.parse().map_err(|_| super::usage(text.surface))?;
     let login = login.trim().to_ascii_lowercase();
     let role = match flags.value("role").unwrap_or("member") {
         "member" => Role::Member,
         "guest" => Role::Guest,
         _ => return Err(super::usage(text.role)),
     };
-    // A full-access login (`cmux host allow`) is the owner's own trust, not a teammate.
-    if verb == "share" && config.allow.iter().any(|allowed| config::same_login(allowed, &login)) {
-        bail!("{}: {login}", text.full_access);
-    }
-    if verb == "share"
-        && !matches!(grant::check(&config, &login),
-        grant::Check::Granted(scopes) if scopes.contains(&grant::Scope::Agents))
+    shareable(verb, &config, &login)?;
+    // The surface names a chat of this daemon boot only: the boot is fixed before consent, and a
+    // restart while the prompt waits refuses the change (a reused number may be another chat).
+    let generation = if verb == "share" { generation(&config)? } else { String::new() };
+    if grant::require_interactive(std::io::stdin().is_terminal(), std::io::stderr().is_terminal())
+        .is_err()
     {
-        bail!("{}: {login}", text.grant);
+        bail!("{}", text.terminal);
     }
-    grant::require_interactive(std::io::stdin().is_terminal(), std::io::stderr().is_terminal())?;
     eprint!("{verb}: {surface}, {login}, {role:?}. {} ", text.confirm);
     let mut answer = String::new();
     std::io::stdin().read_line(&mut answer)?;
     if !grant::confirmed(&answer) {
         bail!("{}", text.not_approved);
+    }
+    // Applied to the config as it is now, under its lock: a grant revoked or a share changed
+    // while the prompt waited is kept, and only this one share changes.
+    let _lock = config::lock()?;
+    let mut config = config::load()?;
+    shareable(verb, &config, &login)?;
+    if verb == "share" && self::generation(&config)? != generation {
+        bail!("{}", text.restarted);
     }
     config.shares.retain(|s| s.surface != surface || !config::same_login(&s.login, &login));
     if verb == "share" {
@@ -70,7 +76,7 @@ pub(super) fn run(verb: &str, args: &[String]) -> anyhow::Result<()> {
             login: login.clone(),
             role,
             shared_at: grant::now_rfc3339(),
-            generation: generation(&config)?,
+            generation,
         });
     }
     config::save(&config)?;
@@ -80,6 +86,24 @@ pub(super) fn run(verb: &str, args: &[String]) -> anyhow::Result<()> {
         service::restart(&super::self_exe()?, service::installed())?;
     }
     println!("{}", json!({"shares": config.shares}));
+    Ok(())
+}
+
+/// Whether `login` may get a share now: a consented `agents` grant, and not a full-access
+/// login (`cmux host allow` is the owner's own trust, not a teammate). Unsharing is always allowed.
+fn shareable(verb: &str, config: &config::Config, login: &str) -> anyhow::Result<()> {
+    let text = &crate::localization::catalog().host_share;
+    if verb != "share" {
+        return Ok(());
+    }
+    if config.allow.iter().any(|allowed| config::same_login(allowed, login)) {
+        bail!("{}: {login}", text.full_access);
+    }
+    if !matches!(grant::check(config, login),
+        grant::Check::Granted(scopes) if scopes.contains(&grant::Scope::Agents))
+    {
+        bail!("{}: {login}", text.grant);
+    }
     Ok(())
 }
 

@@ -344,3 +344,21 @@ fn a_shared_login_on_the_full_access_list_still_goes_through_its_grant() {
     config.grants.clear();
     assert!(matches!(decide_for(&config, PEER, person(LAWRENCE)), Decision::Refused(_)));
 }
+
+#[test]
+fn a_shared_login_takes_the_proxy_even_with_shell() {
+    use super::serve::proxied;
+    let mut config = leo_host(consented(LAWRENCE, &[Scope::Agents, Scope::Shell]));
+    let shell = [Scope::Agents, Scope::Shell];
+    assert!(!proxied(&config, Some(LAWRENCE), Some(&shell)), "no share: the full shell grant");
+    assert!(proxied(&config, Some(LAWRENCE), Some(&[Scope::Agents])));
+    assert!(!proxied(&config, Some(LEO), None), "the owner splices");
+    config.shares = vec![super::shares::Share {
+        surface: 7,
+        login: LAWRENCE.to_owned(),
+        role: super::shares::Role::Guest,
+        shared_at: "2026-10-26T09:00:00Z".to_owned(),
+        generation: "g1".to_owned(),
+    }];
+    assert!(proxied(&config, Some(LAWRENCE), Some(&shell)), "a shared guest never splices");
+}

@@ -9,6 +9,9 @@ pub(crate) struct Messages {
     pub not_approved: &'static str,
     pub agents: &'static str,
     pub full_access: &'static str,
+    pub surface: &'static str,
+    pub terminal: &'static str,
+    pub restarted: &'static str,
 }
 
 pub(crate) const ENGLISH: Messages = Messages {
@@ -20,6 +23,9 @@ pub(crate) const ENGLISH: Messages = Messages {
     not_approved: "not approved; nothing changed",
     agents: "participate in agent chats shared with you",
     full_access: "this login has full access (cmux host allow); remove it with cmux host deny before sharing one chat",
+    surface: "the surface must be a number (cmux list-workspaces shows it)",
+    terminal: "a share must be confirmed by a person at a terminal on this machine",
+    restarted: "the session daemon restarted while you confirmed; the surface may be another chat now, so nothing changed",
 };
 pub(crate) const JAPANESE: Messages = Messages {
     no_arguments: "位置引数は指定できません",
@@ -30,4 +36,7 @@ pub(crate) const JAPANESE: Messages = Messages {
     not_approved: "承認されませんでした。変更はありません",
     agents: "自分と共有されたエージェントチャットに参加する",
     full_access: "このログインにはフルアクセスがあります (cmux host allow)。チャットを共有する前に cmux host deny で削除してください",
+    surface: "サーフェスは数値で指定してください (cmux list-workspaces で確認できます)",
+    terminal: "共有は、このマシンの端末で本人が確認する必要があります",
+    restarted: "確認中にセッションデーモンが再起動しました。サーフェスが別のチャットを指している可能性があるため、変更していません",
 };

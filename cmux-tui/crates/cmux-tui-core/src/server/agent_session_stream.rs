@@ -74,8 +74,12 @@ pub(super) fn connect_and_attach(
     // watchers; the reader keeps only this session's and its descendants'.
     // The answer (every session's summary) never reaches the client: only
     // the descendants it names are followed from now on.
-    let watched = link.call("_acpmux/watch", json!({"enabled": true}), CALL_TIMEOUT);
     let author = proxy::author(&mux, client);
+    let mut watch = json!({"enabled": true});
+    if let Some(author) = &author {
+        watch["_meta"]["acpmux"]["author"] = author.clone();
+    }
+    let watched = link.call("_acpmux/watch", watch, CALL_TIMEOUT);
     let page = if author.is_some() { without_drafts(page) } else { page };
     let attachment = Arc::new(Attachment {
         author,

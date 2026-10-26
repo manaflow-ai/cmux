@@ -81,7 +81,10 @@ mod tests {
         assert_code(&client.request(attach.clone()), "agent_session.not_trusted");
         attach["_host_author"] = author.clone();
         assert_eq!(client.request(attach)["ok"], true);
-        assert_eq!(fake.frame()["params"]["_meta"]["acpmux"]["author"], author);
+        // Every acpmux call carries the author: the attach and the session watch.
+        for _ in 0..2 {
+            assert_eq!(fake.raw_frame()["params"]["_meta"]["acpmux"]["author"], author);
+        }
         let prompt = json!({"cmd":"agent-session-prompt", "surface":surface,
             "prompt_id":"p1", "text":"hello", "_host_author":author});
         assert_eq!(client.request(prompt)["ok"], true);
@@ -93,5 +96,47 @@ mod tests {
             "agent_session.not_trusted",
         );
         fake.no_frame();
+    }
+
+    /// A bound (teammate) attachment gets no draft records live, lists no
+    /// descendants, and hears no other session's changes; WebSocket clients
+    /// cannot bind.
+    #[test]
+    fn a_teammate_attachment_never_sees_drafts_or_descendants() {
+        use crate::server::agent_session_attach_tests::WAIT;
+        let mut fake = FakeAcpmux::start("proxy-private");
+        let mux = mux_with(&fake, "proxy-private");
+        let surface = agent_tab(&mux, Some(SESSION));
+        let mut client = Client::connect(&mux, "proxy-private");
+        let author = json!({"id":"tailnet:person@example.com", "name":"person@example.com",
+            "login":"person@example.com", "node":"laptop"});
+        assert_eq!(
+            client.request(json!({"cmd":"agent-session-proxy-bind", "author":author}))["ok"],
+            true
+        );
+        let attach = json!({"cmd":"agent-session-attach", "surface":surface, "_host_author":author});
+        assert_eq!(client.request(attach)["ok"], true);
+        let record = |seq: u64, kind: &str| {
+            json!({"sessionId": SESSION, "seq": seq, "at": 1, "dir": "mux", "kind": kind, "msg": {}})
+        };
+        fake.notify("_acpmux/event", record(2, "composer"));
+        fake.notify("_acpmux/session_changed", json!({"sessionId": "acp_child", "parentId": SESSION}));
+        fake.notify("_acpmux/event", record(3, "user_message"));
+        let event = client.named_event("agent-session-record", WAIT).expect("the prompt record");
+        assert_eq!(event["record"]["kind"], "user_message", "the draft never arrives");
+        assert!(client.named_event("agent-session-changed", Duration::from_millis(300)).is_none());
+        let children = json!({"cmd":"agent-session-children", "surface":surface, "_host_author":author});
+        assert_code(&client.request(children), "agent_session.not_trusted");
+
+        let outbound = Arc::new(BoundedOutbound::default());
+        let writer = MessageWriter::new(QueuedSink { outbound: outbound.clone(), control: None });
+        let websocket = mux.control_clients.register(ClientTransport::WebSocket, writer.clone());
+        let bind = json!({"id":1, "cmd":"agent-session-proxy-bind", "author":author});
+        assert_eq!(
+            super::super::try_handle(&mux, websocket, &bind.to_string(), &writer),
+            Some(true)
+        );
+        let reply: Value = serde_json::from_str(&outbound.try_pop().unwrap()).unwrap();
+        assert_code(&reply, "agent_session.not_trusted");
     }
 }

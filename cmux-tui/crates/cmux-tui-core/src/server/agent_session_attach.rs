@@ -871,6 +871,8 @@ fn call(attachment: &Attachment, command: AgentSessionCommand) -> Result<Value, 
             }
             answered.map_err(Refusal::of)
         }
+        // A shared chat covers that chat only: a teammate lists no descendants.
+        AgentSessionCommand::Children(_) if attachment.author.is_some() => Err(Refusal::NotTrusted),
         AgentSessionCommand::Children(_) => agent_session_children::list(attachment),
         AgentSessionCommand::Media(MediaParams { path, .. }) => media(attachment, path),
         AgentSessionCommand::Cancel(_) | AgentSessionCommand::Detach(_) => Ok(json!({})),
