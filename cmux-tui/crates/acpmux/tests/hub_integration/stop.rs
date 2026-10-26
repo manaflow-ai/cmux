@@ -200,22 +200,55 @@ async fn a_cancel_is_answered_within_the_budget_while_the_agent_ignores_it() {
     assert!(took < STOP_BUDGET, "the cancel was answered {took:?} after it was sent");
 }
 
-/// What happened to session `id` after its `_acpmux/kill` (`acpmux session stop`) answered:
-/// its status a moment later, as `acpmux ls` reads it, and every status record and lifecycle
-/// event from the stop on.
-async fn after_a_stop(hub: &Arc<Hub>, c: &mut TestClient, id: &str) -> (Value, Vec<String>) {
+/// Stops session `id` (`_acpmux/kill`, what `acpmux session stop` sends), then waits for its
+/// answer and the answer to each prompt in `prompts`: those answers come after their turns' last status writes
+/// (`finish_turn`), so nothing the stopped turns still do is left to land. Returns the status
+/// `acpmux ls` reads then, and every status record and lifecycle event from the stop on.
+async fn after_a_stop(
+    hub: &Arc<Hub>,
+    c: &mut TestClient,
+    id: &str,
+    prompts: &[i64],
+) -> (Value, Vec<String>) {
     let before = hub.events(id, 0, 10_000).unwrap().last().map(|e| e.seq).unwrap_or(0);
-    c.request(method::MUX_KILL, json!({"sessionId": id, "purge": false})).await.unwrap();
-    // Whatever the stopped turn still does (its end, the queue behind it) settles here.
-    tokio::time::sleep(Duration::from_millis(1500)).await;
+    // Sent, not awaited: a request drops what comes before its answer, and a stopped prompt
+    // can be answered first.
+    let stop = c.send(method::MUX_KILL, json!({"sessionId": id, "purge": false})).await;
+    if let Err(left) = answers(c, &[prompts, &[stop]].concat()).await {
+        let later = mux_events_after(hub, id, before);
+        panic!("no answer to the stopped prompts {left:?}: {later:?}");
+    }
+    (listed_status(c, id).await, mux_events_after(hub, id, before))
+}
+
+/// Waits for the answer to each request in `ids`, in whatever order they come; `Err` names
+/// those with no answer after 20 s.
+async fn answers(c: &mut TestClient, ids: &[i64]) -> Result<(), Vec<Value>> {
+    let mut left: Vec<Value> = ids.iter().map(|id| json!(id)).collect();
+    while !left.is_empty() {
+        let Ok(line) = tokio::time::timeout(Duration::from_secs(20), c.rx.recv()).await else {
+            return Err(left);
+        };
+        if let Message::Response { id, .. } = Message::parse(&line.expect("connection closed")).unwrap() {
+            left.retain(|l| *l != id);
+        }
+    }
+    Ok(())
+}
+
+/// Session `id`'s status in `_acpmux/sessions` (`acpmux ls`).
+async fn listed_status(c: &mut TestClient, id: &str) -> Value {
     let listed = c.request(method::MUX_SESSIONS, json!({})).await.unwrap();
-    let row = listed["sessions"]
+    listed["sessions"]
         .as_array()
         .and_then(|rows| rows.iter().find(|r| r["sessionId"] == id))
-        .cloned()
-        .unwrap_or(Value::Null);
-    let later = hub
-        .events(id, before, 10_000)
+        .map(|row| row["status"].clone())
+        .unwrap_or(Value::Null)
+}
+
+/// Session `id`'s mux events after `seq`, a status record as "status <status>".
+fn mux_events_after(hub: &Arc<Hub>, id: &str, seq: u64) -> Vec<String> {
+    hub.events(id, seq, 10_000)
         .unwrap()
         .into_iter()
         .filter(|e| e.dir == "mux")
@@ -223,8 +256,7 @@ async fn after_a_stop(hub: &Arc<Hub>, c: &mut TestClient, id: &str) -> (Value, V
             Some(status) => format!("{} {status}", e.kind),
             None => e.kind,
         })
-        .collect();
-    (row["status"].clone(), later)
+        .collect()
 }
 
 // ergo-walk2 (2026-10-25): "session stop says closed but acpmux ls still shows it ready".
@@ -236,9 +268,9 @@ async fn after_a_stop(hub: &Arc<Hub>, c: &mut TestClient, id: &str) -> (Value, V
 async fn a_session_stopped_while_it_asks_stays_closed() {
     let (hub, mut c) = setup(PermissionPolicy::Ask).await;
     let id = new_session(&mut c, "stop-asking").await;
-    c.send(method::SESSION_PROMPT, prompt(&id, "ask: run a tool", None)).await;
+    let turn = c.send(method::SESSION_PROMPT, prompt(&id, "ask: run a tool", None)).await;
     c.wait_for(method::MUX_PERMISSION_PENDING, |_| true).await;
-    let (status, later) = after_a_stop(&hub, &mut c, &id).await;
+    let (status, later) = after_a_stop(&hub, &mut c, &id, &[turn]).await;
     assert_eq!(status, "closed", "{later:?}");
 }
 
@@ -247,25 +279,61 @@ async fn a_session_stopped_while_it_asks_stays_closed() {
 async fn a_session_stopped_mid_turn_stays_closed() {
     let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
     let id = new_session(&mut c, "stop-running").await;
-    c.send(method::SESSION_PROMPT, prompt(&id, "until-cancel", None)).await;
+    let turn = c.send(method::SESSION_PROMPT, prompt(&id, "until-cancel", None)).await;
     c.wait_for(method::SESSION_UPDATE, |p| p["update"]["sessionUpdate"] == "agent_message_chunk")
         .await;
-    let (status, later) = after_a_stop(&hub, &mut c, &id).await;
+    let (status, later) = after_a_stop(&hub, &mut c, &id, &[turn]).await;
     assert_eq!(status, "closed", "{later:?}");
 }
 
-/// Stopped with a prompt queued behind the running turn: the queued prompt does not start it
-/// again.
+/// Stopped with a prompt queued behind the running turn: the queued prompt is withdrawn, and
+/// does not start it again.
 #[tokio::test]
 async fn a_session_stopped_with_a_queued_prompt_stays_closed() {
     let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
     let id = new_session(&mut c, "stop-queued").await;
-    c.send(method::SESSION_PROMPT, prompt(&id, "until-cancel", None)).await;
+    let turn = c.send(method::SESSION_PROMPT, prompt(&id, "until-cancel", None)).await;
     c.wait_for(method::SESSION_UPDATE, |p| p["update"]["sessionUpdate"] == "agent_message_chunk")
         .await;
-    c.send(method::SESSION_PROMPT, prompt(&id, "queued", Some("p-queued"))).await;
+    let queued = c.send(method::SESSION_PROMPT, prompt(&id, "queued", Some("p-queued"))).await;
     c.wait_for(method::MUX_PROMPT_ACCEPTED, |p| p["promptId"] == "p-queued" && p["queued"] == true)
         .await;
-    let (status, later) = after_a_stop(&hub, &mut c, &id).await;
+    let (status, later) = after_a_stop(&hub, &mut c, &id, &[turn, queued]).await;
     assert_eq!(status, "closed", "{later:?}");
+    assert!(later.iter().any(|e| e == "queue_removed"), "{later:?}");
+}
+
+/// Stopped while a prompt starts its agent again (the agent takes 1.5 s to answer
+/// `initialize`): the start ends, and the session stays closed.
+#[tokio::test]
+async fn a_session_stopped_while_its_agent_starts_stays_closed() {
+    let env = BTreeMap::from([("FAKE_INIT_DELAY_MS".to_owned(), "1500".to_owned())]);
+    let (hub, mut c) = setup_env(PermissionPolicy::ApproveAll, env).await;
+    let id = new_session(&mut c, "stop-starting").await;
+    c.request(method::MUX_KILL, json!({"sessionId": id, "purge": false})).await.unwrap();
+    let turn = c.send(method::SESSION_PROMPT, prompt(&id, "hello", None)).await;
+    c.wait_for(method::MUX_EVENT, |p| p["kind"] == "reopened").await;
+    let (status, later) = after_a_stop(&hub, &mut c, &id, &[turn]).await;
+    assert_eq!(status, "closed", "{later:?}");
+}
+
+/// The agent asks for a secret just after the stop cancelled the session's cards: the late
+/// card is cancelled at once, and does not set the session waiting.
+#[tokio::test]
+async fn a_secret_asked_after_the_stop_is_cancelled_and_the_session_stays_closed() {
+    let (hub, mut c) = setup(PermissionPolicy::Ask).await;
+    let id = new_session(&mut c, "stop-secret").await;
+    c.request(method::MUX_KILL, json!({"sessionId": id, "purge": false})).await.unwrap();
+    let before = hub.events(&id, 0, 10_000).unwrap().last().map(|e| e.seq).unwrap_or(0);
+    let session = hub.resolve(&id).unwrap();
+    let asked = tokio::time::timeout(
+        Duration::from_secs(5),
+        hub.request_secret(&session, "API_KEY", "a late ask"),
+    )
+    .await
+    .expect("the card asked after the stop waited for an answer");
+    assert_eq!(asked.unwrap()["outcome"], "cancelled");
+    let later = mux_events_after(&hub, &id, before);
+    assert_eq!(listed_status(&mut c, &id).await, "closed", "{later:?}");
+    assert!(!later.iter().any(|e| e == "secret_request"), "{later:?}");
 }
