@@ -23,19 +23,25 @@ each in two phases:
 Per surface and phase: key-to-frame p50/p95/p99/max, the probe's hop split (send to dispatch, dispatch, dispatch to
 frame), main-thread hangs over 8 ms (`debug.hangs`), and with --sample a `/usr/bin/sample` of the app during the
 load phase's keys (the main thread's heaviest frames). The display's refresh rate is in the report (judge drops in
-frames). Exit 1 with --gate-p95-ms when any measured surface's p95 is over it.
+frames). Exit 1 with --gate-p95-ms when any measured surface's p95 is over it. Percentiles come from
+scripts/perf-lab/perf_stats.py (typing_report.distribution). Each session's key-to-frame samples, all rounds of a
+surface and phase together, are also one cmux-perf-result/v1 file per series in --out (BenchApp.record): story
+--story (default `typing`, `typing-stress` for STRESS), metric `terminal.key_to_frame` for the terminal at idle
+(the key-frame target) and `<surface>.<phase>.key_to_frame` for the others.
 
   typing-frame-bench.py --app APP --tag TAG --out DIR [--json FILE] [--surfaces terminal,home,dock,omnibar]
       [--engine chromium|webkit]
-      [--phases idle,load] [--samples 80] [--busy 20] [--chats 2] [--sample] [--gate-p95-ms 8]
+      [--phases idle,load] [--samples 80] [--busy 20] [--chats 2] [--sample] [--gate-p95-ms 8] [--story ID]
 
 Fleet (an owned mini with a console; the step builds the app):
   cmux-ci run --class exclusive --measurement --label measure --script scripts/measure/split-spring.sh --ref SHA \\
     --artifact artifacts/split-spring/report.json --arg=--suite=typing-frame [--arg=--stress] [--arg=--sample] \\
     [--arg=--gate-p95-ms=8]
 """
-import argparse, csv, glob, json, os, re, socket, statistics, subprocess, sys, tempfile, threading, time
+import argparse, csv, glob, json, os, re, socket, subprocess, sys, tempfile, threading, time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import bench_tagged  # noqa: E402
+import typing_report  # noqa: E402
 from bench_launch import BenchApp, LaunchError  # noqa: E402
 
 parser = argparse.ArgumentParser()
@@ -59,6 +65,7 @@ parser.add_argument("--sessions", help="comma list of light,stress: one app laun
 parser.add_argument("--rounds", type=int, default=3, help="every phase this many times per launch (the noise shows)")
 parser.add_argument("--sample", action="store_true", help="/usr/bin/sample the app over each load phase")
 parser.add_argument("--gate-p95-ms", type=float)
+parser.add_argument("--story", help="result-v1 story of a one-session run (default typing, or typing-stress for STRESS)")
 opts = parser.parse_args()
 OUT = os.path.abspath(opts.out)
 os.makedirs(OUT, exist_ok=True)
@@ -74,6 +81,7 @@ results = {"tag": TAG, "host": os.uname().nodename, "opts": vars(opts), "log": [
 app = None
 SESSION = "light"
 ROUND = 0
+SAMPLES = {}  # this session's key-to-frame samples per result-v1 metric, every round together
 
 
 def note(text):
@@ -130,13 +138,7 @@ def wait(predicate, seconds, step=0.25):
     return None
 
 
-def pct(values):
-    if not values:
-        return None
-    s = sorted(values)
-    pick = lambda p: s[min(len(s) - 1, int(round((len(s) - 1) * p)))]
-    return {"n": len(s), "p50": round(pick(0.5), 2), "p95": round(pick(0.95), 2), "p99": round(pick(0.99), 2),
-            "max": round(s[-1], 2), "mean": round(statistics.fmean(s), 2)}
+dist = typing_report.distribution
 
 
 def probe_rows():
@@ -375,19 +377,20 @@ def measure(surface, phase, params, column, pid, streams=()):
              "output_received_ms", "output_parsed_ms", "contents_ms", "commit_ms"]
     hangs = rpc("debug.hangs", {"limit": 12}, timeout=20)
     f = lambda key: [float(r[key]) for r in rows if r.get(key)]
+    SAMPLES.setdefault(typing_report.frame_metric(surface, phase), []).extend(f(column))
     entry = {
         "session": SESSION, "surface": surface, "phase": phase, "keys": len(trips), "measured": len(rows),
-        "key_to_frame_ms": pct(f(column)), "column": column,
-        "send_to_dispatch_ms": pct(f("dispatch_start_ms")),
-        "dispatch_ms": pct([float(r["dispatch_end_ms"]) - float(r["dispatch_start_ms"]) for r in rows
+        "key_to_frame_ms": dist(f(column)), "column": column,
+        "send_to_dispatch_ms": dist(f("dispatch_start_ms")),
+        "dispatch_ms": dist([float(r["dispatch_end_ms"]) - float(r["dispatch_start_ms"]) for r in rows
                             if r.get("dispatch_end_ms") and r.get("dispatch_start_ms")]),
-        "dispatch_to_frame_ms": pct([float(r[column]) - float(r["dispatch_end_ms"]) for r in rows if r.get("dispatch_end_ms")]),
-        "key_rpc_ms": pct(trips),
+        "dispatch_to_frame_ms": dist([float(r[column]) - float(r["dispatch_end_ms"]) for r in rows if r.get("dispatch_end_ms")]),
+        "key_rpc_ms": dist(trips),
         "hangs": {k: hangs.get(k) for k in ("count", "max_ms", "total_ms", "frames_over_8_3ms", "max_gap_ms")}
         if isinstance(hangs, dict) else hangs,
         "hang_records": (hangs or {}).get("records") if isinstance(hangs, dict) else None,
         "frames": frames, "streams": [s.calls for s in streams], "round": ROUND, "focus": LOAD.get("focus"),
-        "view_churn": churn, "control_publishes": {"count": len(publishes), "ms": pct(publishes),
+        "view_churn": churn, "control_publishes": {"count": len(publishes), "ms": dist(publishes),
                                                    "total_ms": round(sum(publishes), 1)},
         "probe_rows": {"all": len(every), "complete": sum(r.get("complete") == "1" for r in every),
                        "marks": {m: sum(bool(r.get(m)) for r in every) for m in marks}},
@@ -526,14 +529,15 @@ def run_session(session):
     surface and phase in it, --rounds times."""
     global app, SESSION, SOCKET, CONFIG
     SESSION = session
+    SAMPLES.clear()
     LOAD.clear()
     LOAD.update({"made": False, "workspaces": [], "chat_panes": []})
     bench = BenchApp(APP, out=OUT, config={"browser": {"defaultEngine": "chromium"}}, window=WINDOW,
-                     log_name=f"app-{session}.log",
+                     log_name=f"app-{session}.log", perf_session=session,
                      env={"CMUX_NEXT_TYPING_PROBE": PROBE, "CMUX_NEXT_HANG_THRESHOLD_MS": "8"})
     try:
         try:
-            bench.launch(timeout=180, settle=5.0)
+            bench.launch(timeout=180)
         except LaunchError as error:
             note(f"{session}: the app did not come up: {error.reason}")
             results.setdefault("launch_failures", []).append({"session": session, "reason": error.reason,
@@ -556,12 +560,18 @@ def run_session(session):
                         note(f"{session} {surface}.{phase}: failed: {error!r}")
     finally:
         bench.stop()
+        story = opts.story or typing_report.session_story(typing_report.TYPING_STORY, session)
+        engine = typing_report.frame_engine(opts.surfaces.split(","), opts.engine)
+        results.setdefault("recorded", {})[session] = bench_tagged.record_series(bench, story, dict(SAMPLES),
+                                                                                 engine=engine, log=note)
 
 
 def main():
     results["refresh_hz"] = refresh_hz()
     results["macos"] = subprocess.run(["sw_vers", "-productVersion"], capture_output=True, text=True).stdout.strip()
     sessions = opts.sessions.split(",") if opts.sessions else (["stress"] if opts.stress else ["light"])
+    if opts.story and len(sessions) > 1:
+        parser.error("--story names the story of one session: run one session per --story")
     try:
         for session in sessions:
             run_session(session)

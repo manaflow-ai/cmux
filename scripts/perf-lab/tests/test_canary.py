@@ -222,14 +222,13 @@ HOSTS = [scheduler.Host("cmux15", "waterfall", "m6", "apple-m6/16gb/120hz", shar
 
 
 class KeyFrameStoryTests(unittest.TestCase):
-    def test_the_catalog_on_this_branch_has_no_key_frame_t0_story_and_is_refused(self):
-        """Today T0 holds only launch-warm, which sends no key-down: no run could ever alert."""
+    def test_the_catalog_on_this_branch_has_the_terminal_key_frame_t0_story(self):
+        """p12-perf-process-050 put terminal key->frame light in T0 (typing-terminal), so the 2 ms key-down spin
+        moves a T0 series."""
         catalog = _load("perf_lab_catalog", LAB / "catalog.py")
-        with self.assertRaises(canary.CanaryError) as raised:
-            canary.key_frame_stories(catalog.load_catalog(ROOT).stories,
-                                     scheduler.ShardMap.load(LAB / "shard_map.json"))
-        self.assertIn("launch-warm", str(raised.exception))
-        self.assertIn("p12-perf-process-050", str(raised.exception))
+        found = canary.key_frame_stories(catalog.load_catalog(ROOT).stories,
+                                         scheduler.ShardMap.load(LAB / "shard_map.json"))
+        self.assertIn("typing-terminal", found)
 
     def test_only_sharded_t0_stories_with_a_key_to_frame_metric_count(self):
         stories = [_story("terminal-key", "T0", r"terminal\.light\.key_to_frame"),
@@ -248,7 +247,8 @@ class KeyFrameStoryTests(unittest.TestCase):
             err = io.StringIO()
             with contextlib.redirect_stderr(err):
                 self.assertEqual(canary.run("canary", args, out=io.StringIO()), 2)
-            self.assertIn("no T0 story measures key-to-frame", err.getvalue())
+            # The catalog has a T0 key-to-frame story, so the refusal is the missing labd of the empty data dir.
+            self.assertIn("labd does not run on", err.getvalue())
             self.assertEqual(list(Path(temp).iterdir()), [])
 
 

@@ -1,8 +1,9 @@
 {
   "id": "omnibar",
   "tier": "T1",
-  "description": "Omnibar typing, WebKit arm (F12): one key at a time into the omnibar of a WebKit tab, key to the commit of the edit, idle and under load (the omnibar surface of typing-frame-bench.py). The Chromium arm is the omnibar surface of the typing story (task 050).",
-  "command": ["scripts/cmux-next/typing-frame-bench.py", "--surfaces", "omnibar", "--engine", "webkit", "--phases", "idle,load"],
+  "description": "Omnibar typing, WebKit arm (F12): one key at a time into the omnibar of a WebKit tab, key to the commit of the edit, idle and under load (the omnibar surface of typing-frame-bench.py). The Chromium arm is the omnibar surface of the typing story (typing.json, task 050).",
+  "command": ["scripts/cmux-next/typing-frame-bench.py", "--story", "omnibar", "--sessions", "light", "--surfaces", "omnibar",
+              "--engine", "webkit", "--phases", "idle,load"],
   "session": "light",
   "engine": "webkit",
   "config": "bench",

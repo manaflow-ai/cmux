@@ -5,8 +5,8 @@
         {
           "index": 0,
           "seconds": {
-            "T1": 12000,
-            "T2": 18960
+            "T1": 13500,
+            "T2": 19800
           },
           "stories": {
             "T1": [
@@ -26,7 +26,9 @@
               "perf-gate",
               "sidebar",
               "switch",
-              "tab-switch"
+              "tab-switch",
+              "typing",
+              "typing-stress"
             ],
             "T2": [
               "action-sweep-light-1",
@@ -45,8 +47,11 @@
               "action-sweep-stress-6",
               "action-sweep-stress-7",
               "action-sweep-stress-8",
+              "automation-typing",
               "launch-after-reboot",
-              "new-surfaces-stress"
+              "new-surfaces-stress",
+              "sidebar-churn-typing",
+              "typing-flood-stress"
             ]
           }
         }
@@ -61,7 +66,7 @@
         {
           "index": 0,
           "seconds": {
-            "T2": 18960
+            "T2": 19800
           },
           "stories": {
             "T2": [
@@ -81,8 +86,11 @@
               "action-sweep-stress-6",
               "action-sweep-stress-7",
               "action-sweep-stress-8",
+              "automation-typing",
               "launch-after-reboot",
-              "new-surfaces-stress"
+              "new-surfaces-stress",
+              "sidebar-churn-typing",
+              "typing-flood-stress"
             ]
           }
         }
@@ -97,7 +105,7 @@
           "index": 0,
           "seconds": {
             "T0": 330,
-            "T1": 6000
+            "T1": 6780
           },
           "stories": {
             "T0": [
@@ -106,35 +114,38 @@
             "T1": [
               "blocking-hangs",
               "daemon-ops",
-              "launch-cold",
-              "launch-cold-realistic",
+              "launch-warm-realistic",
+              "memory-hidden",
               "motion",
-              "new-surfaces-matrix",
-              "omnibar",
               "pane-stress",
-              "switch"
+              "switch",
+              "tab-switch",
+              "typing"
             ]
           }
         },
         {
           "index": 1,
           "seconds": {
-            "T0": 120,
-            "T1": 6000
+            "T0": 150,
+            "T1": 6720
           },
           "stories": {
             "T0": [
-              "launch-warm"
+              "launch-warm",
+              "typing-terminal"
             ],
             "T1": [
               "chat-anim",
               "home-idle",
-              "launch-warm-realistic",
-              "memory-hidden",
+              "launch-cold",
+              "launch-cold-realistic",
               "memory-hidden-webkit",
+              "new-surfaces-matrix",
+              "omnibar",
               "perf-gate",
               "sidebar",
-              "tab-switch"
+              "typing-stress"
             ]
           }
         }
