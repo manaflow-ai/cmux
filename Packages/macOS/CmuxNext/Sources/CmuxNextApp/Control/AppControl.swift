@@ -116,7 +116,7 @@ final class AppControl {
         router.register(ErrorJournalControl(journal: errors.journal, sources: errors.sources).methods)
     }
 
-    /// Resources, extensions, Ghostty diagnostics and `debug.memory` (release builds too).
+    /// Resources, extensions, Ghostty diagnostics, `energy.status` and `debug.memory` (release builds too).
     func registerResourceMethods(_ services: AppServices, on router: ControlRouter) {
         router.register([
             // CPU and memory per tab and workspace, two samples `interval_ms` apart.
@@ -131,6 +131,8 @@ final class AppControl {
             },
             // Ghostty config keys and keybind actions cmux does not apply (R92).
             GhosttyDiagnosticsControl().method,
+            // Energy Saver's policy and inputs (`cmux energy status`, MCP `energy_status`).
+            EnergyReport.statusMethod(services: services),
         ])
         router.register(DebugHibernationControl.methods(services)) // debug.memory serves release builds too
     }

@@ -6,7 +6,9 @@
 //! `energy.saver` setting, and sends `energy.set` on each edge, after the
 //! turn that changed it. That is an override of the daemon's own reading
 //! (p14-energy-137 reads the power source, so the daemon follows AC and
-//! battery after the app quits); `saver: null` clears it. Chrome splits the
+//! battery after the app quits); `saver: null` clears it, and so does the
+//! end of the control connection that set it, so a quit or crashed app (or
+//! one whose link dropped) leaves no override behind. Chrome splits the
 //! same way: `BatterySaverModeManager` owns the state and each child process
 //! gets one `SetBatterySaverMode` call per edge
 //! (chrome/browser/performance_manager/public/user_tuning/battery_saver_mode_manager.h,
@@ -18,7 +20,7 @@
 //! connection's reader thread.
 
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU8, Ordering};
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
@@ -97,25 +99,36 @@ pub struct EnergyStatus {
     pub reading: bool,
 }
 
-// The inputs, packed so one atomic holds them: a reader never sees an
-// override with another override's reason.
+// The inputs and the override's setter, packed so one atomic holds them: a
+// reader never sees an override with another override's reason, and a
+// departing client clears only the override it set. The low byte holds the
+// inputs; the bits above it hold the setter's control client id (its low 56
+// bits: ids count up by one per connection and never reach 2^56).
 const READING: u8 = 0b1;
 const OVERRIDE_SHIFT: u8 = 1;
 const OVERRIDE_MASK: u8 = 0b11 << OVERRIDE_SHIFT;
 const OVERRIDE_OFF: u8 = 1;
 const OVERRIDE_ON: u8 = 2;
 const REASON_SHIFT: u8 = 3;
+const INPUTS: u64 = 0xff;
+const SETTER_SHIFT: u32 = 8;
 
-/// The daemon's Energy Saver: its own reading, the app's override, and the
-/// [`EnergyMode`] they resolve to. One per [`Mux`].
+/// `client` in the setter bits.
+fn setter(client: u64) -> u64 {
+    client << SETTER_SHIFT
+}
+
+/// The daemon's Energy Saver: its own reading, the app's override with the
+/// control client that set it, and the [`EnergyMode`] they resolve to. One
+/// per [`Mux`].
 pub struct DaemonEnergy {
     mode: Arc<EnergyMode>,
-    inputs: AtomicU8,
+    state: AtomicU64,
 }
 
 impl Default for DaemonEnergy {
     fn default() -> Self {
-        Self { mode: EnergyMode::new(false), inputs: AtomicU8::new(0) }
+        Self { mode: EnergyMode::new(false), state: AtomicU64::new(0) }
     }
 }
 
@@ -126,30 +139,48 @@ impl DaemonEnergy {
         &self.mode
     }
 
-    /// Sets the app's override (`None` clears it). Returns whether the mode
+    /// Sets the override of control client `client` (`None` clears it,
+    /// whoever set it). It holds until it is cleared or replaced, or until
+    /// `client` leaves ([`Self::client_left`]). Returns whether the mode
     /// changed.
-    pub fn set_override(&self, saver: Option<bool>, reason: Option<SaverReason>) -> bool {
+    pub fn set_override(
+        &self,
+        client: u64,
+        saver: Option<bool>,
+        reason: Option<SaverReason>,
+    ) -> bool {
         let packed = match saver {
             None => 0,
-            Some(false) => OVERRIDE_OFF << OVERRIDE_SHIFT,
+            Some(false) => setter(client) | u64::from(OVERRIDE_OFF << OVERRIDE_SHIFT),
             Some(true) => {
-                (OVERRIDE_ON << OVERRIDE_SHIFT)
-                    | (reason.map_or(0, SaverReason::code) << REASON_SHIFT)
+                setter(client)
+                    | u64::from(OVERRIDE_ON << OVERRIDE_SHIFT)
+                    | u64::from(reason.map_or(0, SaverReason::code) << REASON_SHIFT)
             }
         };
-        self.store(|inputs| (inputs & READING) | packed)
+        self.store(|state| Some((state & u64::from(READING)) | packed))
+    }
+
+    /// Control client `client` left: the override it set goes with it, so
+    /// the daemon follows its own reading again. Another client's override
+    /// stays. Returns whether the mode changed.
+    pub fn client_left(&self, client: u64) -> bool {
+        self.store(|state| {
+            let holds = state & u64::from(OVERRIDE_MASK) != 0;
+            (holds && state & !INPUTS == setter(client)).then_some(state & u64::from(READING))
+        })
     }
 
     /// Sets the daemon's own reading (p14-energy-137). Returns whether the
     /// mode changed.
     #[cfg_attr(not(test), expect(dead_code, reason = "written by p14-energy-137"))]
     pub(crate) fn set_reading(&self, saver: bool) -> bool {
-        self.store(|inputs| (inputs & !READING) | u8::from(saver))
+        self.store(|state| Some((state & !u64::from(READING)) | u64::from(saver)))
     }
 
     /// The mode, its source and both inputs now.
     pub fn status(&self) -> EnergyStatus {
-        let inputs = self.inputs.load(Ordering::Acquire);
+        let inputs = (self.state.load(Ordering::Acquire) & INPUTS) as u8;
         let app_override = match (inputs & OVERRIDE_MASK) >> OVERRIDE_SHIFT {
             OVERRIDE_OFF => Some(false),
             OVERRIDE_ON => Some(true),
@@ -167,15 +198,15 @@ impl DaemonEnergy {
         }
     }
 
-    /// Stores `change(inputs)` and flips the mode to what the inputs resolve
-    /// to. A writer that raced this one may have flipped the mode from older
-    /// inputs after this store, so each writer flips again until the mode
-    /// matches the inputs it reads last: the last store always wins.
-    fn store(&self, change: impl Fn(u8) -> u8) -> bool {
-        let previous = self
-            .inputs
-            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |inputs| Some(change(inputs)));
-        debug_assert!(previous.is_ok(), "the closure always stores");
+    /// Stores `change(state)` (nothing when it is `None`) and flips the mode
+    /// to what the inputs resolve to. A writer that raced this one may have
+    /// flipped the mode from older inputs after this store, so each writer
+    /// flips again until the mode matches the inputs it reads last: the last
+    /// store always wins.
+    fn store(&self, change: impl Fn(u64) -> Option<u64>) -> bool {
+        if self.state.fetch_update(Ordering::AcqRel, Ordering::Acquire, change).is_err() {
+            return false;
+        }
         let mut changed = false;
         loop {
             let saver = self.status().saver;
@@ -216,7 +247,7 @@ pub(in crate::server) fn try_handle(
     let result = if cmd == STATUS {
         status(mux, local, &fields)
     } else {
-        set(mux, local && origin_gate::is_user(mux, client), fields)
+        set(mux, client, local && origin_gate::is_user(mux, client), fields)
     };
     Some(reply(writer, id, result))
 }
@@ -231,7 +262,12 @@ fn status(mux: &Mux, local: bool, fields: &Map<String, Value>) -> Result<Value, 
     serde_json::to_value(mux.energy.status()).map_err(|_| "energy.bad_request")
 }
 
-fn set(mux: &Mux, trusted: bool, fields: Map<String, Value>) -> Result<Value, &'static str> {
+fn set(
+    mux: &Mux,
+    client: u64,
+    trusted: bool,
+    fields: Map<String, Value>,
+) -> Result<Value, &'static str> {
     if !trusted {
         return Err("energy.not_trusted");
     }
@@ -243,7 +279,7 @@ fn set(mux: &Mux, trusted: bool, fields: Map<String, Value>) -> Result<Value, &'
     if request.saver != Some(true) && request.reason.is_some() {
         return Err("energy.bad_request");
     }
-    let changed = mux.energy.set_override(request.saver, request.reason);
+    let changed = mux.energy.set_override(client, request.saver, request.reason);
     Ok(json!({"changed": changed, "saver": mux.energy.status().saver}))
 }
 

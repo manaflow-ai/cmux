@@ -8,8 +8,10 @@
 //! (`energy.saver.turnOffForNow`, `energy.saver.turnOnNow`): Chrome's
 //! battery saver bubble offers the same "Turn off for now"
 //! (chrome/browser/ui/views/performance_controls/battery_saver_bubble_view.cc).
-//! `status` reads both owners: the app's resolved policy and inputs
-//! (`debug.energy`) and the daemon's mode (`energy.status`).
+//! `status` reads both owners: the app's resolved policy and inputs (its
+//! control method `energy.status`, served in every build) and the daemon's
+//! mode (the session socket's `energy.status`). The MCP `energy_status`
+//! tool returns the same report.
 
 use std::io::{BufRead, BufReader, Read, Write};
 use std::time::Duration;
@@ -24,15 +26,17 @@ use crate::localization::EnergyMessages;
 pub(super) const TURN_OFF_FOR_NOW: &str = "energy.saver.turnOffForNow";
 /// The app action that `on` and `auto` run.
 pub(super) const TURN_ON_NOW: &str = "energy.saver.turnOnNow";
-/// The app method that reports the resolved policy and its inputs.
-pub(super) const APP_STATUS_METHOD: &str = "debug.energy";
+/// The app method that reports the resolved policy and its inputs
+/// (CmuxNextControl `EnergyReport.statusMethod`, registered in release
+/// builds too; `debug.energy` is the Debug-only cost report).
+pub(super) const APP_STATUS_METHOD: &str = "energy.status";
 /// The daemon line that reports its mode (cmux-tui-core server/energy_op.rs).
-const DAEMON_STATUS_COMMAND: &str = "energy.status";
+pub(super) const DAEMON_STATUS_COMMAND: &str = "energy.status";
 /// `energy.status` answers from memory; this only bounds a stuck daemon.
 const DAEMON_READ_TIMEOUT: Duration = Duration::from_secs(5);
 /// The largest `energy.status` reply line read.
 const MAX_DAEMON_REPLY: u64 = 64 * 1024;
-/// The MCP tool that reads the app's half of `status`.
+/// The MCP tool that reads both halves of `status`.
 pub(super) const MCP_STATUS_TOOL: &str = "energy_status";
 
 #[derive(Debug, PartialEq, Eq)]
@@ -121,7 +125,7 @@ fn app_status(global: &GlobalArgs) -> Result<Value, String> {
     }
 }
 
-/// The part of `debug.energy` that `status` and the MCP tool report: the
+/// The part of the app's report that `status` and the MCP tool show: the
 /// policy and the inputs it was resolved from.
 pub(super) fn app_part(report: &Value) -> Value {
     json!({
@@ -132,13 +136,19 @@ pub(super) fn app_part(report: &Value) -> Value {
 
 /// The daemon's `energy.status`, or the error that kept it.
 fn daemon_status(global: &GlobalArgs) -> Result<Value, String> {
+    daemon_line(global, DAEMON_STATUS_COMMAND)
+}
+
+/// The data of the session daemon's reply to the field-less line `cmd`
+/// (one the daemon answers before its command parse), or its error.
+pub(super) fn daemon_line(global: &GlobalArgs, cmd: &str) -> Result<Value, String> {
     let (socket, derived) =
         super::wire::resolve_socket_with_origin(global).map_err(|error| error.to_string())?;
     let stream = cmux_tui_core::server::connect_session_socket(&socket, derived)
         .map_err(|error| error.to_string())?;
     let _ = stream.set_read_timeout(Some(DAEMON_READ_TIMEOUT));
     let mut reader = BufReader::new(stream);
-    let request = json!({"id": "energy-status", "cmd": DAEMON_STATUS_COMMAND});
+    let request = json!({"id": "energy-status", "cmd": cmd});
     let mut line = serde_json::to_vec(&request).map_err(|error| error.to_string())?;
     line.push(b'\n');
     reader.get_mut().write_all(&line).map_err(|error| error.to_string())?;
@@ -173,7 +183,8 @@ pub(super) fn daemon_reply(reply: Value) -> Result<Value, String> {
         .to_owned())
 }
 
-fn error_text(error: &Value) -> String {
+/// The message (or code) of an owner's error.
+pub(super) fn error_text(error: &Value) -> String {
     error
         .get("message")
         .or_else(|| error.get("code"))
@@ -228,7 +239,8 @@ fn reason_text<'m>(reason: Option<&str>, messages: &'m EnergyMessages) -> &'m st
     }
 }
 
-/// The MCP tool that reads Energy Saver in the app. `off` and `on` are the
+/// The MCP tool that reads Energy Saver in the app and the session daemon,
+/// as `cmux energy status --json` prints it. `off` and `on` are the
 /// app's own action tools (`app_energy_turn_off_for_now`,
 /// `app_energy_turn_on`), listed from `action.list` like every CLI action.
 pub(super) fn mcp_tool() -> Value {
@@ -236,7 +248,9 @@ pub(super) fn mcp_tool() -> Value {
         "name": MCP_STATUS_TOOL,
         "description": "Whether cmux's Energy Saver is on, why, and the inputs it was resolved from \
             (Low Power Mode, power source, battery, thermal state, the energy.saver setting, \"off for \
-            now\"). Reads the app and changes nothing; the app_energy_* tools turn it off for now and back on.",
+            now\"), as {app, daemon}: app is the app's policy and inputs, daemon the session daemon's \
+            mode, its source (the app's override or its own reading) and both inputs. A side that does \
+            not answer is {error}. Changes nothing; the app_energy_* tools turn it off for now and back on.",
         "inputSchema": {"type": "object", "properties": {}, "additionalProperties": false},
         "annotations": {
             "readOnlyHint": true, "destructiveHint": false, "idempotentHint": true, "openWorldHint": false,

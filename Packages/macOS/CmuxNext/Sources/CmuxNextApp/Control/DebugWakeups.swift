@@ -165,16 +165,25 @@ extension EnergyReport {
     }
     #endif
 
-    private static func state(_ services: AppServices) -> State {
+    /// `energy.status` over the same services, in every build: the policy and its inputs only.
+    static func statusMethod(services: AppServices) -> ControlMethod {
+        statusMethod { [weak services] in services.map { (policy: $0.mainWork.energy.policy, inputs: inputs($0)) } }
+    }
+
+    private static func inputs(_ services: AppServices) -> Inputs {
         let inputs = services.energyMonitor.inputs
         let driver = services.energy.driver
+        return Inputs(featureEnabled: driver.isEnabled, lowPowerMode: inputs.lowPowerMode, onBattery: inputs.onBattery,
+                      hasBattery: inputs.hasBattery, batteryPercent: inputs.batteryPercent, thermal: inputs.thermal,
+                      setting: services.settings?.snapshot.energySaver ?? EnergySaverSetting.defaultValue,
+                      sessionOverride: driver.isOffForSession, simulated: services.energyMonitor.isSimulated)
+    }
+
+    private static func state(_ services: AppServices) -> State {
         let wakeUps = services.mainWork.wakeUps
         return State(
             policy: services.mainWork.energy.policy,
-            inputs: Inputs(featureEnabled: driver.isEnabled, lowPowerMode: inputs.lowPowerMode, onBattery: inputs.onBattery,
-                           hasBattery: inputs.hasBattery, batteryPercent: inputs.batteryPercent, thermal: inputs.thermal,
-                           setting: services.settings?.snapshot.energySaver ?? EnergySaverSetting.defaultValue,
-                           sessionOverride: driver.isOffForSession, simulated: services.energyMonitor.isSimulated),
+            inputs: inputs(services),
             wakeQueue: WakeQueue(entries: wakeUps.count, coalescedFires: wakeUps.coalescedFires),
             // No early-pass count yet (p14-energy-018).
             cef: CEF(saver: CEF.Saver(applied: services.cache.chromium.built?.energySaverApplied), earlyPasses: nil),

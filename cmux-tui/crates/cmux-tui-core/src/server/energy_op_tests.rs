@@ -1,7 +1,7 @@
 //! `energy.set` and `energy.status` on the wire (p14-energy-033): a round
 //! trip through the connection's frame path, the override over the daemon's
-//! own reading, one watcher call per edge and none for a repeat, and who may
-//! send which line.
+//! own reading, one watcher call per edge and none for a repeat, who may
+//! send which line, and the override's end with the connection that set it.
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -10,9 +10,12 @@ use serde_json::{Value, json};
 use super::*;
 use crate::SurfaceOptions;
 use crate::server::{
-    BoundedOutbound, ClientTransport, ConnectionSurfaceScheduler, QueuedSink,
+    BoundedOutbound, ClientTransport, ConnectionSurfaceScheduler, QueuedSink, disconnect_client,
     handle_connection_message,
 };
+
+/// The control client id the unit tests set overrides as.
+const APP: u64 = 7;
 
 struct Caller {
     id: u64,
@@ -105,7 +108,7 @@ fn energy_override_wins_over_the_reading_until_cleared() {
     assert_eq!(energy.status().source, EnergySource::Daemon);
     assert!(energy.mode().is_saver());
 
-    assert!(energy.set_override(Some(false), None));
+    assert!(energy.set_override(APP, Some(false), None));
     assert!(!energy.status().saver);
     assert_eq!(energy.status().source, EnergySource::App);
     // The reading moves under the override without moving the mode.
@@ -113,7 +116,7 @@ fn energy_override_wins_over_the_reading_until_cleared() {
     assert!(!energy.set_reading(true));
     assert!(!energy.mode().is_saver());
 
-    assert!(energy.set_override(None, None));
+    assert!(energy.set_override(APP, None, None));
     assert_eq!(
         energy.status(),
         EnergyStatus {
@@ -131,10 +134,10 @@ fn energy_override_wins_over_the_reading_until_cleared() {
 fn energy_reason_is_kept_only_while_the_override_holds_the_saver_on() {
     let energy = DaemonEnergy::default();
     for reason in SaverReason::ALL {
-        energy.set_override(Some(true), Some(reason));
+        energy.set_override(APP, Some(true), Some(reason));
         assert_eq!(energy.status().reason, Some(reason));
     }
-    energy.set_override(Some(false), None);
+    energy.set_override(APP, Some(false), None);
     assert_eq!(energy.status().reason, None);
 }
 
@@ -147,7 +150,7 @@ fn energy_racing_writers_leave_the_mode_on_the_last_inputs() {
             std::thread::spawn(move || {
                 for round in 0..2_000 {
                     if index % 2 == 0 {
-                        energy.set_override(Some(round % 2 == 0), Some(SaverReason::Setting));
+                        energy.set_override(APP, Some(round % 2 == 0), Some(SaverReason::Setting));
                     } else {
                         energy.set_reading(round % 3 == 0);
                     }
@@ -159,6 +162,53 @@ fn energy_racing_writers_leave_the_mode_on_the_last_inputs() {
         writer.join().unwrap();
     }
     assert_eq!(energy.mode().is_saver(), energy.status().saver);
+}
+
+#[test]
+fn energy_override_ends_with_the_client_that_set_it() {
+    let energy = DaemonEnergy::default();
+    assert!(energy.set_reading(true));
+    assert!(energy.set_override(APP, Some(false), None));
+    // Another client leaving takes nothing.
+    assert!(!energy.client_left(APP + 1));
+    assert_eq!(energy.status().source, EnergySource::App);
+    // The setter leaving hands the mode back to the reading.
+    assert!(energy.client_left(APP));
+    assert_eq!(energy.status().source, EnergySource::Daemon);
+    assert!(energy.mode().is_saver());
+    assert!(!energy.client_left(APP), "nothing left to clear");
+
+    // A newer client's override survives an older client leaving.
+    energy.set_override(APP, Some(true), Some(SaverReason::Battery));
+    energy.set_override(APP + 1, Some(false), None);
+    assert!(!energy.client_left(APP));
+    assert_eq!(energy.status().app_override, Some(false));
+    // An id wider than the setter bits is matched by its low 56 bits.
+    let far = APP | (1 << 60);
+    energy.set_override(far, Some(false), None);
+    assert!(!energy.client_left(far + 1));
+    assert_eq!(energy.status().source, EnergySource::App);
+    assert!(energy.client_left(far), "the reading (on) takes over from the override (off)");
+    assert_eq!(energy.status().source, EnergySource::Daemon);
+}
+
+#[test]
+fn energy_app_override_is_gone_when_its_connection_closes() {
+    let mux = Mux::new_for_test("energy-app-quit", SurfaceOptions::default());
+    mux.energy.set_reading(true);
+    let app = Caller::new(&mux, ClientTransport::Unix, true);
+    let cli = Caller::new(&mux, ClientTransport::Unix, false);
+    let set = app.call(&mux, json!({"id": 1, "cmd": SET, "saver": false}));
+    assert_eq!(set["data"], json!({"changed": true, "saver": false}), "{set}");
+    // The app quits (or crashes, or its link drops): its connection ends.
+    assert!(disconnect_client(&mux, app.id, false));
+    let status = cli.call(&mux, json!({"id": 2, "cmd": STATUS}));
+    assert_eq!(
+        status["data"],
+        json!({"saver": true, "source": "daemon", "reason": null, "override": null, "reading": true}),
+        "{status}"
+    );
+    assert!(mux.energy.mode().is_saver());
 }
 
 #[test]

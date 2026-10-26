@@ -138,6 +138,9 @@ fn disconnect_client_with_notice(
     };
     mux.unbind_conversation_principal(client);
     mux.release_cloud_conversation_client(client);
+    // The app's Energy Saver override lives as long as the connection that
+    // set it (server/energy_op.rs).
+    mux.energy.client_left(client);
     // Provider capabilities are valid only for the control connection that
     // published them. Release before announcing detachment so waiters can
     // never observe a stale target after the owning client is gone.

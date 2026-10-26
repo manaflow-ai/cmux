@@ -777,7 +777,7 @@ final class AppServices {
     func startEnergy(keepAwake: KeepAwakeService = .shared, videos: BackdropVideoPlayers = .shared, design: DesignSettings = .shared) {
         energy.start(inputs: energyMonitor)
         energyMotion = MotionEnergyLink(mainWork.energy, design: design)
-        daemon.follow(mainWork.energy)
+        daemon.follow(mainWork.energy, on: mainWork)
         energyLink = energyMonitor.follow { [weak self] inputs in
             keepAwake.setOnBattery(inputs.onBattery)
             videos.setEnergy(lowPowerMode: inputs.lowPowerMode, thermal: inputs.thermal)

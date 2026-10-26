@@ -49,7 +49,7 @@ public final class DaemonService {
     /// The running push of `terminalDefaultColors`, and whether a newer value waits for it.
     @ObservationIgnored var terminalColorsPush: Task<Void, Never>?
     @ObservationIgnored var terminalColorsPending = false
-    /// The app's Energy Saver the local daemon follows (DaemonService+Energy); nil until `follow(_:)`.
+    /// The app's Energy Saver the local daemon follows (DaemonService+Energy); nil until `follow(_:on:)`.
     @ObservationIgnored var energyFollow: DaemonEnergyFollow?
     @ObservationIgnored private var runTask: Task<Void, Never>?
     /// The running relaunch of kept tabs (`relaunchKeptLayoutIfNeeded`).
@@ -371,7 +371,6 @@ public final class DaemonService {
         lastStartupError = nil
         startup = .connected
         pushTerminalDefaultColors()
-        energyFollow?.connected()
         relaunchKeptLayoutIfNeeded(connection)
     }
 
