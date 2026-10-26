@@ -106,7 +106,7 @@ public nonisolated struct SettingsPageLayout: Sendable {
             groups: [
                 // Show All Chats on New Tab keeps its `sidebar.` key from when All chats was a sidebar section.
                 group("settings.group.window"), GroupSpec(group: "settings.group.tabs", keys: ["sidebar.showChats"]),
-                group("settings.group.columns"),
+                group("settings.group.columns"), group("settings.group.autoArchive"),
                 group("settings.group.history"), group("settings.group.quit"), group("settings.group.picker"),
                 group("settings.group.tasks"), group("settings.group.diffViewer"), group("settings.group.markdownViewer"),
                 // The Screenshots pane's folders sit beside the other file-viewer groups.
@@ -211,7 +211,7 @@ public nonisolated struct SettingsPageLayout: Sendable {
                 group("settings.group.engine"), group("settings.group.addressBar"), group("settings.group.toolbar"), group("settings.group.media"),
                 group("settings.group.bookmarks"), group("settings.group.agentInput"), group("settings.group.extensions"),
                 group("settings.group.links"), group("settings.group.openingLinks"), group("settings.group.passwords"),
-                group("settings.group.memory"), group("settings.group.remote"),
+                group("settings.group.import"), group("settings.group.memory"), group("settings.group.remote"),
             ],
             trail: [.browserProfiles], actions: [.browser], aliases: [.browser]),
         // Bring things over from other browsers, agents and terminals on this Mac.
@@ -236,6 +236,8 @@ public nonisolated struct SettingsPageLayout: Sendable {
                 GroupSpec(keys: ["browser.omnibar.remoteSuggestions", "announcements.fetch"],
                           title: SettingsText.keyed("settings.pageGroup.network", "Network Requests")),
                 GroupSpec(group: "settings.group.hangReports"),
+                // The hosts an ssh:// link from another app reaches without asking (ExternalLinkGate).
+                GroupSpec(group: "settings.group.sshLinks"),
             ],
             actions: [.home], aliases: [.home]),
         CategorySpec(
