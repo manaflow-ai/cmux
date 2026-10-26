@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextCompat
 import CmuxNextControl
 import CmuxNextDaemon
 import CmuxNextDiff
@@ -39,18 +40,21 @@ nonisolated struct DiffRecent: Codable, Sendable, Equatable {
 /// The diff viewer's recent repositories, newest first, at most ``limit``,
 /// recorded on every open (empty state, palette, keyboard, CLI) and kept in
 /// one small JSON file beside the tag's state (`diff-recents.json`). Reads and
-/// writes run off the main actor, writes in order.
+/// writes run on the runner's files lane, writes in order.
 final class DiffRecents {
     static let limit = 32
     static let fileName = "diff-recents.json"
 
     let url: URL
+    /// The app's blocking-work lanes: the file reads and writes run there, never on the pool.
+    let runner: any MayBlockRunner
     private var items: [DiffRecent]?
     private var loading: Task<[DiffRecent], Never>?
     private var saving: Task<Void, Never>?
 
-    init(url: URL) {
+    init(url: URL, runner: any MayBlockRunner) {
         self.url = url
+        self.runner = runner
     }
 
     /// Beside the build's daemon state, as SidebarSnapshotFile does
@@ -62,7 +66,7 @@ final class DiffRecents {
     /// The recents, newest first.
     func list() async -> [DiffRecent] {
         if let items { return items }
-        let task = loading ?? Task { [url] in await Self.read(url) }
+        let task = loading ?? Task { [url, runner] in await Self.read(url, on: runner) }
         loading = task
         let read = await task.value
         if items == nil { items = read }
@@ -81,27 +85,32 @@ final class DiffRecents {
         current.insert(DiffRecent(path: repository.root, name: repository.name, openedAt: (date.timeIntervalSince1970 * 1000).rounded(),
                                   source: DiffRecent.sourceKind(source), branch: repository.branch), at: 0)
         items = Array(current.prefix(Self.limit))
-        let snapshot = items ?? [], url = url, previous = saving
+        let snapshot = items ?? [], url = url, runner = runner, previous = saving
         saving = Task {
             await previous?.value
-            await Self.write(snapshot, to: url)
+            await Self.write(snapshot, to: url, on: runner)
         }
     }
 
     /// Waits for the writes started so far (tests).
     func flush() async { await saving?.value }
 
-    @concurrent private static func read(_ url: URL) async -> [DiffRecent] {
-        guard let size = (try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize, size <= 1024 * 1024,
-              // concurrency-allow: @concurrent, one capped read of a small local file
-              let data = try? Data(contentsOf: url),
-              let items = try? JSONDecoder().decode([DiffRecent].self, from: data) else { return [] }
-        return items.sorted { $0.openedAt > $1.openedAt }
+    private static func read(_ url: URL, on runner: any MayBlockRunner) async -> [DiffRecent] {
+        let items = try? await runner.runFiles(.userVisible) { () -> [DiffRecent] in
+            guard let size = (try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize, size <= 1024 * 1024,
+                  let data = try? Data(blockingContentsOf: url),
+                  let items = try? JSONDecoder().decode([DiffRecent].self, from: data) else { return [] }
+            return items.sorted { $0.openedAt > $1.openedAt }
+        }
+        return items ?? []
     }
 
-    @concurrent private static func write(_ items: [DiffRecent], to url: URL) async {
-        try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-        guard let data = try? JSONEncoder().encode(items) else { return }
-        try? data.write(to: url, options: .atomic)
+    /// One small atomic replace; quit waits for it.
+    private static func write(_ items: [DiffRecent], to url: URL, on runner: any MayBlockRunner) async {
+        _ = try? await runner.runFiles(.bestEffort, shutdown: .blockShutdown) {
+            try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+            guard let data = try? JSONEncoder().encode(items) else { return }
+            try? data.write(to: url, options: .atomic)
+        }
     }
 }

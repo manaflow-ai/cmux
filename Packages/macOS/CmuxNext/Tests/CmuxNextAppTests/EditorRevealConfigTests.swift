@@ -4,6 +4,7 @@ import CmuxNextPages
 import CmuxNextSettings
 import Foundation
 import Testing
+import CmuxNextWakeups
 
 /// A Find result opens the code editor at its line and column: a new editor tab's
 /// `cmux.editor.config` carries `reveal: {line, column}` once (the page moves the cursor there
@@ -38,7 +39,7 @@ import Testing
         defer { try? FileManager.default.removeItem(at: folder) }
         let url = folder.appending(path: "a.swift")
         try Data("one\ntwo\nthree\n".utf8).write(to: url)
-        let provider = FilePageProvider(kind: .editor, file: url, host: Host(), libraries: nil, images: NoImages())
+        let provider = FilePageProvider(kind: .editor, file: url, host: Host(), runner: BackgroundWork(), libraries: nil, images: NoImages())
         defer { provider.close() }
         provider.reveal = FilePosition(line: 3, column: 2)
         let context = PageCallContext(page: FilePageKind.editor.namespace)

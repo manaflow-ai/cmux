@@ -5,6 +5,7 @@ import CmuxNextFiles
 import CmuxNextFilesUI
 import CmuxNextIcons
 import UniformTypeIdentifiers
+import CmuxNextWakeups
 
 extension InternalPageID {
     /// The native Files pane (u2360; `files` is the chat's git tree page).
@@ -25,6 +26,8 @@ final class FilesPaneService: InternalPageProvider {
     }
 
     private weak var services: AppServices?
+    /// The app's blocking-work lanes: every tab's file operations and Get Info run there.
+    private let work: BackgroundWork
     private var tabs: [String: Tab] = [:]
     private let icons = FileIconProvider()
     /// Favorites and Locations, shared by every Files tab (the composition root picks `.standard`).
@@ -43,6 +46,7 @@ final class FilesPaneService: InternalPageProvider {
 
     init(services: AppServices) {
         self.services = services
+        work = services.work
         let sidebar = self.sidebar
         volumeWatch = [NSWorkspace.didMountNotification, NSWorkspace.didUnmountNotification,
                        NSWorkspace.didRenameVolumeNotification].map { name in
@@ -97,8 +101,9 @@ final class FilesPaneService: InternalPageProvider {
     }
 
     private func makeTab(_ folder: URL) -> Tab {
-        let model = FileBrowserModel(folder: folder, files: FileOperator(namer: FileNamer(copyWord: FilesPaneView.copyWord,
-                                                                                   aliasWord: FilesPaneView.aliasWord)),
+        let model = FileBrowserModel(folder: folder, work: work,
+                                     files: FileOperator(namer: FileNamer(copyWord: FilesPaneView.copyWord, aliasWord: FilesPaneView.aliasWord),
+                                                         work: work),
                                      memory: FolderViewMemory(defaults: .standard))
         return Tab(model: model, view: nil, history: FilesPaneHistory(model: model))
     }

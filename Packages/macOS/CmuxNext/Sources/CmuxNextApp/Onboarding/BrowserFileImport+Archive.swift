@@ -3,6 +3,8 @@ import CmuxNextActions
 import CmuxNextBrowser
 import CmuxNextBrowserImport
 import Foundation
+import CmuxNextWakeups
+import CmuxNextCompat
 
 /// The zip and history parts of Import from Another Browser… (cx-d0d.65):
 /// Safari's Export Browsing Data zip and Google Takeout's Chrome export
@@ -39,7 +41,8 @@ extension BrowserFileImport {
     }
 
     func importHistoryFile(_ url: URL, profile: String) async -> [String] {
-        guard let data = await Task.detached(operation: { try? Data(contentsOf: url) }).value else {
+        let read = try? await services.work.run(.userBlocking, mayBlock: .files) { try Data(blockingContentsOf: url) }
+        guard let data = read else {
             return [BrowserFileImportStrings.unreadable(url.lastPathComponent)]
         }
         return await importHistory(data, from: url, profile: profile)

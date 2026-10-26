@@ -74,13 +74,14 @@ nonisolated enum AcpmuxDaemonLauncher {
     }
 
     /// Starts the daemon and waits for its ready line. `deadline` is a stall time: the wait ends
-    /// with an error only after that long with no write to the daemon's log, or at its exit.
-    @concurrent static func launch(_ environment: AcpmuxEnvironment, deadline: Duration = .seconds(20)) async throws -> AcpmuxWebEndpoint {
+    /// with an error only after that long with no write to the daemon's log, or at its exit. Runs on the
+    /// caller's executor: ``AcpmuxHost``'s own queue, never the cooperative pool.
+    nonisolated static func launch(_ environment: AcpmuxEnvironment, deadline: Duration = .seconds(20)) async throws -> AcpmuxWebEndpoint {
         try await launch(environment, deadline: deadline, onSpawn: { _ in })
     }
 
     /// `onSpawn` gets the launch shell's pid (tests check that it was reaped).
-    @concurrent static func launch(_ environment: AcpmuxEnvironment, deadline: Duration,
+    nonisolated static func launch(_ environment: AcpmuxEnvironment, deadline: Duration,
                                    onSpawn: @Sendable (pid_t) -> Void) async throws -> AcpmuxWebEndpoint {
         // cmux NEXT's one-time adoption of its old acpmux home ends before any daemon starts (cx-is1kf.9).
         await AcpmuxEnvironment.adoptBuildHomes()

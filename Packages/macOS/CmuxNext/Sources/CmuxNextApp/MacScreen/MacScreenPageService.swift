@@ -9,6 +9,7 @@ import CmuxNextIcons
 import CmuxNextMacScreen
 import CmuxNextSettings
 import Foundation
+import CmuxNextWakeups
 
 extension InternalPageID {
     /// Mac Screen: one of the user's devices' screens, or the home page (the
@@ -147,7 +148,7 @@ final class MacScreenPageService: InternalPageProvider {
 
 extension AppServices {
     static func makeMacScreenPages(_ services: AppServices) -> MacScreenPages {
-        let pages = MacScreenPages(store: .forApplication(bundleIdentifier: services.environment.launch.bundleID))
+        let pages = MacScreenPages(store: .forApplication(bundleIdentifier: services.environment.launch.bundleID, runner: services.work))
         pages.useShortcuts(of: services.registry)
         pages.hubHost.indicatorMenuItem = { [weak registry = services.registry] in registry?.makeMenuItem(for: $0) }
         return pages

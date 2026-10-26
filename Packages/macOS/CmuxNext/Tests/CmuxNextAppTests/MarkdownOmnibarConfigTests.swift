@@ -4,6 +4,7 @@ import CmuxNextPages
 import CmuxNextSettings
 import Foundation
 import Testing
+import CmuxNextWakeups
 
 /// When the native omnibar shows the file's path above the Markdown page (design section 2), the
 /// page's config says `omnibar: true`, so the page's toolbar drops its own file name. Without the
@@ -40,7 +41,7 @@ import Testing
         defer { try? FileManager.default.removeItem(at: folder) }
         let url = folder.appending(path: kind == .markdown ? "a.md" : "a.txt")
         try Data("# A\n".utf8).write(to: url)
-        let provider = FilePageProvider(kind: kind, file: url, host: Host(showsOmnibar: showsOmnibar), libraries: nil, images: NoImages())
+        let provider = FilePageProvider(kind: kind, file: url, host: Host(showsOmnibar: showsOmnibar), runner: BackgroundWork(), libraries: nil, images: NoImages())
         defer { provider.close() }
         return try await provider.call(kind.op("config"), params: .object([:]), context: PageCallContext(page: kind.namespace))
     }

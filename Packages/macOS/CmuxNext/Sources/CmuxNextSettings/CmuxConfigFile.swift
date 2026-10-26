@@ -1,4 +1,5 @@
 public import Foundation
+import CmuxNextCompat
 
 /// Reads and writes `~/.config/cmux/cmux-next.json`. An actor so file IO and
 /// parsing stay off the main actor and writes are serialized. Writes edit
@@ -6,6 +7,14 @@ public import Foundation
 /// publish atomically; the file watcher then reloads and applies them, so
 /// there is one path from disk to live settings.
 public actor CmuxConfigFile {
+    /// The queue this actor runs on (threading-model.md, `com.cmuxterm.next.settings.config-file`): its config file writes block a thread of
+    /// its own, never a cooperative pool thread (the HomeCache pattern).
+    // executor: com.cmuxterm.next.settings.config-file
+    private nonisolated let queue = DispatchSerialQueue(label: "com.cmuxterm.next.settings.config-file", qos: .userInitiated)
+
+    /// Runs the actor on ``queue``.
+    public nonisolated var unownedExecutor: UnownedSerialExecutor { queue.asUnownedSerialExecutor() }
+
     public nonisolated let url: URL
     /// Keys an MDM profile or the team policy manages; every write checks it.
     public nonisolated let managedGuard: ManagedKeyGuard
@@ -174,6 +183,21 @@ public actor CmuxConfigFile {
         } else {
             try FileManager.default.moveItem(at: temporary, to: url)
         }
+    }
+
+    // MARK: - Side files
+
+    /// The text of another settings file the person picked (a keymap to import), read on this
+    /// actor's queue: a user-chosen file can be on a slow volume.
+    public func readSideFile(_ url: URL) throws -> String {
+        try String(blockingContentsOf: url, encoding: .utf8)
+    }
+
+    /// Writes another settings file (an exported keymap, the managed-settings status) atomically,
+    /// making its folder first, on this actor's queue.
+    public func writeSideFile(_ data: Data, to url: URL) throws {
+        try FileManager.checked.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try data.blockingWrite(to: url, options: .atomic)
     }
 
     // MARK: - Key paths

@@ -36,24 +36,14 @@ extension SettingsController {
     /// (`{"shortcuts": {...}}`, pretty JSON), atomically.
     public func exportShortcutKeymap(to url: URL) async throws {
         let keymap: JSONValue = .object(["shortcuts": try await shortcutKeymap()])
-        try await Self.write(Data(keymap.prettyText().utf8), to: url)
-    }
-
-    /// The keymap file's bytes, read off the main actor (a user-chosen file can be on a slow volume).
-    @concurrent nonisolated private static func read(_ url: URL) async throws -> String {
-        try String(contentsOf: url, encoding: .utf8)
-    }
-
-    /// Writes the keymap file atomically, off the main actor.
-    @concurrent nonisolated private static func write(_ data: Data, to url: URL) async throws {
-        try data.write(to: url, options: .atomic)
+        try await file.writeSideFile(Data(keymap.prettyText().utf8), to: url)
     }
 
     /// Reads a keymap file (JSONC) and imports it (``importShortcutKeymap(_:)``),
     /// then reloads so the registry applies it. A file that does not parse
     /// changes nothing.
     public func importShortcutKeymap(from url: URL) async throws {
-        let value = try JSONC.parse(try await Self.read(url))
+        let value = try JSONC.parse(try await file.readSideFile(url))
         try await importShortcutKeymap(value)
         await reload()
     }

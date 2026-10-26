@@ -1,4 +1,4 @@
-package import CmuxNextWakeups
+public import CmuxNextWakeups
 package import CryptoKit
 public import Foundation
 package import os
@@ -23,11 +23,14 @@ public final class RecoveryDraftStore {
     private let maxTotalBytes: Int
     private var timers: [String: DemandTimer] = [:]
     private var pending: [String: RecoveryDraft] = [:]
+    /// The app's blocking-work lanes: every draft read and write runs on the files lane.
+    private let work: BackgroundWork
 
-    public init(directory: URL, clock: any Clock<Duration> = ContinuousClock(), debounce: Duration = .seconds(1),
+    public init(directory: URL, work: BackgroundWork, clock: any Clock<Duration> = ContinuousClock(), debounce: Duration = .seconds(1),
                 maxDraftBytes: Int = RecoveryDraftStore.defaultMaxDraftBytes,
                 maxTotalBytes: Int = RecoveryDraftStore.defaultMaxTotalBytes) {
         self.directory = directory
+        self.work = work
         self.clock = clock
         self.debounce = debounce
         self.maxDraftBytes = maxDraftBytes
@@ -68,7 +71,11 @@ public final class RecoveryDraftStore {
     public func remove(id: String) async {
         timers.removeValue(forKey: id)?.cancel()
         pending[id] = nil
-        await RecoveryDraftFiles.delete(id: id, in: directory)
+        let directory = directory
+        // A removed draft must not come back after a crash: quit waits for the unlink.
+        _ = try? await work.run(.userVisible, mayBlock: .files, shutdown: .blockShutdown) {
+            RecoveryDraftFiles.delete(id: id, in: directory)
+        }
     }
 
     /// Writes every pending update now (a quit that cannot wait).
@@ -81,24 +88,29 @@ public final class RecoveryDraftStore {
 
     /// Every draft on disk (read at launch).
     public func drafts() async -> [RecoveryDraft] {
-        await RecoveryDraftFiles.readAll(in: directory)
+        let directory = directory
+        return (try? await work.run(.userBlocking, mayBlock: .files) { RecoveryDraftFiles.readAll(in: directory) }) ?? []
     }
 
     /// Whether the document's file differs from the draft's base, or (with
     /// no base) changed after the draft was written. A draft of another host
     /// is never compared with a local file.
     public func fileChangedSince(_ draft: RecoveryDraft) async -> Bool {
-        await RecoveryDraftFiles.changedSince(draft)
+        (try? await work.run(.userBlocking, mayBlock: .files) { RecoveryDraftFiles.changedSince(draft) }) ?? false
     }
 
     private func writeNow(_ id: String) async {
         guard let draft = pending.removeValue(forKey: id) else { return }
         timers[id] = nil
-        await RecoveryDraftFiles.write(draft, in: directory, maxTotalBytes: maxTotalBytes)
+        let directory = directory, maxTotalBytes = maxTotalBytes
+        // One draft (at most ``maxDraftBytes``), temp + fsync + rename: quit waits for it.
+        _ = try? await work.run(.userVisible, mayBlock: .files, shutdown: .blockShutdown) {
+            RecoveryDraftFiles.write(draft, in: directory, maxTotalBytes: maxTotalBytes)
+        }
     }
 }
 
-/// The draft files, all IO off the main actor.
+/// The draft files: blocking IO, run on the files lane only (``RecoveryDraftStore``).
 package nonisolated struct RecoveryDraftFiles {
     package nonisolated init() {}
     package static var defaultDirectory: URL {
@@ -118,7 +130,7 @@ package nonisolated struct RecoveryDraftFiles {
 
     /// With no base, records the file's date and size now; then writes
     /// temp + fsync + rename.
-    @concurrent package static func write(_ draft: RecoveryDraft, in directory: URL, maxTotalBytes: Int) async {
+    package static func write(_ draft: RecoveryDraft, in directory: URL, maxTotalBytes: Int) {
         var draft = draft
         if draft.base == nil, draft.host == QuitParticipantID.localHost, let path = draft.filePath,
            let attributes = try? FileManager.default.attributesOfItem(atPath: path) {
@@ -137,7 +149,7 @@ package nonisolated struct RecoveryDraftFiles {
         let temp = directory.appendingPathComponent(".\(UUID().uuidString).tmp")
         let fd = open(temp.path, O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC, 0o600)
         guard fd >= 0 else { return }
-        // concurrency-allow: @concurrent RecoveryDraftFiles.write, never on the main actor
+        // concurrency-allow: RecoveryDraftStore runs RecoveryDraftFiles.write on the files lane, never on the main actor
         let written = data.withUnsafeBytes { Darwin.write(fd, $0.baseAddress, $0.count) }
         let synced = fsync(fd) == 0
         close(fd)
@@ -165,22 +177,21 @@ package nonisolated struct RecoveryDraftFiles {
         }
     }
 
-    @concurrent package static func delete(id: String, in directory: URL) async {
+    package static func delete(id: String, in directory: URL) {
         unlink(directory.appendingPathComponent(fileName(id)).path)
     }
 
-    @concurrent package static func readAll(in directory: URL) async -> [RecoveryDraft] {
+    package static func readAll(in directory: URL) -> [RecoveryDraft] {
         let files = (try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)) ?? []
         return files.filter { $0.pathExtension == "draft" }
             .compactMap { file in
-                // concurrency-allow: @concurrent, off the main actor
                 guard let data = try? Data(contentsOf: file) else { return nil }
                 return try? JSONDecoder().decode(RecoveryDraft.self, from: data)
             }
             .sorted { $0.savedAt < $1.savedAt }
     }
 
-    @concurrent package static func changedSince(_ draft: RecoveryDraft) async -> Bool {
+    package static func changedSince(_ draft: RecoveryDraft) -> Bool {
         guard draft.host == QuitParticipantID.localHost, let path = draft.filePath else { return false }
         if let base = draft.base, !base.isEmpty { return !matches(base, path: path) }
         guard let attributes = try? FileManager.default.attributesOfItem(atPath: path) else { return draft.fileSize != nil }

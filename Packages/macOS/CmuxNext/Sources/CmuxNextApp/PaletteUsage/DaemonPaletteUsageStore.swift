@@ -2,6 +2,7 @@ import CmuxNextDaemon
 import CmuxNextPalette
 import Foundation
 import os
+import CmuxNextWakeups
 
 /// The palette's usage history as the home daemon owns it
 /// (`palette-usage-v1`, plans/cmux-next/palette-ranking.md 5.3): one writer
@@ -16,6 +17,8 @@ final class DaemonPaletteUsageStore: PaletteUsageStore {
     private nonisolated static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "palette.usage")
 
     private weak var services: AppServices?
+    /// The app's blocking-work lanes: the former histories are read there.
+    private let work: BackgroundWork
     private let local: LocalPaletteUsageStore
     private let preferences: URL
     /// The connection whose former histories were imported this launch.
@@ -41,6 +44,7 @@ final class DaemonPaletteUsageStore: PaletteUsageStore {
     init(services: AppServices, local: LocalPaletteUsageStore = LocalPaletteUsageStore(persistence: UserDefaultsFrecencyPersistence()),
          preferences: URL = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Preferences")) {
         self.services = services
+        work = services.work
         self.local = local
         self.preferences = preferences
         history = local.history
@@ -96,7 +100,8 @@ final class DaemonPaletteUsageStore: PaletteUsageStore {
             var snapshot = try PaletteUsageWire.history(try await client.get())
             if importedOn != id {
                 var importedAny = false
-                for former in await PaletteUsageLegacyHistory.read(preferences: preferences)
+                let formers = await PaletteUsageLegacyHistory.read(preferences: preferences, runner: work)
+                for former in formers
                 where !snapshot.imported.contains(former.source) && !Task.isCancelled {
                     do {
                         _ = try await client.importHistory(source: former.source, entries: former.rows,

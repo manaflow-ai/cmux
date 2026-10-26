@@ -1,3 +1,4 @@
+public import CmuxNextCompat
 import CmuxNextSettings
 public import Foundation
 
@@ -8,7 +9,7 @@ public import Foundation
 /// viewed with the patch fingerprint they had then, so a later change of the
 /// file shows as "changed since viewed". At most ``scopeLimit`` scopes (the
 /// least recently changed go first) and ``fileLimit`` files per scope. Reads
-/// and writes run off the main actor, writes in order.
+/// and writes run on the runner's files lane, writes in order.
 public final class DiffViewedFiles {
     static let fileName = "diff-viewed.json"
     static let scopeLimit = 200
@@ -26,12 +27,15 @@ public final class DiffViewedFiles {
     }
 
     let url: URL
+    /// The app's blocking-work lanes: the file reads and writes run there, never on the pool.
+    let runner: any MayBlockRunner
     private var scopes: [Scope]?
     private var loading: Task<[Scope], Never>?
     private var saving: Task<Void, Never>?
 
-    public init(url: URL) {
+    public init(url: URL, runner: any MayBlockRunner) {
         self.url = url
+        self.runner = runner
     }
 
     public static func standardURL(recents: URL) -> URL {
@@ -68,33 +72,38 @@ public final class DiffViewedFiles {
         all.removeAll { $0.key == key }
         if !scope.files.isEmpty { all.insert(scope, at: 0) }
         scopes = Array(all.prefix(Self.scopeLimit))
-        let snapshot = scopes ?? [], url = url, previous = saving
+        let snapshot = scopes ?? [], url = url, runner = runner, previous = saving
         saving = Task {
             await previous?.value
-            await Self.write(snapshot, to: url)
+            await Self.write(snapshot, to: url, on: runner)
         }
     }
 
     private func load() async -> [Scope] {
         if let scopes { return scopes }
-        let task = loading ?? Task { [url] in await Self.read(url) }
+        let task = loading ?? Task { [url, runner] in await Self.read(url, on: runner) }
         loading = task
         let read = await task.value
         if scopes == nil { scopes = read }
         return scopes ?? read
     }
 
-    @concurrent private static func read(_ url: URL) async -> [Scope] {
-        guard let size = (try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize, size <= 16 * 1024 * 1024,
-              // concurrency-allow: @concurrent, one capped read of a small local file
-              let data = try? Data(contentsOf: url),
-              let scopes = try? JSONDecoder().decode([Scope].self, from: data) else { return [] }
-        return scopes.sorted { $0.changedAt > $1.changedAt }
+    private static func read(_ url: URL, on runner: any MayBlockRunner) async -> [Scope] {
+        let scopes = try? await runner.runFiles(.userVisible) { () -> [Scope] in
+            guard let size = (try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize, size <= 16 * 1024 * 1024,
+                  let data = try? Data(blockingContentsOf: url),
+                  let scopes = try? JSONDecoder().decode([Scope].self, from: data) else { return [] }
+            return scopes.sorted { $0.changedAt > $1.changedAt }
+        }
+        return scopes ?? []
     }
 
-    @concurrent private static func write(_ scopes: [Scope], to url: URL) async {
-        try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-        guard let data = try? JSONEncoder().encode(scopes) else { return }
-        try? data.write(to: url, options: .atomic)
+    /// One atomic replace; quit waits for it, so a mark made just before quit stays.
+    private static func write(_ scopes: [Scope], to url: URL, on runner: any MayBlockRunner) async {
+        _ = try? await runner.runFiles(.bestEffort, shutdown: .blockShutdown) {
+            try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+            guard let data = try? JSONEncoder().encode(scopes) else { return }
+            try? data.write(to: url, options: .atomic)
+        }
     }
 }

@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextDesign
 import CmuxNextAgentPane
+import CmuxNextCompat
 import CmuxNextPages
 import CmuxNextSettings
 import Foundation
@@ -62,6 +63,8 @@ final class FilePageProvider: PageProvider, PageDynamicResourceSource {
     /// Strong: the tab host holds its service weakly, so no cycle.
     private(set) var host: (any FilePageHosting)?
     private let clock: any Clock<Duration>
+    /// The app's blocking-work lanes: link checks, `[[` listings and local images read there.
+    let runner: any MayBlockRunner
     let libraries: URL?
     let images: any RemoteImageFetching
     private var watch: FileChangeWatch?
@@ -124,7 +127,7 @@ final class FilePageProvider: PageProvider, PageDynamicResourceSource {
     /// page's to show, and writable only inside a root the user chose. `readOnly`: the host opens
     /// the document read only whoever opened it (a chat transcript).
     init(kind: FilePageKind, file: URL?, userChose: Bool = true, readOnly: Bool = false, host: any FilePageHosting,
-         clock: any Clock<Duration> = ContinuousClock(), libraries: URL?, images: any RemoteImageFetching,
+         runner: any MayBlockRunner, clock: any Clock<Duration> = ContinuousClock(), libraries: URL?, images: any RemoteImageFetching,
          tableWidths: (any MarkdownTableWidthStoring)? = nil, comments: (any MarkdownCommentStoring)? = nil) {
         self.kind = kind
         self.tableWidths = tableWidths
@@ -137,6 +140,7 @@ final class FilePageProvider: PageProvider, PageDynamicResourceSource {
             if readOnly { readOnlyDocuments.insert(file.path) }
         }
         self.host = host
+        self.runner = runner
         self.clock = clock
         self.libraries = libraries
         self.images = images
@@ -460,17 +464,13 @@ final class FilePageProvider: PageProvider, PageDynamicResourceSource {
 
     // MARK: Links
 
-    /// Whether `url` exists, off the main actor.
-    @concurrent nonisolated private static func exists(_ url: URL) async -> Bool {
-        FileManager.default.fileExists(atPath: url.path)
-    }
-
     private func openLink(_ params: JSONValue, host: any FilePageHosting, userGesture: Bool) async throws {
         guard let href = params["href"]?.stringValue else { throw PageError.invalidParams("href is required") }
         if kind == .markdown, params["kind"]?.stringValue == "file" {
             let target = Self.canonical(try path(params["target"]))
             // A stat can hang on a network or sleeping volume: never on the main actor.
-            guard await Self.exists(target) else { throw PageError(code: kind.op("not_found"), message: target.path) }
+            let exists = (try? await runner.runFiles(.userBlocking) { FileManager.default.fileExists(atPath: target.path) }) ?? false
+            guard exists else { throw PageError(code: kind.op("not_found"), message: target.path) }
             // Inside a granted document's folder (links resolved): opens. Anything else asks,
             // naming the resolved path; a refused or unshown sheet refuses the link.
             if !inGrantedFolder(target) {
@@ -498,7 +498,8 @@ final class FilePageProvider: PageProvider, PageDynamicResourceSource {
         var relatives: [String] = []
         for case .string(let relative) in (params["paths"]?.arrayValue ?? []).prefix(500) { relatives.append(relative) }
         // The symlink resolution and existence checks run off the main actor; the grants stay here.
-        let found = try await Self.resolve(relatives, from: from, file: file, roots: host.roots)
+        let file = file, roots = host.roots, paths = relatives
+        let found = try await runner.runFiles(.userVisible) { try Self.resolve(paths, from: from, file: file, roots: roots) }
         for path in found.markdown where inGrantedFolder(URL(fileURLWithPath: path)) { linked.insert(path) }
         return ["links": .object(found.links)]
     }

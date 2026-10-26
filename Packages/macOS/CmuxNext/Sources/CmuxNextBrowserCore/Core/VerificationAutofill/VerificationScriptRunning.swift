@@ -40,7 +40,8 @@ public nonisolated struct OsascriptRunner: VerificationScriptRunning {
             exited.continuation.yield(process.terminationStatus)
             exited.continuation.finish()
         }
-        try process.run()
+        // The spawn runs on the launcher's queue, never on a cooperative pool thread.
+        try await ProcessLauncher(label: "com.cmuxterm.next.browser.osascript-spawn", priority: .userVisible).launched(process)
         let outputFD = output.fileHandleForReading.fileDescriptor, errorFD = errors.fileHandleForReading.fileDescriptor
         async let out = Self.drain(outputFD)
         async let err = Self.drain(errorFD)

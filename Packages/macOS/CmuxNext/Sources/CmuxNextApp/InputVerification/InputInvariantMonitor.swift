@@ -3,6 +3,7 @@ import CmuxNextSettings
 import CmuxNextWakeups
 import Foundation
 import os
+import CmuxNextCompat
 
 /// Checks the world and geometry invariants (plans/cmux-next/input-spec.md 2.5, 2.6)
 /// against live AppKit, Ghostty and Chromium state once input settles, and
@@ -41,9 +42,9 @@ final class InputInvariantMonitor {
     private(set) var reportCount = 0
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.input")
 
-    init(tag: String?) {
+    init(tag: String?, runner: any MayBlockRunner) {
         self.tag = tag
-        store = DesyncReportStore(tag: tag)
+        store = DesyncReportStore(tag: tag, runner: runner)
     }
 
     var directory: String? { store.directory?.path(percentEncoded: false) }

@@ -10,6 +10,14 @@ import Foundation
 /// user cannot write, or an editor or `git checkout` that replaced the file and dropped them. The
 /// copy is one file per path, bounded to ``fallbackLimit`` files, oldest first out.
 actor MarkdownTableWidthRepository: MarkdownTableWidthStoring {
+    /// The queue this actor runs on (threading-model.md, `com.cmuxterm.app.next.markdown-table-widths`): its attribute and copy-file reads and writes block a thread of
+    /// its own, never a cooperative pool thread (the HomeCache pattern).
+    // executor: com.cmuxterm.app.next.markdown-table-widths
+    private nonisolated let queue = DispatchSerialQueue(label: "com.cmuxterm.app.next.markdown-table-widths", qos: .utility)
+
+    /// Runs the actor on ``queue``.
+    nonisolated var unownedExecutor: UnownedSerialExecutor { queue.asUnownedSerialExecutor() }
+
     /// The extended attribute's name.
     static let attributeName = "com.cmux.markdown.tables"
     /// The largest value kept; the page's own cap keeps far below it.

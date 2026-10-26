@@ -49,7 +49,7 @@ final class FilePageService: InternalPageProvider {
     private let tableWidths: (any MarkdownTableWidthStoring)?
     /// Where the markdown tabs keep viewer comments (viewer-comments-DESIGN.md "Comments in the viewer").
     private let comments: (any MarkdownCommentStoring)?
-    private(set) lazy var look = FilePageLook(kind: kind, settings: { [weak services] in services?.settings })
+    private(set) lazy var look = FilePageLook(kind: kind, settings: { [weak services] in services?.settings }, runner: services.work)
     /// The documents of the R96 quit hook (one per file, shared with the other file page).
     let documents: FileQuitDocuments
     /// Files whose draft is over the store's limit and that already said so.
@@ -350,7 +350,8 @@ final class FilePageService: InternalPageProvider {
         var tab = tabs[key] ?? Tab(file: nil)
         let host = FilePageTabHost(service: self, key: key)
         let libraries = Bundle.main.resourceURL.map(PageDescriptor.markdownLibraries(inAppResources:))
-        let provider = FilePageProvider(kind: kind, file: tab.file, userChose: tab.userChose, readOnly: tab.readOnly, host: host, clock: clock,
+        let provider = FilePageProvider(kind: kind, file: tab.file, userChose: tab.userChose, readOnly: tab.readOnly, host: host,
+                                        runner: services.work, clock: clock,
                                         libraries: libraries, images: images, tableWidths: tableWidths,
                                         comments: comments)
         provider.recoveredText = tab.recoveredText

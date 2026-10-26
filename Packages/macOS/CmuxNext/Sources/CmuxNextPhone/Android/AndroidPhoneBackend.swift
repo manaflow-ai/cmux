@@ -8,6 +8,14 @@ public import Foundation
 /// An actor because it remembers which `adb` serial runs each AVD and each
 /// screen's density between calls.
 public actor AndroidPhoneBackend: PhoneBackend {
+    /// The queue this actor runs on (threading-model.md, `com.cmuxterm.next.phone.android`): its screenshot writes block a thread of
+    /// its own, never a cooperative pool thread (the HomeCache pattern).
+    // executor: com.cmuxterm.next.phone.android
+    private nonisolated let queue = DispatchSerialQueue(label: "com.cmuxterm.next.phone.android", qos: .userInitiated)
+
+    /// Runs the actor on ``queue``.
+    public nonisolated var unownedExecutor: UnownedSerialExecutor { queue.asUnownedSerialExecutor() }
+
     public let sdk: AndroidSDK
     private let runner: any PhoneCommandRunning
     /// AVD name or USB serial (the id's raw value) -> adb serial, from the last list.

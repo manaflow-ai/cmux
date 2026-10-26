@@ -34,12 +34,15 @@ final class FilePageLook {
     private var importChoice: EditorImportChoice?
     private var importWatchers: [ConfigFileWatcher] = []
     private var importRead: Task<Void, Never>?
+    /// The app's blocking-work lanes: the theme file reads there.
+    private let runner: any MayBlockRunner
 
     /// `configDirectory`: where `<section>/theme.css` lives; nil uses the settings file's folder.
     /// `importSources`: where the code editor reads another editor's settings (the home folder).
-    init(kind: FilePageKind, settings: @escaping () -> SettingsController?, configDirectory: URL? = nil,
+    init(kind: FilePageKind, settings: @escaping () -> SettingsController?, runner: any MayBlockRunner, configDirectory: URL? = nil,
          importSources: EditorSettingsSources = EditorSettingsSources(home: FileManager.default.homeDirectoryForCurrentUser)) {
         self.kind = kind
+        self.runner = runner
         self.settings = settings
         fixedConfigDirectory = configDirectory
         self.importSources = importSources
@@ -175,17 +178,17 @@ final class FilePageLook {
 
     private func readTheme(_ file: URL) {
         themeRead?.cancel()
+        let runner = runner
         themeRead = Task { [weak self] in
-            let text = await Self.read(file)
+            let text = await Self.read(file, on: runner)
             guard let self, !Task.isCancelled, text != self.themeCSS else { return }
             self.themeCSS = text
             self.publish()
         }
     }
 
-    @concurrent private static func read(_ file: URL) async -> String {
-        // concurrency-allow: @concurrent, off the main actor
-        (try? String(contentsOf: file, encoding: .utf8)) ?? ""
+    private static func read(_ file: URL, on runner: any MayBlockRunner) async -> String {
+        (try? await runner.runFiles(.userVisible) { (try? String(blockingContentsOf: file, encoding: .utf8)) ?? "" }) ?? ""
     }
 
     /// Sends the keys that changed since the last event.

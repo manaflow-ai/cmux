@@ -1,3 +1,4 @@
+import CmuxNextWakeups
 public import Foundation
 
 /// Install cmux CLI in PATH: a symlink at /usr/local/bin/cmux to the bundled
@@ -231,7 +232,8 @@ public nonisolated struct CLIPathInstaller: Sendable {
             exited.continuation.yield(process.terminationStatus)
             exited.continuation.finish()
         }
-        try process.run()
+        // The spawn runs on the launcher's queue, never on a cooperative pool thread.
+        try await ProcessLauncher(label: "com.cmuxterm.next.cli-install.admin-spawn", priority: .userBlocking).launched(process)
         var message: [UInt8] = []
         for try await byte in errors.fileHandleForReading.bytes { message.append(byte) }
         var status: Int32 = -1

@@ -1,7 +1,8 @@
+import CmuxNextFiles
 import Foundation
 
 /// What the file explorer's actions do outside the explorer: open in cmux or
-/// another app, reveal in Finder, copy text. ``AppFileExplorerEffects`` in the
+/// another app, reveal in Finder, copy text, change files. ``AppFileExplorerEffects`` in the
 /// App, a recorder in tests.
 @MainActor
 protocol FileExplorerEffects: AnyObject, Sendable {
@@ -19,6 +20,8 @@ protocol FileExplorerEffects: AnyObject, Sendable {
     func copy(_ text: String)
     /// Opens `item` with the app named by `app` (a bundle id, an app path or an app name).
     func open(_ item: URL, withApp app: String) async throws
+    /// New File, New Folder, Rename and Move to Trash: the file changes, on the app's files lane.
+    var files: any FileOperating { get }
 }
 
 extension FileExplorerEffects {

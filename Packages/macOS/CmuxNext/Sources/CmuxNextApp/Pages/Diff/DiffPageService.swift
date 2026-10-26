@@ -9,6 +9,7 @@ import CmuxNextDiff
 import CmuxNextIcons
 import CmuxNextPages
 import CmuxNextSettings
+import CmuxNextWakeups
 
 extension InternalPageID {
     /// The diff viewer (diff-host.md Q4: a pane tab in the workspace).
@@ -49,10 +50,11 @@ final class DiffPageService: InternalPageProvider {
     private unowned let services: AppServices
     /// Made on the first tab (tests pass their own).
     private lazy var runtime = DiffPageRuntime(git: services.agentGit.local)
-    private lazy var recentsStore = DiffRecents(url: DiffRecents.standardURL(launch: services.environment.launch))
+    private lazy var recentsStore = DiffRecents(url: DiffRecents.standardURL(launch: services.environment.launch), runner: services.work)
     /// Prefs (`diff.*` settings) and viewed marks (next to the recents), shared by every tab.
     private lazy var stores = DiffPageStores(prefs: SettingsDiffPrefs { [weak services] in services?.settings },
-                                             viewed: DiffViewedFiles(url: DiffViewedFiles.standardURL(recents: recentsStore.url)))
+                                             viewed: DiffViewedFiles(url: DiffViewedFiles.standardURL(recents: recentsStore.url),
+                                                                                     runner: services.work))
     /// The diff page draws at the display's full rate (120 Hz), as the agent pane does, not
     /// WebKit's default nearest 60 fps.
     static let engineOptions = PageEngineOptions(fullFrameRate: true)
@@ -277,7 +279,7 @@ final class DiffPageService: InternalPageProvider {
                                         stores: stores, git: diffGit)
         let native = AppPageNativeProvider(services: services, page: .diff)
         let routes = [PageRoute(prefix: "cmux.diff.", provider: provider), PageRoute(prefix: "cmux.app.", provider: native)]
-        let patches = DiffPatchSource { [weak provider] in provider?.ready }
+        let patches = DiffPatchSource(runner: services.work) { [weak provider] in provider?.ready }
         guard let page = services.webUI.open(PageOpenRequest(descriptor: .diff, routes: routes, options: Self.engineOptions,
                                                              surface: .diff, dynamicResources: patches)) else {
             ready?.cancel()

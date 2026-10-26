@@ -8,6 +8,7 @@ import CmuxNextSettings
 import CmuxNextTabs
 import CmuxNextTerminal
 import Observation
+import CmuxNextWakeups
 
 /// Room, workspace and terminal themes (plans/cmux-next/data-model.md 6).
 ///
@@ -60,11 +61,13 @@ final class ThemeCoordinator {
         self.services = services
         self.terminalThemes = terminalThemes
         self.workspaceBackgrounds = workspaceBackgrounds
-            ?? .forApplication(bundleIdentifier: services.environment.launch.bundleID)
+            ?? .forApplication(bundleIdentifier: services.environment.launch.bundleID, runner: services.work)
         self.workspaceOpacities = workspaceOpacities
-            ?? .forApplication(bundleIdentifier: services.environment.launch.bundleID, file: "workspace-background-opacity.json")
+            ?? .forApplication(bundleIdentifier: services.environment.launch.bundleID, file: "workspace-background-opacity.json",
+                               runner: services.work)
         self.appearanceScopes = appearanceScopes
-            ?? .forApplication(bundleIdentifier: services.environment.launch.bundleID, file: "appearance-scopes.json")
+            ?? .forApplication(bundleIdentifier: services.environment.launch.bundleID, file: "appearance-scopes.json",
+                               runner: services.work)
         resolver.onChange = { [weak self] in
             self?.apply(forceSurfaces: true)
             self?.applyChromeTheme()

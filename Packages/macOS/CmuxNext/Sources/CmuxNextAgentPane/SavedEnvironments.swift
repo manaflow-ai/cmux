@@ -5,6 +5,14 @@ public import Foundation
 /// whole (atomically, owner-only, as the folders and machines a user works on are their own). An
 /// actor, so the file IO never runs on the main actor.
 public actor SavedEnvironments: AgentPaneEnvironmentStoring {
+    /// The queue this actor runs on (threading-model.md, `com.cmuxterm.app.next.agent-pane.saved-environments`): its file reads and writes block a thread of
+    /// its own, never a cooperative pool thread (the HomeCache pattern).
+    // executor: com.cmuxterm.app.next.agent-pane.saved-environments
+    private nonisolated let queue = DispatchSerialQueue(label: "com.cmuxterm.app.next.agent-pane.saved-environments", qos: .userInitiated)
+
+    /// Runs the actor on ``queue``.
+    public nonisolated var unownedExecutor: UnownedSerialExecutor { queue.asUnownedSerialExecutor() }
+
     /// Most environments kept; a save past it is refused.
     static let maximumCount = 200
 

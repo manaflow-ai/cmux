@@ -1,11 +1,12 @@
 import Foundation
 import Testing
 @testable import CmuxNextFiles
+import CmuxNextWakeups
 
 /// Rename, new folder, duplicate, trash and put back, copy and move with
 /// conflicts. Every write is inside a fresh temp folder.
 struct FileOperatorTests {
-    private let files = FileOperator()
+    private let files = FileOperator(work: BackgroundWork())
 
     @Test func renameRefusesTakenAndInvalidNames() async throws {
         let temp = try TempFolder()

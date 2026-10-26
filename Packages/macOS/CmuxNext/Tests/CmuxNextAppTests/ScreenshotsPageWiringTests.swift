@@ -8,6 +8,7 @@ import CmuxNextIcons
 import CmuxNextScreenshots
 import Foundation
 import Testing
+import CmuxNextWakeups
 
 /// The Screenshots pane in the app: one registered action opens it from the palette, the Window
 /// menu and the CLI; `cmux://screenshots` routes to the native page with its icon; the page tab
@@ -34,7 +35,7 @@ import Testing
     @Test func thePageFiltersOnFindAndLeavesForAWebAddress() async throws {
         let model = ScreenshotsModel(watcher: NoWatch())
         let page = ScreenshotsPageTab(id: BrowserTabID(rawValue: "t1"), engine: .webkit, profile: .default, model: model,
-                                      cache: ThumbnailCache(), workspace: RecordingWorkspace(), files: FileOperator())
+                                      cache: ThumbnailCache(), workspace: RecordingWorkspace(), files: FileOperator(work: BackgroundWork()))
         defer { page.close() }
         #expect(page.state.url == ScreenshotsPageAddress.url)
         #expect(page.state.title == ScreenshotsPageAddress.title)

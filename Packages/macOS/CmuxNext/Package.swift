@@ -793,12 +793,12 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         // Screenshots pane and the Files pane both read folders through it.
         .target(
             name: "CmuxNextFiles",
-            dependencies: ["CmuxNextWakeups"],
+            dependencies: ["CmuxNextCompat", "CmuxNextWakeups"],
             swiftSettings: daemonSwiftSettings
         ),
         .testTarget(
             name: "CmuxNextFilesTests",
-            dependencies: ["CmuxNextFiles"],
+            dependencies: ["CmuxNextCompat", "CmuxNextFiles", "CmuxNextWakeups"],
             swiftSettings: daemonSwiftSettings
         ),
         // The Files pane's AppKit views over CmuxNextFiles: list (NSTableView), icons
@@ -974,7 +974,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         ),
         .testTarget(
             name: "CmuxNextScreenshotsTests",
-            dependencies: ["CmuxNextFileGrid", "CmuxNextFiles", "CmuxNextScreenshots"],
+            dependencies: ["CmuxNextFileGrid", "CmuxNextFiles", "CmuxNextScreenshots", "CmuxNextWakeups"],
             swiftSettings: uiSwiftSettings
         ),
         // The built-in Memory Inspector (plans/cmux-next/memory-inspector-native-DESIGN.md):
@@ -1363,6 +1363,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         // (moved out of CmuxNextApp to keep it under its size cap).
         .target(
             name: "CmuxNextCLIInstall",
+            dependencies: ["CmuxNextWakeups"],
             swiftSettings: daemonSwiftSettings
         ),
         // The freeze gate for this process's environment writes (libghostty

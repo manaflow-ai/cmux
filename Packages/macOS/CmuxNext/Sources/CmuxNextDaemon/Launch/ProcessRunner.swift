@@ -1,5 +1,6 @@
 public import Foundation
 import CmuxNextCompat
+import CmuxNextWakeups
 import Darwin
 import Dispatch
 
@@ -61,23 +62,28 @@ public struct ProcessRunner {
         defer { progress?.cancel() }
 
         let box = ProcessBox(process)
+        // The spawn (a fork and exec, hundreds of ms under memory pressure) runs on the launcher's
+        // queue, never on a cooperative pool thread.
+        let launcher = ProcessLauncher(label: "com.cmuxterm.next.process-runner.spawn", priority: .userVisible)
         // A cancelled caller kills the child, so the waiter below ends now
         // instead of at the child's own exit or the deadline.
         let status: Int32 = try await withTaskCancellationHandler {
             try await withThrowingTaskGroup(of: Int32?.self) { group in
                 group.addTask {
-                    await withCheckedContinuation { (continuation: CheckedContinuation<Int32?, Never>) in
-                        box.process.terminationHandler = { process in
-                            continuation.resume(returning: process.terminationStatus)
-                        }
-                        do {
-                            try box.process.run()
-                            if Task.isCancelled { box.kill() }
-                        } catch {
-                            box.process.terminationHandler = nil
-                            continuation.resume(returning: nil)
-                        }
+                    let (exits, exited) = AsyncStream.makeStream(of: Int32.self, bufferingPolicy: .bufferingNewest(1))
+                    box.process.terminationHandler = { process in
+                        exited.yield(process.terminationStatus)
+                        exited.finish()
                     }
+                    do {
+                        try await launcher.launched(box.process)
+                    } catch {
+                        box.process.terminationHandler = nil
+                        return nil
+                    }
+                    if Task.isCancelled { box.kill() }
+                    for await status in exits { return status }
+                    return nil
                 }
                 group.addTask {
                     guard let progressIdle, let progress else {

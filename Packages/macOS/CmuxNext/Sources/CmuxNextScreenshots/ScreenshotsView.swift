@@ -35,7 +35,7 @@ public final class ScreenshotsView: NSView {
     ///   - files: copies drops in, renames and trashes (CmuxNextFiles).
     ///   - appearance: grid colors and tile size.
     public init(model: ScreenshotsModel, cache: ThumbnailCache, workspace: any ScreenshotsWorkspace,
-                files: any FileOperating = FileOperator(), appearance: FileGridAppearance = FileGridAppearance()) {
+                files: any FileOperating, appearance: FileGridAppearance = FileGridAppearance()) {
         self.model = model
         self.grid = FileGridView(cache: cache, appearance: appearance)
         self.saver = ScreenshotDropSaver(files: files)

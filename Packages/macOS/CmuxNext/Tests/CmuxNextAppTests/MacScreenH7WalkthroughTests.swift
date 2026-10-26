@@ -3,6 +3,7 @@ import CmuxNextDevices
 import CryptoKit
 import Foundation
 import Testing
+import CmuxNextWakeups
 
 // Defects from the H7 walkthrough (2026-10-20). Settings › Devices froze the
 // app for 8-20 s at a time: its state getter read each relay's secret from
@@ -77,7 +78,7 @@ struct MacScreenDevicesKeychainTests {
         #expect(hub.relays.count == 2)
 
         let file = FileManager.default.temporaryDirectory.appending(path: "mac-screen-\(UUID().uuidString)/mac-screen.json")
-        let pages = MacScreenPages(store: MacScreenStore(file: file))
+        let pages = MacScreenPages(store: MacScreenStore(file: file, runner: BackgroundWork()))
         let settings = MacScreenDevicesSettings(pages: pages)
         pages.hubConfigured = true
         pages.hub = hub

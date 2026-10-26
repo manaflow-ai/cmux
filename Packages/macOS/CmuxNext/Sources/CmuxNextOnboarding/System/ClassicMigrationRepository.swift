@@ -11,6 +11,14 @@ public import Foundation
 /// try await repository.save(ledger)
 /// ```
 public actor ClassicMigrationRepository {
+    /// The queue this actor runs on (threading-model.md, `com.cmuxterm.next.onboarding.classic-migration`): its ledger and backup writes block a thread of
+    /// its own, never a cooperative pool thread (the HomeCache pattern).
+    // executor: com.cmuxterm.next.onboarding.classic-migration
+    private nonisolated let queue = DispatchSerialQueue(label: "com.cmuxterm.next.onboarding.classic-migration", qos: .userInitiated)
+
+    /// Runs the actor on ``queue``.
+    public nonisolated var unownedExecutor: UnownedSerialExecutor { queue.asUnownedSerialExecutor() }
+
     /// How many backup folders are kept, newest first.
     public static let keptBackups = 5
 

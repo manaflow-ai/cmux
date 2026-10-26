@@ -1,6 +1,8 @@
 import AppKit
 import CmuxNextCompat
 import CmuxNextFilesUI
+import CmuxNextFiles
+import CmuxNextWakeups
 
 /// The App's ``FileExplorerEffects``: cmux viewers through the link opener
 /// (beside the active window's focused pane), the rest through NSWorkspace's
@@ -8,9 +10,12 @@ import CmuxNextFilesUI
 @MainActor
 final class AppFileExplorerEffects: FileExplorerEffects {
     private weak var services: AppServices?
+    let files: any FileOperating
 
     init(services: AppServices) {
         self.services = services
+        files = FileOperator(namer: FileNamer(copyWord: FilesPaneView.copyWord, aliasWord: FilesPaneView.aliasWord),
+                             work: services.work)
     }
 
     func openInCmux(_ file: URL, at position: FilePosition?) -> Bool {

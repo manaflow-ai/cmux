@@ -45,7 +45,7 @@ final class AppServices {
     /// The app's theme store (the one ``ThemeScope/app`` roots on), handed to the App's theme owners.
     let themeStore = ThemeScope.app.store
     /// The recovery-draft backstop of unsaved documents (R96).
-    let recoveryDrafts = RecoveryDraftStore(directory: RecoveryDraftFiles.defaultDirectory)
+    let recoveryDrafts: RecoveryDraftStore
     /// The quit hook's unsaved-document participants; drafts go to ``recoveryDrafts``.
     private(set) lazy var quitUnsaved = QuitUnsavedRegistry(drafts: recoveryDrafts)
     /// The open files' quit documents, shared by the markdown and editor pages.
@@ -378,7 +378,7 @@ final class AppServices {
     private(set) lazy var terminalColors = TerminalColorSync(machines: machines) {  // first read in init (no IUO)
         GhosttyRuntime.shared.themeColors.map(TerminalDefaultColors.init)
     }
-    private(set) lazy var themes: ThemeCoordinator = ThemeCoordinator(services: self, terminalThemes: .forApplication(bundleIdentifier: environment.launch.bundleID))  // first read in init (no IUO)
+    private(set) lazy var themes: ThemeCoordinator = ThemeCoordinator(services: self, terminalThemes: .forApplication(bundleIdentifier: environment.launch.bundleID, runner: work))  // first read in init (no IUO)
     /// Browser tabs of remote machines reach that machine's localhost.
     private(set) lazy var remoteLocalhost = machines.makeRemoteLocalhost()  // first read in init (no IUO)
     /// Which machines run browser tabs there, and their runtimes (cx-2cob slice 2).
@@ -459,6 +459,7 @@ final class AppServices {
          launchImages: AgentPaneLaunchImages = AgentPaneLaunchImages(directory: nil), relaunchWake: AgentPaneRelaunchWake = AgentPaneRelaunchWake(file: nil),
          wireStats: DaemonWireStats? = nil) {
         self.work = work
+        recoveryDrafts = RecoveryDraftStore(directory: RecoveryDraftFiles.defaultDirectory, work: work)
         // First: the black-box ring is attached to TraceRuntime.shared, so every trace point records from here
         // on; the ring file opens on `.files`, never on main.
         traceBlackBox = environment.marksRun ? TraceBlackBoxFileSteps.startApp(bundleID: environment.launch.bundleID, work: work) : nil

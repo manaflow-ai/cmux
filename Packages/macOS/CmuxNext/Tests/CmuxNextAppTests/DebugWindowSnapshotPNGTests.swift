@@ -5,6 +5,7 @@ import Foundation
 import ImageIO
 import Testing
 import UniformTypeIdentifiers
+import CmuxNextWakeups
 
 /// `debug.window_snapshot` keeps AppKit capture on the main actor but hands the
 /// immutable image to the off-main PNG encoder. This exercises the encoder's
@@ -29,7 +30,7 @@ struct DebugWindowSnapshotPNGTests {
         defer { try? FileManager.default.removeItem(at: directory) }
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
 
-        try await NSWindow.encodeSnapshotPNG(image, to: url)
+        try await NSWindow.encodeSnapshotPNG(image, to: url, on: BackgroundWork())
 
         let source = try #require(CGImageSourceCreateWithURL(url as CFURL, nil))
         let decoded = try #require(CGImageSourceCreateImageAtIndex(source, 0, nil))

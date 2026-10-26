@@ -3,6 +3,7 @@ import CmuxNextControl
 import CmuxNextDaemon
 import CmuxNextFocus
 import CmuxNextInput
+import CmuxNextWakeups
 
 /// Input verification (plans/cmux-next/input-spec.md): the journal policy,
 /// the input tap's events into the journal, the invariant monitor and its
@@ -30,7 +31,7 @@ final class InputVerificationService {
         let tag = services.environment.tag
         journal.configure(InputJournalPolicy.resolve(isDebugBuild: ControlService.isDebugBuild, tag: tag,
                                                      environment: ProcessInfo.processInfo.environment))
-        let monitor = InputInvariantMonitor(tag: tag)
+        let monitor = InputInvariantMonitor(tag: tag, runner: services.work)
         monitor.services = services
         self.monitor = monitor
         journalSubscription = Self.subscribeJournal(journal, to: services.inputTap) { monitor.noteChange() }

@@ -10,6 +10,7 @@ import ImageIO
 import Testing
 import WebKit
 import UniformTypeIdentifiers
+import CmuxNextWakeups
 
 /// u9489 (Oct 21): "I want to be able to right-click and open it as text instead of as the HTML
 /// page. I want to open it in Monaco editor instead." A page cmux renders (HTML, SVG, Markdown)
@@ -150,6 +151,7 @@ struct FileOpenAsTextTests {
     // MARK: The Files sidebar (the registry's fileExplorerRow menu)
 
     @MainActor final class TextRecorder: FileExplorerEffects {
+        let files: any FileOperating = FileOperator(work: BackgroundWork())
         private(set) var openedAsText: [URL] = []
         func openInCmux(_ file: URL, at position: FilePosition?) -> Bool { true }
         func openAsText(_ file: URL) -> Bool { openedAsText.append(file); return true }

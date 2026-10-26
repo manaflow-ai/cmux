@@ -33,8 +33,8 @@ nonisolated enum BuildHomeAdoption {
     static let run: Task<Void, Never> = Task.detached(priority: .userInitiated) {
         let environment = ProcessInfo.processInfo.environment
         guard applies(bundleID: Bundle.main.bundleIdentifier, environment: environment) else { return }
-        guard let cli = Bundle.main.resourceURL?.appendingPathComponent("bin/cmux"),
-              FileManager.default.isExecutableFile(atPath: cli.path) else {
+        // A missing or unrunnable CLI fails its spawn in ``adopt(cli:environment:)``, which logs it.
+        guard let cli = Bundle.main.resourceURL?.appendingPathComponent("bin/cmux") else {
             logger.error("adoption skipped: no bundled cmux CLI")
             return
         }

@@ -1,3 +1,4 @@
+public import CmuxNextCompat
 import Foundation
 import os
 
@@ -5,17 +6,20 @@ import os
 /// of S4, P2-4): `<repo root>\u{0}<path>` keys, at most ``DiffPrefKey/maximumCollapsedFiles``,
 /// kept by the host next to the viewed marks (`diff-collapsed.json`), never in cmux.json. The page
 /// still reads and writes them as the `collapsedFiles` pref (`cmux.diff.prefs.*`). Reads and writes
-/// run off the main actor, writes in order.
+/// run on the runner's files lane, writes in order.
 public final class DiffCollapsedFiles {
     static let fileName = "diff-collapsed.json"
 
     let url: URL
+    /// The app's blocking-work lanes: the file reads and writes run there, never on the pool.
+    let runner: any MayBlockRunner
     private var files: [String]?
     private var loading: Task<[String], Never>?
     private var saving: Task<Void, Never>?
 
-    init(url: URL) {
+    init(url: URL, runner: any MayBlockRunner) {
         self.url = url
+        self.runner = runner
     }
 
     /// Next to the viewed marks (and the recents).
@@ -29,10 +33,10 @@ public final class DiffCollapsedFiles {
     func set(_ entries: [String]) async {
         _ = await load()
         files = Array(entries.suffix(DiffPrefKey.maximumCollapsedFiles))
-        let snapshot = files ?? [], url = url, previous = saving
+        let snapshot = files ?? [], url = url, runner = runner, previous = saving
         saving = Task {
             await previous?.value
-            await Self.write(snapshot, to: url)
+            await Self.write(snapshot, to: url, on: runner)
         }
     }
 
@@ -41,25 +45,32 @@ public final class DiffCollapsedFiles {
 
     private func load() async -> [String] {
         if let files { return files }
-        let task = loading ?? Task { [url] in await Self.read(url) }
+        let task = loading ?? Task { [url, runner] in await Self.read(url, on: runner) }
         loading = task
         let read = await task.value
         if files == nil { files = read }
         return files ?? read
     }
 
-    @concurrent private static func read(_ url: URL) async -> [String] {
-        guard let size = (try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize, size <= 4 * 1024 * 1024,
-              // concurrency-allow: @concurrent, one capped read of a small local file
-              let data = try? Data(contentsOf: url),
-              let entries = try? JSONDecoder().decode([String].self, from: data) else { return [] }
-        return Array(entries.suffix(DiffPrefKey.maximumCollapsedFiles))
+    private static func read(_ url: URL, on runner: any MayBlockRunner) async -> [String] {
+        let entries = try? await runner.runFiles(.userVisible) { () -> [String] in
+            guard let size = (try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize, size <= 4 * 1024 * 1024,
+                  let data = try? Data(blockingContentsOf: url),
+                  let entries = try? JSONDecoder().decode([String].self, from: data) else { return [] }
+            return Array(entries.suffix(DiffPrefKey.maximumCollapsedFiles))
+        }
+        return entries ?? []
     }
 
-    @concurrent private static func write(_ entries: [String], to url: URL) async {
+    /// One small atomic replace, so quit waits for it (a collapse made just before quit stays).
+    private static func write(_ entries: [String], to url: URL, on runner: any MayBlockRunner) async {
         do {
-            try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-            try JSONEncoder().encode(entries).write(to: url, options: .atomic)
+            try await runner.runFiles(.bestEffort, shutdown: .blockShutdown) {
+                try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+                try JSONEncoder().encode(entries).write(to: url, options: .atomic)
+            }
+        } catch is CancellationError {
+            return
         } catch {
             Logger(subsystem: "com.cmuxterm.app.next", category: "diff-collapsed")
                 .error("collapsed files not saved: \(error.localizedDescription, privacy: .public)")

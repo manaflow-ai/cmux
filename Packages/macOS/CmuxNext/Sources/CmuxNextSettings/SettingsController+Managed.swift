@@ -32,13 +32,11 @@ extension SettingsController {
         guard body != lastStatusBody else { return }
         lastStatusBody = body
         let document = ManagedStatusReport.document(body: body, writtenAt: Date())
-        Task.detached(priority: .utility) {
-            do {
-                try FileManager.default.createDirectory(at: target.url.deletingLastPathComponent(), withIntermediateDirectories: true)
-                try Data((document.prettyText() + "\n").utf8).write(to: target.url, options: .atomic)
-            } catch {
-                // Best effort: the file is a convenience for local tooling; the backend report is the record.
-            }
+        let file = file
+        // task-owner: one best-effort write on the config file's queue; nothing awaits it.
+        Task {
+            // Best effort: the file is a convenience for local tooling; the backend report is the record.
+            try? await file.writeSideFile(Data((document.prettyText() + "\n").utf8), to: target.url)
         }
     }
 

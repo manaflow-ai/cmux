@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import Foundation
 import Observation
 import os
@@ -23,18 +24,21 @@ final class TerminalThemeStore {
     /// or could not be read: it is left as is, and changes stay in memory.
     @ObservationIgnored private var keepsFile = false
     @ObservationIgnored private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "themes")
+    /// The app's blocking-work lanes: the file's read and writes run there.
+    @ObservationIgnored private let runner: any MayBlockRunner
 
     /// `url` nil keeps themes in memory only (tests). Changes reach the
     /// file once `load()` has read it.
-    init(url: URL?) {
+    init(url: URL?, runner: any MayBlockRunner) {
         self.url = url
+        self.runner = runner
     }
 
-    static func forApplication(bundleIdentifier: String?) -> TerminalThemeStore {
+    static func forApplication(bundleIdentifier: String?, runner: any MayBlockRunner) -> TerminalThemeStore {
         let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
             ?? URL(filePath: NSTemporaryDirectory())
         let bundle = bundleIdentifier.flatMap { $0.isEmpty ? nil : $0 } ?? "com.cmuxterm.app.next"
-        return TerminalThemeStore(url: support.appending(path: bundle).appending(path: "terminal-themes.json"))
+        return TerminalThemeStore(url: support.appending(path: bundle).appending(path: "terminal-themes.json"), runner: runner)
     }
 
     static func key(machine: String, tab: String) -> String { "\(machine):\(tab)" }
@@ -66,7 +70,7 @@ final class TerminalThemeStore {
     func load() async {
         guard let url else { return }
         let logger = logger
-        let loaded = await Task.detached(priority: .userInitiated) { Self.read(url, logger: logger) }.value
+        let loaded = (try? await runner.runFiles(.userBlocking) { Self.read(url, logger: logger) }) ?? ([:], false)
         // A theme set before the file loaded wins.
         themes = loaded.themes.merging(themes) { _, current in current }
         keepsFile = !loaded.complete
@@ -87,7 +91,7 @@ final class TerminalThemeStore {
     nonisolated static func read(_ url: URL, logger: Logger) -> (themes: [String: String], complete: Bool) {
         let manager = FileManager.default
         guard manager.fileExists(atPath: url.path) else { return ([:], true) }
-        // concurrency-allow: called from a detached task in load(), off the main actor
+        // concurrency-allow: load() runs it on the files lane, off the main actor
         guard let data = try? Data(contentsOf: url) else { return ([:], false) }
         guard let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else {
             let first = url.appendingPathExtension("corrupt")
@@ -118,15 +122,19 @@ final class TerminalThemeStore {
         }
         let data = try? JSONEncoder().encode(themes)
         let empty = themes.isEmpty
-        let previous = lastWrite, logger = logger
-        lastWrite = Task.detached(priority: .utility) {
+        let previous = lastWrite, logger = logger, runner = runner
+        // task-owner: lastWrite; each write waits for the one before it, so they land in order.
+        lastWrite = Task {
             await previous?.value
             do {
-                if let data, !empty {
-                    try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-                    try data.write(to: url, options: .atomic)
-                } else if FileManager.default.fileExists(atPath: url.path) {
-                    try FileManager.default.removeItem(at: url)
+                // One small atomic replace: quit waits for it.
+                try await runner.runFiles(.bestEffort, shutdown: .blockShutdown) {
+                    if let data, !empty {
+                        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+                        try data.write(to: url, options: .atomic)
+                    } else if FileManager.default.fileExists(atPath: url.path) {
+                        try FileManager.default.removeItem(at: url)
+                    }
                 }
             } catch {
                 logger.error("terminal themes write failed: \(String(describing: error), privacy: .public)")

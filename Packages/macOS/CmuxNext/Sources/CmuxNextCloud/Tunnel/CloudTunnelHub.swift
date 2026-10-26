@@ -14,6 +14,14 @@ import os
 /// bumped it, and `revoke()` waits for an in-flight start before it sends
 /// the server revoke, so an enrollment can never land after the revoke.
 public actor CloudTunnelHub {
+    /// The queue this actor runs on (threading-model.md, `com.cmuxterm.next.cloud.tunnel-hub`): its binary check block a thread of
+    /// its own, never a cooperative pool thread (the HomeCache pattern).
+    // executor: com.cmuxterm.next.cloud.tunnel-hub
+    private nonisolated let queue = DispatchSerialQueue(label: "com.cmuxterm.next.cloud.tunnel-hub", qos: .utility)
+
+    /// Runs the actor on ``queue``.
+    public nonisolated var unownedExecutor: UnownedSerialExecutor { queue.asUnownedSerialExecutor() }
+
     public enum HubError: Error, Sendable, Equatable {
         /// Signed out: no enrollment until the next sign-in.
         case revoked

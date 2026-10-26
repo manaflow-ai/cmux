@@ -1,3 +1,4 @@
+public import CmuxNextCompat
 public import Foundation
 public import Observation
 import Security
@@ -54,21 +55,24 @@ public final class MacScreenStore {
     @ObservationIgnored let removeLinkPairings: @Sendable () -> Void
     @ObservationIgnored private var linkPairingsRemoved = false
     @ObservationIgnored private var saveTask: Task<Void, Never>?
+    /// The app's blocking-work lanes: the file and the Keychain cleanup run there.
+    @ObservationIgnored public let runner: any MayBlockRunner
 
     /// `removeLinkPairings` deletes the Keychain items earlier builds kept for link pairing.
-    public init(file: URL, removeLinkPairings: @escaping @Sendable () -> Void = {}) {
+    public init(file: URL, runner: any MayBlockRunner, removeLinkPairings: @escaping @Sendable () -> Void = {}) {
         self.file = file
+        self.runner = runner
         self.removeLinkPairings = removeLinkPairings
     }
 
     /// `<Application Support>/<bundle id>/mac-screen.json`; the old link
     /// pairings were Keychain items under `<bundle id>.mac-screen`.
-    public static func forApplication(bundleIdentifier: String?) -> MacScreenStore {
+    public static func forApplication(bundleIdentifier: String?, runner: any MayBlockRunner) -> MacScreenStore {
         let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
             ?? URL(filePath: NSTemporaryDirectory())
         let bundle = bundleIdentifier.flatMap { $0.isEmpty ? nil : $0 } ?? "com.cmuxterm.app.next"
         let service = "\(bundle).mac-screen"
-        return MacScreenStore(file: support.appending(path: bundle).appending(path: "mac-screen.json"), removeLinkPairings: {
+        return MacScreenStore(file: support.appending(path: bundle).appending(path: "mac-screen.json"), runner: runner, removeLinkPairings: {
             SecItemDelete([kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service] as CFDictionary)
         })
     }
@@ -78,12 +82,13 @@ public final class MacScreenStore {
     public func load() async {
         if isLoaded { return }
         if loadTask == nil {
-            let file = file, remove = removeLinkPairings
+            let file = file, remove = removeLinkPairings, runner = runner
             loadTask = Task { [weak self] in
-                let stored = await Task.detached { () -> File? in
-                    guard let data = try? Data(contentsOf: file) else { return nil }
+                let read = try? await runner.runFiles(.userVisible) { () -> File? in
+                    guard let data = try? Data(blockingContentsOf: file) else { return nil }
                     return try? JSONDecoder().decode(File.self, from: data)
-                }.value
+                }
+                let stored = read ?? nil
                 guard let self else { return }
                 if let stored {
                     hubDeviceName = hubDeviceName ?? stored.hubDeviceName
@@ -92,7 +97,7 @@ public final class MacScreenStore {
                 if stored?.linkPairingsRemoved != true {
                     // One time: the Keychain items of link pairing (every saved Mac's room
                     // secret and this Mac's own link) and the file's old fields go.
-                    await Task.detached { remove() }.value
+                    _ = try? await runner.runSystem(.bestEffort) { remove() }
                     linkPairingsRemoved = true
                     save()
                 } else {
@@ -127,11 +132,15 @@ public final class MacScreenStore {
     private func save() {
         let contents = File(hubDeviceName: hubDeviceName, deviceNames: deviceNames, linkPairingsRemoved: linkPairingsRemoved)
         guard let data = try? JSONEncoder().encode(contents) else { return }
-        let file = file, previous = saveTask
-        saveTask = Task.detached {
+        let file = file, previous = saveTask, runner = runner
+        // task-owner: saveTask; each write waits for the one before it, so they land in order.
+        saveTask = Task {
             await previous?.value
-            try? FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
-            try? data.write(to: file, options: .atomic)
+            // One small atomic replace: quit waits for it.
+            _ = try? await runner.runFiles(.bestEffort, shutdown: .blockShutdown) {
+                try? FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
+                try? data.write(to: file, options: .atomic)
+            }
         }
     }
 

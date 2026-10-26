@@ -4,6 +4,7 @@ import CmuxNextDevices
 import CmuxScreenKit
 import Foundation
 import Testing
+import CmuxNextWakeups
 
 nonisolated private let viewDeviceID = "0b6c1a2e-3d4f-4a5b-8c9d-aabbccddeeff"
 
@@ -52,7 +53,7 @@ struct MacScreenAppKitViewTests {
 
     private func makePages() -> MacScreenPages {
         let file = FileManager.default.temporaryDirectory.appending(path: "mac-screen-\(UUID().uuidString)/mac-screen.json")
-        return MacScreenPages(store: MacScreenStore(file: file, removeLinkPairings: {}))
+        return MacScreenPages(store: MacScreenStore(file: file, runner: BackgroundWork(), removeLinkPairings: {}))
     }
 
     @Test func noSurfaceBuildsAHostingView() throws {

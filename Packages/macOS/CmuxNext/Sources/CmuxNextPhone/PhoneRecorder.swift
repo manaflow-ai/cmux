@@ -5,6 +5,14 @@ public import Foundation
 /// Writes `<root>/<id>/{screen.mov|mp4, device-log.ndjson, events.jsonl,
 /// notes.md, poster.png, manifest.json}`.
 public actor PhoneRecorder {
+    /// The queue this actor runs on (threading-model.md, `com.cmuxterm.next.phone.recorder`): its recording file writes block a thread of
+    /// its own, never a cooperative pool thread (the HomeCache pattern).
+    // executor: com.cmuxterm.next.phone.recorder
+    private nonisolated let queue = DispatchSerialQueue(label: "com.cmuxterm.next.phone.recorder", qos: .utility)
+
+    /// Runs the actor on ``queue``.
+    public nonisolated var unownedExecutor: UnownedSerialExecutor { queue.asUnownedSerialExecutor() }
+
     private let backend: any PhoneBackend
     private let root: URL
     private let now: @Sendable () -> Date

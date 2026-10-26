@@ -39,10 +39,7 @@ extension AgentPaneHostProviding {
     }
 
     public func putFile(sessionId: String, name: String, file: URL) async throws -> String {
-        let data = try await Task.detached(priority: .utility) {
-            try Data(contentsOf: file)
-        }.value
-        return try await putFile(sessionId: sessionId, name: name, data: data)
+        throw AgentPaneFilePutFailure.unsupported
     }
 }
 
@@ -90,6 +87,14 @@ public nonisolated enum AgentPaneHostError: Error, Equatable, Sendable {
 /// only looks; it never starts a daemon.
 public actor AcpmuxHost: AgentPaneHostProviding {
     private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "agent-pane.acpmux")
+    /// The queue this actor runs on (threading-model.md, `com.cmuxterm.app.next.agent-pane.acpmux-host`): the
+    /// daemon lookup and start it runs (``AcpmuxDaemonLauncher``, the staged-file reads of ``putFile(sessionId:name:file:)``)
+    /// block a thread of its own, never a cooperative pool thread (the HomeCache pattern).
+    // executor: com.cmuxterm.app.next.agent-pane.acpmux-host
+    private nonisolated let queue = DispatchSerialQueue(label: "com.cmuxterm.app.next.agent-pane.acpmux-host", qos: .userInitiated)
+
+    /// Runs the actor on ``queue``.
+    public nonisolated var unownedExecutor: UnownedSerialExecutor { queue.asUnownedSerialExecutor() }
     private let resolveEnvironment: @Sendable () -> AcpmuxEnvironment?
     /// The Computer Use socket and agent token now (`AcpmuxEnvironment.computerUse`),
     /// read at each daemon start, since Computer Use turns on and off while the app runs.

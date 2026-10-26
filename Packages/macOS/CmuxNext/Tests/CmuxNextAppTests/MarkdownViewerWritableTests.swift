@@ -4,6 +4,7 @@ import CmuxNextPages
 import CmuxNextSettings
 import Foundation
 import Testing
+import CmuxNextWakeups
 
 /// Every markdown viewer is read-write (user 2026-10-18): a markdown file that `cmux open`, an
 /// agent or a link opened (not the user's own Open File...) opens editable and saves, in any
@@ -49,7 +50,7 @@ import Testing
     /// and the only folder offered as a root is home itself (never a root).
     private static func provider(_ kind: FilePageKind, _ url: URL, userChose: Bool = false, readOnly: Bool = false) -> FilePageProvider {
         let host = Host(roots: FileWorkspaceRoots(folders: [NSHomeDirectory()]))
-        return FilePageProvider(kind: kind, file: url, userChose: userChose, readOnly: readOnly, host: host, libraries: nil, images: NoImages())
+        return FilePageProvider(kind: kind, file: url, userChose: userChose, readOnly: readOnly, host: host, runner: BackgroundWork(), libraries: nil, images: NoImages())
     }
 
     private static func call(_ provider: FilePageProvider, _ name: String, _ params: JSONValue = .object([:])) async throws -> JSONValue {

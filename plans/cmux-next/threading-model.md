@@ -175,6 +175,23 @@ matches the label's literal text; `<x>` matches an interpolation). Its owner row
 - Launch and misc: `cmux-next resource bundle warm-up`, `cmux-next launch warm-up`, `cmux.updates.network`,
   `cmux.home.fixture.video`, `cmux.home.promised-files` (a drop's file promises, user-initiated: the person
   waits for the dropped files)
+- Actor executors (p02-threads R4, tasks 047-052: an actor whose job is I/O runs on a serial queue of its own, the
+  HomeCache pattern, `// executor: <label>`; its blocking file calls hold this queue, never a cooperative pool thread):
+  user-initiated (a person waits for the answer): `com.cmuxterm.app.next.agent-pane.acpmux-host` (the daemon
+  lookup and start, staged-file puts), `com.cmuxterm.app.next.agent-pane.saved-environments`,
+  `com.cmuxterm.app.next.layout-templates`, `com.cmuxterm.app.next.server-fix-ledger`,
+  `com.cmuxterm.next.bookmarks.file`, `com.cmuxterm.next.browser.profile-book`, `com.cmuxterm.next.cloud.machine-link`,
+  `com.cmuxterm.next.onboarding.classic-migration`, `com.cmuxterm.next.phone.android`,
+  `com.cmuxterm.next.remote.ssh-link`, `com.cmuxterm.next.settings.config-file` (also the keymap and managed-status
+  side files); default: `com.cmuxterm.app.next.agent-pane.owner-avatars`, `com.cmuxterm.next.browser.site-permissions`;
+  utility (saves and caches nobody waits for): `com.cmuxterm.app.next.markdown-table-widths`,
+  `com.cmuxterm.next.browser.site-zoom`, `com.cmuxterm.next.browser.download-temp-files`,
+  `com.cmuxterm.next.browser-import.store`, `com.cmuxterm.chromium-runtime.installer`,
+  `com.cmuxterm.next.cloud.tunnel-hub`, `com.cmuxterm.next.error-journal`, `com.cmuxterm.next.hang-reports.store`,
+  `com.cmuxterm.next.mobile.host-supervisor`, `com.cmuxterm.next.phone.recorder`
+- Spawn queues (`ProcessLauncher`: a child's fork and exec runs here, never on the pool):
+  `com.cmuxterm.next.process-runner.spawn` (default), `com.cmuxterm.next.files.ripgrep-spawn` (user-initiated),
+  `com.cmuxterm.next.cli-install.admin-spawn` (user-initiated), `com.cmuxterm.next.browser.osascript-spawn` (default)
 - Every `Thread` and `OperationQueue` sets `name` and `qualityOfService` before it starts; every URLSession
   gets a named delegate queue. None is unnamed.
 

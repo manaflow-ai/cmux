@@ -23,7 +23,7 @@ final class FileInfoWindow: NSObject, NSWindowDelegate {
     }()
 
     /// Makes the window for `url`; `onClose` runs when it closes.
-    init(url: URL, icon: NSImage, reader: FileInfoReader = FileInfoReader(), onClose: @escaping () -> Void) {
+    init(url: URL, icon: NSImage, reader: FileInfoReader, onClose: @escaping () -> Void) {
         self.url = url
         self.reader = reader
         self.onClose = onClose

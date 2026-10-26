@@ -3,6 +3,7 @@ public import CmuxNextControl
 import CmuxNextDevices
 import CmuxNextSettings
 import Foundation
+import CmuxNextCompat
 
 /// `debug.device_hub` (development builds): the device hub as Mac Screen and
 /// Settings > Devices see it, and its intents, for live checks. Never a
@@ -97,7 +98,7 @@ extension MacScreenPages {
                 return hubState
             case "relay_add":
                 guard let path = params["secret_file"]?.stringValue,
-                      let data = await Task.detached(operation: { try? Data(contentsOf: URL(filePath: path)) }).value,
+                      let data = try? await store.runner.runFiles(.userBlocking, { try Data(blockingContentsOf: URL(filePath: path)) }),
                       let secret = try? JSONSerialization.jsonObject(with: data) as? [String: String] else {
                     return ["error": "secret_file must name a readable JSON file"]
                 }

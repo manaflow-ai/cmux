@@ -151,8 +151,9 @@ public final class FilesPaneView: NSView {
 
     private func loadAvailable(_ folder: URL) {
         available = (folder, nil)
+        let info = model.info
         Task { [weak self] in
-            let bytes = await FileInfoReader().availableCapacity(of: folder)
+            let bytes = await info.availableCapacity(of: folder)
             guard let self, self.available?.folder == folder else { return }
             self.available = (folder, bytes)
             self.status.stringValue = self.statusText()

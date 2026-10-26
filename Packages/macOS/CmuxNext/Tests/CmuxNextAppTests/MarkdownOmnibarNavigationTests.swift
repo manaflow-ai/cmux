@@ -6,6 +6,7 @@ import CmuxNextPages
 import CmuxNextSettings
 import Foundation
 import Testing
+import CmuxNextWakeups
 
 /// The Markdown tab's omnibar is the browser's row with Back, Forward and Reload
 /// (plans/cmux-next/markdown-omnibar-DESIGN.md section 2b): the page's history message reaches the
@@ -44,7 +45,7 @@ import Testing
         let url = folder.appending(path: "a.md")
         try Data("# A\n".utf8).write(to: url)
         let host = Host()
-        let provider = FilePageProvider(kind: .markdown, file: url, host: host, libraries: nil, images: NoImages())
+        let provider = FilePageProvider(kind: .markdown, file: url, host: host, runner: BackgroundWork(), libraries: nil, images: NoImages())
         defer { provider.close() }
         let context = PageCallContext(page: FilePageKind.markdown.namespace)
         _ = try await provider.call("cmux.markdown.history", params: ["canBack": true, "canForward": false], context: context)

@@ -1,4 +1,5 @@
 import CmuxNextCompat
+import CmuxNextWakeups
 package import Foundation
 
 /// One ripgrep match: a line of a file under the searched directory.
@@ -123,7 +124,8 @@ package nonisolated struct RipgrepSearch {
             exited.continuation.finish()
         }
         do {
-            try process.run()
+            // The spawn (a fork and exec) runs on the launcher's queue, never on a cooperative pool thread.
+            try await ProcessLauncher(label: "com.cmuxterm.next.files.ripgrep-spawn", priority: .userBlocking).launched(process)
         } catch {
             return .failed(status: -1)
         }

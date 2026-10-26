@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import CmuxNextDesign
 import Foundation
 
@@ -19,9 +20,11 @@ nonisolated enum FilePageRecovery {
         let conflict: Bool
     }
 
-    @concurrent static func restore(_ draft: RecoveryDraft) async -> Restore? {
+    static func restore(_ draft: RecoveryDraft, on runner: any MayBlockRunner) async -> Restore? {
         guard let url = document(of: draft) else { return nil }
-        let current = (try? Data(contentsOf: url)).map(FileDocument.hash) // concurrency-allow: @concurrent, off the main actor
+        // The person clicked Open: they wait for the read.
+        let read = try? await runner.runFiles(.userBlocking) { () -> String? in (try? Data(contentsOf: url)).map(FileDocument.hash) }
+        let current = read ?? nil
         let conflict = current == nil || draft.base?.contentHash == nil || current != draft.base?.contentHash
         return Restore(url: url, text: String(decoding: draft.contents, as: UTF8.self), conflict: conflict)
     }

@@ -14,7 +14,7 @@ public final class DiffPageStores {
     public init(prefs: any DiffPrefsStoring, viewed: DiffViewedFiles, collapsed: DiffCollapsedFiles? = nil) {
         self.prefs = prefs
         self.viewed = viewed
-        self.collapsed = collapsed ?? DiffCollapsedFiles(url: DiffCollapsedFiles.standardURL(viewed: viewed.url))
+        self.collapsed = collapsed ?? DiffCollapsedFiles(url: DiffCollapsedFiles.standardURL(viewed: viewed.url), runner: viewed.runner)
     }
 
     /// The prefs the page reads: the display settings and the collapsed files.

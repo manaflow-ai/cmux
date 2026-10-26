@@ -6,6 +6,14 @@ public import Foundation
 ///
 /// Tests pass a temporary folder.
 public actor HangReportStore {
+    /// The queue this actor runs on (threading-model.md, `com.cmuxterm.next.hang-reports.store`): its report file reads and writes block a thread of
+    /// its own, never a cooperative pool thread (the HomeCache pattern).
+    // executor: com.cmuxterm.next.hang-reports.store
+    private nonisolated let queue = DispatchSerialQueue(label: "com.cmuxterm.next.hang-reports.store", qos: .utility)
+
+    /// Runs the actor on ``queue``.
+    public nonisolated var unownedExecutor: UnownedSerialExecutor { queue.asUnownedSerialExecutor() }
+
     /// When reports were sent, for the daily cap and the 24-hour watchdog report.
     public struct SendLog: Codable, Sendable, Equatable {
         /// When the last report was queued.
