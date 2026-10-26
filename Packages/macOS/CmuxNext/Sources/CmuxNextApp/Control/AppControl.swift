@@ -108,7 +108,8 @@ final class AppControl {
     /// (below), registered before the service serves (p08-startup-019).
     func start(registry: ActionRegistry, settings: SettingsController, launch: LaunchIdentity, services: AppServices) throws {
         let service = try ControlService.prepare(registry: registry, settings: settings, launch: launch,
-                                                 frameSource: frames, watchdog: watchdog, mainWork: mainWork)
+                                                 frameSource: frames, watchdog: watchdog, mainWork: mainWork,
+                                                 hangs: TraceRuntime.shared.hangWatch)
         self.service = service
         AppMemoryConsumers(services: services).registerControlCaches(service)
         actionBudget = ActionBudgetReporter(monitor: services.actionBudget, naming: ActionReportNaming(catalog: Set(registry.descriptors.map(\.id.rawValue))),

@@ -80,6 +80,7 @@ final class BlockingViolationTable: Sendable {
     // Drain queue writes, any thread reads.
     private let published = Mutex<[PublishedSite]>([])
     private let sink = Mutex<(any BlockingViolationSink)?>(nil)
+    nonisolated(unsafe) private var drainWatch: BlockingDrainWatch? // crash-allow: drain queue only (watchDrain sets it in a block on drainQueue; every drain-queue job reads it there)
     #if DEBUG
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "blocking")
     #endif
@@ -122,7 +123,10 @@ final class BlockingViolationTable: Sendable {
         self.uptimeNanos = uptimeNanos
         ring = BlockingPendingRing(capacity: Self.pendingLimit)
         wake = DispatchSource.makeUserDataAddSource(queue: drainQueue)
-        wake.setEventHandler { [weak self] in self?.drain() }
+        wake.setEventHandler { [weak self] in
+            guard let self else { return }
+            watched { drain() }
+        }
         if startsDrain { wake.activate() }
     }
 
@@ -344,6 +348,13 @@ final class BlockingViolationTable: Sendable {
 
     // MARK: the drain (drain queue)
 
+    /// Runs one drain-queue job inside the composition root's hang-watch scope, when it set one
+    /// (``watchDrain(_:)``): one scope per job.
+    private func watched(_ job: () -> Void) {
+        guard let drainWatch else { return job() }
+        drainWatch(job)
+    }
+
     private func drain() {
         var resolver = BlockingFrameResolver()
         drain(ring, context: .main, &resolver)
@@ -395,7 +406,7 @@ final class BlockingViolationTable: Sendable {
     func flush() async {
         await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
             drainQueue.async { [self] in
-                drain()
+                watched { drain() }
                 done.resume()
             }
         }
@@ -410,8 +421,15 @@ final class BlockingViolationTable: Sendable {
         drainQueue.async { [self] in
             self.sink.withLock { $0 = sink }
             guard let sink else { return }
-            for site in published.withLock({ $0 }) { sink.record(site.violation) }
+            watched {
+                for site in published.withLock({ $0 }) { sink.record(site.violation) }
+            }
         }
+    }
+
+    /// Sets, on the drain queue, what runs each later drain-queue job (``BlockingDetector/watchDrain(_:)``).
+    func watchDrain(_ watch: BlockingDrainWatch?) {
+        drainQueue.async { [self] in drainWatch = watch }
     }
 
     /// Every published site of every context, in the order each first reached the drain.
