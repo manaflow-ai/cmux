@@ -19,55 +19,67 @@ Layout rows: after a round trip the top row (toolbar band, sidebar, main pane, t
 is where it was before; in full screen and back, no strip's first tab sits under the traffic lights.
 --spaces also switches Spaces (Ctrl-Right / Ctrl-Left through System Events) while in full screen.
 
+The summary prints the median over rounds (perf_stats.pct). The app launches and stops through
+bench_launch.BenchApp (the bench env, an empty cmux.json, a fresh saved session for the tag, the tag's daemons ended
+at the stop). It may activate, as full screen needs, and stays an isolated launch (CMUX_NEXT_ISOLATED_LAUNCH=1: the
+fixed test window frame, no `cmux` shim pointer, no global hot keys, no browser import offer; LaunchIsolation.swift). Every round and the failed rows are also written as
+cmux-perf-result/v1 in --out (story fullscreen-transition: `fullscreen.<trigger>.<enter|exit>.<value>` and
+`fullscreen.failed_rows`; drag_layout_bench_report.py). FULLSCREEN_KEEP=1 leaves the app running.
+
 Usage: fullscreen-transition.py --tag <tag> --app PATH [--rounds 3] [--parked 10] [--triggers action,key,zoom]
        [--json PATH] [--out DIR] [--gate]
 """
-import argparse, glob, json, os, re, signal, socket, subprocess, sys, tempfile, time
+import argparse, json, os, re, socket, subprocess, sys, tempfile, time
 
-parser = argparse.ArgumentParser()
-parser.add_argument("--tag", required=True)
-parser.add_argument("--app", required=True)
-parser.add_argument("--rounds", type=int, default=3)
-parser.add_argument("--parked", type=int, default=10)
-parser.add_argument("--triggers", default="action,key,zoom")
-parser.add_argument("--spaces", action="store_true")
-parser.add_argument("--json")
-parser.add_argument("--out", default="/tmp")
-parser.add_argument("--gate", action="store_true", help="fail on the timing budget rows too, not only layout")
-parser.add_argument("--settle-budget-ms", type=float, default=150.0, help="settle_ms after didEnter/didExit")
-opts, _unknown = parser.parse_known_args()
-TAG, APP = opts.tag, os.path.abspath(opts.app.rstrip("/"))
-SOCKET = f"/tmp/cmux-debug-{TAG}.sock"
-CLI = os.path.join(APP, "Contents/Resources/bin/cmux")
-BINARY = next((p for p in sorted(glob.glob(os.path.join(APP, "Contents/MacOS/*"))) if not p.endswith(".dylib")), None)
-SCRATCH = tempfile.mkdtemp(prefix=f"fullscreen-{TAG}-")
-open(os.path.join(SCRATCH, "ghostty"), "w").close()
-CONFIG = os.path.join(SCRATCH, "cmux.json")
-open(CONFIG, "w").write("{}\n")
-ROWS, LAUNCHED = [], []
-app = None
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))  # its siblings, also under `python3 -I`
+import drag_layout_bench_report as results  # noqa: E402
+from bench_launch import ISOLATED_LAUNCH_KEY, BenchApp, bundle_id  # noqa: E402
+from new_tab_bench_report import record_all  # noqa: E402
+
+
+def parse(argv=None):
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--tag")  # the story runner and fullscreen-transition.sh pass it; the bundle carries the tag
+    parser.add_argument("--app", required=True)
+    parser.add_argument("--rounds", type=int, default=3)
+    parser.add_argument("--parked", type=int, default=10)
+    parser.add_argument("--triggers", default="action,key,zoom")
+    parser.add_argument("--spaces", action="store_true")
+    parser.add_argument("--json")
+    parser.add_argument("--out", default="/tmp")
+    parser.add_argument("--gate", action="store_true", help="fail on the timing budget rows too, not only layout")
+    parser.add_argument("--settle-budget-ms", type=float, default=150.0, help="settle_ms after didEnter/didExit")
+    parser.add_argument("--story", default=results.FULLSCREEN_STORY, help="result-v1 story")
+    parser.add_argument("--build-config", choices=["bench", "bench-checks", "release", "debug"],
+                        help="result-v1 build config of a bench-hooks bundle that does not stamp it (BenchApp.record)")
+    opts, _unknown = parser.parse_known_args(argv)
+    return opts
+
+
+# Set by main(): the options, the launched app (BenchApp), its tag, socket and CLI, and a scratch folder.
+opts = LAUNCHER = TAG = SOCKET = CLI = SCRATCH = None
+ROWS = []
 
 
 def run(*args, timeout=30):
     env = {"HOME": os.environ["HOME"], "PATH": "/usr/bin:/bin", "TMPDIR": os.environ.get("TMPDIR", "/tmp"),
            "CMUX_SOCKET_PATH": SOCKET, "CMUX_QUIET": "1", "CMUX_TAG": TAG,
-           "CMUX_BUNDLE_ID": f"com.cmuxterm.app.debug.{TAG}", "CMUX_BUNDLED_CLI_PATH": CLI}
+           "CMUX_BUNDLE_ID": bundle_id(LAUNCHER.app), "CMUX_BUNDLED_CLI_PATH": CLI}
     return subprocess.run([CLI, *args], capture_output=True, text=True, timeout=timeout, env=env)
 
 
 def rpc(method, params=None, timeout=30):
     try:
-        conn = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-        conn.settimeout(timeout)
-        conn.connect(SOCKET)
-        conn.sendall((json.dumps({"id": 1, "method": method, "params": params or {}}) + "\n").encode())
-        buf = b""
-        while not buf.endswith(b"\n"):
-            chunk = conn.recv(1 << 20)
-            if not chunk:
-                break
-            buf += chunk
-        conn.close()
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as conn:
+            conn.settimeout(timeout)
+            conn.connect(SOCKET)
+            conn.sendall((json.dumps({"id": 1, "method": method, "params": params or {}}) + "\n").encode())
+            buf = b""
+            while not buf.endswith(b"\n"):
+                chunk = conn.recv(1 << 20)
+                if not chunk:
+                    break
+                buf += chunk
         reply = json.loads(buf)
         return reply.get("result") if reply.get("ok") else {"error": reply.get("error")}
     except (OSError, ValueError) as error:
@@ -229,39 +241,33 @@ def spaces_round():
 
 
 def cleanup():
-    if os.environ.get("FULLSCREEN_KEEP") or not LAUNCHED:
+    """Leaves full screen, then stops the app and the tag's daemons (BenchApp.stop); FULLSCREEN_KEEP=1 keeps it."""
+    global SOCKET
+    if os.environ.get("FULLSCREEN_KEEP") or LAUNCHER is None or LAUNCHER.process is None:
         return
-    if is_full():
-        action("toggleFullScreen")
-        time.sleep(2)  # test harness: leave full screen before quitting
-    rpc("action.run", {"action": "quitEndSessions"}, timeout=10)
-    if app:
-        try:
-            app.wait(timeout=20)
-        except subprocess.TimeoutExpired:
-            os.kill(app.pid, signal.SIGKILL)
-    subprocess.run([CLI, "server", "stop", "--session", f"cmux-app-{TAG}", "--end-terminals"],
-                   env={k: v for k, v in os.environ.items() if not k.startswith("CMUX_")}, capture_output=True, timeout=30)
-    if os.path.exists(SOCKET):
-        os.remove(SOCKET)
+    SOCKET = LAUNCHER.socket  # the path launch() probed last, also when it raised
+    try:
+        if LAUNCHER.process.poll() is None and is_full():
+            action("toggleFullScreen")
+            time.sleep(2)  # test harness: leave full screen before quitting
+    finally:
+        LAUNCHER.stop()
 
 
-def main():
-    global app
-    if os.path.exists(SOCKET):
-        os.remove(SOCKET)
-    env = {"HOME": os.environ["HOME"], "USER": os.environ.get("USER", ""), "TMPDIR": os.environ.get("TMPDIR", "/tmp"),
-           "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "CMUX_NEXT_SOCKET_MODE": "automation", "CMUX_NEXT_CONFIG_FILE": CONFIG,
-           "CMUX_NEXT_GHOSTTY_CONFIG": os.path.join(SCRATCH, "ghostty"), "CMUX_NEXT_TEST_WINDOW_FRAME": "80,80,1400,900"}
-    log = open(os.path.join(opts.out, f"app-{TAG}.log"), "a")
-    app = subprocess.Popen([BINARY], env=env, stdout=log, stderr=log, stdin=subprocess.DEVNULL)
-    LAUNCHED.append(app.pid)
-    print(f"launched pid {app.pid}", flush=True)
-    if not wait(lambda: os.path.exists(SOCKET) and (rpc("debug.windows") or {}).get("windows"), 120):
-        sys.exit("the tagged app did not come up")
+def bench_app(app, out, build_config=None):
+    """The app this bench launches: it may activate (no CMUX_NEXT_NO_ACTIVATE) and stays isolated."""
+    return BenchApp(app, out=out, config={}, env={"CMUX_NEXT_NO_ACTIVATE": None, ISOLATED_LAUNCH_KEY: "1"},
+                    window=(80, 80, 1400, 900), screen=None, build_config=build_config)
+
+
+def measure(report):
+    """Launches the app, builds the busy window and runs every trigger's rounds into `report`."""
+    global SOCKET, CLI
+    LAUNCHER.launch(timeout=120)  # ready once debug.windows lists a window; it may have moved to another candidate
+    SOCKET, CLI = LAUNCHER.socket, LAUNCHER.cli
+    print(f"launched pid {LAUNCHER.process.pid}", flush=True)
     time.sleep(5)  # test harness: launch work settles
     setup()
-    report = {"tag": TAG, "transitions": [], "geometry": {}}
     before, tabs_before = geometry(), first_tabs()
     report["geometry"]["windowed"] = {"geo": before, "tabs": tabs_before}
     rpc("debug.window_snapshot", {"path": os.path.join(opts.out, "windowed.png")})
@@ -306,20 +312,32 @@ def main():
     for kind in opts.triggers.split(","):
         for entering in (True, False):
             ts = [t for t in report["transitions"] if t["trigger"] == kind and t["entering"] == entering]
-            def med(key):
-                values = sorted(v for v in (t.get(key) for t in ts) if v is not None)
-                return values[len(values) // 2] if values else None
-            print(f"  {kind:<6} {'enter' if entering else 'exit ':<5} did {med('did_ms')} settle {med('settle_ms')} "
-                  f"after-did {med('after_did_ms')} resizes {med('resizes')} layout {med('layout_passes')}x "
-                  f"{med('layout_total_ms')} ms max {med('layout_max_ms')} grids {med('grid_reports')}/{med('resizes_sent')} "
-                  f"missed {med('missed')}", flush=True)
+            print(f"  {kind:<6} {'enter' if entering else 'exit ':<5} {results.median_line(ts)}", flush=True)
     if opts.json:
         json.dump(report, open(opts.json, "w"), indent=1)
 
 
-try:
-    main()
-finally:
-    cleanup()
-    print("\nRESULT", "PASS" if ROWS and all(r[3] for r in ROWS) else "FAIL", f"({sum(r[3] for r in ROWS)}/{len(ROWS)})")
-    sys.exit(0 if ROWS and all(r[3] for r in ROWS) else 1)
+def main(argv=None):
+    global opts, LAUNCHER, TAG, SOCKET, CLI, SCRATCH
+    opts = parse(argv)
+    os.makedirs(opts.out, exist_ok=True)
+    LAUNCHER = bench_app(opts.app, opts.out, opts.build_config)
+    TAG, SOCKET, CLI = LAUNCHER.tag, LAUNCHER.socket, LAUNCHER.cli  # cleanup() can reach a launch that failed
+    SCRATCH = tempfile.mkdtemp(prefix=f"fullscreen-{TAG}-")
+    report = {"tag": TAG, "transitions": [], "geometry": {}}
+    try:
+        measure(report)
+    finally:
+        cleanup()
+        passed = bool(ROWS) and all(r[3] for r in ROWS)
+        print("\nRESULT", "PASS" if passed else "FAIL", f"({sum(r[3] for r in ROWS)}/{len(ROWS)})")
+    if report["transitions"]:  # a measured run (a launch that failed raised above)
+        series = results.fullscreen_series(report["transitions"], ROWS, story=opts.story)
+        for key, where in record_all(LAUNCHER, series).items():
+            if not where.startswith("not recorded"):
+                print(f"result-v1 {key}: {where}", flush=True)
+    return 0 if passed else 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

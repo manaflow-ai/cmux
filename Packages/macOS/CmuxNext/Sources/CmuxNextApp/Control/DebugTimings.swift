@@ -11,18 +11,16 @@ import CmuxNextTrace
 import CmuxNextUpdater
 import class CmuxNextDaemon.DaemonLaunchTimings
 import Darwin
-import os
 import CmuxNextCompat
 
 /// `debug.timings`: main-thread spans of the paths the stall bench measures
 /// (scripts/cmux-next/bench-stalls.py): launch phases, each palette and icon
 /// picker open, each terminal surface creation. `clear` drops the per-event lists (the
-/// launch marks stay). Each span is also an Instruments signpost interval
-/// (subsystem com.cmuxterm.app.next, category "stalls").
+/// launch marks stay). In every build, recording or not, each open's main-thread work is also a catalog
+/// thread slice of category `stall`: `stall.palette_open` (`PaletteController`) and `stall.icon_picker_open`
+/// (`IconPickerService`), in the trace ring and as os_signpost intervals.
 @MainActor
 enum DebugTimings {
-    static let signposter = OSSignposter(subsystem: "com.cmuxterm.app.next", category: "stalls")
-
     /// Launch marks from any thread (the daemon start path runs off main), the startup trace they go
     /// to when the launch asked for one (`CMUX_TRACE_STARTUP`), and the `launch.*` slices they end.
     private nonisolated static let launchMarks = Mutex<(marks: LaunchMarks, slices: LaunchSlices)>(

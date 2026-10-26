@@ -741,6 +741,12 @@ CMUX_SHIM_EXPORT int cmux_shim_initialize(const char* framework_dir,
 // No external message pump in host mode (task 034).
 CMUX_SHIM_EXPORT void cmux_shim_do_work(void) {}
 
+// No external message pump in host mode: delayed work never reaches the app.
+CMUX_SHIM_EXPORT int cmux_shim_set_schedule_delayed(cmux_shim_schedule_delayed_fn schedule_delayed) {
+  (void)schedule_delayed;
+  return 0;
+}
+
 // Strings this dylib returns are Dup's malloc'd copies.
 CMUX_SHIM_EXPORT void cmux_shim_free(char* s) {
   std::free(s);

@@ -1,6 +1,7 @@
 #if DEBUG || CMUX_BENCH_HOOKS
 // The Chromium host app ships in Debug builds only (embed-cef.sh), and so does its Swift side.
 import CmuxNextCompat
+import CmuxNextSignposts
 import Darwin
 import Foundation
 
@@ -43,10 +44,13 @@ nonisolated final class ChromiumHostConnection: Sendable {
 
     let frames: AsyncStream<ChromiumHostFrame>
     private let state: ChromiumHostWireState
+    /// Takes one `cef.host_input` instant per frame written (tests pass one on their own trace runtime).
+    private let signposter: Signposter
 
     /// Takes ownership of both descriptors: `readFD` carries frames from the
     /// host, `writeFD` frames to it. ``close()`` (or the host's EOF) closes them.
-    init(readFD: Int32, writeFD: Int32) {
+    init(readFD: Int32, writeFD: Int32, signposter: Signposter = Signposter.cef) {
+        self.signposter = signposter
         _ = fcntl(writeFD, F_SETFL, fcntl(writeFD, F_GETFL) | O_NONBLOCK)
         var size = Self.sendBuffer
         _ = setsockopt(writeFD, SOL_SOCKET, SO_SNDBUF, &size, socklen_t(MemoryLayout<Int32>.size))
@@ -81,10 +85,13 @@ nonisolated final class ChromiumHostConnection: Sendable {
     /// Writes one frame; false when the host is gone or has stopped reading
     /// (then the connection is closed and nothing more is sent), or when the
     /// frame does not ``fits(_:)`` (nothing is written and the connection stays).
+    /// A written input frame (``ChromiumHostFrame/Kind/traceInput``) is one `cef.host_input` instant with its kind.
     @discardableResult
     func send(_ frame: ChromiumHostFrame) -> Bool { // perf-hot: 5us cef-host-input (every forwarded input event)
         guard Self.fits(frame) else { return false }
-        return state.send(frame.encoded())
+        let sent = state.send(frame.encoded())
+        if sent, let input = frame.kind?.traceInput { signposter.cefHostInput(input) }
+        return sent
     }
 
     /// Ends the connection: the write descriptor closes (the host reads EOF)
@@ -102,5 +109,20 @@ nonisolated final class ChromiumHostConnection: Sendable {
     /// The connection ended because the host broke the wire (a bad frame, a
     /// flood of frames, a full send buffer), not because the host closed it.
     var endedByProtocolError: Bool { state.endedByProtocolError }
+}
+
+nonisolated extension ChromiumHostFrame.Kind {
+    /// The `cef.host_input` kind of an input frame cmux sends; nil for every other frame (navigation, geometry,
+    /// focus, ping, stats, quit and the host's replies), which records no instant.
+    var traceInput: Signposter.CEFHostInputKind? {
+        switch self {
+        case .mouse: .mouse
+        case .wheel: .wheel
+        case .key: .key
+        case .edit: .edit
+        case .navigate, .geometry, .focus, .ping, .stats, .quit,
+             .ready, .context, .address, .title, .pong, .statsReply, .error, .rendererGone: nil
+        }
+    }
 }
 #endif

@@ -741,7 +741,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         ),
         .testTarget(
             name: "CmuxNextPagesTests",
-            dependencies: ["CmuxNextCompat", "CmuxNextHibernation", "CmuxNextPages", "CmuxNextPagesTestSupport", "CmuxNextSettings", "CmuxNextDesign", "CmuxNextTrace", "CmuxNextMetrics", "CmuxNextSignposts", "CmuxNextWakeups"],
+            dependencies: ["CmuxNextCompat", "CmuxNextHibernation", "CmuxNextMemory", "CmuxNextPages", "CmuxNextPagesTestSupport", "CmuxNextSettings", "CmuxNextDesign", "CmuxNextTrace", "CmuxNextMetrics", "CmuxNextSignposts", "CmuxNextWakeups"],
             swiftSettings: uiSwiftSettings
         ),
         // Settings > Agents > Agent integrations: the coding-agent hooks the bundled CLI
@@ -860,12 +860,13 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         // (the composition root) depends on it.
         .target(
             name: "CmuxNextEnergy",
-            dependencies: ["CmuxNextCompat", "CmuxNextWakeups"],
+            dependencies: ["CmuxNextActions", "CmuxNextCompat", "CmuxNextWakeups"],
             swiftSettings: uiSwiftSettings
         ),
         .testTarget(
             name: "CmuxNextEnergyTests",
-            dependencies: ["CmuxNextEnergy", "CmuxNextWakeups"],
+            // CmuxNextPalette: EnergyActionsTests lists the palette's rows through RegistryPaletteProvider.
+            dependencies: ["CmuxNextActions", "CmuxNextEnergy", "CmuxNextPalette", "CmuxNextWakeups"],
             swiftSettings: uiSwiftSettings
         ),
         // Host pressure (cmuxterm-hq#2995): the shared host budget's verdict (acpmux's
@@ -936,12 +937,12 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         ),
         .target(
             name: "CmuxNextChromiumWarmup",
-            dependencies: ["CmuxNextBrowser", "CmuxNextInputCore", "CmuxNextWakeups"],
+            dependencies: ["CmuxNextBrowser", "CmuxNextCompat", "CmuxNextInputCore", "CmuxNextWakeups"],
             swiftSettings: uiSwiftSettings
         ),
         .testTarget(
             name: "CmuxNextChromiumWarmupTests",
-            dependencies: ["CmuxNextBrowser", "CmuxNextChromiumWarmup", "CmuxNextInput", "CmuxNextInputCore", "CmuxNextInputCoreTestSupport", "CmuxNextWakeupsTestSupport"],
+            dependencies: ["CmuxNextBrowser", "CmuxNextChromiumWarmup", "CmuxNextCompat", "CmuxNextInput", "CmuxNextInputCore", "CmuxNextInputCoreTestSupport", "CmuxNextWakeupsTestSupport"],
             swiftSettings: uiSwiftSettings
         ),
         // Phone access (Settings > Accounts > Phone Access): the phone host's lifecycle
@@ -1361,7 +1362,9 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         ),
         .testTarget(
             name: "CmuxNextLaunchTests",
-            dependencies: ["CmuxNextLaunch", "CmuxNextWakeups", "CmuxNextWakeupsTestSupport"],
+            // Compat, Signposts and Trace: LaunchReadEventTests reads the `launch.read_done` record of a test trace runtime.
+            dependencies: ["CmuxNextLaunch", "CmuxNextWakeups", "CmuxNextWakeupsTestSupport", "CmuxNextCompat",
+                           "CmuxNextSignposts", "CmuxNextTrace"],
             swiftSettings: uiSwiftSettings
         ),
         // Release tracing, hang watch and crash keys (plans/cmux-next/chrome-parity/p09-observability.md):
@@ -1738,9 +1741,9 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             // Compat for Mutex and GhosttyKit for ghostty_surface_t (TerminalOutputLaneHangScopeTests); Wakeups for
             // the typing probe a lane marks (TerminalOutputLaneKeyFlowTests); CmuxFuzzSupport for the link and
             // Ghostty action fuzz suites (p10-stability-030); WakeupsTestSupport for the pointer coalescer's manual clock
-            // (TerminalPointerCoalescingTests).
+            // (TerminalPointerCoalescingTests); Design for the scroller's shared clip (TerminalScrollerTests).
             dependencies: ["CmuxNextCompat", "CmuxNextTerminal", "CmuxNextTrace", "CmuxNextMetrics", "CmuxNextInputCore", "CmuxNextWakeups", "CmuxNextInput",
-                           "CmuxNextWakeupsTestSupport", "CmuxNextSignposts",
+                           "CmuxNextWakeupsTestSupport", "CmuxNextSignposts", "CmuxNextDesign",
                            .product(name: "CmuxGhosttyKit", package: "CmuxGhosttyKit"), .product(name: "CmuxFuzzSupport", package: "CmuxFuzzSupport")],
             swiftSettings: uiSwiftSettings,
             linkerSettings: [.linkedLibrary("c++")]
@@ -1800,8 +1803,10 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         ),
         .testTarget(
             name: "CmuxNextPaletteTests",
-            // CmuxTheme: PaletteScopeChipContrastTests derives theme tokens.
-            dependencies: ["CmuxNextPalette", .product(name: "CmuxTheme", package: "CmuxTheme")],
+            // CmuxTheme: PaletteScopeChipContrastTests derives theme tokens. Compat, Signposts and Trace:
+            // PaletteOpenSignpostTests reads the `stall.palette_open` records of a test trace runtime.
+            dependencies: ["CmuxNextPalette", "CmuxNextCompat", "CmuxNextSignposts", "CmuxNextTrace",
+                           .product(name: "CmuxTheme", package: "CmuxTheme")],
             swiftSettings: uiSwiftSettings
         ),
         .target(

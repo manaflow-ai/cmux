@@ -14,8 +14,9 @@
 ///
 /// ``actionPerform``, ``actionCommit``, ``actionGate``, ``keyToFrame``, ``keyFlow``, ``scrollToFrame``,
 /// ``stallMainTask``, ``stallOverBudget``, ``stallMainTurn`` (the trace ring's), ``stallRenderStarved``,
-/// ``launchStartupTask``, ``launchStartupComplete``, ``webuiOpen``, ``webuiScheme``, ``stallCreateSurface``,
-/// ``daemonStep``, ``webuiAgentPaneStep`` and ``stallGhosttyRuntimePhase`` have an emitter today. The
+/// ``launchStartupTask``, ``launchStartupComplete``, ``launchReadDone``, ``stallPaletteOpen``, ``stallIconPickerOpen``,
+/// ``webuiOpen``, ``webuiScheme``, ``stallCreateSurface``, ``daemonStep``, ``webuiAgentPaneStep`` and
+/// ``stallGhosttyRuntimePhase`` have an emitter today. The
 /// other cases are **reserved**: the task and owner named on each add the emitter. Until then no build records them,
 /// and no bench or report may quote them. "Ring" on a reserved case gives its record phases and the
 /// meaning of `arg0` and `arg1` (the ring v1 record, plans/cmux-next/trace.md).
@@ -167,11 +168,11 @@ public nonisolated enum SignpostName: UInt16, Sendable, Hashable, CaseIterable, 
     /// Reserved (task 033, PL-cef-tab). `CefBrowserHost::CreateBrowser` on the main thread, or the Chromium
     /// host's create to its reply. Ring: AB/AE; begin arg0 bit 0 1 for a spare, bits 8-39 the profile index.
     case cefCreateBrowser = 15
-    /// Reserved (task 038, PL-motion-cef; perf-hot `cef-geometry`). A page's parent geometry change and its
-    /// catcher sync. Ring: B/E, plus an instant per geometry post; end arg0 the catcher count.
+    /// A parent geometry change or catcher sync, an I per page post (``Signposter/beginCEFGeometry(_:)``). Ring: B/E/I
+    /// only with `motion` on too (never the black box); begin arg0 the source, end arg0/arg1 catchers shown/moved.
     case cefGeometry = 34
-    /// Reserved (task 038, PL-motion-cef; perf-hot `cef-host-input`). One input event sent to a Chromium page
-    /// or to the Chromium host. Ring: instant; arg0 the event kind.
+    /// One input frame (mouse, wheel, key, edit) written to the Chromium host (``Signposter/cefHostInput(_:)``). Ring:
+    /// I only with `input` on too (never the black box); arg0 the wire kind; key and edit obey the keystroke gate.
     case cefHostInput = 35
 
     // MARK: launch (reserved: task 034, Performance Lead)
@@ -202,9 +203,13 @@ public nonisolated enum SignpostName: UInt16, Sendable, Hashable, CaseIterable, 
     case stallOverBudget = 17
     /// Creating a terminal surface on main (`ghostty_surface_new`, `TerminalTimings`; task 035, PL-ghostty). Ring: B/E.
     case stallCreateSurface = 41
-    /// Reserved (task 036, Performance Lead). Opening the command palette on main (`DebugTimings`). Ring: B/E.
+    /// A command palette open's main-thread work (task 036, `PaletteController.open(relativeTo:anchor:when:buildModel:)`
+    /// and the re-show after a refused command): the scopes configured, the start mark, the page's model built and the
+    /// panel shown, in one synchronous call. The first frame's commit runs in a later turn, outside it (debug.timings'
+    /// `palette_opens` row has it). Ring: B/E; arg0 0.
     case stallPaletteOpen = 42
-    /// Reserved (task 036, Performance Lead). Opening the icon picker on main (`DebugTimings`). Ring: B/E.
+    /// An icon picker open's main-thread work (task 036, `IconPickerService.pick`): the catalog in hand to the panel
+    /// shown, in one synchronous call. A first open's catalog load runs off the main actor before it. Ring: B/E; arg0 0.
     case stallIconPickerOpen = 43
     /// A point event: rendering starved (Chrome's `kRenderingStarved`). A display link that paces
     /// active frame clients and whose frames show went over 100 ms and a frame without a tick
@@ -370,6 +375,13 @@ public nonisolated enum SignpostName: UInt16, Sendable, Hashable, CaseIterable, 
     /// phase's code (`TerminalTimings.RuntimePhase`), arg1 its duration in ns.
     case stallGhosttyRuntimePhase = 79
 
+    // MARK: launch reads (emitter: CmuxNextLaunch `LaunchReadEvent`, task p09-observability-036)
+
+    /// A launch read is done (CmuxNextLaunch `LaunchReadEvent.signal()`, task p08-startup-028; Chromium's
+    /// `base::OneShotEvent::Signal`): the steps that waited for it run next. Message: `read=<Domain.read>
+    /// waiting=<steps released>`. Ring: instant; arg0 the steps released. Once per read per launch.
+    case launchReadDone = 80
+
     /// The name `os_signpost` records (a compile-time string, as the API requires).
     public var staticName: StaticString {
         switch self {
@@ -413,6 +425,7 @@ public nonisolated enum SignpostName: UInt16, Sendable, Hashable, CaseIterable, 
         case .launchFirstTerminalOutput: "launch.first_terminal_output"
         case .launchStartupTask: "launch.startup_task"
         case .launchStartupComplete: "launch.startup_complete"
+        case .launchReadDone: "launch.read_done"
         case .stallMainTask: "stall.main_task"
         case .stallOverBudget: "stall.over_budget"
         case .stallMainTurn: "stall.main_turn"
@@ -454,48 +467,4 @@ public nonisolated enum SignpostName: UInt16, Sendable, Hashable, CaseIterable, 
         case .stallGhosttyRuntimePhase: "stall.ghostty_runtime_phase"
         }
     }
-
-    /// The category whose ``Signposter`` emits this name and whose flag gates its ring records: the
-    /// part of the name before the first dot (the catalog test checks the two agree). An inlinable switch,
-    /// so a disabled trace point folds it to a constant and reads no `String`.
-    @inlinable public var traceCategory: SignpostCategory {
-        switch self {
-        case .actionPerform, .actionCommit, .actionGate: .action
-        case .motionFrame, .motionRun, .motionDragFrame: .motion
-        case .keyToFrame, .keyFlow, .scrollToFrame, .keyOmnibarSuggest, .keyPaletteSearch, .keyEchoHostPTYRead,
-             .keyEchoHostClientWrite, .keyEchoDaemonFrames, .keyEchoSurfaceParse, .keyEchoAttachEncode, .keyEchoLineOut,
-             .keyEchoAppTransportRead, .keyEchoMainActor, .keyEchoOutputLane, .keyEchoRenderer, .keyEchoGPUDone,
-             .keyEchoContents:
-            .key
-        case .switchWorkspace, .switchTab, .switchPaneFocus, .switchAppActivation: .switch
-        case .createTab, .createWorkspace: .create
-        case .cefPump, .cefCreateBrowser, .cefGeometry, .cefHostInput: .cef
-        case .launchProcessToMain, .launchFirstWindow, .launchFirstFrame, .launchDaemonReady,
-             .launchFirstTerminalOutput, .launchStartupTask, .launchStartupComplete:
-            .launch
-        case .stallMainTask, .stallOverBudget, .stallMainTurn, .stallCreateSurface, .stallPaletteOpen, .stallIconPickerOpen,
-             .stallRenderStarved, .stallGhosttyRuntimePhase:
-            .stall
-        case .daemonRequest, .daemonStep: .daemon
-        case .frameTick, .frameCommit, .frameGPUDone, .framePresentEstimate, .frameSequence: .frame
-        case .taskPost, .taskRun: .task
-        case .hangThreadHung, .hangInProgress, .hangInvalidated: .hang
-        case .inputFrame: .input
-        case .webviewINP, .webviewLoAF: .webview
-        case .remoteInput, .remoteFrameDecoded, .remotePresent: .remote
-        case .crashHelperExit, .crashWebContentEnd, .crashRendererUnresponsive, .crashChildExit,
-             .crashDumpWithoutCrashing:
-            .crash
-        case .controlRequest: .control
-        case .ghosttyRender: .ghostty
-        case .resizeFrame: .resize
-        case .webuiLifecycle, .webuiOpen, .webuiPreload, .webuiScheme, .webuiAgentPaneStep: .webui
-        }
-    }
-
-    /// ``traceCategory``, as the optional the callers written before it read. Never nil.
-    public var category: SignpostCategory? { traceCategory }
-
-    /// The name as a `String`.
-    public var description: String { staticName.withUTF8Buffer { String(decoding: $0, as: UTF8.self) } }
 }

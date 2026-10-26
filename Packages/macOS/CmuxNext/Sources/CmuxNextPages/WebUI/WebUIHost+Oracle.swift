@@ -43,17 +43,11 @@ extension WebUIHost {
     public func oracleStates(of pages: [PageWebView], within deadline: Duration, clock: any Clock<Duration>)
         async -> [ObjectIdentifier: Result<PageWebView.OracleStateAnswer?, PageError>] {
         for page in pages { observeOracleState(of: page) }
-        return await WebUIHost.oracleAnswers(pages, within: deadline, clock: clock)
-    }
-
-    /// The task group of ``oracleStates(of:within:clock:)``. Each child captures only Sendable values (the page is
-    /// main-actor bound) and awaits ``oracleAnswer(of:within:clock:)``, which runs on the main actor: a
-    /// `@MainActor` child closure here is a pattern the region-based isolation checker of Swift 6.3 refuses.
-    private static func oracleAnswers(_ pages: [PageWebView], within deadline: Duration, clock: any Clock<Duration>)
-        async -> [ObjectIdentifier: Result<PageWebView.OracleStateAnswer?, PageError>] {
-        await withTaskGroup(of: (ObjectIdentifier, Result<PageWebView.OracleStateAnswer?, PageError>).self) { group in
+        return await withTaskGroup(of: (ObjectIdentifier, Result<PageWebView.OracleStateAnswer?, PageError>).self) { group in
             for page in pages {
                 let id = ObjectIdentifier(page)
+                // A plain child task: swiftc's region checker rejects an `@MainActor in` child closure here. The ask
+                // itself still runs on the main actor (``oracleAnswer(of:within:clock:)`` is main-actor isolated).
                 group.addTask {
                     (id, await WebUIHost.oracleAnswer(of: page, within: deadline, clock: clock))
                 }
@@ -64,7 +58,7 @@ extension WebUIHost {
         }
     }
 
-    /// `page`'s answer, or the typed error it failed with, on the main actor (the page's router lives there).
+    /// One page's answer as a `Result`, on the main actor where the page's router lives.
     private static func oracleAnswer(of page: PageWebView, within deadline: Duration, clock: any Clock<Duration>)
         async -> Result<PageWebView.OracleStateAnswer?, PageError> {
         do throws(PageError) {

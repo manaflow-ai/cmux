@@ -1135,6 +1135,26 @@
       "reason": "The external message pump does not exist in host mode (CefRunMessageLoop runs in the host, task 034): a no-op."
     },
     {
+      "name": "cmux_shim_set_schedule_delayed",
+      "class": "local",
+      "args": [
+        {
+          "name": "schedule_delayed",
+          "type": "cmux_shim_schedule_delayed_fn",
+          "function_pointer": true
+        }
+      ],
+      "returns": "int",
+      "result_used_by": [
+        "CmuxNextBrowser/CEF/CEFRuntime.swift"
+      ],
+      "mirror_key": null,
+      "refresh_events": [],
+      "pending_keys": [],
+      "reply_event": null,
+      "reason": "Function-pointer arg for the external message pump, which does not exist in host mode (CefRunMessageLoop runs in the host, task 034): the remote shim returns 0, and CEFRuntime calls it only in process (p14-energy-046)."
+    },
+    {
       "name": "cmux_shim_create_window",
       "class": "mint",
       "args": [

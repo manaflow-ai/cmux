@@ -57,29 +57,37 @@ extension AppServices {
         notifications.followChiefPet(settings)
         updater.follow(settings)
         startHibernation(settings: settings)
-        let with = { (body: @escaping @MainActor @Sendable (AppServices, SettingsController) -> Void) -> @MainActor @Sendable () -> Void in
-            { [weak self, weak settings] in if let self, let settings { body(self, settings) } } }
-        let startHotKeys: @MainActor @Sendable () -> Void = { [weak self] in self?.globalHotKeys.start() }
-        let followUpdateFeed: @MainActor @Sendable () -> Void = { [weak self] in
-            if let self { self.updateFeedObservation = UpdateFeedPosting.follow(self) }
+        // Each start has its own declared type: one expression with every closure inline (and a ternary closure)
+        // was too much for the type checker ("failed to produce diagnostic").
+        typealias Start = @MainActor @Sendable () -> Void
+        func with(_ body: @escaping @MainActor @Sendable (AppServices, SettingsController) -> Void) -> Start {
+            { [weak self, weak settings] in if let self, let settings { body(self, settings) } }
         }
-        let posts = LaunchServicePosts.platform(globalHotKeys: hotKeys ? startHotKeys : nil,
-                                                borders: { [weak self] in self?.observeBorders() }, glass: { [weak self] in self?.observeGlass() },
-                                                keepAwake: with { KeepAwakeService.shared.start(settings: $1, store: $0.daemon.store) },
-                                                mobile: with { $0.mobile.follow($1, launch: $0.environment.launch) }, notifications: with { $0.notifications.follow($1) },
-                                                macScreenSettings: with { $0.followMacScreenSettings($1) }, deviceHub: with { $0.startDeviceHub($1) },
-                                                computerUseHelper: with { $0.followComputerUseHelper($1) },
-                                                hibernationMeasurements: { [weak self] in self?.startHibernationMeasurements() },
-                                                apps: { [weak self] in self?.apps.start() }, macScreen: { [weak self] in self?.macScreenPages.activate() },
-                                                updateFeed: followUpdateFeed)
-        posts.post(on: startup)
-    }
-
-    /// The Computer Use helper follows `settings`, off while the organization's policy turns the feature off.
-    private func followComputerUseHelper(_ settings: SettingsController) {
-        ComputerUseHelperDaemon.shared.follow(settings, disabledByPolicy: { [weak self] in
-            self?.registry.disabledFeatures.contains(.computerUse) ?? true
-        })
+        var hotKeyStart: Start?
+        if hotKeys { hotKeyStart = { [weak self] in self?.globalHotKeys.start() } }
+        let bordersStart: Start = { [weak self] in self?.observeBorders() }
+        let glassStart: Start = { [weak self] in self?.observeGlass() }
+        let keepAwakeStart = with { services, settings in KeepAwakeService.shared.start(settings: settings, store: services.daemon.store) }
+        let mobileStart = with { services, settings in services.mobile.follow(settings, launch: services.environment.launch) }
+        let notificationsStart = with { services, settings in services.notifications.follow(settings) }
+        let macScreenSettingsStart = with { services, settings in services.followMacScreenSettings(settings) }
+        let deviceHubStart = with { services, settings in services.startDeviceHub(settings) }
+        let computerUseHelperStart = with { services, settings in
+            ComputerUseHelperDaemon.shared.follow(settings, disabledByPolicy: { [weak services] in
+                services?.registry.disabledFeatures.contains(.computerUse) ?? true
+            })
+        }
+        let hibernationMeasurementsStart: Start = { [weak self] in self?.startHibernationMeasurements() }
+        let appsStart: Start = { [weak self] in self?.apps.start() }
+        let macScreenStart: Start = { [weak self] in self?.macScreenPages.activate() }
+        let updateFeedStart: Start = { [weak self] in
+            guard let self else { return }
+            updateFeedObservation = UpdateFeedPosting.follow(self)
+        }
+        LaunchServicePosts.platform(globalHotKeys: hotKeyStart, borders: bordersStart, glass: glassStart, keepAwake: keepAwakeStart, mobile: mobileStart,
+                                    notifications: notificationsStart, macScreenSettings: macScreenSettingsStart, deviceHub: deviceHubStart,
+                                    computerUseHelper: computerUseHelperStart, hibernationMeasurements: hibernationMeasurementsStart,
+                                    apps: appsStart, macScreen: macScreenStart, updateFeed: updateFeedStart).post(on: startup)
     }
 
     /// The front window's focused pane shows an agent chat (`agentSession` is a conversation's only) that opens in WebKit.

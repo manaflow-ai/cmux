@@ -97,8 +97,9 @@ final class ComposeAttachmentStrip {
         return (tiles, y + rowH + gap - top)
     }
 
-    static let nameFont = UIFont.systemFont(ofSize: 11, weight: .semibold)
-    static let kindFont = UIFont.systemFont(ofSize: 10)
+    // cmux: held by HomeFonts (a `static let` of NSFont is a non-Sendable global).
+    static var nameFont: UIFont { HomeFonts.system(ofSize: 11, weight: .semibold) }
+    static var kindFont: UIFont { HomeFonts.system(ofSize: 10) }
     /// "PDF Document · 7 KB" (the type's localized description and the size).
     static func kindText(_ a: Attachment) -> String {
         let kind = UTType(mimeType: a.mimeType)?.localizedDescription ?? a.mimeType

@@ -18,7 +18,7 @@ slept during the recording) gives a `WARNING` in the summary.
 | Source | How it is recorded | Where it shows |
 |---|---|---|
 | Stack samples, every process | `xctrace record --all-processes`, Time Profiler with os_signpost and Points of Interest (System Trace with `--system-trace`) | Nested slices (a flame chart over time) on the real thread: app main thread, Ghostty renderer and IO threads, Chromium threads, daemon, holder, terminal hosts, acpmux, CLI processes, WindowServer |
-| cmux signposts | `log stream --signpost`, subsystem `com.cmuxterm.app.next`, every process | Tracks `signposts <category>` in the emitting process: `action.perform`, `action.commit`, `action.gate` (always on, also in Release), and the `stalls`, `tab-switch` and `pane-focus` debug timings |
+| cmux signposts | `log stream --signpost`, subsystem `com.cmuxterm.app.next`, every process | Tracks `signposts <category>` in the emitting process: `action.perform`, `action.commit`, `action.gate` (always on, also in Release), and the catalog spans of the debug timings: category `stall` (`stall.create_surface`, `stall.palette_open`, `stall.icon_picker_open`) and category `switch` (`switch.tab`, `switch.pane_focus`). A watchdog stall lists in its `during` line the ones it happened inside (`STALL_DURING_SPANS`), a `commit=missed` one labeled `missed` |
 | Main-thread stalls | The app watchdog (`debug.hangs`, threshold `--hang-ms`, default 8 ms), read every second by sequence number | Track `watchdog stalls` in the app: each stall with its CPU time and its main-thread stack sample (slice args) |
 | Daemon spans | `CMUX_TUI_DEBUG_SPANS=<file>` set on the app (the daemon inherits it), followed with `tail -F` | Tracks in the daemon: one slice per request, with one child slice per mark (the gap before a mark is the cost of that step) |
 | Chromium's own trace | CDP `Tracing.start` on the DevTools port that the Debug build opens with `CMUX_NEXT_CEF_EXTRA_SWITCHES=remote-debugging-port=N` | The browser process (the app pid), the GPU process and the renderers. Thread ids are mapped to the OS threads of the time profile by name (`CrBrowserMain` is the app main thread) |
@@ -329,6 +329,22 @@ the tables of "Release trace ring v1"; the Swift `TraceRuntime.Role` and `TraceR
   own ring (task 104). The app emits no `cef.pump` then.
 - `cef.create_browser` is reserved but has no emitter (requested from PL-motion-cef, task 033).
   Without it, a Release trace attributes Chromium browser-creation time only through the stack samples.
+- `cef.geometry` (category `cef`, perf-hot `cef-geometry`, owner PL-motion-cef, closed by
+  p09-observability-038) is one thread slice (B/E) per parent window move or resize
+  (`WindowOverlayLayer.parentGeometryDidChange`, begin arg0 1) and per divider catcher sync
+  (`syncCatchers`, begin arg0 2). The slices never nest: catcher work inside a parent geometry
+  slice takes no slice of its own. End arg0 is the catcher panels shown, end arg1 the catcher panels
+  made or re-framed in the slice. Each `CEFHostView.postGeometryChange` is one `cef.geometry` instant
+  (arg0 0): the fork re-places one page window there, so a slice's instants are its page moves.
+  Recording only: the ring takes the slices and instants only while `motion` is on too (a live
+  resize writes one per tick), never in the black box, as `cef.pump` needs `task`.
+- `cef.host_input` (category `cef`, perf-hot `cef-host-input`, closed by p09-observability-038) is
+  one instant per input frame (3 mouse, 4 wheel, 5 key, 10 edit command) that
+  `ChromiumHostConnection.send` writes to the Chromium host; arg0 is the frame's wire kind.
+  Navigation, geometry, focus, ping, stats and quit frames record nothing. Recording only: the ring
+  takes it only while `input` is on too, never in the black box. While the keystroke-timing gate is
+  closed, a key or edit frame's instant is not recorded (the frame is still sent), in the log system
+  either. The black box upload drops every `cef.host_input`.
 - The holder and the terminal hosts have `task` trace points (recording only, never the black
   box), but a `cmux trace` capture does not show them yet. They record only after the process
   opens its ring (p09-observability-095) and a recording is forwarded to it
