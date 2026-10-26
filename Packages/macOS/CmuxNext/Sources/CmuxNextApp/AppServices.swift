@@ -23,6 +23,7 @@ import CmuxNextHomeEngine
 import CmuxNextIcons
 import CmuxNextInput
 import CmuxNextKeepAwake
+import CmuxNextLayout
 import CmuxNextLaunch
 import CmuxNextMemory
 import CmuxNextPalette
@@ -117,6 +118,8 @@ final class AppServices {
     private(set) lazy var addDevice = AddDeviceCard(services: .app(self), mainWork: mainWork)
     private(set) lazy var devices = DeviceDirectory.app(self)
     let machineHealth = MachineHealthStore()
+    /// Layout passes and tree changes of off-screen workspaces, all windows (`debug.layout_counters`).
+    let hiddenLayoutWork = HiddenLayoutWork()
     /// The app's one fan-out of app-wide notices (`AppEvents`, p06-scheduler-021): every window's
     /// key tracker and later adopters subscribe here, one observer per name for the whole app.
     let appEvents = AppEvents(center: .default)
@@ -366,9 +369,9 @@ final class AppServices {
         histograms: memoryHistograms, webContentPIDs: { [weak self] in if let self { AppMemoryModel.liveWebContentPIDs(self) } else { [] } },
         sample: { await AppMemoryModel.processes(webContentPIDs: $0) })
     /// One prewarmed new tab page per window (instant open).
-    private(set) lazy var newTabSpares = NewTabSparePool(services: self, memoryPressure: memoryPressure, input: inputTap)
+    private(set) lazy var newTabSpares = NewTabSparePool(services: self, memory: memoryCoordinator, input: inputTap)
     /// The spare React page hosts for Settings, History and Cloud.
-    private(set) lazy var pageHostPool = PageHostPool(memoryPressure: memoryPressure)
+    private(set) lazy var pageHostPool = PageHostPool(memory: memoryCoordinator)
     /// The one owner of cmux pages (p13-webui.md 3.A): every page view opens and closes through it.
     /// Every page follows `browser.defaultEngine` (Chromium by default) through its one Chromium host.
     /// Its views are listed in `PageRegistry.processWide` while the static forwarders remain (p13-webui-010).
@@ -414,7 +417,7 @@ final class AppServices {
     private(set) lazy var keyRouter: KeyRouter = KeyRouter(registry: registry, inputDispatch: inputDispatch)  // first read in init (no IUO)
     private(set) lazy var routeKeyDown: (NSEvent, NSWindow?) -> Bool = PerfLabCanaryKeyDown(features: { [weak self] in self?.features })
         .wrap { [weak self] (event: NSEvent, window: NSWindow?) in self?.keyRouter.interceptKeyDown(event, in: window) ?? false }  // debug.key calls it too
-    private(set) lazy var chromiumWarmup: ChromiumWarmup = ChromiumWarmup(engine: cache.cef, input: inputTap)  // first read by its afterFirstFrame start
+    private(set) lazy var chromiumWarmup: ChromiumWarmup = ChromiumWarmup(engine: cache.cef, input: inputTap, memory: memoryCoordinator)  // first read by its afterFirstFrame start
     /// The Settings window (Settings…, Cmd-,).
     private(set) lazy var settingsWindow = SettingsWindowService(services: self)
     /// The wallpaper choices, built off main and kept current by folder events (BackdropCatalogStore).

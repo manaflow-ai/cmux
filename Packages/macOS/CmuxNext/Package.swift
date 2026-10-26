@@ -741,7 +741,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         ),
         .testTarget(
             name: "CmuxNextPagesTests",
-            dependencies: ["CmuxNextCompat", "CmuxNextHibernation", "CmuxNextPages", "CmuxNextPagesTestSupport", "CmuxNextSettings", "CmuxNextDesign", "CmuxNextTrace", "CmuxNextMetrics", "CmuxNextSignposts", "CmuxNextWakeups"],
+            dependencies: ["CmuxNextCompat", "CmuxNextHibernation", "CmuxNextMemory", "CmuxNextPages", "CmuxNextPagesTestSupport", "CmuxNextSettings", "CmuxNextDesign", "CmuxNextTrace", "CmuxNextMetrics", "CmuxNextSignposts", "CmuxNextWakeups"],
             swiftSettings: uiSwiftSettings
         ),
         // Settings > Agents > Agent integrations: the coding-agent hooks the bundled CLI
@@ -936,12 +936,12 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         ),
         .target(
             name: "CmuxNextChromiumWarmup",
-            dependencies: ["CmuxNextBrowser", "CmuxNextInputCore", "CmuxNextWakeups"],
+            dependencies: ["CmuxNextBrowser", "CmuxNextCompat", "CmuxNextInputCore", "CmuxNextWakeups"],
             swiftSettings: uiSwiftSettings
         ),
         .testTarget(
             name: "CmuxNextChromiumWarmupTests",
-            dependencies: ["CmuxNextBrowser", "CmuxNextChromiumWarmup", "CmuxNextInput", "CmuxNextInputCore", "CmuxNextInputCoreTestSupport", "CmuxNextWakeupsTestSupport"],
+            dependencies: ["CmuxNextBrowser", "CmuxNextChromiumWarmup", "CmuxNextCompat", "CmuxNextInput", "CmuxNextInputCore", "CmuxNextInputCoreTestSupport", "CmuxNextWakeupsTestSupport"],
             swiftSettings: uiSwiftSettings
         ),
         // Phone access (Settings > Accounts > Phone Access): the phone host's lifecycle
@@ -1701,7 +1701,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             // CmuxNextIPC: ResourceRequestLineParityTests compares its generated v2 request lines with
             // today's ResourceRequestEnvelope bytes (p05-ipc-024), until CmuxNextDaemon depends on it (090).
             dependencies: ["CmuxNextCompat", "CmuxNextDaemon", "CmuxNextTrace", "CmuxNextMetrics", "CmuxNextWakeups",
-                           "CmuxNextWakeupsTestSupport", "CmuxNextIPC",
+                           "CmuxNextWakeupsTestSupport", "CmuxNextIPC", "CmuxNextSignposts",
                            .product(name: "CmuxFuzzSupport", package: "CmuxFuzzSupport")],
             swiftSettings: daemonSwiftSettings
         ),
@@ -1740,7 +1740,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             // Ghostty action fuzz suites (p10-stability-030); WakeupsTestSupport for the pointer coalescer's manual clock
             // (TerminalPointerCoalescingTests).
             dependencies: ["CmuxNextCompat", "CmuxNextTerminal", "CmuxNextTrace", "CmuxNextMetrics", "CmuxNextInputCore", "CmuxNextWakeups", "CmuxNextInput",
-                           "CmuxNextWakeupsTestSupport",
+                           "CmuxNextWakeupsTestSupport", "CmuxNextSignposts",
                            .product(name: "CmuxGhosttyKit", package: "CmuxGhosttyKit"), .product(name: "CmuxFuzzSupport", package: "CmuxFuzzSupport")],
             swiftSettings: uiSwiftSettings,
             linkerSettings: [.linkedLibrary("c++")]

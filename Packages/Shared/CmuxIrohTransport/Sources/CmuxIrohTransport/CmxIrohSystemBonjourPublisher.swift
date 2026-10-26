@@ -1,5 +1,5 @@
 import Darwin
-@preconcurrency import Dispatch
+import Dispatch
 import dnssd
 import Foundation
 

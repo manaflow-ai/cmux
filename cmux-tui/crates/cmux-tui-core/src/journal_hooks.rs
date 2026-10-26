@@ -924,7 +924,8 @@ fn execute_delivery_with_shutdown(
         )
         .stdin(Stdio::piped())
         .stdout(Stdio::null())
-        .stderr(Stdio::null());
+        .stderr(Stdio::null())
+        .qos_ceiling(cmux_threads::HELPER_CHILD);
     #[cfg(windows)]
     command.creation_flags(CREATE_SUSPENDED);
     if let Some(session_id) = session_id {
