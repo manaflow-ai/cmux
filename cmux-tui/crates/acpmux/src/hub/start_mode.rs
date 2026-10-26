@@ -213,8 +213,8 @@ pub(crate) fn setting_snapshot() -> Option<String> {
 /// while the setting's change count is the one recorded with it
 /// (`picked_at`, `now`), else `DefaultMode::resolve` (with `pushed`). The
 /// person's latest choice wins, whether it is a pick in a chat or a change to
-/// the setting. With `sessions.allowFullAccess` off, full access starts as
-/// Standard, whatever chose it.
+/// the setting. With `sessions.allowFullAccess` off (`allowed`, the effective value
+/// `Hub::full_access_allowed` reads), full access starts as Standard, whatever chose it.
 fn start_level(
     managed: Option<&str>,
     picked: Option<&str>,
@@ -222,6 +222,7 @@ fn start_level(
     now: &PermissionModeChange,
     configured: Option<&str>,
     pushed: Option<&str>,
+    allowed: bool,
 ) -> (DefaultMode, Source) {
     let (level, source) = if let Some(value) = managed {
         let level = DefaultMode::parse(value).unwrap_or_else(|| {
@@ -239,7 +240,7 @@ fn start_level(
         }
     };
     // `sessions.allowFullAccess` off: no chat starts in a mode that skips every approval.
-    if level == DefaultMode::FullAccess && !full_access_allowed() {
+    if level == DefaultMode::FullAccess && !allowed {
         return (DefaultMode::Standard, source);
     }
     (level, source)
@@ -249,69 +250,144 @@ fn start_level(
 /// Sessions, "Allow Full-Access Modes").
 pub const ALLOW_FULL_ACCESS: &str = "sessions.allowFullAccess";
 
-/// Whether a mode that skips every approval may run now: yes unless the settings file turns
-/// `sessions.allowFullAccess` off. A settings file that cannot be read fails closed (no).
-pub fn full_access_allowed() -> bool {
-    match crate::user_settings::read() {
-        crate::user_settings::Settings::Missing => true,
-        crate::user_settings::Settings::Unreadable(_) => false,
-        crate::user_settings::Settings::Parsed(doc) => !matches!(
-            crate::user_settings::value(&doc, ALLOW_FULL_ACCESS),
-            Some(Value::Bool(false))
-        ),
+/// `sessions.allowFullAccess` as one layer holds it: `None` when the layer does not set it
+/// (no key, or `null`), else strictly a boolean. Only `true` allows; any other value (`false`,
+/// `0`, `"false"`, `"true"`) is off, so a value acpmux cannot read never turns full access on.
+pub(crate) fn strict_allow(value: Option<&Value>) -> Option<bool> {
+    match value {
+        None | Some(Value::Null) => None,
+        Some(v) => Some(v == &Value::Bool(true)),
     }
 }
 
-/// The markers of a mode id or option value that skips every approval, shared with the cmux NEXT
-/// app (`spec/full-access-modes.json`).
-const FULL_ACCESS_RULE: &str = include_str!("../../../../spec/full-access-modes.json");
-
-fn full_access_markers() -> Option<&'static [String]> {
-    static MARKERS: std::sync::OnceLock<Option<Vec<String>>> = std::sync::OnceLock::new();
-    MARKERS
-        .get_or_init(|| {
-            let rule: Value = serde_json::from_str(FULL_ACCESS_RULE).ok()?;
-            Some(
-                rule.get("markers")?
-                    .as_array()?
-                    .iter()
-                    .filter_map(Value::as_str)
-                    .map(str::to_owned)
-                    .collect(),
-            )
-        })
-        .as_deref()
+/// The effective `sessions.allowFullAccess` (managed > user > pushed default > on):
+/// - `managed`: the value MDM or the team policy forces, which the app pushes
+///   (`_acpmux/chat_settings` `allowFullAccess` with `allowFullAccessManaged`,
+///   `start_mode_state.rs`). It beats the settings file.
+/// - `file`: the settings file as acpmux reads it now. A file that cannot be read fails closed.
+/// - `pushed`: the app's effective value when nothing forces it (a team default), for a file
+///   with no key.
+/// - else on (the default, Lawrence 2026-10-07).
+pub(crate) fn full_access_allowed_by(
+    managed: Option<bool>,
+    file: &crate::user_settings::Settings,
+    pushed: Option<bool>,
+) -> bool {
+    if let Some(forced) = managed {
+        return forced;
+    }
+    let own = match file {
+        crate::user_settings::Settings::Missing => None,
+        crate::user_settings::Settings::Unreadable(_) => return false,
+        crate::user_settings::Settings::Parsed(doc) => {
+            strict_allow(crate::user_settings::value(doc, ALLOW_FULL_ACCESS).as_ref())
+        }
+    };
+    own.or(pushed).unwrap_or(true)
 }
 
-/// Whether a mode id or option value skips every approval, by the shared rule
-/// (`spec/full-access-modes.json`): lowercased, without `-`, `_` or spaces, it contains a
-/// marker. Wider than `FULL_ACCESS_MODES` (the modes acpmux itself picks), so a harness's
-/// `danger-full-access` or `auto-approve` is refused too.
+/// The markers of a mode id or option value that skips every approval, and the permission modes
+/// known to ask, shared with the cmux NEXT app (`spec/full-access-modes.json`).
+const FULL_ACCESS_RULE: &str = include_str!("../../../../spec/full-access-modes.json");
+
+/// The rule's markers and allowed modes, folded; `None` when the spec does not parse.
+struct FullAccessRule {
+    markers: Vec<String>,
+    allowed_modes: Vec<String>,
+}
+
+fn full_access_rule() -> Option<&'static FullAccessRule> {
+    static RULE: std::sync::OnceLock<Option<FullAccessRule>> = std::sync::OnceLock::new();
+    RULE.get_or_init(|| {
+        let rule: Value = serde_json::from_str(FULL_ACCESS_RULE).ok()?;
+        let list = |key: &str| -> Option<Vec<String>> {
+            Some(rule.get(key)?.as_array()?.iter().filter_map(Value::as_str).map(fold).collect())
+        };
+        Some(FullAccessRule { markers: list("markers")?, allowed_modes: list("allowedModes")? })
+    })
+    .as_ref()
+}
+
+/// An id as the rule compares it: lowercased, without `-`, `_` or spaces.
+fn fold(id: &str) -> String {
+    id.chars().filter(|c| !matches!(c, '-' | '_' | ' ')).flat_map(char::to_lowercase).collect()
+}
+
+/// Whether a config option value skips every approval, by the shared rule
+/// (`spec/full-access-modes.json`): folded, it contains a marker. For the values of options
+/// that are not the permission mode (a sandbox, an approval policy); a permission mode goes
+/// through `is_full_access`.
+pub(crate) fn is_full_access_value(value: &str) -> bool {
+    let folded = fold(value);
+    // A rule that does not parse names every value full access: refused while the setting is off.
+    full_access_rule().is_none_or(|r| r.markers.iter().any(|m| folded.contains(m.as_str())))
+}
+
+/// Whether the shared rule's markers name permission mode `mode` full access: the grant side,
+/// for what a chat in Full access approves unasked (`permissions.rs` `full_access_mode`). Unlike
+/// `is_full_access`, a mode missing from `allowedModes` is not named, and a rule that does not
+/// parse names nothing.
+pub(crate) fn names_full_access(mode: &str) -> bool {
+    let folded = fold(mode);
+    full_access_rule().is_some_and(|r| r.markers.iter().any(|m| folded.contains(m.as_str())))
+}
+
+/// Whether a permission mode skips every approval, by the shared rule
+/// (`spec/full-access-modes.json`): an allowlist that fails closed. A mode is allowed only when
+/// its folded id is one of `allowedModes` and contains no marker, so a mode no one reviewed (a
+/// new harness's, a renamed one) counts as full access and is refused while the setting is off.
 pub(crate) fn is_full_access(mode: &str) -> bool {
-    let folded: String = mode
-        .chars()
-        .filter(|c| !matches!(c, '-' | '_' | ' '))
-        .flat_map(char::to_lowercase)
-        .collect();
-    // A rule that does not parse names every mode full access: refused while the setting is off.
-    full_access_markers().is_none_or(|markers| markers.iter().any(|m| folded.contains(m.as_str())))
+    let folded = fold(mode);
+    full_access_rule().is_none_or(|r| {
+        r.markers.iter().any(|m| folded.contains(m.as_str()))
+            || !r.allowed_modes.iter().any(|a| *a == folded)
+    })
+}
+
+/// Whether config option `id` is the session's permission mode: the option named `mode` (as the
+/// app pane reads it), or one the harness tags with the ACP category `mode`.
+pub(crate) fn is_mode_option(id: &str, options: Option<&Value>) -> bool {
+    id == "mode"
+        || options.and_then(Value::as_array).is_some_and(|all| {
+            all.iter().any(|o| {
+                o.get("id").and_then(Value::as_str) == Some(id)
+                    && o.get("category").and_then(Value::as_str) == Some("mode")
+            })
+        })
+}
+
+/// Whether setting config option `id` to `value` puts the session in full access: the mode
+/// option by the mode rule, any other by its value's markers.
+pub(crate) fn option_is_full_access(id: &str, value: &str, options: Option<&Value>) -> bool {
+    if is_mode_option(id, options) { is_full_access(value) } else { is_full_access_value(value) }
 }
 
 /// The mode a resumed chat runs in: its saved mode, or the harness default (`fallback`) when the
-/// saved one skips every approval and `sessions.allowFullAccess` is off.
-pub(crate) fn resumable_mode(saved: String, fallback: &str) -> String {
-    if is_full_access(&saved) && !full_access_allowed() { fallback.to_owned() } else { saved }
+/// saved one skips every approval and `sessions.allowFullAccess` is off (`allowed`).
+pub(crate) fn resumable_mode(saved: String, fallback: &str, allowed: bool) -> String {
+    if !allowed && is_full_access(&saved) { fallback.to_owned() } else { saved }
 }
 
 /// Whether a session request switches into a full-access mode: `session/set_mode` to one, or
-/// `session/set_config_option` of any option whose value is one (not only the `mode` option).
-pub(crate) fn requests_full_access(m: &str, params: &Value) -> bool {
-    let value = match m {
-        method::SESSION_SET_MODE => params.get("modeId"),
-        method::SESSION_SET_CONFIG_OPTION => params.get("value"),
-        _ => None,
-    };
-    value.and_then(Value::as_str).is_some_and(is_full_access)
+/// `session/set_config_option` of the mode option to one, or of any other option to a value
+/// that names full access (`options`: the session's config options).
+pub(crate) fn requests_full_access(m: &str, params: &Value, options: Option<&Value>) -> bool {
+    let text = |key: &str| params.get(key).and_then(Value::as_str);
+    match m {
+        method::SESSION_SET_MODE => text("modeId").is_some_and(is_full_access),
+        method::SESSION_SET_CONFIG_OPTION => match (text("configId"), text("value")) {
+            (Some(id), Some(value)) => option_is_full_access(id, value, options),
+            (None, Some(value)) => is_full_access_value(value),
+            _ => false,
+        },
+        _ => false,
+    }
+}
+
+/// Whether a permission policy auto-approves every request (`approve-all`, also spelled
+/// `yolo`): the policy form of full access, refused or capped while the setting is off.
+pub(crate) fn policy_is_full_access(policy: PermissionPolicy) -> bool {
+    policy == PermissionPolicy::ApproveAll
 }
 
 /// The refusal of a full-access mode while `sessions.allowFullAccess` is off.
@@ -533,7 +609,7 @@ impl Hub {
         offered: &[String],
     ) -> Option<String> {
         let family = crate::web_modes::family_of(meta);
-        let allowed = full_access_allowed();
+        let allowed = self.full_access_allowed();
         if crate::web_modes::family_of(theirs) == family
             && let Some(mode) = crate::web_modes::mode_of(theirs)
             && offered.contains(&mode)
@@ -601,7 +677,7 @@ impl Hub {
     ) -> Result<(), RpcError> {
         let meta = session.meta();
         let Some(current) = crate::web_modes::mode_of(&meta) else { return Ok(()) };
-        if !is_full_access(&current) || full_access_allowed() {
+        if self.full_access_allowed() || !is_full_access(&current) {
             return Ok(());
         }
         let family = crate::web_modes::family_of(&meta);
@@ -696,7 +772,16 @@ impl Hub {
             &state.mark(),
             configured.as_deref(),
             state.pushed.as_deref(),
+            self.full_access_allowed(),
         )
+    }
+
+    /// Whether a mode or policy that skips every approval may run now: the effective
+    /// `sessions.allowFullAccess` (`full_access_allowed_by`), from the value the app pushed for
+    /// MDM or the team policy, the settings file read now, and the app's pushed default.
+    pub fn full_access_allowed(&self) -> bool {
+        let (managed, pushed) = self.full_access_push();
+        full_access_allowed_by(managed, &crate::user_settings::read(), pushed)
     }
 
     /// `_acpmux/start_mode`: the mode a plain new chat on `harness` (or the
@@ -860,5 +945,67 @@ impl Hub {
     /// `watch_note`), marked `START_MODE_NOTE`.
     pub(super) fn start_mode_changed(&self) {
         self.send_harness_change(json!({ (START_MODE_NOTE): true }));
+    }
+}
+
+#[cfg(test)]
+mod full_access_rule_tests {
+    use super::*;
+    use crate::user_settings::Settings;
+
+    #[test]
+    fn a_mode_no_one_reviewed_counts_as_full_access() {
+        for mode in [
+            "default",
+            "acceptEdits",
+            "plan",
+            "dontAsk",
+            "auto",
+            "ask",
+            "read-only",
+            "Read Only",
+            "agent",
+            "full-auto",
+            "autoEdit",
+        ] {
+            assert!(!is_full_access(mode), "{mode}");
+        }
+        for mode in
+            ["bypassPermissions", "agent-full-access", "yolo", "turbo", "build", "normal", ""]
+        {
+            assert!(is_full_access(mode), "{mode}");
+        }
+        // A config value of another option is judged by its markers only.
+        assert!(!is_full_access_value("fullscreen"));
+        assert!(is_full_access_value("danger-full-access"));
+        assert!(option_is_full_access("mode", "turbo", None));
+        assert!(!option_is_full_access("sandbox", "turbo", None));
+        let tagged = json!([{"id": "permissions", "category": "mode"}]);
+        assert!(option_is_full_access("permissions", "turbo", Some(&tagged)));
+        // The grant side names only what the markers name: an unreviewed mode is refused while
+        // the switch is off, but never approves anything unasked.
+        for mode in ["turbo", "build", "normal", ""] {
+            assert!(!names_full_access(mode), "{mode}");
+        }
+        for mode in ["bypassPermissions", "agent-full-access", "yolo"] {
+            assert!(names_full_access(mode), "{mode}");
+        }
+    }
+
+    #[test]
+    fn full_access_setting_is_strict_and_a_forced_value_beats_the_file() {
+        let file = |v: Value| Settings::Parsed(json!({"sessions": {"allowFullAccess": v}}));
+        assert!(full_access_allowed_by(None, &Settings::Missing, None));
+        assert!(full_access_allowed_by(None, &file(json!(true)), None));
+        for off in [json!(false), json!(0), json!("false"), json!("true"), json!({})] {
+            assert!(!full_access_allowed_by(None, &file(off.clone()), None), "{off}");
+        }
+        assert!(full_access_allowed_by(None, &file(Value::Null), None));
+        assert!(!full_access_allowed_by(None, &Settings::Unreadable("x".into()), None));
+        // Managed beats the file, both ways; the pushed default applies only without a key.
+        assert!(!full_access_allowed_by(Some(false), &file(json!(true)), None));
+        assert!(full_access_allowed_by(Some(true), &file(json!(false)), None));
+        assert!(!full_access_allowed_by(None, &Settings::Parsed(json!({})), Some(false)));
+        assert!(full_access_allowed_by(None, &file(json!(true)), Some(false)));
     }
 }

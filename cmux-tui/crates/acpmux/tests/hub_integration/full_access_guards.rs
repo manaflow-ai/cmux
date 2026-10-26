@@ -326,3 +326,16 @@ async fn a_fork_of_a_mode_option_chat_keeps_approving() {
     assert_eq!(hub.session_summary(&fork)["preview"], "chose once");
     assert_eq!(autos(&hub, &fid)[0]["fullAccess"], "full-access");
 }
+
+/// `spec/full-access-modes.json` `allowedModes` fails closed only to refuse: a mode it does not
+/// list (here the stand-in's `strict`) is refused while `sessions.allowFullAccess` is off, but is
+/// not Full access to approve with. Only a mode the rule's markers name answers unasked.
+#[tokio::test]
+async fn a_mode_the_allowlist_does_not_know_still_asks_for_the_guard() {
+    let (hub, mut c) = hub_with(&[("FAKE_PICKER", "1"), ("FAKE_PICKER_MODES", "1")]).await;
+    for mode in ["strict", "normal"] {
+        let id = chat_in(&mut c, mode).await;
+        let rid = c.send(method::SESSION_PROMPT, guard(&id)).await;
+        asks_the_person(&mut c, &hub, &id, rid).await;
+    }
+}
