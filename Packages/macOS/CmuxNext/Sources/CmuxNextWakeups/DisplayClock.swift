@@ -202,8 +202,8 @@ public final class DisplayClock {
                          targetTimestamp: CFTimeInterval? = nil, hiddenUntil: CFTimeInterval?) {
         // Schedulers that subscribe during this tick tick next frame; one that leaves during it
         // (its window closed) gets nothing more.
-        // A scheduler that just came from another display skips a frame shown no later than its last
-        // one (``FrameScheduler/takesTick(timestamp:refreshInterval:targetTimestamp:)``).
+        // A scheduler that just came from another display skips a frame that starts or is shown no
+        // later than its last one (``FrameScheduler/takesTick(timestamp:refreshInterval:targetTimestamp:)``).
         let ticking = display.subscribers.compactMap { scheduler -> (FrameScheduler, FrameTick)? in
             guard let pace = pace(scheduler, hiddenUntil: hiddenUntil),
                   scheduler.takesTick(timestamp: timestamp, refreshInterval: refreshInterval, targetTimestamp: targetTimestamp)

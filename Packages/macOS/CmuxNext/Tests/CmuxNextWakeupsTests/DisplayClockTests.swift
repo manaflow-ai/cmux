@@ -200,13 +200,44 @@ import Testing
         #expect(displays.liveLinks == 0)
     }
 
-    /// p03-rendering-011: a window dragged mid-animation from a 60 Hz display to a 120 Hz one. Its
+    /// A window moving between displays mid-animation (p03-rendering-011).
+    struct ScreenMove: Sendable, CustomStringConvertible {
+        let description: String
+        let oldInterval: Double
+        let newInterval: Double
+        /// Where the new display's refresh grid starts after the old one's.
+        let newPhase: Double
+        /// How late main runs the new display's link callbacks (main was busy).
+        let newLag: Double
+        /// When the window moves, after the old display's first frame.
+        let moveAfter: Double
+        /// Old-display ticks before the move.
+        let ticksBefore: Int
+        /// The first tick on the new display: the frame time of the new display's first frame that
+        /// starts more than half its interval after the last old tick and is shown after it.
+        let firstNewTick: Double
+
+        static let all: [ScreenMove] = [
+            ScreenMove(description: "60 to 120 Hz in phase", oldInterval: 1.0 / 60, newInterval: 1.0 / 120,
+                       newPhase: 0, newLag: 0, moveAfter: 2.4 / 60, ticksBefore: 3, firstNewTick: 3.0 / 60),
+            // The last 120 Hz tick starts at +8.3 ms and is shown at +16.7 ms; the 60 Hz frame that
+            // starts at +5 ms (shown at +21.7 ms) runs on main after the move. Taking it would move
+            // the tick time back 3.3 ms.
+            ScreenMove(description: "120 to 60 Hz out of phase, new callbacks late", oldInterval: 1.0 / 120,
+                       newInterval: 1.0 / 60, newPhase: 0.005, newLag: 0.005, moveAfter: 0.009, ticksBefore: 2,
+                       firstNewTick: 0.005 + 1.0 / 60),
+        ]
+    }
+
+    /// p03-rendering-011: a window dragged mid-animation to a display with another refresh rate. Its
     /// WindowScreenFamily moves its scheduler on `didChangeScreen` (before it, the window ticked on
     /// the old display until a stall deadline): from then on it ticks only on the new display's link,
-    /// no gap between ticks is longer than the old interval, and the new display's frame that is shown
-    /// on the same refresh as its last old frame does not tick it a second time. The 120 Hz display
-    /// already runs for another window, or gets its link with the move.
-    @Test(arguments: [true, false]) func aWindowMovedMidAnimationTicksOnlyOnTheNewDisplay(fastDisplayRuns: Bool) {
+    /// its tick times never run back, no gap is longer than the old interval or one and a half new
+    /// ones, and no refresh gets two of its frames (Chrome's `kDoubleTickDivisor` gate,
+    /// components/viz/common/frame_sinks/begin_frame_source.cc). The new display already runs for
+    /// another window, or gets its link with the move.
+    @Test(arguments: ScreenMove.all, [true, false])
+    func aWindowMovedMidAnimationTicksOnlyOnTheNewDisplay(move: ScreenMove, newDisplayRuns: Bool) {
         let links = FakeLinks()
         let media = TestMediaTime()
         let window = NSWindow.fixture(), other = NSWindow.fixture()
@@ -216,47 +247,61 @@ import Testing
         let center = NotificationCenter()
         let moving = FrameScheduler(name: "moving", host: .window(window), displays: displays, budget: nil)
         let family = WindowScreenFamily(window: window, scheduler: moving, center: center)
-        var ticks: [FrameTick] = []
-        let spring = FrameClient(owner: "spring", on: moving) { tick in ticks.append(tick); return true }
+        var moved = false
+        var ticks: [(tick: FrameTick, afterMove: Bool)] = []
+        let spring = FrameClient(owner: "spring", on: moving) { tick in ticks.append((tick, moved)); return true }
         spring.activate()
-        let onFast = FrameScheduler(name: "fast", host: .window(other), displays: displays, budget: nil)
-        let fastWindow = FrameClient(owner: "fast", on: onFast) { _ in true }
-        if fastDisplayRuns { fastWindow.activate() }
+        let onNew = FrameScheduler(name: "new", host: .window(other), displays: displays, budget: nil)
+        let newWindow = FrameClient(owner: "new", on: onNew) { _ in true }
+        if newDisplayRuns { newWindow.activate() }
 
-        let slow = 1.0 / 60, fast = 1.0 / 120, start = 1.0, moveAt = start + 2.4 * slow
-        // Both displays refresh on their own grids; the window moves between two 60 Hz frames.
-        var events: [(time: Double, display: CGDirectDisplayID?)] = [(moveAt, nil)]
-        for frame in 0..<8 { events.append((start + Double(frame) * slow, 1)) }
-        for frame in 0..<16 { events.append((start + Double(frame) * fast, 2)) }
-        for event in events.sorted(by: { $0.time < $1.time }) {
-            media.now = event.time
+        let start = 1.0, moveAt = start + move.moveAfter
+        // Each display refreshes on its own grid; main runs a frame's callback at `runAt`.
+        var events: [(runAt: Double, timestamp: Double, display: CGDirectDisplayID?)] = [(moveAt, moveAt, nil)]
+        for frame in 0..<8 {
+            let timestamp = start + Double(frame) * move.oldInterval
+            events.append((timestamp, timestamp, 1))
+        }
+        for frame in 0..<8 {
+            let timestamp = start + move.newPhase + Double(frame) * move.newInterval
+            events.append((timestamp + move.newLag, timestamp, 2))
+        }
+        for event in events.sorted(by: { $0.runAt < $1.runAt }) {
+            media.now = event.runAt
             guard let id = event.display else {
                 screen = 2
+                moved = true
                 center.post(name: NSWindow.didChangeScreenNotification, object: window)
                 continue
             }
-            let interval = id == 1 ? slow : fast
-            displays.displayDidFire(id, timestamp: event.time, refreshInterval: interval, targetTimestamp: event.time + interval)
+            let interval = id == 1 ? move.oldInterval : move.newInterval
+            displays.displayDidFire(id, timestamp: event.timestamp, refreshInterval: interval,
+                                    targetTimestamp: event.timestamp + interval)
         }
 
-        #expect(displays.subscribers(on: 1).isEmpty, "the moved window left the 60 Hz display")
+        #expect(displays.subscribers(on: 1).isEmpty, "the moved window left the old display")
         #expect(displays.subscribers(on: 2).contains("moving"))
-        #expect(!displays.hasLink(1), "nobody is left on the 60 Hz display: its link is gone")
-        let before = ticks.filter { $0.timestamp < moveAt }, after = ticks.filter { $0.timestamp > moveAt }
-        #expect(before.count == 3 && before.allSatisfy { $0.refreshInterval == slow })
-        #expect(!after.isEmpty && after.allSatisfy { $0.refreshInterval == fast }, "a tick after the move came from the 60 Hz link")
-        for (earlier, later) in zip(ticks, ticks.dropFirst()) {
-            #expect(later.timestamp - earlier.timestamp <= slow + 1e-9,
+        #expect(!displays.hasLink(1), "nobody is left on the old display: its link is gone")
+        let before = ticks.filter { !$0.afterMove }.map { $0.tick }, after = ticks.filter { $0.afterMove }.map { $0.tick }
+        #expect(before.count == move.ticksBefore && before.allSatisfy { $0.refreshInterval == move.oldInterval })
+        #expect(!after.isEmpty && after.allSatisfy { $0.refreshInterval == move.newInterval },
+                "a tick after the move came from the old display's link")
+        let maxGap = max(move.oldInterval, 1.5 * move.newInterval)
+        let all = ticks.map { $0.tick }
+        for (earlier, later) in zip(all, all.dropFirst()) {
+            #expect(later.timestamp > earlier.timestamp,
+                    "tick time ran back from \(earlier.timestamp) to \(later.timestamp)")
+            #expect(later.timestamp - earlier.timestamp <= maxGap + 1e-9,
                     "\(later.timestamp - earlier.timestamp) s between ticks at \(earlier.timestamp) and \(later.timestamp)")
-            #expect(later.targetTimestamp - earlier.targetTimestamp >= fast / 2,
+            #expect(later.targetTimestamp - earlier.targetTimestamp >= min(move.oldInterval, move.newInterval) / 2,
                     "two ticks shown on one refresh at \(later.targetTimestamp)")
         }
-        #expect(after.first.map { abs($0.timestamp - (start + 3 * slow)) < 1e-9 } == true,
-                "the 120 Hz frame shown with the last 60 Hz one ticked it again")
+        #expect(after.first.map { abs($0.timestamp - (start + move.firstNewTick)) < 1e-9 } == true,
+                "the first new-display tick was \(after.first?.timestamp ?? 0), not the first frame after the last old one")
         spring.deactivate()
-        fastWindow.deactivate()
+        newWindow.deactivate()
         #expect(displays.liveLinks == 0)
-        withExtendedLifetime((family, onFast)) {}
+        withExtendedLifetime((family, onNew)) {}
     }
 
     /// The link goes away while the budget holder stays subscribed (a stall rebuild that cannot

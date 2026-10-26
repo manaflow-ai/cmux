@@ -134,11 +134,17 @@ public final class FrameScheduler: NSObject {
     private var screenFamily: WindowScreenFamily?
     /// When the frame of its last tick is shown (nil before the first tick after subscribing).
     private var lastTargetTimestamp: CFTimeInterval?
-    /// Set when it moves to another display: the target of its last tick there. Until a link tick of
-    /// the new display is shown after it, that display's ticks pass it by, so it never builds two
-    /// frames for one refresh (Chrome's `BeginFrameObserverBase` takes only a BeginFrame newer than
-    /// the last one it used, components/viz/common/frame_sinks/begin_frame_source.cc).
-    private var handoffTarget: CFTimeInterval?
+    /// Set when it moves to another display: its last tick there. Until a link tick of the new display
+    /// starts more than half that display's interval after it and is shown after it, that display's
+    /// ticks pass it by, so its tick time never runs back and no refresh gets two frames (Chrome's
+    /// `kDoubleTickDivisor` check, `frame_time > last.frame_time + interval / kDoubleTickDivisor`,
+    /// in `DelayBasedBeginFrameSource::IssueBeginFrameToObserver`,
+    /// components/viz/common/frame_sinks/begin_frame_source.cc).
+    private var handoff: Handoff?
+    private struct Handoff {
+        let timestamp: CFTimeInterval
+        let target: CFTimeInterval
+    }
     /// Frames delivered since creation (debug).
     public private(set) var frames: UInt64 = 0
     /// Display links this scheduler's subscribing made since creation (debug: a scheduler that stays
@@ -266,19 +272,27 @@ public final class FrameScheduler: NSObject {
     func displayDidChange(to id: CGDirectDisplayID, hasLink: Bool) {
         displayID = id
         ticksOnLink = hasLink
-        handoffTarget = lastTargetTimestamp
+        if let lastTimestamp, let lastTargetTimestamp {
+            handoff = Handoff(timestamp: lastTimestamp, target: lastTargetTimestamp)
+        } else {
+            handoff = nil
+        }
     }
 
-    /// Whether a tick of its display goes to it. After a display change only a link tick whose frame
-    /// is shown after its last frame does, and the first one ends the handoff: the gap stays within
-    /// the old display's interval and no refresh gets two frames. A stall tick (no timestamp) always does.
+    /// Whether a tick of its display goes to it. After a display change only a link tick that starts
+    /// more than half the new interval after its last tick and is shown after its last frame does,
+    /// and the first one ends the handoff: tick times never decrease and no refresh gets two frames.
+    /// A stall tick (no timestamp, it runs now) always does.
     func takesTick(timestamp: CFTimeInterval?, refreshInterval: Double?, targetTimestamp: CFTimeInterval?) -> Bool {
-        guard let handoff = handoffTarget else { return true }
+        guard let last = handoff else { return true }
         if let timestamp {
-            let target = targetTimestamp ?? timestamp + (refreshInterval ?? lastRefreshInterval)
-            guard target > handoff + Self.handoffSlack else { return false }
+            let interval = refreshInterval ?? lastRefreshInterval
+            let target = targetTimestamp ?? timestamp + interval
+            guard timestamp > last.timestamp + interval / 2,
+                  target > last.target + Self.handoffSlack
+            else { return false }
         }
-        handoffTarget = nil
+        handoff = nil
         return true
     }
 
@@ -307,7 +321,7 @@ public final class FrameScheduler: NSObject {
     private func pause() {
         lastTimestamp = nil
         lastTargetTimestamp = nil
-        handoffTarget = nil
+        handoff = nil
         guard let subscribed else { return }
         isSubscribed = false
         ticksOnLink = false
