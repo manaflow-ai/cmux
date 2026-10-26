@@ -7,17 +7,14 @@ mod machine_catalog;
 
 use super::*;
 use crate::diagnostics::{LockCaller, LockCallerScope};
-use crate::request_origin::RequestOrigin;
 
-/// The caller class `client`'s lock acquisitions count under until this
-/// drops (`debug-daemon-locks`): the verified app is the frontend, every
-/// other connection automation. Scheduling telemetry only: no permission
-/// reads it.
-pub(super) fn lock_caller_scope(mux: &Mux, client: u64) -> LockCallerScope {
-    LockCallerScope::enter(match origin_gate::derived_origin(mux, client) {
-        RequestOrigin::User => LockCaller::Frontend,
-        RequestOrigin::Page | RequestOrigin::Agent | RequestOrigin::App => LockCaller::Automation,
-    })
+/// The caller class the lock acquisitions of `writer`'s connection count
+/// under until this drops (`debug-daemon-locks`): the verified app is the
+/// frontend, every other connection automation. The origin gate keeps the
+/// class on the writer, so this reads an atomic and takes no lock.
+/// Scheduling telemetry only: no permission reads it.
+pub(super) fn lock_caller_scope(writer: &MessageWriter) -> LockCallerScope {
+    LockCallerScope::enter(writer.lock_caller.get())
 }
 
 /// [`handle_connection_frame_at`] for a line that arrives now (tests).
@@ -54,7 +51,7 @@ pub(super) fn handle_connection_frame_at(
     // connection's caller class (`debug-daemon-locks`).
     let _lock_caller = match transport {
         ClientTransport::Remote => LockCallerScope::enter(LockCaller::Automation),
-        ClientTransport::Unix | ClientTransport::WebSocket => lock_caller_scope(mux, client),
+        ClientTransport::Unix | ClientTransport::WebSocket => lock_caller_scope(writer),
     };
     // Every frame is watched on this thread until its handler returns: past
     // 250 ms it lands in server-stats `slow_requests` (request_watchdog.rs),

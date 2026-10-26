@@ -29,13 +29,14 @@ pub use slow_requests::{SlowRequest, SlowRequestFrame, SlowRequestsSnapshot};
 mod requests;
 pub use requests::{REQUEST_CLASSES, RequestLatencySnapshot, RequestStats, RequestStatsSnapshot};
 mod daemon_locks;
-#[cfg(test)]
-pub(crate) use daemon_locks::lock_clock_reads;
 pub use daemon_locks::{
-    CallerLockSnapshot, DaemonLockTable, LOCK_OPS, LockCaller, LockCallerScope,
-    LockHistogramSnapshot, LockOp, LockOpScope, LockTableSnapshot, OpLockSnapshot,
+    CallerLockSnapshot, DaemonLockTable, LOCK_OPS, LockCaller, LockCallerCell, LockCallerScope,
+    LockHistogramSnapshot, LockOp, LockOpScope, LockScope, LockScopeGuard, LockTableSnapshot,
+    OpLockSnapshot,
 };
 pub(crate) use daemon_locks::{LockSlot, lock_clock, timed_acquire};
+#[cfg(test)]
+pub(crate) use daemon_locks::{lock_clock_reads, on_contended_lock};
 mod write_path;
 pub(crate) use write_path::writer_took_registry_lock;
 pub use write_path::{WritePathSnapshot, WritePathStats};

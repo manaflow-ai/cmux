@@ -51,6 +51,23 @@ pub(super) struct DaemonLocksSnapshot {
 
 const DAEMON_LOCKS_SCHEMA: u32 = 1;
 
+/// Why `debug-daemon-locks` was refused.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum DaemonLocksRefused {
+    /// A WebSocket or remote relay client asked.
+    NotLocal,
+}
+
+impl std::fmt::Display for DaemonLocksRefused {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            DaemonLocksRefused::NotLocal => "daemon lock stats require a trusted local connection",
+        })
+    }
+}
+
+impl std::error::Error for DaemonLocksRefused {}
+
 pub(super) fn daemon_locks(mux: &Mux) -> DaemonLocksSnapshot {
     DaemonLocksSnapshot {
         schema: DAEMON_LOCKS_SCHEMA,

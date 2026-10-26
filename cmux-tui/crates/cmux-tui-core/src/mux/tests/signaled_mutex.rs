@@ -109,34 +109,33 @@ fn with_daemon_lock(mux: &Mux, lock: &str, while_held: impl FnOnce()) {
 
 /// p06-scheduler-226 acceptance: an automation request that holds a daemon
 /// lock for 5 ms shows in its op's hold histogram, and a frontend request
-/// that waits behind it shows in its own op's wait histogram.
+/// that waits behind it shows in its own op's wait histogram. The holder
+/// starts its 5 ms only once the frontend is blocked on the lock.
 #[test]
 fn signaled_mutex_daemon_locks_attribute_a_forced_automation_hold() {
-    use crate::diagnostics::{LockCaller, LockCallerScope, LockOp, LockOpScope};
+    use crate::diagnostics::{LockCaller, LockCallerScope, LockOp, LockOpScope, on_contended_lock};
     const AUTOMATION_OP: LockOp = LockOp(7);
     const FRONTEND_OP: LockOp = LockOp(9);
     for lock in ["mux.state", "workspace.registry"] {
         let mux = test_mux();
-        let (held_tx, held_rx) = std::sync::mpsc::channel::<()>();
         let (waiting_tx, waiting_rx) = std::sync::mpsc::channel::<()>();
-        let holder_mux = mux.clone();
-        let holder = std::thread::spawn(move || {
+        let mut waiter = None;
+        {
             let _caller = LockCallerScope::enter(LockCaller::Automation);
             let _op = LockOpScope::enter(AUTOMATION_OP);
-            with_daemon_lock(&holder_mux, lock, || {
-                held_tx.send(()).unwrap();
+            with_daemon_lock(&mux, lock, || {
+                let waiter_mux = mux.clone();
+                waiter = Some(std::thread::spawn(move || {
+                    on_contended_lock(move || waiting_tx.send(()).unwrap());
+                    let _caller = LockCallerScope::enter(LockCaller::Frontend);
+                    let _op = LockOpScope::enter(FRONTEND_OP);
+                    with_daemon_lock(&waiter_mux, lock, || {});
+                }));
                 waiting_rx.recv().unwrap();
                 std::thread::sleep(Duration::from_millis(5));
             });
-        });
-        held_rx.recv().unwrap();
-        {
-            let _caller = LockCallerScope::enter(LockCaller::Frontend);
-            let _op = LockOpScope::enter(FRONTEND_OP);
-            waiting_tx.send(()).unwrap();
-            with_daemon_lock(&mux, lock, || {});
         }
-        holder.join().unwrap();
+        waiter.expect("the waiter started").join().unwrap();
 
         let hold = lock_row(&mux, lock, LockCaller::Automation, AUTOMATION_OP)
             .unwrap_or_else(|| panic!("{lock}: the automation op has a row"));
@@ -145,8 +144,8 @@ fn signaled_mutex_daemon_locks_attribute_a_forced_automation_hold() {
         let wait = lock_row(&mux, lock, LockCaller::Frontend, FRONTEND_OP)
             .unwrap_or_else(|| panic!("{lock}: the frontend op has a row"));
         assert_eq!(wait.wait_us.count, 1, "{lock}: {wait:?}");
-        // The frontend began to wait before the holder began its 5 ms.
-        assert!(wait.wait_us.max >= 2_500, "{lock}: {wait:?}");
+        // The frontend's wait began before the holder's 5 ms.
+        assert!(wait.wait_us.max >= 5_000, "{lock}: {wait:?}");
         assert!(
             lock_row(&mux, lock, LockCaller::Frontend, AUTOMATION_OP).is_none(),
             "{lock}: the hold is the automation op's only"

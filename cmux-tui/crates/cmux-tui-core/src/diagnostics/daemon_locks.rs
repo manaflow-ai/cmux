@@ -11,9 +11,10 @@
 //!
 //! The request dispatcher enters a [`LockCallerScope`] for the connection's
 //! caller class and a [`LockOpScope`] for the request's op; both are
-//! thread-local and restore the outer value when they drop. A lock taken
-//! outside any request (PTY output, reaps, timers) counts as
-//! [`LockCaller::Program`] under [`LockOp::NONE`].
+//! thread-local and restore the outer value when they drop. A request a
+//! worker thread answers carries them as a [`LockScope`] the worker enters
+//! again. A lock taken outside any request (PTY output, reaps, timers)
+//! counts as [`LockCaller::Program`] under [`LockOp::NONE`].
 //!
 //! Cost per acquisition: one thread-local read, one slot lookup (an atomic
 //! load once the slot exists), two clock reads when the lock is free (its
@@ -23,7 +24,7 @@
 use std::cell::Cell;
 use std::marker::PhantomData;
 use std::sync::OnceLock;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU8, AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
 use serde::Serialize;
@@ -51,6 +52,36 @@ impl LockCaller {
             Self::Automation => "automation",
             Self::Program => "program",
         }
+    }
+
+    const fn from_repr(repr: u8) -> Self {
+        match repr {
+            0 => Self::Frontend,
+            1 => Self::Automation,
+            _ => Self::Program,
+        }
+    }
+}
+
+/// A connection's caller class, kept where its reader and dispatcher read
+/// it without a lock; the origin gate sets it when the connection's origin
+/// changes. A connection starts as automation.
+#[derive(Debug)]
+pub struct LockCallerCell(AtomicU8);
+
+impl Default for LockCallerCell {
+    fn default() -> Self {
+        Self(AtomicU8::new(LockCaller::Automation as u8))
+    }
+}
+
+impl LockCallerCell {
+    pub fn get(&self) -> LockCaller {
+        LockCaller::from_repr(self.0.load(Ordering::Relaxed))
+    }
+
+    pub fn set(&self, caller: LockCaller) {
+        self.0.store(caller as u8, Ordering::Relaxed);
     }
 }
 
@@ -125,6 +156,38 @@ impl Drop for LockOpScope {
     }
 }
 
+/// The caller class and op of the request a thread handles, as a value a
+/// worker thread that answers the request enters again.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct LockScope {
+    pub caller: LockCaller,
+    pub op: LockOp,
+}
+
+impl LockScope {
+    /// This thread's caller class and op.
+    pub fn current() -> Self {
+        let (caller, op) = current_scope();
+        Self { caller, op }
+    }
+
+    /// Makes this the thread's caller class and op until the guard drops.
+    pub fn enter(self) -> LockScopeGuard {
+        LockScopeGuard {
+            _caller: LockCallerScope::enter(self.caller),
+            _op: LockOpScope::enter(self.op),
+        }
+    }
+}
+
+/// [`LockScope::enter`]'s guard. Not `Send`.
+#[must_use = "the scope ends when this drops"]
+pub struct LockScopeGuard {
+    // The op restores first, then the caller class: the reverse of entry.
+    _op: LockOpScope,
+    _caller: LockCallerScope,
+}
+
 #[cfg(test)]
 thread_local! {
     static CLOCK_READS: Cell<u64> = const { Cell::new(0) };
@@ -142,6 +205,19 @@ pub(crate) fn lock_clock() -> Instant {
 #[cfg(test)]
 pub(crate) fn lock_clock_reads() -> u64 {
     CLOCK_READS.with(Cell::get)
+}
+
+#[cfg(test)]
+thread_local! {
+    static ON_CONTENDED: std::cell::RefCell<Option<Box<dyn FnMut()>>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+/// Runs `hook` on this thread each time a timed acquisition finds its lock
+/// held, after its wait began and before it blocks.
+#[cfg(test)]
+pub(crate) fn on_contended_lock(hook: impl FnMut() + 'static) {
+    ON_CONTENDED.with(|slot| *slot.borrow_mut() = Some(Box::new(hook)));
 }
 
 /// Octaves of microseconds a lock histogram covers: the top bucket ends at
@@ -384,6 +460,8 @@ pub(crate) fn timed_acquire<G>(
         return (guard, acquired, Duration::ZERO);
     }
     let waited_from = lock_clock();
+    #[cfg(test)]
+    ON_CONTENDED.with(|hook| hook.borrow_mut().as_mut().map(|hook| hook()));
     let guard = acquire();
     let acquired = lock_clock();
     let waited = acquired.saturating_duration_since(waited_from);

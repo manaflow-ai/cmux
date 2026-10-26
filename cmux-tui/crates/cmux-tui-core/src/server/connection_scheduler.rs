@@ -394,7 +394,7 @@ pub(super) fn run_pending_request(
     let _request_path = crate::request_path::RequestPathScope::enter(mux.request_path_stats());
     // Its lock acquisitions count under the connection's caller class
     // (`debug-daemon-locks`), as on the reader.
-    let _lock_caller = super::lock_caller_scope(mux, client);
+    let _lock_caller = super::lock_caller_scope(writer);
     // Watched until the reply is queued: past 250 ms it lands in
     // server-stats `slow_requests` (request_watchdog.rs). This runs off the
     // connection thread, whose own watch ended with the hand-off.

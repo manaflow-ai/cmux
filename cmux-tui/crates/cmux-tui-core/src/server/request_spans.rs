@@ -32,7 +32,7 @@ use serde_json::Value;
 
 use super::Command;
 use super::command_names::{COMMANDS, MethodClass};
-use crate::diagnostics::{LockOp, LockOpScope, RequestStats};
+use crate::diagnostics::{LockOp, LockOpScope, LockScope, LockScopeGuard, RequestStats};
 use crate::resource::{OperationClass, ResourceOperation};
 
 /// When a request line arrived at its connection's reader and when it parsed.
@@ -289,6 +289,7 @@ impl<'a> RequestSpan<'a> {
             arrived: self.arrival.arrived,
             id,
             recorded: false,
+            lock_scope: LockScope::current(),
         }
     }
 
@@ -318,9 +319,17 @@ pub(super) struct AsyncReply {
     arrived: Instant,
     id: u64,
     recorded: bool,
+    /// The caller class and op of the request (`debug-daemon-locks`).
+    lock_scope: LockScope,
 }
 
 impl AsyncReply {
+    /// Counts the worker's lock acquisitions under the request's caller
+    /// class and op until the guard drops, as on the thread that started it.
+    pub(super) fn enter_lock_scope(&self) -> LockScopeGuard {
+        self.lock_scope.enter()
+    }
+
     /// Sends the worker's reply with `send`.
     pub(super) fn reply(mut self, send: impl FnOnce() -> bool) -> bool {
         trace_instant!(daemon, "daemon.request.async.handled", self.id);

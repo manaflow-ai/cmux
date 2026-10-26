@@ -311,5 +311,79 @@ fn daemon_locks_attribute_each_request_to_its_caller_and_op() {
     let remote = mux.control_clients.register(ClientTransport::WebSocket, writer());
     let error = handle_command(&mux, remote, Command::DebugDaemonLocks, &writer())
         .expect_err("a remote client must not read daemon lock stats");
-    assert!(error.to_string().contains("trusted local connection"), "{error}");
+    assert_eq!(
+        error.downcast_ref::<super::DaemonLocksRefused>(),
+        Some(&super::DaemonLocksRefused::NotLocal),
+        "{error}"
+    );
+}
+
+/// A request a worker thread answers (`home-inbox` asks the Cloud, so it
+/// runs on a `mux-cloud-request` worker) counts its lock acquisitions under
+/// the request's caller class and op, not as program work.
+#[test]
+fn daemon_locks_attribute_a_worker_answered_request_to_its_caller_and_op() {
+    use super::super::origin_gate::{set_role_for_test, set_verified_app_for_test};
+    use std::time::{Duration, Instant};
+    let (mux, cli, _, _) = request_path_mux("daemon-locks-worker");
+    let app_outbound = Arc::new(BoundedOutbound::default());
+    let app_writer =
+        MessageWriter::new(QueuedSink { outbound: app_outbound.clone(), control: None });
+    let app = mux.control_clients.register(ClientTransport::Unix, app_writer.clone());
+    set_role_for_test(&mux, app, "main");
+    set_verified_app_for_test(&mux, app, true);
+
+    let scheduler =
+        Arc::new(ConnectionSurfaceScheduler::new(mux.surface_operation_admission.clone()));
+    let request: Request = serde_json::from_value(json!({"id": 1, "cmd": "home-inbox"})).unwrap();
+    let pending = PendingSurfaceRequest {
+        request,
+        arrival: RequestArrival::now(),
+        retained_bytes: 0,
+        _bytes_permit: mux.surface_operation_admission.try_reserve_bytes(0).expect("permit"),
+    };
+    assert!(run_pending_request(&scheduler, &mux, app, pending, &app_writer));
+    let deadline = Instant::now() + Duration::from_secs(10);
+    let reply: Value = loop {
+        if let Some(line) = app_outbound.try_pop() {
+            break serde_json::from_str(&line).unwrap();
+        }
+        assert!(Instant::now() < deadline, "home-inbox never replied");
+        std::thread::sleep(Duration::from_millis(2));
+    };
+    assert_eq!(reply["ok"], true, "{reply}");
+
+    let locks = stats(&mux, cli, json!({"cmd": "debug-daemon-locks"}));
+    let rows: Vec<_> = ["mux.state", "workspace.registry"]
+        .into_iter()
+        .flat_map(|lock| daemon_lock_rows(&locks, lock))
+        .collect();
+    assert!(
+        rows.iter().any(|(caller, op, _)| caller == "frontend" && op == "home-inbox"),
+        "the worker's locks count under frontend/home-inbox: {locks}"
+    );
+}
+
+/// The caller class sits on the connection's writer, set by the origin
+/// gate when the hello or the install proof changes the derived origin.
+#[test]
+fn daemon_locks_caller_class_follows_the_connection_origin() {
+    use super::super::origin_gate::{set_hello, set_install_proved};
+    use crate::diagnostics::LockCaller;
+    use crate::request_origin::HelloRole;
+    let (mux, cli, cli_writer, _) = request_path_mux("daemon-locks-origin");
+    assert_eq!(cli_writer.lock_caller.get(), LockCaller::Automation);
+    assert!(set_hello(&mux, cli, HelloRole::Main, None, false, None));
+    assert_eq!(cli_writer.lock_caller.get(), LockCaller::Automation);
+    assert!(set_install_proved(&mux, cli, "install"));
+    assert_eq!(cli_writer.lock_caller.get(), LockCaller::Frontend);
+
+    let signed = writer();
+    let app = mux.control_clients.register(ClientTransport::Unix, signed.clone());
+    assert!(set_hello(&mux, app, HelloRole::Main, None, true, None));
+    assert_eq!(signed.lock_caller.get(), LockCaller::Frontend);
+    let relay_writer = writer();
+    let relay = mux.control_clients.register(ClientTransport::Unix, relay_writer.clone());
+    assert!(set_hello(&mux, relay, HelloRole::PageRelay, None, true, None));
+    assert_eq!(relay_writer.lock_caller.get(), LockCaller::Automation);
 }

@@ -774,7 +774,9 @@ exact result object. Against a server without `server-stats-v1` the CLI exits
 Wait and hold time of the workspace registry lock and the mux state lock, per
 caller class and per request op (plans/cmux-next/chrome-parity/p06-scheduler.md,
 "Lock histograms"). Every acquisition counts under the class and op of the
-request its thread handles: `frontend` for the verified app's connection,
+request its thread handles, a worker thread that answers a request
+(`home-inbox`, the Cloud commands, `chief-inspect`, `url-open`) included:
+`frontend` for the verified app's connection,
 `automation` for every other connection (agents, the CLI, page relays, remote
 clients), `program` for daemon threads outside any request (PTY output,
 reaps, timers), whose op is `none`. A request's op is its `cmd` tag, its v2

@@ -38,7 +38,7 @@ pub(super) fn server_stats(
 /// by caller class and request op (server/server_stats.rs).
 pub(super) fn daemon_locks(mux: &Arc<Mux>, client: u64) -> anyhow::Result<Value> {
     if !mux.control_clients.is_unix(client) {
-        anyhow::bail!("daemon lock stats require a trusted local connection");
+        return Err(server_stats::DaemonLocksRefused::NotLocal.into());
     }
     Ok(serde_json::to_value(server_stats::daemon_locks(mux))?)
 }

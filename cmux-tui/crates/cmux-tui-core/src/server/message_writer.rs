@@ -128,6 +128,9 @@ pub(super) struct MessageWriter {
     pub(super) conversation_tabs: Arc<conversation_tabs_wire::NegotiatedTabs>,
     /// Negotiated API revision (server/api_revision_wire.rs).
     pub(super) api_revision: Arc<api_revision_wire::NegotiatedRevision>,
+    /// The connection's caller class for `debug-daemon-locks`, read by its
+    /// reader and dispatcher with no lock (server/origin_gate.rs sets it).
+    pub(super) lock_caller: Arc<crate::diagnostics::LockCallerCell>,
 }
 
 impl MessageWriter {
@@ -149,6 +152,7 @@ impl MessageWriter {
             closed: InterruptSet::default(),
             conversation_tabs: Arc::default(),
             api_revision: Arc::default(),
+            lock_caller: Arc::default(),
         }
     }
 
