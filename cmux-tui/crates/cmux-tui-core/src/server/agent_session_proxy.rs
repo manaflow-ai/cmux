@@ -118,17 +118,21 @@ mod tests {
         let attach =
             json!({"cmd":"agent-session-attach", "surface":surface, "_host_author":author});
         assert_eq!(client.request(attach)["ok"], true);
-        let record = |seq: u64, kind: &str| {
-            json!({"sessionId": SESSION, "seq": seq, "at": 1, "dir": "mux", "kind": kind})
-        };
+        let record = |seq: u64, kind: &str| json!({"sessionId": SESSION, "seq": seq, "at": 1, "dir": "mux", "kind": kind});
         fake.notify("_acpmux/event", record(2, "composer"));
         fake.notify(
             "_acpmux/session_changed",
             json!({"sessionId": "acp_child", "parentId": SESSION}),
         );
         fake.notify("_acpmux/event", record(3, "user_message"));
-        let event = client.named_event("agent-session-record", WAIT).expect("the prompt record");
-        assert_eq!(event["record"]["kind"], "user_message", "the draft never arrives");
+        // Records arrive in order (the fake's own replies may come first): none is the draft.
+        loop {
+            let event = client.named_event("agent-session-record", WAIT).expect("the prompt record");
+            assert_ne!(event["record"]["kind"], "composer", "the draft never arrives");
+            if event["record"]["kind"] == "user_message" {
+                break;
+            }
+        }
         assert!(client.named_event("agent-session-changed", Duration::from_millis(300)).is_none());
         let children =
             json!({"cmd":"agent-session-children", "surface":surface, "_host_author":author});
@@ -141,10 +145,7 @@ mod tests {
         let writer = MessageWriter::new(QueuedSink { outbound: outbound.clone(), control: None });
         let websocket = mux.control_clients.register(ClientTransport::WebSocket, writer.clone());
         let bind = json!({"id":1, "cmd":"agent-session-proxy-bind", "author":author});
-        assert_eq!(
-            try_handle(&mux, websocket, &bind.to_string(), &writer),
-            Some(true)
-        );
+        assert_eq!(try_handle(&mux, websocket, &bind.to_string(), &writer), Some(true));
         let reply: Value = serde_json::from_str(&outbound.try_pop().unwrap()).unwrap();
         assert_code(&reply, "agent_session.not_trusted");
     }
