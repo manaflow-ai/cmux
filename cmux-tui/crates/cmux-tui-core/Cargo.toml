@@ -35,6 +35,7 @@ cmux-kitty-media.workspace = true
 cmux-api-compat.workspace = true
 cmux-terminal-iface.workspace = true
 cmux-terminal-sizing.workspace = true
+cmux-threads.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 anyhow.workspace = true

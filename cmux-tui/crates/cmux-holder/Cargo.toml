@@ -16,6 +16,7 @@ path = "src/main.rs"
 
 [dependencies]
 cmux-flow-trace.workspace = true
+cmux-threads.workspace = true
 libc.workspace = true
 
 [dev-dependencies]

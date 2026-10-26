@@ -205,9 +205,11 @@ impl ConnectionSurfaceScheduler {
         writer: MessageWriter,
     ) -> std::io::Result<()> {
         let scheduler = self.clone();
-        let handle = std::thread::Builder::new()
-            .name("mux-control-dispatch".into())
-            .spawn(move || run_connection_surface_dispatcher(scheduler, mux, client, writer))?;
+        let handle =
+            std::thread::Builder::new().name("mux-control-dispatch".into()).spawn(move || {
+                crate::thread_qos::set(crate::thread_qos::ThreadType::InputCritical);
+                run_connection_surface_dispatcher(scheduler, mux, client, writer);
+            })?;
         *self.dispatcher.lock().recover_poison() = Some(handle);
         Ok(())
     }

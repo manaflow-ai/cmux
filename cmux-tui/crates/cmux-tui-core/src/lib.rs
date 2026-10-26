@@ -119,6 +119,7 @@ pub mod session_state_import;
 pub mod terminal_host;
 pub mod terminal_host_protocol;
 pub mod terminal_host_runtime;
+pub mod thread_qos;
 #[cfg(unix)]
 pub use cmux_tui_platform::unix_process_scope;
 pub use cmux_tui_util::user_settings;

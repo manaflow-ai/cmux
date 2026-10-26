@@ -414,6 +414,7 @@ impl ServedSession {
         let mux = self.mux.clone();
         let render_service = self.render_service.clone();
         let _ = std::thread::Builder::new().name("mux-conn".into()).spawn(move || {
+            crate::thread_qos::set(crate::thread_qos::ThreadType::InputCritical);
             handle_connection_with_permit(mux, stream, render_service, Some(permit));
         });
     }

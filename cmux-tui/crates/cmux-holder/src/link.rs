@@ -162,6 +162,9 @@ impl HolderLink {
         });
         let weak = Arc::downgrade(&link);
         std::thread::Builder::new().name("holder-link".into()).spawn(move || {
+            // ThreadType::InputCritical in cmux-tui-core's thread_qos, which
+            // this crate sits below: the echo of every key passes here.
+            cmux_threads::set_current(cmux_threads::ThreadQos::UserInteractive);
             let end = read_loop(&stream, reader, &weak);
             if let Some(link) = weak.upgrade() {
                 link.lost();
