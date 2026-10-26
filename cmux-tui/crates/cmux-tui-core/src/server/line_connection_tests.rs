@@ -39,6 +39,7 @@ impl FrameLane for RecordingFrames {
 }
 
 struct Peer {
+    mux: Arc<Mux>,
     socket: UnixStream,
     replies: BufReader<UnixStream>,
     served: JoinHandle<ConnectionEnd>,
@@ -66,7 +67,9 @@ fn connect_with(
 ) -> Peer {
     let mux = Mux::new_for_test(format!("line-conn-{label}"), crate::SurfaceOptions::default());
     let (socket, server) = UnixStream::pair().unwrap();
+    let served_mux = mux.clone();
     let served = std::thread::spawn(move || {
+        let mux = served_mux;
         let stream: Box<dyn transport::Stream> = Box::new(server);
         let render = Arc::new(RenderService::new());
         match lane {
@@ -86,7 +89,7 @@ fn connect_with(
     });
     let read_half = socket.try_clone().unwrap();
     read_half.set_read_timeout(Some(Duration::from_secs(10))).unwrap();
-    Peer { socket, replies: BufReader::new(read_half), served }
+    Peer { mux, socket, replies: BufReader::new(read_half), served }
 }
 
 impl Peer {
@@ -325,18 +328,49 @@ fn line_connection_frames_need_a_local_socket_and_an_admission_that_takes_them()
     }
 }
 
-/// The production lane: the grant is the `ipc-frames-v2` capability the
-/// client declared in `set-client-info` at this daemon's revision
-/// (p05-ipc-060 records it), and no frame kind has a route yet.
+/// The client this test's connection registered (a fresh test mux has no
+/// other Unix client).
+fn served_client(peer: &mut Peer) -> u64 {
+    peer.send(&ping(99));
+    assert_eq!(peer.reply().unwrap()["id"], json!(99));
+    let state = peer.mux.control_clients.state.lock().unwrap();
+    let mut unix = state
+        .clients
+        .iter()
+        .filter(|(_, record)| matches!(record.transport, ClientTransport::Unix))
+        .map(|(client, _)| *client);
+    let client = unix.next().expect("the connection's client");
+    assert_eq!(unix.next(), None, "one Unix client");
+    client
+}
+
+/// A connection the production lane serves, from a direct same-user peer
+/// with every framed IPC transport bound (p05-ipc-060's test seams: this
+/// in-process peer is the daemon's own binary, which accept classifies as a
+/// byte bridge, and this build binds no transport yet).
+fn same_user_peer(label: &str) -> Peer {
+    let mut peer = connect(label, None);
+    let client = served_client(&mut peer);
+    peer.mux.control_clients.ipc_transports.bind_all_for_test();
+    origin_gate::set_peer_process_for_test(
+        &peer.mux,
+        client,
+        crate::request_origin::PeerProcess::SameUser,
+    );
+    peer
+}
+
+/// The production lane: `ipc-frames-v2`, declared in a real `set-client-info`
+/// at this daemon's revision, is the grant, and no frame kind has a route yet.
 #[test]
 fn line_connection_the_declared_capability_negotiates_frames() {
     let (current, _) = api_revision_wire::identify_fields();
-    let mut peer = connect("declared", None);
+    let mut peer = same_user_peer("declared");
     let declare = json!({
         "id": 1,
         "cmd": "set-client-info",
         "name": "frames",
-        "capabilities": [super::IPC_FRAMES_CAPABILITY],
+        "capabilities": ["ipc-frames-v2"],
         "api_revision": current,
     });
     peer.send(format!("{declare}\n").as_bytes());
@@ -349,8 +383,9 @@ fn line_connection_the_declared_capability_negotiates_frames() {
         ConnectionEnd::BadMessage(ConnectionBadMessage::UnroutedKind { kind: FrameKind::Request })
     );
 
-    let mut peer = connect("undeclared", None);
-    let undeclared = json!({"id": 1, "cmd": "set-client-info", "name": "lines"});
+    let mut peer = same_user_peer("undeclared");
+    let undeclared =
+        json!({"id": 1, "cmd": "set-client-info", "name": "lines", "api_revision": current});
     peer.send(format!("{undeclared}\n").as_bytes());
     assert_eq!(peer.reply().unwrap()["ok"], json!(true));
     peer.send(&request_frame(41, b"{}"));
