@@ -91,6 +91,9 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
     /// Mirrors `restoredTerminalScrollbackByPanelId` when that tail dropped older output.
     @ObservationIgnored var restoredTerminalScrollbackWasTruncatedByPanelId: [UUID: Bool] = [:]
 
+    /// Stores the restored scrollback tail for `panelId`, and whether it is
+    /// truncated, so the next snapshot can fall back to it. A nil `text` clears
+    /// both.
     func rememberRestoredTerminalScrollback(
         _ text: String?,
         panelId: UUID,
