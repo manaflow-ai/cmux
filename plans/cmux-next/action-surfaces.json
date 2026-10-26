@@ -24858,8 +24858,8 @@
       },
       "palette_suggested" : null,
       "title" : "List Cloud Firewall Rules",
-      "title_key" : null,
-      "title_table" : null
+      "title_key" : "action.cloudFirewallList",
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -24886,8 +24886,8 @@
       },
       "palette_suggested" : null,
       "title" : "Get Cloud Firewall Rule",
-      "title_key" : null,
-      "title_table" : null
+      "title_key" : "action.cloudFirewallGet",
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -24914,8 +24914,8 @@
       },
       "palette_suggested" : null,
       "title" : "Create Cloud Firewall Rule",
-      "title_key" : null,
-      "title_table" : null
+      "title_key" : "action.cloudFirewallCreate",
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -24942,8 +24942,8 @@
       },
       "palette_suggested" : null,
       "title" : "Delete Cloud Firewall Rule",
-      "title_key" : null,
-      "title_table" : null
+      "title_key" : "action.cloudFirewallDelete",
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -24998,8 +24998,8 @@
       },
       "palette_suggested" : null,
       "title" : "List Cloud Publications",
-      "title_key" : null,
-      "title_table" : null
+      "title_key" : "action.cloudPublicationList",
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
