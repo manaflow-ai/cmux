@@ -42,6 +42,10 @@ export class CloudHome {
   private readonly hydrationQueue: string[] = [];
   private hydrationWorkers = 0;
   private readonly subscribed: string[] = [];
+  /** Each subscribed conversation's `cloud-conversation-subscribe`: whether it took. */
+  private readonly subscriptions = new Map<string, Promise<boolean>>();
+  /** The last presence send of each conversation (the next one waits for it). */
+  private readonly presenceSends = new Map<string, Promise<boolean>>();
 
   constructor(
     private readonly daemon: DaemonSocket,
@@ -326,18 +330,50 @@ export class CloudHome {
     this.epoch++;
   }
 
+  /** Says that the person views `id` or stopped (`cloud-conversation-presence`), after the
+   *  conversation's subscribe (the daemon refuses presence for one nobody subscribes). One send
+   *  at a time per conversation, in order, so a quick open and switch never ends as viewing.
+   *  Resolves whether it went out; a refusal or a lost connection is not an error. */
+  presence(id: string, viewing: boolean): Promise<boolean> {
+    const send = async (): Promise<boolean> => {
+      if (viewing) {
+        if (!this.subscriptions.has(id)) this.subscribe(id);
+        if (!(await this.subscriptions.get(id))) return false;
+      }
+      return this.daemon.request("cloud-conversation-presence", { conversation: id, viewing }).then(
+        () => true,
+        () => false,
+      );
+    };
+    const next = (this.presenceSends.get(id) ?? Promise.resolve(false)).then(send);
+    this.presenceSends.set(id, next);
+    void next.then(() => {
+      if (this.presenceSends.get(id) === next) this.presenceSends.delete(id);
+    });
+    return next;
+  }
+
   private subscribe(id: string): void {
     const at = this.subscribed.indexOf(id);
     if (at >= 0) this.subscribed.splice(at, 1);
-    else
-      void this.daemon.request("cloud-conversation-subscribe", { conversation: id }).catch(() => {
-        // Not subscribed: the next open tries again.
-        const failed = this.subscribed.indexOf(id);
-        if (failed >= 0) this.subscribed.splice(failed, 1);
-      });
+    else {
+      const subscribed = this.daemon.request("cloud-conversation-subscribe", { conversation: id }).then(
+        () => true,
+        () => {
+          // Not subscribed: the next open tries again.
+          const failed = this.subscribed.indexOf(id);
+          if (failed >= 0) this.subscribed.splice(failed, 1);
+          if (this.subscriptions.get(id) === subscribed) this.subscriptions.delete(id);
+          return false;
+        },
+      );
+      this.subscriptions.set(id, subscribed);
+    }
     this.subscribed.push(id);
     while (this.subscribed.length > MAX_SUBSCRIPTIONS) {
       const oldest = this.subscribed.shift()!;
+      // The daemon ends this connection's viewing of it with the unsubscribe.
+      this.subscriptions.delete(oldest);
       void this.daemon.request("cloud-conversation-unsubscribe", { conversation: oldest }).catch(() => undefined);
     }
   }

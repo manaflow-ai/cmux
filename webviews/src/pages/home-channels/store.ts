@@ -213,8 +213,11 @@ export class HomeChannelsStore {
       this.stops.push(
         await subscribePageStreams(client, {
           onConnection: (connected) => {
-            if (!connected) this.set({ connection: "offline" });
-            else if (this.snapshot.connection === "offline") void this.reloadInbox();
+            if (!connected) {
+              // The daemon ends a lost connection's viewing; a new one says it again.
+              this.viewingSent = undefined;
+              this.set({ connection: "offline" });
+            } else if (this.snapshot.connection === "offline") void this.reloadInbox();
           },
         }),
       );
@@ -222,9 +225,16 @@ export class HomeChannelsStore {
       // Replies that came while the page was hidden are read once the person sees them.
       const shown = () => {
         if (document.visibilityState === "visible") this.readOpen();
+        this.syncViewing();
       };
       document.addEventListener("visibilitychange", shown);
       this.stops.push(() => document.removeEventListener("visibilitychange", shown));
+      // A closing page stops viewing (the daemon also ends it when the connection closes).
+      if (typeof window !== "undefined") {
+        const hidden = () => this.syncViewing(false);
+        window.addEventListener("pagehide", hidden);
+        this.stops.push(() => window.removeEventListener("pagehide", hidden));
+      }
     } catch (error) {
       this.set({ error: describe(error), loading: false });
     }
@@ -349,6 +359,7 @@ export class HomeChannelsStore {
   }
 
   private stop(): void {
+    this.syncViewing(false);
     for (const stop of this.stops) stop();
     this.stops = [];
     this.starting = undefined;
@@ -371,6 +382,8 @@ export class HomeChannelsStore {
         error: undefined,
         inboxState: inbox.inboxState === true,
       });
+      // The open conversation's owner is known now (a reconnect says the viewing again).
+      if (selected === this.snapshot.selected) this.syncViewing();
       if (selected && selected !== this.snapshot.selected) await this.select(selected, false);
       else if (selected) await this.reloadPage(selected);
     } catch (error) {
@@ -398,6 +411,7 @@ export class HomeChannelsStore {
       draft: this.drafts.draft(id),
       highlight: undefined,
     });
+    this.syncViewing();
     await this.reloadPage(id);
   }
 
@@ -739,6 +753,27 @@ export class HomeChannelsStore {
     if (shown === this.shown) return;
     this.shown = shown;
     if (shown) this.readOpen();
+    this.syncViewing();
+  }
+
+  /** The Cloud conversation this page last said the person views (cmux.home.view). */
+  private viewingSent?: string;
+
+  /** Tells the owner which Cloud conversation the person views: the open one while the page and
+   * its pane show it, none otherwise. Only a change goes out; a local conversation sends nothing
+   * (its owner has no viewing presence). `active` false: the page stops viewing (it closes). */
+  private syncViewing(active = true): void {
+    const { selected } = this.snapshot;
+    const visible = typeof document === "undefined" || document.visibilityState !== "hidden";
+    const cloud = selected !== undefined && this.snapshot.conversations.get(selected)?.owner === "cloud";
+    const want = active && this.shown && visible && cloud ? selected : undefined;
+    const before = this.viewingSent;
+    if (want === before || !this.client) return;
+    this.viewingSent = want;
+    const view = (conversation: string, viewing: boolean) =>
+      void this.client?.call(HomeOps.view, { conversation, viewing }).catch(() => undefined);
+    if (before) view(before, false);
+    if (want) view(want, true);
   }
 
   /** Reads the open conversation through its newest loaded message. */
