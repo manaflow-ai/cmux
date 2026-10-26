@@ -21,6 +21,9 @@ struct CmuxNextWireGenPlugin: BuildToolPlugin {
         // `MethodTable.schema` (task 023, CmuxNextWireGen's TableEmitter).
         let methodTable = context.pluginWorkDirectoryURL
             .appending(path: "MethodTable+Schema.swift", directoryHint: .notDirectory)
+        // The `cmux.protocol/2` bindings (task 024, CmuxNextWireGen's ResourceEmitter).
+        let resourceBindings = context.pluginWorkDirectoryURL
+            .appending(path: "ResourceOperations+Schema.swift", directoryHint: .notDirectory)
         let tool = try context.tool(named: "CmuxNextWireGen")
         return [
             .buildCommand(
@@ -31,9 +34,10 @@ struct CmuxNextWireGenPlugin: BuildToolPlugin {
                     "--resource-operations", resourceOperations.path(percentEncoded: false),
                     "--identity-output", identity.path(percentEncoded: false),
                     "--method-table-output", methodTable.path(percentEncoded: false),
+                    "--resource-output", resourceBindings.path(percentEncoded: false),
                 ],
                 inputFiles: [sdkSchema, resourceOperations],
-                outputFiles: [identity, methodTable]
+                outputFiles: [identity, methodTable, resourceBindings]
             ),
         ]
     }

@@ -8,29 +8,36 @@ enum WireGenError: Error, CustomStringConvertible {
     case unwritable(path: String, reason: String)
     /// A schema the method table cannot encode, with its JSON path.
     case methodTable(MethodTableSchemaError)
+    /// An operation catalog the v2 bindings cannot spell, with its JSON path (ResourceEmitter).
+    case resourceOperations(ResourceEmitterError)
 
     var description: String {
         switch self {
         case .usage(let detail):
             "\(detail)\nusage: CmuxNextWireGen --sdk-schema PATH --resource-operations PATH --identity-output PATH "
-                + "--method-table-output PATH"
+                + "--method-table-output PATH --resource-output PATH"
         case .unreadable(let path, let reason): "\(path): cannot read: \(reason)"
         case .malformed(let path, let reason): "\(path): not a schema file: \(reason)"
         case .unwritable(let path, let reason): "\(path): cannot write: \(reason)"
         case .methodTable(let error): "\(error)"
+        case .resourceOperations(let error): "\(error)"
         }
     }
 }
 
 /// The command line: every option exactly once, each followed by a path.
 struct WireGenArguments {
-    static let flags = ["--sdk-schema", "--resource-operations", "--identity-output", "--method-table-output"]
+    static let flags = [
+        "--sdk-schema", "--resource-operations", "--identity-output", "--method-table-output", "--resource-output",
+    ]
 
     let sdkSchema: URL
     let resourceOperations: URL
     let identityOutput: URL
     /// Where `MethodTable.schema` goes (TableEmitter).
     let methodTableOutput: URL
+    /// Where the `cmux.protocol/2` bindings go (ResourceEmitter).
+    let resourceOutput: URL
 
     init(_ argv: [String]) throws(WireGenError) {
         var values: [String: String] = [:]
@@ -46,6 +53,7 @@ struct WireGenArguments {
         resourceOperations = try Self.path("--resource-operations", in: values)
         identityOutput = try Self.path("--identity-output", in: values)
         methodTableOutput = try Self.path("--method-table-output", in: values)
+        resourceOutput = try Self.path("--resource-output", in: values)
     }
 
     private static func path(_ flag: String, in values: [String: String]) throws(WireGenError) -> URL {
