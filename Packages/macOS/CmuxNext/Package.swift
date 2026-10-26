@@ -1446,7 +1446,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         ),
         .testTarget(
             name: "CmuxNextMetricsTests",
-            dependencies: ["CmuxNextMetrics", "CmuxNextTrace"],
+            dependencies: ["CmuxNextMetrics", "CmuxNextTrace", "CmuxNextCompat"],
             swiftSettings: daemonSwiftSettings
         ),
         .target(

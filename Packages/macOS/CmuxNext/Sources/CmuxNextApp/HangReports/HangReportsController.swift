@@ -5,6 +5,7 @@ import CmuxNextControl
 import CmuxNextCrashReporting
 import CmuxNextHangReports
 import CmuxNextInput
+import CmuxNextMetrics
 import CmuxNextSettings
 import CmuxNextSidebar
 import CmuxNextSignposts
@@ -44,6 +45,10 @@ final class HangReportsController {
     private let activityFeed: MainThreadActivityFeed?
     /// Whether a managed profile forces `DisableTelemetry` (read off the main thread at start).
     private let managedDisables: @Sendable () -> Bool
+    /// Before each report: the local daemon's `daemon.request.<class>` from its metrics file (task 062).
+    let daemonMetrics: DaemonMetricsFold?
+    /// The local daemon's pid now; nil without one.
+    private let daemonPID: @MainActor @Sendable () -> Int32?
     private let defaults: UserDefaults
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "hang-reports")
     private var subscriber: MetricKitSubscriber?
@@ -54,18 +59,23 @@ final class HangReportsController {
     private var askedThisLaunch: Set<HangReportAskPolicy.Decision> = []
 
     init(service: HangReportService?, managedDisables: @escaping @Sendable () -> Bool, defaults: UserDefaults = .standard,
-         activityFeed: MainThreadActivityFeed? = nil) {
+         activityFeed: MainThreadActivityFeed? = nil, daemonMetrics: DaemonMetricsFold? = nil,
+         daemonPID: @escaping @MainActor @Sendable () -> Int32? = { nil }) {
         self.service = service
         self.activityFeed = activityFeed
         self.managedDisables = managedDisables
         self.defaults = defaults
+        self.daemonMetrics = daemonMetrics
+        self.daemonPID = daemonPID
     }
 
     /// The controller for this launch: the service over this build's folder, the real transport,
     /// classifier and dyld resolver, the app's own envelope values, and (when the wire schema carries
-    /// them) the active time and `watchdog`'s main-turn and input-queueing histograms.
+    /// them) the active time and `watchdog`'s main-turn and input-queueing histograms. Before each report the local
+    /// daemon's request latency is folded from its metrics file in `metricsFolder` on `work`'s files lane.
     static func forThisLaunch(policy: CrashReportingPolicy, folder: URL, counts: @escaping @Sendable () async -> CoarseCounts,
                               watchdog: MainThreadWatchdog, input: any InputObserving, events: AppEvents,
+                              work: any MayBlockRunner, metricsFolder: URL, daemonPID: @escaping @MainActor @Sendable () -> Int32?,
                               environment: [String: String] = ProcessInfo.processInfo.environment) -> HangReportsController {
         let devOptIn = policy.channel == .dev && environment[devOptInKey] == "1"
         let mayReport = (policy.channel == .nightly || devOptIn) && !CrashReportingPolicy.isTestProcess(environment)
@@ -89,7 +99,16 @@ final class HangReportsController {
         let feed = service.mainThreadLedger.map {
             MainThreadActivityFeed(ledger: $0, input: input, events: events, isActive: NSApp?.isActive ?? false)
         }
-        return HangReportsController(service: service, managedDisables: managedDisables, activityFeed: feed)
+        let daemonMetrics = DaemonMetricsFold(reader: ChildMetricsReader(role: .daemon, directory: metricsFolder), metrics: Metrics(),
+                                              work: work)
+        return HangReportsController(service: service, managedDisables: managedDisables, activityFeed: feed,
+                                     daemonMetrics: daemonMetrics, daemonPID: daemonPID)
+    }
+
+    /// The local daemon's request latency into the app's histograms, before a report reads them (no socket request).
+    private func foldDaemonMetrics() async {
+        guard let daemonMetrics else { return }
+        await daemonMetrics.fold(pid: daemonPID())
     }
 
     /// The watchdog sink (the app chains it after the lag-spike reporter); nil where nothing is sent.
@@ -151,8 +170,9 @@ final class HangReportsController {
     /// View Hang Report: the last report sent, else a preview; opened in a cmux file tab.
     func viewReport(open: @escaping @MainActor (URL) -> Void) {
         guard let service else { return }
-        // task-owner: one read and open; nothing to cancel.
+        // task-owner: one fold, read and open; nothing to cancel.
         Task {
+            await foldDaemonMetrics()
             guard let url = await service.viewableReport() else { return }
             open(url)
         }
@@ -170,15 +190,20 @@ final class HangReportsController {
             if subscriber == nil {
                 // MetricKit hands over payloads it kept from before the consent: dropped.
                 let since = defaults.object(forKey: Self.consentKey) as? Date ?? Date()
+                let daemonMetrics = daemonMetrics, daemonPID = daemonPID
                 let subscriber = MetricKitSubscriber(since: since) { input in
-                    // task-owner: one delivery handed to the service actor.
-                    Task { await service.receive(input) }
+                    // task-owner: one fold, then one delivery handed to the service actor.
+                    Task { @MainActor in
+                        await daemonMetrics?.fold(pid: daemonPID())
+                        await service.receive(input)
+                    }
                 }
                 subscriber.start()
                 self.subscriber = subscriber
             }
             if !launchedOnce {
                 launchedOnce = true
+                await foldDaemonMetrics()
                 await service.launched()
             }
         } else {
