@@ -243,6 +243,68 @@ mod daemon_spawn {
         assert_eq!(got, "through-five\n");
     }
 
+    /// Set in the copy of this test binary that `exec` replaces.
+    const EXEC_PROBE_ENV: &str = "CMUX_PROCESS_EXEC_PROBE";
+
+    /// `exec` replaces this process with the program, with the environment
+    /// and working directory the builder gives it; on macOS
+    /// (`POSIX_SPAWN_SETEXEC` with `CLOEXEC_DEFAULT`) the new image gets no
+    /// descriptor it was not given. The test runs itself again with
+    /// `EXEC_PROBE_ENV` set; that copy opens an inheritable pipe and execs a
+    /// shell that prints its working directory, a variable, and whether the
+    /// pipe's write end is still open.
+    #[test]
+    fn exec_replaces_this_process_and_passes_no_stray_descriptor() {
+        if std::env::var_os(EXEC_PROBE_ENV).is_some() {
+            let (_read, write) = inheritable_pipe();
+            let dir = std::fs::canonicalize(std::env::temp_dir()).unwrap();
+            let script = format!(
+                "pwd; echo \"$CMUX_PROCESS_EXEC_VALUE\"; if (: >&{fd}) 2>/dev/null; then echo leaked; else echo closed; fi",
+                fd = write.as_raw_fd()
+            );
+            let error = Command::new("/bin/sh")
+                .args(["-c", &script])
+                .env("CMUX_PROCESS_EXEC_VALUE", "replaced")
+                .current_dir(&dir)
+                .exec();
+            panic!("exec returned: {error}");
+        }
+        let output = Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "daemon_spawn::exec_replaces_this_process_and_passes_no_stray_descriptor",
+                "--nocapture",
+                "--test-threads=1",
+            ])
+            .env(EXEC_PROBE_ENV, "1")
+            .output()
+            .unwrap();
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert!(output.status.success(), "{stdout}{}", String::from_utf8_lossy(&output.stderr));
+        let lines: Vec<&str> = stdout.lines().filter(|line| !line.is_empty()).collect();
+        let dir = std::fs::canonicalize(std::env::temp_dir()).unwrap();
+        // The harness prints its header and the test's name (no newline)
+        // before the test runs, and no result after it: the shell replaced it.
+        let shell = lines
+            .iter()
+            .position(|line| line.ends_with(dir.to_str().unwrap()))
+            .unwrap_or_else(|| panic!("the shell never ran: {stdout}"));
+        assert_eq!(lines.get(shell + 1).copied(), Some("replaced"), "{stdout}");
+        #[cfg(target_vendor = "apple")]
+        assert_eq!(
+            lines.get(shell + 2).copied(),
+            Some("closed"),
+            "the exec passed the pipe: {stdout}"
+        );
+        assert_eq!(lines.len(), shell + 3, "the test harness kept running: {stdout}");
+    }
+
+    #[test]
+    fn exec_of_a_missing_program_returns_its_error() {
+        let error = Command::new("cmux-process-no-such-program").exec();
+        assert_eq!(error.kind(), std::io::ErrorKind::NotFound);
+    }
+
     /// The fix for the macOS race (review 1 and 2 of pl-holder-11): a
     /// descriptor this process has open without close-on-exec, as a received
     /// PTY master or ring segment is between `recvmsg` and its `fcntl`, does not

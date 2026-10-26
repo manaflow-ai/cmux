@@ -1,8 +1,8 @@
 //! Runs a catalog-gated TypeScript code-mode script through the bundled runner.
 
+use cmux_process::{Command, ExitStatus, Stdio};
 use std::borrow::Cow;
 use std::path::PathBuf;
-use std::process::{Command, ExitStatus, Stdio};
 
 use super::{GlobalArgs, UsageError};
 

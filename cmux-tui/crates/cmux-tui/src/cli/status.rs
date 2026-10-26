@@ -24,7 +24,7 @@
 //! shows a state. `cmux terminal <t> wait --until idle|prompt` lives here too
 //! (status/terminal_wait.rs): it waits on the same status facts.
 
-use std::process::Command;
+use cmux_process::Command;
 use std::sync::atomic::{AtomicI32, Ordering};
 use std::time::Instant;
 

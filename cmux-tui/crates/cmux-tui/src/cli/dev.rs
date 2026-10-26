@@ -4,9 +4,9 @@
 //! explicit, opt-in process launches and never discover or mutate a cmux
 //! daemon on their own.
 
+use cmux_process::Command;
 use std::env;
 use std::path::PathBuf;
-use std::process::Command;
 
 use super::surface::Surface;
 

@@ -134,7 +134,7 @@ pub(super) fn run(global: &GlobalArgs, args: &[String]) -> i32 {
             return 2;
         }
     };
-    match std::process::Command::new(&invocation.tool).args(&invocation.args).status() {
+    match cmux_process::Command::new(&invocation.tool).args(&invocation.args).status() {
         Ok(status) => status.code().unwrap_or(1),
         Err(error) => {
             eprintln!("cmux: {}: {error}", invocation.tool.display());

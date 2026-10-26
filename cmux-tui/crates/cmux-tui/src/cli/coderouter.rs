@@ -13,10 +13,10 @@
 //! a hidden terminal prompt, never from argv, where it would land in shell
 //! history and process listings.
 
+use cmux_process::Command;
 use std::ffi::OsString;
 use std::io::{BufRead, IsTerminal, Read, Write};
 use std::path::{Path, PathBuf};
-use std::process::Command;
 use std::time::Duration;
 
 use serde_json::{Map, Value, json};
@@ -359,7 +359,6 @@ pub(super) fn passthrough_command(
 }
 
 fn exec_bundled(args: &[String]) -> i32 {
-    use std::os::unix::process::CommandExt;
     let messages = &crate::localization::catalog().coderouter;
     let exe = std::env::current_exe().ok();
     let Some(program) = exe.as_deref().and_then(bundled_coderouter) else {

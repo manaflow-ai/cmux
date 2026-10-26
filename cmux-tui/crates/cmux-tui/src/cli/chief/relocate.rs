@@ -4,8 +4,8 @@
 //! home, so the CLI, the app and MCP share the drain, checkpoint, restore,
 //! verify and the moved marker.
 
+use cmux_process::Command;
 use std::path::PathBuf;
-use std::process::Command;
 
 use super::launch::brain_binary;
 use super::{GlobalArgs, Target};

@@ -36,6 +36,9 @@ pub struct Command {
     /// (descriptor, the number the child gets it at).
     #[cfg(unix)]
     pub(crate) inherit: Vec<(OwnedFd, RawFd)>,
+    /// Windows process creation flags ([`Command::creation_flags`]).
+    #[cfg(windows)]
+    pub(crate) creation_flags: u32,
 }
 
 impl Command {
@@ -57,6 +60,8 @@ impl Command {
             new_session: false,
             #[cfg(unix)]
             inherit: Vec::new(),
+            #[cfg(windows)]
+            creation_flags: 0,
         }
     }
 
@@ -189,6 +194,52 @@ impl Command {
         Ok(self)
     }
 
+    /// The program, as `std::process::Command::get_program`.
+    pub fn get_program(&self) -> &OsStr {
+        &self.program
+    }
+
+    /// The arguments after the program, as `std::process::Command::get_args`.
+    pub fn get_args(&self) -> impl ExactSizeIterator<Item = &OsStr> {
+        self.args.iter().map(OsString::as_os_str)
+    }
+
+    /// The variables set (`Some`) or removed (`None`), sorted by name, as
+    /// `std::process::Command::get_envs`.
+    pub fn get_envs(&self) -> impl ExactSizeIterator<Item = (&OsStr, Option<&OsStr>)> {
+        self.env.iter().map(|(key, value)| (key.as_os_str(), value.as_deref()))
+    }
+
+    /// Windows: the process creation flags (`DETACHED_PROCESS`,
+    /// `CREATE_NEW_PROCESS_GROUP`, ...), as
+    /// `std::os::windows::process::CommandExt::creation_flags`.
+    #[cfg(windows)]
+    pub fn creation_flags(&mut self, flags: u32) -> &mut Self {
+        self.creation_flags = flags;
+        self
+    }
+
+    /// Replace this process with the program, as
+    /// `std::os::unix::process::CommandExt::exec`: returns only when that
+    /// failed. On macOS the program gets descriptors 0-2 and the
+    /// [`Command::inherit_fd`] ones, and no other (`posix_spawn` with
+    /// `POSIX_SPAWN_SETEXEC` and `POSIX_SPAWN_CLOEXEC_DEFAULT`).
+    #[cfg(unix)]
+    pub fn exec(&mut self) -> io::Error {
+        #[cfg(target_vendor = "apple")]
+        {
+            crate::spawn_apple::exec(self)
+        }
+        #[cfg(not(target_vendor = "apple"))]
+        {
+            use std::os::unix::process::CommandExt;
+            match self.std_command() {
+                Ok(mut command) => command.exec(),
+                Err(error) => error,
+            }
+        }
+    }
+
     /// Start the child. Returns once it runs its program (an exec failure is
     /// this call's error). The streams and descriptors given are used up, as
     /// std does with a `Stdio` it owns.
@@ -227,6 +278,16 @@ impl Command {
     /// process opens close-on-exec atomically, so nothing leaks.
     #[cfg(not(target_vendor = "apple"))]
     fn spawn_std(&mut self) -> io::Result<Child> {
+        let child = self.std_command()?.spawn()?;
+        #[cfg(unix)]
+        self.inherit.clear();
+        Ok(Child::from_std(child))
+    }
+
+    /// The `std::process::Command` of the std path; the streams given are
+    /// moved into it.
+    #[cfg(not(target_vendor = "apple"))]
+    fn std_command(&mut self) -> io::Result<std::process::Command> {
         let mut command = std::process::Command::new(&self.program);
         command.args(&self.args);
         if self.env_clear {
@@ -249,6 +310,11 @@ impl Command {
         }
         if let Some(stdio) = self.stderr.take() {
             command.stderr(stdio.into_std());
+        }
+        #[cfg(windows)]
+        {
+            use std::os::windows::process::CommandExt;
+            command.creation_flags(self.creation_flags);
         }
         #[cfg(unix)]
         {
@@ -322,9 +388,6 @@ impl Command {
                 }
             }
         }
-        let child = command.spawn()?;
-        #[cfg(unix)]
-        self.inherit.clear();
-        Ok(Child::from_std(child))
+        Ok(command)
     }
 }

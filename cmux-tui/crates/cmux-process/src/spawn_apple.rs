@@ -16,6 +16,7 @@ use crate::command::Command;
 use crate::stdio::{Kind, Stdio};
 
 // From <spawn.h>; not bound by the pinned libc.
+const POSIX_SPAWN_SETEXEC: libc::c_short = 0x0040;
 const POSIX_SPAWN_SETSID: libc::c_short = 0x0400;
 unsafe extern "C" {
     fn posix_spawn_file_actions_addchdir_np(
@@ -30,6 +31,28 @@ unsafe extern "C" {
 
 /// Spawn `command`; its streams and inherited descriptors are used up.
 pub(crate) fn spawn(command: &mut Command) -> io::Result<Child> {
+    start(command, Start::Child)
+}
+
+/// Replace this process with `command` (`POSIX_SPAWN_SETEXEC`): returns
+/// only the reason it could not.
+pub(crate) fn exec(command: &mut Command) -> io::Error {
+    match start(command, Start::ReplaceThisProcess) {
+        Ok(_) => io::Error::other("posix_spawn with POSIX_SPAWN_SETEXEC returned"),
+        Err(error) => error,
+    }
+}
+
+/// What `posix_spawn` makes of the program.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Start {
+    /// A new child process.
+    Child,
+    /// This process's new image (`POSIX_SPAWN_SETEXEC`, as `execve`).
+    ReplaceThisProcess,
+}
+
+fn start(command: &mut Command, how: Start) -> io::Result<Child> {
     let env = child_env(command);
     let path = resolve(&command.program, command, &env)?;
     let argv0 = command.arg0.clone().unwrap_or_else(|| command.program.clone());
@@ -107,6 +130,9 @@ pub(crate) fn spawn(command: &mut Command) -> io::Result<Child> {
         | libc::POSIX_SPAWN_CLOEXEC_DEFAULT as libc::c_short;
     if command.new_session {
         flags |= POSIX_SPAWN_SETSID;
+    }
+    if how == Start::ReplaceThisProcess {
+        flags |= POSIX_SPAWN_SETEXEC;
     }
     let dev_null = c"/dev/null";
     // SAFETY: every call gets the initialized attr/actions and live strings.
