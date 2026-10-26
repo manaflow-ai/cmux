@@ -435,6 +435,37 @@ def read_host():
                        out("/usr/bin/sw_vers", "-buildVersion") or None, main_display_hz())
 
 
+# The perf-lab runner (scripts/perf-lab/run_story.py) runs a story's bench with these variables. A BenchApp reads
+# them as its defaults, so a bench records the run's session, config and measured host without flags of its own.
+LAB_SESSION, LAB_CONFIG, LAB_HOST_FILE, LAB_VDISPLAY_OUT = (
+    "PERF_LAB_SESSION", "PERF_LAB_CONFIG", "PERF_LAB_HOST_FILE", "PERF_LAB_VDISPLAY_OUT")
+# The full host validation of a launched app (``lab_host_check``) goes to `<out>/host-env-full-<app pid>.json`. The
+# runner rejects a run's results unless at least one such file is under its out folder and every one is ok.
+LAB_CHECK_PREFIX = "host-env-full-"
+
+
+def lab_host_check(vdisplay_out, pids, timeout=300):
+    """host_env.py's full validation (p12-perf-process-006) of a launched app: every pre-launch check again, plus
+    nettop over `pids` (the app and its daemons) for an outbound connection (network-egress). Returns its report, or
+    a not-ok report that says why host_env gave none."""
+    argv = [sys.executable, "-I", os.path.join(PERF_LAB, "host_env.py"), "--vdisplay-out", vdisplay_out]
+    for pid in pids:
+        argv += ["--pid", str(pid)]
+    try:
+        done = subprocess.run(argv, capture_output=True, text=True, timeout=timeout)
+    except (OSError, subprocess.TimeoutExpired) as error:
+        return {"ok": False, "reasons": ["host-env-failed"], "details": {"host-env-failed": str(error)[:300]}}
+    lines = [line[len("HOST-ENV "):] for line in done.stdout.splitlines() if line.startswith("HOST-ENV ")]
+    try:
+        report = json.loads(lines[-1]) if lines else None
+    except ValueError:
+        report = None
+    if not isinstance(report, dict):
+        return {"ok": False, "reasons": ["host-env-no-report"],
+                "details": {"host-env-no-report": f"exit {done.returncode}: {done.stderr[-300:]}"}}
+    return report
+
+
 def features_snapshot(reply):
     """result-v1's (features, features_hash, safe_mode) from the app's `features.list` reply ({"features": [{name,
     state, source}], "features_hash", "safe_mode"}), each as the app reports it. A build without the method (before
@@ -959,15 +990,28 @@ class BenchApp:
     (default ``read_host``; tests pass their own), `build_config` states the config of a bench-hooks bundle (`bench`
     or `bench-checks`, checked against the bundle) and `run` is the perf_result.Run every result of this BenchApp
     names (default a new one at the first record; a controller attempt passes its own id).
+    Under the perf-lab runner (its PERF_LAB_* variables, the LAB_* names), the defaults are the story's session, the
+    run's config and the host block that host_env wrote with the measured Hz. The first launch is validated again
+    with its pids (`lab_check`, default ``lab_host_check``) before the bench measures, and the report goes to `out`.
     """
 
     def __init__(self, app, out=None, env=None, config=None, window=(40, 40, 1440, 900), screen="0",
                  log_name=None, teardown=True, low_power_mode_ok=False, session=None, socket_only=False,
-                 fresh_state=True, perf_session="light", host=None, build_config=None, run=None, args=()):
+                 fresh_state=True, perf_session=None, host=None, build_config=None, run=None, args=(),
+                 lab_check=None):
         self.args = tuple(args)
-        self.perf_session = perf_session
+        self.perf_session = perf_session or os.environ.get(LAB_SESSION) or "light"
+        host_file = os.environ.get(LAB_HOST_FILE)
+        if host is None and host_file:
+            host = load_by_path("perf_lab_host_env", os.path.join(PERF_LAB, "host_env.py")).host_reader(host_file)
         self.read_host = host or read_host
-        self.build_config = build_config
+        self.build_config = build_config or os.environ.get(LAB_CONFIG) or None
+        vdisplay_out = os.environ.get(LAB_VDISPLAY_OUT)
+        if lab_check is None and vdisplay_out:
+            def lab_check(pids):
+                return lab_host_check(vdisplay_out, pids)
+        self.lab_check = lab_check
+        self.lab_report = None  # the full host validation of this BenchApp's first launch (``lab_check``)
         self.run = run
         self._build = self._host = None
         self.features = None  # the last launch's features.list snapshot (features_snapshot), read once it answered
@@ -1229,10 +1273,30 @@ class BenchApp:
                     self.ready_seconds = round(time.monotonic() - start, 2)
                     note(f"bench-launch: {self.tag} answered on {path} after {self.ready_seconds} s")
                     self.features = self.read_features()
+                    self.validate_lab_host()
                     return self
             time.sleep(0.25)  # the poll interval
         log.flush()
         self._fail(*self.diagnose(last, timeout))
+
+    def validate_lab_host(self, pids=None):
+        """Once per BenchApp, while its app runs: ``lab_check`` over the app's and daemons' pids (default the launched
+        process and the tag's processes; a bench that starts the app itself passes them), written to
+        `<out>/host-env-full-<first pid>.json` for the runner, which rejects the run's results when it is not ok."""
+        if self.lab_check is None or self.lab_report is not None:
+            return
+        if pids is None:
+            pids = {self.process.pid}
+            if self.teardown:
+                pids.update(pid for pid, _ in self.teardown.processes())
+        pids = sorted(set(pids))
+        self.lab_report = self.lab_check(pids) if pids else {
+            "ok": False, "reasons": ["network-egress-no-pids"], "details": {"network-egress-no-pids": "no app pid"}}
+        with open(os.path.join(self.out, f"{LAB_CHECK_PREFIX}{pids[0] if pids else 'none'}.json"), "w") as f:
+            json.dump(self.lab_report, f, sort_keys=True)
+        if not self.lab_report.get("ok"):
+            note(f"bench-launch: WARNING: {self.tag} env-invalid after launch "
+                 f"({', '.join(self.lab_report.get('reasons') or ['no reason'])}): the lab rejects this run's results")
 
     def _fail(self, reason, report):
         report.setdefault("gui_session", self.gui_session)
