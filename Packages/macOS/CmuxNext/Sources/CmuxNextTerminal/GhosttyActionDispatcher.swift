@@ -4,20 +4,25 @@ import CmuxNextCompat
 
 /// Routes decoded actions on the main actor.
 enum GhosttyActionDispatcher {
-    static func dispatch(_ action: GhosttyAction, bridge: SurfaceBridge?, runtime: GhosttyRuntime?) -> Bool {
+    /// Gives back the decoder's clone of an applied config (`.configChange`) once the action is done with
+    /// it: ``freeConfig(_:)`` in the app, a counter in a test.
+    typealias ConfigRelease = (UncheckedPointer) -> Void
+
+    static func dispatch(_ action: GhosttyAction, bridge: SurfaceBridge?, runtime: GhosttyRuntime?,
+                         releaseConfig: ConfigRelease = GhosttyActionDispatcher.freeConfig) -> Bool {
         switch action {
         case .configChange(let pointer):
             // Surface-targeted config changes are per-surface overrides the
             // renderer already applied; only the app-level one is adopted.
             // SAFETY: the decoder's clone of the applied config (GhosttyActionDecoder), owned by
-            // this action and used once: adopted (cloned again) or freed, never both.
+            // this action until `releaseConfig` takes it back.
             guard let config = unsafe pointer.raw else { return true }
             if bridge == nil, let runtime {
                 // SAFETY: as above.
                 unsafe runtime.adoptAppliedConfig(config)
+            } else {
+                releaseConfig(pointer)
             }
-            // SAFETY: as above; adoption keeps its own clone, so this one is freed either way.
-            unsafe ghostty_config_free(config)
             return true
         case .reloadConfig(let soft):
             guard let runtime else { return false }
@@ -53,5 +58,11 @@ enum GhosttyActionDispatcher {
             guard let view = bridge?.view else { return false }
             return view.applyAction(action)
         }
+    }
+
+    /// The app's ``ConfigRelease``: the one free of the decoder's clone.
+    nonisolated static func freeConfig(_ handle: UncheckedPointer) {
+        // SAFETY: `handle` is the decoder's clone, which only `dispatch` gives back, once per action.
+        unsafe ghostty_config_free(handle.raw)
     }
 }
