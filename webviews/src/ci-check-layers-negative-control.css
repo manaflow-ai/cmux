@@ -1,0 +1,4 @@
+/* CI negative control; never merge. */
+.nx-ci-check-layers-negative-control {
+  z-index: 123;
+}
