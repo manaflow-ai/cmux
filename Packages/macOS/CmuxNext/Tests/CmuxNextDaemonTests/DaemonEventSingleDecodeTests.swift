@@ -18,9 +18,10 @@ struct DaemonEventSingleDecodeTests {
     static let inventoryMachine = "machine_0123456789abcdef0123456789abcdef"
     static let inventoryWatch = "inventory_watch_0123456789abcdef0123456789abcdef"
 
-    /// Twenty event lines the daemon sends, over every way the decode builds an event: a case from
-    /// one payload struct, a flat layout beside its screen, `unknown` side events with exact u64
-    /// decimals, client events, the cloud set and a `session.events` stream line.
+    /// Twenty event lines the daemon sends, each a different event, over every way the decode
+    /// builds an event: a case from one payload struct, a flat layout beside its screen, `unknown`
+    /// side events with exact u64 decimals, client events, the cloud set and a `session.events`
+    /// stream line.
     static let fixtures: [Fixture] = [
         Fixture(name: "title-changed", line: #"{"event":"title-changed","surface":4,"title":"~/src"}"#) {
             $0 == .titleChanged(surface: SurfaceID(rawValue: 4), title: "~/src")
@@ -48,9 +49,6 @@ struct DaemonEventSingleDecodeTests {
                 screen: ScreenID(rawValue: 2),
                 layout: ScreenLayoutDelta(activePane: PaneID(rawValue: 3), layout: .leaf(PaneID(rawValue: 3))),
                 transaction: ClientTransactionID(rawValue: "tx2"))
-        },
-        Fixture(name: "layout-changed", line: #"{"event":"layout-changed","screen":2}"#) {
-            $0 == .layoutChanged(screen: ScreenID(rawValue: 2), layout: nil, transaction: nil)
         },
         Fixture(name: "keybindings-changed", line: #"{"event":"keybindings-changed","revision":3}"#) {
             $0 == .keybindingsChanged(revision: 3)
@@ -124,6 +122,7 @@ struct DaemonEventSingleDecodeTests {
 
     @Test func theFixtureHasTwentyEventLines() {
         #expect(Self.fixtures.count == 20)
+        #expect(Set(Self.fixtures.map(\.name)).count == 20, "each fixture line is a different event")
     }
 
     @Test(arguments: DaemonEventSingleDecodeTests.fixtures)
@@ -148,6 +147,23 @@ struct DaemonEventSingleDecodeTests {
         let (decodes, event) = Self.decodeCounted(name: "layout-changed", line: line)
         #expect(decodes == 1)
         #expect(event == .layoutChanged(screen: ScreenID(rawValue: 2), layout: nil, transaction: ClientTransactionID(rawValue: "tx1")))
+    }
+
+    /// A `layout-changed` without layout fields refetches (no layout), from one parse.
+    @Test func anAbsentLayoutIsNilFromOneDecode() {
+        let (decodes, event) = Self.decodeCounted(name: "layout-changed", line: #"{"event":"layout-changed","screen":2}"#)
+        #expect(decodes == 1)
+        #expect(event == .layoutChanged(screen: ScreenID(rawValue: 2), layout: nil, transaction: nil))
+    }
+
+    /// A `cloud-*` line whose fields do not match is `unknown` with its JSON, from the same one
+    /// parse, like every other event.
+    @Test func aMismatchedCloudLineIsUnknownFromOneDecode() throws {
+        let line = #"{"event":"cloud-inbox-reset","seq":"three"}"#
+        let (decodes, event) = Self.decodeCounted(name: "cloud-inbox-reset", line: line)
+        #expect(decodes == 1)
+        let payload = try JSONDecoder().decode(JSONValue.self, from: Data(line.utf8))
+        #expect(event == .unknown(name: "cloud-inbox-reset", payload: payload))
     }
 
     /// A pairing id past 2^53 survives exactly as `request_id`, from one parse.
@@ -180,5 +196,57 @@ struct DaemonEventSingleDecodeTests {
         let broken = Self.decodeCounted(name: "bell", line: "#not json")
         #expect(broken.decodes == 1)
         #expect(broken.event == .unknown(name: "bell", payload: .null))
+    }
+
+    // The decoding table against the schema (p05-ipc.md Q12, "schema events minus DaemonEvent
+    // cases"): a new sdk-schema.json event fails here until it gets a table entry or joins
+    // `unmodeledSchemaEvents`, and a table name the schema dropped fails too.
+
+    /// Schema events the app does not decode natively: they arrive as `unknown` (or on another
+    /// connection: the terminal stream, loopback, cloud mux). Q12's open list.
+    static let unmodeledSchemaEvents: Set<String> = [
+        "activity-changed", "browser-state", "chief-changed", "cloud-mux-resynced", "cloud-mux-wake", "colors-changed",
+        "config-reload-requested", "conversation-inbox-changed", "detached", "empty", "frame", "graphics-status",
+        "loopback-closed", "loopback-credit", "loopback-data", "loopback-eof", "machine-usage-changed", "output",
+        "participant-avatar-changed", "program-status-changed", "render-delta", "render-state", "resized", "script-log",
+        "settings-changed", "size-state", "status", "surface-output", "surface-resize-failed", "terminal-input-unclaimed",
+        "terminal-reaped", "url-open", "vt-state", "window-title-requested",
+    ]
+
+    /// Table names that are not sdk-schema.json events: the apps-extension inventory demand and
+    /// the `session.events` stream line.
+    static let appSideEventNames: Set<String> = ["apps-agent-inventory-demand", LineTransport.streamEvent]
+
+    @Test func theDecodingTableMatchesTheSchemaEvents() throws {
+        var root = URL(fileURLWithPath: #filePath)
+        for _ in 0..<6 { root.deleteLastPathComponent() }
+        let schema = try JSONDecoder().decode(
+            SchemaEventNames.self, from: Data(contentsOf: root.appendingPathComponent("cmux-tui/spec/sdk-schema.json")))
+        let modeled = DaemonEvent.modeledEventNames
+        #expect(modeled.subtracting(Self.appSideEventNames).subtracting(schema.names).sorted() == [],
+                "table names that are not schema events")
+        #expect(schema.names.subtracting(modeled).subtracting(Self.unmodeledSchemaEvents).sorted() == [],
+                "schema events with no table entry: add one, or list them in unmodeledSchemaEvents")
+        #expect(Self.unmodeledSchemaEvents.intersection(modeled).sorted() == [], "modeled events still listed as unmodeled")
+        #expect(Self.unmodeledSchemaEvents.subtracting(schema.names).sorted() == [], "unmodeled names the schema dropped")
+    }
+}
+
+/// The event names of sdk-schema.json: the keys of its `events` object.
+private struct SchemaEventNames: Decodable {
+    let names: Set<String>
+
+    private enum CodingKeys: String, CodingKey { case events }
+
+    private struct EventName: CodingKey {
+        let stringValue: String
+        var intValue: Int? { nil }
+        init(stringValue: String) { self.stringValue = stringValue }
+        init?(intValue: Int) { nil }
+    }
+
+    init(from decoder: any Decoder) throws {
+        let events = try decoder.container(keyedBy: CodingKeys.self).nestedContainer(keyedBy: EventName.self, forKey: .events)
+        names = Set(events.allKeys.map(\.stringValue))
     }
 }

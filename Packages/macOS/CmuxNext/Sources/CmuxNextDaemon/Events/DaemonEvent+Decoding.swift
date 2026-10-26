@@ -95,6 +95,10 @@ extension DaemonEvent {
         }
     }
 
+    /// The event names ``wireDecodings`` models. DaemonEventSingleDecodeTests checks them against
+    /// the events of cmux-tui/spec/sdk-schema.json, so the table cannot drift from the schema.
+    static var modeledEventNames: Set<String> { Set(wireDecodings.keys) }
+
     /// Every event name the app models, with its decoding; any other name is `unknown`.
     private static let wireDecodings: [String: WireDecoding] = {
         var table: [String: WireDecoding] = [:]
@@ -173,14 +177,18 @@ extension DaemonEvent {
                 .unknown(name: name, payload: AgentInventoryWatchEvent.decode(name: name, line: line, decoder: decoder)?.payload ?? .null)
             }
         }
-        for cloud in CloudConversationsEvent.eventNames {
-            table[cloud] = WireDecoding { name, line, decoder in
-                guard let event = try? CloudConversationsEvent.decode(name: name, line: line, decoder: decoder) else {
-                    return unmodeled(name: name, line: line, decoder: decoder)
-                }
-                return .cloudConversations(event)
-            }
+        table["cloud-conversation-changed"] = typed(CloudConversationChanged.self) { .cloudConversations(.changed($0)) }
+        table["cloud-conversation-resynced"] = typed(CloudConversationResynced.self) { .cloudConversations(.resynced($0)) }
+        table["cloud-inbox-changed"] = typed(CloudInboxChanged.self) { .cloudConversations(.inboxChanged($0)) }
+        table["cloud-inbox-reset"] = typed(CloudConversationsEvent.InboxReset.self) {
+            .cloudConversations(.inboxReset(seq: $0.seq ?? 0, account: $0.account))
         }
+        table["cloud-subscription-state"] = typed(CloudSubscriptionState.self) { .cloudConversations(.subscriptionState($0)) }
+        table["cloud-session-needed"] = typed(CloudSessionNeeded.self) { .cloudConversations(.sessionNeeded($0)) }
+        table["cloud-conversation-live"] = typed(ConversationLive.self) { .cloudConversations(.live($0)) }
+        table["cloud-conversation-run-changed"] = typed(ConversationRunChanged.self) { .cloudConversations(.runChanged($0)) }
+        table["cloud-host-replica-needed"] = typed(CloudHostReplicaNeeded.self) { .cloudConversations(.hostReplicaNeeded($0)) }
+        table["cloud-conversation-typing"] = typed(CloudConversationTyping.self) { .cloudConversations(.typing($0)) }
         table[LineTransport.streamEvent] = WireDecoding { name, line, decoder in
             guard let item = SessionStreamItem.decode(line, decoder: decoder) else { return .unknown(name: name, payload: .null) }
             return .sessionState(item)
