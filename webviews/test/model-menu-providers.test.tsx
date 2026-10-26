@@ -491,6 +491,30 @@ test("the Starred rail groups provider offers into one model row", async () => {
   expect(detailOf(rows[0]!)).toBe("OpenRouter");
 });
 
+test("Starred prefers an available favorite provider", async () => {
+  dom.window.localStorage.setItem(
+    "cmux.model-picker.favorites",
+    JSON.stringify(["openrouter/qwen/coder-3", "together/qwen/coder-3"]),
+  );
+  const catalog = [
+    {
+      id: "opencode",
+      name: "OpenCode",
+      models: [
+        { id: "openrouter/qwen/coder-3", name: "Coder 3", unavailable: "offline" },
+        { id: "together/qwen/coder-3", name: "Coder 3" },
+      ],
+    },
+  ];
+  await mount("openrouter/qwen/coder-3", true, catalog);
+  await act(async () => menus()[0]!.querySelector<HTMLElement>('[aria-label="Starred"]')!.click());
+  await act(async () => await new Promise((resolve) => setTimeout(resolve, 0)));
+  const rows = modelRows(menus()[0]!);
+  expect(rows).toHaveLength(1);
+  expect(detailOf(rows[0]!)).toBe("Together");
+  expect(rows[0]!.hasAttribute("data-disabled")).toBe(false);
+});
+
 test("search groups provider offers into one result", async () => {
   await mount(undefined, true, railed);
   await typeSearch("DeepSeek V4 Pro");
@@ -504,6 +528,24 @@ test("search keeps the running provider selected", async () => {
   const rows = modelRows(menus()[0]!);
   expect(rows.filter((row) => nameOf(row) === "DeepSeek V4 Pro")).toHaveLength(1);
   expect(rows.find((row) => nameOf(row) === "DeepSeek V4 Pro")?.getAttribute("aria-checked")).toBe("true");
+});
+
+test("search falls back to an available provider when current is unavailable", async () => {
+  const catalog = [
+    {
+      id: "opencode",
+      name: "OpenCode",
+      models: [
+        { id: "openrouter/qwen/coder-3", name: "Coder 3", unavailable: "offline" },
+        { id: "together/qwen/coder-3", name: "Coder 3" },
+      ],
+    },
+  ];
+  await mount("openrouter/qwen/coder-3", true, catalog);
+  await typeSearch("Coder 3");
+  const rows = modelRows(menus()[0]!);
+  expect(rows).toHaveLength(1);
+  expect(rows[0]!.hasAttribute("data-disabled")).toBe(false);
 });
 
 test("duplicate bare catalog rows remain one compact row", async () => {
