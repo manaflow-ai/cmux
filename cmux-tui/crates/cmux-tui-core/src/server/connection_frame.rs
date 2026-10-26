@@ -6,6 +6,8 @@
 mod machine_catalog;
 
 use super::*;
+use cmux_threads::work::{Lane, Priority, Shutdown};
+use crate::event_cause::{EventCause, EventCauseScope};
 
 /// [`handle_connection_frame_at`] for a line that arrives now (tests).
 #[cfg(test)]
@@ -55,7 +57,11 @@ pub(super) fn handle_connection_frame_at(
     if mux.daemon_shutdown_requested() || mux.daemon_handoff_committed() {
         return false;
     }
-    if matches!(transport, ClientTransport::Remote) || mux.is_remote_client(client) {
+    // Every event this frame sets off, here or on a thread it hands work
+    // to, carries the connection's cause (crate::event_cause).
+    let (remote, cause) = mux.frame_client(client);
+    let _cause = EventCauseScope::enter(cause);
+    if matches!(transport, ClientTransport::Remote) || remote {
         return remote_relay::handle_watched_frame(
             mux,
             client,
@@ -84,6 +90,12 @@ pub(super) fn handle_connection_frame_at(
             Ok(envelope) => watch(WatchedMethod::resource(envelope.operation)),
             Err(_) => stage(FrameStage::PageRouter),
         }
+        // An envelope's `origin` claim may only narrow the cause, as it
+        // only narrows the origin; the origin gate still checks the claim.
+        let _claimed =
+            request.as_ref().ok().and_then(|envelope| envelope.origin.as_ref()).map(|claim| {
+                EventCauseScope::enter(EventCause::current().narrowed_by(claim.claim.event_cause()))
+            });
         let arrival = RequestArrival::parsed_now(arrived);
         let mut span = match &request {
             Ok(envelope) => RequestSpan::open_method(
@@ -258,12 +270,20 @@ pub(super) fn handle_request_with_cancellation(
     cancellation: Option<&ConnectionCancellation>,
 ) -> bool {
     let Request { id, cmd } = request;
+    // A panic in the handler names its command (cmux-panic-log crash keys, this thread's own).
+    let _crash_key = cmux_panic_log::crash_keys::scoped_thread(
+        cmux_panic_log::crash_keys::Key::ActionId,
+        cmux_panic_log::crash_keys::stable_key(cmd.wire_name()),
+    );
     let mut span = RequestSpan::open(mux.request_stats(), &cmd, id.as_ref(), arrival);
     if let Command::UrlOpen { terminal_id, url } = cmd {
         return url_open::start(mux, client, id, terminal_id, url, span.start_async(), writer);
     }
     if let Command::ChiefInspect(params) = cmd {
         return chief_inspect::start(mux, client, id, params, span.start_async(), writer);
+    }
+    if sized_browser_attach(mux, &cmd) {
+        return start_sized_browser_attach(mux, client, id, cmd, span.start_async(), writer);
     }
     if cloud_conversations::is_network(&cmd) {
         return cloud_conversations::start(mux, client, id, cmd, span.start_async(), writer);
@@ -298,8 +318,86 @@ pub(super) fn handle_request_with_cancellation(
         _ => None,
     };
     let shutdown_daemon = matches!(&cmd, Command::ShutdownDaemon { .. });
+    let result = handle_command_with_cancellation(mux, client, cmd, writer, cancellation);
+    let mut response_ok = false;
+    let sent = span.reply(|| {
+        let (ok, sent) = send_command_result(mux, client, id, result, writer);
+        response_ok = ok;
+        sent
+    });
+    // The reply is out; the request's registry commits (already in the WAL)
+    // go to disk now, in one flush that none of them waited for.
+    mux.request_registry_flush();
+    // Flush the successful acknowledgement before making the owning loop
+    // leave, so process teardown cannot race the response writer.
+    if shutdown_daemon && response_ok {
+        if sent {
+            return complete_daemon_shutdown_after_ack(mux, client, writer);
+        } else {
+            mux.cancel_daemon_handoff(client);
+        }
+    }
+    if let Some(by) = detach_self
+        && response_ok
+        && sent
+    {
+        kick_client(mux, client, by);
+        return false;
+    }
+    sent
+}
+
+/// Whether `cmd` is an `attach-surface` with a size on a browser surface:
+/// the browser host sizes the page before the attach answers.
+fn sized_browser_attach(mux: &Mux, cmd: &Command) -> bool {
+    matches!(
+        cmd,
+        Command::AttachSurface { surface: Some(surface), cols: Some(_), rows: Some(_), .. }
+            if mux.surface(*surface).is_some_and(|surface| surface.kind() == SurfaceKind::Browser)
+    )
+}
+
+/// A sized browser attach waits for the browser host's resize, another
+/// process (up to `INITIAL_BROWSER_RESIZE_TIMEOUT`): a work item attaches
+/// and answers, so this request thread answers the next line at once
+/// (Chrome posts such a wait to a MayBlock task runner,
+/// base/task/task_traits.h). Shutdown does not wait for it: the connection
+/// closes anyway.
+fn start_sized_browser_attach(
+    mux: &Arc<Mux>,
+    client: u64,
+    id: Option<Value>,
+    cmd: Command,
+    reply: AsyncReply,
+    writer: &MessageWriter,
+) -> bool {
+    let (worker_mux, worker_writer, worker_id) = (mux.clone(), writer.clone(), id.clone());
+    let posted = mux.work.post(
+        Priority::UserBlocking,
+        Lane::System,
+        Shutdown::ContinueOnShutdown,
+        move || {
+            let result =
+                handle_command_with_cancellation(&worker_mux, client, cmd, &worker_writer, None);
+            reply.reply(|| {
+                send_command_result(&worker_mux, client, worker_id, result, &worker_writer).1
+            });
+        },
+    );
+    posted.is_ok() || send_request_error(writer, id, "the daemon is shutting down")
+}
+
+/// Answers request `id` with a command's `result`: whether it succeeded,
+/// and whether the answer was queued.
+fn send_command_result(
+    mux: &Mux,
+    client: u64,
+    id: Option<Value>,
+    result: anyhow::Result<Value>,
+    writer: &MessageWriter,
+) -> (bool, bool) {
     let (mut reason, mut retryable, mut details) = (None, None, None);
-    let response = match handle_command_with_cancellation(mux, client, cmd, writer, cancellation) {
+    let response = match result {
         Ok(data) => Response {
             id,
             ok: true,
@@ -330,29 +428,10 @@ pub(super) fn handle_request_with_cancellation(
     let (response, reason) = remote_relay::redact_response(mux, client, response, reason);
     let details = details.filter(|_| !mux.is_remote_client(client));
     let response_ok = response.ok;
-    let sent = span.reply(|| {
-        responses::send_response_with_details(writer, response, reason, retryable, details)
-    });
-    // The reply is out; the request's registry commits (already in the WAL)
-    // go to disk now, in one flush that none of them waited for.
-    mux.request_registry_flush();
-    // Flush the successful acknowledgement before making the owning loop
-    // leave, so process teardown cannot race the response writer.
-    if shutdown_daemon && response_ok {
-        if sent {
-            return complete_daemon_shutdown_after_ack(mux, client, writer);
-        } else {
-            mux.cancel_daemon_handoff(client);
-        }
-    }
-    if let Some(by) = detach_self
-        && response_ok
-        && sent
-    {
-        kick_client(mux, client, by);
-        return false;
-    }
-    sent
+    (
+        response_ok,
+        responses::send_response_with_details(writer, response, reason, retryable, details),
+    )
 }
 
 /// The `vt-state` reply of `surface`, serialized and not yet queued.
@@ -456,3 +535,7 @@ pub(super) fn zeroize_string(value: &mut str) {
     // place immediately after dispatch.
     value.zeroize();
 }
+
+#[cfg(test)]
+#[path = "event_cause_tests.rs"]
+mod event_cause_tests;

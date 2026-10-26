@@ -2,7 +2,7 @@ public import AppKit
 public import CmuxNextRemoteView
 import CmuxNextCompat
 
-#if DEBUG
+#if DEBUG || CMUX_BENCH_HOOKS
 /// The popup surfaces of one remote tab (`rb.surface.show/update/hide`,
 /// RT5): each is a borderless child panel of the page's window
 /// (`RemoteBrowserSurfacePanel`, page content below the app's overlays) at
@@ -26,6 +26,8 @@ public final class RemoteBrowserSurfaces {
     private let source: @MainActor (UInt16) -> any RemoteViewStreamSource
     private let send: @MainActor (RemoteRdJSON, Bool) -> Void
     private var open: [UInt32: Surface] = [:]
+    /// The page shows: surfaces decode only then (a hidden page's popups decode nothing).
+    private var visible = true
     /// The page window's geometry observers, while a surface is open.
     private weak var observedWindow: NSWindow?
     private var windowObservers: [MainActorObservation] = []
@@ -59,7 +61,7 @@ public final class RemoteBrowserSurfaces {
             let panel = RemoteBrowserSurfacePanel(content: pane.view)
             open[surface] = Surface(pane: pane, input: input, panel: panel, kind: kind, anchor: anchor)
             place(surface)
-            pane.start()
+            if visible { pane.start() }
         case let .update(surface, anchor, _, _):
             guard open[surface] != nil else { return }
             open[surface]?.anchor = anchor
@@ -67,6 +69,21 @@ public final class RemoteBrowserSurfaces {
         case let .hide(surface):
             remove(surface)
         }
+    }
+
+    /// The page hid or showed: each surface's decoder pauses or starts with it (Chrome stops a
+    /// hidden widget's frames, `RenderWidgetHostImpl::WasHidden`). A shown surface asks for a keyframe.
+    public func setVisible(_ visible: Bool) {
+        guard visible != self.visible else { return }
+        self.visible = visible
+        for entry in open.values {
+            if visible { entry.pane.start() } else { entry.pane.pause() }
+        }
+    }
+
+    /// The surface is decoding its stream now (tests, debug).
+    package func isDecoding(_ surface: UInt32) -> Bool {
+        open[surface]?.pane.isDecoding ?? false
     }
 
     /// The session ended or closed: every surface goes.

@@ -8,6 +8,7 @@ import CmuxNextHibernation
 import CmuxNextMemory
 import CmuxNextResources
 import CmuxNextSettings
+import CmuxNextWakeups
 
 // Browser hibernation and the memory-budgeted warm sets
 // (plans/cmux-next/tab-lifecycle.md).
@@ -29,12 +30,15 @@ extension AppServices {
         }
         hibernation.activity.isEnabled = features.isEnabled(.memorySaverBackgroundActivity)
         hibernation.discardsGrowingFrozenPages = features.isEnabled(.frozenGrowthDiscard)
+        hibernation.discardsAppPages = features.isEnabled(.memoryDiscardPageTabs)
+        hibernation.discardsStreamedPages = features.isEnabled(.memoryDiscardRemoteTabs)
         hibernation.openerGroup = { [weak self] key in self?.openerGroup(of: key) ?? [key] }
         let agentPages = AgentPageHibernation(services: self)
         memoryHistograms.follow(hibernation, agentPages: agentPages)
         hibernation.agentPages = agentPages
         hibernation.follow(settings)
         hibernation.start()
+        _ = parkedWorkspaceBudget  // registers with the coordinator before any pressure change reads it
         memoryFootprints.start()
         if features.isEnabled(.occludedWindowDiscard) {
             hibernation.follow(WindowOcclusionChecker(windows: { [weak self] in self?.windows.controllers.compactMap(\.window) ?? [] }))
@@ -53,8 +57,23 @@ extension AppServices {
     func memoryPressureDidChange(_ level: MemoryPressureLevel) {
         let budget = WarmSetBudget.current(pressure: level)
         cache.setWarmBudget(budget)
-        // Critical keeps only what shows, the parked workspaces too.
-        if level == .critical { windows.controllers.forEach { $0.releaseParked() } }
+        // Critical keeps only what shows, the parked workspaces too: one per release slice with the
+        // parked budget (a memory consumer), else all at once.
+        if level == .critical, parkedWorkspaceBudget == nil { windows.controllers.forEach { $0.releaseParked() } }
+    }
+
+    /// The parked workspace budget (p07-memory-032): `SubsystemBudget.parkedWorkspaces` across every
+    /// window, the 15 min idle timeout with `memoryDiscardParkedIdleTimeout`, and none at critical
+    /// memory pressure. Its look runs as background work on one deadline. Nil while
+    /// `memoryDiscardParkedWorkspaces` is off: every parked workspace stays until critical pressure.
+    func makeParkedWorkspaceBudget() -> ParkedWorkspaceBudget? {
+        guard features.isEnabled(.memoryDiscardParkedWorkspaces) else { return nil }
+        let budget = SubsystemBudget.forThisMac(gpuResidentAvailable: false)
+        return ParkedWorkspaceBudget(
+            capacity: budget.parkedWorkspaces,
+            idleTimeout: features.isEnabled(.memoryDiscardParkedIdleTimeout) ? budget.parkedIdleTimeout : nil,
+            deadline: MainDeadline(owner: "ParkedWorkspaceBudget", workClass: .background, scheduler: mainDeadlines),
+            memory: memoryCoordinator)
     }
 }
 

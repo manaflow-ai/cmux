@@ -7,10 +7,13 @@
 // package name order, so parallel changes add lines and do not edit the same ones. It is its own type,
 // not an AppServices extension, so these lines never grow the AppServices god type.
 
+import CmuxNextBridge
 import CmuxNextCompat
 import CmuxNextFeatures
 import CmuxNextHibernation
+import CmuxNextHome
 import CmuxNextMemory
+import CmuxNextPages
 import CmuxNextWakeups
 
 /// Runs the memory coordinator's release slices on a budgeted frame queue: on a later frame, after input
@@ -52,11 +55,55 @@ struct AppMemoryConsumers {
         // One line per package, sorted by package name, for example:
         // registerTabs()  // CmuxNextTabs
         registerInternalPageDiscards()  // CmuxNextApp
+        registerConversationDiscards()  // CmuxNextHibernation, CmuxNextHome
+        registerPageLifecycle()  // CmuxNextPages
     }
 
-    /// `memoryDiscardInternalPages` (default off): hidden page tabs' views go after their policy.
+    /// `memoryDiscardConversations` (default off): hidden conversation tabs' laid-out transcripts go after 10 min.
+    private func registerConversationDiscards() {
+        guard services.features.isEnabled(.memoryDiscardConversations) else { return }
+        Self.conversationDiscards(ContentDiscardScheduler(kind: .conversation, memory: services.memoryCoordinator), on: services.cache) {
+            [weak services] key in services?.home.existingTabView(key)?.transcript
+        }
+    }
+
+    /// Conversation tabs' transcripts (`transcript`, by tab key) let their rows go on `cache`'s lifecycle, as
+    /// `scheduler` says; the cache's content owners keep the host.
+    static func conversationDiscards(_ scheduler: ContentDiscardScheduler, on cache: TabContentCache,
+                                     transcript: @escaping (String) -> HomeNativeTranscriptView?) {
+        let lifecycle = LayoutDiscardHost<ContentLifecycle<String>.Token>.Lifecycle(
+            isHidden: { [weak cache] key in cache?.phase(of: key) == .mountedHidden },
+            adopted: { [weak cache] key in cache?.ledger.setRetained(key, false) },
+            hibernate: { [weak cache] key in cache?.applyLifecycle(cache?.lifecycle.send(.hibernate(key)) ?? []) },
+            mounted: { [weak cache] key, token in cache?.applyLifecycle(cache?.lifecycle.send(.mounted(key, token)) ?? []) })
+        cache.contentOwners.add(LayoutDiscardHost(scheduler: scheduler, layout: { key in
+            transcript(key).map(HomeTranscriptLayout.init).map { rows in
+                DiscardableLayout(isReleased: { rows.isReleased }, isAtRest: { rows.isAtRest }, release: { rows.release() }, restore: { rows.restore() })
+            }
+        }, lifecycle: lifecycle))
+    }
+
+    /// `pageLifecycle` (default off): page tabs' reveal and conceal drive the page lifecycle
+    /// (p13-webui-022), on the app's one deadline scheduler. Agent chats join in p13-webui-038.
+    private func registerPageLifecycle() {
+        guard services.features.isEnabled(.pageLifecycle) else { return }
+        installPageLifecycle(PageLifecycle(deadlines: services.mainDeadlines))
+    }
+
+    /// Makes `lifecycle` the one lifecycle of cmux pages: a page tab's reveal and conceal drive it, a
+    /// page WebUIHost closes leaves it, and the browser hibernation (`startHibernation`) hands it
+    /// `browser.hibernation`, the memory pressure and Low Power Mode. Tests pass one on their own deadlines.
+    func installPageLifecycle(_ lifecycle: PageLifecycle) {
+        let pages = services.pages
+        lifecycle.pageOfTab = { [weak pages] key in (pages?.existingView(key)?.content as? PageWebView).map(PageWebViewLifecycle.init) }
+        services.webUI.lifecycle = lifecycle
+        services.cache.pageLifecycle = lifecycle
+    }
+
+    /// `memoryDiscardInternalPages` (default off): hidden page tabs' views go after their policy. With
+    /// `pageLifecycle` on, that lifecycle is page tabs' one discard controller, so this one stays off.
     private func registerInternalPageDiscards() {
-        guard services.features.isEnabled(.memoryDiscardInternalPages) else { return }
+        guard services.features.isEnabled(.memoryDiscardInternalPages), !services.features.isEnabled(.pageLifecycle) else { return }
         services.pages.enableDiscards(ContentDiscardScheduler(kind: .internalPage, memory: services.memoryCoordinator), on: services.cache)
     }
 }

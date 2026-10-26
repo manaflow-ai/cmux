@@ -1249,6 +1249,17 @@ Each file is in exactly one task. Section 8 lists the planned cut (FG300-FG346),
 - Acceptance: 1000 title events across 50 workspaces → recomputeSidebar 0 times; the counters
   prove it.
 - Test phase: fleet DrainCostTests; script-storm-bench `--hidden` drain p99 <= 1 ms.
+- As built: the unread sum (`UnreadLedger`, kept by StoreIndex) and the workspace-list check (an
+  order-free digest in StoreIndex) cost the workspaces that joined, left or changed their own count.
+  `recomputeSidebar` is still O(workspaces), but runs only for a batch that changed the order, the
+  membership or a group; a replayed add, a move to its own place and the lift and restore of an
+  unchanged overlay run none. `debug.drain_cost` reports the histogram (the owner ledger's buckets)
+  and the counters; script-storm-bench `--hidden` reads its p99.
+- Follow-up (p06-scheduler-033b): patch only the sidebar sections a batch touches. Placing a moved
+  workspace inside its section needs its daemon-order position without a walk of the list (an
+  order-statistic index over `workspaces`); until then one flattening is O(workspaces).
+- Follow-up (to p09-observability-000): a `HistogramID` for the drain (in us, owner PL-daemon), so
+  each drain also records through `Metrics`; the catalog is frozen, so DrainCost keeps a local one.
 
 **p06-scheduler-034: Lock admission by class.**
 - Files: `mux/signaled_mutex.rs`, `lock_rank.rs`, `diagnostics.rs` (per-class LockStats), the

@@ -194,6 +194,27 @@ struct DebugInputTests {
         #expect(await resets.names == everything.filter { $0 != "tap" }, "the tap keeps no counters")
     }
 
+    /// The pump section reads the CEF pump's counters through the App's closures (zeros before
+    /// Chromium runs), decodes into its shape, and `reset` reaches the pump.
+    @Test func thePumpSectionReadsAndResetsThePumpsCounters() async throws {
+        @MainActor final class Pump {
+            var counters: DebugInputPump?
+            var resets = 0
+        }
+        let pump = Pump()
+        let source = DebugInputPumpSource(read: { pump.counters }, reset: { pump.resets += 1 })
+        let debugInput = DebugInput(sources: [source])
+
+        let before = try await debugInput.reply(to: .read([.pump]))
+        #expect(try Self.decode(DebugInputPump.self, before["pump"])
+            == DebugInputPump(passesWhileInputPending: [:], deferredForInput: 0, passMillisecondsP99: 0))
+        pump.counters = Self.pump
+        let after = try await debugInput.reply(to: .read([.pump]))
+        #expect(try Self.decode(DebugInputPump.self, after["pump"]) == Self.pump)
+        _ = try await debugInput.reply(to: DebugInput.Request(params: ["action": .string("reset")]))
+        #expect(pump.resets == 1)
+    }
+
     @Test func aRecorderAnswersItsActionWithSinceLaunch() async throws {
         let debugInput = DebugInput(sources: [], recorders: [FixedRecorder(kind: .hops, resets: Resets())])
         let request = try DebugInput.Request(params: ["action": .string("hops"), "since_launch": .bool(true)])

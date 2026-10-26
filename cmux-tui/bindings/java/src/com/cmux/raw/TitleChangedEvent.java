@@ -12,10 +12,13 @@ import java.util.Objects;
 
 /** Immutable title-changed event. Protocol v5; streams: subscribe. */
 public final class TitleChangedEvent implements WireValue, DeltaStreamEvent, ProtocolEvent, SubscribeEvent {
+    /** What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing. */
+    private final Field<EventCause> cause;
     private final UInt64 surface;
     private final Field<String> title;
 
     private TitleChangedEvent(Builder builder) {
+        this.cause = builder.cause;
         if (!builder.surfaceSet) throw new IllegalArgumentException("surface is required");
         this.surface = Wire.nonNull(builder.surface, "surface");
         this.title = builder.title;
@@ -23,6 +26,7 @@ public final class TitleChangedEvent implements WireValue, DeltaStreamEvent, Pro
 
     public static Builder builder() { return new Builder(); }
 
+    public Field<EventCause> cause() { return cause; }
     public UInt64 surface() { return surface; }
     public Field<String> title() { return title; }
     @Override public String event() { return "title-changed"; }
@@ -31,6 +35,10 @@ public final class TitleChangedEvent implements WireValue, DeltaStreamEvent, Pro
         Map<String, Object> object = Wire.object(value, "TitleChangedEvent");
         Builder builder = builder();
         ProtocolSupport.literal(Wire.required(object, "event"), "title-changed", "TitleChangedEvent.event");
+        Object rawCause = Wire.optional(object, "cause");
+        if (!Wire.isMissing(rawCause)) {
+            builder.cause(EventCause.fromWire(rawCause));
+        }
         Object rawSurface = Wire.required(object, "surface");
         builder.surface(Wire.uint64(rawSurface, "TitleChangedEvent.surface"));
         Object rawTitle = Wire.optional(object, "title");
@@ -44,6 +52,7 @@ public final class TitleChangedEvent implements WireValue, DeltaStreamEvent, Pro
     public Map<String, Object> toWire() {
         LinkedHashMap<String, Object> object = new LinkedHashMap<>();
         object.put("event", "title-changed");
+        Wire.put(object, "cause", cause);
         Wire.put(object, "surface", surface);
         Wire.put(object, "title", title);
         return Collections.unmodifiableMap(object);
@@ -52,20 +61,25 @@ public final class TitleChangedEvent implements WireValue, DeltaStreamEvent, Pro
     @Override
     public boolean equals(Object other) {
         if (!(other instanceof TitleChangedEvent that)) return false;
-        return Objects.equals(surface, that.surface) && Objects.equals(title, that.title);
+        return Objects.equals(cause, that.cause) && Objects.equals(surface, that.surface) && Objects.equals(title, that.title);
     }
 
     @Override
-    public int hashCode() { return Objects.hash(surface, title); }
+    public int hashCode() { return Objects.hash(cause, surface, title); }
 
     @Override
     public String toString() { return "TitleChangedEvent" + toWire(); }
 
     public static final class Builder {
+        private Field<EventCause> cause = Field.omitted();
         private UInt64 surface;
         private boolean surfaceSet;
         private Field<String> title = Field.omitted();
 
+        public Builder cause(EventCause value) {
+            this.cause = Field.of(value);
+            return this;
+        }
         public Builder surface(UInt64 value) {
             this.surface = value;
             this.surfaceSet = true;

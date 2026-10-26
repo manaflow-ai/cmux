@@ -15,8 +15,9 @@ import CmuxNextWakeups
 /// thread) is an afterStartup post of the launch's `StartupScheduler`, which
 /// completes only once the visible page loaded and the launch images went, so
 /// it never runs between the first window and its first content (p08-startup
-/// task 016). The control socket still starts at ``settled(within:images:)``
-/// until task 019 binds it off main.
+/// task 016). Without the feature `controlSocketEarlyBind`, the control socket
+/// still starts at ``settled(within:images:)``; with it, the socket binds on a
+/// lane and serves after the first frame (task 019, `AppControl.postLaunch`).
 @MainActor
 final class LaunchSettle {
     private(set) var isSettled = false
@@ -46,14 +47,15 @@ final class LaunchSettle {
     /// Returns once the launch settled and no agent page waits behind its last
     /// frame, or after `limit` (a launch with no window never settles). With
     /// the daemon unavailable the launch settles at once, so only the launch
-    /// images are waited for. The control socket starts here (cx-z9kz0).
+    /// images are waited for. The control socket starts here (cx-z9kz0) unless
+    /// the feature `controlSocketEarlyBind` is on (`AppControl.postLaunch`).
     ///
     /// - Parameters:
     ///   - limit: The longest wait.
     ///   - images: The launch's image hold (`AppDelegate.launchImageHold`).
     func settled(within limit: Duration, images: LaunchImageHold) async {
         let (settled, done) = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
-        // timer-class-allow: one launch backstop that only finishes this stream; task 019 deletes it with this wait
+        // timer-class-allow: one launch backstop that only finishes this stream; deleted with this wait once controlSocketEarlyBind ships on
         let backstop = DemandTimer(owner: "LaunchSettle.settled", clock: clock)
         backstop.schedule(after: limit) { done.finish() }
         whenSettled { images.whenClear { done.finish() } }

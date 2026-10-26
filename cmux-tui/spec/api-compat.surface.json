@@ -41,6 +41,13 @@
         "ty": "string",
         "nullable": true
       },
+      "/cause": {
+        "ty": "enum",
+        "values": [
+          "automation",
+          "frontend"
+        ]
+      },
       "/event": {
         "ty": "literal",
         "required": true,
@@ -152,6 +159,13 @@
         "required": true,
         "nullable": true
       },
+      "/cause": {
+        "ty": "enum",
+        "values": [
+          "automation",
+          "frontend"
+        ]
+      },
       "/event": {
         "ty": "literal",
         "required": true,
@@ -190,6 +204,13 @@
       }
     },
     "event:bell": {
+      "/cause": {
+        "ty": "enum",
+        "values": [
+          "automation",
+          "frontend"
+        ]
+      },
       "/event": {
         "ty": "literal",
         "required": true,
@@ -210,6 +231,13 @@
       "/browser_profile_id": {
         "ty": "string",
         "required": true
+      },
+      "/cause": {
+        "ty": "enum",
+        "values": [
+          "automation",
+          "frontend"
+        ]
       },
       "/event": {
         "ty": "literal",
@@ -287,6 +315,13 @@
       }
     },
     "event:chief-changed": {
+      "/cause": {
+        "ty": "enum",
+        "values": [
+          "automation",
+          "frontend"
+        ]
+      },
       "/change": {
         "ty": "enum",
         "required": true,
@@ -309,6 +344,13 @@
       }
     },
     "event:client-attached": {
+      "/cause": {
+        "ty": "enum",
+        "values": [
+          "automation",
+          "frontend"
+        ]
+      },
       "/client": {
         "ty": "uint64",
         "required": true
@@ -340,6 +382,13 @@
       }
     },
     "event:client-changed": {
+      "/cause": {
+        "ty": "enum",
+        "values": [
+          "automation",
+          "frontend"
+        ]
+      },
       "/client": {
         "ty": "uint64",
         "required": true
@@ -363,6 +412,13 @@
       }
     },
     "event:client-detached": {
+      "/cause": {
+        "ty": "enum",
+        "values": [
+          "automation",
+          "frontend"
+        ]
+      },
       "/client": {
         "ty": "uint64",
         "required": true
@@ -376,6 +432,13 @@
       }
     },
     "event:client-list-invalidated": {
+      "/cause": {
+        "ty": "enum",
+        "values": [
+          "automation",
+          "frontend"
+        ]
+      },
       "/event": {
         "ty": "literal",
         "required": true,
@@ -387,6 +450,13 @@
     "event:cloud-conversation-changed": {
       "/account": {
         "ty": "string"
+      },
+      "/cause": {
+        "ty": "enum",
+        "values": [
+          "automation",
+          "frontend"
+        ]
       },
       "/change": {
         "ty": "json",
@@ -421,6 +491,13 @@
       "/account": {
         "ty": "string"
       },
+      "/cause": {
+        "ty": "enum",
+        "values": [
+          "automation",
+          "frontend"
+        ]
+      },
       "/conversation": {
         "ty": "string",
         "required": true
@@ -441,6 +518,13 @@
     "event:cloud-conversation-resynced": {
       "/account": {
         "ty": "string"
+      },
+      "/cause": {
+        "ty": "enum",
+        "values": [
+          "automation",
+          "frontend"
+        ]
       },
       "/conversation": {
         "ty": "string",
@@ -476,6 +560,13 @@
       "/account": {
         "ty": "string"
       },
+      "/cause": {
+        "ty": "enum",
+        "values": [
+          "automation",
+          "frontend"
+        ]
+      },
       "/conversation": {
         "ty": "string",
         "required": true
@@ -504,6 +595,13 @@
       "/account": {
         "ty": "string"
       },
+      "/cause": {
+        "ty": "enum",
+        "values": [
+          "automation",
+          "frontend"
+        ]
+      },
       "/conversation": {
         "ty": "string",
         "required": true
@@ -525,6 +623,13 @@
       }
     },
     "event:cloud-host-replica-needed": {
+      "/cause": {
+        "ty": "enum",
+        "values": [
+          "automation",
+          "frontend"
+        ]
+      },
       "/event": {
         "ty": "literal",
         "required": true,
@@ -544,6 +649,13 @@
     "event:cloud-inbox-changed": {
       "/account": {
         "ty": "string"
+      },
+      "/cause": {
+        "ty": "enum",
+        "values": [
+          "automation",
+          "frontend"
+        ]
       },
       "/entries": {
         "ty": "json",
@@ -570,6 +682,13 @@
       "/account": {
         "ty": "string"
       },
+      "/cause": {
+        "ty": "enum",
+        "values": [
+          "automation",
+          "frontend"
+        ]
+      },
       "/event": {
         "ty": "literal",
         "required": true,
@@ -585,6 +704,13 @@
     "event:cloud-mux-resynced": {
       "/account": {
         "ty": "string"
+      },
+      "/cause": {
+        "ty": "enum",
+        "values": [
+          "automation",
+          "frontend"
+        ]
       },
       "/event": {
         "ty": "literal",
@@ -607,6 +733,13 @@
       "/account": {
         "ty": "string"
       },
+      "/cause": {
+        "ty": "enum",
+        "values": [
+          "automation",
+          "frontend"
+        ]
+      },
       "/event": {
         "ty": "literal",
         "required": true,
@@ -625,6 +758,13 @@
       }
     },
     "event:cloud-session-needed": {
+      "/cause": {
+        "ty": "enum",
+        "values": [
+          "automation",
+          "frontend"
+        ]
+      },
       "/event": {
         "ty": "literal",
         "required": true,
@@ -644,6 +784,13 @@
     "event:cloud-subscription-state": {
       "/account": {
         "ty": "string"
+      },
+      "/cause": {
+        "ty": "enum",
+        "values": [
+          "automation",
+          "frontend"
+        ]
       },
       "/conversation": {
         "ty": "string",
@@ -743,6 +890,13 @@
       }
     },
     "event:config-reload-requested": {
+      "/cause": {
+        "ty": "enum",
+        "values": [
+          "automation",
+          "frontend"
+        ]
+      },
       "/event": {
         "ty": "literal",
         "required": true,
@@ -752,6 +906,13 @@
       }
     },
     "event:conversation-changed": {
+      "/cause": {
+        "ty": "enum",
+        "values": [
+          "automation",
+          "frontend"
+        ]
+      },
       "/change": {
         "ty": "json",
         "required": true,
@@ -779,6 +940,13 @@
       }
     },
     "event:conversation-draft": {
+      "/cause": {
+        "ty": "enum",
+        "values": [
+          "automation",
+          "frontend"
+        ]
+      },
       "/conversation": {
         "ty": "string",
         "required": true
@@ -800,6 +968,13 @@
       }
     },
     "event:conversation-inbox-changed": {
+      "/cause": {
+        "ty": "enum",
+        "values": [
+          "automation",
+          "frontend"
+        ]
+      },
       "/conversation": {
         "ty": "string",
         "required": true
@@ -828,6 +1003,13 @@
       }
     },
     "event:conversation-live": {
+      "/cause": {
+        "ty": "enum",
+        "values": [
+          "automation",
+          "frontend"
+        ]
+      },
       "/conversation": {
         "ty": "string",
         "required": true
@@ -846,6 +1028,13 @@
       }
     },
     "event:conversation-run-changed": {
+      "/cause": {
+        "ty": "enum",
+        "values": [
+          "automation",
+          "frontend"
+        ]
+      },
       "/conversation": {
         "ty": "string",
         "required": true
@@ -871,6 +1060,13 @@
       }
     },
     "event:conversation-typing": {
+      "/cause": {
+        "ty": "enum",
+        "values": [
+          "automation",
+          "frontend"
+        ]
+      },
       "/conversation": {
         "ty": "string",
         "required": true
@@ -944,6 +1140,13 @@
       }
     },
     "event:empty": {
+      "/cause": {
+        "ty": "enum",
+        "values": [
+          "automation",
+          "frontend"
+        ]
+      },
       "/event": {
         "ty": "literal",
         "required": true,
@@ -982,6 +1185,13 @@
       }
     },
     "event:frontend-projection-changed": {
+      "/cause": {
+        "ty": "enum",
+        "values": [
+          "automation",
+          "frontend"
+        ]
+      },
       "/event": {
         "ty": "literal",
         "required": true,
@@ -1017,6 +1227,13 @@
     "event:graphics-status": {
       "/attempts": {
         "ty": "uint16"
+      },
+      "/cause": {
+        "ty": "enum",
+        "values": [
+          "automation",
+          "frontend"
+        ]
       },
       "/cell_height": {
         "ty": "uint16"
@@ -1054,6 +1271,13 @@
       }
     },
     "event:history-changed": {
+      "/cause": {
+        "ty": "enum",
+        "values": [
+          "automation",
+          "frontend"
+        ]
+      },
       "/event": {
         "ty": "literal",
         "required": true,
@@ -1074,6 +1298,13 @@
       }
     },
     "event:keybindings-changed": {
+      "/cause": {
+        "ty": "enum",
+        "values": [
+          "automation",
+          "frontend"
+        ]
+      },
       "/event": {
         "ty": "literal",
         "required": true,
@@ -1102,6 +1333,13 @@
     "event:layout-changed": {
       "/active_pane": {
         "ty": "uint64"
+      },
+      "/cause": {
+        "ty": "enum",
+        "values": [
+          "automation",
+          "frontend"
+        ]
       },
       "/event": {
         "ty": "literal",
@@ -1183,7 +1421,77 @@
         "nullable": true
       }
     },
+    "event:loopback-closed": {
+      "/error": {
+        "ty": "string"
+      },
+      "/event": {
+        "ty": "literal",
+        "required": true,
+        "values": [
+          "\"loopback-closed\""
+        ]
+      },
+      "/stream": {
+        "ty": "uint64",
+        "required": true
+      }
+    },
+    "event:loopback-credit": {
+      "/bytes": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/event": {
+        "ty": "literal",
+        "required": true,
+        "values": [
+          "\"loopback-credit\""
+        ]
+      },
+      "/stream": {
+        "ty": "uint64",
+        "required": true
+      }
+    },
+    "event:loopback-data": {
+      "/data": {
+        "ty": "string",
+        "required": true
+      },
+      "/event": {
+        "ty": "literal",
+        "required": true,
+        "values": [
+          "\"loopback-data\""
+        ]
+      },
+      "/stream": {
+        "ty": "uint64",
+        "required": true
+      }
+    },
+    "event:loopback-eof": {
+      "/event": {
+        "ty": "literal",
+        "required": true,
+        "values": [
+          "\"loopback-eof\""
+        ]
+      },
+      "/stream": {
+        "ty": "uint64",
+        "required": true
+      }
+    },
     "event:machine-usage-changed": {
+      "/cause": {
+        "ty": "enum",
+        "values": [
+          "automation",
+          "frontend"
+        ]
+      },
       "/event": {
         "ty": "literal",
         "required": true,
@@ -1222,6 +1530,13 @@
       "/body": {
         "ty": "string",
         "required": true
+      },
+      "/cause": {
+        "ty": "enum",
+        "values": [
+          "automation",
+          "frontend"
+        ]
       },
       "/desktop": {
         "ty": "boolean"
@@ -1372,6 +1687,13 @@
       }
     },
     "event:pairing-requested": {
+      "/cause": {
+        "ty": "enum",
+        "values": [
+          "automation",
+          "frontend"
+        ]
+      },
       "/code": {
         "ty": "string",
         "required": true
@@ -1397,6 +1719,13 @@
       }
     },
     "event:pairing-resolved": {
+      "/cause": {
+        "ty": "enum",
+        "values": [
+          "automation",
+          "frontend"
+        ]
+      },
       "/event": {
         "ty": "literal",
         "required": true,
@@ -1809,6 +2138,13 @@
         "required": true,
         "nullable": true
       },
+      "/cause": {
+        "ty": "enum",
+        "values": [
+          "automation",
+          "frontend"
+        ]
+      },
       "/event": {
         "ty": "literal",
         "required": true,
@@ -1822,6 +2158,13 @@
       }
     },
     "event:personal-changed": {
+      "/cause": {
+        "ty": "enum",
+        "values": [
+          "automation",
+          "frontend"
+        ]
+      },
       "/event": {
         "ty": "literal",
         "required": true,
@@ -1835,6 +2178,13 @@
       }
     },
     "event:program-status-changed": {
+      "/cause": {
+        "ty": "enum",
+        "values": [
+          "automation",
+          "frontend"
+        ]
+      },
       "/event": {
         "ty": "literal",
         "required": true,
@@ -3666,6 +4016,13 @@
         "ty": "boolean",
         "required": true
       },
+      "/cause": {
+        "ty": "enum",
+        "values": [
+          "automation",
+          "frontend"
+        ]
+      },
       "/event": {
         "ty": "literal",
         "required": true,
@@ -3683,6 +4040,13 @@
       }
     },
     "event:settings-changed": {
+      "/cause": {
+        "ty": "enum",
+        "values": [
+          "automation",
+          "frontend"
+        ]
+      },
       "/event": {
         "ty": "literal",
         "required": true,
@@ -3716,6 +4080,13 @@
       }
     },
     "event:size-state": {
+      "/cause": {
+        "ty": "enum",
+        "values": [
+          "automation",
+          "frontend"
+        ]
+      },
       "/event": {
         "ty": "literal",
         "required": true,
@@ -3876,6 +4247,13 @@
       }
     },
     "event:status": {
+      "/cause": {
+        "ty": "enum",
+        "values": [
+          "automation",
+          "frontend"
+        ]
+      },
       "/event": {
         "ty": "literal",
         "required": true,
@@ -3889,6 +4267,13 @@
       }
     },
     "event:surface-exited": {
+      "/cause": {
+        "ty": "enum",
+        "values": [
+          "automation",
+          "frontend"
+        ]
+      },
       "/event": {
         "ty": "literal",
         "required": true,
@@ -3902,6 +4287,13 @@
       }
     },
     "event:surface-output": {
+      "/cause": {
+        "ty": "enum",
+        "values": [
+          "automation",
+          "frontend"
+        ]
+      },
       "/event": {
         "ty": "literal",
         "required": true,
@@ -3915,6 +4307,13 @@
       }
     },
     "event:surface-resize-failed": {
+      "/cause": {
+        "ty": "enum",
+        "values": [
+          "automation",
+          "frontend"
+        ]
+      },
       "/cols": {
         "ty": "uint16",
         "required": true
@@ -3950,6 +4349,13 @@
       }
     },
     "event:surface-resized": {
+      "/cause": {
+        "ty": "enum",
+        "values": [
+          "automation",
+          "frontend"
+        ]
+      },
       "/cols": {
         "ty": "uint16",
         "required": true
@@ -4728,6 +5134,13 @@
       }
     },
     "event:terminal-reaped": {
+      "/cause": {
+        "ty": "enum",
+        "values": [
+          "automation",
+          "frontend"
+        ]
+      },
       "/event": {
         "ty": "literal",
         "required": true,
@@ -4750,6 +5163,13 @@
       }
     },
     "event:terminal-registry-changed": {
+      "/cause": {
+        "ty": "enum",
+        "values": [
+          "automation",
+          "frontend"
+        ]
+      },
       "/event": {
         "ty": "literal",
         "required": true,
@@ -4778,6 +5198,13 @@
       }
     },
     "event:title-changed": {
+      "/cause": {
+        "ty": "enum",
+        "values": [
+          "automation",
+          "frontend"
+        ]
+      },
       "/event": {
         "ty": "literal",
         "required": true,
@@ -4794,6 +5221,13 @@
       }
     },
     "event:tree-changed": {
+      "/cause": {
+        "ty": "enum",
+        "values": [
+          "automation",
+          "frontend"
+        ]
+      },
       "/event": {
         "ty": "literal",
         "required": true,
@@ -4966,6 +5400,13 @@
       }
     },
     "event:window-title-requested": {
+      "/cause": {
+        "ty": "enum",
+        "values": [
+          "automation",
+          "frontend"
+        ]
+      },
       "/event": {
         "ty": "literal",
         "required": true,
@@ -6855,6 +7296,203 @@
         "required": true
       }
     },
+    "request:agent-session-attach": {
+      "/after_seq": {
+        "ty": "uint64",
+        "nullable": true
+      },
+      "/before_seq": {
+        "ty": "uint64",
+        "nullable": true
+      },
+      "/kinds": {
+        "ty": "array",
+        "nullable": true
+      },
+      "/kinds/*": {
+        "ty": "string"
+      },
+      "/limit": {
+        "ty": "uint64",
+        "nullable": true
+      },
+      "/surface": {
+        "ty": "uint64",
+        "required": true
+      }
+    },
+    "request:agent-session-cancel": {
+      "/surface": {
+        "ty": "uint64",
+        "required": true
+      }
+    },
+    "request:agent-session-children": {
+      "/surface": {
+        "ty": "uint64",
+        "required": true
+      }
+    },
+    "request:agent-session-detach": {
+      "/surface": {
+        "ty": "uint64",
+        "required": true
+      }
+    },
+    "request:agent-session-events": {
+      "/after_seq": {
+        "ty": "uint64",
+        "nullable": true
+      },
+      "/before_seq": {
+        "ty": "uint64",
+        "nullable": true
+      },
+      "/kinds": {
+        "ty": "array",
+        "nullable": true
+      },
+      "/kinds/*": {
+        "ty": "string"
+      },
+      "/limit": {
+        "ty": "uint64",
+        "nullable": true
+      },
+      "/surface": {
+        "ty": "uint64",
+        "required": true
+      }
+    },
+    "request:agent-session-media": {
+      "/path": {
+        "ty": "string",
+        "required": true
+      },
+      "/surface": {
+        "ty": "uint64",
+        "required": true
+      }
+    },
+    "request:agent-session-observe": {
+      "/after_seq": {
+        "ty": "uint64",
+        "nullable": true
+      },
+      "/before_seq": {
+        "ty": "uint64",
+        "nullable": true
+      },
+      "/kinds": {
+        "ty": "array",
+        "nullable": true
+      },
+      "/kinds/*": {
+        "ty": "string"
+      },
+      "/limit": {
+        "ty": "uint64",
+        "nullable": true
+      },
+      "/surface": {
+        "ty": "uint64",
+        "required": true
+      }
+    },
+    "request:agent-session-permission": {
+      "/answered_by": {
+        "ty": "object",
+        "nullable": true
+      },
+      "/answered_by/device": {
+        "ty": "string",
+        "required": true
+      },
+      "/answered_by/feed_item": {
+        "ty": "string",
+        "required": true
+      },
+      "/decision_nonce": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/option_id": {
+        "ty": "string",
+        "required": true
+      },
+      "/permission_id": {
+        "ty": "string",
+        "required": true
+      },
+      "/person_decision": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/surface": {
+        "ty": "uint64",
+        "required": true
+      }
+    },
+    "request:agent-session-prompt": {
+      "/prompt_id": {
+        "ty": "string",
+        "required": true
+      },
+      "/surface": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/text": {
+        "ty": "string",
+        "required": true
+      }
+    },
+    "request:agent-session-start": {
+      "/cwd": {
+        "ty": "string",
+        "required": true
+      },
+      "/harness": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/home_confirmed": {
+        "ty": "boolean"
+      },
+      "/person_instance": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/require_person_key": {
+        "ty": "boolean"
+      },
+      "/surface": {
+        "ty": "uint64",
+        "required": true
+      }
+    },
+    "request:agent-session-trust": {
+      "/cwd": {
+        "ty": "string",
+        "required": true
+      },
+      "/home_confirmed": {
+        "ty": "boolean"
+      },
+      "/level": {
+        "ty": "enum",
+        "nullable": true,
+        "values": [
+          "trusted",
+          "unknown",
+          "untrusted"
+        ]
+      },
+      "/surface": {
+        "ty": "uint64",
+        "required": true
+      }
+    },
     "request:apply-layout": {
       "/cols": {
         "ty": "uint16",
@@ -7479,6 +8117,19 @@
         "required": true
       }
     },
+    "request:browser-runtime-start": {
+      "/url": {
+        "ty": "string",
+        "nullable": true
+      }
+    },
+    "request:browser-runtime-status": {},
+    "request:browser-runtime-stop": {
+      "/runtime": {
+        "ty": "uint64",
+        "required": true
+      }
+    },
     "request:browser-wheel": {
       "/delta_y_px": {
         "ty": "float64",
@@ -7764,6 +8415,21 @@
       "/client_id": {
         "ty": "string",
         "required": true
+      }
+    },
+    "request:client-hello": {
+      "/install_id": {
+        "ty": "string"
+      },
+      "/page": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/proof": {
+        "ty": "string"
+      },
+      "/role": {
+        "ty": "string"
       }
     },
     "request:close-pane": {
@@ -9689,6 +10355,120 @@
     "request:list-terminals": {},
     "request:list-workspace-groups": {},
     "request:list-workspaces": {},
+    "request:loopback-close": {
+      "/stream": {
+        "ty": "uint64",
+        "required": true
+      }
+    },
+    "request:loopback-credit": {
+      "/bytes": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/stream": {
+        "ty": "uint64",
+        "required": true
+      }
+    },
+    "request:loopback-data": {
+      "/data": {
+        "ty": "string",
+        "required": true
+      },
+      "/stream": {
+        "ty": "uint64",
+        "required": true
+      }
+    },
+    "request:loopback-open": {
+      "/host": {
+        "ty": "string",
+        "required": true
+      },
+      "/port": {
+        "ty": "uint16",
+        "required": true
+      },
+      "/stream": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/window": {
+        "ty": "uint64",
+        "nullable": true
+      }
+    },
+    "request:loopback-shutdown": {
+      "/stream": {
+        "ty": "uint64",
+        "required": true
+      }
+    },
+    "request:loopback-status": {},
+    "request:machine-catalog-publish": {
+      "/expected_machine_id": {
+        "ty": "string",
+        "required": true
+      },
+      "/machines": {
+        "ty": "array",
+        "required": true
+      },
+      "/machines/*": {
+        "ty": "object"
+      },
+      "/machines/*/capabilities": {
+        "ty": "array"
+      },
+      "/machines/*/capabilities/*": {
+        "ty": "string"
+      },
+      "/machines/*/id": {
+        "ty": "string",
+        "required": true
+      },
+      "/machines/*/name": {
+        "ty": "string",
+        "required": true
+      },
+      "/machines/*/origin": {
+        "ty": "enum",
+        "required": true,
+        "values": [
+          "cloud",
+          "server",
+          "ssh"
+        ]
+      },
+      "/machines/*/platform": {
+        "ty": "object",
+        "nullable": true
+      },
+      "/machines/*/platform/arch": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/machines/*/platform/os": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/machines/*/status": {
+        "ty": "enum",
+        "required": true,
+        "values": [
+          "connecting",
+          "running",
+          "sleeping",
+          "stopped",
+          "unavailable"
+        ]
+      },
+      "/sequence": {
+        "ty": "uint64",
+        "required": true
+      }
+    },
     "request:machine-listening-tcp": {},
     "request:machine-usage": {},
     "request:mark-workspaces-provider-managed": {
@@ -12213,6 +12993,20 @@
         "nullable": true
       }
     },
+    "request:trace-start": {
+      "/categories": {
+        "ty": "array",
+        "nullable": true
+      },
+      "/categories/*": {
+        "ty": "string"
+      },
+      "/keys": {
+        "ty": "boolean"
+      }
+    },
+    "request:trace-status": {},
+    "request:trace-stop": {},
     "request:undo-layout": {
       "/confirm_close": {
         "ty": "boolean"
@@ -13134,6 +13928,118 @@
         ]
       }
     },
+    "response:agent-session-attach": {
+      "/data": {
+        "ty": "json",
+        "required": true
+      }
+    },
+    "response:agent-session-cancel": {},
+    "response:agent-session-children": {
+      "/data/sessions": {
+        "ty": "array",
+        "required": true
+      },
+      "/data/sessions/*": {
+        "ty": "json"
+      }
+    },
+    "response:agent-session-detach": {},
+    "response:agent-session-events": {
+      "/data": {
+        "ty": "json",
+        "required": true
+      }
+    },
+    "response:agent-session-media": {
+      "/data/data": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/mimeType": {
+        "ty": "string",
+        "required": true,
+        "nullable": true
+      }
+    },
+    "response:agent-session-observe": {
+      "/data": {
+        "ty": "json",
+        "required": true
+      }
+    },
+    "response:agent-session-permission": {
+      "/data": {
+        "ty": "json",
+        "required": true
+      }
+    },
+    "response:agent-session-prompt": {
+      "/data/prompt_id": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/queued": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/data/turn_id": {
+        "ty": "string",
+        "required": true,
+        "nullable": true
+      }
+    },
+    "response:agent-session-start": {
+      "/data/conversation": {
+        "ty": "object",
+        "required": true
+      },
+      "/data/conversation/agent_session": {
+        "ty": "object"
+      },
+      "/data/conversation/agent_session/harness": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/data/conversation/agent_session/host": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/conversation/agent_session/host_name": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/data/conversation/agent_session/session": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/data/conversation/conversation": {
+        "ty": "string"
+      },
+      "/data/conversation/owner": {
+        "ty": "string"
+      },
+      "/data/conversation/page": {
+        "ty": "string"
+      },
+      "/data/conversation/route": {
+        "ty": "string"
+      },
+      "/data/session": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/surface": {
+        "ty": "uint64",
+        "required": true
+      }
+    },
+    "response:agent-session-trust": {
+      "/data": {
+        "ty": "json",
+        "required": true
+      }
+    },
     "response:apply-layout": {
       "/data/panes": {
         "ty": "array",
@@ -13582,6 +14488,59 @@
     "response:browser-mouse-guarded": {},
     "response:browser-navigate": {},
     "response:browser-reload": {},
+    "response:browser-runtime-start": {
+      "/data/installed": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/port": {
+        "ty": "uint16",
+        "required": true
+      },
+      "/data/runtime": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/secret": {
+        "ty": "string",
+        "required": true
+      }
+    },
+    "response:browser-runtime-status": {
+      "/data/installed": {
+        "ty": "string",
+        "required": true,
+        "nullable": true
+      },
+      "/data/platform": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/runtimes": {
+        "ty": "array",
+        "required": true
+      },
+      "/data/runtimes/*": {
+        "ty": "object"
+      },
+      "/data/runtimes/*/port": {
+        "ty": "uint16",
+        "required": true
+      },
+      "/data/runtimes/*/runtime": {
+        "ty": "uint64",
+        "required": true
+      }
+    },
+    "response:browser-runtime-stop": {
+      "/data/stopped": {
+        "ty": "literal",
+        "required": true,
+        "values": [
+          "true"
+        ]
+      }
+    },
     "response:browser-wheel": {},
     "response:browser-wheel-guarded": {},
     "response:cancel-request": {},
@@ -13611,6 +14570,61 @@
         "ty": "uint64",
         "required": true,
         "nullable": true
+      }
+    },
+    "response:client-hello": {
+      "/data/connection_id": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/install_id": {
+        "ty": "string"
+      },
+      "/data/nonce": {
+        "ty": "string"
+      },
+      "/data/page": {
+        "ty": "string"
+      },
+      "/data/page_events": {
+        "ty": "array"
+      },
+      "/data/page_events/*": {
+        "ty": "string"
+      },
+      "/data/page_operations": {
+        "ty": "object"
+      },
+      "/data/page_operations/confirm": {
+        "ty": "array",
+        "required": true
+      },
+      "/data/page_operations/confirm/*": {
+        "ty": "string"
+      },
+      "/data/page_operations/gesture": {
+        "ty": "array",
+        "required": true
+      },
+      "/data/page_operations/gesture/*": {
+        "ty": "string"
+      },
+      "/data/page_operations/read": {
+        "ty": "array",
+        "required": true
+      },
+      "/data/page_operations/read/*": {
+        "ty": "string"
+      },
+      "/data/user_origin_allowed": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/data/verified": {
+        "ty": "literal",
+        "values": [
+          "true"
+        ]
       }
     },
     "response:close-pane": {},
@@ -18729,6 +19743,119 @@
         "ty": "string"
       }
     },
+    "response:loopback-close": {},
+    "response:loopback-credit": {},
+    "response:loopback-data": {},
+    "response:loopback-open": {
+      "/data/address": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/stream": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/window": {
+        "ty": "uint64",
+        "required": true
+      }
+    },
+    "response:loopback-shutdown": {},
+    "response:loopback-status": {
+      "/data/audit": {
+        "ty": "array",
+        "required": true
+      },
+      "/data/audit/*": {
+        "ty": "object"
+      },
+      "/data/audit/*/at_ms": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/audit/*/bytes_from_target": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/audit/*/bytes_to_target": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/audit/*/client": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/audit/*/duration_ms": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/audit/*/host": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/audit/*/outcome": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/audit/*/port": {
+        "ty": "uint16",
+        "required": true
+      },
+      "/data/audit/*/stream": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/client_streams": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/enabled": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/data/limits": {
+        "ty": "object",
+        "required": true
+      },
+      "/data/limits/daemon_window": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/limits/frame_bytes": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/limits/per_client": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/limits/total": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/open_streams": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/opened": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/refused": {
+        "ty": "uint64",
+        "required": true
+      }
+    },
+    "response:machine-catalog-publish": {
+      "/data/replayed": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/data/sequence": {
+        "ty": "uint64",
+        "required": true
+      }
+    },
     "response:machine-listening-tcp": {
       "/data/stdout": {
         "ty": "string",
@@ -20872,6 +21999,43 @@
       "/data/request_path_io/lock_hold_over_1ms": {
         "ty": "uint64"
       },
+      "/data/request_path_io/lock_waits": {
+        "ty": "object"
+      },
+      "/data/request_path_io/lock_waits/dropped": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/request_path_io/lock_waits/long_waits": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/request_path_io/lock_waits/recent": {
+        "ty": "array",
+        "required": true
+      },
+      "/data/request_path_io/lock_waits/recent/*": {
+        "ty": "object"
+      },
+      "/data/request_path_io/lock_waits/recent/*/holder": {
+        "ty": "string"
+      },
+      "/data/request_path_io/lock_waits/recent/*/lock": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/request_path_io/lock_waits/recent/*/site": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/request_path_io/lock_waits/recent/*/waited_us": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/request_path_io/lock_waits/recent/*/waiter": {
+        "ty": "string",
+        "required": true
+      },
       "/data/request_path_io/network": {
         "ty": "uint64",
         "required": true
@@ -22049,6 +23213,24 @@
       },
       "/data/terminal_id": {
         "ty": "string",
+        "required": true
+      }
+    },
+    "response:trace-start": {
+      "/data": {
+        "ty": "json",
+        "required": true
+      }
+    },
+    "response:trace-status": {
+      "/data": {
+        "ty": "json",
+        "required": true
+      }
+    },
+    "response:trace-stop": {
+      "/data": {
+        "ty": "json",
         "required": true
       }
     },

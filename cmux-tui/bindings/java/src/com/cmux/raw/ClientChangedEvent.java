@@ -12,11 +12,14 @@ import java.util.Objects;
 
 /** Immutable client-changed event. Protocol v6; streams: subscribe. */
 public final class ClientChangedEvent implements WireValue, DeltaStreamEvent, ProtocolEvent, SubscribeEvent {
+    /** What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing. */
+    private final Field<EventCause> cause;
     private final UInt64 client;
     private final String kind;
     private final String name;
 
     private ClientChangedEvent(Builder builder) {
+        this.cause = builder.cause;
         if (!builder.clientSet) throw new IllegalArgumentException("client is required");
         this.client = Wire.nonNull(builder.client, "client");
         if (!builder.kindSet) throw new IllegalArgumentException("kind is required");
@@ -27,6 +30,7 @@ public final class ClientChangedEvent implements WireValue, DeltaStreamEvent, Pr
 
     public static Builder builder() { return new Builder(); }
 
+    public Field<EventCause> cause() { return cause; }
     public UInt64 client() { return client; }
     public String kind() { return kind; }
     public String name() { return name; }
@@ -36,6 +40,10 @@ public final class ClientChangedEvent implements WireValue, DeltaStreamEvent, Pr
         Map<String, Object> object = Wire.object(value, "ClientChangedEvent");
         Builder builder = builder();
         ProtocolSupport.literal(Wire.required(object, "event"), "client-changed", "ClientChangedEvent.event");
+        Object rawCause = Wire.optional(object, "cause");
+        if (!Wire.isMissing(rawCause)) {
+            builder.cause(EventCause.fromWire(rawCause));
+        }
         Object rawClient = Wire.required(object, "client");
         builder.client(Wire.uint64(rawClient, "ClientChangedEvent.client"));
         Object rawKind = Wire.required(object, "kind");
@@ -49,6 +57,7 @@ public final class ClientChangedEvent implements WireValue, DeltaStreamEvent, Pr
     public Map<String, Object> toWire() {
         LinkedHashMap<String, Object> object = new LinkedHashMap<>();
         object.put("event", "client-changed");
+        Wire.put(object, "cause", cause);
         Wire.put(object, "client", client);
         Wire.put(object, "kind", kind);
         Wire.put(object, "name", name);
@@ -58,16 +67,17 @@ public final class ClientChangedEvent implements WireValue, DeltaStreamEvent, Pr
     @Override
     public boolean equals(Object other) {
         if (!(other instanceof ClientChangedEvent that)) return false;
-        return Objects.equals(client, that.client) && Objects.equals(kind, that.kind) && Objects.equals(name, that.name);
+        return Objects.equals(cause, that.cause) && Objects.equals(client, that.client) && Objects.equals(kind, that.kind) && Objects.equals(name, that.name);
     }
 
     @Override
-    public int hashCode() { return Objects.hash(client, kind, name); }
+    public int hashCode() { return Objects.hash(cause, client, kind, name); }
 
     @Override
     public String toString() { return "ClientChangedEvent" + toWire(); }
 
     public static final class Builder {
+        private Field<EventCause> cause = Field.omitted();
         private UInt64 client;
         private boolean clientSet;
         private String kind;
@@ -75,6 +85,10 @@ public final class ClientChangedEvent implements WireValue, DeltaStreamEvent, Pr
         private String name;
         private boolean nameSet;
 
+        public Builder cause(EventCause value) {
+            this.cause = Field.of(value);
+            return this;
+        }
         public Builder client(UInt64 value) {
             this.client = value;
             this.clientSet = true;

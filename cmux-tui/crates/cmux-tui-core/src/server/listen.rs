@@ -4,6 +4,8 @@
 //! Accepted connections go to `handle_connection_with_permit`; this module
 //! owns no protocol handling.
 
+use cmux_threads::checked::fs as files;
+use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -62,7 +64,7 @@ impl Drop for PendingServer {
 #[cfg(windows)]
 pub(super) fn prepare_runtime_socket_directory(dir: &Path) -> anyhow::Result<()> {
     if let Some(parent) = dir.parent() {
-        std::fs::create_dir_all(parent)?;
+        files::create_dir_all(parent)?;
     }
     cmux::local_socket::private_directory(dir)?;
     Ok(())
@@ -70,7 +72,7 @@ pub(super) fn prepare_runtime_socket_directory(dir: &Path) -> anyhow::Result<()>
 
 #[cfg(not(windows))]
 pub(super) fn prepare_runtime_socket_directory(dir: &Path) -> anyhow::Result<()> {
-    match std::fs::symlink_metadata(dir) {
+    match files::symlink_metadata(dir) {
         Ok(metadata) => {
             if metadata.file_type().is_symlink() {
                 anyhow::bail!("runtime socket directory must not be a symlink: {}", dir.display());
@@ -80,7 +82,7 @@ pub(super) fn prepare_runtime_socket_directory(dir: &Path) -> anyhow::Result<()>
             }
         }
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            std::fs::create_dir_all(dir)?;
+            files::create_dir_all(dir)?;
         }
         Err(error) => return Err(error.into()),
     }
@@ -89,7 +91,7 @@ pub(super) fn prepare_runtime_socket_directory(dir: &Path) -> anyhow::Result<()>
     {
         use std::os::unix::fs::{MetadataExt, PermissionsExt};
 
-        let metadata = std::fs::symlink_metadata(dir)?;
+        let metadata = files::symlink_metadata(dir)?;
         if metadata.file_type().is_symlink() || !metadata.is_dir() {
             anyhow::bail!("runtime socket directory changed during creation: {}", dir.display());
         }
@@ -124,15 +126,15 @@ fn prepare_explicit_socket_directory(path: &Path) -> anyhow::Result<()> {
         return Ok(());
     }
 
-    match std::fs::symlink_metadata(dir) {
+    match files::symlink_metadata(dir) {
         Ok(metadata) => {
             if metadata.file_type().is_symlink() || !metadata.is_dir() {
                 anyhow::bail!("explicit socket path parent is not a directory: {}", dir.display());
             }
         }
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            std::fs::create_dir_all(dir)?;
-            let metadata = std::fs::symlink_metadata(dir)?;
+            files::create_dir_all(dir)?;
+            let metadata = files::symlink_metadata(dir)?;
             if metadata.file_type().is_symlink() || !metadata.is_dir() {
                 anyhow::bail!(
                     "explicit socket path parent changed to a non-directory: {}",
@@ -193,7 +195,7 @@ pub fn connect_session_socket(
 fn verify_private_socket_directory(dir: &Path) -> std::io::Result<()> {
     use std::os::unix::fs::{MetadataExt, PermissionsExt};
 
-    let metadata = std::fs::symlink_metadata(dir)?;
+    let metadata = files::symlink_metadata(dir)?;
     if metadata.file_type().is_symlink()
         || !metadata.is_dir()
         || metadata.uid() != platform::effective_uid()
@@ -217,7 +219,7 @@ fn verify_private_socket_directory(dir: &Path) -> std::io::Result<()> {
 /// very race it exists to close. The OS releases the lock when the holder
 /// exits, so a crashed starter never wedges the session.
 pub struct SocketStartLock {
-    _file: std::fs::File,
+    _file: fs::File,
 }
 
 const SOCKET_START_LOCK_RETRY_INTERVAL: Duration = Duration::from_millis(25);
@@ -241,7 +243,7 @@ impl SocketStartLock {
         let mut name = socket.file_name().unwrap_or_default().to_os_string();
         name.push(".spawn-lock");
         let path = socket.with_file_name(name);
-        let mut options = std::fs::OpenOptions::new();
+        let mut options = fs::File::options();
         options.create(true);
         #[cfg(windows)]
         {
@@ -260,7 +262,7 @@ impl SocketStartLock {
             use std::os::unix::fs::OpenOptionsExt as _;
             options.custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC | libc::O_NONBLOCK).mode(0o600);
         }
-        let file = options.open(&path)?;
+        let file = files::open_with(&options, &path)?;
         #[cfg(unix)]
         {
             use std::os::unix::fs::{MetadataExt as _, PermissionsExt as _};
@@ -379,13 +381,13 @@ pub fn bind_session_socket(session: &str, path: Option<PathBuf>) -> anyhow::Resu
     prepare_socket_parent(&path, is_derived)?;
     let start_lock = SocketStartLock::acquire(&path, Instant::now() + START_LOCK_DEADLINE)?;
     // Refuse to clobber a live socket; remove a stale one.
-    if path.exists() {
+    if files::metadata(&path).is_ok() {
         match transport::connect(&path) {
             Ok(_) => anyhow::bail!(
                 "session socket {} is already in use (another instance running?)",
                 path.display()
             ),
-            Err(_) => std::fs::remove_file(&path)?,
+            Err(_) => files::remove_file(&path)?,
         }
     }
     let listener = transport::listen(&path)?;
@@ -413,7 +415,7 @@ impl ServedSession {
         };
         let mux = self.mux.clone();
         let render_service = self.render_service.clone();
-        let _ = std::thread::Builder::new().name("mux-conn".into()).spawn(move || {
+        let _ = super::spawn_connection_reader("mux-conn", move || {
             handle_connection_with_permit(mux, stream, render_service, Some(permit));
         });
     }

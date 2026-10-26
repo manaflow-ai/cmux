@@ -112,7 +112,7 @@ extension ControlRouter {
         let executor = self.executor
         let progress = call.progress
         let wait = call.params["wait"]?.boolValue ?? true
-        let scope = progress.track(ControlCommandScope(idempotencyKey: key))
+        let scope = progress.track(ControlCommandScope.automation(idempotencyKey: key))
         let expired = ControlError.timeout(call.method, after: max(call.deadline - .now, .zero))
         var runs: [ControlActionRun] = []
         runs.reserveCapacity(requests.count)

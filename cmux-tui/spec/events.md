@@ -142,6 +142,29 @@ addressable through the terminal registry until `terminal.close` tombstones
 it, but no placement or live runtime remains. Browser surfaces and
 unregistered compatibility PTYs are also reaped on exit.
 
+## Event cause
+
+A connection that echoes `event-cause-v1` in `set-client-info` before its
+`subscribe` gets an optional `cause` string on every subscribe event line. It
+says what set the event off, so a frontend can schedule its work (the person's
+changes first, automation last). It is a scheduling hint only: it grants
+nothing and the daemon never reads it for authorization. Other connections
+never see the field, so the event schemas are unchanged for them.
+
+| `cause` | Set off by |
+| --- | --- |
+| `frontend` | a request of the verified app connection (origin `user`) |
+| `automation` | a request of any other connection: an agent, the CLI, a script, a page relay or the app supervisor (origins `agent`, `page`, `app`) |
+| absent | the daemon or a program on its own: terminal output, an OSC title or status, hooks, reaps, timers |
+
+A request's `origin` claim can only lower its cause, as it only narrows its
+origin. Work a request hands to another thread keeps its cause: a
+terminal-creating command that commits on the terminal worker pool reports
+the cause of the request that queued it. When the subscriber coalesces two
+latest-state events (for example two `title-changed` of one surface), the
+kept event takes the higher cause, in the order `frontend`, absent,
+`automation`.
+
 ## Subscribe Events
 
 ### overflow

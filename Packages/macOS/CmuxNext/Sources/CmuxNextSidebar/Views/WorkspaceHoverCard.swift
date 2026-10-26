@@ -1,5 +1,5 @@
 import AppKit
-import CmuxNextDesign
+public import CmuxNextDesign
 import CmuxNextIcons
 import CmuxNextResources
 import CmuxNextWakeups
@@ -62,9 +62,7 @@ final class WorkspaceHoverCardController: HoverCardSource {
 
     static func targetID(_ id: GroupID) -> HoverTargetID { HoverTargetID("grp:\(id.rawValue)") }
 
-    private func groupID(_ id: HoverTargetID) -> GroupID? {
-        id.rawValue.hasPrefix("grp:") ? GroupID(String(id.rawValue.dropFirst(4))) : nil
-    }
+    private func groupID(_ id: HoverTargetID) -> GroupID? { GroupID(hoverCardTarget: id) }
 
     /// This list's group whose summary card shows now.
     var shownGroupID: GroupID? {
@@ -72,9 +70,7 @@ final class WorkspaceHoverCardController: HoverCardSource {
         return group
     }
 
-    private func workspaceID(_ id: HoverTargetID) -> WorkspaceID? {
-        id.rawValue.hasPrefix("ws:") ? WorkspaceID(String(id.rawValue.dropFirst(3))) : nil
-    }
+    private func workspaceID(_ id: HoverTargetID) -> WorkspaceID? { WorkspaceID(hoverCardTarget: id) }
 
     /// This list's workspace whose card shows now.
     var shownID: WorkspaceID? {
@@ -622,5 +618,23 @@ extension WorkspaceHoverCardView {
         // the shared overlay glass shows.
         for row in factViews { row.applyColors() }
         resourceRow.applyColors()
+    }
+}
+
+public extension WorkspaceID {
+    /// The workspace of a sidebar row's hover card target (`WorkspaceHoverCardController.targetID(_:)`); nil for
+    /// any other target.
+    nonisolated init?(hoverCardTarget id: HoverTargetID) {
+        guard id.rawValue.hasPrefix("ws:") else { return nil }
+        self.init(String(id.rawValue.dropFirst("ws:".count)))
+    }
+}
+
+public extension GroupID {
+    /// The group of a sidebar group's hover card target (`WorkspaceHoverCardController.targetID(_:)`); nil for
+    /// any other target.
+    nonisolated init?(hoverCardTarget id: HoverTargetID) {
+        guard id.rawValue.hasPrefix("grp:") else { return nil }
+        self.init(String(id.rawValue.dropFirst("grp:".count)))
     }
 }

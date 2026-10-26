@@ -14,7 +14,7 @@ import CmuxNextScreenshots
 import CmuxNextStash
 import Foundation
 import os
-#if DEBUG
+#if DEBUG || CMUX_BENCH_HOOKS
 import CmuxNextRemoteBrowser
 #endif
 
@@ -163,14 +163,15 @@ extension TabContentCache {
 
     /// A development remote tab record (`cmux://remote-browser`).
     static func isRemoteBrowserPage(_ url: URL?) -> Bool {
-        #if DEBUG
+        #if DEBUG || CMUX_BENCH_HOOKS
         RemoteBrowserTabRecord.matches(url)
         #else
         false
         #endif
     }
 
-    private func makeAppPage(_ url: URL?, for tab: TabModel) -> (any BrowserTab)? {
+    /// The page at app page address `url` for `tab` (a hibernated one's wake too); nil for another address.
+    func makeAppPage(_ url: URL?, for tab: TabModel) -> (any BrowserTab)? {
         guard Self.isAppPage(url), let services = pageRequests.services else { return nil }
         let key = tab.id
         let engine: BrowserEngineKind = tab.browserEngine == BrowserEngineTag.cef.rawValue ? .cef : .webkit
@@ -179,7 +180,7 @@ extension TabContentCache {
         if let record = url.flatMap(MachineBrowserRecord.init(url:)) {
             return MachineBrowserPages(cache: self).makePage(record, key: key, engine: engine, profile: profile)
         }
-        #if DEBUG
+        #if DEBUG || CMUX_BENCH_HOOKS
         if let url, RemoteBrowserTabRecord.matches(url) {
             return RemoteBrowserPages.makePage(url: url, key: key, profile: profile, services: services)
         }

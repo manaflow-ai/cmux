@@ -530,8 +530,12 @@
             {
               "tab": "tab_000000000000000000000000000000e2",
               "kind": "browser",
+              "page": null,
+              "pinned": false,
+              "engine": "cef",
               "url": "$WEB/index.html",
               "title": "sha256:2ab25f10948b26d75da5b1623465c24e8ad39e11a3295c95c810e99dfa56e462",
+              "loadState": "finished",
               "loading": false,
               "canGoBack": false,
               "canGoForward": false,
@@ -539,7 +543,7 @@
               "muted": false,
               "audible": false,
               "crashed": false,
-              "findActive": false
+              "hibernated": false
             }
           ]
         }
@@ -557,7 +561,7 @@
       "nonDefaultKeys": ["ui.animations.enabled"],
       "motion": {"enabled": false, "speed": 1, "reduceMotion": false}
     },
-    "intents": {"pending": [], "totals": {"applied": 3, "rolledBack": 0, "refused": 0}},
+    "intents": {"pending": [], "totals": {"applied": 3, "rolledBack": 0, "refused": 0}, "lastRefusal": {"action": null, "intent": null}},
     "windows": {
       "count": 1,
       "order": ["win_000000000000000000000000000000a1"],

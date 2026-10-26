@@ -218,7 +218,12 @@ public final class FrameScheduler: NSObject {
     }
 
     /// Its display's link's last refresh period (a 60 Hz frame before the first link frame).
-    var refreshPeriod: CFTimeInterval { lastRefreshInterval }
+    public var refreshPeriod: CFTimeInterval { lastRefreshInterval }
+
+    /// When the frame of its last tick is shown (the frame deadline main-thread work ahead of that
+    /// frame must meet), in `CACurrentMediaTime` seconds; nil while idle. It may be past: the next
+    /// frame's is one ``refreshPeriod`` later.
+    public var frameTarget: CFTimeInterval? { lastTargetTimestamp }
 
     /// The display it ticks on now (nil while idle or never subscribed).
     var display: CGDirectDisplayID? { subscribed }

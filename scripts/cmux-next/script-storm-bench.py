@@ -38,6 +38,9 @@ Per session and phase:
   display frames (debug.frames), main-thread stalls over 8 ms (debug.hangs), the control work queue (debug.queue), and
   per op kind the asked rate, the applied rate (ok replies per second) over the person's key and split window and in
   its slowest second, refusals and reply latency.
+  drain (--hidden)     debug.drain_cost over the phase: the daemon store's drain of one batch of events (most of them
+                       from the storm's hidden workspaces), its p50/p95/p99/max ms and buckets, with p99 against
+                       DRAIN_P99_BUDGET_MS (1 ms), and its sidebar flattenings and workspace-list changes.
 A phase is reported "invalid" with its reasons and no key numbers when: its storm was not applied during the person's
 window (an applied rate, overall or in any second of the window, under MIN_APPLIED_SHARE of the asked one, refusals
 over MAX_REFUSED_SHARE); any key was censored (no probe row within KEY_DEADLINE_S: its wait is reported as a lower
@@ -57,7 +60,8 @@ script phase refuse to start when the PTYs in use plus the ones they open would 
 and the column load checks the PTYs in use before each create.
 
   script-storm-bench.py --app APP --out DIR [--sessions light,stress] [--seconds 15] [--samples 120]
-      [--rates reorder=1000,move=200,column=100,rename=500,app-rename=640,batch=10] [--background 50] [--json FILE]
+      [--rates reorder=1000,move=200,column=100,rename=500,app-rename=640,batch=10] [--background 50] [--hidden]
+      [--json FILE]
 
 The STRESS session is built by perf-stress-session.py, which checks its shape: a session of another shape reports
 "STRESS shape missed" and no numbers. The app launches through bench_launch.py.
@@ -94,6 +98,9 @@ SIGNPOSTS_STOP_DEADLINE_S = 30.0
 # committed frame and is never compared with the 10 ms target. A surface-bound mark at the CA commit after contents
 # needs the probe change (TypingLatencyProbe); debug.frames' missed vsyncs and main-thread busy are the frame evidence.
 KEY_COLUMN = "contents_ms"
+# --hidden: the store's drain of one batch of daemon events (most of them from the storm's hidden workspaces) under
+# 1 ms at p99 (p06-scheduler-033). A measurement, reported next to the phase, never a gate.
+DRAIN_P99_BUDGET_MS = 1.0
 SESSION_SHAPE = {"light": "light", "stress": "STRESS-busy-elsewhere"}
 
 
@@ -109,6 +116,14 @@ def pct(values):
     pick = lambda p: s[min(len(s) - 1, int(round((len(s) - 1) * p)))]
     return {"n": len(s), "p50": round(pick(0.5), 2), "p95": round(pick(0.95), 2), "p99": round(pick(0.99), 2),
             "max": round(s[-1], 2), "mean": round(statistics.fmean(s), 2)}
+
+
+def drain_report(reply):
+    """The phase's debug.drain_cost reply with its p99 read against DRAIN_P99_BUDGET_MS (None when it has no p99)."""
+    if not isinstance(reply, dict) or reply.get("p99_ms") is None:
+        return {"error": f"debug.drain_cost answered {str(reply)[:200]}"}
+    over = reply["batches"] > 0 and reply["p99_ms"] > DRAIN_P99_BUDGET_MS
+    return {**reply, "budget_ms": DRAIN_P99_BUDGET_MS, "over_budget": over}
 
 
 def error_code(message):
@@ -574,6 +589,9 @@ parser.add_argument("--live-columns", type=int, default=2, help="script-made pan
 # MAX_PTY_LIMIT (300) with room for other agents' sessions. The PTY check refuses a phase that would pass it.
 parser.add_argument("--max-live-terminals", type=int, default=40, help="script-made terminals alive in the whole storm")
 parser.add_argument("--max-inflight", type=int, default=512, help="unanswered requests per op kind")
+parser.add_argument("--hidden", action="store_true",
+                    help=f"also report per phase the store's drain cost (debug.drain_cost): the drain time's p99 against "
+                         f"{DRAIN_P99_BUDGET_MS:g} ms, sidebar flattenings and workspace-list changes")
 opts = parser.parse_args()
 OUT = os.path.abspath(opts.out)
 os.makedirs(OUT, exist_ok=True)
@@ -1088,6 +1106,8 @@ class Session:
             worker = self.start_storm(phase) if phase == "script" else None
             self.rpc("debug.hangs", {"clear": True})
             self.rpc("debug.queue", {"reset": True})
+            if opts.hidden:
+                self.rpc("debug.drain_cost", {"reset": True})
             self.rpc("debug.frames", {"action": "start"})
             started = time.perf_counter()
             window_start = uptime()
@@ -1107,6 +1127,7 @@ class Session:
             frames = self.rpc("debug.frames", {"action": "stop"}, timeout=20)
             hangs = self.rpc("debug.hangs", {"limit": 12}, timeout=20)
             queue = self.rpc("debug.queue", timeout=20)
+            drain = self.rpc("debug.drain_cost", timeout=20) if opts.hidden else None
             script = self.stop_storm(worker, window) if worker else None
             worker = None
         finally:
@@ -1141,7 +1162,7 @@ class Session:
                  "frames": frames,
                  "hangs": {k: hangs.get(k) for k in ("count", "max_ms", "total_ms", "frames_over_8_3ms", "max_gap_ms", "records")}
                  if isinstance(hangs, dict) else hangs,
-                 "queue": queue, "script": script}
+                 "queue": queue, "script": script, "drain": drain_report(drain) if opts.hidden else None}
         k = entry["key_to_contents_ms"] or {}
         applied = {kind: ((v.get("window") or {}).get("applied_per_s"), (v.get("window") or {}).get("slowest_second_per_s"),
                           v.get("asked_per_s"), v.get("refused"))
@@ -1154,6 +1175,7 @@ class Session:
              f"{f.get('main_p95_ms')} max {f.get('main_max_ms')} ms, over 8.3 ms {f.get('main_over_8_3_ms')}; "
              f"stalls {(entry['hangs'] or {}).get('count') if isinstance(entry['hangs'], dict) else '?'}"
              + (f"; split input-to-commit INVALID ({'; '.join(split_invalid)})" if split_invalid else "")
+             + (f"; drain {json.dumps(entry['drain'])}" if opts.hidden else "")
              + (f"; script applied in window/slowest second/asked/refused per kind {json.dumps(applied)}" if script else ""))
         results["runs"].append(entry)
         if opts.json:
@@ -1168,7 +1190,8 @@ class Session:
         try:
             time.sleep(3)  # bench script: launch work settles
             methods = (self.rpc("system.capabilities") or {}).get("methods") or []
-            missing = [m for m in ("action.run", "action.batch", "snapshot.get", "debug.key", "debug.frames") if m not in methods]
+            needed = ("action.run", "action.batch", "snapshot.get", "debug.key", "debug.frames") + (("debug.drain_cost",) if opts.hidden else ())
+            missing = [m for m in needed if m not in methods]
             if missing:
                 note(f"{self.name}: the app has no {missing}; nothing measured")
                 results["runs"].append({"session": self.name, "phase": "build", "missing_methods": missing})
@@ -1231,7 +1254,9 @@ def main():
             "script_slowest_second_per_s": {k: (v.get("window") or {}).get("slowest_second_per_s")
                                             for k, v in script.items() if isinstance(v, dict) and "asked_per_s" in v} or None,
             "script_refused": {k: v.get("refused") for k, v in script.items() if isinstance(v, dict) and "asked_per_s" in v} or None,
-            "stress_shape_missed": r.get("stress_shape_missed")}
+            "stress_shape_missed": r.get("stress_shape_missed"),
+            "drain_p99_ms": (r.get("drain") or {}).get("p99_ms"),
+            "drain_over_budget": (r.get("drain") or {}).get("over_budget")}
     results["summary"] = summary
     note(f"SCRIPT-STORM key column {KEY_COLUMN} (key to contents, not a committed frame; frame evidence: missed frames "
          f"and main busy) {json.dumps(summary)} displays {results.get('displays')}")

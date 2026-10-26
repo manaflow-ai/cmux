@@ -61,14 +61,14 @@ enum ViewerHandlers {
             }
         })
         // In the palette each picker is a page of the palette, pushed in place.
-        services.palette.sources.actionPages["palette.openDirectoryDiffViewer"] = { [weak services] in
+        services.palettes.sources.actionPages["palette.openDirectoryDiffViewer"] = { [weak services] in
             guard let pane = services?.windows.active?.focusedPane else { return nil }
             return services?.viewers.diffPickerPage(for: pane)
         }
-        services.palette.sources.actionPages["openMarkdownFile"] = { [weak services] in
+        services.palettes.sources.actionPages["openMarkdownFile"] = { [weak services] in
             services?.viewers.filePickerPage(for: services?.windows.active?.focusedPane, markdown: true)
         }
-        services.palette.sources.actionPages["file.open"] = { [weak services] in
+        services.palettes.sources.actionPages["file.open"] = { [weak services] in
             services?.viewers.filePickerPage(for: services?.windows.active?.focusedPane, markdown: false)
         }
     }

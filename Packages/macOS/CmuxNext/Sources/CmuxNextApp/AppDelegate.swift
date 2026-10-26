@@ -55,6 +55,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         await self?.services?.home.flushCacheForQuit()
     })
     private var settings: SettingsController?
+    /// The control socket bound on a lane after the settings launch read (feature `controlSocketEarlyBind`, AppControl.beginBind).
+    private var controlSocket: ControlSocketBind?
     /// The app's one main-thread scheduler (budget, input check, task signposts, starvation guard), handed to control and services.
     private let mainWork: MainWorkScheduler
     /// The main-thread budget's run-loop turn meter; `main` hands it to the application before `run()`.
@@ -144,9 +146,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         DebugTimings.markLaunch("dfl.theme")
         let services = AppServices(environment: environment, launchReveal: launchReveal, work: launchReads.work, mainWork: mainWork,
                                    launchImages: launchReads.images, relaunchWake: launchReads.wake, wireStats: wireStats, inputTap: inputTap,
-                                   launchImageHold: launchImageHold)
+                                   launchImageHold: launchImageHold, launchStartup: order.startup, crashKeys: control.crashKeys)
         AppProcessRoot.shared.adopt(services)
         self.services = services
+        controlSocket = AppControl.beginBind(features: services.features, settingsRead: settingsRead, launch: environment.launch,
+                                             work: launchReads.work, mainWork: mainWork)  // p08-startup-019: on a lane
         TooltipPresenter.shared.appEvents = services.appEvents  // its inactive-app dismissal shares the app's one observer
         // Frame rate classes (p03-rendering-013): links at their clients' rate, loops at 30 Hz.
         let rateClasses = services.features.isEnabled(.frameRateClasses)
@@ -173,7 +177,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         DebugTimings.markLaunch("dfl.services")
         AppActions.bind(services)
         HandlerCoverage.verify(services.registry)
-        services.palette.bindRegistryActions()
+        services.palettes.bindRegistryActions()  // the palette itself is built after the first frame, or by the first palette key
         let ghosttyKeybinds = GhosttyKeybindSync(router: services.keyRouter, launchImages: launchImageHold)
         self.ghosttyKeybinds = ghosttyKeybinds
         ghosttyKeybinds.start()
@@ -227,19 +231,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // one frame); then the icon picker (its panel, page and symbol catalog), so the first Set Icon opens
         // warm; then the system file picker made ahead, so the first click is not cold.
         LaunchFirstOpenWarmups(paletteSteps: PaletteController.prepareStepNames,
-                               preparePalette: { [weak palette = services.palette] in _ = palette?.prepare(step: $0) },
+                               preparePalette: { [weak services] in _ = services?.palette.prepare(step: $0) },
                                prepareIconPicker: { [weak services] in services?.iconPicker.prepare() },
                                warmOpenPanel: { [weak services] in services?.openPanel.warmWhenIdle() }).post(on: order.startup)
+        services.palettes.postBuild(on: order.startup)
         // Temporary download files a crash left in an earlier run (only the
         // recorded ones; the record is read and the files deleted off the
         // main actor). Downloads of this run are never touched.
         launchCleanup.schedule(on: order.startup)
-        services.palette.onPresented = { DebugTimings.palettePresented($0) }
-        // The key-down that opens the palette (a synthesized one under `debug.key`), for its input stage.
-        services.palette.openingEventTimestamp = { [inputDispatch = services.inputDispatch] in
-            let event = inputDispatch.event
-            return event?.type == .keyDown ? event?.timestamp : nil
-        }
         services.iconPicker.onOpened = { DebugTimings.iconPickerOpened($0) }
         let profilesDirectory = BrowserProfileService.defaultDirectory(bundleID: services.environment.launch.bundleID)
         services.browserProfiles.load(directory: profilesDirectory, importStore: services.onboarding.importStore)
@@ -309,14 +308,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         services.settings = settings
         UserOnlySettingConfirmation.install(settings, services: services)
         // Every palette-exposed schema setting in the palette (R93).
-        services.palette.sources.settings = SettingsPaletteSource(settings: settings, themes: services.themes.catalog) { [weak services] in
+        services.palettes.sources.settings = SettingsPaletteSource(settings: settings, themes: services.themes.catalog) { [weak services] in
             services?.windows.active.map { SettingsPaletteSource.themeColors($0.themeScope.tokens) } ?? []
         }
         services.history.startDaemonSync(settings: settings)
         services.locationTrail.watchScope(settings: settings)
         let shortcutEditor = PaletteShortcutEditor(services: services, settings: settings)
-        services.paletteShortcutEditor = shortcutEditor
-        services.palette.shortcutRecorder.editor = shortcutEditor
+        services.paletteShortcutEditor = shortcutEditor  // the palette's recorder writes through it once built
         // Managed-settings status for MDM tooling (osquery, Fleet, Jamf), plans/cmux-next/enterprise.md.
         let bundleID = Bundle.main.bundleIdentifier ?? "com.cmuxterm.app"
         settings.writeManagedStatus(
@@ -376,11 +374,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         services.terminalTheme.follow(settings)
         services.themes.start()
         services.themes.followChromeTheme(settings)
-        services.remoteLocalhost.follow(settings)
         services.bookmarks.follow(settings)
         services.apps.start()
+        // controlSocketEarlyBind: the control posts, after the first frame (p08-startup-019).
+        control.postLaunch(socket: controlSocket, order: order, services: services, settings: settings, launch: environment.launch, logger: logger)
         Task {
-            await settings.waitForLoad(atLeast: 1); await launchSettle.settled(within: .seconds(4), images: launchImageHold) // control socket: after the first frames (cx-z9kz0; task 019 binds it off main)
+            await settings.waitForLoad(atLeast: 1); await launchSettle.settled(within: .seconds(4), images: launchImageHold) // without controlSocketEarlyBind, the control socket starts here (cx-z9kz0)
             // `app.quitBehavior: "end"` (first release) is now "end-keep-layout".
             _ = try? await settings.migrateLegacyQuitBehavior()
             _ = try? await settings.migrateLegacyWorkspaceRowKeys() // `sidebar.showWorkspaceDirectory` / `showCounts` move to `sidebar.workspaceRow.*`
@@ -390,63 +389,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             // Shortcuts and settings classic cmux's Settings kept in its preferences (`ClassicShortcutImport`, `ClassicPreferenceImport`).
             _ = try? await settings.importClassicShortcuts(marker: .standard)
             _ = try? await settings.importClassicPreferences(marker: .standard)
-            do {
-                try control.start(registry: registry, settings: settings, launch: environment.launch, services: services)
-                control.registerCloudMethods(services)
-                control.registerAccountsMethods(services)
-                control.registerBillingMethods(services)
-                control.registerRemoteMethods(services)
-                control.registerMobileMethods(services)
-                control.registerUpdateMethods(services.updater, services: services)
-                control.registerInputMethods(services)
-                control.registerSettingsDebugMethods(services)
-                control.registerPageDebugMethods(services)
-                control.registerRemoteBrowserDebugMethods(services)
-                RemoteViewDebugMethods(services: services).register(on: control.service?.router)
-                services.registerMacScreenDebug(on: control.service?.router)
-                services.registerDeviceHubDebug(on: control.service?.router)
-                DebugNowPlaying.register(on: control.service?.router, services: services)
-                DebugDownloads.register(on: control.service?.router, services: services)
-                DebugCEFDevToolsLayout.register(on: control.service?.router, services: services)
-                #if DEBUG
-                // The Chromium host app prototype (browserHost.helper; cef-helper-app-DESIGN.md).
-                // Socket focus policy: `open` makes the page first responder only with focus: true.
-                let chromiumHost = ChromiumHostPrototype(makeConfiguration: { ChromiumHostPrototype.bundledConfiguration() },
-                                                         tunables: TunableStore.shared)
-                control.service?.router.register([
-                    .mainActor("debug.chromium_host") { [weak services] call in
-                        let controller = services?.windows.controllers.first
-                        let pane = (call.params["pane"]?.stringValue ?? controller?.focus.state.pane).flatMap { controller?.content?.paneController(key: $0) }
-                        let fields = chromiumHost.handle(op: call.params["op"]?.stringValue, url: call.params["url"]?.stringValue,
-                                                         over: pane?.view.contentHost, focus: call.params["focus"]?.boolValue == true)
-                        return .value(JSONValue(foundation: fields) ?? .null)
-                    },
-                    .async("debug.chromium_host.measure") { call in
-                        guard let fields = await chromiumHost.measure(op: call.params["op"]?.stringValue, count: call.params["count"]?.intValue)
-                        else { return ["error": "no running Chromium host"] }
-                        return .object(fields.mapValues(JSONValue.number))
-                    }.withDeadline(.fixed(.seconds(60))),
-                ])
-                #endif
-                DebugBrowserExternal.register(on: control.service?.router, services: services)
-                DebugCloudMove.register(on: control.service?.router, services: services)
-                DebugTerminalLinks.register(on: control.service?.router, services: services)
-                if let router = control.service?.router {
-                    // The passkey hand-off: an agent's request waits for the person's banner click.
-                    let passkeys = BrowserPasskeyRequests(host: AppBrowserPasskeyHost(services: services))
-                    services.notifications.onPasskeyBanner = { id in Task { _ = try? await passkeys.answer(id) } }
-                    BrowserPageService(engine: AppBrowserPageEngine(services: services), passkeys: passkeys,
-                                       agentMouse: { [weak settings] in
-                                           await MainActor.run { settings?.snapshot.browserAgentMouse } ?? AgentMouseSetting().fallback
-                                       }).install(on: router)
-                    services.apps.attach(router: router)
-                }
-                logger.info("control socket \(self.control.socketPath ?? "", privacy: .public)")
-            } catch {
-                logger.error("control socket failed: \(String(describing: error), privacy: .public)")
-            }
-            // Share This Mac resumes when the person left it on.
-            services.macScreenPages.activate()
+            control.runAfterSettle(socket: controlSocket, services: services, settings: settings, launch: environment.launch, logger: logger)
         }
     }
 
@@ -518,8 +461,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         services?.home.applicationWillTerminate()
         services?.vscodeServeWeb.terminateForAppExit()
         services?.stopCloud()
-        services?.ssh.stop()
+        services?.madeSSH?.stop()
         services?.serverReach.stop()
+        controlSocket?.discard()  // a socket bound at launch that never served
         control.stop()
         services?.configActions.stop()
         services?.globalHotKeys.stop()

@@ -191,6 +191,8 @@ use deadline_fanout::{
 };
 mod column_move;
 mod dock_columns;
+#[cfg(test)]
+mod event_cause_tests;
 mod event_emit;
 mod exit_settle;
 pub(crate) mod feed_local;
@@ -785,6 +787,10 @@ pub struct Mux {
     pub(crate) surface_operation_admission: Arc<crate::server::ServerSurfaceOperationAdmission>,
     /// Records requests that run past 250 ms (server-stats `slow_requests`).
     pub(crate) request_watchdog: crate::server::RequestWatchdog,
+    /// Blocking work that request threads hand off (`cmux_threads::work`
+    /// lanes: files, system, cpu), so a request answers from memory and a
+    /// work item does the disk, process or IPC wait (p02-threads 220).
+    pub(crate) work: cmux_threads::work::Work,
     pairing: PairingBroker,
     #[cfg(test)]
     test_surface_runtime: bool,

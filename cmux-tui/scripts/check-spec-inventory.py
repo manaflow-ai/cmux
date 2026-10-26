@@ -173,12 +173,14 @@ def module_commands() -> dict[str, dict]:
 def module_command_sources() -> dict[str, str]:
     """Source of each module in server-module-commands.json that exists, by
     module name. A removed module serves nothing, so its schema commands
-    become stale."""
+    become stale. An inline `mod tests` is left out: a test that spells a
+    removed command does not serve it."""
     sources: dict[str, str] = {}
     for module in module_commands():
         path = TUI / "crates/cmux-tui-core/src/server" / f"{module}.rs"
         if path.exists():
-            sources[module] = strip_rust_comments(path.read_text())
+            production = path.read_text().split("\n#[cfg(test)]\nmod tests", 1)[0]
+            sources[module] = strip_rust_comments(production)
     return sources
 
 
@@ -188,12 +190,14 @@ def module_command_names() -> dict[str, str]:
     names: dict[str, str] = {}
     specs = module_commands()
     for module, source in module_command_sources().items():
-        enum_name = specs[module]["enum"]
+        enum_name = specs[module].get("enum")
         literals = specs[module].get("literals", {})
-        body = rust_enum_body(source, enum_name)
-        renames = re.findall(r'#\[serde\(rename\s*=\s*"([a-z][a-z0-9-]*)"\)\]', body)
-        if len(renames) != len(rust_enum_variants(source, enum_name)):
-            fail(f"every server/{module}.rs {enum_name} variant needs #[serde(rename = ...)]")
+        renames: list[str] = []
+        if enum_name is not None:
+            body = rust_enum_body(source, enum_name)
+            renames = re.findall(r'#\[serde\(rename\s*=\s*"([a-z][a-z0-9-]*)"\)\]', body)
+            if len(renames) != len(rust_enum_variants(source, enum_name)):
+                fail(f"every server/{module}.rs {enum_name} variant needs #[serde(rename = ...)]")
         for literal in literals:
             if f'"{literal}"' not in source:
                 fail(f"server/{module}.rs no longer matches {literal!r}")
@@ -202,6 +206,14 @@ def module_command_names() -> dict[str, str]:
                 fail(f"module command {name!r} is served twice")
             names[name] = module
     return names
+
+
+# The refusal of a connection that is not a local Unix one: by client id, or
+# (the hello gate, server/client_hello.rs) by the connection's own transport.
+NON_UNIX_REFUSAL = (
+    r"if\s+!\s*mux\.control_clients\.is_unix\("
+    r"|_\s+if\s+!\s*matches!\(\s*self\.transport\s*,\s*ClientTransport::Unix\s*\)"
+)
 
 
 def module_command_profiles() -> dict[str, str]:
@@ -219,12 +231,11 @@ def module_command_profiles() -> dict[str, str]:
             fail(f"server/{module}.rs needs an authority in {MODULE_COMMANDS_PATH.name}")
         literals = spec.get("literals", {})
         if authority == "local-admin":
-            handlers = {spec["enum_handler"], *(literal["handler"] for literal in literals.values())}
+            handlers = {literal["handler"] for literal in literals.values()}
+            if "enum_handler" in spec:
+                handlers.add(spec["enum_handler"])
             for handler in sorted(handlers):
-                if not re.search(
-                    r"if\s+!\s*mux\.control_clients\.is_unix\(",
-                    rust_function_body(source, handler),
-                ):
+                if not re.search(NON_UNIX_REFUSAL, rust_function_body(source, handler)):
                     fail(f"server/{module}.rs {handler} does not refuse non-Unix connections")
         for name, owner in names.items():
             if owner == module:
@@ -679,13 +690,12 @@ CONTROL_EVENT_MODULES = ("server/url_open.rs", "server/clipboard_read.rs", "serv
 
 # server/ modules (and their child directories) whose events are not in the
 # raw SDK catalog yet: they speak their own wire families (agent session
-# attach, loopback forwarding, scripts, terminal snapshot digests). The
-# inventory does not read them until the spec covers those events (cx-chun).
+# attach, scripts, terminal snapshot digests). The inventory does not read
+# them until the spec covers those events (cx-chun).
 SERVER_MODULES_OUTSIDE_RAW_SDK = frozenset(
     {
         "agent_session_attach",
         "agent_session_stream",  # Existing attach events moved here; same wire family.
-        "loopback_forward",
         "scripts",
         "terminal_snapshot",
     }

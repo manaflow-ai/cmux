@@ -569,6 +569,18 @@
       "why": "CrashWatcher's pipe write end: an async-signal-safe fatal-signal handler writes to it, so it cannot live in an injected instance (same as CrashDeadline's semaphore); written once at launch, then only read (#22844)"
     },
     {
+      "date": "2026-10-26",
+      "row": "global_mutable_statics",
+      "allow": 1,
+      "why": "p10-stability-207 CrashKeys.swift crashKeysRecordBlock: the address of the crash-key record block (the injected CrashKeySlots' address, this run's run.crashkeys descriptor, the line buffer), read by the async-signal-safe crash path (CrashReporter.recordCrashKeys from fatal-signal and uncaught-exception handlers, after their own record), which has no instance to reach, as CrashDeadline's semaphore and CrashWatcher's pipe. Written once at launch on main before the handlers are installed, then only read; the keys themselves live in the composition root's CrashKeySlots instance. Chrome: crash keys in static storage (components/crash/core/common/crash_key.h)."
+    },
+    {
+      "date": "2026-10-26",
+      "row": "blocking_allow_escapes",
+      "allow": 3,
+      "why": "p10-stability-207 crash keys. CrashKeys.swift recordCrashKeys: the one write(2) of the record runs in a fatal-signal handler, which can call no seam (blockingCall records and may allocate). AppRunMarker.swift: the rename of the previous run.crashkeys and the open of this run's file beside run.signal's open, once at launch on main before the fatal-signal handlers are installed, so a crash at launch still records its keys; a rename and an empty file in the app's own folder, no fsync."
+    },
+    {
       "date": "2026-10-24",
       "row": "stateful_singletons",
       "allow": 1,
@@ -591,6 +603,12 @@
       "row": "observer_sites",
       "allow": 1,
       "why": "p03-rendering-011: CmuxNextWakeups WindowScreenFamily is the per-window adapter the rule asks for: one NSWindow.didChangeScreenNotification observation per window, scoped to object: window, made once by FrameScheduler.forWindow and released with the window's scheduler, and it calls only that window's scheduler (screenDidChange, which moves it to the new display's link on the DisplayClock). It is the only didChangeScreen observer in CmuxNextWakeups; before it nothing moved a dragged window's frame clock until the old display's stall deadline. Chrome: ViewsNSWindowDelegate windowDidChangeScreen (components/remote_cocoa/app_shim/views_nswindow_delegate.mm)."
+    },
+    {
+      "date": "2026-10-26",
+      "row": "observer_sites",
+      "allow": 1,
+      "why": "p15-oracle-041: the oracle's windows facet (DEV and bench builds only, #if DEBUG || CMUX_BENCH_HOOKS) subscribes through the app's AppEvents fan-out, the adapter the rule asks for, to WindowEvents.stateChanges (frame, full screen, miniaturize, key and main, screen, occlusion, display parameters), one site, made on the facet's first read and kept for the facet list's life. Each post only adds one to an observable count the facet's read touches, so a debug.oracle.wait_for on a frame or on full screen wakes: AppKit makes none of these values observable and the control snapshot does not publish on them. No WindowController delegate hook covers them all (no resize, miniaturize, main or display-parameter hook; a child page window's key change reaches no controller). Chrome's window waiters observe the widget the same way (views::test::WidgetBoundsChangeWaiter, ui/views/test/widget_test.h)."
     },
     {
       "date": "2026-10-26",
