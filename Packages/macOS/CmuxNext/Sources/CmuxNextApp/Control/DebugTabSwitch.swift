@@ -3,6 +3,7 @@ import CmuxNextBridge
 import CmuxNextBrowser
 import CmuxNextControl
 import CmuxNextDesign
+import CmuxNextFocusUI
 import CmuxNextSettings
 import CmuxNextSignposts
 import os
@@ -19,20 +20,11 @@ enum DebugTabSwitch {
     static let timer = SwitchFrameTimer(owner: "debug.tab_switch")
     private static let signposter = OSSignposter(subsystem: "com.cmuxterm.app.next", category: "tab-switch")
     private static var intervals: [ObjectIdentifier: (id: OSSignpostID, state: OSSignpostIntervalState)] = [:]
-    /// The timestamp of the key whose binding runs now (a synthetic key never becomes `NSApp.currentEvent`).
-    private static var input: TimeInterval?
     static var isRecording: Bool { timer.isRecording }
 
-    /// Runs `body` with `input` (an `NSEvent.timestamp`) as the start of any switch it begins.
-    static func handling(input timestamp: TimeInterval, _ body: () -> Void) {
-        let previous = input
-        input = timestamp
-        defer { input = previous }
-        body()
-    }
-
-    /// `pane` begins a switch to `tab` that it will show (the caller checked the run allows it and the pane draws).
-    static func began(_ pane: PaneController, to tab: StripTabID) {
+    /// `pane` begins a switch to `tab` that it will show (the caller checked the run allows it and the pane draws);
+    /// `keyInput` is the key whose binding runs now (``KeyInputScope``), if any.
+    static func began(_ pane: PaneController, to tab: StripTabID, keyInput: KeyInputScope?) {
         let key = ObjectIdentifier(pane)
         if signposter.isEnabled {
             if let open = intervals.removeValue(forKey: key) { signposter.endInterval("switch", open.state, "superseded") }
@@ -42,7 +34,7 @@ enum DebugTabSwitch {
         // A key binding or click being handled now: its age is the input stage.
         let event = NSApp.currentEvent
         let click = event.flatMap { [.leftMouseDown, .leftMouseUp].contains($0.type) ? $0.timestamp : nil }
-        let inputTimestamp = input ?? click, now = CACurrentMediaTime()
+        let inputTimestamp = keyInput?.timestamp ?? click, now = CACurrentMediaTime()
         // Only this switch's own input (not an event left over from a launch or a menu), as the timer reads it.
         let age = inputTimestamp.flatMap { now - $0 >= 0 && now - $0 < 1 ? (now - $0) * 1_000 : nil } ?? -1
         pane.services.tabSwitch.began(pane, to: tab.rawValue, kind: pane.tabSwitchKind(to: tab.rawValue), inputAgeMilliseconds: age)
