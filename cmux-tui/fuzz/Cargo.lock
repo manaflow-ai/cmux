@@ -20,6 +20,7 @@ dependencies = [
  "cmux-lock-rank",
  "cmux-panic-log",
  "cmux-sdk",
+ "cmux-server-core",
  "cmux-trace",
  "cmux-unix-socket",
  "cmux-worktree-care",
@@ -771,6 +772,7 @@ version = "0.1.0"
 dependencies = [
  "cmux-flow-trace",
  "cmux-ipc",
+ "cmux-memory",
  "cmux-trace",
  "libc",
 ]
@@ -840,6 +842,13 @@ dependencies = [
 [[package]]
 name = "cmux-lock-rank"
 version = "0.1.0"
+
+[[package]]
+name = "cmux-memory"
+version = "0.1.0"
+dependencies = [
+ "libc",
+]
 
 [[package]]
 name = "cmux-pane-protocol"
@@ -1141,6 +1150,7 @@ dependencies = [
  "cmux-link",
  "cmux-local-auth",
  "cmux-lock-rank",
+ "cmux-memory",
  "cmux-panic-log",
  "cmux-process",
  "cmux-pty",
@@ -2043,6 +2053,7 @@ name = "ghostty-vt"
 version = "0.1.0"
 dependencies = [
  "base64",
+ "cmux-memory",
  "ghostty-vt-sys",
  "png",
 ]

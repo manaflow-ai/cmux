@@ -10,7 +10,9 @@ use ghostty_vt_sys as sys;
 use crate::terminal::Terminal;
 use crate::{Error, Result, check};
 
-pub const MAX_KITTY_IMAGE_BYTES: usize = 10_000_000;
+/// Largest decoded image, and the default kitty image storage of one
+/// terminal: the daemon memory budget's per-terminal kitty cap.
+pub const MAX_KITTY_IMAGE_BYTES: usize = cmux_memory::budget::KITTY_IMAGE_BYTES_PER_TERMINAL;
 pub const MAX_KITTY_IMAGES: u64 = 4_096;
 pub const MAX_KITTY_PLACEMENTS: u64 = 16_384;
 const KITTY_INFLIGHT_REPLAY_FRAMING_MAX_BYTES: u64 = 256 * 1024;

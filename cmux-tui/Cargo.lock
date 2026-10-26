@@ -1194,6 +1194,7 @@ version = "0.1.0"
 dependencies = [
  "cmux-flow-trace",
  "cmux-ipc",
+ "cmux-memory",
  "cmux-process",
  "cmux-trace",
  "libc",
@@ -2995,6 +2996,7 @@ name = "ghostty-vt"
 version = "0.1.0"
 dependencies = [
  "base64",
+ "cmux-memory",
  "ghostty-vt-sys",
  "png",
 ]

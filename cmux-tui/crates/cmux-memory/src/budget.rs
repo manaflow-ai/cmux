@@ -5,8 +5,11 @@
 //! `content/browser/renderer_host/render_process_host_impl.cc`,
 //! `GetPlatformMaxRendererProcessCount`). The cmux daemon does the same
 //! here: one table, one place for every Rust memory cap (the MQ-RUST-CAPS queue in
-//! plans/cmux-next/chrome-parity/p07-memory.md). A cap elsewhere either reads
-//! a [`DaemonBudget`] field or is one of the per-terminal constants below.
+//! plans/cmux-next/chrome-parity/p07-memory.md). The per-terminal constants
+//! below are the only literals: cmux-tui-core's `DEFAULT_SCROLLBACK_LIMIT_BYTES`,
+//! ghostty-vt's `MAX_KITTY_IMAGE_BYTES` and cmux-holder's `RING_BYTES` and
+//! `LINK_QUEUE_BYTES` are defined as them. The totals are process-wide: read
+//! [`DaemonBudget::for_host`] once per process, never per terminal.
 //!
 //! | Field | Formula (M = installed bytes) | 8 GB | 16 GB | 32 GB | 64 GB | 128 GB |
 //! | --- | --- | --- | --- | --- | --- | --- |
@@ -35,12 +38,16 @@ const GIB: u64 = 1024 * MIB;
 pub const SCROLLBACK_BYTES_PER_TERMINAL: usize = 10_000_000;
 
 /// Most kitty image bytes one terminal stores, and the largest single image
-/// the decoder accepts (ghostty-vt's `MAX_KITTY_IMAGE_BYTES`).
+/// the decoder accepts (ghostty-vt's `MAX_KITTY_IMAGE_BYTES` is this value).
 pub const KITTY_IMAGE_BYTES_PER_TERMINAL: usize = 10_000_000;
 
-/// The largest holder output ring per terminal (cmux-holder's `RING_BYTES`).
-/// [`DaemonBudget::holder_ring_bytes`] never exceeds it.
+/// The largest holder output ring per terminal (cmux-holder's `RING_BYTES` is
+/// this value). [`DaemonBudget::holder_ring_bytes`] never exceeds it.
 pub const HOLDER_RING_BYTES_MAX: usize = 1 << 20;
+
+/// Output the holder queues on its daemon link before it stops making DATA
+/// frames; the rest waits in the rings (cmux-holder's `LINK_QUEUE_BYTES`).
+pub const HOLDER_LINK_QUEUE_BYTES: usize = 1 << 20;
 
 /// The smallest holder ring: still twice the holder's 256 KiB unsent
 /// high-water mark, so an attached daemon never loses an unsent byte.
@@ -169,6 +176,15 @@ mod tests {
                 "{gb} GB"
             );
         }
+    }
+
+    /// The per-terminal constants ghostty-vt and cmux-holder are defined as.
+    #[test]
+    fn budget_per_terminal_constants_keep_their_values() {
+        assert_eq!(SCROLLBACK_BYTES_PER_TERMINAL, 10_000_000);
+        assert_eq!(KITTY_IMAGE_BYTES_PER_TERMINAL, 10_000_000);
+        assert_eq!(HOLDER_RING_BYTES_MAX, 1_048_576);
+        assert_eq!(HOLDER_LINK_QUEUE_BYTES, 1_048_576);
     }
 
     #[test]
