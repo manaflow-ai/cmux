@@ -112,7 +112,7 @@ extension DaemonLauncher {
         guard handoff.begin(bundled: target, pid: identity.pid) else {
             return .keep("already handed off to \(target)")
         }
-        let logger = Logger(subsystem: "com.cmuxterm.next", category: "daemon")
+        let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "daemon")
         logger.info("daemon \(identity.pid) runs build \(running, privacy: .public); handing off to \(target, privacy: .public)")
         // Quiet (DaemonConnection.quietHandoff): no request of this connection is cut.
         let handoff = handoff

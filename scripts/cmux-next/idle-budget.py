@@ -6,12 +6,18 @@ app's main thread 0 wakeups a second, the app <= 1/s, the cmux-tui daemon <= 1/s
 each process's thread count capped. This script launches a tagged app (bench_launch.BenchApp), builds a
 session, lets it settle, then measures one window with no input and reports, per process:
 
-  threads, wakeups/s (package idle + interrupt wakeups, proc_pid_rusage, what `top -stats idlew` and
-  Activity Monitor show), context switches/s, CPU %, and the threads that ran in the window (CPU time
-  per thread, PROC_PIDTHREADID64INFO: the thread names show which loop woke);
+  threads, wakeups/s (interrupt wakeups, proc_pid_rusage: what Activity Monitor's Idle Wake Ups and
+  Chrome's GetIdleWakeupsPerSecond count; the judged number), package-idle wakeups/s (a subset of them,
+  GetPackageIdleWakeupsPerSecond), CPU energy and billed energy (mW: CPU energy plus what other processes
+  such as WindowServer spent for this one, less what it spent for them), GPU ms/s (IORegistry), context
+  switches/s, CPU %, and the threads that ran in the window (CPU time per thread,
+  PROC_PIDTHREADID64INFO: the thread names show which loop woke);
   for the app also main_wakes/s (the main run loop's wakes from sleep, debug.hangs `main_wakes`) and,
   when the build has it, the wakeup ledger's owners (debug.wakeups: DemandTimer, FrameScheduler,
   Backoff by owner and reason).
+The app's resource coalition (procs.coalition_of: energy, energy billed to it, GPU time and wakeups of
+everything it started, processes gone in the window included) is `coalition` in the report: null when
+it cannot be read.
 
 The script reads the app's counters only at the window's two ends (proc_pid_rusage of another process
 does not wake it; the two socket reads sit outside the process counters' window), so the bench adds no
@@ -27,12 +33,12 @@ Sessions (--sessions):
            Chromium pages elsewhere); its 10 busy terminals are stopped (Ctrl-C) before the settle, so the
            terminals are quiet
   tabs-static   the launch pane with 5 WebKit and 10 Chromium tabs hidden behind 1 shown static Chromium tab,
-                every page static (TabPages); the settle lasts past `browser.freezeHiddenTabs`
+                every page tab_pages' static page; the settle lasts past `browser.freezeHiddenTabs`
   minimized     the light session with its window minimized (action minimizeWindow)
-  energy-saver  tabs-static with `energy.saver: always`, the shown tab an animated page (/anim.html, rAF every
+  energy-saver  tabs-static with `energy.saver: always`, the shown tab an animated page (/anim, rAF every
                 frame, no input) whose rAF rate is read over DevTools at the window's two ends
 
-Per window the report also has, per session: `energy_mw` (ri_energy_nj per process, summed per kind and over the
+Per window the report also has, per session: `energy_mw` (CPU and billed energy, summed per kind and over the
 tree), `assertions` (`pmset -g assertions` held by or created for a pid of the set), `saver` (asked by the
 session, observed through debug.energy at both ends) and `thermal` (ProcessInfo.thermalState at both ends).
 --gate refuses a session whose observed saver state is not the one it asked for; a session whose thermal state
@@ -63,6 +69,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 sys.path.insert(0, os.path.join(HERE, "..", "perf-bench"))
 import procs  # noqa: E402  (process set of one app: descendants, bundle processes, responsible XPC processes)
+import tab_pages  # noqa: E402  (the tab-page server and the Chromium process classifier)
 
 BUDGET_FILE = os.path.join(HERE, "idle-budget.json")
 STRESS_FILE = os.path.join(HERE, "perf-stress-session.py")
@@ -70,7 +77,6 @@ STRESS_FILE = os.path.join(HERE, "perf-stress-session.py")
 # ---------------------------------------------------------------------------------------------------------
 # Per-thread counters (libproc, same user, no root)
 
-_libproc = ctypes.CDLL("/usr/lib/libproc.dylib")
 PROC_PIDLISTTHREADIDS = 28
 PROC_PIDTHREADID64INFO = 15
 
@@ -84,14 +90,15 @@ class _ThreadInfo(ctypes.Structure):
 
 def threads(pid):
     """{thread id: (cpu ns, name)} of `pid` now; {} when it is gone."""
+    libproc = procs._darwin().libproc
     ids = (ctypes.c_uint64 * 8192)()
-    size = _libproc.proc_pidinfo(ctypes.c_int(pid), ctypes.c_int(PROC_PIDLISTTHREADIDS), ctypes.c_uint64(0),
+    size = libproc.proc_pidinfo(ctypes.c_int(pid), ctypes.c_int(PROC_PIDLISTTHREADIDS), ctypes.c_uint64(0),
                                  ctypes.byref(ids), ctypes.c_int(ctypes.sizeof(ids)))
     out = {}
     for index in range(max(0, size) // 8):
         info = _ThreadInfo()
-        got = _libproc.proc_pidinfo(ctypes.c_int(pid), ctypes.c_int(PROC_PIDTHREADID64INFO), ctypes.c_uint64(ids[index]),
-                                    ctypes.byref(info), ctypes.c_int(ctypes.sizeof(info)))
+        got = libproc.proc_pidinfo(ctypes.c_int(pid), ctypes.c_int(PROC_PIDTHREADID64INFO), ctypes.c_uint64(ids[index]),
+                                   ctypes.byref(info), ctypes.c_int(ctypes.sizeof(info)))
         if got == ctypes.sizeof(info):
             out[ids[index]] = (info.user_time + info.system_time, info.name.decode(errors="replace"))
     return out
@@ -110,14 +117,9 @@ def kind(cmd):
         return "daemon"
     if re.search(r"/bin/acpmux(\s|$)", cmd):
         return "acpmux"
-    if "--type=renderer" in cmd:
-        return "cef-renderer"
-    if "--type=gpu-process" in cmd:
-        return "cef-gpu"
-    if "--type=utility" in cmd:
-        return "cef-utility"
-    if " Helper" in cmd.split(" --", 1)[0]:
-        return "cef-helper"
+    chromium = tab_pages.chromium_kind(cmd)
+    if chromium:
+        return chromium
     if "com.apple.WebKit." in cmd:
         return "webkit-" + cmd.split("com.apple.WebKit.", 1)[1].split()[0].split(".")[0].lower()
     exe = cmd.split(" --", 1)[0]
@@ -154,32 +156,6 @@ def read_rpc(app, method, params=None):
     return reply if isinstance(reply, dict) and not reply.get("error") else {}
 
 
-def process_row(pid, cmd, first, last, elapsed):
-    """One process's row over the window from its (counters, overhead, threads) reads at the two ends; `first`
-    is None for a process that started inside the window (it counts from its start). counters are procs.counters
-    (energy nJ, CPU ns, wakeups, footprint bytes): nJ per s / 1e6 is mW."""
-    (c1, o1, t1) = last
-    (c0, o0, t0) = first or (None, None, {})
-    partial = c0 is None
-    c0 = c0 or (0, 0, 0, 0)
-    o0 = o0 or (0, 0, 0, 0, 0)
-    ran = []
-    for tid, (cpu, name) in t1.items():
-        before = t0.get(tid, (0, name))[0] if not partial else 0
-        if cpu > before:
-            ran.append({"tid": tid, "name": name or "", "cpu_us": round((cpu - before) / 1000, 1)})
-    ran.sort(key=lambda t: -t["cpu_us"])
-    return {
-        "pid": pid, "kind": kind(cmd), "command": cmd[:160], "partial": partial,
-        "threads": o1[1], "threads_ran": len(ran), "ran": ran[:8],
-        "cpu_pct": round(100 * (c1[1] - c0[1]) / 1e9 / elapsed, 4),
-        "energy_mw": round((c1[0] - c0[0]) / 1e6 / elapsed, 3),
-        "wakeups_per_s": round((c1[2] - c0[2]) / elapsed, 3),
-        "csw_per_s": round(procs._delta32(o1[4], o0[4]) / elapsed, 3),
-        "footprint_mb": round(c1[3] / procs.MB, 1),
-    }
-
-
 def window_end(app, pids, anim_port):
     """What one end of the window records outside the process counters: the app's energy policy (debug.energy:
     the saver state), the Mac's thermal state, the power assertions of the pid set and, with a DevTools port, the
@@ -210,19 +186,38 @@ def measure(app, instance, seconds, anim_port=None):
     counters0 = app_counters(app)
     pids = process_set(instance)
     start = window_end(app, pids, anim_port)
-    first = {pid: (procs.counters(pid), procs.overhead(pid), threads(pid)) for pid in pids}
+    first = {pid: (procs.usage(pid), procs.overhead(pid), threads(pid)) for pid in pids}
+    gpu0 = procs.gpu_ns_by_pid()
+    coalition0 = procs.coalition_of(instance.pid)
     began = time.monotonic()
     time.sleep(seconds)  # bench: the idle window itself (nothing is sent to the app in it)
     elapsed = time.monotonic() - began
+    coalition1 = procs.coalition_of(instance.pid)
+    gpu1 = procs.gpu_ns_by_pid()
     last_pids = process_set(instance)
-    last = {pid: (procs.counters(pid), procs.overhead(pid), threads(pid)) for pid in last_pids}
+    last = {pid: (procs.usage(pid), procs.overhead(pid), threads(pid)) for pid in last_pids}
     end = window_end(app, last_pids, anim_port)
     hangs1 = read_rpc(app, "debug.hangs", {"limit": 0})
     ledger1 = read_rpc(app, "debug.wakeups", {"run_loop": True})
     counters1 = app_counters(app)
-    rows = [process_row(pid, cmd, first.get(pid), last[pid], elapsed) for pid, cmd in sorted(last_pids.items())
-            if last[pid][0] is not None and last[pid][1] is not None]
-    result = {"seconds": round(elapsed, 1), "processes": rows, "ends": {"start": start, "end": end}}
+    rows = []
+    for pid, cmd in sorted(last_pids.items()):
+        (c1, o1, t1) = last[pid]
+        if c1 is None or o1 is None:
+            continue
+        (c0, o0, t0) = first.get(pid, (None, None, {}))
+        partial = c0 is None
+        o0 = o0 or (0, 0, 0, 0, 0)
+        ran = []
+        for tid, (cpu, name) in t1.items():
+            before = t0.get(tid, (0, name))[0] if not partial else 0
+            if cpu > before:
+                ran.append({"tid": tid, "name": name or "", "cpu_us": round((cpu - before) / 1000, 1)})
+        ran.sort(key=lambda t: -t["cpu_us"])
+        rows.append(process_row(pid, cmd, c0, c1, elapsed, gpu=procs.gpu_ms_per_s(gpu0, gpu1, pid, elapsed),
+                                threads_now=o1[1], csw=procs._delta32(o1[4], o0[4]), ran=ran))
+    result = {"seconds": round(elapsed, 1), "processes": rows, "ends": {"start": start, "end": end},
+              "coalition": procs.coalition_rates(coalition0, coalition1, elapsed)}
     if "main_wakes" in hangs0 and "main_wakes" in hangs1:
         result["main_wakes_per_s"] = round((hangs1["main_wakes"] - hangs0["main_wakes"]) / elapsed, 3)
     owners = ledger_rates(ledger0, ledger1, elapsed)
@@ -235,6 +230,24 @@ def measure(app, instance, seconds, anim_port=None):
     if ledger1.get("main_run_loop"):
         result["main_run_loop_timers"] = run_loop_timers(ledger1["main_run_loop"])
     return result
+
+
+def process_row(pid, cmd, first, last, elapsed, gpu, threads_now, csw, ran):
+    """One process's row of the window from two procs.Usage reads (`first` None: it started inside the
+    window, `partial`)."""
+    got = procs.rates(first, last, elapsed)
+    return {
+        "pid": pid, "kind": kind(cmd), "command": cmd[:160], "partial": first is None,
+        "threads": threads_now, "threads_ran": len(ran), "ran": ran[:8],
+        "cpu_pct": round(got["cpu_pct"], 4),
+        "wakeups_per_s": round(got["wakeups_per_s"], 3),
+        "pkg_idle_wakeups_per_s": round(got["pkg_idle_wakeups_per_s"], 3),
+        "energy_mw_cpu": round(got["energy_mw_cpu"], 3),
+        "energy_mw_billed": round(got["energy_mw_billed"], 3),
+        "gpu_ms_per_s": None if gpu is None else round(gpu, 3),
+        "csw_per_s": round(csw / elapsed, 3),
+        "footprint_mb": round(last.footprint / procs.MB, 1),
+    }
 
 
 TIMER_RE = re.compile(r"<CFRunLoopTimer [^>]*>\{valid = (\w+), firing = \w+, interval = ([0-9.e+-]+),[^}]*?"
@@ -329,22 +342,26 @@ def ledger_rates(before, after, elapsed):
 # Budget
 
 
+# Summed per kind (field: digits). A None in any process of the kind (GPU time with no IORegistry read)
+# makes the kind's sum None: an unknown is never a 0.
+SUMMED = {"wakeups_per_s": 3, "pkg_idle_wakeups_per_s": 3, "energy_mw_cpu": 3, "energy_mw_billed": 3,
+          "gpu_ms_per_s": 3, "csw_per_s": 3, "cpu_pct": 4}
+
+
 def aggregate(result):
-    """Per kind: count, threads (sum and max per process), wakeups/s (sum and max per process), CPU %, CPU
-    energy (mW, summed)."""
+    """Per kind: count, threads (sum and max per process), interrupt wakeups/s (sum and max per process),
+    package-idle wakeups/s, CPU and billed energy (mW), GPU ms/s, context switches/s, CPU %."""
     kinds = {}
     for row in result["processes"]:
-        entry = kinds.setdefault(row["kind"], {"n": 0, "threads": 0, "threads_max": 0, "wakeups_per_s": 0.0,
-                                               "wakeups_max": 0.0, "csw_per_s": 0.0, "cpu_pct": 0.0, "energy_mw": 0.0,
-                                               "threads_ran": 0})
+        entry = kinds.setdefault(row["kind"], {"n": 0, "threads": 0, "threads_max": 0, "wakeups_max": 0.0,
+                                               "threads_ran": 0, **{field: 0.0 for field in SUMMED}})
         entry["n"] += 1
         entry["threads"] += row["threads"]
         entry["threads_max"] = max(entry["threads_max"], row["threads"])
-        entry["wakeups_per_s"] = round(entry["wakeups_per_s"] + row["wakeups_per_s"], 3)
         entry["wakeups_max"] = max(entry["wakeups_max"], row["wakeups_per_s"])
-        entry["csw_per_s"] = round(entry["csw_per_s"] + row["csw_per_s"], 3)
-        entry["cpu_pct"] = round(entry["cpu_pct"] + row["cpu_pct"], 4)
-        entry["energy_mw"] = round(entry["energy_mw"] + row.get("energy_mw", 0.0), 3)
+        for field, digits in SUMMED.items():
+            value = row.get(field, 0.0)
+            entry[field] = None if entry[field] is None or value is None else round(entry[field] + value, digits)
         entry["threads_ran"] += row["threads_ran"]
     if "main_wakes_per_s" in result and "app" in kinds:
         kinds["app"]["main_wakes_per_s"] = result["main_wakes_per_s"]
@@ -352,9 +369,12 @@ def aggregate(result):
 
 
 def energy_summary(kinds):
-    """{"per_kind": {kind: mW}, "tree": mW}: the CPU energy of each kind and of the whole process set."""
-    per_kind = {name: entry.get("energy_mw", 0.0) for name, entry in kinds.items()}
-    return {"per_kind": per_kind, "tree": round(sum(per_kind.values()), 3)}
+    """{"per_kind": {kind: {cpu, billed}}, "tree": {cpu, billed}} in mW: the CPU energy and the billed energy
+    (aggregate's energy_mw_cpu and energy_mw_billed) of each kind and of the whole process set."""
+    per_kind = {name: {"cpu": entry["energy_mw_cpu"], "billed": entry["energy_mw_billed"]}
+                for name, entry in kinds.items()}
+    tree = {field: round(sum(e[field] for e in per_kind.values()), 3) for field in ("cpu", "billed")}
+    return {"per_kind": per_kind, "tree": tree}
 
 
 def saver_mismatch(asked, observed):
@@ -434,9 +454,10 @@ def over_budget(session, kinds, budget):
     return out
 
 
-# Noise floors of the cron rows: one wakeup a second, two threads (a pool thread parks or exits late), half a mW.
+# Noise floors of the cron rows: one wakeup a second, two threads (a pool thread parks or exits late).
 CRON_FLOORS = {"wakeups_per_s": 0.5, "wakeups_max": 0.5, "main_wakes_per_s": 0.5, "threads_max": 2, "threads": 2,
-               "energy_mw": 0.5}
+               "energy_mw_billed": 1.0, "gpu_ms_per_s": 1.0}
+CRON_UNITS = {"threads_max": "threads", "threads": "threads", "energy_mw_billed": "mW", "gpu_ms_per_s": "ms/s"}
 
 
 def cron_rows(report, budget=None):
@@ -454,7 +475,7 @@ def cron_rows(report, budget=None):
                 limit = limits.get(field)
                 if isinstance(limit, dict):
                     limit = limit.get(session)
-                unit = "threads" if field.startswith("threads") else "mW" if field == "energy_mw" else "/s"
+                unit = CRON_UNITS.get(field, "/s")
                 out[f"idle_budget.{session}.{name}.{field}"] = {"p50": value, "p95": value, "unit": unit,
                                                                  "budget": limit, "floor": floor}
     return out
@@ -472,87 +493,31 @@ def load_stress():
     return module
 
 
-STATIC_PAGE = ("<!doctype html><meta charset='utf-8'><title>idle %d</title>"
-               "<style>body{margin:0;font:16px -apple-system,sans-serif;background:#f4f4f6}"
-               ".g{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:10px;padding:16px}"
-               ".g div{height:80px;border-radius:10px;background:#c9d4e8}</style>"
-               "<h1>idle page %d</h1><div class='g'>%s</div><p>%s</p>")
-
-
-# The animated page of energy-saver: one box turned on every rAF, the count in window.__rafCount (read over DevTools).
+# The animated page of energy-saver: one box turned on every rAF, the count in window.__rafCount (read over
+# DevTools); it reports /loaded/anim as the shared static page reports /loaded/<n>.
 ANIM_PAGE = ("<!doctype html><meta charset='utf-8'><title>idle anim</title>"
              "<style>body{margin:0;background:#f4f4f6}#b{width:64px;height:64px;margin:40px;border-radius:12px;"
              "background:#20304a}</style><div id='b'></div><script>window.__rafCount=0;"
              "const b=document.getElementById('b');requestAnimationFrame(function f(){window.__rafCount++;"
-             "b.style.transform='rotate('+(window.__rafCount*3%360)+'deg)';requestAnimationFrame(f)})</script>")
-ANIM_PATH = "/anim.html"
+             "b.style.transform='rotate('+(window.__rafCount*3%360)+'deg)';requestAnimationFrame(f)});"
+             "fetch('/loaded/anim',{method:'POST'})</script>")
+ANIM_PATH = "/anim"
 
 
-def page_handler(requested):
-    """The HTTP handler of the idle pages: ANIM_PATH is the animated page, any other path a static page (no
-    script, no timer, no animation) numbered by the digits that end its path. Each served path is added to `requested`."""
-    import http.server
+class IdlePages(tab_pages.TabPages):
+    """The shared tab-page server plus energy-saver's animated page at ANIM_PATH."""
 
-    class Handler(http.server.BaseHTTPRequestHandler):
-        def do_GET(self):  # noqa: N802
-            path = self.path.split("?", 1)[0]
-            if path == "/favicon.ico":
-                self.send_error(404)
-                return
-            if path == ANIM_PATH:
-                data = ANIM_PAGE.encode()
-            else:
-                number = re.search(r"(\d+)$", path.rstrip("/"))
-                index = int(number.group(1)) if number else 0
-                data = (STATIC_PAGE % (index, index, "<div></div>" * 120, "lorem ipsum dolor sit amet " * 200)).encode()
-            self.send_response(200)
-            self.send_header("Content-Type", "text/html")
-            self.send_header("Content-Length", str(len(data)))
-            self.end_headers()
-            self.wfile.write(data)
-            requested.add(path)
+    def body(self, path):
+        return ANIM_PAGE.encode() if path.split("?", 1)[0] == ANIM_PATH else super().body(path)
 
-        def log_message(self, *args):
-            pass
-
-    return Handler
-
-
-class TabPages:
-    """The local server of the tab sessions' pages (page_handler), on 127.0.0.1, started by the first url()."""
-
-    def __init__(self):
-        self.requested = set()
-        self.server = None
-
-    def url(self, path):
-        if self.server is None:
-            import http.server
-            import threading
-            self.server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), page_handler(self.requested))
-            threading.Thread(target=self.server.serve_forever, daemon=True).start()
-        return f"http://127.0.0.1:{self.server.server_address[1]}{path}"
-
-    def wait_requested(self, path, seconds):
+    def wait_loaded(self, key, seconds):
+        """True once the page `key` reported /loaded/<key>, False after `seconds`."""
         deadline = time.monotonic() + seconds
-        while path not in self.requested:
+        while key not in self.loaded:
             if time.monotonic() > deadline:
                 return False
-            time.sleep(0.2)  # bench: bounded wait for the tab to request its page
+            time.sleep(0.2)  # bench: bounded wait for the tab's page to load
         return True
-
-    def close(self):
-        if self.server is not None:
-            self.server.shutdown()
-            self.server.server_close()
-            self.server = None
-
-
-def static_pages(stress_module):
-    """STRESS's local pages without their rAF spinner (page_handler's static pages)."""
-    pages = stress_module.Pages()
-    pages.handler = page_handler(set())
-    return pages
 
 
 class SessionShapeError(RuntimeError):
@@ -572,18 +537,24 @@ def run_action(app, action, args=None, focus=False, timeout=30):
     return reply
 
 
+def tab_plan(pages, tabs):
+    """[(engine, url, loaded key)] of a session's tabs in opening order: the hidden WebKit tabs, the hidden Chromium
+    tabs, then the shown Chromium tab (`tabs["shown"]`: "static" or "anim")."""
+    plan = ([("webkit", pages.url("static", f"w{n}"), f"w{n}") for n in range(tabs["webkit_hidden"])]
+            + [("chromium", pages.url("static", f"c{n}"), f"c{n}") for n in range(tabs["chromium_hidden"])])
+    if tabs["shown"] == "anim":
+        return plan + [("chromium", pages.origin + ANIM_PATH, "anim")]
+    return plan + [("chromium", pages.url("static", "shown"), "shown")]
+
+
 def build_tabs(app, pages, tabs):
-    """Opens the session's tabs in the launch pane: the hidden WebKit tabs, the hidden Chromium tabs, then the shown
-    Chromium tab last (a new tab is selected, so every earlier one is hidden behind it). Waits for each tab's page
-    request. Returns {engine: count} of the opened tabs."""
-    plan = ([("webkit", f"/static/w{n}") for n in range(tabs["webkit_hidden"])]
-            + [("chromium", f"/static/c{n}") for n in range(tabs["chromium_hidden"])]
-            + [("chromium", tabs["shown"])])
+    """Opens the session's tabs (tab_plan) in the launch pane; a new tab is selected, so every earlier one is hidden
+    behind the last. Waits for each page to load. Returns {engine: count} of the opened tabs."""
     opened = {}
-    for engine, path in plan:
-        run_action(app, f"openBrowser.{engine}", {"url": pages.url(path)}, focus=True, timeout=90)
-        if not pages.wait_requested(path, 90):
-            raise SessionShapeError(f"{engine} tab {path} never requested its page in 90 s")
+    for engine, url, key in tab_plan(pages, tabs):
+        run_action(app, f"openBrowser.{engine}", {"url": url}, focus=True, timeout=90)
+        if not pages.wait_loaded(key, 90):
+            raise SessionShapeError(f"{engine} tab {url} did not load in 90 s")
         opened[engine] = opened.get(engine, 0) + 1
     return opened
 
@@ -632,7 +603,7 @@ def build_stress(app, static=False):
     stress_module = load_stress()
     stress = stress_module.Stress(app.rpc)
     if static:
-        stress.pages = static_pages(stress_module)
+        stress.pages = tab_pages.TabPages(default_kind="grid")
     summary = stress.build()
     for tab in getattr(stress, "busy", []):
         stress.send(tab, "\x03")
@@ -647,7 +618,7 @@ BASE_CONFIG = {"appearance": {"backgroundOpacity": 1}}  # BenchApp's default con
 FREEZE_HIDDEN_TABS_S = 30
 FREEZE_GRACE_S = 15
 TABS_CONFIG = {**BASE_CONFIG, "browser": {"freezeHiddenTabs": FREEZE_HIDDEN_TABS_S}}
-TABS_STATIC = {"webkit_hidden": 5, "chromium_hidden": 10, "shown": "/static/shown"}
+TABS_STATIC = {"webkit_hidden": 5, "chromium_hidden": 10, "shown": "static"}
 # The sessions (the docstring describes each). Keys: config (the app's cmux.json), hide, minimize, stress, static
 # (STRESS without its rAF spinner), tabs (build_tabs's plan), settle_min (seconds), saver (the energy saver state the
 # session asks for; --gate refuses a window that shows another), anim (read the animated page over DevTools).
@@ -659,7 +630,7 @@ SESSIONS = {
     "stress": {"stress": True},
     "stress-static": {"stress": True, "static": True},
     "tabs-static": {"config": TABS_CONFIG, "tabs": TABS_STATIC, "settle_min": FREEZE_HIDDEN_TABS_S + FREEZE_GRACE_S},
-    "energy-saver": {"config": {**TABS_CONFIG, "energy": {"saver": "always"}}, "tabs": {**TABS_STATIC, "shown": ANIM_PATH},
+    "energy-saver": {"config": {**TABS_CONFIG, "energy": {"saver": "always"}}, "tabs": {**TABS_STATIC, "shown": "anim"},
                      "settle_min": FREEZE_HIDDEN_TABS_S + FREEZE_GRACE_S, "saver": True, "anim": True},
 }
 
@@ -715,22 +686,34 @@ def table(session, kinds, overs, entry=None):
     over_keys = {(k, f) for k, f, _, _ in overs}
     lines = [f"\n### {session}\n"]
     if entry:
-        saver, thermal = entry["saver"], entry["thermal"]
-        lines.append(f"energy {entry['energy_mw']['tree']} mW (tree); saver asked {saver['asked']}, observed "
-                     f"{saver['observed']}{' REFUSED' if saver['mismatch'] else ''}; thermal {thermal['worst']}"
+        saver, thermal, energy = entry["saver"], entry["thermal"], entry["energy_mw"]["tree"]
+        lines.append(f"energy {energy['cpu']} mW CPU, {energy['billed']} mW billed (tree); saver asked {saver['asked']}, "
+                     f"observed {saver['observed']}{' REFUSED' if saver['mismatch'] else ''}; thermal {thermal['worst']}"
                      f"{' (marked)' if thermal['marked'] else ''}; {len(entry['assertions'])} power assertion(s)"
                      + (f"; page rAF {entry['anim']}" if "anim" in entry else "") + "\n")
-    lines += ["| process | n | threads (max) | wakeups/s (max) | main wakes/s | csw/s | CPU % | mW | threads that ran |",
-              "|---|---|---|---|---|---|---|---|---|"]
+    lines += ["| process | n | threads (max) | wakeups/s (max) | pkg-idle wakeups/s | main wakes/s | "
+              "CPU mW | billed mW | GPU ms/s | csw/s | CPU % | threads that ran |",
+              "|---|---|---|---|---|---|---|---|---|---|---|---|"]
     order = ["app", "daemon", "holder", "terminal-host", "acpmux"]
     for name in sorted(kinds, key=lambda k: (order.index(k) if k in order else len(order), k)):
         e = kinds[name]
         mark = lambda f, v: f"**{v}**" if (name, f) in over_keys else f"{v}"  # noqa: E731
         lines.append(f"| {name} | {e['n']} | {e['threads']} ({mark('threads_max', e['threads_max'])}) | "
                      f"{mark('wakeups_per_s', e['wakeups_per_s'])} ({mark('wakeups_max', e['wakeups_max'])}) | "
-                     f"{mark('main_wakes_per_s', e.get('main_wakes_per_s', '-'))} | {e['csw_per_s']} | {e['cpu_pct']} | "
-                     f"{mark('energy_mw', e.get('energy_mw', '-'))} | {e['threads_ran']} |")
+                     f"{e['pkg_idle_wakeups_per_s']} | {mark('main_wakes_per_s', e.get('main_wakes_per_s', '-'))} | "
+                     f"{mark('energy_mw_cpu', e['energy_mw_cpu'])} | {mark('energy_mw_billed', e['energy_mw_billed'])} | "
+                     f"{mark('gpu_ms_per_s', '-' if e['gpu_ms_per_s'] is None else e['gpu_ms_per_s'])} | "
+                     f"{e['csw_per_s']} | {e['cpu_pct']} | {e['threads_ran']} |")
     return "\n".join(lines)
+
+
+def coalition_line(coalition):
+    """The app's resource coalition under the session's table (None: it could not be read)."""
+    if coalition is None:
+        return "app coalition: not readable"
+    return (f"app coalition: {coalition['wakeups_per_s']} wakeups/s ({coalition['pkg_idle_wakeups_per_s']} pkg-idle), "
+            f"{coalition['energy_mw_cpu']} mW CPU, {coalition['energy_mw_billed']} mW billed, "
+            f"{coalition['gpu_ms_per_s']} GPU ms/s, {coalition['cpu_pct']} % CPU")
 
 
 def main():
@@ -764,7 +747,7 @@ def main():
         anim_port = free_port() if spec.get("anim") else None
         env = {"CMUX_NEXT_CEF_EXTRA_SWITCHES": f"remote-debugging-port={anim_port}:remote-allow-origins=*"} if anim_port else None
         app = BenchApp(opts.app, out=os.path.join(out, session), config=spec.get("config"), env=env)
-        pages = TabPages()
+        pages = IdlePages() if spec.get("tabs") else None
         try:
             entry = {"fresh_session": fresh_session(app)}
             report["sessions"][session] = entry
@@ -821,7 +804,8 @@ def main():
             if entry["thermal"]["marked"]:
                 print(f"IDLE-BUDGET-THERMAL {session} rows taken at {entry['thermal']['worst']}: not comparable", flush=True)
             all_overs += [(session, *o) for o in overs]
-            markdown.append(table(session, kinds, overs, entry))
+            markdown.append(table(session, kinds, overs, entry) + "\n\n" + coalition_line(result.get("coalition")))
+            print(f"IDLE-BUDGET-COALITION {session} " + json.dumps(result.get("coalition")), flush=True)
             entry["exit"] = 0
         except BaseException as error:  # noqa: BLE001 - one session's failure (a STRESS shape refusal, a launch
             # failure) is recorded with its exit code; the other sessions still measure and report.
@@ -833,7 +817,8 @@ def main():
                 raise
         finally:
             app.stop()
-            pages.close()
+            if pages is not None:
+                pages.close()
     report["over"] = [list(o) for o in all_overs]
     report["refused"] = refused
     report["session_exits"] = {name: entry.get("exit") for name, entry in report["sessions"].items()}
