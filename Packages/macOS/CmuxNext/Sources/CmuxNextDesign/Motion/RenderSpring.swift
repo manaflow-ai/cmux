@@ -19,7 +19,16 @@ import CmuxNextCompat
 ///
 /// A key path driven by a `RenderSpring` must not also carry a non-additive animation:
 /// that would pin the presented value to its own end value.
+///
+/// Each call has one landing: its completion runs once, with `true` when every spring on its
+/// key paths has ended (its own and the ones still running from earlier calls), or with `false`
+/// at once when a newer call takes over one of its key paths. So completions run in call order,
+/// and only the newest call's `true` means the layer is at rest (`RenderSpring.Landing`).
 public struct RenderSpring {
+    /// A call's landing: `finished` is true when the layer is at rest on the call's targets,
+    /// false when a newer call took over one of its key paths first.
+    public typealias Completion = @MainActor @Sendable (_ finished: Bool) -> Void
+
     /// The spring token.
     public let token: MotionSpring
     /// The gate that decides whether the spring runs.
@@ -34,28 +43,29 @@ public struct RenderSpring {
     /// The tuning at the current speed.
     public var parameters: SpringParameters { gate.spring(token) }
 
-    /// Whether a change of a layer shown in `view` springs: movement animates in this
-    /// gate and the view's display draws frames (``Motion/canAnimate(in:)``).
-    public func animates(in view: NSView?) -> Bool {
-        gate.animatesMovement && Motion.canAnimate(in: view)
+    /// Whether a change of `keyPath` on a layer shown in `view` animates: the view's display
+    /// draws frames (``Motion/canAnimate(in:)``), and the gate animates movement, or, for a
+    /// fade key path (``isFade(_:)``), fades (a crossfade under Reduce Motion).
+    public func animates(_ keyPath: String, in view: NSView?) -> Bool {
+        style(for: keyPath, shown: Motion.canAnimate(in: view)) != .snap
     }
 
-    /// Springs `layer.keyPath` to `value`. When the gate does not animate, the value
-    /// shows in one frame (springs left on the key path are removed) and `completion`
-    /// runs now; otherwise `completion` runs when every spring this call added has
-    /// ended (a `CATransaction` completion).
-    public func animate<Value: RenderSpringValue>(_ layer: CALayer, _ keyPath: String, to value: Value, in view: NSView? = nil,
-                                                  completion: (@MainActor @Sendable () -> Void)? = nil) {
+    /// Springs `layer.keyPath` to `value`. When the gate does not animate the key path, the
+    /// value shows in one frame (springs left on the key path are removed) and `completion`
+    /// runs now; otherwise it runs when the layer lands (``Completion``). `view` is the view
+    /// that shows `layer`, or nil only for a layer in no window.
+    public func animate<Value: RenderSpringValue>(_ layer: CALayer, _ keyPath: String, to value: Value, in view: NSView?,
+                                                  completion: Completion? = nil) {
         animateGroup([.init(layer, keyPath, to: value)], in: view, completion: completion)
     }
 
-    /// Springs the scalar `layer.keyPath` (`position.x`, `bounds.size.width`, `opacity`) to
-    /// `value`, starting with `velocity` (units of the value per second, as a fling's
-    /// release velocity). One scalar per key path, because a `CASpringAnimation` has one
-    /// initial velocity normalized to its distance: a point's velocity fits only when it
-    /// is parallel to the distance.
-    public func animate(_ layer: CALayer, _ keyPath: String, to value: CGFloat, velocity: CGFloat, in view: NSView? = nil,
-                        completion: (@MainActor @Sendable () -> Void)? = nil) {
+    /// Springs the scalar `layer.keyPath` (`position.x`, `bounds.size.width`) to `value`,
+    /// starting with `velocity` (units of the value per second, as a fling's release
+    /// velocity). One scalar per key path, because a `CASpringAnimation` has one initial
+    /// velocity normalized to its distance: a point's velocity fits only when it is parallel
+    /// to the distance.
+    public func animate(_ layer: CALayer, _ keyPath: String, to value: CGFloat, velocity: CGFloat, in view: NSView?,
+                        completion: Completion? = nil) {
         animateGroup([.init(layer, keyPath, to: value, velocity: velocity)], in: view, completion: completion)
     }
 
@@ -63,8 +73,8 @@ public struct RenderSpring {
     /// one begin time, so a sublayer that does not scale with the host (a ring, a glow, an
     /// edge-anchored item) stays in step with it and nothing relies on `autoresizingMask`
     /// during the spring. Each layer's transform must be the identity.
-    public func animateGroup(host: CALayer, to hostFrame: CGRect, sublayers: [(CALayer, CGRect)], in view: NSView? = nil,
-                             completion: (@MainActor @Sendable () -> Void)? = nil) {
+    public func animateGroup(host: CALayer, to hostFrame: CGRect, sublayers: [(CALayer, CGRect)], in view: NSView?,
+                             completion: Completion? = nil) {
         let frames = [(host, hostFrame)] + sublayers
         let starts = frames.map { layer, _ in (layer.position, layer.bounds.size) }
         // One outer transaction: the rest frames and their springs commit together.
@@ -80,40 +90,81 @@ public struct RenderSpring {
         CATransaction.commit()
     }
 
-    /// Springs every move on this token from one begin time, in one transaction.
-    public func animateGroup(_ moves: [Move], in view: NSView? = nil, completion: (@MainActor @Sendable () -> Void)? = nil) {
-        guard animates(in: view) else {
-            CATransaction.begin()
-            CATransaction.setDisableActions(true)
-            for move in moves {
-                Self.stop(move.layer, move.keyPath)
-                move.layer.setValue(move.target, forKeyPath: move.keyPath)
+    /// Springs every move on this token from one begin time, in one transaction. A move whose
+    /// key path does not animate (``animates(_:in:)``) shows its value in one frame.
+    public func animateGroup(_ moves: [Move], in view: NSView?, completion: Completion? = nil) {
+        let shown = Motion.canAnimate(in: view)
+        let styles = moves.map { style(for: $0.keyPath, shown: shown) }
+        let landing = Landing(completion)
+        var superseded: [Landing] = []
+        for (move, style) in zip(moves, styles) {
+            for earlier in Landing.Table.on(move.layer).take(move.keyPath, for: landing, waits: style != .snap)
+                where !superseded.contains(where: { $0 === earlier }) {
+                superseded.append(earlier)
             }
-            CATransaction.commit()
-            completion?()
-            return
+        }
+        let animated = zip(moves, styles).first { $0.1 != .snap }?.0
+        if MotionTrace.isEnabled, let animated {
+            landing.trace("render.\(token.rawValue)", id: ObjectIdentifier(animated.layer))
         }
         let spring = parameters
-        let trace = MotionTrace.isEnabled ? "render.\(token.rawValue)" : nil
-        if let trace { MotionTrace.begin(trace) }
         let now = CACurrentMediaTime()
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        if completion != nil || trace != nil {
-            CATransaction.setMainCompletion {
-                if let trace { MotionTrace.end(trace) }
-                completion?()
-            }
+        if animated != nil {
+            CATransaction.setMainCompletion { landing.springsDidEnd() }
         }
-        for move in moves {
+        for (move, style) in zip(moves, styles) {
+            guard style != .snap else {
+                Self.stop(move.layer, move.keyPath)
+                move.layer.setValue(move.target, forKeyPath: move.keyPath)
+                continue
+            }
             let offset = move.offsetFrom(move.layer.value(forKeyPath: move.keyPath))
             move.layer.setValue(move.target, forKeyPath: move.keyPath)
             let begin = move.layer.convertTime(now, from: nil)
+            if case .crossfade(let duration) = style {
+                if let offset, offset.extent > 0 {
+                    Self.addFade(from: offset.value, on: move.layer, keyPath: move.keyPath, duration: duration, begin: begin, zero: move.zero)
+                }
+                continue
+            }
             for part in Self.parts(offset: offset, velocity: move.velocity, omega: spring.omega) {
                 Self.add(part, on: move.layer, keyPath: move.keyPath, spring: spring, begin: begin, zero: move.zero)
             }
         }
         CATransaction.commit()
+        // The calls this one took over end first, not finished, oldest first. They run after the
+        // commit, so a completion that animates the layer again takes over a fully set-up call.
+        for earlier in superseded.sorted(by: { $0.serial < $1.serial }) { earlier.supersede(by: landing) }
+        // Nothing animates: the values are on screen in this frame, and the call lands now.
+        if animated == nil { landing.springsDidEnd() }
+    }
+
+    // MARK: Gating
+
+    /// How one key path's change shows.
+    enum Style: Equatable {
+        /// In one frame.
+        case snap
+        /// An additive spring.
+        case spring
+        /// An additive fade of this many seconds (a fade key path while movement is off).
+        case crossfade(CFTimeInterval)
+    }
+
+    /// Opacity is a fade in the motion policy (`animatesFades`, a crossfade under Reduce
+    /// Motion); every other key path a `RenderSpringValue` animates is movement.
+    public static func isFade(_ keyPath: String) -> Bool {
+        keyPath == "opacity" || keyPath == "shadowOpacity"
+    }
+
+    func style(for keyPath: String, shown: Bool) -> Style {
+        guard shown else { return .snap }
+        if gate.animatesMovement { return .spring }
+        guard Self.isFade(keyPath), gate.animatesFades else { return .snap }
+        let crossfade = gate.duration(.crossfade)
+        return crossfade > 0 ? .crossfade(crossfade) : .snap
     }
 
     /// Removes the springs `RenderSpring` added on `keyPath`, on its components and on the
@@ -121,10 +172,15 @@ public struct RenderSpring {
     /// its model value now.
     public static func stop(_ layer: CALayer, _ keyPath: String) {
         for key in layer.animationKeys() ?? [] {
-            guard let path = springKeyPath(key),
-                  path == keyPath || path.hasPrefix(keyPath + ".") || keyPath.hasPrefix(path + ".") else { continue }
+            guard let path = springKeyPath(key), related(path, keyPath) else { continue }
             layer.removeAnimation(forKey: key)
         }
+    }
+
+    /// Whether a spring on `path` and one on `keyPath` move the same value: equal, or one is a
+    /// component of the other (`position` and `position.x`, not `position.x` and `position.y`).
+    static func related(_ path: String, _ keyPath: String) -> Bool {
+        path == keyPath || path.hasPrefix(keyPath + ".") || keyPath.hasPrefix(path + ".")
     }
 
     // MARK: Moves
@@ -220,6 +276,18 @@ public struct RenderSpring {
         animation.beginTime = begin
         animation.duration = duration(extent: part.extent, spring: spring)
         layer.add(animation, forKey: nextKey(on: layer, keyPath: keyPath))
+    }
+
+    private static func addFade(from offset: Any, on layer: CALayer, keyPath: String, duration: CFTimeInterval,
+                                begin: CFTimeInterval, zero: Any) {
+        let fade = CABasicAnimation(keyPath: keyPath)
+        fade.fromValue = offset
+        fade.toValue = zero
+        fade.isAdditive = true
+        fade.beginTime = begin
+        fade.duration = duration
+        fade.timingFunction = Motion.fadeCurve
+        layer.add(fade, forKey: nextKey(on: layer, keyPath: keyPath))
     }
 
     // MARK: Keys
