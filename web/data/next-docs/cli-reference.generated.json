@@ -1026,7 +1026,7 @@
         },
         {
           "command": "cmux cloud new-terminal-on-machine",
-          "title": "New Terminal on Machine",
+          "title": "New Terminal Workspace on Machine",
           "id": "cloudNewTerminal",
           "mcp": true
         },

@@ -347,6 +347,17 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                     if let Some(line) = host_pressure_line(&v["host_pressure"]) {
                         println!("host:     {line}");
                     }
+                    let login = match &v["loginSession"] {
+                        Value::Bool(here) => Some(Some(*here)),
+                        Value::String(s) if s == "unknown" => Some(None),
+                        _ => None,
+                    };
+                    let own = v.get("ownHome").and_then(Value::as_bool).unwrap_or(true);
+                    if let Some(line) =
+                        login.and_then(|l| crate::daemon::login_placement::keychain_line(l, own))
+                    {
+                        println!("{line}");
+                    }
                     for p in v.get("peers").and_then(Value::as_array).cloned().unwrap_or_default() {
                         println!(
                             "peer:     {} {} ({} sessions) {}",

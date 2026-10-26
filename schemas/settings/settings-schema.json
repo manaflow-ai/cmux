@@ -1376,6 +1376,16 @@
               "key" : "settings.group.hangReports",
               "text" : "Hang Reports"
             }
+          },
+          {
+            "key" : "settings.group.sshLinks",
+            "rows" : [
+              "ssh.linkAllowedHosts"
+            ],
+            "title" : {
+              "key" : "settings.group.sshLinks",
+              "text" : "SSH Links"
+            }
           }
         ],
         "id" : "privacy",
@@ -5355,6 +5365,72 @@
       "title" : {
         "key" : "settings.machines.colors",
         "text" : "Machine Color"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        [
+
+        ],
+        [
+          "ws-1",
+          "2B7F0C3A-workspace"
+        ]
+      ],
+      "agent_refusal" : "network",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : [
+
+      ],
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sshLinks",
+        "text" : "SSH Links"
+      },
+      "help" : {
+        "key" : "settings.machines.sshLinkHosts.help",
+        "text" : "An ssh:// link from another app connects to these hosts without asking. Remove a host to be asked again. Saved machines and acpmux peers never ask."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "ssh.linkAllowedHosts",
+      "keywords" : [
+        "ssh",
+        "link",
+        "url",
+        "host",
+        "trust",
+        "allow",
+        "always",
+        "machine",
+        "security"
+      ],
+      "kind" : "string_list",
+      "page_hidden" : false,
+      "path" : [
+        "ssh",
+        "linkAllowedHosts"
+      ],
+      "refuses" : [
+        "ws-1",
+        [
+          1
+        ],
+        [
+          ""
+        ],
+        {
+
+        }
+      ],
+      "section" : "machines",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.machines.sshLinkHosts",
+        "text" : "Always Allowed SSH Link Hosts"
       },
       "validation" : "portable"
     },
