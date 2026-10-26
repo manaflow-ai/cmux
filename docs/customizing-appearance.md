@@ -187,7 +187,11 @@ place or the other.
 ## Workspace and notification colors
 
 - `workspaceColors.indicatorStyle`: `leftRail` (default) or `solidFill` for the
-  selected workspace.
+  selected workspace. In cmux NEXT the same key sets how a colored workspace's
+  row shows its color: `dot` (default), `leftRail` (a bar down the row's edge)
+  or `fill` (the whole row in its color; `solidFill` is read as `fill`). It is
+  Workspace Color Style in Settings › Appearance, and applies to workspaces
+  inside groups too.
 - `workspaceColors.selectionColor` and `workspaceColors.notificationBadgeColor`
   override those colors.
 - `workspaceColors.subtleSelection`: `true` swaps the solid left-rail selection

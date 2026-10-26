@@ -76,8 +76,12 @@ extension WorkspaceRowView {
             // Fills only, no borders: drop target, selection, multi-selection or on screen, hover.
             let fill = isDropTarget || isSelected ? Palette.selectionFill : isSecondarySelected || isOnScreen ? Palette.secondarySelectionFill
                 : isHovered && !isPlaceholderRow && DesignSettings.shared.showsHoverFills ? Palette.hoverFill : nil
-            paintFill(fill)
-            (rowBadge.ringColor, rowBadge.chipColor) = (Self.badgeBackdrop(fill), Palette.sidebarStep.cgColor)
+            // `workspaceColors.indicatorStyle` fill: the row's color in place of the gray steps (#25653).
+            let painted = colorFill(selected: isDropTarget || isSelected, soft: isSecondarySelected || isOnScreen,
+                                    hovered: isHovered && !isPlaceholderRow) ?? fill
+            paintFill(painted)
+            tintColorRail()
+            (rowBadge.ringColor, rowBadge.chipColor) = (Self.badgeBackdrop(painted), Palette.sidebarStep.cgColor)
             // The sidebar's own tonal step, once more: a bar a step apart.
             placeholderBar.layer?.backgroundColor = Palette.sidebarStep.cgColor
         }
@@ -86,6 +90,7 @@ extension WorkspaceRowView {
     override func layout() {
         super.layout()
         let full = layoutBounds
+        layoutColorRail(in: full)
         // The name lines and the trailing cluster center in the head; the
         // status block, when shown, fills the rest below it.
         let b = NSRect(x: full.minX, y: full.minY, width: full.width, height: full.height - statusHeight)

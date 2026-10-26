@@ -159,6 +159,8 @@ public nonisolated struct SidebarLayoutOptions: Hashable, Sendable {
     public var showsTimestamps = false
     /// `sidebar.showColors`: off, a row draws no workspace color (`WorkspaceIcon.uncolored`).
     public var showsColors = true
+    /// `workspaceColors.indicatorStyle`: a colored row's dot, leading rail or full-row fill (#25653).
+    public var colorIndicator: WorkspaceColorIndicatorStyle = .dot
     /// The start of today: the last-activity element shows a time for today,
     /// else a date. A day, not the current time, so options stay equal.
     public var now = Date(timeIntervalSince1970: 0)
@@ -217,7 +219,13 @@ nonisolated extension SidebarLayoutOptions {
             content.badge = nil
         }
         if !showsTimestamps { (content.time, content.badgeTime) = (nil, nil) }
-        if !showsColors { content.icon = content.icon?.uncolored }
+        if !showsColors {
+            content.icon = content.icon?.uncolored
+        } else if colorIndicator != .dot, let color = ws.color ?? ws.icon?.color {
+            // The rail or the fill says the color, so a bare swatch would say it twice; a symbol or emoji stays.
+            (content.rowColor, content.colorStyle) = (color, colorIndicator)
+            if case .swatch? = content.icon { content.icon = nil }
+        }
         // What the agent needs, for the row's accessibility label only: a row draws no status words
         // (Leo 2026-10-21), its badge's dot says it. Worded on the main actor by the row view.
         if !minimal, let chip = WorkspaceRowContent.rowChip(ws.agentChip) { content.chip = chip }

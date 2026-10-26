@@ -155,6 +155,7 @@ public struct SidebarMapping {
             // leaves its name (#22250; Leo 2026-10-21: "why did this turn into the githb favicon?").
             icon: Self.icon(color: workspace.color, icon: workspace.icon, asset: iconAsset)
                 ?? (work == nil ? page?.favicon.map(WorkspaceIcon.favicon) : nil),
+            color: color(workspace.color),
             kind: kind(front),
             kindBrand: front?.agentBrand,
             // A tab marked unread by hand (Mark Tab Unread) shows as the workspace's manual dot.

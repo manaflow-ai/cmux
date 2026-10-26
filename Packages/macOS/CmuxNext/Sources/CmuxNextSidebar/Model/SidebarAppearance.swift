@@ -25,6 +25,17 @@ public nonisolated enum WorkspaceIcon: Hashable, Sendable {
         }
     }
 
+    /// The workspace color this icon draws in (a swatch, a symbol's tint, an emoji's chip); nil
+    /// for a favicon. A row restored from the snapshot has no `SidebarWorkspace.color` yet.
+    public var color: GroupColor? {
+        switch self {
+        case let .swatch(color): color
+        case let .symbol(_, tint): tint
+        case let .emoji(_, chip): chip
+        case .favicon: nil
+        }
+    }
+
     /// The workspace record's `icon` string (workspace-metadata-v1) through
     /// the one icon rule (``IconValue``); nil when it is not an emoji or a
     /// symbol name. Image and SVG assets draw as a placeholder symbol while
