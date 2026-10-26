@@ -40,8 +40,18 @@ impl Memory for OptChat {
 
 /// The Chief tools a turn another person started may call only with
 /// some arguments (`approval::CHIEF_TOOLS`, by their socket names).
-const TURN_GATED: [&str; 10] = [
-    "send", "reply", "react", "stop", "sleep", "spawn", "tell", "control", "profile", "remember",
+const TURN_GATED: [&str; 11] = [
+    "send",
+    "reply",
+    "react",
+    "stop",
+    "sleep",
+    "spawn",
+    "tell",
+    "control",
+    "profile",
+    "remember",
+    "cloud_workspace",
 ];
 
 /// Section 9's subagent tools, answered by the host (subagents.rs).

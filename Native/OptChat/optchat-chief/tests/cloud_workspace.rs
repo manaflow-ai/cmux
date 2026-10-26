@@ -96,6 +96,10 @@ fn another_workspace_on_a_named_machine_targets_it() {
     let seen = seen.lock().unwrap();
     assert_eq!(seen[0]["params"]["action"], "newCloudWorkspace");
     assert_eq!(seen[0]["params"]["target"], "machine:vm-2");
+    assert_eq!(
+        seen[0]["params"]["idempotency_key"],
+        "optchat-cloud-workspace-machine:vm-2-review"
+    );
 }
 
 #[test]

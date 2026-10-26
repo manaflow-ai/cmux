@@ -102,6 +102,35 @@ struct CloudListMachinesTests {
         #expect(Self.members(fields["account"])?["signed_in"] == .bool(false))
     }
 
+    /// A create the server has not answered yet is listed under `creating` with the name it
+    /// asked for, and a failed one with its reason, so an agent that looks for its machine by
+    /// name never makes a second one while the first is on its way (#25596). A creation whose
+    /// machine came back is in `machines`, not `creating`.
+    @Test func createsOnTheirWayAreListedByName() throws {
+        let services = Self.services()
+        let creations = services.cloud.creations
+        let pending = creations.begin(window: nil, request: CloudMachineRequest(name: "fix-login-bug"))
+        let failed = creations.begin(window: nil, request: CloudMachineRequest(name: "nightly-check"))
+        failed.fail(CloudCreationTestError())
+        let done = creations.begin(window: nil, session: MachineIconTests.cloudMachine(services, id: "vm-list-made-\(UUID().uuidString.prefix(8))"))
+        defer { [pending, failed, done].forEach(creations.remove) }
+
+        let fields = CloudHandlers.machineListFields(AppActionContext(services: services), loaded: true)
+        guard case .array(let rows)? = fields["creating"] else {
+            Issue.record("creating is not a list: \(String(describing: fields["creating"]))")
+            return
+        }
+        let byName = Dictionary(uniqueKeysWithValues: rows.compactMap { Self.members($0) }.compactMap { row -> (String, [String: ActionResultValue])? in
+            guard case .string(let name)? = row["name"] else { return nil }
+            return (name, row)
+        })
+        #expect(byName.count == 2, "only the creates with no machine yet: \(rows)")
+        #expect(byName["fix-login-bug"]?["status"] == .string("creating"))
+        #expect(byName["fix-login-bug"]?["creation_id"] == .string(pending.id.uuidString.lowercased()))
+        #expect(byName["nightly-check"]?["status"] == .string("failed"))
+        #expect(byName["nightly-check"]?["reason"] != nil)
+    }
+
     /// A person's palette run shows the Cloud sidebar instead; it leaves no result to capture.
     @Test func aPersonsRunAnswersNoResult() async throws {
         let services = Self.services()
@@ -110,3 +139,5 @@ struct CloudListMachinesTests {
         #expect(fields == nil)
     }
 }
+
+private struct CloudCreationTestError: Error {}

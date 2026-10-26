@@ -7,13 +7,17 @@
 //! `newCloudMachine {name, size}` creates the machine and opens its first
 //! workspace when its daemon is up, and `newCloudWorkspace` with
 //! `machine:<id>` opens another workspace on a machine that exists. The
-//! runs are `script` origin, so the app asks the person before an agent's
-//! create costs money, as it does for `cmux cloud new-machine`.
+//! runs are `script` origin: the app applies its rules for an agent's create
+//! (an upgrade card on a plan without Cloud; on a paid plan it makes the
+//! machine at once unless the person turned on asking first), so the tool
+//! is only for a machine the person asked for.
 //!
-//! A create can outlast the app's answer (it answers `pending` after 30 s).
-//! The tool reads the machine list first and keeps the names it is still
-//! creating, so a second call for the same task never makes a second
-//! machine.
+//! A create can outlast the app's answer (it answers `pending` after 30 s)
+//! and a machine joins the list only when its create returns. The tool reads
+//! the list first: a machine of the task's name, or a create of that name
+//! still on its way (the list's `creating`), is answered and never made
+//! again. An app whose list has no `creating` gets the same from the names
+//! this host asked for, held for [`CREATING_FOR`].
 
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -25,16 +29,24 @@ use serde_json::{Value, json};
 /// The sizes `cmux cloud new-machine --size` takes.
 pub const SIZES: [&str; 4] = ["small", "medium", "large", "xlarge"];
 
-/// How long a name whose create answered `pending` stays "being made" when
-/// the list does not show it yet: past it, a call creates again.
-pub const CREATING_FOR: Duration = Duration::from_secs(15 * 60);
+/// How long a name whose create answered `pending` stays "being made" for
+/// an app that does not list its creates: past the app's own retries of a
+/// create (70 tries 15 s apart).
+pub const CREATING_FOR: Duration = Duration::from_secs(20 * 60);
 
 /// The longest a machine name is (the app takes 64).
 const NAME_MAX: usize = 48;
 
-/// One app action run, its `result` fields answered.
+/// One app action run, its `result` fields answered. `key`: the run's
+/// idempotency key, so a retry joins or replays it instead of running again.
 pub trait AppActions: Send + Sync {
-    fn run(&self, action: &str, target: Option<&str>, args: Value) -> Result<Value, String>;
+    fn run(
+        &self,
+        action: &str,
+        target: Option<&str>,
+        args: Value,
+        key: Option<&str>,
+    ) -> Result<Value, String>;
 }
 
 /// The app's control socket (`CMUX_SOCKET_PATH`).
@@ -47,8 +59,14 @@ pub struct ControlSocketActions {
 const RUN_TIMEOUT: Duration = Duration::from_secs(60);
 
 impl AppActions for ControlSocketActions {
-    fn run(&self, action: &str, target: Option<&str>, args: Value) -> Result<Value, String> {
-        let request = run_request(action, target, args);
+    fn run(
+        &self,
+        action: &str,
+        target: Option<&str>,
+        args: Value,
+        key: Option<&str>,
+    ) -> Result<Value, String> {
+        let request = run_request(action, target, args, key);
         let reply = crate::workspaces::control_call(&self.socket, &request, RUN_TIMEOUT)?;
         Ok(reply.get("result").cloned().unwrap_or(Value::Null))
     }
@@ -56,7 +74,7 @@ impl AppActions for ControlSocketActions {
 
 /// The `action.run` request: `script` origin, from the Chief's chat in Home
 /// (`CMUX_CALLER_HOME_CHAT`, as the turn's own `cmux` runs say).
-pub fn run_request(action: &str, target: Option<&str>, args: Value) -> Value {
+pub fn run_request(action: &str, target: Option<&str>, args: Value, key: Option<&str>) -> Value {
     let mut params = json!({
         "action": action,
         "args": args,
@@ -66,6 +84,9 @@ pub fn run_request(action: &str, target: Option<&str>, args: Value) -> Value {
     });
     if let Some(target) = target {
         params["target"] = json!(target);
+    }
+    if let Some(key) = key {
+        params["idempotency_key"] = json!(key);
     }
     json!({"id": 1, "method": "action.run", "params": params})
 }
@@ -105,7 +126,8 @@ pub fn machine_name(title: &str) -> Result<String, String> {
 /// The tool, over the app's actions.
 pub struct CloudWorkspaces {
     app: Arc<dyn AppActions>,
-    /// Names whose create answered `pending`, and when.
+    /// Names whose create answered `pending`, and when: for an app whose
+    /// list has no `creating`.
     creating: Mutex<HashMap<String, Instant>>,
     now: Box<dyn Fn() -> Instant + Send + Sync>,
 }
@@ -152,7 +174,9 @@ impl CloudWorkspaces {
         }
     }
 
-    /// Another workspace on machine `machine`.
+    /// Another workspace on machine `machine`. Keyed by the machine and the
+    /// title: a retry after a slow answer joins or replays the first run,
+    /// never opening a second workspace.
     fn on_machine(&self, machine: &str, title: &str) -> Result<String, String> {
         let machine = machine.trim();
         let target = if machine.starts_with("machine:") {
@@ -160,10 +184,17 @@ impl CloudWorkspaces {
         } else {
             format!("machine:{machine}")
         };
+        let key = machine_name(title)
+            .ok()
+            .map(|name| format!("optchat-cloud-workspace-{target}-{name}"));
         let result = self
             .app
-            .run("newCloudWorkspace", Some(&target), json!({}))
-            .map_err(|e| format!("cloud_workspace: {e}"))?;
+            .run("newCloudWorkspace", Some(&target), json!({}), key.as_deref())
+            .map_err(|e| {
+                format!(
+                    "cloud_workspace: {e} (a call with the same machine and title joins this one, never a second workspace)"
+                )
+            })?;
         if result["pending"] == true {
             let status = result["status"].as_str().unwrap_or("connecting");
             return Ok(format!(
@@ -186,7 +217,7 @@ impl CloudWorkspaces {
         let name = machine_name(&request.title)?;
         let list = self
             .app
-            .run("cloudListMachines", None, json!({}))
+            .run("cloudListMachines", None, json!({}), None)
             .map_err(|e| format!("cloud_workspace: listing the Cloud machines: {e}"))?;
         if list["account"]["signed_in"] == false {
             return Err(
@@ -200,13 +231,14 @@ impl CloudWorkspaces {
                     .into(),
             );
         }
-        let existing = list["machines"].as_array().and_then(|machines| {
-            machines.iter().find(|m| {
-                m["title"]
-                    .as_str()
-                    .is_some_and(|t| t.eq_ignore_ascii_case(&name))
-            })
-        });
+        let named = |entry: &&Value, key: &str| {
+            entry[key]
+                .as_str()
+                .is_some_and(|t| t.eq_ignore_ascii_case(&name))
+        };
+        let existing = list["machines"]
+            .as_array()
+            .and_then(|machines| machines.iter().find(|m| named(m, "title")));
         if let Some(machine) = existing {
             self.creating.lock().expect("creating").remove(&name);
             let target = machine["target"].as_str().unwrap_or_default();
@@ -216,14 +248,32 @@ impl CloudWorkspaces {
             ));
         }
         let now = (self.now)();
-        {
-            let mut creating = self.creating.lock().expect("creating");
-            creating.retain(|_, at| now.duration_since(*at) < CREATING_FOR);
-            if let Some(at) = creating.get(&name) {
-                let minutes = now.duration_since(*at).as_secs() / 60;
-                return Ok(format!(
-                    "outcome: noop. Cloud machine {name} is still being made (asked {minutes} min ago); it opens in the sidebar when it is up. Never ask for a second one."
-                ));
+        match list["creating"].as_array() {
+            // The app lists its creates still on their way: they decide.
+            Some(creates) => {
+                self.creating.lock().expect("creating").remove(&name);
+                if let Some(create) = creates.iter().find(|c| named(c, "name")) {
+                    if create["status"] == "failed" {
+                        let reason = create["reason"].as_str().unwrap_or("no reason given");
+                        return Err(format!(
+                            "cloud_workspace: the create of Cloud machine {name} failed ({reason}); it is in the sidebar, where the person can Retry or dismiss it. Tell them; do not make another."
+                        ));
+                    }
+                    return Ok(format!(
+                        "outcome: noop. Cloud machine {name} is still being made; its workspace opens in the sidebar when it is up. Never ask for a second one."
+                    ));
+                }
+            }
+            // An app that does not: the names this host asked for.
+            None => {
+                let mut creating = self.creating.lock().expect("creating");
+                creating.retain(|_, at| now.duration_since(*at) < CREATING_FOR);
+                if let Some(at) = creating.get(&name) {
+                    let minutes = now.duration_since(*at).as_secs() / 60;
+                    return Ok(format!(
+                        "outcome: noop. Cloud machine {name} is still being made (asked {minutes} min ago); it opens in the sidebar when it is up. Never ask for a second one."
+                    ));
+                }
             }
         }
         let mut args = json!({"name": name});
@@ -232,7 +282,7 @@ impl CloudWorkspaces {
         }
         let result = self
             .app
-            .run("newCloudMachine", None, args)
+            .run("newCloudMachine", None, args, None)
             .map_err(|e| format!("cloud_workspace: {e}"))?;
         if result["pending"] == true || result["machine_id"].as_str().is_none() {
             self.creating
@@ -240,7 +290,7 @@ impl CloudWorkspaces {
                 .expect("creating")
                 .insert(name.clone(), now);
             return Ok(format!(
-                "outcome: queued. Cloud machine {name} is being made; cmux may ask the person to confirm it first. Its workspace opens in the sidebar when it is up. Call cloud_workspace with the same title later to check; never ask for a second one."
+                "outcome: queued. Cloud machine {name} is being made; its workspace opens in the sidebar when it is up. Call cloud_workspace with the same title later to check; never ask for a second one."
             ));
         }
         let target = result["target"]
@@ -266,10 +316,13 @@ impl CloudWorkspaces {
 mod tests {
     use super::*;
 
+    /// One recorded run: action, target, args, idempotency key.
+    type Run = (String, Option<String>, Value, Option<String>);
+
     /// The app: answers by action, and records each run.
     struct FakeApp {
         answers: Mutex<HashMap<&'static str, Vec<Result<Value, String>>>>,
-        runs: Mutex<Vec<(String, Option<String>, Value)>>,
+        runs: Mutex<Vec<Run>>,
     }
 
     impl FakeApp {
@@ -284,17 +337,25 @@ mod tests {
             })
         }
 
-        fn runs(&self) -> Vec<(String, Option<String>, Value)> {
+        fn runs(&self) -> Vec<Run> {
             self.runs.lock().unwrap().clone()
         }
     }
 
     impl AppActions for FakeApp {
-        fn run(&self, action: &str, target: Option<&str>, args: Value) -> Result<Value, String> {
-            self.runs
-                .lock()
-                .unwrap()
-                .push((action.to_owned(), target.map(str::to_owned), args));
+        fn run(
+            &self,
+            action: &str,
+            target: Option<&str>,
+            args: Value,
+            key: Option<&str>,
+        ) -> Result<Value, String> {
+            self.runs.lock().unwrap().push((
+                action.to_owned(),
+                target.map(str::to_owned),
+                args,
+                key.map(str::to_owned),
+            ));
             let mut answers = self.answers.lock().unwrap();
             let queue = answers.get_mut(action).expect("an answer for the action");
             if queue.len() > 1 {
@@ -448,7 +509,73 @@ mod tests {
             answer.starts_with("outcome: done.") && answer.contains("ws_4"),
             "{answer}"
         );
-        assert_eq!(app.runs()[0].1.as_deref(), Some("machine:vm-2"));
+        let run = &app.runs()[0];
+        assert_eq!(run.1.as_deref(), Some("machine:vm-2"));
+        // Keyed: a retry after a slow answer joins this run, never a second workspace.
+        assert_eq!(
+            run.3.as_deref(),
+            Some("optchat-cloud-workspace-machine:vm-2-second-pass")
+        );
+    }
+
+    /// The app's own list of creates on their way decides: a create of the
+    /// name answers noop, a failed one says why, and none lets a create go
+    /// even when this host asked for the name before.
+    #[test]
+    fn the_apps_creates_on_their_way_decide() {
+        let listed = |creating: Value| {
+            Ok(
+                json!({"loaded": true, "machines": [], "creating": creating, "account": {"signed_in": true}}),
+            )
+        };
+        let app = FakeApp::new(vec![(
+            "cloudListMachines",
+            listed(json!([{"creation_id": "c1", "name": "fix-login-bug", "status": "creating"}])),
+        )]);
+        let answer = CloudWorkspaces::new(app.clone())
+            .call(&request("Fix login bug"))
+            .unwrap();
+        assert!(
+            answer.starts_with("outcome: noop.") && answer.contains("still being made"),
+            "{answer}"
+        );
+
+        let app = FakeApp::new(vec![(
+            "cloudListMachines",
+            listed(
+                json!([{"creation_id": "c1", "name": "fix-login-bug", "status": "failed", "reason": "quota"}]),
+            ),
+        )]);
+        let error = CloudWorkspaces::new(app.clone())
+            .call(&request("Fix login bug"))
+            .unwrap_err();
+        assert!(
+            error.contains("failed (quota)") && error.contains("Retry"),
+            "{error}"
+        );
+        assert!(app.runs().iter().all(|r| r.0 != "newCloudMachine"));
+
+        // This host held the name, but the app lists no such create: it failed and was dismissed.
+        let app = FakeApp::new(vec![
+            (
+                "cloudListMachines",
+                listed(json!([{"name": "other", "status": "creating"}])),
+            ),
+            (
+                "newCloudMachine",
+                Ok(json!({"machine_id": "vm-3", "target": "machine:vm-3"})),
+            ),
+        ]);
+        let tool = CloudWorkspaces::new(app.clone());
+        tool.creating
+            .lock()
+            .unwrap()
+            .insert("fix-login-bug".into(), Instant::now());
+        let answer = tool.call(&request("Fix login bug")).unwrap();
+        assert!(
+            answer.starts_with("outcome: done.") && answer.contains("machine:vm-3"),
+            "{answer}"
+        );
     }
 
     #[test]
@@ -476,7 +603,13 @@ mod tests {
 
     #[test]
     fn the_request_is_a_script_run_from_home() {
-        let request = run_request("newCloudWorkspace", Some("machine:vm-1"), json!({}));
+        let request = run_request(
+            "newCloudWorkspace",
+            Some("machine:vm-1"),
+            json!({}),
+            Some("k1"),
+        );
+        assert_eq!(request["params"]["idempotency_key"], "k1");
         assert_eq!(request["method"], "action.run");
         assert_eq!(request["params"]["origin"], "script");
         assert_eq!(request["params"]["target"], "machine:vm-1");

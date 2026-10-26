@@ -164,12 +164,14 @@ Claude harness, `chief spawn|tell|zoom|date` on any other).
   (`CMUX_SOCKET_PATH`): `cloudListMachines`, then `newCloudMachine {name}` (the
   title lowercased with dashes), which makes the machine and opens its first
   workspace in the sidebar under the machine; with `machine` it runs
-  `newCloudWorkspace` on that machine instead. The runs are `script` origin, so
-  the app asks the person before the create. A machine of that name already
-  listed is answered, not made again, and a create that answered `pending` is
-  held for 15 minutes so a second call never makes a second machine. It rides on
-  the `spawn` grant; subagents do not have it; a host with no app answers that
-  it has none.
+  `newCloudWorkspace` on that machine instead (keyed, so a retry never opens a
+  second one). The runs are `script` origin: the app's rules for an agent's
+  create apply (on a paid plan it makes the machine at once), so the Chief calls
+  it only for a machine the person asked for. A machine of that name, or a create
+  of that name the list's `creating` still shows, is answered, never made again;
+  an app without `creating` gets the names this host asked for, held 20 minutes.
+  It rides on the `spawn` grant and runs only in the owner's turn; subagents do
+  not have it; a host with no app answers that it has none.
 - First message: the view at spawn time (one block per cached piece), then
   `Your task:\n\n<task>`. System prompt: section 9's subagent prompt (agent
   renamed Chief), VIEW_DOC, a short cmux section, then the person profile
