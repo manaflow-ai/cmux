@@ -86,6 +86,33 @@ class Reconcile(unittest.TestCase):
         self.assertIn("0 runner(s) relabelled", self.run_main(api, "--apply"))
         self.assertEqual(len(api.calls), 1)
 
+    def test_a_runner_that_lost_its_mini_marker_is_skipped(self):
+        api = FakeApi(self.fleet())
+        api.runner = lambda rid: runner(rid, "no-longer-owned", "glaeda-side-std-xcode-26.6")
+        self.assertIn("0 runner(s) relabelled", self.run_main(api, "--apply"))
+        self.assertEqual(api.calls, [])
+
+    def test_concurrent_relabel_is_not_replaced(self):
+        api = FakeApi(self.fleet())
+        read_runner = api.runner
+
+        def concurrent_change(rid):
+            snapshot = dict(read_runner(rid))
+            snapshot["labels"] = list(snapshot["labels"])
+            # Another owner removes the old std label and adds its own label
+            # after our GET; adding a missing label must preserve both changes.
+            api.list[0]["labels"] = [label for label in api.list[0]["labels"]
+                                     if label["name"] != "glaeda-side-std-xcode-26.6"]
+            api.list[0]["labels"].append({"name": "operator-added", "type": "custom"})
+            return snapshot
+
+        api.runner = concurrent_change
+        self.run_main(api, "--apply")
+        actual = reconcile.custom_labels(api.list[0])
+        self.assertIn("operator-added", actual)
+        self.assertNotIn("glaeda-side-std-xcode-26.6", actual)
+        self.assertIn("glaeda-side-light-xcode-26.6", actual)
+
     def test_a_vanished_runner_is_skipped_and_the_rest_still_converge(self):
         api = FakeApi(self.fleet() + [runner(4, "cmux8-glaeda-3", "glaeda-mini", "glaeda-side-std-xcode-26.6")])
         listed = api.list
