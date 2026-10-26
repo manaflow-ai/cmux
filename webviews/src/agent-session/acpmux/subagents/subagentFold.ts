@@ -90,6 +90,8 @@ export type Subagent = {
   retry?: RetryState;
   retryable?: boolean;
   retriedOut?: RetryState;
+  /// Why it failed, as acpmux recorded it (`error`): its end line says it.
+  error?: string;
 };
 
 /// Why a subagent was stopped: the person stopped it (Stop on the turn, or on the subagent), or a

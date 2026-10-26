@@ -83,7 +83,13 @@ describe("the fold keeps a subagent's retry", () => {
   test("waiting, then retried out once acpmux clears the last try while it still failed", () => {
     const fold = new SubagentFold();
     feed(fold, { sessionUpdate: "subagent_spawned" }, { subagents: [{ id: "a", parent: null, name: "Push relay" }] });
-    change(fold, { state: "failed", retryable: true, retry: { attempt: 1, of: 2, reason: "capacity" } });
+    change(fold, {
+      state: "failed",
+      retryable: true,
+      error: "503: no non-exhausted\nclaude accounts available",
+      retry: { attempt: 1, of: 2, reason: "capacity" },
+    });
+    expect(fold.all()[0]!.error).toBe("503: no non-exhausted claude accounts available");
     let agent = fold.all()[0]!;
     expect([agent.state, agent.retry, agent.retryable]).toEqual([
       "failed",

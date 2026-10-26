@@ -38,7 +38,8 @@ const relay = (fields: Partial<Subagent> = {}) =>
   agent("Push relay", "Push relay for GCP lane bundles", { endedAt: minutesAgo(40 - 23.75), ...fields });
 
 const capacity = { reason: "capacity", nextAt: Date.now() + 60_000 };
-const FAILED = [overview({ retryable: true }), relay({ retryable: true })];
+const error = "503: no non-exhausted claude accounts available";
+const FAILED = [overview({ retryable: true, error }), relay({ retryable: true, error })];
 
 /** The ⋯ menu opens on the click (menus never fade in). */
 const openMenu: Play = async (ctx) => {

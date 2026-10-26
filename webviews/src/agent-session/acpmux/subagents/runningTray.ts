@@ -120,6 +120,7 @@ function doneLine(agent: Subagent, endedAt: number, cache: DoneLineCache, made: 
     endedAt,
     agent.stopReason ?? "",
     agent.retryable ?? "",
+    agent.error ?? "",
     ...retry,
   ].join("\u0000");
   made.add(id);

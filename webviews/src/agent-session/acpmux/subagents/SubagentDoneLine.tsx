@@ -68,6 +68,8 @@ export function SubagentDoneLine({ row }: { row: AcpmuxRow }) {
         ...(reasonKey ? [t(reasonKey)] : []),
         ...(agent.retriedOut ? [t("retry.retriedOut", { of: agent.retriedOut.of })] : []),
         time,
+        // Why it failed, as acpmux recorded it, last: the line cuts it first.
+        ...(agent.state === "failed" && agent.error ? [agent.error] : []),
       ];
   const shown = note?.version === row.version ? note : undefined;
   const run = (how: RetryAction) => {
@@ -103,7 +105,10 @@ export function SubagentDoneLine({ row }: { row: AcpmuxRow }) {
         <span className="cv-tool__icon">
           {waiting ? <Spinner size={16} loading /> : <Icon name="agent.session" size={16} />}
         </span>
-        <span className="cv-tool__text">{parts.join(" · ")}</span>
+        {/* tooltip-allow: the line is cut at the pane's width; its whole text, the failure included */}
+        <span className="cv-tool__text" title={parts.join(" · ")}>
+          {parts.join(" · ")}
+        </span>
       </button>
       {inline}
       {shown?.key && <output className="cv-subagent-done__note">{t(shown.key)}</output>}

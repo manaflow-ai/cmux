@@ -42,10 +42,11 @@ export function readRetry(raw: unknown): RetryState | null | undefined {
 /// went away while the subagent still failed is one acpmux gave up on: its line says how many
 /// tries it had.
 export function applyRetry(
-  agent: Pick<Subagent, "retry" | "retryable" | "retriedOut" | "state">,
-  change: { retry?: unknown; retryable?: unknown },
+  agent: Pick<Subagent, "retry" | "retryable" | "retriedOut" | "state" | "error">,
+  change: { retry?: unknown; retryable?: unknown; error?: unknown },
 ): void {
   if (typeof change.retryable === "boolean") agent.retryable = change.retryable;
+  if (typeof change.error === "string" && change.error.trim()) agent.error = change.error.replace(/\s+/g, " ").trim();
   const retry = readRetry(change.retry);
   if (retry === undefined) return;
   const before = agent.retry;
