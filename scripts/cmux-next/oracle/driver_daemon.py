@@ -5,12 +5,28 @@ Spec: plans/cmux-next/chrome-parity/p15-oracle.md, sections 3D and 3G and task 0
 cmux Python SDK of this checkout (cmux-tui/bindings/python), Python 3.9+, safe under `python3 -I`.
 It implements the driver protocol of oracle.py (`open_session`, `session.run_case`, `session.close`).
 
+The daemon facet (task 021, `facets.daemon` of schemas/oracle/snapshot-v1.schema.json) is
+`capture_daemon_facet`: `session.snapshot` + `settings.snapshot` + the journal head of the snapshot's cut,
+with the `oracle-state` extras (switches, terminal attach counts, live object counts, panic log). A
+debug or `--features oracle` daemon answers `oracle-state` with the asking connection's `session.snapshot`
+result (`clients` included) and its journal head from the one snapshot builder
+(`public_session_snapshot_at_cut`), so `session`, `journalHead`, `terminalAttach` and `liveObjects` (all
+but `subscriptions`) are one cut. A release daemon, or a push-base daemon from before task 021, answers
+`oracle-state` as an unknown command; the facet is then the v0 facet: `session.snapshot` and
+`settings.snapshot` only, with no `journalHead` and no `oracle` (both optional in the schema). `settings`
+is the `settings.snapshot` result after the schema's capture rules, which check_snapshot_schema.py owns.
+Nothing here normalizes: volatile fields, path rewrites and id labels are normalize.py's (task 013).
+
 Each case gets:
 - its own state root `/tmp/o/<run6>/<case6>` (oracle.py gives it out), holding the daemon's socket
   (`s.sock`, so every socket path stays <= 100 bytes, under Linux's 108-byte sun_path), state, HOME,
-  XDG dirs, TMPDIR, config and log. Nothing is shared with another case: the terminal hosts bind in a
-  per-install directory (`CMUX_TUI_TEST_HOST_INSTALL_ENDPOINT=1`, honored by debug-assertion builds such
-  as `--profile oracle`) and the holder's socket is keyed by the case's host root.
+  XDG dirs, TMPDIR, config and log.
+- its own session name (`oracle-<token of the root>`). The daemon names its install by the session, and
+  a debug-assertion build (`--profile oracle`, a debug build) with `CMUX_TUI_TEST_HOST_INSTALL_ENDPOINT=1`
+  binds its terminal hosts' sockets in that install's directory, `/tmp/cmux-th-<uid>/<token>/`
+  (terminal_host_runtime/sys/unix.rs), so no two cases share it. A build without debug assertions binds
+  them flat in `/tmp/cmux-th-<uid>/`, one file per terminal id. The facet shows the fixture's name,
+  `oracle`, as paths show $ROOT.
 - one `cmux-tui --headless` child started in its own session, awaited on its readiness pipe
   (`--owner-ready-fd`, the daemon's own startup protocol), never by probing the socket.
 - the environment of hermetic_env.daemon_case only (an `env -i` base, CMUX_TUI_OFFLINE=1, version
@@ -19,6 +35,8 @@ Each case gets:
   its description as `isolation` in the session context (`oracle.py run --isolation`), and this
   file's CLI takes `--isolation` (netns by default, which refuses a host without unprivileged user
   namespaces; auto; none). Each case result carries the environment it ran with (`environment`).
+  Terminals use the default per-terminal `cmux-tui __terminal-host` model (CMUX_TUI_TERMINAL_HOST_MODEL
+  is unset).
 - every request through the SDK: resource operations on `cmux._protocol.ProtocolConnection` (the SDK's
   wire layer; the oracle compares wire replies, so it does not decode them into dataclasses), and the
   daemon-control commands (`identify`, `shutdown-daemon`, `oracle-state`, `oracle-advance-clock`) on
@@ -29,21 +47,26 @@ it committed it, so the next read on the connection sees it), kill and restart o
 advance_clock (`oracle-advance-clock {ms}` of task p15-oracle-185), and waitFor on session.events (each
 event re-reads the facet; no sleeps). cli, mcp, action.run, key and tui.key belong to the other drivers.
 
-Each case runs in its own worker process (`case-worker`); the session in oracle.py's process gives out
-the state roots and proves invariant I6 (no orphan processes or sockets) after each worker, whether it
-passed, crashed or hung. Every process of a case carries its marker (`CMUX_ORACLE_CASE=<state root>`).
-Before the daemon stops or is killed, the worker records its process tree (/proc/<pid>/task/*/children)
-and the sockets those processes use; at the end it asks the daemon to stop and end its terminals
-(`shutdown-daemon end_terminals`; a daemon the case killed is started again first, since only a daemon
-ends its holder's terminals), waits for those exits on pidfds (kqueue on macOS), and ends a holder left
-with no terminal (idle by design; it would exit after its idle exit). The proof is then one pass over the
-whole process table for the marker (joined across the cases that end together) and a check of every
-recorded socket: anything left fails the case, and is killed, so the next case shares nothing.
+Invariant I6 (no orphan processes or sockets). Each case runs in its own worker process (`case-worker`),
+which on Linux is a child subreaper (prctl PR_SET_CHILD_SUBREAPER): a process the case starts stays in
+the worker's process tree until it exits, whatever its environment, session or parent did, so the
+worker finds all of them by walking /proc/<pid>/task/*/children from itself, never by a scan of the
+host's process table. macOS has no subreaper; there the worker also reads the case's marker
+(`CMUX_ORACLE_CASE=<state root>`) from `ps`, which finds a child that kept its environment. Teardown
+asks the daemon to stop and end its terminals (`shutdown-daemon end_terminals`; a daemon a step killed
+or that died is started again first, so it adopts its terminals and rebinds its endpoints, then ends
+them), waits for those exits on pidfds (kqueue on macOS), and then any process left in the tree fails
+the case and is killed. A process is known by pid and start time, so a reused pid is never mistaken
+for it. The session in oracle.py's process then checks the sockets: a socket file someone still listens
+on fails the case; one with no listener (connect is refused) is a file the daemon did not remove, which
+the result reports as daemon debt. When a worker did not finish (it hung or crashed), the session ends
+its tree by SIGTERM and falls back to one marker scan of the process table for that case.
 
 Chrome reference (chromium/src):
 - base/test/launcher/test_launcher.cc: each test child runs in its own process group and the launcher
   kills what remains of that group when the test ends (KillSpawnedTestProcesses), so a leaked process
-  never outlives its test. A holder calls setsid(), so the marker env stands in for the group here.
+  never outlives its test. cmux-tui's terminal hosts call setsid(), so the worker's subreaper tree
+  stands in for the group here.
 - chrome/test/base/in_process_browser_test.cc: a fresh temporary user data dir per test
   (temp_user_data_dir_), the per-case state root's model.
 
@@ -54,9 +77,10 @@ Usage:
   driver_daemon.py smoke --binary CMUX_TUI [--cases 300] [--jobs 300] [--case CASE.json] [--isolation ...]
                                                      parallel cases (no-op by default), then nothing left
   driver_daemon.py facet --socket PATH               the daemon facet of a running daemon (canonical JSON)
-  driver_daemon.py live-check --cmux BIN [--write]   capture_wire_fixtures.py's op script on its daemon; the
-                                                     facet's oracle-state part must equal
-                                                     schemas/oracle/fixtures/daemon-oracle-state.expected.json
+  driver_daemon.py live-check --cmux BIN [--write]   capture_wire_fixtures.py's op script on a hermetic
+                                                     daemon; its oracle-state part must equal
+                                                     daemon-oracle-state.expected.json
+  driver_daemon.py --selftest                        offline facet tests against the recorded wire fixtures
 """
 
 from __future__ import annotations
@@ -73,12 +97,14 @@ import select
 import selectors
 import shutil
 import signal
+import socket
 import subprocess
 import sys
-import threading
+import tempfile
 import time
+import unittest
 from dataclasses import dataclass, field
-from functools import lru_cache
+from functools import lru_cache, partial
 from pathlib import Path
 from typing import Any, Callable, Dict, Iterable, List, Mapping, Optional, Protocol, Sequence, Set, Tuple
 
@@ -86,7 +112,9 @@ HERE = Path(__file__).resolve().parent
 REPO = HERE.parents[2]
 SDK = REPO / "cmux-tui" / "bindings" / "python"
 OPERATIONS_SPEC = REPO / "cmux-tui" / "spec" / "resource-operations-v2.json"
-SNAPSHOT_EXAMPLE = REPO / "schemas" / "oracle" / "fixtures" / "snapshot-example.json"
+SCHEMA = REPO / "schemas" / "oracle" / "snapshot-v1.schema.json"
+WIRE = REPO / "schemas" / "oracle" / "fixtures" / "wire"
+EXAMPLE = REPO / "schemas" / "oracle" / "fixtures" / "snapshot-example.json"
 LIVE_EXPECTED = REPO / "schemas" / "oracle" / "fixtures" / "daemon-oracle-state.expected.json"
 
 for _path in (str(HERE), str(SDK)):
@@ -107,7 +135,10 @@ from cmux.errors import TimeoutError as SdkTimeout  # noqa: E402
 from cmux.raw import CmuxClient  # noqa: E402
 
 MARKER_ENV = "CMUX_ORACLE_CASE"
+# The fixture's session name, as the facet shows it; each case runs as `oracle-<token>` (CasePaths.session).
 SESSION_NAME = "oracle"
+# prctl(2) option: orphaned descendants are re-parented to the caller, not to init.
+PR_SET_CHILD_SUBREAPER = 36
 SOCKET_LIMIT = hermetic_env.MAX_SOCKET_PATH_BYTES
 DEFAULT_STATE_BASE = Path("/tmp/o")
 SELECTORS = {"machine": "current", "session": "current"}
@@ -121,7 +152,7 @@ DEFAULT_FACETS = ("daemon",)
 FACET_TASKS = {"crashes": "p15-oracle-188", "liveObjects": "p15-oracle-188", "switches": "p15-oracle-049"}
 ORACLE_STATE = "oracle-state"
 # `oracle-state` fields that make the facet's `oracle` object (schema: facets.daemon.oracle).
-ORACLE_STATE_KEYS = ("switches", "terminalAttach", "liveObjects", "panicLog")
+EXTRAS = ("switches", "terminalAttach", "liveObjects", "panicLog")
 OTHER_DRIVERS = {
     "cli": "driver_cli.py (p15-oracle-048)",
     "mcp": "driver_mcp.py (p15-oracle-209)",
@@ -138,9 +169,91 @@ UNKNOWN_COMMAND = "unknown variant `{}`"
 REQUEST_S = 10.0
 READY_S = 60.0
 STOP_S = 60.0
+SHUTDOWN_S = 120.0
 EXIT_S = 10.0
 LOG_TAIL_BYTES = 2048
 MISSING = object()
+
+
+# ------------------------------------------------------------------------------------- the daemon facet
+
+
+class DriverError(Exception):
+    """The daemon answered something the facet cannot be built from."""
+
+
+class DaemonReads(Protocol):
+    """The two reads the facet needs; `SdkReads` and `CaseReads` are the real ones."""
+
+    def command(self, cmd: str) -> Mapping[str, Any]:
+        """A raw `{"cmd": cmd}` request; the whole reply line (`ok`, `data`, `error`)."""
+
+    def operation(self, operation: str, params: Mapping[str, Any]) -> Any:
+        """A resource-protocol read; its result."""
+
+
+def load_schema() -> Dict[str, Any]:
+    return json.loads(SCHEMA.read_text(encoding="utf-8"))
+
+
+def daemon_properties(schema: Mapping[str, Any]) -> Mapping[str, Any]:
+    return schema["properties"]["facets"]["properties"]["daemon"]["oneOf"][0]["properties"]
+
+
+def is_unknown_command(reply: Mapping[str, Any]) -> bool:
+    """A daemon with no `oracle-state`: serde refuses the tag before any handler runs."""
+    error = reply.get("error")
+    return reply.get("ok") is False and isinstance(error, str) and UNKNOWN_COMMAND.format(ORACLE_STATE) in error
+
+
+def capture_daemon_facet(reads: DaemonReads, schema: Optional[Mapping[str, Any]] = None) -> Dict[str, Any]:
+    """The `facets.daemon` value of the daemon behind `reads`."""
+    schema = load_schema() if schema is None else schema
+    props = daemon_properties(schema)
+    reply = reads.command(ORACLE_STATE)
+    facet: Dict[str, Any] = {}
+    if reply.get("ok") is True:
+        data = reply.get("data")
+        if not isinstance(data, dict) or not isinstance(data.get("session"), dict):
+            raise DriverError(f"{ORACLE_STATE} replied without a session: {reply!r:.300}")
+        missing = [key for key in ("journal_head", *EXTRAS) if key not in data]
+        if missing:
+            raise DriverError(f"{ORACLE_STATE} reply lacks {', '.join(missing)}")
+        facet["journalHead"] = data["journal_head"]
+        session = data["session"]
+        facet["oracle"] = {key: data[key] for key in EXTRAS}
+    elif is_unknown_command(reply):
+        session = reads.operation("session.snapshot", SELECTORS)
+    else:
+        raise DriverError(f"{ORACLE_STATE} failed: {reply.get('error')!r}")
+    facet["session"] = check_snapshot_schema.capture(schema, props["session"], session)
+    facet["settings"] = check_snapshot_schema.capture(schema, props["settings"],
+                                                      reads.operation("settings.snapshot", SELECTORS))
+    return facet
+
+
+class SdkReads:
+    """`DaemonReads` over one daemon socket through the repo's Python SDK."""
+
+    def __init__(self, socket_path: str, timeout: float = 10.0):
+        self._raw = CmuxClient(socket_path, timeout=timeout)
+        self._resource = ProtocolConnection(socket_path, timeout)
+
+    def command(self, cmd: str) -> Mapping[str, Any]:
+        return self._raw.request(cmd)
+
+    def operation(self, operation: str, params: Mapping[str, Any]) -> Any:
+        return self._resource.request(operation, params)
+
+    def close(self) -> None:
+        self._raw.close()
+        self._resource.close()
+
+    def __enter__(self) -> "SdkReads":
+        return self
+
+    def __exit__(self, *_: object) -> None:
+        self.close()
 
 
 class CaseError(Exception):
@@ -185,6 +298,17 @@ class CasePaths:
     def log(self) -> Path:
         return self.root / "daemon.log"
 
+    @property
+    def session(self) -> str:
+        """The case's own session name: the daemon names its install, so its host socket directory, by it."""
+        return f"{SESSION_NAME}-{short_token(str(self.root))}"
+
+    @property
+    def install_dir(self) -> Path:
+        """Where the case's terminal hosts bind on a debug-assertion build: `/tmp/cmux-th-<uid>/<token>`,
+        the token being cmux-tui's stable_token (FNV-1a 64) of the session (sys/unix.rs install_endpoint_dir)."""
+        return Path("/tmp") / f"cmux-th-{os.geteuid()}" / stable_token(self.session)
+
     @classmethod
     def for_case(cls, state_root: Optional[str], run_id: str, key: str) -> "CasePaths":
         """oracle.py's state root, or `/tmp/o/<run6>/<case6>` from the run id and case key."""
@@ -220,6 +344,14 @@ def short_token(text: str) -> str:
     return out
 
 
+def stable_token(text: str) -> str:
+    """cmux-tui's terminal_host_runtime codec::stable_token: FNV-1a 64 of the UTF-8 bytes, 16 hex digits."""
+    value = 0xCBF29CE484222325
+    for byte in text.encode("utf-8"):
+        value = ((value ^ byte) * 0x100000001B3) & 0xFFFFFFFFFFFFFFFF
+    return f"{value:016x}"
+
+
 def host_platform() -> str:
     return "linux" if sys.platform.startswith("linux") else "mac"
 
@@ -231,133 +363,155 @@ def case_environment(paths: CasePaths, seed: str, isolation: hermetic_env.Isolat
 
 
 # ---------------------------------------------------------------------------------------------------------
-# Processes: marked processes, their sockets, exit waits
+# Processes: the case's process tree, its sockets, exit waits
 
 
 @dataclass(frozen=True)
 class CaseProcess:
     pid: int
     ppid: int
+    # /proc/<pid>/stat field 22 (clock ticks after boot), or ps lstart: a reused pid has another.
+    start: str
     argv: Tuple[str, ...]
 
     def describe(self) -> str:
         return f"{self.pid} {' '.join(self.argv)[:120]}"
 
-    @property
-    def is_holder(self) -> bool:
-        return bool(self.argv) and os.path.basename(self.argv[0]).startswith("cmux-holder")
 
-
-def _stat_fields(pid: int) -> Optional[List[bytes]]:
-    """Fields of /proc/<pid>/stat after the command name ("S ppid ..."), or None once it is gone."""
+def _linux_process(pid: int, needle: Optional[bytes] = None) -> Optional[CaseProcess]:
+    """The live process `pid` (not a zombie); with `needle`, only if its environment carries it."""
     try:
         with open(f"/proc/{pid}/stat", "rb") as handle:
-            return handle.read().rsplit(b")", 1)[-1].split()
-    except OSError:
-        return None
-
-
-def _linux_process(pid: int, needle: bytes) -> Optional[CaseProcess]:
-    """The live process `pid` if its environment carries `needle` (a reused pid does not)."""
-    try:
-        with open(f"/proc/{pid}/environ", "rb") as handle:
-            if needle not in handle.read().split(b"\0"):
-                return None
+            # Fields after the command name: state (3), ppid (4), ... starttime (22).
+            fields = handle.read().rsplit(b")", 1)[-1].split()
+        if fields[0] == b"Z":
+            return None  # it exited; its parent has not reaped it yet
+        if needle is not None:
+            with open(f"/proc/{pid}/environ", "rb") as handle:
+                if needle not in handle.read().split(b"\0"):
+                    return None
         with open(f"/proc/{pid}/cmdline", "rb") as handle:
             argv = tuple(part.decode("utf-8", "replace") for part in handle.read().split(b"\0") if part)
-    except OSError:
+    except (OSError, IndexError):
         return None  # exited while we looked, or not ours
-    fields = _stat_fields(pid)
-    # A zombie (Z) has exited; its parent has not reaped it yet.
-    if not fields or fields[0] == b"Z":
-        return None
-    return CaseProcess(pid, int(fields[1]), argv)
+    return CaseProcess(pid, int(fields[1]), fields[19].decode(), argv)
 
 
-def _ps_table() -> List[Tuple[int, int, bytes, Tuple[str, ...]]]:
-    """(pid, ppid, state, argv) of every process, with the environment words of this user's own processes
-    (BSD ps `e` appends them to the command): the macOS source of the functions below."""
-    out = subprocess.run(["ps", "-axeww", "-o", "pid=,ppid=,stat=,command="], check=False,
-                         stdout=subprocess.PIPE).stdout
+def _linux_children(pid: int) -> List[int]:
+    kids: List[int] = []
+    for path in glob.glob(f"/proc/{pid}/task/*/children"):
+        try:
+            with open(path, "rb") as handle:
+                kids.extend(int(value) for value in handle.read().split())
+        except OSError:
+            continue
+    return kids
+
+
+def _ps_table() -> List[Tuple[int, int, bytes, str, Tuple[str, ...]]]:
+    """(pid, ppid, state, start, words) of every process, the words being argv and then the environment of
+    this user's own processes (BSD ps `e` appends it): the macOS source of the functions below."""
+    ps = subprocess.Popen(["ps", "-axeww", "-o", "pid=,ppid=,stat=,lstart=,command="], stdout=subprocess.PIPE)
+    out, _ = ps.communicate()
     rows = []
     for line in out.splitlines():
-        parts = line.split(None, 3)
-        if len(parts) == 4:
-            rows.append((int(parts[0]), int(parts[1]), parts[2],
-                         tuple(word for word in parts[3].decode("utf-8", "replace").split(" ") if word)))
+        # lstart is five words: "Mon Oct 26 05:41:00 2026".
+        parts = line.split(None, 8)
+        # ps lists itself, a child of the caller: never a case process.
+        if len(parts) == 9 and int(parts[0]) != ps.pid:
+            rows.append((int(parts[0]), int(parts[1]), parts[2], b" ".join(parts[3:8]).decode(),
+                         tuple(word for word in parts[8].decode("utf-8", "replace").split(" ") if word)))
     return rows
 
 
-def _ps_process(row: Tuple[int, int, bytes, Tuple[str, ...]], needle: str) -> Optional[CaseProcess]:
-    pid, ppid, state, words = row
-    if state.startswith(b"Z") or needle not in words:
+def _ps_process(row: Tuple[int, int, bytes, str, Tuple[str, ...]]) -> Optional[CaseProcess]:
+    pid, ppid, state, start, words = row
+    if state.startswith(b"Z"):
         return None
     # The environment follows the command: its first NAME=value word ends argv.
     end = next((i for i, word in enumerate(words) if ENV_WORD.match(word)), len(words))
-    return CaseProcess(pid, ppid, words[:end])
+    return CaseProcess(pid, ppid, start, words[:end])
 
 
-def process_tree(root: int, marker: str) -> List[CaseProcess]:
-    """`root` and its live descendants that carry the case's marker.
+def descendants(root: int, marker: str) -> List[CaseProcess]:
+    """Every live descendant of `root`, whatever its environment. On macOS also every process that carries
+    the case's marker: with no subreaper there, an orphan leaves the tree for launchd.
 
-    Walks /proc/<pid>/task/*/children down from the case daemon, so a case reads its own few processes,
-    never the host's whole process table (tens of thousands on the shared VM).
+    Linux walks /proc/<pid>/task/*/children down from `root`, so a case reads its own few processes, never
+    the host's whole process table (tens of thousands on the shared VM).
     """
-    needle = f"{MARKER_ENV}={marker}"
     if not sys.platform.startswith("linux"):
+        needle = f"{MARKER_ENV}={marker}"
         rows = _ps_table()
         children: Dict[int, List[int]] = {}
-        for pid, ppid, _state, _words in rows:
-            children.setdefault(ppid, []).append(pid)
-        by_pid = {row[0]: row for row in rows}
-        found, stack = [], [root]
+        for row in rows:
+            children.setdefault(row[1], []).append(row[0])
+        procs = {row[0]: _ps_process(row) for row in rows}
+        wanted = {row[0] for row in rows if needle in row[4] and row[0] != root}
+        stack = list(children.get(root, ()))
         while stack:
             pid = stack.pop()
-            proc = _ps_process(by_pid[pid], needle) if pid in by_pid else None
-            if proc is not None:
-                found.append(proc)
+            wanted.add(pid)
             stack.extend(children.get(pid, ()))
-        return found
-    found, stack, seen = [], [root], {root}
+        return [procs[pid] for pid in sorted(wanted) if procs.get(pid) is not None]
+    found, stack, seen = [], _linux_children(root), {root}
     while stack:
         pid = stack.pop()
-        proc = _linux_process(pid, needle.encode())
-        if proc is None:
+        if pid in seen:
             continue
-        found.append(proc)
-        for path in glob.glob(f"/proc/{pid}/task/*/children"):
-            try:
-                with open(path, "rb") as handle:
-                    kids = [int(value) for value in handle.read().split()]
-            except OSError:
-                continue
-            for kid in kids:
-                if kid not in seen:
-                    seen.add(kid)
-                    stack.append(kid)
+        seen.add(pid)
+        proc = _linux_process(pid)
+        if proc is not None:
+            found.append(proc)
+        stack.extend(_linux_children(pid))
     return found
 
 
-def still_running(known: Iterable[CaseProcess], marker: str) -> List[CaseProcess]:
-    """The processes of `known` that still run, with their current parent (a holder is re-parented when
-    its daemon exits)."""
-    needle = f"{MARKER_ENV}={marker}"
+def still_running(known: Iterable[CaseProcess]) -> List[CaseProcess]:
+    """The processes of `known` that still run: same pid and same start time."""
     if not sys.platform.startswith("linux"):
-        rows = {row[0]: row for row in _ps_table()}
-        procs = (_ps_process(rows[p.pid], needle) if p.pid in rows else None for p in known)
+        rows = {row[0]: _ps_process(row) for row in _ps_table()}
+        procs = (rows.get(p.pid) for p in known)
     else:
-        procs = (_linux_process(p.pid, needle.encode()) for p in known)
-    return [proc for proc in procs if proc is not None]
+        procs = (_linux_process(p.pid) for p in known)
+    starts = {p.pid: p.start for p in known}
+    return [proc for proc in procs if proc is not None and proc.start == starts[proc.pid]]
+
+
+def become_subreaper() -> bool:
+    """Makes this process the reaper of its orphaned descendants (Linux 3.4+); False elsewhere."""
+    if not sys.platform.startswith("linux"):
+        return False
+    import ctypes  # noqa: PLC0415 - Linux only
+
+    libc = ctypes.CDLL(None, use_errno=True)
+    if libc.prctl(PR_SET_CHILD_SUBREAPER, 1, 0, 0, 0) != 0:
+        raise OSError(ctypes.get_errno(), "prctl(PR_SET_CHILD_SUBREAPER)")
+    return True
+
+
+def reap_orphans(keep: Optional[int]) -> None:
+    """Reaps the exited orphans a subreaper adopted (every exited child but `keep`, which subprocess owns)."""
+    if not sys.platform.startswith("linux"):
+        return
+    for pid in _linux_children(os.getpid()):
+        if pid == keep:
+            continue
+        try:
+            os.waitpid(pid, os.WNOHANG)
+        except ChildProcessError:
+            continue
 
 
 def scan_markers() -> Dict[str, List[CaseProcess]]:
-    """Every live process that carries a case marker, by marker: one pass over the whole process table."""
+    """Every live process that carries a case marker, by marker: one pass over the whole process table.
+    Only for a case whose worker did not finish, and for the smoke run's final check."""
     found: Dict[str, List[CaseProcess]] = {}
     prefix = f"{MARKER_ENV}="
     if not sys.platform.startswith("linux"):
         for row in _ps_table():
-            marks = [word for word in row[3] if word.startswith(prefix)]
-            proc = _ps_process(row, marks[0]) if marks else None
+            marks = [word for word in row[4] if word.startswith(prefix)]
+            proc = _ps_process(row) if marks else None
             if proc is not None:
                 found.setdefault(marks[0][len(prefix):], []).append(proc)
         return found
@@ -373,42 +527,6 @@ def scan_markers() -> Dict[str, List[CaseProcess]]:
             if proc is not None:
                 found.setdefault(marks[0][len(head):].decode("utf-8", "replace"), []).append(proc)
     return found
-
-
-class MarkerScan:
-    """The I6 proof's whole-table scan, joined: a case that asks waits for the next scan that starts after
-    it asked, and every case waiting then shares that one pass (request joining). 300 cases ending at once
-    cost a few scans of the host's process table, not 300."""
-
-    def __init__(self, scan: Callable[[], Dict[str, List[CaseProcess]]] = scan_markers):
-        self._scan = scan
-        self._changed = threading.Condition()
-        self._started = 0
-        self._done = 0
-        self._running = False
-        self._result: Dict[str, List[CaseProcess]] = {}
-
-    def find(self, marker: str) -> List[CaseProcess]:
-        with self._changed:
-            wanted = self._started + 1
-            while self._done < wanted:
-                if self._running:
-                    self._changed.wait()
-                    continue
-                self._running = True
-                self._started += 1
-                generation = self._started
-                result: Optional[Dict[str, List[CaseProcess]]] = None
-                self._changed.release()
-                try:
-                    result = self._scan()
-                finally:
-                    self._changed.acquire()
-                    self._running = False
-                    if result is not None:
-                        self._result, self._done = result, generation
-                    self._changed.notify_all()
-            return list(self._result.get(marker, ()))
 
 
 def socket_paths(processes: Sequence[CaseProcess]) -> Set[str]:
@@ -463,6 +581,22 @@ def socket_files(root: Path) -> Set[str]:
             except OSError:
                 continue
     return found
+
+
+def has_listener(path: str) -> bool:
+    """Whether a process accepts on the Unix socket file `path`. Only a refused connect (no listener, or
+    no file) says no; any other answer counts as a listener, so a doubt fails the case."""
+    probe = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    try:
+        probe.settimeout(1.0)
+        probe.connect(path)
+    except (ConnectionRefusedError, FileNotFoundError):
+        return False
+    except OSError:
+        return True
+    finally:
+        probe.close()
+    return True
 
 
 def wait_for_exits(pids: Iterable[int], timeout: float) -> Set[int]:
@@ -564,7 +698,7 @@ class Daemon:
 
     def start(self, step: str) -> None:
         read_fd, write_fd = os.pipe()
-        argv = [self.binary, "--headless", "--session", SESSION_NAME, "--socket", str(self.paths.socket),
+        argv = [self.binary, "--headless", "--session", self.paths.session, "--socket", str(self.paths.socket),
                 "--state", str(self.paths.state), "--owner-ready-fd", str(write_fd)]
         try:
             with open(self.paths.log, "ab") as log:
@@ -620,7 +754,10 @@ class Daemon:
         """A daemon-control command; an unknown command raises KeyError, a refusal CaseError."""
         if self.raw is None:
             raise CmuxConnectionError("the daemon is not running")
-        response = self.raw.request(cmd, **params)
+        return self.reply(self.raw.request(cmd, **params), cmd, step)
+
+    @staticmethod
+    def reply(response: Dict[str, Any], cmd: str, step: str) -> Dict[str, Any]:
         if response.get("ok") is True:
             data = response.get("data")
             return data if isinstance(data, dict) else {}
@@ -669,12 +806,15 @@ class Daemon:
             self.reap(EXIT_S * self.scale)
 
     def stop(self, step: str, end_terminals: bool) -> None:
-        """`shutdown-daemon` for this generation, then the child's exit."""
+        """`shutdown-daemon` for this generation, then the child's exit. Ending the terminals waits for their
+        hosts (up to 60 s, then 5 s after SIGKILL: mux/terminal_reap.rs), so the request gets the CLI's 120 s."""
         try:
-            self.command("shutdown-daemon", step, pid=int(self.identity["pid"]),
-                         generation=str(self.identity["generation"]), force=True, end_terminals=end_terminals)
+            with CmuxClient(str(self.paths.socket), timeout=SHUTDOWN_S * self.scale) as client:
+                self.reply(client.request("shutdown-daemon", pid=int(self.identity["pid"]),
+                                          generation=str(self.identity["generation"]), force=True,
+                                          end_terminals=end_terminals), "shutdown-daemon", step)
         except (CmuxError, KeyError) as error:
-            raise CaseError("Crash", f"shutdown-daemon failed: {error!r}", step) from None
+            raise CaseError("Crash", f"shutdown-daemon failed: {error!r}: {log_tail(self.paths.log)}", step) from None
         self.close_clients()
         if not self.reap(STOP_S * self.scale):
             raise CaseError("Timeout", f"the daemon did not exit {STOP_S * self.scale:.0f} s after shutdown-daemon",
@@ -682,107 +822,37 @@ class Daemon:
 
 
 # ---------------------------------------------------------------------------------------------------------
-# The daemon facet (p15-oracle-021)
-#
-# session.snapshot + settings.snapshot + the journal head of the snapshot's cut, with the `oracle-state`
-# extras. A debug or `--features oracle` daemon answers `oracle-state` with the asking connection's
-# session.snapshot result and its journal head from the one snapshot builder, so `session`, `journalHead`,
-# `terminalAttach` and `liveObjects` are one cut. A release daemon, or one from before task 021, answers
-# `oracle-state` as an unknown command; the facet is then the v0 facet: session.snapshot and
-# settings.snapshot only. Nothing here normalizes: that is normalize.py's (task 013).
-
-
-class DriverError(Exception):
-    """The daemon answered something the facet cannot be built from."""
-
-
-class DaemonReads(Protocol):
-    """The two reads the facet needs: `CaseReads` in a case, `SdkReads` for `facet` and `live-check`."""
-
-    def command(self, cmd: str) -> Mapping[str, Any]:
-        """A raw `{"cmd": cmd}` request; the whole reply line (`ok`, `data`, `error`)."""
-
-    def operation(self, operation: str, params: Mapping[str, Any]) -> Any:
-        """A resource-protocol read; its result."""
-
-
-def daemon_properties(schema: Mapping[str, Any]) -> Mapping[str, Any]:
-    return schema["properties"]["facets"]["properties"]["daemon"]["oneOf"][0]["properties"]
-
-
-def is_unknown_command(reply: Mapping[str, Any]) -> bool:
-    """A daemon with no `oracle-state`: serde refuses the tag before any handler runs."""
-    error = reply.get("error")
-    return reply.get("ok") is False and isinstance(error, str) and UNKNOWN_COMMAND.format(ORACLE_STATE) in error
-
-
-def capture_daemon_facet(reads: DaemonReads, schema: Mapping[str, Any]) -> Dict[str, Any]:
-    """The `facets.daemon` value of the daemon behind `reads`, with the schema's capture rules."""
-    props = daemon_properties(schema)
-    reply = reads.command(ORACLE_STATE)
-    facet: Dict[str, Any] = {}
-    if reply.get("ok") is True:
-        data = reply.get("data")
-        if not isinstance(data, dict) or not isinstance(data.get("session"), dict):
-            raise DriverError(f"{ORACLE_STATE} replied without a session: {reply!r:.300}")
-        missing = [key for key in ("journal_head", *ORACLE_STATE_KEYS) if key not in data]
-        if missing:
-            raise DriverError(f"{ORACLE_STATE} reply lacks {', '.join(missing)}")
-        facet["journalHead"] = data["journal_head"]
-        session = data["session"]
-        facet["oracle"] = {key: data[key] for key in ORACLE_STATE_KEYS}
-    elif is_unknown_command(reply):
-        session = reads.operation("session.snapshot", SELECTORS)
-    else:
-        raise DriverError(f"{ORACLE_STATE} failed: {reply.get('error')!r}")
-    facet["session"] = check_snapshot_schema.capture(schema, props["session"], session)
-    facet["settings"] = check_snapshot_schema.capture(
-        schema, props["settings"], reads.operation("settings.snapshot", SELECTORS))
-    return facet
+# Pure helpers: pointers, predicates, selectors
 
 
 class CaseReads:
-    """`DaemonReads` over a case's daemon, on its SDK clients with the case's request bound."""
+    """`DaemonReads` over a case's daemon. The case runs as `oracle-<token>` only to isolate its install
+    directory; the facet shows the fixture's session name, `oracle`."""
 
-    def __init__(self, daemon: "Daemon", timeout: float):
+    def __init__(self, daemon: Daemon, case_session: str, timeout: float):
         self.daemon = daemon
+        self.case_session = case_session
         self.timeout = timeout
 
     def command(self, cmd: str) -> Mapping[str, Any]:
         if self.daemon.raw is None:
             raise CmuxConnectionError("the daemon is not running")
-        return self.daemon.raw.request(cmd)
+        reply = self.daemon.raw.request(cmd)
+        data = reply.get("data")
+        if isinstance(data, dict):
+            self.rename(data.get("session"))
+        return reply
 
     def operation(self, operation: str, params: Mapping[str, Any]) -> Any:
-        return self.daemon.request(operation, params, None, self.timeout)
+        result = self.daemon.request(operation, params, None, self.timeout)
+        if operation == "session.snapshot":
+            self.rename(result)
+        return result
 
-
-class SdkReads:
-    """`DaemonReads` over one running daemon socket (the `facet` and `live-check` commands)."""
-
-    def __init__(self, socket_path: str, timeout: float = REQUEST_S):
-        self._raw = CmuxClient(socket_path, timeout=timeout)
-        self._resource = ProtocolConnection(socket_path, timeout)
-
-    def command(self, cmd: str) -> Mapping[str, Any]:
-        return self._raw.request(cmd)
-
-    def operation(self, operation: str, params: Mapping[str, Any]) -> Any:
-        return self._resource.request(operation, params)
-
-    def close(self) -> None:
-        self._raw.close()
-        self._resource.close()
-
-    def __enter__(self) -> "SdkReads":
-        return self
-
-    def __exit__(self, *_: object) -> None:
-        self.close()
-
-
-# ---------------------------------------------------------------------------------------------------------
-# Pure helpers: pointers, predicates, selectors
+    def rename(self, snapshot: Any) -> None:
+        info = snapshot.get("session") if isinstance(snapshot, dict) else None
+        if isinstance(info, dict) and info.get("name") == self.case_session:
+            info["name"] = SESSION_NAME
 
 
 def decode_pointer(pointer: str) -> List[str]:
@@ -1196,15 +1266,16 @@ class CaseRun:
     # -- snapshots
 
     def daemon_facet(self, step: str) -> Any:
-        """The daemon facet (capture_daemon_facet) of the case's daemon."""
+        """`capture_daemon_facet` on the case's daemon (one cut when it answers `oracle-state`)."""
         if not self.daemon.running:
             return not_comparable(f"the daemon is not running (killed at step {self.state.killed_by})")
+        reads = CaseReads(self.daemon, self.paths.session, REQUEST_S * self.scale)
         try:
-            return capture_daemon_facet(CaseReads(self.daemon, REQUEST_S * self.scale), self.schema.doc)
+            return capture_daemon_facet(reads, self.schema.doc)
         except CmuxError as error:
             raise self.sdk_failure(error, step, "daemon facet") from None
         except DriverError as error:
-            raise CaseError("Crash", f"daemon facet: {error}", step) from None
+            raise CaseError("Failure", str(error)[:300], step) from None
 
     def facets(self, names: Sequence[str], step: str) -> Dict[str, Any]:
         out = {}
@@ -1251,29 +1322,34 @@ class CaseRun:
     # -- teardown and I6
 
     def remember(self) -> None:
-        """Records the daemon's process tree and the sockets it uses before anything can orphan them: a
-        holder is re-parented when its daemon exits, so after that only this record finds it cheaply."""
-        if self.daemon.running:
-            tree = process_tree(self.daemon.proc.pid, str(self.paths.root))
-            self.known.update((proc.pid, proc) for proc in tree)
-            self.sockets |= socket_paths(tree)
+        """Records the case's processes and the sockets they use, before a stop or a kill ends them."""
+        tree = descendants(os.getpid(), str(self.paths.root))
+        self.known.update((proc.pid, proc) for proc in tree)
+        self.sockets |= socket_paths(tree)
+
+    def case_processes(self) -> List[CaseProcess]:
+        """The case's live processes: the worker's tree, and the recorded ones still running (on macOS an
+        orphan leaves the tree)."""
+        live = {proc.pid: proc for proc in descendants(os.getpid(), str(self.paths.root))}
+        for proc in still_running(self.known.values()):
+            live.setdefault(proc.pid, proc)
+        return sorted(live.values(), key=lambda proc: proc.pid)
 
     def shutdown(self) -> List[str]:
-        """Ends what the case started, in order; returns its problems. The parent proves I6 afterwards."""
+        """Ends what the case started, in order, and proves its process tree empty; returns the problems.
+        The session checks the sockets afterwards."""
         problems: List[str] = []
-        marker = str(self.paths.root)
         self.remember()
-        if not self.daemon.running and self.daemon.starts:
-            # A daemon that a step killed or that died left its holders running, by design: only a daemon
-            # ends their terminals, so a new one adopts them. The scan also finds what it orphaned.
-            self.known.update((proc.pid, proc) for proc in scan_markers().get(marker, ()))
-            if still_running(self.known.values(), marker):
-                try:
-                    self.daemon.start("teardown")
-                except CaseError as error:
-                    problems.append(f"I6: the daemon did not restart to end its terminals: {error.message}")
-                    self.daemon.kill(signal.SIGKILL)
-                self.remember()
+        not_restarted = ""
+        if self.daemon.identity and not self.daemon.running:
+            # A daemon a step killed, or that died, left its terminal hosts and its endpoint files: a new one
+            # adopts the hosts, rebinds the endpoints, and then ends and removes both.
+            try:
+                self.daemon.start("teardown")
+            except CaseError as error:
+                not_restarted = f" (the daemon did not start again to end them: {error.message})"
+                self.daemon.kill(signal.SIGKILL)
+            self.remember()
         if self.daemon.running:
             try:
                 self.daemon.stop("teardown", end_terminals=True)
@@ -1281,20 +1357,17 @@ class CaseRun:
                 problems.append(f"I6: {error.message}")
                 self.daemon.kill(signal.SIGKILL)
         self.daemon.close_clients()
-        # The shells the daemon ended exit on their own time; then a holder with no terminal is idle.
-        left = still_running(self.known.values(), marker)
-        wait_for_exits([p.pid for p in left if not p.is_holder], EXIT_S * self.scale)
-        left = still_running(self.known.values(), marker)
-        # A holder with no terminal left is idle by design: it exits after its idle exit (30 s) and takes a
-        # SIGTERM only from launchd or init. It holds nothing, so the case ends it and removes its socket.
-        idle = [p for p in left if p.is_holder and not any(q.ppid == p.pid for q in left)]
-        if end_processes(idle, EXIT_S * self.scale):
-            self.dirty = True
-        for path in socket_paths(idle):
-            try:
-                os.unlink(path)
-            except OSError:
-                pass
+        # The hosts and shells the daemon ended exit on their own time.
+        wait_for_exits([proc.pid for proc in self.case_processes()], EXIT_S * self.scale)
+        left = self.case_processes()
+        if left:
+            problems.append(f"I6: processes left after teardown{not_restarted}: "
+                            + "; ".join(proc.describe() for proc in left))
+            self.sockets |= socket_paths(left)
+            if end_processes(left, EXIT_S * self.scale):
+                problems.append("I6: processes still alive after SIGKILL")
+                self.dirty = True
+        reap_orphans(self.daemon.proc.pid if self.daemon.proc is not None else None)
         return problems
 
 
@@ -1308,47 +1381,53 @@ def end_processes(procs: Sequence[CaseProcess], timeout: float) -> Set[int]:
     return wait_for_exits([p.pid for p in procs], timeout)
 
 
-def prove_clean(paths: CasePaths, sockets: Iterable[str], scan: "MarkerScan", timeout: float) -> Tuple[List[str], bool]:
-    """Invariant I6 for one case, whatever its worker did: no process carries the case's marker and no
-    socket it used is left. What is left is reported, killed and removed, so the next case shares nothing.
-    Returns the problems and whether a process survived SIGKILL."""
-    problems: List[str] = []
-    dirty = False
+@dataclass
+class Proof:
+    problems: List[str] = field(default_factory=list)
+    # Files the daemon should have removed: no process listens on them, so they are not I6 leaks.
+    debt: List[str] = field(default_factory=list)
+    # A process survived SIGKILL.
+    dirty: bool = False
+
+
+def prove_clean(paths: CasePaths, sockets: Iterable[str], worker_finished: bool,
+                scan: Callable[[], Dict[str, List[CaseProcess]]], timeout: float) -> Proof:
+    """Invariant I6 for one case, after its worker. A worker that finished proved its own process tree
+    empty; for one that did not, one marker scan of the process table stands in. Then the sockets the case
+    used, its root's and its install directory's: one that still listens fails the case, a file with no
+    listener is daemon debt. Everything left is killed and removed, so the next case shares nothing."""
+    proof = Proof()
     found = set(sockets)
-    left = scan.find(str(paths.root))
-    if left:
-        problems.append("I6: processes left after teardown: " + "; ".join(p.describe() for p in left))
-        found |= socket_paths(left)
-        if end_processes(left, timeout):
-            problems.append("I6: processes still alive after SIGKILL")
-            dirty = True
-    found |= socket_files(paths.root)
+    if not worker_finished:
+        left = scan().get(str(paths.root), [])
+        if left:
+            proof.problems.append("I6: processes left by a worker that did not finish: "
+                                  + "; ".join(p.describe() for p in left))
+            found |= socket_paths(left)
+            if end_processes(left, timeout):
+                proof.problems.append("I6: processes still alive after SIGKILL")
+                proof.dirty = True
+    found |= socket_files(paths.root) | socket_files(paths.install_dir)
     stale = sorted(path for path in found if os.path.lexists(path))
-    if stale:
-        problems.append("I6: sockets left after teardown: " + ", ".join(stale))
+    live = [path for path in stale if has_listener(path)]
+    if live:
+        proof.problems.append("I6: sockets still listening after teardown: " + ", ".join(live))
+    dead = [path for path in stale if path not in live]
+    if dead:
+        proof.debt.append("socket files with no listener after teardown (the daemon did not remove them): "
+                          + ", ".join(dead))
     long = sorted(path for path in found if len(os.fsencode(path)) > SOCKET_LIMIT)
     if long:
-        problems.append(f"socket paths over {SOCKET_LIMIT} bytes: " + ", ".join(long))
+        proof.problems.append(f"socket paths over {SOCKET_LIMIT} bytes: " + ", ".join(long))
     for path in stale:
         try:
             os.unlink(path)
         except OSError:
             pass
-    remove_case_dirs(paths.root, found)
-    return problems, dirty
-
-
-def remove_case_dirs(root: Path, sockets: Iterable[str]) -> None:
-    """Removes the state root and the empty per-install socket directories outside it."""
-    shutil.rmtree(root, ignore_errors=True)
-    for path in sockets:
-        parent = os.path.dirname(path)
-        # /tmp/cmux-th-<uid>/<install>/: the shared /tmp/cmux-*-<uid> directory itself stays.
-        if os.path.dirname(os.path.dirname(parent)) == "/tmp" and not parent.startswith(str(root)):
-            try:
-                os.rmdir(parent)
-            except OSError:
-                pass
+    shutil.rmtree(paths.root, ignore_errors=True)
+    # The case's own install directory (CasePaths.session); the shared /tmp/cmux-th-<uid> stays.
+    shutil.rmtree(paths.install_dir, ignore_errors=True)
+    return proof
 
 
 class Waiter:
@@ -1422,9 +1501,11 @@ class DaemonSession:
     """The daemon product's session. Each case runs in its own worker process (`case-worker`), as
     Chrome's test launcher runs each test in a child: hundreds of cases run in parallel without one
     interpreter lock or one descriptor table, and a hung or crashed worker fails only its case. The
-    session itself gives out the state roots and proves I6 after each worker, with one joined scan."""
+    session itself gives out the state roots and checks each case's sockets after its worker; `scan` (the
+    whole-table marker scan) runs only for a worker that did not finish."""
 
-    def __init__(self, session_ctx: Mapping[str, Any]):
+    def __init__(self, session_ctx: Mapping[str, Any],
+                 scan: Callable[[], Dict[str, List[CaseProcess]]] = scan_markers):
         binary = session_ctx.get("binary")
         if not binary:
             raise ValueError("the daemon driver needs --binary (the cmux-tui that linux_run.sh build prints)")
@@ -1440,7 +1521,7 @@ class DaemonSession:
             self.isolation = session_isolation(session_ctx.get("isolation"))
         except hermetic_env.HermeticError as error:
             raise ValueError(f"no hermetic case environment on this host: {error}") from None
-        self.scan = MarkerScan()
+        self.scan = scan
         self.binary = os.path.realpath(str(binary))
         self.session_ctx = dict(session_ctx)
         self.sha = resolve_sha(session_ctx.get("ref"), self.binary)
@@ -1455,17 +1536,23 @@ class DaemonSession:
         except CaseError as error:
             return {"status": error.status, "message": error.message, "checkpoints": []}
         scale = float(case_ctx.get("timeout_multiplier") or 1)
-        result = self.run_worker(case, {**case_ctx, "state_root": str(paths.root)}, scale)
-        problems, dirty = prove_clean(paths, result.pop("sockets", ()), self.scan, EXIT_S * scale)
-        if problems:
-            result["message"] = "; ".join(filter(None, [result.get("message"), *problems]))
+        result, finished = self.run_worker(case, {**case_ctx, "state_root": str(paths.root)}, scale)
+        proof = prove_clean(paths, result.pop("sockets", ()), finished, self.scan, EXIT_S * scale)
+        if proof.problems:
+            result["message"] = "; ".join(filter(None, [result.get("message"), *proof.problems]))
             if result["status"] == "Pass":
                 result["status"] = "Failure"
-        if dirty:
+        if proof.debt:
+            result["daemon_debt"] = proof.debt
+            result["message"] = "; ".join(filter(None, [result.get("message"),
+                                                        *(f"daemon debt (not I6): {d}" for d in proof.debt)]))
+        if proof.dirty:
             result["session_dirty"] = True
         return result
 
-    def run_worker(self, case: Dict[str, Any], case_ctx: Dict[str, Any], scale: float) -> Dict[str, Any]:
+    def run_worker(self, case: Dict[str, Any], case_ctx: Dict[str, Any],
+                   scale: float) -> Tuple[Dict[str, Any], bool]:
+        """The worker's result, and whether it finished (then it proved its own process tree empty)."""
         payload = {"binary": self.binary, "sha": self.sha, "schema": self.schema_path, "case": case,
                    "ctx": case_ctx, "session": self.session_ctx, "isolation": self.isolation.describe()}
         bound = worker_bound(case, scale)
@@ -1474,18 +1561,23 @@ class DaemonSession:
         try:
             out, err = worker.communicate(json.dumps(payload).encode(), timeout=bound)
         except subprocess.TimeoutExpired:
-            worker.kill()
-            out, err = worker.communicate()
+            # SIGTERM first: the worker ends its process tree (end_tree_on_term), then the session kills it.
+            worker.terminate()
+            try:
+                out, err = worker.communicate(timeout=EXIT_S * scale)
+            except subprocess.TimeoutExpired:
+                worker.kill()
+                out, err = worker.communicate()
             return {"status": "Timeout", "checkpoints": [], "session_dirty": True,
-                    "message": f"the case worker ran over its bound of {bound:.0f} s: {tail(err)}"}
+                    "message": f"the case worker ran over its bound of {bound:.0f} s: {tail(err)}"}, False
         try:
             result = json.loads(out) if worker.returncode == 0 else None
         except ValueError:
             result = None
         if not isinstance(result, dict):
             return {"status": "Crash", "checkpoints": [], "session_dirty": True,
-                    "message": f"the case worker failed (exit {worker.returncode}): {tail(err)}"}
-        return result
+                    "message": f"the case worker failed (exit {worker.returncode}): {tail(err)}"}, False
+        return result, True
 
     def close(self) -> None:
         """Nothing outlives a case: each run_case ends its worker and proves I6."""
@@ -1495,7 +1587,9 @@ def worker_bound(case: Mapping[str, Any], scale: float) -> float:
     """Seconds a case worker may take: every bound the case can wait on, so only a hang reaches it."""
     steps = case.get("steps") or ()
     waits = sum(((s.get("waitFor") or {}).get("maxMs", 0) + s.get("settleMaxMs", 0)) / 1000 for s in steps)
-    return scale * (2 * READY_S + 2 * STOP_S + 6 * EXIT_S + len(steps) * 4 * REQUEST_S + waits)
+    stop = SHUTDOWN_S + STOP_S
+    restarts = sum(1 for s in steps if s.get("op") == "restart") * (READY_S + stop)
+    return scale * (2 * READY_S + 2 * stop + 6 * EXIT_S + len(steps) * 4 * REQUEST_S + waits + restarts)
 
 
 def tail(data: bytes) -> str:
@@ -1510,8 +1604,17 @@ def case_worker() -> int:
         raise SystemExit(f"driver_daemon.py case-worker: {refusal}")
     run = CaseRun(payload["binary"], payload["sha"], schema, payload["case"], payload["ctx"], payload["session"],
                   hermetic_env.Isolation.from_description(payload["isolation"]))
+    # Every process the case starts stays in this worker's tree, whatever it does (I6).
+    become_subreaper()
+    signal.signal(signal.SIGTERM, partial(end_tree_on_term, str(run.paths.root)))
     json.dump(run.run(), sys.stdout)
     return 0
+
+
+def end_tree_on_term(marker: str, signum: int, _frame: Any) -> None:
+    """The session's SIGTERM to a worker over its bound: ends the case's processes, then the worker."""
+    end_processes(descendants(os.getpid(), marker), EXIT_S)
+    os._exit(128 + signum)
 
 
 def session_isolation(value: Any) -> hermetic_env.Isolation:
@@ -1556,31 +1659,42 @@ def noop_case(index: int) -> Dict[str, Any]:
     }
 
 
+def remove_empty_dir(path: Path) -> None:
+    """A run's state base, once its cases removed their roots (a root left behind keeps it)."""
+    try:
+        path.rmdir()
+    except OSError:
+        pass
+
+
 def cmd_run_case(args: argparse.Namespace) -> int:
     case = json.loads(Path(args.case).read_text(encoding="utf-8"))
     run_id = args.run_id or f"rc-{os.getpid()}-{time.time_ns()}"
     session = open_session({"binary": args.binary, "run_id": run_id, "ref": args.ref,
                             **getattr(args, "session_extra", {})})
-    ctx = {"case_id": f"{case['suite']}/{case['id']}", "key": "0",
-           "state_root": str(args.state_base / short_token(run_id) / short_token(case["id"]))}
+    base = args.state_base / short_token(run_id)
+    ctx = {"case_id": f"{case['suite']}/{case['id']}", "key": "0", "state_root": str(base / short_token(case["id"]))}
     result = session.run_case(case, ctx)
+    remove_empty_dir(base)
     print(json.dumps(result, indent=1, sort_keys=True))
     return 0 if result["status"] == "Pass" else 1
 
 
 def cmd_smoke(args: argparse.Namespace) -> int:
     """N cases at once (no-op cases, or N copies of --case), then nothing of theirs may be left: the test
-    of task 023. Checks the marker of every case root and `pgrep -f` of the run's state base."""
+    of task 023. Checks the marker of every case root, `pgrep -f` of the run's state base, and the cases'
+    roots and install directories. Daemon debt is reported; it does not fail the run."""
     run_id = args.run_id or f"smoke-{os.getpid()}-{time.time_ns()}"
     base = args.state_base / short_token(run_id)
     template = json.loads(Path(args.case).read_text(encoding="utf-8")) if args.case else None
     session = open_session({"binary": args.binary, "run_id": run_id, **getattr(args, "session_extra", {})})
     started = time.monotonic()
 
+    roots = [base / f"{index:06d}"[-6:] for index in range(args.cases)]
+
     def one(index: int) -> Dict[str, Any]:
         case = noop_case(index) if template is None else {**template, "id": f"{template['id']}-{index}"}
-        ctx = {"case_id": f"{case['suite']}/{case['id']}", "key": str(index),
-               "state_root": str(base / f"{index:06d}"[-6:])}
+        ctx = {"case_id": f"{case['suite']}/{case['id']}", "key": str(index), "state_root": str(roots[index])}
         return session.run_case(case, ctx)
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=args.jobs) as pool:
@@ -1592,60 +1706,137 @@ def cmd_smoke(args: argparse.Namespace) -> int:
                     if marker.startswith(f"{base}/") for p in procs)
     pgrep = subprocess.run(["pgrep", "-f", str(base)], check=False, stdout=subprocess.PIPE, text=True).stdout.split()
     leftover_roots = glob.glob(str(base / "*"))
+    leftover_installs = [str(CasePaths(root).install_dir) for root in roots if CasePaths(root).install_dir.exists()]
+    debt = [r for r in results if r.get("daemon_debt")]
     report = {
+        "binary": session.binary, "sha": session.sha,
         "cases": args.cases, "jobs": args.jobs, "seconds": round(time.monotonic() - started, 1), "counts": counts,
         "marked_processes_left": marked, "pgrep_left": pgrep, "state_roots_left": leftover_roots,
+        "install_dirs_left": leftover_installs,
         "failures": [r["message"][:300] for r in results if r["status"] != "Pass"][:5],
+        "daemon_debt_cases": len(debt), "daemon_debt": [r["daemon_debt"][0][:300] for r in debt][:3],
     }
     print(json.dumps(report, indent=1, sort_keys=True))
     shutil.rmtree(base, ignore_errors=True)
-    ok = counts.get("Pass", 0) == args.cases and not marked and not pgrep and not leftover_roots
+    ok = (counts.get("Pass", 0) == args.cases and not marked and not pgrep and not leftover_roots
+          and not leftover_installs)
     return 0 if ok else 1
 
 
-def snapshot_schema_doc() -> Dict[str, Any]:
-    return json.loads(normalize.DEFAULT_SCHEMA.read_text(encoding="utf-8"))
+# ------------------------------------------------------------------------------- the facet's self test
 
 
-def cmd_facet(args: argparse.Namespace) -> int:
-    with SdkReads(args.socket) as reads:
-        value = capture_daemon_facet(reads, snapshot_schema_doc())
-    print(json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False))
-    return 0
+class _FakeReads:
+    def __init__(self, oracle_reply: Mapping[str, Any], wire: Mapping[str, Any]):
+        self.oracle_reply = oracle_reply
+        self.wire = wire
+        self.calls: list = []
+
+    def command(self, cmd: str) -> Mapping[str, Any]:
+        self.calls.append(cmd)
+        return self.oracle_reply
+
+    def operation(self, operation: str, params: Mapping[str, Any]) -> Any:
+        self.calls.append(operation)
+        assert params == SELECTORS, params
+        return self.wire[operation]
 
 
-def cmd_live_check(args: argparse.Namespace) -> int:
-    """capture_wire_fixtures.py's op script on its daemon, then the facet's oracle-state part against
-    LIVE_EXPECTED (task 021). The session and settings are checked against the schema, not pinned: their
+def _wire() -> Dict[str, Any]:
+    return {p.stem: json.loads(p.read_text(encoding="utf-8"))["result"] for p in sorted(WIRE.glob("*.json"))}
+
+
+EXTRAS_REPLY = {
+    "journal_head": 42,
+    "switches": {"terminal-holder": "old"},
+    "terminalAttach": {"attached": 3, "detached": 0, "dead": 0},
+    "liveObjects": {"browsers": 0, "panes": 3, "screens": 2, "subscriptions": 1, "terminals": 3, "views": 3,
+                    "workspaces": 2},
+    "panicLog": {"path": "/tmp/oracle-case/state/owner-panics-main.jsonl", "bytes": 0},
+}
+
+
+class DriverDaemonSelfTest(unittest.TestCase):
+    def setUp(self) -> None:
+        self.schema = load_schema()
+        self.wire = _wire()
+
+    def facet_errors(self, facet: Mapping[str, Any]) -> list:
+        """The schema check on the example snapshot with this facet as its daemon facet.
+
+        check_snapshot_schema.py's validator, not normalize.py's: at this base normalize.py refuses the
+        schema's x-oracle-decimal, x-oracle-open-keys and x-oracle-id-unpatterned keywords.
+        """
+        snapshot = json.loads(EXAMPLE.read_text(encoding="utf-8"))
+        snapshot["facets"]["daemon"] = facet
+        return check_snapshot_schema.check_snapshot(self.schema, snapshot, "facet")
+
+    def test_oracle_state_gives_one_cut_and_the_extras(self) -> None:
+        reply = {"ok": True, "data": {**EXTRAS_REPLY, "session": self.wire["session.snapshot"]}}
+        reads = _FakeReads(reply, self.wire)
+        facet = capture_daemon_facet(reads, self.schema)
+        self.assertEqual(reads.calls, [ORACLE_STATE, "settings.snapshot"], "session comes from the cut")
+        self.assertEqual(facet["journalHead"], 42)
+        self.assertEqual(sorted(facet["oracle"]), sorted(EXTRAS))
+        self.assertEqual(facet["oracle"]["switches"], {"terminal-holder": "old"})
+        self.assertEqual(facet["session"]["session"], self.wire["session.snapshot"]["session"])
+        self.assertRegex(facet["settings"]["effective_sha256"], r"^sha256:[0-9a-f]{64}$")
+        self.assertNotIn("effective", facet["settings"])
+        self.assertEqual(self.facet_errors(facet), [])
+
+    def test_a_daemon_without_oracle_state_gives_the_v0_facet(self) -> None:
+        reply = {"ok": False, "error": "bad request: unknown variant `oracle-state`, expected one of `identify`"}
+        reads = _FakeReads(reply, self.wire)
+        facet = capture_daemon_facet(reads, self.schema)
+        self.assertEqual(reads.calls, [ORACLE_STATE, "session.snapshot", "settings.snapshot"])
+        self.assertEqual(sorted(facet), ["session", "settings"])
+        self.assertEqual(self.facet_errors(facet), [])
+
+    def test_other_refusals_and_short_replies_are_errors(self) -> None:
+        refused = {"ok": False, "error": "oracle state requires a trusted local connection"}
+        with self.assertRaises(DriverError):
+            capture_daemon_facet(_FakeReads(refused, self.wire), self.schema)
+        short = {"ok": True, "data": {"journal_head": 1, "session": self.wire["session.snapshot"]}}
+        with self.assertRaisesRegex(DriverError, "switches"):
+            capture_daemon_facet(_FakeReads(short, self.wire), self.schema)
+
+    def test_an_extra_field_the_schema_does_not_know_fails_validation(self) -> None:
+        data = {**EXTRAS_REPLY, "session": self.wire["session.snapshot"]}
+        facet = capture_daemon_facet(_FakeReads({"ok": True, "data": data}, self.wire), self.schema)
+        facet["oracle"]["holders"] = 1
+        self.assertNotEqual(self.facet_errors(facet), [])
+
+
+def live_check(binary: Path, *, write: bool) -> int:
+    """Run capture_wire_fixtures.py's op script on a hermetic daemon and compare the facet's oracle-state
+    part with LIVE_EXPECTED. The session and settings are checked against the schema, not pinned: their
     ids and times are random until task 185's seeded ids and virtual clock. The expected panic log path
     is the Linux XDG state path, so this is a VM check."""
-    import tempfile
+    import capture_wire_fixtures  # sibling of this file (p15-oracle-020)
 
-    import capture_wire_fixtures as wire
-
-    schema = snapshot_schema_doc()
     root = Path(tempfile.mkdtemp(prefix="oracle-021-", dir="/tmp"))
-    daemon = wire.Daemon(args.cmux.resolve(), root)
+    daemon = capture_wire_fixtures.Daemon(binary.resolve(), root)
     try:
         daemon.start()
-        wire.make_state(daemon)
+        capture_wire_fixtures.make_state(daemon)
         with SdkReads(daemon.socket) as reads:
-            facet = capture_daemon_facet(reads, schema)
+            facet = capture_daemon_facet(reads)
     finally:
         daemon.stop()
         shutil.rmtree(root, ignore_errors=True)
-    snapshot = json.loads(SNAPSHOT_EXAMPLE.read_text(encoding="utf-8"))
+    snapshot = json.loads(EXAMPLE.read_text(encoding="utf-8"))
     snapshot["facets"]["daemon"] = facet
-    problems = check_snapshot_schema.check_snapshot(schema, snapshot, "live facet")
+    problems = check_snapshot_schema.check_snapshot(load_schema(), snapshot, "live facet")
     oracle = json.loads(json.dumps(facet.get("oracle")).replace(str(root), "$ROOT"))
     got = {"facetKeys": sorted(facet), "journalHeadPositive": facet.get("journalHead", 0) > 0,
            "oracle": oracle, "schemaProblems": problems}
     text = json.dumps(got, indent=2, sort_keys=True) + "\n"
-    if args.write:
+    if write:
         LIVE_EXPECTED.write_text(text, encoding="utf-8")
         print(LIVE_EXPECTED)
         return 0
-    if text != LIVE_EXPECTED.read_text(encoding="utf-8"):
+    expected = LIVE_EXPECTED.read_text(encoding="utf-8")
+    if text != expected:
         print(f"live-check: the facet differs from {LIVE_EXPECTED.relative_to(REPO)}:\n{text}", file=sys.stderr)
         return 1
     print("live-check: ok")
@@ -1654,13 +1845,9 @@ def cmd_live_check(args: argparse.Namespace) -> int:
 
 def main(argv: Optional[Sequence[str]] = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    sub = parser.add_subparsers(dest="command", required=True)
+    parser.add_argument("--selftest", action="store_true", help="run the offline facet self tests")
+    sub = parser.add_subparsers(dest="command")
     sub.add_parser("case-worker", help="internal: one case from a JSON payload on stdin (DaemonSession)")
-    facet = sub.add_parser("facet", help="print the daemon facet of a running daemon")
-    facet.add_argument("--socket", required=True, help="the daemon's control socket")
-    live = sub.add_parser("live-check", help="the fixed op script on a daemon vs the checked-in JSON")
-    live.add_argument("--cmux", type=Path, required=True, help="a debug or --features oracle cmux-tui binary")
-    live.add_argument("--write", action="store_true", help="rewrite the expected JSON instead of comparing")
     for name in ("run-case", "smoke"):
         cmd = sub.add_parser(name)
         cmd.add_argument("--binary", required=True, help="the cmux-tui to run")
@@ -1677,13 +1864,27 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             cmd.add_argument("--cases", type=int, default=300)
             cmd.add_argument("--jobs", type=int, default=300)
             cmd.add_argument("--case", help="run N copies of this case-v1 file instead of no-op cases")
+    facet = sub.add_parser("facet", help="print the daemon facet of a running daemon")
+    facet.add_argument("--socket", required=True, help="the daemon's control socket")
+    live = sub.add_parser("live-check", help="the fixed op script on a hermetic daemon vs the checked-in JSON")
+    live.add_argument("--cmux", type=Path, required=True, help="a debug or --features oracle cmux-tui binary")
+    live.add_argument("--write", action="store_true", help="rewrite the expected JSON instead of comparing")
     args = parser.parse_args(argv)
+    if args.selftest:
+        suite = unittest.defaultTestLoader.loadTestsFromTestCase(DriverDaemonSelfTest)
+        return 0 if unittest.TextTestRunner(verbosity=2).run(suite).wasSuccessful() else 1
     if args.command == "case-worker":
         return case_worker()
     if args.command == "facet":
-        return cmd_facet(args)
+        with SdkReads(args.socket) as reads:
+            value = capture_daemon_facet(reads)
+        print(json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False))
+        return 0
     if args.command == "live-check":
-        return cmd_live_check(args)
+        return live_check(args.cmux, write=args.write)
+    if args.command is None:
+        parser.print_usage(sys.stderr)
+        return 2
     args.session_extra = {"isolation": args.isolation}
     if args.snapshot_schema:
         args.session_extra["snapshot_schema"] = args.snapshot_schema
