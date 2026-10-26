@@ -191,6 +191,8 @@ public final class TypingLatencyProbe: Sendable {
     private let writesCSV: Bool
     /// Key flows are on (``startFlows()``).
     private let flowsOn = Atomic<Bool>(false)
+    /// Who hears key flows start and stop (``observeRecording(_:)``).
+    let recordingObservers = ObserverSlots<Bool>(capacity: 4)
     /// The commit observer is on the main run loop (added once, at the first recording).
     private let observing = Atomic<Bool>(false)
     /// The last ``SurfaceKey`` handed out (``makeSurfaceKey()``).
@@ -235,8 +237,9 @@ public final class TypingLatencyProbe: Sendable {
 
     /// Starts key flows: each later key-down gets a flow id, and its hops become `key.flow` events.
     public func startFlows() {
-        flowsOn.store(true, ordering: .relaxed)
+        let wasOn = flowsOn.exchange(true, ordering: .sequentiallyConsistent)
         observeCommits()
+        if !wasOn { recordingObservers.notify(isRecording) }
     }
 
     /// Starts key flows when the app was launched with ``flowsEnvironmentKey`` set.
@@ -247,12 +250,14 @@ public final class TypingLatencyProbe: Sendable {
 
     /// Stops key flows. Without a CSV the open presses are dropped unwritten.
     public func stopFlows() {
-        flowsOn.store(false, ordering: .relaxed)
-        guard !writesCSV else { return }
-        state.withLock { state in
-            state.open.removeAll()
-            state.echoCommits.removeAll()
+        let wasOn = flowsOn.exchange(false, ordering: .sequentiallyConsistent)
+        if !writesCSV {
+            state.withLock { state in
+                state.open.removeAll()
+                state.echoCommits.removeAll()
+            }
         }
+        if wasOn { recordingObservers.notify(isRecording) }
     }
 
     /// The commit mark: the end of each main run-loop turn, after Core Animation's commit observer

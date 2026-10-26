@@ -28,6 +28,8 @@ nonisolated final class SurfaceBridge: Sendable {
     let linkFilter = TerminalLinkFilter()
     /// What the Ghostty trace hook marks for this surface's frames (``GhosttyTraceHook``).
     let frames: GhosttyTraceHook.Surface
+    /// The hook ``frames`` are registered with and the surface's trace id; nil while not registered.
+    @MainActor private var traceRegistration: (hook: GhosttyTraceHook, id: UInt64)?
 
     init(input: TerminalInputSink, echoStage: TerminalEchoStage? = nil) {
         self.input = input
@@ -36,6 +38,21 @@ nonisolated final class SurfaceBridge: Sendable {
         linkFilter.onChange { [weak self] in
             MainDelivery().run { self?.sendPointerAgain() }
         }
+    }
+
+    /// Registers ``frames`` with `hook` under `surface`'s trace id, right after `ghostty_surface_new`.
+    @MainActor func traceFrames(of surface: ghostty_surface_t, with hook: GhosttyTraceHook?) {
+        guard let hook else { return }
+        let id = hook.register(frames, of: surface)
+        if id != 0 { traceRegistration = (hook, id) }
+    }
+
+    /// After `ghostty_surface_free` returned and before this bridge's release: the hook stops reading the
+    /// surface's calls while ``frames`` is still alive.
+    @MainActor func surfaceFreed() {
+        guard let traceRegistration else { return }
+        traceRegistration.hook.unregister(id: traceRegistration.id)
+        self.traceRegistration = nil
     }
 
     /// The session's surfaces to the typing probe (``TypingLatencyProbe``): the key router opens a press

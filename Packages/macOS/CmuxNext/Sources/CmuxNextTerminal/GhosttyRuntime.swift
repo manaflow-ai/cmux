@@ -76,7 +76,7 @@ public final class GhosttyRuntime {
     /// The terminals' key-to-echo stages and the process's contents gate; the app installs its input
     /// latency tracker here (``TerminalEchoStages/install(_:)``, p04-input-094) before its first terminal.
     public let echoStages: TerminalEchoStages
-    /// Ghostty's frames into the trace ring (p09-observability-049); `trace.start`/`stop` call ``GhosttyTraceHook/refreshDemand()``.
+    /// Ghostty's frames into the trace ring (p09-observability-049); the app wires ``GhosttyTraceHook/connect(on:presents:)``.
     public let traceHook: GhosttyTraceHook
     /// The process's secure keyboard entry for its terminals (HIToolbox counts it per process); it holds the
     /// app trace runtime's keystroke-timing gate closed while on (p09-observability-128).

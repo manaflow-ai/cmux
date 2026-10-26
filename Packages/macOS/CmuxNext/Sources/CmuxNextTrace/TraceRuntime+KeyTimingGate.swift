@@ -45,16 +45,32 @@ extension TraceRuntime {
     /// (os_signpost, the MetricKit mirror, the typing probe) once per key.
     public var isKeyTimingSuppressed: Bool { keyTimingHoldBits.load(ordering: .relaxed) != 0 }
 
+    /// Calls `observe` with the new ``categoryMask`` after each change of it (``setCategoryMask(_:)``, the
+    /// keystroke-timing gate), on the thread that made the change, as Chrome's
+    /// `TraceLog::AddEnabledStateObserver` does (base/trace_event/trace_log.h). An observer stays for the
+    /// runtime's life.
+    ///
+    /// - Returns: false, and adds nothing, when the runtime has its four observers already.
+    @discardableResult
+    public func observeCategories(_ observe: @escaping @Sendable (_ mask: UInt64) -> Void) -> Bool {
+        categoryObservers.add(observe)
+    }
+
     /// Stores the flags for the current request and gate, and mirrors them into the ring header, again until
     /// neither input changed between its loads and both stores. A writer whose inputs change after its check
     /// publishes again itself, so the last store of both words is the current inputs' mask, with no lock.
+    /// When the flags changed, the observers then hear the mask stored last.
     private func publishCategories() {
+        var changed = false
+        defer {
+            if changed { categoryObservers.notify(categoryFlags.load(ordering: .sequentiallyConsistent)) }
+        }
         // wakeup-allow: bounded: never waits; it stores again only when another writer changed the request or the gate between its loads and its check.
         while true {
             let requested = requestedFlags.load(ordering: .sequentiallyConsistent)
             let holds = keyTimingHoldBits.load(ordering: .sequentiallyConsistent)
             let mask = TraceCategories(rawValue: requested).gated(keyTimingSuppressed: holds != 0).rawValue
-            categoryFlags.store(mask, ordering: .sequentiallyConsistent)
+            if categoryFlags.exchange(mask, ordering: .sequentiallyConsistent) != mask { changed = true }
             // Sequentially consistent against attach's exchange and load: one of the two mirrors the new flags.
             let ringBits = UInt(ringAddress.load(ordering: .sequentiallyConsistent))
             UnsafeRawPointer(bitPattern: ringBits).map { Unmanaged<TraceRing>.fromOpaque($0) }?
