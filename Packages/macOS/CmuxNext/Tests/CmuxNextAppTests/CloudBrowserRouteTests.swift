@@ -2,7 +2,7 @@ import CmuxNextBrowser
 @testable import CmuxNextRemoteLocalhost
 @testable import CmuxNextRemoteLocalhostService
 import Foundation
-import Synchronization
+import CmuxNextCompat
 import Testing
 
 /// A tab on a Cloud machine's port (`cmux cloud open-browser`) failed every request once the
@@ -10,7 +10,7 @@ import Testing
 /// kept the first `cloud.browser.open` route for good, and a restored tab had none. The route now
 /// asks for the machine's route again when it has none or when the one it has is gone.
 struct CloudBrowserRouteTests {
-    private struct Tunnel: LoopbackTunnel {
+    private nonisolated struct Tunnel: LoopbackTunnel {
         let route: UInt16
         var events: AsyncStream<LoopbackTunnelEvent> { AsyncStream { $0.finish() } }
         func write(_ data: Data) async throws {}
@@ -20,7 +20,7 @@ struct CloudBrowserRouteTests {
     }
 
     /// Opens through the route numbered by its proxy port; fails as `dead` says for that port.
-    private struct Opener: LoopbackTunnelOpening {
+    private nonisolated struct Opener: LoopbackTunnelOpening {
         let port: UInt16
         let dead: @Sendable (UInt16) -> LoopbackTunnelFailure?
         func openTunnel(host: String, port target: UInt16) async throws(LoopbackTunnelFailure) -> any LoopbackTunnel {
@@ -29,7 +29,7 @@ struct CloudBrowserRouteTests {
         }
     }
 
-    private final class Fetches: Sendable {
+    private nonisolated final class Fetches: Sendable {
         let count = Mutex(0)
         let answers: [UInt16]
         init(_ answers: [UInt16]) { self.answers = answers }
@@ -41,7 +41,7 @@ struct CloudBrowserRouteTests {
     }
 
     /// A clock the test moves.
-    private final class Now: Sendable {
+    private nonisolated final class Now: Sendable {
         let start = ContinuousClock.now
         let offset = Mutex(Duration.zero)
         var instant: ContinuousClock.Instant { start.advanced(by: offset.withLock { $0 }) }

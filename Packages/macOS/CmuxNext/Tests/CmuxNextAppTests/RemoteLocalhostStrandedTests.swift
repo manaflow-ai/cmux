@@ -9,7 +9,7 @@ import Testing
 /// The proxy now remembers which addresses it answered that way, per machine listener, so the app
 /// loads those pages again when the machine connects.
 struct RemoteLocalhostStrandedTests {
-    private struct Opener: LoopbackTunnelOpening {
+    private nonisolated struct Opener: LoopbackTunnelOpening {
         let failure: LoopbackTunnelFailure
         func openTunnel(host: String, port: UInt16) async throws(LoopbackTunnelFailure) -> any LoopbackTunnel {
             throw failure
