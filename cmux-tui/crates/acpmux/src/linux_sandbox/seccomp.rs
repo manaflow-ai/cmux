@@ -56,6 +56,10 @@ impl Assembler {
         self.program.push(libc::sock_filter { code: code as u16, jt: 0, jf: 0, k });
     }
 
+    fn jump(&mut self, code: u32, k: u32, jt: u8, jf: u8) {
+        self.program.push(libc::sock_filter { code: code as u16, jt, jf, k });
+    }
+
     fn cond(&mut self, code: u32, k: u32, jt: Label, jf: Label) {
         let index = self.program.len();
         self.program.push(libc::sock_filter { code: code as u16, jt: 0, jf: 0, k });
@@ -195,7 +199,7 @@ pub(crate) fn deny_filter() -> Result<Vec<libc::sock_filter>, String> {
     asm.cond(BPF_JMP | BPF_JEQ | BPF_K, libc::SYS_clone as u32, clone_body, clone_after);
     asm.mark(clone_body);
     asm.stmt(BPF_LD | BPF_W | BPF_ABS, SECCOMP_DATA_ARG0_LO);
-    asm.stmt(
+    asm.jump(
         BPF_JMP | BPF_JSET | BPF_K,
         (libc::CLONE_NEWNS
             | libc::CLONE_NEWUTS
@@ -210,7 +214,7 @@ pub(crate) fn deny_filter() -> Result<Vec<libc::sock_filter>, String> {
     );
     asm.stmt(BPF_RET | BPF_K, eperm);
     asm.stmt(BPF_LD | BPF_W | BPF_ABS, SECCOMP_DATA_ARG0_HI);
-    asm.stmt(BPF_JMP | BPF_JGE | BPF_K, 1, 0, 1);
+    asm.jump(BPF_JMP | BPF_JGE | BPF_K, 1, 0, 1);
     asm.stmt(BPF_RET | BPF_K, eperm);
     asm.mark(clone_after);
 
