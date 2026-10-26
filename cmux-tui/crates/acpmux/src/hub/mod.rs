@@ -107,6 +107,7 @@ pub mod approvers;
 mod own_host;
 mod peer_cache;
 mod peer_lease;
+pub(crate) mod peer_snapshot;
 pub use peer_lease::PeerLease;
 mod peers;
 pub(crate) use peers::{
@@ -345,6 +346,9 @@ pub struct Hub {
     /// started (`peer_lease.rs`); never saved. Lock order: this, then
     /// `peers`; never `peers` first.
     pub(super) peer_leases: StdMutex<HashMap<String, u64>>,
+    /// Each peer session's events as this daemon saw them, kept on disk
+    /// (`peer_snapshot.rs`): a paused or offline peer's chat paints from it.
+    pub(super) peer_snapshots: peer_snapshot::PeerSnapshots,
     pub(super) peer_notices: mpsc::Sender<(String, u64, crate::peer::PeerNotice)>,
     pub(super) peer_notices_rx:
         Mutex<Option<mpsc::Receiver<(String, u64, crate::peer::PeerNotice)>>>,
@@ -481,6 +485,7 @@ impl Hub {
         let (peer_notices, peer_notices_rx) = mpsc::channel(4096);
         let peers_cfg = config.peers.clone();
         let handoffs = handoff::Handoffs::open(store.handoff_dir());
+        let peer_snapshots = peer_snapshot::PeerSnapshots::open(store.peer_cache_dir());
         let briefs = dispatch::Briefs::open(store.briefs_path());
         let hub = Arc::new(Self {
             config: RwLock::new(config),
@@ -496,6 +501,7 @@ impl Hub {
             peers: StdMutex::new(HashMap::new()),
             remote_sessions: StdMutex::new(HashMap::new()),
             peer_leases: StdMutex::new(HashMap::new()),
+            peer_snapshots,
             peer_notices,
             peer_notices_rx: Mutex::new(Some(peer_notices_rx)),
             known_models: StdMutex::new(HashMap::new()),
