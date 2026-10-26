@@ -113,7 +113,9 @@ struct CloudBrowserRouteTests {
         let route = route(first: 1, fetches: fetches) { $0 == 1 ? .unavailable("gone") : nil }
         let ports = await withTaskGroup(of: UInt16?.self) { group in
             for _ in 0..<8 { group.addTask { (try? await route.openTunnel(host: "localhost", port: 3000) as? Tunnel)?.route } }
-            return await group.reduce(into: Set<UInt16?>()) { $0.insert($1) }
+            var ports = Set<UInt16?>()
+            for await port in group { ports.insert(port) }
+            return ports
         }
         #expect(ports == [2])
         #expect(fetches.count.withLock { $0 } == 1)
