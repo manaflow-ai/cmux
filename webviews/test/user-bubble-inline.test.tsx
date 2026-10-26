@@ -114,6 +114,24 @@ try {
     expect(host.textContent).not.toContain("same-original.png");
   });
 
+  test("keeps all eight optimistic strip image previews by source", async () => {
+    setComposerSettings({ attachmentView: "strip" });
+    const images = Array.from({ length: 8 }, (_, index) => ({
+      id: `local-${index}`,
+      mimeType: "image/png",
+      src: `${PNG}#${index}`,
+      name: `image-${index}.png`,
+    }));
+    await act(async () => {
+      render({ id: "legacy-eight", version: 1, at: 1, kind: "user", text: "eight images", images });
+    });
+    await paint();
+    expect(host.querySelectorAll(".cv-user__images img")).toHaveLength(8);
+    expect([...host.querySelectorAll<HTMLImageElement>(".cv-user__images img")].map((image) => image.src)).toEqual(
+      images.map((image) => image.src),
+    );
+  });
+
   test("keeps the legacy strip and PromptText when no ordered parts are recorded", async () => {
     setComposerSettings({ attachmentView: "strip" });
     await act(async () => {
