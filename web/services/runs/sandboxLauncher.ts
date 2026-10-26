@@ -121,6 +121,10 @@ export class OutputTail {
   private skippingLine = false;
   /** The end of the line being skipped (for markers and a label split across chunks). */
   private skippedTail = "";
+  /** The start of the line being skipped (a quoted value it opens may run past its end). */
+  private skippedHead = "";
+  /** The line being skipped held an END marker with no BEGIN seen: its body is above it. */
+  private skippedEnd = false;
   private inKeyBlock = false;
   private readonly terminal = new TerminalTextFilter();
 
@@ -156,21 +160,29 @@ export class OutputTail {
 
   /** A line too long to keep: dropped, but its key markers and the label it ends in still count. */
   private skip(text: string): void {
-    const scan = this.skippedTail + stripTerminalEscapes(text);
+    const clean = stripTerminalEscapes(text);
+    if (this.skippedHead.length < KEY_MARKER_WINDOW) this.skippedHead = (this.skippedHead + clean).slice(0, KEY_MARKER_WINDOW);
+    const scan = this.skippedTail + clean;
     const begin = lastIndexOf(KEY_BEGIN, scan);
     const end = lastIndexOf(KEY_END, scan);
     if (begin > end) this.inKeyBlock = true;
     else if (end > begin && this.inKeyBlock) {
       this.inKeyBlock = false;
       this.keep("[redacted private key]\n");
-    }
+    } else if (end > begin) this.skippedEnd = true;
     this.skippedTail = scan.slice(-KEY_MARKER_WINDOW);
   }
 
   private endSkip(): void {
-    if (!this.inKeyBlock) this.keep(`${omittedLine(this.skippedTail)}\n`);
+    if (this.skippedEnd) {
+      // An END on a line too long to keep, with no BEGIN seen: take back the body above it.
+      this.kept = withoutKeyBody(this.kept);
+      this.keep("[redacted private key]\n");
+    } else if (!this.inKeyBlock) this.keep(`${omittedLine(this.skippedHead, this.skippedTail)}\n`);
     this.skippingLine = false;
+    this.skippedHead = "";
     this.skippedTail = "";
+    this.skippedEnd = false;
   }
 
   private complete(raw: string): void {
@@ -207,7 +219,10 @@ export class OutputTail {
     // its body, and a line still being skipped shows as omitted.
     let kept = this.kept;
     let last = stripTerminalEscapes(this.pending);
-    if (this.skippingLine) last = this.inKeyBlock ? "[redacted private key]" : omittedLine(this.skippedTail);
+    if (this.skippingLine && this.skippedEnd) {
+      kept = withoutKeyBody(kept);
+      last = "[redacted private key]";
+    } else if (this.skippingLine) last = this.inKeyBlock ? "[redacted private key]" : omittedLine(this.skippedHead, this.skippedTail);
     else if (this.inKeyBlock) last = "[redacted private key]";
     else if (lastIndexOf(KEY_END, last) >= 0) {
       kept = withoutKeyBody(kept);
@@ -220,10 +235,15 @@ export class OutputTail {
 /**
  * The placeholder for a line too long to keep. When the line ends where a value would follow a
  * secret's label (the receipt's redactor would take the next line as that value), the
- * placeholder ends in a stand-in label with the same effect, open quote included.
+ * placeholder ends in a stand-in label with the same effect, open quote included. A line that
+ * opens a quoted secret value at its start and shows no quote near its end is taken to be still
+ * inside that value (the omitted middle can't be read; this errs toward redacting).
  */
-function omittedLine(tail: string): string {
-  const placeholder = "[long line omitted]";
+function omittedLine(head: string, tail: string): string {
+  // A line that started a key block keeps saying so, so taking back a body stops there.
+  const placeholder = head.includes("-----BEGIN") ? "[long line omitted] -----BEGIN" : "[long line omitted]";
+  const opensQuote = !redactReceiptText(`${head}\nZ ${VALUE_PROBE}`).includes(VALUE_PROBE);
+  if (opensQuote && !/["']/.test(tail)) return `${placeholder} secret="`;
   if (redactReceiptText(`${tail}\n${VALUE_PROBE}`).includes(VALUE_PROBE)) return placeholder;
   // Inside an open quote the redactor keeps going past a space; after a bare label it stops.
   const quoted = !redactReceiptText(`${tail}\nZ ${VALUE_PROBE}`).includes(VALUE_PROBE);
@@ -241,7 +261,8 @@ function withoutKeyBody(kept: string): string {
       cut -= 1;
       break;
     }
-    if (!BASE64_LINE.test(line)) break;
+    // A body line too long to keep left a placeholder: still part of the body.
+    if (!BASE64_LINE.test(line) && !line.startsWith("[long line omitted]")) break;
     cut -= 1;
   }
   return [...lines.slice(0, cut), last].join("\n");

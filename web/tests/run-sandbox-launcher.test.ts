@@ -302,6 +302,8 @@ describe("sandbox run lifecycle", () => {
     // A label at the end of a line too long to keep stands in for it, open quote included.
     expect(tail(["x".repeat(70_000), " PASSWORD:\n", "hunter2\n", "after\n"])).toBe("[long line omitted] secret=\n[redacted]\nafter\n");
     expect(tail(["x".repeat(70_000), ' PASSWORD="\n', "  hunter2\n", '"\n'])).not.toContain("hunter2");
+    // A long line that opens a quoted value at its start, with no close near its end, stays open.
+    expect(tail([`PASSWORD="${"t".repeat(70_000)}`, "\nhunter2\n", '"\n'])).not.toContain("hunter2");
     // A long line that ends in a whole value stands in for nothing: the next line is kept.
     expect(tail(["x".repeat(70_000), " password=done\n", "after\n"])).toBe("[long line omitted]\nafter\n");
   });
@@ -340,6 +342,13 @@ describe("sandbox run lifecycle", () => {
     // The output ends right after the END marker, with no newline.
     const noNewline = hiddenHeader.trimEnd();
     expect(tail(["log\n", noNewline])).toBe("log\n[redacted private key]");
+    // An END on a line too long to keep, and a body line too long to keep, still take the body back.
+    const longEnd = hiddenHeader.replace("-----END PRIVATE KEY-----", `-----END PRIVATE KEY-----${" x".repeat(40_000)}`);
+    const longEndOut = tail(["log\n", longEnd, "done\n"]);
+    expect(longEndOut).not.toContain(body);
+    expect(longEndOut).toBe("log\n[redacted private key]\ndone\n");
+    const longBody = hiddenHeader.replace("\u0007", `\u0007${"Q".repeat(70_000)}\n`);
+    expect(tail(["log\n", longBody, "done\n"])).toBe("log\n[redacted private key]\ndone\n");
     // A body whose last line is short is taken back whole.
     const shortTail = "-----BEGIN \u001b]0;PRIVATE KEY-----\n\u0007" + `${"Q".repeat(64)}\nAB==\n-----END PRIVATE KEY-----\n`;
     expect(tail(["log\n", shortTail, "done\n"])).toBe("log\n[redacted private key]\ndone\n");
