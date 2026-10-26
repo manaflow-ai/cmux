@@ -982,7 +982,10 @@ When no config exists, harnesses are imported from `~/.acpx/config.json` (its `a
 
 - `permissionPolicy`: `ask` routes `session/request_permission` to attached clients and waits.
   `approve-all`, `approve-reads`, `approve-edits` (reads and edits auto, shell asks), and `deny-all` answer locally. Per-session override with
-  `acpmux set NAME policy=...`.
+  `acpmux set NAME policy=...`. A session an agent starts from inside its own session (`acpmux new|run`, a local `dispatch`,
+  `--parent`, the `start_session` tool), with no policy or mode of its own, inherits that session's policy (or a narrower
+  family default) and mode (on another family, the same level: full access, asking, or the harness's own), never wider;
+  a start with no proven session (no caller token) is unchanged (`hub/start_mode.rs`, "Inherit").
 - `store.mode`: `local` (default) or `memory`. Local writes `sessions/<id>/session.json` and
   append-only `events/NNNNNN.ndjson` segments.
 - `websocket`: optional. The same protocol over WebSocket text frames, for remote clients such

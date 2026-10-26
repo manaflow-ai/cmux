@@ -1974,7 +1974,7 @@ jobs:
       - name: Setup Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
-          bun-version: "1.4.2"
+          bun-version: "1.4.4"
 
       # The minis share ~/.bun with workflows that install another bun; this
       # job runs on its own copy of the pinned one (private-bun.sh).
@@ -2813,7 +2813,7 @@ jobs:
         if: ${{ steps.reuse.outputs.hit != 'true' }}
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
-          bun-version: "1.4.2"
+          bun-version: "1.4.4"
 
       # The minis share ~/.bun with workflows that install another bun; this
       # job runs on its own copy of the pinned one (private-bun.sh).
@@ -3130,7 +3130,7 @@ jobs:
       - name: Setup Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
-          bun-version: "1.4.2"
+          bun-version: "1.4.4"
 
       # The minis share ~/.bun with workflows that install another bun; this
       # job runs on its own copy of the pinned one (private-bun.sh).
@@ -3499,7 +3499,7 @@ jobs:
         if: ${{ steps.reuse.outputs.hit != 'true' }}
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
-          bun-version: "1.4.2"
+          bun-version: "1.4.4"
 
       # The minis share ~/.bun with workflows that install another bun; this
       # job runs on its own copy of the pinned one (private-bun.sh).
@@ -4316,7 +4316,7 @@ jobs:
         if: ${{ inputs.dev_daily != true || steps.dev-product.outputs.hit != 'true' }}
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
-          bun-version: "1.4.2"
+          bun-version: "1.4.4"
 
       # The minis share ~/.bun with workflows that install another bun; this
       # job runs on its own copy of the pinned one (private-bun.sh).
