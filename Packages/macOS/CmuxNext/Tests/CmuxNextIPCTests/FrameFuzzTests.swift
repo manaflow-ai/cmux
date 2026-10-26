@@ -1,3 +1,4 @@
+import CmuxFuzzSupport
 import CmuxNextIPC
 import Foundation
 import Testing
@@ -24,9 +25,10 @@ import Testing
 /// - a payload held until the end of the case still has its bytes after later reads reuse the pooled
 ///   read buffers (the no-copy slices of OUTPUT, SNAPSHOT and REPLAY at or above 4 KiB).
 ///
-/// `CMUX_IPC_FUZZ_SEED=<u64>` and `CMUX_IPC_FUZZ_CASES=<n>` change the run. A failed case prints
-/// `CMUX_IPC_FUZZ_CASE=<index>`, which replays it alone; after a trap, rerun with
-/// `CMUX_IPC_FUZZ_TRACE=1`, which prints each case index before the case runs.
+/// The run is a CmuxFuzzSupport `FuzzRun` (p10-stability-016): `CMUX_FUZZ_SEED` and
+/// `CMUX_FUZZ_ITERATIONS` change it, `CMUX_FUZZ_SECONDS` or `CMUX_FUZZ_DEADLINE` make it a long run,
+/// a failed case prints the variables that replay it, and with `CMUX_FUZZ_ARTIFACTS` set a trap
+/// leaves the case it was in behind (`FrameFuzz.reader.inflight`).
 @Suite(
     .serialized,
     .enabled(
@@ -35,10 +37,16 @@ import Testing
     )
 )
 struct FrameFuzzTests {
-    private static let defaultCases: UInt64 = 100_000
-    /// The default run; `CMUX_IPC_FUZZ_SEED` picks another.
+    private static let defaultCases = 100_000
+    /// The default run; `CMUX_FUZZ_SEED` picks another.
     private static let defaultSeed: UInt64 = 0x0C3A_0053_F022_5EED
+    /// The default run's budget; a long run goes on for its own budget instead.
     private static let timeBudget: Duration = .seconds(60)
+    /// Two minutes past a long run's budget, so the limit stops a hang and never a long run.
+    static let timeLimitMinutes: Int = {
+        let budget = (try? FuzzEnvironment.current())?.longModeBudget(from: Date()) ?? 0
+        return 2 + Int((budget / 60).rounded(.up))
+    }()
 
     /// Close reasons the reader itself can return; `bad_magic` and `aux_mismatch` come only from
     /// building a header by hand.
@@ -47,52 +55,34 @@ struct FrameFuzzTests {
         "frames_not_negotiated", "line_too_long", "invalid_utf8", "truncated",
     ]
 
-    @Test(.timeLimit(.minutes(2)))
+    @Test(.timeLimit(.minutes(FrameFuzzTests.timeLimitMinutes)))
     func seededInputsMatchTheWireModel() throws {
-        let environment = ProcessInfo.processInfo.environment
-        let seed = try Self.number("CMUX_IPC_FUZZ_SEED", in: environment) ?? Self.defaultSeed
-        let cases = try Self.number("CMUX_IPC_FUZZ_CASES", in: environment) ?? Self.defaultCases
-        var indices: Range<UInt64> = 0..<cases
-        if let only = try Self.number("CMUX_IPC_FUZZ_CASE", in: environment) {
-            indices = only..<(only &+ 1)
-        }
-        let trace = environment["CMUX_IPC_FUZZ_TRACE"] == "1"
+        let run = try FuzzRun("FrameFuzz.reader", seed: Self.defaultSeed, iterations: Self.defaultCases)
         let seeds = try Self.fixtureSeeds()
         let clock = ContinuousClock()
         let started = clock.now
-        var ends: [String: UInt64] = [:]
-        for index in indices {
-            if trace { Self.log("frame_fuzz: case \(index)") }
-            var rng = SplitMix64(seed: seed, index: index)
+        var ends: [String: Int] = [:]
+        let cases = try run.forEach { rng in
             let fuzzCase = FuzzCase(rng: &rng, seeds: seeds)
             let feed = Feed(rng: &rng, inputCount: fuzzCase.input.count)
             do throws(Mismatch) {
                 let end = try fuzzCase.check(feed: feed, rng: &rng)
                 ends[end, default: 0] += 1
             } catch {
-                Issue.record("""
-                    frame_fuzz: \(error.message)
-                    replay with CMUX_IPC_FUZZ=1 CMUX_IPC_FUZZ_SEED=\(seed) CMUX_IPC_FUZZ_CASE=\(index)
-                    \(fuzzCase.describe(feed: feed))
-                    """)
-                return
+                throw Mismatch(message: "frame_fuzz: \(error.message); \(fuzzCase.describe(feed: feed))")
             }
         }
         let elapsed = clock.now - started
         let summary = ends.sorted { $0.key < $1.key }.map { "\($0.key): \($0.value)" }.joined(separator: ", ")
-        Self.log("frame_fuzz: \(indices.count) cases, seed \(seed), \(seeds.count) fixture seeds, \(elapsed); ends: \(summary)")
-        #expect(elapsed < Self.timeBudget, "frame_fuzz took \(elapsed), budget \(Self.timeBudget)")
-        if indices.count >= 10_000 {
+        Self.log("frame_fuzz: \(cases) cases, seed \(run.seed), \(seeds.count) fixture seeds, \(elapsed); ends: \(summary)")
+        if !run.environment.isLongMode {
+            #expect(elapsed < Self.timeBudget, "frame_fuzz took \(elapsed), budget \(Self.timeBudget)")
+        }
+        if cases >= 10_000 {
             let missing = Self.readerReasons.filter { ends[$0] == nil }
             #expect(missing.isEmpty, "no case ended in \(missing); the generator lost coverage")
             #expect(ends["clean"] != nil, "no case ended cleanly")
         }
-    }
-
-    private static func number(_ name: String, in environment: [String: String]) throws(FuzzSetupError) -> UInt64? {
-        guard let value = environment[name] else { return nil }
-        guard let parsed = UInt64(value) else { throw .notANumber(name: name, value: value) }
-        return parsed
     }
 
     /// Every `.bin` golden vector of p05-ipc-050, shared with the Rust reader's tests.
@@ -116,20 +106,20 @@ struct FrameFuzzTests {
 }
 
 private enum FuzzSetupError: Error, CustomStringConvertible {
-    case notANumber(name: String, value: String)
     case noSpecDirectory(start: String)
 
     var description: String {
         switch self {
-        case let .notANumber(name, value): "\(name)=\(value) is not a UInt64"
         case let .noSpecDirectory(start): "no cmux-tui/spec above \(start)"
         }
     }
 }
 
 /// Why a case failed, with what the reader and the model said.
-private struct Mismatch: Error {
+private struct Mismatch: Error, CustomStringConvertible {
     let message: String
+
+    var description: String { message }
 }
 
 // MARK: - The reader under test
@@ -292,7 +282,7 @@ private enum Feed: CustomStringConvertible {
     /// One byte per push: every split point at once.
     case bytes
 
-    init(rng: inout SplitMix64, inputCount: Int) {
+    init(rng: inout FuzzRNG, inputCount: Int) {
         switch rng.below(8) {
         case 0: self = inputCount <= 256 ? .bytes : .chunks
         case 1...4: self = .chunks
@@ -313,12 +303,12 @@ private struct FuzzCase {
     let input: [UInt8]
     let model: WireModel
 
-    init(rng: inout SplitMix64, seeds: [[UInt8]]) {
+    init(rng: inout FuzzRNG, seeds: [[UInt8]]) {
         switch rng.below(10) {
         case 0:
-            input = rng.bytes(rng.below(512))
+            input = rng.bytes(count: rng.below(512))
         case 1:
-            input = [WireModel.magic] + rng.bytes(1 + rng.below(80))
+            input = [WireModel.magic] + rng.bytes(count: 1 + rng.below(80))
         case 2:
             input = Generator.validStream(&rng)
         case 3 where !seeds.isEmpty:
@@ -337,7 +327,7 @@ private struct FuzzCase {
     }
 
     /// Runs one push and `feed` against the model; returns how the case ended.
-    func check(feed: Feed, rng: inout SplitMix64) throws(Mismatch) -> String {
+    func check(feed: Feed, rng: inout FuzzRNG) throws(Mismatch) -> String {
         let expected = model.outcome(of: input)
         try run(.whole, rng: &rng, expected: expected)
         if case .whole = feed {} else {
@@ -346,7 +336,7 @@ private struct FuzzCase {
         return expected.end
     }
 
-    private func run(_ feed: Feed, rng: inout SplitMix64, expected: WireModel.Outcome) throws(Mismatch) {
+    private func run(_ feed: Feed, rng: inout FuzzRNG, expected: WireModel.Outcome) throws(Mismatch) {
         var subject = Subject(model)
         var received: [Subject.Received] = []
         // Every message consumes at least one byte.
@@ -422,46 +412,8 @@ private struct FuzzCase {
 
 // MARK: - Generation
 
-/// SplitMix64: small, fast and the same sequence on every platform, so a seed and a case index replay.
-private struct SplitMix64 {
-    private var state: UInt64
-
-    init(seed: UInt64, index: UInt64) {
-        state = seed ^ (index &* 0x9E37_79B9_7F4A_7C15)
-        _ = next()
-    }
-
-    mutating func next() -> UInt64 {
-        state &+= 0x9E37_79B9_7F4A_7C15
-        var z = state
-        z = (z ^ (z >> 30)) &* 0xBF58_476D_1CE4_E5B9
-        z = (z ^ (z >> 27)) &* 0x94D0_49BB_1331_11EB
-        return z ^ (z >> 31)
-    }
-
-    /// Uniform in `0..<n`, 0 when `n` is 0.
-    mutating func below(_ n: Int) -> Int {
-        n <= 0 ? 0 : Int(next() % UInt64(n))
-    }
-
-    mutating func oneIn(_ n: UInt64) -> Bool {
-        next() % n == 0
-    }
-
-    mutating func byte() -> UInt8 {
-        UInt8(truncatingIfNeeded: next())
-    }
-
-    mutating func bytes(_ count: Int) -> [UInt8] {
-        var out: [UInt8] = []
-        out.reserveCapacity(count + 8)
-        while out.count < count {
-            withUnsafeBytes(of: next().littleEndian) { out.append(contentsOf: $0) }
-        }
-        out.removeLast(out.count - count)
-        return out
-    }
-
+/// Choices the generator below makes, drawn from the shared seeded generator.
+private extension FuzzRNG {
     mutating func pick<T>(_ items: [T]) -> T {
         items[below(items.count)]
     }
@@ -486,7 +438,7 @@ private struct Generator {
     static let lineCharacters: [Character] = ["{", "}", "\"", ":", "a", "7", " ", "\r", "é", "\u{1F600}"]
 
     /// One to eight JSON lines and frames of random kinds, as one byte stream.
-    static func validStream(_ rng: inout SplitMix64) -> [UInt8] {
+    static func validStream(_ rng: inout FuzzRNG) -> [UInt8] {
         var out: [UInt8] = []
         for _ in 0...rng.below(8) {
             if rng.oneIn(3) {
@@ -504,7 +456,7 @@ private struct Generator {
 
     /// One valid frame's wire bytes. Payloads hold newlines and 0xFF, which must not cut a frame, and
     /// now and then OUTPUT, SNAPSHOT or REPLAY bytes above the 4 KiB no-copy threshold.
-    static func frame(_ rng: inout SplitMix64) -> [UInt8] {
+    static func frame(_ rng: inout FuzzRNG) -> [UInt8] {
         let kind = rng.pick(WireModel.kinds)
         let stream: UInt16 = if WireModel.needsDataStream(kind) {
             UInt16(1 + rng.below(Int(UInt16.max)))
@@ -525,7 +477,7 @@ private struct Generator {
         } else {
             rng.below(300)
         }
-        var payload = rng.bytes(length)
+        var payload = rng.bytes(count: length)
         for index in payload.indices where payload[index] & 0b111 == 0 {
             payload[index] = payload[index] & 0b1000 == 0 ? UInt8(ascii: "\n") : WireModel.magic
         }
@@ -541,7 +493,7 @@ private struct Generator {
     }
 
     /// Payload lengths at and around every limit.
-    static func interestingLength(_ rng: inout SplitMix64) -> UInt32 {
+    static func interestingLength(_ rng: inout FuzzRNG) -> UInt32 {
         let random = UInt32(truncatingIfNeeded: rng.next())
         let small = UInt32(rng.below(64))
         let cap = WireModel.maxFramePayloadCap
@@ -550,7 +502,7 @@ private struct Generator {
     }
 
     /// One structural or byte-level mutation.
-    static func mutate(_ bytes: inout [UInt8], _ rng: inout SplitMix64) {
+    static func mutate(_ bytes: inout [UInt8], _ rng: inout FuzzRNG) {
         let count = bytes.count
         switch rng.below(10) {
         case 0 where count > 0:
@@ -559,7 +511,7 @@ private struct Generator {
             bytes[rng.below(count)] = rng.pickOrByte([0x00, WireModel.magic, UInt8(ascii: "\n"), 0x7F, 0x80, 0xC3])
         case 2:
             let at = rng.below(count + 1)
-            bytes.insert(contentsOf: rng.bytes(1 + rng.below(16)), at: at)
+            bytes.insert(contentsOf: rng.bytes(count: 1 + rng.below(16)), at: at)
         case 3 where count > 0:
             let start = rng.below(count)
             bytes.removeSubrange(start..<(start + 1 + rng.below(count - start)))
@@ -580,7 +532,7 @@ private struct Generator {
     }
 
     /// Rewrites one field of a header that starts at a 0xFF byte.
-    static func mutateHeader(_ bytes: inout [UInt8], _ rng: inout SplitMix64) {
+    static func mutateHeader(_ bytes: inout [UInt8], _ rng: inout FuzzRNG) {
         let starts = bytes.indices.filter { bytes[$0] == WireModel.magic && $0 + WireModel.headerLength <= bytes.count }
         guard !starts.isEmpty else { return }
         let at = rng.pick(starts)

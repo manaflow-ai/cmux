@@ -3,7 +3,7 @@ public import CmuxNextWakeups
 public import Foundation
 
 /// `debug.energy`: the Energy Saver state and what the app costs while idle
-/// (plans/cmux-next/chrome-parity/p14-energy.md, task 007). The top-level keys are exactly:
+/// (plans/cmux-next/chrome-parity/p14-energy.md, tasks 007 and 008). The top-level keys are exactly:
 ///
 /// - `policy`: the resolved ``EnergyPolicy`` (saver on, reason, wake alignment, frame caps, poll stretch).
 /// - `inputs`: what the policy was resolved from: the `energySaver` feature, Low Power Mode, power source,
@@ -20,6 +20,9 @@ public import Foundation
 ///   is the same kernel counter read through `proc_pid_rusage` for other pids. Package-idle wakeups are
 ///   a subset and are reported apart, never summed.
 /// - `cef`: whether Chromium applies the Energy Saver, and the pump's early passes.
+/// - `idle`: the main process's interrupt wakeups per second over this launch's idle minutes, as a
+///   histogram with fixed buckets and its p50/p95/p99 (``IdleEnergyStats``, task 008). Main process
+///   only (`scope`); the helpers' counters are in `processes`, from the same ``ProcessUsage`` counter.
 ///
 /// Top-level keys are snake_case (the spec's); the fields inside them are the camelCase names of the
 /// values they report (`policy.isSaver` is ``EnergyPolicy/isSaver``), which is what
@@ -78,6 +81,7 @@ public struct EnergyReport: Sendable {
             "ledger_top": .array(LedgerOwner.top(ledger, count: Self.ledgerTopCount).map(\.json)),
             "processes": .array(processes.map(\.json)),
             "cef": state.cef.json,
+            "idle": state.idle.json,
         ]
     }
 
@@ -96,12 +100,16 @@ extension EnergyReport {
         public var inputs: Inputs
         public var wakeQueue: WakeQueue
         public var cef: CEF
+        /// This launch's idle wakeup histogram.
+        public var idle: IdleEnergyStats
 
-        public init(policy: EnergyPolicy, inputs: Inputs, wakeQueue: WakeQueue, cef: CEF) {
+        public init(policy: EnergyPolicy, inputs: Inputs, wakeQueue: WakeQueue, cef: CEF,
+                    idle: IdleEnergyStats = IdleEnergyStats()) {
             self.policy = policy
             self.inputs = inputs
             self.wakeQueue = wakeQueue
             self.cef = cef
+            self.idle = idle
         }
     }
 
