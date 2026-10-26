@@ -315,14 +315,12 @@ extension PageWebView {
         guard let values = try? JSONSerialization.data(withJSONObject: names.map { arguments[$0] ?? NSNull() }, options: [.fragmentsAllowed]),
               let list = String(data: values, encoding: .utf8) else { return nil }
         let expression = "(async function(\(names.joined(separator: ", "))) {\n\(body)\n}).apply(null, \(list))"
-        guard let json = try? await page.evaluate(expression) else { return nil }
-        return try? await ChromiumPageHostWire.value(json: json)
+        return try? await page.evaluate(expression)
     }
 
     /// Makes `edit` in the focused editable element of a Chromium page (``PageInputReadiness``).
     private static func apply(_ edit: PageInputReadiness.Edit, token: String?, expectedEpoch: Int?, in page: any PageChromiumPage) async -> Bool {
         let expression = "(function () {\n\(PageInputReadiness.editScript(edit, token: token, expectedEpoch: expectedEpoch))\n})()"
-        guard let json = try? await page.evaluate(expression) else { return false }
-        return (try? await ChromiumPageHostWire.value(json: json)) as? Bool == true
+        return (try? await page.evaluate(expression)) as? Bool == true
     }
 }

@@ -33,46 +33,27 @@ extension PageWebView {
             return text
         }
         let expression = "(async (\(names.joined(separator: ", "))) => {\n\(body)\n})(\(values.joined(separator: ", ")))"
-        let json = try await page.evaluate(expression)
-        return try await ChromiumPageHostWire.value(json: json)
+        let value = try await page.evaluate(expression)
+        return value is NSNull ? nil : value
     }
 }
 
-/// ``PageChromiumPage/evaluate(_:)``'s answer: the script's value as JSON, `null` for null and for
-/// undefined. Both are parsed off the caller's actor: a page's text can be megabytes of JSON, and
-/// the caller is the main actor (CEF's UI thread).
 nonisolated extension ChromiumPageHostWire {
-    /// The value JSON of a `Runtime.evaluate` reply (with `returnByValue`), as `tabEvaluate` gives
-    /// it (`CEFEvaluationResult`).
+    /// The value of a `Runtime.evaluate` reply (with `returnByValue`), parsed off the caller's
+    /// actor in one step: a page's text can be megabytes of JSON, and the caller is the main actor
+    /// (CEF's UI thread).
     ///
     /// - Parameter reply: The DevTools reply.
-    /// - Returns: The value as JSON; `null` for undefined or a reply with no result.
+    /// - Returns: The value; `NSNull` for null, nil for undefined or a reply with no result.
     /// - Throws: ``PageScriptError/exception(_:)`` with the exception's description,
     ///   ``PageScriptError/noResult`` for a reply that is not JSON.
     @concurrent
-    static func valueJSON(devToolsReply reply: String) async throws(PageScriptError) -> String {
+    static func value(devToolsReply reply: String) async throws(PageScriptError) -> sending Any? {
         guard let object = object(reply) else { throw .noResult }
         if let details = object["exceptionDetails"] as? [String: Any] {
             let exception = details["exception"] as? [String: Any]
             throw .exception(exception?["description"] as? String ?? details["text"] as? String ?? "exception")
         }
-        guard let result = object["result"] as? [String: Any], let value = result["value"] else { return "null" }
-        guard let data = try? JSONSerialization.data(withJSONObject: value, options: [.fragmentsAllowed]),
-              let text = String(data: data, encoding: .utf8) else { throw .noResult }
-        return text
-    }
-
-    /// The Foundation value of a value JSON, as a `Runtime.evaluate` reply's `value` was: nil for
-    /// null (and so for undefined).
-    ///
-    /// - Parameter json: The value as JSON.
-    /// - Returns: The value; nil for `null`.
-    /// - Throws: ``PageScriptError/noResult`` when the text is not JSON.
-    @concurrent
-    static func value(json: String) async throws(PageScriptError) -> sending Any? {
-        guard let value = try? JSONSerialization.jsonObject(with: Data(json.utf8), options: [.fragmentsAllowed]) else {
-            throw .noResult
-        }
-        return value is NSNull ? nil : value
+        return (object["result"] as? [String: Any])?["value"]
     }
 }
