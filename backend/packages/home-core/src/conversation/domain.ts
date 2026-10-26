@@ -170,6 +170,9 @@ const prepare = (
     // The caller's own membership first (the same code apply gives), so a non-member's refusal
     // never depends on the target: no probe of who is or was in the conversation.
     if (!currentParticipant(head, actor)) return "not_participant"
+    // In a Chief's conversation only its owner adds people: refused before the reach facts, so a
+    // teammate learns nothing about who they could reach.
+    if (head.kind === "chief" && currentParticipant(head, actor)?.role !== "owner") return "forbidden"
     const participant = rest.participant
     if (typeof participant !== "object" || participant === null) return "invalid_participant"
     const decision = (options.participantPolicy ?? defaultParticipantPolicy)(ctx.principal, participant as Participant, head)

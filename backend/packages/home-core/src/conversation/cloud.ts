@@ -57,6 +57,8 @@ export const removeParticipant = (head: ConversationHead, next: Draft, request: 
   if (!target) return fail("unknown_participant")
   // A Chief's conversation keeps its owner and its Chief; only the people it was shared with leave or are removed.
   if (head.kind === "chief" && (target.kind !== "human" || roleOf(target) === "owner")) fail("kind_forbids")
+  // A Chief's conversation has no ban list to manage (no unban there): the owner just removes.
+  if (head.kind === "chief" && op.ban === true) fail("kind_forbids")
   const self = target.id === actor.id
   const ownChief = target.kind === "agent" && target.owner_user === actor.id
   if (!self && !ownChief) checkOver(actor, target)

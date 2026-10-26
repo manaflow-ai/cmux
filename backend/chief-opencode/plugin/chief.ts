@@ -69,7 +69,7 @@ export const modelInfo = (id: string, upstream: string) => {
 export type Json = null | boolean | number | string | ReadonlyArray<Json> | { readonly [k: string]: Json }
 export interface Usage { input: number; output: number; cache_read: number; cache_write: number }
 export interface Message { id: string; seq: number; author: { id: string; name: string; kind: string }; text: string; thread_root?: string }
-export interface Read { conversation: { id: string; kind: string; title?: string }; messages: ReadonlyArray<Message>; cursor: number }
+export interface Read { conversation: { id: string; kind: string; title?: string; shared?: boolean }; messages: ReadonlyArray<Message>; cursor: number }
 export interface Initialized { chief: { id: string; name: string; owner?: string; role?: string; personality?: string; instructions?: string; model?: string; effort?: string } }
 
 export const NO_REPLY = "NO_REPLY"

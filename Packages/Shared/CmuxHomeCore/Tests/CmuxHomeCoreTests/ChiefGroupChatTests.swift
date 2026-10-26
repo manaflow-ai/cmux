@@ -59,10 +59,12 @@ import CmuxHomeCoreTestSupport
 
     @Test func mySharedChiefStaysMyChiefAndNamesSenders() {
         let mine = Participant(id: chief.id, kind: .agent, displayName: "Chief", agentClass: .chief, ownerUser: me.id)
-        let alone = ConversationSummary(id: ConversationID("conv_chief"), participants: [me, mine], declaredKind: .chief)
+        let alone = ConversationSummary(id: ConversationID("conv_chief"), participants: [me, mine],
+                                        createdAt: .distantPast, updatedAt: .distantPast, declaredKind: .chief)
         #expect(alone.kind(me: me.id) == .chief)
         #expect(!alone.showsSenderNames(me: me.id))
-        let shared = ConversationSummary(id: ConversationID("conv_chief"), participants: [me, aziz, mine], declaredKind: .chief)
+        let shared = ConversationSummary(id: ConversationID("conv_chief"), participants: [me, aziz, mine],
+                                         createdAt: .distantPast, updatedAt: .distantPast, declaredKind: .chief)
         #expect(shared.kind(me: me.id) == .chief)
         #expect(shared.showsSenderNames(me: me.id))
         // The teammate it was shared with sees someone else's Chief in a group, never as their own Chief.

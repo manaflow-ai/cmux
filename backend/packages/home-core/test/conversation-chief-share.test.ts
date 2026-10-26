@@ -46,6 +46,15 @@ describe("sharing a Chief's conversation", () => {
     expect(host.run(owner(facts), "participants.add", add(MATE), "mate")).toMatchObject({ ok: true })
     // The trusted name from the team directory, not the caller's.
     expect(head(host).participants.find((p) => p.id === MATE)).toMatchObject({ display_name: "Mate", role: "member" })
+    // The teammate sees what comes next, not the owner's earlier talk with the Chief.
+    expect(head(host).settings?.history_visible).toBe("since_join")
+  })
+
+  it("a teammate never adds anyone, before any reach fact is read", () => {
+    const host = chiefConversation()
+    host.run(owner([reach(MATE, { shared_team: true })]), "participants.add", add(MATE), "mate")
+    const mate: Principal = { kind: "session", identity: MATE, user: MATE, display_name: "Mate", home_reach: [reach(FRIEND, { shared_team: true })] }
+    expect(host.run(mate, "participants.add", add(FRIEND), "friend")).toMatchObject({ ok: false, code: "forbidden" })
   })
 
   it("the Chief answers every person in its conversation, and only a mention under mentions", () => {

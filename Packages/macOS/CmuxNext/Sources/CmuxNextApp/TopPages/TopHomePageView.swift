@@ -155,8 +155,11 @@ final class TopHomePageView: NSView {
                 items += item(muted ? "home.unmuteConversation" : "home.muteConversation", nil, conversation)
             }
             if row.kind == .group {
-                items += item("home.renameConversation", nil, conversation)
-                items += item("home.addMembers", nil, conversation)
+                // Someone else's Chief conversation shared with me: its owner names it and adds people.
+                if row.summary.declaredKind != .chief {
+                    items += item("home.renameConversation", nil, conversation)
+                    items += item("home.addMembers", nil, conversation)
+                }
                 items += item("home.leaveConversation", nil, conversation)
             }
             return items

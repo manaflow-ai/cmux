@@ -18131,7 +18131,7 @@
         "turns": 6,
         "gap_ms": 2000
        },
-       "history_visible": "all"
+       "history_visible": "since_join"
       },
       "invites": []
      },
@@ -18184,7 +18184,7 @@
          "turns": 6,
          "gap_ms": 2000
         },
-        "history_visible": "all"
+        "history_visible": "since_join"
        },
        "invites": []
       }
@@ -18241,7 +18241,7 @@
       "turns": 6,
       "gap_ms": 2000
      },
-     "history_visible": "all"
+     "history_visible": "since_join"
     },
     "invites": []
    },
@@ -18316,7 +18316,7 @@
       "turns": 6,
       "gap_ms": 2000
      },
-     "history_visible": "all"
+     "history_visible": "since_join"
     },
     "invites": []
    },
@@ -18391,7 +18391,7 @@
         "turns": 6,
         "gap_ms": 2000
        },
-       "history_visible": "all"
+       "history_visible": "since_join"
       },
       "invites": []
      },
@@ -18482,7 +18482,7 @@
       "turns": 6,
       "gap_ms": 2000
      },
-     "history_visible": "all"
+     "history_visible": "since_join"
     },
     "invites": []
    },
@@ -18569,7 +18569,7 @@
       "turns": 6,
       "gap_ms": 2000
      },
-     "history_visible": "all"
+     "history_visible": "since_join"
     },
     "invites": []
    },
@@ -18656,7 +18656,7 @@
       "turns": 6,
       "gap_ms": 2000
      },
-     "history_visible": "all"
+     "history_visible": "since_join"
     },
     "invites": []
    },
@@ -18743,7 +18743,7 @@
       "turns": 6,
       "gap_ms": 2000
      },
-     "history_visible": "all"
+     "history_visible": "since_join"
     },
     "invites": []
    },
@@ -18830,7 +18830,7 @@
       "turns": 6,
       "gap_ms": 2000
      },
-     "history_visible": "all"
+     "history_visible": "since_join"
     },
     "invites": []
    },
@@ -18918,7 +18918,7 @@
       "turns": 6,
       "gap_ms": 2000
      },
-     "history_visible": "all"
+     "history_visible": "since_join"
     },
     "invites": []
    },
@@ -19002,7 +19002,7 @@
         "turns": 6,
         "gap_ms": 2000
        },
-       "history_visible": "all"
+       "history_visible": "since_join"
       },
       "invites": []
      },
@@ -19072,7 +19072,7 @@
          "turns": 6,
          "gap_ms": 2000
         },
-        "history_visible": "all"
+        "history_visible": "since_join"
        },
        "invites": []
       }
@@ -19131,7 +19131,7 @@
       "turns": 6,
       "gap_ms": 2000
      },
-     "history_visible": "all"
+     "history_visible": "since_join"
     },
     "invites": []
    },
@@ -19224,7 +19224,7 @@
       "turns": 6,
       "gap_ms": 2000
      },
-     "history_visible": "all"
+     "history_visible": "since_join"
     },
     "invites": []
    },
@@ -19308,7 +19308,7 @@
         "turns": 6,
         "gap_ms": 2000
        },
-       "history_visible": "all"
+       "history_visible": "since_join"
       },
       "invites": []
      },
@@ -19378,12 +19378,100 @@
          "turns": 6,
          "gap_ms": 2000
         },
-        "history_visible": "all"
+        "history_visible": "since_join"
        },
        "invites": []
       }
      }
     }
+   }
+  },
+  {
+   "name": "chief: no ban list to manage",
+   "head": {
+    "id": "conv_CHIEF",
+    "title": "Chief",
+    "participants": [
+     {
+      "id": "user_alice",
+      "kind": "human",
+      "display_name": "Alice",
+      "role": "owner",
+      "joined_seq": 0,
+      "added_by": "user_alice"
+     },
+     {
+      "id": "agent_alicechief",
+      "kind": "agent",
+      "display_name": "mux",
+      "agent_class": "mux",
+      "acp_session": "mux",
+      "owner_user": "user_alice",
+      "role": "member",
+      "joined_seq": 0,
+      "added_by": "user_alice"
+     },
+     {
+      "id": "user_bob",
+      "kind": "human",
+      "display_name": "Bob",
+      "role": "member",
+      "joined_seq": 0,
+      "added_by": "user_alice"
+     }
+    ],
+    "last_seq": 1,
+    "rev": 5,
+    "created_at": "2026-10-01T12:00:00.000Z",
+    "updated_at": "2026-10-01T12:00:00.000Z",
+    "read_cursors": {
+     "user_bob": 1
+    },
+    "agent_text_streak": 0,
+    "kind": "chief",
+    "created_by": "user_alice",
+    "state": "active",
+    "settings": {
+     "wake_policy": "auto",
+     "agent_budget": {
+      "turns": 6,
+      "gap_ms": 2000
+     },
+     "history_visible": "since_join"
+    },
+    "invites": []
+   },
+   "request": {
+    "actor": "user_alice",
+    "idempotency_key": "rb",
+    "op": {
+     "kind": "participants.remove",
+     "participant": "user_bob",
+     "ban": true
+    },
+    "now": "2026-10-01T12:00:00.000Z",
+    "new_message_id": "msg_00000000000000000000000002",
+    "target": null,
+    "reply_target": null,
+    "thread_target": null,
+    "last_message": {
+     "id": "msg_00000000000000000000000001",
+     "conversation": "conv_CHIEF",
+     "seq": 1,
+     "client_msg_id": "s1",
+     "author": "user_bob",
+     "parts": [
+      {
+       "type": "text",
+       "text": "hi from bob"
+      }
+     ],
+     "created_at": "2026-10-01T12:00:00.000Z",
+     "reactions": []
+    }
+   },
+   "expect": {
+    "reject": "kind_forbids"
    }
   },
   {
@@ -19437,7 +19525,7 @@
       "turns": 6,
       "gap_ms": 2000
      },
-     "history_visible": "all"
+     "history_visible": "since_join"
     },
     "invites": []
    },
@@ -19554,7 +19642,7 @@
       "turns": 6,
       "gap_ms": 2000
      },
-     "history_visible": "all"
+     "history_visible": "since_join"
     },
     "invites": []
    },
@@ -19667,7 +19755,7 @@
         "turns": 6,
         "gap_ms": 2000
        },
-       "history_visible": "all"
+       "history_visible": "since_join"
       },
       "invites": [],
       "last_agent_text_at": "2026-10-01T12:00:00.000Z"
@@ -19819,7 +19907,7 @@
       "turns": 6,
       "gap_ms": 2000
      },
-     "history_visible": "all"
+     "history_visible": "since_join"
     },
     "invites": [],
     "last_agent_text_at": "2026-10-01T12:00:00.000Z"
@@ -19991,7 +20079,7 @@
       "turns": 6,
       "gap_ms": 2000
      },
-     "history_visible": "all"
+     "history_visible": "since_join"
     },
     "invites": [],
     "last_agent_text_at": "2026-10-01T12:00:00.000Z"
@@ -20163,7 +20251,7 @@
       "turns": 6,
       "gap_ms": 2000
      },
-     "history_visible": "all"
+     "history_visible": "since_join"
     },
     "invites": [],
     "last_agent_text_at": "2026-10-01T12:00:00.000Z"
@@ -20331,7 +20419,7 @@
         "turns": 6,
         "gap_ms": 2000
        },
-       "history_visible": "all"
+       "history_visible": "since_join"
       },
       "invites": [],
       "last_agent_text_at": "2026-10-01T12:00:00.000Z"
@@ -20513,7 +20601,7 @@
       "turns": 6,
       "gap_ms": 2000
      },
-     "history_visible": "all"
+     "history_visible": "since_join"
     },
     "invites": [],
     "last_agent_text_at": "2026-10-01T12:00:00.000Z"
@@ -20643,7 +20731,7 @@
         "turns": 6,
         "gap_ms": 2000
        },
-       "history_visible": "all"
+       "history_visible": "since_join"
       },
       "invites": [],
       "last_agent_text_at": "2026-10-01T12:00:00.000Z"
@@ -20760,7 +20848,7 @@
          "turns": 6,
          "gap_ms": 2000
         },
-        "history_visible": "all"
+        "history_visible": "since_join"
        },
        "invites": []
       }
@@ -20820,7 +20908,7 @@
       "turns": 6,
       "gap_ms": 2000
      },
-     "history_visible": "all"
+     "history_visible": "since_join"
     },
     "invites": [],
     "last_agent_text_at": "2026-10-01T12:00:00.000Z"
@@ -20960,7 +21048,7 @@
       "turns": 6,
       "gap_ms": 2000
      },
-     "history_visible": "all"
+     "history_visible": "since_join"
     },
     "invites": [],
     "last_agent_text_at": "2026-10-01T12:00:00.000Z"

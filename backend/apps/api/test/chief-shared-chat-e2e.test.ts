@@ -11,6 +11,7 @@ import { memberUpsert } from "../src/domains/team-members.ts"
  * conversation socket); the fake model only.
  *
  * - Only the owner shares it, only with people of a shared team; nobody else reads it.
+ * - A teammate sees what is said after they join, not the owner's earlier one-to-one history.
  * - Each member's socket gets the other's message live; every message carries its author.
  * - The Chief answers every person there, as a reply to the message it answers, with the author named.
  * - The Chief keeps its owner's grants: a teammate's effect request gets the owner-approval answer.
@@ -109,6 +110,10 @@ describe("Chief multiplayer: several people in one Chief's conversation", { time
     expect((await http("PUT", `/v1/chiefs/${chief.id}/brain`, ann.token, { enabled: true })).status).toBe(200)
     const members = [ann.user, ben.user]
 
+    // Ann's one-to-one talk with her Chief before she shares it.
+    const before = await say(ann, conversation, "private: my review notes")
+    await until(conversation, chief.id, [ann.user], () => history(ann.token, conversation), (x) => x.some((m) => m.author === chief.id), "Atlas answers Ann alone")
+
     // Before it is shared nobody but Ann reads it, over the API or the socket.
     expect((await read(ben.token, "conversation.history", { conversation, limit: 10 })).status).not.toBe(200)
     expect((await connect(conversation, ben.token)).status).not.toBe(101)
@@ -140,6 +145,8 @@ describe("Chief multiplayer: several people in one Chief's conversation", { time
     let at = Date.now()
     const fromAnn = await say(ann, conversation, "morning, Ben is here too")
     expect(await delivered(benLive.frames, fromAnn.message_id, at)).toBeLessThan(1000)
+    // The Chief answers Ann first (one turn at a time, so Ben's message gets its own turn below).
+    await until(conversation, chief.id, members, () => history(ann.token, conversation), (x) => x.some((m) => m.author === chief.id && m.reply_to?.message_id === fromAnn.message_id), "Atlas answers Ann")
     at = Date.now()
     const fromBen = await say(ben, conversation, "hi Atlas, what is the release status?")
     expect(await delivered(annLive.frames, fromBen.message_id, at)).toBeLessThan(1000)
@@ -150,10 +157,15 @@ describe("Chief multiplayer: several people in one Chief's conversation", { time
     expect(toBen.parts[0].text).toContain("Ben Ross")
     expect(toBen.parts[0].text).not.toContain("Ben Ross (your owner)")
     expect(toBen.thread_root).toBeUndefined()
-    // Every message names its author, and both see the same transcript.
+    // Every message names its author. Ben sees everything since he joined, and not Ann's earlier talk.
     expect(h.find((m) => m.id === fromAnn.message_id)?.author).toBe(ann.user)
     expect(h.find((m) => m.id === fromBen.message_id)?.author).toBe(ben.user)
-    expect((await history(ben.token, conversation)).map((m) => m.id)).toEqual(h.map((m) => m.id))
+    const benSees = (await history(ben.token, conversation)).map((m) => m.id)
+    const annSees = (await history(ann.token, conversation)).map((m) => m.id)
+    expect(benSees).toContain(fromAnn.message_id)
+    expect(benSees).not.toContain(before.message_id)
+    expect(annSees).toContain(before.message_id)
+    expect(benSees.every((id) => annSees.includes(id))).toBe(true)
 
     // Ben asks the Chief for an effect: it is Ann's Chief, so it asks Ann and nothing runs.
     const benAsk = await say(ben, conversation, `tool:spawn ${JSON.stringify({ tasks: ["ben wants a deploy"] })}`)

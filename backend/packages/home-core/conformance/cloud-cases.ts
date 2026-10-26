@@ -121,7 +121,9 @@ export const cloudCases = (c: Corpus): void => {
   c.op(chief, "chief: the chief adds a person", CHIEF, "p0", { kind: "participants.add", participant: human(BOB) }, "forbidden")
   c.op(chief, "chief: the owner adds another agent", ALICE, "p0", { kind: "participants.add", participant: agent("agent_second", ALICE) }, "invalid_participant")
   c.op(chief, "chief: the owner adds an admin", ALICE, "p0", { kind: "participants.add", participant: human(BOB), role: "admin" }, "forbidden")
+  // The first share turns history to since_join (the commit's head says so): the teammate sees what comes next.
   c.op(chief, "chief: the owner shares it with a teammate", ALICE, "p1", { kind: "participants.add", participant: human(BOB, "Bob") }, "commit")
+  if (chief.head.settings?.history_visible !== "since_join") throw new Error("chief share: history_visible should be since_join")
   c.op(chief, "chief: a teammate shares it further", BOB, "p2", { kind: "participants.add", participant: human(CAROL) }, "forbidden")
   c.op(chief, "chief: a teammate talks", BOB, "s1", send("s1", "hi from bob"), "commit")
   c.op(chief, "chief: a teammate cannot rename it", BOB, "t1", { kind: "title.set", title: "x" }, "kind_forbids")
@@ -132,6 +134,7 @@ export const cloudCases = (c: Corpus): void => {
   c.op(chief, "chief: the owner makes a teammate read-only", ALICE, "sr1", { kind: "participants.set_role", participant: BOB, role: "read_only" }, "commit")
   c.op(chief, "chief: a read-only teammate cannot talk", BOB, "s2", send("s2", "still me"), "read_only")
   c.op(chief, "chief: the owner makes the teammate a member again", ALICE, "sr2", { kind: "participants.set_role", participant: BOB, role: "member" }, "commit")
+  c.op(chief, "chief: no ban list to manage", ALICE, "rb", { kind: "participants.remove", participant: BOB, ban: true }, "kind_forbids")
   // Questions follow the local rules on a cloud head: the chief asks, its owner answers.
   c.op(chief, "chief: the owner may not post a question", ALICE, "q1", { kind: "message.send", client_msg_id: "q1", parts: [questionPart()] }, "invalid_parts")
   c.op(chief, "chief: the chief posts a question", CHIEF, "q1", { kind: "message.send", client_msg_id: "q1", parts: [questionPart()] }, "commit")

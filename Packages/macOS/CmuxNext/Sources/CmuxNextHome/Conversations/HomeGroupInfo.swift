@@ -25,9 +25,12 @@ public struct HomeGroupInfo: Hashable, Sendable {
     /// Add People… and Remove are offered: in a group, and in my Cloud Chief's conversation, which
     /// I share with teammates (cmux#25569).
     public var canAddPeople: Bool
+    /// The name can be changed (a group, not someone else's Chief conversation shared with me).
+    public var canRename: Bool
 
     public init(conversation: ConversationID, isGroup: Bool, title: String, displayTitle: String, members: [HomeGroupMember],
-                canMute: Bool, muted: Bool, memberCount: Int? = nil, chiefReplies: ChiefReplyPolicy? = nil, canAddPeople: Bool? = nil) {
+                canMute: Bool, muted: Bool, memberCount: Int? = nil, chiefReplies: ChiefReplyPolicy? = nil, canAddPeople: Bool? = nil,
+                canRename: Bool? = nil) {
         self.conversation = conversation
         self.isGroup = isGroup
         self.title = title
@@ -38,6 +41,7 @@ public struct HomeGroupInfo: Hashable, Sendable {
         self.memberCount = memberCount
         self.chiefReplies = chiefReplies
         self.canAddPeople = canAddPeople ?? isGroup
+        self.canRename = canRename ?? isGroup
     }
 
     /// The members list's header: "Members", or "5,000 members" for a large group.

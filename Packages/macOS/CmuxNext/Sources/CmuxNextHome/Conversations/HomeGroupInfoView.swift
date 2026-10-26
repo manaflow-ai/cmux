@@ -18,7 +18,7 @@ struct HomeGroupInfoView: View {
                 .font(Font(Typography.title))
                 .foregroundStyle(colors.primary)
                 .accessibilityAddTraits(.isHeader)
-            if model.info.isGroup {
+            if model.info.canRename {
                 nameRow
             } else {
                 Text(model.info.displayTitle)

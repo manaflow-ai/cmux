@@ -72,7 +72,8 @@ describe("formatMessage names the Chief's owner in a shared conversation", () =>
     expect(formatMessage(people, msg(ann, "ship it"), { owner: ben })).toBe("[Launch · group · Ann] ship it")
   })
   it("leaves the owner's own Chief line as it was", () => {
-    const line = { ...people, kind: "chief" } as typeof people
+    // The owner and its Chief only (a second person makes it a shared Chief line, below).
+    const line = { ...people, kind: "chief", participants: people.participants.filter((p) => p.id === ben || p.id === bolt) } as typeof people
     expect(formatMessage(line, msg(ben, "hi"), { owner: ben })).toBe("[Launch · chief · Ben] hi")
   })
 })

@@ -9,6 +9,7 @@ import { answerQuestion, checkQuestionEdit } from "./question.ts"
 import { fail, reject, RejectError } from "./reject.ts"
 import { conversationChanged, upsertParticipant, type ApplyResult, type Commit, type Draft, type OpRequest } from "./request.ts"
 import {
+  DEFAULT_SETTINGS,
   MAX_PARTICIPANTS,
   SYSTEM_ACTOR,
   type ThreadResolution,
@@ -216,6 +217,11 @@ const applyOrThrow = (head: ConversationHead, request: OpRequest): Commit => {
         const owner = findParticipant(head, participant.id)?.owner_user ?? participant.owner_user
         if (participant.kind === "agent" && owner !== request.actor && request.trusted_participant !== true) fail("forbidden")
         stamped = { ...participant, ...(owner === undefined ? {} : { owner_user: owner }), role, joined_seq: head.last_seq, added_by: request.actor }
+      }
+      // The first share of a Chief's conversation shows teammates what comes next, not the owner's earlier
+      // one-to-one history (the owner may open it with conversation.settings.set history_visible all).
+      if (head.kind === "chief" && !head.participants.some((p) => p.kind === "human" && p.id !== actor.id)) {
+        next.settings = { ...(head.settings ?? DEFAULT_SETTINGS), history_visible: "since_join" }
       }
       next.participants = upsertParticipant(head.participants, stamped)
       next.updated_at = now
