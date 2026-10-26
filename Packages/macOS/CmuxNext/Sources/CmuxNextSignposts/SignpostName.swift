@@ -126,7 +126,7 @@ public nonisolated enum SignpostName: UInt16, Sendable, Hashable, CaseIterable, 
     /// Reserved (task 029, PL-switch). A pane focus move: the intent to the settled focus. Ring: AB/AE.
     case switchPaneFocus = 11
     /// Reserved (task 039, PL-switch; perf-hot `cmd-tab`). The app becoming active or a window becoming key
-    /// (`keyDidMove`) to the commit that shows it. Ring: B/E.
+    /// (`keyDidMove`) to the commit that shows it (a ``CommitBoundary`` end). Ring: AB/AE keyed by its `OSSignpostID`.
     case switchAppActivation = 33
 
     // MARK: create (reserved: PL-cef-tab)

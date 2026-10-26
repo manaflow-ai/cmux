@@ -1,7 +1,29 @@
+import CmuxNextCompat
 @testable import CmuxNextSignposts
 @testable import CmuxNextTrace
 import os
 import Testing
+
+/// The records a test runtime writes, in order, each stamped from a clock that advances 10 ns per read: until
+/// task 003's decoder lands, the stub's recorder hands over the fields a ring record would hold.
+private final class RecordLog: Sendable {
+    private let state = Mutex<(records: [TraceRuntime.StubRecord], tick: UInt64)>(([], 0))
+
+    var records: [TraceRuntime.StubRecord] { state.withLock { $0.records } }
+
+    /// A runtime that records into this log, with every category off.
+    func runtime() -> TraceRuntime {
+        let clock = TraceClock(reader: .init(uptimeNanos: { [self] in
+            state.withLock { state in
+                state.tick += 10
+                return state.tick
+            }
+        }, continuousNow: { ContinuousClock.now }))
+        return TraceRuntime(role: .app, clock: clock, stubRecorder: { [self] record in
+            state.withLock { $0.records.append(record) }
+        })
+    }
+}
 
 /// ``Signposter`` writes every begin, end, event and flow hop to the trace ring under its name's category flag
 /// (p09-observability task 006). Each test makes its own ``TraceRuntime`` and mirror, so suites running in
@@ -38,7 +60,7 @@ struct SignposterTraceRingTests {
         let key = signposter(.key, runtime)
         key.end(.scrollToFrame, key.begin(.scrollToFrame, scrollPhase: .changed, ageMilliseconds: 0.25), .committed,
                 scrollTarget: .layout)
-        key.flowHop("app.key.dispatch", flow: 42, ageMicroseconds: 120)
+        key.flowHop(.appKeyDispatch, flow: 42, ageMicroseconds: 120)
         let stall = signposter(.stall, runtime)
         stall.end(.stallMainTask, stall.begin(.stallMainTask, taskClass: "visible", owner: "test", classID: 2, ownerID: 9))
         stall.event(.stallOverBudget, "class=visible")
@@ -71,7 +93,7 @@ struct SignposterTraceRingTests {
         let action = signposter(.action, runtime)
         action.end(.actionPerform, action.begin(.actionPerform, message))
         #expect(records(runtime) == 0)
-        signposter(.key, runtime).flowHop("app.io_write", flow: 1)
+        signposter(.key, runtime).flowHop(.appIOWrite, flow: 1)
         #expect(records(runtime) == 1)
     }
 
@@ -87,6 +109,107 @@ struct SignposterTraceRingTests {
         #expect(traced.isTraced)
         action.end(.actionCommit, traced, .committed)
         #expect(records(runtime) == 2)
+    }
+
+    @Test("A begin recorded before its category turned off still writes its end: 2 records, B/E and AB/AE")
+    func endOfARecordedBeginIgnoresTheFlag() {
+        let log = RecordLog()
+        let runtime = log.runtime()
+        enable(runtime, .action)
+        let action = signposter(.action, runtime)
+        let commit = action.begin(.actionCommit, message)
+        let perform = action.begin(.actionPerform, message)
+        runtime.setCategoryMask(0)
+        action.end(.actionPerform, perform)
+        action.end(.actionCommit, commit, .committed)
+        #expect(log.records.map(\.phase) == [.asyncBegin, .begin, .end, .asyncEnd])
+        #expect(records(runtime) == 4)
+        runtime.setCategoryMask(1 << UInt64(SignpostCategory.action.traceBit))
+        runtime.interval(.actionPerform, arg0: 0) { runtime.setCategoryMask(0) }
+        #expect(log.records.suffix(2).map(\.phase) == [.begin, .end])
+        #expect(records(runtime) == 6)
+    }
+
+    @Test("action.commit decodes as AB then AE with one name, its id in arg1, the asyncID flag and rising t")
+    func actionCommitRecordsDecodeAsAnAsyncSlice() throws {
+        let log = RecordLog()
+        let runtime = log.runtime()
+        enable(runtime, .action)
+        let action = signposter(.action, runtime)
+        let commit = action.begin(.actionCommit, message, actionIndex: 5, entrypoint: 0)
+        let id = try #require(asyncID(commit))
+        action.end(.actionCommit, commit, .missed)
+        let records = log.records
+        try #require(records.count == 2)
+        let (begin, end) = (records[0], records[1])
+        #expect(begin.phase == .asyncBegin && end.phase == .asyncEnd)
+        #expect(begin.name == SignpostName.actionCommit.rawValue && end.name == begin.name)
+        #expect(begin.categoryBit == SignpostCategory.action.traceBit && end.categoryBit == begin.categoryBit)
+        #expect(begin.arg1 == id && end.arg1 == id)
+        #expect(begin.flags.contains(.asyncID) && end.flags.contains(.asyncID))
+        #expect(begin.tNanos < end.tNanos)
+        #expect(begin.arg0 & 0xFFFF_FFFF == 5)
+        #expect(begin.arg0 >> 32 & 0xFF == 1, "entrypoint position 0 is stored as code 1")
+        #expect(begin.arg0 >> 40 == 1_500, "the input age in us")
+        #expect(end.arg0 == Signposter.EndCode.missed)
+    }
+
+    @Test("action.perform decodes as B then E with one name and no async id")
+    func actionPerformRecordsDecodeAsAThreadSlice() throws {
+        let log = RecordLog()
+        let runtime = log.runtime()
+        enable(runtime, .action)
+        let action = signposter(.action, runtime)
+        action.endSpanningNestedLoop(.actionPerform, action.begin(.actionPerform, message, actionIndex: 2, entrypoint: 3))
+        let records = log.records
+        try #require(records.count == 2)
+        #expect(records.map(\.phase) == [.begin, .end])
+        #expect(records.allSatisfy { $0.name == SignpostName.actionPerform.rawValue && !$0.flags.contains(.asyncID) })
+        #expect(records[0].arg0 >> 32 & 0xFF == 4)
+        #expect(records[1].arg0 == Signposter.EndCode.nestedLoop)
+        #expect(records[0].tNanos < records[1].tNanos)
+    }
+
+    @Test("The overloads without numbers write code 0, which no given entrypoint or class writes")
+    func missingNumbersAreZeroAndGivenOnesAreNot() throws {
+        let log = RecordLog()
+        let runtime = log.runtime()
+        enable(runtime, .action, .stall)
+        let action = signposter(.action, runtime)
+        action.end(.actionGate, action.begin(.actionGate, message))
+        action.end(.actionGate, action.begin(.actionGate, message, actionIndex: 0, entrypoint: 0))
+        action.end(.actionGate, action.begin(.actionGate, message, actionIndex: 0, entrypoint: .max))
+        let stall = signposter(.stall, runtime)
+        stall.end(.stallMainTask, stall.begin(.stallMainTask, taskClass: "input", owner: "test"))
+        stall.end(.stallMainTask, stall.begin(.stallMainTask, taskClass: "input", owner: "test", classID: 0, ownerID: 4))
+        let begins = log.records.filter { $0.phase == .begin || $0.phase == .asyncBegin }
+        try #require(begins.count == 5)
+        #expect(begins.map { $0.arg0 >> 32 & 0xFF } == [0, 1, 255, 0, 1])
+        #expect(begins[4].arg0 & 0xFFFF_FFFF == 4)
+    }
+
+    @Test("A flow hop is a flow record: out at the press's first hop, in after, with its hop code and age")
+    func flowHopsAreFlowRecords() throws {
+        let log = RecordLog()
+        let runtime = log.runtime()
+        enable(runtime, .key)
+        let key = signposter(.key, runtime)
+        key.flowHop(.appKeyDispatch, flow: 77, ageMicroseconds: 250)
+        key.flowHop(.appIOWrite, flow: 77)
+        key.flowHop(.appFrameCommit, flow: 77, ageMicroseconds: 9_000)
+        let records = log.records
+        try #require(records.count == 3)
+        #expect(records.map(\.phase) == [.flowOut, .flowIn, .flowIn])
+        #expect(records.allSatisfy { $0.name == SignpostName.keyFlow.rawValue && $0.arg1 == 77 })
+        #expect(records.map { UInt8($0.arg0 & 0xFF) } == [1, 4, 11])
+        #expect(records.map { Int64(bitPattern: $0.arg0) >> 8 } == [250, -1, 9_000])
+    }
+
+    @Test("Every key flow hop has a fixed, distinct, nonzero code, and only the dispatch starts a flow")
+    func keyFlowHopCodes() {
+        let codes = KeyFlowHop.allCases.map(\.traceCode)
+        #expect(codes == Array(UInt8(1)...11))
+        #expect(KeyFlowHop.allCases.filter(\.startsFlow) == [.appKeyDispatch])
     }
 
     @Test("action.commit is an async slice keyed by its signpost id; action.perform a thread slice")
@@ -142,9 +265,13 @@ struct SignposterTraceRingTests {
     @Test("Names the catalog gives AB/AE are async slices; the synchronous spans are thread slices")
     func ringPhasePerName() {
         for name: SignpostName in [.actionCommit, .actionGate, .keyToFrame, .scrollToFrame, .motionRun, .switchWorkspace,
-                                   .switchTab, .switchPaneFocus, .createTab, .createWorkspace, .cefCreateBrowser,
-                                   .launchProcessToMain, .launchFirstFrame, .daemonRequest] {
+                                   .switchTab, .switchPaneFocus, .switchAppActivation, .createTab, .createWorkspace,
+                                   .cefCreateBrowser, .launchProcessToMain, .launchFirstFrame, .daemonRequest] {
             #expect(!name.opensThreadSlice, "\(name)")
+        }
+        // A name that ends at a CommitBoundary ends after its turn's thread slices closed: never B/E.
+        for name: SignpostName in [.actionCommit, .keyToFrame, .scrollToFrame, .switchAppActivation] {
+            #expect(!name.opensThreadSlice, "\(name) ends at a CommitBoundary")
         }
         for name: SignpostName in [.actionPerform, .stallMainTask, .cefPump, .motionFrame, .stallCreateSurface, .taskRun,
                                    .ghosttyRender] {

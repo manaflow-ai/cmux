@@ -19,8 +19,15 @@ public import os
 /// record holds numbers only, never the message text:
 /// - Begin `arg0`: the name's numbers (the typed overloads: an action's index and entrypoint, a scroll
 ///   phase, a main task's class and owner ids), with an input age in the top 24 bits where the begin
-///   has one (`inputAgeBits(milliseconds:)`). `arg1` is the async id of an AB record.
+///   has one (`inputAgeBits(milliseconds:)`). A code byte (entrypoint, class, phase) is its position + 1,
+///   so 0 always means "not given" (`code(position:)`). `arg1` is the async id of an AB record.
 /// - End `arg0`: bits 0-7 how it ended (`EndCode`), bits 8-15 a scroll's target (`ScrollFrameTarget.traceCode`).
+/// - Flow hop (`key.flow`): a flow record (`s` for the press's first hop, `f` for the later ones) with the flow
+///   id in `arg1` and, in `arg0`, the hop's `KeyFlowHop.traceCode` in bits 0-7 and its age in us (two's
+///   complement, -1 without one) in bits 8-63.
+///
+/// A begin reads its category flag once: an end writes exactly when its begin wrote, even if the flag changed
+/// in between, so the ring never holds a begin without its end or an end without its begin.
 ///
 /// ```swift
 /// let state = Signposter.action.begin(.actionPerform, "id=\(id)")
@@ -33,7 +40,7 @@ public nonisolated struct Signposter: Sendable {
     /// The MetricKit mirror this signposter repeats intervals to (the app's: ``SignpostMetricKitMirror/shared``).
     private let mirror: SignpostMetricKitMirror
     /// The trace runtime whose ring takes this signposter's records (the app's: ``TraceRuntime/shared``).
-    private let trace: TraceRuntime
+    let trace: TraceRuntime
     /// The trace clock an interval's begin time is read from (``SignpostInterval/beginUptimeNanos``).
     private let clock: TraceClock
 
@@ -104,21 +111,27 @@ public nonisolated struct Signposter: Sendable {
     ///   - message: The action's id, origin and input age.
     /// - Returns: The state to pass to ``end(_:_:)``.
     public func begin(_ name: SignpostName, _ message: ActionSignpostMessage) -> SignpostInterval {
-        begin(name, message, actionIndex: 0, entrypoint: 0)
+        beginAction(name, message, actionIndex: 0, entrypointCode: 0)
     }
 
     /// Begins an interval named `name` with an action's fields, and its numbers in the ring record:
-    /// `arg0` holds `actionIndex` in bits 0-31, `entrypoint` in bits 32-39 and the input age in the top 24.
+    /// `arg0` holds `actionIndex` in bits 0-31, the entrypoint's code (its position + 1; 0 is the overload
+    /// without numbers) in bits 32-39 and the input age in the top 24.
     ///
     /// - Parameters:
     ///   - name: A catalog name of this signposter's category.
     ///   - message: The action's id, origin and input age.
     ///   - actionIndex: The action's interned index (`ActionRunKey.index`; 0 when none was interned).
-    ///   - entrypoint: The position of the run's `ActionEntrypoint` case.
+    ///   - entrypoint: The fixed position of the run's `ActionEntrypoint` case (`ActionEntrypoint.tracePosition`).
     /// - Returns: The state to pass to ``end(_:_:)``.
     public func begin(_ name: SignpostName, _ message: ActionSignpostMessage, actionIndex: UInt32,
                       entrypoint: UInt8) -> SignpostInterval {
-        let arg0 = UInt64(actionIndex) | UInt64(entrypoint) << 32 | Self.inputAgeBits(milliseconds: message.inputAgeMilliseconds)
+        beginAction(name, message, actionIndex: actionIndex, entrypointCode: Self.code(position: entrypoint))
+    }
+
+    private func beginAction(_ name: SignpostName, _ message: ActionSignpostMessage, actionIndex: UInt32,
+                             entrypointCode: UInt64) -> SignpostInterval {
+        let arg0 = UInt64(actionIndex) | entrypointCode << 32 | Self.inputAgeBits(milliseconds: message.inputAgeMilliseconds)
         return openInterval(name, arg0: arg0) {
             signposter.beginInterval(
                 name.staticName, id: $0,
@@ -157,22 +170,27 @@ public nonisolated struct Signposter: Sendable {
     ///   - owner: The batch owner or control method that scheduled the task.
     /// - Returns: The state to pass to ``end(_:_:)``.
     public func begin(_ name: SignpostName, taskClass: String, owner: String) -> SignpostInterval {
-        begin(name, taskClass: taskClass, owner: owner, classID: 0, ownerID: 0)
+        beginTask(name, taskClass: taskClass, owner: owner, classCode: 0, ownerID: 0)
     }
 
     /// ``begin(_:taskClass:owner:)`` with the class and owner ids in the ring record: `arg0` holds `ownerID` in
-    /// bits 0-31 and `classID` in bits 32-39.
+    /// bits 0-31 and the class's code (its position + 1; 0 is the overload without numbers) in bits 32-39.
     ///
     /// - Parameters:
     ///   - name: A catalog name of this signposter's category.
     ///   - taskClass: The task's priority class name (`visible`, `automation`, ...).
     ///   - owner: The batch owner or control method that scheduled the task.
-    ///   - classID: The class's number (`MainWorkClass`'s index).
-    ///   - ownerID: The owner's id interned on the task board (`MainTaskOwner.index`).
+    ///   - classID: The class's position (`MainWorkClass.rawValue`).
+    ///   - ownerID: The owner's id interned on the task board (`MainTaskOwner.index`; 0 is the board's "no task").
     /// - Returns: The state to pass to ``end(_:_:)``.
     public func begin(_ name: SignpostName, taskClass: String, owner: String, classID: UInt8,
                       ownerID: UInt32) -> SignpostInterval {
-        openInterval(name, arg0: UInt64(ownerID) | UInt64(classID) << 32) {
+        beginTask(name, taskClass: taskClass, owner: owner, classCode: Self.code(position: classID), ownerID: ownerID)
+    }
+
+    private func beginTask(_ name: SignpostName, taskClass: String, owner: String, classCode: UInt64,
+                           ownerID: UInt32) -> SignpostInterval {
+        openInterval(name, arg0: UInt64(ownerID) | classCode << 32) {
             signposter.beginInterval(name.staticName, id: $0, "class=\(taskClass, privacy: .public) owner=\(owner, privacy: .public)")
         }
     }
@@ -266,48 +284,26 @@ public nonisolated struct Signposter: Sendable {
     }
 
     /// Records one hop of a key press's flow (``SignpostName/keyFlow``), formatted by the log system
-    /// only when something reads it (`hop=<hop> flow=<id> age_us=<age>`). The ring record is an instant
-    /// with the age in `arg0` (two's complement, so -1 reads back) and the flow id in `arg1`; the hop's
-    /// name stays in the log system until hops are static names (p09-observability task 007).
+    /// only when something reads it (`hop=<hop> flow=<id> age_us=<age>`). The ring record is a flow record with
+    /// the flow id in `arg1`: a flow out (`s`) at the press's first hop, a flow in (`f`) at every later one, so an
+    /// exporter draws the press's arrows and joins them to the daemon's and host's flow records. `arg0` holds the
+    /// hop's ``KeyFlowHop/traceCode`` in bits 0-7 and the age in bits 8-63 (two's complement: an arithmetic
+    /// shift right by 8 reads -1 back).
     ///
     /// - Parameters:
-    ///   - hop: The hop's name (`app.key.dispatch`, `app.io_write`, ...).
+    ///   - hop: The hop.
     ///   - flow: The key press's flow id.
     ///   - ageMicroseconds: The key event's age at this hop, or -1.
-    public func flowHop(_ hop: String, flow: UInt64, ageMicroseconds: Int64 = -1) {
+    public func flowHop(_ hop: KeyFlowHop, flow: UInt64, ageMicroseconds: Int64 = -1) {
         assert(SignpostName.keyFlow.category == category, "key.flow is not in category \(category)")
         signposter.emitEvent(SignpostName.keyFlow.staticName,
-                             "hop=\(hop, privacy: .public) flow=\(flow, privacy: .public) age_us=\(ageMicroseconds, privacy: .public)")
-        trace.event(.keyFlow, arg0: UInt64(bitPattern: ageMicroseconds), arg1: flow)
-    }
-
-    // MARK: trace ring
-
-    /// How an interval ended: bits 0-7 of its end record's `arg0`.
-    enum EndCode {
-        /// Ended normally, or at a committed ``CommitBoundary``.
-        static let ended: UInt64 = 0
-        /// The ``CommitBoundary`` missed the turn's commit (`commit=missed`).
-        static let missed: UInt64 = 1
-        /// The work ran a nested run loop that waited for the person (`loop=nested`).
-        static let nestedLoop: UInt64 = 2
-
-        /// The code of a ``CommitBoundary`` end.
-        static func of(_ outcome: CommitBoundary.Outcome) -> UInt64 {
-            switch outcome {
-            case .committed: ended
-            case .missed: missed
-            }
+                             "hop=\(hop.rawValue, privacy: .public) flow=\(flow, privacy: .public) age_us=\(ageMicroseconds, privacy: .public)")
+        let arg0 = UInt64(hop.traceCode) | UInt64(bitPattern: ageMicroseconds) << 8
+        if hop.startsFlow {
+            trace.flowOut(.keyFlow, flow: flow, arg0: arg0)
+        } else {
+            trace.flowIn(.keyFlow, flow: flow, arg0: arg0)
         }
-    }
-
-    /// The top 24 bits of a begin record's `arg0` for an input age: the age in whole microseconds, saturated
-    /// at `0xFF_FFFE` (16.7 s), or all ones for a begin with no input event (a negative or NaN age).
-    static func inputAgeBits(milliseconds: Double) -> UInt64 {
-        let none: UInt64 = 0xFF_FFFF
-        guard milliseconds >= 0 else { return none << 40 }
-        let micros = milliseconds * 1_000
-        return (micros < Double(none - 1) ? UInt64(micros) : none - 1) << 40
     }
 
     /// Begins the log system's interval with `beginInterval`, the MetricKit mirror's and, while the name's
@@ -320,74 +316,5 @@ public nonisolated struct Signposter: Sendable {
         let state = beginInterval(id)
         return SignpostInterval(state: state, metricKitID: mirror.begin(name), beginUptimeNanos: beginNanos,
                                 ring: traceBegin(name, id: id, beginNanos: beginNanos, arg0: arg0))
-    }
-
-    /// Writes the begin record when `name`'s category is on; returns the slice the end must close.
-    private func traceBegin(_ name: SignpostName, id: OSSignpostID, beginNanos: UInt64, arg0: UInt64) -> SignpostInterval.Ring? {
-        guard trace.isEnabled(categoryBit: name.traceCategory.traceBit) else { return nil }
-        if name.opensThreadSlice {
-            trace.begin(name, arg0: arg0)
-            return .thread
-        }
-        let asyncID = Self.asyncID(id, beginNanos: beginNanos)
-        trace.asyncBegin(name, id: asyncID, arg0: arg0)
-        return .async(id: asyncID)
-    }
-
-    /// Writes the end record of a begin that wrote one.
-    private func closeInterval(_ name: SignpostName, _ interval: SignpostInterval, arg0: UInt64) {
-        switch interval.ring {
-        case nil: return
-        case .thread: trace.end(name, arg0: arg0)
-        case .async(let id): trace.asyncEnd(name, id: id, arg0: arg0)
-        }
-    }
-
-    /// The async id of an interval: its `OSSignpostID`, or its begin time when the log system handed out no
-    /// id (a logging profile turned the subsystem off, so `makeSignpostID` returns `.null` or `.invalid`).
-    static func asyncID(_ id: OSSignpostID, beginNanos: UInt64) -> UInt64 {
-        id.rawValue == OSSignpostID.null.rawValue || id.rawValue == OSSignpostID.invalid.rawValue ? beginNanos : id.rawValue
-    }
-}
-
-extension SignpostName {
-    /// Whether a ``Signposter`` interval of this name is a thread slice (B/E) in the trace ring: it always begins
-    /// and ends inside one synchronous call on one thread, so it nests in that thread's slices. These are the
-    /// emitters' synchronous spans and the names whose catalog entry says "Ring: B/E". Every other name is an
-    /// async slice (AB/AE), which decodes right wherever its end lands, so a new name defaults to that.
-    var opensThreadSlice: Bool {
-        switch self {
-        case .actionPerform, .stallMainTask, .motionFrame, .motionDragFrame, .keyOmnibarSuggest, .keyPaletteSearch,
-             .switchAppActivation, .cefPump, .cefGeometry, .stallCreateSurface, .stallPaletteOpen, .stallIconPickerOpen,
-             .taskRun, .ghosttyRender:
-            true
-        default:
-            false
-        }
-    }
-}
-
-extension ScrollFramePhase {
-    /// The phase's number in a ``SignpostName/scrollToFrame`` begin record (bits 0-7 of `arg0`). Fixed: rings
-    /// written by an older build decode with the same numbers.
-    var traceCode: UInt64 {
-        switch self {
-        case .touch: 1
-        case .began: 2
-        case .changed: 3
-        case .ended: 4
-        case .momentum: 5
-        case .wheel: 6
-        }
-    }
-}
-
-extension ScrollFrameTarget {
-    /// The target's number in a ``SignpostName/scrollToFrame`` end record (bits 8-15 of `arg0`). Fixed.
-    var traceCode: UInt64 {
-        switch self {
-        case .layout: 1
-        case .content: 2
-        }
     }
 }
