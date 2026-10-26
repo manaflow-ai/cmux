@@ -25,6 +25,13 @@ extension CloudStrings {
                table: "Cloud", bundle: .module)
     }
 
+    /// `cloud new-machine --name` that is not a plain name (or has no value).
+    static var machineNameInvalid: String {
+        String(localized: "cloud.cli.machineNameInvalid",
+               defaultValue: "The machine's name must be 1 to 64 letters, digits, dots, dashes or underscores, such as lane-vm-1.",
+               table: "Cloud", bundle: .module)
+    }
+
     /// `cloud new-machine --bootstrap-script FILE` that cannot be read, is empty or is over 1 MB.
     static func bootstrapScriptUnreadable(_ path: String) -> String {
         String(format: String(localized: "cloud.cli.bootstrapScriptUnreadable",

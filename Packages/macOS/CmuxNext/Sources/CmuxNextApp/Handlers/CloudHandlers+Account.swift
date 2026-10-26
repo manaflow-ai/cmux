@@ -54,8 +54,10 @@ extension CloudHandlers {
             }
         }
         var request = CloudMachineRequest()
-        let name = invocation["name"]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines)
-        request.name = name?.isEmpty == false ? name : nil
+        if let name = invocation["name"]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines) {
+            guard CloudMachineRequest.isPlainName(name) else { throw ActionFailure(message: CloudStrings.machineNameInvalid) }
+            request.name = name
+        }
         if let size = invocation["size"]?.stringValue {
             guard let (_, memory) = sizes[size] else { throw ActionFailure(message: CloudStrings.sizeMustBeOneOf(sizes.keys.sorted().joined(separator: ", "))) }
             request.size = size
@@ -82,10 +84,10 @@ extension CloudHandlers {
     /// `pending`, and the create and the bootstrap go on (`cloud list-machines` shows the
     /// machine; its bootstrap status file says how far it got).
     static func createRequested(_ request: CloudMachineRequest, flow: CloudCreationFlow, window: WindowState?, _ context: AppActionContext) {
-        let api = context.services.cloud.api, creations = context.services.cloud.creations, work = context.services.work
+        let creations = context.services.cloud.creations, work = context.services.work
         result("new Cloud machine", context, pendingAfter: createdMachineWait, pending: newMachineFields(request, nil).merging(["status": .string("creating")]) { _, new in new }) {
-            let script: CloudMachineBootstrap?
-            do { script = try await request.loadScript(work: work) } catch let unreadable as CloudMachineRequest.ScriptUnreadable {
+            var request = request
+            do { request.script = try await request.loadScript(work: work) } catch let unreadable as CloudMachineRequest.ScriptUnreadable {
                 throw ActionFailure(message: CloudStrings.bootstrapScriptUnreadable(unreadable.path))
             }
             let creation = flow.start(in: window, existing: nil, request: request)
@@ -93,8 +95,7 @@ extension CloudHandlers {
             guard let session = creation.session else { throw ActionFailure(message: CloudStrings.createDeclined) }
             var fields = createdMachineFields(session, workspaceID: creation.workspaceID).merging(newMachineFields(request, session.machine)) { _, new in new }
             var bootstrap: [String: ActionResultValue] = ["status": .string("none")]
-            if let script {
-                let outcome = await script.start(name: request.name, on: CloudMachineBootstrap.Machine(api: api, machineID: session.machineID))
+            if let script = request.script, let outcome = creation.bootstrap {
                 bootstrap = ["status": .string(outcome.status), "kind": .string(script.kind.rawValue), "log": .string(CloudMachineBootstrap.logPath),
                              "status_file": .string(CloudMachineBootstrap.statusPath),
                              "check": .string("cmux cloud file-read --target machine:\(session.machineID) --path \(CloudMachineBootstrap.statusPath)")]
@@ -152,7 +153,14 @@ extension CloudHandlers {
         let windows = context.services.windows
         return CloudCreationFlow(
             creations: cloud.creations,
-            create: { creation in try await cloud.createMachine(name: nil, creation: creation, startedByPerson: startedByPerson, askedBy: askedBy, request: creation.request) },
+            create: { creation in
+                let session = try await cloud.createMachine(name: nil, creation: creation, startedByPerson: startedByPerson, askedBy: askedBy, request: creation.request)
+                // The bootstrap belongs to the create, so a Retry after a failed create starts it too.
+                if let script = creation.request.script {
+                    creation.noteBootstrap(await script.start(name: creation.request.name, on: CloudMachineBootstrap.Machine(api: cloud.api, machineID: session.machineID)))
+                }
+                return session
+            },
             open: { session in defer { RemoteGroupHandlers.mark(session: session.daemon.store.registryID) }; return try await firstWorkspace(on: session, context) },
             show: { id, creation in
                 let after = creation.readyAfter.map { String(format: "%.1f s", Double($0.components.seconds) + Double($0.components.attoseconds) / 1e18) } ?? "?"

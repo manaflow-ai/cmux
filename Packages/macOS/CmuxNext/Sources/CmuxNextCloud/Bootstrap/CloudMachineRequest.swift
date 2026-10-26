@@ -20,6 +20,17 @@ public struct CloudMachineRequest: Equatable, Sendable {
     /// One key per request: the creation's Retry sends it again, so a create that reached the
     /// server but whose answer was lost does not make a second machine.
     public var idempotencyKey = UUID().uuidString
+    /// The loaded bootstrap (``loadScript(work:)``), started by the create itself once the machine
+    /// exists, so the creation's Retry starts it too.
+    public var script: CloudMachineBootstrap?
+
+    /// A machine name `cloud new-machine` takes: 1-64 of letters, digits, `.`, `_` and `-`, not
+    /// starting with `-`, so it is also a host name and a shell word in the commands it prints.
+    /// `true` is what a bare `--name` with no value becomes on its way to the app.
+    public static func isPlainName(_ name: String) -> Bool {
+        name != "true" && (1...64).contains(name.count) && !name.hasPrefix("-")
+            && name.unicodeScalars.allSatisfy { $0.isASCII && (CharacterSet.alphanumerics.contains($0) || "._-".unicodeScalars.contains($0)) }
+    }
 
     public init(name: String? = nil, size: String? = nil, memoryMb: Int? = nil, persistent: Bool = false,
                 bootstrapPath: String? = nil, bootstrapKind: CloudMachineBootstrap.Kind = .plain) {

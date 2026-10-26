@@ -27,6 +27,8 @@ final class CloudMachineCreation: Identifiable {
     private(set) var workspaceID: String?
     /// Time from the attempt's start to `ready`.
     private(set) var readyAfter: Duration?
+    /// How the requested bootstrap started (``CloudMachineRequest/script``); nil without one.
+    private(set) var bootstrap: CloudMachineBootstrap.Outcome?
     /// The flow's work for this creation; cancelled on dismiss and retry.
     @ObservationIgnored var task: Task<Void, Never>?
     /// What `cloud new-machine` asked for (size, idle pause); a Retry asks for the same.
@@ -64,6 +66,10 @@ final class CloudMachineCreation: Identifiable {
     func attach(_ session: CloudMachineSession) {
         self.session = session
         phase = .created
+    }
+
+    func noteBootstrap(_ outcome: CloudMachineBootstrap.Outcome) {
+        bootstrap = outcome
     }
 
     func fail(_ error: any Error) {

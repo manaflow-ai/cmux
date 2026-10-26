@@ -26,7 +26,7 @@ struct CloudNewMachineTests {
 
     @Test func theLaneOptionsParseIntoOneRequest() throws {
         let request = try CloudHandlers.newMachineRequest(Self.invocation([
-            "name": .string(" lane-vm-1 "), "size": .string("medium"), "persistent": .bool(true),
+            "name": .string("lane-vm-1"), "size": .string("medium"), "persistent": .bool(true),
             "bootstrap": .string("lane"), "bootstrapScript": .string("/tmp/lane-vm-bootstrap"),
         ]))
         #expect(!request.isDefault)
@@ -58,6 +58,13 @@ struct CloudNewMachineTests {
         for name in ["bootstrapScript", "bootstrap", "size", "name"] {
             #expect(throws: ActionFailure.self, "\(name)") { try CloudHandlers.newMachineRequest(Self.invocation([name: .bool(true)])) }
         }
+    }
+
+    @Test func aNameIsAPlainWordAndABareFlagIsNotOne() {
+        for bad in ["true", "a b", "it's", "-x", "lane;vm", String(repeating: "a", count: 65)] {
+            #expect(throws: ActionFailure.self, "\(bad)") { try CloudHandlers.newMachineRequest(Self.invocation(["name": .string(bad)])) }
+        }
+        #expect((try? CloudHandlers.newMachineRequest(Self.invocation(["name": .string("lane-vm-7")])))?.name == "lane-vm-7")
     }
 
     @Test func aFifoOrDeviceIsNotReadAsAScript() async throws {
