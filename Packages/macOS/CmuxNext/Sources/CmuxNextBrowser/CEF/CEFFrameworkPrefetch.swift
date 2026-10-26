@@ -183,17 +183,25 @@ nonisolated final class CEFFrameworkPrefetch: Sendable {
     /// `work`'s files lane (awaited items, so the fence never holds them), and stops the idle reader after its
     /// current chunk. Returns at once when no idle read was queued or everything is read. When an item is
     /// refused (the caller's task was cancelled), the reads end here and the load reads what is left itself.
-    func promote(on work: BackgroundWork) async {
-        guard let layout = state.withLock({ $0.finished ? nil : $0.layout }) else { return }
-        promoted.store(true, ordering: .relaxed)
-        var outcome = Outcome.budgetSpent
-        while outcome == .budgetSpent {
-            outcome = (try? await work.run(.userBlocking, mayBlock: .files) { [self] in
-                readAll(layout, budget: Self.itemBudget, stop: { false })
-            }) ?? .stopped
+    /// Returns false when shutdown dropped the idle read first (nothing should map), else true.
+    @discardableResult
+    func promote(on work: BackgroundWork) async -> Bool {
+        if let layout = state.withLock({ $0.finished ? nil : $0.layout }) {
+            promoted.store(true, ordering: .relaxed)
+            var outcome = Outcome.budgetSpent
+            while outcome == .budgetSpent {
+                outcome = (try? await work.run(.userBlocking, mayBlock: .files) { [self] in
+                    readAll(layout, budget: Self.itemBudget, stop: { false })
+                }) ?? .stopped
+            }
+            finish()
         }
-        finish()
+        return state.withLock { !$0.droppedAtShutdown }
     }
+
+    /// True once ``promote(on:)`` took over the read: someone waits for Chromium, so the map that follows the read
+    /// runs at user-initiated.
+    var isPromoted: Bool { promoted.load(ordering: .relaxed) }
 
     /// Returns once ``post(_:on:)``'s read or a ``promote(on:)`` ended: true to map the framework, false when
     /// shutdown dropped the read (the app quits; nothing should map).

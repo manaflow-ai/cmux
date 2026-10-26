@@ -33,10 +33,11 @@ import CmuxNextWakeups
 
     @Test func withDefaultSettingsNoHostStarts() {
         var asked = 0
+        let work = MainWorkScheduler(budget: MainFrameBudget())
         let prototype = ChromiumHostPrototype(makeConfiguration: {
             asked += 1
             return ChromiumHostConfiguration(executable: URL(filePath: "/bin/true"), arguments: [])
-        }, tunables: Self.defaults(), mainWork: MainWorkScheduler(budget: MainFrameBudget()))
+        }, tunables: Self.defaults(), mainWork: work, deadlines: MainDeadlineScheduler(work: work))
         let reply = prototype.open("https://example.com/", over: NSView(frame: .zero), focus: false)
         #expect(reply["error"] as? String == "browserHost.helper is off")
         #expect(asked == 0)
@@ -49,7 +50,9 @@ import CmuxNextWakeups
     @Test func withTheToggleOnOpenGetsPastTheGate() {
         let store = Self.defaults()
         store.load(raw: TunableFile.decode(Data(#"{"version": 1, "values": {"browserHost.helper": true}}"#.utf8)))
-        let prototype = ChromiumHostPrototype(makeConfiguration: { nil }, tunables: store, mainWork: MainWorkScheduler(budget: MainFrameBudget()))
+        let work = MainWorkScheduler(budget: MainFrameBudget())
+        let prototype = ChromiumHostPrototype(makeConfiguration: { nil }, tunables: store, mainWork: work,
+                                              deadlines: MainDeadlineScheduler(work: work))
         let reply = prototype.open("https://example.com/", over: NSView(frame: .zero), focus: false)
         #expect(reply["error"] as? String == "the pane is not in a window")
         #expect(prototype.report["tunable"] as? Bool == true)

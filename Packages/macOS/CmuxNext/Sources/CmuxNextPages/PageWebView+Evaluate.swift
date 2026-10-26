@@ -1,8 +1,10 @@
 public import Foundation
 import WebKit
 
-/// Why ``PageWebView/callPageScript(_:arguments:)`` returned no value from a Chromium page.
+/// Why ``PageWebView/callPageScript(_:arguments:)`` returned no value.
 public nonisolated enum PageScriptError: Error, Sendable, Equatable {
+    /// The page waits for its first show (``PageWebView/awaitsFirstShow``): it has no document yet.
+    case notStarted
     /// An argument is not a JSON value.
     case argument(String)
     /// The page's answer was not JSON.
@@ -22,6 +24,8 @@ extension PageWebView {
     ///   - arguments: Its parameters by name; each must be a JSON value (NSNull for null).
     /// - Returns: The returned value; nil for `undefined` or `null`.
     public func callPageScript(_ body: String, arguments: [String: Any] = [:]) async throws -> Any? {
+        // No document yet: WebKit would launch the page's WebContent process to run it.
+        if awaitsFirstShow { throw PageScriptError.notStarted }
         guard let page = chromiumSession?.page else {
             return try await webView.callAsyncJavaScript(body, arguments: arguments, in: nil, contentWorld: .page)
         }

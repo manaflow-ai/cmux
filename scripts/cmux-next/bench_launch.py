@@ -1116,6 +1116,20 @@ class BenchApp:
             note(f"bench-launch: {self.tag} has no feature registry (no features.list): results record no features")
         return snapshot
 
+    def attach(self):
+        """This tag's app that already runs, without launching it: ``socket`` becomes the first socket candidate whose
+        features.list answers (the paths ``launch`` probes) and ``features`` its snapshot; None (record() refuses)
+        when no candidate answers."""
+        self.features = None
+        for path in unique_paths(p for p in socket_candidates(self.tag) if os.path.exists(p)):
+            snapshot = features_snapshot(rpc_at(path, "features.list", timeout=10))
+            if snapshot is not None:
+                self.socket, self.features = path, snapshot
+                return self
+        note(f"bench-launch: WARNING: no socket of {self.tag} answered features.list "
+             f"({', '.join(socket_candidates(self.tag))}); record() refuses")
+        return self
+
     def state_root(self):
         """The tag's saved state: `~/Library/Application Support/cmux/tags/<tag>` (BuildIdentity
         daemonStateDirectory's parent; its `tui` holds the daemon's saved sessions and their workspaces)."""

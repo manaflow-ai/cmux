@@ -50,8 +50,8 @@ extension PaneOverlayView {
         guard let mask = layer?.mask else { return [] }
         let rest = mask.position
         return [
-            RenderSpring.Move(mask, "position.x", from: rest.x - shift.x, to: rest.x, velocity: -velocity.x),
-            RenderSpring.Move(mask, "position.y", from: rest.y - shift.y, to: rest.y, velocity: -velocity.y),
+            RenderSpring.Move(mask, .positionX, from: rest.x - shift.x, to: rest.x, velocity: -velocity.x),
+            RenderSpring.Move(mask, .positionY, from: rest.y - shift.y, to: rest.y, velocity: -velocity.y),
         ]
     }
 

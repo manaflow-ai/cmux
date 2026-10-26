@@ -14,7 +14,7 @@
 // The last pair writes ResourceOperations.swift and ResourceOperations+<family>.swift: typed
 // requests for the named `cmux.protocol/2` operations (the plugin's appResourceOperations).
 //
-// For CmuxNextIPCTests it writes only the fixture schema's `DaemonWireEvent` (task 022):
+// For CmuxNextIPCTestSupport it writes only the fixture schema's `DaemonWireEvent` (task 022):
 //
 //   CmuxNextWireGen --sdk-schema cmux-tui/spec/fixtures/ipc-method-tables/sdk-schema.json \
 //     --resource-operations cmux-tui/spec/fixtures/ipc-method-tables/resource-operations-v2.json \

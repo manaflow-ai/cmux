@@ -18,8 +18,8 @@ public enum TabIcon: Hashable, Sendable {
 
 /// A full-color tab image (favicon). Compared by identity so that updating
 /// a tab with the same image object does not redraw it.
-public final class TabImage: Hashable, @unchecked Sendable {
-    // CGImage is immutable once created, which makes the unchecked Sendable sound.
+/// Sendable: its only state is an immutable `CGImage`, which is Sendable.
+public nonisolated final class TabImage: Hashable, Sendable {
     public let cgImage: CGImage
 
     public init(_ cgImage: CGImage) {

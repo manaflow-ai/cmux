@@ -59,25 +59,58 @@ import Testing
         #expect(lanes.priorities.isEmpty)
     }
 
+    /// The load's own read before the map and its warm read go through the same prefetch, so after the fenced
+    /// read they read no byte again (a fresh prefetch per load would read the 367 MiB framework twice).
+    @Test func theLoadsOwnReadsSkipWhatTheFencedReadRead() async throws {
+        let framework = try ScratchFramework()
+        let lanes = Lanes()
+        let prefetch = CEFFrameworkPrefetch()
+        prefetch.post(framework.layout, on: lanes.work)
+        #expect(await prefetch.finished())
+
+        prefetch.readBinary(framework.layout)
+        prefetch.warm(framework.layout)
+
+        #expect(prefetch.last?.bytes == framework.byteCount, "the load read a file the fenced read had read")
+        #expect(prefetch.last?.files == framework.fileCount)
+    }
+
     @Test func aPreloadMapsOnlyAfterTheFencedReadEnds() async throws {
         let framework = try ScratchFramework()
         let lanes = Lanes()
         lanes.work.beginBestEffortFence()
-        let loads = LoadSpy()
+        let loads = LoadSpy(result: .success(try MappedLibrary.make(framework.layout)))
         let runtime = Self.runtime(lanes: lanes, loads: loads)
 
         runtime.preload(layout: framework.layout)
         await lanes.queued.wait()
         #expect(loads.count == 0, "the preload mapped the framework behind the fence")
         #expect(runtime.prefetch.last == nil)
+        #expect(runtime.report.state == "loading")
 
         lanes.work.endBestEffortFence()
         await runtime.libraryLoadEnded()
         #expect(loads.count == 1)
         #expect(runtime.prefetch.last?.bytes == framework.byteCount)
+        #expect(runtime.report.state == "loaded", "a mapped preload did not report itself loaded")
+        // The map is a plain task like the unfenced preload's, never a lane item: only the read's idle items ran.
+        #expect(lanes.priorities.allSatisfy { $0 == .idle })
     }
 
-    @Test func aTabStartPromotesThePreloadsFencedRead() async throws {
+    @Test func aFailedFencedMapDoesNotReportLoaded() async throws {
+        let framework = try ScratchFramework()
+        let lanes = Lanes()
+        let loads = LoadSpy()
+        let runtime = Self.runtime(lanes: lanes, loads: loads)
+
+        runtime.preload(layout: framework.layout)
+        await runtime.libraryLoadEnded()
+
+        #expect(loads.count == 1)
+        #expect(runtime.report.state == "loading")
+    }
+
+    @Test func aTabStartPromotesThePreloadsFencedReadAndMapsAtItsPriority() async throws {
         let framework = try ScratchFramework()
         let lanes = Lanes()
         lanes.work.beginBestEffortFence()
@@ -92,11 +125,14 @@ import Testing
         }
 
         await lanes.blockingRan.wait()
-        #expect(loads.count == 1)
+        await runtime.libraryLoadEnded()
+        #expect(loads.count == 1, "the preload and the start both mapped")
         #expect(runtime.prefetch.last?.files == framework.fileCount)
         #expect(runtime.prefetch.last?.bytes == framework.byteCount)
         #expect(lanes.priorities.contains(.userBlocking))
         #expect(!lanes.priorities.contains(.idle), "the fenced idle read ran before the fence ended")
+        #expect(!lanes.priorities.contains(.bestEffort), "the map waited on a best-effort lane slot")
+        #expect(loads.priorities.allSatisfy { $0 >= .userInitiated }, "the promoted map ran at \(loads.priorities)")
         lanes.work.endBestEffortFence()
     }
 
@@ -110,12 +146,12 @@ import Testing
         await lanes.queued.wait()
 
         lanes.work.beginShutdown()
-        let loaded = await CEFRuntime.result(of: try #require(runtime.fencedLoad))
-
-        guard case .failure(.quit) = loaded else {
-            Issue.record("the preload ended with \(String(describing: loaded)), expected the quit failure")
-            return
+        await runtime.libraryLoadEnded()
+        // A start after the drop maps nothing either.
+        await #expect(throws: BrowserEngineError.self) {
+            try await runtime.start(layout: framework.layout, environment: [:], trigger: "tab")
         }
+
         #expect(loads.count == 0, "the quit mapped the framework")
         #expect(runtime.prefetch.last == nil)
     }
@@ -129,7 +165,7 @@ import Testing
         runtime.preload(layout: framework.layout)
         await runtime.libraryLoadEnded()
 
-        #expect(runtime.fencedLoad == nil)
+        #expect(runtime.fencedRead == nil)
         #expect(loads.count == 1)
     }
 
@@ -210,14 +246,32 @@ nonisolated private struct Signals: Sendable {
     }
 }
 
-/// Counts in-process loads; each fails as a runtime that is not embedded.
+/// Counts in-process loads and the task priority each ran at; each returns `result` (by default it fails as a
+/// runtime that is not embedded).
 nonisolated private final class LoadSpy: Sendable {
-    private let loads = OSAllocatedUnfairLock(initialState: 0)
+    private let loads = OSAllocatedUnfairLock<[TaskPriority]>(initialState: [])
+    private let result: Result<CEFLoadedLibrary, CEFRuntime.BootError>
 
-    var count: Int { loads.withLock { $0 } }
+    init(result: Result<CEFLoadedLibrary, CEFRuntime.BootError> = .failure(.notEmbedded)) { self.result = result }
+
+    var count: Int { loads.withLock { $0.count } }
+
+    /// The priority of each load, in order.
+    var priorities: [TaskPriority] { loads.withLock { $0 } }
 
     func load() -> Result<CEFLoadedLibrary, CEFRuntime.BootError> {
-        loads.withLock { $0 += 1 }
-        return .failure(.notEmbedded)
+        let priority = Task.currentPriority
+        loads.withLock { $0.append(priority) }
+        return result
+    }
+}
+
+/// A mapped library over a shim whose every function does nothing and returns 0.
+nonisolated private enum MappedLibrary {
+    static func make(_ layout: CEFRuntimeLayout) throws -> CEFLoadedLibrary {
+        let nothing: @convention(c) () -> Int = { 0 }
+        let shim = try CEFShimLibrary.resolving { _ in unsafeBitCast(nothing, to: UnsafeMutableRawPointer.self) }
+        return CEFLoadedLibrary(shim: shim, shimABI: "", layout: layout,
+                                locale: CEFLocale(locale: CEFLocale.fallback, acceptLanguages: CEFLocale.fallback), loadDuration: .zero)
     }
 }

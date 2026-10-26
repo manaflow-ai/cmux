@@ -33,7 +33,7 @@ struct SpareNewTabChatOpensTabsTests {
     }
 
     private static func handler(_ opened: @escaping (AgentPaneOpenTab) -> Void) -> NewTabPageHandler {
-        NewTabPageHandler(open: { _, request in opened(request) }, jump: { _, _ in }, editShortcut: { _ in })
+        NewTabPageHandler(open: { _, request in opened(request) }, jump: { _, _, _ in }, editShortcut: { _ in })
     }
 
     private static var open: AgentPaneRequest { AgentPaneRequest(body: ["method": "tab.open", "params": ["kind": "terminal", "text": "ls"]]) }

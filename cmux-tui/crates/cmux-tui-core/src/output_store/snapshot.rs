@@ -131,12 +131,18 @@ pub(super) fn write_pass(mux: &Arc<Mux>, store: &OutputStore) {
     let policy = PersistencePolicy::current(mux);
     let previous = store.cached_policy();
     store.cache_policy(policy);
-    if previous.is_some_and(|previous| previous.mode != policy.mode) {
+    let mode_changed = previous.is_some_and(|previous| previous.mode != policy.mode);
+    if mode_changed {
         // The mode changed at runtime: drop what the new mode does not keep.
         eprintln!("cmux-tui: terminal output store: mode {}", policy.mode.as_str());
         store.prune_pending.store(true, std::sync::atomic::Ordering::Release);
     }
     write_pass_at(mux, store, policy, false);
+    if mode_changed {
+        // Full mode compresses nothing (mux/cold_scrollback.rs): the worker
+        // reads the new mode.
+        mux.wake_cold_scrollback();
+    }
 }
 
 /// [`write_pass`] at quit: full mode writes a due snapshot at once.
@@ -178,7 +184,9 @@ fn write_pass_at(mux: &Mux, store: &OutputStore, policy: PersistencePolicy, quit
                 || state.snapshot_at.is_none_or(|at| at.elapsed() >= store.snapshot_interval);
             (state.snapshot_digest, due)
         };
-        let captured = surface.try_with_terminal(|terminal| {
+        // A cold terminal has not printed since it was compressed, so its
+        // snapshot is current: reading it would restore it for nothing.
+        let captured = surface.try_with_hot_terminal(|terminal| {
             let digest = content_digest(terminal)?;
             if previous == Some(digest) || !snapshot_due {
                 return Some((digest, None));
@@ -188,7 +196,7 @@ fn write_pass_at(mux: &Mux, store: &OutputStore, policy: PersistencePolicy, quit
             let replay = terminal.vt_replay_bounded(budget).ok()?.into_self_contained_bytes();
             Some((digest, Some((cols, rows, replay))))
         });
-        let Ok(Some((digest, replay))) = captured else {
+        let Ok(Some(Some((digest, replay)))) = captured else {
             digests.push((log, None));
             continue;
         };

@@ -18,6 +18,13 @@ extension CEFTab: BrowserContentVisibilityReporting {
         return .hidden(pages.contains(where: \.isVisible) ? "page_window_misplaced" : "page_window_missing")
     }
 
+    /// Whether this tab is the one its pane host shows, not hidden by the content lifecycle, in a visible
+    /// window: Chrome's `WebContents::GetVisibility() == Visibility::VISIBLE` for its startup tab.
+    var isShownInVisibleWindow: Bool {
+        guard !isClosed, host.visibleTab === self, !isContentHidden, let window = container.window else { return false }
+        return window.isVisible
+    }
+
     /// Whether `window` is the page window over this tab's content view: a child of the
     /// container's window at the host view's screen rect, as ``contentVisibility`` finds it.
     ///

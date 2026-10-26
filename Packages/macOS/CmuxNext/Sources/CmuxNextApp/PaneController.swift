@@ -323,7 +323,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
         if !snapshot.items.isEmpty { services.launchReveal.markReady(.tabs) }
         var selectNew = false
         if let pending = pendingSelectSurface, let tab = snapshot.tabs.first(where: { $0.surface == pending }) { // once listed (OutboundTab)
-            if !isSuspended { services.cache.createTabs.listed(surface: pending.rawValue, tab: tab.id) } // create.tab waits for its frame
+            if !isSuspended { NewTerminalTrace.shared.event(.tabAdded, of: services.cache.createTabs.listed(surface: pending.rawValue, tab: tab.id), value: pending.rawValue) } // create.tab waits for its frame; a new terminal marks tab_added
             state?.selection.select(tab.id, in: paneKey)
             pendingSelectSurface = nil
             selectNew = true

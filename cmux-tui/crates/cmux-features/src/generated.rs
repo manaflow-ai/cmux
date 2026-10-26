@@ -3,21 +3,26 @@
 //
 // The daemon-side features (process "daemon" or "both"); the app's registry has every feature.
 
-/// Daemon requests run at their cause's class: verified-app requests at user-initiated, CLI, script, agent and page requests at utility, raised while they wait for or hold a daemon lock.
-pub const DAEMON_REQUEST_QOS: crate::Feature = crate::Feature {
-    index: 0,
-    name: "daemonRequestQos",
-    owner: "Performance Lead",
-    description: "Daemon requests run at their cause's class: verified-app requests at user-initiated, CLI, script, agent and page requests at utility, raised while they wait for or hold a daemon lock.",
-    kind: crate::FeatureKind::PerfPath,
-    process: crate::FeatureProcess::Daemon,
-    defaults: crate::FeatureDefaults { dev: false, nightly: false, release: false },
-    expires: Some("2026-12-20"),
-    params: &[],
-    stories: &["pane-stress", "new-surfaces-stress"],
-    sticky: false,
-    runtime_mutable: false,
-};
+/// Every daemon-side feature in registry order; a handle is its index here.
+pub(crate) const TABLE: &[crate::FeatureDef] = &[
+    crate::FeatureDef {
+        name: "coldScrollbackCompression",
+        defaults: crate::Defaults { dev: false, nightly: false, release: false },
+        process: crate::Process::Daemon,
+    },
+    crate::FeatureDef {
+        name: "daemonRequestQos",
+        defaults: crate::Defaults { dev: false, nightly: false, release: false },
+        process: crate::Process::Daemon,
+    },
+];
 
-/// Every daemon-side feature, by index: `REGISTERED[feature.index]` is `feature`.
-pub static REGISTERED: &[crate::Feature] = &[DAEMON_REQUEST_QOS];
+/// One handle per daemon feature, for `Snapshot::is_enabled`.
+pub mod feature {
+    feature_handles!(super::TABLE;
+        /// The daemon compresses the scrollback of a terminal that no client views and that printed nothing for 10 minutes, at utility priority and never under memory pressure; any access restores it first. Stays off until the kernel compressor measurement (p07-memory-112) shows a 2x gain.
+        COLD_SCROLLBACK_COMPRESSION = "coldScrollbackCompression",
+        /// Daemon requests run at their cause's class: verified-app requests at user-initiated, CLI, script, agent and page requests at utility, raised while they wait for or hold a daemon lock.
+        DAEMON_REQUEST_QOS = "daemonRequestQos",
+    );
+}
