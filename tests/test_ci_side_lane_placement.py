@@ -203,6 +203,21 @@ class Decide(unittest.TestCase):
             self.assertEqual(placement.decide(env(), runners)[:2], ((), ()))
         shared.assert_called_once()
 
+    def test_a_refused_runner_read_retries_with_cmux_bot(self):
+        # 2026-10-26 22:47Z: the routing App's runner read returned 403; cmux-bot reads again.
+        with tempfile.TemporaryDirectory() as tmp, contextlib.redirect_stdout(io.StringIO()):
+            output = Path(tmp) / "out"
+            refused, bot = mock.Mock(), mock.Mock()
+            refused.runners.side_effect = OSError("HTTP Error 403: Forbidden")
+            bot.runners.return_value = [runner("mini-a-glaeda-3")]
+            clients = {"t": refused, "bot": bot}
+            with mock.patch.object(placement.pool, "GitHub", side_effect=lambda token, repo: clients[token]):
+                placement.main(env(ROUTE_TOKEN="t", ROUTE_TOKEN_FALLBACK="bot", GITHUB_REPOSITORY="manaflow-ai/cmux",
+                                   GITHUB_OUTPUT=str(output)))
+            lines = dict(line.split("=", 1) for line in output.read_text().splitlines())
+            self.assertEqual(lines["owned_jobs"], " cmux-scheme-compile ")
+            bot.runners.assert_called_once_with()
+
     def test_main_writes_the_outputs(self):
         # The script's ::warning:: lines stay out of the guard job's log.
         with tempfile.TemporaryDirectory() as tmp, contextlib.redirect_stdout(io.StringIO()):

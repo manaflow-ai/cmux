@@ -133,11 +133,12 @@ await requireBrowserLane("composer-bottom-space.test.ts", async () => {
       await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1", undefined, {
         timeout: 120_000,
       });
-      await page.locator(".nt-style").waitFor();
+      // The templates group, not the composer look dots (#24367), which share its class.
+      await page.getByRole("group", { name: "New Tab templates" }).waitFor();
       await page.locator(".acpmux-composer-foot button:visible").first().waitFor();
       const drawn = await page.evaluate(() => ({
         foot: document.querySelector(".acpmux-composer-foot")!.getBoundingClientRect().bottom,
-        dots: document.querySelector(".nt-style-options, .nt-style")!.getBoundingClientRect().top,
+        dots: document.querySelector(".nt-style:not(.nt-look-dots) .nt-style-options")!.getBoundingClientRect().top,
       }));
       await page.close();
       expect(drawn.foot, "the row ends over the dots").toBeLessThanOrEqual(drawn.dots + 0.5);

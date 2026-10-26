@@ -62,6 +62,12 @@ class ReleaseNotesTests(unittest.TestCase):
         self.assertEqual(notes["highlights"][0]["body"], "Restart when you want.")
         self.assertEqual(notes["changes"], ["sidebar: tidy", "updates: the R114 card"])
 
+    def test_notes_name_their_commit_and_the_time_they_were_made(self):
+        # The Updated card names the build by both (Leo 2026-10-26: "it just says updated to nightly").
+        notes = self.build(self.base)
+        self.assertEqual(notes["head"], self.head)
+        self.assertRegex(notes["builtAt"], r"^2\d{3}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
+
     def test_a_later_build_has_no_highlight_only_changes(self):
         added = git(self.repo, "rev-parse", "HEAD~1")
         notes = self.build(added, build="3")
