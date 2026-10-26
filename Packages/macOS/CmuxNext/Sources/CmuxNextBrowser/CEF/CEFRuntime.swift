@@ -128,8 +128,6 @@ final class CEFRuntime {
     /// Replies that arrived before their caller awaited.
     var earlySiteReplies: [Int32: CEFSiteReply] = [:]
     var nextSiteReply: Int32 = 1
-    /// Host mode: where async exports answer (``sendAsync(_:)``); nil in process, where each call does.
-    var hostReplies: CEFHostReplyRoute?
     /// Host mode: the last page view token minted (``mintPageViewToken()``).
     var lastPageViewToken: UInt64 = 0
     /// Host mode: each profile proxy's verdict from the host (``applyProfileProxy(_:)``).
@@ -440,7 +438,7 @@ final class CEFRuntime {
             loadDuration = library.loadDuration
             initializeDuration = clock.now - started
             readyAfterLaunch = CEFStartReport.secondsSinceLaunch()
-            logger.notice("CEF ready trigger=\(trigger, privacy: .public) shim_abi=\(CEFShimABI.short(library.shimABI), privacy: .public) fork_api=\(library.shim.forkAPIVersion()) load=\(library.loadDuration, privacy: .public) map=\(prefetch.last?.map ?? .zero, privacy: .public) initialize=\(clock.now - started, privacy: .public)")
+            logger.notice("CEF ready trigger=\(trigger, privacy: .public) shim_abi=\(CEFShimABI.short(library.shimABI), privacy: .public) fork_api=\(library.shim.forkAPIVersion()) load=\(library.loadDuration, privacy: .public) map=\(self.prefetch.last?.map ?? .zero, privacy: .public) initialize=\(clock.now - started, privacy: .public)")
         } catch {
             // A trust failure names the rejected item in the log, but the
             // user-facing refusal stays the existing localized summary.
@@ -472,7 +470,6 @@ final class CEFRuntime {
         // The app's NSApplication subclass must conform (CmuxApplication); the shim no longer
         // patches NSApp at runtime. In host mode the host's NSApp runs Chromium.
         if case .inProcess = library, shim.prepareApplication() != 1 { throw .application }
-        hostReplies = try CEFHostReplyRoute.route(for: library)
         self.shim = shim
         if case .host = library { showHostWidgets(shim) }
         if case .inProcess(let loaded) = library {

@@ -134,14 +134,15 @@ public final class PageHostPool {
         return host
     }
 
-    /// Releases a claimed host. Only an untouched host may return to the spare slot.
+    /// Releases a claimed host. Only an untouched host with its document may return to the spare
+    /// slot; a discarded one (PageWebView+Discard.swift) has no document to park.
     public func release(_ host: PageWebView) {
         host.removeFromSuperview()
         guard claimed.removeValue(forKey: ObjectIdentifier(host)) != nil else {
             host.close()
             return
         }
-        if !host.touched, spare == nil, allowsSpare, let content = target?.contentView {
+        if !host.touched, !host.isDiscarded, spare == nil, allowsSpare, let content = target?.contentView {
             host.countsTouches = false
             park(host, in: content)
             spare = host

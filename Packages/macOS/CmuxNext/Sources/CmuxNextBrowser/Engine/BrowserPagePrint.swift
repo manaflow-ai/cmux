@@ -17,9 +17,19 @@ public struct BrowserPagePrint {
     public func run() -> Bool {
         switch tab {
         case let tab as WebKitTab: printWebKit(tab.webView) {}
-        case let tab as CEFTab: tab.browserID.map { tab.runtime.shim?.printPage($0) == 1 } ?? false
+        case let tab as CEFTab: printChromium(tab)
         default: false
         }
+    }
+
+    /// Opens Chromium's print preview, one-way as `chrome::Print`
+    /// (chrome/browser/ui/browser_commands.cc) returns nothing: true once
+    /// sent to a page that has a browser. One that closes before Chromium
+    /// gets it shows nothing.
+    private func printChromium(_ tab: CEFTab) -> Bool {
+        guard !tab.isClosed, let browser = tab.browserID, let shim = tab.runtime.shim else { return false }
+        _ = shim.printPage(browser)
+        return true
     }
 
     /// Prints the page; a window.print() from a subframe prints the whole

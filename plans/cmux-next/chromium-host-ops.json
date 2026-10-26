@@ -28,7 +28,7 @@
     "channel": "Optional: input for ops sent on the input ring instead of the control channel (default control).",
     "optional_exports": "Top level: cmux_shim_* symbols CEFShimLibrary binds with r.optional (the fork API 29 renderer paths) that cmux_cef_shim.h does not declare. 3696a48e40a landed the app side before the shim, and the shim in CEFShim/src does not define them yet, so a declaration would promise symbols that nm cannot find in the real shim. Same fields as exports. Task 011 checks header exports plus these against CEFShimLibrary's r(...) and r.optional(...) names; the remote dylib (task 014) exports both. The commit that adds them to the shim moves the declarations into the header and these entries into exports.",
     "optional_events": "Top level: event kinds CEFShimEvent.swift decodes that cmux_shim_event_kind_t does not list yet (fork API 29); same fields as events and the same move into the header as optional_exports.",
-    "host_mode_rewrites": "Top level: Swift sites whose in-process behavior the remote shim cannot keep, and sites that stay as written in host mode: site (file and function under sources_root), exports, needs (after_attach, reply, pending_tab, host_exit, or kept: the site stays, change says why; a finished pending_tab site becomes kept), change, and task. --check-return-use and --check-pre-attach (task 011) accept a site only while it is listed here. --swift-sites (task 021) no longer lists a site listed with after_attach, host_exit or kept, nor an async or mint call in the token form (a closure handed to CEFRuntime.sendAsync, siteCall or profileWrite)."
+    "host_mode_rewrites": "Top level: Swift sites whose in-process behavior the remote shim cannot keep, and sites that stay as written in host mode: site (file and function under sources_root), exports, needs (after_attach, reply, pending_tab, host_exit, or kept: the site stays, change says why; a finished pending_tab site becomes kept), change, and task. --check-return-use and --check-pre-attach (task 011) accept a site only while it is listed here. --swift-sites (task 021) no longer lists a site listed with after_attach, host_exit or kept, nor an async call in the token form (a closure handed to CEFRuntime.sendAsync, siteCall or profileWrite), nor a mint_returns id call in the mint form (its id keys the wait for its reply_event)."
   },
   "pseudo_events": {
     "attach": "The host's hello after the control channel connects, before any op is applied. It carries every mirror key whose only refresh event is attach, and the optional_exports the host's shim defines."
@@ -1631,14 +1631,12 @@
         }
       ],
       "returns": "int",
-      "result_used_by": [
-        "CmuxNextBrowser/Engine/BrowserPagePrint.swift"
-      ],
+      "result_used_by": [],
       "mirror_key": null,
       "refresh_events": [],
       "pending_keys": [],
       "reply_event": null,
-      "reason": "Returns 0 only when the browser is gone, which the client knows; printing in host mode is task 065."
+      "reason": "Returns 0 only when the browser is gone, which the client knows: BrowserPagePrint sends it one-way, as chrome::Print returns nothing; printing in host mode is task 065."
     },
     {
       "name": "cmux_shim_find",
@@ -1826,7 +1824,7 @@
       "refresh_events": [],
       "pending_keys": [],
       "reply_event": "wire:REPLY",
-      "reason": "1 sent, 0 browser gone, -1 refused by Chromium; agent CDP later goes daemon to host directly (task 233)."
+      "reason": "1 sent, 0 browser gone, -1 refused by Chromium: CEFAgentRelay.send takes the token form (whenSettled) and turns 0, -1 or a gone host into a CDP error reply on the relay stream; a passed deadline makes up no error, since the real reply may still come; agent CDP later goes daemon to host directly (task 233)."
     },
     {
       "name": "cmux_shim_devtools_set_key_handler",
@@ -2824,14 +2822,12 @@
         }
       ],
       "returns": "int",
-      "result_used_by": [
-        "CmuxNextBrowser/CEF/CEFDownloads.swift"
-      ],
+      "result_used_by": [],
       "mirror_key": null,
       "refresh_events": [],
       "pending_keys": [],
       "reply_event": null,
-      "reason": "Returns 0 for a gone browser or a refused scheme: the caller checks both (http, https, data, blob) before it posts; DOWNLOAD_STARTED follows."
+      "reason": "Returns 0 for a gone browser or a refused scheme: the caller checks the scheme (http, https, data, blob) and the browser's liveness (CEFRuntime.tabsByBrowser) before it posts and does not read the result; DOWNLOAD_STARTED follows, as DownloadManager::DownloadUrl returns nothing."
     },
     {
       "name": "cmux_shim_download_continue",
@@ -3647,14 +3643,12 @@
         }
       ],
       "returns": "int",
-      "result_used_by": [
-        "CmuxNextBrowser/CEF/ChromiumNetError.swift"
-      ],
+      "result_used_by": [],
       "mirror_key": null,
       "refresh_events": [],
       "pending_keys": [],
       "reply_event": null,
-      "reason": "Returns 0 only when the browser is gone, which the client knows; ordered before the reload that follows it."
+      "reason": "Returns 0 only when the browser is gone, which the client knows; ChromiumNetError sends it one-way, ordered before the reload that follows it."
     },
     {
       "name": "cmux_shim_free_owned",
@@ -3946,7 +3940,7 @@
       "refresh_events": [],
       "pending_keys": [],
       "reply_event": "wire:REPLY",
-      "reason": "1 applied, 0 the model is not loaded (BOOKMARKS_EVENT loaded follows), -1 refused: host state."
+      "reason": "1 applied, 0 the model is not loaded (BOOKMARKS_EVENT loaded follows), -1 refused: host state, which CEFBookmarkBridge.sync takes in the token form (whenSettled); a refusal or a gone host forgets the store, a passed deadline keeps it."
     },
     {
       "name": "cmux_shim_page_scheme_add",
@@ -4764,24 +4758,6 @@
       "task": "p01-process-021"
     },
     {
-      "site": "CmuxNextBrowser/CEF/CEFRuntime+PasswordImport.swift: CEFRuntime.canImportPasswords() (computed property)",
-      "exports": [
-        "cmux_shim_password_entry_size"
-      ],
-      "needs": "kept",
-      "change": "The remote dylib returns its own sizeof(cmux_shim_password_entry), the layout that reads the rows Swift writes; the host checks its own layout when it decodes the wire. The comparison with ChromiumPasswordRows.stride keeps its meaning.",
-      "task": "p01-process-021"
-    },
-    {
-      "site": "CmuxNextBrowser/CEF/CEFRuntime+Events.swift: CEFRuntime.devTools(_:method:params:timeout:)",
-      "exports": [
-        "cmux_shim_devtools_call"
-      ],
-      "needs": "kept",
-      "change": "Already the mint form: the remote returns the client-minted message id (never 0) and DEVTOOLS_RESULT answers that id, a refused call included (a = 0), so the waiter keyed by the returned id resolves in both backends. synchronousDevToolsResults stays empty in host mode, where no result arrives inside the call.",
-      "task": "p01-process-021"
-    },
-    {
       "site": "CmuxNextBrowser/CEF/CEFPaneHost+Duplicate.swift: CEFPaneHost.duplicate(_:)",
       "exports": [
         "cmux_shim_tab_duplicate"
@@ -4838,24 +4814,6 @@
       "task": "p01-process-021"
     },
     {
-      "site": "CmuxNextBrowser/CEF/CEFRuntime+Site.swift: CEFRuntime.sendSSLStatus(_:)",
-      "exports": [
-        "cmux_shim_ssl_status"
-      ],
-      "needs": "reply",
-      "change": "Becomes async (token + REPLY, as siteCall).",
-      "task": "p01-process-021"
-    },
-    {
-      "site": "CmuxNextBrowser/PageInfo/Engine/CEFTab+PageInfo.swift: pageInfoCertificateChain() and syncSecurityFromChromium()",
-      "exports": [
-        "cmux_shim_ssl_status"
-      ],
-      "needs": "reply",
-      "change": "Await sslStatus; syncSecurityFromChromium applies the security state when the reply comes, if the tab still shows the same entry.",
-      "task": "p01-process-022"
-    },
-    {
       "site": "CmuxNextBrowser/CEF/CEFTab+Freeze.swift: CEFTab.discard()",
       "exports": [
         "cmux_shim_tab_discard"
@@ -4863,25 +4821,6 @@
       "needs": "reply",
       "change": "Host mode binds no tabDiscard (CEFShimLibrary binds it only with no hostExports), so discard() answers false and the page host closes the page. It becomes async (token + REPLY, as siteCall) and marks the tab discarded only on the host's 1.",
       "task": "p01-process-018"
-    },
-    {
-      "site": "CmuxNextBrowser/CEF/CEFRuntime+Site.swift: CEFRuntime.contentSetting(_:url:kind:)",
-      "exports": [
-        "cmux_shim_content_setting"
-      ],
-      "needs": "reply",
-      "change": "Becomes async: Take the token with CEFHostStart.expectReply() and await it in CEFHostStart.replies as Int32; Page Info shows the setting when the reply comes.",
-      "task": "p01-process-021"
-    },
-    {
-      "site": "CmuxNextBrowser/CEF/CEFRuntime+ProfileProxy.swift: CEFRuntime.applyProfileProxy(_:)",
-      "exports": [
-        "cmux_shim_set_context_proxy_server",
-        "cmux_shim_context_proxy_state"
-      ],
-      "needs": "reply",
-      "change": "Becomes async: Take the token with CEFHostStart.expectReply() and await it in CEFHostStart.replies for the stored verdict and the proxy state; a page of the profile opens only after both replies say applied (fail closed, as now).",
-      "task": "p01-process-021"
     },
     {
       "site": "CmuxNextBrowser/CEF/CEFPaneHost+MachineProxy.swift: CEFPaneHost.sendMachineProxy(_:contextKey:)",
@@ -4929,15 +4868,6 @@
       "task": "p01-process-026"
     },
     {
-      "site": "CmuxNextBrowser/CEF/CEFBookmarkBridge.swift: CEFBookmarkBridge.sync(store:treeJSON:)",
-      "exports": [
-        "cmux_shim_bookmarks_sync"
-      ],
-      "needs": "reply",
-      "change": "Becomes async: Take the token with CEFHostStart.expectReply() and await it in CEFHostStart.replies; a reply below 0 forgets the store, as the immediate result does now.",
-      "task": "p01-process-027"
-    },
-    {
       "site": "CmuxNextBrowser/CEF/CEFOmniboxKeywords.swift: CEFOmniboxKeywords.suggestions(browser:extensionID:text:shim:)",
       "exports": [
         "cmux_shim_omnibox_input"
@@ -4945,15 +4875,6 @@
       "needs": "reply",
       "change": "In host mode the call returns 1 once sent: take the token with CEFHostStart.expectReply() and await it in CEFHostStart.replies beside the OMNIBOX_SUGGESTIONS waiter; a reply of 0 (the extension does not listen) returns nil at once instead of at the suggestion timeout.",
       "task": "p01-process-026"
-    },
-    {
-      "site": "CmuxNextBrowser/CEF/CEFAgentRelay.swift: CEFAgentRelay.send(_:)",
-      "exports": [
-        "cmux_shim_devtools_send"
-      ],
-      "needs": "reply",
-      "change": "In host mode the call returns 1 once sent, so .sent no longer says the browser took the message: take the token with CEFHostStart.expectReply() and await it in CEFHostStart.replies as Int32; send becomes async and reports .noBrowser or .refused from the reply.",
-      "task": "p01-process-027"
     },
     {
       "site": "CmuxNextBrowser/CEF/CEFExtensionBackend.swift: CEFExtensionBackend.loadUnpacked(at:)",
