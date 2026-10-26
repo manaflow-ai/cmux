@@ -23,6 +23,9 @@
   "requires": [
     "resource_api"
   ],
+  "switches": [
+    "terminal-holder"
+  ],
   "platforms": [
     "linux",
     "mac"
@@ -49,6 +52,47 @@
       }
     },
     {
+      "id": "exit",
+      "op": "resource.call",
+      "target": {
+        "machine": "current",
+        "session": "current",
+        "terminal": "$step:fx-workspace#/value/terminal_id"
+      },
+      "args": {
+        "method": "terminal.input.keys",
+        "params": {
+          "keys": [
+            "e",
+            "x",
+            "i",
+            "t",
+            "space",
+            "7",
+            "enter"
+          ]
+        },
+        "idempotencyKey": "terminal-input-write-error.exit"
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "mutation_result"
+      }
+    },
+    {
+      "id": "exited",
+      "op": "settle",
+      "waitFor": {
+        "pointer": "/daemon/session/terminals/0/exit/outcome",
+        "equals": {
+          "kind": "exit",
+          "code": 7
+        },
+        "maxMs": 10000
+      },
+      "settleMaxMs": 10000
+    },
+    {
       "id": "call",
       "op": "resource.call",
       "target": {
@@ -59,19 +103,23 @@
       "args": {
         "method": "terminal.input.write",
         "params": {
-          "text": 7
+          "text": "oracle"
         },
         "idempotencyKey": "terminal-input-write-error.call"
       },
       "expect": {
         "outcome": "error",
-        "error": "validation.invalid"
+        "error": "selector.not_found",
+        "errorDetails": {
+          "scope": "terminal",
+          "selector": "$step:fx-workspace#/value/terminal_id"
+        }
       },
       "checkpoint": [
         "before",
         "settled"
       ],
-      "note": "text breaks its catalog type (value must be a string); the daemon's catalog check refuses it"
+      "note": "the shell exited: the terminal keeps its exit record but has no surface to write to"
     }
   ],
   "invariants": [
