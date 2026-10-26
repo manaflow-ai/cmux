@@ -933,10 +933,15 @@ impl Hub {
         };
         match m {
             method::SESSION_SET_MODE => {
-                session.meta.lock().unwrap_or_else(|e| e.into_inner()).mode_set_by_cmux =
-                    asked_mode;
-                if let Some(mode) = res.get("currentModeId").or(res.get("modeId")).cloned() {
+                // The mode first, then the mark, under the lock, only while the chat runs it:
+                // a write that moves the mode takes the mark (`write_mode_state`).
+                let reported = res.get("currentModeId").or(res.get("modeId")).cloned();
+                if let Some(mode) = reported.or_else(|| asked_mode.clone().map(Value::String)) {
                     self.write_mode_state(session, [ModeWrite::CurrentMode(mode)]);
+                }
+                let mut meta = session.meta.lock().unwrap_or_else(|e| e.into_inner());
+                if asked_mode.is_some() && crate::web_modes::mode_of(&meta) == asked_mode {
+                    meta.mode_set_by_cmux = asked_mode;
                 }
             }
             method::SESSION_SET_CONFIG_OPTION => {
