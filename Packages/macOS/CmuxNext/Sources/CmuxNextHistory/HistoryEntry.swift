@@ -76,8 +76,6 @@ public nonisolated struct ClosedItem: Hashable, Sendable {
     public var workspace: String?
     public var cwd: String?
     public var url: String?
-    /// An explicit daemon/tab name, retained so a generated chat title never replaces it.
-    public var manualTitle: String?
     /// The closed tab was an agent chat; nil for terminal, browser, page and legacy records.
     public struct AgentSession: Hashable, Sendable {
         public var sessionID: String?
@@ -91,7 +89,7 @@ public nonisolated struct ClosedItem: Hashable, Sendable {
     public var agentSession: AgentSession?
 
     public init(id: String, kind: Kind, title: String, machine: String, workspace: String? = nil,
-                cwd: String? = nil, url: String? = nil, agentSession: AgentSession? = nil, manualTitle: String? = nil) {
+                cwd: String? = nil, url: String? = nil, agentSession: AgentSession? = nil) {
         self.id = id
         self.kind = kind
         self.title = title
@@ -99,7 +97,6 @@ public nonisolated struct ClosedItem: Hashable, Sendable {
         self.workspace = workspace
         self.cwd = cwd
         self.url = url
-        self.manualTitle = manualTitle
         self.agentSession = agentSession
     }
 }

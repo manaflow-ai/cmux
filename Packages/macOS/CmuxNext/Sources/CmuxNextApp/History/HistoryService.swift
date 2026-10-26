@@ -1,3 +1,4 @@
+import CmuxNextAgentPane
 import CmuxNextBrowser
 import CmuxNextDaemon
 import CmuxNextHistory
@@ -171,8 +172,7 @@ final class HistoryService {
             let closed = CmuxNextHistory.ClosedItem(id: DaemonClosedHistory.historyID(item.id), kind: kind, title: title,
                                                     machine: entry.daemon.machineID, cwd: tab?.cwd,
                                                     url: tab?.page == nil ? Self.realText(tab?.url) : nil,
-                                                    agentSession: tab?.agentSession.map { .init(sessionID: $0.session, harness: $0.harness) },
-                                                    manualTitle: tab?.agentSession == nil ? nil : Self.realText(item.name) ?? Self.realText(tab?.name))
+                                                    agentSession: tab?.agentSession.map { .init(sessionID: $0.session, harness: $0.harness) })
             let local = entry.daemon.machineID == MachineRegistry.localID
             return HistoryEntry(id: "closed:daemon:\(item.id)", kind: .closed,
                                 time: Date(timeIntervalSince1970: Double(item.closedAtMs) / 1000), title: title,
@@ -210,8 +210,11 @@ final class HistoryService {
         let tab = shownTab(item)
         let page = tab?.page.map { pages.provider(InternalPageID(rawValue: $0))?.title ?? $0 }
         let url = realText(tab?.url)
+        // The closed record deliberately omits the agent's host. Without trustworthy source
+        // identity, a local daemon tree is not proof that its chat belongs to this app's acpmux.
+        let agentTitle = tab?.agentSession == nil ? nil : AgentPaneModel.tabTitle
         let title = item.group.map { WorkspaceGroupUndo.historyTitle($0.name) }
-            ?? realText(item.name) ?? realText(tab?.name) ?? page ?? url ?? tab?.cwd ?? Strings.untitledTerminal
+            ?? realText(item.name) ?? realText(tab?.name) ?? page ?? agentTitle ?? url ?? tab?.cwd ?? Strings.untitledTerminal
         return (title, page == nil ? url ?? tab?.cwd : nil)
     }
 

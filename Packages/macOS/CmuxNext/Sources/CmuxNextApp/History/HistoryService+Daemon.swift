@@ -26,7 +26,8 @@ extension HistoryService {
         var all: [HistoryEntry] = []
         if !kinds.isEmpty {
             let rows = (try? await daemon.list(kinds: kinds, text: query.text, range: query.range, limit: query.limit)) ?? []
-            all = rows.compactMap { $0.historyEntry(untitled: Strings.untitledTerminal) }.map { reachable($0) }
+            let entries = rows.compactMap { $0.historyEntry(untitled: Strings.untitledTerminal) }.map { reachable($0) }
+            all = Self.enrichClosedEntries(entries, from: kinds.contains(.closed) ? closedEntries() : [])
         }
         if wantsCommands {
             await commands.refresh()
@@ -46,7 +47,31 @@ extension HistoryService {
         }
         guard let kind = id.split(separator: ":").first.flatMap({ HistoryEntry.Kind(rawValue: String($0)) }) else { return nil }
         let rows = (try? await daemon.list(kinds: [kind], text: "", range: .all, limit: 5_000)) ?? []
-        return rows.first { $0.id == id }?.historyEntry(untitled: Strings.untitledTerminal).map { reachable($0) }
+        guard let entry = rows.first(where: { $0.id == id })?.historyEntry(untitled: Strings.untitledTerminal) else { return nil }
+        return Self.enrichClosedEntries([reachable(entry)], from: kind == .closed ? closedEntries() : []).first
+    }
+
+    /// The merged history response lacks closed-tab metadata. Enrich it from the existing
+    /// closed records, keyed by machine and the owner's closed id; never match an agent session
+    /// id across hosts. The daemon entry id and restore payload id stay unchanged.
+    static func enrichClosedEntries(_ entries: [HistoryEntry], from closed: [HistoryEntry]) -> [HistoryEntry] {
+        func key(_ item: CmuxNextHistory.ClosedItem) -> [String] {
+            [item.machine, DaemonClosedHistory.daemonID(fromHistoryID: item.id) ?? item.id]
+        }
+        let known = Dictionary(closed.compactMap { entry -> ([String], HistoryEntry)? in
+            guard case .closed(let item) = entry.payload else { return nil }
+            return (key(item), entry)
+        }, uniquingKeysWith: { first, _ in first })
+        return entries.map { entry in
+            guard case .closed(var item) = entry.payload, let match = known[key(item)],
+                  case .closed(let record) = match.payload, let agent = record.agentSession else { return entry }
+            item.agentSession = agent
+            item.title = match.title
+            var enriched = entry
+            enriched.title = match.title
+            enriched.payload = .closed(item)
+            return enriched
+        }
     }
 
     /// A location row greyed while its tab is not reachable (the daemon cannot know).

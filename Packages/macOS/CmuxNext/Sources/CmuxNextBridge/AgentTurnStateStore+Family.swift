@@ -34,20 +34,19 @@ extension AgentTurnStateStore {
 
     /// Sets the session that started `session` (nil: a root session, or purged).
     public func setStartedBy(_ parent: String?, session: String, source: String = AgentTurnStateStore.localSource) {
-        let key = key(session, source: source)
-        if let record = sessions[key] {
+        if let record = sessions[session] {
             record.startedBy = parent
         } else if let parent {
             let record = Session()
             record.source = source
             record.startedBy = parent
-            sessions[key] = record
+            sessions[session] = record
         }
     }
 
     /// Replaces the links of every session of `source`'s watch with its page's.
     public func replaceStartedBy(_ links: [String: String], source: String = AgentTurnStateStore.localSource) {
-        let own = sessions.compactMap { $0.value.source == source && $0.value.startedBy != nil ? $0.key.session : nil }
+        let own = sessions.compactMap { $0.value.source == source && $0.value.startedBy != nil ? $0.key : nil }
         for id in Set(own).union(links.keys) { setStartedBy(links[id], session: id, source: source) }
     }
 
@@ -57,20 +56,13 @@ extension AgentTurnStateStore {
     /// the session that started it. Never the chat itself.
     public func isFamily(_ session: String, of chat: String) -> Bool {
         guard session != chat else { return false }
-        if familyRecord(chat)?.startedBy == session { return true }
+        if sessions[chat]?.startedBy == session { return true }
         var current = session
         for _ in 0..<Self.maxFamilyDepth {
-            guard let parent = familyRecord(current)?.startedBy else { return false }
+            guard let parent = sessions[current]?.startedBy else { return false }
             if parent == chat { return true }
             current = parent
         }
         return false
-    }
-
-    /// Family callers predate host-aware refs; prefer this Mac's watch, then retain the old
-    /// host-agnostic fallback for mirrored links. Host-aware title reads never use this path.
-    private func familyRecord(_ session: String) -> Session? {
-        sessions[key(session, source: AgentTurnStateStore.localSource)]
-            ?? sessions.first { $0.key.session == session }?.value
     }
 }

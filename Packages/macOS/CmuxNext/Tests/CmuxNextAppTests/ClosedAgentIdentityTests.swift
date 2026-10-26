@@ -1,6 +1,5 @@
 import CmuxNextAgentPane
 @testable import CmuxNextApp
-import CmuxNextBridge
 import CmuxNextDaemon
 import CmuxNextHistory
 import Foundation
@@ -24,33 +23,35 @@ struct ClosedAgentIdentityTests {
         #expect(row.json["kind"]?.stringValue == "agent")
     }
 
-    @Test @MainActor func closedAgentTitleUsesLocalGeneratedTitleAndStableFallback() {
-        let turns = AgentTurnStateStore()
-        turns.localHost = "install:closed-title"
-        turns.replace(states: AgentTurnStates(), lastMessages: [:], muted: [],
-                      titles: ["sess-closed-chat": "Prompt fallback"],
-                      generatedTitles: ["sess-closed-chat": "Generated chat title"], details: [:])
-        let session = CmuxNextHistory.ClosedItem.AgentSession(sessionID: "sess-closed-chat", harness: "codex")
+    @Test func daemonHistoryEnrichmentUsesMachineAndClosedID() throws {
+        let row = try JSONDecoder().decode(DaemonHistoryEntry.self, from: Data("""
+            {"id":"closed:closed_1","kind":"closed","at_ms":"1","title":"",
+             "closed_kind":"browser_tab","available":true}
+            """.utf8))
+        let original = try #require(row.historyEntry(untitled: "Terminal fallback"))
+        let record = CmuxNextHistory.ClosedItem(id: "daemon:closed_1", kind: .browserTab,
+                                               title: AgentPaneModel.tabTitle, machine: "local",
+                                               agentSession: .init(sessionID: "same-session", harness: "codex"))
+        let known = HistoryEntry(id: "closed:daemon:closed_1", kind: .closed, time: original.time,
+                                 title: record.title, payload: .closed(record))
+        let enriched = try #require(HistoryService.enrichClosedEntries([original], from: [known]).first)
+        #expect(enriched.id == original.id)
+        #expect(enriched.title == AgentPaneModel.tabTitle)
+        #expect(HistoryPalettePages.agentBrand(enriched) != nil)
+        guard case .closed(let item) = enriched.payload else { Issue.record("not a closed row"); return }
+        #expect(item.id == "closed_1")
+        #expect(item.agentSession?.sessionID == "same-session")
+        #expect(NewTabClosed.kind(for: item) == .agent)
 
-        #expect(NewTabClosed.title("about:blank", nil, "/tmp/project", agentSession: session, machine: "local",
-                                   localHost: "install:closed-title", turns: turns) == "Generated chat title")
-        #expect(NewTabClosed.title("about:blank", nil, "/tmp/project", manualTitle: "Pinned chat", agentSession: session,
-                                   machine: "local", localHost: "install:closed-title", turns: turns) == "Pinned chat")
-        #expect(NewTabClosed.title("about:blank", nil, "/tmp/project", agentSession: session, machine: "remote",
-                                   localHost: "install:closed-title", turns: turns) == AgentPaneModel.tabTitle)
-    }
-
-    @Test @MainActor func sameSessionIDKeepsEachWatchTitleSeparate() {
-        let turns = AgentTurnStateStore()
-        turns.localHost = "install:closed-title"
-        turns.mirroredHosts = ["chief:closed-title"]
-        turns.replace(states: AgentTurnStates(), lastMessages: [:], muted: [], titles: [:],
-                      generatedTitles: ["same-session": "Local title"], details: [:])
-        turns.replace(states: AgentTurnStates(), lastMessages: [:], muted: [], titles: [:],
-                      generatedTitles: ["same-session": "Chief title"], details: [:], source: "chief:closed-title")
-
-        #expect(turns.generatedTitle(for: AgentSessionRef(host: "install:closed-title", session: "same-session")) == "Local title")
-        #expect(turns.generatedTitle(for: AgentSessionRef(host: "chief:closed-title", session: "same-session")) == "Chief title")
+        var otherMachine = known
+        var otherRecord = record
+        otherRecord.machine = "remote"
+        otherMachine.payload = .closed(otherRecord)
+        #expect(HistoryService.enrichClosedEntries([original], from: [otherMachine]) == [original])
+        otherRecord.machine = "local"
+        otherRecord.id = "daemon:closed_2"
+        otherMachine.payload = .closed(otherRecord)
+        #expect(HistoryService.enrichClosedEntries([original], from: [otherMachine]) == [original])
     }
 
     private static func closed() throws -> CmuxNextDaemon.ClosedItem {

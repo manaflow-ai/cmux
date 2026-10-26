@@ -42,11 +42,13 @@ struct ClosedPageTabTitleTests {
             {"kind":"browser","name":null,"cwd":null,"url":"about:blank","browser_profile_id":null,"pinned":false,
              "agent_session":{"session":"same-session","harness":"codex"}}
             """)
-        item.name = name
+        var tab = try #require(item.tabs.first)
+        tab.name = name
+        item.screens = [.init(tabs: [tab])]
 
         let text = HistoryService.daemonClosedText(item, pages: InternalPageTabStore())
 
-        #expect(text.title == name ?? AgentPaneModel.tabTitle)
+        #expect(text.title == (name ?? AgentPaneModel.tabTitle))
         #expect(text.detail == nil)
     }
 
