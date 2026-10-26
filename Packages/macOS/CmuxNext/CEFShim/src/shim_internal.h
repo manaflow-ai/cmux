@@ -19,6 +19,7 @@
 #include "cmux_cef_shim.h"  // Sources/CmuxNextBrowser/CEF/Shim
 #include "embedder_focus_policy.h"
 #include "embedder_ui_args.h"
+#include "find_ids.h"
 
 namespace cmux_shim {
 
@@ -170,6 +171,9 @@ struct Host {
   // Decides Chromium's focus requests when focus_request is null (the
   // Chromium Host's mode, task p01-process-032).
   EmbedderFocusPolicy embedder_focus;
+  // The caller's find id of each browser's last cmux_shim_find, which its
+  // FIND_RESULT events carry (UI thread).
+  FindIds find_ids;
 };
 
 ForkApi& fork_api();

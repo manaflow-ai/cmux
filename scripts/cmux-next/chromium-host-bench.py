@@ -41,8 +41,8 @@ Per mode:
            Key callbacks Chromium makes from cmux's own event dispatch are not in it (they run outside a pass).
   input    helper: typing and the caret, one blur and one focus when cmux's focus moves out and back, copy and
            paste through cmux's Edit menu, and Chromium's native UI from the host (context menu, <select>, alert,
-           file picker; each in a fresh host) with the frontmost pid and the host's activation counters; IME, find
-           and drag are listed as not forwarded.
+           file picker; each in a fresh host) with the frontmost pid and the host's activation counters; IME and
+           drag are listed as not forwarded, find as run by --find.
   ime      helper, with --ime: the host's TEXT_INPUT_STATE pushes per keystroke into the focused field against the
            fork's text input changes (ime_row; pass: <= 1 push per key).
   identity helper: the host is a second executable of cmux.app (cmux's bundle id): its LaunchServices type
@@ -75,6 +75,10 @@ Per mode:
 popup window, DevTools docked and in a window, an extension popup and a side panel, each shown by cmux from the
 host's layer context (`debug.cef` `host_widgets`), with feature chromiumHostWidgets on and two test extensions.
 
+--find runs instead the find rows (chromium_host_find.py, p01-process-048): Cmd-F, a typed query, Cmd-G, Cmd-Shift-G
+and Escape through cmux's find pill on a Chromium page in the host (`debug.cef` backend `host`), the pill's match
+count and active match (the oracle's overlays.findBar) and the page scrolled to the active match.
+
 A Debug or bench build (reload.sh --config bench: debug.chromium_host, its measure call and the tunables file
 answer there for a development bundle, p12-perf-process-221), never Release: the numbers compare the two paths,
 they are not shipping latencies. `build` in the report is the bundle's config.
@@ -97,6 +101,7 @@ sys.path.insert(0, HERE)
 from bench_launch import BenchApp, LaunchError, RecordError, build_config, build_sha, tag_of  # noqa: E402
 import browser_engine_bench_report as results  # noqa: E402
 import chromium_host_baseline  # noqa: E402
+import chromium_host_find  # noqa: E402
 import chromium_host_native_ui  # noqa: E402
 
 
@@ -113,6 +118,7 @@ def parse(argv=None):
     parser.add_argument("--host-switches", default="", help="more Chromium switches for the host, comma-separated (diagnosis)")
     parser.add_argument("--ime", action="store_true", help="helper: TEXT_INPUT_STATE pushes per keystroke (ime_row)")
     parser.add_argument("--native-ui", action="store_true", help="only the hosted widget rows (chromium_host_native_ui.py)")
+    parser.add_argument("--find", action="store_true", help="only the find rows (chromium_host_find.py)")
     parser.add_argument("--baseline", action="store_true", help="task p01-process-005: stall 9a, 10-tab idle wakes, census, rows")
     parser.add_argument("--idle-settle-seconds", type=float, default=35.0, help="wait before the 10-tab idle sample")
     parser.add_argument("--tag", help="the lab runner's tag of --app (checked against the bundle's name)")
@@ -122,6 +128,8 @@ def parse(argv=None):
     parser.add_argument("--build-config", choices=["bench", "bench-checks", "release", "debug"],
                         help="result-v1 build config of a bench-hooks bundle that does not stamp it (BenchApp.record)")
     args = parser.parse_args(argv)
+    if args.native_ui and args.find:
+        parser.error("--native-ui and --find each run instead of the modes: pick one")
     if args.tag is not None and tag_of(f"cmux DEV {args.tag}.app") != tag_of(args.app):
         parser.error(f"--tag {args.tag!r} is not the tag of --app {args.app!r}")
     return args
@@ -433,6 +441,10 @@ def main():
         open(native, "w").write(chromium_host_native_ui.PAGE)
         url = pathlib.Path(native).as_uri()
         env.update(chromium_host_native_ui.launch_env(chromium_host_native_ui.write_extensions(opts.out)))
+    if opts.find:
+        find_page = os.path.join(opts.out, "find.html")
+        open(find_page, "w").write(chromium_host_find.PAGE)
+        url = pathlib.Path(find_page).as_uri()
     if opts.host_switches:
         env["CMUX_NEXT_CHROMIUM_HOST_SWITCHES"] = opts.host_switches
         RESULT["host_switches"] = opts.host_switches
@@ -453,9 +465,11 @@ def main():
         RESULT["cef"] = {"fork_api": (cef.get("windows") or {}).get("fork_api"), "unavailable": cef.get("unavailable"),
                          "fallback": cef.get("fallback")}
         DEFAULTS["launch"] = defaults_snapshot(app_bundle_id())
-        modes = [] if opts.native_ui else opts.modes.split(",")
+        modes = [] if opts.native_ui or opts.find else opts.modes.split(",")
         if opts.native_ui:
             RESULT["modes"]["native_ui"], ok = chromium_host_native_ui.run(rpc, wait, lambda script: page_eval(rpc, script, None), url)
+        if opts.find:
+            RESULT["modes"]["find"], ok = chromium_host_find.run(rpc, wait, lambda script: page_eval(rpc, script, None), url)
         inproc_tab = None
         if "inproc" in modes:
             inproc_tab = run_inproc(rpc, url)
@@ -1009,7 +1023,7 @@ def input_rows(rpc, url, title, click_point, borders, host_pid):
     API 30, DevTools focus emulation below it; no host window is ever key): typing and the caret, focus and blur when cmux's focus moves out and back, copy and paste through
     cmux's Edit menu, and Chromium's own native UI (context menu, <select>, alert, file picker) with the frontmost
     pid and the host's activation counters. IME, find (Cmd-F) and drag are not forwarded by the prototype (slice 2,
-    section 4 of the design): rows say so instead of testing."""
+    section 4 of the design): rows say so instead of testing (find runs in --find, on a host-backed Chromium tab)."""
     rows = {}
     page_state = lambda: probe_stats(title()) or {}
     counters = lambda: rpc("debug.chromium_host.measure", {"op": "input"}) or {}
@@ -1080,7 +1094,7 @@ def input_rows(rpc, url, title, click_point, borders, host_pid):
     native("alert", lambda: rpc("debug.mouse", click_point("al")))
     native("file_picker", lambda: rpc("debug.mouse", click_point("f")))
     rows["not_forwarded"] = {"ime": "no NSTextInputClient in ChromiumHostPageView; windowed Ime* are DCHECK(false) in CEF (slice 2)",
-                             "find": "Cmd-F has no host path (slice 3, the shim behind the wire)",
+                             "find": "the prototype page has no find; --find runs it on a host-backed Chromium tab",
                              "drag": "drag and drop is not forwarded (slice 4)",
                              "permission_prompt": "needs a page that asks (camera/location), not in the probe"}
     return rows

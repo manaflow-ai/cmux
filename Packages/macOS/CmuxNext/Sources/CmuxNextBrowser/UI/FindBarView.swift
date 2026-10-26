@@ -65,6 +65,8 @@ final class FindBarView: NSView {
         onClose?()
     }
 
+    /// One search. An engine that reports every result (``BrowserFindUpdating``: Chromium's
+    /// FIND_RESULT events) updates the pill with each, else the pill shows the answer.
     private func run(_ direction: BrowserFindDirection) {
         findTask?.cancel()
         guard let tab else { return }
@@ -72,11 +74,25 @@ final class FindBarView: NSView {
         let caseSensitive = pill.matchCase
         model.setQuery(text)
         findTask = Task { [weak self] in
-            let result = await tab.find(text, direction: direction, caseSensitive: caseSensitive)
+            let result: BrowserFindResult
+            if let updating = tab as? any BrowserFindUpdating {
+                result = await updating.find(text, direction: direction, caseSensitive: caseSensitive) { [weak self] update in
+                    self?.apply(update, for: text, caseSensitive: caseSensitive)
+                }
+            } else {
+                result = await tab.find(text, direction: direction, caseSensitive: caseSensitive)
+            }
             guard !Task.isCancelled, let self else { return }
-            model.record(result, for: text)
-            show(result, for: text)
+            apply(result, for: text, caseSensitive: caseSensitive)
         }
+    }
+
+    /// Shows a result of the search for `text`; one of an earlier search (the query or the case
+    /// toggle changed since) shows nothing.
+    private func apply(_ result: BrowserFindResult, for text: String, caseSensitive: Bool) {
+        guard text == pill.query, caseSensitive == pill.matchCase else { return }
+        model.record(result, for: text)
+        show(result, for: text)
     }
 
     private func show(_ result: BrowserFindResult, for text: String) {

@@ -556,6 +556,7 @@ class Client : public CefClient,
     CancelFileDialogs(id);
     TakeHostClose(id);
     host().embedder_focus.Forget(id);
+    host().find_ids.Forget(id);
     ForgetNavigationGuard(id);
     ForgetCertificateState(id);
     registrations_.erase(id);
@@ -692,10 +693,14 @@ class Client : public CefClient,
 
   // MARK: Find
 
-  void OnFindResult(CefRefPtr<CefBrowser> browser, int identifier, int count, const CefRect&, int active,
+  // The first int is Chromium's find session id; the result carries the
+  // caller's find id instead (find_ids.h). `active` fills the low 32 bits only,
+  // so a negative one never sets the final bit.
+  void OnFindResult(CefRefPtr<CefBrowser> browser, int, int count, const CefRect&, int active,
                     bool final_update) override {
-    int64_t b = static_cast<int64_t>(active) | (static_cast<int64_t>(final_update ? 1 : 0) << 32);
-    Emit(CMUX_SHIM_FIND_RESULT, browser->GetIdentifier(), identifier, count, b);
+    const int id = browser->GetIdentifier();
+    const int64_t b = static_cast<int64_t>(static_cast<uint32_t>(active)) | (static_cast<int64_t>(final_update ? 1 : 0) << 32);
+    Emit(CMUX_SHIM_FIND_RESULT, id, host().find_ids.Of(id), count, b);
   }
 
   // MARK: DevTools
