@@ -172,9 +172,26 @@ nonisolated extension Feature {
         runtimeMutable: false
     )
 
+    /// Evicted terminals' saved last frames join the memory coordinator: at critical memory pressure every saved frame is dropped in short background slices, so a terminal shown again after that shows its replay without a saved picture first.
+    public static let memoryTerminalLastFrames = Feature(
+        index: 10,
+        name: "memoryTerminalLastFrames",
+        owner: "PL-memory",
+        description: "Evicted terminals' saved last frames join the memory coordinator: at critical memory pressure every saved frame is dropped in short background slices, so a terminal shown again after that shows its replay without a saved picture first.",
+        kind: .labs,
+        process: .app,
+        chromiumFeature: nil,
+        defaults: FeatureDefaults(dev: false, nightly: false, release: false),
+        expires: nil,
+        params: [],
+        stories: [],
+        sticky: false,
+        runtimeMutable: false
+    )
+
     /// A minimized, other-Space or covered window counts as hidden: the tabs beside each shown page lose their neighbor keep-awake and Memory Saver may discard them; the shown page stays as the window's active tab.
     public static let occludedWindowDiscard = Feature(
-        index: 10,
+        index: 11,
         name: "occludedWindowDiscard",
         owner: "PL-memory",
         description: "A minimized, other-Space or covered window counts as hidden: the tabs beside each shown page lose their neighbor keep-awake and Memory Saver may discard them; the shown page stays as the window's active tab.",
@@ -191,7 +208,7 @@ nonisolated extension Feature {
 
     /// Hidden cmux page tabs go Hidden, Frozen, Discarded on one deadline, fed by the tab content lifecycle, browser.hibernation, memory pressure and Low Power Mode; a page thaws before it shows. When on, it replaces memoryDiscardInternalPages for page tabs.
     public static let pageLifecycle = Feature(
-        index: 11,
+        index: 12,
         name: "pageLifecycle",
         owner: "PL-webui",
         description: "Hidden cmux page tabs go Hidden, Frozen, Discarded on one deadline, fed by the tab content lifecycle, browser.hibernation, memory pressure and Low Power Mode; a page thaws before it shows. When on, it replaces memoryDiscardInternalPages for page tabs.",
@@ -208,7 +225,7 @@ nonisolated extension Feature {
 
     /// Chromium puts each cmux page in its capability group, so pages of one group share a renderer and pages of different groups never do.
     public static let pageProcessGroups = Feature(
-        index: 12,
+        index: 13,
         name: "pageProcessGroups",
         owner: "PL-webui",
         description: "Chromium puts each cmux page in its capability group, so pages of one group share a renderer and pages of different groups never do.",
@@ -225,7 +242,7 @@ nonisolated extension Feature {
 
     /// While cmux pages use Chromium, the warm start keeps a spare Chromium window of the pages profile, so a page opens in a live window instead of building one on the key's turn.
     public static let pagesSpareWindow = Feature(
-        index: 13,
+        index: 14,
         name: "pagesSpareWindow",
         owner: "PL-webui",
         description: "While cmux pages use Chromium, the warm start keeps a spare Chromium window of the pages profile, so a page opens in a live window instead of building one on the key's turn.",
@@ -242,7 +259,7 @@ nonisolated extension Feature {
 
     /// Memory Saver keeps a hidden page awake for one minute after its sound ends, and keeps a page whose tab reports sound with no probe, as Chrome does (kTabAudioProtectionTime).
     public static let recentlyAudibleProtection = Feature(
-        index: 14,
+        index: 15,
         name: "recentlyAudibleProtection",
         owner: "PL-memory",
         description: "Memory Saver keeps a hidden page awake for one minute after its sound ends, and keeps a page whose tab reports sound with no probe, as Chrome does (kTabAudioProtectionTime).",
@@ -259,7 +276,7 @@ nonisolated extension Feature {
 
     /// Hold budgeted main-thread work while a shown window's display link is over 100 ms late, until its next tick.
     public static let renderStarvationGuard = Feature(
-        index: 15,
+        index: 16,
         name: "renderStarvationGuard",
         owner: "Performance Lead",
         description: "Hold budgeted main-thread work while a shown window's display link is over 100 ms late, until its next tick.",
@@ -276,7 +293,7 @@ nonisolated extension Feature {
 
     /// Where the Chromium fork makes renderer-less placeholders, a spare Chromium window's placeholder tab has no renderer process and never navigates, instead of a frozen about:blank page.
     public static let rendererlessSpareWindow = Feature(
-        index: 16,
+        index: 17,
         name: "rendererlessSpareWindow",
         owner: "PL-webui",
         description: "Where the Chromium fork makes renderer-less placeholders, a spare Chromium window's placeholder tab has no renderer process and never navigates, instead of a frozen about:blank page.",
@@ -293,7 +310,7 @@ nonisolated extension Feature {
 
     /// The Task Manager lists the items Memory Saver discarded, each with the memory it saved, and the total Memory Saver freed.
     public static let taskManagerMemorySaved = Feature(
-        index: 17,
+        index: 18,
         name: "taskManagerMemorySaved",
         owner: "PL-memory",
         description: "The Task Manager lists the items Memory Saver discarded, each with the memory it saved, and the total Memory Saver freed.",
@@ -310,7 +327,7 @@ nonisolated extension Feature {
 
     /// A top page that records itself (classic Home: conversation, search, list scroll) hidden past its timeout lets its view go, and at most the Mac's budget of hidden top pages stay live across windows; showing it builds it again as left. Web pages and unsent input stay live.
     public static let topPageDiscard = Feature(
-        index: 18,
+        index: 19,
         name: "topPageDiscard",
         owner: "PL-memory",
         description: "A top page that records itself (classic Home: conversation, search, list scroll) hidden past its timeout lets its view go, and at most the Mac's budget of hidden top pages stay live across windows; showing it builds it again as left. Web pages and unsent input stay live.",
@@ -327,7 +344,7 @@ nonisolated extension Feature {
 
     /// Each display's link runs on a vsync thread of its own, and the main frame clock gets one coalesced tick from it per vsync.
     public static let vsyncHub = Feature(
-        index: 19,
+        index: 20,
         name: "vsyncHub",
         owner: "Performance Lead",
         description: "Each display's link runs on a vsync thread of its own, and the main frame clock gets one coalesced tick from it per vsync.",
@@ -345,7 +362,7 @@ nonisolated extension Feature {
     #if DEBUG || CMUX_BENCH_HOOKS
     /// Bench builds only: every key-down spins for exactly 2 ms before key dispatch, the known regression the perf lab canary must alert on, bisect to and verify.
     public static let perfLabCanary = Feature(
-        index: 20,
+        index: 21,
         name: "perfLabCanary",
         owner: "Performance Lead",
         description: "Bench builds only: every key-down spins for exactly 2 ms before key dispatch, the known regression the perf lab canary must alert on, bisect to and verify.",
@@ -362,7 +379,7 @@ nonisolated extension Feature {
 
     /// Bench builds only: changes nothing and reports its value at launch, so a signed flags document that turns it off proves the kill switch path end to end.
     public static let perfLabKillProbe = Feature(
-        index: 21,
+        index: 22,
         name: "perfLabKillProbe",
         owner: "Performance Lead",
         description: "Bench builds only: changes nothing and reports its value at launch, so a signed flags document that turns it off proves the kill switch path end to end.",
@@ -391,6 +408,7 @@ nonisolated extension Feature {
         .memoryDiscardParkedWorkspaces,
         .memoryDiscardRemoteTabs,
         .memorySaverBackgroundActivity,
+        .memoryTerminalLastFrames,
         .occludedWindowDiscard,
         .pageLifecycle,
         .pageProcessGroups,
@@ -417,6 +435,7 @@ nonisolated extension Feature {
         .memoryDiscardParkedWorkspaces,
         .memoryDiscardRemoteTabs,
         .memorySaverBackgroundActivity,
+        .memoryTerminalLastFrames,
         .occludedWindowDiscard,
         .pageLifecycle,
         .pageProcessGroups,

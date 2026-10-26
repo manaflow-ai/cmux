@@ -58,9 +58,10 @@ struct AppMemoryConsumers {
         registerTerminalLastFrames()  // CmuxNextTerminal
     }
 
-    /// Evicted terminals' last frames: one lossless consumer that drops them all at critical and
-    /// reports their volatile bytes apart (p07-memory-035).
+    /// `memoryTerminalLastFrames` (default off): evicted terminals' last frames are one lossless
+    /// consumer that drops them all at critical and reports their volatile bytes apart (p07-memory-035).
     private func registerTerminalLastFrames() {
+        guard services.features.isEnabled(.memoryTerminalLastFrames) else { return }
         services.cache.lastFrames.registerMemoryConsumer(with: services.memoryCoordinator)
     }
 

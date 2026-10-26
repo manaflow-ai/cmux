@@ -8,15 +8,28 @@ import IOSurface
 /// copy, no readback. A frame the system purged shows nothing: the pane attaches as before.
 @MainActor
 public final class TerminalLastFrame {
+    /// What the frame tells the store that keeps it (``TerminalLastFrames``), so the store's
+    /// counters follow the pages without a walk.
+    enum Event {
+        /// A reader or a new surface made the pages non-volatile.
+        case becameNonVolatile
+        /// The last reader ended: the pages are volatile again.
+        case becameVolatile
+        /// A reader found the pages purged: the frame shows nothing from now on.
+        case purged
+    }
+
     private let surface: IOSurface
     /// Readers that need the pages now (hover card renders); the frame is volatile only while none
     /// holds it and no new surface took it.
     private var pins = 0
     private var taken = false
-    /// The system purged the pages (the last reader found them empty): the frame shows nothing.
+    /// The system purged the pages (a reader found them empty): the frame shows nothing.
     public private(set) var isPurged = false
-    /// The bytes of the frame's pages (the IOSurface allocation), counted until it is dropped.
+    /// The bytes of the frame's pages (the IOSurface allocation).
     public let bytes: Int
+    /// The store that keeps the frame listens here; nil once the frame left it.
+    var onEvent: (@MainActor (Event) -> Void)?
 
     /// The frame `session` presents now; nil before its first draw.
     public convenience init?(of session: TerminalSession) {
@@ -56,18 +69,23 @@ public final class TerminalLastFrame {
 
     private func pin() -> IOSurface? {
         guard !isPurged else { return nil }
+        let wasVolatile = isVolatile
         guard surface.reclaim() else {
             // The reclaim made the empty surface non-volatile: it goes back, so it never counts.
             surface.makeVolatile()
             isPurged = true
+            onEvent?(.purged)
             return nil
         }
         pins += 1
+        if wasVolatile { onEvent?(.becameNonVolatile) }
         return surface
     }
 
     private func unpin() {
         pins -= 1
-        if pins == 0, !taken { surface.makeVolatile() }
+        guard isVolatile else { return }
+        surface.makeVolatile()
+        onEvent?(.becameVolatile)
     }
 }

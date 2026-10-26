@@ -44,8 +44,7 @@ final class TabContentCache {
     let dormantTabs = DormantTabs()
     let previews = PreviewImageCache()
     /// Evicted terminals' last frames: shown at once when the terminal is shown again, pictured
-    /// on demand for its hover card. Volatile, at most the warm set's count (`setWarmBudget`);
-    /// the memory coordinator drops them all at critical (`AppMemoryConsumers`).
+    /// on demand for its hover card; volatile, bounded by the warm set (`setWarmBudget`).
     let lastFrames = TerminalLastFrames(capacity: WarmSetBudget.standard.terminalCapacity)
     /// Releases terminals whose daemon tree dropped their tab (a closed workspace).
     let goneTabs = GoneTabWatch()

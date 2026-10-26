@@ -106,8 +106,10 @@ extension TabContentCache {
         evictsAtOnce = budget.terminalCapacity < warmBudget.terminalCapacity
         defer { evictsAtOnce = false }
         warmBudget = budget
-        apply(ledger.setCapacity(budget.terminalCapacity))
+        // Bounds the frames kept from now on, these evictions' too; it drops no stored frame (the
+        // memory coordinator's critical release slices do, `memoryTerminalLastFrames`).
         lastFrames.setCapacity(budget.terminalCapacity)
+        apply(ledger.setCapacity(budget.terminalCapacity))
     }
 
     func apply(_ effects: SurfaceLedger<String, ObjectIdentifier>.Effects) {

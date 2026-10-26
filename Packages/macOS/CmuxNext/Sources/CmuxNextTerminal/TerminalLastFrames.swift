@@ -2,11 +2,11 @@ public import CmuxNextCompat
 
 /// Evicted terminals' last frames (`TerminalLastFrame`), oldest dropped first past ``capacity``.
 ///
-/// The bound is the warm set's terminal capacity (`WarmSetBudget`), so frames follow the warm set's
-/// pressure steps: 24 at most, 6 at warning, none at critical. Each frame is one full-resolution
-/// drawable (about 20 MB for a full-screen Retina pane), volatile while it waits, so memory pressure
-/// takes its pages first. A closed tab's frame is never asked for again: it ages out under the
-/// bound, volatile meanwhile.
+/// The bound is the warm set's terminal capacity (`WarmSetBudget`: 24 at most, 6 at warning, none
+/// at critical). A change of the bound frees nothing at once: it bounds the next frame kept, which
+/// drops the oldest past it. Each frame is one full-resolution drawable (about 20 MB for a
+/// full-screen Retina pane), volatile while it waits, so memory pressure takes its pages first. A
+/// closed tab's frame is never asked for again: it ages out under the bound, volatile meanwhile.
 ///
 /// ## Why this differs from Chrome's FrameEvictionManager
 ///
@@ -17,12 +17,14 @@ public import CmuxNextCompat
 /// and the kernel takes their pages without asking. So the count stays at the warm set's, and the
 /// only cap on what they cost is on their non-volatile bytes, at 0: a stored frame is non-volatile
 /// only while a hover card renders it (a new surface takes it only after it left the store), and the
-/// reader makes the pages volatile again when it ends. At critical pressure every frame goes.
+/// reader makes the pages volatile again when it ends.
 ///
-/// It is one lossless memory consumer (a dropped frame only means the re-attached terminal shows
-/// its replay without a picture first) that releases only memory. It honors no partial limit: at
-/// warning the warm set already shrinks it, and only the critical limit drops everything.
-/// ``memoryUsage`` reports the non-volatile bytes as footprint and the rest as volatile bytes.
+/// Registered (`memoryTerminalLastFrames`), it is one lossless memory consumer (a dropped frame only
+/// means the re-attached terminal shows its replay without a picture first) that releases only
+/// memory and honors no partial limit. The critical limit is its one release: from then on no frame
+/// is kept, and the coordinator's release slices drop the stored ones, oldest first, on later
+/// frames. ``memoryUsage`` reports the non-volatile bytes as footprint and the rest as volatile
+/// bytes, from two counters.
 @MainActor
 public final class TerminalLastFrames {
     /// The consumer's traits: lossless, memory only, cheap to rebuild; it acts at critical only.
@@ -47,6 +49,9 @@ public final class TerminalLastFrames {
     private var order: [String] = []
     /// The bytes of the stored frames, kept on every insert and removal.
     public private(set) var storedBytes = 0
+    /// The bytes of stored frames that are not volatile now (a reader holds them), kept on every
+    /// insert, removal and pin change. 0 at rest.
+    public private(set) var nonVolatileBytes = 0
     /// What each eviction kept and each re-attach showed (`debug.surfaces` last_frames).
     public private(set) var outcomes: [String: Int] = [:]
     /// The limit the memory coordinator gave last; at the critical limit no frame is kept.
@@ -70,56 +75,56 @@ public final class TerminalLastFrames {
             name: Self.memoryConsumerName, traits: Self.memoryTraits, consumer: self, registry: registry)
     }
 
-    /// The warm set's capacity changed: frames past it go now, oldest first.
+    /// The warm set's capacity changed. Frees nothing: the next frame kept drops the oldest past it.
     public func setCapacity(_ newCapacity: Int) {
         capacity = max(0, newCapacity)
-        for _ in trim(to: keptCapacity) { note("dropped") }
     }
 
-    /// Keeps `frame` for `key`; returns the frames the bound dropped.
-    func insert(_ frame: TerminalLastFrame, for key: String) -> [(key: String, frame: TerminalLastFrame)] {
+    /// Keeps `frame` for `key`; returns how many frames the bound dropped.
+    func insert(_ frame: TerminalLastFrame, for key: String) -> Int {
         remove(key)
         frames[key] = frame
         order.append(key)
         storedBytes += frame.bytes
-        return trim(to: keptCapacity)
+        if !frame.isVolatile { nonVolatileBytes += frame.bytes }
+        frame.onEvent = { [weak self, weak frame] event in
+            guard let self, let frame else { return }
+            self.frameDidChange(frame, for: key, event: event)
+        }
+        var dropped = 0
+        while order.count > keptCapacity {
+            dropOldest()
+            dropped += 1
+        }
+        return dropped
     }
 
     @discardableResult
     public func remove(_ key: String) -> TerminalLastFrame? {
         guard let frame = frames.removeValue(forKey: key) else { return nil }
         order.removeAll { $0 == key }
-        storedBytes -= frame.bytes
+        unlink(frame)
         return frame
-    }
-
-    /// Drops the oldest frames past `capacity`; returns them.
-    func trim(to capacity: Int) -> [(key: String, frame: TerminalLastFrame)] {
-        let excess = order.count - max(0, capacity)
-        guard excess > 0 else { return [] }
-        let dropped = order.prefix(excess).compactMap { key in frames.removeValue(forKey: key).map { (key: key, frame: $0) } }
-        order.removeFirst(excess)
-        storedBytes -= dropped.reduce(0) { $0 + $1.frame.bytes }
-        return dropped
     }
 
     public func note(_ outcome: String) { outcomes[outcome, default: 0] += 1 }
 
     /// The warm set evicts `session` (`key`), still in its window: keeps its frame, unless the
-    /// eviction is a pressure drop (`atOnce`), the memory limit is critical or the terminal shows
-    /// no output yet.
+    /// eviction is a pressure drop (`atOnce`), no frame may be kept (capacity 0 or the critical
+    /// memory limit) or the terminal shows no output yet.
     public func evict(_ session: TerminalSession, key: String, atOnce: Bool) {
-        remove(key)
-        guard !atOnce, keptCapacity > 0 else { return note("evicted_at_once") }
-        guard session.showsOutput else { return note("evicted_no_output") }
-        guard let frame = TerminalLastFrame(of: session) else { return note("evicted_no_frame") }
-        keep(frame, for: key)
+        evict(key, atOnce: atOnce, showsOutput: session.showsOutput) { TerminalLastFrame(of: session) }
     }
 
-    /// Stores `frame` for `key` and counts what the bound dropped.
-    func keep(_ frame: TerminalLastFrame, for key: String) {
+    /// ``evict(_:key:atOnce:)``'s decision apart from the session: `frame` is read only when the
+    /// frame is kept.
+    func evict(_ key: String, atOnce: Bool, showsOutput: @autoclosure () -> Bool, frame: () -> TerminalLastFrame?) {
+        remove(key)
+        guard !atOnce, keptCapacity > 0 else { return note("evicted_at_once") }
+        guard showsOutput() else { return note("evicted_no_output") }
+        guard let frame = frame() else { return note("evicted_no_frame") }
         note("kept")
-        for _ in insert(frame, for: key) { note("dropped") }
+        for _ in 0..<insert(frame, for: key) { note("dropped") }
     }
 
     /// `key`'s new session draws now: it shows the frame that waits for it, if any.
@@ -128,17 +133,38 @@ public final class TerminalLastFrames {
         note(session.showLastFrame(frame) ?? "shown")
     }
 
-    /// Bytes of stored frames that are not volatile now (a reader holds them). 0 at rest.
-    /// O(count), at most the warm set's 24.
-    public var nonVolatileBytes: Int {
-        frames.values.reduce(0) { $1.isVolatile ? $0 : $0 + $1.bytes }
-    }
-
     /// `debug.surfaces` last_frames: the outcome counts and the frames stored now.
     public var report: [String: Int] { outcomes.merging(["stored": count]) { $1 } }
 
     /// The warm set's capacity, or none at the critical memory limit.
     private var keptCapacity: Int { memoryLimit.isCritical ? 0 : capacity }
+
+    private func dropOldest() {
+        let key = order.removeFirst()
+        if let frame = frames.removeValue(forKey: key) { unlink(frame) }
+    }
+
+    /// Takes a frame that left the store out of the counters; it tells the store nothing more.
+    private func unlink(_ frame: TerminalLastFrame) {
+        frame.onEvent = nil
+        storedBytes -= frame.bytes
+        if !frame.isVolatile { nonVolatileBytes -= frame.bytes }
+    }
+
+    /// A stored frame's pages changed: the counters follow, and a purged frame leaves the store, so
+    /// its slot and bytes count only live frames.
+    private func frameDidChange(_ frame: TerminalLastFrame, for key: String, event: TerminalLastFrame.Event) {
+        guard frames[key] === frame else { return }
+        switch event {
+        case .becameNonVolatile:
+            nonVolatileBytes += frame.bytes
+        case .becameVolatile:
+            nonVolatileBytes -= frame.bytes
+        case .purged:
+            remove(key)
+            note("purged")
+        }
+    }
 }
 
 extension TerminalLastFrames: MemoryConsumer {
@@ -147,23 +173,22 @@ extension TerminalLastFrames: MemoryConsumer {
         memoryLimit = limit
     }
 
-    /// At the critical limit drops every frame, oldest first, one at a time until the slice
-    /// expires. It honors no partial limit, so no other limit reaches it with work to do: a stored
-    /// frame is volatile except while a reader holds it, and the reader makes it volatile again.
+    /// Drops the oldest frames past what the limit keeps (none at critical, else ``capacity``), one
+    /// at a time until the slice expires. Only the critical limit reaches it with work to do: it
+    /// honors no partial limit.
     public func releaseMemory(within slice: MemoryReleaseSlice) -> MemoryReleaseProgress {
-        guard slice.limit.isCritical else { return .done }
-        while let oldest = order.first {
+        let kept = slice.limit.isCritical ? 0 : capacity
+        while order.count > kept {
             if slice.isExpired { return .more }
-            remove(oldest)
-            note("dropped_critical")
+            dropOldest()
+            note(slice.limit.isCritical ? "dropped_critical" : "dropped")
         }
         return .done
     }
 
-    /// Non-volatile bytes as footprint (0 at rest) and the volatile rest apart. Volatile bytes count
-    /// a frame until it is dropped, even if the system already purged its pages.
+    /// Non-volatile bytes as footprint (0 at rest) and the volatile rest apart, from two counters.
+    /// A frame the kernel purged unread still counts until a reader finds it purged or it is dropped.
     public var memoryUsage: MemoryUsage? {
-        let nonVolatile = nonVolatileBytes
-        return MemoryUsage(footprintBytes: nonVolatile, volatileBytes: storedBytes - nonVolatile, entries: count)
+        MemoryUsage(footprintBytes: nonVolatileBytes, volatileBytes: storedBytes - nonVolatileBytes, entries: count)
     }
 }
