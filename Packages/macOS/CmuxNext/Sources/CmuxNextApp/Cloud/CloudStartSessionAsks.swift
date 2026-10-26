@@ -115,7 +115,8 @@ final class CloudStartSessionAsks {
     /// it), and one whose run goes on says the run stopped. Called by ``CloudService`` on a
     /// sign-out or team switch, beside ``CloudStartSessionRuns/forgetAll()``.
     func endAll() {
-        for (tab, ask) in open {
+        // A snapshot: ``finish`` removes entries as it goes.
+        for (tab, ask) in Array(open) {
             if let answer = ask.answer {
                 answer.yield(.accountChanged)
             } else {
@@ -237,7 +238,9 @@ final class CloudStartSessionRuns {
             ended = value
             break
         }
-        // An end that came as the deadline did still reaches this caller.
+        // An end that came as the deadline did (before this caller resumed) still reaches it: the
+        // caller gets the end instead of pending, and the run counts as seen (``take`` drops it,
+        // since this caller was still registered when it ended).
         if let outcome = ended ?? run.outcome { return try outcome.get() }
         return pending
     }
