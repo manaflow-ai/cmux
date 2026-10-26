@@ -4,6 +4,7 @@ import CmuxNextSidebar
 import CmuxNextWorkspaceRepair
 import Foundation
 import Observation
+import CmuxNextWakeups
 
 /// One Cloud machine: its `/api/vm` record, its link, and the daemon
 /// connection over the link socket. The link is one of two sources:
@@ -61,22 +62,25 @@ final class CloudMachineSession {
     /// For an app link, a click's connect on a paused machine is its resume.
     private(set) var resumeFailure: String?
 
-    convenience init(machine: CloudMachine, link: CloudMachineLink) {
-        self.init(machine: machine, link: link, appLink: nil, localIdentity: { nil })
+    /// - Parameter mainWork: The app's main-thread scheduler (the local daemon's), for the machine's event batches.
+    convenience init(machine: CloudMachine, link: CloudMachineLink, mainWork: MainWorkScheduler) {
+        self.init(machine: machine, link: link, appLink: nil, localIdentity: { nil }, mainWork: mainWork)
     }
 
-    convenience init(machine: CloudMachine, appLink: CloudLinkSession, localIdentity: @escaping @MainActor () -> DaemonIdentity?) {
-        self.init(machine: machine, link: nil, appLink: appLink, localIdentity: localIdentity)
+    /// - Parameter mainWork: The app's main-thread scheduler (the local daemon's), for the machine's event batches.
+    convenience init(machine: CloudMachine, appLink: CloudLinkSession, localIdentity: @escaping @MainActor () -> DaemonIdentity?,
+                     mainWork: MainWorkScheduler) {
+        self.init(machine: machine, link: nil, appLink: appLink, localIdentity: localIdentity, mainWork: mainWork)
     }
 
     private init(machine: CloudMachine, link: CloudMachineLink?, appLink: CloudLinkSession?,
-                 localIdentity: @escaping @MainActor () -> DaemonIdentity?) {
+                 localIdentity: @escaping @MainActor () -> DaemonIdentity?, mainWork: MainWorkScheduler) {
         machineID = machine.id
         self.machine = machine
         self.link = link
         self.appLink = appLink
         self.localIdentity = localIdentity
-        daemon = DaemonService(machineID: machine.id, echoesPlacementShift: SidebarMirror.isLinked)
+        daemon = DaemonService(machineID: machine.id, echoesPlacementShift: SidebarMirror.isLinked, mainWork: mainWork)
         emptyWorkspaces = EmptyWorkspaceRepair(daemon: daemon)
     }
 
@@ -115,7 +119,7 @@ final class CloudMachineSession {
                     await self?.noteLink(.up, since: suspendsBefore)
                     return path
                 } catch {
-                    if !(error is CancellationError) { await self?.noteLink(.failed(String(describing: error)), since: suspendsBefore) }
+                    if !(error is CancellationError) { await self?.noteLink(.failed(CloudStrings.errorText(error)), since: suspendsBefore) }
                     throw error
                 }
             })
@@ -142,7 +146,7 @@ final class CloudMachineSession {
                 try await resumer(machineID)
             } catch {
                 guard !disconnected else { return }
-                resumeFailure = RefusalStrings.describe(error)
+                resumeFailure = CloudStrings.errorText(error)
                 return
             }
             // The resume's refresh connects a record that turned live; a
@@ -211,6 +215,7 @@ final class CloudMachineSession {
 
     /// "Disconnected, click to connect": no connection until the next connect.
     private func showEnded(_ error: any Error) {
+        CloudAppLinks.logEnded(error)
         let message = CloudAppLinks.endedMessage(error)
         daemon.shutdownConnection()
         daemon.store.markFailed(message)

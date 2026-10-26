@@ -241,6 +241,7 @@ impl Hub {
                     "prompt": q.preview,
                     "queuedAt": q.queued_at,
                     "held": q.held,
+                    "fromAgent": q.run.agent,
                     "surface": label(&q.prompt_id),
                 })
             })

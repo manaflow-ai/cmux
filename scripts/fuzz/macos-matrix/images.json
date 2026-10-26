@@ -1,5 +1,5 @@
 {
-  "comment": "Pinned Tart base images for scripts/fuzz/macos-matrix/vm.sh. Public cirruslabs images use the image's public admin/admin login. The Tart host volume can be wiped: vm.sh pulls a missing image again from ref@digest.",
+  "comment": "Pinned Tart base images for scripts/fuzz/macos-matrix/vm.sh. Public cirruslabs images use the image's public admin/admin login. vm.sh never pulls a missing image unless FUZZ_ALLOW_PULL=1 (each is about 25 GB compressed); a fleet step never pulls.",
   "tart": {
     "version": "2.40.1",
     "url": "https://github.com/openai/tart/releases/download/2.40.1/tart.tar.gz",
@@ -35,6 +35,17 @@
       "compressed_bytes": 26978586425,
       "disk_bytes": 50000000000,
       "guest_os": "26.6.2"
+    },
+    {
+      "major": "27",
+      "name": "Golden Gate",
+      "ref": "ghcr.io/cirruslabs/macos-golden-gate-base",
+      "digest": "sha256:5302a9ea6cd68c059d00fa253fe75c8ebdf4e0dc8c45d4e136ecc6e7a4c02b70",
+      "upload_time": "2026-10-03T08:35:52Z",
+      "compressed_bytes": 34132268774,
+      "disk_bytes": 41046507520,
+      "guest_os": "27.x (golden-gate-base latest on 2026-10-24; boot it to record the exact build)",
+      "host_os_min": "27"
     }
   ],
   "images_disk_on_host_kb": {

@@ -11,9 +11,20 @@ pub(super) fn test_host_shared() -> Arc<HostShared> {
 }
 
 pub(super) fn test_host_shared_with(
+    term: Terminal,
+    parser_commands: SyncSender<ParserCommand>,
+    clipboard: ClipboardReads,
+) -> Arc<HostShared> {
+    test_host_shared_with_budget(term, parser_commands, clipboard, 1)
+}
+
+/// [`test_host_shared_with`] whose parser budget admits `parser_budget`
+/// queued bytes, for tests that publish real PTY reads.
+pub(super) fn test_host_shared_with_budget(
     mut term: Terminal,
     parser_commands: SyncSender<ParserCommand>,
     clipboard: ClipboardReads,
+    parser_budget: usize,
 ) -> Arc<HostShared> {
     term.resize(80, 24, u32::from(DEFAULT_CELL_PIXELS.0), u32::from(DEFAULT_CELL_PIXELS.1))
         .unwrap();
@@ -45,7 +56,7 @@ pub(super) fn test_host_shared_with(
         smart: SmartStreamState::new(),
         source_order_lock: Mutex::new(()),
         parser_commands,
-        parser_budget: ParserBudget::new(1),
+        parser_budget: ParserBudget::new(parser_budget),
         clipboard,
         parser_progress: (Mutex::new(0), Condvar::new()),
         next_client: AtomicU64::new(1),

@@ -7,9 +7,10 @@ import Observation
 /// hosts App-provided pane views, and turns pointer and trackpad input into
 /// `LayoutIntent`s.
 ///
-/// Horizontal trackpad scrolling over a columns screen belongs to the layout
-/// even when a hosted view (a terminal) is under the pointer: the first
-/// dominant axis of each gesture decides, and vertical gestures pass through.
+/// Scrolling follows `layout.scrollModifier` (`LayoutRootView+Scroll`): by
+/// default a plain scroll goes to the pane under the pointer and Command +
+/// scroll moves the columns strip and rows; the first event of a gesture
+/// decides its owner.
 public final class LayoutRootView: NSView {
     public let model: LayoutModel
     let context: LayoutViewContext
@@ -36,6 +37,8 @@ public final class LayoutRootView: NSView {
     private var reportedKeepAlive: Set<PaneID> = []
     var scrollLock: ScrollLock = .idle
     var consumeMomentum = false
+    /// The current gesture's touch (`mayBegin`) chose its owner: its `began` keeps it (`LayoutRootView+Scroll`).
+    var ownerDecidedAtTouch = false
     /// What focus-follows-mouse reads besides the model (`LayoutRootView+ScrollFocus`).
     let scrollFocusSignals: ScrollFocusSignals
     /// The pane the pointer was last over (`layout.focusFollowsMouse` hover): focus moves
@@ -82,6 +85,8 @@ public final class LayoutRootView: NSView {
     /// Pane rings and dims the overlay syncs placed, cumulative (PaneMotionWorkTests: per frame it
     /// is the panes that moved, not every pane).
     var overlayHostsPlaced = 0
+    /// Overlay syncs run, cumulative (PaneLayoutBeforeWindowTests: a parked root runs none).
+    var overlaySyncs = 0
     /// The panes whose ring, dim or window frame the last overlay sync changed: a pane that moved,
     /// resized, faded or was newly covered. Observers of ``observeOverlaySync(_:)`` read it to touch
     /// only those panes (a Chromium page's geometry post, a divider catcher); empty for a sync that
@@ -98,6 +103,14 @@ public final class LayoutRootView: NSView {
     /// true when the first one starts and false when the last one lands; the App holds
     /// `ResizeCoordinator` with it.
     public var onTerminalGridHold: ((Bool) -> Void)?
+    /// Called once for each scroll event the layout consumed (a strip, row, area or canvas scroll, or momentum
+    /// its spring owns), in that event's dispatch: the App's input dispatch context times it as the layout's
+    /// (`key.scroll_frame target=layout`). Never called for an event that goes on to a pane.
+    public var onScrollTaken: (() -> Void)?
+    /// Called after every motion frame has placed the panes (a pan, a coast or a spring step), so a
+    /// view drawn over them from a snapshot of their places (the modifier-hold shortcut chips) can
+    /// follow. Runs on the frame's turn: keep it to a flag or a coalesced refresh.
+    public var onFramePlaced: (() -> Void)?
     /// Whether a split or a pane close holds the terminals' grids now (``onTerminalGridHold``).
     public var holdsTerminalGrids: Bool { !context.gridHoldScreens.isEmpty }
 
@@ -135,6 +148,11 @@ public final class LayoutRootView: NSView {
         context.requestFrames = { [weak self] in self?.driver.start() }
         driver.onFrame = { [weak self] dt in self?.advanceFrame(dt) ?? false }
         context.overlayNeedsSync = { [weak self] in self?.setNeedsOverlaySync() }
+        context.userMotionStepped = { [weak self] in self?.setLayoutInMotion(true) }
+        context.userMotionEnded = { [weak self] in
+            guard let self, !self.screenViews.values.contains(where: \.hasMotion), !self.driver.isRunning else { return }
+            self.setLayoutInMotion(false)
+        }
         context.gridHoldDidChange = { [weak self] held in self?.onTerminalGridHold?(held) }
         context.stripClipsDidChange = { [weak self] in
             guard let self else { return }
@@ -301,14 +319,13 @@ public final class LayoutRootView: NSView {
                 || $0.activeScreen != snapshot.activeScreen
         } ?? true
 
-        // Screens.
+        // Screens. A screen that goes leaves after the new ones took their panes (below): a pane
+        // that moves to a new screen (the screen that replaces it) moves inside the window, never
+        // out of it and back. A Chromium page's view that leaves its window orders its page window
+        // out, and AppKit asks the window server synchronously (`-[NSWindow _doOrderWindow:]`,
+        // ~100 ms on a busy host).
         let ids = Set(snapshot.screens.map(\.id))
-        for (id, view) in screenViews where !ids.contains(id) {
-            view.tearDown()
-            view.removeFromSuperview()
-            screenViews[id] = nil
-            screenFrames[id] = nil
-        }
+        let leaving = screenViews.filter { !ids.contains($0.key) }
         for screen in snapshot.screens {
             let isActive = screen.id == snapshot.activeScreen
             let view: ScreenContentView
@@ -383,6 +400,13 @@ public final class LayoutRootView: NSView {
             }
         }
 
+        for (id, view) in leaving {
+            view.tearDown()
+            view.removeFromSuperview()
+            screenViews[id] = nil
+            screenFrames[id] = nil
+        }
+
         // Screen switch.
         if previous?.activeScreen != snapshot.activeScreen {
             if switchScreens(from: previous?.activeScreen, to: snapshot.activeScreen, order: snapshot.screens.map(\.id), animated: animated) {
@@ -404,10 +428,23 @@ public final class LayoutRootView: NSView {
     // MARK: Frames
 
     func advanceFrame(_ dt: Double) -> Bool {
+        defer { onFramePlaced?() }
+        // Reduce Motion (or the no-animation switch) turned on mid-flight: the final layout now, no more frames.
+        if context.reduceMotion {
+            for view in screenViews.values where view.hasMotion { view.settleMotion() }
+            for id in Array(screenFrames.keys) { screenFrames[id]?.snap() }
+            applyScreenFrames()
+            updateVisibility()
+            flushOverlaySync()
+            setLayoutInMotion(false)
+            return false
+        }
         // One motion policy per frame (it reads the animation settings), not one per spring.
         let policy = Motion.panes.policy
-        var moving = false
+        var moving = false, panning = false
         for view in screenViews.values where !view.isHidden {
+            // Pan events that waited in the last frame show first, then the springs step.
+            if view.displayFrameBegan() { panning = true }
             if view.step(dt, policy: policy) { moving = true }
             if view.stepCanvasCamera(dt, policy: policy) { moving = true }
         }
@@ -418,13 +455,16 @@ public final class LayoutRootView: NSView {
         applyScreenFrames()
         if highlight.step(dt) { moving = true }
         updateVisibility()
+        // A pan with the finger down is layout motion (`userMotionActive`): a frame tick during it
+        // is not its landing, so what waits for the landing (page windows, catcher panels) waits on.
+        let gesturing = screenViews.values.contains(where: \.userMotionActive)
         // The frame that lands still syncs as part of the motion; observers hear it ended after it.
-        if moving { setLayoutInMotion(true) }
+        if moving || gesturing { setLayoutInMotion(true) }
         flushOverlaySync()
-        if !moving { setLayoutInMotion(false) }
-        // A gesture requests frames on each pointer change; an active
-        // gesture with a still pointer needs none.
-        return moving
+        if !moving && !gesturing { setLayoutInMotion(false) }
+        // A strip pan keeps the ticks a little after each event (`ScreenContentView.panTickTail`);
+        // a gesture with a still pointer needs none after that.
+        return moving || panning
     }
 
     /// Tells the layout motion observers when the first spring starts and when the last one lands.
@@ -554,6 +594,8 @@ public final class LayoutRootView: NSView {
             }
         }
         updateVisibility()
+        // The layout changes it saw while parked: one overlay sync now.
+        if live { flushOverlaySync() }
     }
 
 }

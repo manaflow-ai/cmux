@@ -2,6 +2,7 @@ import AppKit
 @testable import CmuxNextDesign
 @testable import CmuxNextSidebar
 import Testing
+import CmuxNextWakeupsTestSupport
 
 /// A sidebar workspace's hover card in the real list. Leo 2026-10-21 ("WHY HAS IT NOT BEEN
 /// ALIGNED"): the card's top lines up with its row's top, as Chrome's and Arc's tab cards, and

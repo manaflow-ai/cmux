@@ -127,6 +127,13 @@ export type Lane = {
   error: (string | null);
   /** Unix ms the state began; null when the daemon does not know. */
   since: (number | null);
+  /**
+   * A `working` lane that has stalled: since when its turn has had no tool
+   * call in flight and no sign of its model (`turn.stalledSince`); null
+   * otherwise. The state stays `working`, so a client that reads only it
+   * is unchanged.
+   */
+  stalledSince: (number | null);
   state: LaneState;
   /**
    * What the session is doing now, one line: the running turn's prompt,
@@ -216,8 +223,11 @@ export interface MailSendParams {
   body: string;
   id: string;
   metadata?: (Record<string, unknown> | null);
-  recipient: string;
+  /** Session recipient for ordinary mail. Omit when `target` is supplied. */
+  recipient?: (string | null);
   sender: string;
+  /** Quiet reports alias (`reports:<person>`). Omit for session mail. */
+  target?: (string | null);
 }
 
 export type MailSendResult = {
@@ -404,6 +414,11 @@ export type QueuedImage = {
 /** A prompt waiting for the running turn to end. */
 export type QueuedPromptSummary = {
   client: string;
+  /**
+   * The sending agent's name when it is another agent's message, null for the person's: an
+   * app draws it as a received message waiting for the turn, not as a composer row.
+   */
+  fromAgent: (string | null);
   /** Waits behind a failed turn until the queue is resumed. */
   held: boolean;
   /** The images it sends, in its order; `_acpmux/attachment` reads each by its id. */
@@ -422,6 +437,54 @@ export interface RequestMeta {
    */
   cmuxGesture?: (string | null);
 }
+
+/** What `_acpmux/retry` retried: the chat's own turn, or one of its subagents. */
+export type RetryKind = "turn" | "subagent";
+
+/**
+ * `_acpmux/retry` (the Retry button, `acpmux retry`): retry the chat's failed last turn now,
+ * in the same session (`hub/auto_resume/retry_turn.rs`).
+ */
+export interface RetryParams {
+  /** The chat's id, name or unique prefix. */
+  sessionId: string;
+  /**
+   * One of the chat's failed subagents to resume instead. Refused for now
+   * (`retry.subagent_unsupported`), never taken as the chat's own turn.
+   */
+  subagentId?: (string | null);
+}
+
+/**
+ * Why a turn is retried (`hub::turn_errors::resume_cause`): the provider or the gateway had no
+ * capacity (HTTP 503 or 529, overloaded, no account free), the connection dropped, or the
+ * agent process died mid-turn.
+ */
+export type RetryReason = "capacity" | "transport" | "agent_exited";
+
+/**
+ * What `_acpmux/retry` sent: the prompt `promptId` (`P~resume-n`, the next attempt of the
+ * failed prompt) and the turn it started.
+ */
+export type RetryResult = {
+  kind: RetryKind;
+  promptId: string;
+  turnId?: (string | null);
+} & Record<string, unknown>;
+
+/**
+ * An automatic retry of a failed turn that waits (`hub/auto_resume.rs`): attempt `attempt`
+ * of `of`, at `nextAt` (epoch ms). It sends the prompt `promptId~resume-<attempt>` in the same
+ * session, for the cut turn `turnId`.
+ */
+export type RetrySummary = {
+  attempt: number;
+  nextAt: number;
+  of: number;
+  promptId: string;
+  reason: RetryReason;
+  turnId: string;
+} & Record<string, unknown>;
 
 /**
  * To watchers when a session changed: its new summary (only its id when
@@ -515,6 +578,11 @@ export type SessionDetail = {
   /** A turn failed: the prompts behind it wait for a client to resume them. */
   queuePaused: boolean;
   queued: number;
+  /**
+   * The automatic retry of its failed last turn that waits (`hub/auto_resume.rs`); null
+   * when none waits.
+   */
+  retry?: (RetrySummary | null);
   /** The session has its own permission rules. */
   rules: boolean;
   /** The session's permission rules. */
@@ -547,6 +615,12 @@ export type SessionDetail = {
   /** Tags that have not expired. */
   tags: Record<string, string>;
   title?: (string | null);
+  /**
+   * Who supplied `title`: `prompt` is the first-prompt fallback, while
+   * `harness`, `generated` and `adopted` are real chat titles. Older peers
+   * may omit this field.
+   */
+  titleSource?: (string | null);
   /** The chat's tools (`hub/tools.rs`). */
   tools: ToolSummary[];
   /** `_acpmux/set_tools` can change them. */
@@ -668,6 +742,11 @@ export type SessionSummary = {
   /** A turn failed: the prompts behind it wait for a client to resume them. */
   queuePaused: boolean;
   queued: number;
+  /**
+   * The automatic retry of its failed last turn that waits (`hub/auto_resume.rs`); null
+   * when none waits.
+   */
+  retry?: (RetrySummary | null);
   /** The session has its own permission rules. */
   rules: boolean;
   sessionId: string;
@@ -698,6 +777,12 @@ export type SessionSummary = {
   /** Tags that have not expired. */
   tags: Record<string, string>;
   title?: (string | null);
+  /**
+   * Who supplied `title`: `prompt` is the first-prompt fallback, while
+   * `harness`, `generated` and `adopted` are real chat titles. Older peers
+   * may omit this field.
+   */
+  titleSource?: (string | null);
   /** The chat's tools (`hub/tools.rs`). */
   tools: ToolSummary[];
   /** `_acpmux/set_tools` can change them. */
@@ -729,6 +814,16 @@ export interface SessionsParams {
   cursor?: (string | null);
   /** Page size, at least 1. Without it the reply is the whole list. */
   limit?: (number | null);
+  /**
+   * `_acpmux/sessions` only (a watch refuses it): only the sessions this acpmux peer owns
+   * (its name, e.g. `huge-blue`). Empty is no filter.
+   */
+  peer?: (string | null);
+  /**
+   * `_acpmux/sessions` only (a watch refuses it): only the sessions in this status
+   * (`running`, `ready`, `idle`, `waiting`, `closed`). Empty is no filter.
+   */
+  status?: (string | null);
 }
 
 export type SessionsResult = {
@@ -767,6 +862,12 @@ export type TurnSummary = {
   planStep: (string | null);
   prompt: string;
   promptId: string;
+  /**
+   * Since when it has stalled: no tool call in flight and no sign of its
+   * model since then, for `stalledTurnMs` or more (`hub/activity.rs`);
+   * null while it has not.
+   */
+  stalledSince: (number | null);
   startedAt: number;
   turnId: string;
   turnSeq: number;

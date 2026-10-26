@@ -23,6 +23,9 @@ public nonisolated struct SettingsPageLayout: Sendable {
         case webUpdates
         /// Settings > Chief's Voice input row: the Debug toggle home.voiceInput, only where it exists.
         case voiceInput
+        /// Settings > Server: each server's status, version line, Restart Recommended, socket and tailnet
+        /// address (plans/cmux-next/server-updates-DESIGN.md section 10).
+        case server
     }
 
     /// A group card as the layout states it: the rows of a schema group
@@ -208,7 +211,7 @@ public nonisolated struct SettingsPageLayout: Sendable {
                 group("settings.group.engine"), group("settings.group.addressBar"), group("settings.group.toolbar"), group("settings.group.media"),
                 group("settings.group.bookmarks"), group("settings.group.agentInput"), group("settings.group.extensions"),
                 group("settings.group.links"), group("settings.group.openingLinks"), group("settings.group.passwords"),
-                group("settings.group.memory"), group("settings.group.remote"),
+                group("settings.group.import"), group("settings.group.memory"), group("settings.group.remote"),
             ],
             trail: [.browserProfiles], actions: [.browser], aliases: [.browser]),
         // Bring things over from other browsers, agents and terminals on this Mac.
@@ -219,7 +222,7 @@ public nonisolated struct SettingsPageLayout: Sendable {
             id: "keyboard", title: section(.keyboard), symbol: "keyboard",
             groups: [
                 group("settings.shortcuts.hintsGroup"),
-                GroupSpec(keys: ["sidebar.numbering", "sidebar.cmd9", "sidebar.stepping", "sidebar.steppingWraps"],
+                GroupSpec(keys: ["tabs.commandDigits", "sidebar.numbering", "sidebar.cmd9", "sidebar.stepping", "sidebar.steppingWraps"],
                           title: SettingsText.keyed("settings.pageGroup.sidebarKeys", "Sidebar Navigation")),
                 group("settings.group.palette"), group("settings.group.macScreenKeyboard"),
             ],
@@ -245,6 +248,10 @@ public nonisolated struct SettingsPageLayout: Sendable {
         CategorySpec(
             id: "mobile", title: SettingsText.keyed("settings.category.mobile", "Mobile"), symbol: "iphone",
             groups: [group("settings.group.mobile")], trail: [.mobile]),
+        // The servers behind the app (cmux-tui, acpmux): status, versions, restart when one is older.
+        CategorySpec(
+            id: "server", title: SettingsText.keyed("settings.category.server", "Server"), symbol: "server.rack",
+            groups: [], lead: [.server]),
         // This Mac and the person's other devices on the device hub: names, fingerprints, Mac
         // Screen access, relays and the access history (docs/device-hub). DEV builds only for now.
         CategorySpec(

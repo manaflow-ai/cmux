@@ -3,11 +3,11 @@ import Foundation
 
 /// User-facing Cloud text. Keys live in Resources/Cloud.xcstrings (en, ja).
 public enum CloudStrings {
-    public static var localBackend: String {
+    nonisolated public static var localBackend: String {
         String(localized: "cloud.unavailable.localBackend", defaultValue: "This build has no Cloud backend. Rebuild it with ./scripts/reload.sh --tag <tag> --direct-backend.", table: "Cloud", bundle: .module)
     }
     public static var noClient: String { String(localized: "cloud.unavailable.noClient", defaultValue: "The bundled cmux-tui client is missing, so Cloud machines cannot connect.", table: "Cloud", bundle: .module) }
-    public static var signInFirst: String { String(localized: "cloud.failed.signInFirst", defaultValue: "Sign in to use Cloud machines.", table: "Cloud", bundle: .module) }
+    nonisolated public static var signInFirst: String { String(localized: "cloud.failed.signInFirst", defaultValue: "Sign in to use Cloud machines.", table: "Cloud", bundle: .module) }
     public static var noMachine: String { String(localized: "cloud.failed.noMachine", defaultValue: "No Cloud machine is selected. Right-click a machine or pass --target machine:<id>.", table: "Cloud", bundle: .module) }
     /// Why a Cloud machine needs an update, for its sidebar header and the
     /// Cloud diagnostics: the build it runs and what an update turns on.
@@ -57,6 +57,20 @@ public enum CloudStrings {
     }
     public static var createConfirmApproval: String {
         String(localized: "cloud.create.confirm.approval", defaultValue: "The machine counts against your Cloud plan. Click Create to approve it.", table: "Cloud", bundle: .module)
+    }
+    public static var upgradeTitle: String { String(localized: "cloud.upgrade.title", defaultValue: "Cloud machines need a paid plan", table: "Cloud", bundle: .module) }
+    public static func upgradeDetail(_ reason: CloudUpgradeReason) -> String {
+        switch reason {
+        case .freePlan, .server:
+            String(localized: "cloud.upgrade.detail.free", defaultValue: "Your plan has no Cloud machines. The Go is $10 a month and includes machines; Pro is $50 a month.", table: "Cloud", bundle: .module)
+        case .atLimit:
+            String(localized: "cloud.upgrade.detail.limit", defaultValue: "All the running Cloud machines your plan allows are in use. Upgrade (Pro is $50 a month) or delete one.", table: "Cloud", bundle: .module)
+        }
+    }
+    public static var upgradeButton: String { String(localized: "cloud.upgrade.button", defaultValue: "Upgrade", table: "Cloud", bundle: .module) }
+    public static var notNow: String { String(localized: "cloud.upgrade.notNow", defaultValue: "Not now", table: "Cloud", bundle: .module) }
+    nonisolated public static var upgradeRequired: String {
+        String(localized: "cloud.upgrade.required", defaultValue: "No Cloud machine was created: your plan needs an upgrade. See cmux.com/pricing.", table: "Cloud", bundle: .module)
     }
     public static var createConfirmButton: String { String(localized: "cloud.create.confirm.button", defaultValue: "Create", table: "Cloud", bundle: .module) }
     nonisolated public static var createStillPending: String {
@@ -125,4 +139,10 @@ public enum CloudStrings {
     public static func snapshotBody(_ id: String) -> String {
         String(format: String(localized: "cloud.result.snapshotBody", defaultValue: "Snapshot %@ is ready. Restore it with Restore Cloud Machine.", table: "Cloud", bundle: .module), id)
     }
+}
+
+/// Why a Cloud create needs a plan upgrade (the upgrade card's text).
+public enum CloudUpgradeReason: Equatable, Sendable {
+    case freePlan, server
+    case atLimit(Int)
 }

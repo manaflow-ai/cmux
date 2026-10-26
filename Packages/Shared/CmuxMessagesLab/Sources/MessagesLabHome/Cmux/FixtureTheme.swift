@@ -35,6 +35,8 @@ struct FixtureTheme: Equatable {
         let waveform: NSColor
         let caret: NSColor
         let chipFill: NSColor
+        /// The field's hairline edge on a light theme (palette `composeStroke`, 3:1 on the page).
+        let fieldEdge: NSColor
 
         /// `measured`: the iMessage style, whose dark caret is Messages' own; the theme's look keeps the theme's caret.
         init(_ p: HomePalette, measured: Bool = true) {
@@ -67,6 +69,7 @@ struct FixtureTheme: Equatable {
             placeholder = light ? c(p.placeholder) : NSColor(white: 1, alpha: 0.316)
             waveform = light ? c(p.placeholder) : NSColor(white: 212 / 255, alpha: 0.556)
             caret = light || !measured ? c(p.caret) : Fixture.p3(63, 143, 247)
+            fieldEdge = c(p.composeStroke)
             chipFill = light ? NSColor(white: 0, alpha: 0.08) : NSColor(white: 1, alpha: 0.12)
         }
 

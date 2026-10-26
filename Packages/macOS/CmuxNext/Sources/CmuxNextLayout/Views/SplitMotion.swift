@@ -22,16 +22,19 @@ struct SplitMotion {
     /// the same fraction, so the whole change stays one spring. A release
     /// moving away from the target, or with nothing left to travel, starts
     /// from rest.
+    /// `moved` / `movedDividers`: the frames the release's layout change retargeted; a frame already on its way
+    /// for another reason keeps its own velocity. Nil: every frame (callers that know no better).
     static func seed(velocity: CGFloat, along axis: SplitAxis, divider: AnimatedFrame,
-                     panes: inout [PaneID: AnimatedFrame], dividers: inout [DividerHandleView.Kind: AnimatedFrame]) {
+                     panes: inout [PaneID: AnimatedFrame], dividers: inout [DividerHandleView.Kind: AnimatedFrame],
+                     moved: Set<PaneID>? = nil, movedDividers: Set<DividerHandleView.Kind>? = nil) {
         let travel = axis == .horizontal ? divider.x.target - divider.x.value : divider.y.target - divider.y.value
         guard abs(travel) > 0.5 else { return }
         let fraction = velocity / travel
         guard fraction > 0 else { return }
         // A fling faster than the spring could start (10 travels a second) is capped there.
         let rate = min(fraction, 10)
-        for key in Array(panes.keys) { panes[key]?.seed(fractionVelocity: rate) }
-        for key in Array(dividers.keys) { dividers[key]?.seed(fractionVelocity: rate) }
+        for key in Array(panes.keys) where moved?.contains(key) ?? true { panes[key]?.seed(fractionVelocity: rate) }
+        for key in Array(dividers.keys) where movedDividers?.contains(key) ?? true { dividers[key]?.seed(fractionVelocity: rate) }
     }
 }
 

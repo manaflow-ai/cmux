@@ -84,6 +84,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             }
             Ok(())
         }
+        Command::Retry(args) => crate::cli::retry::run(args, json_out).await,
         Command::Rename { session, new_name } => {
             let client = connect(true).await?;
             let id = resolve_id(&client, &session).await?;
@@ -422,11 +423,12 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             }
             Ok(())
         }
-        Command::Peer(cmd) => {
+        Command::Host(cmd) => {
             let client = connect(true).await?;
             let v = match cmd {
                 PeerCmd::Add { name, url, token } => {
                     let url = url.unwrap_or_else(|| format!("ssh://{name}"));
+                    let has_token = token.is_some();
                     let mut p = json!({"name": name, "url": url});
                     if let Some(t) = token {
                         p["token"] = json!(t);
@@ -434,9 +436,91 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                     // `wait`: the daemon answers after the first connect attempt
                     // settled, so the listing shows the real state.
                     p["wait"] = json!(true);
-                    client.request("_acpmux/peer_add", p).await?
+                    let reply = client.request("_acpmux/peer_add", p).await?;
+                    let connected = reply
+                        .get("peers")
+                        .and_then(Value::as_array)
+                        .and_then(|peers| {
+                            peers.iter().find(|peer| {
+                                peer.get("name").and_then(Value::as_str) == Some(name.as_str())
+                            })
+                        })
+                        .and_then(|peer| peer.get("connected").and_then(Value::as_bool))
+                        .unwrap_or(false);
+                    let warning = if !connected {
+                        let host = url
+                            .strip_prefix("ssh://")
+                            .unwrap_or(&url)
+                            .split(':')
+                            .next()
+                            .unwrap_or(&name);
+                        let (message, warning) = if url.starts_with("ssh://") && has_token {
+                            (
+                                format!(
+                                    "peer {name} was saved and will keep reconnecting; verify the SSH alias with `ssh -o BatchMode=yes {host} true`, then run `acpmux host ls` and retry after it shows connected (the saved WebSocket token is retained)"
+                                ),
+                                json!({
+                                    "reason": "peer_unreachable",
+                                    "try": format!("ssh -o BatchMode=yes {host} true"),
+                                    "detail": "the peer was saved and will keep reconnecting"
+                                }),
+                            )
+                        } else if url.starts_with("ssh://") {
+                            (
+                                format!(
+                                    "peer {name} was saved and will keep reconnecting; verify the SSH alias with `ssh -o BatchMode=yes {host} true`, then run `acpmux host doctor {name} --json`"
+                                ),
+                                json!({
+                                    "reason": "peer_unreachable",
+                                    "try": format!("ssh -o BatchMode=yes {host} true"),
+                                    "detail": "the peer was saved and will keep reconnecting"
+                                }),
+                            )
+                        } else {
+                            (
+                                format!(
+                                    "peer {name} was saved and will keep reconnecting; run `acpmux host ls` and retry after it shows connected"
+                                ),
+                                json!({
+                                    "reason": "peer_unreachable",
+                                    "try": "acpmux host ls",
+                                    "detail": "the peer was saved and will keep reconnecting"
+                                }),
+                            )
+                        };
+                        if !json_out {
+                            eprintln!("warning: {message}");
+                        }
+                        Some(warning)
+                    } else {
+                        None
+                    };
+                    let mut reply = reply;
+                    if let Some(warning) = warning {
+                        reply["warning"] = warning;
+                    }
+                    reply
                 }
                 PeerCmd::Ls => client.request("_acpmux/peers", json!({})).await?,
+                PeerCmd::Status { name } => {
+                    let v = client.request("_acpmux/peer_status", json!({"name": name})).await?;
+                    if json_out {
+                        print_json(&v);
+                    } else {
+                        crate::cli::peer_status::print(&v);
+                    }
+                    return Ok(());
+                }
+                PeerCmd::Place { build } => {
+                    let work = if build { "build" } else { "agent" };
+                    let v = client.request("_acpmux/place", json!({"work": work})).await?;
+                    if json_out {
+                        print_json(&v);
+                    } else {
+                        crate::cli::place::lines(&v).iter().for_each(|l| println!("{l}"));
+                    }
+                    return Ok(());
+                }
                 PeerCmd::Rm { name } => {
                     client.request("_acpmux/peer_remove", json!({"name": name})).await?
                 }
@@ -458,14 +542,13 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                     return crate::cli::hosts::update(client, name, all, opts, json_out).await;
                 }
                 PeerCmd::Enroll { host, name, harnesses, remote_binary, reverse } => {
-                    let plan = crate::cli::host_enroll::Plan {
-                        name: name.unwrap_or_else(|| crate::cli::hosts::short_name(&host)),
+                    let plan = crate::cli::host_enroll::Plan::enroll(
                         host,
-                        port: crate::peer::SSH_PEER_PORT,
+                        name,
                         harnesses,
                         remote_binary,
                         reverse,
-                    };
+                    );
                     return crate::cli::host_enroll::run(client, plan, true, json_out).await;
                 }
                 PeerCmd::Doctor { target, fix, harnesses, remote_binary, reverse } => {
@@ -507,10 +590,11 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                 let build = p.get("remoteBuild").and_then(Value::as_str).unwrap_or("");
                 let outdated = p.get("outdated").and_then(Value::as_bool).unwrap_or(false);
                 println!(
-                    "{:<16} {:<10} {:>3} sessions  {:<24} {}{}{}{}",
+                    "{:<16} {:<10} {:>3} sessions  {}  {:<24} {}{}{}{}",
                     p.get("name").and_then(Value::as_str).unwrap_or(""),
                     state,
                     p.get("sessions").and_then(Value::as_u64).unwrap_or(0),
+                    crate::cli::peer_status::resources(&p),
                     p.get("url").and_then(Value::as_str).unwrap_or(""),
                     if build.is_empty() { String::new() } else { format!("build {build}") },
                     if outdated {
@@ -538,8 +622,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
         | Command::UniichatAgent { .. }
         | Command::Session(_)
         | Command::Daemon(_)
-        | Command::Harness(_)
-        | Command::Host(_) => {
+        | Command::Harness(_) => {
             unreachable!()
         }
         _ => Err(anyhow!("command routed to the wrong dispatch family")),

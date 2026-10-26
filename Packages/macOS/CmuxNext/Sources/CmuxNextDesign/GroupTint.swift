@@ -104,6 +104,10 @@ public nonisolated enum GroupTint: Hashable, Sendable {
         return tokens.chip(wash)
     }
 
+    /// A sidebar group's members' line under the solid band: the band's exact rest color
+    /// (`headerChip(themed:).fill`, Leo 2026-10-19), so bar and line read as one group. No color: unseen (`lineRGB`).
+    @MainActor public func lineFill(themed: Bool) -> NSColor { isNone ? lineColor(themed: themed) : headerChip(themed: themed).fill.nsColor }
+
     /// A faint wash of the group's color over the sidebar, behind a name in primary ink.
     @MainActor public func headerWash(themed: Bool) -> ThemeRGB {
         let tokens = ThemeContext.active ?? ThemeScope.app.tokens
