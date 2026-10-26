@@ -578,6 +578,8 @@ final class AppServices {
     /// The app's one set of blocking-work lanes: file I/O, sync system calls and long CPU work run there,
     /// never on the cooperative pool (PATTERNS P14). Built once here and passed to each consumer's init.
     let work: BackgroundWork
+    /// The built-in uBlock Origin's pinned folder, read on the files lane from init (``preloadBuiltInAdBlockerFolder(on:)``).
+    let builtInAdBlockerFolder: PreloadedValue<String?>
     /// The app process's black box: its heap ring from init, its file steps on `.files` (task p09-observability-005).
     /// Only the real app process has one (``AppEnvironment/marksRun``); tests that build `AppServices` do not.
     let traceBlackBox: TraceBlackBoxFileSteps?
@@ -631,6 +633,7 @@ final class AppServices {
         self.appearance = appearance
         let work = work ?? BackgroundWork(hangs: hangWatch, inputTurns: mainWork.budget.board)
         self.work = work
+        builtInAdBlockerFolder = AppServices.preloadBuiltInAdBlockerFolder(on: work)
         self.energyMonitor = energyMonitor
         // First: the black-box ring is attached to TraceRuntime.shared, so every trace point records from here
         // on; the ring file opens on `.files`, never on main.
