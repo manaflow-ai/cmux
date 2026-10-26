@@ -184,6 +184,7 @@ extension DockSplitStore {
                     to: terminalStartupRestoreCoordinator
                 )
             } else {
+                SurfaceResumeRunPromptBatch.shared.releaseAgentRestore(panelID: detached.panelId)
                 let cancelledRestore = sourceWorkspace
                     .terminalStartupRestoreCoordinator
                     .cancelPendingRestore(panelID: detached.panelId)
@@ -428,6 +429,37 @@ extension DockSplitStore {
                 ?? restorableAgent.launchCommand?.workingDirectory
                 ?? workingDirectory
         }()
+        let agentRestoreStartupInput = shouldAutoResumeAgent && restorableAgentCanAutoResume &&
+            hibernation == nil
+            ? restorableAgent?.resumeStartupInput(
+                restoringWorkingDirectory: resumeSessionWorkingDirectory
+            )
+            : nil
+        // Build the candidate before arming the gate. A binding that is
+        // disabled, unapproved, or cannot render a command must start as an
+        // ordinary shell instead of waiting behind deferred admission.
+        let deferredAgentResumeCandidateInput: String? = if restoreStartupBlocked || liveSessionOwner != nil,
+            hibernation == nil,
+            restorableAgentCanAutoResume || resumeBinding?.isAgentHookBinding == true {
+            if let restorableAgent, restorableAgentCanAutoResume {
+                restorableAgent.resumeStartupInput(
+                    restoringWorkingDirectory: resumeSessionWorkingDirectory
+                )
+            } else {
+                policy
+                    .approvedSurfaceResumeBinding(
+                        resumeBinding,
+                        autoResumeAgentSessions: shouldAutoResumeAgent,
+                        promptForApproval: true,
+                        approvalStoreURL: SurfaceResumeApprovalStore.defaultURL()
+                    )
+                    .flatMap {
+                        policy.surfaceResumeStartupLaunch(forApprovedBinding: $0)?.initialInput
+                    }
+            }
+        } else {
+            nil
+        }
         // Match workspace restore: the first panel that is about to start a
         // checkpoint owns it for the enclosing restore pass; later panels with
         // the same checkpoint stay manually recoverable but never start a
@@ -439,9 +471,11 @@ extension DockSplitStore {
                 !stablePanelHasLiveProcess
                 ? SurfaceResumeRunPromptBatch.agentRestoreIdentity(
                     restorableAgent: restorableAgent,
-                    agentMayAutoResume: shouldAutoResumeAgent && restorableAgentCanAutoResume,
+                    agentMayAutoResume: shouldAutoResumeAgent && restorableAgentCanAutoResume &&
+                        agentRestoreStartupInput != nil,
                     resumeBinding: resumeBinding,
-                    bindingWillLaunch: unresolvedBindingLaunch != nil
+                    bindingWillLaunch: unresolvedBindingLaunch != nil ||
+                        deferredAgentResumeCandidateInput != nil
                 )
                 : nil
         let restorePassClaim = restorePassIdentity.map {
@@ -477,37 +511,10 @@ extension DockSplitStore {
             restorableAgentCanAutoResume &&
             hibernation == nil && bindingLaunch == nil
             && !agentSessionAlreadyActive
-            ? restorableAgent?.resumeStartupInput(
-                restoringWorkingDirectory: resumeSessionWorkingDirectory
-            ).map(WorkspaceSurfaceResumeStartupLaunch.input)
+            ? agentRestoreStartupInput.map(WorkspaceSurfaceResumeStartupLaunch.input)
             : nil
-        // Build the candidate before arming the gate. A binding that is
-        // disabled, unapproved, or cannot render a command must start as an
-        // ordinary shell instead of waiting behind deferred admission.
-        let deferredAgentResumeCandidateInput: String? = if !duplicateRestoreOwner,
-            restoreStartupBlocked || liveSessionOwner != nil,
-            hibernation == nil,
-            restorableAgentCanAutoResume || resumeBinding?.isAgentHookBinding == true {
-            if let restorableAgent, restorableAgentCanAutoResume {
-                restorableAgent.resumeStartupInput(
-                    restoringWorkingDirectory: resumeSessionWorkingDirectory
-                )
-            } else {
-                policy
-                    .approvedSurfaceResumeBinding(
-                        resumeBinding,
-                        autoResumeAgentSessions: shouldAutoResumeAgent,
-                        promptForApproval: true,
-                        approvalStoreURL: SurfaceResumeApprovalStore.defaultURL()
-                    )
-                    .flatMap {
-                        policy.surfaceResumeStartupLaunch(forApprovedBinding: $0)?.initialInput
-                    }
-            }
-        } else {
-            nil
-        }
-        let deferredAgentResumeStartupInput = deferredAgentResumeCandidateInput?.trimmingCharacters(
+        let deferredAgentResumeStartupInput = !duplicateRestoreOwner &&
+            deferredAgentResumeCandidateInput?.trimmingCharacters(
             in: .whitespacesAndNewlines
         ).isEmpty == false ? deferredAgentResumeCandidateInput : nil
         let deferredAgentResumeAdmission = deferredAgentResumeStartupInput != nil
@@ -595,6 +602,13 @@ extension DockSplitStore {
             panelId: terminal.id,
             internallySeededInput: initialInput
         )
+        if restorePassClaim == .owner, let restorePassIdentity {
+            SurfaceResumeRunPromptBatch.shared.recordAgentRestoreOwner(
+                panelID: terminal.id,
+                kind: restorePassIdentity.kind,
+                sessionID: restorePassIdentity.sessionID
+            )
+        }
         terminal.restoreRecovery.restore(from: terminalSnapshot.restoreRecovery)
         if duplicateRestoreOwner {
             let duplicateRecoveryInput: String? = if let restorableAgent,
@@ -604,7 +618,7 @@ extension DockSplitStore {
                     restoringWorkingDirectory: resumeSessionWorkingDirectory
                 )
             } else {
-                unresolvedBindingLaunch?.initialInput
+                unresolvedBindingLaunch?.initialInput ?? deferredAgentResumeCandidateInput
             }
             terminal.restoreRecovery.state = .failed(
                 reason: "duplicate-restore-owner",
