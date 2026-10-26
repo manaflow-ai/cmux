@@ -1156,14 +1156,30 @@ TASK_HITS: dict[str, str | Pattern] = {  # placeholders whose task is narrower t
                                r"CGWindowList(Copy|Create)|SCShareableContent|LSCopy", MQ7_EXCLUDE),
 }
 
-# p02-threads.md section 9 (041-045, 047-052, 060-101, 141-144): the modules each id of a range takes, in id order, as
-# (ids, selector). A selector names modules without the CmuxNext prefix, `Module:glob` for some of a module's files,
-# `*` for the files no other selector of the range takes, `**` for all of them. Several ids split their files in path
-# order. A range not listed here splits all its files in path order.
+# p02-threads.md section 9 (041-045, 047-052, 060-101, 141-144, 213-218): the files each id of a range takes, in id
+# order, as (ids, selector). A selector's tokens are Swift modules without the CmuxNext prefix, `Module:glob` for some
+# of a module's files, `First..Last` for the modules from First to Last (and those Last prefixes), or a path glob (a
+# token with a `/`; `*` crosses folders) for files outside the Swift modules. `*` takes the files no other selector of
+# the range takes, `**` all of them. A file goes to the first selector that takes it. Several ids split their files in
+# path order. expand_tasks reports the files no selector takes, and a range not listed here, which splits all its
+# files in path order.
+TUI = "cmux-tui/crates/"
+TUI_CORE = TUI + "cmux-tui-core/src/"
+SPAWN_CRATES = ("cmux-browser-host", "cmux-remote-browser-host", "cmux-tui-cdp", "cmux-host", "cmux-holder", "cmux-pty",
+                "cmux-process", "cmux-git", "cmux-tasks", "cmux-config", "acpmux")
 RANGE_PARTS: dict[str, list[tuple[int, str]]] = {
     "p02-threads-041..045": [
         (1, "HomeEngine Pages ImportCards"), (1, "AgentPane MacScreen ComputerUse Mobile RemoteViewSessions"),
-        (1, "*"), (2, "App")],
+        (1, "Browser..Daemon"), (2, "App")],
+    "p02-threads-213..218": [  # 216 also takes the crate root, where its deny attribute goes
+        (1, f"{TUI_CORE}server*"),
+        (1, " ".join(f"{TUI_CORE}{name}*" for name in ("mux", "surface", "resource_router"))),
+        (1, " ".join(f"{TUI_CORE}{name}*" for name in ("journal", "chief_brains", "browser", "state",
+                                                       "provider_management", "apps"))),
+        (1, " ".join(f"{TUI_CORE}{name}" for name in ("lib.rs", "terminal_host_runtime*", "holder_runtime*",
+                                                      "terminal_backend*", "shell_integration*"))),
+        (1, f"{TUI}cmux-tui/src/*"),
+        (1, " ".join(f"{TUI}{crate}/src/*" for crate in SPAWN_CRATES))],
     "p02-threads-141..144": [
         (1, "App"), (1, "AgentPane HomeEngine"), (1, "Control Daemon ComputerUse Wakeups Cloud Design DesignTokens"),
         (1, "*")],
@@ -1206,12 +1222,15 @@ class TaskGraph:
 
 def plan_tasks(document, programs: list[str] | None) -> list[dict]:
     """The tasks of a design-result.json ({programs: {name: {tasks}}}), a {tasks: [...]} or a bare list."""
-    if isinstance(document, list):
-        return document
-    if "programs" in document:
-        return [task for name, program in document["programs"].items()
-                if not programs or name in programs for task in program.get("tasks", [])]
-    return list(document.get("tasks", []))
+    if "programs" not in document:
+        if programs:
+            raise ValueError("--program needs a plan with programs (design-result.json)")
+        return document if isinstance(document, list) else list(document.get("tasks", []))
+    unknown = sorted(set(programs or ()) - set(document["programs"]))
+    if unknown:
+        raise ValueError(f"no program {', '.join(unknown)} in the plan (it has {', '.join(document['programs'])})")
+    return [task for name, program in document["programs"].items()
+            if not programs or name in programs for task in program.get("tasks", [])]
 
 
 def range_ids(task_id: str) -> list[str]:
@@ -1226,13 +1245,23 @@ def module_name(short: str) -> str:
     return short if short.startswith("CmuxNext") else f"CmuxNext{short}"
 
 
-def selector_matches(selector: str, path: str) -> bool:
+def token_matches(token: str, path: str) -> bool:
+    """One selector token (see RANGE_PARTS) against a repo path."""
+    if "/" in token:
+        return fnmatch.fnmatchcase(path, token)
     module = g.module_of(path)
-    for token in selector.split():
-        name, _, glob = token.partition(":")
-        if module == module_name(name) and (not glob or fnmatch.fnmatchcase(path.rsplit("/", 1)[-1], glob)):
-            return True
-    return False
+    if not module.startswith("CmuxNext"):
+        return False
+    if ".." in token:
+        first, _, last = token.partition("..")
+        short = module[len("CmuxNext"):]
+        return first <= short and (short <= last or short.startswith(last))
+    name, _, glob = token.partition(":")
+    return module == module_name(name) and (not glob or fnmatch.fnmatchcase(path.rsplit("/", 1)[-1], glob))
+
+
+def selector_matches(selector: str, path: str) -> bool:
+    return any(token_matches(token, path) for token in selector.split())
 
 
 def split_by_weight(files: list[str], weights: dict[str, int], parts: int) -> list[list[str]]:
@@ -1246,25 +1275,36 @@ def split_by_weight(files: list[str], weights: dict[str, int], parts: int) -> li
     return out
 
 
-def split_range(ids: list[str], files: dict[str, int], parts: list[tuple[int, str]] | None) -> list[list[str]]:
-    """The files (path -> weight) of a range task, one list per id: by PARTS when the plan names them, else in path
-    order."""
+def split_range(ids: list[str], files: dict[str, int],
+                parts: list[tuple[int, str]] | None) -> tuple[list[list[str]], list[str]]:
+    """The files (path -> weight) of a range task, one list per id, by PARTS when the plan names them (else in path
+    order), and the files no part takes."""
     if parts is None:
-        return split_by_weight(list(files), files, len(ids))
+        return split_by_weight(list(files), files, len(ids)), []
     if sum(count for count, _ in parts) != len(ids):
         raise ValueError(f"RANGE_PARTS of {ids[0]}..: {sum(c for c, _ in parts)} ids, the plan has {len(ids)}")
     claimed: dict[int, list[str]] = collections.defaultdict(list)
     rest = next((i for i, (_, selector) in enumerate(parts) if selector == "*"), None)
     every = [i for i, (_, selector) in enumerate(parts) if selector == "**"]
+    orphans: list[str] = []
     for path in sorted(files):
         owner = next((i for i, (_, selector) in enumerate(parts)
                       if selector not in ("*", "**") and selector_matches(selector, path)), rest)
+        if owner is None and not every:
+            orphans.append(path)
         for i in ([owner] if owner is not None else []) + every:
             claimed[i].append(path)
     out: list[list[str]] = []
     for i, (count, _) in enumerate(parts):
         out += split_by_weight(claimed[i], files, count) if claimed[i] else [[] for _ in range(count)]
-    return out
+    return out, orphans
+
+
+def orphan_note(orphans: list[str]) -> str:
+    """Names the modules (or, outside Swift modules, the folders) of the files no part of a range takes."""
+    places = sorted({g.module_of(p) or p.rsplit("/", 1)[0] + "/" for p in orphans})
+    shown = ", ".join(places[:12]) + (f" and {len(places) - 12} more" if len(places) > 12 else "")
+    return f"{len(orphans)} files no part of the range names, left without an owner of the range: {shown}"
 
 
 class Expander:
@@ -1300,17 +1340,35 @@ class Expander:
 
     def entry(self, entry: str, finders: list[str | Pattern]) -> tuple[dict[str, tuple[bool, int]], str | None]:
         """({path: (directory-wide, weight)}, note) for one entry of a task's file list. The note says what the tool
-        could not read exactly: a placeholder no rule resolves takes its whole folder; prose or a branch, nothing."""
+        could not read exactly: a placeholder no rule resolves takes its whole folder; prose or a branch, nothing.
+        Besides its first word, every path of the listing the entry's prose names counts (`A/ and B/ packages`)."""
         token, _, note = entry.strip().partition(" ")
         note = note.strip()
-        if "<" in token or (note and (token.endswith("/") or self.under(token)) and token not in self.paths):
-            folder = token.split("<", 1)[0]
+        files: dict[str, tuple[bool, int]] = {}
+        whole: list[str] = []
+        for word in [token, *(w for w in self.paths_in(note) if w != token)]:
+            expanded, wide = self.word(word, note, finders)
+            files.update(expanded)
+            if wide:
+                whole.append(word)
+        if whole:
+            return files, f"no rule for the placeholder: the whole folder of {', '.join(whole)}"
+        return files, None if files else "no path"
+
+    def paths_in(self, prose: str) -> list[str]:
+        """The words of PROSE that are a file or a folder of the listing."""
+        words = (w.strip("()[],;:`'\"") for w in prose.split())
+        return list(dict.fromkeys(w for w in words if "/" in w and (w in self.paths or self.under(w))))
+
+    def word(self, word: str, note: str, finders: list[str | Pattern]) -> tuple[dict[str, tuple[bool, int]], bool]:
+        """The files of one path word of an entry, and whether it took its whole folder for want of a rule."""
+        if "<" in word or (note and (word.endswith("/") or self.under(word)) and word not in self.paths):
+            folder = word.split("<", 1)[0]
             found = self.placeholder(folder, finders)
             if found is not None:
-                return found, None
-            return {p: (True, 1) for p in self.under(folder)}, "no rule for the placeholder: its whole folder"
-        files = self.literal(token, note)
-        return files, None if files else "no path"
+                return found, False
+            return {p: (True, 1) for p in self.under(folder)}, True
+        return self.literal(word, note), False
 
     def literal(self, token: str, note: str) -> dict[str, tuple[bool, int]]:
         if "{" in token:
@@ -1366,7 +1424,13 @@ def expand_tasks(tasks: list[dict], expander: Expander) -> tuple[dict[str, TaskU
             units[task["id"]] = TaskUnit(task["id"], task["id"], {p: wide for p, (wide, _) in files.items()}, deps)
             continue
         weights = {p: weight for p, (_, weight) in files.items()}
-        for unit_id, paths in zip(ids, split_range(ids, weights, RANGE_PARTS.get(task["id"]))):
+        parts = RANGE_PARTS.get(task["id"])
+        split, orphans = split_range(ids, weights, parts)
+        if parts is None and files:
+            unresolved.append((task["id"], "(range)", "no RANGE_PARTS row: its files split in path order"))
+        if orphans:
+            unresolved.append((task["id"], "(range)", orphan_note(orphans)))
+        for unit_id, paths in zip(ids, split):
             units[unit_id] = TaskUnit(unit_id, task["id"], dict.fromkeys(paths, True), set(deps))
     return units, unresolved
 

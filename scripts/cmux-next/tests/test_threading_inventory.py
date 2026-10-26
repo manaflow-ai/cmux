@@ -897,6 +897,43 @@ class TaskGraphTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "cycle"):
             inventory.build_task_graph(tree(), LISTING, plan)
 
+    def test_every_folder_an_entry_names_in_prose_counts(self):
+        plan = [{"id": "two", "files": [f"{SRC}CmuxNextCore/ and {SRC}CmuxNextUI/ packages (one chunk each)"],
+                 "machine_queue": "MQ-99"}]
+        graph = inventory.build_task_graph(tree(), LISTING, plan)
+        self.assertEqual(set(graph.units["two"].files), set(FIXTURE))
+        [(_, _, note)] = graph.unresolved
+        self.assertIn(f"{SRC}CmuxNextCore/, {SRC}CmuxNextUI/", note)  # both folders, said so
+        # With a rule, each named folder resolves to its hits.
+        plan[0]["machine_queue"] = "MQ-1"
+        graph = inventory.build_task_graph(tree(), LISTING, plan)
+        self.assertEqual(set(graph.units["two"].files), {SRC + "CmuxNextCore/Graph.swift",
+                                                         SRC + "CmuxNextCore/Reader.swift",
+                                                         SRC + "CmuxNextUI/Loader.swift"})
+        self.assertEqual(graph.unresolved, [])
+
+    def test_ranges_without_parts_and_files_no_part_takes_are_reported(self):
+        notes = [(t, n) for t, e, n in self.graph.unresolved if e == "(range)"]
+        self.assertEqual(notes, [("t-010..011", "no RANGE_PARTS row: its files split in path order")])
+        files = {SRC + "CmuxNextCore/Reader.swift": 1, SRC + "CmuxNextUI/Loader.swift": 1, "tool/src/main.rs": 1}
+        split, orphans = inventory.split_range(["r-1", "r-2"], files, [(1, "Core"), (1, "tool/src/*")])
+        self.assertEqual(split, [[SRC + "CmuxNextCore/Reader.swift"], ["tool/src/main.rs"]])
+        self.assertEqual(orphans, [SRC + "CmuxNextUI/Loader.swift"])
+        self.assertIn("CmuxNextUI", inventory.orphan_note(orphans))
+
+    def test_selector_tokens(self):
+        match = inventory.token_matches
+        self.assertTrue(match("Browser..Daemon", SRC + "CmuxNextControl/A.swift"))
+        self.assertTrue(match("Browser..Daemon", SRC + "CmuxNextBrowser/A.swift"))
+        self.assertTrue(match("Browser..Daemon", SRC + "CmuxNextDaemonService/A.swift"))  # Last takes its prefixes
+        self.assertFalse(match("Browser..Daemon", SRC + "CmuxNextWakeups/LaneScheduler.swift"))
+        self.assertFalse(match("Browser..Daemon", SRC + "CmuxNextAgentPane/A.swift"))
+        core = inventory.TUI_CORE
+        self.assertTrue(match(core + "server*", core + "server/listen.rs"))
+        self.assertTrue(match(core + "server*", core + "server.rs"))
+        self.assertFalse(match(core + "server*", core + "session_shutdown.rs"))
+        self.assertFalse(match("Core", "tool/CmuxNextCore/A.swift"))  # a module only under Sources/
+
     def test_design_ranges_split_into_their_ids(self):
         for task_id, parts in inventory.RANGE_PARTS.items():
             self.assertEqual(sum(count for count, _ in parts), len(inventory.range_ids(task_id)), task_id)
@@ -1015,6 +1052,21 @@ class CLITests(unittest.TestCase):
         with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
             inventory.main(["--repo", str(self.repo), "--program", "p"])  # --program needs --task-graph
 
+    def test_task_graph_unknown_program_is_an_error(self):
+        with tempfile.TemporaryDirectory() as outside:
+            plan = Path(outside) / "tasks.json"
+            plan.write_text(json.dumps({"programs": {"p02-threads": {"tasks": PLAN}}}))
+            out, err = io.StringIO(), io.StringIO()
+            with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+                rc = inventory.main(["--repo", str(self.repo), "--task-graph", str(plan), "--program", "p02-thread"])
+            self.assertEqual((rc, out.getvalue()), (2, ""))
+            self.assertIn("no program p02-thread in the plan", err.getvalue())
+            plan.write_text(json.dumps({"tasks": PLAN}))
+            with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+                rc = inventory.main(["--repo", str(self.repo), "--task-graph", str(plan), "--program", "p"])
+            self.assertEqual((rc, out.getvalue()), (2, ""))
+            self.assertIn("--program needs a plan with programs", err.getvalue())
+
 
 ACCEPTANCE_REV = "772cdfc45ac"
 DESIGN_PLAN = REPO / "plans/cmux-next/chrome-parity/design-result.json"
@@ -1049,6 +1101,22 @@ class AcceptanceTests(unittest.TestCase):
         lanes = set(tasks["LaneScheduler.swift"])
         self.assertLessEqual({f"p02-threads-{n}" for n in ("005", "015", "017", "114", "115", "116", "117", "118",
                                                            "119", "123", "125")}, lanes, lanes)
+        # Wakeups is not in 043's Browser..Daemon, nor in any other part of 041-045.
+        self.assertEqual({t for t in lanes if t in inventory.range_ids("p02-threads-041..045")}, set(), lanes)
+        records = {r["file"]: r["tasks"] for r in lines if "file" in r}
+        core, tui = "cmux-tui/crates/cmux-tui-core/src/", "cmux-tui/crates/cmux-tui/src/"
+        self.assertIn("p02-threads-213", records[core + "server/listen.rs"])  # section 9: 213 takes server/
+        self.assertNotIn("p02-threads-216", records[core + "server/listen.rs"])
+        self.assertIn("p02-threads-217", records[tui + "main.rs"])  # 217 the cmux-tui binary
+        self.assertNotIn("p02-threads-218", records[tui + "main.rs"])
+        # 146 (MQ-17, no inventory rule) takes both folders its prose names, Shared and iOS.
+        tasks = json.loads(DESIGN_PLAN.read_text())["programs"]["p02-threads"]["tasks"]
+        [task] = [t for t in tasks if t["id"] == "p02-threads-146"]
+        listing = inventory.g.git(REPO, "ls-tree", "-r", "--name-only", ACCEPTANCE_REV).split("\n")
+        expander = inventory.Expander(inventory.Tree({}, None, None), [p for p in listing if p])
+        files, note = expander.entry(task["files"][0], inventory.task_finders(task))
+        self.assertEqual({p.split("/", 2)[1] for p in files}, {"Shared", "iOS"})
+        self.assertIn("Packages/Shared/, Packages/iOS/", note)
         summary = lines[-1]["summary"]
         self.assertGreater(summary["shared_per_wave"]["before"], 0)
         self.assertEqual(summary["shared_per_wave"]["after"], 0)
