@@ -52,10 +52,46 @@ impl Until {
     }
 }
 
+/// `turnEnded {turnId, startedAt}`: the turn a steered `acpmux send` went into
+/// (`cli/steer_reply.rs`) is over. Its end is recorded (`lastTurn`, set with
+/// its `turn_result`) once a turn ended at or after `startedAt` (the turn's own
+/// start, from the same daemon's clock: turns run one at a time, so that is it
+/// or a later one), or another turn runs. A session that is closed, gone, or on
+/// a peer that is unreachable (`stale`) resolves too: its end may never come.
+/// A status of `waiting` after the turn (a background ask) does not hold it.
+struct TurnEnded {
+    turn_id: String,
+    started_at: u64,
+}
+
+impl TurnEnded {
+    fn parse(v: Option<&Value>) -> Option<Self> {
+        let v = v?;
+        let turn_id = v.get("turnId").and_then(Value::as_str).filter(|t| !t.is_empty())?;
+        let started_at = v.get("startedAt").and_then(Value::as_u64).unwrap_or(u64::MAX);
+        Some(Self { turn_id: turn_id.to_owned(), started_at })
+    }
+
+    fn matches(&self, s: &Value) -> bool {
+        let last = s.get("lastTurn").filter(|t| !t.is_null());
+        let last_is = last.and_then(|t| t.get("turnId")).and_then(Value::as_str);
+        let ended_at = last.and_then(|t| t.get("endedAt")).and_then(Value::as_u64);
+        let running = s.pointer("/turn/turnId").and_then(Value::as_str);
+        last_is == Some(self.turn_id.as_str())
+            || ended_at.is_some_and(|at| at >= self.started_at)
+            || running.is_some_and(|t| t != self.turn_id)
+            || s.get("status").and_then(Value::as_str) == Some("closed")
+            || s.get("missing").and_then(Value::as_bool) == Some(true)
+            || s.get("stale").and_then(Value::as_bool) == Some(true)
+    }
+}
+
 /// Params: `sessions` (keys; empty = every running or waiting session on
 /// every host, and every sub-session waiting for a run slot), `until` (list; default ready+permission), `all` (wait for
 /// every target instead of the first), `afterSeq` (map of session id to a
-/// state sequence the resolution must exceed), `timeoutMs`.
+/// state sequence the resolution must exceed), `timeoutMs`, and `turnEnded`
+/// (`{turnId, startedAt}`: a session also resolves once that turn ended,
+/// `turnEnded`).
 pub(super) async fn wait(hub: &Arc<Hub>, params: &Value) -> Result<Value, RpcError> {
     let until: Vec<Until> = match params.get("until").and_then(Value::as_array) {
         Some(a) if !a.is_empty() => a
@@ -72,6 +108,7 @@ pub(super) async fn wait(hub: &Arc<Hub>, params: &Value) -> Result<Value, RpcErr
         _ => vec![Until::Ready, Until::Permission],
     };
     let all = params.get("all").and_then(Value::as_bool).unwrap_or(false);
+    let turn_ended = TurnEnded::parse(params.get("turnEnded"));
     let timeout =
         params.get("timeoutMs").and_then(Value::as_u64).map(std::time::Duration::from_millis);
     let after: HashMap<String, u64> = params
@@ -127,7 +164,8 @@ pub(super) async fn wait(hub: &Arc<Hub>, params: &Value) -> Result<Value, RpcErr
                 .get(id)
                 .map(|a| s.get("stateSeq").and_then(Value::as_u64).unwrap_or(0) > *a)
                 .unwrap_or(true);
-            let hit = seq_ok && until.iter().any(|u| u.matches(&s));
+            let ended = turn_ended.as_ref().is_some_and(|t| t.matches(&s));
+            let hit = seq_ok && (ended || until.iter().any(|u| u.matches(&s)));
             let mut row = s.clone();
             row.set("resolved", json!(hit));
             row.set(
@@ -137,6 +175,7 @@ pub(super) async fn wait(hub: &Arc<Hub>, params: &Value) -> Result<Value, RpcErr
                         .iter()
                         .filter(|u| seq_ok && u.matches(&s))
                         .map(|u| format!("{u:?}").to_lowercase())
+                        .chain((seq_ok && ended).then(|| "turnEnded".to_owned()))
                         .collect::<Vec<_>>()
                 ),
             );
@@ -179,5 +218,36 @@ pub(super) async fn wait(hub: &Arc<Hub>, params: &Value) -> Result<Value, RpcErr
             }
             None => wake.await,
         }
+    }
+}
+
+#[cfg(test)]
+mod turn_ended_tests {
+    use super::*;
+
+    fn ended(s: Value) -> bool {
+        let t = TurnEnded::parse(Some(&json!({"turnId": "t1", "startedAt": 100}))).unwrap();
+        t.matches(&s)
+    }
+
+    #[test]
+    fn a_turn_has_ended_once_its_end_is_recorded_or_the_session_cannot_end_it() {
+        let running = json!({"status": "running", "turn": {"turnId": "t1"}, "lastTurn": {"turnId": "t0", "endedAt": 90}});
+        assert!(!ended(running), "still running");
+        // Taken out of the session, its end not recorded yet: not yet.
+        let between = json!({"status": "running", "turn": null, "lastTurn": {"turnId": "t0", "endedAt": 90}});
+        assert!(!ended(between), "its end is not recorded yet");
+        let recorded = json!({"status": "waiting", "turn": null, "lastTurn": {"turnId": "t1", "endedAt": 120}});
+        assert!(ended(recorded), "recorded, while a background ask waits");
+        let later = json!({"status": "ready", "turn": null, "lastTurn": {"turnId": "t2", "endedAt": 150}});
+        assert!(ended(later), "a later turn ended since");
+        let next = json!({"status": "running", "turn": {"turnId": "t2"}, "lastTurn": null});
+        assert!(ended(next), "another turn runs");
+        assert!(ended(json!({"status": "closed", "turn": null})));
+        assert!(ended(json!({"sessionId": "s", "status": "closed", "missing": true})));
+        let lost = json!({"status": "unreachable", "stale": true, "turn": {"turnId": "t1"}});
+        assert!(ended(lost), "its machine is unreachable");
+        assert!(TurnEnded::parse(Some(&json!({"turnId": ""}))).is_none());
+        assert!(TurnEnded::parse(None).is_none());
     }
 }
