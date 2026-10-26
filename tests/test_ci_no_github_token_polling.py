@@ -8,17 +8,19 @@ coalescer that listed runs every 15 s, among others, used it up, and every NEXT
 nightly's legacy publish then failed with "API rate limit exceeded for
 installation" (runs 40234225207 and 40240049419).
 
-A step polls when its script has a loop (shell for/while/until, a JavaScript
-for/while, a Python for/while) with a sleep inside it, the script calls the API
-(gh, curl to api.github.com, github-script's `github.`, urllib), and the token
-it calls with is github.token: the GH_TOKEN/GITHUB_TOKEN the step sees (the
-step's own env first, then the job's, then the workflow's) comes from
-`github.token` or `secrets.GITHUB_TOKEN`, or the step is actions/github-script
+A step polls when one loop in its script (shell for/while/until, a JavaScript
+for/while, a Python for/while) both sleeps and calls the API (gh, curl to
+api.github.com, github-script's `github.`, urllib), counting the bodies of the
+script's own functions the loop calls, and the token it calls with is
+github.token. That token is the GH_TOKEN the step sees (the step's own env
+first, then the job's, then the workflow's), since gh prefers it; only with no
+GH_TOKEN anywhere, GITHUB_TOKEN. Either counts when it comes from
+`github.token` or `secrets.GITHUB_TOKEN`; an actions/github-script step counts
 with no `github-token:` of another kind. Wait with a job-level `concurrency`
 group, a `workflow_run` trigger, or another token (an App token has its own
 budget) instead. A loop that only retries a failed call a few times is flagged
-too: allowlist it below with a reason. Not caught: a sleep inside a shell
-function or helper script the loop calls.
+too: allowlist it below with a reason. Not caught: a sleep or call inside a
+separate script file the loop runs.
 
 ALLOWED lists the steps that poll today, as `workflow file: step name`, each with
 why it may stay. Shrink it; do not grow it without a reason the review accepts.
@@ -47,8 +49,6 @@ ALLOWED: dict[str, str] = {
         "each pass; a candidate for a concurrency group",
     "merge-group-fail-fast.yml: Locate and watch the merge-group CI run":
         "per merge group: finds and watches its CI run (lawrencecchen's #16224 cuts it)",
-    "nightly-next-tick.yml: Coalesce tick requests without cancelling work":
-        "removed by the nightly-next tick PR (one shared concurrency group instead)",
     "tui-publish-npm.yml: Require successful verified artifact run": "a release, by hand: at most 24 reads",
     "tui-publish-pypi.yml: Require successful verified artifact run": "a release, by hand: at most 24 reads",
 }
@@ -63,16 +63,21 @@ JS_LOOP = re.compile(r"\b(for|while)\s*\(")
 PY_LOOP = re.compile(r"(?m)^\s*(for\s+\w[^\n]*\bin\b[^\n]*|while\s+[^\n]*):\s*$")
 
 
+def scope_value(name: str, step: dict, job: dict, workflow: dict) -> str | None:
+    """The innermost value of an env name the step sees (step, then job, then workflow), or None."""
+    for scope in (step.get("env") or {}, job.get("env") or {}, workflow.get("env") or {}):
+        if name in scope:
+            return str(scope[name])
+    return None
+
+
 def calls_with_own_token(step: dict, job: dict, workflow: dict) -> bool:
-    """Whether the GH_TOKEN or GITHUB_TOKEN the step sees is github.token: the innermost scope that
-    sets a name wins, so a step's App token overrides a job's github.token."""
-    for name in ("GH_TOKEN", "GITHUB_TOKEN"):
-        for scope in (step.get("env") or {}, job.get("env") or {}, workflow.get("env") or {}):
-            if name in scope:
-                if OWN_TOKEN.search(str(scope[name])):
-                    return True
-                break
-    return False
+    """Whether the token gh calls with is github.token: GH_TOKEN wins over GITHUB_TOKEN wherever it
+    is set (gh's own precedence), and the innermost scope that sets a name wins, so a step's App
+    token overrides a job's github.token."""
+    gh_token = scope_value("GH_TOKEN", step, job, workflow)
+    token = gh_token if gh_token is not None else scope_value("GITHUB_TOKEN", step, job, workflow)
+    return bool(token and OWN_TOKEN.search(token))
 
 
 def shell_loop_bodies(script: str) -> list[str]:
@@ -106,12 +111,51 @@ def block_loop_bodies(script: str) -> list[str]:
     return bodies
 
 
+SHELL_FUNCTION = re.compile(r"(?m)^([ \t]*)(?:function[ \t]+)?([A-Za-z_][\w-]*)[ \t]*\(\)[ \t]*\{")
+PY_FUNCTION = re.compile(r"(?m)^([ \t]*)(?:async[ \t]+)?def[ \t]+([A-Za-z_]\w*)[ \t]*\(")
+JS_FUNCTION = re.compile(r"(?m)^([ \t]*)(?:async[ \t]+)?function[ \t]*\*?[ \t]*([A-Za-z_$][\w$]*)[ \t]*\("
+                         r"|^([ \t]*)(?:const|let|var)[ \t]+([A-Za-z_$][\w$]*)[ \t]*=[ \t]*(?:async[ \t]*)?"
+                         r"(?:\([^)]*\)|[A-Za-z_$][\w$]*)[ \t]*=>")
+
+
+def functions(script: str) -> dict[str, str]:
+    """The script's own functions (shell, Python, JavaScript), name to body: the definition line and
+    every later line indented deeper than it (a closing brace at its depth ends the body). A
+    one-line definition is just that line."""
+    lines = script.splitlines()
+    found: dict[str, str] = {}
+    for pattern in (SHELL_FUNCTION, PY_FUNCTION, JS_FUNCTION):
+        for match in pattern.finditer(script):
+            groups = match.groups()
+            indent, name = (groups[0], groups[1]) if groups[1] else (groups[2], groups[3])
+            start = script.count("\n", 0, match.start())
+            body = [lines[start]]
+            for follow in lines[start + 1: start + 200]:
+                if follow.strip() and len(follow) - len(follow.lstrip()) <= len(indent or ""):
+                    if follow.strip().startswith(("}", ")")):
+                        body.append(follow)
+                    break
+                body.append(follow)
+            found[name] = "\n".join(body)
+    return found
+
+
+def expanded(body: str, helpers: dict[str, str], seen: frozenset[str] = frozenset()) -> str:
+    """A loop body with the bodies of the script's functions it calls appended, transitively."""
+    out = [body]
+    for name, text in helpers.items():
+        if name not in seen and re.search(rf"(?<![\w$-]){re.escape(name)}(?![\w$-])", body):
+            out.append(expanded(text, helpers, seen | {name}))
+    return "\n".join(out)
+
+
 def polls(script: str) -> str | None:
-    """The first line of a loop that sleeps, in a script that calls the API; else None."""
-    if not API.search(script):
-        return None
+    """The first line of a loop that both sleeps and calls the API, counting the script's own
+    functions it calls; else None."""
+    helpers = functions(script)
     for body in shell_loop_bodies(script) + block_loop_bodies(script):
-        if SLEEP.search(body):
+        whole = expanded(body, helpers)
+        if SLEEP.search(whole) and API.search(whole):
             return body.strip().splitlines()[0]
     return None
 
@@ -164,12 +208,29 @@ for (let attempt = 0; attempt < 48; attempt += 1) {
         self.assertTrue(polls("x=1; while true; do gh api rate_limit; sleep 5; done"))
         self.assertIsNone(polls('for f in *.txt; do\n  wc -l "$f"\ndone\ngh api rate_limit\n'))
         self.assertIsNone(polls("for i in 1 2; do sleep 1; done\n"))
+        # An API call outside the sleeping loop is not polling.
+        self.assertIsNone(polls("gh api rate_limit\nfor i in 1 2 3; do\n  sleep 5\ndone\n"))
+        # A sleep and a call hidden in the script's own shell function are.
+        helper = ('state() {\n  gh run view "$1" --json status\n}\n'
+                  "for _ in 1 2 3; do\n  state 42 | grep -q completed && break\n  sleep 15\ndone\n")
+        self.assertTrue(polls(helper))
+        nap = "nap() {\n  sleep 15\n}\nwhile true; do\n  gh api repos/o/r/actions/runs\n  nap\ndone\n"
+        self.assertTrue(polls(nap))
+        py = ("import time\ndef runs():\n    return gh_json('api', 'x')\n\n"
+              "for _ in range(10):\n    runs()\n    time.sleep(5)\n")
+        self.assertTrue(polls(py))
 
     def test_the_innermost_token_wins(self) -> None:
         job = {"env": {"GH_TOKEN": "${{ github.token }}"}}
         self.assertTrue(calls_with_own_token({}, job, {}))
         self.assertFalse(calls_with_own_token({"env": {"GH_TOKEN": "${{ steps.app.outputs.token }}"}}, job, {}))
         self.assertTrue(calls_with_own_token({"env": {"GITHUB_TOKEN": "${{ secrets.GITHUB_TOKEN }}"}}, {}, {}))
+        # gh prefers GH_TOKEN: an App GH_TOKEN beside an inherited GITHUB_TOKEN is the App's budget,
+        # and a github.token GH_TOKEN beside an App GITHUB_TOKEN is the shared one.
+        workflow = {"env": {"GITHUB_TOKEN": "${{ secrets.GITHUB_TOKEN }}"}}
+        self.assertFalse(calls_with_own_token({"env": {"GH_TOKEN": "${{ steps.app.outputs.token }}"}}, {}, workflow))
+        self.assertTrue(calls_with_own_token({"env": {"GH_TOKEN": "${{ github.token }}",
+                                                      "GITHUB_TOKEN": "${{ steps.app.outputs.token }}"}}, {}, {}))
 
 
 if __name__ == "__main__":

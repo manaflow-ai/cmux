@@ -47,13 +47,32 @@ class BudgetTests(unittest.TestCase):
         self.assertEqual({c[1] for c in calls[1:]}, {"bot"})
 
     def test_an_open_issue_gets_a_comment_at_most_hourly(self):
-        listed = json.dumps([{"number": 9, "title": budget.TITLE, "updatedAt": "2020-01-01T00:00:00Z"}])
+        listed = json.dumps([{"number": 9, "title": budget.TITLE, "state": "OPEN", "updatedAt": "2020-01-01T00:00:00Z"}])
         calls, _ = self.run_main([rate(10), listed, ""], {"ISSUE_TOKEN": "bot"})
         self.assertEqual(calls[-1][0], ["issue", "comment"])
         fresh = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-        listed = json.dumps([{"number": 9, "title": budget.TITLE, "updatedAt": fresh}])
+        listed = json.dumps([{"number": 9, "title": budget.TITLE, "state": "OPEN", "updatedAt": fresh}])
         calls, _ = self.run_main([rate(10), listed], {"ISSUE_TOKEN": "bot"})
         self.assertEqual(calls[-1][0], ["issue", "list"])
+
+    def test_a_recently_closed_alert_is_not_opened_again_within_the_hour(self):
+        fresh = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        listed = json.dumps([{"number": 9, "title": budget.TITLE, "state": "CLOSED", "updatedAt": fresh}])
+        calls, _ = self.run_main([rate(10), listed], {"ISSUE_TOKEN": "bot"})
+        self.assertEqual([c[0] for c in calls], [["api", "rate_limit"], ["issue", "list"]])
+        old = json.dumps([{"number": 9, "title": budget.TITLE, "state": "CLOSED", "updatedAt": "2020-01-01T00:00:00Z"}])
+        calls, _ = self.run_main([rate(10), old, "https://github.com/o/r/issues/10\n"], {"ISSUE_TOKEN": "bot"})
+        self.assertEqual(calls[-1][0], ["issue", "create"])
+
+    def test_the_lookup_includes_closed_alerts(self):
+        calls = []
+
+        def fake(args, token):
+            calls.append(args)
+            return "[]" if args[:2] == ["issue", "list"] else "x"
+        with mock.patch.object(budget, "gh", fake):
+            budget.file_issue("o/r", "bot", "t", "u")
+        self.assertEqual(calls[0][calls[0].index("--state") + 1], "all")
 
     def test_without_an_issue_token_it_only_warns(self):
         os.environ.pop("ISSUE_TOKEN", None)

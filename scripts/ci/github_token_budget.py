@@ -47,17 +47,24 @@ def report(core: dict) -> str:
 
 def file_issue(repo: str, token: str, text: str, run_url: str, now: datetime | None = None) -> str:
     now = now or datetime.now(timezone.utc)
-    found = json.loads(gh(["issue", "list", "-R", repo, "--state", "open", "--search", f'in:title "{TITLE}"',
-                           "--json", "number,title,updatedAt", "--limit", "5"], token))
+    # Closed ones too: a person who closes the alert must not get a new issue on every low sweep.
+    found = json.loads(gh(["issue", "list", "-R", repo, "--state", "all", "--search", f'in:title "{TITLE}"',
+                           "--json", "number,title,state,updatedAt", "--limit", "10"], token))
     body = (f"{text}\n\nSeen by {run_url}. Every workflow shares this budget; when it runs out, "
             "publish and release steps fail with \"API rate limit exceeded for installation\". "
             "Look for a new polling loop or per-run fan-out on github.token "
             "(tests/test_ci_no_github_token_polling.py), and move heavy readers to an App token.")
-    for issue in found:
-        if issue.get("title") == TITLE:
-            updated = datetime.fromisoformat(str(issue.get("updatedAt") or "1970-01-01T00:00:00Z").replace("Z", "+00:00"))
-            if now - updated < timedelta(hours=1):
-                return f"#{issue['number']} was updated within the hour"
+    ours = [issue for issue in found if issue.get("title") == TITLE]
+
+    def updated(issue: dict) -> datetime:
+        return datetime.fromisoformat(str(issue.get("updatedAt") or "1970-01-01T00:00:00Z").replace("Z", "+00:00"))
+
+    # Any alert touched within the hour, open or closed (closing one updates it), says enough.
+    for issue in ours:
+        if now - updated(issue) < timedelta(hours=1):
+            return f"#{issue['number']} was updated within the hour"
+    for issue in ours:
+        if str(issue.get("state", "")).upper() == "OPEN":
             gh(["issue", "comment", str(issue["number"]), "-R", repo, "--body", body], token)
             return f"commented on #{issue['number']}"
     out = gh(["issue", "create", "-R", repo, "--title", TITLE, "--body", body], token)
