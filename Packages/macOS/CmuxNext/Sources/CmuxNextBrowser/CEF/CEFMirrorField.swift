@@ -56,6 +56,9 @@ nonisolated enum CEFMirrorField: String, CaseIterable, Sendable {
     /// The host's hello (the `attach` pseudo-event) carries every host-wide key.
     var isHostWide: Bool { rawValue.hasPrefix("host.") }
 
+    /// A fork capability, fixed for the host's life: only the hello carries it.
+    var isCapability: Bool { isHostWide && refreshEvents.isEmpty }
+
     /// The events whose batch refreshes the key, besides the hello.
     var refreshEvents: Set<CEFMirrorTrigger> {
         switch self {

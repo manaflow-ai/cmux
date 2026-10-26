@@ -36,7 +36,7 @@ nonisolated extension CEFShimLibrary {
 
     /// The same functions, `replacement`'s where it has one (``CEFMirrorCache``'s mirror reads).
     func overriding(_ replacement: @escaping (String) -> UnsafeMutableRawPointer?) throws(LoadError) -> CEFShimLibrary {
-        let resolver = resolver
-        return try CEFShimLibrary(Resolver(symbol: { replacement($0) ?? resolver.symbol($0) }, hostExports: resolver.hostExports))
+        let base = self.resolver
+        return try CEFShimLibrary(Resolver(symbol: { replacement($0) ?? base.symbol($0) }, hostExports: base.hostExports))
     }
 }

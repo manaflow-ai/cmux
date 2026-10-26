@@ -74,13 +74,13 @@ import Testing
         #expect(MirrorSpy.frees == 1, "the cache's copies never reach the source's free")
     }
 
-    @Test func hostWideKeysAreReadOnceAsTheHostsHelloCarriesThem() throws {
+    @Test func capabilitiesAreReadOnceAsTheHostsHelloCarriesThem() throws {
         let (runtime, turns, root) = try Self.runtime()
         defer { try? FileManager.default.removeItem(at: root) }
         MirrorSpy.forkAPIVersion = 30
         MirrorSpy.windowCount = 2
-        #expect(runtime.forkAPIVersion == 27)
-        #expect(runtime.shim?.windowCount() == 0)
+        #expect(runtime.forkAPIVersion == 27, "read when the shim was made")
+        #expect(runtime.shim?.windowCount() == 0, "a count waits for its event")
 
         runtime.receive(.tab(.windowDestroyed, browser: 0, window: 9, value: 2))
         turns.runAll()
@@ -182,13 +182,13 @@ import Testing
 /// from the statics; `cmux_shim_popup_window_bounds(9)` is (10, 20, 30, 40); `cmux_shim_close_all`
 /// counts; every other function does nothing and returns 0.
 private nonisolated enum MirrorSpy {
-    // crash-allow: test-only statics, written and read on the main thread by one serialized suite
-    nonisolated(unsafe) static var windowID: Int32 = 0
-    nonisolated(unsafe) static var windowCount: Int32 = 0
-    nonisolated(unsafe) static var forkAPIVersion: Int32 = 27
-    nonisolated(unsafe) static var navigationState = "state-A"
-    nonisolated(unsafe) static var frees = 0
-    nonisolated(unsafe) static var closeAllCalls = 0
+    // Test-only statics, written and read on the main thread by one serialized suite.
+    nonisolated(unsafe) static var windowID: Int32 = 0 // crash-allow: main thread only, one serialized suite
+    nonisolated(unsafe) static var windowCount: Int32 = 0 // crash-allow: main thread only, one serialized suite
+    nonisolated(unsafe) static var forkAPIVersion: Int32 = 27 // crash-allow: main thread only, one serialized suite
+    nonisolated(unsafe) static var navigationState = "state-A" // crash-allow: main thread only, one serialized suite
+    nonisolated(unsafe) static var frees = 0 // crash-allow: main thread only, one serialized suite
+    nonisolated(unsafe) static var closeAllCalls = 0 // crash-allow: main thread only, one serialized suite
 
     static func reset() {
         windowID = 0

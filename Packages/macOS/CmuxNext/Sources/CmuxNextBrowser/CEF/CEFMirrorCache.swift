@@ -17,6 +17,8 @@ final class CEFMirrorCache {
     /// The shim the values are read from when an event refreshes them (the in-process shim).
     let source: CEFShimLibrary
     private var values: [CEFMirrorKey: CEFMirrorValue] = [:]
+    /// Strings a mirror read handed out (`strdup`), until the caller frees them with `cmux_shim_free`.
+    private var handedOut: Set<UInt> = []
 
     /// A key's value as one batch pushes it; nil forgets the key (the source answered 0 or NULL).
     nonisolated struct Update: Equatable, Sendable {
@@ -28,10 +30,12 @@ final class CEFMirrorCache {
         self.source = source
     }
 
-    /// A shim whose mirror exports read this cache and whose other exports are `source`'s. The
-    /// host-wide keys are read now, as the remote shim takes them from the host's hello (`attach`).
+    /// A shim whose mirror exports read this cache and whose other exports are `source`'s. The fork's
+    /// capabilities are read now, as the remote shim takes them from the host's hello (`attach`); the
+    /// counts wait for their events (no browser exists before `CefInitialize`, and the fork's window
+    /// list may not be there to ask).
     func shim() throws(CEFShimLibrary.LoadError) -> CEFShimLibrary {
-        apply(CEFMirrorField.allCases.filter(\.isHostWide).map { refreshed(CEFMirrorKey($0)) })
+        apply(CEFMirrorField.allCases.filter(\.isCapability).map { refreshed(CEFMirrorKey($0)) })
         Self.served = self
         return try source.overriding(Self.function(named:))
     }
@@ -96,8 +100,6 @@ final class CEFMirrorCache {
     /// The cache the mirror exports read: a C function pointer carries no context, so the process
     /// has one, as the remote shim's cache is its dylib's (the last ``shim()`` made).
     private static weak var served: CEFMirrorCache?
-    /// Strings a mirror read handed out (`strdup`), until the caller frees them with `cmux_shim_free`.
-    private static var handedOut: Set<UInt> = []
 
     private typealias HostRead = @convention(c) () -> Int32
     private typealias TabRead = @convention(c) (Int32) -> Int32
@@ -149,16 +151,16 @@ final class CEFMirrorCache {
     private nonisolated static func servedInt(_ key: CEFMirrorKey) -> Int32 {
         guard Thread.isMainThread else { return offMain(key, 0) }
         return MainActor.assumeIsolated { // main-proof: guarded by Thread.isMainThread above
-            if case .int(let value)? = served?.values[key] { value } else { 0 }
+            if case .int(let value)? = Self.served?.values[key] { value } else { 0 }
         }
     }
 
     private nonisolated static func servedString(_ key: CEFMirrorKey) -> UnsafeMutablePointer<CChar>? {
         guard Thread.isMainThread else { return offMain(key, nil) }
         let address = MainActor.assumeIsolated { () -> UInt in // main-proof: guarded by Thread.isMainThread above
-            guard case .string(let text)? = served?.values[key], let copy = strdup(text) else { return 0 }
+            guard let served = Self.served, case .string(let text)? = served.values[key], let copy = strdup(text) else { return 0 }
             let address = UInt(bitPattern: copy)
-            handedOut.insert(address)
+            served.handedOut.insert(address)
             return address
         }
         return UnsafeMutablePointer(bitPattern: address)
@@ -170,7 +172,7 @@ final class CEFMirrorCache {
     ) -> Int32 {
         guard Thread.isMainThread else { return offMain(key, 0) }
         let bounds = MainActor.assumeIsolated { () -> CEFMirrorValue.Bounds in // main-proof: guarded by Thread.isMainThread above
-            if case .bounds(let bounds)? = served?.values[key] { bounds } else { CEFMirrorValue.Bounds() }
+            if case .bounds(let bounds)? = Self.served?.values[key] { bounds } else { CEFMirrorValue.Bounds() }
         }
         x?.pointee = bounds.x
         y?.pointee = bounds.y
@@ -189,10 +191,11 @@ final class CEFMirrorCache {
         }
         let address = UInt(bitPattern: pointer)
         MainActor.assumeIsolated { // main-proof: guarded by Thread.isMainThread above
-            if handedOut.remove(address) != nil {
+            guard let served = Self.served else { return }
+            if served.handedOut.remove(address) != nil {
                 Darwin.free(UnsafeMutableRawPointer(bitPattern: address))
             } else {
-                served?.source.free(UnsafeMutablePointer(bitPattern: address))
+                served.source.free(UnsafeMutablePointer(bitPattern: address))
             }
         }
     }

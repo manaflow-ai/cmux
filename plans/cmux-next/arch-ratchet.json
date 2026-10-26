@@ -609,6 +609,12 @@
       "row": "stateful_singletons",
       "allow": 1,
       "why": "p04-input-013: WindowOverlayHost.appInputTap, the app's one InputEventTap for the design kit's overlay owners, set once in CmuxNextApp.main right after the tap is made (before the delegate and services exist) and never changed. The per-window overlay hosts come from the existing static registry WindowOverlayHost.host(for:) at about a dozen sites in nine packages, and NativePopupHost is made by seven owners in five packages, none of which holds the tap; each reads it once when made (NativePopupHost also takes one by init, and an owner with no tap logs a fault). It replaces the NSApp lookup (InputEventTap.application) that review refused. HoverCardCoordinator takes the tap by init from AppServices, and TooltipPresenter.shared gets it as an instance property. Chrome keeps one process-wide source of platform events that UI owners add observers to: ui::PlatformEventSource::GetInstance() (ui/events/platform/platform_event_source.h). It goes when host(for:) becomes an instance registry the composition root passes."
+    },
+    {
+      "date": "2026-10-26",
+      "row": "stateful_singletons",
+      "allow": 1,
+      "why": "p01-process-231: CEFMirrorCache.served, a weak reference to the cache the deferred-event mode's mirror exports read. Those exports replace cmux_shim_* functions whose C signatures (cmux_cef_shim.h, fixed by the shim ABI) carry no context argument, so a @convention(c) function cannot reach an instance; the remote shim keeps its mirror cache as a dylib global for the same reason (ChromiumHost/client/remote_shim.mm). Only with CMUX_CEF_DEFER_EVENTS=1 (a test mode); the runtime owns the cache through its CEFDeferredEvents, the static holds it weakly, and it is main-thread only (an off-main read gets the C zero value and a fault)."
     }
   ],
   "observer_wrappers": [
