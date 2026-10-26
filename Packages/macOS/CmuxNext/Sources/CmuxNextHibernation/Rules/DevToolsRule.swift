@@ -2,7 +2,7 @@
 
 nonisolated extension DiscardRule {
     /// DevTools are open on the page (Chrome's `kDevToolsOpen`).
-    package static let devTools = DiscardRule(.devTools, result: .protected, for: DiscardRule.pressure) { candidate, _ in
+    package static let devTools = DiscardRule(.devTools, result: .protected, for: DiscardRule.automatic) { candidate, _ in
         candidate.hasDevTools
     }
 }

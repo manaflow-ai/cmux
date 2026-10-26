@@ -36,9 +36,26 @@ nonisolated extension Feature {
         runtimeMutable: false
     )
 
+    /// A frozen hidden page whose memory grows by max(50 MB, 25 percent) after it froze is discarded with its opener group, read at 5, 30 and 120 minutes after the freeze.
+    public static let frozenGrowthDiscard = Feature(
+        index: 2,
+        name: "frozenGrowthDiscard",
+        owner: "PL-memory",
+        description: "A frozen hidden page whose memory grows by max(50 MB, 25 percent) after it froze is discarded with its opener group, read at 5, 30 and 120 minutes after the freeze.",
+        kind: .perfPath,
+        process: .app,
+        chromiumFeature: nil,
+        defaults: FeatureDefaults(dev: false, nightly: false, release: false),
+        expires: "2026-12-20",
+        params: [],
+        stories: ["tab-switch"],
+        sticky: false,
+        runtimeMutable: false
+    )
+
     /// A hidden page that changes its title or icon is kept from the Memory Saver timeout, and stays unfrozen so its updates stay live, until it shows; memory pressure still discards it.
     public static let memorySaverBackgroundActivity = Feature(
-        index: 2,
+        index: 3,
         name: "memorySaverBackgroundActivity",
         owner: "PL-memory",
         description: "A hidden page that changes its title or icon is kept from the Memory Saver timeout, and stays unfrozen so its updates stay live, until it shows; memory pressure still discards it.",
@@ -55,7 +72,7 @@ nonisolated extension Feature {
 
     /// Chromium puts each cmux page in its capability group, so pages of one group share a renderer and pages of different groups never do.
     public static let pageProcessGroups = Feature(
-        index: 3,
+        index: 4,
         name: "pageProcessGroups",
         owner: "PL-webui",
         description: "Chromium puts each cmux page in its capability group, so pages of one group share a renderer and pages of different groups never do.",
@@ -159,6 +176,7 @@ nonisolated extension Feature {
     public static let registered: [Feature] = [
         .energySaver,
         .frameRateClasses,
+        .frozenGrowthDiscard,
         .memorySaverBackgroundActivity,
         .pageProcessGroups,
         .pagesSpareWindow,

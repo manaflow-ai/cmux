@@ -54,6 +54,19 @@ struct EnergyPolicyDriverTests {
         #expect(!source.policy.isSaver)
     }
 
+    /// debug.energy reports the feature and "Turn Off for Now" from the driver's resolver, the one that
+    /// decides the policy.
+    @Test func reportsTheResolversFeatureAndSessionOverride() {
+        let off = EnergyPolicyDriver(source: EnergyPolicySource(), isEnabled: false)
+        #expect(!off.isEnabled)
+        #expect(!off.isOffForSession)
+        let on = EnergyPolicyDriver(source: EnergyPolicySource(), isEnabled: true)
+        on.update(setting: .always)
+        on.update(inputs: Self.plugged)
+        #expect(on.isEnabled)
+        #expect(!on.isOffForSession, "nothing turned the saver off for this session")
+    }
+
     @Test func observersHearEachResolvedChangeOnce() {
         let source = EnergyPolicySource()
         let driver = EnergyPolicyDriver(source: source, isEnabled: true)

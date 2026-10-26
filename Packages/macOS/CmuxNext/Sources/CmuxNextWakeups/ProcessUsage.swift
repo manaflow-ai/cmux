@@ -1,29 +1,58 @@
 public import Darwin
 import Foundation
 
-/// CPU time and wakeups of one process (`proc_pid_rusage`), for
-/// `debug.wakeups`, the busy watchdog and the idle benchmark. Cumulative
-/// since the process started: callers diff two samples for rates.
+/// CPU time, CPU energy and wakeups of one process (`proc_pid_rusage`,
+/// `RUSAGE_INFO_V6`), for `debug.wakeups`, `debug.energy`, the busy watchdog
+/// and the idle benchmark. Cumulative since the process started: callers
+/// diff two samples for rates.
 public struct ProcessUsage: Sendable, Equatable {
     public var pid: pid_t
     public var parent: pid_t
     public var path: String
     /// User plus system CPU time.
     public var cpuNanos: UInt64
-    /// Package idle exits plus interrupt wakeups (what Activity Monitor
-    /// calls Idle Wake Ups, and timer/IO interrupts).
+    /// Package idle exits plus interrupt wakeups, as `debug.wakeups` has
+    /// always reported them. The first is a subset of the second, so this
+    /// counts a package-idle exit twice; ``interruptWakeups`` is the
+    /// Chrome-comparable count.
     public var wakeups: UInt64
+    /// Interrupt wakeups (`ri_interrupt_wkups`): the counter Chrome reports
+    /// as idle wakeups. Chrome reads it for its own process as
+    /// `task_power_info.task_interrupt_wakeups` (`task_info(TASK_POWER_INFO)`,
+    /// `GetIdleWakeupsPerSecond` in base/process/process_metrics_apple.mm);
+    /// `proc_pid_rusage` reads the same kernel counter for any of our pids.
+    public var interruptWakeups: UInt64
+    /// Wakeups out of package idle (`ri_pkg_idle_wkups`), a subset of
+    /// ``interruptWakeups`` (Chrome's `GetPackageIdleWakeupsPerSecond`).
+    public var packageIdleWakeups: UInt64
+    /// CPU energy (`ri_energy_nj`); work billed to the render server is not in it.
+    public var energyNanojoules: UInt64
     public var physFootprint: UInt64
     public var uptimeNanos: UInt64
 
     public var name: String { (path as NSString).lastPathComponent }
 
-    /// Samples `pid`; nil when it is gone or not ours.
+    /// A usage from its counters (``sample(_:)`` reads them; tests build them).
+    public init(pid: pid_t, parent: pid_t, path: String, cpuNanos: UInt64, wakeups: UInt64, interruptWakeups: UInt64,
+                packageIdleWakeups: UInt64, energyNanojoules: UInt64, physFootprint: UInt64, uptimeNanos: UInt64) {
+        self.pid = pid
+        self.parent = parent
+        self.path = path
+        self.cpuNanos = cpuNanos
+        self.wakeups = wakeups
+        self.interruptWakeups = interruptWakeups
+        self.packageIdleWakeups = packageIdleWakeups
+        self.energyNanojoules = energyNanojoules
+        self.physFootprint = physFootprint
+        self.uptimeNanos = uptimeNanos
+    }
+
+    /// Samples `pid`; nil when it is gone or not ours. Blocking syscalls: call it off the main actor.
     public static func sample(_ pid: pid_t) -> ProcessUsage? {
-        var info = rusage_info_v4()
+        var info = rusage_info_v6()
         let status = withUnsafeMutablePointer(to: &info) { pointer in
             pointer.withMemoryRebound(to: rusage_info_t?.self, capacity: 1) {
-                proc_pid_rusage(pid, RUSAGE_INFO_V4, $0)
+                proc_pid_rusage(pid, RUSAGE_INFO_V6, $0)
             }
         }
         guard status == 0 else { return nil }
@@ -33,6 +62,8 @@ public struct ProcessUsage: Sendable, Equatable {
         let parent = proc_pidinfo(pid, PROC_PIDTBSDINFO, 0, &bsd, bsdSize) == bsdSize ? pid_t(bsd.pbi_ppid) : 0
         return ProcessUsage(pid: pid, parent: parent, path: path(of: pid) ?? "", cpuNanos: ticksToNanos(ticks),
                             wakeups: info.ri_pkg_idle_wkups &+ info.ri_interrupt_wkups,
+                            interruptWakeups: info.ri_interrupt_wkups, packageIdleWakeups: info.ri_pkg_idle_wkups,
+                            energyNanojoules: info.ri_energy_nj,
                             physFootprint: info.ri_phys_footprint, uptimeNanos: clock_gettime_nsec_np(CLOCK_UPTIME_RAW))
     }
 
