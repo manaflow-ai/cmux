@@ -5,6 +5,7 @@ import Foundation
 import Testing
 import WebKit
 @testable import CmuxNextAgentPane
+import CmuxNextWakeups
 
 private actor BenchHost: AgentPaneHostProviding {
     let url: URL
@@ -157,7 +158,7 @@ struct AgentPaneTransportBench {
             try Self.nativeScript.write(to: directory.appendingPathComponent("bench.js"), atomically: true, encoding: .utf8)
             let model = AgentPaneModel(host: BenchHost(url: server.url))
             // Run alone (pane-native-transport.sh): the first agent page root of a process is the one it serves.
-            let pane = try #require(AgentPaneView(model: model, source: .bundled(page), webUI: .agentPaneTestHost(), gestures: .testing()))
+            let pane = try #require(AgentPaneView(model: model, work: BackgroundWork(label: "test.agent-pane"), source: .bundled(page), webUI: .agentPaneTestHost(), gestures: .testing()))
             pane.frame = window.contentView!.bounds
             print("PANE-STAGE awake \(Self.keepAwake(pane.webView))")
             window.contentView!.addSubview(pane)

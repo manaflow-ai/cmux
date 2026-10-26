@@ -1,3 +1,4 @@
+import CmuxSafeConcurrency
 import Darwin
 public import Foundation
 import Network
@@ -100,7 +101,7 @@ public struct IrxTunnelNetworkConnector: IrxTunnelConnecting {
 }
 
 /// An `NWConnection` behind async calls.
-final class IrxTunnelNWChannel: IrxTunnelByteChannel, @unchecked Sendable {
+final class IrxTunnelNWChannel: IrxTunnelByteChannel {
     private let connection: NWConnection
 
     private init(connection: NWConnection) {
@@ -227,32 +228,35 @@ final class IrxTunnelNWChannel: IrxTunnelByteChannel, @unchecked Sendable {
 
 /// Resumes the connect continuation exactly once, from whichever of state
 /// change, timeout, or cancellation comes first.
-private final class IrxTunnelConnectOutcome: @unchecked Sendable {
-    private let lock = NSLock()
-    private var continuation: CheckedContinuation<Result<Void, IrxTunnelOpenError>, Never>?
-    private var pending: Result<Void, IrxTunnelOpenError>?
+final class IrxTunnelConnectOutcome: Sendable {
+    private typealias Outcome = Result<Void, IrxTunnelOpenError>
+
+    private struct State: Sendable {
+        var continuation: CheckedContinuation<Outcome, Never>?
+        var pending: Outcome?
+    }
+
+    private let state = Mutex(State())
 
     func install(_ continuation: CheckedContinuation<Result<Void, IrxTunnelOpenError>, Never>) {
-        lock.lock()
-        if let pending {
-            lock.unlock()
-            continuation.resume(returning: pending)
-            return
+        let pending: Outcome? = state.withLock { state in
+            if let pending = state.pending { return pending }
+            state.continuation = continuation
+            return nil
         }
-        self.continuation = continuation
-        lock.unlock()
+        if let pending {
+            continuation.resume(returning: pending)
+        }
     }
 
     func finish(_ result: Result<Void, IrxTunnelOpenError>) {
-        lock.lock()
-        guard pending == nil else {
-            lock.unlock()
-            return
+        let continuation: CheckedContinuation<Outcome, Never>? = state.withLock { state in
+            guard state.pending == nil else { return nil }
+            state.pending = result
+            let continuation = state.continuation
+            state.continuation = nil
+            return continuation
         }
-        pending = result
-        let continuation = self.continuation
-        self.continuation = nil
-        lock.unlock()
         continuation?.resume(returning: result)
     }
 }
