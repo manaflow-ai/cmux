@@ -10,6 +10,8 @@ public protocol VSyncLink: AnyObject, Sendable {
     func attachToCurrentRunLoop()
     var isPaused: Bool { get set }
     func invalidate()
+    /// Asks the link to fire at `range`: the fastest rate an armed subscriber of the display needs.
+    func requestFrameRate(_ range: CAFrameRateRange)
 }
 
 /// A screen's `CADisplayLink` as a hub link.
@@ -33,6 +35,10 @@ private final class ScreenVSyncLink: VSyncLink, @unchecked Sendable {
     func invalidate() {
         link.invalidate()
     }
+
+    func requestFrameRate(_ range: CAFrameRateRange) {
+        link.preferredFrameRateRange = range
+    }
 }
 
 /// The vsync thread of each display, which holds that display's only display link.
@@ -50,8 +56,12 @@ private final class ScreenVSyncLink: VSyncLink, @unchecked Sendable {
 ///   posts one coalesced tick to the main run loop: at most one is pending, and a newer tick
 ///   replaces one that main has not taken yet.
 ///
-/// While no subscriber of a display is armed, its link is paused, so no thread wakes. The link goes
-/// with the display's last subscriber; the display's thread stays, asleep in its run loop.
+/// While no subscriber of a display is armed, its link is paused, so no thread wakes, and it runs at
+/// the fastest rate an armed subscriber asked for. The link goes with the display's last subscriber;
+/// the display's thread stays, asleep in its run loop. Chrome keeps a display's link the same way:
+/// `DisplayLinkMac` lives while a consumer holds it and stops its `CADisplayLink` when the last
+/// `VSyncCallbackMac` unregisters (`ui/display/mac/display_link_mac.mm`), so the next arm needs no
+/// main-thread hop to make a link. A display that never gets a link (no screen) gets no thread.
 ///
 /// Subscribe and cancel on the main thread (the real link comes from `NSScreen`). Arm and disarm
 /// from any thread.
@@ -107,16 +117,22 @@ public final class VSyncHub {
     private let makeLink: LinkFactory
     let postToMain: MainPost
     let mediaTime: @Sendable () -> CFTimeInterval
+    /// Displays that got a link once; each keeps its thread.
     private var displays: [CGDirectDisplayID: Display] = [:]
-    /// Subscribers per display; a display's link exists while its count is above 0.
+    /// Subscribers per display.
     private var subscriberCounts: [CGDirectDisplayID: Int] = [:]
+    /// Displays whose link exists now (made with a subscriber, dropped with the last one or by a
+    /// rebuild that found no screen).
+    private var linked: Set<CGDirectDisplayID> = []
     /// Live subscription ids and their displays.
     private var live: [UInt64: CGDirectDisplayID] = [:]
     private var nextID: UInt64 = 0
     /// The main fan-out's hop: from the hub thread's post to main taking the tick.
     public let mainHop: HopMeter
-    /// Links made since creation (debug).
+    /// Links made since creation, rebuilds included (debug).
     public private(set) var linksMade: UInt64 = 0
+    /// Hub threads started since creation: one per display that got a link (debug).
+    public private(set) var threadsStarted: UInt64 = 0
 
     /// - Parameters:
     ///   - makeLink: Makes a display's link; nil for the real `NSScreen` link.
@@ -133,7 +149,8 @@ public final class VSyncHub {
 
     // MARK: Subscribers
 
-    /// Adds a subscriber to `display`, making the display's link when it is the first.
+    /// Adds a subscriber to `display`, making the display's link when it has none. The display's
+    /// thread starts with its first link, so a display with no screen costs only the factory call.
     ///
     /// - Parameters:
     ///   - display: The display whose vsync drives the subscriber.
@@ -145,16 +162,11 @@ public final class VSyncHub {
     ///   screen, so no link can exist.
     public func subscribe(to display: CGDirectDisplayID, owner: String, armed: Bool = false,
                           onVSync: @escaping @Sendable (Tick) -> Demand) -> Subscription? {
-        let isNew = displays[display] == nil
+        // A display seen for the first time has no thread until its link exists.
         let state = displays[display] ?? Display(id: display, threadName: "cmux-next vsync \(display)")
-        if subscriberCounts[display, default: 0] == 0 {
-            guard let link = makeLink(display, LinkTarget(display: state)) else {
-                if isNew { state.stop() }
-                return nil
-            }
-            displays[display] = state
-            linksMade += 1
-            state.install(link)
+        if !linked.contains(display) {
+            guard let link = makeLink(display, LinkTarget(display: state)) else { return nil }
+            install(link, on: state)
         }
         subscriberCounts[display, default: 0] += 1
         nextID += 1
@@ -167,13 +179,48 @@ public final class VSyncHub {
         guard let display = live.removeValue(forKey: subscription.id) else { return }
         let left = subscriberCounts[display, default: 1] - 1
         subscriberCounts[display] = left
+        if left == 0 { linked.remove(display) }
         subscription.display.remove(subscription.id, lastSubscriber: left == 0)
+    }
+
+    /// Replaces `display`'s link with a new one from the factory: a frame clock's stall rebuild (a
+    /// link that stopped after display sleep or a reconfiguration). Every subscriber of the display
+    /// keeps its subscription and ticks on the new link. When the factory finds no screen, the stuck
+    /// link is dropped, and the next ``subscribe(to:owner:armed:onVSync:)`` tries again.
+    ///
+    /// - Returns: Whether a new link was made.
+    @discardableResult
+    public func rebuildLink(display: CGDirectDisplayID) -> Bool {
+        guard let state = displays[display], subscriberCounts[display, default: 0] > 0 else { return false }
+        guard let link = makeLink(display, LinkTarget(display: state)) else {
+            linked.remove(display)
+            state.dropLinkLater()
+            return false
+        }
+        install(link, on: state)
+        return true
+    }
+
+    /// Hands `link` to `state`'s thread (it replaces the old one there) and starts the thread with
+    /// the display's first link.
+    private func install(_ link: any VSyncLink, on state: Display) {
+        displays[state.id] = state
+        linked.insert(state.id)
+        linksMade += 1
+        if state.install(link) { threadsStarted += 1 }
     }
 
     // MARK: Debug
 
-    /// Displays whose link exists now (one per display with a subscriber; 0 when none).
-    public var liveLinks: Int { subscriberCounts.values.filter { $0 > 0 }.count }
+    /// Displays whose link runs now: a link exists and a subscriber is armed (0 at idle). A display
+    /// whose subscribers are all disarmed keeps a paused link, which wakes no thread (``pausedLinks``).
+    public var liveLinks: Int { linked.filter { (displays[$0]?.armedCount ?? 0) > 0 }.count }
+
+    /// Displays whose link exists but is paused: subscribers, none armed.
+    public var pausedLinks: Int { linked.count - liveLinks }
+
+    /// Hub threads running now (one per display that got a link; ``stopThreads()`` ends them).
+    public var runningThreads: Int { displays.values.filter(\.hasThread).count }
 
     /// Subscribers of `display` that tick at its next vsync.
     public func armedSubscribers(on display: CGDirectDisplayID) -> Int {
@@ -190,6 +237,7 @@ public final class VSyncHub {
         for state in displays.values { state.stop() }
         displays.removeAll()
         subscriberCounts.removeAll()
+        linked.removeAll()
         live.removeAll()
     }
 
@@ -215,12 +263,10 @@ public final class VSyncHub {
         }
         // The one display link of this display (scripts/cmux-next/check-concurrency.sh allows it only here).
         let link = screen.displayLink(target: target, selector: #selector(LinkTarget.tick(_:)))
-        link.preferredFrameRateRange = motionRange
+        // Springs step every display frame until an armed subscriber asks for less.
+        link.preferredFrameRateRange = FrameRate.motion.range
         return ScreenVSyncLink(link)
     }
-
-    /// Springs step every display frame: 120 Hz on ProMotion (never below 80), the display's rate elsewhere.
-    private static let motionRange = CAFrameRateRange(minimum: 80, maximum: 120, preferred: 120)
 }
 
 extension VSyncHub {
@@ -243,6 +289,14 @@ extension VSyncHub {
 
         /// Stops ticking; the link pauses when no subscriber of the display is armed.
         public func disarm() { display.disarm(id) }
+
+        /// Asks for `range` while armed (the display's full rate until then). The link runs at the
+        /// fastest rate any armed subscriber of the display asked for.
+        public func requestFrameRate(_ range: CAFrameRateRange) { display.request(id, rate: LinkRate(range)) }
+
+        /// Replaces the display's link (``VSyncHub/rebuildLink(display:)``); false when no new link
+        /// could be made.
+        @MainActor public func relink() -> Bool { hub.rebuildLink(display: display.id) }
 
         /// Leaves the display; its link goes with the last subscriber. No effect after the first call.
         @MainActor public func cancel() { hub.cancel(self) }

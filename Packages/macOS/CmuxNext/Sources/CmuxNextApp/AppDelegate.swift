@@ -78,9 +78,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         self.startupTrace = startupTrace
         self.wireStats = wireStats
         self.launchCleanup = launchCleanup
-        // One display link per display, on that display's vsync thread (VSyncHub), shared by the app,
-        // window and budgeted frame schedulers through one coalesced main post per vsync.
-        let displays = DisplayClock(hub: VSyncHub())
+        // One display link per display, shared by the app, window and budgeted frame schedulers.
+        let displays = DisplayClock()
         FrameScheduler.install(displays: displays)
         // The launch's phases (p06-scheduler-006/007): background work waits for the reveal, idle
         // work for the settle. The marks are queued first, so each shows before the held work it opens.
@@ -153,6 +152,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let rateClasses = services.features.isEnabled(.frameRateClasses)
         FrameScheduler.appDisplays.followsClientRates = rateClasses
         DesignSettings.shared.loopsFollowFrameRate = rateClasses
+        // VSyncHub (p03-rendering-014): each display's link on that display's vsync thread, one
+        // coalesced main post per vsync. Off until the hop measurement is recorded (threading-model.md).
+        if services.features.isEnabled(.vsyncHub) { FrameScheduler.appDisplays.hub = VSyncHub() }
         // The settle references, one closure each, before the daemon starts and the windows restore
         // (Chrome's StartupObserver, after_startup_task_utils.cc). A hidden launch (no window on
         // screen) reveals at once.

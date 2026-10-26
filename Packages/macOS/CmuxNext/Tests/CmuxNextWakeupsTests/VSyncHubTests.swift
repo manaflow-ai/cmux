@@ -35,8 +35,9 @@ import Testing
         #expect(!link.attachedOnMain)
     }
 
-    /// No subscriber: no link. Subscribed but not armed: the link is paused (no wake). A tick that
-    /// returns `.done` disarms and pauses; the last subscriber leaving drops the link.
+    /// No subscriber: no link. Subscribed but not armed: the link is paused (no wake) and does not
+    /// count as live. A tick that returns `.done` disarms and pauses; the last subscriber leaving
+    /// drops the link.
     @Test func zeroArmedSubscribersMeansNoWakeAndNoSubscriberMeansNoLink() async throws {
         let links = FakeVSyncLinks()
         let hub = VSyncHub(makeLink: links.make, postToMain: { _ in })
@@ -51,7 +52,8 @@ import Testing
         })
         await hub.onHubThread(1) {}
         let link = try #require(links.made.first)
-        #expect(hub.liveLinks == 1)
+        #expect(hub.liveLinks == 0, "no subscriber is armed: no live link")
+        #expect(hub.pausedLinks == 1)
         #expect(link.isPaused, "no subscriber is armed: the link must not wake the thread")
 
         try await links.fire(hub, display: 1, timestamp: 1, targetTimestamp: 1.01)
@@ -61,15 +63,17 @@ import Testing
         await hub.onHubThread(1) {}
         #expect(!link.isPaused)
         #expect(hub.armedSubscribers(on: 1) == 1)
+        #expect(hub.liveLinks == 1)
 
         try await links.fire(hub, display: 1, timestamp: 2, targetTimestamp: 2.01)
         #expect(seen.calls.count == 1)
         #expect(hub.armedSubscribers(on: 1) == 0, "an empty tick disarms")
         #expect(link.isPaused, "nothing armed after the tick: the link pauses")
+        #expect(hub.liveLinks == 0)
 
         surface.cancel()
         await hub.onHubThread(1) {}
-        #expect(hub.liveLinks == 0)
+        #expect(hub.liveLinks == 0 && hub.pausedLinks == 0)
         #expect(link.invalidated, "the last subscriber leaving drops the link")
         #expect(links.made.count == 1)
     }
@@ -192,14 +196,150 @@ import Testing
         link.invalidate()
     }
 
-    /// A display with no screen gets no link and no subscription.
-    @Test func aDisplayWithNoScreenGetsNoLink() {
+    /// A display with no screen gets no link, no subscription and no thread, however often it is
+    /// asked: before, each try started a hub thread that never ended.
+    @Test func aDisplayWithNoScreenGetsNoLinkAndNoThread() {
         let hub = VSyncHub(makeLink: { _, _ in nil }, postToMain: { _ in })
         defer { hub.stopThreads() }
-        #expect(hub.subscribe(to: 3, owner: "surface", armed: true) { _ in .more } == nil)
+        for _ in 0..<20 {
+            #expect(hub.subscribe(to: 3, owner: "surface", armed: true) { _ in .more } == nil)
+        }
         #expect(hub.liveLinks == 0)
         #expect(hub.linksMade == 0)
+        #expect(hub.threadsStarted == 0, "a display with no link must not start a hub thread")
+        #expect(hub.runningThreads == 0)
     }
+
+    /// A frame clock on no screen (a headless launch, a closed lid with no external display) retries
+    /// its link on every stall deadline; through the hub no retry starts a thread.
+    @Test func aClockWithNoScreenStartsNoHubThreadOnItsStallRetries() {
+        let factory = CountingNilFactory()
+        let hub = VSyncHub(makeLink: factory.make, postToMain: { _ in })
+        defer { hub.stopThreads() }
+        let time = ClockTime()
+        let displays = DisplayClock(hub: hub, displayOf: { _ in nil }, clock: ManualClock(), mediaTime: time.read)
+        let scheduler = FrameScheduler(name: "headless", host: .screen, displays: displays, budget: nil)
+        let client = FrameClient(owner: "daemon mirror", on: scheduler) { _ in true }
+        client.activate()
+
+        for _ in 0..<10 {
+            time.now += 0.2
+            displays.stallTimerFired(DisplayClock.noDisplay)
+        }
+
+        #expect(factory.calls >= 4, "the clock retries the link on its stall deadlines")
+        #expect(hub.threadsStarted == 0)
+        #expect(hub.runningThreads == 0)
+        #expect(hub.linksMade == 0 && displays.liveLinks == 0)
+        client.deactivate()
+    }
+
+    /// A stall rebuild through the hub rebuilds the display's shared link, so an off-main producer
+    /// on the same display moves to the new link too (cancel and re-subscribe would keep the stuck one).
+    @Test func aStallRebuildThroughTheHubRebuildsTheSharedLink() async throws {
+        let links = FakeVSyncLinks()
+        let hub = VSyncHub(makeLink: links.make, postToMain: { _ in })
+        defer { hub.stopThreads() }
+        let time = ClockTime()
+        let displays = DisplayClock(hub: hub, displayOf: { _ in 1 }, clock: ManualClock(), mediaTime: time.read)
+        let scheduler = FrameScheduler(name: "window", host: .screen, displays: displays, budget: nil)
+        let client = FrameClient(owner: "spring", on: scheduler) { _ in true }
+        let offMain = CallbackLog()
+        let surface = try #require(hub.subscribe(to: 1, owner: "surface", armed: true) { tick in
+            offMain.record(tick: tick)
+            return .more
+        })
+        client.activate()
+        #expect(links.made.count == 1)
+
+        for _ in 0..<DisplayClock.stallsBeforeRebuild {
+            time.now += 0.2
+            displays.stallTimerFired(1)
+        }
+        await hub.onHubThread(1) {}
+
+        #expect(links.made.count == 2, "the rebuild made a new link")
+        #expect(hub.linksMade == 2)
+        #expect(displays.linksMade == 2)
+        let first = try #require(links.made.first)
+        let second = try #require(links.made.last)
+        #expect(first.invalidated, "the stuck link must go")
+        #expect(!second.invalidated && !second.isPaused)
+        #expect(second.attachedThread == "cmux-next vsync 1")
+        #expect(hub.threadsStarted == 1, "the new link runs on the display's thread")
+        try await links.fire(hub, display: 1, timestamp: 5, targetTimestamp: 5.01)
+        #expect(offMain.calls.count == 1, "the producer ticks on the new link")
+
+        client.deactivate()
+        surface.cancel()
+    }
+
+    /// The link runs at the fastest rate an armed subscriber asked for: the main clock's 30 Hz alone,
+    /// the display's full rate once a producer that asked for nothing arms beside it.
+    @Test func theLinkRunsAtTheFastestRateAnArmedSubscriberAsksFor() async throws {
+        let links = FakeVSyncLinks()
+        let hub = VSyncHub(makeLink: links.make, postToMain: { _ in })
+        defer { hub.stopThreads() }
+        let main = try #require(hub.mainLink(display: 1) { _ in })
+        main.requestFrameRate(FrameRate.ambient.range)
+        await hub.onHubThread(1) {}
+        let link = try #require(links.made.first)
+        #expect(link.requestedRates.last == 30)
+
+        let surface = try #require(hub.subscribe(to: 1, owner: "surface", armed: true) { _ in .more })
+        await hub.onHubThread(1) {}
+        #expect(link.requestedRates.last == 120)
+
+        surface.disarm()
+        await hub.onHubThread(1) {}
+        #expect(link.requestedRates.last == 30)
+        surface.cancel()
+        main.invalidate()
+    }
+
+    /// A hub thread stopped before its run loop ran ends (`CFRunLoopStop` on a run loop that is not
+    /// running does nothing, so the thread would sleep forever).
+    @Test func aHubThreadStoppedBeforeItsRunLoopRunsEnds() async {
+        await withCheckedContinuation { (exited: CheckedContinuation<Void, Never>) in
+            let thread = VSyncHub.HubThread(name: "cmux-next vsync test") { exited.resume() }
+            #expect(thread.start())
+            thread.stop()
+        }
+    }
+
+    /// A hub thread stopped while its run loop runs ends after the blocks posted before the stop.
+    @Test func aRunningHubThreadEndsOnStop() async {
+        let ran = CallbackLog()
+        await withCheckedContinuation { (exited: CheckedContinuation<Void, Never>) in
+            let thread = VSyncHub.HubThread(name: "cmux-next vsync test") { exited.resume() }
+            #expect(thread.start())
+            thread.post { ran.record(tick: VSyncHub.Tick(display: 0, timestamp: 0, targetTimestamp: 0, sequence: 1)) }
+            thread.stop()
+            #expect(!thread.isRunning)
+            #expect(!thread.start(), "a stopped thread never starts again")
+        }
+        #expect(ran.calls.count == 1)
+    }
+}
+
+/// A link factory that finds no screen and counts how often it was asked.
+@MainActor
+private final class CountingNilFactory {
+    private(set) var calls = 0
+
+    var make: VSyncHub.LinkFactory {
+        { [self] _, _ in
+            calls += 1
+            return nil
+        }
+    }
+}
+
+/// `CACurrentMediaTime` for a frame clock's stall checks.
+@MainActor
+private final class ClockTime {
+    var now: CFTimeInterval = 1000
+    var read: @MainActor () -> CFTimeInterval { { [self] in now } }
 }
 
 /// A display link whose vsyncs the test fires on the hub thread.
@@ -212,6 +352,7 @@ private final class FakeVSyncLink: VSyncLink, Sendable {
         var invalidated = false
         var attachedThread: String?
         var attachedOnMain = false
+        var requestedRates: [Float] = []
     }
 
     init(target: VSyncHub.LinkTarget) {
@@ -233,6 +374,14 @@ private final class FakeVSyncLink: VSyncLink, Sendable {
     }
 
     func invalidate() { state.withLock { $0.invalidated = true } }
+
+    func requestFrameRate(_ range: CAFrameRateRange) {
+        let preferred = range.preferred ?? range.maximum
+        state.withLock { $0.requestedRates.append(preferred) }
+    }
+
+    /// The preferred rate of each request, in order.
+    var requestedRates: [Float] { state.withLock { $0.requestedRates } }
 
     var invalidated: Bool { state.withLock { $0.invalidated } }
     var attachedThread: String? { state.withLock { $0.attachedThread } }

@@ -25,10 +25,12 @@ extension VSyncHub {
         return link
     }
 
-    /// debug.wakeups' `vsync` counts: live links, links made, main hop ticks, and the main hop's p50 and p99
-    /// in milliseconds (absent before the first tick).
+    /// debug.wakeups' `vsync` counts: live links (displays with an armed subscriber), paused links, links
+    /// made, hub threads running, main hop ticks, and the main hop's p50 and p99 in milliseconds (absent
+    /// before the first tick).
     public var debugCounts: [String: Double] {
-        var counts = ["live_links": Double(liveLinks), "links_made": Double(linksMade), "main_hop_ticks": Double(mainHop.count)]
+        var counts = ["live_links": Double(liveLinks), "paused_links": Double(pausedLinks), "links_made": Double(linksMade),
+                      "threads": Double(runningThreads), "main_hop_ticks": Double(mainHop.count)]
         counts["main_hop_p50_ms"] = mainHop.percentile(0.5).map { $0 * 1000 }
         counts["main_hop_p99_ms"] = mainHop.percentile(0.99).map { $0 * 1000 }
         return counts
@@ -93,7 +95,8 @@ extension VSyncHub {
     }
 
     /// The ``FrameLink`` the main frame clock holds: unpausing arms its subscription, pausing
-    /// disarms it, and invalidating cancels it.
+    /// disarms it, a rate request is its subscription's, ``relink()`` rebuilds the display's hub link,
+    /// and invalidating cancels it.
     @MainActor
     final class MainLink: FrameLink {
         let mailbox = MainMailbox()
@@ -119,6 +122,16 @@ extension VSyncHub {
         func invalidate() {
             subscription?.cancel()
             subscription = nil
+        }
+
+        func requestFrameRate(_ range: CAFrameRateRange) {
+            subscription?.requestFrameRate(range)
+        }
+
+        /// Replaces the display's hub link, which every subscriber of the display ticks on (a stall
+        /// rebuild); false when no new link could be made.
+        func relink() -> Bool {
+            subscription?.relink() ?? false
         }
 
         /// The main run loop's pass for the pending tick.

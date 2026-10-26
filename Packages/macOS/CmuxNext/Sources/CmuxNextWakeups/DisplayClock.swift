@@ -30,17 +30,19 @@ public import QuartzCore
 /// link of the display they are on now, `ui/display/mac/display_link_mac.h`). So a display whose
 /// screen went away never keeps its subscribers on the deadline's 10 Hz.
 ///
-/// With a ``VSyncHub`` (the app's), the hub holds each display's only link on the display's vsync
-/// thread, and this clock is one of its subscribers: each vsync reaches main as one coalesced post,
-/// at most one pending (``VSyncHub/mainLink(display:onTick:)``; Chrome's `VSyncCallbackMac` posting
-/// to the thread that registered it, `ui/display/mac/display_link_mac.mm`). Without one, the clock
-/// makes a link on the main run loop per display: the measured fallback of threading-model.md's
-/// VSyncHub row, a main link next to the hub's.
+/// With a ``VSyncHub`` (feature `vsyncHub`), the hub holds each display's only link on the display's
+/// vsync thread, and this clock is one of its subscribers: each vsync reaches main as one coalesced
+/// post, at most one pending (``VSyncHub/mainLink(display:onTick:)``; Chrome's `VSyncCallbackMac`
+/// posting to the thread that registered it, `ui/display/mac/display_link_mac.mm`). A stall rebuild
+/// then rebuilds the hub's link of the display, which its off-main subscribers tick on too. Without
+/// a hub (the default until threading-model.md's VSyncHub row records the hop measurement), the
+/// clock makes a link on the main run loop per display.
 ///
 /// ```swift
 /// // The composition root builds the app's clock and installs it:
-/// let displays = DisplayClock(hub: VSyncHub())
+/// let displays = DisplayClock()
 /// FrameScheduler.install(displays: displays)
+/// displays.hub = features.isEnabled(.vsyncHub) ? VSyncHub() : nil // at launch
 /// let mainWork = MainWorkScheduler(budget: budget, displays: displays)
 ///
 /// // A test counts links with a fake factory and fires frames by hand:
@@ -70,14 +72,21 @@ public final class DisplayClock {
     /// spring or a scroll that starts soon after the last one ended never finds the link slowed.
     public static let framesBeforeLowering = 60
 
-    private let makeLink: LinkFactory
+    /// The injected link factory (tests); nil: the hub's main links, or main-run-loop links.
+    private let makeLink: LinkFactory?
     private let displayOf: DisplayResolver
     private let isVisible: VisibilityResolver
     private let clock: any Clock<Duration>
     private let ledger: WakeupLedger
     private let mediaTime: @MainActor () -> CFTimeInterval
-    /// The hub whose display threads hold this clock's links (nil: main-run-loop links).
-    public let hub: VSyncHub?
+    /// The hub whose display threads hold this clock's links (nil: main-run-loop links). Set at
+    /// launch (feature `vsyncHub`); a change moves every link there is to the new source.
+    public var hub: VSyncHub? {
+        didSet {
+            guard hub !== oldValue else { return }
+            for display in displays.values { relink(display) }
+        }
+    }
     private var displays: [CGDirectDisplayID: Display] = [:]
 
     /// Display links made since creation, stall rebuilds included (debug.wakeups).
@@ -93,7 +102,7 @@ public final class DisplayClock {
     }
 
     /// - Parameters:
-    ///   - hub: The app's vsync hub; nil: no hub.
+    ///   - hub: The vsync hub whose display threads hold the links (``hub``); nil: main-run-loop links.
     ///   - makeLink: Makes a display's link; nil: `hub`'s main link of that display, or without a hub a
     ///     `CADisplayLink` of the `NSScreen` with that number on the main run loop.
     ///   - displayOf: Resolves a window's display; nil: the window's screen, else the main screen.
@@ -109,13 +118,7 @@ public final class DisplayClock {
                 followsClientRates: Bool = false) {
         self.followsClientRates = followsClientRates
         self.hub = hub
-        if let makeLink {
-            self.makeLink = makeLink
-        } else if let hub {
-            self.makeLink = DisplayClock.hubLinks(hub)
-        } else {
-            self.makeLink = { display, clock in DisplayClock.systemLink(display, clock) }
-        }
+        self.makeLink = makeLink
         self.displayOf = displayOf ?? { window in DisplayClock.systemDisplay(window) }
         self.isVisible = isVisible ?? { window in DisplayClock.systemIsVisible(window) }
         self.clock = clock
@@ -382,11 +385,40 @@ public final class DisplayClock {
         return display
     }
 
+    @discardableResult
     private func make(_ display: Display) -> (any FrameLink)? {
-        let made = makeLink(display.id, self)
+        let made = newLink(display.id)
         if made != nil { linksMade += 1 }
         setLink(display, made)
         return made
+    }
+
+    private func newLink(_ id: CGDirectDisplayID) -> (any FrameLink)? {
+        if let makeLink { return makeLink(id, self) }
+        if let hub { return Self.hubLink(hub, id, self) }
+        return Self.systemLink(id, self)
+    }
+
+    /// Replaces `display`'s link after repeated stalls. A hub link rebuilds the hub's link of the
+    /// display in place, so the hub's other subscribers there tick on the new link too; any other
+    /// link (or a hub that found no screen) is replaced by a new one.
+    private func rebuildLink(_ display: Display) -> (any FrameLink)? {
+        if let link = display.link as? VSyncHub.MainLink, link.relink() {
+            linksMade += 1
+            return link
+        }
+        display.link?.invalidate()
+        return make(display)
+    }
+
+    /// Moves `display`'s link, if it has one, to the clock's link source now (``hub`` changed); it
+    /// stays paused if it was.
+    private func relink(_ display: Display) {
+        guard let old = display.link else { return }
+        let paused = old.isPaused
+        old.invalidate()
+        make(display)?.isPaused = paused
+        applyRate(display, .setting)
     }
 
     /// Sets `display`'s link and tells its subscribers whether a link ticks them now.
@@ -443,28 +475,23 @@ public final class DisplayClock {
         }
         display.stalls += 1
         let rebuild = display.stalls >= Self.stallsBeforeRebuild
-        if rebuild {
-            display.stalls = 0
-            display.link?.invalidate()
-        }
+        if rebuild { display.stalls = 0 }
         display.lastStall = FrameStall(startedAt: display.lastFrame, detectedAt: mediaTime())
         for scheduler in display.subscribers { ledger.record("FrameScheduler.\(scheduler.name)", reason: "stalled frame") }
         deliver(display, timestamp: nil, refreshInterval: nil, hiddenUntil: nil)
         guard !display.subscribers.isEmpty else { return idle(display) }
         // No link (the display has no screen yet): its subscribers tick on the deadline and retry.
-        (rebuild || display.link == nil ? make(display) : display.link)?.isPaused = false
+        (rebuild ? rebuildLink(display) : display.link ?? make(display))?.isPaused = false
         arm(display)
     }
 
     // MARK: System links
 
-    /// Links that ride `hub`'s display threads: each vsync of the display is one main post that ticks the clock.
-    private static func hubLinks(_ hub: VSyncHub) -> LinkFactory {
-        { display, clock in
-            hub.mainLink(display: display) { [weak clock] tick in
-                clock?.displayDidFire(display, timestamp: tick.timestamp, refreshInterval: tick.refreshInterval,
-                                      targetTimestamp: tick.targetTimestamp)
-            }
+    /// A link that rides `hub`'s display thread: each vsync of the display is one main post that ticks the clock.
+    private static func hubLink(_ hub: VSyncHub, _ display: CGDirectDisplayID, _ clock: DisplayClock) -> (any FrameLink)? {
+        hub.mainLink(display: display) { [weak clock] tick in
+            clock?.displayDidFire(display, timestamp: tick.timestamp, refreshInterval: tick.refreshInterval,
+                                  targetTimestamp: tick.targetTimestamp)
         }
     }
 
