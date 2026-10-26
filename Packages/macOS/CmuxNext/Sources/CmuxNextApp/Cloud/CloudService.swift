@@ -487,8 +487,11 @@ final class CloudService {
     /// ends with its machine and its bootstrap.
     static func createWithKey(_ api: CloudAPIClient, name: String?, request: CloudMachineRequest, idlePause: Int?,
                               onSent: @escaping @MainActor @Sendable () async -> Void) async throws -> CloudMachine {
-        let send = { try await api.createMachine(displayName: name, memoryMb: request.memoryMb, idlePauseMinutes: idlePause,
-                                                 idempotencyKey: request.idempotencyKey, onSent: onSent) }
+        // The team is the first try's: the server scopes a key per team, so a team switched in the
+        // app meanwhile must not make the same key a new machine in the other team.
+        let pinned = api.pinningTeam(await api.currentTeam())
+        let send = { try await pinned.createMachine(displayName: name, memoryMb: request.memoryMb, idlePauseMinutes: idlePause,
+                                                    idempotencyKey: request.idempotencyKey, onSent: onSent) }
         for _ in 0..<inProgressRetries {
             do {
                 return try await send()
@@ -501,7 +504,9 @@ final class CloudService {
         return try await send()
     }
 
-    static let inProgressRetries = 20
+    /// 70 tries 15 s apart: past the server's 16-minute provisioning budget (routeDeadline.ts
+    /// `create`), with each try's own answer time on top.
+    static let inProgressRetries = 70
     static let inProgressDelay: Duration = .seconds(15)
 
     func deleteMachine(_ machineID: String) async throws {

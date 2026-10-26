@@ -38,6 +38,12 @@ struct CloudNewMachineTests {
         #expect(request.bootstrapPath == "/tmp/lane-vm-bootstrap")
     }
 
+    @Test func aCreateSizeSaysTheVCPUsTheServerLadderGives() throws {
+        let request = try CloudHandlers.newMachineRequest(Self.invocation(["size": .string("xlarge")]))
+        #expect(request.memoryMb == 24576)
+        #expect(CloudHandlers.newMachineFields(request, nil)["cpu"] == .int(12), "24 GiB is the 12 vCPU row, not resize's 16")
+    }
+
     @Test func anUnknownSizeIsRefusedWithTheChoices() {
         #expect(throws: ActionFailure.self) { try CloudHandlers.newMachineRequest(Self.invocation(["size": .string("huge")])) }
     }

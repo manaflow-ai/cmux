@@ -48,7 +48,7 @@ extension CloudHandlers {
         // refuse it rather than make a machine without what was asked.
         for name in ["name", "size", "bootstrap", "bootstrapScript"] where invocation[name] != nil && invocation[name]?.stringValue == nil {
             switch name {
-            case "size": throw ActionFailure(message: CloudStrings.sizeMustBeOneOf(sizes.keys.sorted().joined(separator: ", ")))
+            case "size": throw ActionFailure(message: CloudStrings.sizeMustBeOneOf(createSizes.keys.sorted().joined(separator: ", ")))
             case "name": throw ActionFailure(message: CloudStrings.laneNeedsName)
             default: throw ActionFailure(message: CloudStrings.bootstrapScriptRequired)
             }
@@ -59,7 +59,7 @@ extension CloudHandlers {
             request.name = name
         }
         if let size = invocation["size"]?.stringValue {
-            guard let (_, memory) = sizes[size] else { throw ActionFailure(message: CloudStrings.sizeMustBeOneOf(sizes.keys.sorted().joined(separator: ", "))) }
+            guard let (_, memory) = createSizes[size] else { throw ActionFailure(message: CloudStrings.sizeMustBeOneOf(createSizes.keys.sorted().joined(separator: ", "))) }
             request.size = size
             request.memoryMb = memory
         }
@@ -113,13 +113,18 @@ extension CloudHandlers {
         }
     }
 
+    /// `cloud new-machine --size` -> (vCPUs, MiB) as the server's size ladder makes them from the
+    /// memory a create sends (web/services/vms/images/sizes.ts: the smallest row with that memory),
+    /// so the answer says what the machine gets. `resize-machine` sets vCPUs itself (``sizes``).
+    static let createSizes: [String: (Int, Int)] = ["small": (2, 4096), "medium": (4, 8192), "large": (8, 16384), "xlarge": (12, 24576)]
+
     /// The request's facts as `action.run` result fields, next to the machine's. `persistent`
     /// is what the server stored, not what was asked (`persistent_requested`); a `pending`
     /// answer, with no machine yet, has no `persistent`.
     static func newMachineFields(_ request: CloudMachineRequest, _ machine: CloudMachine?) -> [String: ActionResultValue] {
         var fields: [String: ActionResultValue] = ["persistent_requested": .bool(request.persistent)]
         if let name = machine?.displayName ?? request.name { fields["name"] = .string(name) }
-        let asked = request.size.flatMap { size in sizes[size].map { (size, $0.0, $0.1) } }
+        let asked = request.size.flatMap { size in createSizes[size].map { (size, $0.0, $0.1) } }
         if let size = asked?.0 ?? machine?.size?.name { fields["size"] = .string(size) }
         if let cpu = machine?.size?.cpu ?? asked?.1 { fields["cpu"] = .int(cpu) }
         if let memory = machine?.size?.memoryMb ?? asked?.2 { fields["memory_mb"] = .int(memory) }

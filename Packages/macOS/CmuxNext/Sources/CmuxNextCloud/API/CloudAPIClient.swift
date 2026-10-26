@@ -12,7 +12,7 @@ public struct CloudAPIClient: Sendable {
     public let baseURL: URL
     let backendIsLocalOnly: Bool
     let tokens: Tokens
-    let teamID: TeamID
+    private(set) var teamID: TeamID
     let session: URLSession
     let appVersion: String
 
@@ -27,6 +27,17 @@ public struct CloudAPIClient: Sendable {
         configuration.httpCookieAcceptPolicy = .never
         return URLSession(configuration: configuration)
     }()
+
+    /// The team requests go to now (`X-Cmux-Team-Id`).
+    public func currentTeam() async -> String? { await teamID() }
+
+    /// This client with its team fixed to `team`: every request of a create and its retries
+    /// goes to the same team whatever the app switches to meanwhile.
+    public func pinningTeam(_ team: String?) -> CloudAPIClient {
+        var copy = self
+        copy.teamID = { team }
+        return copy
+    }
 
     public init(configuration: CloudConfiguration, tokens: @escaping Tokens, teamID: @escaping TeamID,
                 session: URLSession = CloudAPIClient.noStoreTransport, appVersion: String = "cmux-next") {
