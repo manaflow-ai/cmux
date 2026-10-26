@@ -340,6 +340,8 @@ pub(crate) struct ClientRegistry {
     pub(super) next_id: AtomicU64,
     pub(super) resource_stream_admission: Arc<ResourceWorkerAdmission>,
     pub(super) resource_wait_admission: Arc<ResourceWorkerAdmission>,
+    /// The framed IPC transports this daemon serves (capabilities.rs).
+    pub(super) ipc_transports: super::capabilities::IpcTransports,
     pub(super) state: Mutex<ClientRegistryState>,
 }
 
@@ -407,6 +409,7 @@ impl ClientRegistry {
                 RESOURCE_WAITS_PER_CLIENT_CAPACITY,
                 RESOURCE_WAITS_SERVER_CAPACITY,
             ),
+            ipc_transports: super::capabilities::IpcTransports::default(),
             state: Mutex::new(ClientRegistryState::default()),
         }
     }
@@ -644,8 +647,12 @@ impl ClientRegistry {
         if let Some(kind) = kind {
             record.kind = Some(clamp_client_label(kind));
         }
+        // A new revision may have ended framed IPC grants: remove them before
+        // anything counts them as held.
+        super::capabilities::revoke_lapsed_ipc_grants(record, &self.ipc_transports);
         if let Some(capabilities) = capabilities {
-            let ipc = super::capabilities::IpcGrant::of(record, &capabilities);
+            let ipc =
+                super::capabilities::IpcGrant::of(record, &capabilities, &self.ipc_transports);
             record.capabilities.extend(capabilities.into_iter().filter(|capability| {
                 ipc.allows(capability)
                     || capability == GUARDED_BROWSER_POINTER_CAPABILITY
@@ -899,12 +906,9 @@ impl ClientRegistry {
     }
 
     pub(crate) fn supports_capability(&self, client: u64, capability: &str) -> bool {
-        self.state
-            .lock()
-            .recover_poison()
-            .clients
-            .get(&client)
-            .is_some_and(|record| super::capabilities::holds(record, capability))
+        self.state.lock().recover_poison().clients.get(&client).is_some_and(|record| {
+            super::capabilities::holds(record, &self.ipc_transports, capability)
+        })
     }
 
     pub(super) fn surface_attachment_is_current_or_retired(

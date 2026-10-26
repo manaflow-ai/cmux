@@ -141,6 +141,13 @@ impl NegotiatedRevision {
         self.declared.load(Ordering::Acquire) == self.compat.current()
     }
 
+    /// Not yet declared, or declared as this daemon's revision: what the
+    /// client may still be granted at exactly this revision (`identify`).
+    pub(super) fn current_or_undeclared(&self) -> bool {
+        let declared = self.declared.load(Ordering::Acquire);
+        declared == 0 || declared == self.compat.current()
+    }
+
     fn peer(&self) -> Option<u32> {
         match self.peer.load(Ordering::Acquire) {
             0 => None,
