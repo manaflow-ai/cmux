@@ -421,7 +421,9 @@ class TransportTests(unittest.TestCase):
         publisher._rate_limit_deadline = None
         publisher._secondary_waits = 0
         publisher._waited_here = 0.0
+        publisher._ledger_at_start = None
         self.addCleanup(setattr, publisher, "_waited_here", 0.0)
+        self.addCleanup(setattr, publisher, "_ledger_at_start", None)
         self.addCleanup(setattr, publisher, "_rate_limit_deadline", None)
         self.addCleanup(setattr, publisher, "_secondary_waits", 0)
         waits = []
@@ -486,6 +488,36 @@ class TransportTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "did not reset within"):
                 self.rate_limited_publish(refused, refused, refused)
             self.assertEqual(publisher._waited_here, 100.0)
+
+    def test_a_ledger_that_stops_being_writable_keeps_its_earlier_total(self):
+        # 3590 s already waited in this job, then the ledger turns read-only: 10 s are left, not 3600.
+        ledger = self.root / "ro" / "waited"
+        ledger.parent.mkdir()
+        ledger.write_text("3590")
+        refused = (403, {}, {"message": "API rate limit exceeded"})
+        real_write = Path.write_text
+
+        def read_only(path, *args, **kwargs):
+            if path == ledger:
+                raise PermissionError("read-only")
+            return real_write(path, *args, **kwargs)
+
+        waits = []
+        with patch.object(publisher, "_LEDGER", ledger), patch.object(Path, "write_text", read_only), \
+                patch.dict(os.environ, {"GH_BUDGET_WAIT_MAX_SECONDS": "3600"}), \
+                patch.object(publisher, "RATE_LIMIT_BUDGET_SECONDS", 1800), \
+                patch.object(publisher, "_sleep", side_effect=waits.append):
+            self.responses = [refused] * 5
+            publisher._rate_limit_deadline = None
+            publisher._secondary_waits = 0
+            publisher._waited_here = 0.0
+            publisher._ledger_at_start = None
+            self.addCleanup(setattr, publisher, "_ledger_at_start", None)
+            self.addCleanup(setattr, publisher, "_waited_here", 0.0)
+            self.addCleanup(setattr, publisher, "_rate_limit_deadline", None)
+            with self.assertRaisesRegex(RuntimeError, "did not reset within"):
+                publisher.publish(self.client, 42, [[self.file()], [], []])
+        self.assertEqual(sum(waits), 10.0)
 
     def test_the_budget_comes_from_the_environment(self):
         script = Path(publisher.__file__)

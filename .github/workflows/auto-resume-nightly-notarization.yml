@@ -1218,8 +1218,6 @@ jobs:
 
       - name: Publish accepted assets and feeds
         if: env.ALREADY_PUBLISHED != 'true'
-        env:
-          CMUX_RELEASE_RATE_LIMIT_SECONDS: "1800"
         run: |
           set -euo pipefail
           python3 scripts/prune_nightly_release_assets.py \
@@ -1273,8 +1271,6 @@ jobs:
 
       - name: Publish notes-enriched feeds
         if: env.ALREADY_PUBLISHED != 'true'
-        env:
-          CMUX_RELEASE_RATE_LIMIT_SECONDS: "1800"
         run: |
           set -euo pipefail
           python3 scripts/ci/publish-release-assets.py \
@@ -1501,8 +1497,6 @@ jobs:
 
       - name: Republish deltas only for the current channel head
         id: republish
-        env:
-          CMUX_RELEASE_RATE_LIMIT_SECONDS: "1800"
         run: |
           set -euo pipefail
           current_sha="$(gh api "repos/$GITHUB_REPOSITORY/commits/$RELEASE_TAG" --jq .sha)"

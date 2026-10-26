@@ -52,6 +52,7 @@ _secondary_waits = 0
 # so the steps of one job never add up to more than the job's timeout leaves room for.
 _LEDGER = Path(os.environ.get("RUNNER_TEMP") or tempfile.gettempdir()) / "gh-budget-wait" / "waited"
 _waited_here = 0.0  # this process's own waits: the cap holds even if the ledger cannot be written
+_ledger_at_start: float | None = None  # the ledger when this process first waited
 
 
 def _ledger_spent() -> float:
@@ -61,18 +62,30 @@ def _ledger_spent() -> float:
         return 0.0
 
 
+def _job_spent() -> float:
+    """What this job has waited: the ledger, or what it held when this process started waiting plus
+    this process's own waits, whichever is more (so a ledger that stops being writable never
+    lowers the count). Call with _rate_limit_lock held."""
+    global _ledger_at_start
+    ledger = _ledger_spent()
+    if _ledger_at_start is None:
+        _ledger_at_start = ledger
+    return max(ledger, _ledger_at_start + _waited_here)
+
+
 def _job_wait_left() -> float:
     """Seconds this job may still wait; call with _rate_limit_lock held."""
-    return float(os.environ.get("GH_BUDGET_WAIT_MAX_SECONDS") or 3600) - max(_ledger_spent(), _waited_here)
+    return float(os.environ.get("GH_BUDGET_WAIT_MAX_SECONDS") or 3600) - _job_spent()
 
 
 def _record_job_wait(seconds: float) -> None:
     """Add a wait to the job's ledger; call with _rate_limit_lock held (one writer at a time)."""
     global _waited_here
+    total = _job_spent() + seconds
     _waited_here += seconds
     try:
         _LEDGER.parent.mkdir(parents=True, exist_ok=True)
-        _LEDGER.write_text(str(int(max(_ledger_spent() + seconds, _waited_here))))
+        _LEDGER.write_text(str(int(total)))
     except OSError as error:
         print(f"could not record the rate-limit wait in {_LEDGER}: {error}", file=sys.stderr, flush=True)
 _write_lock = threading.Lock()
