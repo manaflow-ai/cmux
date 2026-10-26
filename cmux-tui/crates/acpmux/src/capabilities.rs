@@ -118,6 +118,8 @@ pub const CAPABILITIES: &[Capability] = &[
     Capability { id: "folder-trust-v1", wire: &[method::ACP_TRUST_GET, method::ACP_TRUST_SET] },
     // Resume agent message pairs the runaway guard paused (`hub/agent_pairs.rs`).
     Capability { id: "agent-pairs-v1", wire: &[method::MUX_AGENT_PAIR_RESUME] },
+    // Retry a chat's failed last turn now: the Retry button (`hub/auto_resume/retry_turn.rs`).
+    Capability { id: "turn-retry-v1", wire: &[method::MUX_RETRY] },
     // Stop one of a chat's background subagents. acpmux takes the method for
     // every harness, but only the Claude stdio adapter acts on it
     // (`claude_stdio/outbound.rs`); others pass it on to the agent.
