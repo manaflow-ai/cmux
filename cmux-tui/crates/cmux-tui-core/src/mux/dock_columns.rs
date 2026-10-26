@@ -280,6 +280,7 @@ impl Mux {
     /// edge, or clear its flag with `None`. `transaction` is the requesting
     /// `(client, transaction)` pair; changes with the same pair coalesce into
     /// one layout-undo entry, like viewport resizes.
+    #[track_caller]
     pub fn set_column_dock_as(
         self: &Arc<Self>,
         actor: &Actor,

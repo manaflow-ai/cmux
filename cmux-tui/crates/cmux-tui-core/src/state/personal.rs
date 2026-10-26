@@ -180,6 +180,7 @@ fn refs(transaction: &Transaction<'_>, pairs: &[(String, String)]) -> anyhow::Re
 }
 
 impl Mux {
+    #[track_caller]
     pub(crate) fn state_personal(
         &self,
         mutation: &WorkspaceMutation,
@@ -232,6 +233,7 @@ impl Mux {
 /// place keeps each group at its place among the other rows
 /// (`personal-mixed-order-v1`), so a workspace that crosses a group changes
 /// the group's `top_index` too.
+#[track_caller]
 fn apply_personal(
     tx: &Transaction<'_>,
     session: &str,
@@ -253,6 +255,7 @@ fn apply_personal(
     Ok(applied)
 }
 
+#[track_caller]
 fn apply_personal_change(
     tx: &Transaction<'_>,
     session: &str,
@@ -470,6 +473,7 @@ fn apply_personal_change(
 }
 
 impl Mux {
+    #[track_caller]
     pub(crate) fn personal_state_read<T>(
         &self,
         read: impl FnOnce(&rusqlite::Connection) -> anyhow::Result<T>,
