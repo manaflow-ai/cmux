@@ -8,13 +8,16 @@
   z-index: var(--layer-sticky);
   height: 0;
 }
-/* Sized inline, so it contains its own layout and style. */
+/* Sized inline, so it contains its own layout and style (not paint: that would clip the focus ring). */
 .acpmux-chat-minimap__track {
   position: absolute;
   contain: size layout style;
   cursor: default;
   border-radius: 4px;
   outline: none;
+}
+.acpmux-chat-minimap__track:focus-visible {
+  box-shadow: 0 0 0 2px var(--agent-accent);
 }
 .acpmux-chat-minimap__canvas {
   display: block;
