@@ -271,12 +271,15 @@ class NightlyRunnerStaysOffTheRoutes(unittest.TestCase):
         dedicated = runner("cmux22", labels=(NIGHTLY_POOL, NIGHTLY_RUNNER, "glaeda-trusted-next-nightly"))
         fleets = {"idle nightly and side": [dedicated, runner("mini-a-glaeda-3")],
                   "only the nightly runner online": [dedicated, runner("mini-a-glaeda-3", status="offline")],
-                  "nightly runner busy": [{**dedicated, "busy": True}, runner("mini-a-glaeda-3", busy=True)]}
+                  "nightly runner busy": [{**dedicated, "busy": True}, runner("mini-a-glaeda-3", busy=True)],
+                  # Fail-open states: no runner listed, the listing refused, no routing token.
+                  "empty fleet": [], "unreadable fleet": RuntimeError("HTTP 403"), "no token": None}
+        ready_with = {"idle nightly and side", "only the nightly runner online"}
         for why, runners in fleets.items():
             for side in (SIDE, "glaeda-side-light-xcode-26.6"):
                 with self.subTest(why=why, side=side), tempfile.TemporaryDirectory() as tmp:
                     output = Path(tmp) / "out"
-                    values = env(SIDE_LABEL=side, GITHUB_OUTPUT=str(output), ROUTE_TOKEN="t",
+                    values = env(SIDE_LABEL=side, GITHUB_OUTPUT=str(output), ROUTE_TOKEN="" if runners is None else "t",
                                  GITHUB_REPOSITORY="manaflow-ai/cmux", NIGHTLY_POOL=NIGHTLY_POOL,
                                  NIGHTLY_RUNNER=NIGHTLY_RUNNER, GATEWAY_LABEL="glaeda-side-light-xcode-26.6",
                                  FAST_LABEL="glaeda-fast-light-xcode-26.6", CASCADE_RUNS=" release-compile ",
@@ -285,7 +288,10 @@ class NightlyRunnerStaysOffTheRoutes(unittest.TestCase):
                     with mock.patch.object(placement.pool, "GitHub") as github, \
                             mock.patch.object(placement.cascade, "read", return_value=(free, dict(free), None)), \
                             contextlib.redirect_stdout(io.StringIO()):
-                        github.return_value.runners.return_value = runners
+                        if isinstance(runners, Exception):
+                            github.return_value.runners.side_effect = runners
+                        else:
+                            github.return_value.runners.return_value = runners
                         placement.main(values)
                     lines = dict(line.split("=", 1) for line in output.read_text().splitlines())
                     for key in self.ROUTES:
@@ -293,8 +299,7 @@ class NightlyRunnerStaysOffTheRoutes(unittest.TestCase):
                         self.assertNotIn(NIGHTLY_POOL, value, key)
                         self.assertNotIn(NIGHTLY_RUNNER, value, key)
                         self.assertNotIn("nightly", value, key)
-                    self.assertEqual(lines["nightly_runner_ready"], "true" if why == "idle nightly and side"
-                                     or why == "only the nightly runner online" else "")
+                    self.assertEqual(lines.get("nightly_runner_ready", ""), "true" if why in ready_with else "")
 
 
 class FastRoute(unittest.TestCase):
