@@ -69,7 +69,7 @@ caller's. A script or step that starts an app on its own can run under the same 
     python3 scripts/cmux-next/bench_launch.py finder-exec -- python3 scripts/cmux-next/my-bench.py ...
     python3 scripts/cmux-next/bench_launch.py limits     # launchd's soft limits and this shell's, one JSON line
 """
-import argparse, atexit, contextlib, glob, hashlib, importlib.util, json, os, platform, pwd, re, resource, select, shutil, signal, socket, subprocess, sys, tempfile, time
+import argparse, atexit, contextlib, glob, hashlib, importlib.util, json, os, platform, pwd, re, resource, select, shutil, signal, socket, stat, subprocess, sys, tempfile, time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(os.path.dirname(HERE))
@@ -144,6 +144,40 @@ def seed_hang_report_consent(app, now=None):
     except (OSError, subprocess.TimeoutExpired) as error:
         return f"defaults: {error}"[:200]
     return "" if done.returncode == 0 else f"defaults exit {done.returncode}: {done.stderr.strip()[:200]}"
+
+
+# The test account a signed-in bench launch uses: the host's staging (development Stack project) agent account,
+# CMUX_UITEST_STACK_* in the fleet secrets file. The app reads the file itself (DogfoodCredentials: a Debug build's
+# sign-in); the bench passes only the file's path and the account's email, never the password or a token.
+AGENT_CREDENTIALS = "~/.secrets/cmuxterm-dev.env"
+AGENT_EMAIL_KEY = "CMUX_UITEST_STACK_EMAIL"
+
+
+class CredentialsError(ValueError):
+    """A credentials file the app would not read (DogfoodCredentials.secure) or with no agent account."""
+
+
+def agent_sign_in_env(path=AGENT_CREDENTIALS):
+    """BenchApp `env` that signs a Debug build in as the agent test account of `path` (CMUX_AUTH_CREDENTIALS_FILE,
+    CMUX_DEV_AUTH_ACCOUNT so no other account of the file signs in, CMUX_DEV_AUTH_PROFILE agent). The file must be
+    a regular file of this user with no group or other access, as the app requires. Reads only the email line.
+    Raises CredentialsError."""
+    path = os.path.expanduser(path)
+    try:
+        info = os.lstat(path)
+    except OSError as error:
+        raise CredentialsError(f"{path}: {error.strerror or error}") from None
+    if not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid() or info.st_mode & 0o077:
+        raise CredentialsError(f"{path} must be a regular file of this user with no group or other access (0600)")
+    email = ""
+    with open(path) as handle:
+        for line in handle:
+            key, _, value = line.strip().removeprefix("export ").partition("=")
+            if key.strip() == AGENT_EMAIL_KEY:
+                email = value.strip().strip("'\"")
+    if not email:
+        raise CredentialsError(f"{path} has no {AGENT_EMAIL_KEY}")
+    return {"CMUX_AUTH_CREDENTIALS_FILE": path, "CMUX_DEV_AUTH_ACCOUNT": email, "CMUX_DEV_AUTH_PROFILE": "agent"}
 
 
 def main_binary(app):
@@ -1252,6 +1286,23 @@ class BenchApp:
         graph = text.split("Call graph:", 1)[-1].splitlines()
         main = [l for l in graph[:60] if l.strip()]
         return "\n".join(l.rstrip()[:180] for l in main[:40])
+
+    def quit_keep_sessions(self, timeout=30):
+        """Quits the app as a person's Quit that keeps the sessions (action quitKeepSessions, no sheet: the terminals,
+        the daemon, its hosts and acpmux keep running) and waits for the app's process to end. ``stop`` still ends
+        the daemons afterwards. Returns {"quit": bool, "seconds": float, "error": str}."""
+        if self.process is None or self.process.poll() is not None:
+            return {"quit": False, "seconds": 0.0, "error": "the app is not running"}
+        began = time.monotonic()
+        # The reply may be lost: the app closes its socket as it quits. The process exit is the answer.
+        reply = self.rpc("action.run", {"action": "quitKeepSessions", "args": {}, "focus": False, "origin": "script"},
+                         timeout=10)
+        try:
+            self.process.wait(timeout)
+        except subprocess.TimeoutExpired:
+            return {"quit": False, "seconds": round(time.monotonic() - began, 2),
+                    "error": f"the app still runs {timeout:g} s after quitKeepSessions: {json.dumps(reply)[:200]}"}
+        return {"quit": True, "seconds": round(time.monotonic() - began, 2), "error": ""}
 
     def stop(self, quit_timeout=30):
         """Quits the app (debug.quit, then TERM and KILL of its own PID) and ends the tag's daemons.

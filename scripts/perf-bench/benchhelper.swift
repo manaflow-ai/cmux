@@ -9,6 +9,10 @@
 //   benchhelper terminate PID                       NSRunningApplication terminate (a clean Quit)
 //   benchhelper frontmost                           the frontmost app's pid
 //   benchhelper displays                            active displays as JSON (count, size, refresh)
+//   benchhelper cover                               an opaque borderless window over the whole main display
+//                                                   at the normal level, ordered front: every window under it
+//                                                   is occluded (another app's full-screen window); prints
+//                                                   "covering <w>x<h>" once shown, runs until terminated
 //
 // CGWindowList owner pids and bounds need no Screen Recording permission
 // (window titles would). Compiled once per worker by xbench.py with swiftc -O.
@@ -43,7 +47,7 @@ private func fail(_ message: String) -> Never {
 }
 
 let arguments = CommandLine.arguments
-guard arguments.count >= 2 else { fail("usage: benchhelper wait-window|windows|hide|unhide|ishidden|frontmost|displays ...") }
+guard arguments.count >= 2 else { fail("usage: benchhelper wait-window|windows|hide|unhide|ishidden|frontmost|displays|cover ...") }
 
 switch arguments[1] {
 case "wait-window":
@@ -100,6 +104,19 @@ case "displays":
         return "{\"w\": \(CGDisplayPixelsWide(id)), \"h\": \(CGDisplayPixelsHigh(id)), \"hz\": \(mode?.refreshRate ?? 0), \"builtin\": \(CGDisplayIsBuiltin(id) != 0)}"
     }
     print("{\"count\": \(count), \"displays\": [\(list.joined(separator: ", "))]}")
+case "cover":
+    guard let screen = NSScreen.screens.first else { fail("no display") }
+    let app = NSApplication.shared
+    app.setActivationPolicy(.accessory)  // no Dock icon; it may still order a window in front of the active app
+    let window = NSWindow(contentRect: screen.frame, styleMask: .borderless, backing: .buffered, defer: false)
+    window.isOpaque = true
+    window.backgroundColor = .black
+    window.hasShadow = false
+    window.level = .normal
+    window.orderFrontRegardless()
+    FileHandle.standardOutput.write(String(format: "covering %.0fx%.0f\n", screen.frame.width, screen.frame.height)
+        .data(using: .utf8)!)
+    app.run()  // until SIGTERM
 default:
     fail("unknown command \(arguments[1])")
 }

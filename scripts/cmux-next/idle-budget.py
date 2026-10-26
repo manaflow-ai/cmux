@@ -36,6 +36,21 @@ Sessions (--sessions):
   tabs-static   the launch pane with 5 WebKit and 10 Chromium tabs hidden behind 1 shown static Chromium tab,
                 every page tab_pages' static page; the settle lasts past `browser.freezeHiddenTabs`
   minimized     the light session with its window minimized (action minimizeWindow)
+  occluded      the light session with benchhelper's opaque full-screen window over it (`benchhelper cover`, another
+                app's window in front; debug.window_list must report every main window occluded)
+  home          the light session with Home selected (action home.show; xbench's idle-wakeups-home, D6)
+  signed-in     the light session signed in as the host's staging agent test account (CMUX_UITEST_STACK_* of
+                --signed-in-credentials, the fleet secrets file: the app reads it, the bench passes its path and the
+                account's email only, so no secret or token reaches a log or the report), with Phone Access and the
+                GitHub feed on and both keep-awake settings off; auth.status must report the account signed in. The
+                app signs a test account in only in a Debug build (DogfoodCredentials), so it is refused on another build
+  app-quit      the light session quit after the settle with the sessions kept (action quitKeepSessions), then settled
+                QUIT_SETTLE_S again: the window measures what keeps running without the app (daemon, holders, terminal
+                hosts, acpmux; TagTeardown's process set of the tag)
+  external-churn  the light session hidden, its terminal in a git project the bench writes 10 times a second, and a
+                Chrome History fixture (Chromium's `urls` table) imported with Keep in Sync (the tag's BrowserImport
+                store, seeded before the launch and restored after) that gets a visit appended every
+                HISTORY_PERIOD_S; the writes run through the settle and the window, from this script
   energy-saver  tabs-static with `energy.saver: always`, the shown tab an animated page (/anim, rAF every
                 frame, no input) whose rAF count the page server reads at the window's two ends: the page keeps
                 one fetch the server holds (no wake while held); the bench answers it and the page POSTs
@@ -93,13 +108,18 @@ Use (fleet only, a host with a GUI console session; never on a laptop in use):
   D6 on an xbench.py result (any host): python3 scripts/cmux-next/idle-budget.py --xbench OUT/results.json [--gate]
   On the fleet through the allowlisted entry (STRESS needs the 1920 x 1080 virtual display):
     scripts/measure/split-spring.sh --suite=idle-budget --vdisplay=120 -- --sessions tabs-static,energy-saver
+    scripts/measure/split-spring.sh --suite=idle-budget --vdisplay=120 -- \\
+        --sessions home,occluded,app-quit,external-churn,signed-in
 
 Output: one `IDLE-BUDGET-MACHINE {json}` line, one `IDLE-BUDGET-ROW {json}` line per session and process
-kind, IDLE-BUDGET-ENERGY / -STATE / -ASSERTION / -ANIM / -CHROME lines, IDLE-BUDGET-REFUSED for a saver mismatch, an
+kind, IDLE-BUDGET-ENERGY / -STATE / -ASSERTION / -ANIM / -CHROME lines, IDLE-BUDGET-SHAPE {json} for what a session
+built (the cover, Home, the sign-in, the quit, the churn counts), IDLE-BUDGET-REFUSED for a saver mismatch, an
 unread rAF rate or a failed or unequal chrome-static, IDLE-BUDGET-THERMAL for a marked session, a Markdown table,
 and --json with every sample.
 """
-import argparse, ctypes, fnmatch, hashlib, json, os, platform, plistlib, re, shutil, subprocess, sys, threading, time
+import argparse, contextlib, ctypes, fnmatch, hashlib, json, os, platform, plistlib, re, select, shlex, shutil, \
+    sqlite3, subprocess, sys, threading, time
+from pathlib import Path
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
@@ -209,9 +229,9 @@ def read_rpc(app, method, params=None):
 
 def window_end(app, pids, read_anim=None):
     """What one end of the window records outside the process counters: the app's energy policy (debug.energy:
-    the saver state), the Mac's thermal state, the power assertions of the pid set and, with `read_anim`
-    (IdlePages.read_anim), the animated page's rAF count."""
-    saver, reason = saver_state(read_rpc(app, "debug.energy"))
+    the saver state; unknown with `app` None, after the app quit), the Mac's thermal state, the power assertions of
+    the pid set and, with `read_anim` (IdlePages.read_anim), the animated page's rAF count."""
+    saver, reason = saver_state(read_rpc(app, "debug.energy") if app is not None else {})
     end = {"saver": saver, "saver_reason": reason, "thermal": procs.thermal_state(),
            "assertions": procs.power_assertions(pids)}
     if read_anim is not None:
@@ -232,13 +252,17 @@ def saver_state(reply):
 
 def measure(app, instance, seconds, read_anim=None):
     """Counters of every process of the app over `seconds` with no input. The window's end reads (window_end) sit
-    outside every counter bracket, the app's own counters included, so the bench's reads are never counted."""
+    outside every counter bracket, the app's own counters included, so the bench's reads are never counted. With
+    `app` None (app-quit: the app is gone) only the process counters are read, no socket at all."""
+    def rpc(method, params=None):
+        return read_rpc(app, method, params) if app is not None else {}
+
     pids = process_set(instance)
     start = window_end(app, pids, read_anim)
     time.sleep(QUIET_GAP_S)  # bench: the start reads' aftermath (the page's POST, the RPC's reply) ends before the counters
-    hangs0 = read_rpc(app, "debug.hangs", {"limit": 0})
-    ledger0 = read_rpc(app, "debug.wakeups")
-    counters0 = app_counters(app)
+    hangs0 = rpc("debug.hangs", {"limit": 0})
+    ledger0 = rpc("debug.wakeups")
+    counters0 = app_counters(app) if app is not None else {}
     first = snapshot(pids)
     gpu0 = procs.gpu_ns_by_pid()
     coalition0 = procs.coalition_of(instance.pid)
@@ -249,9 +273,9 @@ def measure(app, instance, seconds, read_anim=None):
     gpu1 = procs.gpu_ns_by_pid()
     last_pids = process_set(instance)
     last = snapshot(last_pids)
-    hangs1 = read_rpc(app, "debug.hangs", {"limit": 0})
-    ledger1 = read_rpc(app, "debug.wakeups", {"run_loop": True})
-    counters1 = app_counters(app)
+    hangs1 = rpc("debug.hangs", {"limit": 0})
+    ledger1 = rpc("debug.wakeups", {"run_loop": True})
+    counters1 = app_counters(app) if app is not None else {}
     end = window_end(app, last_pids, read_anim)
     rows = process_rows(first, last, elapsed, gpu0, gpu1, kind)
     result = {"seconds": round(elapsed, 1), "processes": rows, "ends": {"start": start, "end": end},
@@ -1205,15 +1229,31 @@ FREEZE_HIDDEN_TABS_S = 30
 FREEZE_GRACE_S = 15
 TABS_CONFIG = {"browser": {"freezeHiddenTabs": FREEZE_HIDDEN_TABS_S}}
 TABS_STATIC = {"webkit_hidden": 5, "chromium_hidden": 10, "shown": "static"}
-# The sessions (the docstring describes each). Keys: config (adds to BASE_CONFIG: session_config), hide, minimize,
-# stress, static (STRESS without its rAF spinner), tabs (build_tabs's plan), settle_min (seconds), saver (the energy
-# saver state the session asks for; --gate refuses a window that shows another), anim (read the animated page's rAF
-# count at both ends).
+# signed-in: Phone Access and the GitHub feed on (both off by default), keep-awake still off (D11, D13).
+SIGNED_IN_CONFIG = {"phone": {"allowConnections": True}, "feed": {"github": {"enabled": True}}}
+# Seconds auth.status has to report the test account signed in after the launch.
+SIGN_IN_WAIT_S = 90
+# app-quit: seconds after the app's exit before the window (the daemon's own wind-down after its client left).
+QUIT_SETTLE_S = 30
+# external-churn: writes per second into the watched project, and seconds between two Chrome History visits.
+CHURN_WRITES_PER_S = 10
+HISTORY_PERIOD_S = 5
+# The sessions (the docstring describes each). Keys: config (merged into BASE_CONFIG: session_config), hide,
+# minimize, cover (benchhelper's full-screen window over the app), home (Home selected), sign_in (the agent test
+# account), quit (quitKeepSessions after the settle; the window measures what is left), churn (external-churn's
+# writers), stress, static (STRESS without its rAF spinner), tabs (build_tabs's plan), settle_min (seconds), saver
+# (the energy saver state the session asks for; --gate refuses a window that shows another), anim (read the
+# animated page's rAF count at both ends).
 SESSIONS = {
     "light": {},
     "light-webkit": {"config": {"browser": {"defaultEngine": "webkit"}}},
     "light-hidden": {"hide": True},
     "minimized": {"minimize": True},
+    "occluded": {"cover": True},
+    "home": {"home": True},
+    "signed-in": {"config": SIGNED_IN_CONFIG, "sign_in": True},
+    "app-quit": {"quit": True},
+    "external-churn": {"churn": True, "hide": True},
     "stress": {"stress": True},
     "stress-static": {"stress": True, "static": True},
     "tabs-static": {"config": TABS_CONFIG, "tabs": TABS_STATIC, "settle_min": FREEZE_HIDDEN_TABS_S + FREEZE_GRACE_S},
@@ -1225,8 +1265,17 @@ SESSIONS = {
 
 
 def session_config(session):
-    """The cmux-next.json of `session`: BASE_CONFIG with the session's own keys on top."""
-    return {**BASE_CONFIG, **(SESSIONS[session].get("config") or {})}
+    """The cmux-next.json of `session`: BASE_CONFIG with the session's own keys merged on top (a session's
+    `phone.allowConnections` keeps BASE_CONFIG's `phone.keepAwake`)."""
+    return merged(BASE_CONFIG, SESSIONS[session].get("config") or {})
+
+
+def merged(base, top):
+    """`base` with `top` merged in, key by key through nested objects; `top` wins on a leaf. Neither is changed."""
+    out = dict(base)
+    for key, value in top.items():
+        out[key] = merged(out[key], value) if isinstance(value, dict) and isinstance(out.get(key), dict) else value
+    return out
 
 
 def parse_sessions(text):
@@ -1388,6 +1437,316 @@ def minimize(app):
             return {"miniaturized": len(main)}
         time.sleep(0.2)  # bench: bounded wait for the window to reach the Dock
     raise SessionShapeError(f"the window is not minimized after 10 s: {window_state(app)}")
+
+
+def wait_occluded(app, seconds=10):
+    """Waits until debug.window_list reports every main window occluded; returns the window state, or raises
+    SessionShapeError with the last one."""
+    deadline = time.monotonic() + seconds
+    while True:
+        state = window_state(app)
+        main = state.get("main") or []
+        if main and all(w.get("occluded") for w in main):
+            return state
+        if time.monotonic() >= deadline:
+            raise SessionShapeError(f"the app's windows are not occluded {seconds:g} s after the cover: {state}")
+        time.sleep(0.2)  # bench: bounded wait for the window server's occlusion change to reach the app
+
+
+def start_cover(helper_path, seconds=10):
+    """Starts `benchhelper cover` and returns its process once it says its window is shown; raises SessionShapeError
+    (the process ended) when it does not within `seconds`."""
+    cover = subprocess.Popen([helper_path, "cover"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    ready, _, _ = select.select([cover.stdout], [], [], seconds)
+    line = cover.stdout.readline().strip() if ready else ""
+    if not line.startswith("covering "):
+        errors = stop_process(cover)
+        raise SessionShapeError(f"benchhelper cover showed no window in {seconds:g} s: {(line or errors)[:200]}")
+    return cover
+
+
+def stop_process(process, seconds=10):
+    """Ends a process this script started (TERM, then KILL) and closes its pipes; returns what it wrote to stderr."""
+    if process.poll() is None:
+        process.terminate()
+    try:
+        _out, errors = process.communicate(timeout=seconds)
+    except subprocess.TimeoutExpired:
+        process.kill()
+        _out, errors = process.communicate(timeout=seconds)
+    return (errors or "").strip()
+
+
+def sign_in_refusal(build_config):
+    """Why the signed-in session cannot run on this build, or None: the app signs a test account in from a
+    credentials file only in a Debug build (CloudAuth: a release build never reads one)."""
+    if build_config != "debug":
+        return (f"a {build_config} build signs no test account in (CloudAuth reads CMUX_AUTH_CREDENTIALS_FILE in a "
+                "Debug build only); measure signed-in on a Debug build")
+    return None
+
+
+def signed_in_state(reply, account):
+    """auth.status reduced to what the report keeps: signed in, still restoring, whether the account is the test
+    account, the backend. The email itself is never kept."""
+    reply = reply if isinstance(reply, dict) else {}
+    email = reply.get("email") if isinstance(reply.get("email"), str) else ""
+    return {"signed_in": reply.get("signed_in") is True, "restoring": reply.get("restoring") is True,
+            "account_matches": bool(email) and email.lower() == account.lower(), "backend": reply.get("backend")}
+
+
+def wait_signed_in(app, account, seconds=SIGN_IN_WAIT_S):
+    """Waits until auth.status reports `account` signed in (not restoring); returns signed_in_state, or raises
+    SessionShapeError."""
+    deadline = time.monotonic() + seconds
+    while True:
+        state = signed_in_state(read_rpc(app, "auth.status"), account)
+        if state["signed_in"] and not state["restoring"]:
+            if not state["account_matches"]:
+                raise SessionShapeError(f"another account than the test account is signed in: {state}")
+            return state
+        if time.monotonic() >= deadline:
+            raise SessionShapeError(f"the test account is not signed in {seconds:g} s after the launch: {state}")
+        time.sleep(0.5)  # bench: bounded wait for the app's own sign-in
+
+
+class QuitTree:
+    """app-quit's process set once the app is gone: the tag's processes (TagTeardown: daemon, holders, terminal
+    hosts, acpmux and their children, by bundle path), as procs.Instance.pids gives them for a running app. `pid`
+    stays the app's (its coalition reads as unknown)."""
+
+    def __init__(self, teardown, pid):
+        self.teardown = teardown
+        self.pid = pid
+
+    def pids(self):
+        return dict(self.teardown.processes())
+
+
+# external-churn's fixtures: a Chrome profile's History database and its import record with Keep in Sync on.
+CHURN_PROFILE_ID = "6d3c6a4e-0b55-4e7b-9a0c-1d2e3f405162"  # a browser profile id (lowercase UUID) for the import
+CHROME_EPOCH_OFFSET_S = 11644473600  # Chromium's base::Time counts microseconds from 1601-01-01
+# components/history/core/browser/url_database.cc CreateURLTable: the columns ChromiumHistoryReader reads.
+CHROME_URLS_TABLE = ("CREATE TABLE urls(id INTEGER PRIMARY KEY AUTOINCREMENT, url LONGVARCHAR, title LONGVARCHAR, "
+                     "visit_count INTEGER DEFAULT 0 NOT NULL, typed_count INTEGER DEFAULT 0 NOT NULL, "
+                     "last_visit_time INTEGER NOT NULL, hidden INTEGER DEFAULT 0 NOT NULL)")
+
+
+def chrome_time(unix_s):
+    """Chromium's stored time (microseconds since 1601-01-01) of a Unix time."""
+    return int((unix_s + CHROME_EPOCH_OFFSET_S) * 1_000_000)
+
+
+def make_chrome_history(path, visits=20, now=None):
+    """A Chrome `History` database at `path` with `visits` pages, as a profile that has browsed."""
+    now = time.time() if now is None else now
+    with contextlib.closing(sqlite3.connect(path)) as db, db:
+        db.execute(CHROME_URLS_TABLE)
+        db.executemany("INSERT INTO urls(url, title, visit_count, last_visit_time) VALUES (?, ?, 1, ?)",
+                       [(f"https://example.com/page/{n}", f"Page {n}", chrome_time(now - 60 * (visits - n)))
+                        for n in range(visits)])
+    return path
+
+
+def append_chrome_visit(path, n, now=None):
+    """One visit appended to the History database as Chrome writes it: a committed row, with SQLite's rollback
+    journal (`History-journal`) made and removed by the commit, which is what Keep in Sync's folder watch sees."""
+    with contextlib.closing(sqlite3.connect(path)) as db, db:
+        db.execute("INSERT INTO urls(url, title, visit_count, last_visit_time) VALUES (?, ?, 1, ?)",
+                   (f"https://example.com/churn/{n}", f"Churn {n}", chrome_time(time.time() if now is None else now)))
+
+
+def keep_in_sync_store(history, now=None):
+    """{relative path: JSON} of an import store (ImportedDataStore) holding one Chrome profile imported with Keep in
+    Sync on: `sources.json` (the ImportSourceRecord list, `syncedHistoryFile` the History file URL) and the source's
+    batch (`<profile>/<source key>.json`, history kind, no pages yet: the first read fills them)."""
+    record = {"browser": "chrome", "profileDirectory": "Default", "displayName": "Google Chrome",
+              "proposedProfileID": CHURN_PROFILE_ID, "targetProfileID": CHURN_PROFILE_ID, "profileName": "Person 1",
+              "syncedHistoryFile": Path(history).resolve().as_uri()}
+    batch = {"source": record, "bookmarks": [], "history": [], "openTabs": [], "extensions": [], "kinds": ["history"],
+             "importedAt": round(time.time() if now is None else now, 3)}
+    return {"sources.json": [record], f"{CHURN_PROFILE_ID}/chrome_Default.json": batch}
+
+
+def import_store_dir(app):
+    """The tag's browser import store (OnboardingService: Application Support/<bundle id>/BrowserImport), or None when
+    the bundle is not a tagged DEV bundle (its store is a person's own)."""
+    import bench_launch
+    ident = bench_launch.bundle_id(app)
+    if not ident or not ident.startswith("com.cmuxterm.app.debug."):
+        return None
+    return os.path.join(os.path.expanduser("~"), "Library/Application Support", ident, "BrowserImport")
+
+
+class SeededStore:
+    """Writes keep_in_sync_store into the tag's import store for one session and restores the store after: an
+    earlier store moves aside (`<dir>.bench-prev`) and comes back at `restore`."""
+
+    def __init__(self, directory, files):
+        self.directory = directory
+        self.files = files
+        self.aside = directory + ".bench-prev"
+        self.moved = False
+
+    def write(self):
+        if os.path.lexists(self.directory):
+            if os.path.lexists(self.aside):
+                raise SessionShapeError(f"{self.aside} is left from an earlier run: restore or remove it first")
+            os.rename(self.directory, self.aside)
+            self.moved = True
+        for relative, value in self.files.items():
+            path = os.path.join(self.directory, relative)
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            with open(path, "w") as handle:
+                json.dump(value, handle, sort_keys=True)
+        return self
+
+    def restore(self):
+        shutil.rmtree(self.directory, ignore_errors=True)
+        if self.moved:
+            os.rename(self.aside, self.directory)
+            self.moved = False
+
+
+def make_project(folder):
+    """A git project with one file at `folder` (the external-churn writes go to its `churn.log`)."""
+    os.makedirs(folder, exist_ok=True)
+    with open(os.path.join(folder, "README.md"), "w") as handle:
+        handle.write("idle-budget external-churn project\n")
+    subprocess.run(["git", "init", "-q", folder], check=True, capture_output=True, timeout=30)
+    return folder
+
+
+class ExternalChurn:
+    """Other apps' writes while cmux sits hidden: `writes_per_s` appends a second to the watched project's
+    `churn.log`, and every `history_period_s` one visit appended to the Chrome History fixture. Each step has its own
+    deadline from the start (no drift); a thread runs them through the settle and the window."""
+
+    def __init__(self, project, history, writes_per_s=CHURN_WRITES_PER_S, history_period_s=HISTORY_PERIOD_S):
+        self.file = os.path.join(project, "churn.log")
+        self.history = history
+        self.writes_per_s = writes_per_s
+        self.history_every = max(1, round(writes_per_s * history_period_s))
+        self.writes = self.visits = 0
+        self.error = None
+        self.stopped = threading.Event()
+        self.thread = threading.Thread(target=self.run, name="external-churn", daemon=True)
+
+    def step(self, n):
+        """Write number `n`: one line into the project; every `history_every`th also one History visit."""
+        with open(self.file, "a") as handle:
+            handle.write(f"{n} {time.time():.3f}\n")
+        self.writes += 1
+        if n % self.history_every == 0:
+            append_chrome_visit(self.history, n)
+            self.visits += 1
+
+    def run(self):
+        began = time.monotonic()
+        n = 0
+        # bench: each write waits for its own deadline; stop() ends the wait at once
+        while not self.stopped.wait(max(0.0, began + n / self.writes_per_s - time.monotonic())):
+            try:
+                self.step(n)
+            except (OSError, sqlite3.Error) as error:  # the counts show where the churn stopped
+                self.error = f"{type(error).__name__}: {error}"[:200]
+                return
+            n += 1
+
+    def start(self):
+        self.thread.start()
+        return self
+
+    def stop(self):
+        """Stops the writes; returns their counts."""
+        self.stopped.set()
+        self.thread.join(10)
+        return {"writes": self.writes, "history_visits": self.visits, "error": self.error}
+
+
+class SessionRig:
+    """What a session builds around the app and takes down after it: the launch env of the signed-in account,
+    the fixtures made before the launch (external-churn's project, Chrome History and import store; the cover's
+    helper, compiled before the app runs), the shape made after the launch and after the activation (the sign-in,
+    the terminal in the project, Home, the cover, the churn), and their teardown (`close`). `shape` is what it built,
+    for the report; it never holds a secret."""
+
+    def __init__(self, session, build_config, credentials=None, helper_cache=None):
+        self.spec = SESSIONS[session]
+        self.build_config = build_config
+        self.credentials = credentials
+        self.helper_cache = helper_cache
+        self.account = self.helper = self.cover = self.churn = self.store = self.scratch = None
+        self.project = self.history = None
+        self.shape = {}
+
+    def env(self, base):
+        """The launch env: `base`, plus the agent account's sign-in for signed-in (SessionShapeError on a build that
+        signs no test account in, or a credentials file the app would not read)."""
+        if not self.spec.get("sign_in"):
+            return base
+        refusal = sign_in_refusal(self.build_config)
+        if refusal:
+            raise SessionShapeError(refusal)
+        import bench_launch
+        try:
+            extra = bench_launch.agent_sign_in_env(self.credentials or bench_launch.AGENT_CREDENTIALS)
+        except bench_launch.CredentialsError as error:
+            raise SessionShapeError(f"signed-in: {error}") from None
+        self.account = extra["CMUX_DEV_AUTH_ACCOUNT"]
+        return {**base, **extra}
+
+    def before_launch(self, app_path):
+        if self.spec.get("cover"):
+            import xbench  # scripts/perf-bench (on sys.path): benchhelper, compiled once per source hash
+            self.helper = xbench.Helper(self.helper_cache).path
+        if not self.spec.get("churn"):
+            return
+        store = import_store_dir(app_path)
+        if store is None:
+            raise SessionShapeError("external-churn seeds only a tagged DEV bundle's import store")
+        import tempfile
+        self.scratch = tempfile.mkdtemp(prefix="idle-budget-churn-")
+        self.project = make_project(os.path.join(self.scratch, "project"))
+        profile = os.path.join(self.scratch, "Chrome", "Default")
+        os.makedirs(profile)
+        self.history = make_chrome_history(os.path.join(profile, "History"))
+        self.store = SeededStore(store, keep_in_sync_store(self.history)).write()
+        self.shape["keep_in_sync"] = {"store": store, "history": self.history}
+
+    def after_launch(self, app):
+        if self.account:
+            self.shape["sign_in"] = wait_signed_in(app, self.account)
+        if self.project:
+            run_action(app, "terminal.sendText", {"text": f"cd {shlex.quote(self.project)} && clear\n"})
+            self.shape["project"] = self.project
+
+    def after_activate(self, app):
+        """After the activation and any hide or minimize: Home, the cover, then the churn (it runs through the settle
+        and the window)."""
+        if self.spec.get("home"):
+            run_action(app, "home.show")
+            self.shape["home"] = True
+        if self.helper:
+            self.cover = start_cover(self.helper)
+            self.shape["cover"] = wait_occluded(app)
+        if self.project:
+            self.churn = ExternalChurn(self.project, self.history).start()
+
+    def after_window(self):
+        """Stops the churn at the window's end; its counts go into `shape`."""
+        if self.churn is not None and "churn" not in self.shape:
+            self.shape["churn"] = self.churn.stop()
+        return self.shape
+
+    def close(self):
+        self.after_window()
+        if self.cover is not None:
+            stop_process(self.cover)
+        if self.store is not None:
+            self.store.restore()
+        if self.scratch:
+            shutil.rmtree(self.scratch, ignore_errors=True)
 
 
 def bundle_build_config(app):
@@ -1563,7 +1922,11 @@ def main(argv=None):
     parser.add_argument("--chrome-template-settle", type=float, default=45,
                         help="seconds the reference browser's template profile runs before its first clone")
     parser.add_argument("--chrome-helper-cache", default=os.path.expanduser("~/Library/Caches/cmux-perf-bench"),
-                        help="xbench's benchhelper cache")
+                        help="xbench's benchhelper cache (the chrome-static reference and occluded's cover window)")
+    parser.add_argument("--signed-in-credentials", default=None,
+                        help="signed-in's 0600 file with the agent test account (CMUX_UITEST_STACK_*; default the fleet "
+                        "secrets file ~/.secrets/cmuxterm-dev.env); the app reads it, the bench passes its path and "
+                        "the email only")
     opts, _unknown = parser.parse_known_args(argv)
     budget = load_budget(opts.budget)
     if opts.xbench:
@@ -1600,15 +1963,19 @@ def main(argv=None):
         if spec.get("chrome"):
             report["sessions"][session] = chrome_static_entry(opts, out, session, markdown)
             continue
-        app = BenchApp(opts.app, out=os.path.join(out, session), env=env, config=session_config(session))
+        rig = SessionRig(session, build_config, opts.signed_in_credentials, opts.chrome_helper_cache)
+        app = None
         pages = IdlePages() if spec.get("tabs") else None
         try:
+            app = BenchApp(opts.app, out=os.path.join(out, session), env=rig.env(env), config=session_config(session))
             entry = {"fresh_session": fresh_session(app)}
             report["sessions"][session] = entry
             consent = bench_launch.seed_hang_report_consent(app.app)
             if consent:
                 print(f"IDLE-BUDGET-NO-HANG-CONSENT {session}: {consent}", flush=True)
+            rig.before_launch(app.app)
             app.launch()
+            rig.after_launch(app)
             if spec.get("stress"):
                 entry["stress"] = build_stress(app, static=spec.get("static", False))
             if spec.get("tabs"):
@@ -1621,6 +1988,7 @@ def main(argv=None):
                                                        "focus": False, "origin": "script"}, timeout=30)
             if spec.get("minimize"):
                 entry["minimize"] = minimize(app)
+            rig.after_activate(app)
             settle = settle_seconds(session, opts.settle)
             entry["settle_s"] = settle
             time.sleep(settle)  # bench: the session settles (page loads, Chromium's post-load work, the hidden-tab freeze)
@@ -1632,11 +2000,22 @@ def main(argv=None):
             mismatch = draw_mismatch(entry)
             if mismatch:
                 print(f"IDLE-BUDGET-DRAW-MISMATCH {session}: {mismatch}", flush=True)
-            window_before = window_state(app)
-            result = measure(app, instance, opts.measure, pages.read_anim if spec.get("anim") else None)
-            result["window_state"] = {"start": window_before, "end": window_state(app)}
-            print(f"IDLE-BUDGET-WINDOW {session} " + json.dumps(result["window_state"]), flush=True)
-            if opts.sample:
+            measured_app = app
+            if spec.get("quit"):
+                quit_state = app.quit_keep_sessions()
+                rig.shape["quit"] = quit_state
+                if not quit_state["quit"]:
+                    raise SessionShapeError(quit_state["error"])
+                time.sleep(QUIT_SETTLE_S)  # bench: the daemon's wind-down after its client left, before the window
+                instance, measured_app = QuitTree(app.teardown, app.process.pid), None
+            window_before = window_state(app) if measured_app else None
+            result = measure(measured_app, instance, opts.measure, pages.read_anim if spec.get("anim") else None)
+            if measured_app:
+                result["window_state"] = {"start": window_before, "end": window_state(app)}
+                print(f"IDLE-BUDGET-WINDOW {session} " + json.dumps(result["window_state"]), flush=True)
+            entry["shape"] = rig.after_window()
+            print(f"IDLE-BUDGET-SHAPE {session} " + json.dumps(entry["shape"]), flush=True)
+            if opts.sample and measured_app:
                 result["sample"] = sample_threads(app.process.pid, opts.sample, os.path.join(out, session, "sample-app.txt"))
             entry.update(summarize(session, result, budget))
             kinds, overs, notes = entry["kinds"], [tuple(o) for o in entry["over"]], entry["not_judged"]
@@ -1687,7 +2066,9 @@ def main(argv=None):
             if isinstance(error, KeyboardInterrupt):
                 raise
         finally:
-            app.stop()
+            rig.close()
+            if app is not None:
+                app.stop()
             if pages is not None:
                 pages.close()
     cross, cross_notes, chrome_refused = judge_across(report, budget, CHROME_SESSION in sessions)

@@ -1251,5 +1251,310 @@ class ShippingModeTests(unittest.TestCase):
                          ["activated", "sentry", "hang_reports"])
 
 
+FIVE = ("signed-in", "home", "occluded", "app-quit", "external-churn")
+
+
+class FiveSessionsTests(unittest.TestCase):
+    """p14-energy-102: signed-in, home, occluded, app-quit, external-churn (their table, budget rows and fixtures)."""
+
+    def setUp(self):
+        self.folder = tempfile.mkdtemp(prefix="idle-budget-102-")
+        self.addCleanup(shutil.rmtree, self.folder, True)
+
+    # The table.
+
+    def test_the_five_sessions_and_what_each_builds(self):
+        self.assertEqual(ib.parse_sessions(",".join(FIVE)), list(FIVE))
+        self.assertTrue(ib.SESSIONS["occluded"]["cover"])
+        self.assertTrue(ib.SESSIONS["home"]["home"])
+        self.assertTrue(ib.SESSIONS["signed-in"]["sign_in"])
+        self.assertTrue(ib.SESSIONS["app-quit"]["quit"])
+        churn = ib.SESSIONS["external-churn"]
+        self.assertTrue(churn["churn"] and churn["hide"])
+        for name in FIVE:
+            self.assertFalse(ib.SESSIONS[name].get("tabs") or ib.SESSIONS[name].get("saver"), name)
+            self.assertEqual(ib.settle_seconds(name, 60), 60)
+        self.assertEqual((ib.CHURN_WRITES_PER_S, ib.HISTORY_PERIOD_S), (10, 5))
+
+    def test_unknown_session_refused(self):
+        for text in ("signed-out", "home,app-quitt", "occlude"):
+            with self.assertRaises(SystemExit) as raised:
+                ib.parse_sessions(text)
+            self.assertIn("unknown session", str(raised.exception))
+            self.assertIn("external-churn", str(raised.exception))  # the list names the new sessions
+
+    def test_signed_in_turns_phone_access_and_the_feed_on_and_keeps_keep_awake_off(self):
+        config = ib.session_config("signed-in")
+        self.assertEqual(config["phone"], {"keepAwake": "off", "allowConnections": True})
+        self.assertEqual(config["sessions"], {"keepAwake": "off"})
+        self.assertEqual(config["feed"], {"github": {"enabled": True}})
+        self.assertEqual(ib.BASE_CONFIG["phone"], {"keepAwake": "off"})  # the merge changes no shared config
+        self.assertEqual(ib.merged({"a": {"b": 1, "c": 2}}, {"a": {"c": 3}, "d": 4}), {"a": {"b": 1, "c": 3}, "d": 4})
+
+    # The budget rows (D13, D6 home, D3 occluded).
+
+    def test_budget_rows_of_the_five(self):
+        budget = ib.load_budget(ib.BUDGET_FILE)
+        sessions = budget["sessions"]
+        self.assertEqual(sessions["signed-in"]["sums"]["app+daemon"], {"wakeups_per_s": 1.0})
+        self.assertEqual(sessions["app-quit"]["sums"]["tree"], {"wakeups_per_s": 0.1})
+        self.assertEqual(ib.limit_for(budget, "external-churn", "app", "wakeups_per_s"), 1.0)
+        self.assertEqual(sessions["home"]["sums"]["tree"], {"wakeups_per_s": 1.0})
+        self.assertEqual(ib.limit_for(budget, "occluded", "app", "wakeups_per_s"), 0.3)
+        self.assertEqual(ib.limit_for(budget, "occluded", "app", "main_wakes_per_s"), 0.1)
+        for name in FIVE:
+            self.assertIn(name, sessions, name)
+            self.assertFalse(ib.busy_kind(sessions[name], "app"), name)  # every one is an idle session, judged
+
+    def test_signed_in_app_plus_daemon_over(self):
+        budget = ib.load_budget(ib.BUDGET_FILE)
+        kinds = {"app": ib.aggregate({"processes": [row("app", 30, 0.7)]})["app"],
+                 "daemon": ib.aggregate({"processes": [row("daemon", 8, 0.4)]})["daemon"]}
+        overs = ib.over_budget("signed-in", kinds, budget)
+        self.assertIn(("app+daemon", "wakeups_per_s", 1.1, 1.0), overs)
+
+    def test_app_quit_judges_the_tree_without_an_app(self):
+        budget = ib.load_budget(ib.BUDGET_FILE)
+        rows = [row("daemon", 8, 0.06), row("holder", 2, 0.0), row("terminal-host", 3, 0.05), row("acpmux", 4, 0.0)]
+        kinds = ib.aggregate({"processes": rows})
+        self.assertNotIn("app", kinds)
+        self.assertIn(("tree", "wakeups_per_s", 0.11, 0.1), ib.over_budget("app-quit", kinds, budget))
+        quiet = ib.aggregate({"processes": [row("daemon", 8, 0.05), row("holder", 2, 0.0)]})
+        self.assertEqual(ib.over_budget("app-quit", quiet, budget), [])
+
+    def test_external_churn_judges_the_app(self):
+        budget = ib.load_budget(ib.BUDGET_FILE)
+        kinds = ib.aggregate({"processes": [row("app", 30, 1.4), row("daemon", 8, 0.2)]})
+        self.assertIn(("app", "wakeups_per_s", 1.4, 1.0), ib.over_budget("external-churn", kinds, budget))
+
+    # signed-in: the account, never a secret.
+
+    def credentials(self, text, mode=0o600):
+        path = os.path.join(self.folder, "dev.env")
+        with open(path, "w") as handle:
+            handle.write(text)
+        os.chmod(path, mode)
+        return path
+
+    def test_sign_in_env_names_the_file_and_the_account_never_the_password(self):
+        import bench_launch
+        path = self.credentials("CMUX_DOGFOOD_STACK_EMAIL=me@x.dev\nexport CMUX_UITEST_STACK_EMAIL='agent@x.dev'\n"
+                                "CMUX_UITEST_STACK_PASSWORD=hunter2-secret\n")
+        env = bench_launch.agent_sign_in_env(path)
+        self.assertEqual(env, {"CMUX_AUTH_CREDENTIALS_FILE": path, "CMUX_DEV_AUTH_ACCOUNT": "agent@x.dev",
+                               "CMUX_DEV_AUTH_PROFILE": "agent"})
+        self.assertNotIn("hunter2-secret", json.dumps(env))
+
+    def test_sign_in_env_refuses_a_file_the_app_would_not_read(self):
+        import bench_launch
+        with self.assertRaises(bench_launch.CredentialsError) as shared:
+            bench_launch.agent_sign_in_env(self.credentials("CMUX_UITEST_STACK_EMAIL=a@x.dev\n", mode=0o644))
+        self.assertIn("0600", str(shared.exception))
+        with self.assertRaises(bench_launch.CredentialsError) as empty:
+            bench_launch.agent_sign_in_env(self.credentials("CMUX_DOGFOOD_STACK_EMAIL=me@x.dev\n"))
+        self.assertIn("CMUX_UITEST_STACK_EMAIL", str(empty.exception))
+        with self.assertRaises(bench_launch.CredentialsError):
+            bench_launch.agent_sign_in_env(os.path.join(self.folder, "missing.env"))
+
+    def test_signed_in_needs_a_debug_build(self):
+        self.assertIsNone(ib.sign_in_refusal("debug"))
+        for config in ("release", "bench-hooks"):
+            self.assertIn("Debug build only", ib.sign_in_refusal(config))
+            with self.assertRaises(ib.SessionShapeError):
+                ib.SessionRig("signed-in", config).env({"A": "1"})
+        path = self.credentials("CMUX_UITEST_STACK_EMAIL=agent@x.dev\nCMUX_UITEST_STACK_PASSWORD=p\n")
+        rig = ib.SessionRig("signed-in", "debug", credentials=path)
+        env = rig.env({"A": "1"})
+        self.assertEqual((env["A"], env["CMUX_AUTH_CREDENTIALS_FILE"], rig.account), ("1", path, "agent@x.dev"))
+        self.assertEqual(ib.SessionRig("home", "release").env({"A": "1"}), {"A": "1"})  # no account elsewhere
+
+    def test_auth_status_keeps_no_email(self):
+        reply = {"signed_in": True, "restoring": False, "email": "Agent@X.dev", "user_id": "u1", "backend": "https://b"}
+        state = ib.signed_in_state(reply, "agent@x.dev")
+        self.assertEqual(state, {"signed_in": True, "restoring": False, "account_matches": True, "backend": "https://b"})
+        self.assertNotIn("x.dev", json.dumps(state).replace("https://b", ""))
+        self.assertFalse(ib.signed_in_state({"signed_in": True, "email": "other@x.dev"}, "agent@x.dev")["account_matches"])
+        self.assertFalse(ib.signed_in_state({"error": "x"}, "agent@x.dev")["signed_in"])
+
+    def test_wait_signed_in(self):
+        replies = iter([{"signed_in": False, "restoring": True}, {"signed_in": True, "restoring": True, "email": "a@x"},
+                        {"signed_in": True, "restoring": False, "email": "a@x"}])
+        app = types.SimpleNamespace(rpc=lambda method, params=None, timeout=30: next(replies))
+        with unittest.mock.patch.object(ib.time, "sleep", lambda _s: None):
+            self.assertTrue(ib.wait_signed_in(app, "a@x", seconds=5)["signed_in"])
+            other = types.SimpleNamespace(rpc=lambda *a, **k: {"signed_in": True, "restoring": False, "email": "b@x"})
+            with self.assertRaises(ib.SessionShapeError) as wrong:
+                ib.wait_signed_in(other, "a@x", seconds=5)
+            self.assertNotIn("b@x", str(wrong.exception))
+            out = types.SimpleNamespace(rpc=lambda *a, **k: {"signed_in": False, "restoring": False})
+            with self.assertRaises(ib.SessionShapeError):
+                ib.wait_signed_in(out, "a@x", seconds=0)
+
+    # occluded and home.
+
+    def test_wait_occluded_needs_every_main_window_occluded(self):
+        states = iter([{"windows": [{"kind": "main", "occluded": False}]},
+                       {"windows": [{"kind": "main", "occluded": True}, {"kind": "panel", "occluded": False}]}])
+        app = types.SimpleNamespace(rpc=lambda method, params=None, timeout=10: next(states))
+        with unittest.mock.patch.object(ib.time, "sleep", lambda _s: None):
+            self.assertEqual(ib.wait_occluded(app, 5)["main"][0]["occluded"], True)
+            still = types.SimpleNamespace(rpc=lambda *a, **k: {"windows": [{"kind": "main", "occluded": False}]})
+            with self.assertRaises(ib.SessionShapeError):
+                ib.wait_occluded(still, 0)
+
+    def test_start_cover_reads_the_helper_line_and_ends_a_silent_helper(self):
+        helper = os.path.join(self.folder, "benchhelper")
+        with open(helper, "w") as handle:
+            handle.write('#!/bin/sh\n[ "$1" = cover ] || exit 2\necho "covering 1920x1080"\nexec sleep 60\n')
+        os.chmod(helper, 0o755)
+        cover = ib.start_cover(helper, seconds=5)
+        self.assertIsNone(cover.poll())
+        ib.stop_process(cover)
+        self.assertIsNotNone(cover.poll())
+        silent = os.path.join(self.folder, "silent")
+        with open(silent, "w") as handle:
+            handle.write("#!/bin/sh\necho 'no display' >&2\nexit 2\n")
+        os.chmod(silent, 0o755)
+        with self.assertRaises(ib.SessionShapeError) as raised:
+            ib.start_cover(silent, seconds=5)
+        self.assertIn("no display", str(raised.exception))
+
+    def test_benchhelper_has_the_cover_command(self):
+        source = (HERE.parent / "perf-bench" / "benchhelper.swift").read_text()
+        self.assertIn('case "cover":', source)
+        self.assertIn('"covering %.0fx%.0f\\n"', source)
+        self.assertIn("window.level = .normal", source)
+        self.assertIn("orderFrontRegardless()", source)
+
+    def test_home_and_cover_run_after_the_activation(self):
+        calls = []
+        app = types.SimpleNamespace(rpc=lambda method, params=None, timeout=30: calls.append((method, params)) or {})
+        ib.SessionRig("home", "release").after_activate(app)
+        self.assertEqual(calls, [("action.run", {"action": "home.show", "args": {}, "focus": False, "origin": "script"})])
+
+    # app-quit.
+
+    def test_quit_keeps_the_sessions_and_waits_for_the_exit(self):
+        import bench_launch
+        app = bench_launch.BenchApp(bundle(self.folder, debug=False), out=os.path.join(self.folder, "out"),
+                                    teardown=False)
+        sent = []
+        app.rpc = lambda method, params=None, timeout=60: sent.append((method, params)) or {"error": "closed"}
+        app.process = types.SimpleNamespace(poll=lambda: None, wait=lambda timeout: 0)
+        result = app.quit_keep_sessions()
+        self.assertTrue(result["quit"])
+        self.assertEqual(sent[0][1]["action"], "quitKeepSessions")
+
+        def hangs(timeout):
+            raise ib.subprocess.TimeoutExpired("cmux DEV", timeout)
+        app.process = types.SimpleNamespace(poll=lambda: None, wait=hangs)
+        late = app.quit_keep_sessions(timeout=1)
+        self.assertFalse(late["quit"])
+        self.assertIn("still runs 1 s after quitKeepSessions", late["error"])
+        app.process = types.SimpleNamespace(poll=lambda: 0)
+        self.assertEqual(app.quit_keep_sessions()["error"], "the app is not running")
+
+    def test_quit_tree_is_the_tags_processes(self):
+        teardown = types.SimpleNamespace(processes=lambda: [(11, "/x/cmux DEV t.app/Contents/Resources/bin/cmux-tui server"),
+                                                            (12, "/tmp/host __terminal-host --owner b:t@11")])
+        tree = ib.QuitTree(teardown, 10)
+        self.assertEqual(tree.pid, 10)
+        self.assertEqual(sorted(tree.pids()), [11, 12])
+
+    def test_measure_without_the_app_reads_no_socket(self):
+        calls = []
+        instance = type("Instance", (), {"pid": 1})()
+        saved = (ib.process_set, ib.threads, procs.usage, procs.overhead, procs.gpu_ns_by_pid, procs.coalition_of,
+                 procs.thermal_state, procs.power_assertions, ib.time.sleep, ib.read_rpc)
+        ib.process_set = lambda _instance: {2: "/x/cmux DEV t.app/Contents/Resources/bin/cmux-tui server"}
+        ib.threads = lambda _pid: {}
+        procs.usage = lambda _pid: procs.usage_from_words(rusage_words(), 1, 1)
+        procs.overhead = lambda _pid: (0, 8, 0, 0, 0)
+        procs.gpu_ns_by_pid = lambda: {}
+        procs.coalition_of = lambda _pid: None
+        procs.thermal_state = lambda: "nominal"
+        procs.power_assertions = lambda _pids: []
+        ib.time.sleep = lambda _seconds: None
+        ib.read_rpc = lambda *args, **kwargs: calls.append(args[1]) or {}
+        try:
+            result = ib.measure(None, instance, 60)
+        finally:
+            (ib.process_set, ib.threads, procs.usage, procs.overhead, procs.gpu_ns_by_pid, procs.coalition_of,
+             procs.thermal_state, procs.power_assertions, ib.time.sleep, ib.read_rpc) = saved
+        self.assertEqual(calls, [])
+        self.assertEqual([r["kind"] for r in result["processes"]], ["daemon"])
+        self.assertIsNone(result["ends"]["start"]["saver"])
+        self.assertNotIn("main_wakes_per_s", result)
+
+    # external-churn.
+
+    def test_chrome_history_fixture_reads_as_chromium_history(self):
+        import sqlite3
+        path = ib.make_chrome_history(os.path.join(self.folder, "History"), visits=3, now=1_700_000_000)
+        ib.append_chrome_visit(path, 7, now=1_700_000_100)
+        with sqlite3.connect(path) as db:  # ChromiumHistoryReader's query
+            rows = db.execute("SELECT url, title, visit_count, last_visit_time FROM urls WHERE hidden = 0 AND "
+                              "visit_count > 0 ORDER BY last_visit_time DESC").fetchall()
+        self.assertEqual(rows[0], ("https://example.com/churn/7", "Churn 7", 1, ib.chrome_time(1_700_000_100)))
+        self.assertEqual(len(rows), 4)
+        self.assertEqual(ib.chrome_time(0), 11644473600 * 1_000_000)
+        self.assertFalse(os.path.exists(path + "-journal"))  # the commit made and removed it
+
+    def test_keep_in_sync_store_is_one_synced_chrome_source(self):
+        history = os.path.join(self.folder, "Chrome", "Default", "History")
+        files = ib.keep_in_sync_store(history, now=1_700_000_000)
+        record = files["sources.json"][0]
+        self.assertEqual(record["syncedHistoryFile"], Path(history).resolve().as_uri())
+        self.assertEqual((record["browser"], record["profileDirectory"]), ("chrome", "Default"))
+        self.assertEqual(record["proposedProfileID"], record["targetProfileID"])
+        self.assertRegex(record["targetProfileID"], r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
+        # ImportedDataStore.batchFile: <target profile>/<source key, other than letters, digits and - as _>.json
+        batch = files[f"{record['targetProfileID']}/chrome_Default.json"]
+        self.assertEqual((batch["source"], batch["kinds"], batch["history"], batch["importedAt"]),
+                         (record, ["history"], [], 1_700_000_000))
+
+    def test_seeded_store_restores_the_tags_store(self):
+        store = os.path.join(self.folder, "BrowserImport")
+        os.makedirs(store)
+        with open(os.path.join(store, "sources.json"), "w") as handle:
+            handle.write("[]")
+        seeded = ib.SeededStore(store, {"sources.json": [{"a": 1}], "p/b.json": {"b": 2}}).write()
+        with open(os.path.join(store, "p", "b.json")) as handle:
+            self.assertEqual(json.load(handle), {"b": 2})
+        seeded.restore()
+        with open(os.path.join(store, "sources.json")) as handle:
+            self.assertEqual(handle.read(), "[]")
+        self.assertFalse(os.path.exists(store + ".bench-prev"))
+        os.makedirs(store + ".bench-prev")
+        with self.assertRaises(ib.SessionShapeError):
+            ib.SeededStore(store, {}).write()
+        fresh = os.path.join(self.folder, "fresh", "BrowserImport")
+        ib.SeededStore(fresh, {"sources.json": []}).write().restore()
+        self.assertFalse(os.path.exists(fresh))
+
+    def test_import_store_only_of_a_tagged_bundle(self):
+        tagged = bundle(os.path.join(self.folder, "a"), debug=False)
+        mine = bundle(os.path.join(self.folder, "b"), debug=False, ident="com.cmuxterm.app")
+        self.assertTrue(ib.import_store_dir(tagged).endswith("Application Support/com.cmuxterm.app.debug.t/BrowserImport"))
+        self.assertIsNone(ib.import_store_dir(mine))
+
+    def test_churn_writes_ten_a_second_and_a_history_visit_every_five_seconds(self):
+        project = ib.make_project(os.path.join(self.folder, "project"))
+        self.assertTrue(os.path.isdir(os.path.join(project, ".git")))
+        history = ib.make_chrome_history(os.path.join(self.folder, "History"), visits=1)
+        churn = ib.ExternalChurn(project, history)
+        for n in range(101):
+            churn.step(n)
+        with open(os.path.join(project, "churn.log")) as handle:
+            self.assertEqual(len(handle.read().splitlines()), 101)
+        self.assertEqual((churn.writes, churn.visits), (101, 3))  # writes 0, 50 and 100: one per 5 s at 10/s
+        running = ib.ExternalChurn(project, history, writes_per_s=200).start()
+        self.assertTrue(running.thread.is_alive())
+        counts = running.stop()
+        self.assertFalse(running.thread.is_alive())
+        self.assertIsNone(counts["error"])
+        self.assertGreaterEqual(counts["writes"], 1)
+
+
 if __name__ == "__main__":
     unittest.main()
