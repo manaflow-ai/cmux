@@ -11,7 +11,7 @@ correct with R2's conditional requests instead.
     r2_cas.py put --key KEY --file FILE --cache-control CC [--content-type T]
                   (--if-match ETAG | --if-absent)
         Writes FILE only while the object still has ETAG (or does not exist).
-        Exits 3 when another writer changed it first.
+        Exits 3 when another writer changed it first (HTTP 412 or 409).
 
     r2_cas.py lock --key KEY --owner ID --ttl SECONDS --wait SECONDS
         Takes the lease at KEY: creates it only while absent, or replaces a
@@ -92,7 +92,8 @@ def put(key: str, body: bytes, *, etag: str | None, cache_control: str, content_
             response.read()
         return True
     except urllib.error.HTTPError as error:
-        if error.code == 412:
+        # 412: the condition failed; 409: R2 refused a concurrent write to the key.
+        if error.code in (409, 412):
             return False
         raise
 

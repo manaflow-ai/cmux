@@ -109,6 +109,10 @@ check(lease < publish.index("not_newer && exit 0") < publish.index("\n          
       "publish checks and writes the release inside the R2 lease")
 check("timeout-minutes: 30" in publish and "--ttl 2100" in publish,
       "the publish lease outlives the job, so it is never taken from a run still writing")
+check("TIP_RUN_TAG: r${{ github.run_id }}-${{ github.run_attempt }}" in tip
+      and 'cmux-NEXT-DEV-$TIP_BUILD.dmg' not in tip
+      and "SPARKLE_DELTA_NAME_PREFIX: cmux-NEXT-DEV-tip-${{ github.run_id }}-${{ github.run_attempt }}-" in tip,
+      "each attempt's tip archive and deltas have their own names, so a re-run never hits an earlier upload")
 check("--write-once" in tip, "tip archives and deltas are write-once, so a feed's signature always matches its bytes")
 check(tip_feed.newest(feed(30, 50, 40)) == 50 and tip_feed.newest(feed()) == 0, "newest reads the feed's newest build")
 
@@ -131,6 +135,11 @@ check(not r2_cas.put("k", b"x", etag='"7"', cache_control="no-store", content_ty
       and sent[-1].get("if-match") == '"7"', "a feed write sends If-Match and reports a lost race")
 check(not r2_cas.put("k", b"x", etag=None, cache_control="no-store", content_type="text/plain")
       and sent[-1].get("if-none-match") == "*", "a first write sends If-None-Match: *")
+def conflict_409(request, *, timeout):
+    raise urllib.error.HTTPError(request.full_url, 409, "Conflict", {}, io.BytesIO())
+r2_cas.r2._open_signed_request = conflict_409
+check(not r2_cas.put("k", b"x", etag='"7"', cache_control="no-store", content_type="text/plain"),
+      "R2's 409 for a concurrent writer is a lost race, retried like a 412")
 r2_cas.r2._open_signed_request = real_open
 
 # The lease against an in-memory R2 whose clock is not the runner's.
@@ -176,6 +185,7 @@ echo "gh $*" >> "$STUB_LOG"
 case "$1 $2" in
   "api repos/o/r/releases/tags/cmux-next-dev")
     [[ -n "$NOTES_SHA" ]] || { echo "gh: Not Found (HTTP 404)" >&2; exit 1; }
+    [[ "$NOTES_SHA" == none ]] && { echo "Hand-edited notes."; exit 0; }
     echo "Rolling build from feat-cmux-next commit $NOTES_SHA."; exit 0 ;;
   api\ repos/o/r/compare/*)
     pair="${2#repos/o/r/compare/}"; key="${pair//./_}"; var="CMP_${key}"
@@ -237,6 +247,10 @@ rc, log = run_publish(B, record=A, cmp={f"{B}...{A}": "diverged", f"{A}...feat-c
 check(rc == 0 and wrote(log), "after a rewrite, the commit still on feat-cmux-next replaces one that left it")
 rc, log = run_publish(A, record=B, cmp={f"{A}...{B}": "diverged", f"{B}...feat-cmux-next": "ahead"})
 check(rc == 0 and not wrote(log), "a commit that left feat-cmux-next never replaces one still on it")
+rc, log = run_publish(B, notes="none")
+check(rc != 0 and not wrote(log), "a release whose notes name no commit is never overwritten")
+rc, log = run_publish(B)
+check(rc == 0 and wrote(log), "with no release and no record, the first run publishes")
 rc, log = run_publish(B, record=A, holds="no", cmp={f"{B}...{A}": "behind"})
 check(rc != 0 and not wrote(log), "a run that lost the lease never writes")
 
