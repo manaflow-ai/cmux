@@ -11,7 +11,7 @@ public import Foundation
 ///
 /// Bounded: at most ``maximumRunning`` commands run per pane, each keeps the last
 /// ``maximumBuffer`` bytes, and finished runs past ``maximumKept`` are dropped oldest first.
-/// Idle, nothing runs: no timer, only a blocked `waitpid` and a pipe read per running command.
+/// Idle, nothing runs: no timer, only a process-exit source (``ChildExitWatch``) and a pipe read per running command.
 /// Deadlines (a read's wait, Stop's escalation, the drain after exit) are one-shot DemandTimers.
 public final class AgentPaneShell {
     public static let maximumRunning = 4

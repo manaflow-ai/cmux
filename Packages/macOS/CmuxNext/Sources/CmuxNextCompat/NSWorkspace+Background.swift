@@ -5,9 +5,9 @@ public import AppKit
 /// `NSWorkspace.open(_:)` and `activateFileViewerSelecting(_:)` make synchronous LaunchServices
 /// and Finder calls. On a busy or slow system the main thread waited in
 /// `_sandbox_extension_issue` long enough for the main-thread watchdog to fire
-/// (`browser.downloads.showFolder` in the socket action sweep). These run the calls on a named
-/// queue of their own, `com.cmuxterm.next.workspace-open`, instead (not the cooperative pool, whose threads must
-/// not block, and not a root queue, which has no name).
+/// (`browser.downloads.showFolder` in the socket action sweep). These run the calls on a named concurrent
+/// queue, `com.cmuxterm.next.workspace-open`, instead (not the cooperative pool, whose threads must not block,
+/// and not a root queue, which has no name).
 /// CmuxNext opens and reveals only through them
 /// (scripts/cmux-next/check-concurrency.sh enforces it). Every `open` form goes through here, the
 /// completion-handler ones too, so no caller depends on how much of an open LaunchServices does
@@ -53,8 +53,10 @@ extension NSWorkspace {
     private func inBackground(_ body: @escaping @Sendable (NSWorkspace) -> Void) {
         // crash-allow: the queue only calls this workspace's open and reveal methods, the calls these helpers always made off main on NSWorkspace.shared; it reads and writes no other state of it
         nonisolated(unsafe) let workspace = self
-        // A queue per call, so one slow LaunchServices call never holds the next; a person waits for the app or
-        // the Finder window.
-        DispatchQueue(label: "com.cmuxterm.next.workspace-open", qos: .userInitiated).async { body(workspace) }
+        // Concurrent, so one slow LaunchServices call never holds the next, and it targets GCD's width-limited root
+        // queue (a serial queue targets the overcommit one, a new thread per blocked call): a scripted burst of
+        // opens parks no more threads than the unnamed root queue did. A person waits for the app or Finder window.
+        DispatchQueue(label: "com.cmuxterm.next.workspace-open", qos: .userInitiated, attributes: .concurrent)
+            .async { body(workspace) }
     }
 }

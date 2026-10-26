@@ -44,6 +44,37 @@ struct ChildExitWatchTests {
         #expect(Self.isReaped(pid))
     }
 
+    /// The claim itself: while the child runs, its reap queue is free. A watch that waited in a blocking
+    /// `waitpid` on the queue would hold this probe until the child's 30 s end.
+    @Test func noThreadWaitsOnTheReapQueueWhileTheChildRuns() async throws {
+        let pid = try Self.spawn("sleep 30")
+        let queue = DispatchQueue(label: "cmux.next.agent-pane.test-reap.\(pid)", qos: .utility)
+        let (statuses, sink) = AsyncStream.makeStream(of: Int32?.self, bufferingPolicy: .bufferingNewest(1))
+        // Started here, before the probe is queued: whatever the watch queues runs first.
+        ChildExitWatch(pid: pid, queue: queue).start { status in
+            sink.yield(status)
+            sink.finish()
+        }
+        let probe = DispatchSemaphore(value: 0)
+        queue.async { probe.signal() }
+        let free = await Self.wait(probe, timeout: .seconds(5))
+        #expect(free, "the reap queue ran other work while the child (30 s) was alive")
+        kill(pid, SIGKILL)
+        var exits = statuses.makeAsyncIterator()
+        let status = await exits.next()
+        #expect(status.flatMap { $0 }.map { $0 & 0x7f } == SIGKILL)
+        #expect(Self.isReaped(pid))
+    }
+
+    /// Waits for `semaphore` off the cooperative pool, at most `timeout`.
+    private static func wait(_ semaphore: DispatchSemaphore, timeout: DispatchTimeInterval) async -> Bool {
+        await withCheckedContinuation { continuation in
+            DispatchQueue(label: "cmux.next.agent-pane.test-wait", qos: .utility).async {
+                continuation.resume(returning: semaphore.wait(timeout: .now() + timeout) == .success)
+            }
+        }
+    }
+
     private static func exit(of pid: pid_t) async -> (Int32?, String) {
         await withCheckedContinuation { continuation in
             ChildExitWatch(pid: pid, queue: DispatchQueue(label: "cmux.next.agent-pane.test-reap.\(pid)", qos: .utility)).start { status in

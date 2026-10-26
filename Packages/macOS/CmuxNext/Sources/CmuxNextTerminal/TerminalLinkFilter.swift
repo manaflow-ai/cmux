@@ -48,15 +48,17 @@ nonisolated final class TerminalLinkFilter: Sendable {
     private let state = Mutex(State())
     private let schedule: Schedule
 
-    /// The checks run on this filter's own queue; a test passes its own `schedule` to run them itself.
+    /// The checks run on this filter's own concurrent queue; a test passes its own `schedule` to run them itself.
     init(schedule: @escaping Schedule = TerminalLinkFilter.ownQueue()) {
         self.schedule = schedule
     }
 
-    /// One serial queue per filter (per surface): a check that stalls on a slow volume holds only this
-    /// terminal's later checks, at the QoS of a person waiting on the pointer.
+    /// A named concurrent queue per filter (per surface), at the QoS of a person waiting on the pointer. A check
+    /// is a stat that can hang on a sleeping disk or a network mount, so the checks run side by side: one stalled
+    /// check holds no later one, in this terminal or another. A concurrent queue targets GCD's width-limited root
+    /// queue, as the unnamed root queue these checks used before, so a burst of stalled checks parks no more threads.
     static func ownQueue() -> Schedule {
-        let queue = DispatchQueue(label: "com.cmuxterm.next.terminal.link-check", qos: .userInitiated)
+        let queue = DispatchQueue(label: "com.cmuxterm.next.terminal.link-check", qos: .userInitiated, attributes: .concurrent)
         return { work in queue.async(execute: work) }
     }
 

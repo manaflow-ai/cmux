@@ -1,11 +1,13 @@
 import CmuxNextCompat
 import Darwin
 import Dispatch
+import os
 
 /// Reaps one child of this process with no thread parked in `waitpid` while it runs: a process-exit source on
 /// the child's own serial queue, then a `waitpid` that returns at once. Chromium waits for a child on macOS the
 /// same way, through a kqueue `EVFILT_PROC` / `NOTE_EXIT` (base/process/kill_mac.cc, `WaitForChildToDie`), never
-/// a thread blocked per child.
+/// a thread blocked per child. Shell mode's commands, its Tab completions and the acpmux launch shell all reap
+/// through it.
 nonisolated struct ChildExitWatch: Sendable {
     let pid: pid_t
     /// The reap queue, named for the child (its label is listed in threading-model.md), at the QoS of whoever
@@ -20,6 +22,7 @@ nonisolated struct ChildExitWatch: Sendable {
         // The handler and the check below run on the same serial queue; the first to reap cancels the source,
         // so the other does nothing.
         source.setEventHandler {
+            guard !source.isCancelled else { return }
             source.cancel()
             exited(Self.collectExited(pid))
         }
@@ -39,6 +42,7 @@ nonisolated struct ChildExitWatch: Sendable {
         // wakeup-allow: one non-blocking poll, retried only when a signal interrupts it.
         repeat { result = waitpid(pid, &status, WNOHANG) } while result == -1 && errno == EINTR
         if result == 0 { return nil }
+        if result == -1 { logFailure(pid, errno) }
         return .some(result == pid ? status : nil)
     }
 
@@ -50,6 +54,15 @@ nonisolated struct ChildExitWatch: Sendable {
         // wakeup-allow: on the reap queue after the exit event, so the status is collectable at once; retried only
         // when a signal interrupts it.
         repeat { result = blockingWaitpid(pid, &status, 0) } while result == -1 && errno == EINTR
+        if result == -1 { logFailure(pid, errno) }
         return result == pid ? status : nil
+    }
+
+    private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "agent-pane.reap")
+
+    /// ECHILD is expected (someone else reaped the child); any other failure gets a log line.
+    private static func logFailure(_ pid: pid_t, _ failure: Int32) {
+        guard failure != ECHILD else { return }
+        logger.error("child reap failed pid=\(pid, privacy: .public) errno=\(failure, privacy: .public)")
     }
 }
