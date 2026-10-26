@@ -390,14 +390,12 @@ extension CEFRuntime {
         if shutdownSequence?.phase != .readyToShutdown {
             await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
                 shutdownWaiter = continuation
-                shutdownTimeout = Task { @MainActor [weak self] in
-                    // wakeup-allow: deadline of Chromium's shutdown, cancelled when Chromium reports closed
-                    do { try await Task.sleep(for: timeout, tolerance: WakeLeeway.window(delay: timeout).tolerance) } catch { return }
+                shutdownTimeout = waitDeadlines.schedule(owner: "CEFRuntime.shutdown", after: timeout) { [weak self] in
                     self?.resumeShutdownWaiter()
                 }
             }
         }
-        shutdownTimeout?.cancel()
+        if let shutdownTimeout { _ = waitDeadlines.cancel(shutdownTimeout) }
         shutdownTimeout = nil
         devToolsCalls.failAll(where: { _ in true }, with: BrowserTabError.closed)
         siteReplies.failAll(where: { _ in true }, with: BrowserTabError.closed)

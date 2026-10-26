@@ -16,7 +16,8 @@ public final class ShortcutHintCaptureWaiter {
             self.continuation = continuation
             deadline = Task { [weak self] in
                 let limit = Duration.seconds(2)
-                // wakeup-allow: debug capture deadline, cancelled on the monitor callback; never polling
+                // wakeup-allow: debug capture deadline, cancelled on the monitor callback; never polling;
+                // not a DemandTimer: main actor (timer-class asks MainDeadline, and this type has no MainDeadlineScheduler seam)
                 do { try await ContinuousClock().sleep(for: limit, tolerance: WakeLeeway.window(delay: limit).tolerance) } catch { return }
                 self?.finish(false)
             }

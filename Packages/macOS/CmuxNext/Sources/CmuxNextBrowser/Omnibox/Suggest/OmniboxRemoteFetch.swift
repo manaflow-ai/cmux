@@ -64,7 +64,8 @@ extension OmniboxSuggestionEngine {
         guard let fetcher = remote.fetcher, let url = engine.suggestURL(for: text) else { return nil }
         let clock = remote.clock, timeout = remote.timeout, ephemeral = remote.isPrivate
         do {
-            // wakeup-allow: deadline of the typing pause on the injected clock; a newer keystroke cancels it
+            // wakeup-allow: deadline of the typing pause inside one suggest fetch; not a DemandTimer: a newer keystroke
+            // cancels the whole fetch task, pause included; injected clock
             try await clock.sleep(for: remote.debounce, tolerance: WakeLeeway.window(delay: remote.debounce).tolerance)
         } catch {
             return nil
@@ -72,7 +73,7 @@ extension OmniboxSuggestionEngine {
         guard !Task.isCancelled else { return nil }
         let fetch = Task { try await fetcher.fetch(url, ephemeral: ephemeral) }
         let deadline = Task {
-            // wakeup-allow: deadline of one suggest request on the injected clock, cancelled when the fetch ends
+            // wakeup-allow: deadline of one suggest request: a race with the fetch in this call, not a DemandTimer
             try await clock.sleep(for: timeout, tolerance: WakeLeeway.window(delay: timeout).tolerance)
             fetch.cancel()
         }

@@ -15,7 +15,8 @@ package func withDeadline<T: Sendable>(_ duration: Duration, label: String,
     try await withThrowingTaskGroup(of: T.self) { group in
         group.addTask { try await operation() }
         group.addTask {
-            // wakeup-allow: deadline of one cross-process call (flexible, never early: WakeLeeway), cancelled when it answers
+            // wakeup-allow: deadline of one cross-process call: the timer side of a task-group race with the call
+            // (the group's cancelAll ends it), not a DemandTimer; flexible, never early (WakeLeeway)
             try await Task.sleep(for: duration, tolerance: WakeLeeway.window(delay: duration).tolerance)
             throw DeadlineExceeded(label: label)
         }

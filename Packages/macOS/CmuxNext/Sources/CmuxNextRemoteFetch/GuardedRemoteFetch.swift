@@ -89,7 +89,7 @@ public nonisolated struct GuardedRemoteFetch: Sendable {
                 let work = Task { race.finish(await follow(url)) }
                 // task-owner: the deadline; it cancels the fetch when it fires first
                 let deadline = Task {
-                    // wakeup-allow: deadline of one remote fetch, cancelled when the fetch ends
+                    // wakeup-allow: deadline of one remote fetch: one side of the fetch's race (`race` owns both tasks), not a DemandTimer
                     do { try await clock.sleep(for: timeout, tolerance: WakeLeeway.window(delay: timeout).tolerance) } catch { return }
                     race.finish(.failure(.failed))
                 }

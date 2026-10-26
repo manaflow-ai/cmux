@@ -118,7 +118,8 @@ public final class LocalRemoteBrowserHost {
         let deadline = StartDeadline()
         let deadlineTask = Task {
             do {
-                // wakeup-allow: deadline of the host's start on the injected clock, cancelled when the host listens or exits
+                // wakeup-allow: deadline of the host's start, raced against the read of its listening line in this call
+                // (which cancels it), not a DemandTimer; injected clock
                 try await clock.sleep(for: timeout, tolerance: WakeLeeway.window(delay: timeout).tolerance)
             } catch {
                 return

@@ -145,7 +145,8 @@ public actor SSHMachineLink {
             child.terminateProcessOnly()
             // task-owner: one bounded fallback; terminate() is a no-op once the child exited
             Task.detached {
-                // wakeup-allow: deadline for a stopped link client to close its session
+                // wakeup-allow: deadline for a stopped link client to close its session; not a DemandTimer: a detached
+                // escalation that outlives the link, which nothing replaces or cancels
                 try? await Task.sleep(for: Self.closeDeadline, tolerance: WakeLeeway.window(delay: Self.closeDeadline).tolerance)
                 child.terminate()
             }

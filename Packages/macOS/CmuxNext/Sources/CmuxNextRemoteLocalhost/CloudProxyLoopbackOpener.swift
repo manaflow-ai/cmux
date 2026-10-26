@@ -33,7 +33,8 @@ public struct CloudProxyLoopbackOpener: LoopbackTunnelOpening {
             credential: credential,
             handshakeTimeout: handshakeTimeout,
             sleep: { duration in
-                // wakeup-allow: deadline of one network handshake, cancellable; tests inject this sleep
+                // wakeup-allow: deadline of one network handshake: the injected sleep of the handshake's task-group race
+                // (tests inject it), not a DemandTimer
                 try await ContinuousClock().sleep(for: duration, tolerance: WakeLeeway.window(delay: duration).tolerance)
             }
         )
@@ -107,7 +108,7 @@ public struct CloudProxyLoopbackOpener: LoopbackTunnelOpening {
             return try await withThrowingTaskGroup(of: (Data, Data).self) { group in
                 group.addTask { try await Self.readResponseHead(from: connection) }
                 group.addTask {
-                    // wakeup-allow: deadline of the handshake, not polling or settling.
+                    // wakeup-allow: deadline of the handshake: a task-group race with the response read, not a DemandTimer
                     try await sleep(handshakeTimeout)
                     connection.cancel()
                     throw LoopbackTunnelFailure.other("Cloud browser proxy handshake timed out")

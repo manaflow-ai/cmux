@@ -66,7 +66,8 @@ public final class BrowserHistoryStarts {
         // A mark left by a Chromium page that could not be made is not this page's.
         engineRestored.remove(tabID)
         let timer = Task { [weak self] in
-            // wakeup-allow: deadline of a slow history read, cancelled when it answers
+            // wakeup-allow: deadline of a slow history read, cancelled when it answers;
+            // not a DemandTimer: main actor (timer-class asks MainDeadline, and this type has no MainDeadlineScheduler seam)
             do { try await Task.sleep(for: Self.budget, tolerance: WakeLeeway.window(delay: Self.budget).tolerance) } catch { return }
             self?.start(tabID, saved: nil)
         }

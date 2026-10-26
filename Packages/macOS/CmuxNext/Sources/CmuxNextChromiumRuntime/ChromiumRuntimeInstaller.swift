@@ -14,7 +14,9 @@ import CmuxNextWakeups
 /// folder, refuse symlinks that leave it, check the code signature of the
 /// framework, the shim and every helper (when the pin names a team), remove
 /// quarantine, then move the folder into place and write its record. A failed
-/// attempt waits `retryDelays` (the last delay repeats) and tries again.
+/// attempt waits the next of `retryDelays` (the last delay repeats), jittered as
+/// Chromium's `net::BackoffEntry` jitters so clients that failed together do not
+/// retry together, and tries again.
 ///
 /// Tests inject every outside dependency:
 ///
@@ -37,6 +39,9 @@ public actor ChromiumRuntimeInstaller {
         public static func < (lhs: Priority, rhs: Priority) -> Bool { lhs.rawValue < rhs.rawValue }
     }
 
+    /// The ledger owner of the wait after a failed attempt.
+    public static let retryOwner = "ChromiumRuntimeInstaller.retry"
+
     /// The pack this app build is pinned to.
     public nonisolated let pin: ChromiumRuntimePin
     /// Where packs live.
@@ -46,8 +51,10 @@ public actor ChromiumRuntimeInstaller {
     private let signatures: any ChromiumRuntimeSignatureChecking
     private let network: any ChromiumRuntimeNetwork
     private let retryDelays: [Duration]
+    private let retryRandom: @Sendable () -> Double
     private let maxAttempts: Int?
     private let clock: any Clock<Duration>
+    private let ledger: WakeupLedger
     private let keepAlso: @Sendable () -> Set<String>
 
     /// The current state (also delivered by ``states()``).
@@ -69,15 +76,19 @@ public actor ChromiumRuntimeInstaller {
     ///   - network: Waits for a usable path (``PathMonitorChromiumRuntimeNetwork``).
     ///   - retryDelays: Waits between failed attempts; the last one repeats.
     ///     The default backs off from 5 s to 30 min.
+    ///   - retryRandom: The ``Backoff`` jitter's draw in 0..<1 (tests pass a constant; 0.5 is no spread).
     ///   - maxAttempts: Stop after this many failed attempts (tests); nil retries while the app runs.
     ///   - clock: Drives the retry waits; tests can pass a clock they control.
+    ///   - ledger: Where each retry wait is recorded (reason `backoff`).
     ///   - keepAlso: Pack keys the cleanup after an install must keep besides
     ///     the pinned one (the pack this process already runs, if another).
     public init(pin: ChromiumRuntimePin, store: ChromiumRuntimeStore, downloader: any ChromiumRuntimeDownloading,
                 unpacker: any ChromiumRuntimeUnpacking, signatures: any ChromiumRuntimeSignatureChecking,
                 network: any ChromiumRuntimeNetwork,
                 retryDelays: [Duration] = [.seconds(5), .seconds(15), .seconds(60), .seconds(300), .seconds(1800)],
+                retryRandom: @escaping @Sendable () -> Double = { Double.random(in: 0..<1) },
                 maxAttempts: Int? = nil, clock: any Clock<Duration> = ContinuousClock(),
+                ledger: WakeupLedger = .shared,
                 keepAlso: @escaping @Sendable () -> Set<String> = { [] }) {
         self.pin = pin
         self.store = store
@@ -86,8 +97,10 @@ public actor ChromiumRuntimeInstaller {
         self.signatures = signatures
         self.network = network
         self.retryDelays = retryDelays.isEmpty ? [.zero] : retryDelays
+        self.retryRandom = retryRandom
         self.maxAttempts = maxAttempts
         self.clock = clock
+        self.ledger = ledger
         self.keepAlso = keepAlso
     }
 
@@ -138,6 +151,7 @@ public actor ChromiumRuntimeInstaller {
     public func run(_ priority: Priority) async -> ChromiumRuntimeInstallState {
         jobPriority = max(jobPriority ?? priority, priority)
         var failures = 0
+        var backoff = Backoff(steps: retryDelays, random: retryRandom)
         // wakeup-allow: backoff: a retry loop, not a poll: each pass first waits for a usable network (an event),
         // then makes one attempt; it ends on success, cancellation or maxAttempts, and a failure waits retryDelays.
         while !Task.isCancelled {
@@ -155,9 +169,12 @@ public actor ChromiumRuntimeInstaller {
                 failures += 1
                 publish(.failed(error, attempt: failures))
                 if let maxAttempts, failures >= maxAttempts { return state }
-                let delay = retryDelays[min(failures - 1, retryDelays.count - 1)]
-                // wakeup-allow: backoff after a real failure (5 s to 30 min), on the injected clock; cancellable.
-                do { try await clock.sleep(for: delay, tolerance: Backoff.tolerance(for: delay)) } catch { return state }  // cancelled
+                do {
+                    // concurrency-allow: Backoff.wait is an async clock sleep in this actor after a failure, not a blocking wait.
+                    try await backoff.wait(owner: Self.retryOwner, clock: clock, ledger: ledger)
+                } catch {
+                    return state  // cancelled
+                }
             } catch {
                 return state  // CancellationError
             }

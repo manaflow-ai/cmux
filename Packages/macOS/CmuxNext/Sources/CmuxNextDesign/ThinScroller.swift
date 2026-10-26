@@ -225,7 +225,8 @@ public final class ThinScroller: NSScroller {
         // A bounded, cancellable delay that is the intended behavior (the knob's rest time after
         // the last scroll step); the next scroll cancels it. Its clock is injected.
         restTask = Task { [weak self] in
-            // wakeup-allow: deadline of the knob's rest after the last scroll step, injected clock; the next scroll cancels it
+            // wakeup-allow: deadline of the knob's rest after the last scroll step, injected clock; the next scroll cancels it;
+            // not a DemandTimer: main actor (timer-class asks MainDeadline, and this type has no MainDeadlineScheduler seam)
             do { try await clock.sleep(for: Self.restDelay, tolerance: WakeLeeway.window(delay: Self.restDelay).tolerance) } catch { return }
             self?.update { $0.rested() }
         }

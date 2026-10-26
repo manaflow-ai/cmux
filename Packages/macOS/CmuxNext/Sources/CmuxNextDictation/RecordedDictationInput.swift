@@ -34,16 +34,13 @@ enum RecordedDictationInput {
         // task-owner: stored by the engine as its audio source; cancelled when capture stops
         return Task {
             var position: AVAudioFramePosition = 0
-            let clock = ContinuousClock()
-            var due = clock.now
+            let tolerance = WakeLeeway.window(delay: pace).tolerance
             while !Task.isCancelled, let buffer = reader.next(frames) { // wakeup-allow: debug clip playback, ends with the clip or the session
                 meter?.record(buffer)
                 ingest(buffer, AVAudioTime(sampleTime: position, atRate: sampleRate))
                 position += AVAudioFramePosition(buffer.frameLength)
-                // Each buffer has its own deadline on the clip's timeline, so timer slack never adds up into drift.
-                due = due.advanced(by: pace)
                 // wakeup-allow: debug clip playback paced like a microphone tap (about 12 per second while dictating)
-                try? await clock.sleep(until: due, tolerance: WakeLeeway.window(delay: pace).tolerance)
+                try? await Task.sleep(for: pace, tolerance: tolerance)
             }
         }
     }

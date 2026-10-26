@@ -1995,6 +1995,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextRemoteLocalhostService",
                 "CmuxNextRemoteViewSessions",
                 "CmuxNextScreenshots",
+                "CmuxNextServerHelper",
                 "CmuxNextSignposts",
                 "CmuxNextStash",
                 "CmuxNextTabs",

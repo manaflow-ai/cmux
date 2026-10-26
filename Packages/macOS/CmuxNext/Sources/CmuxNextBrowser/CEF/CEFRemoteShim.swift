@@ -78,7 +78,8 @@ nonisolated struct CEFRemoteShim: @unchecked Sendable {
             return .failure(.host("the remote shim refused the host's wire"))
         }
         let deadline = Task { [self] in
-            // wakeup-allow: deadline of the host's hello on the injected clock, cancelled when the hello arrives
+            // wakeup-allow: deadline of the host's hello, raced against the hello in attach(), which awaits the outcome
+            // and cancels it; not a DemandTimer; injected clock
             do { try await clock.sleep(for: helloDeadline, tolerance: WakeLeeway.window(delay: helloDeadline).tolerance) } catch { return }
             // Detach runs the pending hello with 0, which releases its context; none comes after.
             if hello.finish(.timedOut) { detach() }

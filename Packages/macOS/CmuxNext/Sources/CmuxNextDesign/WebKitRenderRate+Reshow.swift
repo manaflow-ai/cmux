@@ -38,14 +38,15 @@ public extension WebKitRenderRate {
             // Hiding hands keyboard focus to the next key view; take it back
             // unless the user moved it meanwhile.
             let handedTo = webView.window?.firstResponder
-            // wakeup-allow: deadline of a render-rate change's hidden step (33 ms) on the owner's injected clock, cancelled with the owner
+            // wakeup-allow: deadline of a render-rate change's hidden step (33 ms): a step of one sequential task the owner
+            // cancels, not a DemandTimer; injected clock
             let shown: Void? = try? await clock.sleep(for: hidden, tolerance: WakeLeeway.window(delay: hidden).tolerance)
             webView.isHidden = false
             if focused, let window = webView.window, window.firstResponder === handedTo {
                 window.makeFirstResponder(webView)
             }
             if shown != nil {
-                // wakeup-allow: deadline of a render-rate change's covered step (50 ms) on the owner's injected clock, cancelled with the owner
+                // wakeup-allow: deadline of a render-rate change's covered step (50 ms), the same sequential task's next step
                 try? await clock.sleep(for: covered, tolerance: WakeLeeway.window(delay: covered).tolerance)
             }
             cover.removeFromSuperview()

@@ -46,7 +46,8 @@ struct TabStripGroupState {
     var holdTask: Task<Void, Never>?
     /// Injected so tests and demos can drive the hold delay.
     var sleep: @Sendable (Duration) async throws -> Void = {
-        // wakeup-allow: deadline of one click-and-hold (injected for tests), cancelled on mouse up
+        // wakeup-allow: deadline of one click-and-hold (injected for tests), cancelled on mouse up;
+        // not a DemandTimer: main actor (timer-class asks MainDeadline, and this type has no MainDeadlineScheduler seam)
         try await ContinuousClock().sleep(for: $0, tolerance: WakeLeeway.window(delay: $0).tolerance)
     }
 

@@ -29,7 +29,7 @@ public final class UnixSocketLane: MobileByteLane {
         try await withThrowingTaskGroup(of: Void.self) { group in
             group.addTask { try await lane.waitUntilReady(path: path) }
             group.addTask {
-                // wakeup-allow: deadline of one unix socket connect, cancelled when it connects
+                // wakeup-allow: deadline of one unix socket connect: a task-group race with the connect, not a DemandTimer
                 try await Task.sleep(for: deadline, tolerance: WakeLeeway.window(delay: deadline).tolerance)
                 throw Failure.connectTimedOut(path: path)
             }
