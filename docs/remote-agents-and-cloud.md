@@ -113,9 +113,33 @@ cmux agent open-tab api-work --host my-linux --focus
 
 The tab binds to the peer session mirrored by your Mac's daemon. If the name is
 ambiguous, use its session ID from `acpmux ls --json`. This does not move the
-agent. Remote sidebar group placement is a separate limitation: the checked
-launcher refuses combining `acpmux new --host` with `--group`; `agent open`
-creates workspaces for local/Chief sessions rather than performing this peer lookup.
+agent. The generic action form also accepts the peer host:
+
+```sh
+cmux action run agent.openSessionTab --target PANE --session api-work --host my-linux
+```
+
+To create a remote chat inside a sidebar workspace group on the Mac where you
+run the command:
+
+```sh
+acpmux new --host my-linux -m codex --group "Remote demo" -d "say hi"
+```
+
+`--group` runs the local `cmux agent open` using the returned session ID. The
+workspace belongs to your Mac; the agent and its files stay on the peer. It
+joins a suitable group of that name or creates one. Opening the workspace may
+move focus.
+Use `--name api-work --reuse` to rerun a launch without creating another
+session. Without `--name`, each invocation creates a new session and row.
+
+If opening the sidebar fails, the session still runs and the warning gives a
+`cmux agent open ID --name ... --key ... --group ...` command to retry on your
+Mac. Run it with the CLI bundled with that Mac's app and the same local acpmux
+daemon that mirrors the peer. For wrappers that run acpmux **on the remote
+host**, omit `--group` there and open the returned session ID on the controller
+Mac after creation. Passing a peer name as `agent open --host` is not needed
+for an ID already mirrored locally.
 
 To end the current turn, stop the agent, or continue a saved session:
 
