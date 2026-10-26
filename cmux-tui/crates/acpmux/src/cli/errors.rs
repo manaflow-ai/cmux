@@ -85,6 +85,10 @@ impl AppError {
         self.retryable = true;
         self
     }
+    pub fn with_data(mut self, data: serde_json::Value) -> Self {
+        self.data = Some(data);
+        self
+    }
     /// JSON envelope for stderr under --json.
     pub fn envelope(&self) -> serde_json::Value {
         let mut envelope = serde_json::json!({"error": {"code": self.code.name(), "exit": self.code as i32, "detail": self.detail, "message": self.message, "sessionId": self.session_id, "promptId": self.prompt_id, "retryable": self.retryable}});

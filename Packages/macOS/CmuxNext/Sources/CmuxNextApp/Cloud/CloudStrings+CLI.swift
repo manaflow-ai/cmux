@@ -12,10 +12,17 @@ extension CloudStrings {
 
     /// `cloud exec` from a CLI or agent on a machine whose provider runs no commands through the
     /// API: typing it into a tab would give the caller nothing to read.
-    static var execUnavailable: String {
-        String(localized: "cloud.cli.execUnavailable",
-               defaultValue: "This Cloud machine can't run a command for the CLI and return its output. Open a terminal on it with cmux cloud open-machine instead.",
-               table: "Cloud", bundle: .module)
+    static func execUnavailable(_ machineID: String) -> String {
+        String(format: String(localized: "cloud.cli.execUnavailable",
+                              defaultValue: "This Cloud machine can't run a command for the CLI and return its output. Open a terminal on it with `cmux cloud new-terminal-on-machine --target machine:%1$@`, or connect with `cmux cloud ssh --target machine:%1$@`.",
+                              table: "Cloud", bundle: .module), machineID)
+    }
+
+    /// A run whose `--target machine:<id>` names no machine this app knows.
+    static func unknownMachine(_ machineID: String) -> String {
+        String(format: String(localized: "cloud.cli.unknownMachine",
+                              defaultValue: "No Cloud machine has the id %@. `cmux cloud list-machines` lists ids.",
+                              table: "Cloud", bundle: .module), machineID)
     }
 
     /// `cloud set-idle-pause` with a `minutes` value the server does not take.

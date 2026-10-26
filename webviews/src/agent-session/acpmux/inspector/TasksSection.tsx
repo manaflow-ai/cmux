@@ -19,6 +19,7 @@ import { openCommand } from "../processTerminal";
 import { useNow } from "../subagents/SubagentGroup";
 import type { SummaryWakeup } from "../summary/sessionSummary";
 import { arrivalKey, sendLabel, splitCommands, type BackgroundCommand } from "./processes";
+import { InspectorFold } from "./InspectorSection";
 
 const ROW_ICON = rowIconSize(12);
 
@@ -128,15 +129,10 @@ export function TasksSection({
       )}
       {finished.length > 0 && (
         <>
-          <button
-            type="button"
-            className="acpmux-chat-inspector-fold"
-            aria-expanded={showFinished}
-            onClick={() => setShowFinished(!showFinished)}
-          >
+          <InspectorFold open={showFinished} onToggle={() => setShowFinished(!showFinished)}>
             <Icon name={showFinished ? "disclosure.expanded" : "disclosure.collapsed"} size={10} />
             {t("rail.finished", { count: finished.length })}
-          </button>
+          </InspectorFold>
           {showFinished && (
             <ul className="acpmux-chat-inspector-list" data-finished="">
               {finished.map((command) =>

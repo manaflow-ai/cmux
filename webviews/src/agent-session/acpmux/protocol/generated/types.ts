@@ -45,7 +45,32 @@ export type AttachResult = {
   /** More records lie beyond this page. */
   hasMore: boolean;
   lastSeq: number;
+  /** Who has the chat open now, this attachment included (`hub/presence.rs`). */
+  presence: PresenceNote;
   session: SessionDetail;
+} & Record<string, unknown>;
+
+/**
+ * The person a request comes from (`hub/author.rs`): stamped by the daemon that admitted
+ * them, and accepted only from the unix socket or a peer forwarding for its own.
+ */
+export interface Author {
+  /** `tailnet:<login>` until accounts are mapped, then `user_…`; one line of at most 256 bytes. */
+  id: string;
+  login?: (string | null);
+  /** One line of 1 to 64 characters. */
+  name: string;
+  node?: (string | null);
+}
+
+export type AuthorMeta = {
+  acpmux?: (AuthorMetaFields | null);
+} & Record<string, unknown>;
+
+/** `_meta.acpmux` of a request that may name its person; other fields pass. */
+export type AuthorMetaFields = {
+  /** None: the chat's owner. */
+  author?: (Author | null);
 } & Record<string, unknown>;
 
 export type ChangedSession = (SessionSummary | PurgedSession);
@@ -255,6 +280,19 @@ export type McpServerSummary = {
 
 export type MessageRole = "agent" | "user";
 
+/**
+ * One person in a chat. The hub never marks the caller's own entry: a connection may carry
+ * several people, so the client compares ids (a caller with no author is `owner`).
+ */
+export type Participant = {
+  /** How many connections carry this person in the chat. */
+  devices: number;
+  id: string;
+  name: string;
+  typing: boolean;
+  viewing: boolean;
+} & Record<string, unknown>;
+
 export type PermissionBatching = {
   maxItems: number;
   maxPendingGroups: number;
@@ -360,6 +398,8 @@ export type PermissionPending = {
 
 export interface PermissionRespondParams {
   _meta?: (RequestMeta | null);
+  /** Claude Code AskUserQuestion annotations beside the answers, by question text: `{preview?, notes?}`. */
+  annotations?: unknown;
   /** A question's answers, by question. */
   answers?: unknown;
   /** The option chosen; absent cancels the request. */
@@ -369,6 +409,16 @@ export interface PermissionRespondParams {
 }
 
 export type PermissionRespondResult = Record<string, unknown>;
+
+/**
+ * `_acpmux/presence`, to every connection attached to the chat on each change, and
+ * `presence` in the `_acpmux/attach` reply. Never in the log, `_acpmux/events` or an export.
+ */
+export type PresenceNote = {
+  /** One per person, by id; at most 32 besides the owner. */
+  participants: Participant[];
+  sessionId: string;
+} & Record<string, unknown>;
 
 /**
  * `_acpmux/process/background` (Ctrl-B): the chat whose running work goes
@@ -414,6 +464,11 @@ export type QueuedImage = {
 /** A prompt waiting for the running turn to end. */
 export type QueuedPromptSummary = {
   client: string;
+  /**
+   * The sending agent's name when it is another agent's message, null for the person's: an
+   * app draws it as a received message waiting for the turn, not as a composer row.
+   */
+  fromAgent: (string | null);
   /** Waits behind a failed turn until the queue is resumed. */
   held: boolean;
   /** The images it sends, in its order; `_acpmux/attachment` reads each by its id. */
@@ -433,12 +488,39 @@ export interface RequestMeta {
   cmuxGesture?: (string | null);
 }
 
+/** What `_acpmux/retry` retried: the chat's own turn, or one of its subagents. */
+export type RetryKind = "turn" | "subagent";
+
+/**
+ * `_acpmux/retry` (the Retry button, `acpmux retry`): retry the chat's failed last turn now,
+ * in the same session (`hub/auto_resume/retry_turn.rs`).
+ */
+export interface RetryParams {
+  /** The chat's id, name or unique prefix. */
+  sessionId: string;
+  /**
+   * One of the chat's failed subagents to resume instead. Refused for now
+   * (`retry.subagent_unsupported`), never taken as the chat's own turn.
+   */
+  subagentId?: (string | null);
+}
+
 /**
  * Why a turn is retried (`hub::turn_errors::resume_cause`): the provider or the gateway had no
  * capacity (HTTP 503 or 529, overloaded, no account free), the connection dropped, or the
  * agent process died mid-turn.
  */
 export type RetryReason = "capacity" | "transport" | "agent_exited";
+
+/**
+ * What `_acpmux/retry` sent: the prompt `promptId` (`P~resume-n`, the next attempt of the
+ * failed prompt) and the turn it started.
+ */
+export type RetryResult = {
+  kind: RetryKind;
+  promptId: string;
+  turnId?: (string | null);
+} & Record<string, unknown>;
 
 /**
  * An automatic retry of a failed turn that waits (`hub/auto_resume.rs`): attempt `attempt`
@@ -841,7 +923,22 @@ export type TurnSummary = {
   turnSeq: number;
 } & Record<string, unknown>;
 
+/**
+ * `_acpmux/typing`: at most 2 a second per connection (`typing.rate_limited`); an `on`
+ * lapses after 8 s. The connection must be attached to the chat.
+ */
+export interface TypingParams {
+  _meta?: (AuthorMeta | null);
+  on: boolean;
+  sessionId: string;
+}
+
 export interface ViewParams {
+  /**
+   * An author changes only that person's presence (`hub/presence.rs`), not whether the
+   * chat counts as shown.
+   */
+  _meta?: (AuthorMeta | null);
   sessionId: string;
   /** The attached client shows the chat (`hub/seen.rs`). */
   visible: boolean;

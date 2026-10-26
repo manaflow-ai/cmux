@@ -191,6 +191,11 @@ pub struct SessionMeta {
     /// sent after each turn; none from any other harness.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub context_breakdown: Option<Value>,
+    /// The account's plan usage limits (`claude_stdio::usage_limits`), newest
+    /// per window, from Claude Code's `rate_limit_event`; none from any other
+    /// harness.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub usage_limits: Option<Value>,
     /// The agent's newest `available_commands_update` (its slash commands), so
     /// opening a chat names them without reading its log back to the start,
     /// where an agent lists them once (perf100).

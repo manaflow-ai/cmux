@@ -310,6 +310,8 @@ impl Hub {
             drop(guard);
             return Err(e);
         }
+        // A subagent retry waits out Claude Code's own turn (`subagent_retry.rs`).
+        self.hold_retry_start(session, &prompt_id).await;
         // A continuation Stop overtook since it fired is refused here (`auto_resume.rs`).
         let turn = TurnInfo::prompted(client, &text, &turn_id, &prompt_id, control);
         if let Err(e) = self.start_turn(session, after_turn.as_deref(), turn) {
@@ -503,8 +505,10 @@ impl Hub {
                 {
                     let mut m = session.meta.lock().unwrap();
                     m.harness = to.clone();
-                    // The last harness's /context breakdown is not the fallback's.
+                    // The last harness's /context breakdown is not the fallback's, nor its
+                    // account's usage limits.
                     m.context_breakdown = None;
+                    m.usage_limits = None;
                 }
                 self.save_meta(session);
                 let control = session.turn().map_or(control, |t| t.control);
@@ -1164,6 +1168,7 @@ impl Hub {
     pub async fn kill(&self, session: &Arc<Session>, purge: bool) -> Result<(), RpcError> {
         session.closing.store(true, Ordering::SeqCst);
         self.stop_auto_resume(session);
+        self.stop_subagent_retries(session, true);
         self.revoke_permission_chat(session);
         self.cancel_pending_permissions(session);
         if let Some(child) = session.child.lock().await.take() {
@@ -1189,6 +1194,8 @@ impl Hub {
         // Before the close's event, which sends the cards it owes (`tasks.rs`).
         self.orphan_tasks_of(session, purge);
         self.set_status(session, SessionStatus::Closed);
+        // A lane link either end of which closes is retired (`lane_reports.rs`).
+        self.lane_retire(&session.id);
         // The session's Claude Code MCP config holds the helper token.
         crate::agent_tools::remove_mcp_config(&crate::config::home(), &session.id);
         if purge {

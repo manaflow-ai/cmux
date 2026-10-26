@@ -266,6 +266,8 @@ impl Hub {
             turn_count,
             usage: None,
             context_breakdown: None,
+            // The account's limits, which the fork shares.
+            usage_limits: parent_meta.usage_limits.clone(),
             available_commands: parent_meta.available_commands.clone(),
             goal: None,
             permission_rules: None,

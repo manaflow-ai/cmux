@@ -37,6 +37,9 @@ pub struct SubOpts {
     pub filter: EventFilter,
     /// Attached without showing the chat (`view.rs`).
     pub hidden: bool,
+    /// A peer's chat, attached through this daemon (`peer_forward.rs`): this daemon's presence
+    /// for the same raw id is never its (`hub/presence.rs`).
+    pub remote: bool,
 }
 
 pub struct Conn {
@@ -316,6 +319,11 @@ impl Conn {
     fn sub_opts(&self, session_id: &str) -> Option<SubOpts> {
         self.subs.lock_or_recover().get(session_id).cloned()
     }
+    /// This daemon's own chats this connection is attached to.
+    fn local_attached_ids(&self) -> Vec<String> {
+        let subs = self.subs.lock_or_recover();
+        subs.iter().filter(|(_, opts)| !opts.remote).map(|(id, _)| id.clone()).collect()
+    }
     pub(super) fn bind_mailbox_receipt(&self, receipt: SessionReceipt) {
         self.mailbox_bindings.lock_or_recover().insert(receipt.mux_session_id.clone(), receipt);
     }
@@ -338,10 +346,6 @@ impl Conn {
         }
         subs.insert(session_id.to_owned(), SubOpts::default());
         true
-    }
-    /// Subscribe, replacing any options. True when the subscription is new.
-    fn subscribe_with(&self, session_id: &str, opts: SubOpts) -> bool {
-        self.subs.lock_or_recover().insert(session_id.to_owned(), opts).is_none()
     }
     fn label(&self) -> String {
         let n = self.name.lock_or_recover().clone();
@@ -1459,6 +1463,8 @@ mod fork_through;
 mod harness_admin;
 mod harness_enable;
 mod inventory_watch;
+mod lane_parent;
+use lane_parent::lane_parent;
 pub mod local_app;
 pub(crate) mod machine_health;
 mod models_fanout;
