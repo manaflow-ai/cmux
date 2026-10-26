@@ -358,6 +358,34 @@ fn a_set_fleet_registry_that_is_missing_refuses() {
 }
 
 #[test]
+fn a_registry_folder_that_cannot_be_searched_never_lifts_the_cap() {
+    use std::os::unix::fs::PermissionsExt;
+    let mode = |dir: &std::path::Path, m: u32| {
+        std::fs::set_permissions(dir, std::fs::Permissions::from_mode(m)).unwrap()
+    };
+    // The rendered copy caps this host at one; the checkout fallback is absent.
+    let daemon = Daemon::start("noaccess", Some(1), false);
+    let dir = daemon_env::home(&daemon.root).join(".ssh/config.d");
+    let out = daemon.create("a", &[]);
+    assert!(out.status.success(), "{}", text(&out));
+    daemon.wait_live("a");
+    // Its folder can no longer be searched: whether the file is there is unknown,
+    // so the last good copy keeps the cap.
+    mode(&dir, 0o000);
+    let out = daemon.create("b", &[]);
+    mode(&dir, 0o700);
+    assert_refused(&out, "max_lanes", "at its cap of 1");
+    drop(daemon);
+    // With no good copy read before, the create is refused as unreadable.
+    let daemon = Daemon::start("noaccess2", Some(1), false);
+    let dir = daemon_env::home(&daemon.root).join(".ssh/config.d");
+    mode(&dir, 0o000);
+    let out = daemon.create("a", &[]);
+    mode(&dir, 0o700);
+    assert_refused(&out, "registry_unreadable", "fleet registry cannot be read");
+}
+
+#[test]
 fn a_leo_workspace_checkouts_registry_caps_a_host_with_no_rendered_copy() {
     // cmux16 has ~/Projects/leo-workspace and no ~/.ssh/config.d copy.
     let daemon = Daemon::start("lws", None, false);
