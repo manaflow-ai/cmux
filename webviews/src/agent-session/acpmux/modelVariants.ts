@@ -12,8 +12,15 @@ export type ProviderOffer<T> = { model: T; provider: string };
 
 /// A model as the menu lists it: `model` is the row a pick lands (the running provider's, else the
 /// first listed), `name` the model's name without a provider, `tag` a bracketed note the name
-/// carried ("New"), and `offers` every provider's row, in list order (one, for a plain model).
-export type ModelGroup<T> = { model: T; name: string; tag?: string; offers: ProviderOffer<T>[]; count: number };
+/// carried ("New"), `offers` every provider's row, and `ids` every original catalog ID, including aliases.
+export type ModelGroup<T> = {
+  model: T;
+  name: string;
+  tag?: string;
+  offers: ProviderOffer<T>[];
+  count: number;
+  ids: string[];
+};
 
 /// Providers' names as they write them; any other is its id, capitalized.
 const PROVIDER_NAMES: Record<string, string> = {
@@ -72,8 +79,12 @@ const ownerOf = (id: string): string | undefined => {
 /// ("groq/m") joins the one owner its model has, or the owner its provider is ("mistral/m"); with
 /// several and neither, it is its own model. `current` is the running row's id: its group lands it.
 /// A provider's row is named without the provider ("Z.ai/GLM 5.3" is "GLM 5.3"); the menu names the
-/// provider beside it.
-export function groupVariants<T extends VariantModel>(models: readonly T[], current?: string): ModelGroup<T>[] {
+/// provider beside it. `preferred` retains an available favorite when one provider repeats a route.
+export function groupVariants<T extends VariantModel>(
+  models: readonly T[],
+  current?: string,
+  preferred?: ReadonlySet<string>,
+): ModelGroup<T>[] {
   const rows = models.map((model) => ({ model, ...providerOf(model), owner: ownerOf(model.id) }));
   // Every owner each model id is named under.
   const owners = new Map<string, Set<string>>();
@@ -98,6 +109,7 @@ export function groupVariants<T extends VariantModel>(models: readonly T[], curr
     const joined = id === undefined ? byBareId.get(bareId!) : byIdentity.get(id);
     if (joined) {
       joined.count += 1;
+      joined.ids.push(model.id);
       const providerId = row.model.id.split("/")[0]!.toLowerCase();
       const duplicateIndex = joined.offers.findIndex(
         (each) => each.model.id.split("/")[0]!.toLowerCase() === providerId,
@@ -110,10 +122,10 @@ export function groupVariants<T extends VariantModel>(models: readonly T[], curr
         const incomingUnavailable = Boolean((model as T & { unavailable?: unknown }).unavailable);
         const existingCurrent = existing.model.id === current;
         const incomingCurrent = model.id === current;
-        const existingRank =
-          existingCurrent && !existingUnavailable ? 3 : !existingUnavailable ? 2 : existingCurrent ? 1 : 0;
-        const incomingRank =
-          incomingCurrent && !incomingUnavailable ? 3 : !incomingUnavailable ? 2 : incomingCurrent ? 1 : 0;
+        const rank = (id: string, current: boolean, unavailable: boolean) =>
+          !unavailable ? (current ? 5 : preferred?.has(id) ? 4 : 3) : current ? 2 : preferred?.has(id) ? 1 : 0;
+        const existingRank = rank(existing.model.id, existingCurrent, existingUnavailable);
+        const incomingRank = rank(model.id, incomingCurrent, incomingUnavailable);
         if (incomingRank > existingRank) joined.offers[duplicateIndex] = offer;
       }
       if (model.id === current) joined.model = model;
@@ -126,6 +138,7 @@ export function groupVariants<T extends VariantModel>(models: readonly T[], curr
       ...(tag ? { tag } : {}),
       offers: [offer],
       count: 1,
+      ids: [model.id],
     };
     groups.push(next);
     if (id !== undefined && !byIdentity.has(id)) byIdentity.set(id, next);

@@ -79,6 +79,8 @@ type ModelChoice = {
   provider?: string;
   /** Raw catalog rows represented by this grouped model, for search-height reservation. */
   searchRows?: number;
+  /** Every original catalog ID, including deduplicated aliases, for favorite membership. */
+  ids?: string[];
   /** Whether any original row was curated as a latest model. */
   curated?: boolean;
   /** A bracketed note the model's name carried ("New"). */
@@ -98,11 +100,12 @@ function quickSections(
   entry: HarnessChoice | undefined,
   model: string | undefined,
   usable: (choice: ModelChoice) => boolean = () => true,
+  preferred?: ReadonlySet<string>,
 ): { shown: ModelChoice[]; more: ModelChoice[] } {
   const { latest, older } = sectionsFor(entry, true);
   const latestIds = new Set(latest.map((choice) => choice.id));
-  const mapped = groupVariants([...latest, ...older], model).flatMap((group) => {
-    const { model: choice, name, tag, offers, count } = group;
+  const mapped = groupVariants([...latest, ...older], model, preferred).flatMap((group) => {
+    const { model: choice, name, tag, offers, count, ids } = group;
     // Establish owner identities from the complete catalog before hiding unavailable offers. This
     // keeps an available bare owner row from joining a different model when its peer is offline.
     const visible = offers.filter((offer) => usable(offer.model));
@@ -119,6 +122,7 @@ function quickSections(
     const mappedChoice: ModelChoice = {
       ...landing,
       name,
+      ids,
       ...(tag ? { tag } : {}),
       ...(provider ? { provider } : {}),
       ...(count > offers.length ? { searchRows: count } : {}),
@@ -750,17 +754,32 @@ export function ModelPicker(props: ModelPickerProps) {
         .filter(Boolean)
         .join(" · ");
       const quick = quickRow(entry.id, model);
+      // Search can narrow a provider group to a plain radio row. Reserve the longest eligible
+      // effort/fast hint in that shape before any query is entered.
+      const searchHint = (choice: ModelChoice) =>
+        [
+          !harnessFixed ? entry.name : undefined,
+          (choice.efforts ?? [...vocabulary]).reduce(
+            (longest, next) => (next.length > longest.length ? next : longest),
+            "",
+          ),
+          choice.fast !== false ? fastText : undefined,
+        ]
+          .filter(Boolean)
+          .join(" · ");
       const offers = model.offers?.map((offer) => {
         const ownEffort = modelEffort(offer, typed.effort);
         return {
           ...quickRow(entry.id, offer),
           provider: offer.provider,
+          searchHint: searchHint(offer),
           ...(ownEffort ? { effort: ownEffort } : {}),
           ...(typed.fast ? { fast: true } : {}),
         };
       });
       return {
         ...quick,
+        searchHint: searchHint(model),
         ...(offers ? { offers } : {}),
         ...(hint ? { hint } : {}),
         ...(effort ? { effort } : {}),
@@ -784,9 +803,9 @@ export function ModelPicker(props: ModelPickerProps) {
     const list: QuickFamily[] = [];
     const starred = startable.flatMap((entry) => {
       if (loginFor(entry) !== undefined) return [];
-      const { shown, more } = quickSections(entry, undefined);
+      const { shown, more } = quickSections(entry, undefined, undefined, favorites);
       return [...shown, ...more]
-        .filter((model) => favorites.has(model.id) || model.offers?.some((offer) => favorites.has(offer.id)))
+        .filter((model) => (model.ids ?? [model.id]).some((id) => favorites.has(id)))
         .map((model) => {
           // Preserve a favorite provider as the landing offer while retaining every provider row.
           const favorite =

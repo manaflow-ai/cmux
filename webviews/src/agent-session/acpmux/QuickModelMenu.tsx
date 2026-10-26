@@ -80,6 +80,8 @@ export type QuickModel = {
   family: string;
   disabled?: boolean;
   hint?: string;
+  /** The widest eligible effort/fast search hint, used only for held width. */
+  searchHint?: string;
   effort?: string;
   fast?: boolean;
   tag?: string;
@@ -298,7 +300,11 @@ export function QuickModelMenu({
   // could leave a short tab's rows above the view.
   const body = useRef<HTMLDivElement | null>(null);
   const toTop = () => {
-    if (body.current) body.current.scrollTop = 0;
+    if (body.current) {
+      body.current.scrollTop = 0;
+      const popup = body.current.closest<HTMLElement>(".ui-popup");
+      if (popup) popup.scrollTop = 0;
+    }
   };
   const focusedFor = useRef<string | undefined>(undefined);
   const search = menu.search;
@@ -534,7 +540,22 @@ export function QuickModelMenu({
             }))
         : []),
     ]),
-    ...searchable.flatMap((model) => modelProbes(model, !families || model.family === families.current)),
+    ...searchable.flatMap((model): ProbeRow[] => [
+      ...modelProbes(model, !families || model.family === families.current),
+      // A provider-specific query can leave one offer, rendered as a regular radio row even in
+      // expanded/submenu mode. Its name, provider or query hint, and marker share one line.
+      ...(model.offers ?? [model]).flatMap((offer): ProbeRow[] =>
+        [offer.provider, offer.searchHint]
+          .filter((value) => value !== undefined)
+          .map((value) => ({
+            label: model.name,
+            group: true,
+            value,
+            check: true,
+            ...(model.tag ? { tag: model.tag } : {}),
+          })),
+      ),
+    ]),
     ...(effort && levels.length > 1 ? [{ label: t("effort.title"), value: level?.name, sub: true }] : []),
     { label: t("picker.moreModels"), sub: true },
     ...(account ? [{ label: t("picker.account"), value: accountValue, sub: true }] : []),

@@ -123,6 +123,11 @@ export default componentEntry<ModelPickerProps>({
       props: chat("row", true),
       play: openTab("Pi"),
     },
+    "provider-row-rail-claude": {
+      note: "Version A, the Claude Code tab: the list holds the same size across all three tabs.",
+      props: chat("row", true),
+      play: openTab("Claude Code"),
+    },
     "provider-row-open": {
       note: "Version A: the Provider row's submenu, the running provider checked.",
       props: chat("row"),
