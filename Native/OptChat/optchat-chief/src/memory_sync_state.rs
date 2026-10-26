@@ -109,7 +109,7 @@ fn detect_zips(user_home: &Path) -> Vec<Detected> {
                     .map_or(true, |a| a.as_secs() < ZIP_MAX_AGE_DAYS * 86_400)
             })
             .collect();
-        zips.sort_by(|a, b| b.0.cmp(&a.0));
+        zips.sort_by_key(|z| std::cmp::Reverse(z.0));
         for (_, path, size) in zips.into_iter().take(ZIP_LIMIT) {
             if let Some(kind) = export_kind(&path) {
                 out.push(Detected {
@@ -307,6 +307,53 @@ pub fn undo_local(paths: &Paths, batch: Option<&str>) -> Result<String, String> 
             .and_then(|n| n.to_str())
             .unwrap_or("memory.sqlite3")
     ))
+}
+
+/// Runs `f` with the Chief host of `paths` stopped (the memory's writer lock is
+/// the host's). A running host is refused unless `stop_host`; then it is asked
+/// to stop (SIGTERM, as `move --stop-host`), the app is told not to start it
+/// again while `f` runs (`state/shutdown`), and the marker goes away after `f`.
+/// The app starts the host again on the person's next message.
+pub fn with_host_stopped<T>(
+    paths: &Paths,
+    stop_host: bool,
+    f: impl FnOnce() -> Result<T, String>,
+) -> Result<T, String> {
+    if !crate::lock::held(&paths.host_lock) {
+        return f();
+    }
+    if !stop_host {
+        return Err(
+            "the Chief host is running: stop it (cmux chief stop) or pass --stop-host".into(),
+        );
+    }
+    let marker = paths.home.join(crate::migrate::SHUTDOWN_FILE);
+    if let Some(dir) = marker.parent() {
+        let _ = std::fs::create_dir_all(dir);
+    }
+    std::fs::write(&marker, b"memory import\n").map_err(|e| e.to_string())?;
+    let result = (|| {
+        let pid = std::fs::read_to_string(&paths.host_lock)
+            .ok()
+            .and_then(|t| t.lines().next().and_then(|l| l.trim().parse::<i32>().ok()))
+            .ok_or("the host lock names no pid")?;
+        // SAFETY: plain kill(2) with a pid read from our own lock file.
+        unsafe {
+            libc::kill(pid, libc::SIGTERM);
+        }
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+        while crate::lock::held(&paths.host_lock) {
+            if std::time::Instant::now() > deadline {
+                return Err(format!(
+                    "the host (pid {pid}) did not stop within 30 seconds"
+                ));
+            }
+            std::thread::sleep(std::time::Duration::from_millis(200));
+        }
+        f()
+    })();
+    let _ = std::fs::remove_file(&marker);
+    result
 }
 
 pub fn detect_json(found: &[Detected]) -> Value {
@@ -511,5 +558,19 @@ mod tests {
         let raw = std::fs::read_to_string(log_file(&paths)).unwrap();
         assert!(raw.contains("k1") && raw.contains("agent_1"));
         assert_eq!(runs(&paths)[0].chief.as_deref(), Some("agent_1"));
+    }
+
+    #[test]
+    fn a_running_host_is_refused_without_stop_host() {
+        let dir = temp("host");
+        let paths = Paths::new(&dir);
+        std::fs::create_dir_all(paths.host_lock.parent().unwrap()).unwrap();
+        let _lock = crate::lock::HostLock::take(&paths.host_lock, 1).unwrap();
+        let err = with_host_stopped(&paths, false, || Ok(())).unwrap_err();
+        assert!(err.contains("--stop-host"), "{err}");
+        // With no host the closure just runs.
+        drop(_lock);
+        assert_eq!(with_host_stopped(&paths, false, || Ok(7)).unwrap(), 7);
+        assert!(!paths.home.join("state/shutdown").exists());
     }
 }
