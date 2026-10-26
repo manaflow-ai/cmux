@@ -11,8 +11,9 @@ import CmuxNextSignposts
 ///
 /// Every switch is also the `switch.workspace` trace interval in every build, recording or not (perf-hot
 /// `workspace-switch`): an `os_signpost` interval and a ring async pair from the intent (begin `arg0`: the
-/// input age in microseconds, all ones without an input event) to the `CommitBoundary` after the turn that
-/// shows it. A recorded row starts at that interval's begin, and its `signpost_ms` is the interval.
+/// input age in microseconds, all ones without an input event) to the `CommitBoundary` after the intent's
+/// turn. An intent that shows nothing in its turn (a top page, Home, a machine still connecting) ends there
+/// as missed, so a later show by another path never closes it. A recorded row starts at that interval's begin, and its `signpost_ms` is the interval.
 @MainActor
 enum DebugWorkspaceSwitch {
     static let timer = SwitchFrameTimer(owner: "debug.workspace_switch", signpost: SignpostName.switchWorkspace)
@@ -32,7 +33,7 @@ enum DebugWorkspaceSwitch {
         if timer.isRecording { timer.setKind(ObjectIdentifier(owner), kind) }
     }
 
-    /// `owner` shows the new workspace in `window`: the switch ends at this turn's commit.
+    /// `owner` shows the new workspace in `window`: a switch begun in this turn ends at its commit.
     static func shown(_ owner: AnyObject, in window: NSWindow?) {
         timer.shown(ObjectIdentifier(owner), in: window)
     }

@@ -91,6 +91,25 @@ struct SwitchFrameTimerTests {
         #expect(log.records.count == 2)
     }
 
+    /// An intent that shows nothing in its turn (a top page, Home standing for the workspace, a machine still
+    /// connecting) ends there as missed. A show of the same window in a later turn by a path with no intent of
+    /// its own (an observation refill, a tab opened by an agent) must not end it as a committed switch that
+    /// lasted the person's dwell time.
+    @Test func anIntentThatShowsNothingInItsTurnEndsAsMissedAndALaterShowWritesNothing() {
+        let (trace, log) = runtime()
+        let timer = SwitchFrameTimer(owner: "test.switch", signpost: .switchWorkspace, trace: trace)
+        timer.start()
+        defer { timer.stop() }
+        timer.began(key)
+        pollingTurn()
+        #expect(log.phases == [.asyncBegin, .asyncEnd], "the intent's turn ends its pair")
+        #expect(log.records.last?.arg0 == 1, "a switch that did not show ends as a missed commit")
+        #expect(!timer.isWaiting(key), "the recorded intent goes with its pair")
+        timer.shown(key, in: nil)
+        pollingTurn()
+        #expect(log.records.count == 2, "a show in a later turn ended a stale switch")
+    }
+
     @Test func theSwitchCategoryOffWritesNoRecord() {
         let (trace, log) = runtime(switchOn: false)
         let timer = SwitchFrameTimer(owner: "test.switch", signpost: .switchWorkspace, trace: trace)
@@ -113,7 +132,9 @@ struct SwitchFrameTimerTests {
 
     /// A recorded switch in a real window: the row waits for both the Core Animation commit (``CommitProbe``)
     /// and the boundary, and its `signpost_ms` is the ring pair's duration within 0.1 ms (the acceptance of
-    /// task 027: the Debug row and the signpost read the same timestamps).
+    /// task 027: the Debug row and the signpost read the same timestamps). The row's own reads are checked
+    /// against the ring too: its `input_ms` (the Debug intent clock) is the AB's input age, and the switch it
+    /// shows (`apply_ms`, read at `shown`) lies inside the ring pair.
     @Test func aRecordedRowAgreesWithTheRingPairWithinATenthOfAMillisecond() throws {
         _ = NSApplication.shared
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 120, height: 80), styleMask: [.borderless],
@@ -129,7 +150,7 @@ struct SwitchFrameTimerTests {
         let timer = SwitchFrameTimer(owner: "test.switch", signpost: .switchWorkspace, trace: trace, frames: frames)
         timer.start()
         defer { timer.stop() }
-        timer.began(key)
+        timer.began(key, inputTimestamp: CACurrentMediaTime() - 0.004)
         timer.shown(key, in: window)
         // The commit displays the probe and the boundary ends the pair; the probe's block runs a turn later.
         for _ in 0..<50 where timer.awaitsCommit { turn(upTo: 0.02) }
@@ -140,8 +161,10 @@ struct SwitchFrameTimerTests {
         let signpost = try #require(row["signpost_ms"])
         let ringMs = Double(log.records[1].tNanos - log.records[0].tNanos) / 1_000_000
         #expect(abs(signpost - ringMs) < 0.1, "Debug \(signpost) ms, ring \(ringMs) ms")
+        let input = try #require(row["input_ms"])
+        #expect(abs(input - Double(log.records[0].arg0) / 1_000) < 0.1, "Debug input \(input) ms, AB age \(log.records[0].arg0) µs")
         let apply = try #require(row["apply_ms"])
-        #expect(signpost >= apply, "the pair ends after the switch showed: \(row)")
+        #expect(ringMs >= apply, "the ring pair ends after the switch showed: \(row)")
         #expect(row["signpost_missed"] == nil, "a polling turn's exit is a committed boundary: \(row)")
     }
 }

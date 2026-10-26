@@ -21,8 +21,9 @@ import QuartzCore
 /// With a `signpost` name, every switch is also a ``Signposter`` interval in every build, recording or
 /// not (the `os_signpost` interval and its ring async pair, AB/AE): begun at the intent with the input
 /// age in microseconds as `arg0` (all ones without an input event), ended by the ``CommitBoundary``
-/// after the turn that shows it. A second intent or ``forget(_:)`` ends the open one as missed
-/// (`commit=missed`), so readers and MetricKit drop it. A recorded row starts at the interval's begin
+/// after the intent's turn: the switch shows in that turn (I6) or never. A switch that did not show
+/// by then, a second intent or ``forget(_:)`` ends the open one as missed (`commit=missed`), so
+/// readers and MetricKit drop it, and a later show without its own intent writes nothing. A recorded row starts at the interval's begin
 /// time and its `signpost_ms` ends at the boundary, so the Debug rows and the trace read the same
 /// timestamps. Chrome times a tab switch the same way: one async trace event from the input to the
 /// presented frame, closed by `ContentToVisibleTimeReporter`
@@ -42,10 +43,12 @@ public final class SwitchFrameTimer {
         /// When the ``CommitBoundary`` ended the switch's trace interval, and whether it missed the commit.
         var boundary: (time: CFTimeInterval, missed: Bool)?
     }
-    /// A switch's open trace interval: begun at its intent, ended once (shown, superseded or forgotten).
+    /// A switch's open trace interval: begun at its intent, ended once (at its turn's boundary, superseded or forgotten).
     private struct OpenInterval {
         var serial: UInt64
         var interval: SignpostInterval
+        /// The switch showed in its intent's turn, so the boundary ends it with the commit's outcome.
+        var shown = false
     }
 
     public private(set) var isRecording = false
@@ -134,12 +137,9 @@ public final class SwitchFrameTimer {
     }
 
     /// `key` shows its new selection in `window`: the transaction open now carries it to the screen.
-    /// `extra` joins the sample's columns. The switch's trace interval ends at this turn's ``CommitBoundary``.
+    /// `extra` joins the sample's columns. A trace interval begun in this turn ends at its ``CommitBoundary``.
     public func shown(_ key: AnyHashable, in window: NSWindow?, extra: [String: Double] = [:]) {
-        if let interval = open.removeValue(forKey: key) {
-            // Strong: the one-shot boundary must end the interval.
-            CommitBoundary().after { outcome in self.boundary(interval, outcome) }
-        }
+        open[key]?.shown = true
         guard isRecording, let switched = started.removeValue(forKey: key), let window, let host = window.contentView?.layer else { return }
         let applied = CACurrentMediaTime()
         pending.append(Pending(started: switched, applied: applied, extra: extra))
@@ -167,24 +167,40 @@ public final class SwitchFrameTimer {
         guard let signpost, let signposter else { return nil }
         if let superseded = open.removeValue(forKey: key) { endSuperseded(superseded) }
         lastSerial &+= 1
+        let serial = lastSerial
         let ageMicros = inputAge.map { UInt64(($0 * 1_000_000).rounded()) } ?? .max
-        let opened = OpenInterval(serial: lastSerial, interval: signposter.begin(signpost, "", arg0: ageMicros))
+        let opened = OpenInterval(serial: serial, interval: signposter.begin(signpost, "", arg0: ageMicros))
         open[key] = opened
+        // The switch swaps its content in its intent's turn (I6), so that turn's boundary ends it either way.
+        // Strong: the one-shot boundary must end the interval.
+        CommitBoundary().after { outcome in self.boundary(key, serial, outcome) }
         return opened
     }
 
-    /// Ends an interval whose switch never showed: `commit=missed`, so readers and MetricKit drop it.
+    /// Ends an interval before its boundary (it never showed, or a second intent in its turn replaced it):
+    /// `commit=missed`, so readers and MetricKit drop it. A recorded row it showed reads the miss now.
     private func endSuperseded(_ opened: OpenInterval) {
         guard let signpost, let signposter else { return }
+        let time = CACurrentMediaTime()
         signposter.end(signpost, opened.interval, .missed)
+        guard let index = pending.firstIndex(where: { $0.started.traced == opened.serial }) else { return }
+        pending[index].boundary = (time, true)
     }
 
-    /// The ``CommitBoundary`` after a shown switch's turn ends its trace interval; a recorded row reads the same time.
-    private func boundary(_ opened: OpenInterval, _ outcome: CommitBoundary.Outcome) {
+    /// The ``CommitBoundary`` after the intent's turn ends the switch's trace interval, unless a second intent
+    /// or ``forget(_:)`` already did: with the commit's outcome when it showed in that turn (a recorded row
+    /// reads the same time), else as missed with no row, so a later show of `key` never ends it.
+    private func boundary(_ key: AnyHashable, _ serial: UInt64, _ outcome: CommitBoundary.Outcome) {
+        guard let opened = open[key], opened.serial == serial else { return }
+        open[key] = nil
+        guard opened.shown else {
+            if started[key]?.traced == serial { started[key] = nil }
+            return endSuperseded(opened)
+        }
         guard let signpost, let signposter else { return }
         let time = CACurrentMediaTime()
         signposter.end(signpost, opened.interval, outcome)
-        guard let index = pending.firstIndex(where: { $0.started.traced == opened.serial }) else { return }
+        guard let index = pending.firstIndex(where: { $0.started.traced == serial }) else { return }
         pending[index].boundary = (time, outcome == .missed)
     }
 

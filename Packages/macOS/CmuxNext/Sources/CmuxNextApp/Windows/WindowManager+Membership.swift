@@ -127,11 +127,12 @@ extension WindowManager {
     func show(workspaceID: String, in state: WindowState, from origin: ShowOrigin = .anywhere) {
         guard ActionRunScope.viewChangeAllowed() else { return }
         let value = registry.value
-        if let timed = controller(for: value.owner(of: workspaceID) ?? state.id) ?? controller(for: state.id) {
-            DebugWorkspaceSwitch.began(timed)
-        }
-        if origin == .anywhere, let owner = value.owner(of: workspaceID), owner != state.id, value.window(owner)?.isOpen == true,
-           let target = controller(for: owner) {
+        // The window that shows it (the open one listing it, for a request from elsewhere) is the one timed.
+        let elsewhere = origin == .anywhere ? value.owner(of: workspaceID).flatMap { owner in
+            owner != state.id && value.window(owner)?.isOpen == true ? controller(for: owner) : nil
+        } : nil
+        if let timed = elsewhere ?? controller(for: state.id) { DebugWorkspaceSwitch.began(timed) }
+        if let target = elsewhere {
             select(workspaceID, in: target.state)
             target.showWorkspace(requested: target.state.workspaceID)
             bringToFront(target)
