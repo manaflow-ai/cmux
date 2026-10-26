@@ -62,9 +62,14 @@ done
 
 # A module map cannot carry a search path: once Package.swift declares the
 # target (002), it must pass the -L the link below uses.
-lflag='"/.build-linux/ffi/lib"'
+# linux-tier.py writes the directory as libraryDirectory and joins it to the
+# package directory in one -L flag; an inline "/.build-linux/ffi/lib" also counts.
 if grep -q 'CCmuxAppFFILinux' "$pkg/Package.swift"; then
-  grep -qF "$lflag" "$pkg/Package.swift" || fail "Package.swift declares CCmuxAppFFILinux without -L ...$lflag"
+  if ! grep -qF '"/.build-linux/ffi/lib"' "$pkg/Package.swift"; then
+    grep -qF 'libraryDirectory: ".build-linux/ffi/lib"' "$pkg/Package.swift" \
+      && grep -qF '.unsafeFlags(["-L", packageDirectory + "/" + ffi.libraryDirectory])' "$pkg/Package.swift" \
+      || fail "Package.swift declares CCmuxAppFFILinux without -L .../.build-linux/ffi/lib"
+  fi
 fi
 
 if command -v clang >/dev/null 2>&1; then
