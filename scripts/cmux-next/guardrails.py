@@ -1487,38 +1487,89 @@ GENERIC_CLASS_ALLOW = swift_scope.GENERIC_CLASS_ALLOW
 GENERIC_TYPE = swift_scope.GENERIC_TYPE
 PACKAGE_ROOT = "Packages/macOS/CmuxNext/"
 MANIFEST = PACKAGE_ROOT + "Package.swift"
+UI_LEVELS = 2  # the batches of files GenericTypes.prefetch reads ahead: the named types, then their superclasses
 
 
 class GenericTypes:
-    """Which type names are declared generic (`struct Name<...>`) at one revision.
+    """Which type names are declared generic (`struct Name<...>`) at one revision, and which are UI types (main
+    actor by what they inherit, `final class TerminalView: NSView`).
 
     KNOWN holds the declarations in the push's own files at that revision. A name it lacks is looked up once in
     the revision's `Name.swift` files (CLAUDE.md: one major type per file, named after the type); a type declared
-    in a file of another name is not found, and its extensions read as non-generic (fail open).
+    in a file of another name is not found, and its extensions read as non-generic and not UI (fail open).
     """
 
     def __init__(self, repo: Path | None, rev: str | None, texts: list[str]):
         self.repo, self.rev = repo, rev
+        self.texts = texts
         self.known = {name for text in texts for name in GENERIC_TYPE.findall(text)}
         self.looked: dict[str, bool] = {}
-        self.tree: list[str] | None = None
+        self.ui_known: set[str] | None = None
+        self.ui_looked: dict[str, bool] = {}
+        self.by_name: dict[str, list[str]] | None = None  # file name -> its paths at REV
+        self.named: dict[str, str] = {}  # type name -> its `Name.swift` texts, joined
+        self.headers: dict[str, list] = {}  # type name -> its class or struct declarations in `Name.swift`
 
     def __contains__(self, name: str) -> bool:
         if name in self.known:
             return True
         if name not in self.looked:
-            self.looked[name] = self.declared_generic(name)
+            declared = re.compile(r"\b(?:class|struct|enum|actor)\s+" + re.escape(name) + r"\s*<")
+            self.looked[name] = declared.search(self.named_file(name)) is not None
         return self.looked[name]
 
-    def declared_generic(self, name: str) -> bool:
+    def ui_type(self, name: str) -> bool:
+        """Whether NAME is a UI type (check-main-actor-work.py's ui_subclasses): the main-thread rules read an
+        extension of it in another file (`extension TerminalView` in TerminalView+Drag.swift) as main actor."""
+        scope = swift_scope.main_actor_scope
+        if self.ui_known is None:
+            self.ui_known = set()
+            pushed = [scope.type_headers(text.split("\n")) for text in self.texts]
+            # The files the push's declarations name (`extension TerminalView`, `: TerminalView`), read in batches.
+            self.prefetch({n for headers in pushed for h in headers
+                           for n in ([h.name] if h.kind == "extension" else h.inherited if h.kind == "class" else [])})
+            for headers in pushed:
+                self.ui_known |= scope.ui_subclasses(headers, self.ui_type)
+        if name in self.ui_known:
+            return True
+        if name not in self.ui_looked:
+            self.ui_looked[name] = False  # a cycle (`class A: B`, `class B: A`) reads as no UI type
+            self.prefetch({name})
+            self.ui_looked[name] = any(scope.inherits_ui(h, self.ui_type) for h in self.headers[name])
+        return self.ui_looked[name]
+
+    def named_file(self, name: str) -> str:
+        """The revision's `NAME.swift` files under Sources and Tests, joined ("" when there is none)."""
+        self.prefetch({name})
+        return self.named[name]
+
+    def prefetch(self, names: set[str], levels: int = UI_LEVELS):
+        """Read the `Name.swift` files of NAMES not read yet in one `git cat-file --batch`, then, for LEVELS - 1 more
+        batches, the files of the types their classes inherit (a subclass of a subclass of NSView)."""
+        wanted = {n for n in names if n not in self.named}
+        if not wanted:
+            return
         if self.repo is None or self.rev is None:
-            return False
-        if self.tree is None:
-            self.tree = git(self.repo, "ls-tree", "-r", "--name-only", self.rev, "--", SOURCES, TESTS,
-                            check=False).split("\n")
-        paths = [p for p in self.tree if p.rsplit("/", 1)[-1] == f"{name}.swift"]
-        declared = re.compile(r"\b(?:class|struct|enum|actor)\s+" + re.escape(name) + r"\s*<")
-        return any(declared.search(text) for text in blobs(self.repo, [(self.rev, p) for p in paths]).values())
+            self.named.update(dict.fromkeys(wanted, ""))
+            self.headers.update({n: [] for n in wanted})
+            return
+        if self.by_name is None:
+            self.by_name = collections.defaultdict(list)
+            tree = git(self.repo, "ls-tree", "-r", "--name-only", self.rev, "--", SOURCES, TESTS, check=False)
+            for path in tree.split("\n"):
+                self.by_name[path.rsplit("/", 1)[-1]].append(path)
+        paths = {n: self.by_name.get(f"{n}.swift", []) for n in wanted}
+        specs = [(self.rev, p) for found in paths.values() for p in found]
+        texts = blobs(self.repo, specs) if specs else {}
+        inherited = set()
+        for n, found in paths.items():
+            self.named[n] = "\n".join(texts[(self.rev, p)] for p in found if (self.rev, p) in texts)
+            lines = [line for line in self.named[n].split("\n") if n in line] if found else []
+            self.headers[n] = [h for h in swift_scope.main_actor_scope.type_headers(lines)
+                               if h.name == n and h.kind != "extension"]
+            inherited.update(i for h in self.headers[n] if h.kind == "class" for i in h.inherited)
+        if levels > 1:
+            self.prefetch(inherited, levels - 1)
 
 
 def main_by_default(path: str, targets: list) -> bool:
@@ -1756,6 +1807,12 @@ def unstated_priority(version: Version, index: int) -> tuple[bool, list[int]]:
     return debt, openers
 
 
+# The one fix for a main-thread hop (p06-scheduler.md recipe R-hop): main-async and main-hop print it, so neither
+# rule's fix is a line the other refuses.
+R_HOP = ("recipe R-hop: change the model synchronously in the input's turn, or post with a class and an owner "
+         "(`mainWork.post(.visible, owner: ...)`, `node.queue(...).post`), or compute off main in a nonisolated "
+         "Task and `.reply(on:)`; deliveries use `MainDelivery(class:owner:)`")
+
 RULES = (
     Rule("unchecked-sendable", "`@unchecked Sendable` / `nonisolated(unsafe)` without a safety argument",
          "it switches off the data-race checker; without a written argument nobody can review it",
@@ -1767,8 +1824,7 @@ RULES = (
          unchecked_sendable),
     Rule("main-async", "`DispatchQueue.main.async`",
          "an untyped hop that reorders work and hides isolation (CLAUDE.md forbids it in new code)",
-         "annotate the destination `@MainActor` and `await` it, or hop once with `Task { @MainActor in ... }` "
-         "owned by the caller",
+         R_HOP,
          "// main-async-allow: <the API that forces a GCD hop>",
          line_rule(r"\bDispatchQueue\.main\.async\b|\bOperationQueue\.main\.addOperation\b", "main-async-allow:")),
     Rule("combine-state", "`ObservableObject` / `@Published` / Combine state",
@@ -1983,14 +2039,19 @@ def prefilter(*patterns: re.Pattern) -> re.Pattern:
 
 
 MAIN_HOP_LINE = prefilter(main_actor_work.TASK_START, RAW_MAIN_HOP, MAIN_DELIVERY)
-CLASS_ARGUMENT = re.compile(r"\bclass:")
-STATEMENT_LINES = 4  # the lines one call's arguments are read across (`MainDelivery(\n    class: ...`)
+ARGUMENT_LABEL = re.compile(r"\s*(\w+)\s*:(?!:)")
+CALL_LINES = 40  # the lines one call's arguments are read across (`MainDelivery(\n    owner: ...,\n    class: ...`)
 # `ObservationStream({`, its trailing-closure form and `.current({`; not `extension ObservationStream {`.
 VIEW_OBSERVATION = re.compile(r"(?<!extension )\bObservationStream(\s*[({]|\.current\()|\bwithObservationTracking\b")
 HIDDEN_WALK = re.compile(r"\bisHiddenOrHasHiddenAncestor\b")
 HIDE_OVERRIDE = re.compile(r"\boverride\s+func\s+viewDid(Hide|Unhide)\b")
-# The one body a hide override may have (recipe R-hide): call super and tell the view's VisibilityNode.
-HIDE_FORWARD = re.compile(r"^\s*(super\.viewDid(Hide|Unhide)\(\)|(self\.)?\w*[nN]ode\??\.set\(\.(hidden|visible)\))\s*$")
+# The one body a hide override may have (recipe R-hide): call its own super and tell the view's VisibilityNode its
+# own direction (`viewDidHide` -> `.hidden`, `viewDidUnhide` -> `.visible`).
+HIDE_FORWARD = {
+    direction: re.compile(r"^\s*(super\.viewDid" + direction + r"\(\)|(self\.)?\w*[nN]ode\??\.set\(\." + state
+                          + r"\))\s*$")
+    for direction, state in (("Hide", "hidden"), ("Unhide", "visible"))
+}
 BODY_LINES = 40  # the lines a hide override's body is read across
 DEMAND_TIMER = re.compile(r"\bDemandTimer\(")
 SLEEP = re.compile(r"\bTask\.sleep\(|\.sleep\((for|until):")
@@ -2023,7 +2084,9 @@ def isolation(version: Version) -> list[tuple[bool, int]]:
     """Each line of VERSION: (main-actor code, the 1-based line that made it so; 0: its target's default)."""
     memo = side_memo(version)
     if "isolation" not in memo:
-        memo["isolation"] = main_actor_work.main_actor_scopes(version.lines, version.main_default, ui_types=True)
+        ui_type = version.types.ui_type if version.types is not None else main_actor_work.no_ui_type
+        memo["isolation"] = main_actor_work.main_actor_scopes(version.lines, version.main_default, ui_types=True,
+                                                              ui_type=ui_type)
     return memo["isolation"]
 
 
@@ -2036,28 +2099,38 @@ def main_tasks(version: Version) -> dict[int, int]:
     return memo["main_tasks"]
 
 
-def call_arguments(lines: list[str], index: int, call: re.Pattern) -> tuple[str, list[int]]:
-    """The code between the parentheses of CALL on LINES[INDEX] (read over STATEMENT_LINES lines), and the 1-based
-    lines after INDEX it read."""
-    text = "\n".join(code_of(line) for line in lines[index:index + STATEMENT_LINES])
-    match = call.search(text)
-    depth = 0
-    for i in range(match.end() - 1, len(text)):
-        depth += {"(": 1, ")": -1}.get(text[i], 0)
-        if depth == 0:
-            return text[match.end():i], list(range(index + 2, index + 2 + text.count("\n", 0, i)))
-    return text[match.end():], list(range(index + 2, index + 1 + STATEMENT_LINES))
+def call_labels(lines: list[str], index: int, call: re.Pattern) -> tuple[set[str] | None, list[int]]:
+    """(the labels of the arguments of CALL on LINES[INDEX], read to its matching `)`, None when that `)` does not
+    come within CALL_LINES lines; the 1-based lines after INDEX it read). A label inside a nested call, closure or
+    collection (`MainDelivery(owner: f(class: 1))`) is not the call's own."""
+    text = "\n".join(code_of(line) for line in lines[index:index + CALL_LINES])
+    start = call.search(text).end()
+    depth, labels, argument = 1, set(), start
+    for i in range(start, len(text)):
+        c = text[i]
+        if c in "([{":
+            depth += 1
+        elif c in ")]}":
+            depth -= 1
+        if depth == 0 or (c == "," and depth == 1):
+            if label := ARGUMENT_LABEL.match(text, argument, i):
+                labels.add(label.group(1))
+            argument = i + 1
+            if depth == 0:
+                return labels, list(range(index + 2, index + 2 + text.count("\n", 0, i)))
+    return None, list(range(index + 2, index + 1 + min(CALL_LINES, len(lines) - index)))
 
 
 def main_hop_debt(version: Version, index: int) -> tuple[bool, list[int]]:
     """A raw main hop, a MainDelivery without a class, or a Task that runs on the main actor (the shared predicate:
-    annotated, or plain in main-actor code, so deleting `@MainActor in` keeps the debt)."""
+    annotated, or plain in main-actor code, so deleting `@MainActor in` keeps the debt). A MainDelivery whose
+    arguments do not close within CALL_LINES lines is not judged."""
     code = code_of(version.lines[index])
     if RAW_MAIN_HOP.search(code):
         return True, []
     if MAIN_DELIVERY.search(code):
-        arguments, read = call_arguments(version.lines, index, MAIN_DELIVERY)
-        if not CLASS_ARGUMENT.search(arguments):
+        labels, read = call_labels(version.lines, index, MAIN_DELIVERY)
+        if labels is not None and "class" not in labels:
             return True, read
     main_task = main_tasks(version).get(index)
     source = main_task if main_task is not None else isolation(version)[index][1]
@@ -2091,13 +2164,15 @@ def visibility_walk_debt(version: Version, index: int) -> tuple[bool, list[int]]
     code = code_of(version.lines[index])
     if HIDDEN_WALK.search(code):
         return True, []
-    if not HIDE_OVERRIDE.search(code):
+    override = HIDE_OVERRIDE.search(code)
+    if override is None:
         return False, []
     body = block_body(version.lines, index)
     if body is None:
         return True, []
     text, end = body
-    forwards = all(HIDE_FORWARD.match(s) for s in re.split(r"[\n;]", text) if s.strip())
+    forward = HIDE_FORWARD[override.group(1)]
+    forwards = all(forward.match(s) for s in re.split(r"[\n;]", text) if s.strip())
     return not forwards, list(range(index + 2, end + 2))
 
 
@@ -2143,9 +2218,7 @@ MAIN_CLASS_RULES = (
          "automation and hidden work out of the frame (p06-scheduler.md rule 1; Chrome posts every UI-thread task "
          "with a BrowserTaskType, content/browser/scheduler/browser_task_queues.h). Deleting `@MainActor in` does "
          "not remove the hop: the Task still inherits the main actor",
-         "recipe R-hop: change the model synchronously in the input's turn, or post with a class and an owner "
-         "(`mainWork.post(.visible, owner: ...)`, `node.queue(...).post`), or compute off main in a nonisolated "
-         "Task and `.reply(on:)`; deliveries use `MainDelivery(class:owner:)`",
+         R_HOP,
          "// main-hop-allow: <the AppKit order that needs this hop (focus, menu tracking)>",
          scoped_to(Matcher(MAIN_HOP_LINE, allow_marker("main-hop"), main_hop_debt),
                    lambda path: not path.startswith((WAKEUPS, SOURCES + "CmuxNextCompat/MainRunLoopBlock.swift")))),

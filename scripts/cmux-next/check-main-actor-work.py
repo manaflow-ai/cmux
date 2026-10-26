@@ -34,7 +34,7 @@ import posixpath
 import re
 import subprocess
 import sys
-from typing import NamedTuple
+from typing import Callable, NamedTuple
 
 PACKAGE = "Packages/macOS/CmuxNext"
 BASELINE = "scripts/cmux-next/main-actor-work-baseline.json"
@@ -64,7 +64,9 @@ LOOP_RULE = "string scan inside a loop"
 # work under a burst (the 2026-10-09 nightly hang). Batch with
 # MainActorLineBatch (CmuxNextAgentActivity) instead.
 PER_LINE_CALLBACK = re.compile(r"\b(onLine|onEvent|onMessage|onFrame|onChunk):\s*\{|\bsetEventHandler\s*\{|\breadabilityHandler\s*=|for\s+(try\s+)?await\s+\w+\s+in\b")
-MAIN_TASK = re.compile(r"\bTask\s*(\(priority:[^)]*\))?\s*\{\s*(\[[^\]]*\]\s*)?@MainActor\b")
+# Every unstructured-Task initializer: `Task`, `Task.init`, with any arguments (`priority:`, Swift 6.2's `name:`).
+TASK_INIT = r"\bTask(\.init)?\s*(\([^)]*\))?"
+MAIN_TASK = re.compile(TASK_INIT + r"\s*\{\s*(\[[^\]]*\]\s*)?@MainActor\b")
 PER_LINE_WINDOW = 1
 PER_LINE_RULE = "a main-actor Task per line or event (batch with MainActorLineBatch)"
 
@@ -251,8 +253,8 @@ def allowed(lines: list[str], index: int) -> bool:
 
 
 def strip(line: str) -> str:
-    code = STRING_LITERAL.sub('""', line)
-    return code.split("//", 1)[0]
+    code = STRING_LITERAL.sub('""', line) if '"' in line else line
+    return code.split("//", 1)[0] if "//" in code else code
 
 
 def main_actor_lines(lines: list[str], default_main: bool) -> list[bool]:
@@ -266,18 +268,83 @@ def main_actor_lines(lines: list[str], default_main: bool) -> list[bool]:
 
 
 # A type that takes its isolation from what it inherits: AppKit's views, view and window controllers, windows and
-# responders and SwiftUI's View, App and Scene are `@MainActor`, so their subclasses and conformers are main actor
-# in any target.
-UI_TYPE = re.compile(r"\b(class|struct|extension)\s+[\w.]+\s*(<[^{]*>)?\s*:[^{]*?"
-                     r"\b(NS\w*(View|ViewController|WindowController|Window|Responder)|View|App|Scene)\b")
+# responders and SwiftUI's View, App and Scene are `@MainActor`, so their subclasses, conformers and extensions
+# are main actor in any target.
+UI_BASE = re.compile(r"NS\w*(View|ViewController|WindowController|Window|Responder)|View|App|Scene")
+# A declaration header: its kind, its name and its inheritance clause, which ends at `where` (a constraint such as
+# `where T: View` gives the type no isolation) or at the body's `{`.
+TYPE_HEADER = re.compile(r"\b(class|struct|extension)\s+((?:\w+\.)*\w+)\s*(?:<[^{]*?>)?\s*"
+                         r"(?::((?:(?!\bwhere\b)[^{])*))?")
+INHERITED_NAME = re.compile(r"\b(?:\w+\.)*(\w+)\b")
 BRACES = re.compile(r"[{}]")
 
 
-def main_actor_scopes(lines: list[str], default_main: bool, ui_types: bool = False) -> list[tuple[bool, int]]:
+def no_ui_type(name: str) -> bool:
+    return False
+
+
+class TypeHeader(NamedTuple):
+    kind: str  # class, struct or extension
+    name: str  # the last component (`extension NSView.Foo` -> Foo)
+    inherited: list[str]  # the inheritance clause's names, before any `where`
+
+
+def type_header(code: str) -> TypeHeader | None:
+    """The class, struct or extension CODE (strip()ped) declares, if any."""
+    header = TYPE_HEADER.search(code)
+    if header is None:
+        return None
+    kind, name, clause = header.groups()
+    return TypeHeader(kind, name.rsplit(".", 1)[-1], INHERITED_NAME.findall(clause) if clause else [])
+
+
+def type_headers(lines: list[str]) -> list[TypeHeader]:
+    """type_header() of each code line of LINES that declares a class, struct or extension, in order."""
+    found = []
+    for raw in lines:
+        if ("class" in raw or "struct" in raw or "extension" in raw) and not COMMENT_ONLY.match(raw):
+            if (header := type_header(strip(raw))) is not None:
+                found.append(header)
+    return found
+
+
+def inherits_ui(header: TypeHeader, ui_type: Callable[[str], bool]) -> bool:
+    """Whether HEADER's type takes AppKit's or SwiftUI's main actor: `class Pane: NSView`, `struct Row: Equatable,
+    View`, `extension NSView`, `extension View`, or a subclass or extension of a type UI_TYPE accepts (a first-party
+    UI subclass: `extension TerminalView` in TerminalView+Drag.swift). Only a class inherits a first-party UI type:
+    a struct's or extension's clause lists protocols."""
+    if header.kind == "extension" and (UI_BASE.fullmatch(header.name) or ui_type(header.name)):
+        return True
+    if header.kind == "class":
+        return any(UI_BASE.fullmatch(name) or ui_type(name) for name in header.inherited)
+    return any(UI_BASE.fullmatch(name) for name in header.inherited)
+
+
+def ui_subclasses(headers: list[TypeHeader], ui_type: Callable[[str], bool] = no_ui_type) -> set[str]:
+    """The names of the classes and structs HEADERS (type_headers) declare that inherits_ui() makes main actor, in
+    declaration order (a subclass of an earlier one counts): an index of first-party UI types for their
+    extensions."""
+    found: set[str] = set()
+    for header in headers:
+        if header.kind != "extension" and header.inherited \
+                and inherits_ui(header, lambda name: name in found or ui_type(name)):
+            found.add(header.name)
+    return found
+
+
+def main_actor_scopes(lines: list[str], default_main: bool, ui_types: bool = False,
+                      ui_type: Callable[[str], bool] = no_ui_type) -> list[tuple[bool, int]]:
     """main_actor_lines(), each with the 1-based line that set its isolation (0: the target default).
 
-    With UI_TYPES, a type that inherits AppKit's or SwiftUI's isolation (UI_TYPE) is main actor too.
+    With UI_TYPES, a type that inherits AppKit's or SwiftUI's isolation (inherits_ui) is main actor too: a subclass
+    or conformer, an extension of an AppKit or SwiftUI UI type, and a subclass or extension of a UI type this file
+    declares (ui_subclasses) or UI_TYPE accepts (the revision's first-party UI types in other files).
     """
+    if ui_types:
+        local = ui_subclasses(type_headers(lines), ui_type)
+
+        def known(name: str) -> bool:
+            return name in local or ui_type(name)
     result: list[tuple[bool, int]] = []
     stack: list[tuple[int, bool, int]] = []
     depth = 0
@@ -288,13 +355,17 @@ def main_actor_scopes(lines: list[str], default_main: bool, ui_types: bool = Fal
             result.append(stack[-1][1:] if stack else (default_main, 0))
             continue
         code = strip(raw)
-        if OFF_MAIN.search(code):
+        # The substring tests are OFF_MAIN's and MAIN's literals: most lines skip both regex scans.
+        if ("actor" in code or "nonisolated" in code or "@concurrent" in code or "Task.detached" in code
+                or "DispatchQueue" in code) and OFF_MAIN.search(code):
             pending, source = False, number
-        elif MAIN.search(code) or (ui_types and ":" in code and UI_TYPE.search(code)):
+        elif ("@MainActor" in code and MAIN.search(code)) or (
+                ui_types and ("class" in code or "struct" in code or "extension" in code)
+                and (header := type_header(code)) is not None and inherits_ui(header, known)):
             pending, source = True, number
         scope = stack[-1][1:] if stack else (default_main, 0)
         result.append(scope if pending is None else (pending, source))
-        for char in BRACES.findall(code):
+        for char in BRACES.findall(code) if "{" in code or "}" in code else ():
             if char == "{":
                 depth += 1
                 if pending is not None:
@@ -312,12 +383,13 @@ def main_actor_scopes(lines: list[str], default_main: bool, ui_types: bool = Fal
     return result
 
 
-# The start of an unstructured Task (`Task {`, `Task(priority: .x) {`); `Task.detached` is off-main (OFF_MAIN).
-TASK_START = re.compile(r"\bTask\s*(\(priority:[^)]*\))?\s*\{")
+# The start of an unstructured Task (TASK_INIT, then its closure); `Task.detached` is off-main (OFF_MAIN).
+TASK_START = re.compile(TASK_INIT + r"\s*\{")
 
 
 def main_inherited_tasks(lines: list[str], default_main: bool,
-                         scopes: list[tuple[bool, int]] | None = None) -> list[tuple[int, int]]:
+                         scopes: list[tuple[bool, int]] | None = None,
+                         ui_type: Callable[[str], bool] = no_ui_type) -> list[tuple[int, int]]:
     """The Tasks that run on the main actor, as (0-based line, 1-based line that set its isolation, 0: the target
     default): `Task { @MainActor in` anywhere, and a plain `Task {` whose scope is main actor (an annotation, a
     uiSwiftSettings target's default, or a type that inherits AppKit's or SwiftUI's isolation).
@@ -326,9 +398,9 @@ def main_inherited_tasks(lines: list[str], default_main: bool,
     main_inherited_tasks row (plans/cmux-next/chrome-parity/p06-scheduler.md, Q1 + Q1b): a Task in main-actor code
     stays counted when its `@MainActor in` is deleted. Lexical, so a heuristic: a `@Sendable` closure between the
     scope and the Task reads as the scope. SCOPES: main_actor_scopes(lines, default_main, ui_types=True), when the
-    caller has it already.
+    caller has it already; UI_TYPE: the first-party UI types of other files (main_actor_scopes).
     """
-    scopes = scopes if scopes is not None else main_actor_scopes(lines, default_main, ui_types=True)
+    scopes = scopes if scopes is not None else main_actor_scopes(lines, default_main, ui_types=True, ui_type=ui_type)
     found = []
     for index, raw in enumerate(lines):
         if COMMENT_ONLY.match(raw) or not TASK_START.search(code := strip(raw)):
@@ -340,7 +412,7 @@ def main_inherited_tasks(lines: list[str], default_main: bool,
     return found
 
 
-ATTRIBUTE_ONLY =re.compile(r"^\s*((@\w+(\([^)]*\))?|nonisolated)\s*)+$")
+ATTRIBUTE_ONLY = re.compile(r"^\s*((@\w+(\([^)]*\))?|nonisolated)\s*)+$")
 DECL_KEYWORD = re.compile(r"\b(func|init|var|class|struct|enum|extension|actor)\b")
 
 
