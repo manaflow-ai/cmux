@@ -9,12 +9,19 @@ import Testing
 /// file actions' refusal. Each now names its id, its flag and where to find one.
 @MainActor
 struct CloudNetworkHintsTests {
-    @Test(arguments: [
-        ("cloudTunnelAttach", CloudStrings.networkIDRequired), ("cloudTunnelDetach", CloudStrings.networkIDRequired),
-        ("cloudFirewallGet", CloudStrings.ruleIDRequired), ("cloudFirewallDelete", CloudStrings.ruleIDRequired),
-        ("cloudFirewallCreate", CloudStrings.ruleJSONRequired),
-    ] as [(ActionID, String)])
-    func aMissingIDNamesItsFlagAndListVerb(id: ActionID, hint: String) throws {
+    static var hints: [(ActionID, String)] {
+        [
+            ("cloudTunnelAttach", CloudStrings.networkIDRequired), ("cloudTunnelDetach", CloudStrings.networkIDRequired),
+            ("cloudFirewallGet", CloudStrings.ruleIDRequired), ("cloudFirewallDelete", CloudStrings.ruleIDRequired),
+            ("cloudFirewallCreate", CloudStrings.ruleJSONRequired),
+        ]
+    }
+
+    @Test func aMissingIDNamesItsFlagAndListVerb() throws {
+        for (id, hint) in Self.hints { try check(id, hint) }
+    }
+
+    private func check(_ id: ActionID, _ hint: String) throws {
         let descriptor = try #require(ActionCatalog.all.first { $0.id == id })
         #expect(descriptor.arguments.contains { $0.name == "path" }, "\(id) takes --path")
         #expect(hint.contains("--path"))
