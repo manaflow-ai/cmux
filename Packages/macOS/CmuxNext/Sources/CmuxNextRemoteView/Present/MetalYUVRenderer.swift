@@ -3,35 +3,56 @@ import Foundation
 import Metal
 import QuartzCore
 
+/// The presenter's `CAMetalLayer`, shared by the main actor, which places and
+/// scales it, and the render actor, which sizes and draws its drawables.
+nonisolated struct SharedMetalLayer: @unchecked Sendable { // crash-allow: main and the render queue touch disjoint layer state: main sets frame, isHidden, contentsGravity, filters and contentsScale, and device and pixel format before the first draw; the render queue only sets drawableSize (in its own CATransaction) and calls nextDrawable. Core Animation locks the layer in each property accessor
+    let layer: CAMetalLayer
+
+    init(_ layer: CAMetalLayer) {
+        self.layer = layer
+    }
+}
+
 /// Draws one NV12 frame into a `CAMetalLayer` drawable with a YUV to RGB
-/// shader (BT.709, 1:1 pixels). Every call runs on `queue`, a serial render
-/// queue off the main thread; `nextDrawable` may wait there for one of the
-/// two drawables, never on the main thread.
-nonisolated final class MetalYUVRenderer: @unchecked Sendable { // crash-allow: render runs only on the serial `queue`, so the texture cache and the layer's drawableSize and nextDrawable are used on one thread (the main thread sets only the layer's contentsScale); every other member is an immutable let
-    let queue = DispatchQueue(label: "cmux.remote-view.render", qos: .userInteractive)
-    private let layer: CAMetalLayer
+/// shader (BT.709, 1:1 pixels). The actor runs on its own serial render
+/// queue, off the main thread and off the cooperative pool: `nextDrawable`
+/// may wait there for one of the two drawables. Its texture cache and the
+/// layer's drawable size are touched only there.
+actor MetalYUVRenderer {
+    private nonisolated let queue = DispatchSerialQueue(label: "cmux.remote-view.render", qos: .userInteractive)
+    nonisolated var unownedExecutor: UnownedSerialExecutor { queue.asUnownedSerialExecutor() }
+    private let shared: SharedMetalLayer
     private let commandQueue: any MTLCommandQueue
     private let pipeline: any MTLRenderPipelineState
     private let textureCache: CVMetalTextureCache
 
-    init?(layer: CAMetalLayer) {
-        guard let device = layer.device ?? MTLCreateSystemDefaultDevice(),
+    init?(layer shared: SharedMetalLayer) {
+        guard let device = shared.layer.device ?? MTLCreateSystemDefaultDevice(),
               let commandQueue = device.makeCommandQueue(),
               let pipeline = Self.makePipeline(device: device) else { return nil }
         var cache: CVMetalTextureCache?
         guard CVMetalTextureCacheCreate(kCFAllocatorDefault, nil, device, nil, &cache) == kCVReturnSuccess,
               let cache else { return nil }
-        layer.device = device
-        self.layer = layer
+        shared.layer.device = device
+        self.shared = shared
         self.commandQueue = commandQueue
         self.pipeline = pipeline
         textureCache = cache
     }
 
+    /// Takes the mailbox's newest frame and draws it. Returns the frame when
+    /// it is on its way to the screen, nil when there was none or it could
+    /// not be drawn.
+    func drawNewest(from mailbox: LatestFrameMailbox<RemoteDecodedFrame>) -> RemoteDecodedFrame? {
+        guard let frame = mailbox.take(), render(frame) else { return nil }
+        return frame
+    }
+
     /// Draws `frame` and presents it at the next refresh. Returns false when
     /// the frame could not be drawn (no drawable within the layer's timeout,
     /// or a plane that does not map to a texture).
-    func render(_ frame: RemoteDecodedFrame) -> Bool {
+    private func render(_ frame: RemoteDecodedFrame) -> Bool {
+        let layer = shared.layer
         let buffer = frame.pixelBuffer
         let width = CVPixelBufferGetWidth(buffer)
         let height = CVPixelBufferGetHeight(buffer)
@@ -79,7 +100,7 @@ nonisolated final class MetalYUVRenderer: @unchecked Sendable { // crash-allow: 
         return status == kCVReturnSuccess ? texture : nil
     }
 
-    static func makePipeline(device: any MTLDevice) -> (any MTLRenderPipelineState)? {
+    nonisolated static func makePipeline(device: any MTLDevice) -> (any MTLRenderPipelineState)? {
         guard let library = try? device.makeLibrary(source: shaderSource, options: nil),
               let vertex = library.makeFunction(name: "rv_vertex"),
               let fragment = library.makeFunction(name: "rv_fragment") else { return nil }
@@ -92,7 +113,7 @@ nonisolated final class MetalYUVRenderer: @unchecked Sendable { // crash-allow: 
 
     /// A full-screen triangle; luma sampled nearest (1:1 pixels keep text
     /// exact), chroma linear (it is half resolution).
-    static let shaderSource = """
+    nonisolated static let shaderSource = """
     #include <metal_stdlib>
     using namespace metal;
     struct VOut { float4 position [[position]]; float2 uv; };

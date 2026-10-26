@@ -14,13 +14,9 @@ public nonisolated final class MockRemoteStreamSource: RemoteViewStreamSource {
     public let codec: RemoteVideoCodec
     public let width: Int
     public let height: Int
-    private let queue = DispatchQueue(label: "cmux.remote-view.mock-host", qos: .userInitiated)
     private let state: Mutex<State>
-    /// Used only on `queue`, so the lock is never contended; it is held across an encode,
-    /// whose output handler takes `state`, never this lock.
-    private let encoder: Mutex<SyntheticFrameEncoder?>
-    /// False when VideoToolbox has no encoder for `codec` here.
-    public let canEncode: Bool
+    /// Nil when VideoToolbox has no encoder for `codec` here.
+    private let encoder: MockFrameEncoder?
 
     private struct State {
         var units: AsyncStream<RemoteAccessUnit>.Continuation?
@@ -42,11 +38,12 @@ public nonisolated final class MockRemoteStreamSource: RemoteViewStreamSource {
         self.codec = codec
         self.width = width
         self.height = height
-        let encoder = SyntheticFrameEncoder(codec: codec, width: width, height: height)
-        canEncode = encoder != nil
-        self.encoder = Mutex(encoder)
+        encoder = MockFrameEncoder(codec: codec, width: width, height: height)
         state = Mutex(State(status: status))
     }
+
+    /// False when VideoToolbox has no encoder for `codec` here.
+    public var canEncode: Bool { encoder != nil }
 
     public func accessUnits() -> AsyncStream<RemoteAccessUnit> {
         let (stream, continuation) = AsyncStream.makeStream(of: RemoteAccessUnit.self, bufferingPolicy: .bufferingNewest(8))
@@ -110,8 +107,11 @@ public nonisolated final class MockRemoteStreamSource: RemoteViewStreamSource {
     }
 
     /// Paints and encodes the next frame (the counter advances).
+    /// The encoder numbers each frame when it paints it, so frames stream in order whatever
+    /// order these tasks reach it in.
     public func damage() {
-        queue.async { [self] in encodeNext() }
+        guard let encoder else { return }
+        Task { [self] in await encoder.encodeNext(for: self) }
     }
 
     /// Ends the session: every stream finishes after `status`.
@@ -122,15 +122,9 @@ public nonisolated final class MockRemoteStreamSource: RemoteViewStreamSource {
         continuations.1?.finish()
     }
 
-    private func encodeNext() {
-        encoder.withLock { encoder in
-            if let encoder { encodeNext(with: encoder) }
-        }
-    }
-
-    private func encodeNext(with encoder: SyntheticFrameEncoder) {
-        guard let buffer = encoder.makeBuffer() else { return }
-        let (scene, frame, keyframe) = state.withLock { state in
+    /// The next frame's scene, number and whether it must be a keyframe; the counter advances.
+    fileprivate func takeNextFrame() -> (scene: SyntheticFramePainter.Scene, frame: UInt32, keyframe: Bool) {
+        state.withLock { state in
             state.scene.counter &+= 1
             defer {
                 state.nextFrame &+= 1
@@ -138,19 +132,44 @@ public nonisolated final class MockRemoteStreamSource: RemoteViewStreamSource {
             }
             return (state.scene, state.nextFrame, state.forceKeyframe)
         }
+    }
+
+    /// Streams one encoded frame (called on a VideoToolbox output thread).
+    fileprivate func emit(_ output: (data: Data, keyframe: Bool), frame: UInt32, capturedMicros: UInt64) {
+        let unit = RemoteAccessUnit(
+            frame: frame, flags: output.keyframe ? .keyframe : [], tCaptureMicros: capturedMicros,
+            data: output.data, codec: codec)
+        let continuation = state.withLock { state in
+            state.encoded += 1
+            return state.units
+        }
+        continuation?.yield(unit)
+    }
+}
+
+/// The mock host's encoder, confined to its own serial queue: paint, encode and the VideoToolbox
+/// flush (which waits for the encoder's output) block that queue, never a cooperative pool
+/// thread, and no lock is held across them.
+private actor MockFrameEncoder {
+    private nonisolated let queue = DispatchSerialQueue(label: "cmux.remote-view.mock-host", qos: .userInitiated)
+    nonisolated var unownedExecutor: UnownedSerialExecutor { queue.asUnownedSerialExecutor() }
+    private let encoder: SyntheticFrameEncoder
+
+    init?(codec: RemoteVideoCodec, width: Int, height: Int) {
+        guard let encoder = SyntheticFrameEncoder(codec: codec, width: width, height: height) else { return nil }
+        self.encoder = encoder
+    }
+
+    /// Paints and encodes `source`'s next frame; its access unit goes out on `source`'s stream.
+    func encodeNext(for source: MockRemoteStreamSource) {
+        guard let buffer = encoder.makeBuffer() else { return }
+        let next = source.takeNextFrame()
         let captured = DispatchTime.now().uptimeNanoseconds / 1000
-        SyntheticFramePainter.paint(scene, into: buffer)
-        let codec = self.codec
-        encoder.encode(buffer, index: Int(frame), forceKeyframe: keyframe) { [weak self] output in
-            guard let self, let output else { return }
-            let unit = RemoteAccessUnit(
-                frame: frame, flags: output.keyframe ? .keyframe : [], tCaptureMicros: captured,
-                data: output.data, codec: codec)
-            let continuation = state.withLock { state in
-                state.encoded += 1
-                return state.units
-            }
-            continuation?.yield(unit)
+        SyntheticFramePainter.paint(next.scene, into: buffer)
+        let frame = next.frame
+        encoder.encode(buffer, index: Int(frame), forceKeyframe: next.keyframe) { [weak source] output in
+            guard let output else { return }
+            source?.emit(output, frame: frame, capturedMicros: captured)
         }
         encoder.flush()
     }
