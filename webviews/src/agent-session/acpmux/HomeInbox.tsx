@@ -6,14 +6,16 @@
 // The rows are Needs you's items (needsYou/model.ts): one per pending request acpmux reports, keyed
 // by its permission id, so a row leaves as soon as acpmux says the ask was answered, wherever it
 // was answered, and a chat that waits with no ask the page can read (a chat on another computer)
-// is still one row, which opens it. An approval's Allow once and Deny answer it here; the first
-// such row also takes the permission shortcuts (⌥⌘1, ⌥⌘3), which no card takes on the home. A
-// refused answer says so on its row, and the row answers again.
+// is still one row, which opens it. An approval's Allow once and Deny answer it here, under the
+// command or details it asks about; the first such row also takes the permission shortcuts (⌥⌘1,
+// ⌥⌘3) unless the home's own chat shows a card that takes them. A refused answer says so on its
+// row, and the row answers again.
 import { useEffect, useRef, useState } from "react";
 import { pressToOpen } from "../../ui/pressToOpen";
 import { AgentMark } from "../shared/AgentMark";
 import { age } from "./HomeLists";
 import { type StringKey, useT } from "./i18n";
+import { NativeError } from "./nativeError";
 import { askText } from "./needsYou/NeedsYou";
 import type { NeedsYouAnswer, NeedsYouItem, NeedsYouKind } from "./needsYou/model";
 import { PermissionActionButton } from "./PermissionCard";
@@ -25,12 +27,46 @@ import { SHORTCUT_ACTIONS, useShortcut } from "./shortcuts";
 /// (`grouped`). The gallery shows all three.
 export type HomeInboxLook = "list" | "compact" | "grouped";
 
+/// What became of an answer given here: `answered` (the host answered it; the row hides until
+/// acpmux takes it off) or `opened` (the host can't answer it here and opened its chat, whose card
+/// answers it; the row stays).
+export type HomeInboxOutcome = "answered" | "opened";
+
 export type HomeInboxActions = {
-  /// Answers `item` with `choice`; rejects when it did not go through.
-  answer(item: NeedsYouItem, choice: NeedsYouAnswer): Promise<unknown>;
+  /// Answers `item` with `choice`; rejects when it was refused.
+  answer(item: NeedsYouItem, choice: NeedsYouAnswer): Promise<HomeInboxOutcome>;
   /// Opens the chat the ask is in.
   open(item: NeedsYouItem): void;
 };
+
+/// Answers another chat's ask from the home's inbox (`chat.asks.answer`, CmuxNextAgentPane
+/// AgentPaneAskAnswer): the host takes it only on the person's own click or key, for an ask still
+/// pending in a chat on this Mac's acpmux, with that ask's allow once or deny once. A host that does
+/// not answer it here (`unsupported`: another computer's chat or daemon; `unknown_op` on the shared
+/// page host, or `unsupported` from the pane's own, before the op) opens the chat, whose card
+/// answers it; any other refusal rejects, and the row says so.
+const NOT_ANSWERED_HERE = new Set(["unsupported", "cmux.protocol.unknown_op"]);
+
+export async function answerFromHome(
+  call: (method: string, params: Record<string, unknown>) => Promise<unknown>,
+  item: NeedsYouItem,
+  choice: NeedsYouAnswer,
+  open: (sessionId: string) => void,
+): Promise<HomeInboxOutcome> {
+  if (!item.permissionId) throw new Error("unanswerable");
+  try {
+    await call("chat.asks.answer", {
+      sessionId: item.sessionId,
+      permissionId: item.permissionId,
+      optionId: choice.id,
+    });
+    return "answered";
+  } catch (error) {
+    if (!(error instanceof NativeError) || !NOT_ANSWERED_HERE.has(error.code ?? "")) throw error;
+    open(item.sessionId);
+    return "opened";
+  }
+}
 
 const KINDS: Record<NeedsYouKind, StringKey> = {
   approval: "needsYou.kind.approval",
@@ -79,7 +115,7 @@ export function HomeInbox({
       now={now}
       keyed={item.id === keyed}
       actions={actions}
-      onSent={() => setSent((before) => new Set(before).add(item.id))}
+      onAnswered={() => setSent((before) => new Set(before).add(item.id))}
       onRefused={() =>
         setSent((before) => {
           const next = new Set(before);
@@ -131,7 +167,7 @@ function InboxRow({
   now,
   keyed,
   actions,
-  onSent,
+  onAnswered,
   onRefused,
 }: {
   item: NeedsYouItem;
@@ -141,30 +177,41 @@ function InboxRow({
   /// This row takes the permission shortcuts.
   keyed: boolean;
   actions: HomeInboxActions;
-  onSent(): void;
+  onAnswered(): void;
   onRefused(): void;
 }) {
   const t = useT();
   const [sending, setSending] = useState<string>();
   const [failed, setFailed] = useState(false);
+  // Set before the answer goes out, so a second click or key in the same tick sends nothing.
+  const inFlight = useRef(false);
   const answers = inlineAnswers(item);
   const allow = answers.find((a) => a.tone === "allow");
   const deny = answers.find((a) => a.tone === "deny");
   const answer = (choice: NeedsYouAnswer) => {
-    if (sending) return;
+    if (inFlight.current) return;
+    inFlight.current = true;
     setSending(choice.id);
     setFailed(false);
-    let reply: Promise<unknown>;
+    let reply: Promise<HomeInboxOutcome>;
     try {
       reply = Promise.resolve(actions.answer(item, choice));
     } catch (error) {
       reply = Promise.reject(error);
     }
-    reply.then(onSent, () => {
-      setSending(undefined);
-      setFailed(true);
-      onRefused();
-    });
+    reply.then(
+      (outcome) => {
+        if (outcome === "answered") return onAnswered();
+        inFlight.current = false;
+        setSending(undefined);
+      },
+      () => {
+        inFlight.current = false;
+        setSending(undefined);
+        setFailed(true);
+        onRefused();
+      },
+    );
   };
   const allowShortcut = useShortcut(SHORTCUT_ACTIONS.permissionAllowOnce);
   const denyShortcut = useShortcut(SHORTCUT_ACTIONS.permissionDeny);
@@ -201,9 +248,12 @@ function InboxRow({
           <AgentMark agent={item.who.harness} size={14} reserve />
         </span>
         <span className="acpmux-home-inbox-text">
-          <span className="acpmux-home-inbox-ask" data-code={item.command && !item.ask ? "" : undefined}>
-            {ask}
-          </span>
+          <span className="acpmux-home-inbox-ask">{ask}</span>
+          {item.detail && (
+            <span className="acpmux-home-inbox-detail" data-code={item.command ? "" : undefined}>
+              {item.detail}
+            </span>
+          )}
           {look !== "compact" && (
             <span className="acpmux-home-inbox-where">
               <span className="acpmux-home-inbox-kind">{t(KINDS[item.kind])}</span>
@@ -214,7 +264,7 @@ function InboxRow({
         {when && <span className="acpmux-home-meta">{when}</span>}
       </button>
       {answers.length > 0 && (
-        <fieldset className="acpmux-home-inbox-answers" aria-label={ask}>
+        <fieldset className="acpmux-home-inbox-answers" aria-label={[ask, item.detail, chat].filter(Boolean).join(", ")}>
           {allow && (
             <PermissionActionButton
               label={t("permission.allowOnce")}

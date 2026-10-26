@@ -3,12 +3,16 @@
 // chat's open ask, answered in place, and nothing answered that the person did not answer.
 // - A row's Allow once and Deny send that ask's own option, for that ask's chat, once.
 // - A refused answer says so on its row, and the row answers again.
-// - ⌥⌘1 and ⌥⌘3 answer the first ask that can be answered in place, and only it.
+// - ⌥⌘1 and ⌥⌘3 answer the first ask that can be answered in place, and only it, and nothing
+//   while the home's own chat shows a card that takes them.
+// - Two answers in one tick send one; a host that opens the chat instead keeps the row.
+// - An approval shows the command it asks about.
 // - A question, a held pair and another computer's chat have no answers here: the row opens the chat.
 import { afterAll, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 import type { AcpmuxPermission } from "../src/agent-session/acpmux/model";
-import type { WatchedAsk } from "../src/agent-session/acpmux/needsYou/model";
+import type { HomeInboxOutcome } from "../src/agent-session/acpmux/HomeInbox";
+import type { NeedsYouItem, WatchedAsk } from "../src/agent-session/acpmux/needsYou/model";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
   url: "http://localhost/",
@@ -42,6 +46,8 @@ afterAll(() => {
 const { act } = await import("react");
 const { createRoot } = await import("react-dom/client");
 const { HomeLists } = await import("../src/agent-session/acpmux/HomeLists");
+const { answerFromHome } = await import("../src/agent-session/acpmux/HomeInbox");
+const { NativeError } = await import("../src/agent-session/acpmux/nativeError");
 const { translate } = await import("../src/agent-session/acpmux/i18n");
 const { session } = await import("../src/gallery/fixtures/acpmux");
 const { minutesAgo } = await import("../src/gallery/clock");
@@ -75,7 +81,13 @@ const asks: WatchedAsk[] = [
   {
     sessionId: "cache",
     at: minutesAgo(5),
-    permission: { permissionId: "p-cache", title: "Delete the cache", pending: true, options: options("p-cache") },
+    permission: {
+      permissionId: "p-cache",
+      title: "Delete the cache",
+      command: "rm -rf .cache",
+      pending: true,
+      options: options("p-cache"),
+    },
   },
   {
     sessionId: "auth",
@@ -111,9 +123,14 @@ const asks: WatchedAsk[] = [
   },
 ];
 
-type Sent = { sessionId: string; permissionId?: string; optionId: string; settle(ok: boolean): void };
+type Sent = {
+  sessionId: string;
+  permissionId?: string;
+  optionId: string;
+  settle(outcome: HomeInboxOutcome | "refused"): void;
+};
 
-async function mount() {
+async function mount({ shortcuts }: { shortcuts?: boolean } = {}) {
   const host = dom.window.document.createElement("div");
   dom.window.document.body.append(host);
   const root = createRoot(host);
@@ -126,13 +143,14 @@ async function mount() {
         currentId="home"
         asks={asks}
         onSelect={(id) => opened.push(id)}
+        shortcuts={shortcuts}
         onAnswer={(item, choice) =>
-          new Promise<void>((resolve, reject) =>
+          new Promise<HomeInboxOutcome>((resolve, reject) =>
             sent.push({
               sessionId: item.sessionId,
               permissionId: item.permissionId,
               optionId: choice.id,
-              settle: (ok) => (ok ? resolve() : reject(new Error("refused"))),
+              settle: (outcome) => (outcome === "refused" ? reject(new Error("refused")) : resolve(outcome)),
             }),
           )
         }
@@ -145,10 +163,13 @@ async function mount() {
     act(async () => {
       [...row.querySelectorAll("button")].find((b) => b.getAttribute("aria-label") === label)!.click();
     });
-  const event = (name: string) => act(async () => void dom.window.dispatchEvent(new dom.window.Event(name)));
-  const settle = (index: number, ok: boolean) =>
+  const event = (...names: string[]) =>
     act(async () => {
-      sent[index]!.settle(ok);
+      for (const name of names) dom.window.dispatchEvent(new dom.window.Event(name));
+    });
+  const settle = (index: number, outcome: HomeInboxOutcome | "refused") =>
+    act(async () => {
+      sent[index]!.settle(outcome);
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
   return { host, sent, opened, rows, rowOf, click, event, settle, unmount: () => act(async () => root.unmount()) };
@@ -181,7 +202,7 @@ test("a row's answer sends that ask's own option for its chat, once, and the row
   expect(inbox.sent.map(({ sessionId, permissionId, optionId }) => [sessionId, permissionId, optionId])).toEqual([
     ["cache", "p-cache", "p-cache-no"],
   ]);
-  await inbox.settle(0, true);
+  await inbox.settle(0, "answered");
   expect(inbox.host.textContent).not.toContain("Delete the cache");
   await inbox.unmount();
 });
@@ -189,7 +210,7 @@ test("a row's answer sends that ask's own option for its chat, once, and the row
 test("a refused answer says so on its row, and the row answers again", async () => {
   const inbox = await mount();
   await inbox.click(inbox.rowOf("Run the payment tests"), allow);
-  await inbox.settle(0, false);
+  await inbox.settle(0, "refused");
   const row = inbox.rowOf("Run the payment tests");
   expect(row.querySelector('[role="alert"]')?.textContent).toBe(translate("permission.error.refused"));
   await inbox.click(row, allow);
@@ -204,8 +225,75 @@ test("the permission shortcuts answer the first ask answerable in place, and onl
   await inbox.event("cmux-acpmux-permissionAllowOnce");
   expect(inbox.sent.map(({ optionId }) => optionId)).toEqual(["p-tests-no"]);
   // Once that ask is answered and gone, the next row takes them.
-  await inbox.settle(0, true);
+  await inbox.settle(0, "answered");
   await inbox.event("cmux-acpmux-permissionAllowOnce");
   expect(inbox.sent.at(-1)?.optionId).toBe("p-cache-yes");
   await inbox.unmount();
+});
+
+test("an approval shows the command it asks about, and its answers name it", async () => {
+  const inbox = await mount();
+  const row = inbox.rowOf("Delete the cache");
+  const detail = row.querySelector(".acpmux-home-inbox-detail");
+  expect(detail?.textContent).toBe("rm -rf .cache");
+  expect(detail?.hasAttribute("data-code")).toBe(true);
+  expect(row.querySelector("fieldset")?.getAttribute("aria-label")).toContain("rm -rf .cache");
+  await inbox.unmount();
+});
+
+test("two answers in one tick send one", async () => {
+  const inbox = await mount();
+  await inbox.event("cmux-acpmux-permissionAllowOnce", "cmux-acpmux-permissionDeny");
+  expect(inbox.sent.map(({ optionId }) => optionId)).toEqual(["p-tests-yes"]);
+  await inbox.unmount();
+});
+
+test("an answer the host can't give here opens the chat and keeps its row", async () => {
+  const inbox = await mount();
+  await inbox.click(inbox.rowOf("Run the payment tests"), allow);
+  await inbox.settle(0, "opened");
+  const row = inbox.rowOf("Run the payment tests");
+  expect(row.querySelector('[role="alert"]')).toBeNull();
+  await inbox.click(row, allow);
+  expect(inbox.sent).toHaveLength(2);
+  await inbox.unmount();
+});
+
+test("answerFromHome: answered, opened on unsupported or unknown_op, and any other refusal rejects", async () => {
+  const item = { sessionId: "tests", permissionId: "p-tests" } as NeedsYouItem;
+  const choice = { id: "p-tests-yes", label: "Allow once", tone: "allow" } as const;
+  const calls: unknown[] = [];
+  const opened: string[] = [];
+  const open = (id: string) => void opened.push(id);
+  const answer = (fails?: string) =>
+    answerFromHome(
+      async (method, params) => {
+        calls.push([method, params]);
+        if (fails) throw new NativeError({ code: fails });
+      },
+      item,
+      choice,
+      open,
+    );
+  expect(await answer()).toBe("answered");
+  expect(calls[0]).toEqual([
+    "chat.asks.answer",
+    { sessionId: "tests", permissionId: "p-tests", optionId: "p-tests-yes" },
+  ]);
+  expect(await answer("unsupported")).toBe("opened");
+  expect(await answer("cmux.protocol.unknown_op")).toBe("opened");
+  expect(opened).toEqual(["tests", "tests"]);
+  await expect(answer("refused")).rejects.toThrow();
+  expect(opened).toHaveLength(2);
+});
+
+test("the shortcuts answer nothing here while the home's own chat shows its card, or after unmount", async () => {
+  const card = await mount({ shortcuts: false });
+  await card.event("cmux-acpmux-permissionAllowOnce", "cmux-acpmux-permissionDeny");
+  expect(card.sent).toEqual([]);
+  await card.unmount();
+  const gone = await mount();
+  await gone.unmount();
+  await gone.event("cmux-acpmux-permissionAllowOnce");
+  expect(gone.sent).toEqual([]);
 });

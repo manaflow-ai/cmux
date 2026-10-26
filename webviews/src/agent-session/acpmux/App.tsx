@@ -136,6 +136,7 @@ import { ChatUnavailableState } from "./ChatUnavailableState";
 import { PastChat, type PastTurn, readPastTurns } from "./PastChat";
 import type { Project } from "./ProjectChooser";
 import { byRecentUse, parseProjectRepos, projectRows } from "./projectRepos";
+import { answerFromHome } from "./HomeInbox";
 import { HomeLists } from "./HomeLists";
 import { endsTurn, lastChange, turnFiles, turnPathsOnly, turnRows, type PathRef, type TurnFile } from "./diff";
 import { opensTurn } from "./turnStart";
@@ -329,7 +330,6 @@ import {
 import { NeedsYouButton } from "./needsYou/NeedsYou";
 import { NeedsYouPill, type TranscriptNeedsYou } from "./needsYou/JumpPill";
 import { useNeedsYou } from "./needsYou/useNeedsYou";
-import type { NeedsYouAnswer, NeedsYouItem } from "./needsYou/model";
 import { copyText, copyTextResult } from "./conversation/clipboard";
 import { lastCodeBlock } from "./conversation/lastCodeBlock";
 import { hasTranscriptCopyText, transcriptRangeText } from "./conversation/transcriptCopy";
@@ -672,28 +672,6 @@ function callNative<T>(method: string, params: Record<string, unknown> = {}): Pr
   const direct = window.cmuxAcpmuxActions?.[method];
   if (direct) return direct(params) as Promise<T>;
   return postNative<T>(method, params);
-}
-
-/// Answers another chat's ask from the home's inbox (`chat.asks.answer`, CmuxNextAgentPane
-/// AgentPaneAskAnswer): the host takes it only on the person's own click or key, for an ask still
-/// pending in a chat on this Mac's acpmux, with that ask's allow once or deny once. A host that does
-/// not answer it here (`unsupported`: another computer's chat or daemon; `unknown_op` on the shared
-/// page host, or `unsupported` from the pane's own, before the op) opens the chat, whose card
-/// answers it; any other refusal rejects, and the row says so.
-const NOT_ANSWERED_HERE = new Set(["unsupported", "cmux.protocol.unknown_op"]);
-
-async function answerFromHome(item: NeedsYouItem, choice: NeedsYouAnswer, open: (sessionId: string) => void) {
-  if (!item.permissionId) throw new Error("unanswerable");
-  try {
-    await callNative("chat.asks.answer", {
-      sessionId: item.sessionId,
-      permissionId: item.permissionId,
-      optionId: choice.id,
-    });
-  } catch (error) {
-    if (!(error instanceof NativeError) || !NOT_ANSWERED_HERE.has(error.code ?? "")) throw error;
-    open(item.sessionId);
-  }
 }
 
 /// Withdraws a queued prompt before its turn starts; false when it already started.
@@ -9758,7 +9736,8 @@ function AcpmuxPane() {
                       currentId={snapshot.sessionId}
                       asks={snapshot.asks}
                       onSelect={selectSession}
-                      onAnswer={(item, choice) => answerFromHome(item, choice, selectSession)}
+                      onAnswer={(item, choice) => answerFromHome(callNative, item, choice, selectSession)}
+                      shortcuts={!hasBottomAsk}
                     />
                   </div>
                 )}

@@ -63,6 +63,7 @@ export function HomeLists({
   onSelect,
   onAnswer,
   look,
+  shortcuts = true,
 }: {
   sessions: AcpmuxSessionEntry[];
   currentId?: string;
@@ -72,6 +73,8 @@ export function HomeLists({
   /// Answers another chat's ask in place; rejects when it did not go through.
   onAnswer: HomeInboxActions["answer"];
   look?: HomeInboxLook;
+  /// False while the home's own chat shows an ask card, which takes the permission shortcuts.
+  shortcuts?: boolean;
 }) {
   const { waiting, review } = homeLists(sessions, currentId, asks);
   const t = useT();
@@ -82,6 +85,7 @@ export function HomeLists({
         items={waiting}
         sessions={sessions}
         look={look}
+        shortcuts={shortcuts}
         actions={{ answer: onAnswer, open: (item) => onSelect(item.sessionId) }}
       />
       {review.length > 0 && (

@@ -366,7 +366,8 @@
 .acpmux-home-inbox-mark{flex:none;display:inline-flex;width:16px;justify-content:center;color:var(--agent-muted)}
 .acpmux-home-inbox-text{flex:1;min-width:0;display:flex;flex-direction:column;gap:0}
 .acpmux-home-inbox-ask{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.acpmux-home-inbox-ask[data-code]{font-family:var(--font-mono);font-size:var(--text-control)}
+.acpmux-home-inbox-detail{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--agent-muted);font-size:var(--text-caption);line-height:var(--text-caption--line-height)}
+.acpmux-home-inbox-detail[data-code]{font-family:var(--font-mono)}
 .acpmux-home-inbox-where{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--agent-muted);font-size:var(--text-caption);line-height:var(--text-caption--line-height)}
 .acpmux-home-inbox-kind{color:var(--acpmux-needs-you-mark)}
 .acpmux-home-inbox-answers{display:flex;flex-wrap:wrap;gap:8px;min-width:0;margin:0;padding:0 8px 0 32px;border:0}
