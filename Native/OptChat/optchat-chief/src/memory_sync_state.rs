@@ -25,8 +25,130 @@ pub struct Detected {
 /// Finds what this Mac holds, fast (no transcript is converted): Claude Code
 /// transcripts and memory notes, Codex memory notes, and export zips of
 /// claude.ai or ChatGPT in `~/Downloads` and `~/Desktop`.
-pub fn detect(_user_home: &Path, _claude_config_dir: Option<String>) -> Vec<Detected> {
-    unimplemented!()
+pub fn detect(user_home: &Path, claude_config_dir: Option<String>) -> Vec<Detected> {
+    let mut found = Vec::new();
+    let projects = crate::claude_import::default_projects_dir(user_home, claude_config_dir);
+    let (sessions, bytes) = count_transcripts(&projects);
+    if sessions > 0 {
+        found.push(Detected {
+            source: "claude-code".into(),
+            kind: "claude-code".into(),
+            count: sessions,
+            bytes,
+            path: projects.display().to_string(),
+        });
+    }
+    for (codex, kind, dir) in [
+        (false, "claude-memory", projects.clone()),
+        (true, "codex", user_home.join(".codex").join("memories")),
+    ] {
+        let notes = crate::memory_sync::items_from_memory_files(user_home, codex);
+        if !notes.is_empty() {
+            found.push(Detected {
+                source: kind.into(),
+                kind: kind.into(),
+                count: notes.len(),
+                bytes: notes.iter().map(|n| n.text.len() as u64).sum(),
+                path: dir.display().to_string(),
+            });
+        }
+    }
+    found.extend(detect_zips(user_home));
+    found
+}
+
+/// `*.jsonl` sessions under `projects/<project>/` (one level, as Claude Code writes them).
+fn count_transcripts(projects: &Path) -> (usize, u64) {
+    let (mut n, mut bytes) = (0, 0);
+    let Ok(dirs) = std::fs::read_dir(projects) else {
+        return (0, 0);
+    };
+    for dir in dirs.flatten() {
+        let Ok(files) = std::fs::read_dir(dir.path()) else {
+            continue;
+        };
+        for f in files.flatten() {
+            let path = f.path();
+            if path.extension().is_some_and(|e| e == "jsonl")
+                && let Ok(meta) = f.metadata()
+                && meta.len() > 0
+            {
+                n += 1;
+                bytes += meta.len();
+            }
+        }
+    }
+    (n, bytes)
+}
+
+const ZIP_FOLDERS: [&str; 2] = ["Downloads", "Desktop"];
+/// An export older than this is probably not what the person means to bring now.
+const ZIP_MAX_AGE_DAYS: u64 = 400;
+const ZIP_LIMIT: usize = 8;
+
+fn detect_zips(user_home: &Path) -> Vec<Detected> {
+    let mut out = Vec::new();
+    let now = std::time::SystemTime::now();
+    for folder in ZIP_FOLDERS {
+        let Ok(entries) = std::fs::read_dir(user_home.join(folder)) else {
+            continue;
+        };
+        let mut zips: Vec<(std::time::SystemTime, PathBuf, u64)> = entries
+            .flatten()
+            .filter_map(|e| {
+                let path = e.path();
+                let meta = e.metadata().ok()?;
+                (path
+                    .extension()
+                    .is_some_and(|x| x.eq_ignore_ascii_case("zip"))
+                    && meta.is_file())
+                .then(|| (meta.modified().unwrap_or(now), path, meta.len()))
+            })
+            .filter(|(m, _, _)| {
+                now.duration_since(*m)
+                    .map_or(true, |a| a.as_secs() < ZIP_MAX_AGE_DAYS * 86_400)
+            })
+            .collect();
+        zips.sort_by(|a, b| b.0.cmp(&a.0));
+        for (_, path, size) in zips.into_iter().take(ZIP_LIMIT) {
+            if let Some(kind) = export_kind(&path) {
+                out.push(Detected {
+                    source: format!("zip:{}", path.display()),
+                    kind: kind.into(),
+                    count: 1,
+                    bytes: size,
+                    path: path.display().to_string(),
+                });
+            }
+        }
+    }
+    out
+}
+
+/// What kind of chat export a zip is (read from its table of contents only), or
+/// None when it holds no `conversations.json`.
+fn export_kind(zip: &Path) -> Option<&'static str> {
+    let out = std::process::Command::new("unzip")
+        .arg("-Z1")
+        .arg(zip)
+        .stdin(std::process::Stdio::null())
+        .output()
+        .ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    let names = String::from_utf8_lossy(&out.stdout);
+    let has = |n: &str| names.lines().any(|l| l == n);
+    if !has("conversations.json") {
+        return None;
+    }
+    Some(if has("chat.html") || has("message_feedback.json") {
+        "chatgpt-export"
+    } else if has("projects.json") || has("users.json") {
+        "claude-ai-export"
+    } else {
+        "export"
+    })
 }
 
 /// One write, as the log keeps it.
@@ -44,24 +166,147 @@ pub struct Run {
     pub keys: Vec<String>,
 }
 
-pub fn log_file(_paths: &Paths) -> PathBuf {
-    unimplemented!()
+pub fn log_file(paths: &Paths) -> PathBuf {
+    paths.root.join("import-log.jsonl")
 }
 
-pub fn record(_paths: &Paths, _run: &Run) -> Result<(), String> {
-    unimplemented!()
+fn run_json(r: &Run) -> Value {
+    json!({"batch": r.batch, "to": r.to, "source": r.source, "written": r.written,
+        "messages_before": r.messages_before, "backup": r.backup, "chief": r.chief, "keys": r.keys,
+        "at": chrono::Utc::now().to_rfc3339()})
+}
+
+fn run_of(v: &Value) -> Option<Run> {
+    Some(Run {
+        batch: v["batch"].as_str()?.to_owned(),
+        to: v["to"].as_str()?.to_owned(),
+        source: v["source"].as_str().unwrap_or("").to_owned(),
+        written: v["written"].as_u64()? as usize,
+        messages_before: v["messages_before"].as_u64().unwrap_or(0),
+        backup: v["backup"].as_str().map(PathBuf::from),
+        chief: v["chief"].as_str().map(str::to_owned),
+        keys: v["keys"]
+            .as_array()
+            .map(|a| {
+                a.iter()
+                    .filter_map(|k| k.as_str().map(str::to_owned))
+                    .collect()
+            })
+            .unwrap_or_default(),
+    })
+}
+
+pub fn record(paths: &Paths, run: &Run) -> Result<(), String> {
+    use std::io::Write;
+    let file = log_file(paths);
+    if let Some(dir) = file.parent() {
+        std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+    }
+    let mut f = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&file)
+        .map_err(|e| format!("{}: {e}", file.display()))?;
+    writeln!(f, "{}", run_json(run)).map_err(|e| e.to_string())
 }
 
 /// The runs that were not undone, oldest first.
-pub fn runs(_paths: &Paths) -> Vec<Run> {
-    unimplemented!()
+pub fn runs(paths: &Paths) -> Vec<Run> {
+    std::fs::read_to_string(log_file(paths))
+        .unwrap_or_default()
+        .lines()
+        .filter_map(|l| serde_json::from_str::<Value>(l).ok())
+        .filter(|v| v["undone"] != true)
+        .filter_map(|v| run_of(&v))
+        .collect()
+}
+
+/// Takes `batch` out of the log (a rewrite without its line).
+pub fn forget(paths: &Paths, batch: &str) -> Result<(), String> {
+    let file = log_file(paths);
+    let text = std::fs::read_to_string(&file).unwrap_or_default();
+    let kept: Vec<&str> = text
+        .lines()
+        .filter(|l| serde_json::from_str::<Value>(l).map_or(true, |v| v["batch"] != batch))
+        .collect();
+    let mut out = kept.join("\n");
+    if !out.is_empty() {
+        out.push('\n');
+    }
+    std::fs::write(&file, out).map_err(|e| e.to_string())
 }
 
 /// Restores a local write: the memory returns to its backup when nothing came
 /// after the write (host stopped); the write's keys leave `import-keys.txt`.
 /// Returns what it did.
-pub fn undo_local(_paths: &Paths, _batch: Option<&str>) -> Result<String, String> {
-    unimplemented!()
+pub fn undo_local(paths: &Paths, batch: Option<&str>) -> Result<String, String> {
+    let all = runs(paths);
+    let run = match batch {
+        Some(b) => all.iter().rev().find(|r| r.batch == b),
+        None => all.iter().rev().find(|r| r.to == "local"),
+    }
+    .ok_or("nothing to undo: no earlier import into this memory")?
+    .clone();
+    if run.to != "local" {
+        return Err(format!(
+            "batch {} went to the cloud: undo it with --to cloud",
+            run.batch
+        ));
+    }
+    let now = crate::claude_import::existing_messages(&paths.chat, &paths.memory_db)?;
+    if now != run.messages_before + run.written as u64 {
+        return Err(format!(
+            "the memory holds {now} messages, not {}: messages came after this import, so it cannot be taken back",
+            run.messages_before + run.written as u64
+        ));
+    }
+    // Keep what is there now, then put the earlier memory back.
+    let stamp = chrono::Utc::now().format("%Y%m%dT%H%M%SZ");
+    if paths.memory_db.exists() {
+        let keep = paths
+            .memory_db
+            .with_extension(format!("sqlite3.undo-backup-{stamp}"));
+        std::fs::copy(&paths.memory_db, &keep)
+            .map_err(|e| format!("backup {}: {e}", keep.display()))?;
+    }
+    match &run.backup {
+        Some(b) => {
+            if !b.exists() {
+                return Err(format!("the backup {} is gone", b.display()));
+            }
+            std::fs::copy(b, &paths.memory_db)
+                .map_err(|e| format!("restoring {}: {e}", b.display()))?;
+        }
+        None => {
+            // The memory was empty before: it is empty again.
+            for ext in ["", "-wal", "-shm"] {
+                let mut name = paths.memory_db.clone().into_os_string();
+                name.push(ext);
+                let _ = std::fs::remove_file(PathBuf::from(name));
+            }
+        }
+    }
+    let keys_path = paths.root.join("import-keys.txt");
+    if let Ok(text) = std::fs::read_to_string(&keys_path) {
+        let drop: std::collections::HashSet<&str> = run.keys.iter().map(String::as_str).collect();
+        let kept: Vec<&str> = text.lines().filter(|l| !drop.contains(l)).collect();
+        let mut out = kept.join("\n");
+        if !out.is_empty() {
+            out.push('\n');
+        }
+        std::fs::write(&keys_path, out).map_err(|e| e.to_string())?;
+    }
+    forget(paths, &run.batch)?;
+    Ok(format!(
+        "took back {} imported items from {} (the memory is as before; a copy of the memory with them stays as {}.undo-backup-{stamp})",
+        run.written,
+        run.source,
+        paths
+            .memory_db
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("memory.sqlite3")
+    ))
 }
 
 pub fn detect_json(found: &[Detected]) -> Value {
@@ -113,7 +358,7 @@ mod tests {
             &home.join(".claude/projects/-Users-me-app/memory/prefs.md"),
             "I like Rust",
         );
-        write(&home.join(".codex/memories/a.md"), "codex note");
+        write(&home.join(".codex/memories/MEMORY.md"), "codex note");
         let stage = temp("stage");
         write(&stage.join("conversations.json"), "[]");
         write(&stage.join("chat.html"), "<html>");
