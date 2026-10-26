@@ -5,9 +5,14 @@ nonisolated struct CEFForkFeatures: Equatable, Sendable {
     /// the renderer, script evaluation without DevTools, `SetPageFrozen`, a native click, and the
     /// `cmux-process-reuse-per-renderer-devtools` switch (CEF cmux.35).
     static let rendererPathsForkAPI: Int32 = 29
-    /// The first fork API with `cmux_cef_set_energy_saver` (p14-energy-029): the one after the resize fence
-    /// (``CEFLayerHosting/resizeFenceForkAPI``), which the fork bundle p14-energy-136 sets with its pin.
-    static let energySaverForkAPI: Int32 = 33
+    /// The p14 energy bundle (p14-energy-136, manaflow-ai/cef `cp/p14-energy-136`): every p14 fork patch
+    /// under the one number after ``CEFLayerHosting/resizeFenceForkAPI``. A pump pass holds the main thread
+    /// for at most 2 ms plus one task (037), and the fork has `cmux_set_on_schedule_delayed` (046),
+    /// `cmux_cef_browser_renderer_pid` (124) and `cmux_cef_set_energy_saver` (029). The shim binds those by
+    /// symbol, so an older fork keeps the millisecond pump path, no renderer pid and no saver.
+    static let p14BundleForkAPI: Int32 = 33
+    /// The first fork API with `cmux_cef_set_energy_saver` (p14-energy-029): the p14 bundle.
+    static let energySaverForkAPI: Int32 = p14BundleForkAPI
 
     /// `cmux_shim_fork_api_version()`; 0 for stock CEF or no shim.
     var forkAPIVersion: Int32
