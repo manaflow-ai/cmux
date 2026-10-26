@@ -4,6 +4,9 @@
 //! can't override. If MDM sets allowFullAccess=false, Full access is unavailable and the mode menu
 //! says "Managed by your organization". If MDM is unset, nothing changes."
 //! Its own test binary: it sets CMUX_NEXT_CONFIG_FILE, which every start and switch reads.
+//!
+//! One case per form and path the reviews of #23322 found (`CASES`), each on its own daemon, run
+//! in turn: the test names every case that fails, so a run on older code lists what it lacked.
 
 // Unix only until the Windows port runs the daemon (cmux::local_socket).
 #![cfg(unix)]
@@ -31,11 +34,21 @@ const FAKE_APP_SERVER: &str =
     concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_codex_app_server.py");
 const FAKE_AGENT: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
 
+/// Where case `name` keeps its home.
+fn home_path(name: &str) -> PathBuf {
+    let slug: String =
+        name.chars().map(|c| if c.is_ascii_alphanumeric() { c } else { '-' }).collect();
+    std::env::temp_dir().join(format!(
+        "acpmux-fam-{}-{}",
+        &slug[..slug.len().min(40)],
+        std::process::id()
+    ))
+}
+
 /// A home with `codex` (a program named `codex` run as `codex app-server`, bridged in process),
 /// whose new chats start in full access (no `agents.defaultPermissionMode`).
 fn home(name: &str) -> PathBuf {
-    let dir = std::env::temp_dir()
-        .join(format!("acpmux-full-access-managed-{name}-{}", std::process::id()));
+    let dir = home_path(name);
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(dir.join("work")).unwrap();
     let dir = std::fs::canonicalize(&dir).unwrap();
@@ -56,6 +69,7 @@ fn home(name: &str) -> PathBuf {
             "pinned-sandbox": {"argv": ["python3", FAKE_AGENT, "-sdanger-full-access", "-a", "never"]},
             "pinned-config": {"argv": ["python3", FAKE_AGENT, "-csandbox_mode=danger-full-access"]},
             "pinned-y": {"argv": ["python3", FAKE_AGENT, "-y"]},
+            "pinned-approval": {"argv": ["python3", FAKE_AGENT, "--approval-mode", "yolo"]},
             "pinned-asks": {"argv": ["python3", FAKE_AGENT, "--permission-mode", "default"]},
             // Harnesses that move themselves into full access: one that declares no modes (and
             // reports one anyway), one through a config option other than its mode.
@@ -180,9 +194,14 @@ impl Client {
     /// A profile that pins full access in its argv (`--yolo`, `--permission-mode=bypassPermissions`)
     /// runs only while full access is not managed off; one that pins an asking mode always runs.
     async fn pinned_profiles(&mut self, dir: &Path, managed_off: bool, why: &str) {
-        for harness in
-            ["pinned-yolo", "pinned-bypass", "pinned-sandbox", "pinned-config", "pinned-y"]
-        {
+        for harness in [
+            "pinned-yolo",
+            "pinned-bypass",
+            "pinned-sandbox",
+            "pinned-config",
+            "pinned-y",
+            "pinned-approval",
+        ] {
             let refusal = self.run_on(dir, harness).await;
             if managed_off {
                 let r = refusal.unwrap_or_else(|| panic!("{why}: {harness} ran in full access"));
@@ -251,82 +270,183 @@ impl Client {
     }
 }
 
-#[tokio::test]
-async fn a_full_access_off_mdm_forces_is_an_upper_bound_and_unset_changes_nothing() {
-    let dir = home("bound");
+/// One case: its name and what it runs. Each runs on its own daemon and home.
+type Case = (&'static str, fn(&'static str) -> futures_util::future::BoxFuture<'static, ()>);
+
+/// The daemon of case `name`, with the person's own `sessions.allowFullAccess` (`person_on`).
+async fn daemon(name: &str, person_on: bool) -> (PathBuf, Arc<Hub>, Client) {
+    let dir = home(name);
     let settings = dir.join("cmux-next.json");
-    // The person's own settings allow full access.
-    std::fs::write(&settings, r#"{"sessions": {"allowFullAccess": true}}"#).unwrap();
-    // SAFETY: the only test in this binary, set before the daemon starts.
+    let on = json!({"sessions": {"allowFullAccess": person_on}});
+    std::fs::write(&settings, on.to_string()).unwrap();
+    // SAFETY: the cases run one at a time, each setting it before its daemon starts.
     unsafe { std::env::set_var("CMUX_NEXT_CONFIG_FILE", &settings) };
     let daemon = hub(&dir);
-    let mut app = Client::app(&daemon).await;
-
-    // MDM unset: nothing changes, whether the push has no keys (an older app) or an unforced value.
-    app.push(json!({})).await;
-    app.full_access_available(&dir, "no keys").await;
-    app.pinned_profiles(&dir, false, "no keys").await;
-    app.push(json!({"allowFullAccess": false, "allowFullAccessManaged": false})).await;
-    app.full_access_available(&dir, "an unforced off").await;
-
-    // MDM sets it off: unavailable over the person's own on, and the answer says it is managed.
-    app.push(json!({"allowFullAccess": false, "allowFullAccessManaged": true})).await;
-    app.full_access_managed_off(&dir, "MDM off").await;
-    app.pinned_profiles(&dir, true, "MDM off").await;
-    agents_that_move_into_full_access_by_themselves_end(&mut app, &dir).await;
-    // A forced value that is not `true` is off too.
-    app.push(json!({"allowFullAccess": "true", "allowFullAccessManaged": true})).await;
-    app.full_access_managed_off(&dir, "MDM \"true\"").await;
-    app.push(json!({"allowFullAccess": false, "allowFullAccessManaged": true})).await;
-
-    // It holds across a daemon restart, before the app pushes again (start-mode.json).
-    drop(app);
-    let daemon = hub(&dir);
-    let mut app = Client::app(&daemon).await;
-    app.full_access_managed_off(&dir, "after a restart").await;
-    app.pinned_profiles(&dir, true, "after a restart").await;
-
-    // MDM unset again: full access is back.
-    app.push(json!({})).await;
-    app.full_access_available(&dir, "MDM unset again").await;
-    running_agents_take_no_more_work_once_mdm_turns_it_off(&daemon, &mut app, &dir).await;
-
-    // An upper bound only: MDM forcing it on does not raise the person's own off.
-    std::fs::write(&settings, r#"{"sessions": {"allowFullAccess": false}}"#).unwrap();
-    app.push(json!({"allowFullAccess": true, "allowFullAccessManaged": true})).await;
-    let start = app.start_mode(&dir).await;
-    assert!(start.get("fullAccess").is_none(), "{start}");
-    let (chat, mode) = app.chat(&dir).await;
-    assert_eq!(mode, "agent");
-    let r = app.switch(&chat, "agent-full-access").await;
-    assert_eq!(r["error"]["data"]["reason"], "full_access_off", "{r}");
-    let _ = std::fs::remove_dir_all(&dir);
+    let app = Client::app(&daemon).await;
+    (dir, daemon, app)
 }
 
-/// Review of #23322: under MDM off, an agent that moves itself into full access in a form acpmux
-/// sets no mode for (a mode its harness reports without declaring modes, a config option other
-/// than `mode`) ends; its chat's next turn runs on a new agent.
-async fn agents_that_move_into_full_access_by_themselves_end(app: &mut Client, dir: &Path) {
-    for (harness, turn) in [
-        ("self-moder", "set-mode: bypassPermissions"),
-        ("self-optioner", "set-option: sandbox danger-full-access"),
-    ] {
-        let chat = app.ran_on(dir, harness).await;
-        let r = app.prompt(&chat, turn).await;
-        assert!(r.get("error").is_none(), "{harness}: {r}");
-        let mut ended = false;
-        for _ in 0..500 {
-            let r = app.call("_acpmux/events", json!({"sessionId": chat, "limit": 500})).await;
-            if r.to_string().contains("full_access_ended") {
-                ended = true;
-                break;
-            }
-            tokio::time::sleep(Duration::from_millis(20)).await;
+const OFF: &str = r#"{"allowFullAccess": false, "allowFullAccessManaged": true}"#;
+
+fn off() -> Value {
+    serde_json::from_str(OFF).unwrap()
+}
+
+/// The bound itself (claude-sr2's decision), and the pinned profiles of rounds 1 and 2.
+const BOUND: &[Case] = &[
+    ("MDM unset changes nothing", |name| {
+        Box::pin(async move {
+            let (dir, _daemon, mut app) = daemon(name, true).await;
+            app.push(json!({})).await;
+            app.full_access_available(&dir, "no keys").await;
+            app.pinned_profiles(&dir, false, "no keys").await;
+            app.push(json!({"allowFullAccess": false, "allowFullAccessManaged": false})).await;
+            app.full_access_available(&dir, "an unforced off").await;
+        })
+    }),
+    ("MDM off is an upper bound over the person's on", |name| {
+        Box::pin(async move {
+            let (dir, _daemon, mut app) = daemon(name, true).await;
+            app.push(off()).await;
+            app.full_access_managed_off(&dir, "MDM off").await;
+        })
+    }),
+    ("a forced value that is not true is off", |name| {
+        Box::pin(async move {
+            let (dir, _daemon, mut app) = daemon(name, true).await;
+            app.push(json!({"allowFullAccess": "true", "allowFullAccessManaged": true})).await;
+            app.full_access_managed_off(&dir, "MDM \"true\"").await;
+        })
+    }),
+    ("round 1 and 2: a profile pinning full access in argv does not start", |name| {
+        Box::pin(async move {
+            let (dir, _daemon, mut app) = daemon(name, true).await;
+            app.push(off()).await;
+            app.pinned_profiles(&dir, true, "MDM off").await;
+        })
+    }),
+    ("the off holds across a restart, and unsetting it restores full access", |name| {
+        Box::pin(async move {
+            let (dir, daemon, mut app) = daemon(name, true).await;
+            app.push(off()).await;
+            drop((app, daemon));
+            let daemon = hub(&dir);
+            let mut app = Client::app(&daemon).await;
+            app.full_access_managed_off(&dir, "after a restart").await;
+            app.pinned_profiles(&dir, true, "after a restart").await;
+            app.push(json!({})).await;
+            app.full_access_available(&dir, "MDM unset again").await;
+        })
+    }),
+    ("a forced on raises nothing", |name| {
+        Box::pin(async move {
+            let (dir, _daemon, mut app) = daemon(name, false).await;
+            app.push(json!({"allowFullAccess": true, "allowFullAccessManaged": true})).await;
+            let start = app.start_mode(&dir).await;
+            assert!(start.get("fullAccess").is_none(), "{start}");
+            let (chat, mode) = app.chat(&dir).await;
+            assert_eq!(mode, "agent");
+            let r = app.switch(&chat, "agent-full-access").await;
+            assert_eq!(r["error"]["data"]["reason"], "full_access_off", "{r}");
+        })
+    }),
+];
+
+/// Runs `cases` one at a time and names every one that fails.
+async fn run(cases: &[Case]) {
+    use futures_util::FutureExt;
+    let mut failed = Vec::new();
+    for (name, case) in cases {
+        if std::panic::AssertUnwindSafe(case(name)).catch_unwind().await.is_err() {
+            failed.push(*name);
         }
-        assert!(ended, "{harness}: the agent ran on after it moved into full access by itself");
-        let r = app.prompt(&chat, "argv").await;
-        assert!(r.get("error").is_none(), "{harness}: the next turn: {r}");
+        let _ = std::fs::remove_dir_all(home_path(name));
     }
+    assert!(failed.is_empty(), "failing cases: {failed:#?}");
+}
+
+#[tokio::test]
+async fn a_full_access_off_mdm_forces_is_an_upper_bound_and_unset_changes_nothing() {
+    run(BOUND).await;
+}
+
+/// What already runs in full access ends (rounds 2 and 5).
+const RUNNING: &[Case] = &[
+    ("round 2: an agent running in full access takes no more work once MDM turns it off", |name| {
+        Box::pin(async move {
+            let (dir, daemon, mut app) = daemon(name, true).await;
+            running_agents_take_no_more_work_once_mdm_turns_it_off(&daemon, &mut app, &dir).await;
+        })
+    }),
+    ("round 5: a harness that reports a full-access mode without declaring modes ends", |name| {
+        Box::pin(async move {
+            let (dir, _daemon, mut app) = daemon(name, true).await;
+            app.push(off()).await;
+            moves_itself_into_full_access_and_ends(
+                &mut app,
+                &dir,
+                "self-moder",
+                "set-mode: bypassPermissions",
+            )
+            .await;
+        })
+    }),
+    ("round 8: a harness whose mode option says full access while its mode asks ends", |name| {
+        Box::pin(async move {
+            let (dir, _daemon, mut app) = daemon(name, true).await;
+            app.push(off()).await;
+            moves_itself_into_full_access_and_ends(
+                &mut app,
+                &dir,
+                "self-optioner",
+                "set-mode-option: full-access",
+            )
+            .await;
+        })
+    }),
+    ("round 5: a harness that sets another config option to full access ends", |name| {
+        Box::pin(async move {
+            let (dir, _daemon, mut app) = daemon(name, true).await;
+            app.push(off()).await;
+            moves_itself_into_full_access_and_ends(
+                &mut app,
+                &dir,
+                "self-optioner",
+                "set-option: sandbox danger-full-access",
+            )
+            .await;
+        })
+    }),
+];
+
+#[tokio::test]
+async fn under_an_mdm_off_what_runs_in_full_access_ends() {
+    run(RUNNING).await;
+}
+
+/// Under MDM off, an agent on `harness` that moves itself into full access (`turn`) in a form
+/// acpmux sets no mode for ends; its chat's next turn runs on a new agent.
+async fn moves_itself_into_full_access_and_ends(
+    app: &mut Client,
+    dir: &Path,
+    harness: &str,
+    turn: &str,
+) {
+    let chat = app.ran_on(dir, harness).await;
+    // The turn may end with its agent, which ends as soon as it reports full access.
+    app.prompt(&chat, turn).await;
+    let mut ended = false;
+    for _ in 0..500 {
+        let r = app.call("_acpmux/events", json!({"sessionId": chat, "limit": 500})).await;
+        if r.to_string().contains("full_access_ended") {
+            ended = true;
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    assert!(ended, "{harness}: the agent ran on after it moved into full access by itself");
+    let r = app.prompt(&chat, "argv").await;
+    assert!(r.get("error").is_none(), "{harness}: the next turn: {r}");
 }
 
 /// Review of #23322: an agent already running in full access when MDM forces it off takes no more
@@ -372,5 +492,4 @@ async fn running_agents_take_no_more_work_once_mdm_turns_it_off(
         info["result"]["modes"]["currentModeId"], "agent-full-access",
         "the chat ran on in full access: {info}"
     );
-    app.push(json!({})).await;
 }
