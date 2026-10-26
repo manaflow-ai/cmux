@@ -1,27 +1,34 @@
-//! The power source a [`super::MaintenanceClock`] follows (p14-energy-137),
-//! so the daemon reads AC or battery and the charge itself and keeps
-//! following them after the app quits. The app's `energy.set` stays an
-//! override of this reading (cmux-tui-core `server/energy_op.rs`).
+//! The power inputs a [`super::MaintenanceClock`] follows (p14-energy-137),
+//! so the daemon reads AC or battery, the charge, Low Power Mode and the
+//! thermal state itself and keeps following them after the app quits. The
+//! daemon turns a reading into its own Energy Saver by the app's rule
+//! (cmux-tui-core `server/energy_rule.rs`); the app's `energy.set` stays an
+//! override of it (`server/energy_op.rs`).
 //!
-//! A [`PowerSource`] is a descriptor that turns readable when the power source
-//! changes; on macOS a notify(3) descriptor for
-//! `com.apple.system.powersources.source` (and `.percent` while on battery).
-//! The clock thread waits on it on the same kqueue as its timer and its user
-//! event: no extra thread, no poll and no timed wait. Chrome follows the same
-//! IOKit service with no timer on Mac
+//! A [`PowerSource`] is a descriptor that turns readable when an input
+//! changes; on macOS one notify(3) descriptor for Low Power Mode,
+//! `com.apple.system.powersources.source`, and (while on battery) the charge
+//! and the thermal pressure. The clock thread waits on it on the same kqueue
+//! as its timer and its user event: no extra thread, no poll and no timed
+//! wait. Chrome follows the same IOKit service with no timer on Mac
 //! (components/power_monitor/battery_state_sampler_mac.cc,
 //! `IOPMPowerSourceSamplingEventSource`).
 
 use std::os::raw::c_int;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 
-/// On battery below this charge (strictly), the app's `auto` setting turns
-/// Energy Saver on: `EnergyPolicyResolver.lowBatteryThresholdPercent`
-/// (CmuxNextEnergy), Chrome's `kLowBatteryThresholdPercent`
-/// (chrome/browser/performance_manager/user_tuning/battery_saver_mode_manager.cc).
-pub const LOW_BATTERY_THRESHOLD_PERCENT: u8 = 20;
+/// The Mac's thermal state: `ProcessInfo.ThermalState`, in its order.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord)]
+pub enum Thermal {
+    #[default]
+    Nominal,
+    Fair,
+    Serious,
+    Critical,
+}
 
-/// One reading of the power source: the app's `PowerSourceReading`.
+/// One reading of the power inputs: the app's `EnergyInputs` as the Mac
+/// reports them (no `debug.energy.simulate` layer).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct PowerReading {
     /// The battery provides power (false on adapter power, a UPS counted as
@@ -32,20 +39,10 @@ pub struct PowerReading {
     /// The internal battery's charge in percent of its full capacity; `None`
     /// without a battery or a capacity.
     pub battery_percent: Option<u8>,
-}
-
-impl PowerReading {
-    /// Energy Saver for this reading by the battery part of the app's `auto`
-    /// rule (`EnergyPolicyResolver.autoReason`): on battery with an internal
-    /// battery below [`LOW_BATTERY_THRESHOLD_PERCENT`]. `auto` is the
-    /// default setting, and the daemon reads neither the person's setting
-    /// nor Low Power Mode nor the thermal state: while the app runs, its
-    /// `energy.set` override carries all of them.
-    pub fn saver(self) -> bool {
-        self.on_battery
-            && self.has_battery
-            && self.battery_percent.is_some_and(|percent| percent < LOW_BATTERY_THRESHOLD_PERCENT)
-    }
+    /// macOS Low Power Mode is on.
+    pub low_power_mode: bool,
+    /// The Mac's thermal state.
+    pub thermal: Thermal,
 }
 
 /// A power source the clock thread waits on.
@@ -98,26 +95,24 @@ mod tests {
     use super::*;
 
     fn battery(percent: u8) -> PowerReading {
-        PowerReading { on_battery: true, has_battery: true, battery_percent: Some(percent) }
+        PowerReading {
+            on_battery: true,
+            has_battery: true,
+            battery_percent: Some(percent),
+            ..PowerReading::default()
+        }
     }
 
     fn plugged() -> PowerReading {
-        PowerReading { on_battery: false, has_battery: true, battery_percent: Some(15) }
+        PowerReading { has_battery: true, battery_percent: Some(15), ..PowerReading::default() }
     }
 
-    /// The battery rows of the app's `EnergyPolicyResolverTests` table for `auto`.
     #[test]
-    fn saver_follows_the_apps_auto_battery_rule() {
-        assert!(battery(15).saver());
-        assert!(battery(19).saver());
-        assert!(!battery(20).saver(), "the threshold is strictly below 20%");
-        assert!(!battery(90).saver());
-        assert!(!plugged().saver(), "plugged in at 15% is no saver");
-        assert!(!PowerReading::default().saver(), "a desktop Mac is never on battery");
-        let no_capacity = PowerReading { battery_percent: None, ..battery(0) };
-        assert!(!no_capacity.saver(), "no charge read, no battery reason");
-        let no_battery = PowerReading { has_battery: false, ..battery(5) };
-        assert!(!no_battery.saver(), "a UPS-only Mac has no internal battery");
+    fn thermal_states_are_ordered_as_the_apps() {
+        assert!(Thermal::Nominal < Thermal::Fair);
+        assert!(Thermal::Fair < Thermal::Serious);
+        assert!(Thermal::Serious < Thermal::Critical);
+        assert_eq!(PowerReading::default().thermal, Thermal::Nominal);
     }
 
     struct Scripted(Arc<Mutex<Vec<PowerReading>>>);
@@ -148,6 +143,21 @@ mod tests {
         assert!(follow.changed());
         assert!(!follow.changed());
         assert_eq!(*heard.lock().unwrap(), vec![plugged(), battery(15)]);
+    }
+
+    #[test]
+    fn a_low_power_mode_or_thermal_change_alone_is_passed_on() {
+        let low_power = PowerReading { low_power_mode: true, ..plugged() };
+        let hot = PowerReading { thermal: Thermal::Serious, ..battery(60) };
+        let readings = Arc::new(Mutex::new(vec![plugged(), low_power, battery(60), hot]));
+        let heard = Arc::new(Mutex::new(Vec::new()));
+        let sink = Arc::clone(&heard);
+        let mut follow = PowerFollow::new(
+            Box::new(Scripted(readings)),
+            Box::new(move |reading| sink.lock().unwrap().push(reading)),
+        );
+        assert!((0..4).all(|_| follow.changed()));
+        assert_eq!(*heard.lock().unwrap(), vec![plugged(), low_power, battery(60), hot]);
     }
 
     #[test]

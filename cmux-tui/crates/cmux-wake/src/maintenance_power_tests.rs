@@ -10,11 +10,22 @@ use super::*;
 const DESCRIPTOR: c_int = 42;
 
 fn plugged() -> PowerReading {
-    PowerReading { on_battery: false, has_battery: true, battery_percent: Some(15) }
+    PowerReading { has_battery: true, battery_percent: Some(15), ..PowerReading::default() }
 }
 
 fn battery(percent: u8) -> PowerReading {
-    PowerReading { on_battery: true, has_battery: true, battery_percent: Some(percent) }
+    PowerReading {
+        on_battery: true,
+        has_battery: true,
+        battery_percent: Some(percent),
+        ..PowerReading::default()
+    }
+}
+
+/// The battery part of the app's `auto` rule; the whole rule is the daemon's
+/// (cmux-tui-core `server/energy_rule.rs`).
+fn low_battery(reading: PowerReading) -> bool {
+    reading.on_battery && reading.battery_percent.is_some_and(|percent| percent < 20)
 }
 
 /// A notify source whose reads return `readings` in order (the last one
@@ -62,7 +73,7 @@ impl Wait for ScriptedWait {
 }
 
 /// Runs the loop over `wakes`, the first a follow of `readings` that flips
-/// `mode` by the app's rule; returns what the loop asked and the readings
+/// `mode` by the battery rule; returns what the loop asked and the readings
 /// passed on.
 fn run(
     readings: &[PowerReading],
@@ -76,7 +87,7 @@ fn run(
         Box::new(FakeSource(readings.iter().copied().collect())),
         Box::new(move |reading: PowerReading| {
             sink.lock().unwrap().push(reading);
-            flip.set_saver(reading.saver());
+            flip.set_saver(low_battery(reading));
         }),
     );
     let seen = Arc::new(Mutex::new(Seen::default()));
@@ -90,12 +101,12 @@ fn run(
 }
 
 #[test]
-fn an_ac_to_battery_edge_turns_the_saver_on_by_the_apps_rule() {
+fn an_ac_to_battery_edge_reaches_the_receiver() {
     let mode = EnergyMode::new(false);
     let (seen, heard) = run(&[plugged(), battery(15)], [Wake::Power], &mode, false);
     assert_eq!(seen.watched, vec![DESCRIPTOR]);
     assert_eq!(heard, vec![plugged(), battery(15)], "the first reading, then the edge");
-    assert!(mode.is_saver(), "on battery below 20% is the app's auto saver");
+    assert!(mode.is_saver(), "the receiver saw the battery below 20%");
 }
 
 #[test]

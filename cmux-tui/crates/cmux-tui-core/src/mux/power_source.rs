@@ -1,29 +1,37 @@
-//! The daemon reads the power source itself (p14-energy-137), so it follows
-//! AC and battery after the app quits; the app's `energy.set` stays an
-//! override of this reading (server/energy_op.rs).
+//! The daemon reads the Mac's power inputs itself (p14-energy-137), so it
+//! decides Energy Saver by the app's rule after the app quits; the app's
+//! `energy.set` stays an override of this reading (server/energy_op.rs).
 //!
-//! On macOS the daemon registers a notify(3) descriptor for
-//! `com.apple.system.powersources.source` (and `.percent` while on battery)
-//! on its [`MaintenanceClock`]'s kqueue: no extra thread, no polling. Each post
-//! reads AC or battery and the internal battery's charge with
-//! `IOPSCopyPowerSourcesInfo`, the same snapshot the app's
-//! `PowerSourceMonitor` reads (CmuxNextEnergy), and the reading turns into the
-//! daemon's Energy Saver by the app's `auto` rule ([`PowerReading::saver`]).
-//! A Mac without an `IOPMPowerSource` service registers nothing, as the app
-//! and Chrome do (components/power_monitor/battery_state_sampler_mac.cc). On
-//! other systems the daemon reads nothing and follows the app.
+//! On macOS the daemon registers one notify(3) descriptor on its
+//! [`MaintenanceClock`]'s kqueue (no extra thread, no polling) for Low Power
+//! Mode (`com.apple.system.lowpowermode`), the power source
+//! (`com.apple.system.powersources.source`) and, while on battery, the
+//! charge (`.percent`) and the thermal pressure
+//! (`com.apple.system.thermalpressurelevel`). Each post reads AC or battery
+//! and the internal battery's charge with `IOPSCopyPowerSourcesInfo`, the
+//! same snapshot the app's `PowerSourceMonitor` reads (CmuxNextEnergy), and
+//! Low Power Mode and the thermal state from `NSProcessInfo`, as the app's
+//! `EnergyMonitor` does. The reading turns into power facts with the app's
+//! thermal hold, and [`DaemonEnergy`] decides from them, the `energy.saver`
+//! setting and "Turn Off for Now" by the app's rule
+//! (server/energy_rule.rs). A Mac without an `IOPMPowerSource` service
+//! registers no power-source posts, as the app and Chrome do
+//! (components/power_monitor/battery_state_sampler_mac.cc), and still
+//! follows Low Power Mode. On other systems the daemon reads nothing and
+//! follows the app.
 
 use std::io;
 use std::sync::{Arc, Weak};
 
 use super::Mux;
 use crate::server::energy_op::DaemonEnergy;
+use crate::server::energy_rule::PowerFacts;
 #[cfg(target_os = "macos")]
 use crate::wake::MaintenanceClock;
 use crate::wake::PowerReading;
 
 impl Mux {
-    /// Follows this Mac's power source into the daemon's own Energy Saver
+    /// Follows this Mac's power inputs into the daemon's own Energy Saver
     /// reading when `features` turns `energySaver` on. Call once the mux is
     /// built.
     pub fn start_power_source(
@@ -50,10 +58,7 @@ impl Mux {
 
 #[cfg(target_os = "macos")]
 fn start(mux: &Arc<Mux>) -> io::Result<()> {
-    if !macos::has_power_source() {
-        return Ok(());
-    }
-    let source = macos::NotifyPowerSource::register()?;
+    let source = macos::NotifyPowerSource::register(macos::has_power_source())?;
     let mux_ref = Arc::downgrade(mux);
     mux.maintenance_clock()?.follow_power(source, deliver(mux_ref)).map_err(io::Error::other)
 }
@@ -67,18 +72,31 @@ fn start(_mux: &Arc<Mux>) -> io::Result<()> {
 /// Passes each reading on to `mux`'s energy, while the mux lives.
 #[cfg_attr(not(any(test, target_os = "macos")), expect(dead_code, reason = "macOS reads"))]
 fn deliver(mux: Weak<Mux>) -> impl FnMut(PowerReading) + Send + 'static {
+    let mut facts = FactsFollow::default();
     move |reading| {
         if let Some(mux) = mux.upgrade() {
-            apply(&mux.energy, reading);
+            facts.apply(&mux.energy, reading);
         }
     }
 }
 
-/// Sets the daemon's own reading from `reading` by the app's rule. An app
-/// override still decides the mode until it is cleared or its connection
-/// ends. Returns whether the mode changed.
-fn apply(energy: &DaemonEnergy, reading: PowerReading) -> bool {
-    energy.set_reading(reading.saver())
+/// Turns readings into power facts on the clock thread, which alone keeps
+/// the thermal hold across them.
+#[derive(Default)]
+struct FactsFollow {
+    /// The last reading was hot (`EnergyPolicyResolver.isThermalHeld`).
+    held: bool,
+}
+
+impl FactsFollow {
+    /// Sets the daemon's power facts from `reading`. An app override still
+    /// decides the mode until it is cleared or its connection ends. Returns
+    /// whether the mode changed.
+    fn apply(&mut self, energy: &DaemonEnergy, reading: PowerReading) -> bool {
+        let facts = PowerFacts::read(reading, self.held);
+        self.held = facts.hot;
+        energy.set_facts(facts)
+    }
 }
 
 /// `current` as a share of `full`, rounded and clamped to 0..=100; `None`
@@ -98,7 +116,9 @@ mod macos {
     use std::ffi::{CStr, c_char, c_int, c_void};
     use std::io;
 
-    use crate::wake::{PowerReading, PowerSource, RegisterError};
+    use objc2_foundation::{NSProcessInfo, NSProcessInfoThermalState};
+
+    use crate::wake::{PowerReading, PowerSource, RegisterError, Thermal};
 
     type CFTypeRef = *const c_void;
     type CFIndex = isize;
@@ -107,6 +127,10 @@ mod macos {
     const SOURCE_CHANGE: &CStr = c"com.apple.system.powersources.source";
     /// `kIOPSNotifyPercentChange`: the battery's charge changed.
     const PERCENT_CHANGE: &CStr = c"com.apple.system.powersources.percent";
+    /// Low Power Mode turned on or off (`NSProcessInfoPowerStateDidChange`).
+    const LOW_POWER_MODE_CHANGE: &CStr = c"com.apple.system.lowpowermode";
+    /// `kOSThermalNotificationPressureLevelName`: the thermal state changed.
+    const THERMAL_CHANGE: &CStr = c"com.apple.system.thermalpressurelevel";
     const NOTIFY_STATUS_OK: u32 = 0;
     /// `NOTIFY_REUSE`: post to the descriptor passed in, not a new one.
     const NOTIFY_REUSE: c_int = 1;
@@ -184,22 +208,27 @@ mod macos {
         true
     }
 
-    /// notify(3)'s power-source posts on one non-blocking descriptor, with
-    /// the charge posts on it too while on battery.
+    /// notify(3)'s Low Power Mode and power-source posts on one non-blocking
+    /// descriptor, with the charge and thermal posts on it too while on
+    /// battery.
     pub(super) struct NotifyPowerSource {
         descriptor: c_int,
-        source: c_int,
-        percent: Option<c_int>,
+        /// Every registration kept for the source's life.
+        tokens: Vec<c_int>,
+        /// The charge and thermal registrations while on battery.
+        battery: Vec<c_int>,
     }
 
     impl NotifyPowerSource {
-        pub(super) fn register() -> io::Result<Self> {
+        /// Registers Low Power Mode, and the power source when the Mac has
+        /// one (`power_source`).
+        pub(super) fn register(power_source: bool) -> io::Result<Self> {
             let (mut descriptor, mut token) = (-1, 0);
             // SAFETY: the name is a NUL-terminated literal; notify writes the
             // new descriptor and token to the two locals before it returns.
             let status = unsafe {
                 notify_register_file_descriptor(
-                    SOURCE_CHANGE.as_ptr(),
+                    LOW_POWER_MODE_CHANGE.as_ptr(),
                     &raw mut descriptor,
                     0,
                     &raw mut token,
@@ -208,7 +237,13 @@ mod macos {
             if status != NOTIFY_STATUS_OK {
                 return Err(io::Error::other(RegisterError::PowerSource(status)));
             }
-            let source = Self { descriptor, source: token, percent: None };
+            let mut source = Self { descriptor, tokens: vec![token], battery: Vec::new() };
+            if power_source {
+                let token = source
+                    .reuse(SOURCE_CHANGE)
+                    .map_err(|status| io::Error::other(RegisterError::PowerSource(status)))?;
+                source.tokens.push(token);
+            }
             // The first read drains a descriptor nothing was posted to yet.
             // SAFETY: fcntl reads and sets the flags of a descriptor we own.
             let blocking = unsafe {
@@ -216,6 +251,23 @@ mod macos {
                 flags < 0 || libc::fcntl(descriptor, libc::F_SETFL, flags | libc::O_NONBLOCK) < 0
             };
             if blocking { Err(io::Error::last_os_error()) } else { Ok(source) }
+        }
+
+        /// Registers `name` on this source's descriptor; the notify status
+        /// when it is refused.
+        fn reuse(&self, name: &CStr) -> Result<c_int, u32> {
+            let (mut descriptor, mut token) = (self.descriptor, 0);
+            // SAFETY: the name is a NUL-terminated literal; NOTIFY_REUSE
+            // posts to the descriptor passed in, which this source owns.
+            let status = unsafe {
+                notify_register_file_descriptor(
+                    name.as_ptr(),
+                    &raw mut descriptor,
+                    NOTIFY_REUSE,
+                    &raw mut token,
+                )
+            };
+            if status == NOTIFY_STATUS_OK { Ok(token) } else { Err(status) }
         }
 
         /// Reads every posted token (four bytes each) until none is left.
@@ -236,31 +288,20 @@ mod macos {
             }
         }
 
-        /// The charge posts only while on battery, as the app subscribes.
-        fn follow_percent(&mut self, on_battery: bool) {
-            match (on_battery, self.percent) {
-                (true, None) => {
-                    let (mut descriptor, mut token) = (self.descriptor, 0);
-                    // SAFETY: as in `register`; NOTIFY_REUSE posts to the
-                    // descriptor passed in, which this source owns.
-                    let status = unsafe {
-                        notify_register_file_descriptor(
-                            PERCENT_CHANGE.as_ptr(),
-                            &raw mut descriptor,
-                            NOTIFY_REUSE,
-                            &raw mut token,
-                        )
-                    };
-                    if status == NOTIFY_STATUS_OK {
-                        self.percent = Some(token);
-                    }
-                }
-                (false, Some(token)) => {
+        /// The charge and thermal posts only while on battery, as the app
+        /// subscribes: plugged in, neither can turn the saver on. A refused
+        /// registration leaves that input to the next power-source post.
+        fn follow_battery(&mut self, on_battery: bool) {
+            if on_battery && self.battery.is_empty() {
+                self.battery = [PERCENT_CHANGE, THERMAL_CHANGE]
+                    .into_iter()
+                    .filter_map(|name| self.reuse(name).ok())
+                    .collect();
+            } else if !on_battery {
+                for token in self.battery.drain(..) {
                     // SAFETY: `token` is this source's live registration.
                     unsafe { notify_cancel(token) };
-                    self.percent = None;
                 }
-                _ => {}
             }
         }
     }
@@ -273,7 +314,7 @@ mod macos {
         fn read(&mut self) -> PowerReading {
             self.drain();
             let reading = read();
-            self.follow_percent(reading.on_battery);
+            self.follow_battery(reading.on_battery);
             reading
         }
     }
@@ -281,34 +322,44 @@ mod macos {
     impl Drop for NotifyPowerSource {
         /// notify(3) closes the descriptor when its last token is cancelled.
         fn drop(&mut self) {
-            // SAFETY: both tokens are this source's live registrations.
-            unsafe {
-                if let Some(token) = self.percent.take() {
-                    notify_cancel(token);
-                }
-                notify_cancel(self.source);
+            for token in self.battery.drain(..).chain(self.tokens.drain(..)) {
+                // SAFETY: every token is this source's live registration.
+                unsafe { notify_cancel(token) };
             }
         }
     }
 
-    /// The power source now, from one IOKit snapshot: the app's
-    /// `PowerSourceMonitor.read`.
+    /// The power inputs now: the power source from one IOKit snapshot (the
+    /// app's `PowerSourceMonitor.read`), Low Power Mode and the thermal state
+    /// from `NSProcessInfo` (the app's `EnergyMonitor`).
     fn read() -> PowerReading {
+        let process = NSProcessInfo::processInfo();
+        let low_power_mode = process.isLowPowerModeEnabled();
+        let thermal = match process.thermalState() {
+            NSProcessInfoThermalState::Fair => Thermal::Fair,
+            NSProcessInfoThermalState::Serious => Thermal::Serious,
+            NSProcessInfoThermalState::Critical => Thermal::Critical,
+            _ => Thermal::Nominal,
+        };
         // SAFETY: the snapshot is released once; the providing type and the
         // descriptions are owned by the snapshot and read before it goes.
-        unsafe {
+        let (on_battery, battery) = unsafe {
             let info = IOPSCopyPowerSourcesInfo();
             if info.is_null() {
-                return PowerReading::default();
+                (false, None)
+            } else {
+                let on_battery = string_is(IOPSGetProvidingPowerSourceType(info), BATTERY_POWER);
+                let battery = internal_battery(info);
+                CFRelease(info);
+                (on_battery, battery)
             }
-            let on_battery = string_is(IOPSGetProvidingPowerSourceType(info), BATTERY_POWER);
-            let battery = internal_battery(info);
-            CFRelease(info);
-            PowerReading {
-                on_battery,
-                has_battery: battery.is_some(),
-                battery_percent: battery.flatten(),
-            }
+        };
+        PowerReading {
+            on_battery,
+            has_battery: battery.is_some(),
+            battery_percent: battery.flatten(),
+            low_power_mode,
+            thermal,
         }
     }
 
