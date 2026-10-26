@@ -1,11 +1,18 @@
+import CmuxNextWakeups
 import Foundation
 
 // The in-process load of the shim and the framework, and the wait for a preload's load.
 extension CEFRuntime {
     /// Returns once the preload's load (behind the fence or not) ended.
     func libraryLoadEnded() async {
-        _ = await fencedLoad?.value
-        _ = await loadTask?.value
+        _ = await preloadMap()?.value
+    }
+
+    /// The framework read as idle items behind the startup fence (``CEFFrameworkPrefetch/post(_:on:)``), awaited
+    /// by one task of `work` that quit cancels.
+    func postRead(_ layout: CEFRuntimeLayout, on work: BackgroundWork) -> Task<Bool, any Error> {
+        prefetch.post(layout, on: work)
+        return work.task(.bestEffort) { @Sendable [prefetch] () async -> Bool in await prefetch.finished() }
     }
 
     /// Maps the shim and the framework (`cef_load_library`, fork API lookup).

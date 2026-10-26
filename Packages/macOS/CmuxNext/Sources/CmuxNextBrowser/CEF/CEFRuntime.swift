@@ -166,10 +166,9 @@ final class CEFRuntime {
     private var switchStorage: [UnsafeMutablePointer<CChar>?] = []
     /// The off-main library load; every concurrent first tab awaits it.
     private(set) var loadTask: Task<Result<CEFLoadedLibrary, BootError>, Never>?
-    /// A preload's framework read behind the startup fence (``prefetchWork``): false or cancelled when quit dropped it.
-    private(set) var fencedRead: Task<Bool, any Error>?
-    /// The preload's wait for ``fencedRead``, then its map (``loadTask``); it sets ``libraryLoaded``.
-    private(set) var fencedLoad: Task<Void, Never>?
+    /// A preload's framework read behind the startup fence (``prefetchWork``), false or cancelled when quit dropped
+    /// it, and the layout it reads; ``preloadMap()`` maps after it.
+    private(set) var fencedRead: (read: Task<Bool, any Error>, layout: CEFRuntimeLayout)?
     /// The framework's file-cache read (``CEFFrameworkPrefetch``); every in-process load reads through it.
     nonisolated let prefetch = CEFFrameworkPrefetch()
     /// The lanes whose startup fence holds a preload's framework read (feature `cefPrefetchBehindFence`); a start
@@ -306,7 +305,7 @@ final class CEFRuntime {
             loaded = .failure(.quit)
         } else {
             // The map runs at this start's priority (after a promoted read too), unless a preload's already runs:
-            // that one is a plain task at utility, and the await below raises its priority to this task's.
+            // that one is a plain task, not a lane item, and the await below raises its priority to this task's.
             let task = loadTask ?? makeLoadTask(candidate, priority: .userInitiated)
             loadTask = task
             loaded = await task.value.map(CEFRuntimeBoot.inProcess)
@@ -330,30 +329,28 @@ final class CEFRuntime {
         guard state == .idle, loadTask == nil, hostStart == nil else { return }
         state = .loading
         preloaded = true
-        if let prefetchWork, let candidate { return preloadBehindFence(candidate, on: prefetchWork) }
-        let task = makeLoadTask(candidate, priority: .utility)
-        loadTask = task
+        if let prefetchWork, let candidate {
+            fencedRead = (postRead(candidate, on: prefetchWork), candidate)
+        } else {
+            loadTask = makeLoadTask(candidate, priority: .utility)
+        }
         Task { [weak self] in
+            guard let task = await self?.preloadMap() else { return }
             _ = await task.value
             self?.libraryLoaded = true
         }
     }
 
-    /// ``preload(layout:)`` with ``prefetchWork``: the framework read as idle items behind the startup fence
-    /// (``CEFFrameworkPrefetch/post(_:on:)``), awaited by one task of `work` that quit cancels. After the read the
-    /// map is ``loadTask``, off the lanes as without the fence: at utility, or at user-initiated once a start
-    /// promoted the read; whichever of the preload and a start comes first makes it. A read dropped at quit maps
-    /// nothing.
-    private func preloadBehindFence(_ layout: CEFRuntimeLayout, on work: BackgroundWork) {
-        prefetch.post(layout, on: work)
-        let read = work.task(.bestEffort) { @Sendable [prefetch] () async -> Bool in await prefetch.finished() }
-        fencedRead = read
-        fencedLoad = Task { [weak self] in
-            guard (try? await read.value) == true, let self, state == .loading else { return }
-            let task = loadTask ?? makeLoadTask(layout, priority: prefetch.isPromoted ? .userInitiated : .utility)
-            loadTask = task
-            if case .success = await task.value { libraryLoaded = true }
+    /// The preload's map, ``loadTask``. Behind the fence it is made after ``fencedRead``, off the lanes as without
+    /// the fence, by the first of the preload and a start: at utility, or at user-initiated once a start promoted
+    /// the read. Nil when quit dropped the read, or a start ended without a map.
+    func preloadMap() async -> Task<Result<CEFLoadedLibrary, BootError>, Never>? {
+        guard let fencedRead else { return loadTask }
+        guard (try? await fencedRead.read.value) == true else { return nil }
+        if loadTask == nil, state == .loading {
+            loadTask = makeLoadTask(fencedRead.layout, priority: prefetch.isPromoted ? .userInitiated : .utility)
         }
+        return loadTask
     }
 
     /// The one off-main load of the shim and the framework (``loadInProcess``), marked

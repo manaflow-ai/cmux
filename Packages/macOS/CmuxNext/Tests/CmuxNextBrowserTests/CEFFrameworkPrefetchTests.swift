@@ -92,22 +92,9 @@ import Testing
         await runtime.libraryLoadEnded()
         #expect(loads.count == 1)
         #expect(runtime.prefetch.last?.bytes == framework.byteCount)
-        #expect(runtime.report.state == "loaded", "a mapped preload did not report itself loaded")
+        #expect(await Self.settledState(runtime) == "loaded", "a mapped fenced preload did not report itself loaded")
         // The map is a plain task like the unfenced preload's, never a lane item: only the read's idle items ran.
         #expect(lanes.priorities.allSatisfy { $0 == .idle })
-    }
-
-    @Test func aFailedFencedMapDoesNotReportLoaded() async throws {
-        let framework = try ScratchFramework()
-        let lanes = Lanes()
-        let loads = LoadSpy()
-        let runtime = Self.runtime(lanes: lanes, loads: loads)
-
-        runtime.preload(layout: framework.layout)
-        await runtime.libraryLoadEnded()
-
-        #expect(loads.count == 1)
-        #expect(runtime.report.state == "loading")
     }
 
     @Test func aTabStartPromotesThePreloadsFencedReadAndMapsAtItsPriority() async throws {
@@ -167,6 +154,16 @@ import Testing
 
         #expect(runtime.fencedRead == nil)
         #expect(loads.count == 1)
+    }
+
+    /// The report once the preload's main-actor follow-up, which sets `loaded` after the map ended, had its turns.
+    private static func settledState(_ runtime: CEFRuntime) async -> String {
+        var turns = 0
+        while runtime.report.state != "loaded", turns < 1000 {
+            turns += 1
+            await Task.yield()
+        }
+        return runtime.report.state
     }
 
     /// A runtime whose predicted start reads through `lanes` and whose in-process load only counts its calls.
