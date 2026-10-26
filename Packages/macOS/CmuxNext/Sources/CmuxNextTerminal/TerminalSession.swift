@@ -161,7 +161,7 @@ public final class TerminalSession {
 
         // concurrency-allow: carries only user input and resizes, produced at human rate
         let (outgoing, continuation) = AsyncStream<TerminalOutgoing>.makeStream(bufferingPolicy: .unbounded)
-        input = TerminalInputSink(continuation: continuation)
+        input = TerminalInputSink(continuation: continuation, typingSurface: TypingLatencyProbe.shared.makeSurfaceKey())
 
         view = TerminalHostView()
         surfaceView = TerminalSurfaceView(io: ioMode, input: input, session: nil, echoStages: echoStages, hangWatch: hangWatch,
@@ -348,13 +348,7 @@ public final class TerminalSession {
         Task.detached(priority: .high) { [weak session] in
             var lane: TerminalOutputLane?
             for await event in events {
-                if case .output(let data) = event, let lane {
-                    TypingLatencyProbe.shared.mark(.outputReceived)
-                    ExpectedActivity.shared.note(.terminalOutput)
-                    await lane.waitForCapacity()
-                    lane.processOutput(data)
-                    continue
-                }
+                if let lane, await lane.takeOffMain(event) { continue }
                 guard let session else { return }
                 lane = await session.handle(event)
             }
@@ -399,15 +393,16 @@ public final class TerminalSession {
             frameHold.contentQueued()
             TerminalTimings.contentApplied()
         case .output(let data):
-            TypingLatencyProbe.shared.mark(.outputReceived)
             ExpectedActivity.shared.note(.terminalOutput)
             guard let lane = surfaceView.lane else { return }
+            lane.outputReceived()
             await lane.waitForCapacity()
             // The surface may have been swapped while waiting (a replay).
             surfaceView.lane?.processOutput(data)
             surfaceHasContent = true
             frameHold.contentQueued()
             TerminalTimings.contentApplied()
+        case .inputEcho(let flow): surfaceView.lane?.echoReceived(flow)
         case .resize(let columns, let rows):
             guard columns > 0, rows > 0 else { return }
             await applyCanonicalGrid(TerminalGridSize(columns: columns, rows: rows))
