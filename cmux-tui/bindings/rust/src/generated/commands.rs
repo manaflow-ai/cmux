@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 723fa14ae06654ab0c2fd018a406c8353af7e7edb0f60ba05ee761541bdeb6f2.
+// cmux-tui mux protocol 12, IR 38bfa750899a4bbcf9020c7b41ac7cddafe62c8c350c2364635c692f69356e71.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -1539,6 +1539,8 @@ pub type CreateTerminalResult = T::TerminalPlacement;
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct CreateWorkspaceRequest {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub current: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub expected_generation: Optional<String>,
     #[serde(alias = "expected_terminal_revision", default, skip_serializing_if = "Optional::is_missing")]
     pub expected_revision: Optional<u64>,
@@ -1550,6 +1552,10 @@ pub struct CreateWorkspaceRequest {
     pub name: Optional<String>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub origin: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub placement: Optional<String>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub places_by_setting: Option<bool>,
 }
 
 #[rustfmt::skip]
@@ -4583,6 +4589,15 @@ impl CmuxClient {
     }
 
     pub fn create_workspace(&mut self, request: CreateWorkspaceRequest) -> Result<CreateWorkspaceResult> {
+        if !request.current.is_missing() {
+            self.require_capability_field("create-workspace", "workspace-create-current-v1")?;
+        }
+        if !request.placement.is_missing() {
+            self.require_capability_field("create-workspace", "workspace-create-current-v1")?;
+        }
+        if request.places_by_setting.is_some() {
+            self.require_capability_field("create-workspace", "workspace-create-current-v1")?;
+        }
         self.execute(&CREATE_WORKSPACE_METADATA, &request)
     }
 

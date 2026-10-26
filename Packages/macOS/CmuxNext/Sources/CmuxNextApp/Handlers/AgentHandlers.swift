@@ -302,10 +302,8 @@ enum AgentHandlers {
         let repair = context.services.emptyWorkspaces
         // A fork into a new workspace is placed like Cmd-N: in the current group (cx-caoh).
         let key = WorkspaceKey.generate()
-        if destination == .workspace || destination == .window {
-            let windows = context.services.windows
-            NewWorkspacePlacements.expect(key.rawValue, in: nil, byDefault: NewWorkspacePlacements.rule(for: nil, in: windows), windows: windows)
-        }
+        let rule = destination == .workspace || destination == .window ? NewWorkspacePlacements.rule(for: nil, in: context.services.windows) : nil
+        if let rule { NewWorkspacePlacements.expect(key.rawValue, in: nil, byDefault: rule, windows: context.services.windows) }
         Task {
             do {
                 let surface: SurfaceID?
@@ -322,7 +320,7 @@ enum AgentHandlers {
                     surface = try await connection.newTab(in: handle, options: options).surface
                 case .workspace, .window:
                     workspace = key
-                    surface = try await WorkspaceCreation.create(key, name: nil, on: connection, repair: repair) { created in
+                    surface = try await WorkspaceCreation.create(key, name: nil, placedBy: rule, on: connection, repair: repair) { created in
                         try await connection.createTerminal(in: created, cwd: options.cwd).surface
                     }
                 }

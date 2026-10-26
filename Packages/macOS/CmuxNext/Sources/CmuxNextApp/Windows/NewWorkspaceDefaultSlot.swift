@@ -1,4 +1,5 @@
 import CmuxNextBridge
+import CmuxNextDaemon
 import CmuxNextSettings
 import CmuxNextSidebar
 
@@ -15,7 +16,7 @@ import CmuxNextSidebar
 /// where you are); else the first slot of the workspace's machine section, which
 /// lists no pinned workspace (they show in the Pinned section above), above
 /// every group, and right below the home workspace's row when the list shows
-/// it. `afterCurrent` is right after the workspace the window showed
+/// it. `beforeCurrent` / `afterCurrent` is right before / after the workspace the window showed
 /// when the new one was asked for, inside its group when it has one; `top`
 /// when that workspace is not in the section (pinned, Home, another machine,
 /// none). `bottom` is the last slot of the current workspace's group; outside a
@@ -36,10 +37,11 @@ struct NewWorkspaceDefaultSlot: Hashable, Sendable {
                 return .bottom(anchor: current)
             }
             return nil
-        case .afterCurrent:
-            if let current, current != id, current != home,
-               WorkspaceSlot.below(current).position(moving: [id], section: section, in: sections) != nil {
-                return .below(current)
+        case .beforeCurrent, .afterCurrent:
+            let beside: WorkspaceSlot? = current.map { placement == .beforeCurrent ? .above($0) : .below($0) }
+            if let current, let beside, current != id, current != home,
+               beside.position(moving: [id], section: section, in: sections) != nil {
+                return beside
             }
             return Self.top(for: id, section: section, in: sections, home: home)
         case .top:
@@ -82,12 +84,17 @@ struct NewWorkspaceDefaultSlot: Hashable, Sendable {
 enum NewWorkspacePlacements {
     /// `workspaces.newPlacement` for a new workspace of window `windowID`
     /// (nil: the window reconcile gives it, the most recent open one), with
-    /// the workspace that window shows now. Read it before the claim selects
-    /// the new workspace.
+    /// the workspace that window shows now. Read it at the request, before
+    /// any hop and before the claim selects the new workspace. A window
+    /// showing a top page (Home, Chats, a pinned page) selects that page's row
+    /// in its sidebar, not a workspace's, so it has no current workspace: the
+    /// one it showed last is not the one the person sees selected. The create
+    /// sends the rule (`WorkspaceCreation`, `CreateWorkspaceRequest.current`), so
+    /// the daemon places the new row against the same workspace, or none.
     static func rule(for windowID: String?, in windows: WindowManager) -> NewWorkspaceDefaultSlot {
         let placement = windows.services.settings?.snapshot.newWorkspacePlacement ?? CmuxConfigSnapshot.newWorkspacePlacementFallback
-        let window = windowID ?? windows.registry.value.mostRecentOpen()
-        return NewWorkspaceDefaultSlot(placement: placement, current: window.flatMap { windows.states[$0]?.workspaceID })
+        let state = (windowID ?? windows.registry.value.mostRecentOpen()).flatMap { windows.states[$0] }
+        return NewWorkspaceDefaultSlot(placement: placement, current: state?.page == nil ? state?.workspaceID : nil)
     }
 
     /// Places workspace `id` at `slot`, else by `byDefault`, in window
@@ -96,8 +103,63 @@ enum NewWorkspacePlacements {
     static func expect(_ id: String, in windowID: String?, slot: WorkspaceSlot? = nil, byDefault: NewWorkspaceDefaultSlot?,
                        then: (@MainActor @Sendable (String, any WorkspaceSpawnSidebar) -> Void)? = nil, windows: WindowManager) {
         guard slot != nil || byDefault != nil || then != nil else { return }
+        if let anchor = anchor(slot: slot, byDefault: byDefault, home: home(windows.services.machines)) { anchors[id] = anchor }
         windows.pendingPlacements[id] = PendingPlacement(window: windowID, slot: slot, byDefault: byDefault, then: then)
         if windows.services.machines.workspace(id: id) != nil { windows.applyPendingPlacements(live: [id]) }
+    }
+
+    /// New workspaces whose create sent the rule (`WorkspaceCreation`, `CreateWorkspaceRequest.current`):
+    /// this Mac's daemon placed them at their slot in the commit that made them, under every value, so
+    /// `applyPendingPlacements` sends no second write for them (a second state change and render).
+    static var placedByDaemon: Set<String> = []
+
+    /// `rule` when `connection`'s daemon places a create by it (`workspace-create-current-v1`), recording
+    /// `key` in ``placedByDaemon``; nil for an older daemon, which ignores the fields, so the app still
+    /// sends its own placement afterwards.
+    static func sending(_ rule: NewWorkspaceDefaultSlot?, key: WorkspaceKey, on connection: DaemonConnection) async -> NewWorkspaceDefaultSlot? {
+        guard let rule else { return nil }
+        // Read before the create goes out: the window places the workspace only once the daemon lists it.
+        guard await connection.identity?.supports(DaemonCapability.workspaceCreateCurrent.rawValue) == true else { return nil }
+        placedByDaemon.insert(key.rawValue)
+        return rule
+    }
+
+    /// Drops what a create that ended without its workspace left for it.
+    static func forget(_ id: String, windows: WindowManager) {
+        windows.pendingPlacements[id] = nil
+        placedByDaemon.remove(id)
+        anchors[id] = nil
+    }
+
+    /// The neighbour each new workspace lists beside until the sidebar document places it
+    /// (`SidebarDocSections.unplacedAnchor`), where the daemon's create puts it. Dropped once the
+    /// document places the workspace or it is gone (`unplacedAnchor(of:)`).
+    static var anchors: [String: SidebarDocSections.UnplacedAnchor] = [:]
+
+    /// The neighbour of a new workspace placed at `slot`, else by `byDefault`: right before or after
+    /// the window's current workspace (not Home), or the one New Workspace Above or Below names.
+    static func anchor(slot: WorkspaceSlot?, byDefault: NewWorkspaceDefaultSlot?, home: String?) -> SidebarDocSections.UnplacedAnchor? {
+        switch slot {
+        case .above(let id)?: return .before(id)
+        case .below(let id)?: return .after(id)
+        case nil: break
+        default: return nil
+        }
+        guard let byDefault, let current = byDefault.current, current != home else { return nil }
+        switch byDefault.placement {
+        case .beforeCurrent: return .before(current)
+        case .afterCurrent: return .after(current)
+        case .top, .bottom: return nil
+        }
+    }
+
+    /// The neighbour `workspace` lists beside while the document does not place it; prunes the ones placed or gone.
+    static func unplacedAnchor(of workspace: WorkspaceModel, machines: MachineRegistry) -> SidebarDocSections.UnplacedAnchor? {
+        guard !anchors.isEmpty else { return nil }
+        if anchors.count > 16 {
+            anchors = anchors.filter { id, _ in machines.workspace(id: id) != nil && SidebarDocWiring.item(workspace: id, machines) == nil }
+        }
+        return anchors[workspace.id]
     }
 
     /// The local home workspace (`workspace-kind-v1`), whose row `top` stays below.

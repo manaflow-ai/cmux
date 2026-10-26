@@ -34,11 +34,27 @@ pub(super) fn new_workspace(
     Ok(json!({ "surface": surface.id }))
 }
 
+/// The client's placement of a new workspace (`create-workspace {places_by_setting, current,
+/// placement}`), or None when it names none. A current workspace that is no workspace key counts as
+/// none; an unknown placement value leaves this daemon's settings file to decide.
+pub(super) fn client_placement(
+    places_by_setting: bool,
+    current: Option<String>,
+    placement: Option<String>,
+) -> Option<crate::state::personal_order::ClientCurrent> {
+    let current = current.filter(|key| crate::workspace_registry::is_canonical_workspace_key(key));
+    let placement =
+        placement.as_deref().and_then(crate::user_settings::NewWorkspacePlacement::from_name);
+    let named = places_by_setting || current.is_some();
+    named.then_some(crate::state::personal_order::ClientCurrent { current, placement })
+}
+
 pub(super) fn create_workspace(
     mux: &Arc<Mux>,
     client: u64,
     name: Option<String>,
     key: Option<String>,
+    placed_by: Option<crate::state::personal_order::ClientCurrent>,
     mutation: MutationRequest,
 ) -> anyhow::Result<Value> {
     if let Some(key) = key.as_deref()
@@ -47,13 +63,15 @@ pub(super) fn create_workspace(
         anyhow::bail!("workspace key must be a lowercase UUID");
     }
     let workspace_mutation = workspace_mutation(mux, client, &mutation)?;
-    let placement = mux.create_empty_workspace_with_mutation(
-        name,
-        key,
-        mutation.expected_generation.as_deref(),
-        mutation.expected_revision,
-        &workspace_mutation,
-    )?;
+    let placement = crate::state::personal_order::with_client_current(placed_by, || {
+        mux.create_empty_workspace_with_mutation(
+            name,
+            key,
+            mutation.expected_generation.as_deref(),
+            mutation.expected_revision,
+            &workspace_mutation,
+        )
+    })?;
     let (registry_id, generation) = mux.registry_identity();
     Ok(json!({
         "workspace": placement.workspace,
