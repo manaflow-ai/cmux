@@ -60,7 +60,7 @@ public struct TarChromiumRuntimeUnpacker: ChromiumRuntimeUnpacking {
 private func readAll(_ descriptor: Int32) -> Data {
     var data = Data()
     var buffer = [UInt8](repeating: 0, count: 64 * 1024)
-    // wakeup-allow: a blocking read on a detached task; it ends at EOF (0) or on a read error.
+    // wakeup-allow: bounded: a blocking read on a detached task; it ends at EOF (0) or on a read error.
     while true {
         let count = buffer.withUnsafeMutableBytes { read(descriptor, $0.baseAddress, $0.count) }
         if count > 0 { data.append(contentsOf: buffer[0..<count]); continue }
