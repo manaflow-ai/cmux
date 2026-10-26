@@ -1,10 +1,13 @@
 // A run of tool calls split into what the transcript draws: consecutive calls of one kind
 // under one line ("Ran 3 commands", "Read 4 files", "Edited App.tsx +12 -3"), messages to
-// other agents and calls to the cmux-subsessions tools as cards, and everything else as its own row.
+// other agents (an `acpmux send` among them) and calls to the cmux-subsessions tools as cards,
+// and everything else as its own row.
 import { pathKey, type AcpmuxActivity } from "../model";
 import type { Translate } from "../i18n";
 import { isBareShellName } from "../toolPaths";
+import { acpmuxSendCall, type AcpmuxSendCall } from "./acpmuxSends";
 import { agentMessage, type AgentMessage } from "./agentMessages";
+import { dispatchCall, type DispatchCall } from "./dispatchCalls";
 import { mcpCall, mcpKey } from "./mcpCalls";
 import { subsessionCall, type SubsessionCall } from "./subsessionCalls";
 import { isThought, mergeThoughts } from "./thoughts";
@@ -17,6 +20,10 @@ export type ToolGroup =
   /// only the calls).
   | { type: "group"; kind: ToolGroupKind; items: AcpmuxActivity[] }
   | { type: "message"; item: AcpmuxActivity; message: AgentMessage }
+  /// A first-class dispatch/steer/report operation, kept visible beside folded tool work.
+  | { type: "dispatch"; item: AcpmuxActivity; call: DispatchCall }
+  /// A shell `acpmux send` (acpmuxSends.ts): the sent-message row (SentMessageLine.tsx).
+  | { type: "send"; item: AcpmuxActivity; send: AcpmuxSendCall }
   /// A sub-session started, sent a message or waited on (subsessionCalls.ts), each its own card.
   | { type: "subsession"; item: AcpmuxActivity; call: SubsessionCall }
   /// Consecutive calls to one MCP server's tool (mcpCalls.ts), one or more.
@@ -78,8 +85,10 @@ export function toolGroups(items: readonly AcpmuxActivity[]): ToolGroup[] {
       continue;
     }
     const tool = item.tool;
-    const message = tool && agentMessage(tool);
-    const named = tool && !message ? mcpCall(tool) : undefined;
+    const dispatch = tool ? dispatchCall(item) : undefined;
+    const send = tool && !dispatch ? acpmuxSendCall(tool) : undefined;
+    const message = tool && !dispatch && !send ? agentMessage(tool) : undefined;
+    const named = tool && !dispatch && !send && !message ? mcpCall(tool) : undefined;
     const subsession = named && subsessionCall(tool!, named);
     const call = subsession ? undefined : named;
     const key = call && mcpKey(call);
@@ -87,14 +96,16 @@ export function toolGroups(items: readonly AcpmuxActivity[]): ToolGroup[] {
       mcp.items.push(item);
       continue;
     }
-    const kind = tool && !message && !subsession && !call ? toolGroupKind(tool) : undefined;
+    const kind = tool && !send && !message && !subsession && !call ? toolGroupKind(tool) : undefined;
     if (kind && run?.kind === kind) {
       run.items.push(...held, item);
       held = [];
       continue;
     }
     close();
-    if (message) groups.push({ type: "message", item, message });
+    if (dispatch) groups.push({ type: "dispatch", item, call: dispatch });
+    else if (send) groups.push({ type: "send", item, send });
+    else if (message) groups.push({ type: "message", item, message });
     else if (subsession) groups.push({ type: "subsession", item, call: subsession });
     else if (key) mcp = { key, items: [item] };
     else if (kind) run = { kind, items: [item] };
@@ -107,6 +118,15 @@ export function toolGroups(items: readonly AcpmuxActivity[]): ToolGroup[] {
 /// A group's calls, without the thoughts between them.
 export function groupCalls(items: readonly AcpmuxActivity[]): AcpmuxActivity[] {
   return items.filter((item) => item.tool);
+}
+
+/// A file change (an edit, a delete, a move) still waiting for its permission: its row stays in
+/// sight, never folded under a run's summary line, so the change it asks about can be seen.
+export function awaitsPermission(tool: Tool | undefined): boolean {
+  return (
+    tool?.status === "pending" &&
+    (tool.kind === "edit" || tool.kind === "delete" || tool.kind === "move" || tool.kind === "fileChange")
+  );
 }
 
 export function isRunning(tool: Tool): boolean {

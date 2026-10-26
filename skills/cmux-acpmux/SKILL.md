@@ -25,6 +25,7 @@ Prefer JSON output for discovery and record the exact ids and names returned by 
 acpmux --json ls
 acpmux --json session info @       # only when ACPMUX_ENV=1
 acpmux host ls
+acpmux --json peer status          # each peer's health; run it before remote work and after a peer error
 ```
 
 Use `@` only for the current session. Never invent a session id, reuse a stale name without
@@ -74,7 +75,9 @@ Read the harness/model catalog before overriding defaults. Set a policy explicit
 needs one, and never change shared defaults, presets, or hosts as a side effect of a feature task.
 Before sending work to an existing session, inspect its `session info` (including policy, cwd,
 model, and pending permissions). A peer session is named `host/name`; do not silently treat a
-remote session as local.
+remote session as local. Its files live on that host; when a peer request fails, run `acpmux peer status`
+and follow the next command it names instead of retrying blind (`host doctor` is safe; `host update`
+restarts that daemon, so run it only when the task asks for host maintenance).
 For shared cmux-next surfaces, record ownership and decisions in
 `plans/cmux-next/COORDINATION.md`; the owner of a generated spec or shared contract must make the
 single coordinated update.

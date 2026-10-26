@@ -412,6 +412,10 @@ class Gate:
             report["frames_probe"] = self.frames[1]
         if self.frames[0]:
             return True
+        skipped = report.setdefault("frames_skipped", [])
+        if scenario not in skipped:
+            skipped.append(scenario)
+            skipped.sort()
         what = f"the window draws no frames (debug.frames {self.frames[1].get('frames')} in 1 s: an occluded or unlit console)"
         if self.opts.frames == "required":
             check(False, what, scenario)
@@ -733,7 +737,8 @@ class Gate:
         # Animation commit that carries it (after AppKit's layout and display), and the frames it missed (0: the
         # first frame it could); the commit's end (an upper bound) is reported.
         switches = own.get("switches") or []
-        phase["switches"] = [{k: round(v, 2) for k, v in row.items()} for row in switches]
+        # A row carries its kind ("terminal", "browser") next to its timings.
+        phase["switches"] = [{k: round(v, 2) if isinstance(v, (int, float)) else v for k, v in row.items()} for row in switches]
         if not self.timed_count(switches, ops, f"debug.tab_switch timed {{n}} of {ops} switches", scenario):
             return
         col = lambda name: sorted(row[name] for row in switches)
@@ -871,9 +876,9 @@ class Gate:
         app.rpc("debug.frames", {"action": "stop"})
         # The later scenarios run with the workspaces they had before this one.
         for workspace in [w for w in app.workspace_ids() if w not in before]:
-            app.action("closeWorkspace", {"workspace": workspace})
+            app.action("closeWorkspace", {"confirm": True}, target=f"workspace:{workspace}")
         wait(lambda: len(app.workspace_ids()) <= len(before), 60)
-        rows = [{k: round(v, 2) for k, v in row.items()} for row in own.get("creates") or []]
+        rows = [{k: round(v, 2) if isinstance(v, (int, float)) else v for k, v in row.items()} for row in own.get("creates") or []]
         report["phases"][scenario] = {"workspaces_before": counts, "reply_ms": replies, "creates": rows}
         if not self.timed_count(rows, creates, f"debug.new_workspace timed {{n}} of {creates} new workspace rows", scenario):
             return
@@ -1041,7 +1046,10 @@ def cols(value):
 
 
 def summary(out):
-    lines = ["### cmux-next perf gate (I8)", "", f"{'PASS' if not failures else 'FAIL'}: {len(report['checks'])} checks, "
+    verdict = "FAIL" if failures else "PASS"
+    if report.get("frames_skipped"):
+        verdict += f" (frames skipped: {', '.join(report['frames_skipped'])})"
+    lines = ["### cmux-next perf gate (I8)", "", f"{verdict}: {len(report['checks'])} checks, "
              f"{len(failures)} failed, {len(warnings)} warnings", ""]
     lines += [f"- FAIL {f}" for f in failures] + [f"- warning {w}" for w in warnings]
     lines += ["", f"Report: `{out}`"]
