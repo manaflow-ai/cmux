@@ -27,6 +27,11 @@
 //! elsewhere (`GIT_*`, `LD_PRELOAD`, `BASH_ENV`, ...) asks, and the repository probe runs that
 //! git with that environment. Not under approve-edits: an agent that writes files unasked could
 //! put its own `rg` in one of those directories.
+//!
+//! What is trusted: the launch environment and the person's own files it points at (`$HOME`'s
+//! shell startup files, `~/.gitconfig`). The agent changes those only by writing, which asks.
+//! Git config in every scope passes only keys that name no program a read runs
+//! (`key_runs_nothing`, plus `person_key_runs_nothing` outside the repository).
 
 use serde_json::Value;
 use std::collections::BTreeMap;
@@ -77,8 +82,13 @@ const RUNS_ENV: &[&str] = &[
     "PAGER",
     "LESSOPEN",
     "LESSCLOSE",
+    "LESSKEY",
+    "LESSKEYIN",
+    "MANPAGER",
     // zsh runs `$ZDOTDIR/.zshenv` before any `-c` script.
     "ZDOTDIR",
+    // glibc writes a trace file.
+    "MALLOC_TRACE",
 ];
 
 /// How long the repository probe may take before the command asks instead.
@@ -87,13 +97,16 @@ pub(crate) const PROBE_TIMEOUT: std::time::Duration = std::time::Duration::from_
 /// The environment the harness runs its shell commands with.
 pub(crate) type Env = BTreeMap<String, String>;
 
-/// Whether `env` points none of these programs at another program. A library search path
-/// (`LD_LIBRARY_PATH`, which cargo sets for its tests) passes: it only finds libraries already
-/// on disk, and putting one there takes an edit, which asks. A library to load first does not.
+/// Whether `env` points none of these programs at another program or file. A library search
+/// path (`LD_LIBRARY_PATH`, which cargo sets for its tests) passes: it only finds libraries
+/// already on disk, and putting one there takes an edit, which asks. Any other loader variable
+/// asks: one loads a library first, another writes a trace (`LD_DEBUG_OUTPUT`,
+/// `DYLD_PRINT_TO_FILE`).
 fn env_runs_nothing(env: &Env) -> bool {
     env.keys().all(|k| {
         !(RUNS_ENV.contains(&k.as_str())
-            || matches!(k.as_str(), "LD_PRELOAD" | "LD_AUDIT" | "DYLD_INSERT_LIBRARIES")
+            || (k.starts_with("LD_") && k != "LD_LIBRARY_PATH")
+            || k.starts_with("DYLD_")
             // An exported bash function (`BASH_FUNC_pwd%%`) runs in place of the command it names.
             || k.starts_with("BASH_FUNC_")
             || (k.starts_with("GIT_") && !HARMLESS_GIT_ENV.contains(&k.as_str())))
@@ -386,32 +399,18 @@ fn segment_ok(words: &[String]) -> Option<Reads> {
         "sort" => !any(&|a| {
             short_has(a, 'o') || long_is(a, "--output") || long_is(a, "--compress-program")
         }),
-        // A second operand is the output file; after `--` every word is an operand, and a glob
-        // can expand to two.
-        "uniq" if any(&|a| a.contains(['*', '?', '['])) => false,
-        "uniq" => {
-            let end = args.iter().position(|a| a == "--").unwrap_or(args.len());
-            let operands =
-                args[..end].iter().filter(|a| a.as_str() == "-" || !a.starts_with('-')).count()
-                    + args.len().saturating_sub(end + 1);
-            operands <= 1
-        }
-        // An operand other than `+FORMAT` sets the clock (`date 102612002026`).
+        // A filter on its input only: an operand is a file to read and the next one, however it
+        // is spelled (BSD stops at the first operand, `-out` after it is the output), is written.
+        "uniq" => args.iter().all(|a| {
+            a.len() > 1
+                && a.starts_with('-')
+                && !a.starts_with("--")
+                && a[1..].chars().all(|c| "cdiu".contains(c))
+        }),
+        // Only the time, as is or `+FORMAT`: an operand sets the clock, and BSD `-f` reads the
+        // operand after it as the time to set.
         "date" => {
-            let mut ok = true;
-            let mut takes_value = false;
-            for a in args {
-                if std::mem::take(&mut takes_value) {
-                    continue;
-                }
-                match a.as_str() {
-                    "-d" | "--date" | "-r" | "--reference" | "-f" | "--file" => takes_value = true,
-                    a if long_is(a, "--set") || short_has(a, 's') => ok = false,
-                    a if a.starts_with('-') || a.starts_with('+') => {}
-                    _ => ok = false,
-                }
-            }
-            ok
+            args.iter().all(|a| matches!(a.as_str(), "-u" | "-R" | "--utc") || a.starts_with('+'))
         }
         "hostname" => args.iter().all(|a| {
             matches!(
@@ -432,8 +431,6 @@ fn segment_ok(words: &[String]) -> Option<Reads> {
                     | "--all-fqdns"
             )
         }),
-        "file" => !any(&|a| long_is(a, "--compile") || short_has(a, 'C')),
-        "tree" => !any(&|a| short_has(a, 'o') || short_has(a, 'R')),
         // `--search-zip` (`-z`) runs gzip, xz and the like from PATH.
         "rg" => !any(&|a| {
             a == "--pre"
@@ -441,6 +438,8 @@ fn segment_ok(words: &[String]) -> Option<Reads> {
                 || a.starts_with("--pre-glob")
                 || long_is(a, "--search-zip")
                 || short_has(a, 'z')
+                // Runs a program for the hostname of a hyperlink.
+                || long_is(a, "--hostname-bin")
         }),
         "find" => !any(&|a| {
             a.starts_with("-exec")
@@ -474,7 +473,10 @@ fn git_ok(args: &[String]) -> Option<Option<String>> {
             a if a.starts_with('-') => return None,
             _ => break,
         };
-        if dir.replace(named).is_some() {
+        // The shell expands a glob or a leading `~` in the directory; the probe would read
+        // another one.
+        if named.contains(['*', '?', '[']) || named.starts_with('~') || dir.replace(named).is_some()
+        {
             return None;
         }
     }
@@ -492,6 +494,9 @@ fn git_read_ok(args: &[String]) -> bool {
             || long_is(a, "--ext-diff")
             || long_is(a, "--show-signature")
             || a.contains("%G")
+            || a.contains("%(signature")
+            // Opens the manual in a viewer.
+            || long_is(a, "--help")
     };
     if rest.iter().any(writes) {
         return false;
@@ -610,16 +615,9 @@ fn repository_runs_nothing(git_bin: &Path, env: &Env, dir: &Path, depth: u8) -> 
             return false;
         };
         let (key, value) = entry.split_once('\n').unwrap_or((entry, "true"));
-        let runs = match scope {
-            "local" | "worktree" => !key_runs_nothing(key, value),
-            // The person's own config may hold anything, but not a program a read runs, except
-            // git-lfs's own filter (`git lfs install`) when PATH finds it in a system directory.
-            _ => {
-                key_runs_on_read(key, value)
-                    && !(is_lfs_filter(key, value) && resolve("git-lfs", env).is_some())
-            }
-        };
-        if runs {
+        let passes = key_runs_nothing(key, value)
+            || (!matches!(scope, "local" | "worktree") && person_key_runs_nothing(key));
+        if !passes {
             return false;
         }
     }
@@ -647,33 +645,25 @@ fn repository_runs_nothing(git_bin: &Path, env: &Env, dir: &Path, depth: u8) -> 
     })
 }
 
-/// Whether global or system config `key` = `value` makes a git read run a program or fetch:
-/// `diff.external`, a diff driver's `textconv` or `command`, a filter, an fsmonitor hook,
-/// `log.showSignature` (gpg) or a promisor remote (a lazy fetch writes objects).
-fn key_runs_on_read(key: &str, value: &str) -> bool {
-    let truthy = !matches!(value.to_ascii_lowercase().as_str(), "false" | "no" | "off" | "0" | "");
+/// Keys of the person's own config (global or system) that no allowed read uses to run a
+/// program: aliases (none names an allowed subcommand), an editor, credential helpers (no
+/// allowed read talks to a remote: a promisor remote asks), signing settings (every way a read
+/// checks a signature asks), and includes (`git config --list` lists the included keys, which
+/// are checked themselves). A repository's own config passes none of these.
+fn person_key_runs_nothing(key: &str) -> bool {
     let Some((section, rest)) = key.split_once('.') else { return false };
     let name = rest.rsplit_once('.').map_or(rest, |(_, n)| n);
     match section {
-        "diff" => matches!(name, "external" | "textconv" | "command"),
-        "filter" => true,
-        "core" => name == "fsmonitor" && !key_runs_nothing(key, value),
-        "log" => name == "showsignature" && truthy,
-        "remote" => name == "promisor" && truthy,
-        "extensions" => name == "partialclone",
+        "alias" | "credential" | "gpg" | "url" | "http" | "safe" => true,
+        "include" => name == "path",
+        "includeif" => name == "path",
+        "core" => matches!(name, "editor" | "attributesfile"),
+        "sequence" => name == "editor",
+        "commit" => matches!(name, "gpgsign" | "verbose" | "template" | "cleanup"),
+        "tag" => matches!(name, "gpgsign" | "forcesignannotated" | "sort"),
+        "diff" | "merge" => rest == "tool",
         _ => false,
     }
-}
-
-/// The filter lines `git lfs install` writes.
-fn is_lfs_filter(key: &str, value: &str) -> bool {
-    matches!(
-        (key, value),
-        ("filter.lfs.clean", "git-lfs clean -- %f")
-            | ("filter.lfs.smudge", "git-lfs smudge -- %f")
-            | ("filter.lfs.process", "git-lfs filter-process")
-            | ("filter.lfs.required", "true")
-    )
 }
 
 /// Whether repository config `key` = `value` names no program for a git read to run. An
