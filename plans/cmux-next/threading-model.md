@@ -445,8 +445,10 @@ its QoS and its target.
   `com.cmuxterm.home.cache` (the `HomeCache` actor's executor, user-initiated: its file writes block this queue,
   never a pool thread, so the forced quit's last draft write runs with the pool full; CmuxHomeCore, shared with iOS)
 - Remote and mobile: `com.cmuxterm.next.remote-localhost`, `com.cmuxterm.next.cloud-browser-proxy`,
-  `com.cmuxterm.next.remote-fetch`, `cmux.remote-view.render` (user-interactive, closed list),
-  `cmux.remote-view.rd-transport`, `cmux.remote-view.mock-host`, `cmux.next.mobile.unix-lane` (user-initiated),
+  `com.cmuxterm.next.remote-fetch` (user-initiated; favicons, remote images and agent fetches the person sees),
+  `cmux.remote-view.render` (user-interactive, closed list),
+  `cmux.remote-view.rd-transport` (user-initiated; the visible session's input and frames, below the render queue),
+  `cmux.remote-view.mock-host` (user-initiated; the Debug host stand-in), `cmux.next.mobile.unix-lane` (user-initiated),
   `cmux.screen.capture` (user-interactive, closed list exception; CmuxVNCWebRTC)
 - Browser: `com.cmuxterm.next.browser-host.provider.write` (user-initiated), `cmux browser-host provider reader`,
   `com.cmuxterm.chromium-host.read` (user-initiated),
@@ -454,13 +456,17 @@ its QoS and its target.
   waits only in `poll`: input, the socket taking a waiting outbox, a wake byte, the quota ceiling's one deadline),
   `com.cmuxterm.chromium-host.exit` (user-initiated serial queue for the host's exit source; a crash shows on the page),
   `com.cmuxterm.app.next.cef-children` (user-initiated; it must add NOTE_EXIT on a new helper before Chromium
-  reaps it), `com.cmuxterm.import-history-sync`,
+  reaps it), `com.cmuxterm.import-history-sync` (utility; a watcher),
   `com.cmuxterm.chromium-runtime.download` (the runtime download's URLSession delegate queue, utility, serial),
   `cmux-next webkit setup probe` (utility; WebKitSetupGate's one sandbox-extension request)
 - Agents: `com.cmuxterm.app.next.agent-pane.prompt-journal`, `com.cmuxterm.app.next.agent-pane.inbound`,
-  `cmux.next.agent-pane.acpmux-exit.<pid>`, `cmux.next.agent-pane.acpmux-log-progress`,
-  `cmux.next.agent-pane.acpmux-launch-reap.<pid>`, `cmux.next.agent-pane.acpmux-status`, `cmux.acpmux.checked-line`,
-  `cmux.agent-activity.socket` (utility), `com.cmuxterm.app.next.chief-settle`, `com.cmuxterm.app.next.tasks.socket`,
+  `cmux.next.agent-pane.acpmux-exit.<pid>` (user-initiated; the version handoff waits on the old daemon's exit),
+  `cmux.next.agent-pane.acpmux-log-progress` (utility; a log watcher),
+  `cmux.next.agent-pane.acpmux-launch-reap.<pid>` (user-initiated; the launch waits on the shell's exit),
+  `cmux.next.agent-pane.acpmux-status` (user-initiated; the pane's connect waits on it),
+  `cmux.acpmux.checked-line` (user-initiated; approvals, and callers wait on it with `sync`),
+  `cmux.agent-activity.socket` (utility), `com.cmuxterm.app.next.chief-settle` (utility; a watcher),
+  `com.cmuxterm.app.next.tasks.socket`,
   `com.cmuxterm.app.next.agent-pane.socket` (the agent pane's URLSession delegate queue, user-initiated, serial),
   `com.cmuxterm.app.next.agent-pane.pull-request` (gh reads for the header chip, utility, 2 at once),
   `cua-helper-v2-reap` (utility), `cua-helper-v2-stdout` (utility)
@@ -478,17 +484,16 @@ its QoS and its target.
   `slow_requests` ring's short lock, and one append to `owner-hangs-<session>.jsonl` per hang (each scope is
   written once, at its 2 s or 1 s hang tier).
 - Launch and misc: `cmux-next resource bundle warm-up`, `cmux-next launch warm-up`, `cmux.updates.network` (utility),
-  `cmux.home.fixture.video`, `cmux.home.promised-files` (a drop's file promises, user-initiated: the person
+  `cmux.home.fixture.video` (utility; Debug fixture media), `cmux.home.promised-files` (a drop's file promises, user-initiated: the person
   waits for the dropped files)
 - Every `Thread` and `OperationQueue` sets `name` and `qualityOfService` before it starts; every URLSession
   gets a named delegate queue. None is unnamed (`threading-inventory.py --rule thread-doc` = 0).
 
 Task 032 set the QoS of its group (retry-wake, process-progress, daemon exit and path, settings watcher, CEF
-children, provider write, mobile unix-lane, agent-activity socket, updates network). Queues that still state no
-QoS run at default until task 033 sets them: the remote-view transport and mock host, remote-fetch,
-import-history-sync, acpmux, chief-settle and fixture video queues. Their target is utility, except the
-remote-fetch and remote-view transport queues that a visible pane waits on (user-initiated). None goes to
-user-interactive.
+children, provider write, mobile unix-lane, agent-activity socket, updates network). Task 033 set the rest: the
+remote-view transport and mock host, remote-fetch, import-history-sync, acpmux, chief-settle and fixture video
+queues, each at the QoS listed above. Watchers run at utility; a queue that a visible pane or a waiting caller
+needs runs at user-initiated. None goes to user-interactive.
 
 ## Reviewed blocking allowances
 
