@@ -51,7 +51,7 @@
         "before",
         "settled"
       ],
-      "note": "every required field from its catalog type"
+      "note": "imports the app's own visit log of the profile"
     }
   ],
   "invariants": [
@@ -62,6 +62,7 @@
     "verify the socket and state root are gone"
   ],
   "untested": [
-    "params.path is a fixed placeholder, not a fixture object; misc/_tuning.json tunes it"
+    "params.path is a fixed placeholder, not a fixture object; misc/_tuning.json tunes it",
+    "the case connection derives origin agent: driver_daemon.py sends no client-hello, and history.visit.import is user only (request_origin.rs USER_ONLY_OPERATIONS, Gate A2); p15-oracle-237 runs the case on a second connection that proves the DEV install key (client-hello step 2), origin user, and the case writes a History.sqlite visit log under $CASE_ROOT first"
   ]
 }

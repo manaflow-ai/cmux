@@ -39,7 +39,7 @@ import CmuxNextTrace
 /// ``stopFlows()``), as Chromium turns trace categories on in a running browser
 /// (base/trace_event/trace_log.h, `TraceLog::SetEnabled`). `CMUX_NEXT_TRACE_FLOWS=<dir>` is only the
 /// launch default (``startFlows(launchEnvironment:)`` at the composition root; the daemon gets it as
-/// `CMUX_TRACE_FLOWS`). While flows are on, every hop a sample records, plus ``keyReachedTerminal(_:)``
+/// `CMUX_TRACE_FLOWS`). While flows are on, every hop a sample records, plus ``keyReachedTerminal(_:display:)``
 /// and the commit of the frame that shows the echo, is a `key.flow` signpost event
 /// (``Signposter/flowHop(_:flow:ageMicroseconds:)``), so the daemon, the terminal host and the holder
 /// mark the same press on the same clock. No CSV is written without `CMUX_NEXT_TYPING_PROBE`.
@@ -116,8 +116,10 @@ public final class TypingLatencyProbe: Sendable {
         var ioWriteOnMain = false
         /// Written at ``Mark/commit`` instead of ``Mark/contents`` (``closeAtCommit()``).
         var closesAtCommit = false
-        /// The terminal the key router handed the press to (``keyReachedTerminal(_:)``); nil while none.
+        /// The terminal the key router handed the press to (``keyReachedTerminal(_:display:)``); nil while none.
         var surface: SurfaceKey?
+        /// The display of that terminal's window, where its echo is presented; nil while unknown.
+        var display: UInt32?
         /// Ghostty took the press (``terminalTookKey()``), so its bytes are to be written.
         var tookByTerminal = false
         /// The daemon's echo named this press (``outputDecoded(flow:)``): its later output hops come with
@@ -151,7 +153,10 @@ public final class TypingLatencyProbe: Sendable {
         var open: [Sample] = []
         /// The flows whose echo frame was handed to their layer (``Mark/contents``) and whose Core
         /// Animation commit (the next run-loop end) is still to be marked `app.frame.commit`.
-        var echoCommits: [UInt64] = []
+        var echoCommits: [EchoCommit] = []
+        /// Echo commits with a known display that the presents have not taken (``takePresentCommits()``),
+        /// oldest first; at most ``openCapacity``.
+        var presentCommits: [FramePresentEstimate.Commit] = []
         /// An echo named its press (``outputDecoded(flow:)``): the daemon stamps exact flows, so an
         /// output that names none is not a key's echo.
         var exactEchoes = false
@@ -171,7 +176,7 @@ public final class TypingLatencyProbe: Sendable {
             // A press that never reached a terminal has no echo to wait for: its commit ends it.
             if mark == .contents || (mark == .commit && (sample.closesAtCommit || sample.surface == nil)) {
                 open.remove(at: index)
-                if mark == .contents { echoCommits.append(sample.flow) }
+                if mark == .contents { echoCommits.append(EchoCommit(flow: sample.flow, display: sample.display)) }
                 recorded.finished = sample
                 recorded.complete = mark == .contents || sample.closesAtCommit
             } else {
@@ -258,21 +263,28 @@ public final class TypingLatencyProbe: Sendable {
         let observer = CFRunLoopObserverCreateWithHandler(nil, CFRunLoopActivity.beforeWaiting.rawValue | CFRunLoopActivity.exit.rawValue,
                                                           true, 2_000_100) { [weak self] _, _ in
             guard let self, isRecording else { return }
-            mark(.commit)
-            echoCommitted()
+            turnDidEnd()
         }
         CFRunLoopAddObserver(CFRunLoopGetMain(), observer, .commonModes)
     }
 
-    /// Marks `app.frame.commit` for each flow whose echo frame went to its layer: the run-loop end that
-    /// follows ``Mark/contents`` is the Core Animation commit that carries it to the screen.
+    /// The commit mark of a main run-loop turn's end (its observer; tests call it on the main thread).
+    func turnDidEnd() {
+        mark(.commit)
+        echoCommitted()
+    }
+
+    /// Marks `app.frame.commit` for each flow whose echo frame went to its layer, and keeps the ones whose
+    /// display is known for the presents (``takePresentCommits()``): the run-loop end that follows
+    /// ``Mark/contents`` is the Core Animation commit that carries it to the screen.
     private func echoCommitted() {
-        let flows = state.withLock { state -> [UInt64] in
+        let commits = state.withLock { state -> [EchoCommit] in
             defer { state.echoCommits.removeAll(keepingCapacity: true) }
+            state.keepForPresents(state.echoCommits)
             return state.echoCommits
         }
         guard flowsStarted else { return }
-        for flow in flows { emitHop(.appFrameCommit, flow: flow) }
+        for commit in commits { emitHop(.appFrameCommit, flow: commit.flow) }
     }
 
     /// Opens a sample for a key-down whose `NSEvent.timestamp` is `eventTimestamp`. While the keystroke-timing

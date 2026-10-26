@@ -190,9 +190,21 @@ def error_details_mismatch(expected: Any, actual: Any, pointer: str = "") -> str
             if problem:
                 return problem
         return None
-    if expected != actual:
+    if not json_equal(expected, actual):
         return f"{pointer or '/'}: expected {json.dumps(expected)[:120]}, got {json.dumps(actual)[:120]}"
     return None
+
+
+def json_equal(a: Any, b: Any) -> bool:
+    """Equal as JSON values: Python's == says True == 1 == 1.0, but a boolean, an integer and a number with a
+    fraction are three different wire values, so the types must match too (containers element by element)."""
+    if type(a) is not type(b):
+        return False
+    if isinstance(a, dict):
+        return a.keys() == b.keys() and all(json_equal(value, b[key]) for key, value in a.items())
+    if isinstance(a, list):
+        return len(a) == len(b) and all(json_equal(x, y) for x, y in zip(a, b))
+    return a == b
 
 
 ERROR_DETAILS_VECTORS: tuple[tuple[Any, Any, str | None], ...] = (
@@ -201,6 +213,12 @@ ERROR_DETAILS_VECTORS: tuple[tuple[Any, Any, str | None], ...] = (
     ({"extra": {"code": "a"}}, {"operation": "o"}, "/extra: missing"),
     ({"extra": {"code": "a"}}, None, "/: expected an object, got null"),
     ({"ids": ["a"]}, {"ids": ["a", "b"]}, '/ids: expected ["a"], got ["a", "b"]'),
+    ({"n": 1}, {"n": True}, "/n: expected 1, got true"),
+    ({"n": True}, {"n": 1}, "/n: expected true, got 1"),
+    ({"n": 1}, {"n": 1.0}, "/n: expected 1, got 1.0"),
+    ({"ids": [0]}, {"ids": [False]}, "/ids: expected [0], got [false]"),
+    ({"ids": [{"n": 1}]}, {"ids": [{"n": 1.0}]}, '/ids: expected [{"n": 1}], got [{"n": 1.0}]'),
+    ({"n": 1, "ok": False}, {"n": 1, "ok": False}, None),
 )
 
 

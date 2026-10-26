@@ -24,4 +24,9 @@ extension SidebarRegionView {
     func edit(_ view: SidebarItemRowView, _ id: LayoutItemID) {
         view.isEditing = isEditing && !id.isTransient && id != SidebarListBlocks.gapID
     }
+
+    /// The motion settings changed in edit mode: every wiggling item starts or stops its wiggle now.
+    func restartWiggles() {
+        for view in itemViews.values where view.isEditing { view.restartWiggle() }
+    }
 }
