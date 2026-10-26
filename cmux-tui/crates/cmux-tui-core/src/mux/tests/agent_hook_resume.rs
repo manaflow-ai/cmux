@@ -166,6 +166,7 @@ fn a_restart_keeps_whose_wait_it_is() {
     let reopened = open_persistent_test_mux(session, &root);
     let fence = reopened.agent_hook_fences.lock().unwrap()[&terminal_id].clone();
     assert_eq!(fence.waiting_agent.as_deref(), Some(""), "the projector knows whose wait it is");
+    assert_eq!(fence.waiting_tool.as_deref(), Some("bash"), "and which tool it waits on");
     assert_eq!(reopened.agent_records.lock().unwrap()[&terminal_id].state, AgentState::Blocked);
     assert!(terminal_exit_end_journaled(&reopened, head, terminal_id.as_str()));
     assert!(

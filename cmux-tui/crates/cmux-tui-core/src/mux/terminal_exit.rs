@@ -226,7 +226,7 @@ impl Mux {
         // the terminal still has its surface: a respawn plan below takes the runtime out of
         // the tabs, and an end with no surface would never reach the agent projection.
         let live_terminal = {
-            let registry = self.workspace_registry.lock().unwrap();
+            let registry = self.workspace_registry.lock().unwrap_or_else(PoisonError::into_inner);
             match registry.terminal_record(terminal_id)? {
                 Some(terminal)
                     if !matches!(
