@@ -23,8 +23,10 @@ public struct FileNameMatcher: Sendable {
     /// Whether `name` contains the text.
     public func matches(_ name: String) -> Bool {
         if folded.isEmpty { return true }
-        // SAFETY: the buffer is the name's own UTF-8 storage, valid only inside the closure; contains reads it
-        // through checked subscripts and lets nothing of it out.
+        // SAFETY: the buffer is the name's own UTF-8 storage, valid only inside the closure, and contains lets
+        // nothing of it out. Its reads stay in bounds by its loop bounds, not by the subscript (unchecked in
+        // release): hay[i] only for startIndex <= i < endIndex, and hay[start + offset] only with
+        // offset < n and start + n <= endIndex.
         if let needle = asciiNeedle,
            let result = unsafe name.utf8.withContiguousStorageIfAvailable({ unsafe Self.contains($0, needle) }) ?? nil {
             return result
@@ -39,6 +41,7 @@ public struct FileNameMatcher: Sendable {
         let n = needle.count
         guard n <= hay.count else { return false }
         var start = hay.startIndex
+        // Every read below is hay[start + offset] with offset < n, so start + n <= endIndex keeps it in bounds.
         while start + n <= hay.endIndex {
             var matched = true
             for offset in 0..<n where lower(hay[start + offset]) != needle[offset] {

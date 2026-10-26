@@ -62,12 +62,14 @@ public struct FileSortOrder: Sendable, Hashable, Codable {
         // SAFETY: `nameBytes` and `offs` are the two arrays' own storage, valid only inside these closures, which
         // let no pointer out (the sort runs inside them). `offs` holds count + 1 ascending offsets that end at
         // names.count, so item i's key is the offs[i + 1] - offs[i] bytes from offs[i], inside `names`; memcmp reads
-        // `common` bytes, at most either key's length, from the start of each key. Subscripts are checked (a, b <
-        // count, the order's own indices).
+        // `common` bytes, at most either key's length, from the start of each key. The buffer subscripts are
+        // unchecked in release; they stay in bounds because a and b are the order's own indices (a, b < count) and
+        // offs.count == count + 1, so offs[a] and offs[a + 1] both exist.
         unsafe names.withUnsafeBufferPointer { nameBytes in
             unsafe offsets.withUnsafeBufferPointer { offs in
                 func nameCompare(_ a: Int, _ b: Int) -> Int {
-                    // SAFETY: the bounds argument above the closures: both keys lie inside `names`.
+                    // SAFETY: a, b < count and offs.count == count + 1 (the argument above the closures), so both
+                    // reads are in bounds and both keys lie inside `names`.
                     let la = unsafe offs[a + 1] - offs[a], lb = unsafe offs[b + 1] - offs[b]
                     let common = min(la, lb)
                     if common > 0, let base = unsafe nameBytes.baseAddress {

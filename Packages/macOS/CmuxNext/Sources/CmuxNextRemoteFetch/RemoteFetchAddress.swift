@@ -118,8 +118,11 @@ public nonisolated struct SystemRemoteResolver: RemoteAddressResolving {
     }
 
     private static func lookup(_ host: String) throws -> [RemoteAddress] {
-        var hints = addrinfo(ai_flags: AI_ADDRCONFIG, ai_family: AF_UNSPEC, ai_socktype: SOCK_STREAM, ai_protocol: IPPROTO_TCP,
-                             ai_addrlen: 0, ai_canonname: nil, ai_addr: nil, ai_next: nil)
+        // SAFETY: the init only stores integers and null pointers (no name, address or next hint); nothing is
+        // dereferenced.
+        var hints = unsafe addrinfo(ai_flags: AI_ADDRCONFIG, ai_family: AF_UNSPEC, ai_socktype: SOCK_STREAM,
+                                    ai_protocol: IPPROTO_TCP, ai_addrlen: 0, ai_canonname: nil, ai_addr: nil,
+                                    ai_next: nil)
         var result: UnsafeMutablePointer<addrinfo>?
         // SAFETY: getaddrinfo reads `hints`, a local, and the NUL-terminated copy of the host made for the call, and
         // writes the list it allocates into `result`; that list is freed once, on return.
