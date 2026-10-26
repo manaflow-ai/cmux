@@ -1341,8 +1341,13 @@ def open_pr_at_head(run: Mapping[str, Any], prs: Sequence[Mapping[str, Any]] | N
     sweep, and the janitor's concurrency group evicts pending sweeps. Any run
     whose event names that commit counts (pull_request, a push or dispatch at
     it), from the head's own repository owner; a pull_request run whose
-    resolved PR is open with no head read is counted too.
+    resolved PR is open with no head read is counted too. A branch whose open
+    pull requests were not all read (OPEN_PRS_UNREAD, parse_graphql_prs())
+    fails closed: that marker is returned, whatever the run.
     """
+    unread = next((pr for pr in prs or () if pr.get(OPEN_PRS_UNREAD)), None)
+    if unread is not None:
+        return unread
     sha = str(run.get("head_sha") or "")
     owner = run_head_owner(run)
     for pr in prs or ():
@@ -2025,8 +2030,10 @@ PR_FIELDS = """
 
 
 # Open pull requests per branch, beside the five newest: open_pr_at_head() must see an open one however many
-# newer closed ones the branch has. GitHub allows one open pull request per head and base, so this is ample.
+# newer closed ones the branch has. When a branch has more open ones than this (forks, several bases), the
+# lookup is incomplete and the branch fails closed: OPEN_PRS_UNREAD marks it, and nothing on it is cancelled.
 OPEN_PRS_PER_BRANCH = 20
+OPEN_PRS_UNREAD = "openPullRequestsUnread"
 OPEN_PR_FIELDS = """
         number state headRefOid url
         headRepositoryOwner { login }
@@ -2048,7 +2055,7 @@ def graphql_query(owner: str, name: str, branches: Sequence[str]) -> tuple[str, 
         )
         fields.append(
             f"    o{index}: pullRequests(headRefName: $b{index}, states: [OPEN], first: {OPEN_PRS_PER_BRANCH}) "
-            f"{{\n      nodes {{{OPEN_PR_FIELDS}      }}\n    }}"
+            f"{{\n      pageInfo {{ hasNextPage }}\n      nodes {{{OPEN_PR_FIELDS}      }}\n    }}"
         )
     query = (
         f"query({', '.join(params)}) {{\n  repository(owner: $owner, name: $name) {{\n"
@@ -2066,8 +2073,12 @@ def parse_graphql_prs(response: Mapping[str, Any], branches: Sequence[str]) -> d
         nodes = list(connection.get("nodes") or [])
         # An open pull request older than the five newest joins with the fields it was read with.
         seen = {node.get("number") for node in nodes}
-        nodes += [node for node in ((repository.get(f"o{index}") or {}).get("nodes") or [])
-                  if node.get("number") not in seen]
+        open_connection = repository.get(f"o{index}") or {}
+        nodes += [node for node in (open_connection.get("nodes") or []) if node.get("number") not in seen]
+        if (open_connection.get("pageInfo") or {}).get("hasNextPage"):
+            # More open pull requests than were read: one of them may be at a run's head. This node has no
+            # state or owner, so every other reader skips it; open_pr_at_head() returns it (fail closed).
+            nodes.append({"number": "?", OPEN_PRS_UNREAD: True})
         result[branch] = nodes
     return result
 

@@ -626,6 +626,24 @@ class GraphQLTests(unittest.TestCase):
         run = make_run(event="push", branch="a", sha="aaa")
         self.assertEqual(janitor.open_pr_at_head(run, prs)["number"], 3)
 
+    def test_a_branch_with_more_open_prs_than_were_read_fails_closed(self):
+        query, _ = janitor.graphql_query("manaflow-ai", "cmux", ["a"])
+        self.assertIn("pageInfo { hasNextPage }", query.split("o0:")[1])
+        response = {"data": {"repository": {
+            "b0": {"nodes": [make_pr(9, state="MERGED", head="aaa")]},
+            "o0": {"pageInfo": {"hasNextPage": True}, "nodes": [make_pr(n, head="zzz") for n in range(20)]}}}}
+        prs = janitor.parse_graphql_prs(response, ["a"])["a"]
+        for event in ("pull_request", "push"):
+            with self.subTest(event=event):
+                run = make_run(event=event, branch="a", sha="aaa", prs=(9,))
+                self.assertTrue(janitor.open_pr_at_head(run, prs).get(janitor.OPEN_PRS_UNREAD))
+                # Even the merged PR's run, which category b would cancel, is left alone on that branch.
+                result = plan([run], {run["id"]: mac_jobs(running=1)}, {"a": prs})
+                self.assertEqual([d.action for d in result.decisions], ["skip"] if event == "pull_request" else [])
+        # The marker is invisible to the other readers.
+        self.assertIsNone(janitor.resolve_pull_request(make_run(branch="a", sha="aaa", prs=(1,)), prs[-1:]))
+        self.assertEqual(janitor.lost_pr_state(make_run(event="push", branch="a", sha="aaa"), prs[-1:])[0], "stale")
+
 
 class SummaryTests(unittest.TestCase):
     def test_summary_logs_url_reason_and_age(self):
