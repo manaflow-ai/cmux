@@ -21,12 +21,16 @@ deadline is absolute, so a late frame does not shift the frames after it, as Chr
 base::MetronomeTimer runs on a fixed phase rather than a delay after the last run (base/timer/timer.h).
 A pass is the recording's length (a ttyrec's last offset, a raw stream's chunk count times the chunk
 interval) plus --loop-gap-ms. Without --loop the player exits after --passes passes (default 1); with
---loop it plays until SIGTERM (the soak).
+--loop it plays until SIGTERM or SIGINT (the soak). A signal only sets a stop request that the player
+checks between frames (its wait wakes through signal.set_wakeup_fd), so every byte written is counted.
 
-Byte identity: when stdout is a tty, the player turns off output post-processing (termios OPOST, so the
-line discipline does not turn "\\n" into "\\r\\n") and restores the modes on exit. --timing-json writes
-how late each write started against its deadline (perf_stats.summary of the last LATENESS_SAMPLES
-writes, and the worst of all, in ms), for the story to check the replay was faithful.
+Byte identity: when stdout is a tty, the player puts it in raw mode (cfmakeraw: no output post-processing,
+so "\\n" stays "\\n"; no echo, canonical input, signal keys or flow control), as the recorded program had
+it, so nothing the terminal sends (typed keys, mouse and focus reports, query replies) comes back in the
+output. While it waits it reads and drops its tty stdin, and on exit it flushes unread input and restores
+the modes. --timing-json writes how late each write started against its deadline (perf_stats.summary of
+the last LATENESS_SAMPLES writes, and the worst of all, in ms), for the story to check the replay was
+faithful.
 
 Stdlib only; runs under python3 -I. Tests: python3 -m unittest scripts/perf-lab/tests/test_pty_replay.py
 """
@@ -38,6 +42,7 @@ import hashlib
 import importlib.util
 import json
 import os
+import select
 import signal
 import struct
 import sys
@@ -189,18 +194,42 @@ def manifest_track(manifest: Mapping[str, Any], index: int) -> Mapping[str, Any]
 class Clock(Protocol):
     def now_ns(self) -> int: ...
 
-    def sleep_until(self, deadline_ns: int) -> None: ...
+    def sleep_until(self, deadline_ns: int) -> None:
+        """Returns at DEADLINE_NS, or earlier only when the player's stop was requested."""
 
 
 class MonotonicClock:
-    """time.sleep is clock_nanosleep on Linux; the deadline is rechecked so an early wake sleeps again."""
+    """Waits in select(2) until the deadline (rechecked, so an early wake waits again). Bytes on DISCARD_FD
+    (the terminal's input to the player) are read and dropped as they come. WAKE_FD (the signal wakeup
+    pipe) wakes the wait, which ends early only when STOP is true."""
+
+    def __init__(self, *, discard_fd: int | None = None, wake_fd: int | None = None,
+                 stop: Callable[[], bool] = lambda: False) -> None:
+        self._discard_fd, self._wake_fd, self._stop = discard_fd, wake_fd, stop
 
     def now_ns(self) -> int:
         return time.monotonic_ns()
 
     def sleep_until(self, deadline_ns: int) -> None:
-        while (remaining := deadline_ns - time.monotonic_ns()) > 0:
-            time.sleep(remaining / 1e9)
+        while True:
+            remaining_ns = max(deadline_ns - time.monotonic_ns(), 0)
+            fds = [fd for fd in (self._discard_fd, self._wake_fd) if fd is not None]
+            ready = select.select(fds, [], [], remaining_ns / 1e9)[0]
+            for fd in ready:
+                if not _read_and_drop(fd) and fd == self._discard_fd:
+                    self._discard_fd = None
+            if remaining_ns == 0 or self._stop():
+                return
+
+
+def _read_and_drop(fd: int) -> bool:
+    """Reads what FD has and drops it; False at end of input (EOF, or EIO once the master side closed)."""
+    try:
+        return bool(os.read(fd, 1 << 16))
+    except BlockingIOError:
+        return True
+    except OSError:
+        return False
 
 
 def write_all(fd: int, data: bytes) -> None:
@@ -209,21 +238,37 @@ def write_all(fd: int, data: bytes) -> None:
         view = view[os.write(fd, view):]
 
 
+def raw_modes(modes: list[Any]) -> list[Any]:
+    """MODES (a termios.tcgetattr list) as cfmakeraw(3) sets them; tty.cfmakeraw needs Python 3.12."""
+    import termios
+
+    iflag, oflag, cflag, lflag, ispeed, ospeed, cc = modes
+    iflag &= ~(termios.IGNBRK | termios.BRKINT | termios.PARMRK | termios.ISTRIP | termios.INLCR
+               | termios.IGNCR | termios.ICRNL | termios.IXON)
+    oflag &= ~termios.OPOST
+    lflag &= ~(termios.ECHO | termios.ECHONL | termios.ICANON | termios.ISIG | termios.IEXTEN)
+    cflag = (cflag & ~(termios.CSIZE | termios.PARENB)) | termios.CS8
+    cc = list(cc)
+    cc[termios.VMIN], cc[termios.VTIME] = 1, 0
+    return [iflag, oflag, cflag, lflag, ispeed, ospeed, cc]
+
+
 @contextlib.contextmanager
-def raw_output(fd: int) -> Iterator[None]:
-    """Turns off OPOST on a tty FD for the block, so the terminal gets the recorded bytes unchanged."""
+def raw_terminal(fd: int) -> Iterator[None]:
+    """Puts a tty FD in raw mode for the block (cfmakeraw(3)), so the terminal gets the recorded bytes
+    unchanged and its input is neither echoed nor turned into signals or flow control. On exit it drops
+    the input nobody read, so it does not reach the next program, and restores the modes."""
     if not os.isatty(fd):
         yield
         return
     import termios
 
     saved = termios.tcgetattr(fd)
-    changed = list(saved)
-    changed[1] = saved[1] & ~termios.OPOST
-    termios.tcsetattr(fd, termios.TCSANOW, changed)
+    termios.tcsetattr(fd, termios.TCSANOW, raw_modes(saved))
     try:
         yield
     finally:
+        termios.tcflush(fd, termios.TCIFLUSH)
         termios.tcsetattr(fd, termios.TCSADRAIN, saved)
 
 
@@ -249,9 +294,11 @@ class Playback:
 
 
 def play(recording: Recording, write: Callable[[bytes], None], *, clock: Clock, speed: float = 1.0,
-         passes: int | None = 1, loop_gap_ms: float = 0.0, playback: Playback | None = None) -> Playback:
-    """Writes RECORDING's frames at their offsets / SPEED, PASSES times (None: until interrupted).
-    Counts go into PLAYBACK as they happen, so an interrupted soak still has its numbers."""
+         passes: int | None = 1, loop_gap_ms: float = 0.0, playback: Playback | None = None,
+         stop: Callable[[], bool] = lambda: False) -> Playback:
+    """Writes RECORDING's frames at their offsets / SPEED, PASSES times (None: until STOP is true).
+    STOP is checked between frames only, before and after each wait, so a frame is always written and
+    counted together. Counts go into PLAYBACK as they happen."""
     if speed <= 0:
         raise PtyReplayError("speed must be above 0")
     if passes is not None and passes < 1:
@@ -268,7 +315,11 @@ def play(recording: Recording, write: Callable[[bytes], None], *, clock: Clock, 
     while passes is None or index < passes:
         for frame in recording.frames:
             deadline_ns = start_ns + round((index * pass_ns + frame.offset_ns) / speed)
+            if stop():
+                return result
             clock.sleep_until(deadline_ns)
+            if stop():
+                return result
             lateness_ns = clock.now_ns() - deadline_ns
             write(frame.data)
             result.record(lateness_ns, len(frame.data))
@@ -340,20 +391,49 @@ def _resolve(args: argparse.Namespace, blob_reader: BlobReaderFactory) -> tuple[
     return recording, speed, passes
 
 
+class StopRequest:
+    """SIGTERM and SIGINT set a flag (the handler never raises, so a write and its count are never split)
+    and wake the player's wait through signal.set_wakeup_fd; wake_fd is the pipe's read end."""
+
+    def __init__(self) -> None:
+        self.requested = False
+        self.wake_fd, write_fd = os.pipe()
+        for fd in (self.wake_fd, write_fd):
+            os.set_blocking(fd, False)
+        signal.set_wakeup_fd(write_fd, warn_on_full_buffer=False)
+        for signum in (signal.SIGTERM, signal.SIGINT):
+            signal.signal(signum, self._handle)
+
+    def _handle(self, signum: int, frame: Any) -> None:
+        self.requested = True
+
+    def __call__(self) -> bool:
+        return self.requested
+
+
+def _tty_stdin_fd() -> int | None:
+    try:
+        fd = sys.stdin.fileno()
+    except (AttributeError, OSError, ValueError):
+        return None
+    return fd if os.isatty(fd) else None
+
+
 def main(argv: list[str] | None = None, *, clock: Clock | None = None, out_fd: int | None = None,
-         blob_reader: BlobReaderFactory = default_blob_reader) -> int:
+         stop: StopRequest | None = None, blob_reader: BlobReaderFactory = default_blob_reader) -> int:
     args = _parser().parse_args(argv)
     fd = sys.stdout.fileno() if out_fd is None else out_fd
     playback = None
     try:
         recording, speed, passes = _resolve(args, blob_reader)
-        with raw_output(fd):
+        stopped = stop or (lambda: False)
+        if clock is None:
+            clock = MonotonicClock(discard_fd=_tty_stdin_fd() if os.isatty(fd) else None,
+                                   wake_fd=stop.wake_fd if stop else None, stop=stopped)
+        with raw_terminal(fd):
             playback = Playback()
-            try:
-                play(recording, lambda data: write_all(fd, data), clock=clock or MonotonicClock(), speed=speed,
-                     passes=passes, loop_gap_ms=args.loop_gap_ms, playback=playback)
-            except KeyboardInterrupt:
-                pass
+            play(recording, lambda data: write_all(fd, data), clock=clock, speed=speed, passes=passes,
+                 loop_gap_ms=args.loop_gap_ms, playback=playback, stop=stopped)
     except (PtyReplayError, OSError) as error:
         print(f"pty_replay: {error}", file=sys.stderr)
         return 1
@@ -362,13 +442,5 @@ def main(argv: list[str] | None = None, *, clock: Clock | None = None, out_fd: i
     return 0
 
 
-def _interrupt_on_sigterm() -> None:
-    def handler(signum: int, frame: Any) -> None:
-        raise KeyboardInterrupt
-
-    signal.signal(signal.SIGTERM, handler)
-
-
 if __name__ == "__main__":
-    _interrupt_on_sigterm()
-    sys.exit(main())
+    sys.exit(main(stop=StopRequest()))

@@ -130,18 +130,45 @@ class PlayTests(unittest.TestCase):
         with self.assertRaisesRegex(replay.PtyReplayError, "no frames"):
             replay.play(replay.Recording(()), lambda _: None, clock=FakeClock())
 
-    def test_a_soak_keeps_its_counts_when_interrupted(self):
+    def test_a_stopped_soak_counts_every_frame_it_wrote(self):
         recording = replay.decode_ttyrec(replay.encode_ttyrec([(0, b"ab"), (1, b"c")]))
         playback, out = replay.Playback(), []
+        playback = replay.play(recording, out.append, clock=FakeClock(), passes=None, loop_gap_ms=1,
+                               playback=playback, stop=lambda: len(out) == 7)
+        self.assertEqual(len(out), 7)
+        self.assertEqual((playback.passes, playback.frames, playback.bytes), (3, 7, len(b"".join(out))))
 
-        def write(data):
-            if len(out) == 7:
-                raise KeyboardInterrupt
-            out.append(data)
 
-        with self.assertRaises(KeyboardInterrupt):
-            replay.play(recording, write, clock=FakeClock(), passes=None, loop_gap_ms=1, playback=playback)
-        self.assertEqual((playback.passes, playback.frames, playback.bytes), (3, 7, 11))
+class MonotonicClockTests(unittest.TestCase):
+    def pipe(self):
+        read_fd, write_fd = os.pipe()
+        self.addCleanup(os.close, read_fd)
+        self.addCleanup(os.close, write_fd)
+        return read_fd, write_fd
+
+    def test_the_wait_drops_input_and_still_reaches_its_deadline(self):
+        read_fd, write_fd = self.pipe()
+        os.write(write_fd, b"\x1b[<0;10;5M\x1b[?62;22c")
+        clock = replay.MonotonicClock(discard_fd=read_fd)
+        deadline = clock.now_ns() + 20_000_000
+        clock.sleep_until(deadline)
+        self.assertGreaterEqual(clock.now_ns(), deadline)
+        self.assertEqual(select.select([read_fd], [], [], 0)[0], [], "the input was not drained")
+
+    def test_a_wake_ends_the_wait_only_when_a_stop_was_requested(self):
+        read_fd, write_fd = self.pipe()
+        os.set_blocking(read_fd, False)
+        stop = {"requested": False}
+        clock = replay.MonotonicClock(wake_fd=read_fd, stop=lambda: stop["requested"])
+        os.write(write_fd, b"\x0f")
+        deadline = clock.now_ns() + 20_000_000
+        clock.sleep_until(deadline)
+        self.assertGreaterEqual(clock.now_ns(), deadline, "a wake with no stop ended the wait early")
+        stop["requested"] = True
+        os.write(write_fd, b"\x0f")
+        deadline = clock.now_ns() + 10_000_000_000
+        clock.sleep_until(deadline)
+        self.assertLess(clock.now_ns(), deadline - 9_000_000_000, "the stop did not end the wait")
 
 
 class SourceTests(unittest.TestCase):
@@ -208,9 +235,12 @@ class SourceTests(unittest.TestCase):
 class RealPtyTests(unittest.TestCase):
     """Runs the CLI with its stdout on a real pty slave and reads the master, as a terminal surface does."""
 
-    def run_on_pty(self, args):
+    def run_on_pty(self, args, *, typed=None):
+        """Without TYPED the player's stdin is /dev/null. With it, its stdin is the pty too, as in a terminal
+        surface, and TYPED is written to the master after each read, as a terminal sends input and replies."""
         master, slave = os.openpty()
-        process = subprocess.Popen([sys.executable, "-I", str(PLAYER), *args], stdout=slave, stdin=subprocess.DEVNULL)
+        process = subprocess.Popen([sys.executable, "-I", str(PLAYER), *args], stdout=slave,
+                                   stdin=subprocess.DEVNULL if typed is None else slave)
         os.close(slave)
         reads = []
         try:
@@ -225,6 +255,9 @@ class RealPtyTests(unittest.TestCase):
                 if not chunk:
                     break
                 reads.append((time.monotonic_ns(), chunk))
+                if typed is not None:
+                    with contextlib.suppress(OSError):
+                        os.write(master, typed)
         finally:
             os.close(master)
             self.assertEqual(process.wait(timeout=30), 0)
@@ -236,6 +269,15 @@ class RealPtyTests(unittest.TestCase):
                 data = (TERMINAL_CORPUS / name).read_bytes()
                 reads = self.run_on_pty([str(TERMINAL_CORPUS / name), "--raw-chunk-ms", "0.05", "--passes", "2"])
                 self.assertEqual(b"".join(chunk for _, chunk in reads), data * 2)
+
+    def test_input_and_replies_from_the_terminal_never_reach_the_output(self):
+        # A mouse press and release (SGR 1006), a DA reply, a focus report, typed text and the keys that
+        # would be signals or flow control in a cooked tty (Ctrl-C, Ctrl-Z, Ctrl-S).
+        typed = b"\x1b[<0;10;5M\x1b[<0;10;5m\x1b[?62;22c\x1b[Ihello\r\x03\x1a\x13"
+        data = (TERMINAL_CORPUS / "alt-screen-editor.vt").read_bytes()
+        reads = self.run_on_pty([str(TERMINAL_CORPUS / "alt-screen-editor.vt"), "--raw-chunk-bytes", "64",
+                                 "--raw-chunk-ms", "1", "--passes", "3"], typed=typed)
+        self.assertEqual(b"".join(chunk for _, chunk in reads), data * 3)
 
     def test_a_soak_loops_until_sigterm_then_restores_the_tty_and_reports(self):
         import termios
@@ -257,7 +299,10 @@ class RealPtyTests(unittest.TestCase):
                 self.assertEqual(process.wait(timeout=30), 0)
                 while select.select([master], [], [], 0.2)[0]:
                     received += os.read(master, 1 << 16)
-                self.assertTrue(termios.tcgetattr(slave)[1] & termios.OPOST, "OPOST was not restored")
+                modes = termios.tcgetattr(slave)
+                self.assertTrue(modes[1] & termios.OPOST, "OPOST was not restored")
+                self.assertEqual(modes[3] & (termios.ECHO | termios.ICANON), termios.ECHO | termios.ICANON,
+                                 "ECHO and ICANON were not restored")
             finally:
                 os.close(master)
                 os.close(slave)
