@@ -186,9 +186,10 @@ fn unresponsive(
 ) -> bool {
     let deadline = Instant::now() + PROBE_DEADLINE;
     loop {
-        // A re-ask after a refusal near the deadline still gets its answer
-        // read, so a slot freed at the end keeps the owner.
-        let read_until = deadline.max(Instant::now() + super::BUSY_POLL_INTERVAL);
+        // Refusals consume the busy budget, not the next accepted client's
+        // identify budget. An owner that frees a slot near that deadline
+        // still gets the full silent-probe bound to answer.
+        let read_until = Instant::now() + PROBE_DEADLINE;
         match probe(stream, read_until) {
             Probe::Answered => return false,
             Probe::Silent => return true,
