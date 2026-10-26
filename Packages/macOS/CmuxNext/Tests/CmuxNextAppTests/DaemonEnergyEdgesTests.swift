@@ -8,9 +8,25 @@ import Testing
 /// follows is no edge, a policy change that keeps the saver is none, and each new connection of the
 /// store is told the current value once (cmux-tui-core server/energy_op.rs answers `energy.set`).
 @MainActor @Suite(.serialized) struct DaemonEnergyEdgesTests {
-    /// What the fake daemon received.
+    /// What the fake daemon received. The follower sends from its pump off main, so a test awaits the
+    /// count it expects instead of draining main turns.
     @MainActor final class Received {
-        var requests: [EnergySetRequest] = []
+        var requests: [EnergySetRequest] = [] {
+            didSet { resumeWaiter() }
+        }
+        private var waiter: (count: Int, continuation: CheckedContinuation<Void, Never>)?
+
+        /// Returns once `count` requests arrived.
+        func reach(_ count: Int) async {
+            guard requests.count < count else { return }
+            await withCheckedContinuation { waiter = (count, $0) }
+        }
+
+        private func resumeWaiter() {
+            guard let waiter, requests.count >= waiter.count else { return }
+            self.waiter = nil
+            waiter.continuation.resume()
+        }
     }
 
     /// A main-thread scheduler with no display link: a post runs on the next main run loop pass.
@@ -45,7 +61,7 @@ import Testing
     /// The follower's one meaning of connected is the store's: each `.connected` epoch (a restarted daemon
     /// included, and a reconnect inside one turn) is told the saver once, and an edge while the link is down
     /// reaches the daemon after the reconnect.
-    @Test func everyConnectionOfTheStoreIsToldAndAnEdgeWhileDownIsSentAfterTheReconnect() async {
+    @Test(.timeLimit(.minutes(1))) func everyConnectionOfTheStoreIsToldAndAnEdgeWhileDownIsSentAfterTheReconnect() async {
         let source = EnergyPolicySource(EnergyPolicy(saverReason: .lowPowerMode))
         let store = DaemonStore()
         let daemon = Received()
@@ -57,6 +73,7 @@ import Testing
         let identity = DaemonIdentity(capabilities: [EnergySetRequest.capability], generation: "boot")
         _ = store.apply(.connected(identity, generationChanged: true))
         await drainMainTurns()
+        await daemon.reach(1)
         #expect(daemon.requests == [EnergySetRequest(saver: true, reason: "lowPowerMode")])
 
         // The daemon crashes; the saver turns off while the link is down.
@@ -69,12 +86,14 @@ import Testing
         let restarted = DaemonIdentity(capabilities: [EnergySetRequest.capability], pid: 2, generation: "restarted")
         _ = store.apply(.connected(restarted, generationChanged: true))
         await drainMainTurns()
+        await daemon.reach(2)
         #expect(Array(daemon.requests.dropFirst()) == [EnergySetRequest(saver: false, reason: nil)])
 
         // A reconnect inside one turn is a new connection too.
         store.apply(.disconnected(reason: "blip"))
         _ = store.apply(.connected(restarted, generationChanged: false))
         await drainMainTurns()
+        await daemon.reach(3)
         #expect(daemon.requests.count == 3, "\(daemon.requests)")
         #expect(daemon.requests.last == EnergySetRequest(saver: false, reason: nil))
 

@@ -146,6 +146,7 @@ pub(super) fn daemon_line(global: &GlobalArgs, cmd: &str) -> Result<Value, Strin
         super::wire::resolve_socket_with_origin(global).map_err(|error| error.to_string())?;
     let stream = cmux_tui_core::server::connect_session_socket(&socket, derived)
         .map_err(|error| error.to_string())?;
+    // wakeup-allow: cli-only `cmux energy status`'s one bound on the daemon's reply; the reply ends the read first
     let _ = stream.set_read_timeout(Some(DAEMON_READ_TIMEOUT));
     let mut reader = BufReader::new(stream);
     let request = json!({"id": "energy-status", "cmd": cmd});

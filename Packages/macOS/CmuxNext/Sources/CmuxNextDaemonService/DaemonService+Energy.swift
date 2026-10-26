@@ -63,19 +63,18 @@ nonisolated struct DaemonEnergyEdges: Sendable, Equatable {
 /// and an edge while disconnected waits for the next one. The source and the store are held weakly.
 final class DaemonEnergyFollow {
     /// Sends one `energy.set` to the connected daemon.
-    typealias Send = @MainActor (EnergySetRequest) async -> Void
+    typealias Send = @MainActor @Sendable (EnergySetRequest) async -> Void
 
     private weak var source: EnergyPolicySource?
     private weak var store: DaemonStore?
-    private let send: Send
     private var observation: MainActorEnergyObservation?
     private var link: ServiceObservation<Int?>?
     /// The store's connection epoch while it is connected; nil while it is not.
     private(set) var connection: Int?
     private(set) var edges: DaemonEnergyEdges
-    /// The latest `energy.set` not yet sent, and the one push that sends it.
-    private var pending: EnergySetRequest?
-    private var push: Task<Void, Never>?
+    /// The latest `energy.set` not yet sent (newest one kept), and the one pump off main that sends it.
+    private let requests: AsyncStream<EnergySetRequest>.Continuation
+    private let pump: Task<Void, Never>
 
     /// - Parameters:
     ///   - source: The app's one policy source (``MainWorkScheduler/energy``).
@@ -86,8 +85,13 @@ final class DaemonEnergyFollow {
     init(_ source: EnergyPolicySource, store: DaemonStore, on work: MainWorkScheduler, send: @escaping Send) {
         self.source = source
         self.store = store
-        self.send = send
         edges = DaemonEnergyEdges(saver: source.policy.isSaver)
+        let (stream, requests) = AsyncStream.makeStream(of: EnergySetRequest.self, bufferingPolicy: .bufferingNewest(1))
+        self.requests = requests
+        // task-owner: this follower; deinit finishes the stream, which ends the pump
+        pump = Task { @concurrent in
+            for await request in stream { await send(request) }
+        }
         observation = MainActorEnergyObservation(source) { [weak self] _ in self?.changed() }
         // `background`: nothing on screen waits for the daemon's saver.
         link = ServiceObservation<Int?>(.background, owner: "DaemonEnergyFollow.connection", on: work) { [weak store] () -> Int? in
@@ -96,6 +100,10 @@ final class DaemonEnergyFollow {
         } apply: { [weak self] epoch in
             self?.linked(epoch)
         }
+    }
+
+    deinit {
+        requests.finish()
     }
 
     /// The store's connection is `epoch` (nil: none): a new one is told the saver the app holds now.
@@ -116,20 +124,11 @@ final class DaemonEnergyFollow {
     }
 
     /// Sends `saver` when there is one to send and the daemon serves `energy.set` (an older daemon
-    /// does not; it is skipped, not failed). One push runs at a time and sends the latest value, so
-    /// an on and an off in quick succession reach the daemon in that order.
+    /// does not; it is skipped, not failed). The pump sends one at a time and keeps only the newest
+    /// unsent value, so an on and an off in quick succession reach the daemon in that order.
     private func tell(_ saver: Bool?, reason: EnergyPolicy.Reason?) {
         guard let saver, store?.supports(EnergySetRequest.capability) == true else { return }
-        pending = EnergySetRequest(saver: saver, reason: saver ? reason?.rawValue : nil)
-        guard push == nil else { return }
-        // task-owner: this follower; one push at a time, ending when nothing is pending
-        push = Task { [weak self] in
-            while let self, let request = pending {
-                pending = nil
-                await send(request)
-            }
-            self?.push = nil
-        }
+        requests.yield(EnergySetRequest(saver: saver, reason: saver ? reason?.rawValue : nil))
     }
 }
 
