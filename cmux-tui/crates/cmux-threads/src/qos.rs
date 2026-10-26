@@ -28,6 +28,9 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use crate::registry;
 
+/// QoS overrides one thread starts on another (a lock waiter on its owner).
+pub(crate) mod boost;
+
 /// The QoS a cmux thread declares. Ordered from lowest to highest priority.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(u8)]
@@ -96,6 +99,28 @@ impl ThreadQos {
             Self::UserInitiated => QOS_CLASS_USER_INITIATED,
             Self::UserInteractive => QOS_CLASS_USER_INTERACTIVE,
         }
+    }
+
+    /// The base scheduler priority of the class on macOS (xnu
+    /// osfmk/kern/thread_policy.c `thread_qos_policy_params.qos_pri`): what
+    /// `THREAD_EXTENDED_INFO` `pth_priority` reads for a thread at the class
+    /// with relative priority 0, overrides included.
+    #[cfg(target_vendor = "apple")]
+    pub const fn macos_base_priority(self) -> i32 {
+        match self {
+            Self::Background => 4,
+            Self::Utility => 20,
+            Self::Default => 31,
+            Self::UserInitiated => 37,
+            Self::UserInteractive => 47,
+        }
+    }
+
+    /// The highest class whose base priority is at most `priority`, `None`
+    /// below Background's.
+    #[cfg(target_vendor = "apple")]
+    pub fn from_macos_base_priority(priority: i32) -> Option<Self> {
+        Self::ALL.into_iter().rev().find(|qos| qos.macos_base_priority() <= priority)
     }
 
     /// The class of a raw macOS QoS class value as the kernel reports it,
@@ -169,6 +194,15 @@ pub fn set_current(qos: ThreadQos) -> QosChange {
 /// The calling thread's QoS as the kernel reports it.
 pub fn current() -> LiveQos {
     sys::live_self()
+}
+
+/// The calling thread's QoS as the scheduler applies it, overrides included
+/// ([`current`] reads the class the thread asked for). macOS: the class of
+/// the thread's base priority (`THREAD_EXTENDED_INFO` `pth_priority`, see
+/// [`ThreadQos::from_macos_base_priority`]); Linux: the nice value, which an
+/// override sets.
+pub fn current_effective() -> LiveQos {
+    sys::effective_self()
 }
 
 /// True when a thread at the process's base class (macOS: any class in the
@@ -354,6 +388,30 @@ mod sys {
         true
     }
 
+    pub(super) fn effective_self() -> LiveQos {
+        // SAFETY: pthread_self has no preconditions; the port it maps to
+        // carries no reference to release (unlike mach_thread_self).
+        let port = unsafe { libc::pthread_mach_thread_np(libc::pthread_self()) };
+        // SAFETY: plain old data the kernel fills.
+        let mut info: libc::thread_extended_info_data_t = unsafe { std::mem::zeroed() };
+        let mut count = libc::THREAD_EXTENDED_INFO_COUNT;
+        // SAFETY: `info` is valid for `count` integers, the size of the
+        // flavor's struct.
+        let rc = unsafe {
+            libc::thread_info(
+                port,
+                libc::THREAD_EXTENDED_INFO as libc::thread_flavor_t,
+                (&raw mut info).cast::<libc::integer_t>(),
+                &mut count,
+            )
+        };
+        if rc != libc::KERN_SUCCESS {
+            return LiveQos::Unknown;
+        }
+        ThreadQos::from_macos_base_priority(info.pth_priority)
+            .map_or(LiveQos::Unknown, LiveQos::Class)
+    }
+
     pub(super) fn restore(saved: &Saved) -> Restored {
         let Some((qos, relative_priority)) = restore_class(saved) else {
             return Err(());
@@ -379,7 +437,7 @@ mod sys {
 
     /// The nice value of thread `tid`. The raw syscall returns `20 - nice`
     /// (1..=40), so unlike libc's getpriority it has no -1 ambiguity.
-    fn nice_of(tid: u64) -> Option<i32> {
+    pub(super) fn nice_of(tid: u64) -> Option<i32> {
         // SAFETY: plain syscall with integer arguments.
         let raw = unsafe {
             libc::syscall(libc::SYS_getpriority, libc::PRIO_PROCESS, tid as libc::c_long)
@@ -390,7 +448,7 @@ mod sys {
     /// Chromium's `CanLowerNiceTo`
     /// (base/threading/platform_thread_internal_posix.cc): root, or a target
     /// inside the RLIMIT_NICE soft limit. CAP_SYS_NICE is not checked.
-    fn may_lower_nice_to(nice: i32) -> bool {
+    pub(super) fn may_lower_nice_to(nice: i32) -> bool {
         // SAFETY: geteuid has no preconditions.
         if unsafe { libc::geteuid() } == 0 {
             return true;
@@ -447,6 +505,10 @@ mod sys {
     pub(super) fn restore(saved: &Saved) -> Restored {
         if saved.nice.is_some_and(set_nice) { Ok(None) } else { Err(()) }
     }
+
+    pub(super) fn effective_self() -> LiveQos {
+        live_self()
+    }
 }
 
 #[cfg(not(any(target_vendor = "apple", target_os = "linux", target_os = "android")))]
@@ -482,6 +544,10 @@ mod sys {
 
     pub(super) fn restore(_saved: &Saved) -> Restored {
         Ok(None)
+    }
+
+    pub(super) fn effective_self() -> LiveQos {
+        LiveQos::Unknown
     }
 }
 

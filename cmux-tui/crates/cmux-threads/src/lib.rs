@@ -16,6 +16,9 @@
 //! [`blocking::snapshot`]) and [`checked`] has checked forms of the blocking
 //! std primitives.
 //!
+//! [`lock_boost`] raises a lock's owner to the QoS of its highest waiter
+//! until it unlocks (priority inheritance for locks that do not donate).
+//!
 //! [`lock_wait`] times contended lock acquisitions: a failed try on a thread
 //! that disallows blocking is a `lock-wait` violation, and a wait over the
 //! 2 ms budget is recorded with the holder's thread name.
@@ -29,6 +32,7 @@
 
 pub mod blocking;
 pub mod checked;
+pub mod lock_boost;
 pub mod lock_wait;
 pub mod process;
 pub mod qos;
@@ -45,14 +49,15 @@ pub use blocking::{
 pub use blocking::{
     OwnDescriptorToken, own_fd_read, own_fd_write, own_fd_write_all, register_own_descriptor,
 };
+pub use lock_boost::{BoostCounts, OwnerBoost, OwnerHold, WaitBoost};
 pub use lock_wait::{
     LOCK_WAIT_BUDGET, LockHolder, LockWait, LockWaitSnapshot, lock_waits, note_thread_lock_wait,
     set_holder_tracking, thread_lock_wait_nanos,
 };
 pub use process::HELPER_CHILD;
 pub use qos::{
-    LiveQos, QosChange, QosScope, ThreadQos, current, refused_changes, reversible, set_current,
-    with_qos,
+    LiveQos, QosChange, QosScope, ThreadQos, current, current_effective, refused_changes,
+    reversible, set_current, with_qos,
 };
 pub use registry::{
     QosSlot, ThreadInfo, current_slot, deregister_current, register_current, snapshot,
