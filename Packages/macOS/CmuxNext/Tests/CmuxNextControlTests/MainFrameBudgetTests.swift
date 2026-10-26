@@ -521,6 +521,51 @@ import Testing
         for task in storm { try await task.value }
         #expect(ran.withLock { $0 } == 5)
     }
+
+    /// A control request is a posted task: the ledger records its wait from the call on the
+    /// client's thread, under its method and the call's site; a request that expired before its
+    /// turn ran nothing and is not recorded.
+    @Test func aControlRequestRecordsItsWaitAndAnExpiredOneIsLeftOut() async throws {
+        let clock = AnyThreadBudgetClock()
+        let board = MainTaskBoard(ledger: MainOwnerLedger(capacity: 64, folding: .manual))
+        let budget = MainFrameBudget(board: board, clock: { clock.read() })
+        let frames = BudgetedFrameSource(budget: budget, soonOnRunLoop: false)
+        let queue = MainActorWorkQueue(frameSource: frames)
+        let deadline = ContinuousClock.now + .seconds(20)
+        let line: UInt = #line + 2
+        let request = Task.detached {
+            try await queue.run(connection: ControlConnectionID(rawValue: 1), method: "workspace.select", deadline: deadline) { 7 }
+        }
+        while queue.stats.pending < 1 { await Task.yield() }
+        clock.advance(3_000_000)
+        let late = Task.detached {
+            try await queue.run(connection: ControlConnectionID(rawValue: 2), method: "workspace.late", deadline: .now) { 8 }
+        }
+        while queue.stats.expired < 1 { await Task.yield() }
+        frames.fire()
+        #expect(try await request.value == 7)
+        await #expect(throws: ControlError.self) { try await late.value }
+        #expect(queue.stats.pending == 0, "the drain took the expired request too")
+        let owners = board.ownerSnapshot().owners
+        let row = try #require(owners.first { $0.owner == "workspace.select" })
+        #expect(row.workClass == .automation)
+        #expect(row.tasks == 1)
+        #expect(row.wait.count == 1)
+        #expect(row.wait.maxNanos == 3_000_000, "the wait counts from the call")
+        #expect(row.nodes == [.none: 1])
+        #expect(row.sites.first?.location == "CmuxNextControlTests/MainFrameBudgetTests.swift:\(line)", "\(row.sites)")
+        #expect(!owners.contains { $0.owner == "workspace.late" }, "an expired request ran nothing")
+    }
+}
+
+/// A clock any thread reads (the budget's ``MainFrameBudget/postClock``, which control requests
+/// read when they are queued); the test moves it.
+private final class AnyThreadBudgetClock: Sendable {
+    private let now = Atomic<UInt64>(1_000_000_000)
+
+    func read() -> UInt64 { now.load(ordering: .acquiring) }
+
+    func advance(_ nanos: UInt64) { _ = now.add(nanos, ordering: .acquiringAndReleasing) }
 }
 
 /// A clock the test moves (`CLOCK_UPTIME_RAW` nanoseconds).
@@ -577,12 +622,14 @@ private final class BudgetedFrameSource: ControlFrameSource {
     private let frames = ManualFrameSource()
     nonisolated(unsafe) private let budgetRef: MainFrameBudget // crash-allow: read only on the main actor (mainFrameBudget, fire)
     let mainTaskBoard: MainTaskBoard?
+    let mainTaskClock: (@Sendable () -> UInt64)?
     private let soonOnRunLoop: Bool
     private let tick = Mutex<Double>(0)
 
     @MainActor init(budget: MainFrameBudget, soonOnRunLoop: Bool) {
         budgetRef = budget
         mainTaskBoard = budget.board
+        mainTaskClock = budget.postClock
         self.soonOnRunLoop = soonOnRunLoop
     }
 
