@@ -91,11 +91,9 @@
 +                    if st.bytes <= budget * 4 / 5 { break }
 +                    st.map.removeValue(forKey: k); st.bytes -= e.1; freed.append(e.0); st.evicted += 1
 +                }
-             }
++            }
 +            return freed
-         }
--        lock.unlock()
--        if !freed.isEmpty { Reclaimer.release(freed) }
++        }
 +        if !freed.isEmpty { Reclaimer.release(bitmaps: freed) }
 +    }
 +
@@ -110,9 +108,11 @@
 +                guard let e = st.map.removeValue(forKey: ref + at) else { continue }
 +                st.bytes -= e.1
 +                freed.append(e.0)
-+            }
+             }
 +            return freed
-+        }
+         }
+-        lock.unlock()
+-        if !freed.isEmpty { Reclaimer.release(freed) }
 +        if !freed.isEmpty { Reclaimer.release(bitmaps: freed) }
      }
  
@@ -198,33 +198,31 @@
          return v
      }
  }
-@@ -163,25 +195,27 @@
+@@ -163,9 +195,12 @@
          q.name = "media.thumbs"
          return q
      }()
--    private static var thumbs: [String: CGImage] = [:]
--    private static var thumbOrder: [String] = []
++    // Main thread only; only the decode runs on thumbQueue.
+     private static var thumbs: [String: CGImage] = [:]
+     private static var thumbOrder: [String] = []
 -    private static var thumbPending = Set<String>()
--    static var thumbsMade = 0, thumbMsTotal = 0.0, thumbMsMax = 0.0
-+    // cmux: the thumbnails and their counters belong to the main actor; only the decode runs on thumbQueue.
-+    @MainActor private static var thumbs: [String: CGImage] = [:]
-+    @MainActor private static var thumbOrder: [String] = []
-+    /// cmux: pending refs with the first request's completion, kept on main (it holds layers; only the ref
++    /// cmux: pending refs with every waiting request's completion, kept on main (they hold layers; only the ref
 +    /// crosses to thumbQueue).
-+    @MainActor private static var thumbPending: [String: [() -> Void]] = [:]
-+    @MainActor static var thumbsMade = 0, thumbMsTotal = 0.0, thumbMsMax = 0.0
++    private static var thumbPending: [String: [() -> Void]] = [:]
+     static var thumbsMade = 0, thumbMsTotal = 0.0, thumbMsMax = 0.0
      static let thumbCapacity = 2000
  
-     /// Main thread.
--    static func thumb(_ ref: String) -> CGImage? { thumbs[ref] }
-+    @MainActor static func thumb(_ ref: String) -> CGImage? { thumbs[ref] }
+@@ -174,14 +209,17 @@
  
      /// Main thread: make the thumbnail off main if it is missing. `done` runs on main.
--    static func requestThumb(_ ref: String, _ done: (() -> Void)? = nil) {
+     static func requestThumb(_ ref: String, _ done: (() -> Void)? = nil) {
 -        guard thumbs[ref] == nil, !thumbPending.contains(ref) else { return }
 -        thumbPending.insert(ref)
-+    @MainActor static func requestThumb(_ ref: String, _ done: (() -> Void)? = nil) {
-+        guard thumbs[ref] == nil, thumbPending[ref] == nil else { return }
++        guard thumbs[ref] == nil else { return }
++        if thumbPending[ref] != nil { // already decoding: this request waits for the same thumbnail
++            if let done { thumbPending[ref]?.append(done) }
++            return
++        }
 +        thumbPending[ref] = done.map { [$0] } ?? []
          let url = Fixtures.assetURL(ref)
          thumbQueue.addOperation {
@@ -237,7 +235,7 @@
                      kCGImageSourceCreateThumbnailFromImageIfAbsent: true,
                      kCGImageSourceCreateThumbnailWithTransform: true,
                      kCGImageSourceShouldCacheImmediately: true,
-@@ -189,7 +223,7 @@
+@@ -189,7 +227,7 @@
              }
              let ms = (CACurrentMediaTime() - t0) * 1000
              DispatchQueue.main.async {
@@ -246,7 +244,7 @@
                  thumbsMade += 1; thumbMsTotal += ms; thumbMsMax = max(thumbMsMax, ms)
                  guard let img else { return }
                  thumbs[ref] = img
-@@ -198,7 +232,7 @@
+@@ -198,7 +236,7 @@
                      for k in thumbOrder.prefix(thumbOrder.count - thumbCapacity) { thumbs[k] = nil }
                      thumbOrder.removeFirst(thumbOrder.count - thumbCapacity)
                  }
@@ -255,40 +253,12 @@
              }
          }
      }
-@@ -219,7 +253,7 @@
-     }
-     /// Main thread, inside the cell's transaction. Returns false for rows without media.
-     static let enabled = !ProcessInfo.processInfo.arguments.contains("--no-placeholder")
--    @discardableResult
-+    @MainActor @discardableResult
-     static func show(_ layer: CALayer, _ spec: RowSpec) -> Bool {
-         guard enabled, let ref = ref(spec) else { return false }
-         var body = RowDraw.bodyRect(spec)
-@@ -244,7 +278,7 @@
-         return true
-     }
-     /// Before a real bitmap goes on the layer.
--    static func clear(_ layer: CALayer) {
-+    @MainActor static func clear(_ layer: CALayer) {
-         guard layer.name == name else { return }
-         layer.name = nil
-         layer.cornerRadius = 0
-@@ -259,12 +293,16 @@
- /// One per transcript (RowRecycler.prefetcher), on the transcript's own clock
- /// (`RowRecycler.clock`: the engine clock, virtual in harness and capture runs), so the
- /// same scroll offsets always give the same velocity and the same extra cells.
-+/// cmux: main actor (the recycler's layout pass).
-+@MainActor
- final class ScrollPrefetcher {
-     private var lastY = CGFloat.nan, lastT: CFTimeInterval = 0
-     private(set) var velocity: CGFloat = 0
-     static var requests = 0
--    static let enabled = !ProcessInfo.processInfo.arguments.contains("--no-media-prefetch")
--    static let precommit = !ProcessInfo.processInfo.arguments.contains("--no-precommit")
-+    nonisolated static let enabled = !ProcessInfo.processInfo.arguments.contains("--no-media-prefetch")
-+    nonisolated static let precommit = !ProcessInfo.processInfo.arguments.contains("--no-precommit")
-+    /// The recycler makes it in its stored property's initializer.
-+    nonisolated init() {}
+@@ -266,7 +304,7 @@
+     static let enabled = !ProcessInfo.processInfo.arguments.contains("--no-media-prefetch")
+     static let precommit = !ProcessInfo.processInfo.arguments.contains("--no-precommit")
      func update(_ r: RowRecycler) {
-         guard ScrollPrefetcher.enabled, RowBitmaps.prerenderEnabled else { return }
+-        guard ScrollPrefetcher.enabled, RowBitmaps.prerenderEnabled else { return }
++        guard ScrollPrefetcher.enabled else { return } // cmux: no RowBitmaps.prerenderEnabled
          let y = r.bounds.minY, t = r.clock()
+         if t < r.pageJumpUntil {
+             // A track-click page: the jump is no velocity, and the page code prepares its rows.

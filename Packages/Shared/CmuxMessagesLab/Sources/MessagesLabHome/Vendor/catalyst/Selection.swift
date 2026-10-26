@@ -391,7 +391,6 @@ extension SelText {
 extension SelectionLook {
     /// An attachment's line in the plain text: empty, as Messages (its rich text carries the image).
     /// Decided 2026-10-07: an attachment copies as a localized placeholder ("\t[Photo]",
-    /// "\t[File: name]"); `placeholders = false` gives Messages' empty line.
-    static let placeholders = true // cmux: let (no shared mutable state; no host sets it)
-    static func attachmentPlain(_ placeholder: String) -> String { placeholders ? "\t" + placeholder : "" }
+    /// "\t[File: name]"). cmux: no `placeholders` switch (nothing turned it off; Messages' empty line is not used).
+    static func attachmentPlain(_ placeholder: String) -> String { "\t" + placeholder }
 }

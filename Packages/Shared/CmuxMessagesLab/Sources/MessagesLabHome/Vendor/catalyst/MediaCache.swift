@@ -195,21 +195,25 @@ extension MediaCache {
         q.name = "media.thumbs"
         return q
     }()
-    // cmux: the thumbnails and their counters belong to the main actor; only the decode runs on thumbQueue.
-    @MainActor private static var thumbs: [String: CGImage] = [:]
-    @MainActor private static var thumbOrder: [String] = []
-    /// cmux: pending refs with the first request's completion, kept on main (it holds layers; only the ref
+    // Main thread only; only the decode runs on thumbQueue.
+    private static var thumbs: [String: CGImage] = [:]
+    private static var thumbOrder: [String] = []
+    /// cmux: pending refs with every waiting request's completion, kept on main (they hold layers; only the ref
     /// crosses to thumbQueue).
-    @MainActor private static var thumbPending: [String: [() -> Void]] = [:]
-    @MainActor static var thumbsMade = 0, thumbMsTotal = 0.0, thumbMsMax = 0.0
+    private static var thumbPending: [String: [() -> Void]] = [:]
+    static var thumbsMade = 0, thumbMsTotal = 0.0, thumbMsMax = 0.0
     static let thumbCapacity = 2000
 
     /// Main thread.
-    @MainActor static func thumb(_ ref: String) -> CGImage? { thumbs[ref] }
+    static func thumb(_ ref: String) -> CGImage? { thumbs[ref] }
 
     /// Main thread: make the thumbnail off main if it is missing. `done` runs on main.
-    @MainActor static func requestThumb(_ ref: String, _ done: (() -> Void)? = nil) {
-        guard thumbs[ref] == nil, thumbPending[ref] == nil else { return }
+    static func requestThumb(_ ref: String, _ done: (() -> Void)? = nil) {
+        guard thumbs[ref] == nil else { return }
+        if thumbPending[ref] != nil { // already decoding: this request waits for the same thumbnail
+            if let done { thumbPending[ref]?.append(done) }
+            return
+        }
         thumbPending[ref] = done.map { [$0] } ?? []
         let url = Fixtures.assetURL(ref)
         thumbQueue.addOperation {
@@ -253,7 +257,7 @@ enum MediaPlaceholder {
     }
     /// Main thread, inside the cell's transaction. Returns false for rows without media.
     static let enabled = !ProcessInfo.processInfo.arguments.contains("--no-placeholder")
-    @MainActor @discardableResult
+    @discardableResult
     static func show(_ layer: CALayer, _ spec: RowSpec) -> Bool {
         guard enabled, let ref = ref(spec) else { return false }
         var body = RowDraw.bodyRect(spec)
@@ -278,7 +282,7 @@ enum MediaPlaceholder {
         return true
     }
     /// Before a real bitmap goes on the layer.
-    @MainActor static func clear(_ layer: CALayer) {
+    static func clear(_ layer: CALayer) {
         guard layer.name == name else { return }
         layer.name = nil
         layer.cornerRadius = 0
@@ -293,18 +297,14 @@ enum MediaPlaceholder {
 /// One per transcript (RowRecycler.prefetcher), on the transcript's own clock
 /// (`RowRecycler.clock`: the engine clock, virtual in harness and capture runs), so the
 /// same scroll offsets always give the same velocity and the same extra cells.
-/// cmux: main actor (the recycler's layout pass).
-@MainActor
 final class ScrollPrefetcher {
     private var lastY = CGFloat.nan, lastT: CFTimeInterval = 0
     private(set) var velocity: CGFloat = 0
     static var requests = 0
-    nonisolated static let enabled = !ProcessInfo.processInfo.arguments.contains("--no-media-prefetch")
-    nonisolated static let precommit = !ProcessInfo.processInfo.arguments.contains("--no-precommit")
-    /// The recycler makes it in its stored property's initializer.
-    nonisolated init() {}
+    static let enabled = !ProcessInfo.processInfo.arguments.contains("--no-media-prefetch")
+    static let precommit = !ProcessInfo.processInfo.arguments.contains("--no-precommit")
     func update(_ r: RowRecycler) {
-        guard ScrollPrefetcher.enabled, RowBitmaps.prerenderEnabled else { return }
+        guard ScrollPrefetcher.enabled else { return } // cmux: no RowBitmaps.prerenderEnabled
         let y = r.bounds.minY, t = r.clock()
         if t < r.pageJumpUntil {
             // A track-click page: the jump is no velocity, and the page code prepares its rows.

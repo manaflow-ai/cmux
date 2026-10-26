@@ -57,7 +57,8 @@ struct Spring: Equatable {
         Spring.settleCache.withLock { $0[k] = v }
         return v
     }
-    private func searchSettlingTime(epsilon: Double) -> Double {
+    /// cmux: internal (not private): the tests compare the cache with a fresh search.
+    func searchSettlingTime(epsilon: Double) -> Double {
         var t = 4.0
         // Walk back from a safe bound to the last time the error exceeds epsilon.
         let step = 1.0 / 240
@@ -449,14 +450,12 @@ enum Springs {
 /// value; each component animates `-delta_i -> 0`, so the presented value is
 /// `final + sum_i delta_i (p_i(t) - 1)`, which equals the fitted element.
 /// Further animations on the same key path add up (no snap on interruption).
-/// cmux: main actor (animations are added in the main thread's transaction; `serial` counts them).
-@MainActor
 enum Animate {
     /// Animations added so far (also the key serial; the bench counts animations per commit).
     private(set) static var serial = 0
 
     /// Local time of `layer` now (virtual time when the root is paused).
-    nonisolated static func now(_ layer: CALayer) -> CFTimeInterval { layer.convertTime(CACurrentMediaTime(), from: nil) }
+    static func now(_ layer: CALayer) -> CFTimeInterval { layer.convertTime(CACurrentMediaTime(), from: nil) }
 
     /// Animate `keyPath` (a scalar sub key path such as "position.y",
     /// "bounds.size.width", "opacity", "transform.scale") from `from` to the
@@ -547,7 +546,7 @@ enum Animate {
 
     /// `--x-two-animation-springs`: the hold-and-spring form in live trees too (the before arm of
     /// the A/B bench of the one-animation form; animations per send).
-    nonisolated static let twoAnimationForm = ProcessInfo.processInfo.arguments.contains("--x-two-animation-springs")
+    static let twoAnimationForm = ProcessInfo.processInfo.arguments.contains("--x-two-animation-springs")
 
     /// Whether `layer` is in a paused tree (an ancestor with speed 0: captures, checks, live grabs),
     /// where the render server did not hold a backward fill for a start that lay ahead. A layer
@@ -565,7 +564,7 @@ enum Animate {
 
     /// Model opacity for "hidden" layers that still animate: the render
     /// server skips layers whose model opacity is exactly 0, animations or not.
-    nonisolated static let hiddenOpacity: Float = 0.01
+    static let hiddenOpacity: Float = 0.01
 
     /// A delayed spring component without per-sample boxing: an additive hold
     /// at -delta from `begin` to `begin + delay` (two values), then a real

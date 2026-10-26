@@ -16,7 +16,7 @@ enum TiledBubble {
     static func applies(_ spec: RowSpec) -> Bool { LongText.isLongRow(spec) }
 
     /// RowCell.configure for a long text row (inside the cell's transaction).
-    @MainActor static func configure(_ cell: RowCell, _ spec: RowSpec) {
+    static func configure(_ cell: RowCell, _ spec: RowSpec) {
         guard case let .part(p) = spec.kind, case let .text(t, _) = p.part else { return }
         let body = cell.tiled ?? TiledBody()
         cell.tiled = body
@@ -78,8 +78,6 @@ enum TiledBubble {
 
 /// Bubble outline as a three-slice image: top cap, a 1 px middle that stretches,
 /// bottom cap with the tail. Pixel aligned; the body's sub-pixel x is baked in.
-/// cmux: main actor (the tiled cells' cache).
-@MainActor
 enum BubbleSlices {
     static let cap: CGFloat = 32, pad: CGFloat = 24, vpad: CGFloat = 8
     private static var cache: [String: CGImage] = [:]
@@ -98,8 +96,7 @@ enum BubbleSlices {
     }
 }
 
-/// Live tile and measurement counters (bench evidence). cmux: main actor.
-@MainActor
+/// Live tile and measurement counters (bench evidence).
 enum TiledStats {
     static var tilesMain = 0, tilesAsync = 0, tilesCancelled = 0
     /// Visible tiles without pixels at the end of a layout pass (text pop-in).
@@ -107,8 +104,7 @@ enum TiledStats {
     static var liveTiles = 0, maxLiveTiles = 0
 }
 
-/// Rendered tiles, LRU by bytes (main thread). cmux: main actor.
-@MainActor
+/// Rendered tiles, LRU by bytes (main thread).
 final class TileCache {
     static let shared = TileCache()
     struct Key: Hashable {
@@ -162,8 +158,7 @@ final class TileCache {
     }
 }
 
-/// The long-text layers of one RowCell. cmux: main actor (its tiles render on `tileQueue` and land on main).
-@MainActor
+/// The long-text layers of one RowCell.
 final class TiledBody {
     let container = CALayer()
     let shape = CALayer()
@@ -303,7 +298,7 @@ final class TiledBody {
             let key = "\(p.reactions)|\(p.myReaction ?? -1)|\(p.outgoing)|\(body.minX)|\(body.width)|\(spec.width)|\(s)|\(Fixture.paletteGeneration)"
             if key != badgeKey {
                 badgeKey = key
-                Reclaimer.release(badges.contents)
+                Reclaimer.release(badges.bitmapContents)
                 badges.contentsScale = s
                 let b = body
                 badges.contents = WideBitmap.make(size: badges.frame.size, scale: s, opaque: false) { ctx in
@@ -378,7 +373,7 @@ final class TiledBody {
         let font = HomeFonts.system(ofSize: Fixture.bodyFont.pointSize, weight: .semibold)
         let color = p.outgoing ? Fixture.outgoingText : Fixture.incomingLink // cmux: themed link tint
         let rule = (p.outgoing ? Fixture.outgoingText : Fixture.incomingText).withAlphaComponent(0.25)
-        Reclaimer.release(band.contents)
+        Reclaimer.release(band.bitmapContents)
         band.contentsScale = s
         band.contents = WideBitmap.make(size: bandRect.size, scale: s, opaque: false) { ctx in
             rule.setFill()

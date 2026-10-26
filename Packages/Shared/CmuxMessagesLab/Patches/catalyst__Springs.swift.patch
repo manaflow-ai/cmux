@@ -8,7 +8,7 @@
  
  /// A damped spring in UIKit's parametrisation: mass 1, stiffness
  /// (2 pi / duration)^2, damping 4 pi (1 - bounce) / duration (for bounce >= 0;
-@@ -45,17 +46,15 @@
+@@ -45,20 +46,19 @@
  
      /// Time after which the motion stays within `epsilon` (fraction of the distance).
      private struct SettleKey: Hashable { var d, b, v, e: Double }
@@ -29,8 +29,13 @@
 +        Spring.settleCache.withLock { $0[k] = v }
          return v
      }
-     private func searchSettlingTime(epsilon: Double) -> Double {
-@@ -175,19 +174,28 @@
+-    private func searchSettlingTime(epsilon: Double) -> Double {
++    /// cmux: internal (not private): the tests compare the cache with a fresh search.
++    func searchSettlingTime(epsilon: Double) -> Double {
+         var t = 4.0
+         // Walk back from a safe bound to the last time the error exceeds epsilon.
+         let step = 1.0 / 240
+@@ -175,19 +175,28 @@
  /// from here; nothing else defines a curve.
  enum Springs {
      private final class Token {}
@@ -64,7 +69,7 @@
          let candidates = [bundle, Bundle(for: Token.self), Bundle.main].compactMap { $0 }
          guard let url = candidates.lazy.compactMap({ $0.url(forResource: "springs", withExtension: "json") }).first,
                let data = try? Data(contentsOf: url),
-@@ -197,9 +205,9 @@
+@@ -197,9 +206,9 @@
              return [:]
          }
          return obj
@@ -77,7 +82,7 @@
          var out: [String: SpringElement] = [:]
          for (name, e) in obj {
              let comps = (e["components"] as? [[String: Any]] ?? []).map { c in
-@@ -214,10 +222,10 @@
+@@ -214,10 +223,10 @@
              out.updateValue(SpringElement(name: name, from: e["from"] as? Double ?? 0, to: e["to"] as? Double ?? 0, components: comps), forKey: name)
          }
          return out
@@ -91,7 +96,7 @@
          var out: [String: TravelLaw] = [:]
          for (name, e) in obj {
              guard let l = e["travelLaw"] as? [String: Double], let r = l["refPt"], let k0 = l["k0"], let q = l["q"], let d0 = l["d0"],
-@@ -225,7 +233,7 @@
+@@ -225,7 +234,7 @@
              out.updateValue(TravelLaw(refPt: r, k0: k0, q: q, d0: d0, d1: d1, minPt: lo, maxPt: hi), forKey: name)
          }
          return out
@@ -100,37 +105,3 @@
      static func element(_ name: String) -> SpringElement {
          all[name] ?? SpringElement(name: name, from: 0, to: 1, components: [.init(delay: 0, spring: Spring(duration: 0.3, bounce: 0), delta: 1)])
      }
-@@ -441,12 +449,14 @@
- /// value; each component animates `-delta_i -> 0`, so the presented value is
- /// `final + sum_i delta_i (p_i(t) - 1)`, which equals the fitted element.
- /// Further animations on the same key path add up (no snap on interruption).
-+/// cmux: main actor (animations are added in the main thread's transaction; `serial` counts them).
-+@MainActor
- enum Animate {
-     /// Animations added so far (also the key serial; the bench counts animations per commit).
-     private(set) static var serial = 0
- 
-     /// Local time of `layer` now (virtual time when the root is paused).
--    static func now(_ layer: CALayer) -> CFTimeInterval { layer.convertTime(CACurrentMediaTime(), from: nil) }
-+    nonisolated static func now(_ layer: CALayer) -> CFTimeInterval { layer.convertTime(CACurrentMediaTime(), from: nil) }
- 
-     /// Animate `keyPath` (a scalar sub key path such as "position.y",
-     /// "bounds.size.width", "opacity", "transform.scale") from `from` to the
-@@ -537,7 +547,7 @@
- 
-     /// `--x-two-animation-springs`: the hold-and-spring form in live trees too (the before arm of
-     /// the A/B bench of the one-animation form; animations per send).
--    static let twoAnimationForm = ProcessInfo.processInfo.arguments.contains("--x-two-animation-springs")
-+    nonisolated static let twoAnimationForm = ProcessInfo.processInfo.arguments.contains("--x-two-animation-springs")
- 
-     /// Whether `layer` is in a paused tree (an ancestor with speed 0: captures, checks, live grabs),
-     /// where the render server did not hold a backward fill for a start that lay ahead. A layer
-@@ -555,7 +565,7 @@
- 
-     /// Model opacity for "hidden" layers that still animate: the render
-     /// server skips layers whose model opacity is exactly 0, animations or not.
--    static let hiddenOpacity: Float = 0.01
-+    nonisolated static let hiddenOpacity: Float = 0.01
- 
-     /// A delayed spring component without per-sample boxing: an additive hold
-     /// at -delta from `begin` to `begin + delay` (two values), then a real
