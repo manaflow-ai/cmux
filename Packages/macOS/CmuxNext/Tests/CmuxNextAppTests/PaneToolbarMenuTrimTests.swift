@@ -19,7 +19,7 @@ struct PaneToolbarMenuTrimTests {
         let menu = try #require(toolbar.view.moreMenu?())
         let ids = menu.items.compactMap { ActionRegistry.menuRun(of: $0)?.id }
         #expect(ids == ["newSurface", "openBrowser.chromium", "palette.newAgentChat", "macScreen.open",
-                        "splitRight", "splitDown", "toggleSplitZoom", "tab.search"])
+                        "agentPane.togglePointerInspector", "splitRight", "splitDown", "toggleSplitZoom", "tab.search"])
         #expect(menu.items.allSatisfy { $0.view == nil }, "standard native menu rows")
         for (first, second) in zip(menu.items, menu.items.dropFirst()) {
             #expect(!(first.isSeparatorItem && second.isSeparatorItem))

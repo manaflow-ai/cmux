@@ -210,6 +210,11 @@ final class PaneToolbar {
         for item in menu.items where ActionRegistry.menuRun(of: item).map({ Self.overflowNewTabTrimmedActions.contains($0.id) }) == true {
             menu.removeItem(item)
         }
+        var previousWasSeparator = true
+        for item in menu.items {
+            if item.isSeparatorItem && previousWasSeparator { menu.removeItem(item) }
+            previousWasSeparator = item.isSeparatorItem
+        }
         while menu.items.last?.isSeparatorItem == true { menu.removeItem(at: menu.items.count - 1) }
         let own = contentMenu()
         if !own.isEmpty, !menu.items.isEmpty { menu.insertItem(.separator(), at: 0) }
