@@ -14,7 +14,7 @@ enum CEFDefaultSearch {
         let runtime = CEFRuntime.shared
         guard runtime.state == .ready, let shim = runtime.shim else { return }
         if let json {
-            json.withCString { shim.setDefaultSearch($0) }
+            shim.setDefaultSearch(json)
         } else {
             shim.setDefaultSearch(nil)
         }

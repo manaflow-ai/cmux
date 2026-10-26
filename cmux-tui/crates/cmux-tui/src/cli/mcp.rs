@@ -179,6 +179,10 @@ pub(super) trait Backend {
         on_wake: &mut dyn FnMut(Option<&Value>) -> bool,
     ) -> Result<(), CallFailure>;
 
+    /// The data of the session daemon's reply to the field-less line `cmd`
+    /// (`energy.status`), or why it gave none.
+    fn daemon_line(&self, cmd: &str) -> Result<Value, String>;
+
     /// A `cmux agents chat` verb: the daemon (agent messages, workspaces)
     /// and acpmux (chats) together. A backend without both runs none.
     fn chat(
@@ -251,6 +255,10 @@ impl Backend for LiveBackend {
         mutation: bool,
     ) -> Result<Value, CallFailure> {
         transport::app_method(&self.global, method, params, timeout, idempotency_key, mutation)
+    }
+
+    fn daemon_line(&self, cmd: &str) -> Result<Value, String> {
+        super::energy::daemon_line(&self.global, cmd)
     }
 
     fn browser(
@@ -588,6 +596,7 @@ impl<B: Backend> Server<B> {
         tools.push(agent_events_tool::descriptor());
         tools.extend(terminal_talk_tools::descriptors());
         tools.push(render_tool::descriptor());
+        tools.push(super::energy::mcp_tool());
         tools.extend(
             keybinding_tools::TOOLS.iter().map(keybinding_tools::KeybindingTool::descriptor_json),
         );
@@ -798,6 +807,26 @@ impl<B: Backend> Server<B> {
         if name == render_tool::NAME {
             return Ok(match render_tool::receipt(&arguments, &mut self.renders) {
                 Ok(receipt) => success(receipt, false),
+                Err(message) => tool_error(envelope(v2_tools::invalid(message), "not_run", None)),
+            });
+        }
+        if name == super::energy::MCP_STATUS_TOOL {
+            return Ok(match super::energy::mcp_arguments(&arguments) {
+                Ok(()) => {
+                    let app = self
+                        .backend
+                        .app(
+                            super::energy::APP_STATUS_METHOD,
+                            json!({}),
+                            super::app::READ_TIMEOUT,
+                            None,
+                            false,
+                        )
+                        .map(|report| super::energy::app_part(&report))
+                        .map_err(|failure| super::energy::error_text(&failure.error));
+                    let daemon = self.backend.daemon_line(super::energy::DAEMON_STATUS_COMMAND);
+                    success(super::energy::report(app, daemon), false)
+                }
                 Err(message) => tool_error(envelope(v2_tools::invalid(message), "not_run", None)),
             });
         }

@@ -194,7 +194,7 @@ public final class LayoutRootView: NSView {
             // The render server's springs landed after the CPU's last frame: the run rests here.
             if !self.rendersMotion { self.motionTrace.endRun() }
         }
-        context.renderMotionBegan = { [weak self] in self?.motionTrace.beginRun() }
+        context.renderMotionBegan = { [weak self] in self?.motionTrace.beginRun(on: self?.window.map(FrameScheduler.forWindow)) }
         context.gridHoldDidChange = { [weak self] held in self?.onTerminalGridHold?(held) }
         // The window adopts the plane exactly while it shows content child windows (`OverlayPlaneHosting`).
         context.childWindowContentShows = { [weak self] in self.map { !$0.overlayPlane.isHome } ?? false }
@@ -503,7 +503,7 @@ public final class LayoutRootView: NSView {
         if needsFrames || snapshot.gestureActive { driver.start() }
         // A structural change that starts springs on the CPU: one motion.run until they rest (`advanceFrame`). One
         // the render server took opened it already (`context.renderMotionBegan`).
-        if needsFrames, driver.isAttached { motionTrace.beginRun() }
+        if needsFrames, driver.isAttached { motionTrace.beginRun(on: window.map(FrameScheduler.forWindow)) }
         // A change that starts springs (a split, a close) is in motion from the frame it lands in.
         if needsFrames && driver.isRunning { setLayoutInMotion(true) }
     }

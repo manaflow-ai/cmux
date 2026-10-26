@@ -116,8 +116,9 @@ public nonisolated struct Feature: Sendable, Hashable {
     public let sticky: Bool
     /// The feature has a tested live-teardown path.
     public let runtimeMutable: Bool
-    /// The Debug tunable keys and env switches the feature took over (its JSON's `replaces`): the App
-    /// reads a replaced Bool toggle as the feature's local override (step 3), at launch.
+    /// The Debug tunables and environment switches this feature took over
+    /// (`replaces` in its file): a replaced tunable the developer set is the
+    /// feature's local override (resolution step 3).
     public let replaces: [String]
 
     /// The generated registry (`Features.generated.swift`) calls this with

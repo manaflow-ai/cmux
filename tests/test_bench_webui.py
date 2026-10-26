@@ -236,7 +236,8 @@ class FakeInstance:
 
 def options(**overrides):
     values = dict(engine="chromium", session="light", settle=60, measure=60, hide_settle=10, discard_settle=300,
-                  open_timeout=20, priority_wait=1.0, runs=4, cold_runs=2, chat_turns=0, kills=4, every_page_hidden=False)
+                  open_timeout=20, priority_wait=1.0, runs=4, cold_runs=2, chat_turns=0, kills=4, every_page_hidden=False,
+                  page_code_cache=False)
     values.update(overrides)
     return argparse.Namespace(**values)
 
@@ -682,6 +683,76 @@ class OpenTests(unittest.TestCase):
         clock = FakeClock()
         got = self.run_open(FakeApp(clock), clock, chat_turns=50)
         self.assertEqual(got["frozen_chat.live_ms"]["note"].split(";")[0], "50 seeded turns")
+
+
+class PageCodeCacheTests(unittest.TestCase):
+    """Task 052's A/B arm: the switches reach the app only with --page-code-cache, and a run whose renderers do not
+    carry them is refused: before the mode, at the first Settings open and at the end."""
+
+    RENDERER = "Chromium Helper (Renderer) --type=renderer --lang=en"
+    SWITCHED = RENDERER + " " + webui.CODE_CACHE_MARK + " --enable-features=WebUICodeCache"
+    EXTENSION = RENDERER + " --extension-process"
+
+    def run_open(self, commands, **overrides):
+        clock = FakeClock()
+        app = FakeApp(clock)
+        return bench(app, clock, instance=FakeInstance(clock, commands=commands), cold_runs=0, **overrides).run("open")
+
+    def test_the_switches_reach_the_app_only_with_the_option(self):
+        on = webui.launch_env(webui.parse(["open", "--app", "x", "--page-code-cache"]), "/t.json")
+        self.assertEqual(on["CMUX_NEXT_CEF_EXTRA_SWITCHES"],
+                         "cmux-code-cache-schemes=cmux-page:enable-features=WebUICodeCache")
+        self.assertEqual(on["CMUX_NEXT_DEBUG_TUNABLES_FILE"], "/t.json")
+        off = webui.launch_env(webui.parse(["open", "--app", "x"]), "/t.json")
+        self.assertEqual(off, {"CMUX_NEXT_DEBUG_TUNABLES_FILE": "/t.json"})
+
+    def test_switched_renderers_measure_and_are_counted(self):
+        report = self.run_open([self.SWITCHED, self.SWITCHED, self.EXTENSION], page_code_cache=True)
+        got = rows(report)
+        self.assertTrue(report["facts"]["page_code_cache"])
+        self.assertEqual(got["page_code_cache.renderers_with_switch"]["value"], 2)  # extension renderers are not pages
+        self.assertEqual(got["page_code_cache.renderers_with_switch"]["status"], "met")
+        self.assertIn("settings.open_ms", got)
+
+    def test_a_renderer_without_the_switch_refuses_the_run(self):
+        with self.assertRaisesRegex(webui.ShapeError, "1 of 2 Chromium renderers lack"):
+            self.run_open([self.SWITCHED, self.RENDERER], page_code_cache=True)
+
+    def run_late(self, commands_after):
+        """No renderer before the mode; `commands_after(opens)` lists the command lines once Cmd-, opened Settings
+        `opens` times."""
+        clock = FakeClock()
+        app = FakeApp(clock)
+        instance = FakeInstance(clock)
+        opens = lambda: sum(entry["id"] == "openSettings" for entry in app.budget)
+        instance.pids = lambda: dict(enumerate(commands_after(opens()), start=900)) if opens() else {}
+        return bench(app, clock, instance=instance, cold_runs=0, page_code_cache=True).run("open")
+
+    def test_a_late_renderer_without_the_switch_refuses_the_run(self):
+        with self.assertRaisesRegex(webui.ShapeError, "1 of 1 Chromium renderers lack .* while Settings shows"):
+            self.run_late(lambda opens: [self.RENDERER])
+
+    def test_a_late_switched_renderer_measures(self):
+        got = rows(self.run_late(lambda opens: [self.SWITCHED]))
+        self.assertEqual(got["page_code_cache.renderers_with_switch"]["status"], "met")
+        self.assertIn("settings.cold_open_ms", got)
+
+    def test_a_renderer_without_the_switch_after_the_first_open_refuses_the_run(self):
+        with self.assertRaisesRegex(webui.ShapeError, "1 of 2 Chromium renderers lack .* at the end of the run"):
+            self.run_late(lambda opens: [self.SWITCHED] + ([self.RENDERER] if opens > 1 else []))
+
+    def test_no_renderer_while_settings_shows_refuses_the_run(self):
+        with self.assertRaisesRegex(webui.ShapeError, "no Chromium renderer while Settings shows"):
+            self.run_open([], page_code_cache=True)
+
+    def test_the_off_arm_adds_no_row(self):
+        report = self.run_open([self.RENDERER])
+        self.assertFalse(report["facts"]["page_code_cache"])
+        self.assertNotIn("page_code_cache.renderers_with_switch", rows(report))
+
+    def test_webkit_has_no_code_cache_arm(self):
+        with self.assertRaises(SystemExit), contextlib.redirect_stderr(io.StringIO()):
+            webui.parse(["open", "--app", "x", "--engine", "webkit", "--page-code-cache"])
 
 
 class CrashPressurePriorityTests(unittest.TestCase):

@@ -564,13 +564,15 @@ class GeneratedFileTests(unittest.TestCase):
         self.assertIn(".bool(default: true)", swift)
         self.assertIn("expires: nil", swift)
 
-    def test_swift_names_the_keys_a_feature_replaces_and_only_then(self):
-        """The App reads a replaced Bool toggle as the feature's local override, so the handle carries its keys."""
+    def test_swift_carries_replaced_keys_for_the_local_override(self):
+        """The App reads each replaced tunable at launch as the feature's local override (p12-perf-process-100), so the
+        Swift handle names its `replaces`; a feature without them keeps the label off."""
         self.repo.run()
         swift = self.repo.read(gen.SWIFT_OUT)
-        self.assertIn('runtimeMutable: false,\n        replaces: ["browserResize.layerHosting"]\n    )', swift)
-        self.assertIn('replaces: ["CMUX_TUI_TERMINAL_HOST_MODEL"]', swift)
-        kill = swift[swift.index("public static let %s = Feature(" % KILL["name"]):]
+        perf = swift[swift.index("public static let cefLayerHosting = Feature("):]
+        self.assertIn('        runtimeMutable: false,\n        replaces: ["browserResize.layerHosting"]\n    )\n',
+                      perf[:perf.index("\n    )\n") + 7])
+        kill = swift[swift.index("public static let flagsFetch = Feature("):]
         self.assertNotIn("replaces:", kill[:kill.index("\n    )\n")])
 
     def test_bench_only_features_are_compiled_out_of_shipped_builds(self):

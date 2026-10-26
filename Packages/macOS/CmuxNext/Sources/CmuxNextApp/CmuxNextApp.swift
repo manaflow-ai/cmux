@@ -47,6 +47,9 @@ public struct CmuxNextApp {
         // after it stops a debug build (ProcessEnvironmentGuard).
         Self.prepareLaunchEnvironment()
         DebugTimings.markLaunch("main.environment_frozen")
+        // ghostty_init while the process still has one thread: its locale setup may setenv LANG and setlocale
+        // (Ghostty's internal_os.ensureLocale, src/os/locale.zig), which must not race another thread's environ read.
+        GhosttyRuntime.initializeLibrary()
         // Pure launch work (action catalog, symbols, displays) overlaps AppKit's start.
         LaunchWarmup.start()
         DebugTimings.markLaunch("main.warmup_started")
@@ -89,11 +92,11 @@ public struct CmuxNextApp {
                 .appending(path: "features", directoryHint: .isDirectory).appending(path: FeatureLocalOverrides.fileName)
             environment.featureLocalOverridesFile = file
             environment.featureLocalOverrides = LaunchRead(in: ledgerThenSettings, dropped: FeatureLocalOverrides()) { FeatureLocalOverrides.read(file) }
-            // The Debug Settings toggles that features took over (their `replaces`), from the tunables file.
-            if let tunables = DebugSettingsService.launchFileURL(launch: environment.launch, environment: ProcessInfo.processInfo.environment) {
-                environment.featureToggleOverrides = LaunchRead(in: ledgerThenSettings, dropped: [:]) {
-                    FeatureLaunchLocalOverrides.readToggles(tunables, registry: FeatureRegistry())
-                }
+            // The Debug tunables features replace (`browserResize.layerHosting`) are their local overrides too: read
+            // from the build's debug-tunables.json in the same sequence, never through the tunable store's later load.
+            if let tunables = DebugSettingsService.launchFile(launch: environment.launch, environment: ProcessInfo.processInfo.environment) {
+                let keys = FeatureLaunchLocalOverrides.replacedKeys(of: Feature.registered)
+                environment.featureTunableOverrides = LaunchRead(in: ledgerThenSettings, dropped: [:]) { TunableFile.boolValues(tunables, keys: keys) }
             }
         }
         // cmux-next.json (made on first launch) read and merged with the managed layers on the files lane, next:

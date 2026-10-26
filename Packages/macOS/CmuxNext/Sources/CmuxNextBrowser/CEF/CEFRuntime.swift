@@ -71,7 +71,7 @@ final class CEFRuntime {
     private(set) lazy var windowRequests = CEFWindowRequests(runtime: self)
     /// Page accessibility while an assistive client asks for it (`CEFAccessibility`).
     private(set) lazy var accessibility = CEFAccessibility(
-        apply: { [weak self] browser, enabled in self?.setPageAccessibility(browser, enabled) },
+        apply: { [weak self] browser, enabled in self?.applyPageAccessibility(browser, enabled) },
         browsers: { [weak self] in self.map { Array($0.tabsByBrowser.keys) } ?? [] })
     /// Two-finger Back and Forward swipes over pages (`CEFSwipeNavigation`).
     private(set) lazy var swipeNavigation = CEFSwipeNavigation(runtime: self)
@@ -171,7 +171,8 @@ final class CEFRuntime {
     /// True when this Chromium started with `cmux-process-reuse-per-renderer-devtools` (`debug.cef` `windows`).
     private(set) var processReusePerRendererDevTools = false
     private var terminationObserver: (any NSObjectProtocol)?
-    private var switchStorage: [UnsafeMutablePointer<CChar>?] = []
+    /// The argv Chromium started with, owned for the runtime's life.
+    private var switchArguments: CEFSwitchArguments?
     /// The off-main library load; every concurrent first tab awaits it.
     private(set) var loadTask: Task<Result<CEFLoadedLibrary, BootError>, Never>?
     /// A preload's framework read behind the startup fence and its layout (``preloadMap()``); false: quit dropped it.
@@ -508,7 +509,7 @@ final class CEFRuntime {
         shim.setExtensionDeveloperMode(loadsUnpackedExtensions ? 1 : 0)
         // Chrome enterprise policies (URLBlocklist, ExtensionInstallForcelist, proxy, ...) Chromium enforces itself.
         if let policyID = chromePolicyIDSetting(), !policyID.isEmpty {
-            policyID.withCString { shim.setChromePolicyID($0) }
+            shim.setChromePolicyID(policyID)
             logger.notice("chrome policy domain: \(policyID, privacy: .public)")
         }
         // Pages use the theme color, never white or Chromium's #292929
@@ -533,32 +534,38 @@ final class CEFRuntime {
         for folder in inputs.nativeMessagingFolders {
             _ = shim.addNativeMessagingDir(folder.path, folder.isUserLevel ? 1 : 0)
         }
-        let switches = switchSet.arguments
-        switchStorage = switches.map { strdup($0) } + [nil]
+        let arguments = CEFSwitchArguments(switchSet.arguments)
+        switchArguments = arguments
         let locale = library.locale
         logger.info("CEF locale \(locale.locale, privacy: .public), accept-languages \(locale.acceptLanguages, privacy: .public)")
-        let context = Unmanaged.passUnretained(self).toOpaque()
+        // SAFETY: the runtime is the shared one, which lives for the rest of the process once started, so the
+        // unretained context every callback gets back stays valid (CEFRuntime.from).
+        let context = unsafe Unmanaged.passUnretained(self).toOpaque()
         // The shim sets `external_message_pump` from this callback: in process only, where the app pumps.
-        let schedule: CEFShimLibrary.ScheduleFn? = if case .inProcess = library { cefScheduleCallback } else { nil }
+        // SAFETY: the callback is a C function of `cmux_shim_schedule_fn`; its context is `context`, the runtime,
+        // which lives for the process once started.
+        let schedule: CEFShimLibrary.ScheduleFn? = if case .inProcess = library { unsafe cefScheduleCallback } else { nil }
         // Chromium never opens a window (fork API 8) nor focuses a page cmux did not focus.
-        shim.setWindowRequestHandler(cefWindowRequestCallback)
+        // SAFETY: the handler is a C function of `cmux_shim_window_request_fn`; its context is `context`, the
+        // runtime, which lives for the process once started.
+        unsafe shim.setWindowRequestHandler(cefWindowRequestCallback)
         installFocusRequestPolicy(shim)
         let paths = library.chromiumPaths
-        let ok = switchStorage.withUnsafeBufferPointer { buffer in  // never empty (ends with nil); no base: 0, a failed init
-            buffer.baseAddress?.withMemoryRebound(to: UnsafePointer<CChar>?.self, capacity: buffer.count) { list in
-                CEFStartSteps.shared.timed("cef_initialize") { shim.initialize(
-                    paths.framework, paths.mainBundle, paths.helper,
-                    storage.root.path, storage.logFile.path, Self.logSeverity, locale.locale, locale.acceptLanguages, list, context,
-                    schedule, cefEventCallback, cefKeyCallback
-                ) }
-            } ?? 0
+        let ok = CEFStartSteps.shared.timed("cef_initialize") {
+            // SAFETY: Swift makes a NUL-terminated copy of each path and locale string for the call; `arguments`
+            // owns the NULL-terminated argv (CEFSwitchArguments); `context` is above; the callbacks are C
+            // functions of the header's types.
+            unsafe shim.initialize(paths.framework, paths.mainBundle, paths.helper, storage.root.path, storage.logFile.path,
+                                   Self.logSeverity, locale.locale, locale.acceptLanguages, arguments.argv, context,
+                                   schedule, cefEventCallback, cefKeyCallback)
         }
         guard ok == 1 else {
             pump?.stop()
             throw .initialize
         }
         installDevToolsKeyPolicy()
-        shim.setUnhandledKeyHandler(cefUnhandledKeyCallback)
+        // SAFETY: as for the window request handler above.
+        unsafe shim.setUnhandledKeyHandler(cefUnhandledKeyCallback)
         terminationObserver = terminationObserver ?? NotificationCenter.default.addObserver(  // once: a new host initializes again
             forName: NSApplication.willTerminateNotification, object: nil, queue: .main
         ) { _ in
@@ -599,7 +606,7 @@ final class CEFRuntime {
     /// routing table with their last tab (`hostEmptied`).
     func releaseOffTheRecordContexts(of profile: BrowserProfileID) {
         let keys = offTheRecordContexts.removeValue(forKey: profile) ?? []
-        for key in keys { _ = key.withCString { shim?.releaseContext($0) } }
+        for key in keys { shim?.releaseContext(key) }
     }
 
     func host(for key: CEFPaneKey, lifecycleTrace: BrowserLifecycleTrace = .shared, contextMenus: BrowserContextMenuBuilder = .shared) -> CEFPaneHost {

@@ -20,7 +20,7 @@ extension GhosttyRuntime {
     /// Loads the default before the user's files.
     /// `themesFolder` names the themes by absolute path (tests: Ghostty
     /// reads its resources folder once, at `ghostty_init`).
-    static func loadThemeDefault(into config: ghostty_config_t, themesFolder: URL? = nil) {
+    nonisolated static func loadThemeDefault(into config: ghostty_config_t, themesFolder: URL? = nil) {
         let spec = themesFolder.map { "light:\($0.appending(path: defaultLightThemeName).path),dark:\($0.appending(path: defaultDarkThemeName).path)" }
         let line = "theme = \(spec ?? defaultThemeSpec)"
         line.withCString { ghostty_config_load_string(config, $0, UInt(line.utf8.count), "cmux-next") }

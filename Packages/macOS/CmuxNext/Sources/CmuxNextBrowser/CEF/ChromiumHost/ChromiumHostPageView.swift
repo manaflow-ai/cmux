@@ -1,6 +1,7 @@
 public import AppKit
 import CmuxNextCompat
 import CmuxNextRemoteLayer
+import CmuxNextWakeups
 import QuartzCore
 
 /// The one view a hosted Chromium page shows in, whichever process runs its
@@ -101,6 +102,16 @@ public final class ChromiumHostPageView: NSView {
     var cursorHoles: [CGRect] = [] {
         didSet { if cursorHoles != oldValue, shownCursor != nil { window?.invalidateCursorRects(for: self) } }
     }
+    /// The shown page's accessibility (host mode; ChromiumHostPageView+Accessibility.swift).
+    var remoteAccessibility = ChromiumHostRemoteAccessibility()
+    /// Sends a page's accessibility request to the host and calls back with the page's token, nil
+    /// for none (host mode: the pane host); nil in process, where the page window is its own
+    /// accessibility tree.
+    var accessibilityTokenSource: ((ChromiumHostAccessibilityRequest, @escaping ([UInt8]?) -> Void) -> Void)?
+    /// AppKit's remote accessibility calls; tests pass stand-ins.
+    var accessibilityBridge = ChromiumHostAccessibilityBridge.system
+    /// Drops the remote element when its window closes: the element holds the window.
+    var accessibilityWindowClose: EventSubscription?
 
     #if DEBUG || CMUX_BENCH_HOOKS
     /// Where frames for the host go (``InputTarget/view`` only), synchronously
@@ -207,7 +218,11 @@ public final class ChromiumHostPageView: NSView {
     /// instead of leaving it blank.
     @discardableResult
     func show(contextID id: UInt32) -> Bool {
-        surface.show(contextID: id)
+        let changed = id != surface.contextID
+        let shown = surface.show(contextID: id)
+        // Another page window or host: the page's accessibility element is of the old one.
+        if changed { resetRemoteAccessibility() }
+        return shown
     }
 
     /// `CALayerHost` is QuartzCore SPI, the class Chromium itself uses to
@@ -233,6 +248,8 @@ public final class ChromiumHostPageView: NSView {
     public override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         observeWindow()
+        // The host made the page's element for the old window's token.
+        resetRemoteAccessibility()
         onWindowChange?(window != nil)
         if window == nil {
             lastGeometry = nil

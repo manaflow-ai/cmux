@@ -9,7 +9,7 @@ package struct HibernationTunables {
     /// The developer's local override of the feature `compressedSnapshots`
     /// (`schemas/features/features.d/compressedSnapshots.json`, which `replaces` this key, on by
     /// default): nothing reads it here. The launch's feature ladder takes it from the Debug Settings
-    /// file as step 3 (the App's `FeatureLaunchLocalOverrides`; DEV and NIGHTLY, under managed policy
+    /// file as step 3 (`FeatureLaunchLocalOverrides`; DEV and NIGHTLY, under managed policy
     /// and `CMUX_DISABLE_FEATURES`/`CMUX_ENABLE_FEATURES`), so a change applies at the next launch. On: each hibernated
     /// page keeps its last frame JPEG-compressed in its own 64 MB store (`HibernationSnapshots`).
     /// Off: the frame is scaled to a quarter of that store, as before PR 23083.

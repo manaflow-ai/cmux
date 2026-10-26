@@ -555,7 +555,6 @@ def swift(features):
             expires=_string(expires) if expires else "nil", params=params,
             stories=", ".join(_string(story) for story in feature["stories"]),
             sticky=_bool(feature["sticky"]), runtime_mutable=_bool(feature["runtimeMutable"]),
-            # Only a feature that took over keys names them, so adding one rewrites no other block.
             replaces=",\n        replaces: [%s]" % ", ".join(_string(key) for key in feature["replaces"])
             if feature.get("replaces") else ""))
     body = "\n".join(blocks[:len(shipped)]) + ("\n" if shipped else "")

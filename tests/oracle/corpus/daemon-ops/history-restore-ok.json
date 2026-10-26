@@ -51,6 +51,30 @@
         "settled"
       ],
       "note": "puts a removal's visits back, once"
+    },
+    {
+      "id": "retry",
+      "op": "resource.call",
+      "target": {
+        "machine": "current",
+        "session": "current"
+      },
+      "args": {
+        "method": "history.restore",
+        "params": {
+          "restore_id": "history:0000000000000000000000000000000a"
+        },
+        "idempotencyKey": "history-restore-ok.call"
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "mutation_result"
+      },
+      "checkpoint": [
+        "before",
+        "settled"
+      ],
+      "note": "I10: step call again with its idempotency key; the daemon replays its reply, adds no journal record and changes no facet"
     }
   ],
   "invariants": [

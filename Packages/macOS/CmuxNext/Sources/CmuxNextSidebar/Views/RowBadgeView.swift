@@ -97,6 +97,7 @@ final class RowBadgeView: NSView {
             glyph.configure(shown ? states[index] : .idle)
         }
         isHidden = states.isEmpty
+        // invalidate: the states or look changed (the guard above).
         needsLayout = true
     }
 
