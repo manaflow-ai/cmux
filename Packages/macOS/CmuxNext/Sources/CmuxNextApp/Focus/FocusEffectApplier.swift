@@ -193,10 +193,26 @@ final class FocusEffectApplier: FocusEffectApplying {
             // The page window has the keys: nothing in this window keeps a
             // responder (a field editor or the sidebar would show a caret).
             if window.firstResponder !== window { window.makeFirstResponder(nil) }
+            // Another of this window's Chromium page windows took the keys without a click (the New
+            // Tab spare made right after Cmd-N): the recorded page asks again, or typing goes there.
+            // Its own window being key ends it, so the ask runs once.
+            if pageFocus.page === page {
+                if anotherPageWindowIsKey(than: page, in: window) { setPageFocus(page, true) }
+                return
+            }
             // One key change (#24913): the old page blurs without this window taking the keys
             // back first; the grant moves them straight to the new page window.
             pageFocus.focus(page)
         }
+    }
+
+    /// Whether the key window is one of this window's Chromium page windows (the key rule's own,
+    /// never another cmux window's page or a popup's) other than `page`'s own.
+    private func anotherPageWindowIsKey(than page: any BrowserTab, in window: NSWindow) -> Bool {
+        guard let key = NSApp.keyWindow, key !== window, Self.isChromiumPageWindow(key),
+              paneShowingDevTools(window: key) == nil,
+              ChildWindowKeyRule.shouldReclaim(facts(of: key, in: window)) else { return false }
+        return (page as? CEFTab)?.isPageWindow(key) != true
     }
 
     /// The docked DevTools of `page` takes the keyboard (a separate target

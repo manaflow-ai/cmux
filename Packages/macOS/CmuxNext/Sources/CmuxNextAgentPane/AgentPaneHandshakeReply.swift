@@ -70,6 +70,7 @@ enum AgentPaneHandshakeReply {
                 (model.handedWake, model.pendingWake) = (model.pendingWake, nil)
             }
             model.hasHandshake = true
+            model.acpmuxRestartOffered = nil
             // A filled-in folder stays the workspace's, no root of its own (cx-9aps).
             if let cwd = handshake.cwd, !filled { model.handshakeCwd = cwd }
             if let session = handshake.sessionId { model.transport.sessions.add(session) }
@@ -83,12 +84,35 @@ enum AgentPaneHandshakeReply {
         } catch {
             let message = AgentPaneHostError.userMessage(for: error)
             var reply = AgentPaneReply.failure(code: "host_unavailable", message: message)
+            var details: [String: Any] = [:]
             // A refused chat of another machine still names that machine on its chip (cx-k21v).
-            if let machine = (error as? any AgentPaneHostRefusal)?.machineName, var failure = reply["error"] as? [String: Any] {
-                failure["details"] = ["machineName": machine]
+            if let machine = (error as? any AgentPaneHostRefusal)?.machineName { details["machineName"] = machine }
+            // A daemon another binary runs holds this app's socket: the page offers Restart acpmux
+            // (`acpmux.restart`), which replaces it with this app's own.
+            if case .daemonRefused(_, _, _, _, let owner?) = error as? AgentPaneHostError {
+                details["restartAcpmux"] = true
+                model.acpmuxRestartOffered = owner
+            } else {
+                model.acpmuxRestartOffered = nil
+            }
+            if !details.isEmpty, var failure = reply["error"] as? [String: Any] {
+                failure["details"] = details
                 reply["error"] = failure
             }
             return reply
         }
+    }
+
+    /// `acpmux.restart`: the person's Restart acpmux on a refusal that named another binary on this
+    /// app's socket. Page script cannot make a gesture, and only a refusal that offered it counts:
+    /// the page cannot stop a daemon the app uses. Answers `{stopped}`; the page then asks for a
+    /// handshake again, which starts this app's daemon.
+    static func restartAcpmux(in model: AgentPaneModel) async -> [String: Any] {
+        guard model.transport.gestures.consume() else {
+            return AgentPaneReply.failure(code: "acpmux.gesture_required", message: AgentPaneModel.shellGestureMessage)
+        }
+        guard let owner = model.acpmuxRestartOffered else { return AgentPaneModel.unsupported("acpmux.restart") }
+        model.acpmuxRestartOffered = nil
+        return AgentPaneReply.success(["stopped": await model.host.restartAcpmux(owner: owner)])
     }
 }

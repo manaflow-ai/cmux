@@ -23,6 +23,8 @@ const replacements: Record<string, unknown> = {
   Element: dom.window.Element,
   Node: dom.window.Node,
   Range: dom.window.Range,
+  // useAnchoredCollapse asks the transcript to hold the line with a CustomEvent from this DOM.
+  CustomEvent: dom.window.CustomEvent,
   customElements: dom.window.customElements,
   MutationObserver: dom.window.MutationObserver,
   ResizeObserver: class {
@@ -273,4 +275,17 @@ test("a message sent now offers no second Steer; one with images keeps them and 
   await act(async () => item(t("composer.queueEditMessage")).click());
   await settle();
   expect(calls.at(-1)).toBe(`edit a3 ${agent(3).prompt} (1 images)`);
+});
+
+test("a steer the agent has not read: Read after this step, and Send now in its ⋯ menu, no spinner", async () => {
+  const { SteerWaitingActions } = await import("../src/agent-session/acpmux/conversation/QueuedMessageCard");
+  const sent: string[] = [];
+  await show(<SteerWaitingActions promptId="p-steer" send={(id) => void sent.push(id)} />);
+  expect(host.querySelector(".cv-received__queued")?.textContent).toBe(t("message.readAfterStep"));
+  expect(host.querySelector(".cv-spinner, [data-spinner]")).toBeNull();
+  await openMenu();
+  expect(items()).toEqual([t("steer.sendNow")]);
+  await act(async () => item(t("steer.sendNow")).click());
+  await settle();
+  expect(sent).toEqual(["p-steer"]);
 });

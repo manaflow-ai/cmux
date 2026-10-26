@@ -72,9 +72,9 @@ extension SidebarBridge {
         case .close(let ids):
             // The row's close button is an entrypoint of `closeWorkspace`,
             // so it asks the same confirmation and ends the terminals too.
-            for id in ids {
-                services.registry.perform("closeWorkspace", invocation: ActionInvocation(closingRow: id.rawValue))
-            }
+            // Several selected rows (Cmd-W, the row menu's Close, Delete) close as one batch.
+            if ids.count > 1 { return WorkspaceSelectionClose.close(ids.map(\.rawValue), in: state, services) }
+            for id in ids { services.registry.perform("closeWorkspace", invocation: ActionInvocation(closingRow: id.rawValue)) }
         case .newWorkspace(let machine, let group):
             // A double-click in a group's empty part, or its "+": the end of that group.
             let daemon = machine.flatMap { services.machines.daemon(machine: $0.rawValue) }
@@ -98,7 +98,7 @@ extension SidebarBridge {
             let members = (model.group(group)?.workspaces ?? []).compactMap { services.machines.workspace(id: $0.id.rawValue) }
             model.apply(intent)
             // One gesture, one closed group per daemon: one Reopen Closed brings the group's workspaces back.
-            WorkspaceBulkClose.close(members) { daemon, label, body in command(label, on: daemon, body) }
+            WorkspaceClose.close(members) { daemon, label, body in command(label, on: daemon, body) }
         case .switchProfile(let profile):
             services.windows.switchProfile(ProfileID(rawValue: profile.rawValue), in: state)
         case .newProfile:

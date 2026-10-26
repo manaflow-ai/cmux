@@ -89,7 +89,7 @@ struct CloudBringBack {
     /// error that names no Retry keeps the one a stop saved before (cx-rppd.8).
     private func stopped(_ error: any Error, tab tabID: String, toast toastID: String) -> ActionWorkFailure {
         let retries = services.cloud.bringBackRetries
-        let failure = (error as? Failure) ?? Failure(message: (error as? ActionFailure)?.message ?? CloudBringBackStrings.failed(String(describing: error)),
+        let failure = (error as? Failure) ?? Failure(message: (error as? ActionFailure)?.message ?? CloudBringBackStrings.failed(CloudStrings.errorText(error)),
                                                      retry: retries[tabID])
         services.cloud.logger.error("cloud bring back failed: \(failure.message, privacy: .public)")
         retries[tabID] = failure.retry
@@ -139,7 +139,7 @@ struct CloudBringBack {
             pulled = try await cli.syncPull(socket: machineSocket, local: entry.localRoot, remote: entry.remoteFolder)
         } catch {
             // Timed out or didn't launch: nothing moved, so Retry runs it again on this machine.
-            throw Failure(message: CloudBringBackStrings.syncFailed(name, String(describing: error)), retry: again)
+            throw Failure(message: CloudBringBackStrings.syncFailed(name, CloudStrings.errorText(error)), retry: again)
         }
         guard pulled.ok else {
             // A conflict changed nothing here: the chat stays on the machine until the files are settled.
@@ -187,7 +187,7 @@ struct CloudBringBack {
         do {
             try await show(shown)
         } catch {
-            throw Failure(message: CloudBringBackStrings.tabFailed(String(describing: error)), retry: .show(shown))
+            throw Failure(message: CloudBringBackStrings.tabFailed(CloudStrings.errorText(error)), retry: .show(shown))
         }
         if let host = shown.host, let moved = shown.movedSession { services.cloud.movedChats.forget(host: host, session: moved) }
         // Reopen Closed never offers it.
