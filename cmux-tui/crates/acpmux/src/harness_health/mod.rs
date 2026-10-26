@@ -423,16 +423,9 @@ impl HealthService {
 }
 
 fn save(path: &Path, rows: &[HarnessHealth]) {
-    use std::io::Write;
     let Ok(body) = serde_json::to_vec_pretty(rows) else { return };
-    let tmp = path.with_extension("json.tmp");
-    // Owner-only whatever the umask, like the rest of the acpmux home.
-    let mut options = std::fs::OpenOptions::new();
-    options.write(true).create(true).truncate(true);
-    #[cfg(unix)]
-    std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
-    let written = options.open(&tmp).and_then(|mut file| file.write_all(&body));
-    if let Err(e) = written.and_then(|()| std::fs::rename(&tmp, path)) {
+    // Owner-only whatever the umask, through a new temporary file each time.
+    if let Err(e) = crate::config::write_atomic(path, &body) {
         tracing::info!(error = %e, "harness health not saved");
     }
 }

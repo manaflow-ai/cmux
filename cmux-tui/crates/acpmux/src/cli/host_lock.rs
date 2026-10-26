@@ -361,4 +361,30 @@ mod umask_tests {
         assert_eq!(mode("after"), 0o664, "the host's umask holds after the lock step");
         let _ = std::fs::remove_dir_all(&home);
     }
+
+    /// The lease's owner file, written while the lease is held, is owner-only too.
+    #[test]
+    fn the_lease_owner_file_is_owner_only_under_umask_002() {
+        use std::io::BufRead;
+        use std::os::unix::fs::PermissionsExt;
+        let home = std::env::temp_dir().join(format!("acpmux-lease-umask-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&home);
+        std::fs::create_dir_all(&home).unwrap();
+        let mut child = std::process::Command::new("sh")
+            .args(["-c", &format!("umask 002\n{}", hold_lease("0123abcd"))])
+            .env("HOME", &home)
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .spawn()
+            .unwrap();
+        let mut lines = std::io::BufReader::new(child.stdout.take().unwrap()).lines();
+        let said = lines.next().unwrap().unwrap();
+        assert_eq!(said, UPDATE_LOCKED);
+        let owner = home.join(".acpmux").join(OWNER);
+        assert_eq!(std::fs::metadata(&owner).unwrap().permissions().mode() & 0o777, 0o600);
+        // Closing its stdin ends the holder, which gives the lease back.
+        drop(child.stdin.take());
+        assert!(child.wait().unwrap().success());
+        let _ = std::fs::remove_dir_all(&home);
+    }
 }
