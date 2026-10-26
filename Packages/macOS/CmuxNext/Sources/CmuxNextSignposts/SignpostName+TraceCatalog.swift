@@ -11,11 +11,14 @@ public import CmuxNextTrace
 /// let ring = TraceRing(sizes: sizes, identity: identity, catalog: SignpostName.traceCatalog)
 /// ```
 nonisolated extension SignpostName {
-    /// The catalog and category entries, in id order.
-    public static let traceCatalog: [TraceRing.CatalogName] = TraceRing.nameTable(
-        names: allCases.map { (id: $0.rawValue, category: $0.traceCategory.traceBit, text: $0.staticName) },
-        categories: SignpostCategory.allCases.map { (bit: $0.traceBit, text: $0.traceName) }
-    )
+    /// The catalog and category entries, in id order. Built on each read: a ring's creator reads it once,
+    /// before the ring takes records.
+    public static var traceCatalog: [TraceRing.CatalogName] {
+        TraceRing.nameTable(
+            names: allCases.map { (id: $0.rawValue, category: $0.traceCategory.traceBit, text: $0.staticName) },
+            categories: SignpostCategory.allCases.map { (bit: $0.traceBit, text: $0.traceName) }
+        )
+    }
 }
 
 nonisolated extension SignpostCategory {
