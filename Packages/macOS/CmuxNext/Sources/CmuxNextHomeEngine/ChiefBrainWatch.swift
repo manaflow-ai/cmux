@@ -25,6 +25,9 @@ public final class ChiefBrainWatch {
     /// The kernel sources that look for a host's lock while none is watched (see ``armOnLock``).
     private var lockFileSource: (any DispatchSourceFileSystemObject)?
     private var lockFolderSource: (any DispatchSourceFileSystemObject)?
+    /// How many descriptors the lock watch has opened. An arm that replaces a source it already
+    /// holds raises it, which is the window ``armOnLock`` must not open; the tests read it.
+    private(set) var lockSourceOpens = 0
     /// The process the armed source watches; an event for another pid is stale.
     private var watchedPID: pid_t?
     private var deaths: [ContinuousClock.Instant] = []
@@ -99,7 +102,7 @@ public final class ChiefBrainWatch {
     /// nothing: cancelling the folder source to reopen it would leave a window where a lock
     /// created in it raises no event, and a folder event that the main actor runs after
     /// ``watch(_:)`` found a host must not open these descriptors again for that host's lifetime.
-    private func armOnLock() {
+    func armOnLock() {
         guard !stopped, source == nil else { return }
         let state = home.root.appendingPathComponent("state")
         if lockFolderSource == nil {
@@ -121,6 +124,7 @@ public final class ChiefBrainWatch {
         // concurrency-allow: one open of a local path while no host is watched
         let fd = open(url.path, O_EVTONLY)
         guard fd >= 0 else { return nil }
+        lockSourceOpens += 1
         let source = DispatchSource.makeFileSystemObjectSource(fileDescriptor: fd, eventMask: .write, queue: .main)
         weak let weakSelf = self
         source.setEventHandler {
