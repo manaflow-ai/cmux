@@ -91,4 +91,39 @@ struct WebUIHostTests {
         withPanel.close(answered)
         withoutPanel.close(unanswered)
     }
+
+    /// Pages that ask to share WebKit processes (the agent pages) join the host's process groups:
+    /// one data store, the next page related to the first, so many New Tab pages and chats do not
+    /// start a process each (sequoia-lag.md: 55 tabs had run 54 WebContent processes). A page that
+    /// does not ask keeps a store of its own; the warm-up view gets the group's pool and store.
+    @Test func pagesThatShareWebKitProcessesJoinTheHostsGroup() throws {
+        defer { try? FileManager.default.removeItem(at: root) }
+        let host = makeHost(nil)
+        let shared = PageEngineOptions(sharesWebKitProcess: true)
+        let first = try #require(host.open(PageOpenRequest(descriptor: descriptor, root: root, routes: [], options: shared)))
+        let second = try #require(host.open(PageOpenRequest(descriptor: descriptor, root: root, routes: [], options: shared)))
+        let alone = try #require(host.open(PageOpenRequest(descriptor: descriptor, root: root, routes: [])))
+        let store = host.processGroups.dataStore
+        #expect(first.webKitView.configuration.websiteDataStore === store)
+        #expect(second.webKitView.configuration.websiteDataStore === store)
+        #expect(second.webKitView.configuration.value(forKey: "_relatedWebView") as? WKWebView === first.webKitView)
+        #expect(alone.webKitView.configuration.websiteDataStore !== store)
+        let warmup = host.groupedWebKitConfiguration()
+        #expect(warmup.websiteDataStore === store)
+        #expect(warmup.processPool === first.webKitView.configuration.processPool)
+        for view in [first, second, alone] { host.close(view) }
+    }
+
+    /// A page that shows in Chromium has no WebKit process to share: its unused WebKit view stays
+    /// out of the group, so it never becomes the group's first page.
+    @Test func aSharedPageInChromiumStaysOutOfTheGroup() async throws {
+        defer { try? FileManager.default.removeItem(at: root) }
+        let host = makeHost(FakeChromiumHosting())
+        let view = try #require(host.open(PageOpenRequest(descriptor: descriptor, root: root, routes: [],
+                                                          options: PageEngineOptions(sharesWebKitProcess: true))))
+        #expect(view.engineDecision == .chromium)
+        #expect(view.webKitView.configuration.websiteDataStore !== host.processGroups.dataStore)
+        await view.chromiumStart?.value
+        host.close(view)
+    }
 }

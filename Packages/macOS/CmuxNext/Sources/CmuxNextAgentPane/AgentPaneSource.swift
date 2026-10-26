@@ -14,11 +14,6 @@ public nonisolated enum AgentPaneSource: Equatable, Sendable {
     /// The `index.html` the page host serves: the module bundle's, or a Debug build's override.
     case bundled(URL)
 
-    /// The scheme of the pane's own origins: the render frame (`cmux-agent://render`,
-    /// ``AgentPaneRenderFrame``) and the media URLs replies play by (`cmux-agent://pane/__media/`).
-    public static let bundledScheme = "cmux-agent"
-    public static let bundledHost = "pane"
-
     /// The Debug override of the page's directory, the page host's variable for every first-party
     /// page (`CMUX_NEXT_PAGE_ROOT_<id>`, dots as underscores; agent-stream-e2e.py loads variants by it).
     public static let rootVariable = "CMUX_NEXT_PAGE_ROOT_cmux_agent"
@@ -36,18 +31,6 @@ public nonisolated enum AgentPaneSource: Equatable, Sendable {
     public var directory: URL {
         switch self {
         case .bundled(let page): page.deletingLastPathComponent()
-        }
-    }
-
-    /// True when `url` is the bundled page under `cmux-agent://pane` (a `#fragment` allowed).
-    func isTrusted(_ url: URL?) -> Bool {
-        guard let url else { return false }
-        switch self {
-        case .bundled(let page):
-            guard url.scheme?.lowercased() == Self.bundledScheme, url.host?.lowercased() == Self.bundledHost,
-                  url.port == nil, url.user == nil
-            else { return false }
-            return url.path == "/" + page.lastPathComponent
         }
     }
 }

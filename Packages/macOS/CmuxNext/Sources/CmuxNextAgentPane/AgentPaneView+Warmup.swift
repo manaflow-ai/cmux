@@ -6,9 +6,11 @@ import WebKit
 /// (cx-z9kz0): WebKit's first-use setup, and the page pool's one-time font listing (R81:
 /// registerUserInstalledFonts runs once per pool), then run before an agent page opened after
 /// that frame loads. It used to run before NSApplication.run, where it held the main thread
-/// 80-350 ms ahead of the first frame. It does not start once an agent page was made (that page
-/// started WebKit) or the launch settled; the empty page goes when the launch settles
-/// (`LaunchSettle`).
+/// 80-350 ms ahead of the first frame. The view is made in the pool and data store of the agent
+/// pages' process groups (``WebUIHost/groupedWebKitConfiguration()``), so the first agent page can
+/// use its web content process. It does not start once an agent page was made (that page started
+/// WebKit) or the launch settled; the empty page goes when the first agent page loaded
+/// (``AgentPaneView/pageLoaded()``) or the launch settled (`LaunchSettle`).
 ///
 /// It no longer has the pool prewarm a second, page-less web content process
 /// (`-[WKProcessPool _warmInitialProcess]`, cx-z9kz0, #19847). On some Macs
@@ -26,14 +28,11 @@ extension AgentPaneView {
     /// the empty page (and its web content process) alive for the whole session.
     static var warmupNoLongerNeeded = false
 
-    public static func startWarmup() {
+    /// - Parameter webUI: The app's page host (`AppServices.webUI`), whose grouped pages it warms.
+    public static func startWarmup(webUI: WebUIHost) {
         guard warmupView == nil, !warmupNoLongerNeeded else { return }
-        let configuration = WKWebViewConfiguration()
-        configuration.websiteDataStore = .nonPersistent()
-        // The pool every page host WebKit view is made in (PageWebView+Pooled).
-        configuration.processPool = PageProcessPool.shared
-        // webview-allow: WebKit warm-up for a page host page that shows in WebKit
-        let view = WKWebView(frame: .zero, configuration: configuration)
+        // webview-allow: WebKit warm-up for the agent pages the page host shows in WebKit
+        let view = WKWebView(frame: .zero, configuration: webUI.groupedWebKitConfiguration())
         view.loadHTMLString("<!doctype html><title></title>", baseURL: nil)
         warmupView = view
     }
@@ -41,5 +40,12 @@ extension AgentPaneView {
     public static func finishWarmup() {
         warmupNoLongerNeeded = true
         warmupView = nil
+    }
+
+    /// The page finished loading (``PageWebView/onLoaded``): marks `agent_pane.page_loaded` for
+    /// bench-startup.py, and the warm-up page is done: the first agent page has its process now.
+    func pageLoaded() {
+        AgentPaneLaunchTimings.shared.mark("agent_pane.page_loaded")
+        Self.finishWarmup()
     }
 }

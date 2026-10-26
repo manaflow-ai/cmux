@@ -15,14 +15,15 @@ extension AgentPaneView {
         }
         page.onNavigate = { [weak self] navigation in
             guard let self else { return .cancel }
-            switch AgentPaneNavigation.decision(for: navigation.url, source: self.source,
-                                                userClicked: navigation.userClicked, mainFrame: navigation.mainFrame) {
+            switch AgentPaneNavigation.decision(for: navigation.url, userClicked: navigation.userClicked,
+                                                mainFrame: navigation.mainFrame) {
             case .allow: return .allow
             case .openOutside: return .openExternal
             case .cancel: return .cancel
             }
         }
         page.onCrash = { [weak self] _, reloading in self?.pageCrashed(reloading: reloading) }
+        page.onLoaded = { [weak self] in self?.pageLoaded() }
         pageEvents.replay = { [weak self] in
             // A new subscriber is a page that loaded again: its registry renderers are gone.
             guard let self else { return [] }

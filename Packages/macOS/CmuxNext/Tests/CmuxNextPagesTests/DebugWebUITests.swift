@@ -248,8 +248,8 @@ struct DebugWebUITests {
         #expect(census(host, newTabSpare: spare.webKitView).report(helpers: [])["spares"]?.arrayValue?.count == 1)
     }
 
-    /// The New Tab spare on the old agent host (`agent.pageHost` off) is a bare WebKit view, no page
-    /// view: it gets a `spares` row with its WebContent pid.
+    /// A New Tab spare web view the census has no page view for (none of the pages it was given
+    /// shows it) still gets a `spares` row with its WebContent pid.
     @Test func aViewlessNewTabSpareGetsASpareRow() throws {
         defer { try? FileManager.default.removeItem(at: root) }
         let host = makeHost(nil)

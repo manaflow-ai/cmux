@@ -155,7 +155,7 @@ struct AgentPaneMediaNoAutoActionTests {
 
         // Load video: one fetch, played from the pane's own media URL.
         let clickedVideo = await Self.ask(pane, "media.load", ["src": video], click: true)
-        #expect(Self.src(clickedVideo)?.hasPrefix("cmux-agent://pane/__media/") == true, "\(clickedVideo)")
+        #expect(Self.src(clickedVideo)?.hasPrefix("cmux-page://cmux.agent/__media/") == true, "\(clickedVideo)")
         #expect(pane.media.all == [URL(string: video)!])
         #expect(pane.effects.seen.isEmpty, "\(pane.effects.seen)")
     }
@@ -333,7 +333,7 @@ struct AgentPaneMediaNoAutoActionTests {
 
         let video = await Self.ask(pane, "media.load", ["src": clip.path])
         let played = try #require(Self.src(video))
-        #expect(played.hasPrefix("cmux-agent://pane/__media/"))
+        #expect(played.hasPrefix("cmux-page://cmux.agent/__media/"))
         let playedURL = try #require(URL(string: played))
         #expect(AgentPaneMediaGrants.shared.file(for: playedURL)?.resolvingSymlinksInPath() == clip.resolvingSymlinksInPath())
         // Neither a web page nor an image plays as media: `media.load` grants only what the pane plays.
@@ -512,21 +512,22 @@ struct AgentPaneMediaNoAutoActionTests {
     }
 
     @Test func nothingInAReplyNavigatesThePaneOrReachesTheAppByItself() {
-        let source = AgentPaneSource.bundled(URL(string: "cmux-agent://pane/index.html")!)
         let hostile = [
             "cmux://workspace/ws_0123456789abcdef0123456789abcdef", "cmux-dev-tag://session/abc", "https://example.com/",
             "file:///etc/passwd", "javascript:alert(1)", "data:image/svg+xml;base64,PHN2Zy8+", "vscode://file/x",
-            "cmux-agent://pane/__media/0123.mp4", "cmux-agent://pane/other.html",
+            "cmux-agent://pane/__media/0123.mp4", "cmux-agent://pane/other.html", "cmux-agent://pane/index.html",
+            "cmux-page://cmux.agent/__media/0123.mp4", "cmux-page://cmux.other/index.html",
         ].compactMap(URL.init(string:))
         for url in hostile {
             // Not clicked (script, an SVG's onload, a meta refresh): cancelled in the main frame and in a frame.
-            #expect(AgentPaneNavigation.decision(for: url, source: source, userClicked: false) == .cancel, "\(url)")
-            #expect(AgentPaneNavigation.decision(for: url, source: source, userClicked: true, mainFrame: false) == .cancel, "\(url)")
+            #expect(AgentPaneNavigation.decision(for: url, userClicked: false) == .cancel, "\(url)")
+            #expect(AgentPaneNavigation.decision(for: url, userClicked: true, mainFrame: false) == .cancel, "\(url)")
         }
         for text in ["file:///etc/passwd", "javascript:alert(1)", "data:image/svg+xml;base64,PHN2Zy8+", "vscode://file/x",
-                     "cmux://auth-callback", "cmux-agent://pane/__media/0123.mp4"] {
+                     "cmux://auth-callback", "cmux-agent://pane/__media/0123.mp4", "cmux-agent://pane/index.html",
+                     "cmux-page://cmux.agent/__media/0123.mp4"] {
             let url = URL(string: text)!
-            #expect(AgentPaneNavigation.decision(for: url, source: source, userClicked: true) == .cancel, "\(text)")
+            #expect(AgentPaneNavigation.decision(for: url, userClicked: true) == .cancel, "\(text)")
         }
         // Even a link WebKit calls clicked opens nothing without the person's own gesture.
         let gestures = AgentPaneUserGestures()
